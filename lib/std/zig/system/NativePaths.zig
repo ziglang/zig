@@ -11,6 +11,10 @@ const NativeTargetInfo = std.zig.system.NativeTargetInfo;
 include_dirs: ArrayList([:0]u8),
 lib_dirs: ArrayList([:0]u8),
 framework_dirs: ArrayList([:0]u8),
+
+nix_framework_dirs: ArrayList([:0]u8),
+nix_include_dirs: ArrayList([:0]u8),
+
 rpaths: ArrayList([:0]u8),
 warnings: ArrayList([:0]u8),
 
@@ -19,8 +23,10 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
 
     var self: NativePaths = .{
         .include_dirs = ArrayList([:0]u8).init(allocator),
+        .nix_include_dirs = ArrayList([:0]u8).init(allocator),
         .lib_dirs = ArrayList([:0]u8).init(allocator),
         .framework_dirs = ArrayList([:0]u8).init(allocator),
+        .nix_framework_dirs = ArrayList([:0]u8).init(allocator),
         .rpaths = ArrayList([:0]u8).init(allocator),
         .warnings = ArrayList([:0]u8).init(allocator),
     };
@@ -39,7 +45,13 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
                     try self.addWarning("Expected argument after -isystem in NIX_CFLAGS_COMPILE");
                     break;
                 };
-                try self.addIncludeDir(include_path);
+                try self.addNixIncludeDir(include_path);
+            } else if (mem.eql(u8, word, "-iframework")) {
+                const framework_path = it.next() orelse {
+                    try self.addWarning("Expected argument after -iframework in NIX_CFLAGS_COMPILE");
+                    break;
+                };
+                try self.addNixFrameworkDir(framework_path);
             } else {
                 if (mem.startsWith(u8, word, "-frandom-seed=")) {
                     continue;
@@ -166,6 +178,8 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
 }
 
 pub fn deinit(self: *NativePaths) void {
+    deinitArray(&self.nix_framework_dirs);
+    deinitArray(&self.nix_include_dirs);
     deinitArray(&self.include_dirs);
     deinitArray(&self.lib_dirs);
     deinitArray(&self.framework_dirs);
@@ -179,6 +193,14 @@ fn deinitArray(array: *ArrayList([:0]u8)) void {
         array.allocator.free(item);
     }
     array.deinit();
+}
+
+pub fn addNixIncludeDir(self: *NativePaths, path: []const u8) !void {
+    return self.appendArray(&self.nix_include_dirs, path);
+}
+
+pub fn addNixFrameworkDir(self: *NativePaths, path: []const u8) !void {
+    return self.appendArray(&self.nix_framework_dirs, path);
 }
 
 pub fn addIncludeDir(self: *NativePaths, s: []const u8) !void {

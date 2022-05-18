@@ -2422,6 +2422,21 @@ fn buildOutputType(
             } else break :outer false;
         } else false;
 
+        // NOTE: nix-darwin supplies paths that are absolute and not relative to any sysroot/sdk
+        // so even if an sdk is found (XCode installation), nix include/framework dirs must be added
+        // without relation
+        try clang_argv.ensureUnusedCapacity(paths.nix_include_dirs.items.len * 2);
+        for (paths.nix_include_dirs.items) |include_dir| {
+            clang_argv.appendAssumeCapacity("-isystem");
+            clang_argv.appendAssumeCapacity(include_dir);
+        }
+
+        try clang_argv.ensureUnusedCapacity(paths.nix_framework_dirs.items.len * 2);
+        for (paths.nix_include_dirs.items) |framework_dir| {
+            clang_argv.appendAssumeCapacity("-iframework");
+            clang_argv.appendAssumeCapacity(framework_dir);
+        }
+
         try clang_argv.ensureUnusedCapacity(paths.include_dirs.items.len * 2);
         const isystem_flag = if (has_sysroot) "-iwithsysroot" else "-isystem";
         for (paths.include_dirs.items) |include_dir| {
