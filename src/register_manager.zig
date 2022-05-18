@@ -173,6 +173,10 @@ pub fn RegisterManager(
             return self.locked_registers != 0;
         }
 
+        const AllocOpts = struct {
+            selector_mask: ?FreeRegInt = null,
+        };
+
         /// Allocates a specified number of registers, optionally
         /// tracking them. Returns `null` if not enough registers are
         /// free.
@@ -180,7 +184,9 @@ pub fn RegisterManager(
             self: *Self,
             comptime count: comptime_int,
             insts: [count]?Air.Inst.Index,
+            opts: AllocOpts,
         ) ?[count]Register {
+            _ = opts;
             comptime assert(count > 0 and count <= tracked_registers.len);
 
             const free_and_not_locked_registers = self.free_registers & ~self.locked_registers;
@@ -216,8 +222,8 @@ pub fn RegisterManager(
         /// Allocates a register and optionally tracks it with a
         /// corresponding instruction. Returns `null` if all registers
         /// are allocated.
-        pub fn tryAllocReg(self: *Self, inst: ?Air.Inst.Index) ?Register {
-            return if (tryAllocRegs(self, 1, .{inst})) |regs| regs[0] else null;
+        pub fn tryAllocReg(self: *Self, inst: ?Air.Inst.Index, opts: AllocOpts) ?Register {
+            return if (tryAllocRegs(self, 1, .{inst}, opts)) |regs| regs[0] else null;
         }
 
         /// Allocates a specified number of registers, optionally
@@ -227,12 +233,13 @@ pub fn RegisterManager(
             self: *Self,
             comptime count: comptime_int,
             insts: [count]?Air.Inst.Index,
+            opts: AllocOpts,
         ) AllocateRegistersError![count]Register {
             comptime assert(count > 0 and count <= tracked_registers.len);
             const locked_registers_count = @popCount(FreeRegInt, self.locked_registers);
             if (count > tracked_registers.len - locked_registers_count) return error.OutOfRegisters;
 
-            const result = self.tryAllocRegs(count, insts) orelse blk: {
+            const result = self.tryAllocRegs(count, insts, opts) orelse blk: {
                 // We'll take over the first count registers. Spill
                 // the instructions that were previously there to a
                 // stack allocations.
@@ -275,8 +282,8 @@ pub fn RegisterManager(
 
         /// Allocates a register and optionally tracks it with a
         /// corresponding instruction.
-        pub fn allocReg(self: *Self, inst: ?Air.Inst.Index) AllocateRegistersError!Register {
-            return (try self.allocRegs(1, .{inst}))[0];
+        pub fn allocReg(self: *Self, inst: ?Air.Inst.Index, opts: AllocOpts) AllocateRegistersError!Register {
+            return (try self.allocRegs(1, .{inst}, opts))[0];
         }
 
         /// Spills the register if it is currently allocated. If a
