@@ -929,12 +929,6 @@ pub inline fn fabs(value: anytype) @TypeOf(value) {
     return @fabs(value);
 }
 
-/// Alias to fabs for backwards compatibility
-/// This is the same as calling the builtin @fabs
-pub inline fn absFloat(value: anytype) @TypeOf(value) {
-    return @fabs(value);
-}
-
 /// Returns the absolute value of the integer parameter.
 /// Result is an unsigned integer.
 pub fn absCast(x: anytype) switch (@typeInfo(@TypeOf(x))) {
