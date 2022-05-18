@@ -5042,20 +5042,11 @@ fn br(self: *Self, block: Air.Inst.Index, operand: Air.Inst.Ref) !void {
         if (block_mcv == .none) {
             block_data.mcv = switch (operand_mcv) {
                 .none, .dead, .unreach => unreachable,
-                .stack_offset, .memory => operand_mcv,
+                .register, .stack_offset, .memory => operand_mcv,
                 .compare_flags_signed, .compare_flags_unsigned, .immediate => blk: {
                     const new_mcv = try self.allocRegOrMem(block, true);
                     try self.setRegOrMem(self.air.typeOfIndex(block), new_mcv, operand_mcv);
                     break :blk new_mcv;
-                },
-                .register => blk: {
-                    if (self.air.typeOfIndex(block).zigTypeTag() == .Float) {
-                        // TODO not needed; return operand_mcv ones we can transfer between XMM registers
-                        const new_mcv = try self.allocRegOrMem(block, false);
-                        try self.setRegOrMem(self.air.typeOfIndex(block), new_mcv, operand_mcv);
-                        break :blk new_mcv;
-                    }
-                    break :blk operand_mcv;
                 },
                 else => return self.fail("TODO implement block_data.mcv = operand_mcv for {}", .{operand_mcv}),
             };
