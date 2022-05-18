@@ -384,11 +384,12 @@ pub const avx_regs = [_]Register{
 };
 pub const allocatable_registers = callee_preserved_regs ++ caller_preserved_regs ++ avx_regs;
 
-// Masks for register manager
-const FreeRegInt = std.meta.Int(.unsigned, allocatable_registers.len);
-// TODO
-pub const gp_mask: FreeRegInt = 0x3fff;
-pub const avx_mask: FreeRegInt = 0x3fff_c000;
-
 pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
 pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };
+
+// Masks for register manager
+const FreeRegInt = std.meta.Int(.unsigned, allocatable_registers.len);
+pub const RegisterClass = struct {
+    pub const gp: FreeRegInt = 0x3fff;
+    pub const avx: FreeRegInt = 0x3fff_c000;
+};
