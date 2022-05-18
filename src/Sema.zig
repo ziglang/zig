@@ -7236,8 +7236,8 @@ fn zirFloatCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         ),
     }
 
-    if (try sema.isComptimeKnown(block, operand_src, operand)) {
-        return sema.coerce(block, dest_ty, operand, operand_src);
+    if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |operand_val| {
+        return sema.addConstant(dest_ty, try operand_val.floatCast(sema.arena, dest_ty, target));
     }
     if (dest_is_comptime_float) {
         return sema.fail(block, src, "unable to cast runtime value to 'comptime_float'", .{});
