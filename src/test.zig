@@ -34,18 +34,18 @@ test {
     var ctx = TestContext.init(std.testing.allocator, arena);
     defer ctx.deinit();
 
-    // {
-    //     const dir_path = try std.fs.path.join(arena, &.{
-    //         std.fs.path.dirname(@src().file).?, "..", "test", "cases",
-    //     });
+    {
+        const dir_path = try std.fs.path.join(arena, &.{
+            std.fs.path.dirname(@src().file).?, "..", "test", "cases",
+        });
 
-    //     var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
-    //     defer dir.close();
+        var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
+        defer dir.close();
 
-    //     ctx.addTestCasesFromDir(dir);
-    // }
+        ctx.addTestCasesFromDir(dir);
+    }
 
-    // try @import("test_cases").addCases(&ctx);
+    try @import("test_cases").addCases(&ctx);
 
     try ctx.run();
 }

@@ -430,9 +430,9 @@ test "tryAllocReg: no spilling" {
 
     const mock_instruction: Air.Inst.Index = 1;
 
-    try expectEqual(@as(?MockRegister1, .r2), function.register_manager.tryAllocReg(mock_instruction));
-    try expectEqual(@as(?MockRegister1, .r3), function.register_manager.tryAllocReg(mock_instruction));
-    try expectEqual(@as(?MockRegister1, null), function.register_manager.tryAllocReg(mock_instruction));
+    try expectEqual(@as(?MockRegister1, .r2), function.register_manager.tryAllocReg(mock_instruction, .{}));
+    try expectEqual(@as(?MockRegister1, .r3), function.register_manager.tryAllocReg(mock_instruction, .{}));
+    try expectEqual(@as(?MockRegister1, null), function.register_manager.tryAllocReg(mock_instruction, .{}));
 
     try expect(function.register_manager.isRegAllocated(.r2));
     try expect(function.register_manager.isRegAllocated(.r3));
@@ -458,16 +458,16 @@ test "allocReg: spilling" {
 
     const mock_instruction: Air.Inst.Index = 1;
 
-    try expectEqual(@as(?MockRegister1, .r2), try function.register_manager.allocReg(mock_instruction));
-    try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(mock_instruction));
+    try expectEqual(@as(?MockRegister1, .r2), try function.register_manager.allocReg(mock_instruction, .{}));
+    try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(mock_instruction, .{}));
 
     // Spill a register
-    try expectEqual(@as(?MockRegister1, .r2), try function.register_manager.allocReg(mock_instruction));
+    try expectEqual(@as(?MockRegister1, .r2), try function.register_manager.allocReg(mock_instruction, .{}));
     try expectEqualSlices(MockRegister1, &[_]MockRegister1{.r2}, function.spilled.items);
 
     // No spilling necessary
     function.register_manager.freeReg(.r3);
-    try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(mock_instruction));
+    try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(mock_instruction, .{}));
     try expectEqualSlices(MockRegister1, &[_]MockRegister1{.r2}, function.spilled.items);
 
     // Locked registers
@@ -476,7 +476,7 @@ test "allocReg: spilling" {
         const lock = function.register_manager.lockReg(.r2);
         defer if (lock) |reg| function.register_manager.unlockReg(reg);
 
-        try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(mock_instruction));
+        try expectEqual(@as(?MockRegister1, .r3), try function.register_manager.allocReg(mock_instruction, .{}));
     }
     try expect(!function.register_manager.lockedRegsExist());
 }
@@ -489,7 +489,7 @@ test "tryAllocRegs" {
     };
     defer function.deinit();
 
-    try expectEqual([_]MockRegister2{ .r0, .r1, .r2 }, function.register_manager.tryAllocRegs(3, .{ null, null, null }).?);
+    try expectEqual([_]MockRegister2{ .r0, .r1, .r2 }, function.register_manager.tryAllocRegs(3, .{ null, null, null }, .{}).?);
 
     try expect(function.register_manager.isRegAllocated(.r0));
     try expect(function.register_manager.isRegAllocated(.r1));
@@ -504,7 +504,7 @@ test "tryAllocRegs" {
         const lock = function.register_manager.lockReg(.r1);
         defer if (lock) |reg| function.register_manager.unlockReg(reg);
 
-        try expectEqual([_]MockRegister2{ .r0, .r2, .r3 }, function.register_manager.tryAllocRegs(3, .{ null, null, null }).?);
+        try expectEqual([_]MockRegister2{ .r0, .r2, .r3 }, function.register_manager.tryAllocRegs(3, .{ null, null, null }, .{}).?);
     }
     try expect(!function.register_manager.lockedRegsExist());
 
@@ -543,7 +543,7 @@ test "allocRegs: normal usage" {
         const lock = function.register_manager.lockReg(result_reg);
         defer if (lock) |reg| function.register_manager.unlockReg(reg);
 
-        const regs = try function.register_manager.allocRegs(2, .{ null, null });
+        const regs = try function.register_manager.allocRegs(2, .{ null, null }, .{});
         try function.genAdd(result_reg, regs[0], regs[1]);
     }
 }
@@ -565,12 +565,12 @@ test "allocRegs: selectively reducing register pressure" {
 
         // Here, we don't defer unlock because we manually unlock
         // after genAdd
-        const regs = try function.register_manager.allocRegs(2, .{ null, null });
+        const regs = try function.register_manager.allocRegs(2, .{ null, null }, .{});
 
         try function.genAdd(result_reg, regs[0], regs[1]);
         function.register_manager.unlockReg(lock.?);
 
-        const extra_summand_reg = try function.register_manager.allocReg(null);
+        const extra_summand_reg = try function.register_manager.allocReg(null, .{});
         try function.genAdd(result_reg, result_reg, extra_summand_reg);
     }
 }

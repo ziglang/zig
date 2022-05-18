@@ -696,8 +696,8 @@ test "Encoder helpers - general purpose registers" {
         });
         encoder.opcode_2byte(0x0f, 0xaf);
         encoder.modRm_direct(
-            Register.eax.lowId(),
-            Register.edi.lowId(),
+            Register.eax.lowEnc(),
+            Register.edi.lowEnc(),
         );
 
         try testing.expectEqualSlices(u8, &[_]u8{ 0x0f, 0xaf, 0xc7 }, code.items);
@@ -716,8 +716,8 @@ test "Encoder helpers - general purpose registers" {
         });
         encoder.opcode_1byte(0x89);
         encoder.modRm_direct(
-            Register.edi.lowId(),
-            Register.eax.lowId(),
+            Register.edi.lowEnc(),
+            Register.eax.lowEnc(),
         );
 
         try testing.expectEqualSlices(u8, &[_]u8{ 0x89, 0xf8 }, code.items);
@@ -743,7 +743,7 @@ test "Encoder helpers - general purpose registers" {
         encoder.opcode_1byte(0x81);
         encoder.modRm_direct(
             0,
-            Register.rcx.lowId(),
+            Register.rcx.lowEnc(),
         );
         encoder.imm32(2147483647);
 
@@ -768,7 +768,7 @@ test "Encoder helpers - Vex prefix" {
     {
         stream.reset();
         var vex_prefix = Encoder.Vex{};
-        vex_prefix.reg(Register.xmm15.id());
+        vex_prefix.reg(Register.xmm15.enc());
         const nwritten = vex_prefix.write(writer);
         try testing.expectEqualSlices(u8, &[_]u8{ 0xc5, 0x80 }, buf[0..nwritten]);
     }
@@ -808,7 +808,7 @@ test "Encoder helpers - Vex prefix" {
         vex.simd_prefix_66();
         encoder.vex(vex); // use 64 bit operation
         encoder.opcode_1byte(0x28);
-        encoder.modRm_direct(0, Register.xmm1.lowId());
+        encoder.modRm_direct(0, Register.xmm1.lowEnc());
         try testing.expectEqualSlices(u8, &[_]u8{ 0xC5, 0xF9, 0x28, 0xC1 }, code.items);
     }
 
@@ -822,10 +822,10 @@ test "Encoder helpers - Vex prefix" {
         vex.simd_prefix_66();
         vex.lead_opc_0f();
         vex.rex(.{ .r = true });
-        vex.reg(Register.xmm1.id());
+        vex.reg(Register.xmm1.enc());
         encoder.vex(vex);
         encoder.opcode_1byte(0x16);
-        encoder.modRm_RIPDisp32(Register.xmm13.lowId());
+        encoder.modRm_RIPDisp32(Register.xmm13.lowEnc());
         encoder.disp32(0);
         try testing.expectEqualSlices(u8, &[_]u8{ 0xC5, 0x71, 0x16, 0x2D, 0x00, 0x00, 0x00, 0x00 }, code.items);
     }
