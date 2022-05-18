@@ -2177,9 +2177,19 @@ fn buildOutputType(
                 const sdk = std.zig.system.darwin.getDarwinSDK(arena, target_info.target) orelse
                     break :outer false;
                 native_darwin_sdk = sdk;
-                try clang_argv.ensureUnusedCapacity(2);
+
+                try clang_argv.ensureUnusedCapacity(4);
                 clang_argv.appendAssumeCapacity("-isysroot");
                 clang_argv.appendAssumeCapacity(sdk.path);
+
+                // NOTE: it seems like providing the sysroot isn't enough
+                // neither --sysroot or -isysroot allow clang to find the sdk libc headers,
+                // so we manually add them here
+
+                clang_argv.appendAssumeCapacity("-isystem");
+                const darwin_sdk_libc_path = try std.fs.path.join(arena, &[2][]const u8{ sdk.path, "usr/include/" });
+                clang_argv.appendAssumeCapacity(darwin_sdk_libc_path);
+
                 break :outer true;
             } else break :outer false;
         } else false;
