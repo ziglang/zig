@@ -312,8 +312,6 @@ fn analyzeInst(
         .div_exact,
         .rem,
         .mod,
-        .ptr_add,
-        .ptr_sub,
         .bit_and,
         .bit_or,
         .xor,
@@ -441,6 +439,21 @@ fn analyzeInst(
             return trackOperands(a, new_set, inst, main_tomb, .{ operand, .none, .none });
         },
 
+        .add_with_overflow,
+        .sub_with_overflow,
+        .mul_with_overflow,
+        .shl_with_overflow,
+        .ptr_add,
+        .ptr_sub,
+        .ptr_elem_ptr,
+        .slice_elem_ptr,
+        .slice,
+        => {
+            const ty_pl = inst_datas[inst].ty_pl;
+            const extra = a.air.extraData(Air.Bin, ty_pl.payload).data;
+            return trackOperands(a, new_set, inst, main_tomb, .{ extra.lhs, extra.rhs, .none });
+        },
+
         .dbg_var_ptr,
         .dbg_var_val,
         => {
@@ -529,10 +542,6 @@ fn analyzeInst(
             const extra = a.air.extraData(Air.FieldParentPtr, inst_datas[inst].ty_pl.payload).data;
             return trackOperands(a, new_set, inst, main_tomb, .{ extra.field_ptr, .none, .none });
         },
-        .ptr_elem_ptr, .slice_elem_ptr, .slice => {
-            const extra = a.air.extraData(Air.Bin, inst_datas[inst].ty_pl.payload).data;
-            return trackOperands(a, new_set, inst, main_tomb, .{ extra.lhs, extra.rhs, .none });
-        },
         .cmpxchg_strong, .cmpxchg_weak => {
             const extra = a.air.extraData(Air.Cmpxchg, inst_datas[inst].ty_pl.payload).data;
             return trackOperands(a, new_set, inst, main_tomb, .{ extra.ptr, extra.expected_value, extra.new_value });
@@ -558,15 +567,7 @@ fn analyzeInst(
             const extra = a.air.extraData(Air.Bin, pl_op.payload).data;
             return trackOperands(a, new_set, inst, main_tomb, .{ pl_op.operand, extra.lhs, extra.rhs });
         },
-        .add_with_overflow,
-        .sub_with_overflow,
-        .mul_with_overflow,
-        .shl_with_overflow,
-        => {
-            const ty_pl = inst_datas[inst].ty_pl;
-            const extra = a.air.extraData(Air.Bin, ty_pl.payload).data;
-            return trackOperands(a, new_set, inst, main_tomb, .{ extra.lhs, extra.rhs, .none });
-        },
+
         .br => {
             const br = inst_datas[inst].br;
             return trackOperands(a, new_set, inst, main_tomb, .{ br.operand, .none, .none });

@@ -395,11 +395,11 @@ pub const Object = struct {
         return slice.ptr;
     }
 
-    fn genErrorNameTable(self: *Object, comp: *Compilation) !void {
+    fn genErrorNameTable(self: *Object) !void {
         // If self.error_name_table is null, there was no instruction that actually referenced the error table.
         const error_name_table_ptr_global = self.error_name_table orelse return;
 
-        const mod = comp.bin_file.options.module.?;
+        const mod = self.module;
         const target = mod.getTarget();
 
         const llvm_ptr_ty = self.context.intType(8).pointerType(0); // TODO: Address space
@@ -413,8 +413,8 @@ pub const Object = struct {
         const slice_alignment = slice_ty.abiAlignment(target);
 
         const error_name_list = mod.error_name_list.items;
-        const llvm_errors = try comp.gpa.alloc(*const llvm.Value, error_name_list.len);
-        defer comp.gpa.free(llvm_errors);
+        const llvm_errors = try mod.gpa.alloc(*const llvm.Value, error_name_list.len);
+        defer mod.gpa.free(llvm_errors);
 
         llvm_errors[0] = llvm_slice_ty.getUndef();
         for (llvm_errors[1..]) |*llvm_error, i| {
@@ -447,10 +447,10 @@ pub const Object = struct {
         error_name_table_ptr_global.setInitializer(error_name_table_ptr);
     }
 
-    fn genCmpLtErrorsLenFunction(object: *Object, comp: *Compilation) !void {
+    fn genCmpLtErrorsLenFunction(object: *Object) !void {
         // If there is no such function in the module, it means the source code does not need it.
         const llvm_fn = object.llvm_module.getNamedFunction(lt_errors_fn_name) orelse return;
-        const mod = comp.bin_file.options.module.?;
+        const mod = object.module;
         const errors_len = mod.global_error_set.count();
 
         // Delete previous implementation. We replace it with every flush() because the
@@ -476,10 +476,10 @@ pub const Object = struct {
         _ = builder.buildRet(is_lt);
     }
 
-    fn genModuleLevelAssembly(object: *Object, comp: *Compilation) !void {
-        const mod = comp.bin_file.options.module.?;
+    fn genModuleLevelAssembly(object: *Object) !void {
+        const mod = object.module;
         if (mod.global_assembly.count() == 0) return;
-        var buffer = std.ArrayList(u8).init(comp.gpa);
+        var buffer = std.ArrayList(u8).init(mod.gpa);
         defer buffer.deinit();
         var it = mod.global_assembly.iterator();
         while (it.next()) |kv| {
@@ -489,15 +489,53 @@ pub const Object = struct {
         object.llvm_module.setModuleInlineAsm2(buffer.items.ptr, buffer.items.len - 1);
     }
 
+    fn resolveExportExternCollisions(object: *Object) !void {
+        const mod = object.module;
+
+        const export_keys = mod.decl_exports.keys();
+        for (mod.decl_exports.values()) |export_list, i| {
+            const decl_index = export_keys[i];
+            const llvm_global = object.decl_map.get(decl_index) orelse continue;
+            for (export_list) |exp| {
+                // Detect if the LLVM global has already been created as an extern. In such
+                // case, we need to replace all uses of it with this exported global.
+                // TODO update std.builtin.ExportOptions to have the name be a
+                // null-terminated slice.
+                const exp_name_z = try mod.gpa.dupeZ(u8, exp.options.name);
+                defer mod.gpa.free(exp_name_z);
+
+                const other_global = object.getLlvmGlobal(exp_name_z.ptr) orelse continue;
+                if (other_global == llvm_global) continue;
+
+                // replaceAllUsesWith requires the type to be unchanged. So we bitcast
+                // the new global to the old type and use that as the thing to replace
+                // old uses.
+                const new_global_ptr = llvm_global.constBitCast(other_global.typeOf());
+                other_global.replaceAllUsesWith(new_global_ptr);
+                llvm_global.takeName(other_global);
+                other_global.deleteGlobal();
+                // Problem: now we need to replace in the decl_map that
+                // the extern decl index points to this new global. However we don't
+                // know the decl index.
+                // Even if we did, a future incremental update to the extern would then
+                // treat the LLVM global as an extern rather than an export, so it would
+                // need a way to check that.
+                // This is a TODO that needs to be solved when making
+                // the LLVM backend support incremental compilation.
+            }
+        }
+    }
+
     pub fn flushModule(self: *Object, comp: *Compilation, prog_node: *std.Progress.Node) !void {
         var sub_prog_node = prog_node.start("LLVM Emit Object", 0);
         sub_prog_node.activate();
         sub_prog_node.context.refresh();
         defer sub_prog_node.end();
 
-        try self.genErrorNameTable(comp);
-        try self.genCmpLtErrorsLenFunction(comp);
-        try self.genModuleLevelAssembly(comp);
+        try self.resolveExportExternCollisions();
+        try self.genErrorNameTable();
+        try self.genCmpLtErrorsLenFunction();
+        try self.genModuleLevelAssembly();
 
         if (self.di_builder) |dib| {
             // When lowering debug info for pointers, we emitted the element types as
@@ -761,6 +799,14 @@ pub const Object = struct {
         try self.updateDeclExports(module, decl_index, decl_exports);
     }
 
+    /// TODO replace this with a call to `Module::getNamedValue`. This will require adding
+    /// a new wrapper in zig_llvm.h/zig_llvm.cpp.
+    fn getLlvmGlobal(o: Object, name: [*:0]const u8) ?*const llvm.Value {
+        if (o.llvm_module.getNamedFunction(name)) |x| return x;
+        if (o.llvm_module.getNamedGlobal(name)) |x| return x;
+        return null;
+    }
+
     pub fn updateDeclExports(
         self: *Object,
         module: *Module,
@@ -827,6 +873,7 @@ pub const Object = struct {
                     llvm_global.setThreadLocalMode(.GeneralDynamicTLSModel);
                 }
             }
+
             // If a Decl is exported more than one time (which is rare),
             // we add aliases for all but the first export.
             // TODO LLVM C API does not support deleting aliases. We need to
@@ -5632,7 +5679,8 @@ pub const FuncGen = struct {
     fn airPtrAdd(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         if (self.liveness.isUnused(inst)) return null;
 
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const base_ptr = try self.resolveInst(bin_op.lhs);
         const offset = try self.resolveInst(bin_op.rhs);
         const ptr_ty = self.air.typeOf(bin_op.lhs);
@@ -5651,7 +5699,8 @@ pub const FuncGen = struct {
     fn airPtrSub(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         if (self.liveness.isUnused(inst)) return null;
 
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const base_ptr = try self.resolveInst(bin_op.lhs);
         const offset = try self.resolveInst(bin_op.rhs);
         const negative_offset = self.builder.buildNeg(offset, "");

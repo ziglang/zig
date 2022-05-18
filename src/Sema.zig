@@ -7020,22 +7020,25 @@ fn intCast(
     operand_src: LazySrcLoc,
     runtime_safety: bool,
 ) CompileError!Air.Inst.Ref {
-    // TODO: Add support for vectors
-    const dest_is_comptime_int = try sema.checkIntType(block, dest_ty_src, dest_ty);
-    _ = try sema.checkIntType(block, operand_src, sema.typeOf(operand));
+    const operand_ty = sema.typeOf(operand);
+    const dest_scalar_ty = try sema.checkIntOrVectorAllowComptime(block, dest_ty, dest_ty_src);
+    const operand_scalar_ty = try sema.checkIntOrVectorAllowComptime(block, operand_ty, operand_src);
 
     if (try sema.isComptimeKnown(block, operand_src, operand)) {
         return sema.coerce(block, dest_ty, operand, operand_src);
-    } else if (dest_is_comptime_int) {
+    } else if (dest_scalar_ty.zigTypeTag() == .ComptimeInt) {
         return sema.fail(block, operand_src, "unable to cast runtime value to 'comptime_int'", .{});
     }
+
+    try sema.checkVectorizableBinaryOperands(block, operand_src, dest_ty, operand_ty, dest_ty_src, operand_src);
+    const is_vector = dest_ty.zigTypeTag() == .Vector;
 
     if ((try sema.typeHasOnePossibleValue(block, dest_ty_src, dest_ty))) |opv| {
         // requirement: intCast(u0, input) iff input == 0
         if (runtime_safety and block.wantSafety()) {
             try sema.requireRuntimeBlock(block, operand_src);
             const target = sema.mod.getTarget();
-            const wanted_info = dest_ty.intInfo(target);
+            const wanted_info = dest_scalar_ty.intInfo(target);
             const wanted_bits = wanted_info.bits;
 
             if (wanted_bits == 0) {
@@ -7051,9 +7054,8 @@ fn intCast(
     try sema.requireRuntimeBlock(block, operand_src);
     if (runtime_safety and block.wantSafety()) {
         const target = sema.mod.getTarget();
-        const operand_ty = sema.typeOf(operand);
-        const actual_info = operand_ty.intInfo(target);
-        const wanted_info = dest_ty.intInfo(target);
+        const actual_info = operand_scalar_ty.intInfo(target);
+        const wanted_info = dest_scalar_ty.intInfo(target);
         const actual_bits = actual_info.bits;
         const wanted_bits = wanted_info.bits;
         const actual_value_bits = actual_bits - @boolToInt(actual_info.signedness == .signed);
@@ -7062,7 +7064,11 @@ fn intCast(
         // range shrinkage
         // requirement: int value fits into target type
         if (wanted_value_bits < actual_value_bits) {
-            const dest_max_val = try dest_ty.maxInt(sema.arena, target);
+            const dest_max_val_scalar = try dest_scalar_ty.maxInt(sema.arena, target);
+            const dest_max_val = if (is_vector)
+                try Value.Tag.repeated.create(sema.arena, dest_max_val_scalar)
+            else
+                dest_max_val_scalar;
             const dest_max = try sema.addConstant(operand_ty, dest_max_val);
             const diff = try block.addBinOp(.subwrap, dest_max, operand);
 
@@ -7080,19 +7086,59 @@ fn intCast(
                 } else dest_max_val;
                 const dest_range = try sema.addConstant(unsigned_operand_ty, dest_range_val);
 
-                const is_in_range = try block.addBinOp(.cmp_lte, diff_unsigned, dest_range);
-                try sema.addSafetyCheck(block, is_in_range, .cast_truncated_data);
+                const ok = if (is_vector) ok: {
+                    const is_in_range = try block.addCmpVector(diff_unsigned, dest_range, .lte, try sema.addType(operand_ty));
+                    const all_in_range = try block.addInst(.{
+                        .tag = .reduce,
+                        .data = .{ .reduce = .{
+                            .operand = is_in_range,
+                            .operation = .And,
+                        } },
+                    });
+                    break :ok all_in_range;
+                } else ok: {
+                    const is_in_range = try block.addBinOp(.cmp_lte, diff_unsigned, dest_range);
+                    break :ok is_in_range;
+                };
+                try sema.addSafetyCheck(block, ok, .cast_truncated_data);
             } else {
-                const is_in_range = try block.addBinOp(.cmp_lte, diff, dest_max);
-                try sema.addSafetyCheck(block, is_in_range, .cast_truncated_data);
+                const ok = if (is_vector) ok: {
+                    const is_in_range = try block.addCmpVector(diff, dest_max, .lte, try sema.addType(operand_ty));
+                    const all_in_range = try block.addInst(.{
+                        .tag = .reduce,
+                        .data = .{ .reduce = .{
+                            .operand = is_in_range,
+                            .operation = .And,
+                        } },
+                    });
+                    break :ok all_in_range;
+                } else ok: {
+                    const is_in_range = try block.addBinOp(.cmp_lte, diff, dest_max);
+                    break :ok is_in_range;
+                };
+                try sema.addSafetyCheck(block, ok, .cast_truncated_data);
             }
-        }
-        // no shrinkage, yes sign loss
-        // requirement: signed to unsigned >= 0
-        else if (actual_info.signedness == .signed and wanted_info.signedness == .unsigned) {
-            const zero_inst = try sema.addConstant(operand_ty, Value.zero);
-            const is_in_range = try block.addBinOp(.cmp_gte, operand, zero_inst);
-            try sema.addSafetyCheck(block, is_in_range, .cast_truncated_data);
+        } else if (actual_info.signedness == .signed and wanted_info.signedness == .unsigned) {
+            // no shrinkage, yes sign loss
+            // requirement: signed to unsigned >= 0
+            const ok = if (is_vector) ok: {
+                const zero_val = try Value.Tag.repeated.create(sema.arena, Value.zero);
+                const zero_inst = try sema.addConstant(operand_ty, zero_val);
+                const is_in_range = try block.addCmpVector(operand, zero_inst, .lte, try sema.addType(operand_ty));
+                const all_in_range = try block.addInst(.{
+                    .tag = .reduce,
+                    .data = .{ .reduce = .{
+                        .operand = is_in_range,
+                        .operation = .And,
+                    } },
+                });
+                break :ok all_in_range;
+            } else ok: {
+                const zero_inst = try sema.addConstant(operand_ty, Value.zero);
+                const is_in_range = try block.addBinOp(.cmp_gte, operand, zero_inst);
+                break :ok is_in_range;
+            };
+            try sema.addSafetyCheck(block, ok, .cast_truncated_data);
         }
     }
     return block.addTyOp(.intcast, dest_ty, operand);
@@ -10610,28 +10656,55 @@ fn analyzePtrArithmetic(
     // TODO if the operand is comptime-known to be negative, or is a negative int,
     // coerce to isize instead of usize.
     const offset = try sema.coerce(block, Type.usize, uncasted_offset, offset_src);
-    // TODO adjust the return type according to alignment and other factors
     const target = sema.mod.getTarget();
-    const runtime_src = rs: {
-        if (try sema.resolveMaybeUndefVal(block, ptr_src, ptr)) |ptr_val| {
-            if (try sema.resolveMaybeUndefVal(block, offset_src, offset)) |offset_val| {
-                const ptr_ty = sema.typeOf(ptr);
-                const new_ptr_ty = ptr_ty; // TODO modify alignment
+    const opt_ptr_val = try sema.resolveMaybeUndefVal(block, ptr_src, ptr);
+    const opt_off_val = try sema.resolveDefinedValue(block, offset_src, offset);
+    const ptr_ty = sema.typeOf(ptr);
+    const ptr_info = ptr_ty.ptrInfo().data;
+    const elem_ty = if (ptr_info.size == .One and ptr_info.pointee_type.zigTypeTag() == .Array)
+        ptr_info.pointee_type.childType()
+    else
+        ptr_info.pointee_type;
 
-                if (ptr_val.isUndef() or offset_val.isUndef()) {
-                    return sema.addConstUndef(new_ptr_ty);
-                }
+    const new_ptr_ty = t: {
+        // Calculate the new pointer alignment.
+        if (ptr_info.@"align" == 0) {
+            // ABI-aligned pointer. Any pointer arithmetic maintains the same ABI-alignedness.
+            break :t ptr_ty;
+        }
+        // If the addend is not a comptime-known value we can still count on
+        // it being a multiple of the type size.
+        const elem_size = elem_ty.abiSize(target);
+        const addend = if (opt_off_val) |off_val| a: {
+            const off_int = try sema.usizeCast(block, offset_src, off_val.toUnsignedInt(target));
+            break :a elem_size * off_int;
+        } else elem_size;
+
+        // The resulting pointer is aligned to the lcd between the offset (an
+        // arbitrary number) and the alignment factor (always a power of two,
+        // non zero).
+        const new_align = @as(u32, 1) << @intCast(u5, @ctz(u64, addend | ptr_info.@"align"));
+
+        break :t try Type.ptr(sema.arena, sema.mod, .{
+            .pointee_type = ptr_info.pointee_type,
+            .sentinel = ptr_info.sentinel,
+            .@"align" = new_align,
+            .@"addrspace" = ptr_info.@"addrspace",
+            .mutable = ptr_info.mutable,
+            .@"allowzero" = ptr_info.@"allowzero",
+            .@"volatile" = ptr_info.@"volatile",
+            .size = ptr_info.size,
+        });
+    };
+
+    const runtime_src = rs: {
+        if (opt_ptr_val) |ptr_val| {
+            if (opt_off_val) |offset_val| {
+                if (ptr_val.isUndef()) return sema.addConstUndef(new_ptr_ty);
 
                 const offset_int = try sema.usizeCast(block, offset_src, offset_val.toUnsignedInt(target));
-                // TODO I tried to put this check earlier but it the LLVM backend generate invalid instructinons
                 if (offset_int == 0) return ptr;
                 if (try ptr_val.getUnsignedIntAdvanced(target, sema.kit(block, ptr_src))) |addr| {
-                    const ptr_child_ty = ptr_ty.childType();
-                    const elem_ty = if (ptr_ty.isSinglePointer() and ptr_child_ty.zigTypeTag() == .Array)
-                        ptr_child_ty.childType()
-                    else
-                        ptr_child_ty;
-
                     const elem_size = elem_ty.abiSize(target);
                     const new_addr = switch (air_tag) {
                         .ptr_add => addr + elem_size * offset_int,
@@ -10651,7 +10724,16 @@ fn analyzePtrArithmetic(
     };
 
     try sema.requireRuntimeBlock(block, runtime_src);
-    return block.addBinOp(air_tag, ptr, offset);
+    return block.addInst(.{
+        .tag = air_tag,
+        .data = .{ .ty_pl = .{
+            .ty = try sema.addType(new_ptr_ty),
+            .payload = try sema.addExtra(Air.Bin{
+                .lhs = ptr,
+                .rhs = offset,
+            }),
+        } },
+    });
 }
 
 fn zirLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -14481,8 +14563,8 @@ fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const dest_scalar_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
     const operand = sema.resolveInst(extra.rhs);
     const dest_is_comptime_int = try sema.checkIntType(block, dest_ty_src, dest_scalar_ty);
-    const operand_scalar_ty = try sema.checkIntOrVectorAllowComptime(block, operand, operand_src);
     const operand_ty = sema.typeOf(operand);
+    const operand_scalar_ty = try sema.checkIntOrVectorAllowComptime(block, operand_ty, operand_src);
     const is_vector = operand_ty.zigTypeTag() == .Vector;
     const dest_ty = if (is_vector)
         try Type.vector(sema.arena, operand_ty.vectorLen(), dest_scalar_ty)
@@ -14650,7 +14732,7 @@ fn zirByteSwap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const operand = sema.resolveInst(inst_data.operand);
     const operand_ty = sema.typeOf(operand);
-    const scalar_ty = try sema.checkIntOrVectorAllowComptime(block, operand, operand_src);
+    const scalar_ty = try sema.checkIntOrVectorAllowComptime(block, operand_ty, operand_src);
     const target = sema.mod.getTarget();
     const bits = scalar_ty.intInfo(target).bits;
     if (bits % 8 != 0) {
@@ -14707,7 +14789,7 @@ fn zirBitReverse(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const operand = sema.resolveInst(inst_data.operand);
     const operand_ty = sema.typeOf(operand);
-    _ = try sema.checkIntOrVectorAllowComptime(block, operand, operand_src);
+    _ = try sema.checkIntOrVectorAllowComptime(block, operand_ty, operand_src);
 
     if (try sema.typeHasOnePossibleValue(block, operand_src, operand_ty)) |val| {
         return sema.addConstant(operand_ty, val);
@@ -15059,10 +15141,9 @@ fn checkIntOrVector(
 fn checkIntOrVectorAllowComptime(
     sema: *Sema,
     block: *Block,
-    operand: Air.Inst.Ref,
+    operand_ty: Type,
     operand_src: LazySrcLoc,
 ) CompileError!Type {
-    const operand_ty = sema.typeOf(operand);
     switch (try operand_ty.zigTypeTagOrPoison()) {
         .Int, .ComptimeInt => return operand_ty,
         .Vector => {

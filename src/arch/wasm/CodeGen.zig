@@ -3397,7 +3397,8 @@ fn airPtrElemPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
 fn airPtrBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
     const ptr = try self.resolveInst(bin_op.lhs);
     const offset = try self.resolveInst(bin_op.rhs);
     const ptr_ty = self.air.typeOf(bin_op.lhs);

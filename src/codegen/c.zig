@@ -1711,21 +1711,18 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .unreach    => try airUnreach(f),
             .fence      => try airFence(f, inst),
 
-            // TODO use a different strategy for add that communicates to the optimizer
-            // that wrapping is UB.
-            .add => try airBinOp (f, inst, " + "),
-            .ptr_add => try airPtrAddSub (f, inst, " + "),
-            // TODO use a different strategy for sub that communicates to the optimizer
-            // that wrapping is UB.
-            .sub => try airBinOp (f, inst, " - "),
-            .ptr_sub => try airPtrAddSub (f, inst, " - "),
-            // TODO use a different strategy for mul that communicates to the optimizer
-            // that wrapping is UB.
-            .mul           => try airBinOp (f, inst, " * "),
-            // TODO use a different strategy for div that communicates to the optimizer
-            // that wrapping is UB.
+            .ptr_add => try airPtrAddSub(f, inst, " + "),
+            .ptr_sub => try airPtrAddSub(f, inst, " - "),
+
+            // TODO use a different strategy for add, sub, mul, div
+            // that communicates to the optimizer that wrapping is UB.
+            .add                   => try airBinOp (f, inst, " + "),
+            .sub                   => try airBinOp (f, inst, " - "),
+            .mul                   => try airBinOp (f, inst, " * "),
             .div_float, .div_exact => try airBinOp( f, inst, " / "),
-            .div_trunc     => blk: {
+            .rem                   => try airBinOp( f, inst, " % "),
+
+            .div_trunc => blk: {
                 const bin_op = f.air.instructions.items(.data)[inst].bin_op;
                 const lhs_ty = f.air.typeOf(bin_op.lhs);
                 // For binary operations @TypeOf(lhs)==@TypeOf(rhs),
@@ -1735,9 +1732,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
                 else
                     try airBinOpBuiltinCall(f, inst, "div_trunc");
             },
-            .div_floor     => try airBinOpBuiltinCall(f, inst, "div_floor"),
-            .rem           => try airBinOp( f, inst, " % "),
-            .mod           => try airBinOpBuiltinCall(f, inst, "mod"),
+            .div_floor => try airBinOpBuiltinCall(f, inst, "div_floor"),
+            .mod       => try airBinOpBuiltinCall(f, inst, "mod"),
 
             .addwrap => try airWrapOp(f, inst, " + ", "addw_"),
             .subwrap => try airWrapOp(f, inst, " - ", "subw_"),
@@ -2617,10 +2613,10 @@ fn airEquality(
 }
 
 fn airPtrAddSub(f: *Function, inst: Air.Inst.Index, operator: [*:0]const u8) !CValue {
-    if (f.liveness.isUnused(inst))
-        return CValue.none;
+    if (f.liveness.isUnused(inst)) return CValue.none;
 
-    const bin_op = f.air.instructions.items(.data)[inst].bin_op;
+    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const bin_op = f.air.extraData(Air.Bin, ty_pl.payload).data;
     const lhs = try f.resolveInst(bin_op.lhs);
     const rhs = try f.resolveInst(bin_op.rhs);
 

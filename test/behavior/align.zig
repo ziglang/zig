@@ -16,11 +16,22 @@ test "global variable alignment" {
         const slice = @as(*align(4) [1]u8, &foo)[0..];
         comptime try expect(@TypeOf(slice) == *align(4) [1]u8);
     }
-    {
-        var runtime_zero: usize = 0;
-        const slice = @as(*align(4) [1]u8, &foo)[runtime_zero..];
-        comptime try expect(@TypeOf(slice) == []align(4) u8);
-    }
+}
+
+test "slicing array of length 1 can assume runtime index is always zero" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
+    // TODO reevaluate this test case, because notice that you can
+    // change `runtime_zero` to be `1` and the test still passes for stage1.
+    // Reconsider also this code:
+    // var array: [4]u8 = undefined;
+    // var runtime: usize = 4;
+    // var ptr = array[runtime..];
+    // _ = ptr;
+
+    var runtime_zero: usize = 0;
+    const slice = @as(*align(4) [1]u8, &foo)[runtime_zero..];
+    comptime try expect(@TypeOf(slice) == []align(4) u8);
 }
 
 test "default alignment allows unspecified in type syntax" {
