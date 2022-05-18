@@ -5325,15 +5325,39 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
             });
         },
         .register => |reg| {
-            _ = try self.addInst(.{
-                .tag = .mov,
-                .ops = Mir.Inst.Ops.encode(.{
-                    .reg1 = .rsp,
-                    .reg2 = registerAlias(reg, @intCast(u32, abi_size)),
-                    .flags = 0b10,
-                }),
-                .data = .{ .imm = @bitCast(u32, -stack_offset) },
-            });
+            switch (ty.zigTypeTag()) {
+                .Float => {
+                    const tag: Mir.Inst.Tag = switch (ty.tag()) {
+                        .f32 => .mov_f32,
+                        .f64 => .mov_f64,
+                        else => return self.fail("TODO genSetStackArg for register for type {}", .{ty.fmtDebug()}),
+                    };
+                    _ = try self.addInst(.{
+                        .tag = tag,
+                        .ops = Mir.Inst.Ops.encode(.{
+                            .reg1 = switch (ty.tag()) {
+                                .f32 => .esp,
+                                .f64 => .rsp,
+                                else => unreachable,
+                            },
+                            .reg2 = reg.to128(),
+                            .flags = 0b01,
+                        }),
+                        .data = .{ .imm = @bitCast(u32, -stack_offset) },
+                    });
+                },
+                else => {
+                    _ = try self.addInst(.{
+                        .tag = .mov,
+                        .ops = Mir.Inst.Ops.encode(.{
+                            .reg1 = .rsp,
+                            .reg2 = registerAlias(reg, @intCast(u32, abi_size)),
+                            .flags = 0b10,
+                        }),
+                        .data = .{ .imm = @bitCast(u32, -stack_offset) },
+                    });
+                },
+            }
         },
         .ptr_stack_offset => {
             const reg = try self.copyToTmpRegister(ty, mcv);
