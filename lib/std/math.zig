@@ -929,37 +929,6 @@ pub inline fn fabs(value: anytype) @TypeOf(value) {
     return @fabs(value);
 }
 
-/// Fused multiply add, similar to (a * b) + c, except only rounds once,
-/// and is thus more accurate.
-/// This is the same as calling the builtin @mulAdd
-pub inline fn fma(comptime T: type, a: T, b: T, c: T) T {
-    return @mulAdd(T, a, b, c);
-}
-
-/// Returns the minimum value of a and b. This builtin accepts integers,
-/// floats, and vectors of either. In the latter case, the operation is
-/// performed element wise.
-/// This is the same as calling the builtin @minimum
-pub inline fn fmin(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
-    return @minimum(a, b);
-}
-
-/// Returns the maximum value of a and b. This builtin accepts integers,
-/// floats, and vectors of either. In the latter case, the operation is
-/// performed element wise.
-/// This is the same as calling the builtin @maximum
-pub inline fn fmax(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
-    return @maximum(a, b);
-}
-
-/// Modulus division. For unsigned integers this is the same as numerator %
-/// denominator. Caller guarantees denominator > 0, otherwise the operation will
-/// result in a Remainder Division by Zero error when runtime safety checks are enabled.
-/// This is the same as calling the builtin @mod
-pub inline fn fmod(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
-    return @mod(a, b);
-}
-
 /// Returns the absolute value of the integer parameter.
 /// Result is an unsigned integer.
 pub fn absCast(x: anytype) switch (@typeInfo(@TypeOf(x))) {
