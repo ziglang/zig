@@ -351,14 +351,17 @@ pub const Inst = struct {
         ///       0b01  qword ptr [reg1 + imm32], reg2
         ///       0b10  reg1, reg2
         mov_f64,
+        mov_f32,
 
         /// ops flags:  form:
         ///       0b00  reg1, reg1, reg2
         add_f64,
+        add_f32,
 
         /// ops flags:  form:
         ///
         cmp_f64,
+        cmp_f32,
 
         /// Pseudo-instructions
         /// call extern function

@@ -3469,22 +3469,28 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValu
                     return self.genBinOpMir(mir_tag, dst_ty, dst_mcv, .{ .register = reg });
                 },
                 .register => |src_reg| switch (dst_ty.zigTypeTag()) {
-                    .Float => switch (dst_ty.tag()) {
-                        .f64 => {
-                            _ = try self.addInst(.{
-                                .tag = switch (mir_tag) {
-                                    .add => .add_f64,
-                                    .cmp => .cmp_f64,
-                                    else => return self.fail("TODO genBinOpMir for f64 register-register with MIR tag {}", .{mir_tag}),
-                                },
-                                .ops = Mir.Inst.Ops.encode(.{
-                                    .reg1 = dst_reg.to128(),
-                                    .reg2 = src_reg.to128(),
-                                }),
-                                .data = undefined,
-                            });
-                        },
-                        else => return self.fail("TODO genBinOpMir for float register-register and type {}", .{dst_ty.fmtDebug()}),
+                    .Float => {
+                        const actual_tag: Mir.Inst.Tag = switch (dst_ty.tag()) {
+                            .f32 => switch (mir_tag) {
+                                .add => Mir.Inst.Tag.add_f32,
+                                .cmp => Mir.Inst.Tag.cmp_f32,
+                                else => return self.fail("TODO genBinOpMir for f32 register-register with MIR tag {}", .{mir_tag}),
+                            },
+                            .f64 => switch (mir_tag) {
+                                .add => Mir.Inst.Tag.add_f64,
+                                .cmp => Mir.Inst.Tag.cmp_f64,
+                                else => return self.fail("TODO genBinOpMir for f64 register-register with MIR tag {}", .{mir_tag}),
+                            },
+                            else => return self.fail("TODO genBinOpMir for float register-register and type {}", .{dst_ty.fmtDebug()}),
+                        };
+                        _ = try self.addInst(.{
+                            .tag = actual_tag,
+                            .ops = Mir.Inst.Ops.encode(.{
+                                .reg1 = dst_reg.to128(),
+                                .reg2 = src_reg.to128(),
+                            }),
+                            .data = undefined,
+                        });
                     },
                     else => {
                         _ = try self.addInst(.{
@@ -5475,20 +5481,25 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
             const base_reg = opts.dest_stack_base orelse .rbp;
 
             switch (ty.zigTypeTag()) {
-                .Float => switch (ty.tag()) {
-                    .f32 => return self.fail("TODO genSetStack for register for f32", .{}),
-                    .f64 => {
-                        _ = try self.addInst(.{
-                            .tag = .mov_f64,
-                            .ops = Mir.Inst.Ops.encode(.{
-                                .reg1 = base_reg,
-                                .reg2 = reg.to128(),
-                                .flags = 0b01,
-                            }),
-                            .data = .{ .imm = @bitCast(u32, -stack_offset) },
-                        });
-                    },
-                    else => return self.fail("TODO genSetStack for register for type {}", .{ty.fmtDebug()}),
+                .Float => {
+                    const tag: Mir.Inst.Tag = switch (ty.tag()) {
+                        .f32 => .mov_f32,
+                        .f64 => .mov_f64,
+                        else => return self.fail("TODO genSetStack for register for type {}", .{ty.fmtDebug()}),
+                    };
+                    _ = try self.addInst(.{
+                        .tag = tag,
+                        .ops = Mir.Inst.Ops.encode(.{
+                            .reg1 = switch (ty.tag()) {
+                                .f32 => base_reg.to32(),
+                                .f64 => base_reg.to64(),
+                                else => unreachable,
+                            },
+                            .reg2 = reg.to128(),
+                            .flags = 0b01,
+                        }),
+                        .data = .{ .imm = @bitCast(u32, -stack_offset) },
+                    });
                 },
                 else => {
                     if (!math.isPowerOfTwo(abi_size)) {
@@ -5991,21 +6002,22 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                         }
                     },
                 },
-                .Float => switch (ty.tag()) {
-                    .f32 => return self.fail("TODO genSetReg from register for f32", .{}),
-                    .f64 => {
-                        _ = try self.addInst(.{
-                            .tag = .mov_f64,
-                            .ops = Mir.Inst.Ops.encode(.{
-                                .reg1 = reg.to128(),
-                                .reg2 = src_reg.to128(),
-                                .flags = 0b10,
-                            }),
-                            .data = undefined,
-                        });
-                        return;
-                    },
-                    else => return self.fail("TODO genSetReg from register for {}", .{ty.fmtDebug()}),
+                .Float => {
+                    const tag: Mir.Inst.Tag = switch (ty.tag()) {
+                        .f32 => .mov_f32,
+                        .f64 => .mov_f64,
+                        else => return self.fail("TODO genSetReg from register for {}", .{ty.fmtDebug()}),
+                    };
+                    _ = try self.addInst(.{
+                        .tag = tag,
+                        .ops = Mir.Inst.Ops.encode(.{
+                            .reg1 = reg.to128(),
+                            .reg2 = src_reg.to128(),
+                            .flags = 0b10,
+                        }),
+                        .data = undefined,
+                    });
+                    return;
                 },
                 else => {},
             }
@@ -6035,22 +6047,27 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
         },
         .memory => |x| switch (ty.zigTypeTag()) {
             .Float => {
-                switch (ty.tag()) {
-                    .f32 => return self.fail("TODO genSetReg from memory for f32", .{}),
-                    .f64 => {
-                        const base_reg = try self.register_manager.allocReg(null, .{ .selector_mask = gp });
-                        try self.loadMemPtrIntoRegister(base_reg, Type.usize, mcv);
-                        _ = try self.addInst(.{
-                            .tag = .mov_f64,
-                            .ops = Mir.Inst.Ops.encode(.{
-                                .reg1 = reg.to128(),
-                                .reg2 = base_reg.to64(),
-                            }),
-                            .data = .{ .imm = 0 },
-                        });
-                    },
+                const base_reg = try self.register_manager.allocReg(null, .{ .selector_mask = gp });
+                try self.loadMemPtrIntoRegister(base_reg, Type.usize, mcv);
+
+                const tag: Mir.Inst.Tag = switch (ty.tag()) {
+                    .f32 => .mov_f32,
+                    .f64 => .mov_f64,
                     else => return self.fail("TODO genSetReg from memory for {}", .{ty.fmtDebug()}),
-                }
+                };
+
+                _ = try self.addInst(.{
+                    .tag = tag,
+                    .ops = Mir.Inst.Ops.encode(.{
+                        .reg1 = reg.to128(),
+                        .reg2 = switch (ty.tag()) {
+                            .f32 => base_reg.to32(),
+                            .f64 => base_reg.to64(),
+                            else => unreachable,
+                        },
+                    }),
+                    .data = .{ .imm = 0 },
+                });
             },
             else => {
                 if (x <= math.maxInt(i32)) {
@@ -6142,20 +6159,25 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                         }
                     },
                 },
-                .Float => switch (ty.tag()) {
-                    .f32 => return self.fail("TODO genSetReg from stack offset for f32", .{}),
-                    .f64 => {
-                        _ = try self.addInst(.{
-                            .tag = .mov_f64,
-                            .ops = Mir.Inst.Ops.encode(.{
-                                .reg1 = reg.to128(),
-                                .reg2 = .rbp,
-                            }),
-                            .data = .{ .imm = @bitCast(u32, -off) },
-                        });
-                        return;
-                    },
-                    else => return self.fail("TODO genSetReg from stack offset for {}", .{ty.fmtDebug()}),
+                .Float => {
+                    const tag: Mir.Inst.Tag = switch (ty.tag()) {
+                        .f32 => .mov_f32,
+                        .f64 => .mov_f64,
+                        else => return self.fail("TODO genSetReg from stack offset for {}", .{ty.fmtDebug()}),
+                    };
+                    _ = try self.addInst(.{
+                        .tag = tag,
+                        .ops = Mir.Inst.Ops.encode(.{
+                            .reg1 = reg.to128(),
+                            .reg2 = switch (ty.tag()) {
+                                .f32 => .ebp,
+                                .f64 => .rbp,
+                                else => unreachable,
+                            },
+                        }),
+                        .data = .{ .imm = @bitCast(u32, -off) },
+                    });
+                    return;
                 },
                 else => {},
             }
