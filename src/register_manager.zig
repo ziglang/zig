@@ -66,6 +66,11 @@ pub fn RegisterManager(
             return mask;
         }
 
+        fn excludeRegister(reg: Register, mask: FreeRegInt) bool {
+            const reg_mask = getRegisterMask(reg) orelse return true;
+            return reg_mask & mask == 0;
+        }
+
         fn markRegAllocated(self: *Self, reg: Register) void {
             const mask = getRegisterMask(reg) orelse return;
             self.allocated_registers |= mask;
@@ -186,10 +191,11 @@ pub fn RegisterManager(
             insts: [count]?Air.Inst.Index,
             opts: AllocOpts,
         ) ?[count]Register {
-            _ = opts;
             comptime assert(count > 0 and count <= tracked_registers.len);
 
-            const free_and_not_locked_registers = self.free_registers & ~self.locked_registers;
+            const selector_mask = if (opts.selector_mask) |mask| mask else ~@as(FreeRegInt, 0);
+            const free_registers = self.free_registers & selector_mask;
+            const free_and_not_locked_registers = free_registers & ~self.locked_registers;
             const free_and_not_locked_registers_count = @popCount(FreeRegInt, free_and_not_locked_registers);
             if (free_and_not_locked_registers_count < count) return null;
 
@@ -197,6 +203,7 @@ pub fn RegisterManager(
             var i: usize = 0;
             for (tracked_registers) |reg| {
                 if (i >= count) break;
+                if (excludeRegister(reg, selector_mask)) continue;
                 if (self.isRegLocked(reg)) continue;
                 if (!self.isRegFree(reg)) continue;
 
@@ -236,8 +243,12 @@ pub fn RegisterManager(
             opts: AllocOpts,
         ) AllocateRegistersError![count]Register {
             comptime assert(count > 0 and count <= tracked_registers.len);
-            const locked_registers_count = @popCount(FreeRegInt, self.locked_registers);
-            if (count > tracked_registers.len - locked_registers_count) return error.OutOfRegisters;
+
+            const selector_mask = if (opts.selector_mask) |mask| mask else ~@as(FreeRegInt, 0);
+            const available_registers_count = @popCount(FreeRegInt, selector_mask);
+            const locked_registers = self.locked_registers & selector_mask;
+            const locked_registers_count = @popCount(FreeRegInt, locked_registers);
+            if (count > available_registers_count - locked_registers_count) return error.OutOfRegisters;
 
             const result = self.tryAllocRegs(count, insts, opts) orelse blk: {
                 // We'll take over the first count registers. Spill
@@ -247,6 +258,7 @@ pub fn RegisterManager(
                 var i: usize = 0;
                 for (tracked_registers) |reg| {
                     if (i >= count) break;
+                    if (excludeRegister(reg, selector_mask)) continue;
                     if (self.isRegLocked(reg)) continue;
 
                     regs[i] = reg;

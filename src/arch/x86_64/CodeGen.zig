@@ -38,6 +38,9 @@ const c_abi_int_return_regs = abi.c_abi_int_return_regs;
 const RegisterManager = RegisterManagerFn(Self, Register, &allocatable_registers);
 const RegisterLock = RegisterManager.RegisterLock;
 const Register = bits.Register;
+const RegisterClass = abi.RegisterClass;
+const gp = RegisterClass.gp;
+const avx = RegisterClass.avx;
 
 const InnerError = error{
     OutOfMemory,
@@ -882,7 +885,9 @@ fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
                 // TODO check if AVX available
                 const ptr_bytes: u64 = 32;
                 if (abi_size <= ptr_bytes) {
-                    if (self.register_manager.tryAllocReg(inst, .{})) |reg| {
+                    if (self.register_manager.tryAllocReg(inst, .{
+                        .selector_mask = avx,
+                    })) |reg| {
                         return MCValue{ .register = registerAlias(reg, abi_size) };
                     }
                 }
@@ -892,7 +897,9 @@ fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
                 const ptr_bits = self.target.cpu.arch.ptrBitWidth();
                 const ptr_bytes: u64 = @divExact(ptr_bits, 8);
                 if (abi_size <= ptr_bytes) {
-                    if (self.register_manager.tryAllocReg(inst, .{})) |reg| {
+                    if (self.register_manager.tryAllocReg(inst, .{
+                        .selector_mask = gp,
+                    })) |reg| {
                         return MCValue{ .register = registerAlias(reg, abi_size) };
                     }
                 }
@@ -963,7 +970,13 @@ pub fn spillRegisters(self: *Self, comptime count: comptime_int, registers: [cou
 /// allocated. A second call to `copyToTmpRegister` may return the same register.
 /// This can have a side effect of spilling instructions to the stack to free up a register.
 fn copyToTmpRegister(self: *Self, ty: Type, mcv: MCValue) !Register {
-    const reg = try self.register_manager.allocReg(null, .{});
+    const mask = switch (ty.zigTypeTag()) {
+        .Float => avx,
+        else => gp,
+    };
+    const reg: Register = try self.register_manager.allocReg(null, .{
+        .selector_mask = mask,
+    });
     try self.genSetReg(ty, reg, mcv);
     return reg;
 }
@@ -973,7 +986,13 @@ fn copyToTmpRegister(self: *Self, ty: Type, mcv: MCValue) !Register {
 /// This can have a side effect of spilling instructions to the stack to free up a register.
 /// WARNING make sure that the allocated register matches the returned MCValue from an instruction!
 fn copyToRegisterWithInstTracking(self: *Self, reg_owner: Air.Inst.Index, ty: Type, mcv: MCValue) !MCValue {
-    const reg = try self.register_manager.allocReg(reg_owner, .{});
+    const mask = switch (ty.zigTypeTag()) {
+        .Float => avx,
+        else => gp,
+    };
+    const reg: Register = try self.register_manager.allocReg(reg_owner, .{
+        .selector_mask = mask,
+    });
     try self.genSetReg(ty, reg, mcv);
     return MCValue{ .register = reg };
 }
@@ -1029,7 +1048,9 @@ fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
         };
         defer if (operand_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const reg = try self.register_manager.allocReg(inst, .{});
+        const reg = try self.register_manager.allocReg(inst, .{
+            .selector_mask = gp,
+        });
         try self.genSetReg(dest_ty, reg, .{ .immediate = 0 });
         try self.genSetReg(operand_ty, reg, operand);
         break :blk MCValue{ .register = reg };
@@ -1384,7 +1405,9 @@ fn genSetStackTruncatedOverflowCompare(
         .unsigned => ty,
     };
 
-    const temp_regs = try self.register_manager.allocRegs(3, .{ null, null, null }, .{});
+    const temp_regs = try self.register_manager.allocRegs(3, .{ null, null, null }, .{
+        .selector_mask = gp,
+    });
     const temp_regs_locks = self.register_manager.lockRegsAssumeUnused(3, temp_regs);
     defer for (temp_regs_locks) |rreg| {
         self.register_manager.unlockReg(rreg);
@@ -2046,7 +2069,9 @@ fn genSliceElemPtr(self: *Self, lhs: Air.Inst.Ref, rhs: Air.Inst.Ref) !MCValue {
     const offset_reg_lock = self.register_manager.lockRegAssumeUnused(offset_reg);
     defer self.register_manager.unlockReg(offset_reg_lock);
 
-    const addr_reg = try self.register_manager.allocReg(null, .{});
+    const addr_reg = try self.register_manager.allocReg(null, .{
+        .selector_mask = gp,
+    });
     switch (slice_mcv) {
         .stack_offset => |off| {
             // mov reg, [rbp - 8]
@@ -2125,7 +2150,9 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
     const offset_reg_lock = self.register_manager.lockRegAssumeUnused(offset_reg);
     defer self.register_manager.unlockReg(offset_reg_lock);
 
-    const addr_reg = try self.register_manager.allocReg(null, .{});
+    const addr_reg = try self.register_manager.allocReg(null, .{
+        .selector_mask = gp,
+    });
     switch (array) {
         .register => {
             const off = @intCast(i32, try self.allocMem(
@@ -2492,7 +2519,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                 },
                 .stack_offset => |off| {
                     if (abi_size <= 8) {
-                        const tmp_reg = try self.register_manager.allocReg(null, .{});
+                        const tmp_reg = try self.register_manager.allocReg(null, .{ .selector_mask = gp });
                         try self.load(.{ .register = tmp_reg }, ptr, ptr_ty);
                         return self.genSetStack(elem_ty, off, MCValue{ .register = tmp_reg }, .{});
                     }
@@ -2693,7 +2720,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
             };
             defer if (value_lock) |lock| self.register_manager.unlockReg(lock);
 
-            const addr_reg = try self.register_manager.allocReg(null, .{});
+            const addr_reg = try self.register_manager.allocReg(null, .{ .selector_mask = gp });
             const addr_reg_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
             defer self.register_manager.unlockReg(addr_reg_lock);
 
@@ -2765,7 +2792,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                 .memory,
                 => {
                     if (abi_size <= 8) {
-                        const tmp_reg = try self.register_manager.allocReg(null, .{});
+                        const tmp_reg = try self.register_manager.allocReg(null, .{ .selector_mask = gp });
                         const tmp_reg_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
                         defer self.register_manager.unlockReg(tmp_reg_lock);
 
@@ -2883,7 +2910,7 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
                     if (can_reuse_operand) {
                         break :blk reg;
                     } else {
-                        const result_reg = try self.register_manager.allocReg(inst, .{});
+                        const result_reg = try self.register_manager.allocReg(inst, .{ .selector_mask = gp });
                         try self.genSetReg(ptr_ty, result_reg, mcv);
                         break :blk result_reg;
                     }
@@ -2984,7 +3011,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                         const reg_lock = self.register_manager.lockRegAssumeUnused(reg);
                         defer self.register_manager.unlockReg(reg_lock);
 
-                        const dst_reg = try self.register_manager.allocReg(inst, .{});
+                        const dst_reg = try self.register_manager.allocReg(inst, .{ .selector_mask = gp });
                         const flags: u2 = switch (mcv) {
                             .register_overflow_unsigned => 0b10,
                             .register_overflow_signed => 0b00,
@@ -5362,7 +5389,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
 
             const overflow_bit_ty = ty.structFieldType(1);
             const overflow_bit_offset = ty.structFieldOffset(1, self.target.*);
-            const tmp_reg = try self.register_manager.allocReg(null, .{});
+            const tmp_reg = try self.register_manager.allocReg(null, .{ .selector_mask = gp });
             const flags: u2 = switch (mcv) {
                 .register_overflow_unsigned => 0b10,
                 .register_overflow_signed => 0b00,
@@ -5580,7 +5607,7 @@ fn genInlineMemcpy(
         null;
     defer if (dsbase_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const dst_addr_reg = try self.register_manager.allocReg(null, .{});
+    const dst_addr_reg = try self.register_manager.allocReg(null, .{ .selector_mask = gp });
     switch (dst_ptr) {
         .memory,
         .got_load,
@@ -5615,7 +5642,7 @@ fn genInlineMemcpy(
     const dst_addr_reg_lock = self.register_manager.lockRegAssumeUnused(dst_addr_reg);
     defer self.register_manager.unlockReg(dst_addr_reg_lock);
 
-    const src_addr_reg = try self.register_manager.allocReg(null, .{});
+    const src_addr_reg = try self.register_manager.allocReg(null, .{ .selector_mask = gp });
     switch (src_ptr) {
         .memory,
         .got_load,
@@ -5650,7 +5677,9 @@ fn genInlineMemcpy(
     const src_addr_reg_lock = self.register_manager.lockRegAssumeUnused(src_addr_reg);
     defer self.register_manager.unlockReg(src_addr_reg_lock);
 
-    const regs = try self.register_manager.allocRegs(2, .{ null, null }, .{});
+    const regs = try self.register_manager.allocRegs(2, .{ null, null }, .{
+        .selector_mask = gp,
+    });
     const count_reg = regs[0].to64();
     const tmp_reg = regs[1].to8();
 
@@ -5750,7 +5779,7 @@ fn genInlineMemset(
     const rax_lock = self.register_manager.lockRegAssumeUnused(.rax);
     defer self.register_manager.unlockReg(rax_lock);
 
-    const addr_reg = try self.register_manager.allocReg(null, .{});
+    const addr_reg = try self.register_manager.allocReg(null, .{ .selector_mask = gp });
     switch (dst_ptr) {
         .memory,
         .got_load,
@@ -6018,7 +6047,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 switch (ty.tag()) {
                     .f32 => return self.fail("TODO genSetReg from memory for f32", .{}),
                     .f64 => {
-                        const base_reg = try self.register_manager.allocReg(null, .{});
+                        const base_reg = try self.register_manager.allocReg(null, .{ .selector_mask = gp });
                         try self.loadMemPtrIntoRegister(base_reg, Type.usize, mcv);
                         _ = try self.addInst(.{
                             .tag = .mov_f64,
@@ -6328,7 +6357,7 @@ fn airMemcpy(self: *Self, inst: Air.Inst.Index) !void {
     const src: MCValue = blk: {
         switch (src_ptr) {
             .got_load, .direct_load, .memory => {
-                const reg = try self.register_manager.allocReg(null, .{});
+                const reg = try self.register_manager.allocReg(null, .{ .selector_mask = gp });
                 try self.loadMemPtrIntoRegister(reg, src_ty, src_ptr);
                 _ = try self.addInst(.{
                     .tag = .mov,

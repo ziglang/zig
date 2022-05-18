@@ -56,10 +56,10 @@ pub const Register = enum(u7) {
     // Pseudo-value for MIR instructions.
     none,
 
-    pub fn id(self: Register) u5 {
+    pub fn id(self: Register) u7 {
         return switch (@enumToInt(self)) {
-            0...63 => @as(u5, @truncate(u4, @enumToInt(self))),
-            64...79 => @truncate(u5, @enumToInt(self)),
+            0...63 => @as(u7, @truncate(u4, @enumToInt(self))),
+            64...79 => @enumToInt(self),
             else => unreachable,
         };
     }
@@ -101,31 +101,31 @@ pub const Register = enum(u7) {
     }
 
     pub fn to256(self: Register) Register {
-        return @intToEnum(Register, @as(u8, self.id()) + 64);
+        return @intToEnum(Register, @as(u8, self.enc()) + 64);
     }
 
     pub fn to128(self: Register) Register {
-        return @intToEnum(Register, @as(u8, self.id()) + 80);
+        return @intToEnum(Register, @as(u8, self.enc()) + 80);
     }
 
     /// Convert from any register to its 64 bit alias.
     pub fn to64(self: Register) Register {
-        return @intToEnum(Register, self.id());
+        return @intToEnum(Register, self.enc());
     }
 
     /// Convert from any register to its 32 bit alias.
     pub fn to32(self: Register) Register {
-        return @intToEnum(Register, @as(u8, self.id()) + 16);
+        return @intToEnum(Register, @as(u8, self.enc()) + 16);
     }
 
     /// Convert from any register to its 16 bit alias.
     pub fn to16(self: Register) Register {
-        return @intToEnum(Register, @as(u8, self.id()) + 32);
+        return @intToEnum(Register, @as(u8, self.enc()) + 32);
     }
 
     /// Convert from any register to its 8 bit alias.
     pub fn to8(self: Register) Register {
-        return @intToEnum(Register, @as(u8, self.id()) + 48);
+        return @intToEnum(Register, @as(u8, self.enc()) + 48);
     }
 
     pub fn dwarfLocOp(self: Register) u8 {
