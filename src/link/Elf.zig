@@ -1446,10 +1446,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             .both => {}, // this is the default
         }
 
-        if (self.base.options.output_mode == .Exe) {
-            try argv.append("-z");
-            try argv.append(try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size}));
-        }
+        if (self.base.options.output_mode == .Exe)
+            try argv.append(try std.fmt.allocPrint(arena, "-zstack-size={d}", .{stack_size}));
 
         if (self.base.options.image_base_override) |image_base| {
             try argv.append(try std.fmt.allocPrint(arena, "--image-base={d}", .{image_base}));
@@ -1480,34 +1478,13 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append("-s");
         }
 
-        if (self.base.options.z_nodelete) {
-            try argv.append("-z");
-            try argv.append("nodelete");
-        }
-        if (self.base.options.z_notext) {
-            try argv.append("-z");
-            try argv.append("notext");
-        }
-        if (self.base.options.z_defs) {
-            try argv.append("-z");
-            try argv.append("defs");
-        }
-        if (self.base.options.z_origin) {
-            try argv.append("-z");
-            try argv.append("origin");
-        }
-        if (self.base.options.z_noexecstack) {
-            try argv.append("-z");
-            try argv.append("noexecstack");
-        }
-        if (self.base.options.z_now) {
-            try argv.append("-z");
-            try argv.append("now");
-        }
-        if (self.base.options.z_relro) {
-            try argv.append("-z");
-            try argv.append("relro");
-        }
+        if (self.base.options.z_defs) try argv.append("-zdefs");
+        if (self.base.options.z_nodelete) try argv.append("-znodelete");
+        if (self.base.options.z_noexecstack) try argv.append("-znoexecstack");
+        if (self.base.options.z_notext) try argv.append("-znotext");
+        if (self.base.options.z_now) try argv.append("-znow");
+        if (self.base.options.z_origin) try argv.append("-zorigin");
+        if (self.base.options.z_relro) try argv.append("-zrelro");
 
         if (getLDMOption(target)) |ldm| {
             // Any target ELF will use the freebsd osabi if suffixed with "_fbsd".
