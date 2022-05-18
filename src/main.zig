@@ -1655,12 +1655,20 @@ fn buildOutputType(
                     linker_global_base = parseIntSuffix(arg, "--global-base=".len);
                 } else if (mem.startsWith(u8, arg, "--export=")) {
                     try linker_export_symbol_names.append(arg["--export=".len..]);
-                } else if (mem.eql(u8, arg, "-z")) {
-                    i += 1;
-                    if (i >= linker_args.items.len) {
-                        fatal("expected linker extension flag after '{s}'", .{arg});
-                    }
-                    const z_arg = linker_args.items[i];
+                } else if (mem.startsWith(u8, arg, "-z")) {
+                    // -z param and -zparam are both supported. z_arg is whatever
+                    // comes after `-z` in either case.
+                    const z_arg = blk: {
+                        if (mem.eql(u8, arg, "-z")) {
+                            i += 1;
+                            if (i >= linker_args.items.len)
+                                fatal("expected linker extension flag after '{s}'", .{arg});
+                            break :blk linker_args.items[i];
+                        } else {
+                            break :blk arg[2..];
+                        }
+                    };
+
                     if (mem.eql(u8, z_arg, "nodelete")) {
                         linker_z_nodelete = true;
                     } else if (mem.eql(u8, z_arg, "notext")) {
