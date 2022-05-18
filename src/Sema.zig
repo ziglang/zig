@@ -14469,18 +14469,61 @@ fn zirErrSetCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     try sema.checkErrorSetType(block, dest_ty_src, dest_ty);
     try sema.checkErrorSetType(block, operand_src, operand_ty);
 
-    if (try sema.resolveDefinedValue(block, operand_src, operand)) |val| {
-        try sema.resolveInferredErrorSetTy(block, src, dest_ty);
+    // operand must be defined since it can be an invalid error value
+    const maybe_operand_val = try sema.resolveDefinedValue(block, operand_src, operand);
 
+    if (disjoint: {
+        // Try avoiding resolving inferred error sets if we can
+        if (!dest_ty.isAnyError() and dest_ty.errorSetNames().len == 0) break :disjoint true;
+        if (!operand_ty.isAnyError() and operand_ty.errorSetNames().len == 0) break :disjoint true;
+        if (dest_ty.isAnyError()) break :disjoint false;
+        if (operand_ty.isAnyError()) break :disjoint false;
+        for (dest_ty.errorSetNames()) |dest_err_name|
+            if (operand_ty.errorSetHasField(dest_err_name))
+                break :disjoint false;
+
+        if (dest_ty.tag() != .error_set_inferred and operand_ty.tag() != .error_set_inferred)
+            break :disjoint true;
+
+        try sema.resolveInferredErrorSetTy(block, dest_ty_src, dest_ty);
+        try sema.resolveInferredErrorSetTy(block, operand_src, operand_ty);
+        for (dest_ty.errorSetNames()) |dest_err_name|
+            if (operand_ty.errorSetHasField(dest_err_name))
+                break :disjoint false;
+
+        break :disjoint true;
+    }) {
+        const msg = msg: {
+            const msg = try sema.errMsg(
+                block,
+                src,
+                "error sets '{}' and '{}' have no common errors",
+                .{ operand_ty.fmt(sema.mod), dest_ty.fmt(sema.mod) },
+            );
+            errdefer msg.destroy(sema.gpa);
+            try sema.addDeclaredHereNote(msg, operand_ty);
+            try sema.addDeclaredHereNote(msg, dest_ty);
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(block, msg);
+    }
+
+    if (maybe_operand_val) |val| {
         if (!dest_ty.isAnyError()) {
             const error_name = val.castTag(.@"error").?.data.name;
             if (!dest_ty.errorSetHasField(error_name)) {
-                return sema.fail(
-                    block,
-                    src,
-                    "error.{s} not a member of error set '{}'",
-                    .{ error_name, dest_ty.fmt(sema.mod) },
-                );
+                const msg = msg: {
+                    const msg = try sema.errMsg(
+                        block,
+                        src,
+                        "error.{s} not a member of error set '{}'",
+                        .{ error_name, dest_ty.fmt(sema.mod) },
+                    );
+                    errdefer msg.destroy(sema.gpa);
+                    try sema.addDeclaredHereNote(msg, dest_ty);
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(block, msg);
             }
         }
 
@@ -14488,10 +14531,18 @@ fn zirErrSetCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     }
 
     try sema.requireRuntimeBlock(block, src);
-    if (block.wantSafety()) {
-        // TODO
+    if (block.wantSafety() and !dest_ty.isAnyError()) {
+        const err_int_inst = try block.addBitCast(Type.u16, operand);
+        // TODO: Output a switch instead of chained OR's.
+        var found_match: Air.Inst.Ref = undefined;
+        for (dest_ty.errorSetNames()) |dest_err_name, i| {
+            const dest_err_int = (try sema.mod.getErrorValue(dest_err_name)).value;
+            const dest_err_int_inst = try sema.addIntUnsigned(Type.u16, dest_err_int);
+            const next_match = try block.addBinOp(.cmp_eq, dest_err_int_inst, err_int_inst);
+            found_match = if (i == 0) next_match else try block.addBinOp(.bool_or, found_match, next_match);
+        }
+        try sema.addSafetyCheck(block, found_match, .invalid_error_code);
     }
-
     return block.addBitCast(dest_ty, operand);
 }
 
