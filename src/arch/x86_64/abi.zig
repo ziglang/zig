@@ -383,11 +383,11 @@ pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8
 pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
 pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };
 
-const avx_regs = [_]Register{
+const sse_avx_regs = [_]Register{
     .ymm0, .ymm1, .ymm2,  .ymm3,  .ymm4,  .ymm5,  .ymm6,  .ymm7,
     .ymm8, .ymm9, .ymm10, .ymm11, .ymm12, .ymm13, .ymm14, .ymm15,
 };
-const allocatable_registers = callee_preserved_regs ++ caller_preserved_regs ++ avx_regs;
+const allocatable_registers = callee_preserved_regs ++ caller_preserved_regs ++ sse_avx_regs;
 pub const RegisterManager = RegisterManagerFn(@import("CodeGen.zig"), Register, &allocatable_registers);
 
 // Register classes
@@ -401,7 +401,7 @@ pub const RegisterClass = struct {
         }, true);
         break :blk set;
     };
-    pub const avx: RegisterBitSet = blk: {
+    pub const sse: RegisterBitSet = blk: {
         var set = RegisterBitSet.initEmpty();
         set.setRangeValue(.{
             .start = caller_preserved_regs.len + callee_preserved_regs.len,

@@ -183,14 +183,14 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .nop => try emit.mirNop(),
 
             // AVX instructions
-            .mov_f64 => try emit.mirMovFloatAvx(.vmovsd, inst),
-            .mov_f32 => try emit.mirMovFloatAvx(.vmovss, inst),
+            .mov_f64_avx => try emit.mirMovFloatAvx(.vmovsd, inst),
+            .mov_f32_avx => try emit.mirMovFloatAvx(.vmovss, inst),
 
-            .add_f64 => try emit.mirAddFloatAvx(.vaddsd, inst),
-            .add_f32 => try emit.mirAddFloatAvx(.vaddss, inst),
+            .add_f64_avx => try emit.mirAddFloatAvx(.vaddsd, inst),
+            .add_f32_avx => try emit.mirAddFloatAvx(.vaddss, inst),
 
-            .cmp_f64 => try emit.mirCmpFloatAvx(.vucomisd, inst),
-            .cmp_f32 => try emit.mirCmpFloatAvx(.vucomiss, inst),
+            .cmp_f64_avx => try emit.mirCmpFloatAvx(.vucomisd, inst),
+            .cmp_f32_avx => try emit.mirCmpFloatAvx(.vucomiss, inst),
 
             // Pseudo-instructions
             .call_extern => try emit.mirCallExtern(inst),
