@@ -16097,12 +16097,12 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const args_src: LazySrcLoc = .{ .node_offset_builtin_call_arg2 = inst_data.src_node };
     const call_src = inst_data.src();
 
-    const extra = sema.code.extraData(Zir.Inst.BuiltinCall, inst_data.payload_index);
-    var func = sema.resolveInst(extra.data.callee);
-    const options = sema.resolveInst(extra.data.options);
-    const args = sema.resolveInst(extra.data.args);
+    const extra = sema.code.extraData(Zir.Inst.BuiltinCall, inst_data.payload_index).data;
+    var func = sema.resolveInst(extra.callee);
+    const options = sema.resolveInst(extra.options);
+    const args = sema.resolveInst(extra.args);
 
-    const modifier: std.builtin.CallOptions.Modifier = modifier: {
+    const wanted_modifier: std.builtin.CallOptions.Modifier = modifier: {
         const call_options_ty = try sema.getBuiltinType(block, options_src, "CallOptions");
         const coerced_options = try sema.coerce(block, call_options_ty, options, options_src);
 
@@ -16116,6 +16116,41 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             return sema.fail(block, options_src, "TODO: implement @call with stack", .{});
         }
         break :modifier modifier_val.toEnum(std.builtin.CallOptions.Modifier);
+    };
+
+    const modifier: std.builtin.CallOptions.Modifier = switch (wanted_modifier) {
+        // These can be upgraded to comptime or nosuspend calls.
+        .auto, .never_tail, .no_async => m: {
+            if (extra.flags.is_comptime) {
+                break :m .compile_time;
+            }
+            if (extra.flags.is_nosuspend) {
+                break :m .no_async;
+            }
+            break :m wanted_modifier;
+        },
+        // These can be upgraded to comptime. nosuspend bit can be safely ignored.
+        .always_tail, .always_inline, .compile_time => m: {
+            if (extra.flags.is_comptime) {
+                break :m .compile_time;
+            }
+            break :m wanted_modifier;
+        },
+        .async_kw => m: {
+            if (extra.flags.is_nosuspend) {
+                return sema.fail(block, options_src, "modifier 'async_kw' cannot be used inside nosuspend block", .{});
+            }
+            if (extra.flags.is_comptime) {
+                return sema.fail(block, options_src, "modifier 'async_kw' cannot be used in combination with comptime function call", .{});
+            }
+            break :m wanted_modifier;
+        },
+        .never_inline => m: {
+            if (extra.flags.is_comptime) {
+                return sema.fail(block, options_src, "modifier 'never_inline' cannot be used in combination with comptime function call", .{});
+            }
+            break :m wanted_modifier;
+        },
     };
 
     const args_ty = sema.typeOf(args);
@@ -16141,8 +16176,8 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             resolved.* = try sema.tupleFieldValByIndex(block, args_src, args, @intCast(u32, i), args_ty);
         }
     }
-
-    return sema.analyzeCall(block, func, func_src, call_src, modifier, false, resolved_args);
+    const ensure_result_used = extra.flags.ensure_result_used;
+    return sema.analyzeCall(block, func, func_src, call_src, modifier, ensure_result_used, resolved_args);
 }
 
 fn zirFieldParentPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

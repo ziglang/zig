@@ -72,6 +72,7 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) struct { data: T, en
             Inst.Ref => @intToEnum(Inst.Ref, code.extra[i]),
             i32 => @bitCast(i32, code.extra[i]),
             Inst.Call.Flags => @bitCast(Inst.Call.Flags, code.extra[i]),
+            Inst.BuiltinCall.Flags => @bitCast(Inst.BuiltinCall.Flags, code.extra[i]),
             Inst.SwitchBlock.Bits => @bitCast(Inst.SwitchBlock.Bits, code.extra[i]),
             Inst.ExtendedFunc.Bits => @bitCast(Inst.ExtendedFunc.Bits, code.extra[i]),
             else => @compileError("bad field type"),
@@ -280,8 +281,13 @@ pub const Inst = struct {
         /// Uses the `break` union field.
         break_inline,
         /// Function call.
-        /// Uses `pl_node`. AST node is the function call. Payload is `Call`.
+        /// Uses the `pl_node` union field with payload `Call`.
+        /// AST node is the function call.
         call,
+        /// Implements the `@call` builtin.
+        /// Uses the `pl_node` union field with payload `BuiltinCall`.
+        /// AST node is the builtin call.
+        builtin_call,
         /// `<`
         /// Uses the `pl_node` union field. Payload is `Bin`.
         cmp_lt,
@@ -916,9 +922,6 @@ pub const Inst = struct {
         /// The addend communicates the type of the builtin.
         /// The mulends need to be coerced to the same type.
         mul_add,
-        /// Implements the `@call` builtin.
-        /// Uses the `pl_node` union field with payload `BuiltinCall`.
-        builtin_call,
         /// Implements the `@fieldParentPtr` builtin.
         /// Uses the `pl_node` union field with payload `FieldParentPtr`.
         field_parent_ptr,
@@ -2733,9 +2736,24 @@ pub const Inst = struct {
     };
 
     pub const BuiltinCall = struct {
+        // Note: Flags *must* come first so that unusedResultExpr
+        // can find it when it goes to modify them.
+        flags: Flags,
         options: Ref,
         callee: Ref,
         args: Ref,
+
+        pub const Flags = packed struct {
+            is_nosuspend: bool,
+            is_comptime: bool,
+            ensure_result_used: bool,
+            _: u29 = undefined,
+
+            comptime {
+                if (@sizeOf(Flags) != 4 or @bitSizeOf(Flags) != 32)
+                    @compileError("Layout of BuiltinCall.Flags needs to be updated!");
+            }
+        };
     };
 
     /// This data is stored inside extra, with two sets of trailing `Ref`:

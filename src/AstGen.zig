@@ -71,6 +71,7 @@ fn setExtra(astgen: *AstGen, index: usize, extra: anytype) void {
             Zir.Inst.Ref => @enumToInt(@field(extra, field.name)),
             i32 => @bitCast(u32, @field(extra, field.name)),
             Zir.Inst.Call.Flags => @bitCast(u32, @field(extra, field.name)),
+            Zir.Inst.BuiltinCall.Flags => @bitCast(u32, @field(extra, field.name)),
             Zir.Inst.SwitchBlock.Bits => @bitCast(u32, @field(extra, field.name)),
             Zir.Inst.ExtendedFunc.Bits => @bitCast(u32, @field(extra, field.name)),
             else => @compileError("bad field type"),
@@ -2213,6 +2214,14 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
                 slot.* = @bitCast(u32, flags);
                 break :b true;
             },
+            .builtin_call => {
+                const extra_index = gz.astgen.instructions.items(.data)[inst].pl_node.payload_index;
+                const slot = &gz.astgen.extra.items[extra_index];
+                var flags = @bitCast(Zir.Inst.BuiltinCall.Flags, slot.*);
+                flags.ensure_result_used = true;
+                slot.* = @bitCast(u32, flags);
+                break :b true;
+            },
 
             // ZIR instructions that might be a type other than `noreturn` or `void`.
             .add,
@@ -2412,7 +2421,6 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .atomic_load,
             .atomic_rmw,
             .mul_add,
-            .builtin_call,
             .field_parent_ptr,
             .maximum,
             .minimum,
@@ -7502,6 +7510,11 @@ fn builtinCall(
                 .options = options,
                 .callee = callee,
                 .args = args,
+                .flags = .{
+                    .is_nosuspend = gz.nosuspend_node != 0,
+                    .is_comptime = gz.force_comptime,
+                    .ensure_result_used = false,
+                },
             });
             return rvalue(gz, rl, result, node);
         },
