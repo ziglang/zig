@@ -21,7 +21,6 @@ const Emit = @import("Emit.zig");
 const Liveness = @import("../../Liveness.zig");
 const Mir = @import("Mir.zig");
 const Module = @import("../../Module.zig");
-const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 const Target = std.Target;
 const Type = @import("../../type.zig").Type;
 const TypedValue = @import("../../TypedValue.zig");
@@ -32,15 +31,15 @@ const abi = @import("abi.zig");
 
 const callee_preserved_regs = abi.callee_preserved_regs;
 const caller_preserved_regs = abi.caller_preserved_regs;
-const allocatable_registers = abi.allocatable_registers;
 const c_abi_int_param_regs = abi.c_abi_int_param_regs;
 const c_abi_int_return_regs = abi.c_abi_int_return_regs;
-const RegisterManager = RegisterManagerFn(Self, Register, &allocatable_registers);
+
+const RegisterManager = abi.RegisterManager;
 const RegisterLock = RegisterManager.RegisterLock;
 const Register = bits.Register;
-const RegisterClass = abi.RegisterClass;
-const gp = RegisterClass.gp;
-const avx = RegisterClass.avx;
+
+const gp = abi.RegisterClass.gp;
+const avx = abi.RegisterClass.avx;
 
 const InnerError = error{
     OutOfMemory,
