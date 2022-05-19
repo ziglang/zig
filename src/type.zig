@@ -2760,7 +2760,7 @@ pub const Type = extern union {
             .sema_kit => |sk| sk,
             else => null,
         };
-        return switch (ty.tag()) {
+        switch (ty.tag()) {
             .u1,
             .u8,
             .i8,
@@ -3028,7 +3028,7 @@ pub const Type = extern union {
             => unreachable,
 
             .generic_poison => unreachable,
-        };
+        }
     }
 
     pub fn abiAlignmentAdvancedUnion(
@@ -3076,10 +3076,37 @@ pub const Type = extern union {
         return AbiAlignmentAdvanced{ .scalar = max_align };
     }
 
+    /// May capture a reference to `ty`.
+    pub fn lazyAbiSize(ty: Type, target: Target, arena: Allocator) !Value {
+        switch (try ty.abiSizeAdvanced(target, .{ .lazy = arena })) {
+            .val => |val| return val,
+            .scalar => |x| return Value.Tag.int_u64.create(arena, x),
+        }
+    }
+
     /// Asserts the type has the ABI size already resolved.
     /// Types that return false for hasRuntimeBits() return 0.
-    pub fn abiSize(self: Type, target: Target) u64 {
-        return switch (self.tag()) {
+    pub fn abiSize(ty: Type, target: Target) u64 {
+        return (abiSizeAdvanced(ty, target, .eager) catch unreachable).scalar;
+    }
+
+    const AbiSizeAdvanced = union(enum) {
+        scalar: u64,
+        val: Value,
+    };
+
+    /// If you pass `eager` you will get back `scalar` and assert the type is resolved.
+    /// In this case there will be no error, guaranteed.
+    /// If you pass `lazy` you may get back `scalar` or `val`.
+    /// If `val` is returned, a reference to `ty` has been captured.
+    /// If you pass `sema_kit` you will get back `scalar` and resolve the type if
+    /// necessary, possibly returning a CompileError.
+    pub fn abiSizeAdvanced(
+        ty: Type,
+        target: Target,
+        strat: AbiAlignmentAdvancedStrat,
+    ) Module.CompileError!AbiSizeAdvanced {
+        switch (ty.tag()) {
             .fn_noreturn_no_args => unreachable, // represents machine code; not a pointer
             .fn_void_no_args => unreachable, // represents machine code; not a pointer
             .fn_naked_noreturn_no_args => unreachable, // represents machine code; not a pointer
@@ -3109,32 +3136,59 @@ pub const Type = extern union {
             .empty_struct_literal,
             .empty_struct,
             .void,
-            => 0,
+            => return AbiSizeAdvanced{ .scalar = 0 },
 
-            .@"struct", .tuple, .anon_struct => switch (self.containerLayout()) {
+            .@"struct", .tuple, .anon_struct => switch (ty.containerLayout()) {
                 .Packed => {
-                    const struct_obj = self.castTag(.@"struct").?.data;
+                    const struct_obj = ty.castTag(.@"struct").?.data;
+                    switch (strat) {
+                        .sema_kit => |sk| _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty),
+                        .lazy => |arena| {
+                            if (!struct_obj.haveFieldTypes()) {
+                                return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) };
+                            }
+                        },
+                        .eager => {},
+                    }
                     var buf: Type.Payload.Bits = undefined;
                     const int_ty = struct_obj.packedIntegerType(target, &buf);
-                    return int_ty.abiSize(target);
+                    return AbiSizeAdvanced{ .scalar = int_ty.abiSize(target) };
                 },
                 else => {
-                    const field_count = self.structFieldCount();
-                    if (field_count == 0) {
-                        return 0;
+                    switch (strat) {
+                        .sema_kit => |sk| try sk.sema.resolveTypeLayout(sk.block, sk.src, ty),
+                        .lazy => |arena| {
+                            if (ty.castTag(.@"struct")) |payload| {
+                                const struct_obj = payload.data;
+                                if (!struct_obj.haveLayout()) {
+                                    return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) };
+                                }
+                            }
+                        },
+                        .eager => {},
                     }
-                    return self.structFieldOffset(field_count, target);
+                    const field_count = ty.structFieldCount();
+                    if (field_count == 0) {
+                        return AbiSizeAdvanced{ .scalar = 0 };
+                    }
+                    return AbiSizeAdvanced{ .scalar = ty.structFieldOffset(field_count, target) };
                 },
             },
 
             .enum_simple, .enum_full, .enum_nonexhaustive, .enum_numbered => {
                 var buffer: Payload.Bits = undefined;
-                const int_tag_ty = self.intTagType(&buffer);
-                return int_tag_ty.abiSize(target);
+                const int_tag_ty = ty.intTagType(&buffer);
+                return AbiSizeAdvanced{ .scalar = int_tag_ty.abiSize(target) };
             },
-            // TODO pass `true` for have_tag when unions have a safety tag
-            .@"union" => return self.castTag(.@"union").?.data.abiSize(target, false),
-            .union_tagged => return self.castTag(.union_tagged).?.data.abiSize(target, true),
+            .@"union" => {
+                const union_obj = ty.castTag(.@"union").?.data;
+                // TODO pass `true` for have_tag when unions have a safety tag
+                return abiSizeAdvancedUnion(ty, target, strat, union_obj, false);
+            },
+            .union_tagged => {
+                const union_obj = ty.castTag(.union_tagged).?.data;
+                return abiSizeAdvancedUnion(ty, target, strat, union_obj, true);
+            },
 
             .u1,
             .u8,
@@ -3146,21 +3200,31 @@ pub const Type = extern union {
             .address_space,
             .float_mode,
             .reduce_op,
-            => return 1,
+            => return AbiSizeAdvanced{ .scalar = 1 },
 
-            .array_u8 => self.castTag(.array_u8).?.data,
-            .array_u8_sentinel_0 => self.castTag(.array_u8_sentinel_0).?.data + 1,
+            .array_u8 => return AbiSizeAdvanced{ .scalar = ty.castTag(.array_u8).?.data },
+            .array_u8_sentinel_0 => return AbiSizeAdvanced{ .scalar = ty.castTag(.array_u8_sentinel_0).?.data + 1 },
             .array, .vector => {
-                const payload = self.cast(Payload.Array).?.data;
-                const elem_size = payload.elem_type.abiSize(target);
-                assert(elem_size >= payload.elem_type.abiAlignment(target));
-                return payload.len * elem_size;
+                const payload = ty.cast(Payload.Array).?.data;
+                switch (try payload.elem_type.abiSizeAdvanced(target, strat)) {
+                    .scalar => |elem_size| return AbiSizeAdvanced{ .scalar = payload.len * elem_size },
+                    .val => switch (strat) {
+                        .sema_kit => unreachable,
+                        .eager => unreachable,
+                        .lazy => |arena| return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) },
+                    },
+                }
             },
             .array_sentinel => {
-                const payload = self.castTag(.array_sentinel).?.data;
-                const elem_size = payload.elem_type.abiSize(target);
-                assert(elem_size >= payload.elem_type.abiAlignment(target));
-                return (payload.len + 1) * elem_size;
+                const payload = ty.castTag(.array_sentinel).?.data;
+                switch (try payload.elem_type.abiSizeAdvanced(target, strat)) {
+                    .scalar => |elem_size| return AbiSizeAdvanced{ .scalar = (payload.len + 1) * elem_size },
+                    .val => switch (strat) {
+                        .sema_kit => unreachable,
+                        .eager => unreachable,
+                        .lazy => |arena| return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) },
+                    },
+                }
             },
 
             .isize,
@@ -3178,95 +3242,96 @@ pub const Type = extern union {
             .manyptr_u8,
             .manyptr_const_u8,
             .manyptr_const_u8_sentinel_0,
-            => return @divExact(target.cpu.arch.ptrBitWidth(), 8),
+            => return AbiSizeAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) },
 
             .const_slice,
             .mut_slice,
             .const_slice_u8,
             .const_slice_u8_sentinel_0,
-            => return @divExact(target.cpu.arch.ptrBitWidth(), 8) * 2,
+            => return AbiSizeAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) * 2 },
 
-            .pointer => switch (self.castTag(.pointer).?.data.size) {
-                .Slice => @divExact(target.cpu.arch.ptrBitWidth(), 8) * 2,
-                else => @divExact(target.cpu.arch.ptrBitWidth(), 8),
+            .pointer => switch (ty.castTag(.pointer).?.data.size) {
+                .Slice => return AbiSizeAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) * 2 },
+                else => return AbiSizeAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) },
             },
 
-            .c_short => return @divExact(CType.short.sizeInBits(target), 8),
-            .c_ushort => return @divExact(CType.ushort.sizeInBits(target), 8),
-            .c_int => return @divExact(CType.int.sizeInBits(target), 8),
-            .c_uint => return @divExact(CType.uint.sizeInBits(target), 8),
-            .c_long => return @divExact(CType.long.sizeInBits(target), 8),
-            .c_ulong => return @divExact(CType.ulong.sizeInBits(target), 8),
-            .c_longlong => return @divExact(CType.longlong.sizeInBits(target), 8),
-            .c_ulonglong => return @divExact(CType.ulonglong.sizeInBits(target), 8),
+            .c_short => return AbiSizeAdvanced{ .scalar = @divExact(CType.short.sizeInBits(target), 8) },
+            .c_ushort => return AbiSizeAdvanced{ .scalar = @divExact(CType.ushort.sizeInBits(target), 8) },
+            .c_int => return AbiSizeAdvanced{ .scalar = @divExact(CType.int.sizeInBits(target), 8) },
+            .c_uint => return AbiSizeAdvanced{ .scalar = @divExact(CType.uint.sizeInBits(target), 8) },
+            .c_long => return AbiSizeAdvanced{ .scalar = @divExact(CType.long.sizeInBits(target), 8) },
+            .c_ulong => return AbiSizeAdvanced{ .scalar = @divExact(CType.ulong.sizeInBits(target), 8) },
+            .c_longlong => return AbiSizeAdvanced{ .scalar = @divExact(CType.longlong.sizeInBits(target), 8) },
+            .c_ulonglong => return AbiSizeAdvanced{ .scalar = @divExact(CType.ulonglong.sizeInBits(target), 8) },
 
-            .f16 => return 2,
-            .f32 => return 4,
-            .f64 => return 8,
-            .f128 => return 16,
+            .f16 => return AbiSizeAdvanced{ .scalar = 2 },
+            .f32 => return AbiSizeAdvanced{ .scalar = 4 },
+            .f64 => return AbiSizeAdvanced{ .scalar = 8 },
+            .f128 => return AbiSizeAdvanced{ .scalar = 16 },
 
             .f80 => switch (target.cpu.arch) {
-                .i386 => return 12,
-                .x86_64 => return 16,
+                .i386 => return AbiSizeAdvanced{ .scalar = 12 },
+                .x86_64 => return AbiSizeAdvanced{ .scalar = 16 },
                 else => {
                     var payload: Payload.Bits = .{
                         .base = .{ .tag = .int_unsigned },
                         .data = 80,
                     };
                     const u80_ty = initPayload(&payload.base);
-                    return abiSize(u80_ty, target);
+                    return AbiSizeAdvanced{ .scalar = abiSize(u80_ty, target) };
                 },
             },
             .c_longdouble => switch (CType.longdouble.sizeInBits(target)) {
-                16 => return abiSize(Type.f16, target),
-                32 => return abiSize(Type.f32, target),
-                64 => return abiSize(Type.f64, target),
-                80 => return abiSize(Type.f80, target),
-                128 => return abiSize(Type.f128, target),
+                16 => return AbiSizeAdvanced{ .scalar = abiSize(Type.f16, target) },
+                32 => return AbiSizeAdvanced{ .scalar = abiSize(Type.f32, target) },
+                64 => return AbiSizeAdvanced{ .scalar = abiSize(Type.f64, target) },
+                80 => return AbiSizeAdvanced{ .scalar = abiSize(Type.f80, target) },
+                128 => return AbiSizeAdvanced{ .scalar = abiSize(Type.f128, target) },
                 else => unreachable,
             },
 
+            // TODO revisit this when we have the concept of the error tag type
             .error_set,
             .error_set_single,
             .anyerror_void_error_union,
             .anyerror,
             .error_set_inferred,
             .error_set_merged,
-            => return 2, // TODO revisit this when we have the concept of the error tag type
+            => return AbiSizeAdvanced{ .scalar = 2 },
 
-            .i16, .u16 => return intAbiSize(16, target),
-            .i32, .u32 => return intAbiSize(32, target),
-            .i64, .u64 => return intAbiSize(64, target),
-            .u128, .i128 => return intAbiSize(128, target),
+            .i16, .u16 => return AbiSizeAdvanced{ .scalar = intAbiSize(16, target) },
+            .i32, .u32 => return AbiSizeAdvanced{ .scalar = intAbiSize(32, target) },
+            .i64, .u64 => return AbiSizeAdvanced{ .scalar = intAbiSize(64, target) },
+            .u128, .i128 => return AbiSizeAdvanced{ .scalar = intAbiSize(128, target) },
             .int_signed, .int_unsigned => {
-                const bits: u16 = self.cast(Payload.Bits).?.data;
-                if (bits == 0) return 0;
-                return intAbiSize(bits, target);
+                const bits: u16 = ty.cast(Payload.Bits).?.data;
+                if (bits == 0) return AbiSizeAdvanced{ .scalar = 0 };
+                return AbiSizeAdvanced{ .scalar = intAbiSize(bits, target) };
             },
 
             .optional => {
                 var buf: Payload.ElemType = undefined;
-                const child_type = self.optionalChild(&buf);
-                if (!child_type.hasRuntimeBits()) return 1;
+                const child_type = ty.optionalChild(&buf);
+                if (!child_type.hasRuntimeBits()) return AbiSizeAdvanced{ .scalar = 1 };
 
                 if (child_type.zigTypeTag() == .Pointer and !child_type.isCPtr() and !child_type.isSlice())
-                    return @divExact(target.cpu.arch.ptrBitWidth(), 8);
+                    return AbiSizeAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) };
 
                 // Optional types are represented as a struct with the child type as the first
                 // field and a boolean as the second. Since the child type's abi alignment is
                 // guaranteed to be >= that of bool's (1 byte) the added size is exactly equal
                 // to the child type's ABI alignment.
-                return child_type.abiAlignment(target) + child_type.abiSize(target);
+                return AbiSizeAdvanced{ .scalar = child_type.abiAlignment(target) + child_type.abiSize(target) };
             },
 
             .error_union => {
-                const data = self.castTag(.error_union).?.data;
+                const data = ty.castTag(.error_union).?.data;
                 if (!data.error_set.hasRuntimeBits() and !data.payload.hasRuntimeBits()) {
-                    return 0;
+                    return AbiSizeAdvanced{ .scalar = 0 };
                 } else if (!data.error_set.hasRuntimeBits()) {
-                    return data.payload.abiSize(target);
+                    return AbiSizeAdvanced{ .scalar = data.payload.abiSize(target) };
                 } else if (!data.payload.hasRuntimeBits()) {
-                    return data.error_set.abiSize(target);
+                    return AbiSizeAdvanced{ .scalar = data.error_set.abiSize(target) };
                 }
                 const code_align = abiAlignment(data.error_set, target);
                 const payload_align = abiAlignment(data.payload, target);
@@ -3278,9 +3343,28 @@ pub const Type = extern union {
                 size = std.mem.alignForwardGeneric(u64, size, payload_align);
                 size += payload_size;
                 size = std.mem.alignForwardGeneric(u64, size, big_align);
-                return size;
+                return AbiSizeAdvanced{ .scalar = size };
             },
-        };
+        }
+    }
+
+    pub fn abiSizeAdvancedUnion(
+        ty: Type,
+        target: Target,
+        strat: AbiAlignmentAdvancedStrat,
+        union_obj: *Module.Union,
+        have_tag: bool,
+    ) Module.CompileError!AbiSizeAdvanced {
+        switch (strat) {
+            .sema_kit => |sk| try sk.sema.resolveTypeLayout(sk.block, sk.src, ty),
+            .lazy => |arena| {
+                if (!union_obj.haveLayout()) {
+                    return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) };
+                }
+            },
+            .eager => {},
+        }
+        return AbiSizeAdvanced{ .scalar = union_obj.abiSize(target, have_tag) };
     }
 
     fn intAbiSize(bits: u16, target: Target) u64 {
@@ -5443,73 +5527,6 @@ pub const Type = extern union {
             .extern_options,
             .type_info,
             => unreachable, // These need to be resolved earlier.
-
-            else => unreachable,
-        }
-    }
-
-    /// Asserts the type is an enum.
-    pub fn enumHasInt(ty: Type, int: Value, mod: *Module) bool {
-        const S = struct {
-            fn intInRange(tag_ty: Type, int_val: Value, end: usize, m: *Module) bool {
-                if (int_val.compareWithZero(.lt)) return false;
-                var end_payload: Value.Payload.U64 = .{
-                    .base = .{ .tag = .int_u64 },
-                    .data = end,
-                };
-                const end_val = Value.initPayload(&end_payload.base);
-                if (int_val.compare(.gte, end_val, tag_ty, m)) return false;
-                return true;
-            }
-        };
-        switch (ty.tag()) {
-            .enum_nonexhaustive => return int.intFitsInType(ty, mod.getTarget()),
-            .enum_full => {
-                const enum_full = ty.castTag(.enum_full).?.data;
-                const tag_ty = enum_full.tag_ty;
-                if (enum_full.values.count() == 0) {
-                    return S.intInRange(tag_ty, int, enum_full.fields.count(), mod);
-                } else {
-                    return enum_full.values.containsContext(int, .{
-                        .ty = tag_ty,
-                        .mod = mod,
-                    });
-                }
-            },
-            .enum_numbered => {
-                const enum_obj = ty.castTag(.enum_numbered).?.data;
-                const tag_ty = enum_obj.tag_ty;
-                if (enum_obj.values.count() == 0) {
-                    return S.intInRange(tag_ty, int, enum_obj.fields.count(), mod);
-                } else {
-                    return enum_obj.values.containsContext(int, .{
-                        .ty = tag_ty,
-                        .mod = mod,
-                    });
-                }
-            },
-            .enum_simple => {
-                const enum_simple = ty.castTag(.enum_simple).?.data;
-                const fields_len = enum_simple.fields.count();
-                const bits = std.math.log2_int_ceil(usize, fields_len);
-                var buffer: Payload.Bits = .{
-                    .base = .{ .tag = .int_unsigned },
-                    .data = bits,
-                };
-                const tag_ty = Type.initPayload(&buffer.base);
-                return S.intInRange(tag_ty, int, fields_len, mod);
-            },
-            .atomic_order,
-            .atomic_rmw_op,
-            .calling_convention,
-            .address_space,
-            .float_mode,
-            .reduce_op,
-            .call_options,
-            .prefetch_options,
-            .export_options,
-            .extern_options,
-            => unreachable,
 
             else => unreachable,
         }

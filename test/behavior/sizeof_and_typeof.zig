@@ -169,8 +169,6 @@ test "@bitOffsetOf" {
 }
 
 test "@sizeOf(T) == 0 doesn't force resolving struct size" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const S = struct {
         const Foo = struct {
             y: if (@sizeOf(Foo) == 0) u64 else u32,
