@@ -39,7 +39,7 @@ const RegisterLock = RegisterManager.RegisterLock;
 const Register = bits.Register;
 
 const gp = abi.RegisterClass.gp;
-const avx = abi.RegisterClass.avx;
+const sse = abi.RegisterClass.sse;
 
 const InnerError = error{
     OutOfMemory,
@@ -881,15 +881,18 @@ fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
         switch (elem_ty.zigTypeTag()) {
             .Vector => return self.fail("TODO allocRegOrMem for Vector type", .{}),
             .Float => {
-                // TODO check if AVX available
-                const ptr_bytes: u64 = 32;
-                if (abi_size <= ptr_bytes) {
-                    if (self.register_manager.tryAllocReg(inst, .{
-                        .selector_mask = avx,
-                    })) |reg| {
-                        return MCValue{ .register = registerAlias(reg, abi_size) };
+                if (self.intrinsicsAllowed(elem_ty)) {
+                    const ptr_bytes: u64 = 32;
+                    if (abi_size <= ptr_bytes) {
+                        if (self.register_manager.tryAllocReg(inst, .{
+                            .selector_mask = sse,
+                        })) |reg| {
+                            return MCValue{ .register = registerAlias(reg, abi_size) };
+                        }
                     }
                 }
+
+                return self.fail("TODO allocRegOrMem for Float type without SSE/AVX support", .{});
             },
             else => {
                 // Make sure the type can fit in a register before we try to allocate one.
@@ -969,8 +972,11 @@ pub fn spillRegisters(self: *Self, comptime count: comptime_int, registers: [cou
 /// allocated. A second call to `copyToTmpRegister` may return the same register.
 /// This can have a side effect of spilling instructions to the stack to free up a register.
 fn copyToTmpRegister(self: *Self, ty: Type, mcv: MCValue) !Register {
-    const mask = switch (ty.zigTypeTag()) {
-        .Float => avx,
+    const mask: RegisterManager.RegisterBitSet = switch (ty.zigTypeTag()) {
+        .Float => blk: {
+            if (self.intrinsicsAllowed(ty)) break :blk sse;
+            return self.fail("TODO copy {} to register", .{ty.fmtDebug()});
+        },
         else => gp,
     };
     const reg: Register = try self.register_manager.allocReg(null, .{
@@ -985,8 +991,11 @@ fn copyToTmpRegister(self: *Self, ty: Type, mcv: MCValue) !Register {
 /// This can have a side effect of spilling instructions to the stack to free up a register.
 /// WARNING make sure that the allocated register matches the returned MCValue from an instruction!
 fn copyToRegisterWithInstTracking(self: *Self, reg_owner: Air.Inst.Index, ty: Type, mcv: MCValue) !MCValue {
-    const mask = switch (ty.zigTypeTag()) {
-        .Float => avx,
+    const mask: RegisterManager.RegisterBitSet = switch (ty.zigTypeTag()) {
+        .Float => blk: {
+            if (self.intrinsicsAllowed(ty)) break :blk sse;
+            return self.fail("TODO copy {} to register", .{ty.fmtDebug()});
+        },
         else => gp,
     };
     const reg: Register = try self.register_manager.allocReg(reg_owner, .{
@@ -3469,27 +3478,32 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValu
                 },
                 .register => |src_reg| switch (dst_ty.zigTypeTag()) {
                     .Float => {
-                        const actual_tag: Mir.Inst.Tag = switch (dst_ty.tag()) {
-                            .f32 => switch (mir_tag) {
-                                .add => Mir.Inst.Tag.add_f32,
-                                .cmp => Mir.Inst.Tag.cmp_f32,
-                                else => return self.fail("TODO genBinOpMir for f32 register-register with MIR tag {}", .{mir_tag}),
-                            },
-                            .f64 => switch (mir_tag) {
-                                .add => Mir.Inst.Tag.add_f64,
-                                .cmp => Mir.Inst.Tag.cmp_f64,
-                                else => return self.fail("TODO genBinOpMir for f64 register-register with MIR tag {}", .{mir_tag}),
-                            },
-                            else => return self.fail("TODO genBinOpMir for float register-register and type {}", .{dst_ty.fmtDebug()}),
-                        };
-                        _ = try self.addInst(.{
-                            .tag = actual_tag,
-                            .ops = Mir.Inst.Ops.encode(.{
-                                .reg1 = dst_reg.to128(),
-                                .reg2 = src_reg.to128(),
-                            }),
-                            .data = undefined,
-                        });
+                        if (self.intrinsicsAllowed(dst_ty)) {
+                            const actual_tag: Mir.Inst.Tag = switch (dst_ty.tag()) {
+                                .f32 => switch (mir_tag) {
+                                    .add => Mir.Inst.Tag.add_f32_avx,
+                                    .cmp => Mir.Inst.Tag.cmp_f32_avx,
+                                    else => return self.fail("TODO genBinOpMir for f32 register-register with MIR tag {}", .{mir_tag}),
+                                },
+                                .f64 => switch (mir_tag) {
+                                    .add => Mir.Inst.Tag.add_f64_avx,
+                                    .cmp => Mir.Inst.Tag.cmp_f64_avx,
+                                    else => return self.fail("TODO genBinOpMir for f64 register-register with MIR tag {}", .{mir_tag}),
+                                },
+                                else => return self.fail("TODO genBinOpMir for float register-register and type {}", .{dst_ty.fmtDebug()}),
+                            };
+                            _ = try self.addInst(.{
+                                .tag = actual_tag,
+                                .ops = Mir.Inst.Ops.encode(.{
+                                    .reg1 = dst_reg.to128(),
+                                    .reg2 = src_reg.to128(),
+                                }),
+                                .data = undefined,
+                            });
+                            return;
+                        }
+
+                        return self.fail("TODO genBinOpMir for float register-register and no intrinsics", .{});
                     },
                     else => {
                         _ = try self.addInst(.{
@@ -5326,24 +5340,29 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
         .register => |reg| {
             switch (ty.zigTypeTag()) {
                 .Float => {
-                    const tag: Mir.Inst.Tag = switch (ty.tag()) {
-                        .f32 => .mov_f32,
-                        .f64 => .mov_f64,
-                        else => return self.fail("TODO genSetStackArg for register for type {}", .{ty.fmtDebug()}),
-                    };
-                    _ = try self.addInst(.{
-                        .tag = tag,
-                        .ops = Mir.Inst.Ops.encode(.{
-                            .reg1 = switch (ty.tag()) {
-                                .f32 => .esp,
-                                .f64 => .rsp,
-                                else => unreachable,
-                            },
-                            .reg2 = reg.to128(),
-                            .flags = 0b01,
-                        }),
-                        .data = .{ .imm = @bitCast(u32, -stack_offset) },
-                    });
+                    if (self.intrinsicsAllowed(ty)) {
+                        const tag: Mir.Inst.Tag = switch (ty.tag()) {
+                            .f32 => .mov_f32_avx,
+                            .f64 => .mov_f64_avx,
+                            else => return self.fail("TODO genSetStackArg for register for type {}", .{ty.fmtDebug()}),
+                        };
+                        _ = try self.addInst(.{
+                            .tag = tag,
+                            .ops = Mir.Inst.Ops.encode(.{
+                                .reg1 = switch (ty.tag()) {
+                                    .f32 => .esp,
+                                    .f64 => .rsp,
+                                    else => unreachable,
+                                },
+                                .reg2 = reg.to128(),
+                                .flags = 0b01,
+                            }),
+                            .data = .{ .imm = @bitCast(u32, -stack_offset) },
+                        });
+                        return;
+                    }
+
+                    return self.fail("TODO genSetStackArg for register with no intrinsics", .{});
                 },
                 else => {
                     _ = try self.addInst(.{
@@ -5505,24 +5524,29 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
 
             switch (ty.zigTypeTag()) {
                 .Float => {
-                    const tag: Mir.Inst.Tag = switch (ty.tag()) {
-                        .f32 => .mov_f32,
-                        .f64 => .mov_f64,
-                        else => return self.fail("TODO genSetStack for register for type {}", .{ty.fmtDebug()}),
-                    };
-                    _ = try self.addInst(.{
-                        .tag = tag,
-                        .ops = Mir.Inst.Ops.encode(.{
-                            .reg1 = switch (ty.tag()) {
-                                .f32 => base_reg.to32(),
-                                .f64 => base_reg.to64(),
-                                else => unreachable,
-                            },
-                            .reg2 = reg.to128(),
-                            .flags = 0b01,
-                        }),
-                        .data = .{ .imm = @bitCast(u32, -stack_offset) },
-                    });
+                    if (self.intrinsicsAllowed(ty)) {
+                        const tag: Mir.Inst.Tag = switch (ty.tag()) {
+                            .f32 => .mov_f32_avx,
+                            .f64 => .mov_f64_avx,
+                            else => return self.fail("TODO genSetStack for register for type {}", .{ty.fmtDebug()}),
+                        };
+                        _ = try self.addInst(.{
+                            .tag = tag,
+                            .ops = Mir.Inst.Ops.encode(.{
+                                .reg1 = switch (ty.tag()) {
+                                    .f32 => base_reg.to32(),
+                                    .f64 => base_reg.to64(),
+                                    else => unreachable,
+                                },
+                                .reg2 = reg.to128(),
+                                .flags = 0b01,
+                            }),
+                            .data = .{ .imm = @bitCast(u32, -stack_offset) },
+                        });
+                        return;
+                    }
+
+                    return self.fail("TODO genSetStack for register for type float with no intrinsics", .{});
                 },
                 else => {
                     if (!math.isPowerOfTwo(abi_size)) {
@@ -6026,21 +6050,25 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     },
                 },
                 .Float => {
-                    const tag: Mir.Inst.Tag = switch (ty.tag()) {
-                        .f32 => .mov_f32,
-                        .f64 => .mov_f64,
-                        else => return self.fail("TODO genSetReg from register for {}", .{ty.fmtDebug()}),
-                    };
-                    _ = try self.addInst(.{
-                        .tag = tag,
-                        .ops = Mir.Inst.Ops.encode(.{
-                            .reg1 = reg.to128(),
-                            .reg2 = src_reg.to128(),
-                            .flags = 0b10,
-                        }),
-                        .data = undefined,
-                    });
-                    return;
+                    if (self.intrinsicsAllowed(ty)) {
+                        const tag: Mir.Inst.Tag = switch (ty.tag()) {
+                            .f32 => .mov_f32_avx,
+                            .f64 => .mov_f64_avx,
+                            else => return self.fail("TODO genSetReg from register for {}", .{ty.fmtDebug()}),
+                        };
+                        _ = try self.addInst(.{
+                            .tag = tag,
+                            .ops = Mir.Inst.Ops.encode(.{
+                                .reg1 = reg.to128(),
+                                .reg2 = src_reg.to128(),
+                                .flags = 0b10,
+                            }),
+                            .data = undefined,
+                        });
+                        return;
+                    }
+
+                    return self.fail("TODO genSetReg from register for float with no intrinsics", .{});
                 },
                 else => {},
             }
@@ -6073,24 +6101,29 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 const base_reg = try self.register_manager.allocReg(null, .{ .selector_mask = gp });
                 try self.loadMemPtrIntoRegister(base_reg, Type.usize, mcv);
 
-                const tag: Mir.Inst.Tag = switch (ty.tag()) {
-                    .f32 => .mov_f32,
-                    .f64 => .mov_f64,
-                    else => return self.fail("TODO genSetReg from memory for {}", .{ty.fmtDebug()}),
-                };
+                if (self.intrinsicsAllowed(ty)) {
+                    const tag: Mir.Inst.Tag = switch (ty.tag()) {
+                        .f32 => .mov_f32_avx,
+                        .f64 => .mov_f64_avx,
+                        else => return self.fail("TODO genSetReg from memory for {}", .{ty.fmtDebug()}),
+                    };
 
-                _ = try self.addInst(.{
-                    .tag = tag,
-                    .ops = Mir.Inst.Ops.encode(.{
-                        .reg1 = reg.to128(),
-                        .reg2 = switch (ty.tag()) {
-                            .f32 => base_reg.to32(),
-                            .f64 => base_reg.to64(),
-                            else => unreachable,
-                        },
-                    }),
-                    .data = .{ .imm = 0 },
-                });
+                    _ = try self.addInst(.{
+                        .tag = tag,
+                        .ops = Mir.Inst.Ops.encode(.{
+                            .reg1 = reg.to128(),
+                            .reg2 = switch (ty.tag()) {
+                                .f32 => base_reg.to32(),
+                                .f64 => base_reg.to64(),
+                                else => unreachable,
+                            },
+                        }),
+                        .data = .{ .imm = 0 },
+                    });
+                    return;
+                }
+
+                return self.fail("TODO genSetReg from memory for float with no intrinsics", .{});
             },
             else => {
                 if (x <= math.maxInt(i32)) {
@@ -6183,24 +6216,27 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     },
                 },
                 .Float => {
-                    const tag: Mir.Inst.Tag = switch (ty.tag()) {
-                        .f32 => .mov_f32,
-                        .f64 => .mov_f64,
-                        else => return self.fail("TODO genSetReg from stack offset for {}", .{ty.fmtDebug()}),
-                    };
-                    _ = try self.addInst(.{
-                        .tag = tag,
-                        .ops = Mir.Inst.Ops.encode(.{
-                            .reg1 = reg.to128(),
-                            .reg2 = switch (ty.tag()) {
-                                .f32 => .ebp,
-                                .f64 => .rbp,
-                                else => unreachable,
-                            },
-                        }),
-                        .data = .{ .imm = @bitCast(u32, -off) },
-                    });
-                    return;
+                    if (self.intrinsicsAllowed(ty)) {
+                        const tag: Mir.Inst.Tag = switch (ty.tag()) {
+                            .f32 => .mov_f32_avx,
+                            .f64 => .mov_f64_avx,
+                            else => return self.fail("TODO genSetReg from stack offset for {}", .{ty.fmtDebug()}),
+                        };
+                        _ = try self.addInst(.{
+                            .tag = tag,
+                            .ops = Mir.Inst.Ops.encode(.{
+                                .reg1 = reg.to128(),
+                                .reg2 = switch (ty.tag()) {
+                                    .f32 => .ebp,
+                                    .f64 => .rbp,
+                                    else => unreachable,
+                                },
+                            }),
+                            .data = .{ .imm = @bitCast(u32, -off) },
+                        });
+                        return;
+                    }
+                    return self.fail("TODO genSetReg from stack offset for float with no intrinsics", .{});
                 },
                 else => {},
             }
@@ -6994,4 +7030,13 @@ fn truncateRegister(self: *Self, ty: Type, reg: Register) !void {
             }
         },
     }
+}
+
+fn intrinsicsAllowed(self: *Self, ty: Type) bool {
+    return switch (ty.tag()) {
+        .f32,
+        .f64,
+        => Target.x86.featureSetHasAny(self.target.cpu.features, .{ .avx, .avx2 }),
+        else => unreachable, // TODO finish this off
+    };
 }
