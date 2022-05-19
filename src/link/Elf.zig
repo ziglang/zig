@@ -1294,7 +1294,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 2);
+        comptime assert(Compilation.link_hash_implementation_version == 3);
 
         try man.addOptionalFile(self.base.options.linker_script);
         try man.addOptionalFile(self.base.options.version_script);
@@ -1325,6 +1325,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         man.hash.add(self.base.options.z_notext);
         man.hash.add(self.base.options.z_defs);
         man.hash.add(self.base.options.z_origin);
+        man.hash.add(self.base.options.z_nocopyreloc);
         man.hash.add(self.base.options.z_noexecstack);
         man.hash.add(self.base.options.z_now);
         man.hash.add(self.base.options.z_relro);
@@ -1495,6 +1496,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         if (self.base.options.z_origin) {
             try argv.append("-z");
             try argv.append("origin");
+        }
+        if (self.base.options.z_nocopyreloc) {
+            try argv.append("-z");
+            try argv.append("nocopyreloc");
         }
         if (self.base.options.z_noexecstack) {
             try argv.append("-z");

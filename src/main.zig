@@ -430,6 +430,7 @@ const usage_build_generic =
     \\    notext                       Permit read-only relocations in read-only segments
     \\    defs                         Force a fatal error if any undefined symbols remain
     \\    origin                       Indicate that the object must have its origin processed
+    \\    nocopyreloc                  Disable the creation of copy relocations
     \\    noexecstack                  Indicate that the object requires an executable stack
     \\    now                          Force all relocations to be processed on load
     \\    relro                        Force all relocations to be resolved and be read-only on load
