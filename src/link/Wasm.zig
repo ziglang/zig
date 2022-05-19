@@ -2486,6 +2486,10 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
             full_out_path,
         });
 
+        if (target.cpu.arch == .wasm64) {
+            try argv.append("-mwasm64");
+        }
+
         if (target.os.tag == .wasi) {
             const is_exe_or_dyn_lib = self.base.options.output_mode == .Exe or
                 (self.base.options.output_mode == .Lib and self.base.options.link_mode == .Dynamic);
