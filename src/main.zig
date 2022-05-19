@@ -417,6 +417,7 @@ const usage_build_generic =
     \\  -fno-LLD                       Prevent using LLD as the linker
     \\  -fcompiler-rt                  Always include compiler-rt symbols in output
     \\  -fno-compiler-rt               Prevent including compiler-rt symbols in output
+    \\  -r                             Produce a relocatable object as output. This is also known as partial linking
     \\  -rdynamic                      Add all symbols to the dynamic symbol table
     \\  -rpath [path]                  Add directory to the runtime library search path
     \\  -feach-lib-rpath               Ensure adding rpath for each used dynamic library
@@ -633,6 +634,7 @@ fn buildOutputType(
     var want_valgrind: ?bool = null;
     var want_tsan: ?bool = null;
     var want_compiler_rt: ?bool = null;
+    var r: bool = false;
     var rdynamic: bool = false;
     var linker_script: ?[]const u8 = null;
     var version_script: ?[]const u8 = null;
@@ -1099,6 +1101,8 @@ fn buildOutputType(
                         use_stage1 = true;
                     } else if (mem.eql(u8, arg, "-fno-stage1")) {
                         use_stage1 = false;
+                    } else if (mem.eql(u8, arg, "-r")) {
+                        r = true;
                     } else if (mem.eql(u8, arg, "-rdynamic")) {
                         rdynamic = true;
                     } else if (mem.eql(u8, arg, "-fsoname")) {
@@ -1408,6 +1412,7 @@ fn buildOutputType(
                         link_mode = .Dynamic;
                         is_shared_lib = true;
                     },
+                    .r => r = true,
                     .rdynamic => rdynamic = true,
                     .wl => {
                         var split_it = mem.split(u8, it.only_arg, ",");
@@ -1602,6 +1607,8 @@ fn buildOutputType(
                         fatal("expected linker arg after '{s}'", .{arg});
                     }
                     target_dynamic_linker = linker_args.items[i];
+                } else if (mem.eql(u8, arg, "-r") or mem.eql(u8, arg, "--relocatable")) {
+                    r = true;
                 } else if (mem.eql(u8, arg, "-E") or
                     mem.eql(u8, arg, "--export-dynamic") or
                     mem.eql(u8, arg, "-export-dynamic"))
@@ -2671,6 +2678,7 @@ fn buildOutputType(
         .use_clang = use_clang,
         .use_stage1 = use_stage1,
         .hash_style = hash_style,
+        .relocatable = r,
         .rdynamic = rdynamic,
         .linker_script = linker_script,
         .version_script = version_script,
@@ -4401,6 +4409,7 @@ pub const ClangArgIterator = struct {
         nostdlib,
         nostdlib_cpp,
         shared,
+        r,
         rdynamic,
         wl,
         preprocess_only,

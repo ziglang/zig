@@ -732,6 +732,7 @@ pub const InitOptions = struct {
     use_clang: ?bool = null,
     use_stage1: ?bool = null,
     single_threaded: ?bool = null,
+    relocatable: bool = false,
     rdynamic: bool = false,
     strip: bool = false,
     function_sections: bool = false,
@@ -1615,6 +1616,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .gc_sections = options.linker_gc_sections,
             .eh_frame_hdr = link_eh_frame_hdr,
             .emit_relocs = options.link_emit_relocs,
+            .relocatable = options.relocatable,
             .rdynamic = options.rdynamic,
             .soname = options.soname,
             .version = options.version,
@@ -2255,7 +2257,7 @@ fn prepareWholeEmitSubPath(arena: Allocator, opt_emit: ?EmitLoc) error{OutOfMemo
 /// to remind the programmer to update multiple related pieces of code that
 /// are in different locations. Bump this number when adding or deleting
 /// anything from the link cache manifest.
-pub const link_hash_implementation_version = 2;
+pub const link_hash_implementation_version = 3;
 
 fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifest) !void {
     const gpa = comp.gpa;
@@ -2265,7 +2267,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    comptime assert(link_hash_implementation_version == 2);
+    comptime assert(link_hash_implementation_version == 3);
 
     if (comp.bin_file.options.module) |mod| {
         const main_zig_file = try mod.main_pkg.root_src_directory.join(arena, &[_][]const u8{
@@ -2324,6 +2326,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.addOptional(comp.bin_file.options.gc_sections);
     man.hash.add(comp.bin_file.options.eh_frame_hdr);
     man.hash.add(comp.bin_file.options.emit_relocs);
+    man.hash.add(comp.bin_file.options.relocatable);
     man.hash.add(comp.bin_file.options.rdynamic);
     man.hash.addListOfBytes(comp.bin_file.options.lib_dirs);
     man.hash.addListOfBytes(comp.bin_file.options.rpath_list);

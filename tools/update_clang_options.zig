@@ -143,6 +143,10 @@ const known_options = [_]KnownOpt{
         .ident = "shared",
     },
     .{
+        .name = "r",
+        .ident = "r",
+    },
+    .{
         .name = "rdynamic",
         .ident = "rdynamic",
     },

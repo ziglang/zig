@@ -107,6 +107,7 @@ pub const Options = struct {
     function_sections: bool,
     eh_frame_hdr: bool,
     emit_relocs: bool,
+    relocatable: bool,
     rdynamic: bool,
     z_nodelete: bool,
     z_notext: bool,

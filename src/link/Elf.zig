@@ -1294,7 +1294,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 2);
+        comptime assert(Compilation.link_hash_implementation_version == 3);
 
         try man.addOptionalFile(self.base.options.linker_script);
         try man.addOptionalFile(self.base.options.version_script);
@@ -1316,6 +1316,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         man.hash.add(gc_sections);
         man.hash.add(self.base.options.eh_frame_hdr);
         man.hash.add(self.base.options.emit_relocs);
+        man.hash.add(self.base.options.relocatable);
         man.hash.add(self.base.options.rdynamic);
         man.hash.addListOfBytes(self.base.options.lib_dirs);
         man.hash.addListOfBytes(self.base.options.rpath_list);
@@ -1470,6 +1471,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
 
         if (self.base.options.emit_relocs) {
             try argv.append("--emit-relocs");
+        }
+
+        if (self.base.options.relocatable) {
+            try argv.append("--relocatable");
         }
 
         if (self.base.options.rdynamic) {
