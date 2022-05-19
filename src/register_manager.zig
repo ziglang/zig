@@ -4,7 +4,6 @@ const mem = std.mem;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Air = @import("Air.zig");
-const StaticBitSet = std.bit_set.StaticBitSet;
 const Type = @import("type.zig").Type;
 const Module = @import("Module.zig");
 const expect = std.testing.expect;
@@ -42,39 +41,49 @@ pub fn RegisterManager(
         registers: [tracked_registers.len]Air.Inst.Index = undefined,
         /// Tracks which registers are free (in which case the
         /// corresponding bit is set to 1)
-        free_registers: RegisterBitSet = RegisterBitSet.initFull(),
+        free_registers: RegisterBitSet = math.maxInt(RegisterBitSet),
         /// Tracks all registers allocated in the course of this
         /// function
-        allocated_registers: RegisterBitSet = RegisterBitSet.initEmpty(),
+        allocated_registers: RegisterBitSet = 0,
         /// Tracks registers which are locked from being allocated
-        locked_registers: RegisterBitSet = RegisterBitSet.initEmpty(),
+        locked_registers: RegisterBitSet = 0,
 
         const Self = @This();
 
-        pub const RegisterBitSet = StaticBitSet(tracked_registers.len);
+        /// An integer whose bits represent all the registers and
+        /// whether they are free.
+        pub const RegisterBitSet = std.meta.Int(.unsigned, tracked_registers.len);
+        const ShiftInt = math.Log2Int(RegisterBitSet);
 
         fn getFunction(self: *Self) *Function {
             return @fieldParentPtr(Function, "register_manager", self);
         }
 
         fn excludeRegister(reg: Register, register_class: RegisterBitSet) bool {
-            const index = indexOfRegIntoTracked(reg) orelse return true;
-            return !register_class.isSet(index);
+            const mask = getRegisterMask(reg) orelse return true;
+            return mask & register_class == 0;
+        }
+
+        fn getRegisterMask(reg: Register) ?RegisterBitSet {
+            const index = indexOfRegIntoTracked(reg) orelse return null;
+            const shift = @intCast(ShiftInt, index);
+            const mask = @as(RegisterBitSet, 1) << shift;
+            return mask;
         }
 
         fn markRegAllocated(self: *Self, reg: Register) void {
-            const index = indexOfRegIntoTracked(reg) orelse return;
-            self.allocated_registers.set(index);
+            const mask = getRegisterMask(reg) orelse return;
+            self.allocated_registers |= mask;
         }
 
         fn markRegUsed(self: *Self, reg: Register) void {
-            const index = indexOfRegIntoTracked(reg) orelse return;
-            self.free_registers.unset(index);
+            const mask = getRegisterMask(reg) orelse return;
+            self.free_registers &= ~mask;
         }
 
         fn markRegFree(self: *Self, reg: Register) void {
-            const index = indexOfRegIntoTracked(reg) orelse return;
-            self.free_registers.set(index);
+            const mask = getRegisterMask(reg) orelse return;
+            self.free_registers |= mask;
         }
 
         pub fn indexOfReg(
@@ -87,14 +96,14 @@ pub fn RegisterManager(
             return null;
         }
 
-        pub fn indexOfRegIntoTracked(reg: Register) ?RegisterBitSet.ShiftInt {
+        pub fn indexOfRegIntoTracked(reg: Register) ?ShiftInt {
             return indexOfReg(tracked_registers, reg);
         }
 
         /// Returns true when this register is not tracked
         pub fn isRegFree(self: Self, reg: Register) bool {
-            const index = indexOfRegIntoTracked(reg) orelse return true;
-            return self.free_registers.isSet(index);
+            const mask = getRegisterMask(reg) orelse return true;
+            return self.free_registers & mask != 0;
         }
 
         /// Returns whether this register was allocated in the course
@@ -102,16 +111,16 @@ pub fn RegisterManager(
         ///
         /// Returns false when this register is not tracked
         pub fn isRegAllocated(self: Self, reg: Register) bool {
-            const index = indexOfRegIntoTracked(reg) orelse return false;
-            return self.allocated_registers.isSet(index);
+            const mask = getRegisterMask(reg) orelse return false;
+            return self.allocated_registers & mask != 0;
         }
 
         /// Returns whether this register is locked
         ///
         /// Returns false when this register is not tracked
         pub fn isRegLocked(self: Self, reg: Register) bool {
-            const index = indexOfRegIntoTracked(reg) orelse return false;
-            return self.locked_registers.isSet(index);
+            const mask = getRegisterMask(reg) orelse return false;
+            return self.locked_registers & mask != 0;
         }
 
         pub const RegisterLock = struct {
@@ -130,8 +139,8 @@ pub fn RegisterManager(
                 log.debug("  register already locked", .{});
                 return null;
             }
-            const index = indexOfRegIntoTracked(reg) orelse return null;
-            self.locked_registers.set(index);
+            const mask = getRegisterMask(reg) orelse return null;
+            self.locked_registers |= mask;
             return RegisterLock{ .register = reg };
         }
 
@@ -140,8 +149,8 @@ pub fn RegisterManager(
         pub fn lockRegAssumeUnused(self: *Self, reg: Register) RegisterLock {
             log.debug("locking asserting free {}", .{reg});
             assert(!self.isRegLocked(reg));
-            const index = indexOfRegIntoTracked(reg) orelse unreachable;
-            self.locked_registers.set(index);
+            const mask = getRegisterMask(reg) orelse unreachable;
+            self.locked_registers |= mask;
             return RegisterLock{ .register = reg };
         }
 
@@ -163,13 +172,13 @@ pub fn RegisterManager(
         /// Call `lockReg` to obtain the lock first.
         pub fn unlockReg(self: *Self, lock: RegisterLock) void {
             log.debug("unlocking {}", .{lock.register});
-            const index = indexOfRegIntoTracked(lock.register) orelse return;
-            self.locked_registers.unset(index);
+            const mask = getRegisterMask(lock.register) orelse return;
+            self.locked_registers &= ~mask;
         }
 
         /// Returns true when at least one register is locked
         pub fn lockedRegsExist(self: Self) bool {
-            return self.locked_registers.count() > 0;
+            return self.locked_registers != 0;
         }
 
         /// Allocates a specified number of registers, optionally
@@ -183,15 +192,10 @@ pub fn RegisterManager(
         ) ?[count]Register {
             comptime assert(count > 0 and count <= tracked_registers.len);
 
-            var free_and_not_locked_registers = self.free_registers;
-            free_and_not_locked_registers.setIntersection(register_class);
-
-            var unlocked_registers = self.locked_registers;
-            unlocked_registers.toggleAll();
-
-            free_and_not_locked_registers.setIntersection(unlocked_registers);
-
-            if (free_and_not_locked_registers.count() < count) return null;
+            const free_registers = self.free_registers & register_class;
+            const free_and_not_locked_registers = free_registers & ~self.locked_registers;
+            const free_and_not_locked_registers_count = @popCount(RegisterBitSet, free_and_not_locked_registers);
+            if (free_and_not_locked_registers_count < count) return null;
 
             var regs: [count]Register = undefined;
             var i: usize = 0;
@@ -238,10 +242,10 @@ pub fn RegisterManager(
         ) AllocateRegistersError![count]Register {
             comptime assert(count > 0 and count <= tracked_registers.len);
 
-            var locked_registers = self.locked_registers;
-            locked_registers.setIntersection(register_class);
-
-            if (count > register_class.count() - locked_registers.count()) return error.OutOfRegisters;
+            const available_registers_count = @popCount(RegisterBitSet, register_class);
+            const locked_registers = self.locked_registers & register_class;
+            const locked_registers_count = @popCount(RegisterBitSet, locked_registers);
+            if (count > available_registers_count - locked_registers_count) return error.OutOfRegisters;
 
             const result = self.tryAllocRegs(count, insts, register_class) orelse blk: {
                 // We'll take over the first count registers. Spill
@@ -348,6 +352,334 @@ pub fn RegisterManager(
     };
 }
 
+// TODO delete current implementation of RegisterManager above, and uncomment the one
+// below once #11680 is fixed:
+// https://github.com/ziglang/zig/issues/11680
+
+//pub fn RegisterManager(
+//    comptime Function: type,
+//    comptime Register: type,
+//    comptime tracked_registers: []const Register,
+//) type {
+//    // architectures which do not have a concept of registers should
+//    // refrain from using RegisterManager
+//    assert(tracked_registers.len > 0); // see note above
+
+//    return struct {
+//        /// Tracks the AIR instruction allocated to every register. If
+//        /// no instruction is allocated to a register (i.e. the
+//        /// register is free), the value in that slot is undefined.
+//        ///
+//        /// The key must be canonical register.
+//        registers: [tracked_registers.len]Air.Inst.Index = undefined,
+//        /// Tracks which registers are free (in which case the
+//        /// corresponding bit is set to 1)
+//        free_registers: RegisterBitSet = RegisterBitSet.initFull(),
+//        /// Tracks all registers allocated in the course of this
+//        /// function
+//        allocated_registers: RegisterBitSet = RegisterBitSet.initEmpty(),
+//        /// Tracks registers which are locked from being allocated
+//        locked_registers: RegisterBitSet = RegisterBitSet.initEmpty(),
+
+//        const Self = @This();
+
+//        pub const RegisterBitSet = StaticBitSet(tracked_registers.len);
+
+//        fn getFunction(self: *Self) *Function {
+//            return @fieldParentPtr(Function, "register_manager", self);
+//        }
+
+//        fn excludeRegister(reg: Register, register_class: RegisterBitSet) bool {
+//            const index = indexOfRegIntoTracked(reg) orelse return true;
+//            return !register_class.isSet(index);
+//        }
+
+//        fn markRegAllocated(self: *Self, reg: Register) void {
+//            const index = indexOfRegIntoTracked(reg) orelse return;
+//            self.allocated_registers.set(index);
+//        }
+
+//        fn markRegUsed(self: *Self, reg: Register) void {
+//            const index = indexOfRegIntoTracked(reg) orelse return;
+//            self.free_registers.unset(index);
+//        }
+
+//        fn markRegFree(self: *Self, reg: Register) void {
+//            const index = indexOfRegIntoTracked(reg) orelse return;
+//            self.free_registers.set(index);
+//        }
+
+//        pub fn indexOfReg(
+//            comptime registers: []const Register,
+//            reg: Register,
+//        ) ?std.math.IntFittingRange(0, registers.len - 1) {
+//            inline for (tracked_registers) |cpreg, i| {
+//                if (reg.id() == cpreg.id()) return i;
+//            }
+//            return null;
+//        }
+
+//        pub fn indexOfRegIntoTracked(reg: Register) ?RegisterBitSet.ShiftInt {
+//            return indexOfReg(tracked_registers, reg);
+//        }
+
+//        /// Returns true when this register is not tracked
+//        pub fn isRegFree(self: Self, reg: Register) bool {
+//            const index = indexOfRegIntoTracked(reg) orelse return true;
+//            return self.free_registers.isSet(index);
+//        }
+
+//        /// Returns whether this register was allocated in the course
+//        /// of this function.
+//        ///
+//        /// Returns false when this register is not tracked
+//        pub fn isRegAllocated(self: Self, reg: Register) bool {
+//            const index = indexOfRegIntoTracked(reg) orelse return false;
+//            return self.allocated_registers.isSet(index);
+//        }
+
+//        /// Returns whether this register is locked
+//        ///
+//        /// Returns false when this register is not tracked
+//        pub fn isRegLocked(self: Self, reg: Register) bool {
+//            const index = indexOfRegIntoTracked(reg) orelse return false;
+//            return self.locked_registers.isSet(index);
+//        }
+
+//        pub const RegisterLock = struct {
+//            register: Register,
+//        };
+
+//        /// Prevents the register from being allocated until they are
+//        /// unlocked again.
+//        /// Returns `RegisterLock` if the register was not already
+//        /// locked, or `null` otherwise.
+//        /// Only the owner of the `RegisterLock` can unlock the
+//        /// register later.
+//        pub fn lockReg(self: *Self, reg: Register) ?RegisterLock {
+//            log.debug("locking {}", .{reg});
+//            if (self.isRegLocked(reg)) {
+//                log.debug("  register already locked", .{});
+//                return null;
+//            }
+//            const index = indexOfRegIntoTracked(reg) orelse return null;
+//            self.locked_registers.set(index);
+//            return RegisterLock{ .register = reg };
+//        }
+
+//        /// Like `lockReg` but asserts the register was unused always
+//        /// returning a valid lock.
+//        pub fn lockRegAssumeUnused(self: *Self, reg: Register) RegisterLock {
+//            log.debug("locking asserting free {}", .{reg});
+//            assert(!self.isRegLocked(reg));
+//            const index = indexOfRegIntoTracked(reg) orelse unreachable;
+//            self.locked_registers.set(index);
+//            return RegisterLock{ .register = reg };
+//        }
+
+//        /// Like `lockRegAssumeUnused` but locks multiple registers.
+//        pub fn lockRegsAssumeUnused(
+//            self: *Self,
+//            comptime count: comptime_int,
+//            regs: [count]Register,
+//        ) [count]RegisterLock {
+//            var buf: [count]RegisterLock = undefined;
+//            for (regs) |reg, i| {
+//                buf[i] = self.lockRegAssumeUnused(reg);
+//            }
+//            return buf;
+//        }
+
+//        /// Unlocks the register allowing its re-allocation and re-use.
+//        /// Requires `RegisterLock` to unlock a register.
+//        /// Call `lockReg` to obtain the lock first.
+//        pub fn unlockReg(self: *Self, lock: RegisterLock) void {
+//            log.debug("unlocking {}", .{lock.register});
+//            const index = indexOfRegIntoTracked(lock.register) orelse return;
+//            self.locked_registers.unset(index);
+//        }
+
+//        /// Returns true when at least one register is locked
+//        pub fn lockedRegsExist(self: Self) bool {
+//            return self.locked_registers.count() > 0;
+//        }
+
+//        /// Allocates a specified number of registers, optionally
+//        /// tracking them. Returns `null` if not enough registers are
+//        /// free.
+//        pub fn tryAllocRegs(
+//            self: *Self,
+//            comptime count: comptime_int,
+//            insts: [count]?Air.Inst.Index,
+//            register_class: RegisterBitSet,
+//        ) ?[count]Register {
+//            comptime assert(count > 0 and count <= tracked_registers.len);
+
+//            var free_and_not_locked_registers = self.free_registers;
+//            free_and_not_locked_registers.setIntersection(register_class);
+
+//            var unlocked_registers = self.locked_registers;
+//            unlocked_registers.toggleAll();
+
+//            free_and_not_locked_registers.setIntersection(unlocked_registers);
+
+//            if (free_and_not_locked_registers.count() < count) return null;
+
+//            var regs: [count]Register = undefined;
+//            var i: usize = 0;
+//            for (tracked_registers) |reg| {
+//                if (i >= count) break;
+//                if (excludeRegister(reg, register_class)) continue;
+//                if (self.isRegLocked(reg)) continue;
+//                if (!self.isRegFree(reg)) continue;
+
+//                regs[i] = reg;
+//                i += 1;
+//            }
+//            assert(i == count);
+
+//            for (regs) |reg, j| {
+//                self.markRegAllocated(reg);
+
+//                if (insts[j]) |inst| {
+//                    // Track the register
+//                    const index = indexOfRegIntoTracked(reg).?; // indexOfReg() on a callee-preserved reg should never return null
+//                    self.registers[index] = inst;
+//                    self.markRegUsed(reg);
+//                }
+//            }
+
+//            return regs;
+//        }
+
+//        /// Allocates a register and optionally tracks it with a
+//        /// corresponding instruction. Returns `null` if all registers
+//        /// are allocated.
+//        pub fn tryAllocReg(self: *Self, inst: ?Air.Inst.Index, register_class: RegisterBitSet) ?Register {
+//            return if (tryAllocRegs(self, 1, .{inst}, register_class)) |regs| regs[0] else null;
+//        }
+
+//        /// Allocates a specified number of registers, optionally
+//        /// tracking them. Asserts that count is not
+//        /// larger than the total number of registers available.
+//        pub fn allocRegs(
+//            self: *Self,
+//            comptime count: comptime_int,
+//            insts: [count]?Air.Inst.Index,
+//            register_class: RegisterBitSet,
+//        ) AllocateRegistersError![count]Register {
+//            comptime assert(count > 0 and count <= tracked_registers.len);
+
+//            var locked_registers = self.locked_registers;
+//            locked_registers.setIntersection(register_class);
+
+//            if (count > register_class.count() - locked_registers.count()) return error.OutOfRegisters;
+
+//            const result = self.tryAllocRegs(count, insts, register_class) orelse blk: {
+//                // We'll take over the first count registers. Spill
+//                // the instructions that were previously there to a
+//                // stack allocations.
+//                var regs: [count]Register = undefined;
+//                var i: usize = 0;
+//                for (tracked_registers) |reg| {
+//                    if (i >= count) break;
+//                    if (excludeRegister(reg, register_class)) break;
+//                    if (self.isRegLocked(reg)) continue;
+
+//                    regs[i] = reg;
+//                    self.markRegAllocated(reg);
+//                    const index = indexOfRegIntoTracked(reg).?; // indexOfReg() on a callee-preserved reg should never return null
+//                    if (insts[i]) |inst| {
+//                        // Track the register
+//                        if (self.isRegFree(reg)) {
+//                            self.markRegUsed(reg);
+//                        } else {
+//                            const spilled_inst = self.registers[index];
+//                            try self.getFunction().spillInstruction(reg, spilled_inst);
+//                        }
+//                        self.registers[index] = inst;
+//                    } else {
+//                        // Don't track the register
+//                        if (!self.isRegFree(reg)) {
+//                            const spilled_inst = self.registers[index];
+//                            try self.getFunction().spillInstruction(reg, spilled_inst);
+//                            self.freeReg(reg);
+//                        }
+//                    }
+
+//                    i += 1;
+//                }
+
+//                break :blk regs;
+//            };
+
+//            log.debug("allocated registers {any} for insts {any}", .{ result, insts });
+//            return result;
+//        }
+
+//        /// Allocates a register and optionally tracks it with a
+//        /// corresponding instruction.
+//        pub fn allocReg(
+//            self: *Self,
+//            inst: ?Air.Inst.Index,
+//            register_class: RegisterBitSet,
+//        ) AllocateRegistersError!Register {
+//            return (try self.allocRegs(1, .{inst}, register_class))[0];
+//        }
+
+//        /// Spills the register if it is currently allocated. If a
+//        /// corresponding instruction is passed, will also track this
+//        /// register.
+//        pub fn getReg(self: *Self, reg: Register, inst: ?Air.Inst.Index) AllocateRegistersError!void {
+//            const index = indexOfRegIntoTracked(reg) orelse return;
+//            log.debug("getReg {} for inst {}", .{ reg, inst });
+//            self.markRegAllocated(reg);
+
+//            if (inst) |tracked_inst|
+//                if (!self.isRegFree(reg)) {
+//                    // Move the instruction that was previously there to a
+//                    // stack allocation.
+//                    const spilled_inst = self.registers[index];
+//                    self.registers[index] = tracked_inst;
+//                    try self.getFunction().spillInstruction(reg, spilled_inst);
+//                } else {
+//                    self.getRegAssumeFree(reg, tracked_inst);
+//                }
+//            else {
+//                if (!self.isRegFree(reg)) {
+//                    // Move the instruction that was previously there to a
+//                    // stack allocation.
+//                    const spilled_inst = self.registers[index];
+//                    try self.getFunction().spillInstruction(reg, spilled_inst);
+//                    self.freeReg(reg);
+//                }
+//            }
+//        }
+
+//        /// Allocates the specified register with the specified
+//        /// instruction. Asserts that the register is free and no
+//        /// spilling is necessary.
+//        pub fn getRegAssumeFree(self: *Self, reg: Register, inst: Air.Inst.Index) void {
+//            const index = indexOfRegIntoTracked(reg) orelse return;
+//            log.debug("getRegAssumeFree {} for inst {}", .{ reg, inst });
+//            self.markRegAllocated(reg);
+
+//            assert(self.isRegFree(reg));
+//            self.registers[index] = inst;
+//            self.markRegUsed(reg);
+//        }
+
+//        /// Marks the specified register as free
+//        pub fn freeReg(self: *Self, reg: Register) void {
+//            const index = indexOfRegIntoTracked(reg) orelse return;
+//            log.debug("freeing register {}", .{reg});
+
+//            self.registers[index] = undefined;
+//            self.markRegFree(reg);
+//        }
+//    };
+//}
+
 const MockRegister1 = enum(u2) {
     r0,
     r1,
@@ -384,7 +716,7 @@ fn MockFunction(comptime Register: type) type {
 
         const RegisterManagerT = RegisterManager(Self, Register, &Register.allocatable_registers);
 
-        pub const reg_class: RegisterManagerT.RegisterBitSet = RegisterManagerT.RegisterBitSet.initFull();
+        pub const reg_class: RegisterManagerT.RegisterBitSet = math.maxInt(RegisterManagerT.RegisterBitSet);
 
         pub fn deinit(self: *Self) void {
             self.spilled.deinit(self.allocator);
