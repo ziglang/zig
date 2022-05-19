@@ -6085,16 +6085,48 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
         .direct_load,
         .got_load,
         => {
-            try self.loadMemPtrIntoRegister(reg, Type.usize, mcv);
-            _ = try self.addInst(.{
-                .tag = .mov,
-                .ops = Mir.Inst.Ops.encode(.{
-                    .reg1 = registerAlias(reg, abi_size),
-                    .reg2 = reg.to64(),
-                    .flags = 0b01,
-                }),
-                .data = .{ .imm = 0 },
-            });
+            switch (ty.zigTypeTag()) {
+                .Float => {
+                    const base_reg = try self.register_manager.allocReg(null, .{ .selector_mask = gp });
+                    try self.loadMemPtrIntoRegister(base_reg, Type.usize, mcv);
+
+                    if (self.intrinsicsAllowed(ty)) {
+                        const tag: Mir.Inst.Tag = switch (ty.tag()) {
+                            .f32 => .mov_f32_avx,
+                            .f64 => .mov_f64_avx,
+                            else => return self.fail("TODO genSetReg from memory for {}", .{ty.fmtDebug()}),
+                        };
+
+                        _ = try self.addInst(.{
+                            .tag = tag,
+                            .ops = Mir.Inst.Ops.encode(.{
+                                .reg1 = reg.to128(),
+                                .reg2 = switch (ty.tag()) {
+                                    .f32 => base_reg.to32(),
+                                    .f64 => base_reg.to64(),
+                                    else => unreachable,
+                                },
+                            }),
+                            .data = .{ .imm = 0 },
+                        });
+                        return;
+                    }
+
+                    return self.fail("TODO genSetReg from memory for float with no intrinsics", .{});
+                },
+                else => {
+                    try self.loadMemPtrIntoRegister(reg, Type.usize, mcv);
+                    _ = try self.addInst(.{
+                        .tag = .mov,
+                        .ops = Mir.Inst.Ops.encode(.{
+                            .reg1 = registerAlias(reg, abi_size),
+                            .reg2 = reg.to64(),
+                            .flags = 0b01,
+                        }),
+                        .data = .{ .imm = 0 },
+                    });
+                },
+            }
         },
         .memory => |x| switch (ty.zigTypeTag()) {
             .Float => {
