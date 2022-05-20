@@ -363,6 +363,9 @@ pub const IO_Uring = struct {
         /// io_uring will read directly into this buffer
         buffer: []u8,
 
+        /// io_uring will read directly into these buffers using readv.
+        iovecs: []const os.iovec,
+
         /// io_uring will select a buffer that has previously been provided with `provide_buffers`.
         /// The buffer group reference by `group_id` must contain at least one buffer for the read to work.
         /// `len` controls the number of bytes to read into the selected buffer.
@@ -372,7 +375,11 @@ pub const IO_Uring = struct {
         },
     };
 
-    /// Queues (but does not submit) an SQE to perform a `read(2)`.
+    /// Queues (but does not submit) an SQE to perform a `read(2)` or `preadv` depending on the buffer type.
+    /// * Reading into a `ReadBuffer.buffer` uses `read(2)`
+    /// * Reading into a `ReadBuffer.iovecs` uses `preadv(2)`
+    ///   If you want to do a `preadv2()` then set `rw_flags` on the returned SQE. See https://linux.die.net/man/2/preadv.
+    ///
     /// Returns a pointer to the SQE.
     pub fn read(
         self: *IO_Uring,
@@ -384,6 +391,7 @@ pub const IO_Uring = struct {
         const sqe = try self.get_sqe();
         switch (buffer) {
             .buffer => |slice| io_uring_prep_read(sqe, fd, slice, offset),
+            .iovecs => |vecs| io_uring_prep_readv(sqe, fd, vecs, offset),
             .buffer_selection => |selection| {
                 io_uring_prep_rw(.READ, sqe, fd, 0, selection.len, offset);
                 sqe.flags |= linux.IOSQE_BUFFER_SELECT;
@@ -405,23 +413,6 @@ pub const IO_Uring = struct {
     ) !*io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_write(sqe, fd, buffer, offset);
-        sqe.user_data = user_data;
-        return sqe;
-    }
-
-    /// Queues (but does not submit) an SQE to perform a `preadv()`.
-    /// Returns a pointer to the SQE so that you can further modify the SQE for advanced use cases.
-    /// For example, if you want to do a `preadv2()` then set `rw_flags` on the returned SQE.
-    /// See https://linux.die.net/man/2/preadv.
-    pub fn readv(
-        self: *IO_Uring,
-        user_data: u64,
-        fd: os.fd_t,
-        iovecs: []const os.iovec,
-        offset: u64,
-    ) !*io_uring_sqe {
-        const sqe = try self.get_sqe();
-        io_uring_prep_readv(sqe, fd, iovecs, offset);
         sqe.user_data = user_data;
         return sqe;
     }
@@ -1715,7 +1706,7 @@ test "readv" {
 
     var buffer = [_]u8{42} ** 128;
     var iovecs = [_]os.iovec{os.iovec{ .iov_base = &buffer, .iov_len = buffer.len }};
-    const sqe = try ring.readv(0xcccccccc, fd_index, iovecs[0..], 0);
+    const sqe = try ring.read(0xcccccccc, fd_index, .{ .iovecs = iovecs[0..] }, 0);
     try testing.expectEqual(linux.IORING_OP.READV, sqe.opcode);
     sqe.flags |= linux.IOSQE_FIXED_FILE;
 
@@ -1766,7 +1757,7 @@ test "writev/fsync/readv" {
     try testing.expectEqual(fd, sqe_fsync.fd);
     sqe_fsync.flags |= linux.IOSQE_IO_LINK;
 
-    const sqe_readv = try ring.readv(0xffffffff, fd, iovecs_read[0..], 17);
+    const sqe_readv = try ring.read(0xffffffff, fd, .{ .iovecs = iovecs_read[0..] }, 17);
     try testing.expectEqual(linux.IORING_OP.READV, sqe_readv.opcode);
     try testing.expectEqual(@as(u64, 17), sqe_readv.off);
 
