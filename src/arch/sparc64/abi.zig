@@ -1,5 +1,7 @@
+const std = @import("std");
 const bits = @import("bits.zig");
 const Register = bits.Register;
+const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 
 // SPARCv9 stack constants.
 // See: Registers and the Stack Frame, page 3P-8, SCD 2.4.1.
@@ -21,7 +23,7 @@ pub const stack_save_area = 176;
 pub const caller_preserved_regs = [_]Register{ .o0, .o1, .o2, .o3, .o4, .o5, .g1, .g4, .g5 };
 
 // Try to allocate i, l, o, then g sets of registers, in order of priority.
-pub const allocatable_regs = [_]Register{
+const allocatable_regs = [_]Register{
     // zig fmt: off
     .@"i0", .@"i1", .@"i2", .@"i3", .@"i4", .@"i5",
       .l0,    .l1,    .l2,    .l3,    .l4,    .l5,    .l6,    .l7,
@@ -35,3 +37,20 @@ pub const c_abi_int_param_regs_callee_view = [_]Register{ .@"i0", .@"i1", .@"i2"
 
 pub const c_abi_int_return_regs_caller_view = [_]Register{ .o0, .o1, .o2, .o3 };
 pub const c_abi_int_return_regs_callee_view = [_]Register{ .@"i0", .@"i1", .@"i2", .@"i3" };
+
+pub const RegisterManager = RegisterManagerFn(@import("CodeGen.zig"), Register, &allocatable_regs);
+
+// Register classes
+const RegisterBitSet = RegisterManager.RegisterBitSet;
+pub const RegisterClass = struct {
+    pub const gp: RegisterBitSet = std.math.maxInt(RegisterBitSet);
+    // TODO uncomment once #11680 is fixed.
+    // pub const gp: RegisterBitSet = blk: {
+    //     var set = RegisterBitSet.initEmpty();
+    //     set.setRangeValue(.{
+    //         .start = 0,
+    //         .end = allocatable_regs.len,
+    //     }, true);
+    //     break :blk set;
+    // };
+};

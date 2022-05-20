@@ -3,6 +3,7 @@ const Type = @import("../../type.zig").Type;
 const Target = std.Target;
 const assert = std.debug.assert;
 const Register = @import("bits.zig").Register;
+const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 
 pub const Class = enum { integer, sse, sseup, x87, x87up, complex_x87, memory, none };
 
@@ -378,6 +379,40 @@ pub const callee_preserved_regs = [_]Register{ .rbx, .r12, .r13, .r14, .r15 };
 /// the caller relinquishes control to a subroutine via call instruction (or similar).
 /// In other words, these registers are free to use by the callee.
 pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11 };
-pub const allocatable_registers = callee_preserved_regs ++ caller_preserved_regs;
+
 pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
 pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };
+
+const sse_avx_regs = [_]Register{
+    .ymm0, .ymm1, .ymm2,  .ymm3,  .ymm4,  .ymm5,  .ymm6,  .ymm7,
+    .ymm8, .ymm9, .ymm10, .ymm11, .ymm12, .ymm13, .ymm14, .ymm15,
+};
+const allocatable_registers = callee_preserved_regs ++ caller_preserved_regs ++ sse_avx_regs;
+pub const RegisterManager = RegisterManagerFn(@import("CodeGen.zig"), Register, &allocatable_registers);
+
+// Register classes
+const RegisterBitSet = RegisterManager.RegisterBitSet;
+pub const RegisterClass = struct {
+    pub const gp: RegisterBitSet = @as(RegisterBitSet, std.math.maxInt(std.meta.Int(
+        .unsigned,
+        caller_preserved_regs.len + callee_preserved_regs.len,
+    )));
+    pub const sse: RegisterBitSet = std.math.maxInt(RegisterBitSet) - gp;
+    // TODO uncomment once #11680 is fixed.
+    // pub const gp: RegisterBitSet = blk: {
+    //     var set = RegisterBitSet.initEmpty();
+    //     set.setRangeValue(.{
+    //         .start = 0,
+    //         .end = caller_preserved_regs.len + callee_preserved_regs.len,
+    //     }, true);
+    //     break :blk set;
+    // };
+    // pub const sse: RegisterBitSet = blk: {
+    //     var set = RegisterBitSet.initEmpty();
+    //     set.setRangeValue(.{
+    //         .start = caller_preserved_regs.len + callee_preserved_regs.len,
+    //         .end = allocatable_registers.len,
+    //     }, true);
+    //     break :blk set;
+    // };
+};

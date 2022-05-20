@@ -22,11 +22,7 @@ extra: []const u32,
 
 pub const Inst = struct {
     tag: Tag,
-    /// This is 3 fields, and the meaning of each depends on `tag`.
-    /// reg1: Register
-    /// reg2: Register
-    /// flags: u2
-    ops: u16,
+    ops: Ops,
     /// The meaning of this depends on `tag` and `ops`.
     data: Data,
 
@@ -349,6 +345,42 @@ pub const Inst = struct {
         /// Nop
         nop,
 
+        /// SSE instructions
+        /// ops flags:  form:
+        ///       0b00  reg1, qword ptr [reg2 + imm32]
+        ///       0b01  qword ptr [reg1 + imm32], reg2
+        ///       0b10  reg1, reg2
+        mov_f64_sse,
+        mov_f32_sse,
+
+        /// ops flags:  form:
+        ///       0b00  reg1, reg2
+        add_f64_sse,
+        add_f32_sse,
+
+        /// ops flags:  form:
+        ///       0b00  reg1, reg2
+        cmp_f64_sse,
+        cmp_f32_sse,
+
+        /// AVX instructions
+        /// ops flags:  form:
+        ///       0b00  reg1, qword ptr [reg2 + imm32]
+        ///       0b01  qword ptr [reg1 + imm32], reg2
+        ///       0b10  reg1, reg1, reg2
+        mov_f64_avx,
+        mov_f32_avx,
+
+        /// ops flags:  form:
+        ///       0b00  reg1, reg1, reg2
+        add_f64_avx,
+        add_f32_avx,
+
+        /// ops flags:  form:
+        ///       0b00  reg1, reg1, reg2
+        cmp_f64_avx,
+        cmp_f32_avx,
+
         /// Pseudo-instructions
         /// call extern function
         /// Notes:
@@ -380,6 +412,36 @@ pub const Inst = struct {
     };
     /// The position of an MIR instruction within the `Mir` instructions array.
     pub const Index = u32;
+
+    pub const Ops = packed struct {
+        reg1: u7,
+        reg2: u7,
+        flags: u2,
+
+        pub fn encode(vals: struct {
+            reg1: Register = .none,
+            reg2: Register = .none,
+            flags: u2 = 0b00,
+        }) Ops {
+            return .{
+                .reg1 = @enumToInt(vals.reg1),
+                .reg2 = @enumToInt(vals.reg2),
+                .flags = vals.flags,
+            };
+        }
+
+        pub fn decode(ops: Ops) struct {
+            reg1: Register,
+            reg2: Register,
+            flags: u2,
+        } {
+            return .{
+                .reg1 = @intToEnum(Register, ops.reg1),
+                .reg2 = @intToEnum(Register, ops.reg2),
+                .flags = ops.flags,
+            };
+        }
+    };
 
     /// All instructions have a 4-byte payload, which is contained within
     /// this union. `Tag` determines which union field is active, as well as
@@ -448,31 +510,6 @@ pub const Imm64 = struct {
 pub const DbgLineColumn = struct {
     line: u32,
     column: u32,
-};
-
-pub const Ops = struct {
-    reg1: Register = .none,
-    reg2: Register = .none,
-    flags: u2 = 0b00,
-
-    pub fn encode(self: Ops) u16 {
-        var ops: u16 = 0;
-        ops |= @intCast(u16, @enumToInt(self.reg1)) << 9;
-        ops |= @intCast(u16, @enumToInt(self.reg2)) << 2;
-        ops |= self.flags;
-        return ops;
-    }
-
-    pub fn decode(ops: u16) Ops {
-        const reg1 = @intToEnum(Register, @truncate(u7, ops >> 9));
-        const reg2 = @intToEnum(Register, @truncate(u7, ops >> 2));
-        const flags = @truncate(u2, ops);
-        return .{
-            .reg1 = reg1,
-            .reg2 = reg2,
-            .flags = flags,
-        };
-    }
 };
 
 pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
