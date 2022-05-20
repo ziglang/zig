@@ -881,7 +881,7 @@ fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
         switch (elem_ty.zigTypeTag()) {
             .Vector => return self.fail("TODO allocRegOrMem for Vector type", .{}),
             .Float => {
-                if (self.intrinsicsAllowed(elem_ty)) {
+                if (intrinsicsAllowed(self.target.*, elem_ty)) {
                     const ptr_bytes: u64 = 32;
                     if (abi_size <= ptr_bytes) {
                         if (self.register_manager.tryAllocReg(inst, sse)) |reg| {
@@ -970,7 +970,7 @@ pub fn spillRegisters(self: *Self, comptime count: comptime_int, registers: [cou
 fn copyToTmpRegister(self: *Self, ty: Type, mcv: MCValue) !Register {
     const reg_class: RegisterManager.RegisterBitSet = switch (ty.zigTypeTag()) {
         .Float => blk: {
-            if (self.intrinsicsAllowed(ty)) break :blk sse;
+            if (intrinsicsAllowed(self.target.*, ty)) break :blk sse;
             return self.fail("TODO copy {} to register", .{ty.fmtDebug()});
         },
         else => gp,
@@ -987,7 +987,7 @@ fn copyToTmpRegister(self: *Self, ty: Type, mcv: MCValue) !Register {
 fn copyToRegisterWithInstTracking(self: *Self, reg_owner: Air.Inst.Index, ty: Type, mcv: MCValue) !MCValue {
     const reg_class: RegisterManager.RegisterBitSet = switch (ty.zigTypeTag()) {
         .Float => blk: {
-            if (self.intrinsicsAllowed(ty)) break :blk sse;
+            if (intrinsicsAllowed(self.target.*, ty)) break :blk sse;
             return self.fail("TODO copy {} to register", .{ty.fmtDebug()});
         },
         else => gp,
@@ -3462,16 +3462,28 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValu
                 },
                 .register => |src_reg| switch (dst_ty.zigTypeTag()) {
                     .Float => {
-                        if (self.intrinsicsAllowed(dst_ty)) {
+                        if (intrinsicsAllowed(self.target.*, dst_ty)) {
                             const actual_tag: Mir.Inst.Tag = switch (dst_ty.tag()) {
                                 .f32 => switch (mir_tag) {
-                                    .add => Mir.Inst.Tag.add_f32_avx,
-                                    .cmp => Mir.Inst.Tag.cmp_f32_avx,
+                                    .add => if (hasAvxSupport(self.target.*))
+                                        Mir.Inst.Tag.add_f32_avx
+                                    else
+                                        Mir.Inst.Tag.add_f32_sse,
+                                    .cmp => if (hasAvxSupport(self.target.*))
+                                        Mir.Inst.Tag.cmp_f32_avx
+                                    else
+                                        Mir.Inst.Tag.cmp_f32_sse,
                                     else => return self.fail("TODO genBinOpMir for f32 register-register with MIR tag {}", .{mir_tag}),
                                 },
                                 .f64 => switch (mir_tag) {
-                                    .add => Mir.Inst.Tag.add_f64_avx,
-                                    .cmp => Mir.Inst.Tag.cmp_f64_avx,
+                                    .add => if (hasAvxSupport(self.target.*))
+                                        Mir.Inst.Tag.add_f64_avx
+                                    else
+                                        Mir.Inst.Tag.add_f64_sse,
+                                    .cmp => if (hasAvxSupport(self.target.*))
+                                        Mir.Inst.Tag.cmp_f64_avx
+                                    else
+                                        Mir.Inst.Tag.cmp_f64_sse,
                                     else => return self.fail("TODO genBinOpMir for f64 register-register with MIR tag {}", .{mir_tag}),
                                 },
                                 else => return self.fail("TODO genBinOpMir for float register-register and type {}", .{dst_ty.fmtDebug()}),
@@ -5324,10 +5336,16 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
         .register => |reg| {
             switch (ty.zigTypeTag()) {
                 .Float => {
-                    if (self.intrinsicsAllowed(ty)) {
+                    if (intrinsicsAllowed(self.target.*, ty)) {
                         const tag: Mir.Inst.Tag = switch (ty.tag()) {
-                            .f32 => .mov_f32_avx,
-                            .f64 => .mov_f64_avx,
+                            .f32 => if (hasAvxSupport(self.target.*))
+                                Mir.Inst.Tag.mov_f32_avx
+                            else
+                                Mir.Inst.Tag.mov_f32_sse,
+                            .f64 => if (hasAvxSupport(self.target.*))
+                                Mir.Inst.Tag.mov_f64_avx
+                            else
+                                Mir.Inst.Tag.mov_f64_sse,
                             else => return self.fail("TODO genSetStackArg for register for type {}", .{ty.fmtDebug()}),
                         };
                         _ = try self.addInst(.{
@@ -5508,10 +5526,16 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
 
             switch (ty.zigTypeTag()) {
                 .Float => {
-                    if (self.intrinsicsAllowed(ty)) {
+                    if (intrinsicsAllowed(self.target.*, ty)) {
                         const tag: Mir.Inst.Tag = switch (ty.tag()) {
-                            .f32 => .mov_f32_avx,
-                            .f64 => .mov_f64_avx,
+                            .f32 => if (hasAvxSupport(self.target.*))
+                                Mir.Inst.Tag.mov_f32_avx
+                            else
+                                Mir.Inst.Tag.mov_f32_sse,
+                            .f64 => if (hasAvxSupport(self.target.*))
+                                Mir.Inst.Tag.mov_f64_avx
+                            else
+                                Mir.Inst.Tag.mov_f64_sse,
                             else => return self.fail("TODO genSetStack for register for type {}", .{ty.fmtDebug()}),
                         };
                         _ = try self.addInst(.{
@@ -6032,10 +6056,16 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     },
                 },
                 .Float => {
-                    if (self.intrinsicsAllowed(ty)) {
+                    if (intrinsicsAllowed(self.target.*, ty)) {
                         const tag: Mir.Inst.Tag = switch (ty.tag()) {
-                            .f32 => .mov_f32_avx,
-                            .f64 => .mov_f64_avx,
+                            .f32 => if (hasAvxSupport(self.target.*))
+                                Mir.Inst.Tag.mov_f32_avx
+                            else
+                                Mir.Inst.Tag.mov_f32_sse,
+                            .f64 => if (hasAvxSupport(self.target.*))
+                                Mir.Inst.Tag.mov_f64_avx
+                            else
+                                Mir.Inst.Tag.mov_f64_sse,
                             else => return self.fail("TODO genSetReg from register for {}", .{ty.fmtDebug()}),
                         };
                         _ = try self.addInst(.{
@@ -6072,10 +6102,16 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     const base_reg = try self.register_manager.allocReg(null, gp);
                     try self.loadMemPtrIntoRegister(base_reg, Type.usize, mcv);
 
-                    if (self.intrinsicsAllowed(ty)) {
+                    if (intrinsicsAllowed(self.target.*, ty)) {
                         const tag: Mir.Inst.Tag = switch (ty.tag()) {
-                            .f32 => .mov_f32_avx,
-                            .f64 => .mov_f64_avx,
+                            .f32 => if (hasAvxSupport(self.target.*))
+                                Mir.Inst.Tag.mov_f32_avx
+                            else
+                                Mir.Inst.Tag.mov_f32_sse,
+                            .f64 => if (hasAvxSupport(self.target.*))
+                                Mir.Inst.Tag.mov_f64_avx
+                            else
+                                Mir.Inst.Tag.mov_f64_sse,
                             else => return self.fail("TODO genSetReg from memory for {}", .{ty.fmtDebug()}),
                         };
 
@@ -6115,10 +6151,16 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 const base_reg = try self.register_manager.allocReg(null, gp);
                 try self.loadMemPtrIntoRegister(base_reg, Type.usize, mcv);
 
-                if (self.intrinsicsAllowed(ty)) {
+                if (intrinsicsAllowed(self.target.*, ty)) {
                     const tag: Mir.Inst.Tag = switch (ty.tag()) {
-                        .f32 => .mov_f32_avx,
-                        .f64 => .mov_f64_avx,
+                        .f32 => if (hasAvxSupport(self.target.*))
+                            Mir.Inst.Tag.mov_f32_avx
+                        else
+                            Mir.Inst.Tag.mov_f32_sse,
+                        .f64 => if (hasAvxSupport(self.target.*))
+                            Mir.Inst.Tag.mov_f64_avx
+                        else
+                            Mir.Inst.Tag.mov_f64_sse,
                         else => return self.fail("TODO genSetReg from memory for {}", .{ty.fmtDebug()}),
                     };
 
@@ -6230,10 +6272,16 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     },
                 },
                 .Float => {
-                    if (self.intrinsicsAllowed(ty)) {
+                    if (intrinsicsAllowed(self.target.*, ty)) {
                         const tag: Mir.Inst.Tag = switch (ty.tag()) {
-                            .f32 => .mov_f32_avx,
-                            .f64 => .mov_f64_avx,
+                            .f32 => if (hasAvxSupport(self.target.*))
+                                Mir.Inst.Tag.mov_f32_avx
+                            else
+                                Mir.Inst.Tag.mov_f32_sse,
+                            .f64 => if (hasAvxSupport(self.target.*))
+                                Mir.Inst.Tag.mov_f64_avx
+                            else
+                                Mir.Inst.Tag.mov_f64_sse,
                             else => return self.fail("TODO genSetReg from stack offset for {}", .{ty.fmtDebug()}),
                         };
                         _ = try self.addInst(.{
@@ -7046,11 +7094,15 @@ fn truncateRegister(self: *Self, ty: Type, reg: Register) !void {
     }
 }
 
-fn intrinsicsAllowed(self: *Self, ty: Type) bool {
+fn intrinsicsAllowed(target: Target, ty: Type) bool {
     return switch (ty.tag()) {
         .f32,
         .f64,
-        => Target.x86.featureSetHasAny(self.target.cpu.features, .{ .avx, .avx2 }),
+        => Target.x86.featureSetHasAny(target.cpu.features, .{ .sse2, .avx, .avx2 }),
         else => unreachable, // TODO finish this off
     };
+}
+
+fn hasAvxSupport(target: Target) bool {
+    return Target.x86.featureSetHasAny(target.cpu.features, .{ .avx, .avx2 });
 }

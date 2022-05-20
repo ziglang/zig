@@ -182,6 +182,16 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .interrupt => try emit.mirInterrupt(inst),
             .nop => try emit.mirNop(),
 
+            // SSE instructions
+            .mov_f64_sse => try emit.mirMovFloatSse(.movsd, inst),
+            .mov_f32_sse => try emit.mirMovFloatSse(.movss, inst),
+
+            .add_f64_sse => try emit.mirAddFloatSse(.addsd, inst),
+            .add_f32_sse => try emit.mirAddFloatSse(.addss, inst),
+
+            .cmp_f64_sse => try emit.mirCmpFloatSse(.ucomisd, inst),
+            .cmp_f32_sse => try emit.mirCmpFloatSse(.ucomiss, inst),
+
             // AVX instructions
             .mov_f64_avx => try emit.mirMovFloatAvx(.vmovsd, inst),
             .mov_f32_avx => try emit.mirMovFloatAvx(.vmovss, inst),
@@ -536,6 +546,7 @@ fn mirArithMemImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
 }
 
 inline fn setRexWRegister(reg: Register) bool {
+    if (reg.size() > 64) return false;
     if (reg.size() == 64) return true;
     return switch (reg) {
         .ah, .ch, .dh, .bh => true,
@@ -963,11 +974,55 @@ fn mirLeaPie(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     }
 }
 
+// SSE instructions
+
+fn mirMovFloatSse(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
+    const ops = emit.mir.instructions.items(.ops)[inst].decode();
+    switch (ops.flags) {
+        0b00 => {
+            const imm = emit.mir.instructions.items(.data)[inst].imm;
+            return lowerToRmEnc(tag, ops.reg1, RegisterOrMemory.mem(Memory.PtrSize.new(ops.reg2.size()), .{
+                .disp = imm,
+                .base = ops.reg2,
+            }), emit.code);
+        },
+        0b01 => {
+            const imm = emit.mir.instructions.items(.data)[inst].imm;
+            return lowerToMrEnc(tag, RegisterOrMemory.mem(Memory.PtrSize.new(ops.reg1.size()), .{
+                .disp = imm,
+                .base = ops.reg1,
+            }), ops.reg2, emit.code);
+        },
+        0b10 => {
+            return lowerToRmEnc(tag, ops.reg1, RegisterOrMemory.reg(ops.reg2), emit.code);
+        },
+        else => return emit.fail("TODO unused variant 0b{b} for {}", .{ ops.flags, tag }),
+    }
+}
+
+fn mirAddFloatSse(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
+    const ops = emit.mir.instructions.items(.ops)[inst].decode();
+    switch (ops.flags) {
+        0b00 => {
+            return lowerToRmEnc(tag, ops.reg1, RegisterOrMemory.reg(ops.reg2), emit.code);
+        },
+        else => return emit.fail("TODO unused variant 0b{b} for {}", .{ ops.flags, tag }),
+    }
+}
+
+fn mirCmpFloatSse(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
+    const ops = emit.mir.instructions.items(.ops)[inst].decode();
+    switch (ops.flags) {
+        0b00 => {
+            return lowerToRmEnc(tag, ops.reg1, RegisterOrMemory.reg(ops.reg2), emit.code);
+        },
+        else => return emit.fail("TODO unused variant 0b{b} for {}", .{ ops.flags, tag }),
+    }
+}
 // AVX instructions
 
 fn mirMovFloatAvx(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = emit.mir.instructions.items(.ops)[inst].decode();
-
     switch (ops.flags) {
         0b00 => {
             const imm = emit.mir.instructions.items(.data)[inst].imm;
@@ -986,24 +1041,22 @@ fn mirMovFloatAvx(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
         0b10 => {
             return lowerToRvmEnc(tag, ops.reg1, ops.reg1, RegisterOrMemory.reg(ops.reg2), emit.code);
         },
-        else => return emit.fail("TODO unused variant 0b{b} for mov_f64", .{ops.flags}),
+        else => return emit.fail("TODO unused variant 0b{b} for {}", .{ ops.flags, tag }),
     }
 }
 
 fn mirAddFloatAvx(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = emit.mir.instructions.items(.ops)[inst].decode();
-
     switch (ops.flags) {
         0b00 => {
             return lowerToRvmEnc(tag, ops.reg1, ops.reg1, RegisterOrMemory.reg(ops.reg2), emit.code);
         },
-        else => return emit.fail("TODO unused variant 0b{b} for mov_f64", .{ops.flags}),
+        else => return emit.fail("TODO unused variant 0b{b} for {}", .{ ops.flags, tag }),
     }
 }
 
 fn mirCmpFloatAvx(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = emit.mir.instructions.items(.ops)[inst].decode();
-
     switch (ops.flags) {
         0b00 => {
             return lowerToVmEnc(tag, ops.reg1, RegisterOrMemory.reg(ops.reg2), emit.code);
@@ -1247,6 +1300,14 @@ const Tag = enum {
     cmovng,
     cmovb,
     cmovnae,
+    movsd,
+    movss,
+    addsd,
+    addss,
+    cmpsd,
+    cmpss,
+    ucomisd,
+    ucomiss,
     vmovsd,
     vmovss,
     vaddsd,
@@ -1255,6 +1316,22 @@ const Tag = enum {
     vcmpss,
     vucomisd,
     vucomiss,
+
+    fn isSse(tag: Tag) bool {
+        return switch (tag) {
+            .movsd,
+            .movss,
+            .addsd,
+            .addss,
+            .cmpsd,
+            .cmpss,
+            .ucomisd,
+            .ucomiss,
+            => true,
+
+            else => false,
+        };
+    }
 
     fn isAvx(tag: Tag) bool {
         return switch (tag) {
@@ -1369,190 +1446,256 @@ const Encoding = enum {
     rvmi,
 };
 
-const OpCode = union(enum) {
-    one_byte: u8,
-    two_byte: struct { _1: u8, _2: u8 },
+const OpCode = struct {
+    bytes: [3]u8,
+    count: usize,
 
-    fn oneByte(opc: u8) OpCode {
-        return .{ .one_byte = opc };
-    }
-
-    fn twoByte(opc1: u8, opc2: u8) OpCode {
-        return .{ .two_byte = .{ ._1 = opc1, ._2 = opc2 } };
+    fn init(comptime in_bytes: []const u8) OpCode {
+        comptime assert(in_bytes.len <= 3);
+        comptime var bytes: [3]u8 = undefined;
+        inline for (in_bytes) |x, i| {
+            bytes[i] = x;
+        }
+        return .{ .bytes = bytes, .count = in_bytes.len };
     }
 
     fn encode(opc: OpCode, encoder: Encoder) void {
-        switch (opc) {
-            .one_byte => |v| encoder.opcode_1byte(v),
-            .two_byte => |v| encoder.opcode_2byte(v._1, v._2),
+        switch (opc.count) {
+            1 => encoder.opcode_1byte(opc.bytes[0]),
+            2 => encoder.opcode_2byte(opc.bytes[0], opc.bytes[1]),
+            3 => encoder.opcode_3byte(opc.bytes[0], opc.bytes[1], opc.bytes[2]),
+            else => unreachable,
         }
     }
 
     fn encodeWithReg(opc: OpCode, encoder: Encoder, reg: Register) void {
-        assert(opc == .one_byte);
-        encoder.opcode_withReg(opc.one_byte, reg.lowEnc());
+        assert(opc.count == 1);
+        encoder.opcode_withReg(opc.bytes[0], reg.lowEnc());
     }
 };
 
 inline fn getOpCode(tag: Tag, enc: Encoding, is_one_byte: bool) OpCode {
+    // zig fmt: off
     switch (enc) {
         .zo => return switch (tag) {
-            .ret_near => OpCode.oneByte(0xc3),
-            .ret_far => OpCode.oneByte(0xcb),
-            .int3 => OpCode.oneByte(0xcc),
-            .nop => OpCode.oneByte(0x90),
-            .syscall => OpCode.twoByte(0x0f, 0x05),
-            .cbw => OpCode.oneByte(0x98),
-            .cwd, .cdq, .cqo => OpCode.oneByte(0x99),
-            else => unreachable,
+            .ret_near => OpCode.init(&.{0xc3}),
+            .ret_far  => OpCode.init(&.{0xcb}),
+            .int3     => OpCode.init(&.{0xcc}),
+            .nop      => OpCode.init(&.{0x90}),
+            .syscall  => OpCode.init(&.{ 0x0f, 0x05 }),
+            .cbw      => OpCode.init(&.{0x98}),
+            .cwd,
+            .cdq,
+            .cqo      => OpCode.init(&.{0x99}),
+            else      => unreachable,
         },
         .d => return switch (tag) {
-            .jmp_near => OpCode.oneByte(0xe9),
-            .call_near => OpCode.oneByte(0xe8),
-            .jo => if (is_one_byte) OpCode.oneByte(0x70) else OpCode.twoByte(0x0f, 0x80),
-            .jno => if (is_one_byte) OpCode.oneByte(0x71) else OpCode.twoByte(0x0f, 0x81),
-            .jb, .jc, .jnae => if (is_one_byte) OpCode.oneByte(0x72) else OpCode.twoByte(0x0f, 0x82),
-            .jnb, .jnc, .jae => if (is_one_byte) OpCode.oneByte(0x73) else OpCode.twoByte(0x0f, 0x83),
-            .je, .jz => if (is_one_byte) OpCode.oneByte(0x74) else OpCode.twoByte(0x0f, 0x84),
-            .jne, .jnz => if (is_one_byte) OpCode.oneByte(0x75) else OpCode.twoByte(0x0f, 0x85),
-            .jna, .jbe => if (is_one_byte) OpCode.oneByte(0x76) else OpCode.twoByte(0x0f, 0x86),
-            .jnbe, .ja => if (is_one_byte) OpCode.oneByte(0x77) else OpCode.twoByte(0x0f, 0x87),
-            .js => if (is_one_byte) OpCode.oneByte(0x78) else OpCode.twoByte(0x0f, 0x88),
-            .jns => if (is_one_byte) OpCode.oneByte(0x79) else OpCode.twoByte(0x0f, 0x89),
-            .jpe, .jp => if (is_one_byte) OpCode.oneByte(0x7a) else OpCode.twoByte(0x0f, 0x8a),
-            .jpo, .jnp => if (is_one_byte) OpCode.oneByte(0x7b) else OpCode.twoByte(0x0f, 0x8b),
-            .jnge, .jl => if (is_one_byte) OpCode.oneByte(0x7c) else OpCode.twoByte(0x0f, 0x8c),
-            .jge, .jnl => if (is_one_byte) OpCode.oneByte(0x7d) else OpCode.twoByte(0x0f, 0x8d),
-            .jle, .jng => if (is_one_byte) OpCode.oneByte(0x7e) else OpCode.twoByte(0x0f, 0x8e),
-            .jg, .jnle => if (is_one_byte) OpCode.oneByte(0x7f) else OpCode.twoByte(0x0f, 0x8f),
-            else => unreachable,
+            .jmp_near  =>                  OpCode.init(&.{0xe9}),
+            .call_near =>                  OpCode.init(&.{0xe8}),
+            .jo        => if (is_one_byte) OpCode.init(&.{0x70}) else OpCode.init(&.{0x0f,0x80}),
+            .jno       => if (is_one_byte) OpCode.init(&.{0x71}) else OpCode.init(&.{0x0f,0x81}),
+            .jb,
+            .jc,
+            .jnae      => if (is_one_byte) OpCode.init(&.{0x72}) else OpCode.init(&.{0x0f,0x82}),
+            .jnb,
+            .jnc, 
+            .jae       => if (is_one_byte) OpCode.init(&.{0x73}) else OpCode.init(&.{0x0f,0x83}),
+            .je, 
+            .jz        => if (is_one_byte) OpCode.init(&.{0x74}) else OpCode.init(&.{0x0f,0x84}),
+            .jne, 
+            .jnz       => if (is_one_byte) OpCode.init(&.{0x75}) else OpCode.init(&.{0x0f,0x85}),
+            .jna, 
+            .jbe       => if (is_one_byte) OpCode.init(&.{0x76}) else OpCode.init(&.{0x0f,0x86}),
+            .jnbe, 
+            .ja        => if (is_one_byte) OpCode.init(&.{0x77}) else OpCode.init(&.{0x0f,0x87}),
+            .js        => if (is_one_byte) OpCode.init(&.{0x78}) else OpCode.init(&.{0x0f,0x88}),
+            .jns       => if (is_one_byte) OpCode.init(&.{0x79}) else OpCode.init(&.{0x0f,0x89}),
+            .jpe, 
+            .jp        => if (is_one_byte) OpCode.init(&.{0x7a}) else OpCode.init(&.{0x0f,0x8a}),
+            .jpo, 
+            .jnp       => if (is_one_byte) OpCode.init(&.{0x7b}) else OpCode.init(&.{0x0f,0x8b}),
+            .jnge, 
+            .jl        => if (is_one_byte) OpCode.init(&.{0x7c}) else OpCode.init(&.{0x0f,0x8c}),
+            .jge, 
+            .jnl       => if (is_one_byte) OpCode.init(&.{0x7d}) else OpCode.init(&.{0x0f,0x8d}),
+            .jle, 
+            .jng       => if (is_one_byte) OpCode.init(&.{0x7e}) else OpCode.init(&.{0x0f,0x8e}),
+            .jg, 
+            .jnle      => if (is_one_byte) OpCode.init(&.{0x7f}) else OpCode.init(&.{0x0f,0x8f}),
+            else       => unreachable,
         },
         .m => return switch (tag) {
-            .jmp_near, .call_near, .push => OpCode.oneByte(0xff),
-            .pop => OpCode.oneByte(0x8f),
-            .seto => OpCode.twoByte(0x0f, 0x90),
-            .setno => OpCode.twoByte(0x0f, 0x91),
-            .setb, .setc, .setnae => OpCode.twoByte(0x0f, 0x92),
-            .setnb, .setnc, .setae => OpCode.twoByte(0x0f, 0x93),
-            .sete, .setz => OpCode.twoByte(0x0f, 0x94),
-            .setne, .setnz => OpCode.twoByte(0x0f, 0x95),
-            .setbe, .setna => OpCode.twoByte(0x0f, 0x96),
-            .seta, .setnbe => OpCode.twoByte(0x0f, 0x97),
-            .sets => OpCode.twoByte(0x0f, 0x98),
-            .setns => OpCode.twoByte(0x0f, 0x99),
-            .setp, .setpe => OpCode.twoByte(0x0f, 0x9a),
-            .setnp, .setop => OpCode.twoByte(0x0f, 0x9b),
-            .setl, .setnge => OpCode.twoByte(0x0f, 0x9c),
-            .setnl, .setge => OpCode.twoByte(0x0f, 0x9d),
-            .setle, .setng => OpCode.twoByte(0x0f, 0x9e),
-            .setnle, .setg => OpCode.twoByte(0x0f, 0x9f),
-            .idiv, .div, .imul, .mul => OpCode.oneByte(if (is_one_byte) 0xf6 else 0xf7),
-            .fisttp16 => OpCode.oneByte(0xdf),
-            .fisttp32 => OpCode.oneByte(0xdb),
-            .fisttp64 => OpCode.oneByte(0xdd),
-            .fld32 => OpCode.oneByte(0xd9),
-            .fld64 => OpCode.oneByte(0xdd),
-            else => unreachable,
+            .jmp_near,
+            .call_near,
+            .push       =>                  OpCode.init(&.{0xff}),
+            .pop        =>                  OpCode.init(&.{0x8f}),
+            .seto       =>                  OpCode.init(&.{0x0f,0x90}),
+            .setno      =>                  OpCode.init(&.{0x0f,0x91}),
+            .setb,
+            .setc,
+            .setnae     =>                  OpCode.init(&.{0x0f,0x92}),
+            .setnb,
+            .setnc,
+            .setae      =>                  OpCode.init(&.{0x0f,0x93}),
+            .sete,
+            .setz       =>                  OpCode.init(&.{0x0f,0x94}),
+            .setne,
+            .setnz      =>                  OpCode.init(&.{0x0f,0x95}),
+            .setbe,
+            .setna      =>                  OpCode.init(&.{0x0f,0x96}),
+            .seta,
+            .setnbe     =>                  OpCode.init(&.{0x0f,0x97}),
+            .sets       =>                  OpCode.init(&.{0x0f,0x98}),
+            .setns      =>                  OpCode.init(&.{0x0f,0x99}),
+            .setp,
+            .setpe      =>                  OpCode.init(&.{0x0f,0x9a}),
+            .setnp, 
+            .setop      =>                  OpCode.init(&.{0x0f,0x9b}),
+            .setl, 
+            .setnge     =>                  OpCode.init(&.{0x0f,0x9c}),
+            .setnl,
+            .setge      =>                  OpCode.init(&.{0x0f,0x9d}),
+            .setle,
+            .setng      =>                  OpCode.init(&.{0x0f,0x9e}),
+            .setnle,
+            .setg       =>                  OpCode.init(&.{0x0f,0x9f}),
+            .idiv,
+            .div,
+            .imul,
+            .mul        => if (is_one_byte) OpCode.init(&.{0xf6}) else OpCode.init(&.{0xf7}),
+            .fisttp16   =>                  OpCode.init(&.{0xdf}),
+            .fisttp32   =>                  OpCode.init(&.{0xdb}),
+            .fisttp64   =>                  OpCode.init(&.{0xdd}),
+            .fld32      =>                  OpCode.init(&.{0xd9}),
+            .fld64      =>                  OpCode.init(&.{0xdd}),
+            else        => unreachable,
         },
         .o => return switch (tag) {
-            .push => OpCode.oneByte(0x50),
-            .pop => OpCode.oneByte(0x58),
-            else => unreachable,
+            .push => OpCode.init(&.{0x50}),
+            .pop  => OpCode.init(&.{0x58}),
+            else  => unreachable,
         },
         .i => return switch (tag) {
-            .push => OpCode.oneByte(if (is_one_byte) 0x6a else 0x68),
-            .@"test" => OpCode.oneByte(if (is_one_byte) 0xa8 else 0xa9),
-            .ret_near => OpCode.oneByte(0xc2),
-            .ret_far => OpCode.oneByte(0xca),
-            else => unreachable,
+            .push     => if (is_one_byte) OpCode.init(&.{0x6a}) else OpCode.init(&.{0x68}),
+            .@"test"  => if (is_one_byte) OpCode.init(&.{0xa8}) else OpCode.init(&.{0xa9}),
+            .ret_near => OpCode.init(&.{0xc2}),
+            .ret_far  => OpCode.init(&.{0xca}),
+            else      => unreachable,
         },
         .m1 => return switch (tag) {
-            .shl, .sal, .shr, .sar => OpCode.oneByte(if (is_one_byte) 0xd0 else 0xd1),
-            else => unreachable,
+            .shl, .sal,
+            .shr, .sar  => if (is_one_byte) OpCode.init(&.{0xd0}) else OpCode.init(&.{0xd1}),
+            else        => unreachable,
         },
         .mc => return switch (tag) {
-            .shl, .sal, .shr, .sar => OpCode.oneByte(if (is_one_byte) 0xd2 else 0xd3),
-            else => unreachable,
+            .shl, .sal,
+            .shr, .sar  => if (is_one_byte) OpCode.init(&.{0xd2}) else OpCode.init(&.{0xd3}),
+            else        => unreachable,
         },
         .mi => return switch (tag) {
-            .adc, .add, .sub, .xor, .@"and", .@"or", .sbb, .cmp => OpCode.oneByte(if (is_one_byte) 0x80 else 0x81),
-            .mov => OpCode.oneByte(if (is_one_byte) 0xc6 else 0xc7),
-            .@"test" => OpCode.oneByte(if (is_one_byte) 0xf6 else 0xf7),
-            else => unreachable,
+            .adc, .add,
+            .sub, .xor,
+            .@"and", .@"or",
+            .sbb, .cmp       => if (is_one_byte) OpCode.init(&.{0x80}) else OpCode.init(&.{0x81}),
+            .mov             => if (is_one_byte) OpCode.init(&.{0xc6}) else OpCode.init(&.{0xc7}),
+            .@"test"         => if (is_one_byte) OpCode.init(&.{0xf6}) else OpCode.init(&.{0xf7}),
+            else             => unreachable,
         },
         .mi8 => return switch (tag) {
-            .adc, .add, .sub, .xor, .@"and", .@"or", .sbb, .cmp => OpCode.oneByte(0x83),
-            .shl, .sal, .shr, .sar => OpCode.oneByte(if (is_one_byte) 0xc0 else 0xc1),
-            else => unreachable,
+            .adc, .add,
+            .sub, .xor,
+            .@"and", .@"or",
+            .sbb, .cmp        =>                  OpCode.init(&.{0x83}),
+            .shl, .sal,
+            .shr, .sar        => if (is_one_byte) OpCode.init(&.{0xc0}) else OpCode.init(&.{0xc1}),
+            else              => unreachable,
         },
         .mr => return switch (tag) {
-            .adc => OpCode.oneByte(if (is_one_byte) 0x10 else 0x11),
-            .add => OpCode.oneByte(if (is_one_byte) 0x00 else 0x01),
-            .sub => OpCode.oneByte(if (is_one_byte) 0x28 else 0x29),
-            .xor => OpCode.oneByte(if (is_one_byte) 0x30 else 0x31),
-            .@"and" => OpCode.oneByte(if (is_one_byte) 0x20 else 0x21),
-            .@"or" => OpCode.oneByte(if (is_one_byte) 0x08 else 0x09),
-            .sbb => OpCode.oneByte(if (is_one_byte) 0x18 else 0x19),
-            .cmp => OpCode.oneByte(if (is_one_byte) 0x38 else 0x39),
-            .mov => OpCode.oneByte(if (is_one_byte) 0x88 else 0x89),
-            .@"test" => OpCode.oneByte(if (is_one_byte) 0x84 else 0x85),
-            else => unreachable,
+            .adc     => if (is_one_byte) OpCode.init(&.{0x10}) else OpCode.init(&.{0x11}),
+            .add     => if (is_one_byte) OpCode.init(&.{0x00}) else OpCode.init(&.{0x01}),
+            .sub     => if (is_one_byte) OpCode.init(&.{0x28}) else OpCode.init(&.{0x29}),
+            .xor     => if (is_one_byte) OpCode.init(&.{0x30}) else OpCode.init(&.{0x31}),
+            .@"and"  => if (is_one_byte) OpCode.init(&.{0x20}) else OpCode.init(&.{0x21}),
+            .@"or"   => if (is_one_byte) OpCode.init(&.{0x08}) else OpCode.init(&.{0x09}),
+            .sbb     => if (is_one_byte) OpCode.init(&.{0x18}) else OpCode.init(&.{0x19}),
+            .cmp     => if (is_one_byte) OpCode.init(&.{0x38}) else OpCode.init(&.{0x39}),
+            .mov     => if (is_one_byte) OpCode.init(&.{0x88}) else OpCode.init(&.{0x89}),
+            .@"test" => if (is_one_byte) OpCode.init(&.{0x84}) else OpCode.init(&.{0x85}),
+            .movsd   =>                  OpCode.init(&.{0xf2,0x0f,0x11}),
+            .movss   =>                  OpCode.init(&.{0xf3,0x0f,0x11}),
+            else     => unreachable,
         },
         .rm => return switch (tag) {
-            .adc => OpCode.oneByte(if (is_one_byte) 0x12 else 0x13),
-            .add => OpCode.oneByte(if (is_one_byte) 0x02 else 0x03),
-            .sub => OpCode.oneByte(if (is_one_byte) 0x2a else 0x2b),
-            .xor => OpCode.oneByte(if (is_one_byte) 0x32 else 0x33),
-            .@"and" => OpCode.oneByte(if (is_one_byte) 0x22 else 0x23),
-            .@"or" => OpCode.oneByte(if (is_one_byte) 0x0a else 0x0b),
-            .sbb => OpCode.oneByte(if (is_one_byte) 0x1a else 0x1b),
-            .cmp => OpCode.oneByte(if (is_one_byte) 0x3a else 0x3b),
-            .mov => OpCode.oneByte(if (is_one_byte) 0x8a else 0x8b),
-            .movsx => OpCode.twoByte(0x0f, if (is_one_byte) 0xbe else 0xbf),
-            .movsxd => OpCode.oneByte(0x63),
-            .movzx => OpCode.twoByte(0x0f, if (is_one_byte) 0xb6 else 0xb7),
-            .lea => OpCode.oneByte(if (is_one_byte) 0x8c else 0x8d),
-            .imul => OpCode.twoByte(0x0f, 0xaf),
-            .cmove, .cmovz => OpCode.twoByte(0x0f, 0x44),
-            .cmovb, .cmovnae => OpCode.twoByte(0x0f, 0x42),
-            .cmovl, .cmovng => OpCode.twoByte(0x0f, 0x4c),
+            .adc      => if (is_one_byte) OpCode.init(&.{0x12})      else OpCode.init(&.{0x13}),
+            .add      => if (is_one_byte) OpCode.init(&.{0x02})      else OpCode.init(&.{0x03}),
+            .sub      => if (is_one_byte) OpCode.init(&.{0x2a})      else OpCode.init(&.{0x2b}),
+            .xor      => if (is_one_byte) OpCode.init(&.{0x32})      else OpCode.init(&.{0x33}),
+            .@"and"   => if (is_one_byte) OpCode.init(&.{0x22})      else OpCode.init(&.{0x23}),
+            .@"or"    => if (is_one_byte) OpCode.init(&.{0x0a})      else OpCode.init(&.{0x0b}),
+            .sbb      => if (is_one_byte) OpCode.init(&.{0x1a})      else OpCode.init(&.{0x1b}),
+            .cmp      => if (is_one_byte) OpCode.init(&.{0x3a})      else OpCode.init(&.{0x3b}),
+            .mov      => if (is_one_byte) OpCode.init(&.{0x8a})      else OpCode.init(&.{0x8b}),
+            .movsx    => if (is_one_byte) OpCode.init(&.{0x0f,0xbe}) else OpCode.init(&.{0x0f,0xbf}),
+            .movsxd   =>                  OpCode.init(&.{0x63}),
+            .movzx    => if (is_one_byte) OpCode.init(&.{0x0f,0xb6}) else OpCode.init(&.{0x0f,0xb7}),
+            .lea      => if (is_one_byte) OpCode.init(&.{0x8c})      else OpCode.init(&.{0x8d}),
+            .imul     =>                  OpCode.init(&.{0x0f,0xaf}),
+            .cmove, 
+            .cmovz    =>                  OpCode.init(&.{0x0f,0x44}),
+            .cmovb,
+            .cmovnae  =>                  OpCode.init(&.{0x0f,0x42}),
+            .cmovl,
+            .cmovng   =>                  OpCode.init(&.{0x0f,0x4c}),
+            .movsd    =>                  OpCode.init(&.{0xf2,0x0f,0x10}),
+            .movss    =>                  OpCode.init(&.{0xf3,0x0f,0x10}),
+            .addsd    =>                  OpCode.init(&.{0xf2,0x0f,0x58}),
+            .addss    =>                  OpCode.init(&.{0xf3,0x0f,0x58}),
+            .ucomisd  =>                  OpCode.init(&.{0x66,0x0f,0x2e}),
+            .ucomiss  =>                  OpCode.init(&.{0x0f,0x2e}),
             else => unreachable,
         },
         .oi => return switch (tag) {
-            .mov => OpCode.oneByte(if (is_one_byte) 0xb0 else 0xb8),
+            .mov => if (is_one_byte) OpCode.init(&.{0xb0}) else OpCode.init(&.{0xb8}),
             else => unreachable,
         },
         .fd => return switch (tag) {
-            .mov => OpCode.oneByte(if (is_one_byte) 0xa0 else 0xa1),
+            .mov => if (is_one_byte) OpCode.init(&.{0xa0}) else OpCode.init(&.{0xa1}),
             else => unreachable,
         },
         .td => return switch (tag) {
-            .mov => OpCode.oneByte(if (is_one_byte) 0xa2 else 0xa3),
+            .mov => if (is_one_byte) OpCode.init(&.{0xa2}) else OpCode.init(&.{0xa3}),
             else => unreachable,
         },
         .rmi => return switch (tag) {
-            .imul => OpCode.oneByte(if (is_one_byte) 0x6b else 0x69),
-            else => unreachable,
+            .imul => if (is_one_byte) OpCode.init(&.{0x6b}) else OpCode.init(&.{0x69}),
+            else  => unreachable,
         },
         .mv => return switch (tag) {
-            .vmovsd, .vmovss => OpCode.oneByte(0x11),
+            .vmovsd,
+            .vmovss => OpCode.init(&.{0x11}),
             else => unreachable,
         },
         .vm => return switch (tag) {
-            .vmovsd, .vmovss => OpCode.oneByte(0x10),
-            .vucomisd, .vucomiss => OpCode.oneByte(0x2e),
+            .vmovsd, 
+            .vmovss   => OpCode.init(&.{0x10}),
+            .vucomisd,
+            .vucomiss => OpCode.init(&.{0x2e}),
             else => unreachable,
         },
         .rvm => return switch (tag) {
-            .vaddsd, .vaddss => OpCode.oneByte(0x58),
-            .vmovsd, .vmovss => OpCode.oneByte(0x10),
+            .vaddsd,
+            .vaddss  => OpCode.init(&.{0x58}),
+            .vmovsd,
+            .vmovss  => OpCode.init(&.{0x10}),
             else => unreachable,
         },
         .rvmi => return switch (tag) {
-            .vcmpsd, .vcmpss => OpCode.oneByte(0xc2),
-            else => unreachable,
+            .vcmpsd,
+            .vcmpss  => OpCode.init(&.{0xc2}),
+            else     => unreachable,
         },
     }
+    // zig fmt: on
 }
 
 inline fn getModRmExt(tag: Tag) u3 {
