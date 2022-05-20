@@ -441,6 +441,17 @@ pub const Encoder = struct {
         self.code.appendAssumeCapacity(opcode);
     }
 
+    /// Encodes a 3 byte opcode
+    ///
+    /// e.g. MOVSD has the opcode 0xf2 0x0f 0x10
+    ///
+    /// encoder.opcode_3byte(0xf2, 0x0f, 0x10);
+    pub fn opcode_3byte(self: Self, prefix_1: u8, prefix_2: u8, opcode: u8) void {
+        self.code.appendAssumeCapacity(prefix_1);
+        self.code.appendAssumeCapacity(prefix_2);
+        self.code.appendAssumeCapacity(opcode);
+    }
+
     /// Encodes a 1 byte opcode with a reg field
     ///
     /// Remember to add a REX prefix byte if reg is extended!

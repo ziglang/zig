@@ -345,11 +345,29 @@ pub const Inst = struct {
         /// Nop
         nop,
 
-        /// AVX instructions
+        /// SSE instructions
         /// ops flags:  form:
         ///       0b00  reg1, qword ptr [reg2 + imm32]
         ///       0b01  qword ptr [reg1 + imm32], reg2
         ///       0b10  reg1, reg2
+        mov_f64_sse,
+        mov_f32_sse,
+
+        /// ops flags:  form:
+        ///       0b00  reg1, reg2
+        add_f64_sse,
+        add_f32_sse,
+
+        /// ops flags:  form:
+        ///       0b00  reg1, reg2
+        cmp_f64_sse,
+        cmp_f32_sse,
+
+        /// AVX instructions
+        /// ops flags:  form:
+        ///       0b00  reg1, qword ptr [reg2 + imm32]
+        ///       0b01  qword ptr [reg1 + imm32], reg2
+        ///       0b10  reg1, reg1, reg2
         mov_f64_avx,
         mov_f32_avx,
 
@@ -359,7 +377,7 @@ pub const Inst = struct {
         add_f32_avx,
 
         /// ops flags:  form:
-        ///
+        ///       0b00  reg1, reg1, reg2
         cmp_f64_avx,
         cmp_f32_avx,
 
