@@ -406,7 +406,6 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
             continue;
         }
 
-        // TODO: locals are allowed to have duplicate symbol names
         // TODO: Store undefined symbols so we can verify at the end if they've all been found
         // if not, emit an error (unless --allow-undefined is enabled).
         const maybe_existing = try self.globals.getOrPut(self.base.allocator, sym_name_index);
@@ -751,6 +750,37 @@ pub fn lowerUnnamedConst(self: *Wasm, tv: TypedValue, decl_index: Module.Decl.In
     atom.size = @intCast(u32, code.len);
     try atom.code.appendSlice(self.base.allocator, code);
     return atom.sym_index;
+}
+
+/// Returns the symbol index from the name of an intrinsic.
+/// If the symbol does not yet exist, creates a new one symbol instead
+/// and then returns the index to it.
+pub fn getIntrinsicSymbol(self: *Wasm, name: []const u8) !u64 {
+    const name_index = try self.string_table.put(self.base.allocator, name);
+    const gop = try self.globals.getOrPut(self.base.allocator, name_index);
+    if (gop.found_existing) {
+        return gop.value_ptr.*.index;
+    }
+
+    var symbol: Symbol = .{
+        .name = name_index,
+        .flags = 0,
+        .index = undefined, // index to type will be set after merging function symbols
+        .tag = .function,
+    };
+    symbol.setGlobal(true);
+    symbol.setFlag(.WASM_SYM_UNDEFINED);
+
+    const sym_index = if (self.symbols_free_list.popOrNull()) |index| index else blk: {
+        var index = @intCast(u32, self.symbols.items.len);
+        try self.symbols.ensureUnusedCapacity(self.base.allocator, 1);
+        self.symbols.items.len += 1;
+        break :blk index;
+    };
+    self.symbols.items[sym_index] = symbol;
+    gop.value_ptr.* = .{ .index = sym_index, .file = null };
+
+    return sym_index;
 }
 
 /// For a given decl, find the given symbol index's atom, and create a relocation for the type.

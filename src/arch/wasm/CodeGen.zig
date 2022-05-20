@@ -795,7 +795,7 @@ fn genFunctype(gpa: Allocator, fn_info: Type.Payload.Function.Data, target: std.
     var returns = std.ArrayList(wasm.Valtype).init(gpa);
     defer returns.deinit();
 
-    if (firstParamSRet(fn_info, target)) {
+    if (firstParamSRet(fn_info.cc, fn_info.return_type, target)) {
         try params.append(.i32); // memory address is always a 32-bit handle
     } else if (fn_info.return_type.hasRuntimeBitsIgnoreComptime()) {
         if (fn_info.cc == .C) {
@@ -993,7 +993,8 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) InnerError!CallWValu
 
     // Check if we store the result as a pointer to the stack rather than
     // by value
-    if (firstParamSRet(fn_ty.fnInfo(), self.target)) {
+    const fn_info = fn_ty.fnInfo();
+    if (firstParamSRet(fn_info.cc, fn_info.return_type, self.target)) {
         // the sret arg will be passed as first argument, therefore we
         // set the `return_value` before allocating locals for regular args.
         result.return_value = .{ .local = self.local_index };
@@ -1027,11 +1028,11 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) InnerError!CallWValu
     return result;
 }
 
-fn firstParamSRet(fn_info: Type.Payload.Function.Data, target: std.Target) bool {
-    switch (fn_info.cc) {
-        .Unspecified, .Inline => return isByRef(fn_info.return_type, target),
+fn firstParamSRet(cc: std.builtin.CallingConvention, return_type: Type, target: std.Target) bool {
+    switch (cc) {
+        .Unspecified, .Inline => return isByRef(return_type, target),
         .C => {
-            const ty_classes = abi.classifyType(fn_info.return_type, target);
+            const ty_classes = abi.classifyType(return_type, target);
             if (ty_classes[0] == .indirect) return true;
             if (ty_classes[0] == .direct and ty_classes[1] == .direct) return true;
             return false;
@@ -1678,7 +1679,8 @@ fn airRetPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         return self.allocStack(Type.usize); // create pointer to void
     }
 
-    if (firstParamSRet(self.decl.ty.fnInfo(), self.target)) {
+    const fn_info = self.decl.ty.fnInfo();
+    if (firstParamSRet(fn_info.cc, fn_info.return_type, self.target)) {
         return self.return_value;
     }
 
@@ -1697,7 +1699,8 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         }
     }
 
-    if (!firstParamSRet(self.decl.ty.fnInfo(), self.target)) {
+    const fn_info = self.decl.ty.fnInfo();
+    if (!firstParamSRet(fn_info.cc, fn_info.return_type, self.target)) {
         const result = try self.load(operand, ret_ty, 0);
         try self.emitWValue(result);
     }
@@ -1720,7 +1723,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
         else => unreachable,
     };
     const ret_ty = fn_ty.fnReturnType();
-    const first_param_sret = firstParamSRet(fn_ty.fnInfo(), self.target);
+    const fn_info = fn_ty.fnInfo();
+    const first_param_sret = firstParamSRet(fn_info.cc, fn_info.return_type, self.target);
 
     const callee: ?*Decl = blk: {
         const func_val = self.air.value(pl_op.operand) orelse break :blk null;
@@ -5089,5 +5093,67 @@ fn airShlSat(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
             return self.wrapOperand(shift_result, ty);
         }
         return shift_result;
+    }
+}
+
+/// Calls a compiler-rt intrinsic by creating an undefined symbol,
+/// then lowering the arguments and calling the symbol as a function call.
+/// This function call assumes the C-ABI.
+fn callIntrinsic(
+    self: *Self,
+    name: []const u8,
+    param_types: []const Type,
+    return_type: Type,
+    args: []const WValue,
+) InnerError!WValue {
+    assert(param_types.len == args.len);
+    const symbol_index = @intCast(u32, try self.bin_file.getIntrinsicSymbol(name));
+    var pt_tmp = try self.gpa.dupe(Type, param_types);
+    defer self.gpa.free(pt_tmp);
+
+    // TODO: have genFunctype accept individual params so we don't,
+    // need to initialize a fake Fn.Data instance.
+    const func_type = try genFunctype(self.base.allocator, .{
+        .param_types = pt_tmp,
+        .comptime_params = undefined,
+        .return_type = return_type,
+        .alignment = 0,
+        .cc = .C,
+        .is_var_args = false,
+        .is_generic = false,
+    }, self.target);
+    defer func_type.deinit(self.base.allocator);
+    const func_type_index = try self.bin_file.putOrGetFuncType(func_type);
+    try self.bin_file.addOrUpdateImport(symbol_index, func_type_index);
+
+    const want_sret_param = firstParamSRet(.C, return_type, self.target);
+    // if we want return as first param, we allocate a pointer to stack,
+    // and emit it as our first argument
+    const sret = if (want_sret_param) blk: {
+        const sret_local = try self.allocStack(return_type);
+        try self.lowerToStack(sret_local);
+        break :blk sret_local;
+    } else WValue{ .none = {} };
+
+    // Lower all arguments to the stack before we call our function
+    for (args) |arg, arg_i| {
+        assert(param_types[arg_i].hasRuntimeBitsIgnoreComptime());
+        try self.lowerArg(.C, param_types[arg_i], arg);
+    }
+
+    // Actually call our intrinsic
+    try self.addLabel(.call, symbol_index);
+
+    if (!return_type.hasRuntimeBitsIgnoreComptime()) {
+        return WValue.none;
+    } else if (return_type.isNoReturn()) {
+        try self.addTag(.@"unreachable");
+        return WValue.none;
+    } else if (want_sret_param) {
+        return sret;
+    } else {
+        const result_local = try self.allocLocal(return_type);
+        try self.addLabel(.local_set, result_local.local);
+        return result_local;
     }
 }
