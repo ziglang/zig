@@ -5,64 +5,19 @@ const expect = std.testing.expect;
 /// Returns whether x is negative or negative 0.
 pub fn signbit(x: anytype) bool {
     const T = @TypeOf(x);
-    return switch (T) {
-        f16 => signbit16(x),
-        f32 => signbit32(x),
-        f64 => signbit64(x),
-        f80 => signbit80(x),
-        f128 => signbit128(x),
-        else => @compileError("signbit not implemented for " ++ @typeName(T)),
-    };
-}
-
-fn signbit16(x: f16) bool {
-    const bits = @bitCast(u16, x);
-    return bits >> 15 != 0;
-}
-
-fn signbit32(x: f32) bool {
-    const bits = @bitCast(u32, x);
-    return bits >> 31 != 0;
-}
-
-fn signbit64(x: f64) bool {
-    const bits = @bitCast(u64, x);
-    return bits >> 63 != 0;
-}
-
-fn signbit80(x: f80) bool {
-    const bits = @bitCast(u80, x);
-    return bits >> 79 != 0;
-}
-
-fn signbit128(x: f128) bool {
-    const bits = @bitCast(u128, x);
-    return bits >> 127 != 0;
+    const TBits = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
+    return @bitCast(TBits, x) >> (@bitSizeOf(T) - 1) != 0;
 }
 
 test "math.signbit" {
-    try expect(signbit(@as(f16, 4.0)) == signbit16(4.0));
-    try expect(signbit(@as(f32, 4.0)) == signbit32(4.0));
-    try expect(signbit(@as(f64, 4.0)) == signbit64(4.0));
-    try expect(signbit(@as(f128, 4.0)) == signbit128(4.0));
-}
-
-test "math.signbit16" {
-    try expect(!signbit16(4.0));
-    try expect(signbit16(-3.0));
-}
-
-test "math.signbit32" {
-    try expect(!signbit32(4.0));
-    try expect(signbit32(-3.0));
-}
-
-test "math.signbit64" {
-    try expect(!signbit64(4.0));
-    try expect(signbit64(-3.0));
-}
-
-test "math.signbit128" {
-    try expect(!signbit128(4.0));
-    try expect(signbit128(-3.0));
+    inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
+        try expect(!signbit(@as(T, 0.0)));
+        try expect(!signbit(@as(T, 1.0)));
+        try expect(signbit(@as(T, -2.0)));
+        try expect(signbit(@as(T, -0.0)));
+        try expect(!signbit(math.inf(T)));
+        try expect(signbit(-math.inf(T)));
+        try expect(!signbit(math.nan(T)));
+        try expect(signbit(-math.nan(T)));
+    }
 }

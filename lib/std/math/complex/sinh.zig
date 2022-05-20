@@ -45,13 +45,13 @@ fn sinh32(z: Complex(f32)) Complex(f32) {
         if (ix < 0x42b17218) {
             // x < 88.7: exp(|x|) won't overflow
             const h = @exp(@fabs(x)) * 0.5;
-            return Complex(f32).init(math.copysign(f32, h, x) * @cos(y), h * @sin(y));
+            return Complex(f32).init(math.copysign(h, x) * @cos(y), h * @sin(y));
         }
         // x < 192.7: scale to avoid overflow
         else if (ix < 0x4340b1e7) {
             const v = Complex(f32).init(@fabs(x), y);
             const r = ldexp_cexp(v, -1);
-            return Complex(f32).init(r.re * math.copysign(f32, 1, x), r.im);
+            return Complex(f32).init(r.re * math.copysign(@as(f32, 1.0), x), r.im);
         }
         // x >= 192.7: result always overflows
         else {
@@ -61,14 +61,14 @@ fn sinh32(z: Complex(f32)) Complex(f32) {
     }
 
     if (ix == 0 and iy >= 0x7f800000) {
-        return Complex(f32).init(math.copysign(f32, 0, x * (y - y)), y - y);
+        return Complex(f32).init(math.copysign(@as(f32, 0.0), x * (y - y)), y - y);
     }
 
     if (iy == 0 and ix >= 0x7f800000) {
         if (hx & 0x7fffff == 0) {
             return Complex(f32).init(x, y);
         }
-        return Complex(f32).init(x, math.copysign(f32, 0, y));
+        return Complex(f32).init(x, math.copysign(@as(f32, 0.0), y));
     }
 
     if (ix < 0x7f800000 and iy >= 0x7f800000) {
@@ -112,13 +112,13 @@ fn sinh64(z: Complex(f64)) Complex(f64) {
         if (ix < 0x40862e42) {
             // x < 710: exp(|x|) won't overflow
             const h = @exp(@fabs(x)) * 0.5;
-            return Complex(f64).init(math.copysign(f64, h, x) * @cos(y), h * @sin(y));
+            return Complex(f64).init(math.copysign(h, x) * @cos(y), h * @sin(y));
         }
         // x < 1455: scale to avoid overflow
         else if (ix < 0x4096bbaa) {
             const v = Complex(f64).init(@fabs(x), y);
             const r = ldexp_cexp(v, -1);
-            return Complex(f64).init(r.re * math.copysign(f64, 1, x), r.im);
+            return Complex(f64).init(r.re * math.copysign(@as(f64, 1.0), x), r.im);
         }
         // x >= 1455: result always overflows
         else {
@@ -128,14 +128,14 @@ fn sinh64(z: Complex(f64)) Complex(f64) {
     }
 
     if (ix | lx == 0 and iy >= 0x7ff00000) {
-        return Complex(f64).init(math.copysign(f64, 0, x * (y - y)), y - y);
+        return Complex(f64).init(math.copysign(@as(f64, 0.0), x * (y - y)), y - y);
     }
 
     if (iy | ly == 0 and ix >= 0x7ff00000) {
         if ((hx & 0xfffff) | lx == 0) {
             return Complex(f64).init(x, y);
         }
-        return Complex(f64).init(x, math.copysign(f64, 0, y));
+        return Complex(f64).init(x, math.copysign(@as(f64, 0.0), y));
     }
 
     if (ix < 0x7ff00000 and iy >= 0x7ff00000) {
