@@ -86,6 +86,9 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
         .spirv64 => return error.@"LLVM backend does not support SPIR-V",
     };
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
     const llvm_os = blk: {
         if (target.os.tag.isDarwin()) {
             const min_version = target.os.version_range.semver.min;
@@ -96,7 +99,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
                 .watchos => "watchos",
                 else => unreachable,
             };
-            break :blk try std.fmt.allocPrintZ(allocator, "{s}{d}.{d}.{d}", .{
+            break :blk try std.fmt.allocPrintZ(arena.allocator(), "{s}{d}.{d}.{d}", .{
                 llvm_os,
                 min_version.major,
                 min_version.minor,
