@@ -232,6 +232,11 @@ pub fn print(
             const x = sub_ty.abiAlignment(target);
             return writer.print("{d}", .{x});
         },
+        .lazy_size => {
+            const sub_ty = val.castTag(.lazy_size).?.data;
+            const x = sub_ty.abiSize(target);
+            return writer.print("{d}", .{x});
+        },
         .function => return writer.print("(function '{s}')", .{
             mod.declPtr(val.castTag(.function).?.data.owner_decl).name,
         }),

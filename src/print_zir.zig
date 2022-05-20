@@ -365,7 +365,7 @@ const Writer = struct {
             .@"export" => try self.writePlNodeExport(stream, inst),
             .export_value => try self.writePlNodeExportValue(stream, inst),
 
-            .call => try self.writePlNodeCall(stream, inst),
+            .call => try self.writeCall(stream, inst),
 
             .block,
             .block_inline,
@@ -793,6 +793,11 @@ const Writer = struct {
     fn writeBuiltinCall(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const extra = self.code.extraData(Zir.Inst.BuiltinCall, inst_data.payload_index).data;
+
+        try self.writeFlag(stream, "nodiscard ", extra.flags.ensure_result_used);
+        try self.writeFlag(stream, "nosuspend ", extra.flags.is_nosuspend);
+        try self.writeFlag(stream, "comptime ", extra.flags.is_comptime);
+
         try self.writeInstRef(stream, extra.options);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.callee);
@@ -1144,7 +1149,7 @@ const Writer = struct {
         try self.writeSrc(stream, src);
     }
 
-    fn writePlNodeCall(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+    fn writeCall(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const extra = self.code.extraData(Zir.Inst.Call, inst_data.payload_index);
         const args = self.code.refSlice(extra.end, extra.data.flags.args_len);
