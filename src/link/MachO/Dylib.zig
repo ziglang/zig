@@ -305,6 +305,7 @@ const TargetMatcher = struct {
         const abi: ?[]const u8 = switch (target.abi) {
             .none => null,
             .simulator => "simulator",
+            .macabi => "maccatalyst",
             else => unreachable,
         };
         if (abi) |x| {
