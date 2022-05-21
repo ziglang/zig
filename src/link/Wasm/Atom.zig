@@ -171,7 +171,10 @@ fn relocationValue(self: Atom, relocation: types.Relocation, wasm_bin: *const Wa
             }
             std.debug.assert(symbol.tag == .data);
             const merge_segment = wasm_bin.base.options.output_mode != .Obj;
-            const segment_name = wasm_bin.segment_info.items[symbol.index].outputName(merge_segment);
+            const segment_info = if (self.file) |object_index| blk: {
+                break :blk wasm_bin.objects.items[object_index].segment_info;
+            } else wasm_bin.segment_info.items;
+            const segment_name = segment_info[symbol.index].outputName(merge_segment);
             const atom_index = wasm_bin.data_segments.get(segment_name).?;
             const target_atom = wasm_bin.symbol_atom.get(target_loc).?;
             const segment = wasm_bin.segments.items[atom_index];
