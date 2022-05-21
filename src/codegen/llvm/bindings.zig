@@ -1019,6 +1019,9 @@ pub const TargetMachine = opaque {
 pub const TargetData = opaque {
     pub const dispose = LLVMDisposeTargetData;
     extern fn LLVMDisposeTargetData(*const TargetData) void;
+
+    pub const abiAlignmentOfType = LLVMABIAlignmentOfType;
+    extern fn LLVMABIAlignmentOfType(TD: *const TargetData, Ty: *const Type) c_uint;
 };
 
 pub const CodeModel = enum(c_int) {
