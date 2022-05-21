@@ -433,6 +433,13 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
             continue; // Do not overwrite defined symbols with undefined symbols
         }
 
+        if (symbol.tag != existing_sym.tag) {
+            log.err("symbol '{s}' mismatching type '{s}", .{ sym_name, @tagName(symbol.tag) });
+            log.err("  first definition in '{s}'", .{existing_file_path});
+            log.err("  next definition in '{s}'", .{object.name});
+            return error.SymbolMismatchingType;
+        }
+
         // when both symbols are weak, we skip overwriting
         if (existing_sym.isWeak() and symbol.isWeak()) {
             continue;
@@ -755,7 +762,7 @@ pub fn lowerUnnamedConst(self: *Wasm, tv: TypedValue, decl_index: Module.Decl.In
 /// Returns the symbol index from the name of an intrinsic.
 /// If the symbol does not yet exist, creates a new one symbol instead
 /// and then returns the index to it.
-pub fn getIntrinsicSymbol(self: *Wasm, name: []const u8) !u64 {
+pub fn getGlobalSymbol(self: *Wasm, name: []const u8) !u32 {
     const name_index = try self.string_table.put(self.base.allocator, name);
     const gop = try self.globals.getOrPut(self.base.allocator, name_index);
     if (gop.found_existing) {
@@ -769,7 +776,7 @@ pub fn getIntrinsicSymbol(self: *Wasm, name: []const u8) !u64 {
         .tag = .function,
     };
     symbol.setGlobal(true);
-    symbol.setFlag(.WASM_SYM_UNDEFINED);
+    symbol.setUndefined(true);
 
     const sym_index = if (self.symbols_free_list.popOrNull()) |index| index else blk: {
         var index = @intCast(u32, self.symbols.items.len);
@@ -779,7 +786,7 @@ pub fn getIntrinsicSymbol(self: *Wasm, name: []const u8) !u64 {
     };
     self.symbols.items[sym_index] = symbol;
     gop.value_ptr.* = .{ .index = sym_index, .file = null };
-
+    try self.resolved_symbols.put(self.base.allocator, gop.value_ptr.*, {});
     return sym_index;
 }
 
@@ -982,10 +989,24 @@ fn mapFunctionTable(self: *Wasm) void {
     }
 }
 
-pub fn addOrUpdateImport(self: *Wasm, decl: *Module.Decl) !void {
+/// Either creates a new import, or updates one if existing.
+/// When `type_index` is non-null, we assume an external function.
+/// In all other cases, a data-symbol will be created instead.
+pub fn addOrUpdateImport(
+    self: *Wasm,
+    /// Name of the import
+    name: []const u8,
+    /// Symbol index that is external
+    symbol_index: u32,
+    /// Optional library name (i.e. `extern "c" fn foo() void`
+    lib_name: ?[*:0]const u8,
+    /// The index of the type that represents the function signature
+    /// when the extern is a function. When this is null, a data-symbol
+    /// is asserted instead.
+    type_index: ?u32,
+) !void {
     // For the import name itself, we use the decl's name, rather than the fully qualified name
-    const decl_name_index = try self.string_table.put(self.base.allocator, mem.sliceTo(decl.name, 0));
-    const symbol_index = decl.link.wasm.sym_index;
+    const decl_name_index = try self.string_table.put(self.base.allocator, name);
     const symbol: *Symbol = &self.symbols.items[symbol_index];
     symbol.setUndefined(true);
     symbol.setGlobal(true);
@@ -996,22 +1017,19 @@ pub fn addOrUpdateImport(self: *Wasm, decl: *Module.Decl) !void {
         try self.resolved_symbols.put(self.base.allocator, loc, {});
     }
 
-    switch (decl.ty.zigTypeTag()) {
-        .Fn => {
-            const gop = try self.imports.getOrPut(self.base.allocator, .{ .index = symbol_index, .file = null });
-            const module_name = if (decl.getExternFn().?.lib_name) |lib_name| blk: {
-                break :blk mem.sliceTo(lib_name, 0);
-            } else self.host_name;
-            if (!gop.found_existing) {
-                gop.value_ptr.* = .{
-                    .module_name = try self.string_table.put(self.base.allocator, module_name),
-                    .name = decl_name_index,
-                    .kind = .{ .function = decl.fn_link.wasm.type_index },
-                };
-            }
-        },
-        else => @panic("TODO: Implement undefined symbols for non-function declarations"),
-    }
+    if (type_index) |ty_index| {
+        const gop = try self.imports.getOrPut(self.base.allocator, .{ .index = symbol_index, .file = null });
+        const module_name = if (lib_name) |l_name| blk: {
+            break :blk mem.sliceTo(l_name, 0);
+        } else self.host_name;
+        if (!gop.found_existing) {
+            gop.value_ptr.* = .{
+                .module_name = try self.string_table.put(self.base.allocator, module_name),
+                .name = decl_name_index,
+                .kind = .{ .function = ty_index },
+            };
+        }
+    } else @panic("TODO: Implement undefined symbols for non-function declarations");
 }
 
 const Kind = union(enum) {
@@ -1251,7 +1269,7 @@ fn mergeSections(self: *Wasm) !void {
                 symbol.index = @intCast(u32, self.tables.items.len) + self.imported_tables_count;
                 try self.tables.append(self.base.allocator, original_table);
             },
-            else => {},
+            else => unreachable,
         }
     }
 
