@@ -438,6 +438,24 @@ pub const File = struct {
         }
     }
 
+    /// Called from within CodeGen to retrieve the symbol index of a global symbol.
+    /// If no symbol exists yet with this name, a new one will be created instead.
+    pub fn getGlobalSymbol(base: *File, name: []const u8) UpdateDeclError!u32 {
+        log.debug("getGlobalSymbol '{s}'", .{name});
+        switch (base.tag) {
+            // zig fmt: off
+            .coff  => unreachable,
+            .elf   => unreachable,
+            .macho => unreachable,
+            .plan9 => unreachable,
+            .spirv => unreachable,
+            .c     => unreachable,
+            .wasm  => return @fieldParentPtr(Wasm,  "base", base).getGlobalSymbol(name),
+            .nvptx => unreachable,
+            // zig fmt: on
+        }
+    }
+
     /// May be called before or after updateDeclExports but must be called
     /// after allocateDeclIndexes for any given Decl.
     pub fn updateDecl(base: *File, module: *Module, decl_index: Module.Decl.Index) UpdateDeclError!void {
