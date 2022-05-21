@@ -1737,7 +1737,12 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
             var func_type = try genFunctype(self.gpa, ext_decl.ty.fnInfo(), self.target);
             defer func_type.deinit(self.gpa);
             ext_decl.fn_link.wasm.type_index = try self.bin_file.putOrGetFuncType(func_type);
-            try self.bin_file.addOrUpdateImport(ext_decl);
+            try self.bin_file.addOrUpdateImport(
+                mem.sliceTo(ext_decl.name, 0),
+                ext_decl.link.wasm.sym_index,
+                ext_decl.getExternFn().?.lib_name,
+                ext_decl.fn_link.wasm.type_index,
+            );
             break :blk ext_decl;
         } else if (func_val.castTag(.decl_ref)) |decl_ref| {
             break :blk module.declPtr(decl_ref.data);
@@ -5107,13 +5112,15 @@ fn callIntrinsic(
     args: []const WValue,
 ) InnerError!WValue {
     assert(param_types.len == args.len);
-    const symbol_index = @intCast(u32, try self.bin_file.getIntrinsicSymbol(name));
-    var pt_tmp = try self.gpa.dupe(Type, param_types);
-    defer self.gpa.free(pt_tmp);
+    const symbol_index = self.bin_file.base.getGlobalSymbol(name) catch |err| {
+        return self.fail("Could not find or create global symbol '{s}'", .{@errorName(err)});
+    };
 
     // TODO: have genFunctype accept individual params so we don't,
     // need to initialize a fake Fn.Data instance.
-    const func_type = try genFunctype(self.base.allocator, .{
+    var pt_tmp = try self.gpa.dupe(Type, param_types);
+    defer self.gpa.free(pt_tmp);
+    var func_type = try genFunctype(self.gpa, .{
         .param_types = pt_tmp,
         .comptime_params = undefined,
         .return_type = return_type,
@@ -5122,9 +5129,9 @@ fn callIntrinsic(
         .is_var_args = false,
         .is_generic = false,
     }, self.target);
-    defer func_type.deinit(self.base.allocator);
+    defer func_type.deinit(self.gpa);
     const func_type_index = try self.bin_file.putOrGetFuncType(func_type);
-    try self.bin_file.addOrUpdateImport(symbol_index, func_type_index);
+    try self.bin_file.addOrUpdateImport(name, symbol_index, null, func_type_index);
 
     const want_sret_param = firstParamSRet(.C, return_type, self.target);
     // if we want return as first param, we allocate a pointer to stack,
