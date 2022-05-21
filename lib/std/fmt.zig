@@ -24,9 +24,9 @@ pub const FormatOptions = struct {
     fill: u8 = ' ',
 };
 
-/// Renders fmt string with args, calling output with slices of bytes.
-/// If `output` returns an error, the error is returned from `format` and
-/// `output` is not called again.
+/// Renders fmt string with args, calling `writer` with slices of bytes.
+/// If `writer` returns an error, the error is returned from `format` and
+/// `writer` is not called again.
 ///
 /// The format string must be comptime known and may contain placeholders following
 /// this format:
@@ -1869,6 +1869,10 @@ pub const BufPrintError = error{
     /// As much as possible was written to the buffer, but it was too small to fit all the printed bytes.
     NoSpaceLeft,
 };
+
+/// print a Formatter string into `buf`. Actually just a thin wrapper around `format` and `fixedBufferStream`.
+/// returns a slice of the bytes printed to.
+
 pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![]u8 {
     var fbs = std.io.fixedBufferStream(buf);
     try format(fbs.writer(), fmt, args);
