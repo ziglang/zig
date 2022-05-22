@@ -1719,6 +1719,15 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
     const have_bin_emit = comp.bin_file.options.emit != null or comp.whole_bin_sub_path != null;
 
     if (have_bin_emit and !comp.bin_file.options.skip_linker_dependencies) {
+        if (comp.getTarget().isDarwin()) {
+            switch (comp.getTarget().abi) {
+                .none,
+                .simulator,
+                .macabi,
+                => {},
+                else => return error.LibCUnavailable,
+            }
+        }
         // If we need to build glibc for the target, add work items for it.
         // We go through the work queue so that building can be done in parallel.
         if (comp.wantBuildGLibCFromSource()) {
@@ -4289,7 +4298,7 @@ fn getZigShippedLibCIncludeDirsDarwin(arena: Allocator, zig_lib_dir: []const u8,
 
     list[0] = try std.fmt.allocPrint(
         arena,
-        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-gnu",
+        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-none",
         .{ zig_lib_dir, arch_name, os_name },
     );
     list[1] = try std.fmt.allocPrint(

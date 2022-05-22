@@ -26,6 +26,9 @@ const x86_64_abi = @import("../arch/x86_64/abi.zig");
 const Error = error{ OutOfMemory, CodegenFail };
 
 pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
+    var llvm_triple = std.ArrayList(u8).init(allocator);
+    defer llvm_triple.deinit();
+
     const llvm_arch = switch (target.cpu.arch) {
         .arm => "arm",
         .armeb => "armeb",
@@ -85,6 +88,8 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
         .spirv32 => return error.@"LLVM backend does not support SPIR-V",
         .spirv64 => return error.@"LLVM backend does not support SPIR-V",
     };
+    try llvm_triple.appendSlice(llvm_arch);
+    try llvm_triple.appendSlice("-unknown-");
 
     const llvm_os = switch (target.os.tag) {
         .freestanding => "unknown",
@@ -93,11 +98,9 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
         .dragonfly => "dragonfly",
         .freebsd => "freebsd",
         .fuchsia => "fuchsia",
-        .ios => "ios",
         .kfreebsd => "kfreebsd",
         .linux => "linux",
         .lv2 => "lv2",
-        .macos => "macosx",
         .netbsd => "netbsd",
         .openbsd => "openbsd",
         .solaris => "solaris",
@@ -113,8 +116,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
         .amdhsa => "amdhsa",
         .ps4 => "ps4",
         .elfiamcu => "elfiamcu",
-        .tvos => "tvos",
-        .watchos => "watchos",
         .mesa3d => "mesa3d",
         .contiki => "contiki",
         .amdpal => "amdpal",
@@ -123,7 +124,10 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
         .wasi => "wasi",
         .emscripten => "emscripten",
         .uefi => "windows",
-
+        .macos => "macosx",
+        .ios => "ios",
+        .tvos => "tvos",
+        .watchos => "watchos",
         .opencl,
         .glsl450,
         .vulkan,
@@ -131,6 +135,17 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
         .other,
         => "unknown",
     };
+    try llvm_triple.appendSlice(llvm_os);
+
+    if (target.os.tag.isDarwin()) {
+        const min_version = target.os.version_range.semver.min;
+        try llvm_triple.writer().print("{d}.{d}.{d}", .{
+            min_version.major,
+            min_version.minor,
+            min_version.patch,
+        });
+    }
+    try llvm_triple.append('-');
 
     const llvm_abi = switch (target.abi) {
         .none => "unknown",
@@ -156,8 +171,9 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
         .simulator => "simulator",
         .macabi => "macabi",
     };
+    try llvm_triple.appendSlice(llvm_abi);
 
-    return std.fmt.allocPrintZ(allocator, "{s}-unknown-{s}-{s}", .{ llvm_arch, llvm_os, llvm_abi });
+    return llvm_triple.toOwnedSliceSentinel(0);
 }
 
 pub const Object = struct {
