@@ -1206,6 +1206,9 @@ pub const DeclGen = struct {
 
         const name_start = buffer.items.len + 1;
         try bw.print(" zig_A_{s}_{d}", .{ typeToCIdentifier(elem_type, dg.module), c_len });
+        if (t.sentinel()) |sentinel| {
+            try bw.print("_{}", .{sentinel.fmtValue(elem_type, dg.module)});
+        }
         const name_end = buffer.items.len;
 
         try bw.print("[{d}];\n", .{c_len});
