@@ -253,7 +253,7 @@ fn serializeTo(params: anytype, out: anytype) !void {
 // Split a `key=value` string into `key` and `value`
 fn kvSplit(str: []const u8) !struct { key: []const u8, value: []const u8 } {
     var it = mem.split(u8, str, kv_delimiter);
-    const key = it.next() orelse return Error.InvalidEncoding;
+    const key = it.next().?;
     const value = it.next() orelse return Error.InvalidEncoding;
     const ret = .{ .key = key, .value = value };
     return ret;

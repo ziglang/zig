@@ -289,7 +289,7 @@ const crypt_format = struct {
 
         var it = mem.split(u8, str[14..], "$");
 
-        const salt = it.next() orelse return EncodingError.InvalidEncoding;
+        const salt = it.next().?;
         if (@hasField(T, "salt")) out.salt = salt;
 
         const hash_str = it.next() orelse return EncodingError.InvalidEncoding;

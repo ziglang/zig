@@ -1685,12 +1685,18 @@ test "tokenize (reset)" {
 
 /// Returns an iterator that iterates over the slices of `buffer` that
 /// are separated by bytes in `delimiter`.
-/// split(u8, "abc|def||ghi", "|")
-/// will return slices for "abc", "def", "", "ghi", null, in that order.
-/// If `delimiter` does not exist in buffer,
-/// the iterator will return `buffer`, null, in that order.
-/// The delimiter length must not be zero.
-/// See also the related function `tokenize`.
+///
+/// `split(u8, "abc|def||ghi", "|")` will return slices
+/// for "abc", "def", "", "ghi", null, in that order.
+///
+/// If `delimiter` does not exist in `buffer`,
+/// the iterator will return `buffer`, `null`, in that order.
+///
+/// Note that the result of the first `.next` call is always non-`null`.
+///
+/// Asserts that `delimiter.len != 0`.
+///
+/// See also: `tokenize`.
 pub fn split(comptime T: type, buffer: []const T, delimiter: []const T) SplitIterator(T) {
     assert(delimiter.len != 0);
     return .{
