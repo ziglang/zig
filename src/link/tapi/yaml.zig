@@ -316,7 +316,7 @@ pub const Yaml = struct {
 
     fn parseValue(self: *Yaml, comptime T: type, value: Value) Error!T {
         return switch (@typeInfo(T)) {
-            .Int => math.cast(T, try value.asInt()),
+            .Int => math.cast(T, try value.asInt()) orelse error.Overflow,
             .Float => math.lossyCast(T, try value.asFloat()),
             .Struct => self.parseStruct(T, try value.asMap()),
             .Union => self.parseUnion(T, value),

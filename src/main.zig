@@ -4067,7 +4067,7 @@ fn fmtPathFile(
     const source_code = try readSourceFileToEndAlloc(
         fmt.gpa,
         &source_file,
-        std.math.cast(usize, stat.size) catch return error.FileTooBig,
+        std.math.cast(usize, stat.size) orelse return error.FileTooBig,
     );
     defer fmt.gpa.free(source_code);
 

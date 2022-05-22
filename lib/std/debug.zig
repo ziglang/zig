@@ -853,9 +853,9 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_file: File) !ModuleDebugInfo
     }
 }
 
-fn chopSlice(ptr: []const u8, offset: u64, size: u64) ![]const u8 {
-    const start = try math.cast(usize, offset);
-    const end = start + try math.cast(usize, size);
+fn chopSlice(ptr: []const u8, offset: u64, size: u64) error{Overflow}![]const u8 {
+    const start = math.cast(usize, offset) orelse return error.Overflow;
+    const end = start + (math.cast(usize, size) orelse return error.Overflow);
     return ptr[start..end];
 }
 
@@ -880,7 +880,7 @@ pub fn readElfDebugInfo(allocator: mem.Allocator, elf_file: File) !ModuleDebugIn
         const str_section_off = shoff + @as(u64, hdr.e_shentsize) * @as(u64, hdr.e_shstrndx);
         const str_shdr = @ptrCast(
             *const elf.Shdr,
-            @alignCast(@alignOf(elf.Shdr), &mapped_mem[try math.cast(usize, str_section_off)]),
+            @alignCast(@alignOf(elf.Shdr), &mapped_mem[math.cast(usize, str_section_off) orelse return error.Overflow]),
         );
         const header_strings = mapped_mem[str_shdr.sh_offset .. str_shdr.sh_offset + str_shdr.sh_size];
         const shdrs = @ptrCast(
@@ -1119,7 +1119,7 @@ fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
     nosuspend {
         defer file.close();
 
-        const file_len = try math.cast(usize, try file.getEndPos());
+        const file_len = math.cast(usize, try file.getEndPos()) orelse math.maxInt(usize);
         const mapped_mem = try os.mmap(
             null,
             file_len,
@@ -1248,7 +1248,7 @@ pub const DebugInfo = struct {
         if (windows.kernel32.K32EnumProcessModules(
             process_handle,
             modules.ptr,
-            try math.cast(windows.DWORD, modules.len * @sizeOf(windows.HMODULE)),
+            math.cast(windows.DWORD, modules.len * @sizeOf(windows.HMODULE)) orelse return error.Overflow,
             &bytes_needed,
         ) == 0)
             return error.MissingDebugInfo;

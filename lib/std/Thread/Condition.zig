@@ -152,7 +152,7 @@ const WindowsImpl = struct {
             // Round the nanoseconds to the nearest millisecond,
             // then saturating cast it to windows DWORD for use in kernel32 call.
             const ms = (timeout_ns +| (std.time.ns_per_ms / 2)) / std.time.ns_per_ms;
-            timeout_ms = std.math.cast(os.windows.DWORD, ms) catch std.math.maxInt(os.windows.DWORD);
+            timeout_ms = std.math.cast(os.windows.DWORD, ms) orelse std.math.maxInt(os.windows.DWORD);
 
             // Track if the timeout overflowed into INFINITE and make sure not to wait forever.
             if (timeout_ms == os.windows.INFINITE) {

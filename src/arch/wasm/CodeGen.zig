@@ -1163,7 +1163,7 @@ fn allocStack(self: *Self, ty: Type) !WValue {
         try self.initializeStack();
     }
 
-    const abi_size = std.math.cast(u32, ty.abiSize(self.target)) catch {
+    const abi_size = std.math.cast(u32, ty.abiSize(self.target)) orelse {
         const module = self.bin_file.base.options.module.?;
         return self.fail("Type {} with ABI size of {d} exceeds stack frame size", .{
             ty.fmt(module), ty.abiSize(self.target),
@@ -1198,7 +1198,7 @@ fn allocStackPtr(self: *Self, inst: Air.Inst.Index) !WValue {
     }
 
     const abi_alignment = ptr_ty.ptrAlignment(self.target);
-    const abi_size = std.math.cast(u32, pointee_ty.abiSize(self.target)) catch {
+    const abi_size = std.math.cast(u32, pointee_ty.abiSize(self.target)) orelse {
         const module = self.bin_file.base.options.module.?;
         return self.fail("Type {} with ABI size of {d} exceeds stack frame size", .{
             pointee_ty.fmt(module), pointee_ty.abiSize(self.target),
@@ -2695,7 +2695,7 @@ fn airStructFieldPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const extra = self.air.extraData(Air.StructField, ty_pl.payload);
     const struct_ptr = try self.resolveInst(extra.data.struct_operand);
     const struct_ty = self.air.typeOf(extra.data.struct_operand).childType();
-    const offset = std.math.cast(u32, struct_ty.structFieldOffset(extra.data.field_index, self.target)) catch {
+    const offset = std.math.cast(u32, struct_ty.structFieldOffset(extra.data.field_index, self.target)) orelse {
         const module = self.bin_file.base.options.module.?;
         return self.fail("Field type '{}' too big to fit into stack frame", .{
             struct_ty.structFieldType(extra.data.field_index).fmt(module),
@@ -2709,7 +2709,7 @@ fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u32) InnerEr
     const struct_ptr = try self.resolveInst(ty_op.operand);
     const struct_ty = self.air.typeOf(ty_op.operand).childType();
     const field_ty = struct_ty.structFieldType(index);
-    const offset = std.math.cast(u32, struct_ty.structFieldOffset(index, self.target)) catch {
+    const offset = std.math.cast(u32, struct_ty.structFieldOffset(index, self.target)) orelse {
         const module = self.bin_file.base.options.module.?;
         return self.fail("Field type '{}' too big to fit into stack frame", .{
             field_ty.fmt(module),
@@ -2737,7 +2737,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const field_index = struct_field.field_index;
     const field_ty = struct_ty.structFieldType(field_index);
     if (!field_ty.hasRuntimeBitsIgnoreComptime()) return WValue{ .none = {} };
-    const offset = std.math.cast(u32, struct_ty.structFieldOffset(field_index, self.target)) catch {
+    const offset = std.math.cast(u32, struct_ty.structFieldOffset(field_index, self.target)) orelse {
         const module = self.bin_file.base.options.module.?;
         return self.fail("Field type '{}' too big to fit into stack frame", .{field_ty.fmt(module)});
     };
@@ -3193,7 +3193,7 @@ fn airOptionalPayloadPtrSet(self: *Self, inst: Air.Inst.Index) InnerError!WValue
         return operand;
     }
 
-    const offset = std.math.cast(u32, opt_ty.abiSize(self.target) - payload_ty.abiSize(self.target)) catch {
+    const offset = std.math.cast(u32, opt_ty.abiSize(self.target) - payload_ty.abiSize(self.target)) orelse {
         const module = self.bin_file.base.options.module.?;
         return self.fail("Optional type {} too big to fit into stack frame", .{opt_ty.fmt(module)});
     };
@@ -3223,7 +3223,7 @@ fn airWrapOptional(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (op_ty.optionalReprIsPayload()) {
         return operand;
     }
-    const offset = std.math.cast(u32, op_ty.abiSize(self.target) - payload_ty.abiSize(self.target)) catch {
+    const offset = std.math.cast(u32, op_ty.abiSize(self.target) - payload_ty.abiSize(self.target)) orelse {
         const module = self.bin_file.base.options.module.?;
         return self.fail("Optional type {} too big to fit into stack frame", .{op_ty.fmt(module)});
     };

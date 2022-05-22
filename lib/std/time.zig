@@ -16,7 +16,7 @@ pub fn sleep(nanoseconds: u64) void {
 
     if (builtin.os.tag == .windows) {
         const big_ms_from_ns = nanoseconds / ns_per_ms;
-        const ms = math.cast(os.windows.DWORD, big_ms_from_ns) catch math.maxInt(os.windows.DWORD);
+        const ms = math.cast(os.windows.DWORD, big_ms_from_ns) orelse math.maxInt(os.windows.DWORD);
         os.windows.kernel32.Sleep(ms);
         return;
     }
