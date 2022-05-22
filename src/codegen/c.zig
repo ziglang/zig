@@ -4105,7 +4105,7 @@ fn intMax(ty: Type, target: std.Target, buf: []u8) []const u8 {
             const rhs = @intCast(u7, int_info.bits - @boolToInt(int_info.signedness == .signed));
             const val = (@as(u128, 1) << rhs) - 1;
             // TODO make this integer literal have a suffix if necessary (such as "ull")
-            return std.fmt.bufPrint(buf, "{}", .{val}) catch |err| switch (err) {
+            return std.fmt.bufPrint(buf, "{}u", .{val}) catch |err| switch (err) {
                 error.NoSpaceLeft => unreachable,
             };
         },
