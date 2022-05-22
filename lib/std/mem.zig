@@ -1832,7 +1832,9 @@ pub fn SplitIterator(comptime T: type) type {
 
         const Self = @This();
 
-        /// Returns a slice of the next field, or null if splitting is complete.
+        /// Returns a slice of the next field, or `null` if splitting is complete.
+        ///
+        /// Note that this is always non-`null` if `index` is also non-`null` prior to the call.
         pub fn next(self: *Self) ?[]const T {
             const start = self.index orelse return null;
             const end = if (indexOfPos(T, self.buffer, start, self.delimiter)) |delim_start| blk: {
