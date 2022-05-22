@@ -15,5 +15,5 @@ fn shl(a: u16, b: u4) u16 {
     return @shlExact(a, b);
 }
 // run
-// backend=stage1
+// backend=stage1,stage2
 // target=native

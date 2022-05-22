@@ -16,5 +16,5 @@ fn add(a: @Vector(4, i32), b: @Vector(4, i32)) @Vector(4, i32) {
     return a + b;
 }
 // run
-// backend=stage1
+// backend=stage1,stage2
 // target=native

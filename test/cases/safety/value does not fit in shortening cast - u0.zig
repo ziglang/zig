@@ -15,5 +15,5 @@ fn shorten_cast(x: u8) u0 {
     return @intCast(u0, x);
 }
 // run
-// backend=stage1
+// backend=stage1,stage2
 // target=native

@@ -15,5 +15,5 @@ fn unsigned_cast(x: i32) u32 {
     return @intCast(u32, x);
 }
 // run
-// backend=stage1
+// backend=stage1,stage2
 // target=native

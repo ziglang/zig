@@ -19,5 +19,5 @@ fn add(a: u16, b: u16) u16 {
 }
 
 // run
-// backend=stage1
+// backend=stage1,stage2
 // target=native
