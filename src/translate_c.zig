@@ -4526,9 +4526,7 @@ fn transCreateNodeBoolInfixOp(
 }
 
 fn transCreateNodeAPInt(c: *Context, int: *const clang.APSInt) !Node {
-    const num_limbs = math.cast(usize, int.getNumWords()) catch |err| switch (err) {
-        error.Overflow => return error.OutOfMemory,
-    };
+    const num_limbs = math.cast(usize, int.getNumWords()) orelse return error.OutOfMemory;
     var aps_int = int;
     const is_negative = int.isSigned() and int.isNegative();
     if (is_negative) aps_int = aps_int.negate();
@@ -5627,12 +5625,12 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!Node {
             // make the output less noisy by skipping promoteIntLiteral where
             // it's guaranteed to not be required because of C standard type constraints
             const guaranteed_to_fit = switch (suffix) {
-                .none => !meta.isError(math.cast(i16, value)),
-                .u => !meta.isError(math.cast(u16, value)),
-                .l => !meta.isError(math.cast(i32, value)),
-                .lu => !meta.isError(math.cast(u32, value)),
-                .ll => !meta.isError(math.cast(i64, value)),
-                .llu => !meta.isError(math.cast(u64, value)),
+                .none => math.cast(i16, value) != null,
+                .u => math.cast(u16, value) != null,
+                .l => math.cast(i32, value) != null,
+                .lu => math.cast(u32, value) != null,
+                .ll => math.cast(i64, value) != null,
+                .llu => math.cast(u64, value) != null,
                 .f => unreachable,
             };
 

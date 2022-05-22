@@ -164,7 +164,7 @@ fn optimalBranchType(emit: *Emit, tag: Mir.Inst.Tag, offset: i64) !BranchType {
         .b => {
             if (std.math.cast(i24, @divExact(offset, 4))) |_| {
                 return BranchType.b;
-            } else |_| {
+            } else {
                 return emit.fail("TODO support larger branches", .{});
             }
         },

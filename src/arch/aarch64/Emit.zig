@@ -216,21 +216,21 @@ fn optimalBranchType(emit: *Emit, tag: Mir.Inst.Tag, offset: i64) !BranchType {
         .cbz => {
             if (std.math.cast(i19, @shrExact(offset, 2))) |_| {
                 return BranchType.cbz;
-            } else |_| {
+            } else {
                 return emit.fail("TODO support cbz branches larger than +-1 MiB", .{});
             }
         },
         .b, .bl => {
             if (std.math.cast(i26, @shrExact(offset, 2))) |_| {
                 return BranchType.unconditional_branch_immediate;
-            } else |_| {
+            } else {
                 return emit.fail("TODO support unconditional branches larger than +-128 MiB", .{});
             }
         },
         .b_cond => {
             if (std.math.cast(i19, @shrExact(offset, 2))) |_| {
                 return BranchType.b_cond;
-            } else |_| {
+            } else {
                 return emit.fail("TODO support conditional branches larger than +-1 MiB", .{});
             }
         },
@@ -927,7 +927,7 @@ fn mirLoadStoreStack(emit: *Emit, inst: Mir.Inst.Index) !void {
         .ldrb_stack, .ldrsb_stack, .strb_stack => blk: {
             if (math.cast(u12, raw_offset)) |imm| {
                 break :blk Instruction.LoadStoreOffset.imm(imm);
-            } else |_| {
+            } else {
                 return emit.fail("TODO load/store stack byte with larger offset", .{});
             }
         },
@@ -935,7 +935,7 @@ fn mirLoadStoreStack(emit: *Emit, inst: Mir.Inst.Index) !void {
             assert(std.mem.isAlignedGeneric(u32, raw_offset, 2)); // misaligned stack entry
             if (math.cast(u12, @divExact(raw_offset, 2))) |imm| {
                 break :blk Instruction.LoadStoreOffset.imm(imm);
-            } else |_| {
+            } else {
                 return emit.fail("TODO load/store stack halfword with larger offset", .{});
             }
         },
@@ -949,7 +949,7 @@ fn mirLoadStoreStack(emit: *Emit, inst: Mir.Inst.Index) !void {
             assert(std.mem.isAlignedGeneric(u32, raw_offset, alignment)); // misaligned stack entry
             if (math.cast(u12, @divExact(raw_offset, alignment))) |imm| {
                 break :blk Instruction.LoadStoreOffset.imm(imm);
-            } else |_| {
+            } else {
                 return emit.fail("TODO load/store stack with larger offset", .{});
             }
         },

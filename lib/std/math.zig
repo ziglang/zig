@@ -989,28 +989,27 @@ test "negateCast" {
 }
 
 /// Cast an integer to a different integer type. If the value doesn't fit,
-/// return an error.
-/// TODO make this an optional not an error.
-pub fn cast(comptime T: type, x: anytype) (error{Overflow}!T) {
+/// return null.
+pub fn cast(comptime T: type, x: anytype) ?T {
     comptime assert(@typeInfo(T) == .Int); // must pass an integer
     comptime assert(@typeInfo(@TypeOf(x)) == .Int); // must pass an integer
     if (maxInt(@TypeOf(x)) > maxInt(T) and x > maxInt(T)) {
-        return error.Overflow;
+        return null;
     } else if (minInt(@TypeOf(x)) < minInt(T) and x < minInt(T)) {
-        return error.Overflow;
+        return null;
     } else {
         return @intCast(T, x);
     }
 }
 
 test "cast" {
-    try testing.expectError(error.Overflow, cast(u8, @as(u32, 300)));
-    try testing.expectError(error.Overflow, cast(i8, @as(i32, -200)));
-    try testing.expectError(error.Overflow, cast(u8, @as(i8, -1)));
-    try testing.expectError(error.Overflow, cast(u64, @as(i8, -1)));
+    try testing.expect(cast(u8, @as(u32, 300)) == null);
+    try testing.expect(cast(i8, @as(i32, -200)) == null);
+    try testing.expect(cast(u8, @as(i8, -1)) == null);
+    try testing.expect(cast(u64, @as(i8, -1)) == null);
 
-    try testing.expect((try cast(u8, @as(u32, 255))) == @as(u8, 255));
-    try testing.expect(@TypeOf(try cast(u8, @as(u32, 255))) == u8);
+    try testing.expect(cast(u8, @as(u32, 255)).? == @as(u8, 255));
+    try testing.expect(@TypeOf(cast(u8, @as(u32, 255)).?) == u8);
 }
 
 pub const AlignCastError = error{UnalignedMemory};

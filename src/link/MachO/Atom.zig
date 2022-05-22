@@ -763,17 +763,15 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
                         const displacement = math.cast(
                             i28,
                             @intCast(i64, target_addr) - @intCast(i64, source_addr),
-                        ) catch |err| switch (err) {
-                            error.Overflow => {
-                                log.err("jump too big to encode as i28 displacement value", .{});
-                                log.err("  (target - source) = displacement => 0x{x} - 0x{x} = 0x{x}", .{
-                                    target_addr,
-                                    source_addr,
-                                    @intCast(i64, target_addr) - @intCast(i64, source_addr),
-                                });
-                                log.err("  TODO implement branch islands to extend jump distance for arm64", .{});
-                                return error.TODOImplementBranchIslands;
-                            },
+                        ) orelse {
+                            log.err("jump too big to encode as i28 displacement value", .{});
+                            log.err("  (target - source) = displacement => 0x{x} - 0x{x} = 0x{x}", .{
+                                target_addr,
+                                source_addr,
+                                @intCast(i64, target_addr) - @intCast(i64, source_addr),
+                            });
+                            log.err("  TODO implement branch islands to extend jump distance for arm64", .{});
+                            return error.TODOImplementBranchIslands;
                         };
                         const code = self.code.items[rel.offset..][0..4];
                         var inst = aarch64.Instruction{
@@ -915,7 +913,7 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
                         mem.writeIntLittle(u32, code, inst.toU32());
                     },
                     .ARM64_RELOC_POINTER_TO_GOT => {
-                        const result = try math.cast(i32, @intCast(i64, target_addr) - @intCast(i64, source_addr));
+                        const result = math.cast(i32, @intCast(i64, target_addr) - @intCast(i64, source_addr)) orelse return error.Overflow;
                         mem.writeIntLittle(u32, self.code.items[rel.offset..][0..4], @bitCast(u32, result));
                     },
                     .ARM64_RELOC_UNSIGNED => {
@@ -945,17 +943,17 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
             .x86_64 => {
                 switch (@intToEnum(macho.reloc_type_x86_64, rel.@"type")) {
                     .X86_64_RELOC_BRANCH => {
-                        const displacement = try math.cast(
+                        const displacement = math.cast(
                             i32,
                             @intCast(i64, target_addr) - @intCast(i64, source_addr) - 4 + rel.addend,
-                        );
+                        ) orelse return error.Overflow;
                         mem.writeIntLittle(u32, self.code.items[rel.offset..][0..4], @bitCast(u32, displacement));
                     },
                     .X86_64_RELOC_GOT, .X86_64_RELOC_GOT_LOAD => {
-                        const displacement = try math.cast(
+                        const displacement = math.cast(
                             i32,
                             @intCast(i64, target_addr) - @intCast(i64, source_addr) - 4 + rel.addend,
-                        );
+                        ) orelse return error.Overflow;
                         mem.writeIntLittle(u32, self.code.items[rel.offset..][0..4], @bitCast(u32, displacement));
                     },
                     .X86_64_RELOC_TLV => {
@@ -963,10 +961,10 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
                             // We need to rewrite the opcode from movq to leaq.
                             self.code.items[rel.offset - 2] = 0x8d;
                         }
-                        const displacement = try math.cast(
+                        const displacement = math.cast(
                             i32,
                             @intCast(i64, target_addr) - @intCast(i64, source_addr) - 4 + rel.addend,
-                        );
+                        ) orelse return error.Overflow;
                         mem.writeIntLittle(u32, self.code.items[rel.offset..][0..4], @bitCast(u32, displacement));
                     },
                     .X86_64_RELOC_SIGNED,
@@ -982,10 +980,10 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
                             else => unreachable,
                         };
                         const actual_target_addr = @intCast(i64, target_addr) + rel.addend;
-                        const displacement = try math.cast(
+                        const displacement = math.cast(
                             i32,
                             actual_target_addr - @intCast(i64, source_addr + correction + 4),
-                        );
+                        ) orelse return error.Overflow;
                         mem.writeIntLittle(u32, self.code.items[rel.offset..][0..4], @bitCast(u32, displacement));
                     },
                     .X86_64_RELOC_UNSIGNED => {

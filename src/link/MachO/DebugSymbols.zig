@@ -616,7 +616,7 @@ fn writeSymbolTable(self: *DebugSymbols) !void {
             self.file,
             dwarf_seg.inner.fileoff,
             dwarf_seg.inner.fileoff + diff,
-            try math.cast(usize, dwarf_seg.inner.filesize),
+            math.cast(usize, dwarf_seg.inner.filesize) orelse return error.Overflow,
         );
 
         const old_seg_fileoff = dwarf_seg.inner.fileoff;
@@ -669,7 +669,7 @@ fn writeStringTable(self: *DebugSymbols) !void {
             self.file,
             dwarf_seg.inner.fileoff,
             dwarf_seg.inner.fileoff + diff,
-            try math.cast(usize, dwarf_seg.inner.filesize),
+            math.cast(usize, dwarf_seg.inner.filesize) orelse return error.Overflow,
         );
 
         const old_seg_fileoff = dwarf_seg.inner.fileoff;

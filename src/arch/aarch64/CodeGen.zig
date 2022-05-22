@@ -453,7 +453,7 @@ fn gen(self: *Self) !void {
                 .tag = .sub_immediate,
                 .data = .{ .rr_imm12_sh = .{ .rd = .sp, .rn = .sp, .imm12 = size } },
             });
-        } else |_| {
+        } else {
             return self.failSymbol("TODO AArch64: allow larger stacks", .{});
         }
 
@@ -860,7 +860,7 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
         return @as(u32, 0);
     }
 
-    const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) catch {
+    const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) orelse {
         const mod = self.bin_file.options.module.?;
         return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(mod)});
     };
@@ -871,7 +871,7 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
 
 fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
     const elem_ty = self.air.typeOfIndex(inst);
-    const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) catch {
+    const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) orelse {
         const mod = self.bin_file.options.module.?;
         return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(mod)});
     };
@@ -3031,7 +3031,7 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
         // Copy registers to the stack
         .register => |reg| blk: {
             const mod = self.bin_file.options.module.?;
-            const abi_size = math.cast(u32, ty.abiSize(self.target.*)) catch {
+            const abi_size = math.cast(u32, ty.abiSize(self.target.*)) orelse {
                 return self.fail("type '{}' too big to fit into stack frame", .{ty.fmt(mod)});
             };
             const abi_align = ty.abiAlignment(self.target.*);
@@ -4173,7 +4173,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
         },
         .ptr_stack_offset => |off| {
             // TODO: maybe addressing from sp instead of fp
-            const imm12 = math.cast(u12, off) catch
+            const imm12 = math.cast(u12, off) orelse
                 return self.fail("TODO larger stack offsets", .{});
 
             _ = try self.addInst(.{

@@ -2022,7 +2022,7 @@ pub fn getMatchingSection(self: *MachO, sect: macho.section_64) !?MatchingSectio
 }
 
 pub fn createEmptyAtom(self: *MachO, local_sym_index: u32, size: u64, alignment: u32) !*Atom {
-    const size_usize = try math.cast(usize, size);
+    const size_usize = math.cast(usize, size) orelse return error.Overflow;
     const atom = try self.base.allocator.create(Atom);
     errdefer self.base.allocator.destroy(atom);
     atom.* = Atom.empty;
@@ -2157,7 +2157,7 @@ fn writeAllAtoms(self: *MachO) !void {
 
         var buffer = std.ArrayList(u8).init(self.base.allocator);
         defer buffer.deinit();
-        try buffer.ensureTotalCapacity(try math.cast(usize, sect.size));
+        try buffer.ensureTotalCapacity(math.cast(usize, sect.size) orelse return error.Overflow);
 
         log.debug("writing atoms in {s},{s}", .{ sect.segName(), sect.sectName() });
 
@@ -2170,7 +2170,7 @@ fn writeAllAtoms(self: *MachO) !void {
             const padding_size: usize = if (atom.next) |next| blk: {
                 const next_sym = self.locals.items[next.local_sym_index];
                 const size = next_sym.n_value - (atom_sym.n_value + atom.size);
-                break :blk try math.cast(usize, size);
+                break :blk math.cast(usize, size) orelse return error.Overflow;
             } else 0;
 
             log.debug("  (adding atom {s} to buffer: {})", .{ self.getString(atom_sym.n_strx), atom_sym });
@@ -2507,7 +2507,7 @@ pub fn createStubHelperAtom(self: *MachO) !*Atom {
         .aarch64 => {
             const literal = blk: {
                 const div_res = try math.divExact(u64, stub_size - @sizeOf(u32), 4);
-                break :blk try math.cast(u18, div_res);
+                break :blk math.cast(u18, div_res) orelse return error.Overflow;
             };
             // ldr w16, literal
             mem.writeIntLittle(u32, atom.code.items[0..4], aarch64.Instruction.ldrLiteral(
@@ -5080,7 +5080,7 @@ fn growSegment(self: *MachO, seg_id: u16, new_size: u64) !void {
             self.base.file.?,
             next_seg.inner.fileoff,
             next_seg.inner.fileoff + offset_amt,
-            try math.cast(usize, next_seg.inner.filesize),
+            math.cast(usize, next_seg.inner.filesize) orelse return error.Overflow,
         );
 
         next_seg.inner.fileoff += offset_amt;
@@ -5165,7 +5165,7 @@ fn growSection(self: *MachO, match: MatchingSection, new_size: u32) !void {
             self.base.file.?,
             next_sect.offset,
             next_sect.offset + offset_amt,
-            try math.cast(usize, total_size),
+            math.cast(usize, total_size) orelse return error.Overflow,
         );
 
         var next = match.sect + 1;
@@ -5950,7 +5950,7 @@ fn writeDices(self: *MachO) !void {
     while (true) {
         if (atom.dices.items.len > 0) {
             const sym = self.locals.items[atom.local_sym_index];
-            const base_off = try math.cast(u32, sym.n_value - text_sect.addr + text_sect.offset);
+            const base_off = math.cast(u32, sym.n_value - text_sect.addr + text_sect.offset) orelse return error.Overflow;
 
             try buf.ensureUnusedCapacity(atom.dices.items.len * @sizeOf(macho.data_in_code_entry));
             for (atom.dices.items) |dice| {

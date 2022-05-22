@@ -166,7 +166,7 @@ pub fn generateSymbol(
     });
 
     if (typed_value.val.isUndefDeep()) {
-        const abi_size = try math.cast(usize, typed_value.ty.abiSize(target));
+        const abi_size = math.cast(usize, typed_value.ty.abiSize(target)) orelse return error.Overflow;
         try code.appendNTimes(0xaa, abi_size);
         return Result{ .appended = {} };
     }
@@ -452,7 +452,7 @@ pub fn generateSymbol(
             if (info.bits > 64) {
                 var bigint_buffer: Value.BigIntSpace = undefined;
                 const bigint = typed_value.val.toBigInt(&bigint_buffer, target);
-                const abi_size = try math.cast(usize, typed_value.ty.abiSize(target));
+                const abi_size = math.cast(usize, typed_value.ty.abiSize(target)) orelse return error.Overflow;
                 const start = code.items.len;
                 try code.resize(start + abi_size);
                 bigint.writeTwosComplement(code.items[start..][0..abi_size], info.bits, abi_size, endian);
@@ -571,7 +571,7 @@ pub fn generateSymbol(
 
                 // Pad struct members if required
                 const padded_field_end = typed_value.ty.structFieldOffset(index + 1, target);
-                const padding = try math.cast(usize, padded_field_end - unpadded_field_end);
+                const padding = math.cast(usize, padded_field_end - unpadded_field_end) orelse return error.Overflow;
 
                 if (padding > 0) {
                     try code.writer().writeByteNTimes(0, padding);
@@ -611,7 +611,7 @@ pub fn generateSymbol(
             assert(union_ty.haveFieldTypes());
             const field_ty = union_ty.fields.values()[field_index].ty;
             if (!field_ty.hasRuntimeBits()) {
-                try code.writer().writeByteNTimes(0xaa, try math.cast(usize, layout.payload_size));
+                try code.writer().writeByteNTimes(0xaa, math.cast(usize, layout.payload_size) orelse return error.Overflow);
             } else {
                 switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = field_ty,
@@ -624,7 +624,7 @@ pub fn generateSymbol(
                     .fail => |em| return Result{ .fail = em },
                 }
 
-                const padding = try math.cast(usize, layout.payload_size - field_ty.abiSize(target));
+                const padding = math.cast(usize, layout.payload_size - field_ty.abiSize(target)) orelse return error.Overflow;
                 if (padding > 0) {
                     try code.writer().writeByteNTimes(0, padding);
                 }
@@ -649,8 +649,8 @@ pub fn generateSymbol(
             var opt_buf: Type.Payload.ElemType = undefined;
             const payload_type = typed_value.ty.optionalChild(&opt_buf);
             const is_pl = !typed_value.val.isNull();
-            const abi_size = try math.cast(usize, typed_value.ty.abiSize(target));
-            const offset = abi_size - try math.cast(usize, payload_type.abiSize(target));
+            const abi_size = math.cast(usize, typed_value.ty.abiSize(target)) orelse return error.Overflow;
+            const offset = abi_size - (math.cast(usize, payload_type.abiSize(target)) orelse return error.Overflow);
 
             if (!payload_type.hasRuntimeBits()) {
                 try code.writer().writeByteNTimes(@boolToInt(is_pl), abi_size);
@@ -758,7 +758,7 @@ pub fn generateSymbol(
                 }
                 const unpadded_end = code.items.len - begin;
                 const padded_end = mem.alignForwardGeneric(u64, unpadded_end, abi_align);
-                const padding = try math.cast(usize, padded_end - unpadded_end);
+                const padding = math.cast(usize, padded_end - unpadded_end) orelse return error.Overflow;
 
                 if (padding > 0) {
                     try code.writer().writeByteNTimes(0, padding);
@@ -780,7 +780,7 @@ pub fn generateSymbol(
                 }
                 const unpadded_end = code.items.len - begin;
                 const padded_end = mem.alignForwardGeneric(u64, unpadded_end, abi_align);
-                const padding = try math.cast(usize, padded_end - unpadded_end);
+                const padding = math.cast(usize, padded_end - unpadded_end) orelse return error.Overflow;
 
                 if (padding > 0) {
                     try code.writer().writeByteNTimes(0, padding);

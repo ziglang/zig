@@ -850,7 +850,7 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
         return @as(u32, 0);
     }
 
-    const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) catch {
+    const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) orelse {
         const mod = self.bin_file.options.module.?;
         return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(mod)});
     };
@@ -861,7 +861,7 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
 
 fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
     const elem_ty = self.air.typeOfIndex(inst);
-    const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) catch {
+    const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) orelse {
         const mod = self.bin_file.options.module.?;
         return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(mod)});
     };
@@ -4299,7 +4299,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 1, 4 => {
                     const offset = if (math.cast(u12, stack_offset)) |imm| blk: {
                         break :blk Instruction.Offset.imm(imm);
-                    } else |_| Instruction.Offset.reg(try self.copyToTmpRegister(Type.initTag(.u32), MCValue{ .immediate = stack_offset }), .none);
+                    } else Instruction.Offset.reg(try self.copyToTmpRegister(Type.initTag(.u32), MCValue{ .immediate = stack_offset }), .none);
 
                     const tag: Mir.Inst.Tag = switch (abi_size) {
                         1 => .strb,
@@ -4707,7 +4707,7 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                 1, 4 => {
                     const offset = if (math.cast(u12, stack_offset)) |imm| blk: {
                         break :blk Instruction.Offset.imm(imm);
-                    } else |_| Instruction.Offset.reg(try self.copyToTmpRegister(Type.initTag(.u32), MCValue{ .immediate = stack_offset }), .none);
+                    } else Instruction.Offset.reg(try self.copyToTmpRegister(Type.initTag(.u32), MCValue{ .immediate = stack_offset }), .none);
 
                     const tag: Mir.Inst.Tag = switch (abi_size) {
                         1 => .strb,

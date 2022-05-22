@@ -21722,9 +21722,7 @@ fn cmpNumeric(
 
     const dest_ty = if (dest_float_type) |ft| ft else blk: {
         const max_bits = std.math.max(lhs_bits, rhs_bits);
-        const casted_bits = std.math.cast(u16, max_bits) catch |err| switch (err) {
-            error.Overflow => return sema.fail(block, src, "{d} exceeds maximum integer bit count", .{max_bits}),
-        };
+        const casted_bits = std.math.cast(u16, max_bits) orelse return sema.fail(block, src, "{d} exceeds maximum integer bit count", .{max_bits});
         const signedness: std.builtin.Signedness = if (dest_int_is_signed) .signed else .unsigned;
         break :blk try Module.makeIntType(sema.arena, signedness, casted_bits);
     };
@@ -24009,9 +24007,7 @@ fn pointerDeref(sema: *Sema, block: *Block, src: LazySrcLoc, ptr_val: Value, ptr
 /// is too big to fit.
 fn usizeCast(sema: *Sema, block: *Block, src: LazySrcLoc, int: u64) CompileError!usize {
     if (@bitSizeOf(u64) <= @bitSizeOf(usize)) return int;
-    return std.math.cast(usize, int) catch |err| switch (err) {
-        error.Overflow => return sema.fail(block, src, "expression produces integer value {d} which is too big for this compiler implementation to handle", .{int}),
-    };
+    return std.math.cast(usize, int) orelse return sema.fail(block, src, "expression produces integer value {d} which is too big for this compiler implementation to handle", .{int});
 }
 
 /// For pointer-like optionals, it returns the pointer type. For pointers,

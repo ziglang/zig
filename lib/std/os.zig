@@ -660,7 +660,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
             else => |err| return unexpectedErrno(err),
         }
     }
-    const iov_count = math.cast(u31, iov.len) catch math.maxInt(u31);
+    const iov_count = math.cast(u31, iov.len) orelse math.maxInt(u31);
     while (true) {
         // TODO handle the case when iov_len is too large and get rid of this @intCast
         const rc = system.readv(fd, iov.ptr, iov_count);
@@ -877,7 +877,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
         }
     }
 
-    const iov_count = math.cast(u31, iov.len) catch math.maxInt(u31);
+    const iov_count = math.cast(u31, iov.len) orelse math.maxInt(u31);
 
     const preadv_sym = if (builtin.os.tag == .linux and builtin.link_libc)
         system.preadv64
@@ -4163,9 +4163,9 @@ pub fn kevent(
         const rc = system.kevent(
             kq,
             changelist.ptr,
-            try math.cast(c_int, changelist.len),
+            math.cast(c_int, changelist.len) orelse return error.Overflow,
             eventlist.ptr,
-            try math.cast(c_int, eventlist.len),
+            math.cast(c_int, eventlist.len) orelse return error.Overflow,
             timeout,
         );
         switch (errno(rc)) {
@@ -4531,9 +4531,7 @@ pub fn faccessatW(dirfd: fd_t, sub_path_w: [*:0]const u16, mode: u32, flags: u32
         return;
     }
 
-    const path_len_bytes = math.cast(u16, mem.sliceTo(sub_path_w, 0).len * 2) catch |err| switch (err) {
-        error.Overflow => return error.NameTooLong,
-    };
+    const path_len_bytes = math.cast(u16, mem.sliceTo(sub_path_w, 0).len * 2) orelse return error.NameTooLong;
     var nt_name = windows.UNICODE_STRING{
         .Length = path_len_bytes,
         .MaximumLength = path_len_bytes,
@@ -4650,7 +4648,7 @@ pub fn sysctl(
         @panic("unsupported"); // TODO should be compile error, not panic
     }
 
-    const name_len = math.cast(c_uint, name.len) catch return error.NameTooLong;
+    const name_len = math.cast(c_uint, name.len) orelse return error.NameTooLong;
     switch (errno(system.sysctl(name.ptr, name_len, oldp, oldlenp, newp, newlen))) {
         .SUCCESS => return,
         .FAULT => unreachable,
@@ -5191,8 +5189,8 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
 /// Spurious wakeups are possible and no precision of timing is guaranteed.
 pub fn nanosleep(seconds: u64, nanoseconds: u64) void {
     var req = timespec{
-        .tv_sec = math.cast(isize, seconds) catch math.maxInt(isize),
-        .tv_nsec = math.cast(isize, nanoseconds) catch math.maxInt(isize),
+        .tv_sec = math.cast(isize, seconds) orelse math.maxInt(isize),
+        .tv_nsec = math.cast(isize, nanoseconds) orelse math.maxInt(isize),
     };
     var rem: timespec = undefined;
     while (true) {
@@ -6006,10 +6004,10 @@ pub fn sendfile(
             if (headers.len != 0 or trailers.len != 0) {
                 // Here we carefully avoid `@intCast` by returning partial writes when
                 // too many io vectors are provided.
-                const hdr_cnt = math.cast(u31, headers.len) catch math.maxInt(u31);
+                const hdr_cnt = math.cast(u31, headers.len) orelse math.maxInt(u31);
                 if (headers.len > hdr_cnt) return writev(out_fd, headers);
 
-                const trl_cnt = math.cast(u31, trailers.len) catch math.maxInt(u31);
+                const trl_cnt = math.cast(u31, trailers.len) orelse math.maxInt(u31);
 
                 hdtr_data = std.c.sf_hdtr{
                     .headers = headers.ptr,
@@ -6085,10 +6083,10 @@ pub fn sendfile(
             if (headers.len != 0 or trailers.len != 0) {
                 // Here we carefully avoid `@intCast` by returning partial writes when
                 // too many io vectors are provided.
-                const hdr_cnt = math.cast(u31, headers.len) catch math.maxInt(u31);
+                const hdr_cnt = math.cast(u31, headers.len) orelse math.maxInt(u31);
                 if (headers.len > hdr_cnt) return writev(out_fd, headers);
 
-                const trl_cnt = math.cast(u31, trailers.len) catch math.maxInt(u31);
+                const trl_cnt = math.cast(u31, trailers.len) orelse math.maxInt(u31);
 
                 hdtr_data = std.c.sf_hdtr{
                     .headers = headers.ptr,
@@ -6276,7 +6274,7 @@ pub const PollError = error{
 
 pub fn poll(fds: []pollfd, timeout: i32) PollError!usize {
     while (true) {
-        const fds_count = math.cast(nfds_t, fds.len) catch return error.SystemResources;
+        const fds_count = math.cast(nfds_t, fds.len) orelse return error.SystemResources;
         const rc = system.poll(fds.ptr, fds_count, timeout);
         if (builtin.os.tag == .windows) {
             if (rc == windows.ws2_32.SOCKET_ERROR) {
@@ -6319,7 +6317,7 @@ pub fn ppoll(fds: []pollfd, timeout: ?*const timespec, mask: ?*const sigset_t) P
         ts_ptr = &ts;
         ts = timeout_ns.*;
     }
-    const fds_count = math.cast(nfds_t, fds.len) catch return error.SystemResources;
+    const fds_count = math.cast(nfds_t, fds.len) orelse return error.SystemResources;
     const rc = system.ppoll(fds.ptr, fds_count, ts_ptr, mask);
     switch (errno(rc)) {
         .SUCCESS => return @intCast(usize, rc),

@@ -519,14 +519,14 @@ fn optimalBranchType(emit: *Emit, tag: Mir.Inst.Tag, offset: i64) !BranchType {
         .bpcc => {
             if (std.math.cast(i21, offset)) |_| {
                 return BranchType.bpcc;
-            } else |_| {
+            } else {
                 return emit.fail("TODO support BPcc branches larger than +-1 MiB", .{});
             }
         },
         .bpr => {
             if (std.math.cast(i18, offset)) |_| {
                 return BranchType.bpr;
-            } else |_| {
+            } else {
                 return emit.fail("TODO support BPr branches larger than +-128 KiB", .{});
             }
         },
