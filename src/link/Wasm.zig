@@ -103,8 +103,10 @@ debug_aranges: std.ArrayListUnmanaged(u8) = .{},
 // Output sections
 /// Output type section
 func_types: std.ArrayListUnmanaged(wasm.Type) = .{},
-/// Output function section
-functions: std.ArrayListUnmanaged(wasm.Func) = .{},
+/// Output function section where the key is the original
+/// function index and the value is function.
+/// This allows us to map multiple symbols to the same function.
+functions: std.AutoArrayHashMapUnmanaged(struct { file: ?u16, index: u32 }, wasm.Func) = .{},
 /// Output global section
 wasm_globals: std.ArrayListUnmanaged(wasm.Global) = .{},
 /// Memory section
@@ -1042,8 +1044,12 @@ fn parseAtom(self: *Wasm, atom: *Atom, kind: Kind) !void {
     const symbol = (SymbolLoc{ .file = null, .index = atom.sym_index }).getSymbol(self);
     const final_index: u32 = switch (kind) {
         .function => |fn_data| result: {
-            const index = @intCast(u32, self.functions.items.len + self.imported_functions_count);
-            try self.functions.append(self.base.allocator, .{ .type_index = fn_data.type_index });
+            const index = @intCast(u32, self.functions.count() + self.imported_functions_count);
+            try self.functions.putNoClobber(
+                self.base.allocator,
+                .{ .file = null, .index = index },
+                .{ .type_index = fn_data.type_index },
+            );
             symbol.tag = .function;
             symbol.index = index;
 
@@ -1256,8 +1262,14 @@ fn mergeSections(self: *Wasm) !void {
         switch (symbol.tag) {
             .function => {
                 const original_func = object.functions[index];
-                symbol.index = @intCast(u32, self.functions.items.len) + self.imported_functions_count;
-                try self.functions.append(self.base.allocator, original_func);
+                const gop = try self.functions.getOrPut(
+                    self.base.allocator,
+                    .{ .file = sym_loc.file, .index = symbol.index },
+                );
+                if (!gop.found_existing) {
+                    gop.value_ptr.* = original_func;
+                }
+                symbol.index = @intCast(u32, gop.index) + self.imported_functions_count;
             },
             .global => {
                 const original_global = object.globals[index];
@@ -1273,7 +1285,7 @@ fn mergeSections(self: *Wasm) !void {
         }
     }
 
-    log.debug("Merged ({d}) functions", .{self.functions.items.len});
+    log.debug("Merged ({d}) functions", .{self.functions.count()});
     log.debug("Merged ({d}) globals", .{self.wasm_globals.items.len});
     log.debug("Merged ({d}) tables", .{self.tables.items.len});
 }
@@ -1282,6 +1294,13 @@ fn mergeSections(self: *Wasm) !void {
 /// 'types' section, while assigning the type index to the representing
 /// section (import, export, function).
 fn mergeTypes(self: *Wasm) !void {
+    // A map to track which functions have already had their
+    // type inserted. If we do this for the same function multiple times,
+    // it will be overwritten with the incorrect type.
+    var dirty = std.AutoHashMap(u32, void).init(self.base.allocator);
+    try dirty.ensureUnusedCapacity(@intCast(u32, self.functions.count()) + self.imported_functions_count);
+    defer dirty.deinit();
+
     for (self.resolved_symbols.keys()) |sym_loc| {
         if (sym_loc.file == null) {
             // zig code-generated symbols are already present in final type section
@@ -1294,6 +1313,10 @@ fn mergeTypes(self: *Wasm) !void {
             continue;
         }
 
+        if (dirty.contains(symbol.index)) {
+            continue; // We already added the type of this symbol
+        }
+
         if (symbol.isUndefined()) {
             log.debug("Adding type from extern function '{s}'", .{sym_loc.getName(self)});
             const import: *types.Import = self.imports.getPtr(sym_loc).?;
@@ -1301,9 +1324,11 @@ fn mergeTypes(self: *Wasm) !void {
             import.kind.function = try self.putOrGetFuncType(original_type);
         } else {
             log.debug("Adding type from function '{s}'", .{sym_loc.getName(self)});
-            const func = &self.functions.items[symbol.index - self.imported_functions_count];
+            const func = &self.functions.values()[symbol.index - self.imported_functions_count];
             func.type_index = try self.putOrGetFuncType(object.func_types[func.type_index]);
         }
+
+        dirty.putAssumeCapacityNoClobber(symbol.index, {});
     }
     log.debug("Completed merging and deduplicating types. Total count: ({d})", .{self.func_types.items.len});
 }
@@ -1711,7 +1736,11 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     for (comp.c_object_table.keys()) |c_object| {
         try positionals.append(c_object.status.success.object_path);
     }
-    // TODO: Also link with other objects such as compiler-rt
+
+    if (comp.compiler_rt_static_lib) |lib| {
+        try positionals.append(lib.full_object_path);
+    }
+
     try self.parseInputFiles(positionals.items);
 
     var object_index: u16 = 0;
@@ -1840,10 +1869,10 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     }
 
     // Function section
-    if (self.functions.items.len != 0) {
+    if (self.functions.count() != 0) {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
-        for (self.functions.items) |function| {
+        for (self.functions.values()) |function| {
             try leb.writeULEB128(writer, function.type_index);
         }
 
@@ -1852,7 +1881,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
             header_offset,
             .function,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
-            @intCast(u32, self.functions.items.len),
+            @intCast(u32, self.functions.count()),
         );
         section_count += 1;
     }
@@ -1984,13 +2013,32 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
         var atom: *Atom = self.atoms.get(code_index).?.getFirst();
+
+        // The code section must be sorted in line with the function order.
+        var sorted_atoms = try std.ArrayList(*Atom).initCapacity(self.base.allocator, self.functions.count());
+        defer sorted_atoms.deinit();
+
         while (true) {
             if (!is_obj) {
                 try atom.resolveRelocs(self);
             }
-            try leb.writeULEB128(writer, atom.size);
-            try writer.writeAll(atom.code.items);
+            sorted_atoms.appendAssumeCapacity(atom);
             atom = atom.next orelse break;
+        }
+
+        const atom_sort_fn = struct {
+            fn sort(ctx: *const Wasm, lhs: *const Atom, rhs: *const Atom) bool {
+                const lhs_sym = lhs.symbolLoc().getSymbol(ctx);
+                const rhs_sym = rhs.symbolLoc().getSymbol(ctx);
+                return lhs_sym.index < rhs_sym.index;
+            }
+        }.sort;
+
+        std.sort.sort(*Atom, sorted_atoms.items, self, atom_sort_fn);
+
+        for (sorted_atoms.items) |sorted_atom| {
+            try leb.writeULEB128(writer, sorted_atom.size);
+            try writer.writeAll(sorted_atom.code.items);
         }
 
         code_section_size = @intCast(u32, (try file.getPos()) - header_offset - header_size);
@@ -1999,7 +2047,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
             header_offset,
             .code,
             code_section_size,
-            @intCast(u32, self.functions.items.len),
+            @intCast(u32, self.functions.count()),
         );
         code_section_index = section_count;
         section_count += 1;
@@ -2135,7 +2183,7 @@ fn emitNameSection(self: *Wasm, file: fs.File, arena: Allocator) !void {
         }
     };
 
-    var funcs = try std.ArrayList(Name).initCapacity(arena, self.functions.items.len + self.imported_functions_count);
+    var funcs = try std.ArrayList(Name).initCapacity(arena, self.functions.count() + self.imported_functions_count);
     var globals = try std.ArrayList(Name).initCapacity(arena, self.wasm_globals.items.len + self.imported_globals_count);
     var segments = try std.ArrayList(Name).initCapacity(arena, self.data_segments.count());
 
@@ -2145,7 +2193,7 @@ fn emitNameSection(self: *Wasm, file: fs.File, arena: Allocator) !void {
             break :blk self.string_table.get(self.imports.get(sym_loc).?.name);
         } else sym_loc.getName(self);
         switch (symbol.tag) {
-            .function => funcs.appendAssumeCapacity(.{ .index = symbol.index, .name = name }),
+            .function => try funcs.append(.{ .index = symbol.index, .name = name }),
             .global => globals.appendAssumeCapacity(.{ .index = symbol.index, .name = name }),
             else => {},
         }
