@@ -193,7 +193,7 @@ const DarwinImpl = struct {
                 break :blk os.darwin.__ulock_wait2(flags, addr, expect, timeout_ns, 0);
             }
 
-            const timeout_us = std.math.cast(u32, timeout_ns / std.time.ns_per_us) catch overflow: {
+            const timeout_us = std.math.cast(u32, timeout_ns / std.time.ns_per_us) orelse overflow: {
                 timeout_overflowed = true;
                 break :overflow std.math.maxInt(u32);
             };
@@ -274,7 +274,7 @@ const LinuxImpl = struct {
         const rc = os.linux.futex_wake(
             @ptrCast(*const i32, &ptr.value),
             os.linux.FUTEX.PRIVATE_FLAG | os.linux.FUTEX.WAKE,
-            std.math.cast(i32, max_waiters) catch std.math.maxInt(i32),
+            std.math.cast(i32, max_waiters) orelse std.math.maxInt(i32),
         );
 
         switch (os.linux.getErrno(rc)) {
@@ -379,7 +379,7 @@ const OpenbsdImpl = struct {
         const rc = os.openbsd.futex(
             @ptrCast(*const volatile u32, &ptr.value),
             os.openbsd.FUTEX_WAKE | os.openbsd.FUTEX_PRIVATE_FLAG,
-            std.math.cast(c_int, max_waiters) catch std.math.maxInt(c_int),
+            std.math.cast(c_int, max_waiters) orelse std.math.maxInt(c_int),
             null, // FUTEX_WAKE takes no timeout ptr
             null, // FUTEX_WAKE takes no requeue address
         );
@@ -400,7 +400,7 @@ const DragonflyImpl = struct {
 
         if (timeout) |delay| {
             assert(delay != 0); // handled by timedWait().
-            timeout_us = std.math.cast(c_int, delay / std.time.ns_per_us) catch blk: {
+            timeout_us = std.math.cast(c_int, delay / std.time.ns_per_us) orelse blk: {
                 timeout_overflowed = true;
                 break :blk std.math.maxInt(c_int);
             };
@@ -436,7 +436,7 @@ const DragonflyImpl = struct {
     fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
         // A count of zero means wake all waiters.
         assert(max_waiters != 0);
-        const to_wake = std.math.cast(c_int, max_waiters) catch 0;
+        const to_wake = std.math.cast(c_int, max_waiters) orelse 0;
 
         // https://man.dragonflybsd.org/?command=umtx&section=2
         // > umtx_wakeup() will generally return 0 unless the address is bad.

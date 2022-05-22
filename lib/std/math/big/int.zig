@@ -2014,7 +2014,7 @@ pub const Const = struct {
                     } else {
                         if (math.cast(T, r)) |ok| {
                             return -ok;
-                        } else |_| {
+                        } else {
                             return minInt(T);
                         }
                     }

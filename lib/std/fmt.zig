@@ -1778,8 +1778,8 @@ fn parseWithSign(
         if (c == '_') continue;
         const digit = try charToDigit(c, buf_radix);
 
-        if (x != 0) x = try math.mul(T, x, try math.cast(T, buf_radix));
-        x = try add(T, x, try math.cast(T, digit));
+        if (x != 0) x = try math.mul(T, x, math.cast(T, buf_radix) orelse return error.Overflow);
+        x = try add(T, x, math.cast(T, digit) orelse return error.Overflow);
     }
 
     return x;
@@ -1893,10 +1893,7 @@ pub fn count(comptime fmt: []const u8, args: anytype) u64 {
 pub const AllocPrintError = error{OutOfMemory};
 
 pub fn allocPrint(allocator: mem.Allocator, comptime fmt: []const u8, args: anytype) AllocPrintError![]u8 {
-    const size = math.cast(usize, count(fmt, args)) catch |err| switch (err) {
-        // Output too long. Can't possibly allocate enough memory to display it.
-        error.Overflow => return error.OutOfMemory,
-    };
+    const size = math.cast(usize, count(fmt, args)) orelse return error.OutOfMemory;
     const buf = try allocator.alloc(u8, size);
     return bufPrint(buf, fmt, args) catch |err| switch (err) {
         error.NoSpaceLeft => unreachable, // we just counted the size above

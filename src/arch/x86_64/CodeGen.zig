@@ -854,7 +854,7 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
         return self.allocMem(inst, @sizeOf(usize), @alignOf(usize));
     }
 
-    const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) catch {
+    const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) orelse {
         const mod = self.bin_file.options.module.?;
         return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(mod)});
     };
@@ -865,7 +865,7 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
 
 fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
     const elem_ty = self.air.typeOfIndex(inst);
-    const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) catch {
+    const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) orelse {
         const mod = self.bin_file.options.module.?;
         return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(mod)});
     };

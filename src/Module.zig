@@ -4395,7 +4395,7 @@ pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !*Emb
         .inode = actual_stat.inode,
         .mtime = actual_stat.mtime,
     };
-    const size_usize = try std.math.cast(usize, actual_stat.size);
+    const size_usize = std.math.cast(usize, actual_stat.size) orelse return error.Overflow;
     const bytes = try file.readToEndAllocOptions(gpa, std.math.maxInt(u32), size_usize, 1, 0);
     errdefer gpa.free(bytes);
 
@@ -4435,7 +4435,7 @@ pub fn detectEmbedFileUpdate(mod: *Module, embed_file: *EmbedFile) !void {
     if (unchanged_metadata) return;
 
     const gpa = mod.gpa;
-    const size_usize = try std.math.cast(usize, stat.size);
+    const size_usize = std.math.cast(usize, stat.size) orelse return error.Overflow;
     const bytes = try file.readToEndAllocOptions(gpa, std.math.maxInt(u32), size_usize, 1, 0);
     gpa.free(embed_file.bytes);
     embed_file.bytes = bytes;
