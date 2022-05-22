@@ -2447,6 +2447,9 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
             .register_c_flag,
             .register_v_flag,
             => |reg| {
+                const reg_lock = self.register_manager.lockRegAssumeUnused(reg);
+                defer self.register_manager.unlockReg(reg_lock);
+
                 switch (index) {
                     0 => {
                         // get wrapped value: return register
@@ -5062,6 +5065,7 @@ fn lowerUnnamedConst(self: *Self, tv: TypedValue) InnerError!MCValue {
 }
 
 fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
+    log.debug("genTypedValue: ty = {}, val = {}", .{ typed_value.ty.fmtDebug(), typed_value.val.fmtDebug() });
     if (typed_value.val.isUndef())
         return MCValue{ .undef = {} };
     const ptr_bits = self.target.cpu.arch.ptrBitWidth();
@@ -5075,24 +5079,14 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
     const target = self.target.*;
 
     switch (typed_value.ty.zigTypeTag()) {
-        .Array => {
-            return self.lowerUnnamedConst(typed_value);
-        },
         .Pointer => switch (typed_value.ty.ptrSize()) {
-            .Slice => {
-                return self.lowerUnnamedConst(typed_value);
-            },
+            .Slice => {},
             else => {
                 switch (typed_value.val.tag()) {
                     .int_u64 => {
                         return MCValue{ .immediate = @intCast(u32, typed_value.val.toUnsignedInt(target)) };
                     },
-                    .slice => {
-                        return self.lowerUnnamedConst(typed_value);
-                    },
-                    else => {
-                        return self.fail("TODO codegen more kinds of const pointers", .{});
-                    },
+                    else => {},
                 }
             },
         },
@@ -5115,8 +5109,6 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
         .Bool => {
             return MCValue{ .immediate = @boolToInt(typed_value.val.toBool()) };
         },
-        .ComptimeInt => unreachable, // semantic analysis prevents this
-        .ComptimeFloat => unreachable, // semantic analysis prevents this
         .Optional => {
             if (typed_value.ty.isPtrLikeOptional()) {
                 if (typed_value.val.isNull())
@@ -5130,7 +5122,6 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
             } else if (typed_value.ty.abiSize(self.target.*) == 1) {
                 return MCValue{ .immediate = @boolToInt(typed_value.val.isNull()) };
             }
-            return self.fail("TODO non pointer optionals", .{});
         },
         .Enum => {
             if (typed_value.val.castTag(.enum_field_index)) |field_index| {
@@ -5166,28 +5157,34 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
             const error_type = typed_value.ty.errorUnionSet();
             const payload_type = typed_value.ty.errorUnionPayload();
 
-            if (typed_value.val.castTag(.eu_payload)) |pl| {
+            if (typed_value.val.castTag(.eu_payload)) |_| {
                 if (!payload_type.hasRuntimeBits()) {
                     // We use the error type directly as the type.
                     return MCValue{ .immediate = 0 };
                 }
-
-                _ = pl;
-                return self.fail("TODO implement error union const of type '{}' (non-error)", .{typed_value.ty.fmtDebug()});
             } else {
                 if (!payload_type.hasRuntimeBits()) {
                     // We use the error type directly as the type.
                     return self.genTypedValue(.{ .ty = error_type, .val = typed_value.val });
                 }
-
-                return self.fail("TODO implement error union const of type '{}' (error)", .{typed_value.ty.fmtDebug()});
             }
         },
-        .Struct => {
-            return self.lowerUnnamedConst(typed_value);
-        },
-        else => return self.fail("TODO implement const of type '{}'", .{typed_value.ty.fmtDebug()}),
+
+        .ComptimeInt => unreachable, // semantic analysis prevents this
+        .ComptimeFloat => unreachable, // semantic analysis prevents this
+        .Type => unreachable,
+        .EnumLiteral => unreachable,
+        .Void => unreachable,
+        .NoReturn => unreachable,
+        .Undefined => unreachable,
+        .Null => unreachable,
+        .BoundFn => unreachable,
+        .Opaque => unreachable,
+
+        else => {},
     }
+
+    return self.lowerUnnamedConst(typed_value);
 }
 
 const CallMCValues = struct {
