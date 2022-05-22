@@ -542,13 +542,14 @@ const DocData = struct {
         call: usize, // index in `calls`
         enumLiteral: []const u8, // direct value
         typeOf: usize, // index in `exprs`
-        as: struct {
-            typeRefArg: ?usize, // index in `exprs`
-            exprArg: usize, // index in `exprs`
-        },
+        as: As,
         sizeOf: usize, // index in `exprs`
         compileError: []const u8,
         string: []const u8, // direct value
+        const As = struct {
+            typeRefArg: ?usize, // index in `exprs`
+            exprArg: usize, // index in `exprs`
+        };
         const FieldRef = struct {
             type: usize, // index in `types`
             index: usize, // index in type.fields
@@ -592,9 +593,13 @@ const DocData = struct {
                     , .{v});
                 },
                 .sizeOf => |v| try std.json.stringify(v, options, w),
-                .as => |v| try std.json.stringify(v, options, w),
                 .fieldRef => |v| try std.json.stringify(
                     struct { fieldRef: FieldRef }{ .fieldRef = v },
+                    options,
+                    w,
+                ),
+                .as => |v| try std.json.stringify(
+                    struct { as: As }{ .as = v },
                     options,
                     w,
                 ),
@@ -774,7 +779,12 @@ fn walkInstruction(
             );
 
             return DocData.WalkResult{
-                .expr = .{ .compileError = operand.expr.string },
+                .expr = .{
+                    .compileError = switch (operand.expr) {
+                        .string => |s| s,
+                        else => "TODO: non-string @compileError arguments",
+                    },
+                },
             };
         },
         .enum_literal => {
@@ -1010,6 +1020,9 @@ fn walkInstruction(
         .decl_val, .decl_ref => {
             const str_tok = data[inst_index].str_tok;
             const decls_slot_index = parent_scope.resolveDeclName(str_tok.start);
+            // While it would make sense to grab the original decl's typeRef info,
+            // that decl might not have been analyzed yet! The frontend will have
+            // to navigate through all declRefs to find the underlying type.
             return DocData.WalkResult{ .expr = .{ .declRef = decls_slot_index } };
         },
         .field_val, .field_call_bind, .field_ptr, .field_type => {
