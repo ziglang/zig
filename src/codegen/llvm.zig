@@ -2451,20 +2451,22 @@ pub const DeclGen = struct {
             .ErrorUnion => {
                 const error_type = t.errorUnionSet();
                 const payload_type = t.errorUnionPayload();
-                const llvm_error_type = try dg.llvmType(error_type);
-                if (!payload_type.hasRuntimeBitsIgnoreComptime()) {
-                    return llvm_error_type;
+                if (error_type.errorSetCardinality() == .zero) {
+                    return dg.llvmType(payload_type);
                 }
+                if (!payload_type.hasRuntimeBitsIgnoreComptime()) {
+                    return try dg.llvmType(Type.anyerror);
+                }
+                const llvm_error_type = try dg.llvmType(error_type);
                 const llvm_payload_type = try dg.llvmType(payload_type);
 
                 const payload_align = payload_type.abiAlignment(target);
-                const error_size = error_type.abiSize(target);
-                if (payload_align > error_size) {
-                    const pad_type = dg.context.intType(8).arrayType(@intCast(u32, payload_align - error_size));
-                    const fields: [3]*const llvm.Type = .{ llvm_error_type, pad_type, llvm_payload_type };
+                const error_align = Type.anyerror.abiAlignment(target);
+                if (error_align > payload_align) {
+                    const fields: [2]*const llvm.Type = .{ llvm_error_type, llvm_payload_type };
                     return dg.context.structType(&fields, fields.len, .False);
                 } else {
-                    const fields: [2]*const llvm.Type = .{ llvm_error_type, llvm_payload_type };
+                    const fields: [2]*const llvm.Type = .{ llvm_payload_type, llvm_error_type };
                     return dg.context.structType(&fields, fields.len, .False);
                 }
             },
@@ -3103,6 +3105,10 @@ pub const DeclGen = struct {
             .ErrorUnion => {
                 const error_type = tv.ty.errorUnionSet();
                 const payload_type = tv.ty.errorUnionPayload();
+                if (error_type.errorSetCardinality() == .zero) {
+                    const payload_val = tv.val.castTag(.eu_payload).?.data;
+                    return dg.genTypedValue(.{ .ty = payload_type, .val = payload_val });
+                }
                 const is_pl = tv.val.errorUnionIsPayload();
 
                 if (!payload_type.hasRuntimeBitsIgnoreComptime()) {
@@ -3110,28 +3116,24 @@ pub const DeclGen = struct {
                     const err_val = if (!is_pl) tv.val else Value.initTag(.zero);
                     return dg.genTypedValue(.{ .ty = error_type, .val = err_val });
                 }
-                var len: u8 = 2;
-                var fields: [3]*const llvm.Value = .{
-                    try dg.genTypedValue(.{
-                        .ty = error_type,
-                        .val = if (is_pl) Value.initTag(.zero) else tv.val,
-                    }),
-                    try dg.genTypedValue(.{
-                        .ty = payload_type,
-                        .val = if (tv.val.castTag(.eu_payload)) |pl| pl.data else Value.initTag(.undef),
-                    }),
-                    undefined,
-                };
 
                 const payload_align = payload_type.abiAlignment(target);
-                const error_size = error_type.abiSize(target);
-                if (payload_align > error_size) {
-                    fields[2] = fields[1];
-                    const pad_type = dg.context.intType(8).arrayType(@intCast(u32, payload_align - error_size));
-                    fields[1] = pad_type.getUndef();
-                    len += 1;
+                const error_align = Type.anyerror.abiAlignment(target);
+                const llvm_error_value = try dg.genTypedValue(.{
+                    .ty = error_type,
+                    .val = if (is_pl) Value.initTag(.zero) else tv.val,
+                });
+                const llvm_payload_value = try dg.genTypedValue(.{
+                    .ty = payload_type,
+                    .val = if (tv.val.castTag(.eu_payload)) |pl| pl.data else Value.initTag(.undef),
+                });
+                if (error_align > payload_align) {
+                    const fields: [2]*const llvm.Value = .{ llvm_error_value, llvm_payload_value };
+                    return dg.context.constStruct(&fields, fields.len, .False);
+                } else {
+                    const fields: [2]*const llvm.Value = .{ llvm_payload_value, llvm_error_value };
+                    return dg.context.constStruct(&fields, fields.len, .False);
                 }
-                return dg.context.constStruct(&fields, len, .False);
             },
             .Struct => {
                 const llvm_struct_ty = try dg.llvmType(tv.ty);
@@ -4338,11 +4340,19 @@ pub const FuncGen = struct {
             _ = self.builder.buildRetVoid();
             return null;
         }
+        const fn_info = self.dg.decl.ty.fnInfo();
         if (!ret_ty.hasRuntimeBitsIgnoreComptime()) {
-            _ = self.builder.buildRetVoid();
+            if (fn_info.return_type.isError()) {
+                // Functions with an empty error set are emitted with an error code
+                // return type and return zero so they can be function pointers coerced
+                // to functions that return anyerror.
+                const err_int = try self.dg.llvmType(Type.anyerror);
+                _ = self.builder.buildRet(err_int.constInt(0, .False));
+            } else {
+                _ = self.builder.buildRetVoid();
+            }
             return null;
         }
-        const fn_info = self.dg.decl.ty.fnInfo();
         const abi_ret_ty = try lowerFnRetTy(self.dg, fn_info);
         const operand = try self.resolveInst(un_op);
         const llvm_ret_ty = operand.typeOf();
@@ -4369,13 +4379,25 @@ pub const FuncGen = struct {
         const un_op = self.air.instructions.items(.data)[inst].un_op;
         const ptr_ty = self.air.typeOf(un_op);
         const ret_ty = ptr_ty.childType();
-        if (!ret_ty.hasRuntimeBitsIgnoreComptime() or self.ret_ptr != null) {
+        const fn_info = self.dg.decl.ty.fnInfo();
+        if (!ret_ty.hasRuntimeBitsIgnoreComptime()) {
+            if (fn_info.return_type.isError()) {
+                // Functions with an empty error set are emitted with an error code
+                // return type and return zero so they can be function pointers coerced
+                // to functions that return anyerror.
+                const err_int = try self.dg.llvmType(Type.anyerror);
+                _ = self.builder.buildRet(err_int.constInt(0, .False));
+            } else {
+                _ = self.builder.buildRetVoid();
+            }
+            return null;
+        }
+        if (self.ret_ptr != null) {
             _ = self.builder.buildRetVoid();
             return null;
         }
         const ptr = try self.resolveInst(un_op);
         const target = self.dg.module.getTarget();
-        const fn_info = self.dg.decl.ty.fnInfo();
         const abi_ret_ty = try lowerFnRetTy(self.dg, fn_info);
         const llvm_ret_ty = try self.dg.llvmType(ret_ty);
         const casted_ptr = if (abi_ret_ty == llvm_ret_ty) ptr else p: {
@@ -5433,18 +5455,30 @@ pub const FuncGen = struct {
         const err_set_ty = try self.dg.llvmType(Type.initTag(.anyerror));
         const zero = err_set_ty.constNull();
 
+        if (err_union_ty.errorUnionSet().errorSetCardinality() == .zero) {
+            const llvm_i1 = self.context.intType(1);
+            switch (op) {
+                .EQ => return llvm_i1.constInt(1, .False), // 0 == 0
+                .NE => return llvm_i1.constInt(0, .False), // 0 != 0
+                else => unreachable,
+            }
+        }
+
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
             const loaded = if (operand_is_ptr) self.builder.buildLoad(operand, "") else operand;
             return self.builder.buildICmp(op, loaded, zero, "");
         }
 
+        const target = self.dg.module.getTarget();
+        const err_field_index = errUnionErrorOffset(payload_ty, target);
+
         if (operand_is_ptr or isByRef(err_union_ty)) {
-            const err_field_ptr = self.builder.buildStructGEP(operand, 0, "");
+            const err_field_ptr = self.builder.buildStructGEP(operand, err_field_index, "");
             const loaded = self.builder.buildLoad(err_field_ptr, "");
             return self.builder.buildICmp(op, loaded, zero, "");
         }
 
-        const loaded = self.builder.buildExtractValue(operand, 0, "");
+        const loaded = self.builder.buildExtractValue(operand, err_field_index, "");
         return self.builder.buildICmp(op, loaded, zero, "");
     }
 
@@ -5544,11 +5578,17 @@ pub const FuncGen = struct {
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
-        const result_ty = self.air.getRefType(ty_op.ty);
+        const operand_ty = self.air.typeOf(ty_op.operand);
+        const error_union_ty = if (operand_is_ptr) operand_ty.childType() else operand_ty;
+        // If the error set has no fields, then the payload and the error
+        // union are the same value.
+        if (error_union_ty.errorUnionSet().errorSetCardinality() == .zero) {
+            return operand;
+        }
+        const result_ty = self.air.typeOfIndex(inst);
         const payload_ty = if (operand_is_ptr) result_ty.childType() else result_ty;
-
         const target = self.dg.module.getTarget();
-        const offset: u8 = if (payload_ty.abiAlignment(target) > Type.anyerror.abiSize(target)) 2 else 1;
+        const offset = errUnionPayloadOffset(payload_ty, target);
 
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
             if (!operand_is_ptr) return null;
@@ -5574,54 +5614,70 @@ pub const FuncGen = struct {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
         const operand_ty = self.air.typeOf(ty_op.operand);
-        const err_set_ty = if (operand_is_ptr) operand_ty.childType() else operand_ty;
+        const err_union_ty = if (operand_is_ptr) operand_ty.childType() else operand_ty;
+        if (err_union_ty.errorUnionSet().errorSetCardinality() == .zero) {
+            const err_llvm_ty = try self.dg.llvmType(Type.anyerror);
+            if (operand_is_ptr) {
+                return self.builder.buildBitCast(operand, err_llvm_ty.pointerType(0), "");
+            } else {
+                return err_llvm_ty.constInt(0, .False);
+            }
+        }
 
-        const payload_ty = err_set_ty.errorUnionPayload();
+        const payload_ty = err_union_ty.errorUnionPayload();
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
             if (!operand_is_ptr) return operand;
             return self.builder.buildLoad(operand, "");
         }
 
-        if (operand_is_ptr or isByRef(err_set_ty)) {
-            const err_field_ptr = self.builder.buildStructGEP(operand, 0, "");
+        const target = self.dg.module.getTarget();
+        const offset = errUnionErrorOffset(payload_ty, target);
+
+        if (operand_is_ptr or isByRef(err_union_ty)) {
+            const err_field_ptr = self.builder.buildStructGEP(operand, offset, "");
             return self.builder.buildLoad(err_field_ptr, "");
         }
 
-        return self.builder.buildExtractValue(operand, 0, "");
+        return self.builder.buildExtractValue(operand, offset, "");
     }
 
     fn airErrUnionPayloadPtrSet(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
-        const error_set_ty = self.air.typeOf(ty_op.operand).childType();
+        const error_union_ty = self.air.typeOf(ty_op.operand).childType();
 
-        const error_ty = error_set_ty.errorUnionSet();
-        const payload_ty = error_set_ty.errorUnionPayload();
+        const error_ty = error_union_ty.errorUnionSet();
+        if (error_ty.errorSetCardinality() == .zero) {
+            // TODO: write undefined bytes through the pointer here
+            return operand;
+        }
+        const payload_ty = error_union_ty.errorUnionPayload();
         const non_error_val = try self.dg.genTypedValue(.{ .ty = error_ty, .val = Value.zero });
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
-            // We have a pointer to a i1. We need to set it to 1 and then return the same pointer.
             _ = self.builder.buildStore(non_error_val, operand);
             return operand;
         }
         const index_type = self.context.intType(32);
+        const target = self.dg.module.getTarget();
         {
+            const error_offset = errUnionErrorOffset(payload_ty, target);
             // First set the non-error value.
             const indices: [2]*const llvm.Value = .{
                 index_type.constNull(), // dereference the pointer
-                index_type.constNull(), // first field is the payload
+                index_type.constInt(error_offset, .False),
             };
             const non_null_ptr = self.builder.buildInBoundsGEP(operand, &indices, indices.len, "");
-            _ = self.builder.buildStore(non_error_val, non_null_ptr);
+            const store_inst = self.builder.buildStore(non_error_val, non_null_ptr);
+            store_inst.setAlignment(Type.anyerror.abiAlignment(target));
         }
         // Then return the payload pointer (only if it is used).
         if (self.liveness.isUnused(inst))
             return null;
 
-        const target = self.dg.module.getTarget();
-        const payload_offset: u8 = if (payload_ty.abiAlignment(target) > Type.anyerror.abiSize(target)) 2 else 1;
+        const payload_offset = errUnionPayloadOffset(payload_ty, target);
         const indices: [2]*const llvm.Value = .{
             index_type.constNull(), // dereference the pointer
-            index_type.constInt(payload_offset, .False), // second field is the payload
+            index_type.constInt(payload_offset, .False),
         };
         return self.builder.buildInBoundsGEP(operand, &indices, indices.len, "");
     }
@@ -5669,21 +5725,26 @@ pub const FuncGen = struct {
         if (self.liveness.isUnused(inst)) return null;
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-        const payload_ty = self.air.typeOf(ty_op.operand);
+        const inst_ty = self.air.typeOfIndex(inst);
         const operand = try self.resolveInst(ty_op.operand);
+        if (inst_ty.errorUnionSet().errorSetCardinality() == .zero) {
+            return operand;
+        }
+        const payload_ty = self.air.typeOf(ty_op.operand);
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
             return operand;
         }
-        const inst_ty = self.air.typeOfIndex(inst);
-        const ok_err_code = self.context.intType(16).constNull();
+        const ok_err_code = (try self.dg.llvmType(Type.anyerror)).constNull();
         const err_un_llvm_ty = try self.dg.llvmType(inst_ty);
 
         const target = self.dg.module.getTarget();
-        const payload_offset: u8 = if (payload_ty.abiAlignment(target) > Type.anyerror.abiSize(target)) 2 else 1;
+        const payload_offset = errUnionPayloadOffset(payload_ty, target);
+        const error_offset = errUnionErrorOffset(payload_ty, target);
         if (isByRef(inst_ty)) {
             const result_ptr = self.buildAlloca(err_un_llvm_ty);
-            const err_ptr = self.builder.buildStructGEP(result_ptr, 0, "");
-            _ = self.builder.buildStore(ok_err_code, err_ptr);
+            const err_ptr = self.builder.buildStructGEP(result_ptr, error_offset, "");
+            const store_inst = self.builder.buildStore(ok_err_code, err_ptr);
+            store_inst.setAlignment(Type.anyerror.abiAlignment(target));
             const payload_ptr = self.builder.buildStructGEP(result_ptr, payload_offset, "");
             var ptr_ty_payload: Type.Payload.ElemType = .{
                 .base = .{ .tag = .single_mut_pointer },
@@ -5694,7 +5755,7 @@ pub const FuncGen = struct {
             return result_ptr;
         }
 
-        const partial = self.builder.buildInsertValue(err_un_llvm_ty.getUndef(), ok_err_code, 0, "");
+        const partial = self.builder.buildInsertValue(err_un_llvm_ty.getUndef(), ok_err_code, error_offset, "");
         return self.builder.buildInsertValue(partial, operand, payload_offset, "");
     }
 
@@ -5711,11 +5772,13 @@ pub const FuncGen = struct {
         const err_un_llvm_ty = try self.dg.llvmType(err_un_ty);
 
         const target = self.dg.module.getTarget();
-        const payload_offset: u8 = if (payload_ty.abiAlignment(target) > Type.anyerror.abiSize(target)) 2 else 1;
+        const payload_offset = errUnionPayloadOffset(payload_ty, target);
+        const error_offset = errUnionErrorOffset(payload_ty, target);
         if (isByRef(err_un_ty)) {
             const result_ptr = self.buildAlloca(err_un_llvm_ty);
-            const err_ptr = self.builder.buildStructGEP(result_ptr, 0, "");
-            _ = self.builder.buildStore(operand, err_ptr);
+            const err_ptr = self.builder.buildStructGEP(result_ptr, error_offset, "");
+            const store_inst = self.builder.buildStore(operand, err_ptr);
+            store_inst.setAlignment(Type.anyerror.abiAlignment(target));
             const payload_ptr = self.builder.buildStructGEP(result_ptr, payload_offset, "");
             var ptr_ty_payload: Type.Payload.ElemType = .{
                 .base = .{ .tag = .single_mut_pointer },
@@ -5728,7 +5791,7 @@ pub const FuncGen = struct {
             return result_ptr;
         }
 
-        const partial = self.builder.buildInsertValue(err_un_llvm_ty.getUndef(), operand, 0, "");
+        const partial = self.builder.buildInsertValue(err_un_llvm_ty.getUndef(), operand, error_offset, "");
         // TODO set payload bytes to undef
         return partial;
     }
@@ -8546,7 +8609,14 @@ fn firstParamSRet(fn_info: Type.Payload.Function.Data, target: std.Target) bool 
 /// be effectively bitcasted to the actual return type.
 fn lowerFnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*const llvm.Type {
     if (!fn_info.return_type.hasRuntimeBitsIgnoreComptime()) {
-        return dg.context.voidType();
+        // If the return type is an error set or an error union, then we make this
+        // anyerror return type instead, so that it can be coerced into a function
+        // pointer type which has anyerror as the return type.
+        if (fn_info.return_type.isError()) {
+            return dg.llvmType(Type.anyerror);
+        } else {
+            return dg.context.voidType();
+        }
     }
     const target = dg.module.getTarget();
     switch (fn_info.cc) {
@@ -8990,4 +9060,12 @@ fn buildAllocaInner(
     builder.clearCurrentDebugLocation();
 
     return builder.buildAlloca(llvm_ty, "");
+}
+
+fn errUnionPayloadOffset(payload_ty: Type, target: std.Target) u1 {
+    return @boolToInt(Type.anyerror.abiAlignment(target) > payload_ty.abiAlignment(target));
+}
+
+fn errUnionErrorOffset(payload_ty: Type, target: std.Target) u1 {
+    return @boolToInt(Type.anyerror.abiAlignment(target) <= payload_ty.abiAlignment(target));
 }
