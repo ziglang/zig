@@ -5,8 +5,8 @@ const math = std.math;
 const bitCount = meta.bitCount;
 const nan = math.nan;
 
-// Switch to 'true' to enable debug output.
-var verbose = false;
+// Change to '.info' to enable verbose output.
+pub const log_level: std.log.Level = .warn;
 
 // Include all tests.
 comptime {
@@ -68,32 +68,27 @@ pub fn Testcase(
                 else => unreachable,
             };
             const input_bits = @bitCast(U, tc.input);
-            if (verbose) {
-                print(
-                    " IN:  0x{X:0>" ++ hex_bits_fmt_size ++ "}  " ++
-                        "{[1]x:<" ++ hex_float_fmt_size ++ "}  {[1]e}\n",
-                    .{ input_bits, tc.input },
-                );
-            }
+            std.log.info(
+                " IN:  0x{X:0>" ++ hex_bits_fmt_size ++ "}  " ++
+                    "{[1]x:<" ++ hex_float_fmt_size ++ "}  {[1]e}",
+                .{ input_bits, tc.input },
+            );
+
             const output = func(tc.input);
             const output_bits = @bitCast(U, output);
-            if (verbose) {
-                print(
-                    "OUT:  0x{X:0>" ++ hex_bits_fmt_size ++ "}  " ++
-                        "{[1]x:<" ++ hex_float_fmt_size ++ "}  {[1]e}\n",
-                    .{ output_bits, output },
-                );
-            }
+            std.log.info(
+                "OUT:  0x{X:0>" ++ hex_bits_fmt_size ++ "}  " ++
+                    "{[1]x:<" ++ hex_float_fmt_size ++ "}  {[1]e}",
+                .{ output_bits, output },
+            );
             const exp_output_bits = @bitCast(U, tc.exp_output);
             // Compare bits rather than values so that NaN compares correctly.
             if (output_bits != exp_output_bits) {
-                if (verbose) {
-                    print(
-                        "EXP:  0x{X:0>" ++ hex_bits_fmt_size ++ "}  " ++
-                            "{[1]x:<" ++ hex_float_fmt_size ++ "}  {[1]e}\n",
-                        .{ exp_output_bits, tc.exp_output },
-                    );
-                }
+                std.log.info(
+                    "EXP:  0x{X:0>" ++ hex_bits_fmt_size ++ "}  " ++
+                        "{[1]x:<" ++ hex_float_fmt_size ++ "}  {[1]e}",
+                    .{ exp_output_bits, tc.exp_output },
+                );
                 print(
                     "FAILURE: expected {s}({x})->{x}, got {x} ({d}-bit)\n",
                     .{ name, tc.input, tc.exp_output, output, bits },
@@ -106,20 +101,22 @@ pub fn Testcase(
 
 /// Run all testcases in the given iterable, using the '.run()' method.
 pub fn runTests(tests: anytype) !void {
+    const old_log_level = std.testing.log_level;
+    std.testing.log_level = log_level;
+    defer std.testing.log_level = old_log_level;
+
     var failures: usize = 0;
-    print("\n", .{});
+    std.log.info("", .{});
     for (tests) |tc| {
         tc.run() catch {
             failures += 1;
         };
-        if (verbose) print("\n", .{});
+        std.log.info("", .{});
     }
-    if (verbose) {
-        print(
-            "Subtest summary: {d} passed; {d} failed\n",
-            .{ tests.len - failures, failures },
-        );
-    }
+    std.log.info(
+        "Subtest summary: {d} passed; {d} failed",
+        .{ tests.len - failures, failures },
+    );
     if (failures > 0) return error.Failure;
 }
 
