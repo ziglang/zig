@@ -4377,7 +4377,6 @@ fn genVarDbgInfo(
 fn addDbgInfoTypeReloc(self: *Self, ty: Type) !void {
     switch (self.debug_output) {
         .dwarf => |dw| {
-            assert(ty.hasRuntimeBits());
             const dbg_info = &dw.dbg_info;
             const index = dbg_info.items.len;
             try dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
