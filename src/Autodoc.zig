@@ -384,6 +384,7 @@ const DocData = struct {
             size: std.builtin.TypeInfo.Pointer.Size,
             child: Expr,
             sentinel: bool = false,
+            is_mutable: bool = true,
         },
         Array: struct {
             len: Expr,
@@ -484,6 +485,11 @@ const DocData = struct {
                         \\"sentinel": {},
                         \\
                     , .{v.sentinel});
+                    if (options.whitespace) |ws| try ws.outputIndent(w);
+                    try w.print(
+                        \\"is_mutable": {},
+                        \\
+                    , .{v.is_mutable});
                     if (options.whitespace) |ws| try ws.outputIndent(w);
                     try w.print(
                         \\"child":
@@ -759,6 +765,7 @@ fn walkInstruction(
                     .Array = .{
                         .len = .{ .int = .{ .value = str.len } },
                         .child = .{ .type = @enumToInt(Ref.u8_type) },
+                        .sentinel = true,
                     },
                 });
                 // const sentinel: ?usize = if (ptr.flags.has_sentinel) 0 else null;
@@ -768,7 +775,7 @@ fn walkInstruction(
                         .size = .One,
                         .child = .{ .type = arrTypeId },
                         .sentinel = true,
-                        // TODO: add sentinel!
+                        .is_mutable = false,
                     },
                 });
                 break :blk .{ .type = ptrTypeId };
@@ -839,11 +846,12 @@ fn walkInstruction(
                 .Pointer = .{
                     .size = ptr.size,
                     .child = elem_type_ref.expr,
+                    .is_mutable = ptr.is_mutable,
                 },
             });
 
             return DocData.WalkResult{
-                .typeRef = .{ .type = elem_type_ref.expr.type },
+                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
                 .expr = .{ .type = type_slot_index },
             };
         },
@@ -861,14 +869,9 @@ fn walkInstruction(
                 false,
             );
             try self.types.append(self.arena, .{
-                .Pointer = .{
-                    .size = ptr.size,
-                    .child = elem_type_ref.expr,
-                    .sentinel = sentinel,
-                },
+                .Pointer = .{ .size = ptr.size, .child = elem_type_ref.expr, .sentinel = sentinel, .is_mutable = ptr.flags.is_mutable },
             });
             return DocData.WalkResult{
-                // .typeRef = .{ .type = type_slot_index },
                 .typeRef = .{ .type = @enumToInt(Ref.type_type) },
                 .expr = .{ .type = type_slot_index },
             };
