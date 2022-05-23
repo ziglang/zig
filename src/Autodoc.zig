@@ -383,12 +383,12 @@ const DocData = struct {
         Pointer: struct {
             size: std.builtin.TypeInfo.Pointer.Size,
             child: Expr,
-            sentinel: ?usize = null,
+            sentinel: bool = false,
         },
         Array: struct {
             len: Expr,
             child: Expr,
-            sentinel: ?usize = null,
+            sentinel: bool = false,
         },
         Struct: struct {
             name: []const u8,
@@ -767,7 +767,7 @@ fn walkInstruction(
                     .Pointer = .{
                         .size = .One,
                         .child = .{ .type = arrTypeId },
-                        .sentinel = 0,
+                        .sentinel = true,
                         // TODO: add sentinel!
                     },
                 });
@@ -851,7 +851,7 @@ fn walkInstruction(
             const ptr = data[inst_index].ptr_type;
             const extra = file.zir.extraData(Zir.Inst.PtrType, ptr.payload_index);
 
-            const sentinel: ?usize = if (ptr.flags.has_sentinel) 0 else null;
+            const sentinel: bool = if (ptr.flags.has_sentinel) true else false;
 
             const type_slot_index = self.types.items.len;
             const elem_type_ref = try self.walkRef(
@@ -903,7 +903,7 @@ fn walkInstruction(
                 .Array = .{
                     .len = len.expr,
                     .child = elem_type.expr,
-                    .sentinel = 0,
+                    .sentinel = true,
                 },
             });
             return DocData.WalkResult{
@@ -982,7 +982,7 @@ fn walkInstruction(
                         .value = operands.len,
                         .negated = false,
                     },
-                }, .child = array_type.?, .sentinel = 0 },
+                }, .child = array_type.?, .sentinel = true },
             });
 
             return DocData.WalkResult{
@@ -1090,7 +1090,7 @@ fn walkInstruction(
                         .value = operands.len,
                         .negated = false,
                     },
-                }, .child = array_type.?, .sentinel = 0 },
+                }, .child = array_type.?, .sentinel = true },
             });
 
             return DocData.WalkResult{
@@ -1312,6 +1312,7 @@ fn walkInstruction(
             try self.types.append(self.arena, .{
                 .Int = .{ .name = name },
             });
+
             return DocData.WalkResult{
                 .typeRef = .{ .type = @enumToInt(Ref.type_type) },
                 .expr = .{ .type = self.types.items.len - 1 },
