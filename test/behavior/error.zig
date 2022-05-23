@@ -148,18 +148,39 @@ test "implicit cast to optional to error union to return result loc" {
     //comptime S.entry(); TODO
 }
 
-test "error: fn returning empty error set can be passed as fn returning any error" {
+test "fn returning empty error set can be passed as fn returning any error" {
     entry();
     comptime entry();
+}
+
+test "fn returning empty error set can be passed as fn returning any error - pointer" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
+    entryPtr();
+    comptime entryPtr();
 }
 
 fn entry() void {
     foo2(bar2);
 }
 
+fn entryPtr() void {
+    var ptr = &bar2;
+    fooPtr(ptr);
+}
+
 fn foo2(f: fn () anyerror!void) void {
     const x = f();
-    x catch {};
+    x catch {
+        @panic("fail");
+    };
+}
+
+fn fooPtr(f: *const fn () anyerror!void) void {
+    const x = f();
+    x catch {
+        @panic("fail");
+    };
 }
 
 fn bar2() (error{}!void) {}
@@ -239,7 +260,11 @@ fn testComptimeTestErrorEmptySet(x: EmptyErrorSet!i32) !void {
 }
 
 test "comptime err to int of error set with only 1 possible value" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     testErrToIntWithOnePossibleValue(error.A, @errorToInt(error.A));
     comptime testErrToIntWithOnePossibleValue(error.A, @errorToInt(error.A));

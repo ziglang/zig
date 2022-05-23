@@ -2317,10 +2317,7 @@ pub const Type = extern union {
             .const_slice_u8_sentinel_0,
             .array_u8_sentinel_0,
             .anyerror_void_error_union,
-            .error_set,
-            .error_set_single,
             .error_set_inferred,
-            .error_set_merged,
             .manyptr_u8,
             .manyptr_const_u8,
             .manyptr_const_u8_sentinel_0,
@@ -2361,7 +2358,19 @@ pub const Type = extern union {
             .fn_void_no_args,
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
+            .error_set_single,
             => return false,
+
+            .error_set => {
+                const err_set_obj = ty.castTag(.error_set).?.data;
+                const names = err_set_obj.names.keys();
+                return names.len > 1;
+            },
+            .error_set_merged => {
+                const name_map = ty.castTag(.error_set_merged).?.data;
+                const names = name_map.keys();
+                return names.len > 1;
+            },
 
             // These types have more than one possible value, so the result is the same as
             // asking whether they are comptime-only types.
@@ -2380,6 +2389,21 @@ pub const Type = extern union {
             .pointer,
             => {
                 if (ignore_comptime_only) {
+                    return true;
+                } else if (sema_kit) |sk| {
+                    return !(try sk.sema.typeRequiresComptime(sk.block, sk.src, ty));
+                } else {
+                    return !comptimeOnly(ty);
+                }
+            },
+
+            .error_union => {
+                // This code needs to be kept in sync with the equivalent switch prong
+                // in abiSizeAdvanced.
+                const data = ty.castTag(.error_union).?.data;
+                if (data.error_set.errorSetCardinality() == .zero) {
+                    return hasRuntimeBitsAdvanced(data.payload, ignore_comptime_only, sema_kit);
+                } else if (ignore_comptime_only) {
                     return true;
                 } else if (sema_kit) |sk| {
                     return !(try sk.sema.typeRequiresComptime(sk.block, sk.src, ty));
@@ -2466,12 +2490,6 @@ pub const Type = extern union {
             .array_sentinel => return ty.childType().hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit),
 
             .int_signed, .int_unsigned => return ty.cast(Payload.Bits).?.data != 0,
-
-            .error_union => {
-                const payload = ty.castTag(.error_union).?.data;
-                return (try payload.error_set.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit)) or
-                    (try payload.payload.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit));
-            },
 
             .tuple, .anon_struct => {
                 const tuple = ty.tupleFields();
@@ -2852,13 +2870,30 @@ pub const Type = extern union {
                 else => unreachable,
             },
 
-            .error_set,
-            .error_set_single,
+            // TODO revisit this when we have the concept of the error tag type
             .anyerror_void_error_union,
             .anyerror,
             .error_set_inferred,
-            .error_set_merged,
-            => return AbiAlignmentAdvanced{ .scalar = 2 }, // TODO revisit this when we have the concept of the error tag type
+            => return AbiAlignmentAdvanced{ .scalar = 2 },
+
+            .error_set => {
+                const err_set_obj = ty.castTag(.error_set).?.data;
+                const names = err_set_obj.names.keys();
+                if (names.len <= 1) {
+                    return AbiAlignmentAdvanced{ .scalar = 0 };
+                } else {
+                    return AbiAlignmentAdvanced{ .scalar = 2 };
+                }
+            },
+            .error_set_merged => {
+                const name_map = ty.castTag(.error_set_merged).?.data;
+                const names = name_map.keys();
+                if (names.len <= 1) {
+                    return AbiAlignmentAdvanced{ .scalar = 0 };
+                } else {
+                    return AbiAlignmentAdvanced{ .scalar = 2 };
+                }
+            },
 
             .array, .array_sentinel => return ty.elemType().abiAlignmentAdvanced(target, strat),
 
@@ -2900,31 +2935,29 @@ pub const Type = extern union {
             },
 
             .error_union => {
+                // This code needs to be kept in sync with the equivalent switch prong
+                // in abiSizeAdvanced.
                 const data = ty.castTag(.error_union).?.data;
+                if (data.error_set.errorSetCardinality() == .zero) {
+                    return abiAlignmentAdvanced(data.payload, target, strat);
+                }
+                const code_align = abiAlignment(Type.anyerror, target);
                 switch (strat) {
                     .eager, .sema_kit => {
-                        if (!(try data.error_set.hasRuntimeBitsAdvanced(false, sema_kit))) {
-                            return data.payload.abiAlignmentAdvanced(target, strat);
-                        } else if (!(try data.payload.hasRuntimeBitsAdvanced(false, sema_kit))) {
-                            return data.error_set.abiAlignmentAdvanced(target, strat);
+                        if (!(try data.payload.hasRuntimeBitsAdvanced(false, sema_kit))) {
+                            return AbiAlignmentAdvanced{ .scalar = code_align };
                         }
                         return AbiAlignmentAdvanced{ .scalar = @maximum(
+                            code_align,
                             (try data.payload.abiAlignmentAdvanced(target, strat)).scalar,
-                            (try data.error_set.abiAlignmentAdvanced(target, strat)).scalar,
                         ) };
                     },
                     .lazy => |arena| {
                         switch (try data.payload.abiAlignmentAdvanced(target, strat)) {
                             .scalar => |payload_align| {
-                                if (payload_align == 0) {
-                                    return data.error_set.abiAlignmentAdvanced(target, strat);
-                                }
-                                switch (try data.error_set.abiAlignmentAdvanced(target, strat)) {
-                                    .scalar => |err_set_align| {
-                                        return AbiAlignmentAdvanced{ .scalar = @maximum(payload_align, err_set_align) };
-                                    },
-                                    .val => {},
-                                }
+                                return AbiAlignmentAdvanced{
+                                    .scalar = @maximum(code_align, payload_align),
+                                };
                             },
                             .val => {},
                         }
@@ -3018,6 +3051,7 @@ pub const Type = extern union {
             .@"undefined",
             .enum_literal,
             .type_info,
+            .error_set_single,
             => return AbiAlignmentAdvanced{ .scalar = 0 },
 
             .noreturn,
@@ -3136,6 +3170,7 @@ pub const Type = extern union {
             .empty_struct_literal,
             .empty_struct,
             .void,
+            .error_set_single,
             => return AbiSizeAdvanced{ .scalar = 0 },
 
             .@"struct", .tuple, .anon_struct => switch (ty.containerLayout()) {
@@ -3291,13 +3326,29 @@ pub const Type = extern union {
             },
 
             // TODO revisit this when we have the concept of the error tag type
-            .error_set,
-            .error_set_single,
             .anyerror_void_error_union,
             .anyerror,
             .error_set_inferred,
-            .error_set_merged,
             => return AbiSizeAdvanced{ .scalar = 2 },
+
+            .error_set => {
+                const err_set_obj = ty.castTag(.error_set).?.data;
+                const names = err_set_obj.names.keys();
+                if (names.len <= 1) {
+                    return AbiSizeAdvanced{ .scalar = 0 };
+                } else {
+                    return AbiSizeAdvanced{ .scalar = 2 };
+                }
+            },
+            .error_set_merged => {
+                const name_map = ty.castTag(.error_set_merged).?.data;
+                const names = name_map.keys();
+                if (names.len <= 1) {
+                    return AbiSizeAdvanced{ .scalar = 0 };
+                } else {
+                    return AbiSizeAdvanced{ .scalar = 2 };
+                }
+            },
 
             .i16, .u16 => return AbiSizeAdvanced{ .scalar = intAbiSize(16, target) },
             .i32, .u32 => return AbiSizeAdvanced{ .scalar = intAbiSize(32, target) },
@@ -3325,24 +3376,42 @@ pub const Type = extern union {
             },
 
             .error_union => {
+                // This code needs to be kept in sync with the equivalent switch prong
+                // in abiAlignmentAdvanced.
                 const data = ty.castTag(.error_union).?.data;
-                if (!data.error_set.hasRuntimeBits() and !data.payload.hasRuntimeBits()) {
-                    return AbiSizeAdvanced{ .scalar = 0 };
-                } else if (!data.error_set.hasRuntimeBits()) {
-                    return AbiSizeAdvanced{ .scalar = data.payload.abiSize(target) };
-                } else if (!data.payload.hasRuntimeBits()) {
-                    return AbiSizeAdvanced{ .scalar = data.error_set.abiSize(target) };
+                // Here we need to care whether or not the error set is *empty* or whether
+                // it only has *one possible value*. In the former case, it means there
+                // cannot possibly be an error, meaning the ABI size is equivalent to the
+                // payload ABI size. In the latter case, we need to account for the "tag"
+                // because even if both the payload type and the error set type of an
+                // error union have no runtime bits, an error union still has
+                // 1 bit of data which is whether or not the value is an error.
+                // Zig still uses the error code encoding at runtime, even when only 1 bit
+                // would suffice. This prevents coercions from needing to branch.
+                if (data.error_set.errorSetCardinality() == .zero) {
+                    return abiSizeAdvanced(data.payload, target, strat);
                 }
-                const code_align = abiAlignment(data.error_set, target);
+                const code_size = abiSize(Type.anyerror, target);
+                if (!data.payload.hasRuntimeBits()) {
+                    // Same as anyerror.
+                    return AbiSizeAdvanced{ .scalar = code_size };
+                }
+                const code_align = abiAlignment(Type.anyerror, target);
                 const payload_align = abiAlignment(data.payload, target);
-                const big_align = @maximum(code_align, payload_align);
                 const payload_size = abiSize(data.payload, target);
 
                 var size: u64 = 0;
-                size += abiSize(data.error_set, target);
-                size = std.mem.alignForwardGeneric(u64, size, payload_align);
-                size += payload_size;
-                size = std.mem.alignForwardGeneric(u64, size, big_align);
+                if (code_align > payload_align) {
+                    size += code_size;
+                    size = std.mem.alignForwardGeneric(u64, size, payload_align);
+                    size += payload_size;
+                    size = std.mem.alignForwardGeneric(u64, size, code_align);
+                } else {
+                    size += payload_size;
+                    size = std.mem.alignForwardGeneric(u64, size, code_align);
+                    size += code_size;
+                    size = std.mem.alignForwardGeneric(u64, size, payload_align);
+                }
                 return AbiSizeAdvanced{ .scalar = size };
             },
         }
@@ -4166,6 +4235,35 @@ pub const Type = extern union {
         };
     }
 
+    const ErrorSetCardinality = enum { zero, one, many };
+
+    pub fn errorSetCardinality(ty: Type) ErrorSetCardinality {
+        switch (ty.tag()) {
+            .anyerror => return .many,
+            .error_set_inferred => return .many,
+            .error_set_single => return .one,
+            .error_set => {
+                const err_set_obj = ty.castTag(.error_set).?.data;
+                const names = err_set_obj.names.keys();
+                switch (names.len) {
+                    0 => return .zero,
+                    1 => return .one,
+                    else => return .many,
+                }
+            },
+            .error_set_merged => {
+                const name_map = ty.castTag(.error_set_merged).?.data;
+                const names = name_map.keys();
+                switch (names.len) {
+                    0 => return .zero,
+                    1 => return .one,
+                    else => return .many,
+                }
+            },
+            else => unreachable,
+        }
+    }
+
     /// Returns true if it is an error set that includes anyerror, false otherwise.
     /// Note that the result may be a false negative if the type did not get error set
     /// resolution prior to this call.
@@ -4664,10 +4762,7 @@ pub const Type = extern union {
             .enum_literal,
             .anyerror_void_error_union,
             .error_union,
-            .error_set,
-            .error_set_single,
             .error_set_inferred,
-            .error_set_merged,
             .@"opaque",
             .var_args_param,
             .manyptr_u8,
@@ -4695,6 +4790,18 @@ pub const Type = extern union {
             .pointer,
             .bound_fn,
             => return null,
+
+            .error_set_single => return Value.initTag(.the_only_possible_value),
+            .error_set => {
+                const err_set_obj = ty.castTag(.error_set).?.data;
+                if (err_set_obj.names.count() > 1) return null;
+                return Value.initTag(.the_only_possible_value);
+            },
+            .error_set_merged => {
+                const name_map = ty.castTag(.error_set_merged).?.data;
+                if (name_map.count() > 1) return null;
+                return Value.initTag(.the_only_possible_value);
+            },
 
             .@"struct" => {
                 const s = ty.castTag(.@"struct").?.data;

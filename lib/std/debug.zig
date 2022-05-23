@@ -1798,7 +1798,7 @@ fn resetSegfaultHandler() void {
         .mask = os.empty_sigset,
         .flags = 0,
     };
-    // do nothing if an error happens to avoid a double-panic
+    // To avoid a double-panic, do nothing if an error happens here.
     updateSegfaultHandler(&act) catch {};
 }
 

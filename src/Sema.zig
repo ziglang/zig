@@ -5899,12 +5899,22 @@ fn zirErrorToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
         if (val.isUndef()) {
             return sema.addConstUndef(result_ty);
         }
-        const payload = try sema.arena.create(Value.Payload.U64);
-        payload.* = .{
-            .base = .{ .tag = .int_u64 },
-            .data = (try sema.mod.getErrorValue(val.castTag(.@"error").?.data.name)).value,
-        };
-        return sema.addConstant(result_ty, Value.initPayload(&payload.base));
+        switch (val.tag()) {
+            .@"error" => {
+                const payload = try sema.arena.create(Value.Payload.U64);
+                payload.* = .{
+                    .base = .{ .tag = .int_u64 },
+                    .data = (try sema.mod.getErrorValue(val.castTag(.@"error").?.data.name)).value,
+                };
+                return sema.addConstant(result_ty, Value.initPayload(&payload.base));
+            },
+
+            // This is not a valid combination with the type `anyerror`.
+            .the_only_possible_value => unreachable,
+
+            // Assume it's already encoded as an integer.
+            else => return sema.addConstant(result_ty, val),
+        }
     }
 
     try sema.requireRuntimeBlock(block, src);
@@ -6261,19 +6271,24 @@ fn zirErrUnionPayload(
         });
     }
 
+    const result_ty = operand_ty.errorUnionPayload();
     if (try sema.resolveDefinedValue(block, src, operand)) |val| {
         if (val.getError()) |name| {
             return sema.fail(block, src, "caught unexpected error '{s}'", .{name});
         }
         const data = val.castTag(.eu_payload).?.data;
-        const result_ty = operand_ty.errorUnionPayload();
         return sema.addConstant(result_ty, data);
     }
+
     try sema.requireRuntimeBlock(block, src);
-    if (safety_check and block.wantSafety()) {
+
+    // If the error set has no fields then no safety check is needed.
+    if (safety_check and block.wantSafety() and
+        operand_ty.errorUnionSet().errorSetCardinality() != .zero)
+    {
         try sema.panicUnwrapError(block, src, operand, .unwrap_errunion_err, .is_non_err);
     }
-    const result_ty = operand_ty.errorUnionPayload();
+
     return block.addTyOp(.unwrap_errunion_payload, result_ty, operand);
 }
 
@@ -6311,7 +6326,8 @@ fn analyzeErrUnionPayloadPtr(
         });
     }
 
-    const payload_ty = operand_ty.elemType().errorUnionPayload();
+    const err_union_ty = operand_ty.elemType();
+    const payload_ty = err_union_ty.errorUnionPayload();
     const operand_pointer_ty = try Type.ptr(sema.arena, sema.mod, .{
         .pointee_type = payload_ty,
         .mutable = !operand_ty.isConstPtr(),
@@ -6351,9 +6367,14 @@ fn analyzeErrUnionPayloadPtr(
     }
 
     try sema.requireRuntimeBlock(block, src);
-    if (safety_check and block.wantSafety()) {
+
+    // If the error set has no fields then no safety check is needed.
+    if (safety_check and block.wantSafety() and
+        err_union_ty.errorUnionSet().errorSetCardinality() != .zero)
+    {
         try sema.panicUnwrapError(block, src, operand, .unwrap_errunion_err_ptr, .is_non_err_ptr);
     }
+
     const air_tag: Air.Inst.Tag = if (initializing)
         .errunion_payload_ptr_set
     else
@@ -23301,10 +23322,7 @@ pub fn typeHasOnePossibleValue(
         .enum_literal,
         .anyerror_void_error_union,
         .error_union,
-        .error_set,
-        .error_set_single,
         .error_set_inferred,
-        .error_set_merged,
         .@"opaque",
         .var_args_param,
         .manyptr_u8,
@@ -23332,6 +23350,23 @@ pub fn typeHasOnePossibleValue(
         .pointer,
         .bound_fn,
         => return null,
+
+        .error_set_single => {
+            const name = ty.castTag(.error_set_single).?.data;
+            return try Value.Tag.@"error".create(sema.arena, .{ .name = name });
+        },
+        .error_set => {
+            const err_set_obj = ty.castTag(.error_set).?.data;
+            const names = err_set_obj.names.keys();
+            if (names.len > 1) return null;
+            return try Value.Tag.@"error".create(sema.arena, .{ .name = names[0] });
+        },
+        .error_set_merged => {
+            const name_map = ty.castTag(.error_set_merged).?.data;
+            const names = name_map.keys();
+            if (names.len > 1) return null;
+            return try Value.Tag.@"error".create(sema.arena, .{ .name = names[0] });
+        },
 
         .@"struct" => {
             const resolved_ty = try sema.resolveTypeFields(block, src, ty);
