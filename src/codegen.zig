@@ -714,7 +714,7 @@ pub fn generateSymbol(
             const is_payload = typed_value.val.errorUnionIsPayload();
 
             if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
-                const err_val = if (!is_payload) typed_value.val else Value.initTag(.zero);
+                const err_val = if (is_payload) Value.initTag(.zero) else typed_value.val;
                 return generateSymbol(bin_file, src_loc, .{
                     .ty = error_ty,
                     .val = err_val,
@@ -763,7 +763,7 @@ pub fn generateSymbol(
             }
 
             // Payload size is larger than error set, so emit our error set last
-            if (error_align < payload_align) {
+            if (error_align <= payload_align) {
                 const begin = code.items.len;
                 switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = error_ty,
@@ -794,7 +794,7 @@ pub fn generateSymbol(
                     try code.writer().writeInt(u32, kv.value, endian);
                 },
                 else => {
-                    try code.writer().writeByteNTimes(0, @intCast(usize, typed_value.ty.abiSize(target)));
+                    try code.writer().writeByteNTimes(0, @intCast(usize, Type.anyerror.abiSize(target)));
                 },
             }
             return Result{ .appended = {} };
