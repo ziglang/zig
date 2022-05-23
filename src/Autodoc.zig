@@ -383,10 +383,12 @@ const DocData = struct {
         Pointer: struct {
             size: std.builtin.TypeInfo.Pointer.Size,
             child: Expr,
+            sentinel: ?usize = null,
         },
         Array: struct {
             len: Expr,
             child: Expr,
+            sentinel: ?usize = null,
         },
         Struct: struct {
             name: []const u8,
@@ -477,6 +479,11 @@ const DocData = struct {
                         \\"size": {},
                         \\
                     , .{@enumToInt(v.size)});
+                    if (options.whitespace) |ws| try ws.outputIndent(w);
+                    try w.print(
+                        \\"sentinel": {},
+                        \\
+                    , .{v.sentinel});
                     if (options.whitespace) |ws| try ws.outputIndent(w);
                     try w.print(
                         \\"child":
@@ -754,11 +761,13 @@ fn walkInstruction(
                         .child = .{ .type = @enumToInt(Ref.u8_type) },
                     },
                 });
+                // const sentinel: ?usize = if (ptr.flags.has_sentinel) 0 else null;
                 const ptrTypeId = self.types.items.len;
                 try self.types.append(self.arena, .{
                     .Pointer = .{
                         .size = .One,
                         .child = .{ .type = arrTypeId },
+                        .sentinel = 0,
                         // TODO: add sentinel!
                     },
                 });
@@ -806,6 +815,24 @@ fn walkInstruction(
             // TODO: return the actual error union instread of cheating
             return self.walkRef(file, parent_scope, extra.data.rhs, need_type);
         },
+        .elem_type => {
+            const un_node = data[inst_index].un_node;
+            std.debug.print("un_node: {}\n", .{un_node});
+
+            var operand: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                un_node.operand,
+                false,
+            );
+
+            std.debug.print("operand: {}\n", .{operand});
+
+            return DocData.WalkResult{
+                .typeRef = .{ .type = operand.typeRef.?.type },
+                .expr = .{ .type = operand.expr.type },
+            };
+        },
         .ptr_type_simple => {
             const ptr = data[inst_index].ptr_type_simple;
             const type_slot_index = self.types.items.len;
@@ -826,6 +853,14 @@ fn walkInstruction(
             const ptr = data[inst_index].ptr_type;
             const extra = file.zir.extraData(Zir.Inst.PtrType, ptr.payload_index);
 
+            std.debug.print("ptr = {}\n", .{ptr});
+            std.debug.print("extra = {any}\n", .{extra});
+
+            const sentinel: ?usize = if (ptr.flags.has_sentinel) 0 else null;
+
+            std.debug.print("sentinel = {} {d}\n", .{ ptr.flags.has_sentinel, sentinel });
+            std.debug.print("type = {d}\n", .{@enumToInt(Ref.type_type)});
+
             const type_slot_index = self.types.items.len;
             const elem_type_ref = try self.walkRef(
                 file,
@@ -837,9 +872,12 @@ fn walkInstruction(
                 .Pointer = .{
                     .size = ptr.size,
                     .child = elem_type_ref.expr,
+                    .sentinel = sentinel,
                 },
             });
+            std.debug.print("type = {d}\n", .{type_slot_index});
             return DocData.WalkResult{
+                // .typeRef = .{ .type = type_slot_index },
                 .typeRef = .{ .type = @enumToInt(Ref.type_type) },
                 .expr = .{ .type = type_slot_index },
             };
@@ -849,11 +887,36 @@ fn walkInstruction(
             const len = try self.walkRef(file, parent_scope, bin.lhs, false);
             const child = try self.walkRef(file, parent_scope, bin.rhs, false);
 
+            std.debug.print("AEHO\n", .{});
+            // std.debug.print("bin = {}\n", .{bin});
+            // std.debug.print("len = {}\n", .{len});
+            // std.debug.print("child = {}\n", .{child});
+
             const type_slot_index = self.types.items.len;
             try self.types.append(self.arena, .{
                 .Array = .{
                     .len = len.expr,
                     .child = child.expr,
+                },
+            });
+            return DocData.WalkResult{
+                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
+                .expr = .{ .type = type_slot_index },
+            };
+        },
+        .array_type_sentinel => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.ArrayTypeSentinel, pl_node.payload_index);
+            const len = try self.walkRef(file, parent_scope, extra.data.len, false);
+            const sentinel = try self.walkRef(file, parent_scope, extra.data.sentinel, false);
+            const elem_type = try self.walkRef(file, parent_scope, extra.data.elem_type, false);
+
+            const type_slot_index = self.types.items.len;
+            try self.types.append(self.arena, .{
+                .Array = .{
+                    .len = len.expr,
+                    .child = elem_type.expr,
+                    .sentinel = sentinel.expr.int.value,
                 },
             });
             return DocData.WalkResult{
@@ -875,6 +938,7 @@ fn walkInstruction(
                 // we only ask to figure out type info for the first element
                 // as it will be used later on to find out the array type!
                 const wr = try self.walkRef(file, parent_scope, op, idx == 0);
+                std.debug.print("wr: {any}\n", .{wr});
 
                 if (idx == 0) {
                     array_type = wr.typeRef;
@@ -885,6 +949,102 @@ fn walkInstruction(
                 // once, since we need it later to define the array type.
                 array_data[idx] = wr.expr.as.exprArg;
             }
+
+            const type_slot_index = self.types.items.len;
+            try self.types.append(self.arena, .{
+                .Array = .{ .len = .{
+                    .int = .{
+                        .value = operands.len,
+                        .negated = false,
+                    },
+                }, .child = array_type.? },
+            });
+
+            return DocData.WalkResult{
+                .typeRef = .{ .type = type_slot_index },
+                .expr = .{ .array = array_data },
+            };
+        },
+        .array_init_sent => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.MultiOp, pl_node.payload_index);
+            const operands = file.zir.refSlice(extra.end, extra.data.operands_len - 1);
+            const array_data = try self.arena.alloc(usize, operands.len);
+
+            // TODO: make sure that you want the array to be fully normalized for real
+            // then update this code to conform to your choice.
+
+            var array_type: ?DocData.Expr = null;
+            for (operands) |op, idx| {
+                // we only ask to figure out type info for the first element
+                // as it will be used later on to find out the array type!
+                const wr = try self.walkRef(file, parent_scope, op, idx == 0);
+                std.debug.print("wr: {any}\n", .{wr});
+                if (idx == 0) {
+                    array_type = wr.typeRef;
+                }
+
+                // We know that Zir wraps every operand in an @as expression
+                // so we want to peel it away and only save the target type
+                // once, since we need it later to define the array type.
+                array_data[idx] = wr.expr.as.exprArg;
+            }
+
+            // std.debug.print("array: {any}\n", .{array_data});
+
+            const type_slot_index = self.types.items.len;
+            try self.types.append(self.arena, .{
+                .Array = .{ .len = .{
+                    .int = .{
+                        .value = operands.len,
+                        .negated = false,
+                    },
+                }, .child = array_type.?, .sentinel = 0 },
+            });
+
+            return DocData.WalkResult{
+                .typeRef = .{ .type = type_slot_index },
+                .expr = .{ .array = array_data },
+            };
+        },
+        .array_init_anon => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.MultiOp, pl_node.payload_index);
+            const operands = file.zir.refSlice(extra.end, extra.data.operands_len);
+            const array_data = try self.arena.alloc(usize, operands.len);
+
+            // TODO: make sure that you want the array to be fully normalized for real
+            // then update this code to conform to your choice.
+
+            // std.debug.print("extra: {}\n", .{extra});
+            // std.debug.print("operands: {any}\n", .{operands});
+
+            var array_type: ?DocData.Expr = null;
+            for (operands) |op, idx| {
+                // we only ask to figure out type info for the first element
+                // as it will be used later on to find out the array type!
+                const wr = try self.walkRef(file, parent_scope, op, idx == 0);
+                // std.debug.print("wr: {any}\n", .{wr});
+
+                if (idx == 0) {
+                    array_type = wr.typeRef;
+                }
+                // std.debug.print("type: {}\n", .{@intToEnum(Ref, wr.typeRef.?.type)});
+
+                // create an untion to hold more than one type
+                switch (@intToEnum(Ref, wr.typeRef.?.type)) {
+                    .comptime_int_type => {
+                        array_data[idx] = wr.expr.int.value;
+                    },
+                    .comptime_float_type => {
+                        unreachable;
+                        // array_data[idx] = wr.expr.float;
+                    },
+                    else => continue,
+                }
+            }
+
+            // std.debug.print("array: {any}\n", .{array_data});
 
             const type_slot_index = self.types.items.len;
             try self.types.append(self.arena, .{
@@ -904,6 +1064,20 @@ fn walkInstruction(
                 .expr = .{ .array = array_data },
             };
         },
+        // .validate_array_init_ty => {
+        //     const un_node = data[inst_index].un_node;
+        //     var operand: DocData.WalkResult = try self.walkRef(
+        //         file,
+        //         parent_scope,
+        //         un_node.operand,
+        //         need_type,
+        //     );
+        //
+        //     std.debug.print("validate _ array => {}\n", .{un_node});
+        //     std.debug.print("operand = {}\n", .{operand});
+        //
+        //     return operand;
+        // },
         .float => {
             const float = data[inst_index].float;
             return DocData.WalkResult{
