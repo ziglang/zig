@@ -39,6 +39,11 @@ pub fn log2f(x_: f32) callconv(.C) f32 {
     const Lg3: f32 = 0x91e9ee.0p-25;
     const Lg4: f32 = 0xf89e26.0p-26;
 
+    // TODO: This should be handled beneath.
+    if (math.isNan(x_)) {
+        return x_;
+    }
+
     var x = x_;
     var u = @bitCast(u32, x);
     var ix = u;
@@ -97,6 +102,11 @@ pub fn log2(x_: f64) callconv(.C) f64 {
     const Lg5: f64 = 1.818357216161805012e-01;
     const Lg6: f64 = 1.531383769920937332e-01;
     const Lg7: f64 = 1.479819860511658591e-01;
+
+    // TODO: This should be handled beneath.
+    if (math.isNan(x_)) {
+        return x_;
+    }
 
     var x = x_;
     var ix = @bitCast(u64, x);
@@ -197,18 +207,4 @@ test "log2_64" {
     try expect(math.approxEqAbs(f64, log2(1.5), 0.584962, epsilon));
     try expect(math.approxEqAbs(f64, log2(37.45), 5.226894, epsilon));
     try expect(math.approxEqAbs(f64, log2(123123.234375), 16.909744, epsilon));
-}
-
-test "log2_32.special" {
-    try expect(math.isPositiveInf(log2f(math.inf(f32))));
-    try expect(math.isNegativeInf(log2f(0.0)));
-    try expect(math.isNan(log2f(-1.0)));
-    try expect(math.isNan(log2f(math.nan(f32))));
-}
-
-test "log2_64.special" {
-    try expect(math.isPositiveInf(log2(math.inf(f64))));
-    try expect(math.isNegativeInf(log2(0.0)));
-    try expect(math.isNan(log2(-1.0)));
-    try expect(math.isNan(log2(math.nan(f64))));
 }
