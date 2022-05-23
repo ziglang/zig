@@ -843,7 +843,7 @@ fn walkInstruction(
             });
 
             return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
+                .typeRef = .{ .type = elem_type_ref.expr.type },
                 .expr = .{ .type = type_slot_index },
             };
         },
@@ -1040,6 +1040,94 @@ fn walkInstruction(
                 .expr = .{ .array = array_data },
             };
         },
+        .array_init_ref => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.MultiOp, pl_node.payload_index);
+            const operands = file.zir.refSlice(extra.end, extra.data.operands_len);
+            const array_data = try self.arena.alloc(usize, operands.len);
+
+            var array_type: ?DocData.Expr = null;
+            for (operands) |op, idx| {
+                const wr = try self.walkRef(file, parent_scope, op, idx == 0);
+                if (idx == 0) {
+                    array_type = wr.typeRef;
+                }
+                array_data[idx] = wr.expr.as.exprArg;
+            }
+
+            const type_slot_index = self.types.items.len;
+            try self.types.append(self.arena, .{ .Pointer = .{
+                .size = .One,
+                .child = array_type.?,
+            } });
+
+            return DocData.WalkResult{
+                .typeRef = .{ .type = type_slot_index },
+                .expr = .{ .array = array_data },
+            };
+        },
+        .array_init_sent_ref => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.MultiOp, pl_node.payload_index);
+            // the sentinel terminator are calculated at compile time
+            // (extra.data.operands_len - 1) is to not account for that
+            const operands = file.zir.refSlice(extra.end, extra.data.operands_len - 1);
+            const array_data = try self.arena.alloc(usize, operands.len);
+
+            var array_type: ?DocData.Expr = null;
+            for (operands) |op, idx| {
+                const wr = try self.walkRef(file, parent_scope, op, idx == 0);
+                if (idx == 0) {
+                    array_type = wr.typeRef;
+                }
+                array_data[idx] = wr.expr.as.exprArg;
+            }
+
+            const type_slot_index = self.types.items.len;
+            try self.types.append(self.arena, .{
+                .Array = .{ .len = .{
+                    .int = .{
+                        .value = operands.len,
+                        .negated = false,
+                    },
+                }, .child = array_type.?, .sentinel = 0 },
+            });
+
+            return DocData.WalkResult{
+                .typeRef = .{ .type = type_slot_index },
+                .expr = .{ .array = array_data },
+            };
+        },
+        .array_init_anon_ref => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.MultiOp, pl_node.payload_index);
+            const operands = file.zir.refSlice(extra.end, extra.data.operands_len);
+            const array_data = try self.arena.alloc(usize, operands.len);
+
+            var array_type: ?DocData.Expr = null;
+            for (operands) |op, idx| {
+                const wr = try self.walkRef(file, parent_scope, op, idx == 0);
+                if (idx == 0) {
+                    array_type = wr.typeRef;
+                }
+                array_data[idx] = wr.expr.int.value;
+            }
+
+            const type_slot_index = self.types.items.len;
+            try self.types.append(self.arena, .{
+                .Array = .{ .len = .{
+                    .int = .{
+                        .value = operands.len,
+                        .negated = false,
+                    },
+                }, .child = array_type.? },
+            });
+
+            return DocData.WalkResult{
+                .typeRef = .{ .type = type_slot_index },
+                .expr = .{ .array = array_data },
+            };
+        },
         .float => {
             const float = data[inst_index].float;
             return DocData.WalkResult{
@@ -1116,6 +1204,7 @@ fn walkInstruction(
                 extra.data.operand,
                 false,
             );
+
             const operand_idx = self.exprs.items.len;
             try self.exprs.append(self.arena, operand.expr);
 
