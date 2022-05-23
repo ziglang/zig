@@ -243,6 +243,8 @@ pub const atan = @import("math/atan.zig").atan;
 pub const atan2 = @import("math/atan2.zig").atan2;
 pub const hypot = @import("math/hypot.zig").hypot;
 pub const expm1 = @import("math/expm1.zig").expm1;
+// TODO: Currently broken, add this in when fixed.
+// pub const expo2 = @import("math/expo2.zig").expo2;
 pub const ilogb = @import("math/ilogb.zig").ilogb;
 pub const ln = @import("math/ln.zig").ln;
 pub const log = @import("math/log.zig").log;
@@ -327,92 +329,8 @@ pub const Complex = complex.Complex;
 pub const big = @import("math/big.zig");
 
 test {
-    _ = floatExponentBits;
-    _ = floatMantissaBits;
-    _ = floatFractionalBits;
-    _ = floatExponentMin;
-    _ = floatExponentMax;
-    _ = floatTrueMin;
-    _ = floatMin;
-    _ = floatMax;
-    _ = floatEps;
-    _ = inf;
-
-    _ = nan_u16;
-    _ = nan_f16;
-
-    _ = qnan_u16;
-    _ = qnan_f16;
-
-    _ = nan_u32;
-    _ = nan_f32;
-
-    _ = qnan_u32;
-    _ = qnan_f32;
-
-    _ = nan_u64;
-    _ = nan_f64;
-
-    _ = qnan_u64;
-    _ = qnan_f64;
-
-    _ = nan_f80;
-    _ = qnan_f80;
-
-    _ = nan_u128;
-    _ = nan_f128;
-
-    _ = qnan_u128;
-    _ = qnan_f128;
-
-    _ = nan;
-    _ = snan;
-
-    _ = isNan;
-    _ = isSignalNan;
-    _ = frexp;
-    _ = Frexp;
-    _ = modf;
-    _ = modf32_result;
-    _ = modf64_result;
-    _ = copysign;
-    _ = isFinite;
-    _ = isInf;
-    _ = isPositiveInf;
-    _ = isNegativeInf;
-    _ = isNormal;
-    _ = signbit;
-    _ = scalbn;
-    _ = ldexp;
-    _ = pow;
-    _ = powi;
-    _ = sqrt;
-    _ = cbrt;
-    _ = acos;
-    _ = asin;
-    _ = atan;
-    _ = atan2;
-    _ = hypot;
-    _ = expm1;
-    _ = ilogb;
-    _ = ln;
-    _ = log;
-    _ = log2;
-    _ = log10;
-    _ = log10_int;
-    _ = log1p;
-    _ = asinh;
-    _ = acosh;
-    _ = atanh;
-    _ = sinh;
-    _ = cosh;
-    _ = tanh;
-    _ = gcd;
-
-    _ = complex;
-    _ = Complex;
-
-    _ = big;
+    std.testing.refAllDecls(@This());
+    _ = @import("math/test.zig");
 }
 
 /// Given two types, returns the smallest one which is capable of holding the
