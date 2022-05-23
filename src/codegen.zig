@@ -442,7 +442,10 @@ pub fn generateSymbol(
         .Int => {
             const info = typed_value.ty.intInfo(target);
             if (info.bits <= 8) {
-                const x = @intCast(u8, typed_value.val.toUnsignedInt(target));
+                const x: u8 = switch (info.signedness) {
+                    .unsigned => @intCast(u8, typed_value.val.toUnsignedInt(target)),
+                    .signed => @bitCast(u8, @intCast(i8, typed_value.val.toSignedInt())),
+                };
                 try code.append(x);
                 return Result{ .appended = {} };
             }
