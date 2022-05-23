@@ -498,9 +498,11 @@ pub const DeclState = struct {
             .ErrorUnion => {
                 const error_ty = ty.errorUnionSet();
                 const payload_ty = ty.errorUnionPayload();
+                const payload_align = payload_ty.abiAlignment(target);
+                const error_align = Type.anyerror.abiAlignment(target);
                 const abi_size = ty.abiSize(target);
-                const abi_align = ty.abiAlignment(target);
-                const payload_off = mem.alignForwardGeneric(u64, error_ty.abiSize(target), abi_align);
+                const payload_off = if (error_align >= payload_align) Type.anyerror.abiSize(target) else 0;
+                const error_off = if (error_align >= payload_align) 0 else payload_ty.abiSize(target);
 
                 // DW.AT.structure_type
                 try dbg_info_buffer.append(@enumToInt(AbbrevKind.struct_type));
@@ -534,7 +536,7 @@ pub const DeclState = struct {
                 try dbg_info_buffer.resize(index + 4);
                 try self.addTypeReloc(atom, error_ty, @intCast(u32, index), null);
                 // DW.AT.data_member_location, DW.FORM.sdata
-                try dbg_info_buffer.append(0);
+                try leb128.writeULEB128(dbg_info_buffer.writer(), error_off);
 
                 // DW.AT.structure_type delimit children
                 try dbg_info_buffer.append(0);
@@ -2293,7 +2295,7 @@ fn addDbgInfoErrorSet(
     // DW.AT.enumeration_type
     try dbg_info_buffer.append(@enumToInt(AbbrevKind.enum_type));
     // DW.AT.byte_size, DW.FORM.sdata
-    const abi_size = ty.abiSize(target);
+    const abi_size = Type.anyerror.abiSize(target);
     try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
     // DW.AT.name, DW.FORM.string
     const name = try ty.nameAllocArena(arena, module);
