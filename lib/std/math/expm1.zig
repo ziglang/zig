@@ -27,9 +27,6 @@ pub fn expm1(x: anytype) @TypeOf(x) {
 }
 
 fn expm1_32(x_: f32) f32 {
-    if (math.isNan(x_))
-        return math.nan(f32);
-
     const o_threshold: f32 = 8.8721679688e+01;
     const ln2_hi: f32 = 6.9313812256e-01;
     const ln2_lo: f32 = 9.0580006145e-06;
@@ -40,7 +37,7 @@ fn expm1_32(x_: f32) f32 {
     var x = x_;
     const ux = @bitCast(u32, x);
     const hx = ux & 0x7FFFFFFF;
-    const sign = hx >> 31;
+    const sign = ux >> 31;
 
     // TODO: Shouldn't need this check explicitly.
     if (math.isNegativeInf(x)) {
@@ -146,7 +143,7 @@ fn expm1_32(x_: f32) f32 {
         return y - 1.0;
     }
 
-    const uf = @bitCast(f32, @intCast(u32, 0x7F -% k) << 23);
+    const uf = @bitCast(f32, @intCast(u32, (0x7F -% k) << 23));
     if (k < 23) {
         return (x - e + (1 - uf)) * twopk;
     } else {
@@ -155,9 +152,6 @@ fn expm1_32(x_: f32) f32 {
 }
 
 fn expm1_64(x_: f64) f64 {
-    if (math.isNan(x_))
-        return math.nan(f64);
-
     const o_threshold: f64 = 7.09782712893383973096e+02;
     const ln2_hi: f64 = 6.93147180369123816490e-01;
     const ln2_lo: f64 = 1.90821492927058770002e-10;
@@ -175,6 +169,11 @@ fn expm1_64(x_: f64) f64 {
 
     if (math.isNegativeInf(x)) {
         return -1.0;
+    }
+
+    // TODO: This should be handled beneath.
+    if (math.isNan(x_)) {
+        return x_;
     }
 
     // |x| >= 56 * ln2
@@ -285,7 +284,7 @@ fn expm1_64(x_: f64) f64 {
     }
 }
 
-test "math.exp1m" {
+test "math.expm1" {
     try expect(expm1(@as(f32, 0.0)) == expm1_32(0.0));
     try expect(expm1(@as(f64, 0.0)) == expm1_64(0.0));
 }
@@ -308,16 +307,4 @@ test "math.expm1_64" {
     try expect(math.approxEqAbs(f64, expm1_64(0.2), 0.221403, epsilon));
     try expect(math.approxEqAbs(f64, expm1_64(0.8923), 1.440737, epsilon));
     try expect(math.approxEqAbs(f64, expm1_64(1.5), 3.481689, epsilon));
-}
-
-test "math.expm1_32.special" {
-    try expect(math.isPositiveInf(expm1_32(math.inf(f32))));
-    try expect(expm1_32(-math.inf(f32)) == -1.0);
-    try expect(math.isNan(expm1_32(math.nan(f32))));
-}
-
-test "math.expm1_64.special" {
-    try expect(math.isPositiveInf(expm1_64(math.inf(f64))));
-    try expect(expm1_64(-math.inf(f64)) == -1.0);
-    try expect(math.isNan(expm1_64(math.nan(f64))));
 }
