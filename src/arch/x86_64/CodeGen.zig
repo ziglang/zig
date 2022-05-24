@@ -2,6 +2,7 @@ const std = @import("std");
 const build_options = @import("build_options");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
+const codegen = @import("../../codegen.zig");
 const leb128 = std.leb;
 const link = @import("../../link.zig");
 const log = std.log.scoped(.codegen);
@@ -12,11 +13,11 @@ const trace = @import("../../tracy.zig").trace;
 const Air = @import("../../Air.zig");
 const Allocator = mem.Allocator;
 const Compilation = @import("../../Compilation.zig");
-const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
+const DebugInfoOutput = codegen.DebugInfoOutput;
 const DW = std.dwarf;
 const ErrorMsg = Module.ErrorMsg;
-const FnResult = @import("../../codegen.zig").FnResult;
-const GenerateSymbolError = @import("../../codegen.zig").GenerateSymbolError;
+const FnResult = codegen.FnResult;
+const GenerateSymbolError = codegen.GenerateSymbolError;
 const Emit = @import("Emit.zig");
 const Liveness = @import("../../Liveness.zig");
 const Mir = @import("Mir.zig");
@@ -28,6 +29,8 @@ const Value = @import("../../value.zig").Value;
 
 const bits = @import("bits.zig");
 const abi = @import("abi.zig");
+const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
+const errUnionErrOffset = codegen.errUnionErrOffset;
 
 const callee_preserved_regs = abi.callee_preserved_regs;
 const caller_preserved_regs = abi.caller_preserved_regs;
@@ -7182,20 +7185,4 @@ fn intrinsicsAllowed(target: Target, ty: Type) bool {
 
 fn hasAvxSupport(target: Target) bool {
     return Target.x86.featureSetHasAny(target.cpu.features, .{ .avx, .avx2 });
-}
-
-fn errUnionPayloadOffset(ty: Type, target: std.Target) u64 {
-    const payload_ty = ty.errorUnionPayload();
-    return if (Type.anyerror.abiAlignment(target) >= payload_ty.abiAlignment(target))
-        Type.anyerror.abiSize(target)
-    else
-        0;
-}
-
-fn errUnionErrOffset(ty: Type, target: std.Target) u64 {
-    const payload_ty = ty.errorUnionPayload();
-    return if (Type.anyerror.abiAlignment(target) >= payload_ty.abiAlignment(target))
-        0
-    else
-        payload_ty.abiSize(target);
 }

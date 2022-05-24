@@ -890,3 +890,19 @@ fn lowerDeclRef(
 
     return Result{ .appended = {} };
 }
+
+pub fn errUnionPayloadOffset(ty: Type, target: std.Target) u64 {
+    const payload_ty = ty.errorUnionPayload();
+    return if (Type.anyerror.abiAlignment(target) >= payload_ty.abiAlignment(target))
+        Type.anyerror.abiSize(target)
+    else
+        0;
+}
+
+pub fn errUnionErrOffset(ty: Type, target: std.Target) u64 {
+    const payload_ty = ty.errorUnionPayload();
+    return if (Type.anyerror.abiAlignment(target) >= payload_ty.abiAlignment(target))
+        0
+    else
+        payload_ty.abiSize(target);
+}
