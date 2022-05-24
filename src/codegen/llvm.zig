@@ -2936,8 +2936,38 @@ pub const DeclGen = struct {
                     return dg.context.constString(
                         bytes.ptr,
                         @intCast(c_uint, tv.ty.arrayLenIncludingSentinel()),
-                        .True, // don't null terminate. bytes has the sentinel, if any.
+                        .True, // Don't null terminate. Bytes has the sentinel, if any.
                     );
+                },
+                .str_lit => {
+                    const str_lit = tv.val.castTag(.str_lit).?.data;
+                    const bytes = dg.module.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
+                    if (tv.ty.sentinel()) |sent_val| {
+                        const byte = @intCast(u8, sent_val.toUnsignedInt(target));
+                        if (byte == 0 and bytes.len > 0) {
+                            return dg.context.constString(
+                                bytes.ptr,
+                                @intCast(c_uint, bytes.len),
+                                .False, // Yes, null terminate.
+                            );
+                        }
+                        var array = std.ArrayList(u8).init(dg.gpa);
+                        defer array.deinit();
+                        try array.ensureUnusedCapacity(bytes.len + 1);
+                        array.appendSliceAssumeCapacity(bytes);
+                        array.appendAssumeCapacity(byte);
+                        return dg.context.constString(
+                            array.items.ptr,
+                            @intCast(c_uint, array.items.len),
+                            .True, // Don't null terminate.
+                        );
+                    } else {
+                        return dg.context.constString(
+                            bytes.ptr,
+                            @intCast(c_uint, bytes.len),
+                            .True, // Don't null terminate. `bytes` has the sentinel, if any.
+                        );
+                    }
                 },
                 .aggregate => {
                     const elem_vals = tv.val.castTag(.aggregate).?.data;

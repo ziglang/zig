@@ -3842,20 +3842,44 @@ fn zirStr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
 fn addStrLit(sema: *Sema, block: *Block, zir_bytes: []const u8) CompileError!Air.Inst.Ref {
     // `zir_bytes` references memory inside the ZIR module, which can get deallocated
     // after semantic analysis is complete, for example in the case of the initialization
-    // expression of a variable declaration. We need the memory to be in the new
-    // anonymous Decl's arena.
-    var anon_decl = try block.startAnonDecl(LazySrcLoc.unneeded);
-    defer anon_decl.deinit();
+    // expression of a variable declaration.
+    const mod = sema.mod;
+    const gpa = sema.gpa;
+    const string_bytes = &mod.string_literal_bytes;
+    const StringLiteralAdapter = Module.StringLiteralAdapter;
+    const StringLiteralContext = Module.StringLiteralContext;
+    try string_bytes.ensureUnusedCapacity(gpa, zir_bytes.len);
+    const gop = try mod.string_literal_table.getOrPutContextAdapted(gpa, zir_bytes, StringLiteralAdapter{
+        .bytes = string_bytes,
+    }, StringLiteralContext{
+        .bytes = string_bytes,
+    });
+    if (!gop.found_existing) {
+        gop.key_ptr.* = .{
+            .index = @intCast(u32, string_bytes.items.len),
+            .len = @intCast(u32, zir_bytes.len),
+        };
+        string_bytes.appendSliceAssumeCapacity(zir_bytes);
+        gop.value_ptr.* = .none;
+    }
+    const decl_index = gop.value_ptr.unwrap() orelse di: {
+        var anon_decl = try block.startAnonDecl(LazySrcLoc.unneeded);
+        defer anon_decl.deinit();
 
-    const bytes = try anon_decl.arena().dupeZ(u8, zir_bytes);
+        const decl_index = try anon_decl.finish(
+            try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), gop.key_ptr.len),
+            try Value.Tag.str_lit.create(anon_decl.arena(), gop.key_ptr.*),
+            0, // default alignment
+        );
 
-    const new_decl = try anon_decl.finish(
-        try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len),
-        try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
-        0, // default alignment
-    );
+        // Needed so that `Decl.clearValues` will additionally set the corresponding
+        // string literal table value back to `Decl.OptionalIndex.none`.
+        mod.declPtr(decl_index).owns_tv = true;
 
-    return sema.analyzeDeclRef(new_decl);
+        gop.value_ptr.* = decl_index.toOptional();
+        break :di decl_index;
+    };
+    return sema.analyzeDeclRef(decl_index);
 }
 
 fn zirInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -19762,6 +19786,35 @@ fn beginComptimePtrMutation(
                                 .ty = elem_ty,
                             };
                         },
+                        .str_lit => {
+                            // An array is memory-optimized to store a slice of bytes, but we are about
+                            // to modify an individual field and the representation has to change.
+                            // If we wanted to avoid this, there would need to be special detection
+                            // elsewhere to identify when writing a value to an array element that is stored
+                            // using the `str_lit` tag, and handle it without making a call to this function.
+                            const arena = parent.beginArena(sema.mod);
+                            defer parent.finishArena(sema.mod);
+
+                            const str_lit = parent.val.castTag(.str_lit).?.data;
+                            const dest_len = parent.ty.arrayLenIncludingSentinel();
+                            const bytes = sema.mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
+                            const elems = try arena.alloc(Value, @intCast(usize, dest_len));
+                            for (bytes) |byte, i| {
+                                elems[i] = try Value.Tag.int_u64.create(arena, byte);
+                            }
+                            if (parent.ty.sentinel()) |sent_val| {
+                                assert(elems.len == bytes.len + 1);
+                                elems[bytes.len] = sent_val;
+                            }
+
+                            parent.val.* = try Value.Tag.aggregate.create(arena, elems);
+
+                            return ComptimePtrMutationKit{
+                                .decl_ref_mut = parent.decl_ref_mut,
+                                .val = &elems[elem_ptr.index],
+                                .ty = elem_ty,
+                            };
+                        },
                         .repeated => {
                             // An array is memory-optimized to store only a single element value, and
                             // that value is understood to be the same for the entire length of the array.
@@ -20097,10 +20150,23 @@ fn beginComptimePtrLoad(
                 }
             }
 
-            deref.pointee = if (elem_ptr.index < check_len) TypedValue{
+            if (elem_ptr.index >= check_len) {
+                deref.pointee = null;
+                break :blk deref;
+            }
+            if (elem_ptr.index == check_len - 1) {
+                if (array_tv.ty.sentinel()) |sent| {
+                    deref.pointee = TypedValue{
+                        .ty = elem_ty,
+                        .val = sent,
+                    };
+                    break :blk deref;
+                }
+            }
+            deref.pointee = TypedValue{
                 .ty = elem_ty,
                 .val = try array_tv.val.elemValue(sema.mod, sema.arena, elem_ptr.index),
-            } else null;
+            };
             break :blk deref;
         },
 
