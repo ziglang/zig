@@ -149,12 +149,19 @@ test "implicit cast to optional to error union to return result loc" {
 }
 
 test "fn returning empty error set can be passed as fn returning any error" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
     entry();
     comptime entry();
 }
 
 test "fn returning empty error set can be passed as fn returning any error - pointer" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     entryPtr();
     comptime entryPtr();
