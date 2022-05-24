@@ -121,7 +121,7 @@ test "debug info for optional error set" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
-    const SomeError = error{Hello};
+    const SomeError = error{ Hello, Hello2 };
     var a_local_variable: ?SomeError = null;
     _ = a_local_variable;
 }
@@ -452,6 +452,38 @@ test "optional error set is the same size as error set" {
     };
     try expect(S.returnsOptErrSet() == null);
     comptime try expect(S.returnsOptErrSet() == null);
+}
+
+test "optional error set with only one error is the same size as bool" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const E = error{only};
+    comptime try expect(@sizeOf(?E) == @sizeOf(bool));
+    comptime try expect(@alignOf(?E) == @alignOf(bool));
+    const S = struct {
+        fn gimmeNull() ?E {
+            return null;
+        }
+        fn gimmeErr() ?E {
+            return error.only;
+        }
+    };
+    try expect(S.gimmeNull() == null);
+    try expect(error.only == S.gimmeErr().?);
+    comptime try expect(S.gimmeNull() == null);
+    comptime try expect(error.only == S.gimmeErr().?);
+}
+
+test "optional empty error set" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
+    const T = ?error{};
+    var t: T = undefined;
+    if (t != null) {
+        @compileError("test failed");
+    }
 }
 
 test "nested catch" {

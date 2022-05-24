@@ -30,7 +30,7 @@ const Value = @import("../../value.zig").Value;
 const bits = @import("bits.zig");
 const abi = @import("abi.zig");
 const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
-const errUnionErrOffset = codegen.errUnionErrOffset;
+const errUnionErrorOffset = codegen.errUnionErrorOffset;
 
 const callee_preserved_regs = abi.callee_preserved_regs;
 const caller_preserved_regs = abi.caller_preserved_regs;
@@ -1799,7 +1799,7 @@ fn airUnwrapErrErr(self: *Self, inst: Air.Inst.Index) !void {
             break :result operand;
         }
 
-        const err_off = errUnionErrOffset(err_union_ty, self.target.*);
+        const err_off = errUnionErrorOffset(payload_ty, self.target.*);
         switch (operand) {
             .stack_offset => |off| {
                 const offset = off - @intCast(i32, err_off);
@@ -1844,7 +1844,7 @@ fn airUnwrapErrPayload(self: *Self, inst: Air.Inst.Index) !void {
             break :result MCValue.none;
         }
 
-        const payload_off = errUnionPayloadOffset(err_union_ty, self.target.*);
+        const payload_off = errUnionPayloadOffset(payload_ty, self.target.*);
         switch (operand) {
             .stack_offset => |off| {
                 const offset = off - @intCast(i32, payload_off);
@@ -1978,8 +1978,8 @@ fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) !void {
         const abi_size = @intCast(u32, error_union_ty.abiSize(self.target.*));
         const abi_align = error_union_ty.abiAlignment(self.target.*);
         const stack_offset = @intCast(i32, try self.allocMem(inst, abi_size, abi_align));
-        const payload_off = errUnionPayloadOffset(error_union_ty, self.target.*);
-        const err_off = errUnionErrOffset(error_union_ty, self.target.*);
+        const payload_off = errUnionPayloadOffset(payload_ty, self.target.*);
+        const err_off = errUnionErrorOffset(payload_ty, self.target.*);
         try self.genSetStack(payload_ty, stack_offset - @intCast(i32, payload_off), operand, .{});
         try self.genSetStack(Type.anyerror, stack_offset - @intCast(i32, err_off), .{ .immediate = 0 }, .{});
 
@@ -2007,8 +2007,8 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
         const abi_size = @intCast(u32, error_union_ty.abiSize(self.target.*));
         const abi_align = error_union_ty.abiAlignment(self.target.*);
         const stack_offset = @intCast(i32, try self.allocMem(inst, abi_size, abi_align));
-        const payload_off = errUnionPayloadOffset(error_union_ty, self.target.*);
-        const err_off = errUnionErrOffset(error_union_ty, self.target.*);
+        const payload_off = errUnionPayloadOffset(payload_ty, self.target.*);
+        const err_off = errUnionErrorOffset(payload_ty, self.target.*);
         try self.genSetStack(Type.anyerror, stack_offset - @intCast(i32, err_off), operand, .{});
         try self.genSetStack(payload_ty, stack_offset - @intCast(i32, payload_off), .undef, .{});
 
@@ -4670,7 +4670,7 @@ fn isErr(self: *Self, inst: Air.Inst.Index, ty: Type, operand: MCValue) !MCValue
     try self.spillCompareFlagsIfOccupied();
     self.compare_flags_inst = inst;
 
-    const err_off = errUnionErrOffset(ty, self.target.*);
+    const err_off = errUnionErrorOffset(ty.errorUnionPayload(), self.target.*);
     switch (operand) {
         .stack_offset => |off| {
             const offset = off - @intCast(i32, err_off);
