@@ -712,7 +712,7 @@ pub const DeclGen = struct {
             .Optional => {
                 var opt_buf: Type.Payload.ElemType = undefined;
                 const payload_type = ty.optionalChild(&opt_buf);
-                if (ty.isPtrLikeOptional()) {
+                if (ty.optionalReprIsPayload()) {
                     return dg.renderValue(writer, payload_type, val, location);
                 }
                 if (payload_type.abiSize(target) == 0) {
@@ -1360,7 +1360,7 @@ pub const DeclGen = struct {
                 var opt_buf: Type.Payload.ElemType = undefined;
                 const child_type = t.optionalChild(&opt_buf);
 
-                if (t.isPtrLikeOptional()) {
+                if (t.optionalReprIsPayload()) {
                     return dg.renderType(w, child_type);
                 }
 
@@ -3161,6 +3161,8 @@ fn airIsNull(
     if (ty.isPtrLikeOptional()) {
         // operand is a regular pointer, test `operand !=/== NULL`
         try writer.print("){s} {s} NULL;\n", .{ deref_suffix, operator });
+    } else if (payload_type.zigTypeTag() == .ErrorSet) {
+        try writer.print("){s} {s} 0;\n", .{ deref_suffix, operator });
     } else if (payload_type.abiSize(target) == 0) {
         try writer.print("){s} {s} true;\n", .{ deref_suffix, operator });
     } else {
@@ -3183,7 +3185,7 @@ fn airOptionalPayload(f: *Function, inst: Air.Inst.Index) !CValue {
     else
         operand_ty;
 
-    if (opt_ty.isPtrLikeOptional()) {
+    if (opt_ty.optionalReprIsPayload()) {
         // the operand is just a regular pointer, no need to do anything special.
         // *?*T -> **T and ?*T -> *T are **T -> **T and *T -> *T in C
         return operand;
@@ -3209,7 +3211,7 @@ fn airOptionalPayloadPtrSet(f: *Function, inst: Air.Inst.Index) !CValue {
 
     const opt_ty = operand_ty.elemType();
 
-    if (opt_ty.isPtrLikeOptional()) {
+    if (opt_ty.optionalReprIsPayload()) {
         // The payload and the optional are the same value.
         // Setting to non-null will be done when the payload is set.
         return operand;
@@ -3419,8 +3421,7 @@ fn airWrapOptional(f: *Function, inst: Air.Inst.Index) !CValue {
     const operand = try f.resolveInst(ty_op.operand);
 
     const inst_ty = f.air.typeOfIndex(inst);
-    if (inst_ty.isPtrLikeOptional()) {
-        // the operand is just a regular pointer, no need to do anything special.
+    if (inst_ty.optionalReprIsPayload()) {
         return operand;
     }
 

@@ -1390,7 +1390,7 @@ pub const Object = struct {
                     gop.value_ptr.* = AnnotatedDITypePtr.initFull(di_ty);
                     return di_ty;
                 }
-                if (ty.isPtrLikeOptional()) {
+                if (ty.optionalReprIsPayload()) {
                     const ptr_di_ty = try o.lowerDebugType(child_ty, resolve);
                     // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
                     try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(ptr_di_ty), .{ .mod = o.module });
@@ -1472,6 +1472,12 @@ pub const Object = struct {
             .ErrorUnion => {
                 const err_set_ty = ty.errorUnionSet();
                 const payload_ty = ty.errorUnionPayload();
+                if (err_set_ty.errorSetCardinality() == .zero) {
+                    const payload_di_ty = try o.lowerDebugType(payload_ty, .full);
+                    // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                    try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(payload_di_ty), .{ .mod = o.module });
+                    return payload_di_ty;
+                }
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
                     const err_set_di_ty = try o.lowerDebugType(err_set_ty, .full);
                     // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
@@ -2439,7 +2445,7 @@ pub const DeclGen = struct {
                     return dg.context.intType(1);
                 }
                 const payload_llvm_ty = try dg.llvmType(child_ty);
-                if (t.isPtrLikeOptional()) {
+                if (t.optionalReprIsPayload()) {
                     return payload_llvm_ty;
                 }
 
@@ -3058,7 +3064,7 @@ pub const DeclGen = struct {
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
                     return non_null_bit;
                 }
-                if (tv.ty.isPtrLikeOptional()) {
+                if (tv.ty.optionalReprIsPayload()) {
                     if (tv.val.castTag(.opt_payload)) |payload| {
                         return dg.genTypedValue(.{ .ty = payload_ty, .val = payload.data });
                     } else if (is_pl) {
@@ -3557,7 +3563,9 @@ pub const DeclGen = struct {
                 const payload_ty = opt_payload_ptr.container_ty.optionalChild(&buf);
                 bitcast_needed = !payload_ty.eql(ptr_child_ty, dg.module);
 
-                if (!payload_ty.hasRuntimeBitsIgnoreComptime() or payload_ty.isPtrLikeOptional()) {
+                if (!payload_ty.hasRuntimeBitsIgnoreComptime() or
+                    payload_ty.optionalReprIsPayload())
+                {
                     // In this case, we represent pointer to optional the same as pointer
                     // to the payload.
                     break :blk parent_llvm_ptr;
@@ -4461,7 +4469,9 @@ pub const FuncGen = struct {
             .Int, .Bool, .Pointer, .ErrorSet => scalar_ty,
             .Optional => blk: {
                 const payload_ty = operand_ty.optionalChild(&opt_buffer);
-                if (!payload_ty.hasRuntimeBitsIgnoreComptime() or operand_ty.isPtrLikeOptional()) {
+                if (!payload_ty.hasRuntimeBitsIgnoreComptime() or
+                    operand_ty.optionalReprIsPayload())
+                {
                     break :blk operand_ty;
                 }
                 // We need to emit instructions to check for equality/inequality
@@ -5414,7 +5424,7 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(un_op);
         const operand_ty = self.air.typeOf(un_op);
         const optional_ty = if (operand_is_ptr) operand_ty.childType() else operand_ty;
-        if (optional_ty.isPtrLikeOptional()) {
+        if (optional_ty.optionalReprIsPayload()) {
             const optional_llvm_ty = try self.dg.llvmType(optional_ty);
             const loaded = if (operand_is_ptr) self.builder.buildLoad(operand, "") else operand;
             return self.builder.buildICmp(pred, loaded, optional_llvm_ty.constNull(), "");
@@ -5499,7 +5509,7 @@ pub const FuncGen = struct {
             const res_ptr_ty = try self.dg.llvmType(result_ty);
             return self.builder.buildBitCast(operand, res_ptr_ty, "");
         }
-        if (optional_ty.isPtrLikeOptional()) {
+        if (optional_ty.optionalReprIsPayload()) {
             // The payload and the optional are the same value.
             return operand;
         }
@@ -5527,7 +5537,7 @@ pub const FuncGen = struct {
             const res_ptr_ty = try self.dg.llvmType(result_ty);
             return self.builder.buildBitCast(operand, res_ptr_ty, "");
         }
-        if (optional_ty.isPtrLikeOptional()) {
+        if (optional_ty.optionalReprIsPayload()) {
             // The payload and the optional are the same value.
             // Setting to non-null will be done when the payload is set.
             return operand;
@@ -5561,7 +5571,7 @@ pub const FuncGen = struct {
         const payload_ty = self.air.typeOfIndex(inst);
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) return null;
 
-        if (optional_ty.isPtrLikeOptional()) {
+        if (optional_ty.optionalReprIsPayload()) {
             // Payload value is the same as the optional value.
             return operand;
         }
@@ -5702,7 +5712,9 @@ pub const FuncGen = struct {
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) return non_null_bit;
         const operand = try self.resolveInst(ty_op.operand);
         const optional_ty = self.air.typeOfIndex(inst);
-        if (optional_ty.isPtrLikeOptional()) return operand;
+        if (optional_ty.optionalReprIsPayload()) {
+            return operand;
+        }
         const llvm_optional_ty = try self.dg.llvmType(optional_ty);
         if (isByRef(optional_ty)) {
             const optional_ptr = self.buildAlloca(llvm_optional_ty);
@@ -7038,7 +7050,7 @@ pub const FuncGen = struct {
         }
         const success_bit = self.builder.buildExtractValue(result, 1, "");
 
-        if (optional_ty.isPtrLikeOptional()) {
+        if (optional_ty.optionalReprIsPayload()) {
             return self.builder.buildSelect(success_bit, payload.typeOf().constNull(), payload, "");
         }
 

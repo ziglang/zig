@@ -1386,7 +1386,7 @@ fn isByRef(ty: Type, target: std.Target) bool {
             return true;
         },
         .Optional => {
-            if (ty.isPtrLikeOptional()) return false;
+            if (ty.optionalReprIsPayload()) return false;
             var buf: Type.Payload.ElemType = undefined;
             return ty.optionalChild(&buf).hasRuntimeBitsIgnoreComptime();
         },
@@ -1832,6 +1832,9 @@ fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErro
             if (!pl_ty.hasRuntimeBitsIgnoreComptime()) {
                 return self.store(lhs, rhs, Type.u8, 0);
             }
+            if (pl_ty.zigTypeTag() == .ErrorSet) {
+                return self.store(lhs, rhs, Type.anyerror, 0);
+            }
 
             const len = @intCast(u32, ty.abiSize(self.target));
             return self.memcpy(lhs, rhs, .{ .imm32 = len });
@@ -2198,7 +2201,7 @@ fn lowerParentPtr(self: *Self, ptr_val: Value, ptr_child_ty: Type) InnerError!WV
             const parent_ptr = try self.lowerParentPtr(payload_ptr.container_ptr, payload_ptr.container_ty);
             var buf: Type.Payload.ElemType = undefined;
             const payload_ty = payload_ptr.container_ty.optionalChild(&buf);
-            if (!payload_ty.hasRuntimeBitsIgnoreComptime() or payload_ty.isPtrLikeOptional()) {
+            if (!payload_ty.hasRuntimeBitsIgnoreComptime() or payload_ty.optionalReprIsPayload()) {
                 return parent_ptr;
             }
 
@@ -2353,7 +2356,7 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
             const err_val = if (!is_pl) val else Value.initTag(.zero);
             return self.lowerConstant(err_val, error_type);
         },
-        .Optional => if (ty.isPtrLikeOptional()) {
+        .Optional => if (ty.optionalReprIsPayload()) {
             var buf: Type.Payload.ElemType = undefined;
             const pl_ty = ty.optionalChild(&buf);
             if (val.castTag(.opt_payload)) |payload| {
@@ -2392,7 +2395,7 @@ fn emitUndefined(self: *Self, ty: Type) InnerError!WValue {
         .Optional => {
             var buf: Type.Payload.ElemType = undefined;
             const pl_ty = ty.optionalChild(&buf);
-            if (ty.isPtrLikeOptional()) {
+            if (ty.optionalReprIsPayload()) {
                 return self.emitUndefined(pl_ty);
             }
             return WValue{ .imm32 = 0xaaaaaaaa };
@@ -2542,7 +2545,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: std.math.CompareOperator) Inner
 }
 
 fn cmp(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: std.math.CompareOperator) InnerError!WValue {
-    if (ty.zigTypeTag() == .Optional and !ty.isPtrLikeOptional()) {
+    if (ty.zigTypeTag() == .Optional and !ty.optionalReprIsPayload()) {
         var buf: Type.Payload.ElemType = undefined;
         const payload_ty = ty.optionalChild(&buf);
         if (payload_ty.hasRuntimeBitsIgnoreComptime()) {
@@ -3120,7 +3123,7 @@ fn airIsNull(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode, op_kind: en
 
 fn isNull(self: *Self, operand: WValue, optional_ty: Type, opcode: wasm.Opcode) InnerError!WValue {
     try self.emitWValue(operand);
-    if (!optional_ty.isPtrLikeOptional()) {
+    if (!optional_ty.optionalReprIsPayload()) {
         var buf: Type.Payload.ElemType = undefined;
         const payload_ty = optional_ty.optionalChild(&buf);
         // When payload is zero-bits, we can treat operand as a value, rather than
@@ -3146,7 +3149,7 @@ fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const opt_ty = self.air.typeOf(ty_op.operand);
     const payload_ty = self.air.typeOfIndex(inst);
     if (!payload_ty.hasRuntimeBitsIgnoreComptime()) return WValue{ .none = {} };
-    if (opt_ty.isPtrLikeOptional()) return operand;
+    if (opt_ty.optionalReprIsPayload()) return operand;
 
     const offset = opt_ty.abiSize(self.target) - payload_ty.abiSize(self.target);
 
@@ -3166,7 +3169,7 @@ fn airOptionalPayloadPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     var buf: Type.Payload.ElemType = undefined;
     const payload_ty = opt_ty.optionalChild(&buf);
-    if (!payload_ty.hasRuntimeBitsIgnoreComptime() or opt_ty.isPtrLikeOptional()) {
+    if (!payload_ty.hasRuntimeBitsIgnoreComptime() or opt_ty.optionalReprIsPayload()) {
         return operand;
     }
 
@@ -3184,7 +3187,7 @@ fn airOptionalPayloadPtrSet(self: *Self, inst: Air.Inst.Index) InnerError!WValue
         return self.fail("TODO: Implement OptionalPayloadPtrSet for optional with zero-sized type {}", .{payload_ty.fmtDebug()});
     }
 
-    if (opt_ty.isPtrLikeOptional()) {
+    if (opt_ty.optionalReprIsPayload()) {
         return operand;
     }
 
@@ -3215,7 +3218,7 @@ fn airWrapOptional(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     const operand = try self.resolveInst(ty_op.operand);
     const op_ty = self.air.typeOfIndex(inst);
-    if (op_ty.isPtrLikeOptional()) {
+    if (op_ty.optionalReprIsPayload()) {
         return operand;
     }
     const offset = std.math.cast(u32, op_ty.abiSize(self.target) - payload_ty.abiSize(self.target)) catch {

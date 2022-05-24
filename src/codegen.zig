@@ -654,7 +654,7 @@ pub fn generateSymbol(
                 return Result{ .appended = {} };
             }
 
-            if (typed_value.ty.isPtrLikeOptional()) {
+            if (typed_value.ty.optionalReprIsPayload()) {
                 if (typed_value.val.castTag(.opt_payload)) |payload| {
                     switch (try generateSymbol(bin_file, src_loc, .{
                         .ty = payload_type,

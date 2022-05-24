@@ -433,9 +433,8 @@ test "return function call to error set from error union function" {
 }
 
 test "optional error set is the same size as error set" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     comptime try expect(@sizeOf(?anyerror) == @sizeOf(anyerror));
+    comptime try expect(@alignOf(?anyerror) == @alignOf(anyerror));
     const S = struct {
         fn returnsOptErrSet() ?anyerror {
             return null;
