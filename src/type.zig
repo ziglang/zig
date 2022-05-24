@@ -2375,7 +2375,6 @@ pub const Type = extern union {
             // These types have more than one possible value, so the result is the same as
             // asking whether they are comptime-only types.
             .anyframe_T,
-            .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
             .single_const_pointer,
@@ -2394,6 +2393,22 @@ pub const Type = extern union {
                     return !(try sk.sema.typeRequiresComptime(sk.block, sk.src, ty));
                 } else {
                     return !comptimeOnly(ty);
+                }
+            },
+
+            .optional => {
+                var buf: Payload.ElemType = undefined;
+                const child_ty = ty.optionalChild(&buf);
+                if (child_ty.isNoReturn()) {
+                    // Then the optional is comptime-known to be null.
+                    return false;
+                }
+                if (ignore_comptime_only) {
+                    return true;
+                } else if (sema_kit) |sk| {
+                    return !(try sk.sema.typeRequiresComptime(sk.block, sk.src, child_ty));
+                } else {
+                    return !comptimeOnly(child_ty);
                 }
             },
 
@@ -2665,13 +2680,22 @@ pub const Type = extern union {
         };
     }
 
-    pub fn isNoReturn(self: Type) bool {
-        const definitely_correct_result =
-            self.tag_if_small_enough != .bound_fn and
-            self.zigTypeTag() == .NoReturn;
-        const fast_result = self.tag_if_small_enough == Tag.noreturn;
-        assert(fast_result == definitely_correct_result);
-        return fast_result;
+    /// TODO add enums with no fields here
+    pub fn isNoReturn(ty: Type) bool {
+        switch (ty.tag()) {
+            .noreturn => return true,
+            .error_set => {
+                const err_set_obj = ty.castTag(.error_set).?.data;
+                const names = err_set_obj.names.keys();
+                return names.len == 0;
+            },
+            .error_set_merged => {
+                const name_map = ty.castTag(.error_set_merged).?.data;
+                const names = name_map.keys();
+                return names.len == 0;
+            },
+            else => return false,
+        }
     }
 
     /// Returns 0 if the pointer is naturally aligned and the element type is 0-bit.
@@ -2918,7 +2942,13 @@ pub const Type = extern union {
 
                 switch (child_type.zigTypeTag()) {
                     .Pointer => return AbiAlignmentAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) },
-                    .ErrorSet => return abiAlignmentAdvanced(Type.anyerror, target, strat),
+                    .ErrorSet => switch (child_type.errorSetCardinality()) {
+                        // `?error{}` is comptime-known to be null.
+                        .zero => return AbiAlignmentAdvanced{ .scalar = 0 },
+                        .one => return AbiAlignmentAdvanced{ .scalar = 1 },
+                        .many => return abiAlignmentAdvanced(Type.anyerror, target, strat),
+                    },
+                    .NoReturn => return AbiAlignmentAdvanced{ .scalar = 0 },
                     else => {},
                 }
 
@@ -3365,6 +3395,11 @@ pub const Type = extern union {
             .optional => {
                 var buf: Payload.ElemType = undefined;
                 const child_type = ty.optionalChild(&buf);
+
+                if (child_type.isNoReturn()) {
+                    return AbiSizeAdvanced{ .scalar = 0 };
+                }
+
                 if (!child_type.hasRuntimeBits()) return AbiSizeAdvanced{ .scalar = 1 };
 
                 switch (child_type.zigTypeTag()) {
@@ -4804,7 +4839,6 @@ pub const Type = extern union {
             .const_slice,
             .mut_slice,
             .anyopaque,
-            .optional,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
             .enum_literal,
@@ -4838,6 +4872,16 @@ pub const Type = extern union {
             .pointer,
             .bound_fn,
             => return null,
+
+            .optional => {
+                var buf: Payload.ElemType = undefined;
+                const child_ty = ty.optionalChild(&buf);
+                if (child_ty.isNoReturn()) {
+                    return Value.@"null";
+                } else {
+                    return null;
+                }
+            },
 
             .error_set_single => return Value.initTag(.the_only_possible_value),
             .error_set => {

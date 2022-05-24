@@ -30,7 +30,7 @@ const DebugInfoOutput = codegen.DebugInfoOutput;
 const bits = @import("bits.zig");
 const abi = @import("abi.zig");
 const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
-const errUnionErrOffset = codegen.errUnionErrOffset;
+const errUnionErrorOffset = codegen.errUnionErrorOffset;
 const RegisterManager = abi.RegisterManager;
 const RegisterLock = RegisterManager.RegisterLock;
 const Register = bits.Register;
@@ -1775,7 +1775,7 @@ fn errUnionErr(self: *Self, error_union_mcv: MCValue, error_union_ty: Type) !MCV
         return error_union_mcv;
     }
 
-    const err_offset = @intCast(u32, errUnionErrOffset(error_union_ty, self.target.*));
+    const err_offset = @intCast(u32, errUnionErrorOffset(payload_ty, self.target.*));
     switch (error_union_mcv) {
         .register => return self.fail("TODO errUnionErr for registers", .{}),
         .stack_argument_offset => |off| {
@@ -1812,7 +1812,7 @@ fn errUnionPayload(self: *Self, error_union_mcv: MCValue, error_union_ty: Type) 
         return MCValue.none;
     }
 
-    const payload_offset = @intCast(u32, errUnionPayloadOffset(error_union_ty, self.target.*));
+    const payload_offset = @intCast(u32, errUnionPayloadOffset(payload_ty, self.target.*));
     switch (error_union_mcv) {
         .register => return self.fail("TODO errUnionPayload for registers", .{}),
         .stack_argument_offset => |off| {

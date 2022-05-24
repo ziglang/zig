@@ -23316,7 +23316,6 @@ pub fn typeHasOnePossibleValue(
         .const_slice,
         .mut_slice,
         .anyopaque,
-        .optional,
         .optional_single_mut_pointer,
         .optional_single_const_pointer,
         .enum_literal,
@@ -23350,6 +23349,16 @@ pub fn typeHasOnePossibleValue(
         .pointer,
         .bound_fn,
         => return null,
+
+        .optional => {
+            var buf: Type.Payload.ElemType = undefined;
+            const child_ty = ty.optionalChild(&buf);
+            if (child_ty.isNoReturn()) {
+                return Value.@"null";
+            } else {
+                return null;
+            }
+        },
 
         .error_set_single => {
             const name = ty.castTag(.error_set_single).?.data;

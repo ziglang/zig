@@ -30,7 +30,7 @@ const DebugInfoOutput = codegen.DebugInfoOutput;
 const bits = @import("bits.zig");
 const abi = @import("abi.zig");
 const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
-const errUnionErrOffset = codegen.errUnionErrOffset;
+const errUnionErrorOffset = codegen.errUnionErrorOffset;
 const RegisterManager = abi.RegisterManager;
 const RegisterLock = RegisterManager.RegisterLock;
 const Register = bits.Register;
@@ -3615,7 +3615,7 @@ fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
         return MCValue{ .immediate = 0 }; // always false
     }
 
-    const err_off = errUnionErrOffset(ty, self.target.*);
+    const err_off = errUnionErrorOffset(payload_type, self.target.*);
     switch (operand) {
         .stack_offset => |off| {
             const offset = off - @intCast(u32, err_off);

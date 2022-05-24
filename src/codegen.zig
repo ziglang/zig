@@ -891,18 +891,22 @@ fn lowerDeclRef(
     return Result{ .appended = {} };
 }
 
-pub fn errUnionPayloadOffset(ty: Type, target: std.Target) u64 {
-    const payload_ty = ty.errorUnionPayload();
-    return if (Type.anyerror.abiAlignment(target) >= payload_ty.abiAlignment(target))
-        Type.anyerror.abiSize(target)
-    else
-        0;
+pub fn errUnionPayloadOffset(payload_ty: Type, target: std.Target) u64 {
+    const payload_align = payload_ty.abiAlignment(target);
+    const error_align = Type.anyerror.abiAlignment(target);
+    if (payload_align >= error_align) {
+        return 0;
+    } else {
+        return mem.alignForwardGeneric(u64, Type.anyerror.abiSize(target), payload_align);
+    }
 }
 
-pub fn errUnionErrOffset(ty: Type, target: std.Target) u64 {
-    const payload_ty = ty.errorUnionPayload();
-    return if (Type.anyerror.abiAlignment(target) >= payload_ty.abiAlignment(target))
-        0
-    else
-        payload_ty.abiSize(target);
+pub fn errUnionErrorOffset(payload_ty: Type, target: std.Target) u64 {
+    const payload_align = payload_ty.abiAlignment(target);
+    const error_align = Type.anyerror.abiAlignment(target);
+    if (payload_align >= error_align) {
+        return mem.alignForwardGeneric(u64, payload_ty.abiSize(target), error_align);
+    } else {
+        return 0;
+    }
 }

@@ -711,21 +711,24 @@ pub const DeclGen = struct {
             .Bool => return writer.print("{}", .{val.toBool()}),
             .Optional => {
                 var opt_buf: Type.Payload.ElemType = undefined;
-                const payload_type = ty.optionalChild(&opt_buf);
-                if (ty.optionalReprIsPayload()) {
-                    return dg.renderValue(writer, payload_type, val, location);
-                }
-                if (payload_type.abiSize(target) == 0) {
+                const payload_ty = ty.optionalChild(&opt_buf);
+
+                if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
                     const is_null = val.castTag(.opt_payload) == null;
                     return writer.print("{}", .{is_null});
                 }
+
+                if (ty.optionalReprIsPayload()) {
+                    return dg.renderValue(writer, payload_ty, val, location);
+                }
+
                 try writer.writeByte('(');
                 try dg.renderTypecast(writer, ty);
                 try writer.writeAll("){");
                 if (val.castTag(.opt_payload)) |pl| {
                     const payload_val = pl.data;
                     try writer.writeAll(" .is_null = false, .payload = ");
-                    try dg.renderValue(writer, payload_type, payload_val, location);
+                    try dg.renderValue(writer, payload_ty, payload_val, location);
                     try writer.writeAll(" }");
                 } else {
                     try writer.writeAll(" .is_null = true }");
@@ -1360,12 +1363,12 @@ pub const DeclGen = struct {
                 var opt_buf: Type.Payload.ElemType = undefined;
                 const child_type = t.optionalChild(&opt_buf);
 
-                if (t.optionalReprIsPayload()) {
-                    return dg.renderType(w, child_type);
+                if (!child_type.hasRuntimeBitsIgnoreComptime()) {
+                    return w.writeAll("bool");
                 }
 
-                if (child_type.abiSize(target) == 0) {
-                    return w.writeAll("bool");
+                if (t.optionalReprIsPayload()) {
+                    return dg.renderType(w, child_type);
                 }
 
                 const name = dg.getTypedefName(t) orelse
@@ -1816,8 +1819,9 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .not             => try airNot  (f, inst),
 
             .optional_payload         => try airOptionalPayload(f, inst),
-            .optional_payload_ptr     => try airOptionalPayload(f, inst),
+            .optional_payload_ptr     => try airOptionalPayloadPtr(f, inst),
             .optional_payload_ptr_set => try airOptionalPayloadPtrSet(f, inst),
+            .wrap_optional            => try airWrapOptional(f, inst),
 
             .is_err          => try airIsErr(f, inst, false, "!="),
             .is_non_err      => try airIsErr(f, inst, false, "=="),
@@ -1846,7 +1850,6 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .cond_br          => try airCondBr(f, inst),
             .br               => try airBr(f, inst),
             .switch_br        => try airSwitchBr(f, inst),
-            .wrap_optional    => try airWrapOptional(f, inst),
             .struct_field_ptr => try airStructFieldPtr(f, inst),
             .array_to_slice   => try airArrayToSlice(f, inst),
             .cmpxchg_weak     => try airCmpxchg(f, inst, "weak"),
@@ -3145,7 +3148,6 @@ fn airIsNull(
     const un_op = f.air.instructions.items(.data)[inst].un_op;
     const writer = f.object.writer();
     const operand = try f.resolveInst(un_op);
-    const target = f.object.dg.module.getTarget();
 
     const local = try f.allocLocal(Type.initTag(.bool), .Const);
     try writer.writeAll(" = (");
@@ -3153,18 +3155,18 @@ fn airIsNull(
 
     const ty = f.air.typeOf(un_op);
     var opt_buf: Type.Payload.ElemType = undefined;
-    const payload_type = if (ty.zigTypeTag() == .Pointer)
+    const payload_ty = if (ty.zigTypeTag() == .Pointer)
         ty.childType().optionalChild(&opt_buf)
     else
         ty.optionalChild(&opt_buf);
 
-    if (ty.isPtrLikeOptional()) {
+    if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+        try writer.print("){s} {s} true;\n", .{ deref_suffix, operator });
+    } else if (ty.isPtrLikeOptional()) {
         // operand is a regular pointer, test `operand !=/== NULL`
         try writer.print("){s} {s} NULL;\n", .{ deref_suffix, operator });
-    } else if (payload_type.zigTypeTag() == .ErrorSet) {
+    } else if (payload_ty.zigTypeTag() == .ErrorSet) {
         try writer.print("){s} {s} 0;\n", .{ deref_suffix, operator });
-    } else if (payload_type.abiSize(target) == 0) {
-        try writer.print("){s} {s} true;\n", .{ deref_suffix, operator });
     } else {
         try writer.print("){s}.is_null {s} true;\n", .{ deref_suffix, operator });
     }
@@ -3172,18 +3174,46 @@ fn airIsNull(
 }
 
 fn airOptionalPayload(f: *Function, inst: Air.Inst.Index) !CValue {
-    if (f.liveness.isUnused(inst))
-        return CValue.none;
+    if (f.liveness.isUnused(inst)) return CValue.none;
 
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
     const writer = f.object.writer();
     const operand = try f.resolveInst(ty_op.operand);
-    const operand_ty = f.air.typeOf(ty_op.operand);
+    const opt_ty = f.air.typeOf(ty_op.operand);
 
-    const opt_ty = if (operand_ty.zigTypeTag() == .Pointer)
-        operand_ty.elemType()
-    else
-        operand_ty;
+    var buf: Type.Payload.ElemType = undefined;
+    const payload_ty = opt_ty.optionalChild(&buf);
+
+    if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+        return CValue.none;
+    }
+
+    if (opt_ty.optionalReprIsPayload()) {
+        return operand;
+    }
+
+    const inst_ty = f.air.typeOfIndex(inst);
+    const local = try f.allocLocal(inst_ty, .Const);
+    try writer.writeAll(" = (");
+    try f.writeCValue(writer, operand);
+    try writer.writeAll(").payload;\n");
+    return local;
+}
+
+fn airOptionalPayloadPtr(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
+    const ty_op = f.air.instructions.items(.data)[inst].ty_op;
+    const writer = f.object.writer();
+    const operand = try f.resolveInst(ty_op.operand);
+    const ptr_ty = f.air.typeOf(ty_op.operand);
+    const opt_ty = ptr_ty.childType();
+    var buf: Type.Payload.ElemType = undefined;
+    const payload_ty = opt_ty.optionalChild(&buf);
+
+    if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+        return operand;
+    }
 
     if (opt_ty.optionalReprIsPayload()) {
         // the operand is just a regular pointer, no need to do anything special.
@@ -3192,14 +3222,10 @@ fn airOptionalPayload(f: *Function, inst: Air.Inst.Index) !CValue {
     }
 
     const inst_ty = f.air.typeOfIndex(inst);
-    const maybe_deref = if (operand_ty.zigTypeTag() == .Pointer) "->" else ".";
-    const maybe_addrof = if (inst_ty.zigTypeTag() == .Pointer) "&" else "";
-
     const local = try f.allocLocal(inst_ty, .Const);
-    try writer.print(" = {s}(", .{maybe_addrof});
+    try writer.writeAll(" = &(");
     try f.writeCValue(writer, operand);
-
-    try writer.print("){s}payload;\n", .{maybe_deref});
+    try writer.writeAll(")->payload;\n");
     return local;
 }
 
