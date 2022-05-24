@@ -126,6 +126,8 @@ pub const Value = extern union {
         field_ptr,
         /// A slice of u8 whose memory is managed externally.
         bytes,
+        /// Similar to bytes however it stores an index relative to `Module.string_literal_bytes`.
+        str_lit,
         /// This value is repeated some number of times. The amount of times to repeat
         /// is stored externally.
         repeated,
@@ -285,6 +287,7 @@ pub const Value = extern union {
                 .enum_literal,
                 => Payload.Bytes,
 
+                .str_lit => Payload.StrLit,
                 .slice => Payload.Slice,
 
                 .enum_field_index => Payload.U32,
@@ -538,6 +541,7 @@ pub const Value = extern union {
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
+            .str_lit => return self.copyPayloadShallow(arena, Payload.StrLit),
             .repeated,
             .eu_payload,
             .opt_payload,
@@ -764,6 +768,12 @@ pub const Value = extern union {
             .enum_literal => return out_stream.print(".{}", .{std.zig.fmtId(val.castTag(.enum_literal).?.data)}),
             .enum_field_index => return out_stream.print("(enum field {d})", .{val.castTag(.enum_field_index).?.data}),
             .bytes => return out_stream.print("\"{}\"", .{std.zig.fmtEscapes(val.castTag(.bytes).?.data)}),
+            .str_lit => {
+                const str_lit = val.castTag(.str_lit).?.data;
+                return out_stream.print("(.str_lit index={d} len={d})", .{
+                    str_lit.index, str_lit.len,
+                });
+            },
             .repeated => {
                 try out_stream.writeAll("(repeated) ");
                 val = val.castTag(.repeated).?.data;
@@ -823,6 +833,11 @@ pub const Value = extern union {
                 const adjusted_len = bytes.len - @boolToInt(ty.sentinel() != null);
                 const adjusted_bytes = bytes[0..adjusted_len];
                 return allocator.dupe(u8, adjusted_bytes);
+            },
+            .str_lit => {
+                const str_lit = val.castTag(.str_lit).?.data;
+                const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
+                return allocator.dupe(u8, bytes);
             },
             .enum_literal => return allocator.dupe(u8, val.castTag(.enum_literal).?.data),
             .repeated => {
@@ -2537,6 +2552,20 @@ pub const Value = extern union {
                     return initPayload(&buffer.base);
                 }
             },
+            .str_lit => {
+                const str_lit = val.castTag(.str_lit).?.data;
+                const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
+                const byte = bytes[index];
+                if (arena) |a| {
+                    return Tag.int_u64.create(a, byte);
+                } else {
+                    buffer.* = .{
+                        .base = .{ .tag = .int_u64 },
+                        .data = byte,
+                    };
+                    return initPayload(&buffer.base);
+                }
+            },
 
             // No matter the index; all the elements are the same!
             .repeated => return val.castTag(.repeated).?.data,
@@ -2570,6 +2599,13 @@ pub const Value = extern union {
         return switch (val.tag()) {
             .empty_array_sentinel => if (start == 0 and end == 1) val else Value.initTag(.empty_array),
             .bytes => Tag.bytes.create(arena, val.castTag(.bytes).?.data[start..end]),
+            .str_lit => {
+                const str_lit = val.castTag(.str_lit).?.data;
+                return Tag.str_lit.create(arena, .{
+                    .index = @intCast(u32, str_lit.index + start),
+                    .len = @intCast(u32, end - start),
+                });
+            },
             .aggregate => Tag.aggregate.create(arena, val.castTag(.aggregate).?.data[start..end]),
             .slice => sliceArray(val.castTag(.slice).?.data.ptr, mod, arena, start, end),
 
@@ -4719,6 +4755,11 @@ pub const Value = extern union {
             base: Payload,
             /// Includes the sentinel, if any.
             data: []const u8,
+        };
+
+        pub const StrLit = struct {
+            base: Payload,
+            data: Module.StringLiteralContext.Key,
         };
 
         pub const Aggregate = struct {

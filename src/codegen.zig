@@ -203,11 +203,23 @@ pub fn generateSymbol(
         },
         .Array => switch (typed_value.val.tag()) {
             .bytes => {
-                const payload = typed_value.val.castTag(.bytes).?;
+                const bytes = typed_value.val.castTag(.bytes).?.data;
                 const len = @intCast(usize, typed_value.ty.arrayLenIncludingSentinel());
                 // The bytes payload already includes the sentinel, if any
                 try code.ensureUnusedCapacity(len);
-                code.appendSliceAssumeCapacity(payload.data[0..len]);
+                code.appendSliceAssumeCapacity(bytes[0..len]);
+                return Result{ .appended = {} };
+            },
+            .str_lit => {
+                const str_lit = typed_value.val.castTag(.str_lit).?.data;
+                const mod = bin_file.options.module.?;
+                const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
+                try code.ensureUnusedCapacity(bytes.len + 1);
+                code.appendSliceAssumeCapacity(bytes);
+                if (typed_value.ty.sentinel()) |sent_val| {
+                    const byte = @intCast(u8, sent_val.toUnsignedInt(target));
+                    code.appendAssumeCapacity(byte);
+                }
                 return Result{ .appended = {} };
             },
             .aggregate => {
