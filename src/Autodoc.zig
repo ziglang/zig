@@ -474,6 +474,7 @@ const DocData = struct {
                 .Int => |v| try printTypeBody(v, options, w),
                 .Float => |v| try printTypeBody(v, options, w),
                 .Type => |v| try printTypeBody(v, options, w),
+                .EnumLiteral => |v| try printTypeBody(v, options, w),
                 .Pointer => |v| {
                     if (options.whitespace) |ws| try ws.outputIndent(w);
                     try w.print(
@@ -807,7 +808,15 @@ fn walkInstruction(
         .enum_literal => {
             const str_tok = data[inst_index].str_tok;
             const literal = file.zir.nullTerminatedString(str_tok.start);
-            return DocData.WalkResult{ .expr = .{ .enumLiteral = literal } };
+            const type_index = self.types.items.len;
+            try self.types.append(self.arena, .{
+                .EnumLiteral = .{ .name = "todo enum literal" },
+            });
+
+            return DocData.WalkResult{
+                .typeRef = .{ .type = type_index },
+                .expr = .{ .enumLiteral = literal },
+            };
         },
         .int => {
             const int = data[inst_index].int;
@@ -1017,6 +1026,15 @@ fn walkInstruction(
                 const expr_index = self.exprs.items.len;
                 try self.exprs.append(self.arena, wr.expr);
                 array_data[idx] = expr_index;
+            }
+
+            if (array_type == null) {
+                panicWithContext(
+                    file,
+                    inst_index,
+                    "array_type was null!!",
+                    .{},
+                );
             }
 
             const type_slot_index = self.types.items.len;
