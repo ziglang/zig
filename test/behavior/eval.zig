@@ -643,9 +643,18 @@ fn assertEqualPtrs(ptr1: *const u8, ptr2: *const u8) !void {
     try expect(ptr1 == ptr2);
 }
 
+// This one is still up for debate in the language specification.
+// Application code should not rely on this behavior until it is solidified.
+// Currently, stage1 has special case code to make this pass for string literals
+// but it does not work if the values are constructed with comptime code, or if
+// arrays of non-u8 elements are used instead.
+// The official language specification might not make this guarantee. However, if
+// it does make this guarantee, it will make it consistently for all types, not
+// only string literals. This is why stage2 currently has a string table for
+// string literals, to match stage1 and pass this test, however the end-game once
+// the lang spec issue is settled would be to use a global InternPool for comptime
+// memoized objects, making this behavior consistent across all types.
 test "string literal used as comptime slice is memoized" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const a = "link";
     const b = "link";
     comptime try expect(TypeWithCompTimeSlice(a).Node == TypeWithCompTimeSlice(b).Node);

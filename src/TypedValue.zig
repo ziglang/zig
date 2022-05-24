@@ -295,6 +295,11 @@ pub fn print(
             return writer.print(".{s}", .{ty.enumFieldName(val.castTag(.enum_field_index).?.data)});
         },
         .bytes => return writer.print("\"{}\"", .{std.zig.fmtEscapes(val.castTag(.bytes).?.data)}),
+        .str_lit => {
+            const str_lit = val.castTag(.str_lit).?.data;
+            const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
+            return writer.print("\"{}\"", .{std.zig.fmtEscapes(bytes)});
+        },
         .repeated => {
             if (level == 0) {
                 return writer.writeAll(".{ ... }");
