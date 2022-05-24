@@ -1,12 +1,12 @@
 fn entry(a: *addrspace(.gs) i32) *addrspace(.fs) i32 {
     return a;
 }
-pub fn main() void {
+export fn entry2() void {
     _ = entry;
 }
 
 // error
-// output_mode=Exe
+// output_mode=Obj
 // backend=stage2,llvm
 // target=x86_64-linux,x86_64-macos
 //
