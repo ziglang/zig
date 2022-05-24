@@ -1007,22 +1007,16 @@ fn walkInstruction(
                 // we only ask to figure out type info for the first element
                 // as it will be used later on to find out the array type!
                 const wr = try self.walkRef(file, parent_scope, op, idx == 0);
-
                 if (idx == 0) {
                     array_type = wr.typeRef;
                 }
 
-                // create an untion to hold more than one type
-                switch (@intToEnum(Ref, wr.typeRef.?.type)) {
-                    .comptime_int_type => {
-                        array_data[idx] = wr.expr.int.value;
-                    },
-                    .comptime_float_type => {
-                        unreachable;
-                        // array_data[idx] = wr.expr.float;
-                    },
-                    else => continue,
-                }
+                // array_init_anon doesn't have the elements in @as nodes
+                // so it's necessary append them to expr array
+                // and remember their positions
+                const expr_index = self.exprs.items.len;
+                try self.exprs.append(self.arena, wr.expr);
+                array_data[idx] = expr_index;
             }
 
             const type_slot_index = self.types.items.len;
