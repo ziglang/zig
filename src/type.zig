@@ -2916,8 +2916,10 @@ pub const Type = extern union {
                 var buf: Payload.ElemType = undefined;
                 const child_type = ty.optionalChild(&buf);
 
-                if (child_type.zigTypeTag() == .Pointer and !child_type.isCPtr()) {
-                    return AbiAlignmentAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) };
+                switch (child_type.zigTypeTag()) {
+                    .Pointer => return AbiAlignmentAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) },
+                    .ErrorSet => return abiAlignmentAdvanced(Type.anyerror, target, strat),
+                    else => {},
                 }
 
                 switch (strat) {
@@ -3365,14 +3367,29 @@ pub const Type = extern union {
                 const child_type = ty.optionalChild(&buf);
                 if (!child_type.hasRuntimeBits()) return AbiSizeAdvanced{ .scalar = 1 };
 
-                if (child_type.zigTypeTag() == .Pointer and !child_type.isCPtr() and !child_type.isSlice())
-                    return AbiSizeAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) };
+                switch (child_type.zigTypeTag()) {
+                    .Pointer => {
+                        const ptr_info = child_type.ptrInfo().data;
+                        const has_null = switch (ptr_info.size) {
+                            .Slice, .C => true,
+                            else => ptr_info.@"allowzero",
+                        };
+                        if (!has_null) {
+                            const ptr_size_bytes = @divExact(target.cpu.arch.ptrBitWidth(), 8);
+                            return AbiSizeAdvanced{ .scalar = ptr_size_bytes };
+                        }
+                    },
+                    .ErrorSet => return abiSizeAdvanced(Type.anyerror, target, strat),
+                    else => {},
+                }
 
                 // Optional types are represented as a struct with the child type as the first
                 // field and a boolean as the second. Since the child type's abi alignment is
                 // guaranteed to be >= that of bool's (1 byte) the added size is exactly equal
                 // to the child type's ABI alignment.
-                return AbiSizeAdvanced{ .scalar = child_type.abiAlignment(target) + child_type.abiSize(target) };
+                return AbiSizeAdvanced{
+                    .scalar = child_type.abiAlignment(target) + child_type.abiSize(target),
+                };
             },
 
             .error_union => {
@@ -3901,8 +3918,39 @@ pub const Type = extern union {
         return ty.ptrInfo().data.@"allowzero";
     }
 
+    /// See also `isPtrLikeOptional`.
+    pub fn optionalReprIsPayload(ty: Type) bool {
+        switch (ty.tag()) {
+            .optional_single_const_pointer,
+            .optional_single_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
+            => return true,
+
+            .optional => {
+                const child_ty = ty.castTag(.optional).?.data;
+                switch (child_ty.zigTypeTag()) {
+                    .Pointer => {
+                        const info = child_ty.ptrInfo().data;
+                        switch (info.size) {
+                            .Slice, .C => return false,
+                            .Many, .One => return !info.@"allowzero",
+                        }
+                    },
+                    .ErrorSet => return true,
+                    else => return false,
+                }
+            },
+
+            .pointer => return ty.castTag(.pointer).?.data.size == .C,
+
+            else => return false,
+        }
+    }
+
     /// Returns true if the type is optional and would be lowered to a single pointer
     /// address value, using 0 for null. Note that this returns true for C pointers.
+    /// See also `hasOptionalRepr`.
     pub fn isPtrLikeOptional(self: Type) bool {
         switch (self.tag()) {
             .optional_single_const_pointer,
