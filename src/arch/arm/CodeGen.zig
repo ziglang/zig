@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const mem = std.mem;
 const math = std.math;
 const assert = std.debug.assert;
+const codegen = @import("../../codegen.zig");
 const Air = @import("../../Air.zig");
 const Mir = @import("Mir.zig");
 const Emit = @import("Emit.zig");
@@ -22,12 +23,14 @@ const leb128 = std.leb;
 const log = std.log.scoped(.codegen);
 const build_options = @import("build_options");
 
-const FnResult = @import("../../codegen.zig").FnResult;
-const GenerateSymbolError = @import("../../codegen.zig").GenerateSymbolError;
-const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
+const FnResult = codegen.FnResult;
+const GenerateSymbolError = codegen.GenerateSymbolError;
+const DebugInfoOutput = codegen.DebugInfoOutput;
 
 const bits = @import("bits.zig");
 const abi = @import("abi.zig");
+const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
+const errUnionErrOffset = codegen.errUnionErrOffset;
 const RegisterManager = abi.RegisterManager;
 const RegisterLock = RegisterManager.RegisterLock;
 const Register = bits.Register;
@@ -1763,19 +1766,26 @@ fn airWrapOptional(self: *Self, inst: Air.Inst.Index) !void {
 
 /// Given an error union, returns the error
 fn errUnionErr(self: *Self, error_union_mcv: MCValue, error_union_ty: Type) !MCValue {
+    const err_ty = error_union_ty.errorUnionSet();
     const payload_ty = error_union_ty.errorUnionPayload();
-    if (!payload_ty.hasRuntimeBits()) return error_union_mcv;
+    if (err_ty.errorSetCardinality() == .zero) {
+        return MCValue{ .immediate = 0 };
+    }
+    if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+        return error_union_mcv;
+    }
 
+    const err_offset = @intCast(u32, errUnionErrOffset(error_union_ty, self.target.*));
     switch (error_union_mcv) {
         .register => return self.fail("TODO errUnionErr for registers", .{}),
         .stack_argument_offset => |off| {
-            return MCValue{ .stack_argument_offset = off };
+            return MCValue{ .stack_argument_offset = off - err_offset };
         },
         .stack_offset => |off| {
-            return MCValue{ .stack_offset = off };
+            return MCValue{ .stack_offset = off - err_offset };
         },
         .memory => |addr| {
-            return MCValue{ .memory = addr };
+            return MCValue{ .memory = addr + err_offset };
         },
         else => unreachable, // invalid MCValue for an error union
     }
@@ -1793,24 +1803,26 @@ fn airUnwrapErrErr(self: *Self, inst: Air.Inst.Index) !void {
 
 /// Given an error union, returns the payload
 fn errUnionPayload(self: *Self, error_union_mcv: MCValue, error_union_ty: Type) !MCValue {
+    const err_ty = error_union_ty.errorUnionSet();
     const payload_ty = error_union_ty.errorUnionPayload();
-    if (!payload_ty.hasRuntimeBits()) return MCValue.none;
+    if (err_ty.errorSetCardinality() == .zero) {
+        return error_union_mcv;
+    }
+    if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+        return MCValue.none;
+    }
 
-    const error_ty = error_union_ty.errorUnionSet();
-    const error_size = @intCast(u32, error_ty.abiSize(self.target.*));
-    const eu_align = @intCast(u32, error_union_ty.abiAlignment(self.target.*));
-    const offset = std.mem.alignForwardGeneric(u32, error_size, eu_align);
-
+    const payload_offset = @intCast(u32, errUnionPayloadOffset(error_union_ty, self.target.*));
     switch (error_union_mcv) {
         .register => return self.fail("TODO errUnionPayload for registers", .{}),
         .stack_argument_offset => |off| {
-            return MCValue{ .stack_argument_offset = off - offset };
+            return MCValue{ .stack_argument_offset = off - payload_offset };
         },
         .stack_offset => |off| {
-            return MCValue{ .stack_offset = off - offset };
+            return MCValue{ .stack_offset = off - payload_offset };
         },
         .memory => |addr| {
-            return MCValue{ .memory = addr - offset };
+            return MCValue{ .memory = addr + payload_offset };
         },
         else => unreachable, // invalid MCValue for an error union
     }
@@ -3478,6 +3490,9 @@ fn airRet(self: *Self, inst: Air.Inst.Index) !void {
 
     switch (self.ret_mcv) {
         .none => {},
+        .immediate => {
+            assert(ret_ty.isError());
+        },
         .register => |reg| {
             // Return result by value
             try self.genSetReg(ret_ty, reg, operand);
@@ -3867,7 +3882,7 @@ fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
     const error_type = ty.errorUnionSet();
     const error_int_type = Type.initTag(.u16);
 
-    if (!error_type.hasRuntimeBits()) {
+    if (error_type.errorSetCardinality() == .zero) {
         return MCValue{ .immediate = 0 }; // always false
     }
 
@@ -4975,7 +4990,7 @@ fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
     const ref_int = @enumToInt(inst);
     if (ref_int < Air.Inst.Ref.typed_value_map.len) {
         const tv = Air.Inst.Ref.typed_value_map[ref_int];
-        if (!tv.ty.hasRuntimeBits()) {
+        if (!tv.ty.hasRuntimeBitsIgnoreComptime() and !tv.ty.isError()) {
             return MCValue{ .none = {} };
         }
         return self.genTypedValue(tv);
@@ -4983,7 +4998,7 @@ fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
 
     // If the type has no codegen bits, no need to store it.
     const inst_ty = self.air.typeOf(inst);
-    if (!inst_ty.hasRuntimeBits())
+    if (!inst_ty.hasRuntimeBitsIgnoreComptime() and !inst_ty.isError())
         return MCValue{ .none = {} };
 
     const inst_index = @intCast(Air.Inst.Index, ref_int - Air.Inst.Ref.typed_value_map.len);
@@ -5147,26 +5162,35 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
             }
         },
         .ErrorSet => {
-            const err_name = typed_value.val.castTag(.@"error").?.data.name;
-            const module = self.bin_file.options.module.?;
-            const global_error_set = module.global_error_set;
-            const error_index = global_error_set.get(err_name).?;
-            return MCValue{ .immediate = error_index };
+            switch (typed_value.val.tag()) {
+                .@"error" => {
+                    const err_name = typed_value.val.castTag(.@"error").?.data.name;
+                    const module = self.bin_file.options.module.?;
+                    const global_error_set = module.global_error_set;
+                    const error_index = global_error_set.get(err_name).?;
+                    return MCValue{ .immediate = error_index };
+                },
+                else => {
+                    // In this case we are rendering an error union which has a 0 bits payload.
+                    return MCValue{ .immediate = 0 };
+                },
+            }
         },
         .ErrorUnion => {
             const error_type = typed_value.ty.errorUnionSet();
             const payload_type = typed_value.ty.errorUnionPayload();
 
-            if (typed_value.val.castTag(.eu_payload)) |_| {
-                if (!payload_type.hasRuntimeBits()) {
-                    // We use the error type directly as the type.
-                    return MCValue{ .immediate = 0 };
-                }
-            } else {
-                if (!payload_type.hasRuntimeBits()) {
-                    // We use the error type directly as the type.
-                    return self.genTypedValue(.{ .ty = error_type, .val = typed_value.val });
-                }
+            if (error_type.errorSetCardinality() == .zero) {
+                const payload_val = typed_value.val.castTag(.eu_payload).?.data;
+                return self.genTypedValue(.{ .ty = payload_type, .val = payload_val });
+            }
+
+            const is_pl = typed_value.val.errorUnionIsPayload();
+
+            if (!payload_type.hasRuntimeBitsIgnoreComptime()) {
+                // We use the error type directly as the type.
+                const err_val = if (!is_pl) typed_value.val else Value.initTag(.zero);
+                return self.genTypedValue(.{ .ty = error_type, .val = err_val });
             }
         },
 
@@ -5231,7 +5255,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
 
             if (ret_ty.zigTypeTag() == .NoReturn) {
                 result.return_value = .{ .unreach = {} };
-            } else if (!ret_ty.hasRuntimeBits()) {
+            } else if (!ret_ty.hasRuntimeBitsIgnoreComptime()) {
                 result.return_value = .{ .none = {} };
             } else {
                 const ret_ty_size = @intCast(u32, ret_ty.abiSize(self.target.*));
@@ -5278,11 +5302,14 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
         .Unspecified => {
             if (ret_ty.zigTypeTag() == .NoReturn) {
                 result.return_value = .{ .unreach = {} };
-            } else if (!ret_ty.hasRuntimeBits()) {
+            } else if (!ret_ty.hasRuntimeBitsIgnoreComptime() and !ret_ty.isError()) {
                 result.return_value = .{ .none = {} };
             } else {
                 const ret_ty_size = @intCast(u32, ret_ty.abiSize(self.target.*));
-                if (ret_ty_size <= 4) {
+                if (ret_ty_size == 0) {
+                    assert(ret_ty.isError());
+                    result.return_value = .{ .immediate = 0 };
+                } else if (ret_ty_size <= 4) {
                     result.return_value = .{ .register = .r0 };
                 } else {
                     // The result is returned by reference, not by
