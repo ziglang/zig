@@ -22,6 +22,8 @@ const Liveness = @import("../../Liveness.zig");
 const Mir = @import("Mir.zig");
 const Emit = @import("Emit.zig");
 const abi = @import("abi.zig");
+const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
+const errUnionErrOffset = codegen.errUnionErrOffset;
 
 /// Wasm Value, created when generating an instruction
 const WValue = union(enum) {
@@ -2931,7 +2933,7 @@ fn airIsErr(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!W
     try self.emitWValue(operand);
     if (pl_ty.hasRuntimeBitsIgnoreComptime()) {
         try self.addMemArg(.i32_load16_u, .{
-            .offset = operand.offset() + errUnionErrorOffset(pl_ty, self.target),
+            .offset = operand.offset() + @intCast(u32, errUnionErrOffset(pl_ty, self.target)),
             .alignment = Type.anyerror.abiAlignment(self.target),
         });
     }
@@ -2959,7 +2961,7 @@ fn airUnwrapErrUnionPayload(self: *Self, inst: Air.Inst.Index, op_is_ptr: bool) 
 
     if (!payload_ty.hasRuntimeBitsIgnoreComptime()) return WValue{ .none = {} };
 
-    const pl_offset = errUnionPayloadOffset(payload_ty, self.target);
+    const pl_offset = @intCast(u32, errUnionPayloadOffset(payload_ty, self.target));
     if (op_is_ptr or isByRef(payload_ty, self.target)) {
         return self.buildPointerOffset(operand, pl_offset, .new);
     }
@@ -2983,7 +2985,7 @@ fn airUnwrapErrUnionError(self: *Self, inst: Air.Inst.Index, op_is_ptr: bool) In
         return operand;
     }
 
-    return self.load(operand, Type.anyerror, errUnionErrorOffset(payload_ty, self.target));
+    return self.load(operand, Type.anyerror, @intCast(u32, errUnionErrOffset(payload_ty, self.target)));
 }
 
 fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -3003,13 +3005,13 @@ fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     }
 
     const err_union = try self.allocStack(err_ty);
-    const payload_ptr = try self.buildPointerOffset(err_union, errUnionPayloadOffset(pl_ty, self.target), .new);
+    const payload_ptr = try self.buildPointerOffset(err_union, @intCast(u32, errUnionPayloadOffset(pl_ty, self.target)), .new);
     try self.store(payload_ptr, operand, pl_ty, 0);
 
     // ensure we also write '0' to the error part, so any present stack value gets overwritten by it.
     try self.emitWValue(err_union);
     try self.addImm32(0);
-    const err_val_offset = errUnionErrorOffset(pl_ty, self.target);
+    const err_val_offset = @intCast(u32, errUnionErrOffset(pl_ty, self.target));
     try self.addMemArg(.i32_store16, .{ .offset = err_union.offset() + err_val_offset, .alignment = 2 });
 
     return err_union;
@@ -3029,10 +3031,10 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     const err_union = try self.allocStack(err_ty);
     // store error value
-    try self.store(err_union, operand, Type.anyerror, errUnionErrorOffset(pl_ty, self.target));
+    try self.store(err_union, operand, Type.anyerror, @intCast(u32, errUnionErrOffset(pl_ty, self.target)));
 
     // write 'undefined' to the payload
-    const payload_ptr = try self.buildPointerOffset(err_union, errUnionPayloadOffset(pl_ty, self.target), .new);
+    const payload_ptr = try self.buildPointerOffset(err_union, @intCast(u32, errUnionPayloadOffset(pl_ty, self.target)), .new);
     const len = @intCast(u32, err_ty.errorUnionPayload().abiSize(self.target));
     try self.memset(payload_ptr, .{ .imm32 = len }, .{ .imm32 = 0xaaaaaaaa });
 
@@ -3984,7 +3986,7 @@ fn airErrUnionPayloadPtrSet(self: *Self, inst: Air.Inst.Index) InnerError!WValue
         operand,
         .{ .imm32 = 0 },
         Type.anyerror,
-        errUnionErrorOffset(payload_ty, self.target),
+        @intCast(u32, errUnionErrOffset(payload_ty, self.target)),
     );
 
     if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
@@ -3993,7 +3995,7 @@ fn airErrUnionPayloadPtrSet(self: *Self, inst: Air.Inst.Index) InnerError!WValue
         return operand;
     }
 
-    return self.buildPointerOffset(operand, errUnionPayloadOffset(payload_ty, self.target), .new);
+    return self.buildPointerOffset(operand, @intCast(u32, errUnionPayloadOffset(payload_ty, self.target)), .new);
 }
 
 fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -4620,18 +4622,4 @@ fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !WValue {
         }),
     } });
     return WValue{ .none = {} };
-}
-
-fn errUnionPayloadOffset(payload_ty: Type, target: std.Target) u32 {
-    if (Type.anyerror.abiAlignment(target) > payload_ty.abiAlignment(target)) {
-        return @intCast(u32, Type.anyerror.abiSize(target));
-    }
-    return 0;
-}
-
-fn errUnionErrorOffset(payload_ty: Type, target: std.Target) u32 {
-    if (Type.anyerror.abiAlignment(target) > payload_ty.abiAlignment(target)) {
-        return 0;
-    }
-    return @intCast(u32, payload_ty.abiSize(target));
 }
