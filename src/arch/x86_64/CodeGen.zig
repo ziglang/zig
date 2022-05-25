@@ -128,12 +128,8 @@ pub const MCValue = union(enum) {
     immediate: u64,
     /// The value is in a GP register.
     register: Register,
-    /// The value is a tuple { wrapped, overflow } where wrapped value is stored in the GP register,
-    /// and the operation is an unsigned operation.
-    register_overflow_unsigned: Register,
-    /// The value is a tuple { wrapped, overflow } where wrapped value is stored in the GP register,
-    /// and the operation is a signed operation.
-    register_overflow_signed: Register,
+    /// The value is a tuple { wrapped, overflow } where wrapped value is stored in the GP register.
+    register_overflow: struct { reg: Register, eflags: Condition },
     /// The value is in memory at a hard-coded address.
     /// If the type is a pointer, it means the pointer address is at this memory location.
     memory: u64,
@@ -183,8 +179,7 @@ pub const MCValue = union(enum) {
             .eflags,
             .ptr_stack_offset,
             .undef,
-            .register_overflow_unsigned,
-            .register_overflow_signed,
+            .register_overflow,
             => false,
 
             .register,
@@ -774,8 +769,8 @@ fn processDeath(self: *Self, inst: Air.Inst.Index) void {
         .register => |reg| {
             self.register_manager.freeReg(reg.to64());
         },
-        .register_overflow_signed, .register_overflow_unsigned => |reg| {
-            self.register_manager.freeReg(reg.to64());
+        .register_overflow => |ro| {
+            self.register_manager.freeReg(ro.reg.to64());
             self.eflags_inst = null;
         },
         .eflags => {
@@ -809,18 +804,20 @@ fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Live
         const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
         branch.inst_table.putAssumeCapacityNoClobber(inst, result);
 
+        // In some cases (such as bitcast), an operand
+        // may be the same MCValue as the result. If
+        // that operand died and was a register, it
+        // was freed by processDeath. We have to
+        // "re-allocate" the register.
         switch (result) {
-            .register,
-            .register_overflow_signed,
-            .register_overflow_unsigned,
-            => |reg| {
-                // In some cases (such as bitcast), an operand
-                // may be the same MCValue as the result. If
-                // that operand died and was a register, it
-                // was freed by processDeath. We have to
-                // "re-allocate" the register.
+            .register => |reg| {
                 if (self.register_manager.isRegFree(reg)) {
                     self.register_manager.getRegAssumeFree(reg, inst);
+                }
+            },
+            .register_overflow => |ro| {
+                if (self.register_manager.isRegFree(ro.reg)) {
+                    self.register_manager.getRegAssumeFree(ro.reg, inst);
                 }
             },
             else => {},
@@ -912,11 +909,11 @@ pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void 
     log.debug("spilling {d} to stack mcv {any}", .{ inst, stack_mcv });
     const reg_mcv = self.getResolvedInstValue(inst);
     switch (reg_mcv) {
-        .register,
-        .register_overflow_unsigned,
-        .register_overflow_signed,
-        => |other| {
+        .register => |other| {
             assert(reg.to64() == other.to64());
+        },
+        .register_overflow => |ro| {
+            assert(reg.to64() == ro.reg.to64());
         },
         else => {},
     }
@@ -929,9 +926,7 @@ pub fn spillEflagsIfOccupied(self: *Self) !void {
     if (self.eflags_inst) |inst_to_save| {
         const mcv = self.getResolvedInstValue(inst_to_save);
         const new_mcv = switch (mcv) {
-            .register_overflow_signed,
-            .register_overflow_unsigned,
-            => try self.allocRegOrMem(inst_to_save, false),
+            .register_overflow => try self.allocRegOrMem(inst_to_save, false),
             .eflags => try self.allocRegOrMem(inst_to_save, true),
             else => unreachable,
         };
@@ -947,9 +942,7 @@ pub fn spillEflagsIfOccupied(self: *Self) !void {
         // TODO consolidate with register manager and spillInstruction
         // this call should really belong in the register manager!
         switch (mcv) {
-            .register_overflow_signed,
-            .register_overflow_unsigned,
-            => |reg| self.register_manager.freeReg(reg),
+            .register_overflow => |ro| self.register_manager.freeReg(ro.reg),
             else => {},
         }
     }
@@ -1339,11 +1332,14 @@ fn airAddSubShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                 if (math.isPowerOfTwo(int_info.bits) and int_info.bits >= 8) {
                     self.eflags_inst = inst;
 
-                    const result: MCValue = switch (int_info.signedness) {
-                        .signed => .{ .register_overflow_signed = partial.register },
-                        .unsigned => .{ .register_overflow_unsigned = partial.register },
+                    const cc: Condition = switch (int_info.signedness) {
+                        .unsigned => .c,
+                        .signed => .o,
                     };
-                    break :result result;
+                    break :result MCValue{ .register_overflow = .{
+                        .reg = partial.register,
+                        .eflags = cc,
+                    } };
                 }
 
                 self.eflags_inst = null;
@@ -1460,10 +1456,14 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     const rhs = try self.resolveInst(bin_op.rhs);
 
                     const partial = try self.genMulDivBinOp(.mul, null, ty, lhs, rhs);
-                    break :result switch (int_info.signedness) {
-                        .signed => MCValue{ .register_overflow_signed = partial.register },
-                        .unsigned => MCValue{ .register_overflow_unsigned = partial.register },
+                    const cc: Condition = switch (int_info.signedness) {
+                        .unsigned => .c,
+                        .signed => .o,
                     };
+                    break :result MCValue{ .register_overflow = .{
+                        .reg = partial.register,
+                        .eflags = cc,
+                    } };
                 }
 
                 try self.spillEflagsIfOccupied();
@@ -2486,8 +2486,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         .unreach => unreachable,
         .dead => unreachable,
         .eflags => unreachable,
-        .register_overflow_unsigned => unreachable,
-        .register_overflow_signed => unreachable,
+        .register_overflow => unreachable,
         .immediate => |imm| {
             try self.setRegOrMem(elem_ty, dst_mcv, .{ .memory = imm });
         },
@@ -2610,8 +2609,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
         .unreach => unreachable,
         .dead => unreachable,
         .eflags => unreachable,
-        .register_overflow_unsigned => unreachable,
-        .register_overflow_signed => unreachable,
+        .register_overflow => unreachable,
         .immediate => |imm| {
             try self.setRegOrMem(value_ty, .{ .memory = imm }, value);
         },
@@ -2997,31 +2995,24 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
 
                 break :result dst_mcv;
             },
-            .register_overflow_unsigned,
-            .register_overflow_signed,
-            => |reg| {
+            .register_overflow => |ro| {
                 switch (index) {
                     0 => {
                         // Get wrapped value for overflow operation.
-                        break :result MCValue{ .register = reg };
+                        break :result MCValue{ .register = ro.reg };
                     },
                     1 => {
                         // Get overflow bit.
-                        const reg_lock = self.register_manager.lockRegAssumeUnused(reg);
+                        const reg_lock = self.register_manager.lockRegAssumeUnused(ro.reg);
                         defer self.register_manager.unlockReg(reg_lock);
 
                         const dst_reg = try self.register_manager.allocReg(inst, gp);
-                        const cc: Condition = switch (mcv) {
-                            .register_overflow_unsigned => .c,
-                            .register_overflow_signed => .o,
-                            else => unreachable,
-                        };
                         _ = try self.addInst(.{
                             .tag = .cond_set_byte,
                             .ops = Mir.Inst.Ops.encode(.{
                                 .reg1 = dst_reg.to8(),
                             }),
-                            .data = .{ .cc = cc },
+                            .data = .{ .cc = ro.eflags },
                         });
                         break :result MCValue{ .register = dst_reg.to8() };
                     },
@@ -3449,15 +3440,13 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValu
         .undef => unreachable,
         .dead, .unreach, .immediate => unreachable,
         .eflags => unreachable,
-        .register_overflow_unsigned => unreachable,
-        .register_overflow_signed => unreachable,
+        .register_overflow => unreachable,
         .register => |dst_reg| {
             switch (src_mcv) {
                 .none => unreachable,
                 .undef => unreachable,
                 .dead, .unreach => unreachable,
-                .register_overflow_unsigned => unreachable,
-                .register_overflow_signed => unreachable,
+                .register_overflow => unreachable,
                 .ptr_stack_offset => {
                     const dst_reg_lock = self.register_manager.lockReg(dst_reg);
                     defer if (dst_reg_lock) |lock| self.register_manager.unlockReg(lock);
@@ -3564,8 +3553,7 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValu
                 .none => unreachable,
                 .undef => unreachable,
                 .dead, .unreach => unreachable,
-                .register_overflow_unsigned => unreachable,
-                .register_overflow_signed => unreachable,
+                .register_overflow => unreachable,
                 .register => |src_reg| {
                     _ = try self.addInst(.{
                         .tag = mir_tag,
@@ -3640,16 +3628,14 @@ fn genIntMulComplexOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: M
         .dead, .unreach, .immediate => unreachable,
         .eflags => unreachable,
         .ptr_stack_offset => unreachable,
-        .register_overflow_unsigned => unreachable,
-        .register_overflow_signed => unreachable,
+        .register_overflow => unreachable,
         .register => |dst_reg| {
             switch (src_mcv) {
                 .none => unreachable,
                 .undef => try self.genSetReg(dst_ty, dst_reg, .undef),
                 .dead, .unreach => unreachable,
                 .ptr_stack_offset => unreachable,
-                .register_overflow_unsigned => unreachable,
-                .register_overflow_signed => unreachable,
+                .register_overflow => unreachable,
                 .register => |src_reg| {
                     // register, register
                     _ = try self.addInst(.{
@@ -3708,8 +3694,7 @@ fn genIntMulComplexOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: M
                 .undef => return self.genSetStack(dst_ty, off, .undef, .{}),
                 .dead, .unreach => unreachable,
                 .ptr_stack_offset => unreachable,
-                .register_overflow_unsigned => unreachable,
-                .register_overflow_signed => unreachable,
+                .register_overflow => unreachable,
                 .register => |src_reg| {
                     // copy dst to a register
                     const dst_reg = try self.copyToTmpRegister(dst_ty, dst_mcv);
@@ -3915,8 +3900,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
             .got_load => unreachable,
             .direct_load => unreachable,
             .eflags => unreachable,
-            .register_overflow_signed => unreachable,
-            .register_overflow_unsigned => unreachable,
+            .register_overflow => unreachable,
         }
     }
 
@@ -5291,9 +5275,7 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
                 .{ .dest_stack_base = .rsp },
             );
         },
-        .register_overflow_unsigned,
-        .register_overflow_signed,
-        => return self.fail("TODO genSetStackArg for register with overflow bit", .{}),
+        .register_overflow => return self.fail("TODO genSetStackArg for register with overflow bit", .{}),
         .eflags => {
             const reg = try self.copyToTmpRegister(ty, mcv);
             return self.genSetStackArg(ty, stack_offset, .{ .register = reg });
@@ -5429,29 +5411,22 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                 ),
             }
         },
-        .register_overflow_unsigned,
-        .register_overflow_signed,
-        => |reg| {
-            const reg_lock = self.register_manager.lockReg(reg);
+        .register_overflow => |ro| {
+            const reg_lock = self.register_manager.lockReg(ro.reg);
             defer if (reg_lock) |lock| self.register_manager.unlockReg(lock);
 
             const wrapped_ty = ty.structFieldType(0);
-            try self.genSetStack(wrapped_ty, stack_offset, .{ .register = reg }, .{});
+            try self.genSetStack(wrapped_ty, stack_offset, .{ .register = ro.reg }, .{});
 
             const overflow_bit_ty = ty.structFieldType(1);
             const overflow_bit_offset = ty.structFieldOffset(1, self.target.*);
             const tmp_reg = try self.register_manager.allocReg(null, gp);
-            const cc: Condition = switch (mcv) {
-                .register_overflow_unsigned => .c,
-                .register_overflow_signed => .o,
-                else => unreachable,
-            };
             _ = try self.addInst(.{
                 .tag = .cond_set_byte,
                 .ops = Mir.Inst.Ops.encode(.{
                     .reg1 = tmp_reg.to8(),
                 }),
-                .data = .{ .cc = cc },
+                .data = .{ .cc = ro.eflags },
             });
 
             return self.genSetStack(
@@ -5956,9 +5931,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
     const abi_size = @intCast(u32, ty.abiSize(self.target.*));
     switch (mcv) {
         .dead => unreachable,
-        .register_overflow_unsigned,
-        .register_overflow_signed,
-        => unreachable,
+        .register_overflow => unreachable,
         .ptr_stack_offset => |off| {
             if (off < std.math.minInt(i32) or off > std.math.maxInt(i32)) {
                 return self.fail("stack offset too large", .{});
