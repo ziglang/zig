@@ -20961,6 +20961,9 @@ fn analyzeLoad(
         }
     }
 
+    const valid_rt = try sema.validateRunTimeType(block, src, elem_ty, false);
+    if (!valid_rt) return sema.failWithNeededComptime(block, src);
+
     try sema.requireRuntimeBlock(block, src);
     return block.addTyOp(.load, elem_ty, ptr);
 }
