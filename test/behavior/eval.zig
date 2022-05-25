@@ -646,8 +646,6 @@ pub fn TypeWithCompTimeSlice(comptime field_name: []const u8) type {
 }
 
 test "comptime function with mutable pointer is not memoized" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     comptime {
         var x: i32 = 1;
         const ptr = &x;
@@ -662,8 +660,6 @@ fn increment(value: *i32) void {
 }
 
 test "const ptr to comptime mutable data is not memoized" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     comptime {
         var foo = SingleFieldStruct{ .x = 1 };
         try expect(foo.read_x() == 1);
