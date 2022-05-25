@@ -2,6 +2,7 @@ const std = @import("std");
 const build_options = @import("build_options");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
+const codegen = @import("../../codegen.zig");
 const leb128 = std.leb;
 const link = @import("../../link.zig");
 const log = std.log.scoped(.codegen);
@@ -12,11 +13,11 @@ const trace = @import("../../tracy.zig").trace;
 const Air = @import("../../Air.zig");
 const Allocator = mem.Allocator;
 const Compilation = @import("../../Compilation.zig");
-const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
+const DebugInfoOutput = codegen.DebugInfoOutput;
 const DW = std.dwarf;
 const ErrorMsg = Module.ErrorMsg;
-const FnResult = @import("../../codegen.zig").FnResult;
-const GenerateSymbolError = @import("../../codegen.zig").GenerateSymbolError;
+const FnResult = codegen.FnResult;
+const GenerateSymbolError = codegen.GenerateSymbolError;
 const Emit = @import("Emit.zig");
 const Liveness = @import("../../Liveness.zig");
 const Mir = @import("Mir.zig");
@@ -28,6 +29,8 @@ const Value = @import("../../value.zig").Value;
 
 const bits = @import("bits.zig");
 const abi = @import("abi.zig");
+const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
+const errUnionErrorOffset = codegen.errUnionErrorOffset;
 
 const callee_preserved_regs = abi.callee_preserved_regs;
 const caller_preserved_regs = abi.caller_preserved_regs;
@@ -854,7 +857,7 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
     const ptr_ty = self.air.typeOfIndex(inst);
     const elem_ty = ptr_ty.elemType();
 
-    if (!elem_ty.hasRuntimeBits()) {
+    if (!elem_ty.hasRuntimeBitsIgnoreComptime()) {
         return self.allocMem(inst, @sizeOf(usize), @alignOf(usize));
     }
 
@@ -1786,21 +1789,34 @@ fn airUnwrapErrErr(self: *Self, inst: Air.Inst.Index) !void {
     const err_ty = err_union_ty.errorUnionSet();
     const payload_ty = err_union_ty.errorUnionPayload();
     const operand = try self.resolveInst(ty_op.operand);
-    const operand_lock: ?RegisterLock = switch (operand) {
-        .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
-        else => null,
-    };
-    defer if (operand_lock) |lock| self.register_manager.unlockReg(lock);
 
     const result: MCValue = result: {
-        if (!payload_ty.hasRuntimeBits()) break :result operand;
+        if (err_ty.errorSetCardinality() == .zero) {
+            break :result MCValue{ .immediate = 0 };
+        }
+
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+            break :result operand;
+        }
+
+        const err_off = errUnionErrorOffset(payload_ty, self.target.*);
         switch (operand) {
             .stack_offset => |off| {
-                break :result MCValue{ .stack_offset = off };
+                const offset = off - @intCast(i32, err_off);
+                break :result MCValue{ .stack_offset = offset };
             },
-            .register => {
+            .register => |reg| {
                 // TODO reuse operand
-                break :result try self.copyToRegisterWithInstTracking(inst, err_ty, operand);
+                const lock = self.register_manager.lockRegAssumeUnused(reg);
+                defer self.register_manager.unlockReg(lock);
+                const result = try self.copyToRegisterWithInstTracking(inst, err_union_ty, operand);
+                if (err_off > 0) {
+                    const shift = @intCast(u6, err_off * 8);
+                    try self.genShiftBinOpMir(.shr, err_union_ty, result.register, .{ .immediate = shift });
+                } else {
+                    try self.truncateRegister(Type.anyerror, result.register);
+                }
+                break :result result;
             },
             else => return self.fail("TODO implement unwrap_err_err for {}", .{operand}),
         }
@@ -1815,32 +1831,37 @@ fn airUnwrapErrPayload(self: *Self, inst: Air.Inst.Index) !void {
     }
     const err_union_ty = self.air.typeOf(ty_op.operand);
     const payload_ty = err_union_ty.errorUnionPayload();
+    const err_ty = err_union_ty.errorUnionSet();
+    const operand = try self.resolveInst(ty_op.operand);
+
     const result: MCValue = result: {
-        if (!payload_ty.hasRuntimeBits()) break :result MCValue.none;
+        if (err_ty.errorSetCardinality() == .zero) {
+            // TODO check if we can reuse
+            break :result operand;
+        }
 
-        const operand = try self.resolveInst(ty_op.operand);
-        const operand_lock: ?RegisterLock = switch (operand) {
-            .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
-            else => null,
-        };
-        defer if (operand_lock) |lock| self.register_manager.unlockReg(lock);
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+            break :result MCValue.none;
+        }
 
-        const abi_align = err_union_ty.abiAlignment(self.target.*);
-        const err_ty = err_union_ty.errorUnionSet();
-        const err_abi_size = mem.alignForwardGeneric(u32, @intCast(u32, err_ty.abiSize(self.target.*)), abi_align);
+        const payload_off = errUnionPayloadOffset(payload_ty, self.target.*);
         switch (operand) {
             .stack_offset => |off| {
-                const offset = off - @intCast(i32, err_abi_size);
+                const offset = off - @intCast(i32, payload_off);
                 break :result MCValue{ .stack_offset = offset };
             },
-            .register => {
+            .register => |reg| {
                 // TODO reuse operand
-                const shift = @intCast(u6, err_abi_size * @sizeOf(usize));
+                const lock = self.register_manager.lockRegAssumeUnused(reg);
+                defer self.register_manager.unlockReg(lock);
                 const result = try self.copyToRegisterWithInstTracking(inst, err_union_ty, operand);
-                try self.genShiftBinOpMir(.shr, Type.usize, result.register, .{ .immediate = shift });
-                break :result MCValue{
-                    .register = registerAlias(result.register, @intCast(u32, payload_ty.abiSize(self.target.*))),
-                };
+                if (payload_off > 0) {
+                    const shift = @intCast(u6, payload_off * 8);
+                    try self.genShiftBinOpMir(.shr, err_union_ty, result.register, .{ .immediate = shift });
+                } else {
+                    try self.truncateRegister(payload_ty, result.register);
+                }
+                break :result result;
             },
             else => return self.fail("TODO implement unwrap_err_payload for {}", .{operand}),
         }
@@ -1935,24 +1956,37 @@ fn airWrapOptional(self: *Self, inst: Air.Inst.Index) !void {
 /// T to E!T
 fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+
     if (self.liveness.isUnused(inst)) {
         return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
     }
+
     const error_union_ty = self.air.getRefType(ty_op.ty);
     const error_ty = error_union_ty.errorUnionSet();
     const payload_ty = error_union_ty.errorUnionPayload();
     const operand = try self.resolveInst(ty_op.operand);
-    assert(payload_ty.hasRuntimeBits());
 
-    const abi_size = @intCast(u32, error_union_ty.abiSize(self.target.*));
-    const abi_align = error_union_ty.abiAlignment(self.target.*);
-    const err_abi_size = @intCast(u32, error_ty.abiSize(self.target.*));
-    const stack_offset = @intCast(i32, try self.allocMem(inst, abi_size, abi_align));
-    const offset = mem.alignForwardGeneric(u32, err_abi_size, abi_align);
-    try self.genSetStack(error_ty, stack_offset, .{ .immediate = 0 }, .{});
-    try self.genSetStack(payload_ty, stack_offset - @intCast(i32, offset), operand, .{});
+    const result: MCValue = result: {
+        if (error_ty.errorSetCardinality() == .zero) {
+            break :result operand;
+        }
 
-    return self.finishAir(inst, .{ .stack_offset = stack_offset }, .{ ty_op.operand, .none, .none });
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+            break :result operand;
+        }
+
+        const abi_size = @intCast(u32, error_union_ty.abiSize(self.target.*));
+        const abi_align = error_union_ty.abiAlignment(self.target.*);
+        const stack_offset = @intCast(i32, try self.allocMem(inst, abi_size, abi_align));
+        const payload_off = errUnionPayloadOffset(payload_ty, self.target.*);
+        const err_off = errUnionErrorOffset(payload_ty, self.target.*);
+        try self.genSetStack(payload_ty, stack_offset - @intCast(i32, payload_off), operand, .{});
+        try self.genSetStack(Type.anyerror, stack_offset - @intCast(i32, err_off), .{ .immediate = 0 }, .{});
+
+        break :result MCValue{ .stack_offset = stack_offset };
+    };
+
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 /// E to E!T
@@ -1962,19 +1996,22 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
         return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
     }
     const error_union_ty = self.air.getRefType(ty_op.ty);
-    const error_ty = error_union_ty.errorUnionSet();
     const payload_ty = error_union_ty.errorUnionPayload();
-    const err = try self.resolveInst(ty_op.operand);
+    const operand = try self.resolveInst(ty_op.operand);
+
     const result: MCValue = result: {
-        if (!payload_ty.hasRuntimeBits()) break :result err;
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+            break :result operand;
+        }
 
         const abi_size = @intCast(u32, error_union_ty.abiSize(self.target.*));
         const abi_align = error_union_ty.abiAlignment(self.target.*);
-        const err_abi_size = @intCast(u32, error_ty.abiSize(self.target.*));
         const stack_offset = @intCast(i32, try self.allocMem(inst, abi_size, abi_align));
-        const offset = mem.alignForwardGeneric(u32, err_abi_size, abi_align);
-        try self.genSetStack(error_ty, stack_offset, err, .{});
-        try self.genSetStack(payload_ty, stack_offset - @intCast(i32, offset), .undef, .{});
+        const payload_off = errUnionPayloadOffset(payload_ty, self.target.*);
+        const err_off = errUnionErrorOffset(payload_ty, self.target.*);
+        try self.genSetStack(Type.anyerror, stack_offset - @intCast(i32, err_off), operand, .{});
+        try self.genSetStack(payload_ty, stack_offset - @intCast(i32, payload_off), .undef, .{});
+
         break :result MCValue{ .stack_offset = stack_offset };
     };
 
@@ -2535,7 +2572,7 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const elem_ty = self.air.typeOfIndex(inst);
     const result: MCValue = result: {
-        if (!elem_ty.hasRuntimeBits())
+        if (!elem_ty.hasRuntimeBitsIgnoreComptime())
             break :result MCValue.none;
 
         const ptr = try self.resolveInst(ty_op.operand);
@@ -4102,6 +4139,9 @@ fn airRet(self: *Self, inst: Air.Inst.Index) !void {
     const operand = try self.resolveInst(un_op);
     const ret_ty = self.fn_type.fnReturnType();
     switch (self.ret_mcv) {
+        .immediate => {
+            assert(ret_ty.isError());
+        },
         .stack_offset => {
             const reg = try self.copyToTmpRegister(Type.usize, self.ret_mcv);
             const reg_lock = self.register_manager.lockRegAssumeUnused(reg);
@@ -4134,6 +4174,9 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
     const ptr_ty = self.air.typeOf(un_op);
     const elem_ty = ptr_ty.elemType();
     switch (self.ret_mcv) {
+        .immediate => {
+            assert(elem_ty.isError());
+        },
         .stack_offset => {
             const reg = try self.copyToTmpRegister(Type.usize, self.ret_mcv);
             const reg_lock = self.register_manager.lockRegAssumeUnused(reg);
@@ -4377,7 +4420,6 @@ fn genVarDbgInfo(
 fn addDbgInfoTypeReloc(self: *Self, ty: Type) !void {
     switch (self.debug_output) {
         .dwarf => |dw| {
-            assert(ty.hasRuntimeBits());
             const dbg_info = &dw.dbg_info;
             const index = dbg_info.items.len;
             try dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
@@ -4604,7 +4646,7 @@ fn isNull(self: *Self, inst: Air.Inst.Index, ty: Type, operand: MCValue) !MCValu
     const cmp_ty: Type = if (!ty.isPtrLikeOptional()) blk: {
         var buf: Type.Payload.ElemType = undefined;
         const payload_ty = ty.optionalChild(&buf);
-        break :blk if (payload_ty.hasRuntimeBits()) Type.bool else ty;
+        break :blk if (payload_ty.hasRuntimeBitsIgnoreComptime()) Type.bool else ty;
     } else ty;
 
     try self.genBinOpMir(.cmp, cmp_ty, operand, MCValue{ .immediate = 0 });
@@ -4620,25 +4662,36 @@ fn isNonNull(self: *Self, inst: Air.Inst.Index, ty: Type, operand: MCValue) !MCV
 
 fn isErr(self: *Self, inst: Air.Inst.Index, ty: Type, operand: MCValue) !MCValue {
     const err_type = ty.errorUnionSet();
-    const payload_type = ty.errorUnionPayload();
-    if (!err_type.hasRuntimeBits()) {
+
+    if (err_type.errorSetCardinality() == .zero) {
         return MCValue{ .immediate = 0 }; // always false
     }
 
     try self.spillCompareFlagsIfOccupied();
     self.compare_flags_inst = inst;
 
-    if (!payload_type.hasRuntimeBits()) {
-        if (err_type.abiSize(self.target.*) <= 8) {
-            try self.genBinOpMir(.cmp, err_type, operand, MCValue{ .immediate = 0 });
-            return MCValue{ .compare_flags_unsigned = .gt };
-        } else {
-            return self.fail("TODO isErr for errors with size larger than register size", .{});
-        }
-    } else {
-        try self.genBinOpMir(.cmp, err_type, operand, MCValue{ .immediate = 0 });
-        return MCValue{ .compare_flags_unsigned = .gt };
+    const err_off = errUnionErrorOffset(ty.errorUnionPayload(), self.target.*);
+    switch (operand) {
+        .stack_offset => |off| {
+            const offset = off - @intCast(i32, err_off);
+            try self.genBinOpMir(.cmp, Type.anyerror, .{ .stack_offset = offset }, .{ .immediate = 0 });
+        },
+        .register => |reg| {
+            const maybe_lock = self.register_manager.lockReg(reg);
+            defer if (maybe_lock) |lock| self.register_manager.unlockReg(lock);
+            const tmp_reg = try self.copyToTmpRegister(ty, operand);
+            if (err_off > 0) {
+                const shift = @intCast(u6, err_off * 8);
+                try self.genShiftBinOpMir(.shr, ty, tmp_reg, .{ .immediate = shift });
+            } else {
+                try self.truncateRegister(Type.anyerror, tmp_reg);
+            }
+            try self.genBinOpMir(.cmp, Type.anyerror, .{ .register = tmp_reg }, .{ .immediate = 0 });
+        },
+        else => return self.fail("TODO implement isErr for {}", .{operand}),
     }
+
+    return MCValue{ .compare_flags_unsigned = .gt };
 }
 
 fn isNonErr(self: *Self, inst: Air.Inst.Index, ty: Type, operand: MCValue) !MCValue {
@@ -5461,6 +5514,21 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
         .immediate => |x_big| {
             const base_reg = opts.dest_stack_base orelse .rbp;
             switch (abi_size) {
+                0 => {
+                    assert(ty.isError());
+                    const payload = try self.addExtra(Mir.ImmPair{
+                        .dest_off = @bitCast(u32, -stack_offset),
+                        .operand = @truncate(u32, x_big),
+                    });
+                    _ = try self.addInst(.{
+                        .tag = .mov_mem_imm,
+                        .ops = Mir.Inst.Ops.encode(.{
+                            .reg1 = base_reg,
+                            .flags = 0b00,
+                        }),
+                        .data = .{ .payload = payload },
+                    });
+                },
                 1, 2, 4 => {
                     const payload = try self.addExtra(Mir.ImmPair{
                         .dest_off = @bitCast(u32, -stack_offset),
@@ -6643,7 +6711,7 @@ pub fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
     const ref_int = @enumToInt(inst);
     if (ref_int < Air.Inst.Ref.typed_value_map.len) {
         const tv = Air.Inst.Ref.typed_value_map[ref_int];
-        if (!tv.ty.hasRuntimeBits()) {
+        if (!tv.ty.hasRuntimeBitsIgnoreComptime() and !tv.ty.isError()) {
             return MCValue{ .none = {} };
         }
         return self.genTypedValue(tv);
@@ -6651,7 +6719,7 @@ pub fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
 
     // If the type has no codegen bits, no need to store it.
     const inst_ty = self.air.typeOf(inst);
-    if (!inst_ty.hasRuntimeBits())
+    if (!inst_ty.hasRuntimeBitsIgnoreComptime() and !inst_ty.isError())
         return MCValue{ .none = {} };
 
     const inst_index = @intCast(Air.Inst.Index, ref_int - Air.Inst.Ref.typed_value_map.len);
@@ -6780,6 +6848,7 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
     const target = self.target.*;
 
     switch (typed_value.ty.zigTypeTag()) {
+        .Void => return MCValue{ .none = {} },
         .Pointer => switch (typed_value.ty.ptrSize()) {
             .Slice => {},
             else => {
@@ -6841,26 +6910,35 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
             }
         },
         .ErrorSet => {
-            const err_name = typed_value.val.castTag(.@"error").?.data.name;
-            const module = self.bin_file.options.module.?;
-            const global_error_set = module.global_error_set;
-            const error_index = global_error_set.get(err_name).?;
-            return MCValue{ .immediate = error_index };
+            switch (typed_value.val.tag()) {
+                .@"error" => {
+                    const err_name = typed_value.val.castTag(.@"error").?.data.name;
+                    const module = self.bin_file.options.module.?;
+                    const global_error_set = module.global_error_set;
+                    const error_index = global_error_set.get(err_name).?;
+                    return MCValue{ .immediate = error_index };
+                },
+                else => {
+                    // In this case we are rendering an error union which has a 0 bits payload.
+                    return MCValue{ .immediate = 0 };
+                },
+            }
         },
         .ErrorUnion => {
             const error_type = typed_value.ty.errorUnionSet();
             const payload_type = typed_value.ty.errorUnionPayload();
 
-            if (typed_value.val.castTag(.eu_payload)) |_| {
-                if (!payload_type.hasRuntimeBits()) {
-                    // We use the error type directly as the type.
-                    return MCValue{ .immediate = 0 };
-                }
-            } else {
-                if (!payload_type.hasRuntimeBits()) {
-                    // We use the error type directly as the type.
-                    return self.genTypedValue(.{ .ty = error_type, .val = typed_value.val });
-                }
+            if (error_type.errorSetCardinality() == .zero) {
+                const payload_val = typed_value.val.castTag(.eu_payload).?.data;
+                return self.genTypedValue(.{ .ty = payload_type, .val = payload_val });
+            }
+
+            const is_pl = typed_value.val.errorUnionIsPayload();
+
+            if (!payload_type.hasRuntimeBitsIgnoreComptime()) {
+                // We use the error type directly as the type.
+                const err_val = if (!is_pl) typed_value.val else Value.initTag(.zero);
+                return self.genTypedValue(.{ .ty = error_type, .val = err_val });
             }
         },
 
@@ -6868,7 +6946,6 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
         .ComptimeFloat => unreachable,
         .Type => unreachable,
         .EnumLiteral => unreachable,
-        .Void => unreachable,
         .NoReturn => unreachable,
         .Undefined => unreachable,
         .Null => unreachable,
@@ -6922,11 +6999,14 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             // Return values
             if (ret_ty.zigTypeTag() == .NoReturn) {
                 result.return_value = .{ .unreach = {} };
-            } else if (!ret_ty.hasRuntimeBits()) {
+            } else if (!ret_ty.hasRuntimeBitsIgnoreComptime() and !ret_ty.isError()) {
                 result.return_value = .{ .none = {} };
             } else {
                 const ret_ty_size = @intCast(u32, ret_ty.abiSize(self.target.*));
-                if (ret_ty_size <= 8) {
+                if (ret_ty_size == 0) {
+                    assert(ret_ty.isError());
+                    result.return_value = .{ .immediate = 0 };
+                } else if (ret_ty_size <= 8) {
                     const aliased_reg = registerAlias(c_abi_int_return_regs[0], ret_ty_size);
                     result.return_value = .{ .register = aliased_reg };
                 } else {

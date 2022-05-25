@@ -425,7 +425,6 @@ test "f64 at compile time is lossy" {
 }
 
 test {
-    if (builtin.zig_backend != .stage1 and builtin.os.tag == .macos) return error.SkipZigTest;
     comptime try expect(@as(f128, 1 << 113) == 10384593717069655257060992658440192);
 }
 
@@ -573,28 +572,6 @@ test "inlined loop has array literal with elided runtime scope on first iteratio
     }
 }
 
-test "call method on bound fn referring to var instance" {
-    if (builtin.zig_backend != .stage1) {
-        // Let's delay solving this one; I want to try to eliminate bound functions from
-        // the language.
-        return error.SkipZigTest; // TODO
-    }
-
-    try expect(bound_fn() == 1237);
-}
-
-const SimpleStruct = struct {
-    field: i32,
-
-    fn method(self: *const SimpleStruct) i32 {
-        return self.field + 3;
-    }
-};
-
-var simple_struct = SimpleStruct{ .field = 1234 };
-
-const bound_fn = simple_struct.method;
-
 test "ptr to local array argument at comptime" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -669,8 +646,6 @@ pub fn TypeWithCompTimeSlice(comptime field_name: []const u8) type {
 }
 
 test "comptime function with mutable pointer is not memoized" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     comptime {
         var x: i32 = 1;
         const ptr = &x;
@@ -685,8 +660,6 @@ fn increment(value: *i32) void {
 }
 
 test "const ptr to comptime mutable data is not memoized" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     comptime {
         var foo = SingleFieldStruct{ .x = 1 };
         try expect(foo.read_x() == 1);

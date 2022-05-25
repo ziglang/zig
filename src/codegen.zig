@@ -442,7 +442,10 @@ pub fn generateSymbol(
         .Int => {
             const info = typed_value.ty.intInfo(target);
             if (info.bits <= 8) {
-                const x = @intCast(u8, typed_value.val.toUnsignedInt(target));
+                const x: u8 = switch (info.signedness) {
+                    .unsigned => @intCast(u8, typed_value.val.toUnsignedInt(target)),
+                    .signed => @bitCast(u8, @intCast(i8, typed_value.val.toSignedInt())),
+                };
                 try code.append(x);
                 return Result{ .appended = {} };
             }
@@ -654,7 +657,7 @@ pub fn generateSymbol(
                 return Result{ .appended = {} };
             }
 
-            if (typed_value.ty.isPtrLikeOptional()) {
+            if (typed_value.ty.optionalReprIsPayload()) {
                 if (typed_value.val.castTag(.opt_payload)) |payload| {
                     switch (try generateSymbol(bin_file, src_loc, .{
                         .ty = payload_type,
@@ -702,16 +705,50 @@ pub fn generateSymbol(
         .ErrorUnion => {
             const error_ty = typed_value.ty.errorUnionSet();
             const payload_ty = typed_value.ty.errorUnionPayload();
+
+            if (error_ty.errorSetCardinality() == .zero) {
+                const payload_val = typed_value.val.castTag(.eu_payload).?.data;
+                return generateSymbol(bin_file, src_loc, .{
+                    .ty = payload_ty,
+                    .val = payload_val,
+                }, code, debug_output, reloc_info);
+            }
+
             const is_payload = typed_value.val.errorUnionIsPayload();
 
+            if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+                const err_val = if (is_payload) Value.initTag(.zero) else typed_value.val;
+                return generateSymbol(bin_file, src_loc, .{
+                    .ty = error_ty,
+                    .val = err_val,
+                }, code, debug_output, reloc_info);
+            }
+
+            const payload_align = payload_ty.abiAlignment(target);
+            const error_align = Type.anyerror.abiAlignment(target);
             const abi_align = typed_value.ty.abiAlignment(target);
 
-            {
-                const error_val = if (!is_payload) typed_value.val else Value.initTag(.zero);
-                const begin = code.items.len;
+            // error value first when its type is larger than the error union's payload
+            if (error_align > payload_align) {
                 switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = error_ty,
-                    .val = error_val,
+                    .val = if (is_payload) Value.initTag(.zero) else typed_value.val,
+                }, code, debug_output, reloc_info)) {
+                    .appended => {},
+                    .externally_managed => |external_slice| {
+                        code.appendSliceAssumeCapacity(external_slice);
+                    },
+                    .fail => |em| return Result{ .fail = em },
+                }
+            }
+
+            // emit payload part of the error union
+            {
+                const begin = code.items.len;
+                const payload_val = if (typed_value.val.castTag(.eu_payload)) |val| val.data else Value.initTag(.undef);
+                switch (try generateSymbol(bin_file, src_loc, .{
+                    .ty = payload_ty,
+                    .val = payload_val,
                 }, code, debug_output, reloc_info)) {
                     .appended => {},
                     .externally_managed => |external_slice| {
@@ -728,12 +765,12 @@ pub fn generateSymbol(
                 }
             }
 
-            if (payload_ty.hasRuntimeBits()) {
+            // Payload size is larger than error set, so emit our error set last
+            if (error_align <= payload_align) {
                 const begin = code.items.len;
-                const payload_val = if (typed_value.val.castTag(.eu_payload)) |val| val.data else Value.initTag(.undef);
                 switch (try generateSymbol(bin_file, src_loc, .{
-                    .ty = payload_ty,
-                    .val = payload_val,
+                    .ty = error_ty,
+                    .val = if (is_payload) Value.initTag(.zero) else typed_value.val,
                 }, code, debug_output, reloc_info)) {
                     .appended => {},
                     .externally_managed => |external_slice| {
@@ -760,7 +797,7 @@ pub fn generateSymbol(
                     try code.writer().writeInt(u32, kv.value, endian);
                 },
                 else => {
-                    try code.writer().writeByteNTimes(0, @intCast(usize, typed_value.ty.abiSize(target)));
+                    try code.writer().writeByteNTimes(0, @intCast(usize, Type.anyerror.abiSize(target)));
                 },
             }
             return Result{ .appended = {} };
@@ -852,4 +889,24 @@ fn lowerDeclRef(
     }
 
     return Result{ .appended = {} };
+}
+
+pub fn errUnionPayloadOffset(payload_ty: Type, target: std.Target) u64 {
+    const payload_align = payload_ty.abiAlignment(target);
+    const error_align = Type.anyerror.abiAlignment(target);
+    if (payload_align >= error_align) {
+        return 0;
+    } else {
+        return mem.alignForwardGeneric(u64, Type.anyerror.abiSize(target), payload_align);
+    }
+}
+
+pub fn errUnionErrorOffset(payload_ty: Type, target: std.Target) u64 {
+    const payload_align = payload_ty.abiAlignment(target);
+    const error_align = Type.anyerror.abiAlignment(target);
+    if (payload_align >= error_align) {
+        return mem.alignForwardGeneric(u64, payload_ty.abiSize(target), error_align);
+    } else {
+        return 0;
+    }
 }

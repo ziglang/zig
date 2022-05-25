@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const mem = std.mem;
 const math = std.math;
 const assert = std.debug.assert;
+const codegen = @import("../../codegen.zig");
 const Air = @import("../../Air.zig");
 const Mir = @import("Mir.zig");
 const Emit = @import("Emit.zig");
@@ -22,12 +23,14 @@ const leb128 = std.leb;
 const log = std.log.scoped(.codegen);
 const build_options = @import("build_options");
 
-const GenerateSymbolError = @import("../../codegen.zig").GenerateSymbolError;
-const FnResult = @import("../../codegen.zig").FnResult;
-const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
+const GenerateSymbolError = codegen.GenerateSymbolError;
+const FnResult = codegen.FnResult;
+const DebugInfoOutput = codegen.DebugInfoOutput;
 
 const bits = @import("bits.zig");
 const abi = @import("abi.zig");
+const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
+const errUnionErrorOffset = codegen.errUnionErrorOffset;
 const RegisterManager = abi.RegisterManager;
 const RegisterLock = RegisterManager.RegisterLock;
 const Register = bits.Register;
@@ -3272,7 +3275,14 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
 
 fn ret(self: *Self, mcv: MCValue) !void {
     const ret_ty = self.fn_type.fnReturnType();
-    try self.setRegOrMem(ret_ty, self.ret_mcv, mcv);
+    switch (self.ret_mcv) {
+        .immediate => {
+            assert(ret_ty.isError());
+        },
+        else => {
+            try self.setRegOrMem(ret_ty, self.ret_mcv, mcv);
+        },
+    }
     // Just add space for an instruction, patch this later
     const index = try self.addInst(.{
         .tag = .nop,
@@ -3601,30 +3611,39 @@ fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
     const error_type = ty.errorUnionSet();
     const payload_type = ty.errorUnionPayload();
 
-    if (!error_type.hasRuntimeBits()) {
+    if (error_type.errorSetCardinality() == .zero) {
         return MCValue{ .immediate = 0 }; // always false
-    } else if (!payload_type.hasRuntimeBits()) {
-        if (error_type.abiSize(self.target.*) <= 8) {
-            const reg_mcv: MCValue = switch (operand) {
-                .register => operand,
-                else => .{ .register = try self.copyToTmpRegister(error_type, operand) },
-            };
+    }
 
+    const err_off = errUnionErrorOffset(payload_type, self.target.*);
+    switch (operand) {
+        .stack_offset => |off| {
+            const offset = off - @intCast(u32, err_off);
+            const tmp_reg = try self.copyToTmpRegister(Type.anyerror, .{ .stack_offset = offset });
             _ = try self.addInst(.{
                 .tag = .cmp_immediate,
                 .data = .{ .r_imm12_sh = .{
-                    .rn = reg_mcv.register,
+                    .rn = tmp_reg,
                     .imm12 = 0,
                 } },
             });
-
-            return MCValue{ .compare_flags_unsigned = .gt };
-        } else {
-            return self.fail("TODO isErr for errors with size > 8", .{});
-        }
-    } else {
-        return self.fail("TODO isErr for non-empty payloads", .{});
+        },
+        .register => |reg| {
+            if (err_off > 0 or payload_type.hasRuntimeBitsIgnoreComptime()) {
+                return self.fail("TODO implement isErr for register operand with payload bits", .{});
+            }
+            _ = try self.addInst(.{
+                .tag = .cmp_immediate,
+                .data = .{ .r_imm12_sh = .{
+                    .rn = reg,
+                    .imm12 = 0,
+                } },
+            });
+        },
+        else => return self.fail("TODO implement isErr for {}", .{operand}),
     }
+
+    return MCValue{ .compare_flags_unsigned = .gt };
 }
 
 fn isNonErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
@@ -4483,7 +4502,7 @@ fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
     const ref_int = @enumToInt(inst);
     if (ref_int < Air.Inst.Ref.typed_value_map.len) {
         const tv = Air.Inst.Ref.typed_value_map[ref_int];
-        if (!tv.ty.hasRuntimeBits()) {
+        if (!tv.ty.hasRuntimeBitsIgnoreComptime() and !tv.ty.isError()) {
             return MCValue{ .none = {} };
         }
         return self.genTypedValue(tv);
@@ -4491,7 +4510,7 @@ fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
 
     // If the type has no codegen bits, no need to store it.
     const inst_ty = self.air.typeOf(inst);
-    if (!inst_ty.hasRuntimeBits())
+    if (!inst_ty.hasRuntimeBitsIgnoreComptime() and !inst_ty.isError())
         return MCValue{ .none = {} };
 
     const inst_index = @intCast(Air.Inst.Index, ref_int - Air.Inst.Ref.typed_value_map.len);
@@ -4674,32 +4693,38 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
             }
         },
         .ErrorSet => {
-            const err_name = typed_value.val.castTag(.@"error").?.data.name;
-            const module = self.bin_file.options.module.?;
-            const global_error_set = module.global_error_set;
-            const error_index = global_error_set.get(err_name).?;
-            return MCValue{ .immediate = error_index };
+            switch (typed_value.val.tag()) {
+                .@"error" => {
+                    const err_name = typed_value.val.castTag(.@"error").?.data.name;
+                    const module = self.bin_file.options.module.?;
+                    const global_error_set = module.global_error_set;
+                    const error_index = global_error_set.get(err_name).?;
+                    return MCValue{ .immediate = error_index };
+                },
+                else => {
+                    // In this case we are rendering an error union which has a 0 bits payload.
+                    return MCValue{ .immediate = 0 };
+                },
+            }
         },
         .ErrorUnion => {
             const error_type = typed_value.ty.errorUnionSet();
             const payload_type = typed_value.ty.errorUnionPayload();
 
-            if (typed_value.val.castTag(.eu_payload)) |pl| {
-                if (!payload_type.hasRuntimeBits()) {
-                    // We use the error type directly as the type.
-                    return MCValue{ .immediate = 0 };
-                }
-
-                _ = pl;
-                return self.fail("TODO implement error union const of type '{}' (non-error)", .{typed_value.ty.fmtDebug()});
-            } else {
-                if (!payload_type.hasRuntimeBits()) {
-                    // We use the error type directly as the type.
-                    return self.genTypedValue(.{ .ty = error_type, .val = typed_value.val });
-                }
-
-                return self.fail("TODO implement error union const of type '{}' (error)", .{typed_value.ty.fmtDebug()});
+            if (error_type.errorSetCardinality() == .zero) {
+                const payload_val = typed_value.val.castTag(.eu_payload).?.data;
+                return self.genTypedValue(.{ .ty = payload_type, .val = payload_val });
             }
+
+            const is_pl = typed_value.val.errorUnionIsPayload();
+
+            if (!payload_type.hasRuntimeBitsIgnoreComptime()) {
+                // We use the error type directly as the type.
+                const err_val = if (!is_pl) typed_value.val else Value.initTag(.zero);
+                return self.genTypedValue(.{ .ty = error_type, .val = err_val });
+            }
+
+            return self.lowerUnnamedConst(typed_value);
         },
         .Struct => {
             return self.lowerUnnamedConst(typed_value);
@@ -4796,13 +4821,16 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
 
     if (ret_ty.zigTypeTag() == .NoReturn) {
         result.return_value = .{ .unreach = {} };
-    } else if (!ret_ty.hasRuntimeBits()) {
+    } else if (!ret_ty.hasRuntimeBitsIgnoreComptime() and !ret_ty.isError()) {
         result.return_value = .{ .none = {} };
     } else switch (cc) {
         .Naked => unreachable,
         .Unspecified, .C => {
             const ret_ty_size = @intCast(u32, ret_ty.abiSize(self.target.*));
-            if (ret_ty_size <= 8) {
+            if (ret_ty_size == 0) {
+                assert(ret_ty.isError());
+                result.return_value = .{ .immediate = 0 };
+            } else if (ret_ty_size <= 8) {
                 result.return_value = .{ .register = registerAlias(c_abi_int_return_regs[0], ret_ty_size) };
             } else {
                 return self.fail("TODO support more return types for ARM backend", .{});
