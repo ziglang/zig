@@ -20197,7 +20197,11 @@ fn beginComptimePtrLoad(
             var deref = try beginComptimePtrLoad(sema, block, src, field_ptr.container_ptr, field_ptr.container_ty);
 
             if (field_ptr.container_ty.hasWellDefinedLayout()) {
-                if (deref.parent) |*parent| {
+                const struct_ty = field_ptr.container_ty.castTag(.@"struct");
+                if (struct_ty != null and struct_ty.?.data.layout == .Packed) {
+                    // packed structs are not byte addressable
+                    deref.parent = null;
+                } else if (deref.parent) |*parent| {
                     // Update the byte offset (in-place)
                     try sema.resolveTypeLayout(block, src, field_ptr.container_ty);
                     const field_offset = field_ptr.container_ty.structFieldOffset(field_index, target);

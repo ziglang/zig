@@ -1319,3 +1319,24 @@ test "packed struct aggregate init" {
     const result = @bitCast(u8, S.foo(1, 2));
     try expect(result == 9);
 }
+
+test "packed struct field access via pointer" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            const S = packed struct { a: u30 };
+            var s1: S = .{ .a = 1 };
+            var s2 = &s1;
+            try expect(s2.a == 1);
+            var s3: S = undefined;
+            var s4 = &s3;
+            _ = s4;
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
