@@ -275,42 +275,25 @@ pub const Inst = struct {
         call,
 
         /// ops flags:
-        ///     0b00 gte
-        ///     0b01 gt
-        ///     0b10 lt
-        ///     0b11 lte
-        cond_jmp_greater_less,
-        cond_set_byte_greater_less,
+        ///     unused
+        /// Notes:
+        ///  * uses `inst_cc` in Data.
+        cond_jmp,
 
         /// ops flags:
-        ///     0b00 above or equal
-        ///     0b01 above
-        ///     0b10 below
-        ///     0b11 below or equal
-        cond_jmp_above_below,
-        cond_set_byte_above_below,
-
-        /// ops flags:
-        ///     0bX0 ne
-        ///     0bX1 eq
-        cond_jmp_eq_ne,
-        cond_set_byte_eq_ne,
+        ///      0b00 reg1
+        /// Notes:
+        ///  * uses condition code (CC) stored as part of data
+        cond_set_byte,
 
         /// ops flags:
         ///     0b00 reg1, reg2,
         ///     0b01 reg1, word ptr  [reg2 + imm]
         ///     0b10 reg1, dword ptr [reg2 + imm]
         ///     0b11 reg1, qword ptr [reg2 + imm]
-        cond_mov_eq,
-        cond_mov_lt,
-        cond_mov_below,
-
-        /// ops flags:
-        ///     0b00 reg1 if OF = 1
-        ///     0b01 reg1 if OF = 0
-        ///     0b10 reg1 if CF = 1
-        ///     0b11 reg1 if CF = 0
-        cond_set_byte_overflow,
+        /// Notes:
+        ///  * uses condition code (CC) stored as part of data
+        cond_mov,
 
         /// ops flags:  form:
         ///       0b00   reg1
@@ -451,6 +434,16 @@ pub const Inst = struct {
         inst: Index,
         /// A 32-bit immediate value.
         imm: u32,
+        /// A condition code for use with EFLAGS register.
+        cc: bits.Condition,
+        /// Another instruction with condition code.
+        /// Used by `cond_jmp`.
+        inst_cc: struct {
+            /// Another instruction.
+            inst: Index,
+            /// A condition code for use with EFLAGS register.
+            cc: bits.Condition,
+        },
         /// An extern function.
         extern_fn: struct {
             /// Index of the containing atom.
