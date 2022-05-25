@@ -290,3 +290,13 @@ test "hardcoded address in typeof expression" {
     try expect(S.func() == 0);
     comptime try expect(S.func() == 0);
 }
+
+test "array access of generic param in typeof expression" {
+    const S = struct {
+        fn first(comptime items: anytype) @TypeOf(items[0]) {
+            return items[0];
+        }
+    };
+    try expect(S.first("a") == 'a');
+    comptime try expect(S.first("a") == 'a');
+}
