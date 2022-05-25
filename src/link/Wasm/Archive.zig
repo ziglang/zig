@@ -113,8 +113,6 @@ pub fn parse(self: *Archive, allocator: Allocator) !void {
         return error.NotArchive;
     }
 
-    log.debug("parsing archive '{s}' at '{s}'", .{ std.mem.sliceTo(&self.header.ar_name, 0), self.name });
-
     try self.parseTableOfContents(allocator, reader);
 }
 
@@ -175,6 +173,35 @@ fn parseTableOfContents(self: *Archive, allocator: Allocator, reader: anytype) !
             gop.value_ptr.* = .{};
         }
         try gop.value_ptr.append(allocator, symbol_positions[gop.index]);
-        log.debug("  parsed symbol '{s}' for position {d}", .{ string, symbol_positions[gop.index] });
     }
+}
+
+/// From a given file offset, starts reading for a file header.
+/// When found, parses the object file into an `Object` and returns it.
+pub fn parseObject(self: Archive, allocator: Allocator, file_offset: u32) !Object {
+    try self.file.seekTo(file_offset);
+    const reader = self.file.reader();
+    const header = try reader.readStruct(ar_hdr);
+
+    if (!mem.eql(u8, &header.ar_fmag, ARFMAG)) {
+        log.err("invalid header delimiter: expected '{s}', found '{s}'", .{ ARFMAG, header.ar_fmag });
+        return error.MalformedArchive;
+    }
+
+    const object_name = try parseName(allocator, header, reader);
+    defer allocator.free(object_name);
+
+    const name = name: {
+        if (object_name.len == 0) {
+            break :name try std.fmt.allocPrint(allocator, "{s}.o", .{self.name});
+        }
+        const base_path = std.fs.path.dirname(self.name);
+        break :name try std.fmt.allocPrint(allocator, "{s}/{s}.o", .{ base_path, object_name });
+    };
+
+    log.debug(" parsing object file '{s}' from archive\n", .{name});
+    const object_file = try std.fs.cwd().openFile(name, .{});
+    errdefer object_file.close();
+
+    return Object.create(allocator, object_file, name);
 }

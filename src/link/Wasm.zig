@@ -29,6 +29,7 @@ const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const Symbol = @import("Wasm/Symbol.zig");
 const Object = @import("Wasm/Object.zig");
+const Archive = @import("Wasm/Archive.zig");
 const types = @import("Wasm/types.zig");
 
 pub const base_tag = link.File.Tag.wasm;
@@ -125,6 +126,10 @@ function_table: std.AutoHashMapUnmanaged(SymbolLoc, u32) = .{},
 
 /// All object files and their data which are linked into the final binary
 objects: std.ArrayListUnmanaged(Object) = .{},
+/// All archive files that are lazy loaded.
+/// e.g. when an undefined symbol references a symbol from the archive.
+archives: std.ArrayListUnmanaged(Archive) = .{},
+
 /// A map of global names (read: offset into string table) to their symbol location
 globals: std.AutoHashMapUnmanaged(u32, SymbolLoc) = .{},
 /// Maps discarded symbols and their positions to the location of the symbol
@@ -133,6 +138,8 @@ discarded: std.AutoHashMapUnmanaged(SymbolLoc, SymbolLoc) = .{},
 /// List of all symbol locations which have been resolved by the linker and will be emit
 /// into the final binary.
 resolved_symbols: std.AutoArrayHashMapUnmanaged(SymbolLoc, void) = .{},
+/// Symbols that remain undefined after symbol resolution.
+undefs: std.StringArrayHashMapUnmanaged(SymbolLoc) = .{},
 /// Maps a symbol's location to an atom. This can be used to find meta
 /// data of a symbol, such as its size, or its offset to perform a relocation.
 /// Undefined (and synthetic) symbols do not have an Atom and therefore cannot be mapped.
@@ -359,6 +366,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Wasm {
 fn parseInputFiles(self: *Wasm, files: []const []const u8) !void {
     for (files) |path| {
         if (try self.parseObjectFile(path)) continue;
+        if (try self.parseArchive(path, false)) continue; // load archives lazily
         log.warn("Unexpected file format at path: '{s}'", .{path});
     }
 }
@@ -371,14 +379,61 @@ fn parseObjectFile(self: *Wasm, path: []const u8) !bool {
     errdefer file.close();
 
     var object = Object.create(self.base.allocator, file, path) catch |err| switch (err) {
-        error.InvalidMagicByte, error.NotObjectFile => {
-            log.warn("Self hosted linker does not support non-object file parsing: {s}", .{@errorName(err)});
-            return false;
-        },
+        error.InvalidMagicByte, error.NotObjectFile => return false,
         else => |e| return e,
     };
     errdefer object.deinit(self.base.allocator);
     try self.objects.append(self.base.allocator, object);
+    return true;
+}
+
+/// Parses an archive file and will then parse each object file
+/// that was found in the archive file.
+/// Returns false when the file is not an archive file.
+/// May return an error instead when parsing failed.
+///
+/// When `force_load` is `true`, it will for link all object files in the archive.
+/// When false, it will only link with object files that contain symbols that
+/// are referenced by other object files or Zig code.
+fn parseArchive(self: *Wasm, path: []const u8, force_load: bool) !bool {
+    const file = try fs.cwd().openFile(path, .{});
+    errdefer file.close();
+
+    var archive: Archive = .{
+        .file = file,
+        .name = path,
+    };
+    archive.parse(self.base.allocator) catch |err| switch (err) {
+        error.EndOfStream, error.NotArchive => {
+            archive.deinit(self.base.allocator);
+            return false;
+        },
+        else => |e| return e,
+    };
+
+    if (!force_load) {
+        errdefer archive.deinit(self.base.allocator);
+        try self.archives.append(self.base.allocator, archive);
+        return true;
+    }
+    defer archive.deinit(self.base.allocator);
+
+    // In this case we must force link all embedded object files within the archive
+    // We loop over all symbols, and then group them by offset as the offset
+    // notates where the object file starts.
+    var offsets = std.AutoArrayHashMap(u32, void).init(self.base.allocator);
+    defer offsets.deinit();
+    for (archive.toc.values()) |symbol_offsets| {
+        for (symbol_offsets.items) |sym_offset| {
+            try offsets.put(sym_offset, {});
+        }
+    }
+
+    for (offsets.keys()) |file_offset| {
+        const object = try self.objects.addOne(self.base.allocator);
+        object.* = try archive.parseObject(self.base.allocator, file_offset);
+    }
+
     return true;
 }
 
@@ -414,6 +469,10 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
         if (!maybe_existing.found_existing) {
             maybe_existing.value_ptr.* = location;
             try self.resolved_symbols.putNoClobber(self.base.allocator, location, {});
+
+            if (symbol.isUndefined()) {
+                try self.undefs.putNoClobber(self.base.allocator, sym_name, location);
+            }
             continue;
         }
 
@@ -456,6 +515,42 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
         try self.globals.put(self.base.allocator, sym_name_index, location);
         try self.resolved_symbols.put(self.base.allocator, location, {});
         assert(self.resolved_symbols.swapRemove(existing_loc));
+        if (existing_sym.isUndefined()) {
+            // ensure order remains intact in case we later
+            // resolve symbols again in a loop
+            assert(self.undefs.orderedRemove(sym_name));
+        }
+    }
+}
+
+fn resolveSymbolsInArchives(self: *Wasm) !void {
+    if (self.archives.items.len == 0) return;
+
+    log.debug("Resolving symbols in archives", .{});
+    var index: u32 = 0;
+    undef_loop: while (index < self.undefs.count()) {
+        const undef_sym_loc = self.undefs.values()[index];
+        const sym_name = undef_sym_loc.getName(self);
+
+        for (self.archives.items) |archive| {
+            const offset = archive.toc.get(sym_name) orelse {
+                // symbol does not exist in this archive
+                continue;
+            };
+
+            // Symbol is found in unparsed object file within current archive.
+            // Parse object and and resolve symbols again before we check remaining
+            // undefined symbols.
+            const object_file_index = @intCast(u16, self.objects.items.len);
+            const object = try self.objects.addOne(self.base.allocator);
+            object.* = try archive.parseObject(self.base.allocator, offset.items[0]);
+            try self.resolveSymbolsInObject(object_file_index);
+
+            // continue loop for any remaining undefined symbols that still exist
+            // after resolving last object file
+            continue :undef_loop;
+        }
+        index += 1;
     }
 }
 
@@ -789,6 +884,7 @@ pub fn getGlobalSymbol(self: *Wasm, name: []const u8) !u32 {
     self.symbols.items[sym_index] = symbol;
     gop.value_ptr.* = .{ .index = sym_index, .file = null };
     try self.resolved_symbols.put(self.base.allocator, gop.value_ptr.*, {});
+    try self.undefs.putNoClobber(self.base.allocator, name, gop.value_ptr.*);
     return sym_index;
 }
 
@@ -1017,6 +1113,7 @@ pub fn addOrUpdateImport(
         const loc: SymbolLoc = .{ .file = null, .index = symbol_index };
         global_gop.value_ptr.* = loc;
         try self.resolved_symbols.put(self.base.allocator, loc, {});
+        try self.undefs.putNoClobber(self.base.allocator, name, loc);
     }
 
     if (type_index) |ty_index| {
@@ -1298,7 +1395,7 @@ fn mergeTypes(self: *Wasm) !void {
     // type inserted. If we do this for the same function multiple times,
     // it will be overwritten with the incorrect type.
     var dirty = std.AutoHashMap(u32, void).init(self.base.allocator);
-    try dirty.ensureUnusedCapacity(@intCast(u32, self.functions.count()) + self.imported_functions_count);
+    try dirty.ensureUnusedCapacity(@intCast(u32, self.functions.count()));
     defer dirty.deinit();
 
     for (self.resolved_symbols.keys()) |sym_loc| {
@@ -1313,22 +1410,17 @@ fn mergeTypes(self: *Wasm) !void {
             continue;
         }
 
-        if (dirty.contains(symbol.index)) {
-            continue; // We already added the type of this symbol
-        }
-
         if (symbol.isUndefined()) {
             log.debug("Adding type from extern function '{s}'", .{sym_loc.getName(self)});
             const import: *types.Import = self.imports.getPtr(sym_loc).?;
             const original_type = object.func_types[import.kind.function];
             import.kind.function = try self.putOrGetFuncType(original_type);
-        } else {
+        } else if (!dirty.contains(symbol.index)) {
             log.debug("Adding type from function '{s}'", .{sym_loc.getName(self)});
             const func = &self.functions.values()[symbol.index - self.imported_functions_count];
             func.type_index = try self.putOrGetFuncType(object.func_types[func.type_index]);
+            dirty.putAssumeCapacityNoClobber(symbol.index, {});
         }
-
-        dirty.putAssumeCapacityNoClobber(symbol.index, {});
     }
     log.debug("Completed merging and deduplicating types. Total count: ({d})", .{self.func_types.items.len});
 }
@@ -1747,6 +1839,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     while (object_index < self.objects.items.len) : (object_index += 1) {
         try self.resolveSymbolsInObject(object_index);
     }
+    try self.resolveSymbolsInArchives();
 
     // When we finish/error we reset the state of the linker
     // So we can rebuild the binary file on each incremental update
