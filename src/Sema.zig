@@ -1513,6 +1513,7 @@ fn resolveDefinedValue(
 ) CompileError!?Value {
     if (try sema.resolveMaybeUndefVal(block, src, air_ref)) |val| {
         if (val.isUndef()) {
+            if (block.is_typeof) return null;
             return sema.failWithUseOfUndef(block, src);
         }
         return val;
@@ -12268,6 +12269,7 @@ fn zirTypeofBuiltin(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
         .inlining = block.inlining,
         .is_comptime = false,
         .is_typeof = true,
+        .want_safety = false,
     };
     defer child_block.instructions.deinit(sema.gpa);
 
@@ -20832,7 +20834,7 @@ fn analyzeDeclVal(
     const decl_ref = try sema.analyzeDeclRef(decl_index);
     const result = try sema.analyzeLoad(block, src, decl_ref, src);
     if (Air.refToIndex(result)) |index| {
-        if (sema.air_instructions.items(.tag)[index] == .constant) {
+        if (sema.air_instructions.items(.tag)[index] == .constant and !block.is_typeof) {
             try sema.decl_val_table.put(sema.gpa, decl_index, result);
         }
     }
@@ -20962,6 +20964,9 @@ fn analyzeLoad(
     if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| {
         if (try sema.pointerDeref(block, ptr_src, ptr_val, ptr_ty)) |elem_val| {
             return sema.addConstant(elem_ty, elem_val);
+        }
+        if (block.is_typeof) {
+            return sema.addConstUndef(elem_ty);
         }
     }
 
