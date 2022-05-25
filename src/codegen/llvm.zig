@@ -1470,16 +1470,25 @@ pub const Object = struct {
                 return full_di_ty;
             },
             .ErrorUnion => {
-                const err_set_ty = ty.errorUnionSet();
                 const payload_ty = ty.errorUnionPayload();
-                if (err_set_ty.errorSetCardinality() == .zero) {
-                    const payload_di_ty = try o.lowerDebugType(payload_ty, .full);
-                    // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                    try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(payload_di_ty), .{ .mod = o.module });
-                    return payload_di_ty;
+                switch (ty.errorUnionSet().errorSetCardinality()) {
+                    .zero => {
+                        const payload_di_ty = try o.lowerDebugType(payload_ty, .full);
+                        // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
+                        try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(payload_di_ty), .{ .mod = o.module });
+                        return payload_di_ty;
+                    },
+                    .one => {
+                        if (payload_ty.isNoReturn()) {
+                            const di_type = dib.createBasicType("void", 0, DW.ATE.signed);
+                            gop.value_ptr.* = AnnotatedDITypePtr.initFull(di_type);
+                            return di_type;
+                        }
+                    },
+                    .many => {},
                 }
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
-                    const err_set_di_ty = try o.lowerDebugType(err_set_ty, .full);
+                    const err_set_di_ty = try o.lowerDebugType(Type.anyerror, .full);
                     // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
                     try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(err_set_di_ty), .{ .mod = o.module });
                     return err_set_di_ty;
@@ -1502,55 +1511,50 @@ pub const Object = struct {
                     break :blk fwd_decl;
                 };
 
-                const err_set_size = err_set_ty.abiSize(target);
-                const err_set_align = err_set_ty.abiAlignment(target);
+                const error_size = Type.anyerror.abiSize(target);
+                const error_align = Type.anyerror.abiAlignment(target);
                 const payload_size = payload_ty.abiSize(target);
                 const payload_align = payload_ty.abiAlignment(target);
 
-                var offset: u64 = 0;
-                offset += err_set_size;
-                offset = std.mem.alignForwardGeneric(u64, offset, payload_align);
-                const payload_offset = offset;
-
-                var len: u8 = 2;
-                var fields: [3]*llvm.DIType = .{
-                    dib.createMemberType(
-                        fwd_decl.toScope(),
-                        "tag",
-                        di_file,
-                        line,
-                        err_set_size * 8, // size in bits
-                        err_set_align * 8, // align in bits
-                        0, // offset in bits
-                        0, // flags
-                        try o.lowerDebugType(err_set_ty, .full),
-                    ),
-                    dib.createMemberType(
-                        fwd_decl.toScope(),
-                        "value",
-                        di_file,
-                        line,
-                        payload_size * 8, // size in bits
-                        payload_align * 8, // align in bits
-                        payload_offset * 8, // offset in bits
-                        0, // flags
-                        try o.lowerDebugType(payload_ty, .full),
-                    ),
-                    undefined,
-                };
-
-                const error_size = Type.anyerror.abiSize(target);
-                if (payload_align > error_size) {
-                    fields[2] = fields[1];
-                    const pad_len = @intCast(u32, payload_align - error_size);
-                    fields[1] = dib.createArrayType(
-                        pad_len * 8,
-                        8,
-                        try o.lowerDebugType(Type.u8, .full),
-                        @intCast(c_int, pad_len),
-                    );
-                    len += 1;
+                var error_index: u32 = undefined;
+                var payload_index: u32 = undefined;
+                var error_offset: u64 = undefined;
+                var payload_offset: u64 = undefined;
+                if (error_align > payload_align) {
+                    error_index = 0;
+                    payload_index = 1;
+                    error_offset = 0;
+                    payload_offset = std.mem.alignForwardGeneric(u64, error_size, payload_align);
+                } else {
+                    payload_index = 0;
+                    error_index = 1;
+                    payload_offset = 0;
+                    error_offset = std.mem.alignForwardGeneric(u64, payload_size, error_align);
                 }
+
+                var fields: [2]*llvm.DIType = undefined;
+                fields[error_index] = dib.createMemberType(
+                    fwd_decl.toScope(),
+                    "tag",
+                    di_file,
+                    line,
+                    error_size * 8, // size in bits
+                    error_align * 8, // align in bits
+                    error_offset * 8, // offset in bits
+                    0, // flags
+                    try o.lowerDebugType(Type.anyerror, .full),
+                );
+                fields[payload_index] = dib.createMemberType(
+                    fwd_decl.toScope(),
+                    "value",
+                    di_file,
+                    line,
+                    payload_size * 8, // size in bits
+                    payload_align * 8, // align in bits
+                    payload_offset * 8, // offset in bits
+                    0, // flags
+                    try o.lowerDebugType(payload_ty, .full),
+                );
 
                 const full_di_ty = dib.createStructType(
                     compile_unit_scope,
@@ -1562,7 +1566,7 @@ pub const Object = struct {
                     0, // flags
                     null, // derived from
                     &fields,
-                    len,
+                    fields.len,
                     0, // run time lang
                     null, // vtable holder
                     "", // unique id
@@ -2455,18 +2459,23 @@ pub const DeclGen = struct {
                 return dg.context.structType(&fields, fields.len, .False);
             },
             .ErrorUnion => {
-                const error_type = t.errorUnionSet();
-                const payload_type = t.errorUnionPayload();
-                if (error_type.errorSetCardinality() == .zero) {
-                    return dg.lowerType(payload_type);
+                const payload_ty = t.errorUnionPayload();
+                switch (t.errorUnionSet().errorSetCardinality()) {
+                    .zero => return dg.lowerType(payload_ty),
+                    .one => {
+                        if (payload_ty.isNoReturn()) {
+                            return dg.context.voidType();
+                        }
+                    },
+                    .many => {},
                 }
-                if (!payload_type.hasRuntimeBitsIgnoreComptime()) {
+                if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
                     return try dg.lowerType(Type.anyerror);
                 }
-                const llvm_error_type = try dg.lowerType(error_type);
-                const llvm_payload_type = try dg.lowerType(payload_type);
+                const llvm_error_type = try dg.lowerType(Type.anyerror);
+                const llvm_payload_type = try dg.lowerType(payload_ty);
 
-                const payload_align = payload_type.abiAlignment(target);
+                const payload_align = payload_ty.abiAlignment(target);
                 const error_align = Type.anyerror.abiAlignment(target);
                 if (error_align > payload_align) {
                     const fields: [2]*const llvm.Type = .{ llvm_error_type, llvm_payload_type };
@@ -2476,9 +2485,7 @@ pub const DeclGen = struct {
                     return dg.context.structType(&fields, fields.len, .False);
                 }
             },
-            .ErrorSet => {
-                return dg.context.intType(16);
-            },
+            .ErrorSet => return dg.context.intType(16),
             .Struct => {
                 const gop = try dg.object.type_map.getOrPutContext(gpa, t, .{ .mod = dg.module });
                 if (gop.found_existing) return gop.value_ptr.*;
@@ -3095,7 +3102,7 @@ pub const DeclGen = struct {
                 return dg.resolveLlvmFunction(fn_decl_index);
             },
             .ErrorSet => {
-                const llvm_ty = try dg.lowerType(tv.ty);
+                const llvm_ty = try dg.lowerType(Type.anyerror);
                 switch (tv.val.tag()) {
                     .@"error" => {
                         const err_name = tv.val.castTag(.@"error").?.data.name;
@@ -3109,9 +3116,8 @@ pub const DeclGen = struct {
                 }
             },
             .ErrorUnion => {
-                const error_type = tv.ty.errorUnionSet();
                 const payload_type = tv.ty.errorUnionPayload();
-                if (error_type.errorSetCardinality() == .zero) {
+                if (tv.ty.errorUnionSet().errorSetCardinality() == .zero) {
                     const payload_val = tv.val.castTag(.eu_payload).?.data;
                     return dg.lowerValue(.{ .ty = payload_type, .val = payload_val });
                 }
@@ -3120,13 +3126,13 @@ pub const DeclGen = struct {
                 if (!payload_type.hasRuntimeBitsIgnoreComptime()) {
                     // We use the error type directly as the type.
                     const err_val = if (!is_pl) tv.val else Value.initTag(.zero);
-                    return dg.lowerValue(.{ .ty = error_type, .val = err_val });
+                    return dg.lowerValue(.{ .ty = Type.anyerror, .val = err_val });
                 }
 
                 const payload_align = payload_type.abiAlignment(target);
                 const error_align = Type.anyerror.abiAlignment(target);
                 const llvm_error_value = try dg.lowerValue(.{
-                    .ty = error_type,
+                    .ty = Type.anyerror,
                     .val = if (is_pl) Value.initTag(.zero) else tv.val,
                 });
                 const llvm_payload_value = try dg.lowerValue(.{
@@ -5656,13 +5662,12 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(ty_op.operand);
         const error_union_ty = self.air.typeOf(ty_op.operand).childType();
 
-        const error_ty = error_union_ty.errorUnionSet();
-        if (error_ty.errorSetCardinality() == .zero) {
+        if (error_union_ty.errorUnionSet().errorSetCardinality() == .zero) {
             // TODO: write undefined bytes through the pointer here
             return operand;
         }
         const payload_ty = error_union_ty.errorUnionPayload();
-        const non_error_val = try self.dg.lowerValue(.{ .ty = error_ty, .val = Value.zero });
+        const non_error_val = try self.dg.lowerValue(.{ .ty = Type.anyerror, .val = Value.zero });
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
             _ = self.builder.buildStore(non_error_val, operand);
             return operand;
@@ -6715,9 +6720,9 @@ pub const FuncGen = struct {
         if (self.liveness.isUnused(inst)) return null;
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-        const operand = try self.resolveInst(ty_op.operand);
         const operand_ty = self.air.typeOf(ty_op.operand);
         const inst_ty = self.air.typeOfIndex(inst);
+        const operand = try self.resolveInst(ty_op.operand);
         const operand_is_ref = isByRef(operand_ty);
         const result_is_ref = isByRef(inst_ty);
         const llvm_dest_ty = try self.dg.lowerType(inst_ty);
