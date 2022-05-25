@@ -20950,6 +20950,11 @@ fn analyzeLoad(
         .Pointer => ptr_ty.childType(),
         else => return sema.fail(block, ptr_src, "expected pointer, found '{}'", .{ptr_ty.fmt(sema.mod)}),
     };
+
+    if (try sema.typeHasOnePossibleValue(block, src, elem_ty)) |opv| {
+        return sema.addConstant(elem_ty, opv);
+    }
+
     if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| {
         if (try sema.pointerDeref(block, ptr_src, ptr_val, ptr_ty)) |elem_val| {
             return sema.addConstant(elem_ty, elem_val);
