@@ -292,10 +292,27 @@ const DocData = struct {
             if (options.whitespace) |*ws| ws.indent_level += 1;
             while (it.next()) |kv| : (idx += 1) {
                 if (options.whitespace) |ws| try ws.outputIndent(w);
-                try w.print("\"{s}\": {d}", .{
-                    kv.key_ptr.*.sub_file_path,
-                    kv.value_ptr.*,
-                });
+                const builtin = @import("builtin");
+                if (builtin.target.os.tag == .windows) {
+                    try w.print("\"", .{});
+                    for (kv.key_ptr.*.sub_file_path) |c| {
+                        if (c == '\\') {
+                            try w.print("\\", .{});
+                            try w.print("\\", .{});
+                        } else {
+                            try w.print("{c}", .{c});
+                        }
+                    }
+                    try w.print("\"", .{});
+                    try w.print(": {d}", .{
+                        kv.value_ptr.*,
+                    });
+                } else {
+                    try w.print("\"{s}\": {d}", .{
+                        kv.key_ptr.*.sub_file_path,
+                        kv.value_ptr.*,
+                    });
+                }
                 if (idx != self.data.count() - 1) try w.writeByte(',');
                 try w.writeByte('\n');
             }
