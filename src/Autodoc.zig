@@ -383,13 +383,13 @@ const DocData = struct {
         Pointer: struct {
             size: std.builtin.TypeInfo.Pointer.Size,
             child: Expr,
-            sentinel: bool = false,
+            sentinel: ?Expr = null,
             is_mutable: bool = true,
         },
         Array: struct {
             len: Expr,
             child: Expr,
-            sentinel: bool = false,
+            sentinel: ?Expr = null,
         },
         Struct: struct {
             name: []const u8,
@@ -482,11 +482,14 @@ const DocData = struct {
                         \\
                     , .{@enumToInt(v.size)});
                     if (options.whitespace) |ws| try ws.outputIndent(w);
-                    try w.print(
-                        \\"sentinel": {},
-                        \\
-                    , .{v.sentinel});
-                    if (options.whitespace) |ws| try ws.outputIndent(w);
+                    if (v.sentinel) |sentinel| {
+                        try w.print(
+                            \\"sentinel":
+                        , .{});
+                        if (options.whitespace) |*ws| ws.indent_level += 1;
+                        try sentinel.jsonStringify(options, w);
+                        try w.print(",", .{});
+                    }
                     try w.print(
                         \\"is_mutable": {},
                         \\
@@ -766,7 +769,10 @@ fn walkInstruction(
                     .Array = .{
                         .len = .{ .int = .{ .value = str.len } },
                         .child = .{ .type = @enumToInt(Ref.u8_type) },
-                        .sentinel = true,
+                        .sentinel = .{ .int = .{
+                            .value = 0,
+                            .negated = false,
+                        } },
                     },
                 });
                 // const sentinel: ?usize = if (ptr.flags.has_sentinel) 0 else null;
@@ -775,7 +781,10 @@ fn walkInstruction(
                     .Pointer = .{
                         .size = .One,
                         .child = .{ .type = arrTypeId },
-                        .sentinel = true,
+                        .sentinel = .{ .int = .{
+                            .value = 0,
+                            .negated = false,
+                        } },
                         .is_mutable = false,
                     },
                 });
@@ -842,10 +851,7 @@ fn walkInstruction(
                 false,
             );
 
-            return DocData.WalkResult{
-                .typeRef = .{ .type = operand.typeRef.?.type },
-                .expr = .{ .type = operand.expr.type },
-            };
+            return operand;
         },
         .ptr_type_simple => {
             const ptr = data[inst_index].ptr_type_simple;
@@ -868,8 +874,6 @@ fn walkInstruction(
             const ptr = data[inst_index].ptr_type;
             const extra = file.zir.extraData(Zir.Inst.PtrType, ptr.payload_index);
 
-            const sentinel: bool = if (ptr.flags.has_sentinel) true else false;
-
             const type_slot_index = self.types.items.len;
             const elem_type_ref = try self.walkRef(
                 file,
@@ -877,8 +881,9 @@ fn walkInstruction(
                 extra.data.elem_type,
                 false,
             );
+
             try self.types.append(self.arena, .{
-                .Pointer = .{ .size = ptr.size, .child = elem_type_ref.expr, .sentinel = sentinel, .is_mutable = ptr.flags.is_mutable },
+                .Pointer = .{ .size = ptr.size, .child = elem_type_ref.expr, .sentinel = .{ .int = .{ .value = 0, .negated = false } }, .is_mutable = ptr.flags.is_mutable },
             });
             return DocData.WalkResult{
                 .typeRef = .{ .type = @enumToInt(Ref.type_type) },
@@ -907,7 +912,7 @@ fn walkInstruction(
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.ArrayTypeSentinel, pl_node.payload_index);
             const len = try self.walkRef(file, parent_scope, extra.data.len, false);
-            // const sentinel = try self.walkRef(file, parent_scope, extra.data.sentinel, false);
+            const sentinel = try self.walkRef(file, parent_scope, extra.data.sentinel, false);
             const elem_type = try self.walkRef(file, parent_scope, extra.data.elem_type, false);
 
             const type_slot_index = self.types.items.len;
@@ -915,7 +920,7 @@ fn walkInstruction(
                 .Array = .{
                     .len = len.expr,
                     .child = elem_type.expr,
-                    .sentinel = true,
+                    .sentinel = sentinel.expr,
                 },
             });
             return DocData.WalkResult{
@@ -966,12 +971,12 @@ fn walkInstruction(
         .array_init_sent => {
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.MultiOp, pl_node.payload_index);
-            const operands = file.zir.refSlice(extra.end, extra.data.operands_len - 1);
-            const array_data = try self.arena.alloc(usize, operands.len);
+            const operands = file.zir.refSlice(extra.end, extra.data.operands_len);
+            const array_data = try self.arena.alloc(usize, operands.len - 1);
 
             // TODO: make sure that you want the array to be fully normalized for real
             // then update this code to conform to your choice.
-
+            var sentinel: ?DocData.Expr = null;
             var array_type: ?DocData.Expr = null;
             for (operands) |op, idx| {
                 // we only ask to figure out type info for the first element
@@ -981,20 +986,21 @@ fn walkInstruction(
                     array_type = wr.typeRef;
                 }
 
-                // We know that Zir wraps every operand in an @as expression
-                // so we want to peel it away and only save the target type
-                // once, since we need it later to define the array type.
-                array_data[idx] = wr.expr.as.exprArg;
+                if (idx == extra.data.operands_len - 1) {
+                    sentinel = self.exprs.items[wr.expr.as.exprArg];
+                } else {
+                    array_data[idx] = wr.expr.as.exprArg;
+                }
             }
 
             const type_slot_index = self.types.items.len;
             try self.types.append(self.arena, .{
                 .Array = .{ .len = .{
                     .int = .{
-                        .value = operands.len,
+                        .value = operands.len - 1,
                         .negated = false,
                     },
-                }, .child = array_type.?, .sentinel = true },
+                }, .child = array_type.?, .sentinel = sentinel },
             });
 
             return DocData.WalkResult{
@@ -1084,28 +1090,36 @@ fn walkInstruction(
         .array_init_sent_ref => {
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.MultiOp, pl_node.payload_index);
-            // the sentinel terminator are calculated at compile time
-            // (extra.data.operands_len - 1) is to not account for that
-            const operands = file.zir.refSlice(extra.end, extra.data.operands_len - 1);
-            const array_data = try self.arena.alloc(usize, operands.len);
+            const operands = file.zir.refSlice(extra.end, extra.data.operands_len);
+            const array_data = try self.arena.alloc(usize, operands.len - 1);
 
+            // TODO: This should output:
+            // const array: *[value:sentinel]type = &.{};
+            // but right now it's printing:
+            // const array: [value:sentinel]u8 = .{};
+
+            var sentinel: ?DocData.Expr = null;
             var array_type: ?DocData.Expr = null;
             for (operands) |op, idx| {
                 const wr = try self.walkRef(file, parent_scope, op, idx == 0);
                 if (idx == 0) {
                     array_type = wr.typeRef;
                 }
-                array_data[idx] = wr.expr.as.exprArg;
+                if (idx == extra.data.operands_len - 1) {
+                    sentinel = self.exprs.items[wr.expr.as.exprArg];
+                } else {
+                    array_data[idx] = wr.expr.as.exprArg;
+                }
             }
 
             const type_slot_index = self.types.items.len;
             try self.types.append(self.arena, .{
                 .Array = .{ .len = .{
                     .int = .{
-                        .value = operands.len,
+                        .value = operands.len - 1,
                         .negated = false,
                     },
-                }, .child = array_type.?, .sentinel = true },
+                }, .child = array_type.?, .sentinel = sentinel },
             });
 
             return DocData.WalkResult{
@@ -1117,7 +1131,9 @@ fn walkInstruction(
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.MultiOp, pl_node.payload_index);
             const operands = file.zir.refSlice(extra.end, extra.data.operands_len);
-            const array_data = try self.arena.alloc(usize, operands.len);
+            const array_data = try self.arena.alloc(usize, operands.len - 1);
+
+            var sentinel: ?DocData.Expr = null;
 
             var array_type: ?DocData.Expr = null;
             for (operands) |op, idx| {
@@ -1125,17 +1141,23 @@ fn walkInstruction(
                 if (idx == 0) {
                     array_type = wr.typeRef;
                 }
-                array_data[idx] = wr.expr.int.value;
+
+                if (idx == extra.data.operands_len - 1) {
+                    sentinel = wr.expr;
+                    const expr_index = self.exprs.items.len;
+                    try self.exprs.append(self.arena, wr.expr);
+                    array_data[idx] = expr_index;
+                }
             }
 
             const type_slot_index = self.types.items.len;
             try self.types.append(self.arena, .{
                 .Array = .{ .len = .{
                     .int = .{
-                        .value = operands.len,
+                        .value = operands.len - 1,
                         .negated = false,
                     },
-                }, .child = array_type.? },
+                }, .child = array_type.?, .sentinel = sentinel },
             });
 
             return DocData.WalkResult{
