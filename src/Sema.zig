@@ -23320,7 +23320,6 @@ pub fn typeHasOnePossibleValue(
         .optional_single_const_pointer,
         .enum_literal,
         .anyerror_void_error_union,
-        .error_union,
         .error_set_inferred,
         .@"opaque",
         .var_args_param,
@@ -23357,6 +23356,29 @@ pub fn typeHasOnePossibleValue(
                 return Value.@"null";
             } else {
                 return null;
+            }
+        },
+
+        .error_union => {
+            const error_ty = ty.errorUnionSet();
+            switch (error_ty.errorSetCardinality()) {
+                .zero => {
+                    const payload_ty = ty.errorUnionPayload();
+                    if (try typeHasOnePossibleValue(sema, block, src, payload_ty)) |payload_val| {
+                        return try Value.Tag.eu_payload.create(sema.arena, payload_val);
+                    } else {
+                        return null;
+                    }
+                },
+                .one => {
+                    if (ty.errorUnionPayload().isNoReturn()) {
+                        const error_val = (try typeHasOnePossibleValue(sema, block, src, error_ty)).?;
+                        return error_val;
+                    } else {
+                        return null;
+                    }
+                },
+                .many => return null,
             }
         },
 

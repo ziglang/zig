@@ -2416,14 +2416,18 @@ pub const Type = extern union {
                 // This code needs to be kept in sync with the equivalent switch prong
                 // in abiSizeAdvanced.
                 const data = ty.castTag(.error_union).?.data;
-                if (data.error_set.errorSetCardinality() == .zero) {
-                    return hasRuntimeBitsAdvanced(data.payload, ignore_comptime_only, sema_kit);
-                } else if (ignore_comptime_only) {
-                    return true;
-                } else if (sema_kit) |sk| {
-                    return !(try sk.sema.typeRequiresComptime(sk.block, sk.src, ty));
-                } else {
-                    return !comptimeOnly(ty);
+                switch (data.error_set.errorSetCardinality()) {
+                    .zero => return hasRuntimeBitsAdvanced(data.payload, ignore_comptime_only, sema_kit),
+                    .one => return !data.payload.isNoReturn(),
+                    .many => {
+                        if (ignore_comptime_only) {
+                            return true;
+                        } else if (sema_kit) |sk| {
+                            return !(try sk.sema.typeRequiresComptime(sk.block, sk.src, ty));
+                        } else {
+                            return !comptimeOnly(ty);
+                        }
+                    },
                 }
             },
 
@@ -2970,8 +2974,14 @@ pub const Type = extern union {
                 // This code needs to be kept in sync with the equivalent switch prong
                 // in abiSizeAdvanced.
                 const data = ty.castTag(.error_union).?.data;
-                if (data.error_set.errorSetCardinality() == .zero) {
-                    return abiAlignmentAdvanced(data.payload, target, strat);
+                switch (data.error_set.errorSetCardinality()) {
+                    .zero => return abiAlignmentAdvanced(data.payload, target, strat),
+                    .one => {
+                        if (data.payload.isNoReturn()) {
+                            return AbiAlignmentAdvanced{ .scalar = 0 };
+                        }
+                    },
+                    .many => {},
                 }
                 const code_align = abiAlignment(Type.anyerror, target);
                 switch (strat) {
@@ -3440,8 +3450,14 @@ pub const Type = extern union {
                 // 1 bit of data which is whether or not the value is an error.
                 // Zig still uses the error code encoding at runtime, even when only 1 bit
                 // would suffice. This prevents coercions from needing to branch.
-                if (data.error_set.errorSetCardinality() == .zero) {
-                    return abiSizeAdvanced(data.payload, target, strat);
+                switch (data.error_set.errorSetCardinality()) {
+                    .zero => return abiSizeAdvanced(data.payload, target, strat),
+                    .one => {
+                        if (data.payload.isNoReturn()) {
+                            return AbiSizeAdvanced{ .scalar = 0 };
+                        }
+                    },
+                    .many => {},
                 }
                 const code_size = abiSize(Type.anyerror, target);
                 if (!data.payload.hasRuntimeBits()) {
@@ -4843,7 +4859,6 @@ pub const Type = extern union {
             .optional_single_const_pointer,
             .enum_literal,
             .anyerror_void_error_union,
-            .error_union,
             .error_set_inferred,
             .@"opaque",
             .var_args_param,
@@ -4880,6 +4895,30 @@ pub const Type = extern union {
                     return Value.@"null";
                 } else {
                     return null;
+                }
+            },
+
+            .error_union => {
+                const error_ty = ty.errorUnionSet();
+                switch (error_ty.errorSetCardinality()) {
+                    .zero => {
+                        const payload_ty = ty.errorUnionPayload();
+                        if (onePossibleValue(payload_ty)) |payload_val| {
+                            _ = payload_val;
+                            return Value.initTag(.the_only_possible_value);
+                        } else {
+                            return null;
+                        }
+                    },
+                    .one => {
+                        if (ty.errorUnionPayload().isNoReturn()) {
+                            const error_val = onePossibleValue(error_ty).?;
+                            return error_val;
+                        } else {
+                            return null;
+                        }
+                    },
+                    .many => return null,
                 }
             },
 
