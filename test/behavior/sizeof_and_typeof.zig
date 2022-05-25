@@ -280,3 +280,13 @@ test "@sizeOf comparison against zero" {
     try S.doTheTest(S1, true);
     try S.doTheTest(U1, true);
 }
+
+test "hardcoded address in typeof expression" {
+    const S = struct {
+        fn func() @TypeOf(@intToPtr(*[]u8, 0x10).*[0]) {
+            return 0;
+        }
+    };
+    try expect(S.func() == 0);
+    comptime try expect(S.func() == 0);
+}
