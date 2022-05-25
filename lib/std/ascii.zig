@@ -59,51 +59,59 @@ pub const control_code = struct {
 // These naive functions are used to generate the lookup table
 // and they're used as fallbacks for if the lookup table isn't available.
 //
-// Note that some functions like for example `isDigit` don't use a table because it's slower.
-// Using a table is generally only useful if not all `true` values in the table would be in one row.
+// Note that even some very simple functions like `isDigit` use a table because it avoids
+// branching which is slow.
 
-fn isCntrlNaive(c: u8) bool {
-    return c <= control_code.US or c == control_code.DEL;
-}
 fn isAlphaNaive(c: u8) bool {
-    return isLower(c) or isUpper(c);
+    return isLowerNaive(c) or isUpperNaive(c);
 }
 fn isXDigitNaive(c: u8) bool {
-    return isDigit(c) or
+    return isDigitNaive(c) or
         (c >= 'a' and c <= 'f') or
         (c >= 'A' and c <= 'F');
 }
-fn isAlNumNaive(c: u8) bool {
-    return isDigit(c) or isAlphaNaive(c);
+fn isSpaceNaive(c: u8) bool {
+    return std.mem.indexOfScalar(u8, &spaces, c) != null;
+}
+fn isDigitNaive(c: u8) bool {
+    return c >= '0' and c <= '9';
+}
+fn isLowerNaive(c: u8) bool {
+    return c >= 'a' and c <= 'z';
+}
+fn isUpperNaive(c: u8) bool {
+    return c >= 'A' and c <= 'Z';
 }
 fn isPunctNaive(c: u8) bool {
-    @setEvalBranchQuota(3000);
     return (c >= '!' and c <= '/') or
         (c >= '[' and c <= '`') or
         (c >= '{' and c <= '~') or
         (c >= ':' and c <= '@');
 }
-fn isSpaceNaive(c: u8) bool {
-    @setEvalBranchQuota(5000);
-    return std.mem.indexOfScalar(u8, &spaces, c) != null;
+fn isAlNumNaive(c: u8) bool {
+    return isDigitNaive(c) or isAlphaNaive(c);
 }
 
 /// A lookup table.
 const CombinedTable = struct {
     table: [256]u8,
 
-    const Index = enum {
-        control,
+    // We cannot have >8 variants here which means we should choose
+    // only the most important/common functions to use a table for.
+    const Index = enum(u3) {
         alphabetic,
         hexadecimal,
-        alphanumeric,
+        space,
+        digit,
+        lower,
+        upper,
         punct,
-        spaces,
+        alnum,
     };
 
     /// Generates a table which is filled with the results of the given function for all characters.
     fn getBoolTable(comptime condition: fn (u8) bool) [128]bool {
-        @setEvalBranchQuota(2000);
+        @setEvalBranchQuota(7500);
         comptime var table: [128]bool = undefined;
         comptime var index = 0;
         while (index < 128) : (index += 1) {
@@ -115,22 +123,26 @@ const CombinedTable = struct {
     fn init() CombinedTable {
         comptime var table: [256]u8 = undefined;
 
-        const control_table = comptime getBoolTable(isCntrlNaive);
-        const alpha_table = comptime getBoolTable(isAlphaNaive);
-        const hex_table = comptime getBoolTable(isXDigitNaive);
-        const alphanumeric_table = comptime getBoolTable(isAlNumNaive);
+        const alphabetic_table = comptime getBoolTable(isAlphaNaive);
+        const hexadecimal_table = comptime getBoolTable(isXDigitNaive);
+        const space_table = comptime getBoolTable(isSpaceNaive);
+        const digit_table = comptime getBoolTable(isDigitNaive);
+        const lower_table = comptime getBoolTable(isLowerNaive);
+        const upper_table = comptime getBoolTable(isUpperNaive);
         const punct_table = comptime getBoolTable(isPunctNaive);
-        const whitespace_table = comptime getBoolTable(isSpaceNaive);
+        const alnum_table = comptime getBoolTable(isAlNumNaive);
 
         comptime var i = 0;
         inline while (i < 128) : (i += 1) {
             table[i] =
-                @boolToInt(control_table[i]) << @enumToInt(Index.control) |
-                @boolToInt(alpha_table[i]) << @enumToInt(Index.alphabetic) |
-                @boolToInt(hex_table[i]) << @enumToInt(Index.hexadecimal) |
-                @boolToInt(alphanumeric_table[i]) << @enumToInt(Index.alphanumeric) |
+                @boolToInt(alphabetic_table[i]) << @enumToInt(Index.alphabetic) |
+                @boolToInt(hexadecimal_table[i]) << @enumToInt(Index.hexadecimal) |
+                @boolToInt(space_table[i]) << @enumToInt(Index.space) |
+                @boolToInt(digit_table[i]) << @enumToInt(Index.digit) |
+                @boolToInt(lower_table[i]) << @enumToInt(Index.lower) |
+                @boolToInt(upper_table[i]) << @enumToInt(Index.upper) |
                 @boolToInt(punct_table[i]) << @enumToInt(Index.punct) |
-                @boolToInt(whitespace_table[i]) << @enumToInt(Index.spaces);
+                @boolToInt(alnum_table[i]) << @enumToInt(Index.alnum);
         }
 
         std.mem.set(u8, table[128..256], 0);
@@ -155,7 +167,7 @@ else
 /// Returns whether the character is alphanumeric. This is case-insensitive.
 pub fn isAlNum(c: u8) bool {
     if (combined_table) |table|
-        return table.contains(c, .alphanumeric)
+        return table.contains(c, .alnum)
     else
         return isAlNumNaive(c);
 }
@@ -172,14 +184,14 @@ pub fn isAlpha(c: u8) bool {
 ///
 /// See also: `control`
 pub fn isCntrl(c: u8) bool {
-    if (combined_table) |table|
-        return table.contains(c, .control)
-    else
-        return isCntrlNaive(c);
+    return c <= control_code.US or c == control_code.DEL;
 }
 
 pub fn isDigit(c: u8) bool {
-    return c >= '0' and c <= '9';
+    if (combined_table) |table|
+        return table.contains(c, .digit)
+    else
+        return isDigitNaive(c);
 }
 
 pub fn isGraph(c: u8) bool {
@@ -187,7 +199,10 @@ pub fn isGraph(c: u8) bool {
 }
 
 pub fn isLower(c: u8) bool {
-    return c >= 'a' and c <= 'z';
+    if (combined_table) |table|
+        return table.contains(c, .lower)
+    else
+        return isLowerNaive(c);
 }
 
 /// Returns whether the character has some graphical representation and can be printed.
@@ -204,7 +219,7 @@ pub fn isPunct(c: u8) bool {
 
 pub fn isSpace(c: u8) bool {
     if (combined_table) |table|
-        return table.contains(c, .spaces)
+        return table.contains(c, .space)
     else
         return isSpaceNaive(c);
 }
@@ -223,7 +238,10 @@ test "spaces" {
 }
 
 pub fn isUpper(c: u8) bool {
-    return c >= 'A' and c <= 'Z';
+    if (combined_table) |table|
+        return table.contains(c, .upper)
+    else
+        return isUpperNaive(c);
 }
 
 /// Returns whether the character is a hexadecimal digit. This is case-insensitive.
