@@ -6,6 +6,135 @@ const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const DW = std.dwarf;
 
+/// EFLAGS condition codes
+pub const Condition = enum(u5) {
+    /// above
+    a,
+    /// above or equal
+    ae,
+    /// below
+    b,
+    /// below or equal
+    be,
+    /// carry
+    c,
+    /// equal
+    e,
+    /// greater
+    g,
+    /// greater or equal
+    ge,
+    /// less
+    l,
+    /// less or equal
+    le,
+    /// not above
+    na,
+    /// not above or equal
+    nae,
+    /// not below
+    nb,
+    /// not below or equal
+    nbe,
+    /// not carry
+    nc,
+    /// not equal
+    ne,
+    /// not greater
+    ng,
+    /// not greater or equal
+    nge,
+    /// not less
+    nl,
+    /// not less or equal
+    nle,
+    /// not overflow
+    no,
+    /// not parity
+    np,
+    /// not sign
+    ns,
+    /// not zero
+    nz,
+    /// overflow
+    o,
+    /// parity
+    p,
+    /// parity even
+    pe,
+    /// parity odd
+    po,
+    /// sign
+    s,
+    /// zero
+    z,
+
+    /// Converts a std.math.CompareOperator into a condition flag,
+    /// i.e. returns the condition that is true iff the result of the
+    /// comparison is true. Assumes signed comparison
+    pub fn fromCompareOperatorSigned(op: std.math.CompareOperator) Condition {
+        return switch (op) {
+            .gte => .ge,
+            .gt => .g,
+            .neq => .ne,
+            .lt => .l,
+            .lte => .le,
+            .eq => .e,
+        };
+    }
+
+    /// Converts a std.math.CompareOperator into a condition flag,
+    /// i.e. returns the condition that is true iff the result of the
+    /// comparison is true. Assumes unsigned comparison
+    pub fn fromCompareOperatorUnsigned(op: std.math.CompareOperator) Condition {
+        return switch (op) {
+            .gte => .ae,
+            .gt => .a,
+            .neq => .ne,
+            .lt => .b,
+            .lte => .be,
+            .eq => .e,
+        };
+    }
+
+    /// Returns the condition which is true iff the given condition is
+    /// false (if such a condition exists)
+    pub fn negate(cond: Condition) Condition {
+        return switch (cond) {
+            .a => .na,
+            .ae => .nae,
+            .b => .nb,
+            .be => .nbe,
+            .c => .nc,
+            .e => .ne,
+            .g => .ng,
+            .ge => .nge,
+            .l => .nl,
+            .le => .nle,
+            .na => .a,
+            .nae => .ae,
+            .nb => .b,
+            .nbe => .be,
+            .nc => .c,
+            .ne => .e,
+            .ng => .g,
+            .nge => .ge,
+            .nl => .l,
+            .nle => .le,
+            .no => .o,
+            .np => .p,
+            .ns => .s,
+            .nz => .z,
+            .o => .no,
+            .p => .np,
+            .pe => unreachable,
+            .po => unreachable,
+            .s => .ns,
+            .z => .nz,
+        };
+    }
+};
+
 // zig fmt: off
 
 /// Definitions of all of the general purpose x64 registers. The order is semantically meaningful.

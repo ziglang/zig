@@ -158,20 +158,9 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .jmp => try emit.mirJmpCall(.jmp_near, inst),
             .call => try emit.mirJmpCall(.call_near, inst),
 
-            .cond_jmp_greater_less,
-            .cond_jmp_above_below,
-            .cond_jmp_eq_ne,
-            => try emit.mirCondJmp(tag, inst),
-
-            .cond_set_byte_greater_less,
-            .cond_set_byte_above_below,
-            .cond_set_byte_eq_ne,
-            .cond_set_byte_overflow,
-            => try emit.mirCondSetByte(tag, inst),
-
-            .cond_mov_eq => try emit.mirCondMov(.cmove, inst),
-            .cond_mov_lt => try emit.mirCondMov(.cmovl, inst),
-            .cond_mov_below => try emit.mirCondMov(.cmovb, inst),
+            .cond_jmp => try emit.mirCondJmp(inst),
+            .cond_set_byte => try emit.mirCondSetByte(inst),
+            .cond_mov => try emit.mirCondMov(inst),
 
             .ret => try emit.mirRet(inst),
 
@@ -356,70 +345,130 @@ fn mirJmpCall(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     }
 }
 
-fn mirCondJmp(emit: *Emit, mir_tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!void {
-    const ops = emit.mir.instructions.items(.ops)[inst].decode();
-    const target = emit.mir.instructions.items(.data)[inst].inst;
-    const tag = switch (mir_tag) {
-        .cond_jmp_greater_less => switch (ops.flags) {
-            0b00 => Tag.jge,
-            0b01 => Tag.jg,
-            0b10 => Tag.jl,
-            0b11 => Tag.jle,
-        },
-        .cond_jmp_above_below => switch (ops.flags) {
-            0b00 => Tag.jae,
-            0b01 => Tag.ja,
-            0b10 => Tag.jb,
-            0b11 => Tag.jbe,
-        },
-        .cond_jmp_eq_ne => switch (@truncate(u1, ops.flags)) {
-            0b0 => Tag.jne,
-            0b1 => Tag.je,
-        },
-        else => unreachable,
+fn mirCondJmp(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+    const mir_tag = emit.mir.instructions.items(.tag)[inst];
+    assert(mir_tag == .cond_jmp);
+    const inst_cc = emit.mir.instructions.items(.data)[inst].inst_cc;
+    const tag: Tag = switch (inst_cc.cc) {
+        .a => .ja,
+        .ae => .jae,
+        .b => .jb,
+        .be => .jbe,
+        .c => .jc,
+        .e => .je,
+        .g => .jg,
+        .ge => .jge,
+        .l => .jl,
+        .le => .jle,
+        .na => .jna,
+        .nae => .jnae,
+        .nb => .jnb,
+        .nbe => .jnbe,
+        .nc => .jnc,
+        .ne => .jne,
+        .ng => .jng,
+        .nge => .jnge,
+        .nl => .jnl,
+        .nle => .jnle,
+        .no => .jno,
+        .np => .jnp,
+        .ns => .jns,
+        .nz => .jnz,
+        .o => .jo,
+        .p => .jp,
+        .pe => .jpe,
+        .po => .jpo,
+        .s => .js,
+        .z => .jz,
     };
     const source = emit.code.items.len;
     try lowerToDEnc(tag, 0, emit.code);
     try emit.relocs.append(emit.bin_file.allocator, .{
         .source = source,
-        .target = target,
+        .target = inst_cc.inst,
         .offset = emit.code.items.len - 4,
         .length = 6,
     });
 }
 
-fn mirCondSetByte(emit: *Emit, mir_tag: Mir.Inst.Tag, inst: Mir.Inst.Index) InnerError!void {
+fn mirCondSetByte(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+    const mir_tag = emit.mir.instructions.items(.tag)[inst];
+    assert(mir_tag == .cond_set_byte);
     const ops = emit.mir.instructions.items(.ops)[inst].decode();
-    const tag = switch (mir_tag) {
-        .cond_set_byte_greater_less => switch (ops.flags) {
-            0b00 => Tag.setge,
-            0b01 => Tag.setg,
-            0b10 => Tag.setl,
-            0b11 => Tag.setle,
-        },
-        .cond_set_byte_above_below => switch (ops.flags) {
-            0b00 => Tag.setae,
-            0b01 => Tag.seta,
-            0b10 => Tag.setb,
-            0b11 => Tag.setbe,
-        },
-        .cond_set_byte_eq_ne => switch (@truncate(u1, ops.flags)) {
-            0b0 => Tag.setne,
-            0b1 => Tag.sete,
-        },
-        .cond_set_byte_overflow => switch (ops.flags) {
-            0b00 => Tag.seto,
-            0b01 => Tag.setno,
-            0b10 => Tag.setc,
-            0b11 => Tag.setnc,
-        },
-        else => unreachable,
+    const cc = emit.mir.instructions.items(.data)[inst].cc;
+    const tag: Tag = switch (cc) {
+        .a => .seta,
+        .ae => .setae,
+        .b => .setb,
+        .be => .setbe,
+        .c => .setc,
+        .e => .sete,
+        .g => .setg,
+        .ge => .setge,
+        .l => .setl,
+        .le => .setle,
+        .na => .setna,
+        .nae => .setnae,
+        .nb => .setnb,
+        .nbe => .setnbe,
+        .nc => .setnc,
+        .ne => .setne,
+        .ng => .setng,
+        .nge => .setnge,
+        .nl => .setnl,
+        .nle => .setnle,
+        .no => .setno,
+        .np => .setnp,
+        .ns => .setns,
+        .nz => .setnz,
+        .o => .seto,
+        .p => .setp,
+        .pe => .setpe,
+        .po => .setpo,
+        .s => .sets,
+        .z => .setz,
     };
     return lowerToMEnc(tag, RegisterOrMemory.reg(ops.reg1.to8()), emit.code);
 }
 
-fn mirCondMov(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
+fn mirCondMov(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+    const mir_tag = emit.mir.instructions.items(.tag)[inst];
+    assert(mir_tag == .cond_mov);
     const ops = emit.mir.instructions.items(.ops)[inst].decode();
+    const cc = emit.mir.instructions.items(.data)[inst].cc;
+    const tag: Tag = switch (cc) {
+        .a => .cmova,
+        .ae => .cmovae,
+        .b => .cmovb,
+        .be => .cmovbe,
+        .c => .cmovc,
+        .e => .cmove,
+        .g => .cmovg,
+        .ge => .cmovge,
+        .l => .cmovl,
+        .le => .cmovle,
+        .na => .cmovna,
+        .nae => .cmovnae,
+        .nb => .cmovnb,
+        .nbe => .cmovnbe,
+        .nc => .cmovnc,
+        .ne => .cmovne,
+        .ng => .cmovng,
+        .nge => .cmovnge,
+        .nl => .cmovnl,
+        .nle => .cmovnle,
+        .no => .cmovno,
+        .np => .cmovnp,
+        .ns => .cmovns,
+        .nz => .cmovnz,
+        .o => .cmovo,
+        .p => .cmovp,
+        .pe => .cmovpe,
+        .po => .cmovpo,
+        .s => .cmovs,
+        .z => .cmovz,
+    };
+
     if (ops.flags == 0b00) {
         return lowerToRmEnc(tag, ops.reg1, RegisterOrMemory.reg(ops.reg2), emit.code);
     }
@@ -1277,7 +1326,7 @@ const Tag = enum {
     setp,
     setpe,
     setnp,
-    setop,
+    setpo,
     setl,
     setnge,
     setnl,
@@ -1286,6 +1335,36 @@ const Tag = enum {
     setng,
     setnle,
     setg,
+    cmovo,
+    cmovno,
+    cmovb,
+    cmovc,
+    cmovnae,
+    cmovnb,
+    cmovnc,
+    cmovae,
+    cmove,
+    cmovz,
+    cmovne,
+    cmovnz,
+    cmovbe,
+    cmovna,
+    cmova,
+    cmovnbe,
+    cmovs,
+    cmovns,
+    cmovp,
+    cmovpe,
+    cmovnp,
+    cmovpo,
+    cmovl,
+    cmovnge,
+    cmovnl,
+    cmovge,
+    cmovle,
+    cmovng,
+    cmovnle,
+    cmovg,
     shl,
     sal,
     shr,
@@ -1294,12 +1373,6 @@ const Tag = enum {
     cwd,
     cdq,
     cqo,
-    cmove,
-    cmovz,
-    cmovl,
-    cmovng,
-    cmovb,
-    cmovnae,
     movsd,
     movss,
     addsd,
@@ -1372,7 +1445,7 @@ const Tag = enum {
             .setp,
             .setpe,
             .setnp,
-            .setop,
+            .setpo,
             .setl,
             .setnge,
             .setnl,
@@ -1492,77 +1565,110 @@ inline fn getOpCode(tag: Tag, enc: Encoding, is_one_byte: bool) OpCode {
         .d => return switch (tag) {
             .jmp_near  =>                  OpCode.init(&.{0xe9}),
             .call_near =>                  OpCode.init(&.{0xe8}),
+
             .jo        => if (is_one_byte) OpCode.init(&.{0x70}) else OpCode.init(&.{0x0f,0x80}),
+
             .jno       => if (is_one_byte) OpCode.init(&.{0x71}) else OpCode.init(&.{0x0f,0x81}),
+
             .jb,
             .jc,
             .jnae      => if (is_one_byte) OpCode.init(&.{0x72}) else OpCode.init(&.{0x0f,0x82}),
+
             .jnb,
             .jnc, 
             .jae       => if (is_one_byte) OpCode.init(&.{0x73}) else OpCode.init(&.{0x0f,0x83}),
+
             .je, 
             .jz        => if (is_one_byte) OpCode.init(&.{0x74}) else OpCode.init(&.{0x0f,0x84}),
+
             .jne, 
             .jnz       => if (is_one_byte) OpCode.init(&.{0x75}) else OpCode.init(&.{0x0f,0x85}),
+
             .jna, 
             .jbe       => if (is_one_byte) OpCode.init(&.{0x76}) else OpCode.init(&.{0x0f,0x86}),
+
             .jnbe, 
             .ja        => if (is_one_byte) OpCode.init(&.{0x77}) else OpCode.init(&.{0x0f,0x87}),
+
             .js        => if (is_one_byte) OpCode.init(&.{0x78}) else OpCode.init(&.{0x0f,0x88}),
+
             .jns       => if (is_one_byte) OpCode.init(&.{0x79}) else OpCode.init(&.{0x0f,0x89}),
+
             .jpe, 
             .jp        => if (is_one_byte) OpCode.init(&.{0x7a}) else OpCode.init(&.{0x0f,0x8a}),
+
             .jpo, 
             .jnp       => if (is_one_byte) OpCode.init(&.{0x7b}) else OpCode.init(&.{0x0f,0x8b}),
+
             .jnge, 
             .jl        => if (is_one_byte) OpCode.init(&.{0x7c}) else OpCode.init(&.{0x0f,0x8c}),
+
             .jge, 
             .jnl       => if (is_one_byte) OpCode.init(&.{0x7d}) else OpCode.init(&.{0x0f,0x8d}),
+
             .jle, 
             .jng       => if (is_one_byte) OpCode.init(&.{0x7e}) else OpCode.init(&.{0x0f,0x8e}),
+
             .jg, 
             .jnle      => if (is_one_byte) OpCode.init(&.{0x7f}) else OpCode.init(&.{0x0f,0x8f}),
+
             else       => unreachable,
         },
         .m => return switch (tag) {
             .jmp_near,
             .call_near,
             .push       =>                  OpCode.init(&.{0xff}),
+
             .pop        =>                  OpCode.init(&.{0x8f}),
             .seto       =>                  OpCode.init(&.{0x0f,0x90}),
             .setno      =>                  OpCode.init(&.{0x0f,0x91}),
+
             .setb,
             .setc,
             .setnae     =>                  OpCode.init(&.{0x0f,0x92}),
+
             .setnb,
             .setnc,
             .setae      =>                  OpCode.init(&.{0x0f,0x93}),
+
             .sete,
             .setz       =>                  OpCode.init(&.{0x0f,0x94}),
+
             .setne,
             .setnz      =>                  OpCode.init(&.{0x0f,0x95}),
+
             .setbe,
             .setna      =>                  OpCode.init(&.{0x0f,0x96}),
+
             .seta,
             .setnbe     =>                  OpCode.init(&.{0x0f,0x97}),
+
             .sets       =>                  OpCode.init(&.{0x0f,0x98}),
             .setns      =>                  OpCode.init(&.{0x0f,0x99}),
+
             .setp,
             .setpe      =>                  OpCode.init(&.{0x0f,0x9a}),
+
             .setnp, 
-            .setop      =>                  OpCode.init(&.{0x0f,0x9b}),
+            .setpo      =>                  OpCode.init(&.{0x0f,0x9b}),
+
             .setl, 
             .setnge     =>                  OpCode.init(&.{0x0f,0x9c}),
+
             .setnl,
             .setge      =>                  OpCode.init(&.{0x0f,0x9d}),
+
             .setle,
             .setng      =>                  OpCode.init(&.{0x0f,0x9e}),
+
             .setnle,
             .setg       =>                  OpCode.init(&.{0x0f,0x9f}),
+
             .idiv,
             .div,
             .imul,
             .mul        => if (is_one_byte) OpCode.init(&.{0xf6}) else OpCode.init(&.{0xf7}),
+
             .fisttp16   =>                  OpCode.init(&.{0xdf}),
             .fisttp32   =>                  OpCode.init(&.{0xdb}),
             .fisttp64   =>                  OpCode.init(&.{0xdd}),
@@ -1640,12 +1746,52 @@ inline fn getOpCode(tag: Tag, enc: Encoding, is_one_byte: bool) OpCode {
             .movzx    => if (is_one_byte) OpCode.init(&.{0x0f,0xb6}) else OpCode.init(&.{0x0f,0xb7}),
             .lea      => if (is_one_byte) OpCode.init(&.{0x8c})      else OpCode.init(&.{0x8d}),
             .imul     =>                  OpCode.init(&.{0x0f,0xaf}),
-            .cmove, 
-            .cmovz    =>                  OpCode.init(&.{0x0f,0x44}),
+
+            .cmova,
+            .cmovnbe, =>                  OpCode.init(&.{0x0f,0x47}),
+
+            .cmovae,
+            .cmovnb,  =>                  OpCode.init(&.{0x0f,0x43}),
+
             .cmovb,
+            .cmovc,
             .cmovnae  =>                  OpCode.init(&.{0x0f,0x42}),
+
+            .cmovbe,
+            .cmovna,  =>                  OpCode.init(&.{0x0f,0x46}),
+
+            .cmove, 
+            .cmovz,   =>                  OpCode.init(&.{0x0f,0x44}),
+
+            .cmovg,
+            .cmovnle, =>                  OpCode.init(&.{0x0f,0x4f}),
+
+            .cmovge,
+            .cmovnl,  =>                  OpCode.init(&.{0x0f,0x4d}),
+
             .cmovl,
-            .cmovng   =>                  OpCode.init(&.{0x0f,0x4c}),
+            .cmovnge, =>                  OpCode.init(&.{0x0f,0x4c}),
+
+            .cmovle,
+            .cmovng,  =>                  OpCode.init(&.{0x0f,0x4e}),
+
+            .cmovne,
+            .cmovnz,  =>                  OpCode.init(&.{0x0f,0x45}),
+
+            .cmovno   =>                  OpCode.init(&.{0x0f,0x41}),
+
+            .cmovnp,
+            .cmovpo,  =>                  OpCode.init(&.{0x0f,0x4b}),
+
+            .cmovns   =>                  OpCode.init(&.{0x0f,0x49}),
+
+            .cmovo    =>                  OpCode.init(&.{0x0f,0x40}),
+
+            .cmovp,
+            .cmovpe,  =>                  OpCode.init(&.{0x0f,0x4a}),
+
+            .cmovs    =>                  OpCode.init(&.{0x0f,0x48}),
+
             .movsd    =>                  OpCode.init(&.{0xf2,0x0f,0x10}),
             .movss    =>                  OpCode.init(&.{0xf3,0x0f,0x10}),
             .addsd    =>                  OpCode.init(&.{0xf2,0x0f,0x58}),
@@ -1735,7 +1881,7 @@ inline fn getModRmExt(tag: Tag) u3 {
         .setp,
         .setpe,
         .setnp,
-        .setop,
+        .setpo,
         .setl,
         .setnge,
         .setnl,
