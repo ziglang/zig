@@ -245,13 +245,6 @@ test "comptime bitcast used in expression has the correct type" {
 }
 
 test "bitcast passed as tuple element" {
-    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     const S = struct {
         fn foo(args: anytype) !void {
             comptime try expect(@TypeOf(args[0]) == f32);
