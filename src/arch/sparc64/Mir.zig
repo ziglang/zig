@@ -74,6 +74,10 @@ pub const Inst = struct {
         // TODO add other operations.
         @"or",
 
+        /// A.35 Move Integer Register on Condition (MOVcc)
+        /// This uses the conditional_move field.
+        movcc,
+
         /// A.37 Multiply and Divide (64-bit)
         /// This uses the arithmetic_3op field.
         // TODO add other operations.
@@ -214,6 +218,22 @@ pub const Inst = struct {
             cond: Instruction.RCondition,
             rs1: Register,
             inst: Index,
+        },
+
+        /// Conditional move.
+        /// if is_imm true then it uses the imm field of rs2_or_imm,
+        /// otherwise it uses rs2 field.
+        ///
+        /// Used by e.g. movcc
+        conditional_move: struct {
+            is_imm: bool,
+            ccr: Instruction.CCR,
+            cond: Instruction.Condition,
+            rd: Register,
+            rs2_or_imm: union {
+                rs2: Register,
+                imm: i11,
+            },
         },
 
         /// No additional data
