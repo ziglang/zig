@@ -7309,9 +7309,11 @@ fn zirElemVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     defer tracy.end();
 
     const bin_inst = sema.code.instructions.items(.data)[inst].bin;
+    const src = sema.src; // TODO better source location
+    const elem_index_src = sema.src; // TODO better source location
     const array = try sema.resolveInst(bin_inst.lhs);
     const elem_index = try sema.resolveInst(bin_inst.rhs);
-    return sema.elemVal(block, sema.src, array, elem_index, sema.src);
+    return sema.elemVal(block, src, array, elem_index, elem_index_src);
 }
 
 fn zirElemValNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -18473,6 +18475,25 @@ fn elemValArray(
         }
     }
 
+    const valid_rt = try sema.validateRunTimeType(block, elem_index_src, elem_ty, false);
+    if (!valid_rt) {
+        const msg = msg: {
+            const msg = try sema.errMsg(
+                block,
+                elem_index_src,
+                "values of type '{}' must be comptime known, but index value is runtime known",
+                .{array_ty.fmt(sema.mod)},
+            );
+            errdefer msg.destroy(sema.gpa);
+
+            const src_decl = sema.mod.declPtr(block.src_decl);
+            try sema.explainWhyTypeIsComptime(block, elem_index_src, msg, array_src.toSrcLoc(src_decl), array_ty);
+
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(block, msg);
+    }
+
     const runtime_src = if (maybe_undef_array_val != null) elem_index_src else array_src;
     try sema.requireRuntimeBlock(block, runtime_src);
     if (block.wantSafety()) {
@@ -18526,6 +18547,25 @@ fn elemPtrArray(
             const elem_ptr = try array_ptr_val.elemPtr(array_ptr_ty, sema.arena, index, sema.mod);
             return sema.addConstant(elem_ptr_ty, elem_ptr);
         }
+    }
+
+    const valid_rt = try sema.validateRunTimeType(block, elem_index_src, array_ty.elemType2(), false);
+    if (!valid_rt) {
+        const msg = msg: {
+            const msg = try sema.errMsg(
+                block,
+                elem_index_src,
+                "values of type '{}' must be comptime known, but index value is runtime known",
+                .{array_ty.fmt(sema.mod)},
+            );
+            errdefer msg.destroy(sema.gpa);
+
+            const src_decl = sema.mod.declPtr(block.src_decl);
+            try sema.explainWhyTypeIsComptime(block, elem_index_src, msg, array_ptr_src.toSrcLoc(src_decl), array_ty);
+
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(block, msg);
     }
 
     const runtime_src = if (maybe_undef_array_ptr_val != null) elem_index_src else array_ptr_src;
