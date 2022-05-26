@@ -297,8 +297,7 @@ const DocData = struct {
                     try w.print("\"", .{});
                     for (kv.key_ptr.*.sub_file_path) |c| {
                         if (c == '\\') {
-                            try w.print("\\", .{});
-                            try w.print("\\", .{});
+                            try w.print("\\\\", .{});
                         } else {
                             try w.print("{c}", .{c});
                         }
@@ -1242,6 +1241,42 @@ fn walkInstruction(
                 .expr = .{ .typeOf = operand_index },
             };
         },
+        .typeof_builtin => {
+            // @check: @TypeOf(T)
+            // right now it's only showing the T
+            // a way to solve it could be creating a .call
+            // another way is with a flag to handle it on Frontend
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.Block, pl_node.payload_index);
+            const body = file.zir.extra[extra.end..][extra.data.body_len - 1];
+
+            var operand: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                data[body].@"break".operand,
+                false,
+            );
+
+            return operand;
+        },
+        .type_info => {
+            // @check
+            const un_node = data[inst_index].un_node;
+            const operand = try self.walkRef(
+                file,
+                parent_scope,
+                un_node.operand,
+                need_type,
+            );
+
+            const operand_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, operand.expr);
+
+            return DocData.WalkResult{
+                .typeRef = operand.typeRef,
+                .expr = .{ .typeOf = operand_index },
+            };
+        },
         .as_node => {
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.As, pl_node.payload_index);
@@ -1534,7 +1569,7 @@ fn walkInstruction(
                 .expr = .{ .call = call_slot_index },
             };
         },
-        .func, .func_inferred => {
+        .func, .func_inferred, .func_extended => {
             const type_slot_index = self.types.items.len;
             try self.types.append(self.arena, .{ .Unanalyzed = {} });
 
@@ -2558,12 +2593,14 @@ fn analyzeFunction(
     // TODO: handle scope rules for fn parameters
     for (fn_info.param_body[0..fn_info.total_params_len]) |param_index| {
         switch (tags[param_index]) {
-            else => panicWithContext(
-                file,
-                param_index,
-                "TODO: handle `{s}` in walkInstruction.func\n",
-                .{@tagName(tags[param_index])},
-            ),
+            else => {
+                panicWithContext(
+                    file,
+                    param_index,
+                    "TODO: handle `{s}` in walkInstruction.func\n",
+                    .{@tagName(tags[param_index])},
+                );
+            },
             .param_anytype, .param_anytype_comptime => {
                 // TODO: where are the doc comments?
                 const str_tok = data[param_index].str_tok;
@@ -2848,17 +2885,27 @@ fn walkRef(
                 };
             },
             // TODO: dunno what to do with those
+            // .calling_convention_type => {
+            //     return DocData.WalkResult{
+            //         .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
+            //         .expr = .{ .int = .{ .value = 1 } },
+            //     };
+            // },
             // .calling_convention_c => {
-            //     return DocData.WalkResult{ .int = .{
-            //         .type = @enumToInt(Ref.comptime_int_type),
-            //         .value = 1,
-            //     } };
+            //     return DocData.WalkResult{
+            //         .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
+            //         .expr = .{ .int = .{ .value = 1 } },
+            //     };
             // },
             // .calling_convention_inline => {
-            //     return DocData.WalkResult{ .int = .{
-            //         .type = @enumToInt(Ref.comptime_int_type),
-            //         .value = 1,
-            //     } };
+            //     return DocData.WalkResult{
+            //         .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
+            //         .expr = .{ .int = .{ .value = 1 } },
+            //     };
+            //     // return DocData.WalkResult{ .int = .{
+            //     //     .type = @enumToInt(Ref.comptime_int_type),
+            //     //     .value = 1,
+            //     // } };
             // },
             // .generic_poison => {
             //     return DocData.WalkResult{ .int = .{
