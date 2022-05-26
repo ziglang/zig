@@ -95,8 +95,6 @@ test "array literal with specified size" {
 }
 
 test "array len field" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     var arr = [4]u8{ 0, 0, 0, 0 };
     var ptr = &arr;
     try expect(arr.len == 4);
@@ -217,8 +215,6 @@ fn doSomeMangling(array: *[4]u8) void {
 }
 
 test "implicit cast zero sized array ptr to slice" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     {
         var b = "".*;
         const c: []const u8 = &b;

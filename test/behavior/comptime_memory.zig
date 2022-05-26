@@ -5,7 +5,6 @@ const ptr_size = @sizeOf(usize);
 
 test "type pun signed and unsigned as single pointer" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     comptime {
@@ -18,7 +17,6 @@ test "type pun signed and unsigned as single pointer" {
 
 test "type pun signed and unsigned as many pointer" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     comptime {
         var x: u32 = 0;
@@ -30,7 +28,6 @@ test "type pun signed and unsigned as many pointer" {
 
 test "type pun signed and unsigned as array pointer" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     comptime {
         var x: u32 = 0;
@@ -74,7 +71,6 @@ test "type pun signed and unsigned as array pointer" {
 
 test "type pun value and struct" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     comptime {
         const StructOfU32 = extern struct { x: u32 };
