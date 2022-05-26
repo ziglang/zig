@@ -2645,6 +2645,7 @@ pub const Value = extern union {
                 }
                 unreachable;
             },
+            .undef => return Value.undef,
 
             else => unreachable,
         }
