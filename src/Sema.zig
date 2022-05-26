@@ -2881,6 +2881,28 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
 
             if (var_is_mut) {
                 try sema.validateVarType(block, ty_src, final_elem_ty, false);
+
+                // The value might have been bitcasted into a comptime only
+                // pointer type such as `*@Type(.EnumLiteral)` so we must now
+                // update all the stores to not give backends invalid AIR.
+
+                var air_tags = sema.air_instructions.items(.tag);
+                var air_data = sema.air_instructions.items(.data);
+                var peer_inst_index: usize = 0;
+                var i = ptr_inst;
+                while (i < air_tags.len and peer_inst_index < peer_inst_list.len) : (i += 1) {
+                    if (air_tags[i] != .store) continue;
+                    if (air_data[i].bin_op.rhs == peer_inst_list[peer_inst_index]) {
+                        peer_inst_index += 1;
+                        _ = (try sema.resolveMaybeUndefVal(block, .unneeded, air_data[i].bin_op.rhs)) orelse continue;
+                        const coerced_val = try sema.coerce(block, final_elem_ty, air_data[i].bin_op.rhs, .unneeded);
+                        air_tags = sema.air_instructions.items(.tag);
+                        air_data = sema.air_instructions.items(.data);
+
+                        air_data[i].bin_op.lhs = ptr;
+                        air_data[i].bin_op.rhs = coerced_val;
+                    }
+                }
             } else ct: {
                 // Detect if the value is comptime known. In such case, the
                 // last 3 AIR instructions of the block will look like this:
