@@ -36,13 +36,12 @@ fn parseFree(comptime T: type, value: T, allocator: std.mem.Allocator) void {
 }
 
 pub export fn entry() void {
-    const allocator = std.testing.allocator_instance.allocator();
+    const allocator = std.testing.failing_allocator;
     _ = parse(std.StringArrayHashMap(bool), allocator) catch return;
 }
 
 // error
 // backend=llvm
-// target=x86_64-linux,aarch64-linux,arm-linux,x86_64-macos,aarch64-macos
 //
 // :11:22: error: comparison of 'void' with null
 // :25:51: error: unable to resolve comptime value
