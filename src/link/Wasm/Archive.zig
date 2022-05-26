@@ -95,7 +95,6 @@ pub fn deinit(self: *Archive, allocator: Allocator) void {
         value.deinit(allocator);
     }
     self.toc.deinit(allocator);
-    allocator.free(self.name);
 }
 
 pub fn parse(self: *Archive, allocator: Allocator) !void {
