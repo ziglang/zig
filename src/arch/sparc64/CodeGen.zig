@@ -1891,7 +1891,7 @@ fn binOpImmediate(
                 .is_imm = true,
                 .rd = dest_reg,
                 .rs1 = lhs_reg,
-                .rs2_or_imm = .{ .imm = @intCast(i13, rhs.immediate) },
+                .rs2_or_imm = .{ .imm = @intCast(u12, rhs.immediate) },
             },
         },
         .sllx => .{
@@ -1907,7 +1907,7 @@ fn binOpImmediate(
             .arithmetic_2op = .{
                 .is_imm = true,
                 .rs1 = lhs_reg,
-                .rs2_or_imm = .{ .imm = @intCast(i13, rhs.immediate) },
+                .rs2_or_imm = .{ .imm = @intCast(u12, rhs.immediate) },
             },
         },
         else => unreachable,
