@@ -644,7 +644,7 @@ pub const Instruction = union(enum) {
                 .gt => .gu,
                 .neq => .ne,
                 .lt => .cs,
-                .lte => .le,
+                .lte => .leu,
                 .eq => .eq,
             };
         }
