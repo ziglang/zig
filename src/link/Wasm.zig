@@ -538,6 +538,7 @@ fn resolveSymbolsInArchives(self: *Wasm) !void {
                 continue;
             };
 
+            log.debug("Detected symbol '{s}' in archive '{s}', parsing objects..", .{ sym_name, archive.name });
             // Symbol is found in unparsed object file within current archive.
             // Parse object and and resolve symbols again before we check remaining
             // undefined symbols.
@@ -581,11 +582,17 @@ pub fn deinit(self: *Wasm) void {
         object.deinit(gpa);
     }
 
+    for (self.archives.items) |*archive| {
+        archive.file.close();
+        archive.deinit(gpa);
+    }
+
     self.decls.deinit(gpa);
     self.symbols.deinit(gpa);
     self.symbols_free_list.deinit(gpa);
     self.globals.deinit(gpa);
     self.resolved_symbols.deinit(gpa);
+    self.undefs.deinit(gpa);
     self.discarded.deinit(gpa);
     self.symbol_atom.deinit(gpa);
     self.export_names.deinit(gpa);
@@ -599,6 +606,7 @@ pub fn deinit(self: *Wasm) void {
     self.data_segments.deinit(gpa);
     self.segment_info.deinit(gpa);
     self.objects.deinit(gpa);
+    self.archives.deinit(gpa);
 
     // free output sections
     self.imports.deinit(gpa);
@@ -1838,10 +1846,10 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
 
     try self.parseInputFiles(positionals.items);
 
-    var object_index: u16 = 0;
-    while (object_index < self.objects.items.len) : (object_index += 1) {
-        try self.resolveSymbolsInObject(object_index);
+    for (self.objects.items) |_, object_index| {
+        try self.resolveSymbolsInObject(@intCast(u16, object_index));
     }
+
     try self.resolveSymbolsInArchives();
 
     // When we finish/error we reset the state of the linker
@@ -1867,9 +1875,8 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         }
     }
 
-    while (object_index > 0) {
-        object_index -= 1;
-        try self.objects.items[object_index].parseIntoAtoms(self.base.allocator, object_index, self);
+    for (self.objects.items) |*object, object_index| {
+        try object.parseIntoAtoms(self.base.allocator, @intCast(u16, object_index), self);
     }
 
     if (self.dwarf) |*dwarf| {
