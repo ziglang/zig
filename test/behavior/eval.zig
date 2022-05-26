@@ -733,15 +733,47 @@ test "*align(1) u16 is the same as *align(1:0:2) u16" {
     }
 }
 
-test "array concatenation forces comptime" {
-    if (builtin.zig_backend != .stage1) {
-        // note: our plan is to change the language to support runtime array
-        // concatenation instead of making this test pass.
-        return error.SkipZigTest; // TODO
-    }
+test "array concatenation of function calls" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var a = oneItem(3) ++ oneItem(4);
     try expect(std.mem.eql(i32, &a, &[_]i32{ 3, 4 }));
+}
+
+test "array concatenation peer resolves element types - value" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    var a = [2]u3{ 1, 7 };
+    var b = [3]u8{ 200, 225, 255 };
+    var c = a ++ b;
+    try expect(@TypeOf(c) == [5]u8);
+    try expect(c[0] == 1);
+    try expect(c[1] == 7);
+    try expect(c[2] == 200);
+    try expect(c[3] == 225);
+    try expect(c[4] == 255);
+}
+
+test "array concatenation peer resolves element types - pointer" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    var a = [2]u3{ 1, 7 };
+    var b = [3]u8{ 200, 225, 255 };
+    var c = &a ++ &b;
+    try expect(@TypeOf(c) == *[5]u8);
+    try expect(c[0] == 1);
+    try expect(c[1] == 7);
+    try expect(c[2] == 200);
+    try expect(c[3] == 225);
+    try expect(c[4] == 255);
 }
 
 test "array multiplication forces comptime" {
