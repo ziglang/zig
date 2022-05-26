@@ -32,7 +32,6 @@ fn custom(comptime T: type, comptime num: u64) fn (T) u64 {
 }
 
 test "fn delegation" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const foo = Foo{};

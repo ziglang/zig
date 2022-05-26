@@ -168,14 +168,12 @@ const MemberFnTestFoo = struct {
 };
 
 test "call member function directly" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     const instance = MemberFnTestFoo{ .x = 1234 };
     const result = MemberFnTestFoo.member(instance);
     try expect(result == 1234);
 }
 
 test "store member function in variable" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     const instance = MemberFnTestFoo{ .x = 1234 };
     const memberFn = MemberFnTestFoo.member;
     const result = memberFn(instance);
@@ -1000,8 +998,6 @@ test "tuple element initialized with fn call" {
 }
 
 test "struct with union field" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-
     const Value = struct {
         ref: u32 = 2,
         kind: union(enum) {

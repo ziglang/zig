@@ -33,8 +33,6 @@ test "optional pointer to size zero struct" {
 }
 
 test "equality compare optional pointers" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-
     try testNullPtrsEql();
     comptime try testNullPtrsEql();
 }

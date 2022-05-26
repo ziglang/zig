@@ -843,7 +843,6 @@ test "peer cast *[0]T to []const T" {
 }
 
 test "peer cast *[N]T to [*]T" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     var array = [4:99]i32{ 1, 2, 3, 4 };
@@ -1116,7 +1115,6 @@ fn incrementVoidPtrArray(array: ?*anyopaque, len: usize) void {
 test "compile time int to ptr of function" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
