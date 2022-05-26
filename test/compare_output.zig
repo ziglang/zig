@@ -291,7 +291,9 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\    stdout.print("before\n", .{}) catch unreachable;
         \\    defer stdout.print("defer1\n", .{}) catch unreachable;
         \\    defer stdout.print("defer2\n", .{}) catch unreachable;
-        \\    var arena = @import("std").heap.ArenaAllocator.init(@import("std").testing.allocator);
+        \\    var gpa = @import("std").heap.GeneralPurposeAllocator(.{}){};
+        \\    defer _ = gpa.deinit();
+        \\    var arena = @import("std").heap.ArenaAllocator.init(gpa.allocator());
         \\    defer arena.deinit();
         \\    var args_it = @import("std").process.argsWithAllocator(arena.allocator()) catch unreachable;
         \\    if (args_it.skip() and !args_it.skip()) return;
@@ -357,10 +359,11 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\const std = @import("std");
             \\const io = std.io;
             \\const os = std.os;
-            \\const allocator = std.testing.allocator;
             \\
             \\pub fn main() !void {
-            \\    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+            \\    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+            \\    defer _ = gpa.deinit();
+            \\    var arena = std.heap.ArenaAllocator.init(gpa.allocator());
             \\    defer arena.deinit();
             \\    var args_it = try std.process.argsWithAllocator(arena.allocator());
             \\    const stdout = io.getStdOut().writer();
@@ -397,10 +400,11 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
             \\const std = @import("std");
             \\const io = std.io;
             \\const os = std.os;
-            \\const allocator = std.testing.allocator;
             \\
             \\pub fn main() !void {
-            \\    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+            \\    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+            \\    defer _ = gpa.deinit();
+            \\    var arena = std.heap.ArenaAllocator.init(gpa.allocator());
             \\    defer arena.deinit();
             \\    var args_it = try std.process.argsWithAllocator(arena.allocator());
             \\    const stdout = io.getStdOut().writer();

@@ -8,7 +8,9 @@ const ChildProcess = std.ChildProcess;
 var a: std.mem.Allocator = undefined;
 
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    var arena = std.heap.ArenaAllocator.init(gpa.allocator());
     defer arena.deinit();
 
     a = arena.allocator();
