@@ -9915,7 +9915,7 @@ const GenZir = struct {
             .inferred_ptr => |ptr| {
                 gz.rl_ty_inst = .none;
                 gz.rl_ptr = ptr;
-                gz.break_result_loc = .{ .block_ptr = gz };
+                gz.break_result_loc = parent_rl;
             },
 
             .block_ptr => |parent_block_scope| {
