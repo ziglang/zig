@@ -704,8 +704,6 @@ test "call method with comptime pass-by-non-copying-value self parameter" {
 }
 
 test "setting backward branch quota just before a generic fn call" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     @setEvalBranchQuota(1001);
     loopNTimes(1001);
 }
