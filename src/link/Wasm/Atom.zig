@@ -75,7 +75,7 @@ pub fn clear(self: *Atom) void {
 pub fn format(self: Atom, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
     _ = fmt;
     _ = options;
-    writer.print("Atom{{ .sym_index = {d}, .alignment = {d}, .size = {d}, .offset = 0x{x:0>8} }}", .{
+    try writer.print("Atom{{ .sym_index = {d}, .alignment = {d}, .size = {d}, .offset = 0x{x:0>8} }}", .{
         self.sym_index,
         self.alignment,
         self.size,

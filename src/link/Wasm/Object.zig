@@ -813,7 +813,9 @@ pub fn parseIntoAtoms(self: *Object, gpa: Allocator, object_index: u16, wasm_bin
         index: u32,
     };
     var symbol_for_segment = std.AutoArrayHashMap(Key, std.ArrayList(u32)).init(gpa);
-    defer symbol_for_segment.deinit();
+    defer for (symbol_for_segment.values()) |*list| {
+        list.deinit();
+    } else symbol_for_segment.deinit();
 
     for (self.symtable) |symbol, symbol_index| {
         switch (symbol.tag) {
