@@ -1242,10 +1242,6 @@ fn walkInstruction(
             };
         },
         .typeof_builtin => {
-            // @check: @TypeOf(T)
-            // right now it's only showing the T
-            // a way to solve it could be creating a .call
-            // another way is with a flag to handle it on Frontend
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Block, pl_node.payload_index);
             const body = file.zir.extra[extra.end..][extra.data.body_len - 1];
@@ -1257,7 +1253,13 @@ fn walkInstruction(
                 false,
             );
 
-            return operand;
+            const operand_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, operand.expr);
+
+            return DocData.WalkResult{
+                .typeRef = operand.typeRef,
+                .expr = .{ .typeOf = operand_index },
+            };
         },
         .type_info => {
             // @check
