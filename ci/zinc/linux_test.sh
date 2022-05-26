@@ -73,7 +73,7 @@ $ZIG build test-translate-c      -fqemu -fwasmtime
 $ZIG build test-run-translated-c -fqemu -fwasmtime
 $ZIG build docs                  -fqemu -fwasmtime
 $ZIG build test-fmt              -fqemu -fwasmtime
-$ZIG build test-cases            -fqemu -fwasmtime
+$ZIG build test-cases            -fqemu -fwasmtime -Denable-llvm
 
 # Produce the experimental std lib documentation.
 mkdir -p "$RELEASE_STAGING/docs/std"
