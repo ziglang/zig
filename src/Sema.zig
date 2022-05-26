@@ -5814,8 +5814,10 @@ fn zirArrayType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     defer tracy.end();
 
     const bin_inst = sema.code.instructions.items(.data)[inst].bin;
-    const len = try sema.resolveInt(block, .unneeded, bin_inst.lhs, Type.usize);
-    const elem_type = try sema.resolveType(block, .unneeded, bin_inst.rhs);
+    const len_src = sema.src; // TODO better source location
+    const elem_src = sema.src; // TODO better source location
+    const len = try sema.resolveInt(block, len_src, bin_inst.lhs, Type.usize);
+    const elem_type = try sema.resolveType(block, elem_src, bin_inst.rhs);
     const array_ty = try Type.array(sema.arena, len, null, elem_type, sema.mod);
 
     return sema.addType(array_ty);
