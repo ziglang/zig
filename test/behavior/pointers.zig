@@ -85,7 +85,6 @@ test "assigning integer to C pointer" {
 test "C pointer comparison and arithmetic" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -477,7 +476,6 @@ test "element pointer arithmetic to slice" {
 }
 
 test "array slicing to slice" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {

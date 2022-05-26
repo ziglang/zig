@@ -119,7 +119,6 @@ test "widen cast integer payload of error union function call" {
 
 test "debug info for optional error set" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const SomeError = error{ Hello, Hello2 };
     var a_local_variable: ?SomeError = null;
