@@ -2376,7 +2376,7 @@ fn tryResolveRefPath(
                 path[i + 1] = (try self.cteTodo("match failure")).expr;
                 continue :outer;
             },
-            .comptimeExpr, .call => {
+            .comptimeExpr, .call, .typeOf => {
                 // Since we hit a cte, we leave the remaining strings unresolved
                 // and completely give up on resolving this decl path.
                 //decl_path.hasCte = true;
