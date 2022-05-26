@@ -1677,7 +1677,7 @@ fn binOp(
 
                         const mir_tag: Mir.Inst.Tag = switch (tag) {
                             .add => .add,
-                            .cmp_eq => .subcc,
+                            .cmp_eq => .cmp,
                             else => unreachable,
                         };
 
@@ -1903,6 +1903,13 @@ fn binOpImmediate(
                 .rs2_or_imm = .{ .imm = @intCast(u6, rhs.immediate) },
             },
         },
+        .cmp => .{
+            .arithmetic_2op = .{
+                .is_imm = true,
+                .rs1 = lhs_reg,
+                .rs2_or_imm = .{ .imm = @intCast(i13, rhs.immediate) },
+            },
+        },
         else => unreachable,
     };
 
@@ -2008,6 +2015,13 @@ fn binOpRegister(
                 .is_imm = false,
                 .width = ShiftWidth.shift64,
                 .rd = dest_reg,
+                .rs1 = lhs_reg,
+                .rs2_or_imm = .{ .rs2 = rhs_reg },
+            },
+        },
+        .cmp => .{
+            .arithmetic_2op = .{
+                .is_imm = false,
                 .rs1 = lhs_reg,
                 .rs2_or_imm = .{ .rs2 = rhs_reg },
             },
@@ -2303,12 +2317,11 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
         .immediate => |x| {
             if (x <= math.maxInt(u12)) {
                 _ = try self.addInst(.{
-                    .tag = .@"or",
+                    .tag = .mov,
                     .data = .{
-                        .arithmetic_3op = .{
+                        .arithmetic_2op = .{
                             .is_imm = true,
-                            .rd = reg,
-                            .rs1 = .g0,
+                            .rs1 = reg,
                             .rs2_or_imm = .{ .imm = @truncate(u12, x) },
                         },
                     },
@@ -2400,14 +2413,12 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             if (src_reg.id() == reg.id())
                 return;
 
-            // or %g0, src, dst (aka mov src, dst)
             _ = try self.addInst(.{
-                .tag = .@"or",
+                .tag = .mov,
                 .data = .{
-                    .arithmetic_3op = .{
+                    .arithmetic_2op = .{
                         .is_imm = false,
-                        .rd = reg,
-                        .rs1 = .g0,
+                        .rs1 = reg,
                         .rs2_or_imm = .{ .rs2 = src_reg },
                     },
                 },
@@ -2625,12 +2636,11 @@ fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
             };
 
             _ = try self.addInst(.{
-                .tag = .subcc,
-                .data = .{ .arithmetic_3op = .{
+                .tag = .cmp,
+                .data = .{ .arithmetic_2op = .{
                     .is_imm = true,
                     .rs1 = reg_mcv.register,
                     .rs2_or_imm = .{ .imm = 0 },
-                    .rd = .g0,
                 } },
             });
 
@@ -3163,12 +3173,11 @@ fn truncRegister(
         },
         64 => {
             _ = try self.addInst(.{
-                .tag = .@"or",
+                .tag = .mov,
                 .data = .{
-                    .arithmetic_3op = .{
+                    .arithmetic_2op = .{
                         .is_imm = true,
-                        .rd = dest_reg,
-                        .rs1 = .g0,
+                        .rs1 = dest_reg,
                         .rs2_or_imm = .{ .rs2 = operand_reg },
                     },
                 },

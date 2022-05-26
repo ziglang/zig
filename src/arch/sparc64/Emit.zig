@@ -121,6 +121,10 @@ pub fn emitMir(
             .subcc => try emit.mirArithmetic3Op(inst),
 
             .tcc => try emit.mirTrap(inst),
+
+            .cmp => try emit.mirArithmetic2Op(inst),
+
+            .mov => try emit.mirArithmetic2Op(inst),
         }
     }
 }
@@ -179,12 +183,16 @@ fn mirArithmetic2Op(emit: *Emit, inst: Mir.Inst.Index) !void {
         const imm = data.rs2_or_imm.imm;
         switch (tag) {
             .@"return" => try emit.writeInstruction(Instruction.@"return"(i13, rs1, imm)),
+            .cmp => try emit.writeInstruction(Instruction.subcc(i13, rs1, imm, .g0)),
+            .mov => try emit.writeInstruction(Instruction.@"or"(i13, .g0, imm, rs1)),
             else => unreachable,
         }
     } else {
         const rs2 = data.rs2_or_imm.rs2;
         switch (tag) {
             .@"return" => try emit.writeInstruction(Instruction.@"return"(Register, rs1, rs2)),
+            .cmp => try emit.writeInstruction(Instruction.subcc(Register, rs1, rs2, .g0)),
+            .mov => try emit.writeInstruction(Instruction.@"or"(Register, .g0, rs2, rs1)),
             else => unreachable,
         }
     }
