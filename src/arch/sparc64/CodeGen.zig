@@ -407,7 +407,7 @@ fn gen(self: *Self) !void {
         }
 
         // Backpatch stack offset
-        const total_stack_size = self.max_end_stack + abi.stack_reserved_area; // TODO + self.saved_regs_stack_space;
+        const total_stack_size = self.max_end_stack + abi.stack_reserved_area;
         const stack_size = mem.alignForwardGeneric(u32, total_stack_size, self.stack_align);
         if (math.cast(i13, stack_size)) |size| {
             self.mir_instructions.set(save_inst, .{
