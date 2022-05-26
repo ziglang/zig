@@ -393,26 +393,20 @@ pub const RegisterManager = RegisterManagerFn(@import("CodeGen.zig"), Register, 
 // Register classes
 const RegisterBitSet = RegisterManager.RegisterBitSet;
 pub const RegisterClass = struct {
-    pub const gp: RegisterBitSet = @as(RegisterBitSet, std.math.maxInt(std.meta.Int(
-        .unsigned,
-        caller_preserved_regs.len + callee_preserved_regs.len,
-    )));
-    pub const sse: RegisterBitSet = std.math.maxInt(RegisterBitSet) - gp;
-    // TODO uncomment once #11680 is fixed.
-    // pub const gp: RegisterBitSet = blk: {
-    //     var set = RegisterBitSet.initEmpty();
-    //     set.setRangeValue(.{
-    //         .start = 0,
-    //         .end = caller_preserved_regs.len + callee_preserved_regs.len,
-    //     }, true);
-    //     break :blk set;
-    // };
-    // pub const sse: RegisterBitSet = blk: {
-    //     var set = RegisterBitSet.initEmpty();
-    //     set.setRangeValue(.{
-    //         .start = caller_preserved_regs.len + callee_preserved_regs.len,
-    //         .end = allocatable_registers.len,
-    //     }, true);
-    //     break :blk set;
-    // };
+    pub const gp: RegisterBitSet = blk: {
+        var set = RegisterBitSet.initEmpty();
+        set.setRangeValue(.{
+            .start = 0,
+            .end = caller_preserved_regs.len + callee_preserved_regs.len,
+        }, true);
+        break :blk set;
+    };
+    pub const sse: RegisterBitSet = blk: {
+        var set = RegisterBitSet.initEmpty();
+        set.setRangeValue(.{
+            .start = caller_preserved_regs.len + callee_preserved_regs.len,
+            .end = allocatable_registers.len,
+        }, true);
+        break :blk set;
+    };
 };

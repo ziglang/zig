@@ -13,14 +13,12 @@ pub const RegisterManager = RegisterManagerFn(@import("CodeGen.zig"), Register, 
 // Register classes
 const RegisterBitSet = RegisterManager.RegisterBitSet;
 pub const RegisterClass = struct {
-    pub const gp: RegisterBitSet = std.math.maxInt(RegisterBitSet);
-    // TODO uncomment once #11680 is fixed.
-    // pub const gp: RegisterBitSet = blk: {
-    //     var set = RegisterBitSet.initEmpty();
-    //     set.setRangeValue(.{
-    //         .start = 0,
-    //         .end = callee_preserved_regs.len,
-    //     }, true);
-    //     break :blk set;
-    // };
+    pub const gp: RegisterBitSet = blk: {
+        var set = RegisterBitSet.initEmpty();
+        set.setRangeValue(.{
+            .start = 0,
+            .end = callee_preserved_regs.len,
+        }, true);
+        break :blk set;
+    };
 };
