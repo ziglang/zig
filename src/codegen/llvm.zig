@@ -7728,7 +7728,14 @@ pub const FuncGen = struct {
                 const alloca_inst = self.buildAlloca(llvm_result_ty);
                 alloca_inst.setAlignment(result_ty.abiAlignment(target));
 
-                const elem_ty = result_ty.childType();
+                const array_info = result_ty.arrayInfo();
+                var elem_ptr_payload: Type.Payload.Pointer = .{
+                    .data = .{
+                        .pointee_type = array_info.elem_type,
+                        .@"addrspace" = .generic,
+                    },
+                };
+                const elem_ptr_ty = Type.initPayload(&elem_ptr_payload.base);
 
                 for (elements) |elem, i| {
                     const indices: [2]*const llvm.Value = .{
@@ -7737,13 +7744,19 @@ pub const FuncGen = struct {
                     };
                     const elem_ptr = self.builder.buildInBoundsGEP(alloca_inst, &indices, indices.len, "");
                     const llvm_elem = try self.resolveInst(elem);
-                    var elem_ptr_payload: Type.Payload.Pointer = .{
-                        .data = .{
-                            .pointee_type = elem_ty,
-                            .@"addrspace" = .generic,
-                        },
+                    self.store(elem_ptr, elem_ptr_ty, llvm_elem, .NotAtomic);
+                }
+                if (array_info.sentinel) |sent_val| {
+                    const indices: [2]*const llvm.Value = .{
+                        llvm_usize.constNull(),
+                        llvm_usize.constInt(@intCast(c_uint, array_info.len), .False),
                     };
-                    const elem_ptr_ty = Type.initPayload(&elem_ptr_payload.base);
+                    const elem_ptr = self.builder.buildInBoundsGEP(alloca_inst, &indices, indices.len, "");
+                    const llvm_elem = try self.dg.lowerValue(.{
+                        .ty = array_info.elem_type,
+                        .val = sent_val,
+                    });
+
                     self.store(elem_ptr, elem_ptr_ty, llvm_elem, .NotAtomic);
                 }
 
