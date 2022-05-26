@@ -253,6 +253,18 @@ pub fn Field(comptime params: FieldParams) type {
                 const x47 = x15.mul(x53);
                 const ls = x47.mul(((x53.sqn(17).mul(x2)).sqn(143).mul(x47)).sqn(47)).sq().mul(x2);
                 return ls.equivalent(Fe.one);
+            } else if (field_order == 39402006196394479212279040100143613805079739270465446667948293404245721771496870329047266088258938001861606973112319) {
+                const t111 = x2.mul(x2.mul(x2.sq()).sq());
+                const t111111 = t111.mul(t111.sqn(3));
+                const t1111110 = t111111.sq();
+                const t1111111 = x2.mul(t1111110);
+                const x12 = t1111110.sqn(5).mul(t111111);
+                const x31 = x12.sqn(12).mul(x12).sqn(7).mul(t1111111);
+                const x32 = x31.sq().mul(x2);
+                const x63 = x32.sqn(31).mul(x31);
+                const x126 = x63.sqn(63).mul(x63);
+                const ls = x126.sqn(126).mul(x126).sqn(3).mul(t111).sqn(33).mul(x32).sqn(95).mul(x31);
+                return ls.equivalent(Fe.one);
             } else {
                 const ls = x2.pow(std.meta.Int(.unsigned, field_bits), (field_order - 1) / 2); // Legendre symbol
                 return ls.equivalent(Fe.one);
@@ -268,6 +280,17 @@ pub fn Field(comptime params: FieldParams) type {
                 const t11111111 = t1111.mul(t1111.sqn(4));
                 const x16 = t11111111.sqn(8).mul(t11111111);
                 return x16.sqn(16).mul(x16).sqn(32).mul(x2).sqn(96).mul(x2).sqn(94);
+            } else if (field_order == 39402006196394479212279040100143613805079739270465446667948293404245721771496870329047266088258938001861606973112319) {
+                const t111 = x2.mul(x2.mul(x2.sq()).sq());
+                const t111111 = t111.mul(t111.sqn(3));
+                const t1111110 = t111111.sq();
+                const t1111111 = x2.mul(t1111110);
+                const x12 = t1111110.sqn(5).mul(t111111);
+                const x31 = x12.sqn(12).mul(x12).sqn(7).mul(t1111111);
+                const x32 = x31.sq().mul(x2);
+                const x63 = x32.sqn(31).mul(x31);
+                const x126 = x63.sqn(63).mul(x63);
+                return x126.sqn(126).mul(x126).sqn(3).mul(t111).sqn(33).mul(x32).sqn(64).mul(x2).sqn(30);
             } else {
                 return x2.pow(std.meta.Int(.unsigned, field_bits), (field_order + 1) / 4);
             }

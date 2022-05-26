@@ -2,7 +2,7 @@ const std = @import("std");
 const fmt = std.fmt;
 const testing = std.testing;
 
-const P256 = @import("p256.zig").P256;
+const P256 = @import("../p256.zig").P256;
 
 test "p256 ECDH key exchange" {
     const dha = P256.scalar.random(.Little);

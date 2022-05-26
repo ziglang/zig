@@ -11,27 +11,22 @@ const NonCanonicalError = std.crypto.errors.NonCanonicalError;
 const NotSquareError = std.crypto.errors.NotSquareError;
 
 /// Number of bytes required to encode a scalar.
-pub const encoded_length = 32;
+pub const encoded_length = 48;
 
 /// A compressed scalar, in canonical form.
 pub const CompressedScalar = [encoded_length]u8;
 
 const Fe = Field(.{
-    .fiat = @import("p256_scalar_64.zig"),
-    .field_order = 115792089210356248762697446949407573529996955224135760342422259061068512044369,
-    .field_bits = 256,
-    .saturated_bits = 256,
+    .fiat = @import("p384_scalar_64.zig"),
+    .field_order = 39402006196394479212279040100143613805079739270465446667946905279627659399113263569398956308152294913554433653942643,
+    .field_bits = 384,
+    .saturated_bits = 384,
     .encoded_length = encoded_length,
 });
 
 /// Reject a scalar whose encoding is not canonical.
 pub fn rejectNonCanonical(s: CompressedScalar, endian: std.builtin.Endian) NonCanonicalError!void {
     return Fe.rejectNonCanonical(s, endian);
-}
-
-/// Reduce a 48-bytes scalar to the field size.
-pub fn reduce48(s: [48]u8, endian: std.builtin.Endian) CompressedScalar {
-    return Scalar.fromBytes48(s, endian).toBytes(endian);
 }
 
 /// Reduce a 64-bytes scalar to the field size.
@@ -82,12 +77,6 @@ pub const Scalar = struct {
     /// Unpack a serialized representation of a scalar.
     pub fn fromBytes(s: CompressedScalar, endian: std.builtin.Endian) NonCanonicalError!Scalar {
         return Scalar{ .fe = try Fe.fromBytes(s, endian) };
-    }
-
-    /// Reduce a 384 bit input to the field size.
-    pub fn fromBytes48(s: [48]u8, endian: std.builtin.Endian) Scalar {
-        const t = ScalarDouble.fromBytes(384, s, endian);
-        return t.reduce(384);
     }
 
     /// Reduce a 512 bit input to the field size.
@@ -163,10 +152,10 @@ pub const Scalar = struct {
 
     /// Return a random scalar < L.
     pub fn random() Scalar {
-        var s: [48]u8 = undefined;
+        var s: [64]u8 = undefined;
         while (true) {
             crypto.random.bytes(&s);
-            const n = Scalar.fromBytes48(s, .Little);
+            const n = Scalar.fromBytes64(s, .Little);
             if (!n.isZero()) {
                 return n;
             }
@@ -177,33 +166,26 @@ pub const Scalar = struct {
 const ScalarDouble = struct {
     x1: Fe,
     x2: Fe,
-    x3: Fe,
 
     fn fromBytes(comptime bits: usize, s_: [bits / 8]u8, endian: std.builtin.Endian) ScalarDouble {
-        debug.assert(bits > 0 and bits <= 512 and bits >= Fe.saturated_bits and bits <= Fe.saturated_bits * 3);
+        debug.assert(bits > 0 and bits <= 512 and bits >= Fe.saturated_bits and bits <= Fe.saturated_bits * 2);
 
         var s = s_;
         if (endian == .Big) {
             for (s_) |x, i| s[s.len - 1 - i] = x;
         }
-        var t = ScalarDouble{ .x1 = undefined, .x2 = Fe.zero, .x3 = Fe.zero };
+        var t = ScalarDouble{ .x1 = undefined, .x2 = Fe.zero };
         {
             var b = [_]u8{0} ** encoded_length;
-            const len = math.min(s.len, 24);
+            const len = math.min(s.len, 32);
             mem.copy(u8, b[0..len], s[0..len]);
             t.x1 = Fe.fromBytes(b, .Little) catch unreachable;
         }
-        if (s_.len >= 24) {
+        if (s_.len >= 32) {
             var b = [_]u8{0} ** encoded_length;
-            const len = math.min(s.len - 24, 24);
-            mem.copy(u8, b[0..len], s[24..][0..len]);
+            const len = math.min(s.len - 32, 32);
+            mem.copy(u8, b[0..len], s[32..][0..len]);
             t.x2 = Fe.fromBytes(b, .Little) catch unreachable;
-        }
-        if (s_.len >= 48) {
-            var b = [_]u8{0} ** encoded_length;
-            const len = s.len - 48;
-            mem.copy(u8, b[0..len], s[48..][0..len]);
-            t.x3 = Fe.fromBytes(b, .Little) catch unreachable;
         }
         return t;
     }
@@ -211,13 +193,9 @@ const ScalarDouble = struct {
     fn reduce(expanded: ScalarDouble, comptime bits: usize) Scalar {
         debug.assert(bits > 0 and bits <= Fe.saturated_bits * 3 and bits <= 512);
         var fe = expanded.x1;
-        if (bits >= 192) {
-            const st1 = Fe.fromInt(1 << 192) catch unreachable;
+        if (bits >= 256) {
+            const st1 = Fe.fromInt(1 << 256) catch unreachable;
             fe = fe.add(expanded.x2.mul(st1));
-            if (bits >= 384) {
-                const st2 = st1.sq();
-                fe = fe.add(expanded.x3.mul(st2));
-            }
         }
         return Scalar{ .fe = fe };
     }
