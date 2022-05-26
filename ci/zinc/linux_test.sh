@@ -45,10 +45,10 @@ cd $WORKSPACE
 
 # Look for non-conforming code formatting.
 # Formatting errors can be fixed by running `zig fmt` on the files printed here.
-$ZIG fmt --check . --exclude test/cases/
+# $ZIG fmt --check . --exclude test/cases/
 
 # Build stage2 standalone so that we can test stage2 against stage2 compiler-rt.
-$ZIG           build -p stage2 -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
+# $ZIG           build -p stage2 -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
 
 # Ensure that stage2 can build itself.
 # stage2/bin/zig build -p stage3 -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
@@ -73,7 +73,7 @@ $ZIG           build -p stage2 -Dstatic-llvm -Dtarget=native-native-musl --searc
 # $ZIG build test-run-translated-c -fqemu -fwasmtime
 # $ZIG build docs                  -fqemu -fwasmtime
 # $ZIG build test-fmt              -fqemu -fwasmtime
-$ZIG build test-cases            -fqemu -fwasmtime -Denable-llvm
+$ZIG build test-cases            -fqemu -fwasmtime -Denable-llvm -Dconfig_h=$DEBUG_STAGING/build/config.h
 
 # Produce the experimental std lib documentation.
 mkdir -p "$RELEASE_STAGING/docs/std"
