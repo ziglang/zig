@@ -1574,6 +1574,8 @@ pub const TestContext = struct {
 
                     for (actual_errors.list) |actual_error| {
                         for (case_error_list) |case_msg, i| {
+                            if (handled_errors[i]) continue;
+
                             const ex_tag: std.meta.Tag(@TypeOf(case_msg)) = case_msg;
                             switch (actual_error) {
                                 .src => |actual_msg| {

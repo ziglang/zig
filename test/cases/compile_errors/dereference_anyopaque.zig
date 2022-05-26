@@ -36,7 +36,7 @@ fn parseFree(comptime T: type, value: T, allocator: std.mem.Allocator) void {
 }
 
 pub export fn entry() void {
-    const allocator = std.testing.allocator_instance.allocator();
+    const allocator = std.testing.failing_allocator;
     _ = parse(std.StringArrayHashMap(bool), allocator) catch return;
 }
 
