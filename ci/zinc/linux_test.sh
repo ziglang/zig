@@ -51,28 +51,28 @@ $ZIG fmt --check . --exclude test/cases/
 $ZIG           build -p stage2 -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
 
 # Ensure that stage2 can build itself.
-stage2/bin/zig build -p stage3 -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
-stage2/bin/zig build # test building self-hosted without LLVM
-stage2/bin/zig build -Dtarget=arm-linux-musleabihf # test building self-hosted for 32-bit arm
+# stage2/bin/zig build -p stage3 -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
+# stage2/bin/zig build # test building self-hosted without LLVM
+# stage2/bin/zig build -Dtarget=arm-linux-musleabihf # test building self-hosted for 32-bit arm
 
 # Here we use stage2 instead of stage3 because of two bugs remaining:
 # * https://github.com/ziglang/zig/issues/11367 (and corresponding workaround in compiler source)
 # * https://github.com/ziglang/zig/pull/11492#issuecomment-1112871321
-stage2/bin/zig build test-behavior -fqemu -fwasmtime
+# stage2/bin/zig build test-behavior -fqemu -fwasmtime
 
-$ZIG build test-behavior         -fqemu -fwasmtime -Domit-stage2
-$ZIG build test-compiler-rt      -fqemu -fwasmtime
-$ZIG build test-std              -fqemu -fwasmtime
-$ZIG build test-universal-libc   -fqemu -fwasmtime
-$ZIG build test-compare-output   -fqemu -fwasmtime
-$ZIG build test-standalone       -fqemu -fwasmtime
-$ZIG build test-stack-traces     -fqemu -fwasmtime
-$ZIG build test-cli              -fqemu -fwasmtime
-$ZIG build test-asm-link         -fqemu -fwasmtime
-$ZIG build test-translate-c      -fqemu -fwasmtime
-$ZIG build test-run-translated-c -fqemu -fwasmtime
-$ZIG build docs                  -fqemu -fwasmtime
-$ZIG build test-fmt              -fqemu -fwasmtime
+# $ZIG build test-behavior         -fqemu -fwasmtime -Domit-stage2
+# $ZIG build test-compiler-rt      -fqemu -fwasmtime
+# $ZIG build test-std              -fqemu -fwasmtime
+# $ZIG build test-universal-libc   -fqemu -fwasmtime
+# $ZIG build test-compare-output   -fqemu -fwasmtime
+# $ZIG build test-standalone       -fqemu -fwasmtime
+# $ZIG build test-stack-traces     -fqemu -fwasmtime
+# $ZIG build test-cli              -fqemu -fwasmtime
+# $ZIG build test-asm-link         -fqemu -fwasmtime
+# $ZIG build test-translate-c      -fqemu -fwasmtime
+# $ZIG build test-run-translated-c -fqemu -fwasmtime
+# $ZIG build docs                  -fqemu -fwasmtime
+# $ZIG build test-fmt              -fqemu -fwasmtime
 $ZIG build test-cases            -fqemu -fwasmtime -Denable-llvm
 
 # Produce the experimental std lib documentation.

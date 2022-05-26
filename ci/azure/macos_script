@@ -56,26 +56,26 @@ cmake .. -DZIG_EXECUTABLE="$(pwd)/release/bin/zig"
 make $JOBS install
 
 # Build stage2 standalone so that we can test stage2 against stage2 compiler-rt.
-release/bin/zig build -p stage2 -Denable-llvm
+# release/bin/zig build -p stage2 -Denable-llvm
 
-stage2/bin/zig build test-behavior
+# stage2/bin/zig build test-behavior
 
 # TODO: upgrade these to test stage2 instead of stage1
 # TODO: upgrade these to test stage3 instead of stage2
-release/bin/zig build test-behavior         -Denable-macos-sdk -Domit-stage2
-release/bin/zig build test-compiler-rt      -Denable-macos-sdk
-release/bin/zig build test-std              -Denable-macos-sdk
-release/bin/zig build test-universal-libc   -Denable-macos-sdk
-release/bin/zig build test-compare-output   -Denable-macos-sdk
-release/bin/zig build test-standalone       -Denable-macos-sdk
-release/bin/zig build test-stack-traces     -Denable-macos-sdk
-release/bin/zig build test-cli              -Denable-macos-sdk
-release/bin/zig build test-asm-link         -Denable-macos-sdk
-release/bin/zig build test-translate-c      -Denable-macos-sdk
-release/bin/zig build test-run-translated-c -Denable-macos-sdk
-release/bin/zig build docs                  -Denable-macos-sdk
-release/bin/zig build test-fmt              -Denable-macos-sdk
-release/bin/zig build test-cases            -Denable-macos-sdk
+# release/bin/zig build test-behavior         -Denable-macos-sdk -Domit-stage2
+# release/bin/zig build test-compiler-rt      -Denable-macos-sdk
+# release/bin/zig build test-std              -Denable-macos-sdk
+# release/bin/zig build test-universal-libc   -Denable-macos-sdk
+# release/bin/zig build test-compare-output   -Denable-macos-sdk
+# release/bin/zig build test-standalone       -Denable-macos-sdk
+# release/bin/zig build test-stack-traces     -Denable-macos-sdk
+# release/bin/zig build test-cli              -Denable-macos-sdk
+# release/bin/zig build test-asm-link         -Denable-macos-sdk
+# release/bin/zig build test-translate-c      -Denable-macos-sdk
+# release/bin/zig build test-run-translated-c -Denable-macos-sdk
+# release/bin/zig build docs                  -Denable-macos-sdk
+# release/bin/zig build test-fmt              -Denable-macos-sdk
+release/bin/zig build test-cases            -Denable-macos-sdk -Denable-llvm
 
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
   mv ../LICENSE release/
