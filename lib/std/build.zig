@@ -385,7 +385,7 @@ pub const Builder = struct {
     pub fn dupePkg(self: *Builder, package: Pkg) Pkg {
         var the_copy = Pkg{
             .name = self.dupe(package.name),
-            .path = package.path.dupe(self),
+            .source = package.source.dupe(self),
         };
 
         if (package.dependencies) |dependencies| {
@@ -1353,7 +1353,7 @@ pub const Target = @compileError("deprecated; Use `std.zig.CrossTarget`");
 
 pub const Pkg = struct {
     name: []const u8,
-    path: FileSource,
+    source: FileSource,
     dependencies: ?[]const Pkg = null,
 };
 
@@ -2228,7 +2228,7 @@ pub const LibExeObjStep = struct {
     }
 
     fn addRecursiveBuildDeps(self: *LibExeObjStep, package: Pkg) void {
-        package.path.addStepDependencies(&self.step);
+        package.source.addStepDependencies(&self.step);
         if (package.dependencies) |deps| {
             for (deps) |dep| {
                 self.addRecursiveBuildDeps(dep);
@@ -2239,7 +2239,7 @@ pub const LibExeObjStep = struct {
     pub fn addPackagePath(self: *LibExeObjStep, name: []const u8, pkg_index_path: []const u8) void {
         self.addPackage(Pkg{
             .name = self.builder.dupe(name),
-            .path = .{ .path = self.builder.dupe(pkg_index_path) },
+            .source = .{ .path = self.builder.dupe(pkg_index_path) },
         });
     }
 
@@ -2300,7 +2300,7 @@ pub const LibExeObjStep = struct {
 
         try zig_args.append("--pkg-begin");
         try zig_args.append(pkg.name);
-        try zig_args.append(builder.pathFromRoot(pkg.path.getPath(self.builder)));
+        try zig_args.append(builder.pathFromRoot(pkg.source.getPath(self.builder)));
 
         if (pkg.dependencies) |dependencies| {
             for (dependencies) |sub_pkg| {
@@ -3560,11 +3560,11 @@ test "Builder.dupePkg()" {
 
     var pkg_dep = Pkg{
         .name = "pkg_dep",
-        .path = .{ .path = "/not/a/pkg_dep.zig" },
+        .source = .{ .path = "/not/a/pkg_dep.zig" },
     };
     var pkg_top = Pkg{
         .name = "pkg_top",
-        .path = .{ .path = "/not/a/pkg_top.zig" },
+        .source = .{ .path = "/not/a/pkg_top.zig" },
         .dependencies = &[_]Pkg{pkg_dep},
     };
     const dupe = builder.dupePkg(pkg_top);
@@ -3583,9 +3583,9 @@ test "Builder.dupePkg()" {
     // the same as those in stack allocated package's fields
     try std.testing.expect(dupe_deps.ptr != original_deps.ptr);
     try std.testing.expect(dupe.name.ptr != pkg_top.name.ptr);
-    try std.testing.expect(dupe.path.path.ptr != pkg_top.path.path.ptr);
+    try std.testing.expect(dupe.source.path.ptr != pkg_top.source.path.ptr);
     try std.testing.expect(dupe_deps[0].name.ptr != pkg_dep.name.ptr);
-    try std.testing.expect(dupe_deps[0].path.path.ptr != pkg_dep.path.path.ptr);
+    try std.testing.expect(dupe_deps[0].source.path.ptr != pkg_dep.source.path.ptr);
 }
 
 test "LibExeObjStep.addPackage" {
@@ -3605,11 +3605,11 @@ test "LibExeObjStep.addPackage" {
 
     const pkg_dep = Pkg{
         .name = "pkg_dep",
-        .path = .{ .path = "/not/a/pkg_dep.zig" },
+        .source = .{ .path = "/not/a/pkg_dep.zig" },
     };
     const pkg_top = Pkg{
         .name = "pkg_dep",
-        .path = .{ .path = "/not/a/pkg_top.zig" },
+        .source = .{ .path = "/not/a/pkg_top.zig" },
         .dependencies = &[_]Pkg{pkg_dep},
     };
 

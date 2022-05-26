@@ -200,7 +200,7 @@ pub fn addOptionArtifact(self: *OptionsStep, name: []const u8, artifact: *LibExe
 }
 
 pub fn getPackage(self: *OptionsStep, package_name: []const u8) build.Pkg {
-    return .{ .name = package_name, .path = self.getSource() };
+    return .{ .name = package_name, .source = self.getSource() };
 }
 
 pub fn getSource(self: *OptionsStep) FileSource {
