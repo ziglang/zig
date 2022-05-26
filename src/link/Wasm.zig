@@ -491,6 +491,7 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
                 return error.SymbolCollision;
             }
 
+            try self.discarded.put(self.base.allocator, location, existing_loc);
             continue; // Do not overwrite defined symbols with undefined symbols
         }
 
@@ -503,6 +504,7 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
 
         // when both symbols are weak, we skip overwriting
         if (existing_sym.isWeak() and symbol.isWeak()) {
+            try self.discarded.put(self.base.allocator, location, existing_loc);
             continue;
         }
 
@@ -510,15 +512,13 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
         log.debug("Overwriting symbol '{s}'", .{sym_name});
         log.debug("  old definition in '{s}'", .{existing_file_path});
         log.debug("  new definition in '{s}'", .{object.name});
-        try self.discarded.putNoClobber(self.base.allocator, maybe_existing.value_ptr.*, location);
+        try self.discarded.putNoClobber(self.base.allocator, existing_loc, location);
         maybe_existing.value_ptr.* = location;
         try self.globals.put(self.base.allocator, sym_name_index, location);
         try self.resolved_symbols.put(self.base.allocator, location, {});
         assert(self.resolved_symbols.swapRemove(existing_loc));
         if (existing_sym.isUndefined()) {
-            // ensure order remains intact in case we later
-            // resolve symbols again in a loop
-            assert(self.undefs.orderedRemove(sym_name));
+            assert(self.undefs.swapRemove(sym_name));
         }
     }
 }
@@ -1004,7 +1004,6 @@ pub fn updateDeclExports(
         switch (exp.options.linkage) {
             .Internal => {
                 symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
-                symbol.setFlag(.WASM_SYM_BINDING_WEAK);
             },
             .Weak => {
                 symbol.setFlag(.WASM_SYM_BINDING_WEAK);
@@ -1026,6 +1025,7 @@ pub fn updateDeclExports(
         }
 
         symbol.setGlobal(true);
+        symbol.setUndefined(false);
         try self.globals.put(
             self.base.allocator,
             export_name,
@@ -1034,6 +1034,7 @@ pub fn updateDeclExports(
 
         // if the symbol was previously undefined, remove it as an import
         _ = self.imports.remove(sym_loc);
+        _ = self.undefs.swapRemove(exp.options.name);
         exp.link.wasm.sym_index = sym_index;
     }
 }
@@ -1103,11 +1104,13 @@ pub fn addOrUpdateImport(
     /// is asserted instead.
     type_index: ?u32,
 ) !void {
+    assert(symbol_index != 0);
     // For the import name itself, we use the decl's name, rather than the fully qualified name
     const decl_name_index = try self.string_table.put(self.base.allocator, name);
     const symbol: *Symbol = &self.symbols.items[symbol_index];
     symbol.setUndefined(true);
     symbol.setGlobal(true);
+    symbol.name = decl_name_index;
     const global_gop = try self.globals.getOrPut(self.base.allocator, decl_name_index);
     if (!global_gop.found_existing) {
         const loc: SymbolLoc = .{ .file = null, .index = symbol_index };
@@ -2113,7 +2116,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
 
         while (true) {
             if (!is_obj) {
-                try atom.resolveRelocs(self);
+                atom.resolveRelocs(self);
             }
             sorted_atoms.appendAssumeCapacity(atom);
             atom = atom.next orelse break;
@@ -2172,7 +2175,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
             var current_offset: u32 = 0;
             while (true) {
                 if (!is_obj) {
-                    try atom.resolveRelocs(self);
+                    atom.resolveRelocs(self);
                 }
 
                 // Pad with zeroes to ensure all segments are aligned
