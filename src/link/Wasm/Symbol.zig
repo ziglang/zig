@@ -142,6 +142,8 @@ pub fn isNoStrip(self: Symbol) bool {
 pub fn isExported(self: Symbol) bool {
     if (self.isUndefined() or self.isLocal()) return false;
     if (self.isHidden()) return false;
+    if (self.hasFlag(.WASM_SYM_EXPORTED)) return true;
+    if (self.hasFlag(.WASM_SYM_BINDING_WEAK)) return false;
     return true;
 }
 
@@ -165,9 +167,10 @@ pub fn format(self: Symbol, comptime fmt: []const u8, options: std.fmt.FormatOpt
     };
     const visible: []const u8 = if (self.isVisible()) "yes" else "no";
     const binding: []const u8 = if (self.isLocal()) "local" else "global";
+    const undef: []const u8 = if (self.isUndefined()) "undefined" else "";
 
     try writer.print(
-        "{c} binding={s} visible={s} id={d} name_offset={d}",
-        .{ kind_fmt, binding, visible, self.index, self.name },
+        "{c} binding={s} visible={s} id={d} name_offset={d} {s}",
+        .{ kind_fmt, binding, visible, self.index, self.name, undef },
     );
 }
