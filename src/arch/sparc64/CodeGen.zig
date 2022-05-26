@@ -352,7 +352,7 @@ fn gen(self: *Self) !void {
     if (cc != .Naked) {
         // TODO Finish function prologue and epilogue for sparc64.
 
-        // save %sp, stack_save_area, %sp
+        // save %sp, stack_reserved_area, %sp
         const save_inst = try self.addInst(.{
             .tag = .save,
             .data = .{
@@ -360,7 +360,7 @@ fn gen(self: *Self) !void {
                     .is_imm = true,
                     .rd = .sp,
                     .rs1 = .sp,
-                    .rs2_or_imm = .{ .imm = -abi.stack_save_area },
+                    .rs2_or_imm = .{ .imm = -abi.stack_reserved_area },
                 },
             },
         });
@@ -407,7 +407,7 @@ fn gen(self: *Self) !void {
         }
 
         // Backpatch stack offset
-        const total_stack_size = self.max_end_stack + abi.stack_save_area; // TODO + self.saved_regs_stack_space;
+        const total_stack_size = self.max_end_stack + abi.stack_reserved_area;
         const stack_size = mem.alignForwardGeneric(u32, total_stack_size, self.stack_align);
         if (math.cast(i13, stack_size)) |size| {
             self.mir_instructions.set(save_inst, .{
@@ -1677,7 +1677,7 @@ fn binOp(
 
                         const mir_tag: Mir.Inst.Tag = switch (tag) {
                             .add => .add,
-                            .cmp_eq => .subcc,
+                            .cmp_eq => .cmp,
                             else => unreachable,
                         };
 
@@ -1891,7 +1891,7 @@ fn binOpImmediate(
                 .is_imm = true,
                 .rd = dest_reg,
                 .rs1 = lhs_reg,
-                .rs2_or_imm = .{ .imm = @intCast(i13, rhs.immediate) },
+                .rs2_or_imm = .{ .imm = @intCast(u12, rhs.immediate) },
             },
         },
         .sllx => .{
@@ -1901,6 +1901,13 @@ fn binOpImmediate(
                 .rd = dest_reg,
                 .rs1 = lhs_reg,
                 .rs2_or_imm = .{ .imm = @intCast(u6, rhs.immediate) },
+            },
+        },
+        .cmp => .{
+            .arithmetic_2op = .{
+                .is_imm = true,
+                .rs1 = lhs_reg,
+                .rs2_or_imm = .{ .imm = @intCast(u12, rhs.immediate) },
             },
         },
         else => unreachable,
@@ -2008,6 +2015,13 @@ fn binOpRegister(
                 .is_imm = false,
                 .width = ShiftWidth.shift64,
                 .rd = dest_reg,
+                .rs1 = lhs_reg,
+                .rs2_or_imm = .{ .rs2 = rhs_reg },
+            },
+        },
+        .cmp => .{
+            .arithmetic_2op = .{
+                .is_imm = false,
                 .rs1 = lhs_reg,
                 .rs2_or_imm = .{ .rs2 = rhs_reg },
             },
@@ -2285,7 +2299,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             return self.genSetReg(ty, reg, .{ .immediate = 0xaaaaaaaaaaaaaaaa });
         },
         .ptr_stack_offset => |off| {
-            const simm13 = math.cast(u12, off) catch
+            const simm13 = math.cast(u12, off + abi.stack_bias + abi.stack_reserved_area) catch
                 return self.fail("TODO larger stack offsets", .{});
 
             _ = try self.addInst(.{
@@ -2303,12 +2317,11 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
         .immediate => |x| {
             if (x <= math.maxInt(u12)) {
                 _ = try self.addInst(.{
-                    .tag = .@"or",
+                    .tag = .mov,
                     .data = .{
-                        .arithmetic_3op = .{
+                        .arithmetic_2op = .{
                             .is_imm = true,
-                            .rd = reg,
-                            .rs1 = .g0,
+                            .rs1 = reg,
                             .rs2_or_imm = .{ .imm = @truncate(u12, x) },
                         },
                     },
@@ -2400,14 +2413,12 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             if (src_reg.id() == reg.id())
                 return;
 
-            // or %g0, src, dst (aka mov src, dst)
             _ = try self.addInst(.{
-                .tag = .@"or",
+                .tag = .mov,
                 .data = .{
-                    .arithmetic_3op = .{
+                    .arithmetic_2op = .{
                         .is_imm = false,
-                        .rd = reg,
-                        .rs1 = .g0,
+                        .rs1 = reg,
                         .rs2_or_imm = .{ .rs2 = src_reg },
                     },
                 },
@@ -2420,7 +2431,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             try self.genLoad(reg, reg, i13, 0, ty.abiSize(self.target.*));
         },
         .stack_offset => |off| {
-            const real_offset = off + abi.stack_bias + abi.stack_save_area;
+            const real_offset = off + abi.stack_bias + abi.stack_reserved_area;
             const simm13 = math.cast(i13, real_offset) catch
                 return self.fail("TODO larger stack offsets", .{});
             try self.genLoad(reg, .sp, i13, simm13, ty.abiSize(self.target.*));
@@ -2454,7 +2465,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
         },
         .register => |reg| {
-            const real_offset = stack_offset + abi.stack_bias + abi.stack_save_area;
+            const real_offset = stack_offset + abi.stack_bias + abi.stack_reserved_area;
             const simm13 = math.cast(i13, real_offset) catch
                 return self.fail("TODO larger stack offsets", .{});
             return self.genStore(reg, .sp, i13, simm13, abi_size);
@@ -2625,12 +2636,11 @@ fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
             };
 
             _ = try self.addInst(.{
-                .tag = .subcc,
-                .data = .{ .arithmetic_3op = .{
+                .tag = .cmp,
+                .data = .{ .arithmetic_2op = .{
                     .is_imm = true,
                     .rs1 = reg_mcv.register,
                     .rs2_or_imm = .{ .imm = 0 },
-                    .rd = .g0,
                 } },
             });
 
@@ -3163,12 +3173,11 @@ fn truncRegister(
         },
         64 => {
             _ = try self.addInst(.{
-                .tag = .@"or",
+                .tag = .mov,
                 .data = .{
-                    .arithmetic_3op = .{
+                    .arithmetic_2op = .{
                         .is_imm = true,
-                        .rd = dest_reg,
-                        .rs1 = .g0,
+                        .rs1 = dest_reg,
                         .rs2_or_imm = .{ .rs2 = operand_reg },
                     },
                 },

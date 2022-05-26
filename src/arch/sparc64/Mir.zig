@@ -125,9 +125,23 @@ pub const Inst = struct {
         /// This uses the trap field.
         tcc,
 
-        // TODO add synthetic instructions
-        // TODO add cmp synthetic instruction to avoid wasting a register when
-        // comparing with subcc
+        // SPARCv9 synthetic instructions
+        // Note that the instructions that is added here are only those that
+        // will simplify backend development. Synthetic instructions that is
+        // only used to provide syntactic sugar in, e.g. inline assembly should
+        // be deconstructed inside the parser instead.
+        // See also: G.3 Synthetic Instructions
+        // TODO add more synthetic instructions
+
+        /// Comparison
+        /// This uses the arithmetic_2op field.
+        cmp, // cmp rs1, rs2/imm -> subcc rs1, rs2/imm, %g0
+
+        /// Copy register/immediate contents to another register
+        /// This uses the arithmetic_2op field, with rs1
+        /// being the *destination* register.
+        // TODO is it okay to abuse rs1 in this way?
+        mov, // mov rs2/imm, rs1 -> or %g0, rs2/imm, rs1
     };
 
     /// The position of an MIR instruction within the `Mir` instructions array.

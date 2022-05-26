@@ -3,17 +3,17 @@ const bits = @import("bits.zig");
 const Register = bits.Register;
 const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 
-// SPARCv9 stack constants.
+// SPARCv9 SysV ABI stack constants.
 // See: Registers and the Stack Frame, page 3P-8, SCD 2.4.1.
 
-// On SPARCv9, %sp points to top of stack + stack bias,
-// and %fp points to top of previous frame + stack bias.
+// The ABI specifies that %sp points to top of stack - stack bias,
+// and %fp points to top of previous frame - stack bias.
 pub const stack_bias = 2047;
 
-// The first 176 bytes of the stack is reserved for register saving purposes.
-// SPARCv9 requires to reserve space in the stack for the first six arguments,
-// even though they are usually passed in registers.
-pub const stack_save_area = 176;
+// The first 128 bytes of the stack is reserved for register saving purposes.
+// The ABI also requires to reserve space in the stack for the first six
+// outgoing arguments, even though they are usually passed in registers.
+pub const stack_reserved_area = 128 + 48;
 
 // There are no callee-preserved registers since the windowing
 // mechanism already takes care of them.
