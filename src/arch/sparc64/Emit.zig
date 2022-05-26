@@ -94,6 +94,8 @@ pub fn emitMir(
 
             .@"or" => try emit.mirArithmetic3Op(inst),
 
+            .movcc => @panic("TODO implement sparc64 movcc"),
+
             .mulx => try emit.mirArithmetic3Op(inst),
 
             .nop => try emit.mirNop(),
