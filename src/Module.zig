@@ -1476,6 +1476,10 @@ pub const Fn = struct {
     lbrace_column: u16,
     rbrace_column: u16,
 
+    /// When a generic function is instantiated, this value is inherited from the
+    /// active Sema context. Importantly, this value is also updated when an existing
+    /// generic function instantiation is found and called.
+    branch_quota: u32,
     state: Analysis,
     is_cold: bool = false,
     is_noinline: bool = false,
@@ -4891,6 +4895,7 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
         .func = func,
         .fn_ret_ty = decl.ty.fnReturnType(),
         .owner_func = func,
+        .branch_quota = @maximum(func.branch_quota, Sema.default_branch_quota),
     };
     defer sema.deinit();
 

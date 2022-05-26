@@ -38,7 +38,7 @@ func: ?*Module.Fn,
 /// generic function which uses a type expression for the return type.
 /// The type will be `void` in the case that `func` is `null`.
 fn_ret_ty: Type,
-branch_quota: u32 = 1000,
+branch_quota: u32 = default_branch_quota,
 branch_count: u32 = 0,
 /// Populated when returning `error.ComptimeBreak`. Used to communicate the
 /// break instruction up the stack to find the corresponding Block.
@@ -101,6 +101,8 @@ const target_util = @import("target.zig");
 const Package = @import("Package.zig");
 const crash_report = @import("crash_report.zig");
 const build_options = @import("build_options");
+
+pub const default_branch_quota = 1000;
 
 pub const InstMap = std.AutoHashMapUnmanaged(Zir.Inst.Index, Air.Inst.Ref);
 
@@ -3752,8 +3754,7 @@ fn zirSetEvalBranchQuota(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compi
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const quota = @intCast(u32, try sema.resolveInt(block, src, inst_data.operand, Type.u32));
-    if (sema.branch_quota < quota)
-        sema.branch_quota = quota;
+    sema.branch_quota = @maximum(sema.branch_quota, quota);
 }
 
 fn zirStore(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
@@ -5679,6 +5680,8 @@ fn instantiateGenericCall(
         break :callee new_func;
     } else gop.key_ptr.*;
 
+    callee.branch_quota = @maximum(callee.branch_quota, sema.branch_quota);
+
     const callee_inst = try sema.analyzeDeclVal(block, func_src, callee.owner_decl);
 
     // Make a runtime call to the new function, making sure to omit the comptime args.
@@ -6773,6 +6776,7 @@ fn funcCommon(
         .lbrace_column = @truncate(u16, src_locs.columns),
         .rbrace_column = @truncate(u16, src_locs.columns >> 16),
         .param_names = param_names,
+        .branch_quota = default_branch_quota,
     };
     if (maybe_inferred_error_set_node) |node| {
         new_func.inferred_error_sets.prepend(node);
