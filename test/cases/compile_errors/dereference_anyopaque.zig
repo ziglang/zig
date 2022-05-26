@@ -42,6 +42,7 @@ pub export fn entry() void {
 
 // error
 // backend=llvm
+// target=x86_64-linux,aarch64-linux,arm-linux,x86_64-macos,aarch64-macos
 //
 // :11:22: error: comparison of 'void' with null
 // :25:51: error: unable to resolve comptime value
