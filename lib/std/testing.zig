@@ -8,7 +8,11 @@ pub const FailingAllocator = @import("testing/failing_allocator.zig").FailingAll
 
 /// This should only be used in temporary test programs.
 pub const allocator = allocator_instance.allocator();
-pub var allocator_instance = std.heap.GeneralPurposeAllocator(.{}){};
+pub var allocator_instance = b: {
+    if (!builtin.is_test)
+        @compileError("Cannot use testing allocator outside of test block");
+    break :b std.heap.GeneralPurposeAllocator(.{}){};
+};
 
 pub const failing_allocator = failing_allocator_instance.allocator();
 pub var failing_allocator_instance = FailingAllocator.init(base_allocator_instance.allocator(), 0);
