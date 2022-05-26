@@ -609,6 +609,8 @@ pub const Inst = struct {
         /// Some of the elements may be comptime-known.
         /// Uses the `ty_pl` field, payload is index of an array of elements, each of which
         /// is a `Ref`. Length of the array is given by the vector type.
+        /// If the type is an array with a sentinel, the AIR elements do not include it
+        /// explicitly.
         aggregate_init,
 
         /// Constructs a union from a field index and a runtime-known init value.

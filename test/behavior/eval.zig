@@ -733,23 +733,19 @@ test "*align(1) u16 is the same as *align(1:0:2) u16" {
     }
 }
 
-test "array concatenation forces comptime" {
-    if (builtin.zig_backend != .stage1) {
-        // note: our plan is to change the language to support runtime array
-        // concatenation instead of making this test pass.
-        return error.SkipZigTest; // TODO
-    }
+test "array concatenation of function calls" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var a = oneItem(3) ++ oneItem(4);
     try expect(std.mem.eql(i32, &a, &[_]i32{ 3, 4 }));
 }
 
-test "array multiplication forces comptime" {
-    if (builtin.zig_backend != .stage1) {
-        // note: our plan is to change the language to support runtime array
-        // multiplication instead of making this test pass.
-        return error.SkipZigTest; // TODO
-    }
+test "array multiplication of function calls" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var a = oneItem(3) ** scalar(2);
     try expect(std.mem.eql(i32, &a, &[_]i32{ 3, 3 }));
@@ -761,6 +757,116 @@ fn oneItem(x: i32) [1]i32 {
 
 fn scalar(x: u32) u32 {
     return x;
+}
+
+test "array concatenation peer resolves element types - value" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    var a = [2]u3{ 1, 7 };
+    var b = [3]u8{ 200, 225, 255 };
+    var c = a ++ b;
+    comptime assert(@TypeOf(c) == [5]u8);
+    try expect(c[0] == 1);
+    try expect(c[1] == 7);
+    try expect(c[2] == 200);
+    try expect(c[3] == 225);
+    try expect(c[4] == 255);
+}
+
+test "array concatenation peer resolves element types - pointer" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    var a = [2]u3{ 1, 7 };
+    var b = [3]u8{ 200, 225, 255 };
+    var c = &a ++ &b;
+    comptime assert(@TypeOf(c) == *[5]u8);
+    try expect(c[0] == 1);
+    try expect(c[1] == 7);
+    try expect(c[2] == 200);
+    try expect(c[3] == 225);
+    try expect(c[4] == 255);
+}
+
+test "array concatenation sets the sentinel - value" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    var a = [2]u3{ 1, 7 };
+    var b = [3:69]u8{ 200, 225, 255 };
+    var c = a ++ b;
+    comptime assert(@TypeOf(c) == [5:69]u8);
+    try expect(c[0] == 1);
+    try expect(c[1] == 7);
+    try expect(c[2] == 200);
+    try expect(c[3] == 225);
+    try expect(c[4] == 255);
+    var ptr: [*]const u8 = &c;
+    try expect(ptr[5] == 69);
+}
+
+test "array concatenation sets the sentinel - pointer" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    var a = [2]u3{ 1, 7 };
+    var b = [3:69]u8{ 200, 225, 255 };
+    var c = &a ++ &b;
+    comptime assert(@TypeOf(c) == *[5:69]u8);
+    try expect(c[0] == 1);
+    try expect(c[1] == 7);
+    try expect(c[2] == 200);
+    try expect(c[3] == 225);
+    try expect(c[4] == 255);
+    var ptr: [*]const u8 = c;
+    try expect(ptr[5] == 69);
+}
+
+test "array multiplication sets the sentinel - value" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    var a = [2:7]u3{ 1, 6 };
+    var b = a ** 2;
+    comptime assert(@TypeOf(b) == [4:7]u3);
+    try expect(b[0] == 1);
+    try expect(b[1] == 6);
+    try expect(b[2] == 1);
+    try expect(b[3] == 6);
+    var ptr: [*]const u3 = &b;
+    try expect(ptr[4] == 7);
+}
+
+test "array multiplication sets the sentinel - pointer" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    var a = [2:7]u3{ 1, 6 };
+    var b = &a ** 2;
+    comptime assert(@TypeOf(b) == *[4:7]u3);
+    try expect(b[0] == 1);
+    try expect(b[1] == 6);
+    try expect(b[2] == 1);
+    try expect(b[3] == 6);
+    var ptr: [*]const u3 = b;
+    try expect(ptr[4] == 7);
 }
 
 test "comptime assign int to optional int" {
