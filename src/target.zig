@@ -507,6 +507,22 @@ pub fn libcFullLinkFlags(target: std.Target) []const []const u8 {
             "-lpthread",
             "-lc",
         },
+        .linux => if (target.isGnuLibC() and target.os.version_range.linux.glibc.major >= 2 and target.os.version_range.linux.glibc.minor >= 28) &[_][]const u8{
+            "-lm",
+            "-lpthread",
+            "-lc",
+            "-ldl",
+            "-lrt",
+            "-lutil",
+            "-lc_nonshared", // see https://github.com/bminor/glibc/commit/1a2f44a848663036c8a14671fe0faa3fed0b2a25, included in glibc 2.28 and newer
+        } else &[_][]const u8{
+            "-lm",
+            "-lpthread",
+            "-lc",
+            "-ldl",
+            "-lrt",
+            "-lutil",
+        },
         else => switch (target.abi) {
             .android => &[_][]const u8{
                 "-lm",
