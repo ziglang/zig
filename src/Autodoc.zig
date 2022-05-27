@@ -575,7 +575,7 @@ const DocData = struct {
         call: usize, // index in `calls`
         enumLiteral: []const u8, // direct value
         typeOf: usize, // index in `exprs`
-        typeOf_peer: []Expr,
+        typeOf_peer: []usize,
         as: As,
         sizeOf: usize, // index in `exprs`
         compileError: []const u8,
@@ -642,14 +642,6 @@ const DocData = struct {
                     options,
                     w,
                 ),
-                .typeOf_peer => |v| {
-                    try w.print("{{ \"typeOf_peer\": [", .{});
-                    for (v) |c, i| {
-                        const comma = if (i == v.len - 1) "]}" else ",\n";
-                        try c.jsonStringify(options, w);
-                        try w.print("{s}", .{comma});
-                    }
-                },
                 .refPath => |v| {
                     try w.print("{{ \"refPath\": [", .{});
                     for (v) |c, i| {
@@ -658,6 +650,11 @@ const DocData = struct {
                         try w.print("{s}", .{comma});
                     }
                 },
+                .typeOf_peer => |v| try std.json.stringify(
+                    struct { typeOf_peer: []usize }{ .typeOf_peer = v },
+                    options,
+                    w,
+                ),
                 .array => |v| try std.json.stringify(
                     struct { @"array": []usize }{ .@"array" = v },
                     options,
@@ -1538,12 +1535,6 @@ fn walkInstruction(
             const extra = file.zir.extraData(Zir.Inst.Param, pl_tok.payload_index);
             const name = file.zir.nullTerminatedString(extra.data.name);
 
-            std.debug.print("param\n", .{});
-            std.debug.print("pl_tok = {any}\n", .{pl_tok});
-            std.debug.print("extra = {any}\n", .{extra});
-            std.debug.print("name = {any}\n", .{name});
-            std.debug.print("param\n", .{});
-
             const cte_slot_index = self.comptime_exprs.items.len;
             try self.comptime_exprs.append(self.arena, .{
                 .code = name,
@@ -1616,17 +1607,38 @@ fn walkInstruction(
                     // Zir says it's a NodeMultiOp but in this case it's TypeOfPeer
                     const extra = file.zir.extraData(Zir.Inst.TypeOfPeer, extended.operand);
                     const args = file.zir.refSlice(extra.end, extended.small);
-                    const operand_index = self.exprs.items.len;
+                    const array_data = try self.arena.alloc(usize, args.len);
+
+                    var array_type: ?DocData.Expr = null;
                     for (args) |arg, idx| {
                         const wr = try self.walkRef(file, parent_scope, arg, idx == 0);
+                        if (idx == 0) {
+                            array_type = wr.typeRef;
+                        }
 
+                        const expr_index = self.exprs.items.len;
                         try self.exprs.append(self.arena, wr.expr);
+                        array_data[idx] = expr_index;
                     }
 
-                    return DocData.WalkResult{
-                        .typeRef = .{ .type = @enumToInt(Ref.void_type) },
-                        .expr = .{ .typeOf_peer = self.exprs.items[operand_index..] },
+                    const type_slot_index = self.types.items.len;
+                    try self.types.append(self.arena, .{
+                        .Array = .{
+                            .len = .{
+                                .int = .{
+                                    .value = args.len,
+                                    .negated = false,
+                                },
+                            },
+                            .child = array_type.?,
+                        },
+                    });
+                    const result = DocData.WalkResult{
+                        .typeRef = .{ .type = type_slot_index },
+                        .expr = .{ .typeOf_peer = array_data },
                     };
+
+                    return result;
                 },
                 .opaque_decl => return self.cteTodo("opaque {...}"),
                 .variable => {
@@ -2682,6 +2694,7 @@ fn analyzeFunction(
         const last_instr_index = fn_info.ret_ty_body[fn_info.ret_ty_body.len - 1];
         const break_operand = data[last_instr_index].@"break".operand;
         const wr = try self.walkRef(file, scope, break_operand, false);
+
         break :blk wr;
     };
 
