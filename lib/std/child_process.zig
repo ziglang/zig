@@ -40,8 +40,8 @@ pub const ChildProcess = struct {
     ///   - methods like readAll() read until the pipe write end is closed
     ///   - Non-blocking methods require message separators like ETB, EOT
     ///     and some more thought about message content/sanitization
-    ///   - It is recommended to use fcntl and SetHandleInformation in the child
-    ///     process to prevent inheritance by grandchildren
+    ///   - It is recommended to use `os.disableFileInheritance()`
+    ///     in the child process to prevent inheritance by grandchildren
     extra_streams: ?[]ExtraStream,
 
     term: ?(SpawnError!Term),
