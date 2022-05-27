@@ -1203,3 +1203,30 @@ test "equality of pointers to comptime const" {
     const a: i32 = undefined;
     comptime assert(&a == &a);
 }
+
+test "storing an array of type in a field" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() void {
+            comptime var foobar = Foobar.foo();
+            foo(foobar.str[0..10]);
+        }
+        const Foobar = struct {
+            myTypes: [128]type,
+            str: [1024]u8,
+
+            fn foo() @This() {
+                comptime var foobar: Foobar = undefined;
+                foobar.str = [_]u8{'a'} ** 1024;
+                return foobar;
+            }
+        };
+
+        fn foo(arg: anytype) void {
+            _ = arg;
+        }
+    };
+
+    S.doTheTest();
+}
