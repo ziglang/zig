@@ -933,3 +933,15 @@ test "try in labeled block doesn't cast to wrong type" {
     };
     _ = s;
 }
+
+test "comptime int in switch in catch is casted to correct inferred type" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
+    var a: error{ A, B }!u64 = 0;
+    var b = a catch |err| switch (err) {
+        error.A => 0,
+        else => unreachable,
+    };
+    _ = b;
+}
