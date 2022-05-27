@@ -68,7 +68,7 @@ string_table: Wasm.StringTable = .{},
 const RelocatableData = struct {
     /// The type of the relocatable data
     type: enum { data, code, custom },
-    /// Pointer to the data of the segment, where it's length is written to `size`
+    /// Pointer to the data of the segment, where its length is written to `size`
     data: [*]u8,
     /// The size in bytes of the data representing the segment within the section
     size: u32,
@@ -105,10 +105,10 @@ pub const InitError = error{NotObjectFile} || ParseError || std.fs.File.ReadErro
 
 /// Initializes a new `Object` from a wasm object file.
 /// This also parses and verifies the object file.
-pub fn create(gpa: Allocator, file: std.fs.File, path: []const u8) InitError!Object {
+pub fn create(gpa: Allocator, file: std.fs.File, name: []const u8) InitError!Object {
     var object: Object = .{
         .file = file,
-        .name = path,
+        .name = try gpa.dupe(u8, name),
     };
 
     var is_object_file: bool = false;
@@ -154,6 +154,7 @@ pub fn deinit(self: *Object, gpa: Allocator) void {
     }
     gpa.free(self.relocatable_data);
     self.string_table.deinit(gpa);
+    gpa.free(self.name);
     self.* = undefined;
 }
 
