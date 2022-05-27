@@ -592,7 +592,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .ret_load        => try self.airRetLoad(inst),
             .store           => try self.airStore(inst),
             .struct_field_ptr=> @panic("TODO try self.airStructFieldPtr(inst)"),
-            .struct_field_val=> @panic("TODO try self.airStructFieldVal(inst)"),
+            .struct_field_val=> try self.airStructFieldVal(inst),
             .array_to_slice  => @panic("TODO try self.airArrayToSlice(inst)"),
             .int_to_float    => @panic("TODO try self.airIntToFloat(inst)"),
             .float_to_int    => @panic("TODO try self.airFloatToInt(inst)"),
@@ -1598,6 +1598,75 @@ fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u8) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
+fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
+    const operand = extra.struct_operand;
+    const index = extra.field_index;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const mcv = try self.resolveInst(operand);
+        const struct_ty = self.air.typeOf(operand);
+        const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, self.target.*));
+
+        switch (mcv) {
+            .dead, .unreach => unreachable,
+            .stack_offset => |off| {
+                break :result MCValue{ .stack_offset = off - struct_field_offset };
+            },
+            .memory => |addr| {
+                break :result MCValue{ .memory = addr + struct_field_offset };
+            },
+            .register_with_overflow => |rwo| {
+                switch (index) {
+                    0 => {
+                        // get wrapped value: return register
+                        break :result MCValue{ .register = rwo.reg };
+                    },
+                    1 => {
+                        // TODO return special MCValue condition flags
+                        // get overflow bit: set register to C flag
+                        // resp. V flag
+                        const dest_reg = try self.register_manager.allocReg(null, gp);
+
+                        // TODO handle floating point CCRs
+                        assert(rwo.flag.ccr == .xcc or rwo.flag.ccr == .icc);
+
+                        _ = try self.addInst(.{
+                            .tag = .mov,
+                            .data = .{
+                                .arithmetic_2op = .{
+                                    .is_imm = false,
+                                    .rs1 = dest_reg,
+                                    .rs2_or_imm = .{ .rs2 = .g0 },
+                                },
+                            },
+                        });
+
+                        _ = try self.addInst(.{
+                            .tag = .movcc,
+                            .data = .{
+                                .conditional_move = .{
+                                    .ccr = rwo.flag.ccr,
+                                    .cond = .{ .icond = rwo.flag.cond },
+                                    .is_imm = true,
+                                    .rd = dest_reg,
+                                    .rs2_or_imm = .{ .imm = 1 },
+                                },
+                            },
+                        });
+
+                        break :result MCValue{ .register = dest_reg };
+                    },
+                    else => unreachable,
+                }
+            },
+            else => return self.fail("TODO implement codegen struct_field_val for {}", .{mcv}),
+        }
+    };
+
+    return self.finishAir(inst, result, .{ extra.struct_operand, .none, .none });
+}
+
 fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
     _ = self;
     _ = inst;
@@ -1664,8 +1733,8 @@ fn allocMem(self: *Self, inst: Air.Inst.Index, abi_size: u32, abi_align: u32) !u
     if (abi_align > self.stack_align)
         self.stack_align = abi_align;
     // TODO find a free slot instead of always appending
-    const offset = mem.alignForwardGeneric(u32, self.next_stack_offset, abi_align);
-    self.next_stack_offset = offset + abi_size;
+    const offset = mem.alignForwardGeneric(u32, self.next_stack_offset, abi_align) + abi_size;
+    self.next_stack_offset = offset;
     if (self.next_stack_offset > self.max_end_stack)
         self.max_end_stack = self.next_stack_offset;
     try self.stack.putNoClobber(self.gpa, offset, .{
@@ -2436,8 +2505,9 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             return self.genSetReg(ty, reg, .{ .immediate = 0xaaaaaaaaaaaaaaaa });
         },
         .ptr_stack_offset => |off| {
-            const simm13 = math.cast(u12, off + abi.stack_bias + abi.stack_reserved_area) orelse
-                return self.fail("TODO larger stack offsets", .{});
+            const real_offset = off + abi.stack_bias + abi.stack_reserved_area;
+            const simm13 = math.cast(i13, real_offset) orelse
+                return self.fail("TODO larger stack offsets: {}", .{real_offset});
 
             _ = try self.addInst(.{
                 .tag = .add,
@@ -2571,7 +2641,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
         .stack_offset => |off| {
             const real_offset = off + abi.stack_bias + abi.stack_reserved_area;
             const simm13 = math.cast(i13, real_offset) orelse
-                return self.fail("TODO larger stack offsets", .{});
+                return self.fail("TODO larger stack offsets: {}", .{real_offset});
             try self.genLoad(reg, .sp, i13, simm13, ty.abiSize(self.target.*));
         },
     }
@@ -2605,7 +2675,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
         .register => |reg| {
             const real_offset = stack_offset + abi.stack_bias + abi.stack_reserved_area;
             const simm13 = math.cast(i13, real_offset) orelse
-                return self.fail("TODO larger stack offsets", .{});
+                return self.fail("TODO larger stack offsets: {}", .{real_offset});
             return self.genStore(reg, .sp, i13, simm13, abi_size);
         },
         .register_with_overflow => |rwo| {
@@ -3198,6 +3268,7 @@ fn spillCompareFlagsIfOccupied(self: *Self) !void {
             .compare_flags_signed,
             .compare_flags_unsigned,
             => try self.allocRegOrMem(inst_to_save, true),
+            .register_with_overflow => try self.allocRegOrMem(inst_to_save, false),
             else => unreachable, // mcv doesn't occupy the compare flags
         };
 
@@ -3208,6 +3279,13 @@ fn spillCompareFlagsIfOccupied(self: *Self) !void {
         try branch.inst_table.put(self.gpa, inst_to_save, new_mcv);
 
         self.compare_flags_inst = null;
+
+        // TODO consolidate with register manager and spillInstruction
+        // this call should really belong in the register manager!
+        switch (mcv) {
+            .register_with_overflow => |rwo| self.register_manager.freeReg(rwo.reg),
+            else => {},
+        }
     }
 }
 
