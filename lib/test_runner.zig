@@ -74,7 +74,6 @@ pub fn main() void {
                 skip_count += 1;
                 test_node.end();
                 progress.log("SKIP (async test)\n", .{});
-                if (!have_tty) std.debug.print("SKIP (async test)\n", .{});
                 continue;
             },
         } else test_fn.func();
@@ -86,13 +85,11 @@ pub fn main() void {
             error.SkipZigTest => {
                 skip_count += 1;
                 progress.log("SKIP\n", .{});
-                if (!have_tty) std.debug.print("SKIP\n", .{});
                 test_node.end();
             },
             else => {
                 fail_count += 1;
                 progress.log("FAIL ({s})\n", .{@errorName(err)});
-                if (!have_tty) std.debug.print("FAIL ({s})\n", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
                 }
