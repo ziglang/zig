@@ -61,6 +61,7 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
         (builtin.os.tag != .windows or builtin.cpu.arch != .aarch64))
     {
         cases.addBuildFile("test/standalone/load_dynamic_library/build.zig", .{});
+        cases.addBuildFile("test/standalone/childprocess_extrapipe/build.zig", .{});
     }
 
     if (builtin.os.tag == .windows) {
