@@ -79,6 +79,7 @@ pub fn emitMir(
             .dbg_epilogue_begin => try emit.mirDebugEpilogueBegin(),
 
             .add => try emit.mirArithmetic3Op(inst),
+            .addcc => @panic("TODO implement sparc64 addcc"),
 
             .bpr => try emit.mirConditionalBranch(inst),
             .bpcc => try emit.mirConditionalBranch(inst),

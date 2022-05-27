@@ -42,6 +42,7 @@ pub const Inst = struct {
         /// This uses the arithmetic_3op field.
         // TODO add other operations.
         add,
+        addcc,
 
         /// A.3 Branch on Integer Register with Prediction (BPr)
         /// This uses the branch_predict_reg field.
