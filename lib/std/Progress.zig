@@ -297,7 +297,10 @@ fn refreshWithHeldLock(self: *Progress) void {
 }
 
 pub fn log(self: *Progress, comptime format: []const u8, args: anytype) void {
-    const file = self.terminal orelse return;
+    const file = self.terminal orelse {
+        std.debug.print(format, args);
+        return;
+    };
     self.refresh();
     file.writer().print(format, args) catch {
         self.terminal = null;
