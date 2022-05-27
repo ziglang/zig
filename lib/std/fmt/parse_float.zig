@@ -57,6 +57,16 @@ test "fmt.parseFloat" {
         try expect(approxEqAbs(T, try parseFloat(T, "1e-2"), 0.01, epsilon));
         try expect(approxEqAbs(T, try parseFloat(T, "1234e-2"), 12.34, epsilon));
 
+        try expect(approxEqAbs(T, try parseFloat(T, "1."), 1, epsilon));
+        try expect(approxEqAbs(T, try parseFloat(T, "0."), 0, epsilon));
+        try expect(approxEqAbs(T, try parseFloat(T, ".1"), 0.1, epsilon));
+        try expect(approxEqAbs(T, try parseFloat(T, ".0"), 0, epsilon));
+        try expect(approxEqAbs(T, try parseFloat(T, ".1e-1"), 0.01, epsilon));
+
+        try expectError(error.InvalidCharacter, parseFloat(T, ".")); // At least one digit is required.
+        try expectError(error.InvalidCharacter, parseFloat(T, ".e1")); // At least one digit is required.
+        try expectError(error.InvalidCharacter, parseFloat(T, "0.e")); // At least one digit is required.
+
         try expect(approxEqAbs(T, try parseFloat(T, "123142.1"), 123142.1, epsilon));
         try expect(approxEqAbs(T, try parseFloat(T, "-123142.1124"), @as(T, -123142.1124), epsilon));
         try expect(approxEqAbs(T, try parseFloat(T, "0.7062146892655368"), @as(T, 0.7062146892655368), epsilon));
