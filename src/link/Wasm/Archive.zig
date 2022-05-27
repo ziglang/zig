@@ -181,6 +181,8 @@ pub fn parseObject(self: Archive, allocator: Allocator, file_offset: u32) !Objec
     try self.file.seekTo(file_offset);
     const reader = self.file.reader();
     const header = try reader.readStruct(ar_hdr);
+    const current_offset = try self.file.getPos();
+    try self.file.seekTo(0);
 
     if (!mem.eql(u8, &header.ar_fmag, ARFMAG)) {
         log.err("invalid header delimiter: expected '{s}', found '{s}'", .{ ARFMAG, header.ar_fmag });
@@ -191,16 +193,15 @@ pub fn parseObject(self: Archive, allocator: Allocator, file_offset: u32) !Objec
     defer allocator.free(object_name);
 
     const name = name: {
-        if (object_name.len == 0) {
-            break :name try std.fmt.allocPrint(allocator, "{s}.o", .{self.name});
-        }
-        const base_path = std.fs.path.dirname(self.name);
-        break :name try std.fmt.allocPrint(allocator, "{s}/{s}.o", .{ base_path, object_name });
+        var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        const path = try std.os.realpath(self.name, &buffer);
+        break :name try std.fmt.allocPrint(allocator, "{s}({s})", .{ path, object_name });
     };
+    defer allocator.free(name);
 
-    log.debug(" parsing object file '{s}' from archive\n", .{name});
-    const object_file = try std.fs.cwd().openFile(name, .{});
+    const object_file = try std.fs.cwd().openFile(self.name, .{});
     errdefer object_file.close();
 
+    try object_file.seekTo(current_offset);
     return Object.create(allocator, object_file, name);
 }
