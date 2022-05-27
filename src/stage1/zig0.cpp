@@ -45,7 +45,7 @@ static int print_full_usage(const char *arg0, FILE *file, int return_code) {
         "  -OReleaseFast                build with optimizations on and safety off\n"
         "  -OReleaseSafe                build with optimizations on and safety on\n"
         "  -OReleaseSmall               build with size optimizations on and safety off\n"
-        "  --single-threaded            source may assume it is only used single-threaded\n"
+        "  -fsingle-threaded            source may assume it is only used single-threaded\n"
         "  -dynamic                     create a shared library (.so; .dll; .dylib)\n"
         "  --strip                      exclude debug symbols\n"
         "  -target [name]               <arch>-<os>-<abi> see the targets command\n"
@@ -282,7 +282,7 @@ int main(int argc, char **argv) {
                 optimize_mode = BuildModeSafeRelease;
             } else if (strcmp(arg, "-OReleaseSmall") == 0) {
                 optimize_mode = BuildModeSmallRelease;
-            } else if (strcmp(arg, "--single-threaded") == 0) {
+            } else if (strcmp(arg, "-fsingle-threaded") == 0) {
                 single_threaded = true;
             } else if (strcmp(arg, "--help") == 0) {
                 return print_full_usage(arg0, stdout, EXIT_SUCCESS);
