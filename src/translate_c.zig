@@ -793,6 +793,10 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
     var is_extern = storage_class == .Extern and !has_init;
     var is_export = !is_extern and storage_class != .Static;
 
+    if (!is_extern and qualTypeWasDemotedToOpaque(c, qual_type)) {
+        return failDecl(c, var_decl_loc, var_name, "non-extern variable has opaque type", .{});
+    }
+
     const type_node = transQualTypeMaybeInitialized(c, scope, qual_type, decl_init, var_decl_loc) catch |err| switch (err) {
         error.UnsupportedTranslation, error.UnsupportedType => {
             return failDecl(c, var_decl_loc, var_name, "unable to resolve variable type", .{});
@@ -1839,6 +1843,7 @@ fn transDeclStmtOne(
         .Var => {
             const var_decl = @ptrCast(*const clang.VarDecl, decl);
             const decl_init = var_decl.getInit();
+            const loc = decl.getLocation();
 
             const qual_type = var_decl.getTypeSourceInfo_getType();
             const name = try c.str(@ptrCast(*const clang.NamedDecl, var_decl).getName_bytes_begin());
@@ -1848,12 +1853,12 @@ fn transDeclStmtOne(
                 // This is actually a global variable, put it in the global scope and reference it.
                 // `_ = mangled_name;`
                 return visitVarDecl(c, var_decl, mangled_name);
+            } else if (qualTypeWasDemotedToOpaque(c, qual_type)) {
+                return fail(c, error.UnsupportedTranslation, loc, "local variable has opaque type", .{});
             }
 
             const is_static_local = var_decl.isStaticLocal();
             const is_const = qual_type.isConstQualified();
-
-            const loc = decl.getLocation();
             const type_node = try transQualTypeMaybeInitialized(c, scope, qual_type, decl_init, loc);
 
             var init_node = if (decl_init) |expr|
