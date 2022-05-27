@@ -43,6 +43,8 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     }
     if (builtin.os.tag != .wasi) {
         cases.addBuildFile("test/standalone/load_dynamic_library/build.zig", .{});
+        cases.addBuildFile("test/standalone/childprocess_minimal/build.zig", .{});
+        cases.addBuildFile("test/standalone/childprocess_pipetest/build.zig", .{});
     }
     // C ABI compatibility issue: https://github.com/ziglang/zig/issues/1481
     if (builtin.cpu.arch == .x86_64) {
