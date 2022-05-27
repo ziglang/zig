@@ -16,15 +16,16 @@ pub fn main() !void {
         }
     };
     if (builtin.target.os.tag == .windows) {
+        // windows.HANDLE_FLAG_INHERIT is enabled
         var handle_flags = windows.DWORD;
         try windows.GetHandleInformation(file_handle, &handle_flags);
-        std.debug.assert(handle_flags & windows.HANDLE_FLAG_INHERIT != 0);
-        try windows.SetHandleInformation(file_handle, windows.HANDLE_FLAG_INHERIT, 0);
+        try std.testing.expect(handle_flags & windows.HANDLE_FLAG_INHERIT != 0);
     } else {
+        // FD_CLOEXEC is not set
         var fcntl_flags = try std.os.fcntl(file_handle, std.os.F.GETFD, 0);
         try std.testing.expect((fcntl_flags & std.os.FD_CLOEXEC) == 0);
-        _ = try std.os.fcntl(file_handle, std.os.F.SETFD, std.os.FD_CLOEXEC);
     }
+    try std.os.disableFileInheritance(file_handle);
     var extra_stream_in = std.fs.File{ .handle = file_handle };
     defer extra_stream_in.close();
     const extra_str_in_rd = extra_stream_in.reader();

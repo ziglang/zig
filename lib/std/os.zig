@@ -4890,6 +4890,16 @@ pub fn lseek_CUR_get(fd: fd_t) SeekError!u64 {
     }
 }
 
+const UnsetFileInheritanceError = FcntlError || windows.SetHandleInformationError;
+
+pub inline fn disableFileInheritance(file_handle: fd_t) UnsetFileInheritanceError!void {
+    if (builtin.os.tag == .windows) {
+        try windows.SetHandleInformation(file_handle, windows.HANDLE_FLAG_INHERIT, 0);
+    } else {
+        _ = try fcntl(file_handle, F.SETFD, FD_CLOEXEC);
+    }
+}
+
 pub const FcntlError = error{
     PermissionDenied,
     FileBusy,
