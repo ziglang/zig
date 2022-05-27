@@ -928,12 +928,12 @@ pub const Sigaction = extern struct {
 };
 
 pub const dirent = extern struct {
-    d_ino: usize,
-    d_seekoff: usize,
+    d_ino: u64,
+    d_seekoff: u64,
     d_reclen: u16,
     d_namlen: u16,
     d_type: u8,
-    d_name: u8, // field address is address of first byte of name
+    d_name: [1024]u8,
 
     pub fn reclen(self: dirent) u16 {
         return self.d_reclen;
