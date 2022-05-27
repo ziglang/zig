@@ -400,7 +400,13 @@ const DocData = struct {
             size: std.builtin.TypeInfo.Pointer.Size,
             child: Expr,
             sentinel: ?Expr = null,
-            is_mutable: bool = true,
+            is_allowzero: bool = false,
+            is_mutable: bool = false,
+            is_volatile: bool = false,
+            has_sentinel: bool = false,
+            has_align: bool = false,
+            has_addrspace: bool = false,
+            has_bit_range: bool = false,
         },
         Array: struct {
             len: Expr,
@@ -507,9 +513,15 @@ const DocData = struct {
                         try w.print(",", .{});
                     }
                     try w.print(
+                        \\"is_allowzero": {},
                         \\"is_mutable": {},
+                        \\"is_volatile": {},
+                        \\"has_sentinel": {},
+                        \\"has_align": {},
+                        \\"has_addrspace": {},
+                        \\"has_bit_range": {},
                         \\
-                    , .{v.is_mutable});
+                    , .{ v.is_allowzero, v.is_mutable, v.is_volatile, v.has_sentinel, v.has_align, v.has_addrspace, v.has_bit_range });
                     if (options.whitespace) |ws| try ws.outputIndent(w);
                     try w.print(
                         \\"child":
@@ -880,11 +892,7 @@ fn walkInstruction(
             const type_slot_index = self.types.items.len;
             const elem_type_ref = try self.walkRef(file, parent_scope, ptr.elem_type, false);
             try self.types.append(self.arena, .{
-                .Pointer = .{
-                    .size = ptr.size,
-                    .child = elem_type_ref.expr,
-                    .is_mutable = ptr.is_mutable,
-                },
+                .Pointer = .{ .size = ptr.size, .child = elem_type_ref.expr, .is_mutable = ptr.is_mutable, .is_volatile = ptr.is_volatile, .is_allowzero = ptr.is_allowzero },
             });
 
             return DocData.WalkResult{
@@ -904,8 +912,10 @@ fn walkInstruction(
                 false,
             );
 
+            const sentinel: ?DocData.Expr = if (ptr.flags.has_sentinel) DocData.Expr{ .int = .{ .value = 0, .negated = false } } else null;
+
             try self.types.append(self.arena, .{
-                .Pointer = .{ .size = ptr.size, .child = elem_type_ref.expr, .sentinel = .{ .int = .{ .value = 0, .negated = false } }, .is_mutable = ptr.flags.is_mutable },
+                .Pointer = .{ .size = ptr.size, .child = elem_type_ref.expr, .sentinel = sentinel, .is_mutable = ptr.flags.is_mutable, .has_align = ptr.flags.has_align, .has_sentinel = ptr.flags.has_sentinel, .is_volatile = ptr.flags.is_volatile, .has_addrspace = ptr.flags.has_addrspace, .has_bit_range = ptr.flags.has_bit_range },
             });
             return DocData.WalkResult{
                 .typeRef = .{ .type = @enumToInt(Ref.type_type) },
@@ -1194,6 +1204,20 @@ fn walkInstruction(
                 .expr = .{ .float = float },
             };
         },
+        .float128 => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.Float128, pl_node.payload_index);
+            _ = pl_node;
+            _ = extra;
+
+            // printWithContext(
+            //     file,
+            //     inst_index,
+            //     "TODO: implement `{s}` for walkInstruction\n\n",
+            //     .{@tagName(tags[inst_index])},
+            // );
+            return self.cteTodo(@tagName(tags[inst_index]));
+        },
         .negate => {
             const un_node = data[inst_index].un_node;
             var operand: DocData.WalkResult = try self.walkRef(
@@ -1481,6 +1505,27 @@ fn walkInstruction(
                 .expr = .{ .@"struct" = field_vals },
             };
         },
+        .struct_init_empty => {
+            const un_node = data[inst_index].un_node;
+            var operand: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                un_node.operand,
+                false,
+            );
+
+            _ = operand;
+
+            // WIP
+
+            printWithContext(
+                file,
+                inst_index,
+                "TODO: implement `{s}` for walkInstruction\n\n",
+                .{@tagName(tags[inst_index])},
+            );
+            return self.cteTodo(@tagName(tags[inst_index]));
+        },
         .error_set_decl => {
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.ErrorSetDecl, pl_node.payload_index);
@@ -1630,7 +1675,7 @@ fn walkInstruction(
                                     .negated = false,
                                 },
                             },
-                            .child = array_type.?,
+                            .child = .{ .type = 0 },
                         },
                     });
                     const result = DocData.WalkResult{
@@ -2657,7 +2702,7 @@ fn analyzeFunction(
                 self.ast_nodes.appendAssumeCapacity(.{
                     .name = name,
                     .docs = "",
-                    .@"comptime" = true,
+                    .@"comptime" = tags[param_index] == .param_anytype_comptime,
                 });
 
                 param_type_refs.appendAssumeCapacity(
