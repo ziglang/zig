@@ -2458,6 +2458,8 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         if (self.base.options.entry) |entry| {
             try argv.append("--entry");
             try argv.append(entry);
+        } else if (self.base.options.no_entry){
+            try argv.append("--no-entry");
         }
 
         if (self.base.options.output_mode == .Exe) {

@@ -662,6 +662,7 @@ fn buildOutputType(
     var test_evented_io = false;
     var test_no_exec = false;
     var entry: ?[]const u8 = null;
+    var linker_no_entry = false;
     var stack_size_override: ?u64 = null;
     var image_base_override: ?u64 = null;
     var use_llvm: ?bool = null;
@@ -1703,6 +1704,8 @@ fn buildOutputType(
                         fatal("expected linker arg after '{s}'", .{arg});
                     }
                     entry = linker_args.items[i];
+                } else if (mem.eql(u8, arg, "--no-entry")) {
+                    linker_no_entry = true;
                 } else if (mem.eql(u8, arg, "--stack")) {
                     i += 1;
                     if (i >= linker_args.items.len) {
@@ -2298,6 +2301,14 @@ fn buildOutputType(
         }
     };
 
+    if (object_format != .wasm and linker_no_entry) {
+        fatal("{s} does not support '--no-entry' linker option", .{@tagName(object_format)});
+    }
+
+    if (entry != null and linker_no_entry) {
+        fatal("linker args '--no-entry' and '--entry' are mutually exclusive", .{});
+    }
+
     if (output_mode == .Obj and (object_format == .coff or object_format == .macho)) {
         const total_obj_count = c_source_files.items.len +
             @boolToInt(root_src_file != null) +
@@ -2704,6 +2715,7 @@ fn buildOutputType(
         .link_eh_frame_hdr = link_eh_frame_hdr,
         .link_emit_relocs = link_emit_relocs,
         .entry = entry,
+        .linker_no_entry = linker_no_entry,
         .stack_size_override = stack_size_override,
         .image_base_override = image_base_override,
         .strip = strip,

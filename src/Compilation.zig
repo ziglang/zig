@@ -769,6 +769,7 @@ pub const InitOptions = struct {
     linker_nxcompat: bool = false,
     linker_dynamicbase: bool = false,
     linker_optimization: ?u8 = null,
+    linker_no_entry: bool = false,
     major_subsystem_version: ?u32 = null,
     minor_subsystem_version: ?u32 = null,
     clang_passthrough_mode: bool = false,
@@ -1559,6 +1560,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const bin_file = try link.File.openPath(gpa, .{
             .emit = bin_file_emit,
             .implib_emit = implib_emit,
+            .no_entry = options.linker_no_entry,
             .root_name = root_name,
             .module = module,
             .target = options.target,
@@ -2348,6 +2350,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.add(comp.bin_file.options.z_noexecstack);
     man.hash.add(comp.bin_file.options.z_now);
     man.hash.add(comp.bin_file.options.z_relro);
+    man.hash.add(comp.bin_file.options.no_entry);
     man.hash.add(comp.bin_file.options.hash_style);
     man.hash.add(comp.bin_file.options.include_compiler_rt);
     if (comp.bin_file.options.link_libc) {
