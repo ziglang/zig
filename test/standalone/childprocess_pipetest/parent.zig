@@ -1,15 +1,17 @@
 const std = @import("std");
+const testing = std.testing;
 pub fn main() !void {
-    const testing = std.testing;
-    const allocator = testing.allocator;
-    var it = try std.process.argsWithAllocator(std.testing.allocator);
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    defer std.debug.assert(!general_purpose_allocator.deinit());
+    const gpa = general_purpose_allocator.allocator();
+    var it = try std.process.argsWithAllocator(gpa);
     defer it.deinit(); // no-op unless WASI or Windows
     _ = it.next() orelse unreachable; // skip binary name
     const zig_compiler = it.next() orelse unreachable;
     std.debug.print("zig_compiler: {s}\n", .{zig_compiler});
     var child_process = std.ChildProcess.init(
         &[_][]const u8{ zig_compiler, "fmt", "--stdin" },
-        allocator,
+        gpa,
     );
     child_process.stdin_behavior = .Pipe;
     child_process.stdout_behavior = .Pipe;
@@ -24,8 +26,8 @@ pub fn main() !void {
     child_process.stdin.?.close();
     child_process.stdin = null;
 
-    const out_bytes = try child_process.stdout.?.reader().readAllAlloc(allocator, std.math.maxInt(usize));
-    defer allocator.free(out_bytes);
+    const out_bytes = try child_process.stdout.?.reader().readAllAlloc(gpa, std.math.maxInt(usize));
+    defer gpa.free(out_bytes);
 
     switch (try child_process.wait()) {
         .Exited => |code| if (code == 0) {
