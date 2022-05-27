@@ -575,6 +575,7 @@ const DocData = struct {
         call: usize, // index in `calls`
         enumLiteral: []const u8, // direct value
         typeOf: usize, // index in `exprs`
+        typeOf_peer: []Expr,
         as: As,
         sizeOf: usize, // index in `exprs`
         compileError: []const u8,
@@ -641,6 +642,14 @@ const DocData = struct {
                     options,
                     w,
                 ),
+                .typeOf_peer => |v| {
+                    try w.print("{{ \"typeOf_peer\": [", .{});
+                    for (v) |c, i| {
+                        const comma = if (i == v.len - 1) "]}" else ",\n";
+                        try c.jsonStringify(options, w);
+                        try w.print("{s}", .{comma});
+                    }
+                },
                 .refPath => |v| {
                     try w.print("{{ \"refPath\": [", .{});
                     for (v) |c, i| {
@@ -1509,7 +1518,8 @@ fn walkInstruction(
                 .expr = .{ .type = type_slot_index },
             };
         },
-        .param_anytype => {
+        .param_anytype, .param_anytype_comptime => {
+            // @check if .param_anytype_comptime can be here
             // Analysis of anytype function params happens in `.func`.
             // This switch case handles the case where an expression depends
             // on an anytype field. E.g.: `fn foo(bar: anytype) @TypeOf(bar)`.
@@ -1527,6 +1537,13 @@ fn walkInstruction(
             const pl_tok = data[inst_index].pl_tok;
             const extra = file.zir.extraData(Zir.Inst.Param, pl_tok.payload_index);
             const name = file.zir.nullTerminatedString(extra.data.name);
+
+            std.debug.print("param\n", .{});
+            std.debug.print("pl_tok = {any}\n", .{pl_tok});
+            std.debug.print("extra = {any}\n", .{extra});
+            std.debug.print("name = {any}\n", .{name});
+            std.debug.print("param\n", .{});
+
             const cte_slot_index = self.comptime_exprs.items.len;
             try self.comptime_exprs.append(self.arena, .{
                 .code = name,
@@ -1595,7 +1612,22 @@ fn walkInstruction(
                     );
                     return self.cteTodo(@tagName(extended.opcode));
                 },
+                .typeof_peer => {
+                    // Zir says it's a NodeMultiOp but in this case it's TypeOfPeer
+                    const extra = file.zir.extraData(Zir.Inst.TypeOfPeer, extended.operand);
+                    const args = file.zir.refSlice(extra.end, extended.small);
+                    const operand_index = self.exprs.items.len;
+                    for (args) |arg, idx| {
+                        const wr = try self.walkRef(file, parent_scope, arg, idx == 0);
 
+                        try self.exprs.append(self.arena, wr.expr);
+                    }
+
+                    return DocData.WalkResult{
+                        .typeRef = .{ .type = @enumToInt(Ref.void_type) },
+                        .expr = .{ .typeOf_peer = self.exprs.items[operand_index..] },
+                    };
+                },
                 .opaque_decl => return self.cteTodo("opaque {...}"),
                 .variable => {
                     const small = @bitCast(Zir.Inst.ExtendedVar.Small, extended.small);
