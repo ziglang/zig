@@ -184,7 +184,7 @@ fn make(step: *Step) !void {
     if (self.print)
         printCmd(cwd, argv);
 
-    child.spawn() catch |err| {
+    child.spawn(null) catch |err| {
         std.debug.print("Unable to spawn {s}: {s}\n", .{ argv[0], @errorName(err) });
         return err;
     };

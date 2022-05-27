@@ -975,7 +975,7 @@ pub const Builder = struct {
         child.cwd = cwd;
         child.env_map = env_map;
 
-        const term = child.spawnAndWait() catch |err| {
+        const term = child.spawnAndWait(null) catch |err| {
             warn("Unable to spawn {s}: {s}\n", .{ argv[0], @errorName(err) });
             return err;
         };
@@ -1191,7 +1191,7 @@ pub const Builder = struct {
         child.stderr_behavior = stderr_behavior;
         child.env_map = self.env_map;
 
-        try child.spawn();
+        try child.spawn(null);
 
         const stdout = child.stdout.?.reader().readAllAlloc(self.allocator, max_output_size) catch {
             return error.ReadFailure;

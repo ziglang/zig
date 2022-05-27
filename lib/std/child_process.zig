@@ -1,4 +1,4 @@
-const std = @import("std.zig");
+const std = @import("std");
 const builtin = @import("builtin");
 const cstr = std.cstr;
 const unicode = std.unicode;
@@ -28,6 +28,21 @@ pub const ChildProcess = struct {
     stdin: ?File,
     stdout: ?File,
     stderr: ?File,
+    /// Additional streams other than stdin, stdout, stderr
+    /// * unidirectional input xor output pipe for portability.
+    /// If non-null (= used)
+    /// * user must provide function to tell child process file handle
+    /// (stdin of child process [must be in pipe mode] or environment variables)
+    /// * user must process pipe handle in the child process
+    ///   - attach the handle ie via `var file = File{.handle=handle};`
+    ///     after parsing the integer.
+    ///   - close it, if not needed anymore
+    ///   - methods like readAll() read until the pipe write end is closed
+    ///   - Non-blocking methods require message separators like ETB, EOT
+    ///     and some more thought about message content/sanitization
+    ///   - It is recommended to use fcntl and SetHandleInformation in the child
+    ///     process to prevent inheritance by grandchildren
+    extra_streams: ?[]ExtraStream,
 
     term: ?(SpawnError!Term),
 
@@ -76,6 +91,10 @@ pub const ChildProcess = struct {
         /// Windows-only. `cwd` was provided, but the path did not exist when spawning the child process.
         CurrentWorkingDirectoryUnlinked,
     } ||
+        // POSIX-only. Non-standard streams are used and fcntl failed.
+        os.FcntlError ||
+        // Non-standard streams are used and writing to stdin of child process failed.
+        os.WriteError ||
         os.ExecveError ||
         os.SetIdError ||
         os.ChangeCurDirError ||
@@ -97,6 +116,22 @@ pub const ChildProcess = struct {
         Close,
     };
 
+    pub const PipeDirection = enum {
+        parent_to_child,
+        child_to_parent,
+    };
+
+    /// ExtraStream (= pipe) is unidirected (in->out) for portability.
+    pub const ExtraStream = struct {
+        /// parent_to_child => parent writes into pipe.output
+        /// child_to_parent => parent reads from pipe.input
+        direction: PipeDirection,
+        /// pipe input end for reading
+        input: ?File,
+        /// pipe output end for writing
+        output: ?File,
+    };
+
     /// First argument in argv is the executable.
     pub fn init(argv: []const []const u8, allocator: mem.Allocator) ChildProcess {
         return .{
@@ -114,6 +149,7 @@ pub const ChildProcess = struct {
             .stdin = null,
             .stdout = null,
             .stderr = null,
+            .extra_streams = null,
             .stdin_behavior = StdIo.Inherit,
             .stdout_behavior = StdIo.Inherit,
             .stderr_behavior = StdIo.Inherit,
@@ -127,25 +163,33 @@ pub const ChildProcess = struct {
         self.gid = user_info.gid;
     }
 
+    const ExPipeInfoProto = switch (builtin.zig_backend) {
+        // workaround until we replace stage1 with stage2
+        .stage1 => ?fn (self: *ChildProcess) ChildProcess.SpawnError!void,
+        else => ?*const fn (self: *ChildProcess) ChildProcess.SpawnError!void,
+    };
+
     /// On success must call `kill` or `wait`.
-    pub fn spawn(self: *ChildProcess) SpawnError!void {
+    /// Use null xor function pointer to tell child process about extra pipes
+    /// See field extra_streams for more information
+    pub fn spawn(self: *ChildProcess, pipe_info_fn: ExPipeInfoProto) SpawnError!void {
         if (!std.process.can_spawn) {
             @compileError("the target operating system cannot spawn processes");
         }
 
         if (comptime builtin.target.isDarwin()) {
-            return self.spawnMacos();
+            return self.spawnMacos(pipe_info_fn);
         }
 
         if (builtin.os.tag == .windows) {
-            return self.spawnWindows();
+            return self.spawnWindows(pipe_info_fn);
         } else {
-            return self.spawnPosix();
+            return self.spawnPosix(pipe_info_fn);
         }
     }
 
-    pub fn spawnAndWait(self: *ChildProcess) SpawnError!Term {
-        try self.spawn();
+    pub fn spawnAndWait(self: *ChildProcess, pipe_info_fn: ExPipeInfoProto) SpawnError!Term {
+        try self.spawn(pipe_info_fn);
         return self.wait();
     }
 
@@ -370,6 +414,7 @@ pub const ChildProcess = struct {
 
     /// Spawns a child process, waits for it, collecting stdout and stderr, and then returns.
     /// If it succeeds, the caller owns result.stdout and result.stderr memory.
+    /// Using extra pipes is not supported.
     pub fn exec(args: struct {
         allocator: mem.Allocator,
         argv: []const []const u8,
@@ -388,7 +433,7 @@ pub const ChildProcess = struct {
         child.env_map = args.env_map;
         child.expand_arg0 = args.expand_arg0;
 
-        try child.spawn();
+        try child.spawn(null);
 
         if (builtin.os.tag == .haiku) {
             const stdout_in = child.stdout.?.reader();
@@ -478,6 +523,8 @@ pub const ChildProcess = struct {
         self.term = self.cleanupAfterWait(status);
     }
 
+    /// Close file handles of parent process to child process,
+    /// if they were not closed in the meantime
     fn cleanupStreams(self: *ChildProcess) void {
         if (self.stdin) |*stdin| {
             stdin.close();
@@ -490,6 +537,21 @@ pub const ChildProcess = struct {
         if (self.stderr) |*stderr| {
             stderr.close();
             self.stderr = null;
+        }
+        if (self.extra_streams) |extra_streams| {
+            for (extra_streams) |*extra| {
+                if (extra.*.direction == .parent_to_child) {
+                    if (extra.*.output) |*outpipe| {
+                        outpipe.close();
+                        extra.*.output = null;
+                    }
+                } else {
+                    if (extra.*.input) |*inpipe| {
+                        inpipe.close();
+                        extra.*.input = null;
+                    }
+                }
+            }
         }
     }
 
@@ -544,7 +606,7 @@ pub const ChildProcess = struct {
             Term{ .Unknown = status };
     }
 
-    fn spawnMacos(self: *ChildProcess) SpawnError!void {
+    fn spawnMacos(self: *ChildProcess, pipe_info_fn: ExPipeInfoProto) SpawnError!void {
         const pipe_flags = if (io.is_async) os.O.NONBLOCK else 0;
         const stdin_pipe = if (self.stdin_behavior == StdIo.Pipe) try os.pipe2(pipe_flags) else undefined;
         errdefer if (self.stdin_behavior == StdIo.Pipe) destroyPipe(stdin_pipe);
@@ -554,6 +616,22 @@ pub const ChildProcess = struct {
 
         const stderr_pipe = if (self.stderr_behavior == StdIo.Pipe) try os.pipe2(pipe_flags) else undefined;
         errdefer if (self.stderr_behavior == StdIo.Pipe) destroyPipe(stderr_pipe);
+
+        if (self.stdin_behavior == StdIo.Pipe) {
+            self.stdin = File{ .handle = stdin_pipe[1] };
+        } else {
+            self.stdin = null;
+        }
+        if (self.stdout_behavior == StdIo.Pipe) {
+            self.stdout = File{ .handle = stdout_pipe[0] };
+        } else {
+            self.stdout = null;
+        }
+        if (self.stderr_behavior == StdIo.Pipe) {
+            self.stderr = File{ .handle = stderr_pipe[0] };
+        } else {
+            self.stderr = null;
+        }
 
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
         const dev_null_fd = if (any_ignore)
@@ -572,6 +650,26 @@ pub const ChildProcess = struct {
             undefined;
         defer if (any_ignore) os.close(dev_null_fd);
 
+        if (self.extra_streams) |extra_streams| {
+            for (extra_streams) |*extra, i| {
+                std.debug.assert(extra.*.input == null);
+                std.debug.assert(extra.*.output == null);
+
+                const tmp_pipe = os.pipe() catch |err| {
+                    for (extra_streams[0..i]) |*extra_fail| {
+                        extra_fail.*.input.?.close();
+                        extra_fail.*.output.?.close();
+                        extra_fail.*.input = null;
+                        extra_fail.*.output = null;
+                    }
+                    return err;
+                };
+
+                extra.*.input = File{ .handle = tmp_pipe[0] };
+                extra.*.output = File{ .handle = tmp_pipe[1] };
+            }
+        }
+
         var attr = try os.posix_spawn.Attr.init();
         defer attr.deinit();
         var flags: u16 = os.darwin.POSIX_SPAWN_SETSIGDEF | os.darwin.POSIX_SPAWN_SETSIGMASK;
@@ -586,6 +684,16 @@ pub const ChildProcess = struct {
         try setUpChildIoPosixSpawn(self.stdin_behavior, &actions, stdin_pipe, os.STDIN_FILENO, dev_null_fd);
         try setUpChildIoPosixSpawn(self.stdout_behavior, &actions, stdout_pipe, os.STDOUT_FILENO, dev_null_fd);
         try setUpChildIoPosixSpawn(self.stderr_behavior, &actions, stderr_pipe, os.STDERR_FILENO, dev_null_fd);
+
+        if (self.extra_streams) |extra_streams| {
+            for (extra_streams) |*extra| {
+                if (extra.*.direction == .parent_to_child) {
+                    try actions.close(extra.*.output.?.handle);
+                } else {
+                    try actions.close(extra.*.input.?.handle);
+                }
+            }
+        }
 
         if (self.cwd_dir) |cwd| {
             try actions.fchdir(cwd.fd);
@@ -605,24 +713,14 @@ pub const ChildProcess = struct {
             break :m envp_buf.ptr;
         } else std.c.environ;
 
+        // user must communicate extra pipes to child process either via
+        // environment variables or stdin
+        if (self.extra_streams != null) {
+            std.debug.assert(pipe_info_fn != null);
+            try pipe_info_fn.?(self);
+        }
+
         const pid = try os.posix_spawn.spawnp(self.argv[0], actions, attr, argv_buf, envp);
-
-        if (self.stdin_behavior == StdIo.Pipe) {
-            self.stdin = File{ .handle = stdin_pipe[1] };
-        } else {
-            self.stdin = null;
-        }
-        if (self.stdout_behavior == StdIo.Pipe) {
-            self.stdout = File{ .handle = stdout_pipe[0] };
-        } else {
-            self.stdout = null;
-        }
-        if (self.stderr_behavior == StdIo.Pipe) {
-            self.stderr = File{ .handle = stderr_pipe[0] };
-        } else {
-            self.stderr = null;
-        }
-
         self.pid = pid;
         self.term = null;
 
@@ -634,6 +732,26 @@ pub const ChildProcess = struct {
         }
         if (self.stderr_behavior == StdIo.Pipe) {
             os.close(stderr_pipe[1]);
+        }
+
+        if (self.extra_streams) |extra_streams| {
+            for (extra_streams) |*extra| {
+                if (extra.*.direction == .parent_to_child) {
+                    extra.*.input.?.close(); // parent does not read
+                    extra.*.input = null;
+                    std.debug.assert(extra.*.output != null);
+                    var fcntl_flags = try os.fcntl(extra.*.output.?.handle, os.F.GETFD, 0);
+                    std.debug.assert((fcntl_flags & os.FD_CLOEXEC) == 0);
+                    _ = try os.fcntl(extra.*.output.?.handle, os.F.SETFD, os.FD_CLOEXEC);
+                } else {
+                    extra.*.output.?.close(); // parent does not write
+                    extra.*.output = null;
+                    std.debug.assert(extra.*.input != null);
+                    var fcntl_flags = try os.fcntl(extra.*.input.?.handle, os.F.GETFD, 0);
+                    std.debug.assert((fcntl_flags & os.FD_CLOEXEC) == 0);
+                    _ = try os.fcntl(extra.*.input.?.handle, os.F.SETFD, os.FD_CLOEXEC);
+                }
+            }
         }
     }
 
@@ -656,7 +774,7 @@ pub const ChildProcess = struct {
         }
     }
 
-    fn spawnPosix(self: *ChildProcess) SpawnError!void {
+    fn spawnPosix(self: *ChildProcess, pipe_info_fn: ExPipeInfoProto) SpawnError!void {
         const pipe_flags = if (io.is_async) os.O.NONBLOCK else 0;
         const stdin_pipe = if (self.stdin_behavior == StdIo.Pipe) try os.pipe2(pipe_flags) else undefined;
         errdefer if (self.stdin_behavior == StdIo.Pipe) {
@@ -672,6 +790,22 @@ pub const ChildProcess = struct {
         errdefer if (self.stderr_behavior == StdIo.Pipe) {
             destroyPipe(stderr_pipe);
         };
+
+        if (self.stdin_behavior == StdIo.Pipe) {
+            self.stdin = File{ .handle = stdin_pipe[1] };
+        } else {
+            self.stdin = null;
+        }
+        if (self.stdout_behavior == StdIo.Pipe) {
+            self.stdout = File{ .handle = stdout_pipe[0] };
+        } else {
+            self.stdout = null;
+        }
+        if (self.stderr_behavior == StdIo.Pipe) {
+            self.stderr = File{ .handle = stderr_pipe[0] };
+        } else {
+            self.stderr = null;
+        }
 
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
         const dev_null_fd = if (any_ignore)
@@ -690,6 +824,26 @@ pub const ChildProcess = struct {
             undefined;
         defer {
             if (any_ignore) os.close(dev_null_fd);
+        }
+
+        if (self.extra_streams) |extra_streams| {
+            for (extra_streams) |*extra, i| {
+                std.debug.assert(extra.*.input == null);
+                std.debug.assert(extra.*.output == null);
+
+                const tmp_pipe = os.pipe() catch |err| {
+                    for (extra_streams[0..i]) |*extra_fail| {
+                        extra_fail.*.input.?.close();
+                        extra_fail.*.output.?.close();
+                        extra_fail.*.input = null;
+                        extra_fail.*.output = null;
+                    }
+                    return err;
+                };
+
+                extra.*.input = File{ .handle = tmp_pipe[0] };
+                extra.*.output = File{ .handle = tmp_pipe[1] };
+            }
         }
 
         var arena_allocator = std.heap.ArenaAllocator.init(self.allocator);
@@ -723,6 +877,13 @@ pub const ChildProcess = struct {
                 @compileError("missing std lib enhancement: ChildProcess implementation has no way to collect the environment variables to forward to the child process");
             }
         };
+
+        // user must communicate extra pipes to child process either via
+        // environment variables or stdin
+        if (self.extra_streams != null) {
+            std.debug.assert(pipe_info_fn != null);
+            try pipe_info_fn.?(self);
+        }
 
         // This pipe is used to communicate errors between the time of fork
         // and execve from the child process to the parent process.
@@ -758,6 +919,20 @@ pub const ChildProcess = struct {
                 os.close(stderr_pipe[1]);
             }
 
+            if (self.extra_streams) |extra_streams| {
+                for (extra_streams) |*extra| {
+                    if (extra.*.direction == .parent_to_child) {
+                        extra.*.output.?.close(); // child does not write
+                        extra.*.output = null;
+                        std.debug.assert(extra.*.input != null);
+                    } else {
+                        extra.*.input.?.close(); // child does not read
+                        extra.*.input = null;
+                        std.debug.assert(extra.*.output != null);
+                    }
+                }
+            }
+
             if (self.cwd_dir) |cwd| {
                 os.fchdir(cwd.fd) catch |err| forkChildErrReport(err_pipe[1], err);
             } else if (self.cwd) |cwd| {
@@ -781,22 +956,6 @@ pub const ChildProcess = struct {
 
         // we are the parent
         const pid = @intCast(i32, pid_result);
-        if (self.stdin_behavior == StdIo.Pipe) {
-            self.stdin = File{ .handle = stdin_pipe[1] };
-        } else {
-            self.stdin = null;
-        }
-        if (self.stdout_behavior == StdIo.Pipe) {
-            self.stdout = File{ .handle = stdout_pipe[0] };
-        } else {
-            self.stdout = null;
-        }
-        if (self.stderr_behavior == StdIo.Pipe) {
-            self.stderr = File{ .handle = stderr_pipe[0] };
-        } else {
-            self.stderr = null;
-        }
-
         self.pid = pid;
         self.err_pipe = err_pipe;
         self.term = null;
@@ -810,9 +969,31 @@ pub const ChildProcess = struct {
         if (self.stderr_behavior == StdIo.Pipe) {
             os.close(stderr_pipe[1]);
         }
+
+        // close unused pipe end in parent and set CLOEXEC
+        // to prevent non-standard streams to leak into children
+        if (self.extra_streams) |extra_streams| {
+            for (extra_streams) |*extra| {
+                if (extra.*.direction == .parent_to_child) {
+                    extra.*.input.?.close(); // parent does not read
+                    extra.*.input = null;
+                    std.debug.assert(extra.*.output != null);
+                    var fcntl_flags = try os.fcntl(extra.*.output.?.handle, os.F.GETFD, 0);
+                    std.debug.assert((fcntl_flags & os.FD_CLOEXEC) == 0);
+                    _ = try os.fcntl(extra.*.output.?.handle, os.F.SETFD, os.FD_CLOEXEC);
+                } else {
+                    extra.*.output.?.close(); // parent does not write
+                    extra.*.output = null;
+                    std.debug.assert(extra.*.input != null);
+                    var fcntl_flags = try os.fcntl(extra.*.input.?.handle, os.F.GETFD, 0);
+                    std.debug.assert((fcntl_flags & os.FD_CLOEXEC) == 0);
+                    _ = try os.fcntl(extra.*.input.?.handle, os.F.SETFD, os.FD_CLOEXEC);
+                }
+            }
+        }
     }
 
-    fn spawnWindows(self: *ChildProcess) SpawnError!void {
+    fn spawnWindows(self: *ChildProcess, pipe_info_fn: ExPipeInfoProto) SpawnError!void {
         const saAttr = windows.SECURITY_ATTRIBUTES{
             .nLength = @sizeOf(windows.SECURITY_ATTRIBUTES),
             .bInheritHandle = windows.TRUE,
@@ -870,7 +1051,12 @@ pub const ChildProcess = struct {
         var g_hChildStd_OUT_Wr: ?windows.HANDLE = null;
         switch (self.stdout_behavior) {
             StdIo.Pipe => {
-                try windowsMakeAsyncPipe(&g_hChildStd_OUT_Rd, &g_hChildStd_OUT_Wr, &saAttr);
+                try windowsMakeAsyncPipe(
+                    &g_hChildStd_OUT_Rd,
+                    &g_hChildStd_OUT_Wr,
+                    &saAttr,
+                    PipeDirection.child_to_parent,
+                );
             },
             StdIo.Ignore => {
                 g_hChildStd_OUT_Wr = nul_handle;
@@ -890,7 +1076,12 @@ pub const ChildProcess = struct {
         var g_hChildStd_ERR_Wr: ?windows.HANDLE = null;
         switch (self.stderr_behavior) {
             StdIo.Pipe => {
-                try windowsMakeAsyncPipe(&g_hChildStd_ERR_Rd, &g_hChildStd_ERR_Wr, &saAttr);
+                try windowsMakeAsyncPipe(
+                    &g_hChildStd_ERR_Rd,
+                    &g_hChildStd_ERR_Wr,
+                    &saAttr,
+                    ChildProcess.PipeDirection.child_to_parent,
+                );
             },
             StdIo.Ignore => {
                 g_hChildStd_ERR_Wr = nul_handle;
@@ -905,6 +1096,54 @@ pub const ChildProcess = struct {
         errdefer if (self.stdin_behavior == StdIo.Pipe) {
             windowsDestroyPipe(g_hChildStd_ERR_Rd, g_hChildStd_ERR_Wr);
         };
+
+        if (g_hChildStd_IN_Wr) |h| {
+            self.stdin = File{ .handle = h };
+        } else {
+            self.stdin = null;
+        }
+        if (g_hChildStd_OUT_Rd) |h| {
+            self.stdout = File{ .handle = h };
+        } else {
+            self.stdout = null;
+        }
+        if (g_hChildStd_ERR_Rd) |h| {
+            self.stderr = File{ .handle = h };
+        } else {
+            self.stderr = null;
+        }
+        // TODO simplify to operate on file handles
+        errdefer {
+            self.stdin = null;
+            self.stdout = null;
+            self.stderr = null;
+        }
+
+        if (self.extra_streams) |extra_streams| {
+            for (extra_streams) |*extra, i| {
+                std.debug.assert(extra.*.input == null);
+                std.debug.assert(extra.*.output == null);
+
+                var g_hChildExtra_Stream_Rd: ?windows.HANDLE = null;
+                var g_hChildExtra_Stream_Wr: ?windows.HANDLE = null;
+                windowsMakeAsyncPipe(
+                    &g_hChildExtra_Stream_Rd,
+                    &g_hChildExtra_Stream_Wr,
+                    &saAttr,
+                    extra.*.direction,
+                ) catch |err| {
+                    for (extra_streams[0..i]) |*extra_fail| {
+                        extra_fail.*.input.?.close();
+                        extra_fail.*.output.?.close();
+                        extra_fail.*.input = null;
+                        extra_fail.*.output = null;
+                    }
+                    return err;
+                };
+                extra.*.input = File{ .handle = g_hChildExtra_Stream_Rd.? };
+                extra.*.output = File{ .handle = g_hChildExtra_Stream_Wr.? };
+            }
+        }
 
         const cmd_line = try windowsCreateCommandLine(self.allocator, self.argv);
         defer self.allocator.free(cmd_line);
@@ -959,6 +1198,13 @@ pub const ChildProcess = struct {
         const cmd_line_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, cmd_line);
         defer self.allocator.free(cmd_line_w);
 
+        // user must communicate extra pipes to child process either via
+        // environment variables or stdin
+        if (self.extra_streams != null) {
+            std.debug.assert(pipe_info_fn != null);
+            try pipe_info_fn.?(self);
+        }
+
         windowsCreateProcess(app_path_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
             if (no_path_err != error.FileNotFound) return no_path_err;
 
@@ -1009,23 +1255,6 @@ pub const ChildProcess = struct {
                 return no_path_err; // return the original error
             }
         };
-
-        if (g_hChildStd_IN_Wr) |h| {
-            self.stdin = File{ .handle = h };
-        } else {
-            self.stdin = null;
-        }
-        if (g_hChildStd_OUT_Rd) |h| {
-            self.stdout = File{ .handle = h };
-        } else {
-            self.stdout = null;
-        }
-        if (g_hChildStd_ERR_Rd) |h| {
-            self.stderr = File{ .handle = h };
-        } else {
-            self.stderr = null;
-        }
-
         self.handle = piProcInfo.hProcess;
         self.thread_handle = piProcInfo.hThread;
         self.term = null;
@@ -1038,6 +1267,20 @@ pub const ChildProcess = struct {
         }
         if (self.stdout_behavior == StdIo.Pipe) {
             os.close(g_hChildStd_OUT_Wr.?);
+        }
+
+        if (self.extra_streams) |extra_streams| {
+            for (extra_streams) |*extra| {
+                if (extra.*.direction == .parent_to_child) {
+                    extra.*.input.?.close(); // reading end
+                    extra.*.input = null;
+                    try windows.SetHandleInformation(extra.*.output.?.handle, windows.HANDLE_FLAG_INHERIT, 0);
+                } else {
+                    extra.*.output.?.close(); // writing end
+                    extra.*.output = null;
+                    try windows.SetHandleInformation(extra.*.input.?.handle, windows.HANDLE_FLAG_INHERIT, 0);
+                }
+            }
         }
     }
 
@@ -1052,23 +1295,20 @@ pub const ChildProcess = struct {
 };
 
 fn windowsCreateProcess(app_name: [*:0]u16, cmd_line: [*:0]u16, envp_ptr: ?[*]u16, cwd_ptr: ?[*:0]u16, lpStartupInfo: *windows.STARTUPINFOW, lpProcessInformation: *windows.PROCESS_INFORMATION) !void {
-    // TODO the docs for environment pointer say:
-    // > A pointer to the environment block for the new process. If this parameter
-    // > is NULL, the new process uses the environment of the calling process.
-    // > ...
-    // > An environment block can contain either Unicode or ANSI characters. If
-    // > the environment block pointed to by lpEnvironment contains Unicode
-    // > characters, be sure that dwCreationFlags includes CREATE_UNICODE_ENVIRONMENT.
-    // > If this parameter is NULL and the environment block of the parent process
-    // > contains Unicode characters, you must also ensure that dwCreationFlags
-    // > includes CREATE_UNICODE_ENVIRONMENT.
-    // This seems to imply that we have to somehow know whether our process parent passed
-    // CREATE_UNICODE_ENVIRONMENT if we want to pass NULL for the environment parameter.
-    // Since we do not know this information that would imply that we must not pass NULL
-    // for the parameter.
-    // However this would imply that programs compiled with -DUNICODE could not pass
-    // environment variables to programs that were not, which seems unlikely.
-    // More investigation is needed.
+    // See https://stackoverflow.com/a/4207169/9306292
+    // One can manually write in unicode even if one doesn't compile in unicode
+    // (-DUNICODE).
+    // Thus CREATE_UNICODE_ENVIRONMENT, according to how one constructed the
+    // environment block, is necessary, since CreateProcessA and CreateProcessW may
+    // work with either Ansi or Unicode.
+    // * The environment variables can still be inherited from parent process,
+    //   if set to NULL
+    // * The OS can for an unspecified environment block not figure out,
+    //   if it is Unicode or ANSI.
+    // * Applications may break without specification of the environment variable
+    //   due to inability of Windows to check (+translate) the character encodings.
+    // TODO This breaks applications only compatible with Ansi.
+    // - Clarify, if we want to add complexity to support those.
     return windows.CreateProcessW(
         app_name,
         cmd_line,
@@ -1135,7 +1375,13 @@ fn windowsMakePipeIn(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const w
 
 var pipe_name_counter = std.atomic.Atomic(u32).init(1);
 
-fn windowsMakeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const windows.SECURITY_ATTRIBUTES) !void {
+// direction defines which side of the handle is inherited by ChildProcess
+fn windowsMakeAsyncPipe(
+    rd: *?windows.HANDLE,
+    wr: *?windows.HANDLE,
+    sattr: *const windows.SECURITY_ATTRIBUTES,
+    direction: ChildProcess.PipeDirection,
+) !void {
     var tmp_bufw: [128]u16 = undefined;
 
     // Anonymous pipes are built upon Named pipes.
@@ -1190,8 +1436,11 @@ fn windowsMakeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *cons
     }
     errdefer os.close(write_handle);
 
-    try windows.SetHandleInformation(read_handle, windows.HANDLE_FLAG_INHERIT, 0);
-
+    if (direction == .child_to_parent) {
+        try windows.SetHandleInformation(read_handle, windows.HANDLE_FLAG_INHERIT, 0);
+    } else {
+        try windows.SetHandleInformation(write_handle, windows.HANDLE_FLAG_INHERIT, 0);
+    }
     rd.* = read_handle;
     wr.* = write_handle;
 }

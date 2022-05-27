@@ -3040,7 +3040,7 @@ fn runOrTest(
             comp_destroyed.* = true;
         }
 
-        const term = child.spawnAndWait() catch |err| {
+        const term = child.spawnAndWait(null) catch |err| {
             try warnAboutForeignBinaries(gpa, arena, arg_mode, target_info, link_libc);
             const cmd = try std.mem.join(arena, " ", argv.items);
             fatal("the following command failed with '{s}':\n{s}", .{ @errorName(err), cmd });
@@ -3711,7 +3711,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         child.stdout_behavior = .Inherit;
         child.stderr_behavior = .Inherit;
 
-        const term = try child.spawnAndWait();
+        const term = try child.spawnAndWait(null);
         switch (term) {
             .Exited => |code| {
                 if (code == 0) return cleanExit();

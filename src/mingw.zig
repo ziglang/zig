@@ -374,7 +374,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         child.stdout_behavior = .Pipe;
         child.stderr_behavior = .Pipe;
 
-        try child.spawn();
+        try child.spawn(null);
 
         const stderr_reader = child.stderr.?.reader();
 
