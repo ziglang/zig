@@ -147,6 +147,9 @@ pub fn generateZirData(self: *Autodoc) !void {
                         .Bool = .{ .name = tmpbuf.toOwnedSlice() },
                     },
 
+                    .noreturn_type => .{
+                        .NoReturn = .{ .name = tmpbuf.toOwnedSlice() },
+                    },
                     .void_type => .{
                         .Void = .{ .name = tmpbuf.toOwnedSlice() },
                     },
@@ -525,6 +528,7 @@ const DocData = struct {
                         try sentinel.jsonStringify(options, w);
                         try w.print(",", .{});
                     }
+                    if (options.whitespace) |ws| try ws.outputIndent(w);
                     try w.print(
                         \\"is_allowzero": {},
                         \\"is_mutable": {},
