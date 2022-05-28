@@ -162,9 +162,9 @@ pub fn generateZirData(self: *Autodoc) !void {
                     .anyerror_type => .{
                         .ErrorSet = .{ .name = tmpbuf.toOwnedSlice() },
                     },
-                    // .calling_convention_inline, .calling_convention_c, .calling_convention_type => .{
-                    //     .EnumLiteral = .{ .name = tmpbuf.toOwnedSlice() },
-                    // },
+                    .calling_convention_inline, .calling_convention_c, .calling_convention_type => .{
+                        .EnumLiteral = .{ .name = tmpbuf.toOwnedSlice() },
+                    },
                 },
             );
         }
@@ -520,13 +520,6 @@ const DocData = struct {
                 .Type => |v| try printTypeBody(v, options, w),
                 .NoReturn => |v| try printTypeBody(v, options, w),
                 .EnumLiteral => |v| try printTypeBody(v, options, w),
-                .Unanalyzed => |_| {
-                    if (options.whitespace) |ws| try ws.outputIndent(w);
-                    try w.print(
-                        \\"Unanalyzed": "Unanalyzed"
-                        \\
-                    , .{});
-                },
                 .Pointer => |v| {
                     if (options.whitespace) |ws| try ws.outputIndent(w);
                     try w.print(
@@ -885,7 +878,7 @@ fn walkInstruction(
             const literal = file.zir.nullTerminatedString(str_tok.start);
             const type_index = self.types.items.len;
             try self.types.append(self.arena, .{
-                .EnumLiteral = .{ .name = literal },
+                .EnumLiteral = .{ .name = "todo enum literal" },
             });
 
             return DocData.WalkResult{
@@ -1643,17 +1636,33 @@ fn walkInstruction(
                 .expr = .{ .call = call_slot_index },
             };
         },
-        .func, .func_inferred, .func_extended => {
+        .func, .func_inferred => {
             const type_slot_index = self.types.items.len;
             try self.types.append(self.arena, .{ .Unanalyzed = {} });
 
-            return self.analyzeFunction(
+            const result = self.analyzeFunction(
                 file,
                 parent_scope,
                 inst_index,
                 self_ast_node_index,
                 type_slot_index,
             );
+
+            return result;
+        },
+        .func_extended => {
+            const type_slot_index = self.types.items.len;
+            try self.types.append(self.arena, .{ .Unanalyzed = {} });
+
+            const result = self.analyzeFunctionExtended(
+                file,
+                parent_scope,
+                inst_index,
+                self_ast_node_index,
+                type_slot_index,
+            );
+
+            return result;
         },
         .extended => {
             const extended = data[inst_index].extended;
@@ -2677,7 +2686,119 @@ fn tryResolveRefPath(
         //       that said, we might want to store it elsewhere and reclaim memory asap
     }
 }
+fn analyzeFunctionExtended(
+    self: *Autodoc,
+    file: *File,
+    scope: *Scope,
+    inst_index: usize,
+    self_ast_node_index: usize,
+    type_slot_index: usize,
+) error{OutOfMemory}!DocData.WalkResult {
+    const tags = file.zir.instructions.items(.tag);
+    const data = file.zir.instructions.items(.data);
+    const fn_info = file.zir.getFnInfo(@intCast(u32, inst_index));
 
+    try self.ast_nodes.ensureUnusedCapacity(self.arena, fn_info.total_params_len);
+    var param_type_refs = try std.ArrayListUnmanaged(DocData.Expr).initCapacity(
+        self.arena,
+        fn_info.total_params_len,
+    );
+    var param_ast_indexes = try std.ArrayListUnmanaged(usize).initCapacity(
+        self.arena,
+        fn_info.total_params_len,
+    );
+
+    // TODO: handle scope rules for fn parameters
+    for (fn_info.param_body[0..fn_info.total_params_len]) |param_index| {
+        switch (tags[param_index]) {
+            else => {
+                panicWithContext(
+                    file,
+                    param_index,
+                    "TODO: handle `{s}` in walkInstruction.func\n",
+                    .{@tagName(tags[param_index])},
+                );
+            },
+            .param_anytype, .param_anytype_comptime => {
+                // TODO: where are the doc comments?
+                const str_tok = data[param_index].str_tok;
+
+                const name = str_tok.get(file.zir);
+
+                param_ast_indexes.appendAssumeCapacity(self.ast_nodes.items.len);
+                self.ast_nodes.appendAssumeCapacity(.{
+                    .name = name,
+                    .docs = "",
+                    .@"comptime" = tags[param_index] == .param_anytype_comptime,
+                });
+
+                param_type_refs.appendAssumeCapacity(
+                    DocData.Expr{ .@"anytype" = {} },
+                );
+            },
+            .param, .param_comptime => {
+                const pl_tok = data[param_index].pl_tok;
+                const extra = file.zir.extraData(Zir.Inst.Param, pl_tok.payload_index);
+                const doc_comment = if (extra.data.doc_comment != 0)
+                    file.zir.nullTerminatedString(extra.data.doc_comment)
+                else
+                    "";
+                const name = file.zir.nullTerminatedString(extra.data.name);
+
+                param_ast_indexes.appendAssumeCapacity(self.ast_nodes.items.len);
+                try self.ast_nodes.append(self.arena, .{
+                    .name = name,
+                    .docs = doc_comment,
+                    .@"comptime" = tags[param_index] == .param_comptime,
+                });
+
+                const break_index = file.zir.extra[extra.end..][extra.data.body_len - 1];
+                const break_operand = data[break_index].@"break".operand;
+                const param_type_ref = try self.walkRef(file, scope, break_operand, false);
+
+                param_type_refs.appendAssumeCapacity(param_type_ref.expr);
+            },
+        }
+    }
+
+    // ret
+    const ret_type_ref = blk: {
+        const last_instr_index = fn_info.ret_ty_body[fn_info.ret_ty_body.len - 1];
+        const break_operand = data[last_instr_index].@"break".operand;
+        const wr = try self.walkRef(file, scope, break_operand, false);
+
+        break :blk wr;
+    };
+
+    self.ast_nodes.items[self_ast_node_index].fields = param_ast_indexes.items;
+    const inst_data = data[inst_index].pl_node;
+
+    const extra = file.zir.extraData(Zir.Inst.ExtendedFunc, inst_data.payload_index);
+    var cc_index: ?usize = null;
+    if (extra.data.bits.has_cc) {
+        const cc_ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra.end]);
+        cc_index = self.exprs.items.len;
+        _ = try self.walkRef(file, scope, cc_ref, false);
+    }
+
+    self.types.items[type_slot_index] = .{
+        .Fn = .{
+            .name = "todo_name func",
+            .src = self_ast_node_index,
+            .params = param_type_refs.items,
+            .ret = ret_type_ref.expr,
+            .is_extern = extra.data.bits.is_extern,
+            .has_cc = extra.data.bits.has_cc,
+            .is_inferred_error = extra.data.bits.is_inferred_error,
+            .cc = cc_index,
+        },
+    };
+
+    return DocData.WalkResult{
+        .typeRef = .{ .type = @enumToInt(Ref.type_type) },
+        .expr = .{ .type = type_slot_index },
+    };
+}
 fn analyzeFunction(
     self: *Autodoc,
     file: *File,
@@ -2763,46 +2884,13 @@ fn analyzeFunction(
     };
 
     self.ast_nodes.items[self_ast_node_index].fields = param_ast_indexes.items;
-    self.types.items[type_slot_index] = switch (tags[inst_index]) {
-        .func, .func_inferred => blk: {
-            break :blk .{
-                .Fn = .{
-                    .name = "todo_name func",
-                    .src = self_ast_node_index,
-                    .params = param_type_refs.items,
-                    .ret = ret_type_ref.expr,
-                },
-            };
+    self.types.items[type_slot_index] = .{
+        .Fn = .{
+            .name = "todo_name func",
+            .src = self_ast_node_index,
+            .params = param_type_refs.items,
+            .ret = ret_type_ref.expr,
         },
-        .func_extended => blk: {
-            const inst_data = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.ExtendedFunc, inst_data.payload_index);
-            var cc_index: ?usize = null;
-            cc_index = self.types.items.len - 1;
-            // if (extra.data.bits.has_cc) {
-            //     const cc = file.zir.extra[extra.end];
-            //     const cc_ref = @intToEnum(Zir.Inst.Ref, cc);
-            //     _ = try self.walkRef(file, scope, cc_ref, false);
-            //     cc_index = self.types.items.len - 1;
-            //     std.debug.print("DONE\n", .{});
-            //     std.debug.print("cc_ref = {any}\n", .{cc_ref});
-            //     std.debug.print("index = {}\n", .{cc_index});
-            // }
-
-            break :blk .{
-                .Fn = .{
-                    .name = "todo_name func",
-                    .src = self_ast_node_index,
-                    .params = param_type_refs.items,
-                    .ret = ret_type_ref.expr,
-                    .is_extern = extra.data.bits.is_extern,
-                    .has_cc = extra.data.bits.has_cc,
-                    .is_inferred_error = extra.data.bits.is_inferred_error,
-                    .cc = cc_index,
-                },
-            };
-        },
-        else => unreachable,
     };
 
     return DocData.WalkResult{
@@ -3032,22 +3120,22 @@ fn walkRef(
             // TODO: dunno what to do with those
             .calling_convention_type => {
                 return DocData.WalkResult{
-                    // .typeRef = .{ .type = @enumToInt(Ref.calling_convention_type) },
-                    .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
+                    .typeRef = .{ .type = @enumToInt(Ref.calling_convention_type) },
+                    // .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
                     .expr = .{ .int = .{ .value = 1 } },
                 };
             },
             .calling_convention_c => {
                 return DocData.WalkResult{
-                    // .typeRef = .{ .type = @enumToInt(Ref.calling_convention_c) },
-                    .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
+                    .typeRef = .{ .type = @enumToInt(Ref.calling_convention_c) },
+                    // .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
                     .expr = .{ .int = .{ .value = 1 } },
                 };
             },
             .calling_convention_inline => {
                 return DocData.WalkResult{
-                    // .typeRef = .{ .type = @enumToInt(Ref.calling_convention_inline) },
-                    .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
+                    .typeRef = .{ .type = @enumToInt(Ref.calling_convention_inline) },
+                    // .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
                     .expr = .{ .int = .{ .value = 1 } },
                 };
             },
