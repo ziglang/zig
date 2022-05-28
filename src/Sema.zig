@@ -726,6 +726,7 @@ fn analyzeBodyInner(
             .elem_ptr_imm                 => try sema.zirElemPtrImm(block, inst),
             .elem_val                     => try sema.zirElemVal(block, inst),
             .elem_val_node                => try sema.zirElemValNode(block, inst),
+            .elem_type_index              => try sema.zirElemTypeIndex(block, inst),
             .enum_literal                 => try sema.zirEnumLiteral(block, inst),
             .enum_to_int                  => try sema.zirEnumToInt(block, inst),
             .int_to_enum                  => try sema.zirIntToEnum(block, inst),
@@ -3021,7 +3022,10 @@ fn zirArrayBasePtr(
     const elem_ty = sema.typeOf(base_ptr).childType();
     switch (elem_ty.zigTypeTag()) {
         .Array, .Vector => return base_ptr,
-        .Struct => if (elem_ty.isTuple()) return base_ptr,
+        .Struct => if (elem_ty.isTuple()) {
+            // TODO validate element count
+            return base_ptr;
+        },
         else => {},
     }
     return sema.failWithArrayInitNotSupported(block, src, sema.typeOf(start_ptr).childType());
@@ -3062,7 +3066,10 @@ fn validateArrayInitTy(
 
     switch (ty.zigTypeTag()) {
         .Array, .Vector => return,
-        .Struct => if (ty.isTuple()) return,
+        .Struct => if (ty.isTuple()) {
+            // TODO validate element count
+            return;
+        },
         else => {},
     }
     return sema.failWithArrayInitNotSupported(block, src, ty);
@@ -5805,12 +5812,17 @@ fn zirOptionalType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     return sema.addType(opt_type);
 }
 
-fn zirElemType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
-    const array_type = try sema.resolveType(block, src, inst_data.operand);
-    const elem_type = array_type.elemType();
-    return sema.addType(elem_type);
+fn zirElemTypeIndex(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const bin = sema.code.instructions.items(.data)[inst].bin;
+    const indexable_ty = try sema.resolveType(block, .unneeded, bin.lhs);
+    assert(indexable_ty.isIndexable()); // validated by a previous instruction
+    if (indexable_ty.zigTypeTag() == .Struct) {
+        const elem_type = indexable_ty.tupleFields().types[@enumToInt(bin.rhs)];
+        return sema.addType(elem_type);
+    } else {
+        const elem_type = indexable_ty.elemType2();
+        return sema.addType(elem_type);
+    }
 }
 
 fn zirVectorType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -13277,6 +13289,8 @@ fn zirStructInit(
         try sema.requireRuntimeBlock(block, src);
         try sema.queueFullTypeResolution(resolved_ty);
         return block.addUnionInit(resolved_ty, field_index, init_inst);
+    } else if (resolved_ty.isAnonStruct()) {
+        return sema.fail(block, src, "TODO anon struct init validation", .{});
     }
     unreachable;
 }
@@ -13447,15 +13461,18 @@ fn zirArrayInit(
 
     const resolved_args = try gpa.alloc(Air.Inst.Ref, args.len - 1 + @boolToInt(sentinel_val != null));
     defer gpa.free(resolved_args);
-    const elem_ty = array_ty.elemType2();
     for (args[1..]) |arg, i| {
         const resolved_arg = try sema.resolveInst(arg);
         const arg_src = src; // TODO better source location
+        const elem_ty = if (array_ty.zigTypeTag() == .Struct)
+            array_ty.tupleFields().types[i]
+        else
+            array_ty.elemType2();
         resolved_args[i] = try sema.coerce(block, elem_ty, resolved_arg, arg_src);
     }
 
     if (sentinel_val) |some| {
-        resolved_args[resolved_args.len - 1] = try sema.addConstant(elem_ty, some);
+        resolved_args[resolved_args.len - 1] = try sema.addConstant(array_ty.elemType2(), some);
     }
 
     const opt_runtime_src: ?LazySrcLoc = for (resolved_args) |arg| {
@@ -13487,10 +13504,27 @@ fn zirArrayInit(
         });
         const alloc = try block.addTy(.alloc, alloc_ty);
 
+        if (array_ty.isTuple()) {
+            const types = array_ty.tupleFields().types;
+            for (resolved_args) |arg, i| {
+                const elem_ptr_ty = try Type.ptr(sema.arena, sema.mod, .{
+                    .mutable = true,
+                    .@"addrspace" = target_util.defaultAddressSpace(target, .local),
+                    .pointee_type = types[i],
+                });
+                const elem_ptr_ty_ref = try sema.addType(elem_ptr_ty);
+
+                const index = try sema.addIntUnsigned(Type.usize, i);
+                const elem_ptr = try block.addPtrElemPtrTypeRef(alloc, index, elem_ptr_ty_ref);
+                _ = try block.addBinOp(.store, elem_ptr, arg);
+            }
+            return alloc;
+        }
+
         const elem_ptr_ty = try Type.ptr(sema.arena, sema.mod, .{
             .mutable = true,
             .@"addrspace" = target_util.defaultAddressSpace(target, .local),
-            .pointee_type = elem_ty,
+            .pointee_type = array_ty.elemType2(),
         });
         const elem_ptr_ty_ref = try sema.addType(elem_ptr_ty);
 
@@ -13632,6 +13666,10 @@ fn fieldType(
     while (true) {
         switch (cur_ty.zigTypeTag()) {
             .Struct => {
+                if (cur_ty.isAnonStruct()) {
+                    const field_index = try sema.anonStructFieldIndex(block, cur_ty, field_name, field_src);
+                    return sema.addType(cur_ty.tupleFields().types[field_index]);
+                }
                 const struct_obj = cur_ty.castTag(.@"struct").?.data;
                 const field = struct_obj.fields.get(field_name) orelse
                     return sema.failWithBadStructFieldAccess(block, struct_obj, field_src, field_name);

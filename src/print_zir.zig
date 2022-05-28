@@ -152,6 +152,8 @@ const Writer = struct {
             .store_to_inferred_ptr,
             => try self.writeBin(stream, inst),
 
+            .elem_type_index => try self.writeElemTypeIndex(stream, inst),
+
             .alloc,
             .alloc_mut,
             .alloc_comptime_mut,
@@ -536,6 +538,12 @@ const Writer = struct {
         try stream.writeAll(", ");
         try self.writeInstRef(stream, inst_data.rhs);
         try stream.writeByte(')');
+    }
+
+    fn writeElemTypeIndex(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].bin;
+        try self.writeInstRef(stream, inst_data.lhs);
+        try stream.print(", {d})", .{inst_data.rhs});
     }
 
     fn writeUnNode(

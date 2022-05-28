@@ -1273,8 +1273,14 @@ fn arrayInitExpr(
 
     assert(array_init.ast.elements.len != 0); // Otherwise it would be struct init.
 
-    const array_ty: Zir.Inst.Ref = inst: {
-        if (array_init.ast.type_expr == 0) break :inst .none;
+    const types: struct {
+        array: Zir.Inst.Ref,
+        elem: Zir.Inst.Ref,
+    } = inst: {
+        if (array_init.ast.type_expr == 0) break :inst .{
+            .array = .none,
+            .elem = .none,
+        };
 
         infer: {
             const array_type: Ast.full.ArrayType = switch (node_tags[array_init.ast.type_expr]) {
@@ -1289,10 +1295,14 @@ fn arrayInitExpr(
                 const len_inst = try gz.addInt(array_init.ast.elements.len);
                 const elem_type = try typeExpr(gz, scope, array_type.ast.elem_type);
                 if (array_type.ast.sentinel == 0) {
-                    break :inst try gz.addBin(.array_type, len_inst, elem_type);
+                    const array_type_inst = try gz.addBin(.array_type, len_inst, elem_type);
+                    break :inst .{
+                        .array = array_type_inst,
+                        .elem = elem_type,
+                    };
                 } else {
                     const sentinel = try comptimeExpr(gz, scope, .{ .ty = elem_type }, array_type.ast.sentinel);
-                    break :inst try gz.addPlNode(
+                    const array_type_inst = try gz.addPlNode(
                         .array_type_sentinel,
                         array_init.ast.type_expr,
                         Zir.Inst.ArrayTypeSentinel{
@@ -1301,12 +1311,19 @@ fn arrayInitExpr(
                             .sentinel = sentinel,
                         },
                     );
+                    break :inst .{
+                        .array = array_type_inst,
+                        .elem = elem_type,
+                    };
                 }
             }
         }
         const array_type_inst = try typeExpr(gz, scope, array_init.ast.type_expr);
         _ = try gz.addUnNode(.validate_array_init_ty, array_type_inst, node);
-        break :inst array_type_inst;
+        break :inst .{
+            .array = array_type_inst,
+            .elem = .none,
+        };
     };
 
     switch (rl) {
@@ -1318,40 +1335,40 @@ fn arrayInitExpr(
             return Zir.Inst.Ref.void_value;
         },
         .ref => {
-            const tag: Zir.Inst.Tag = if (array_ty != .none) .array_init_ref else .array_init_anon_ref;
-            return arrayInitExprInner(gz, scope, node, array_init.ast.elements, array_ty, tag);
+            const tag: Zir.Inst.Tag = if (types.array != .none) .array_init_ref else .array_init_anon_ref;
+            return arrayInitExprInner(gz, scope, node, array_init.ast.elements, types.array, types.elem, tag);
         },
         .none => {
-            const tag: Zir.Inst.Tag = if (array_ty != .none) .array_init else .array_init_anon;
-            return arrayInitExprInner(gz, scope, node, array_init.ast.elements, array_ty, tag);
+            const tag: Zir.Inst.Tag = if (types.array != .none) .array_init else .array_init_anon;
+            return arrayInitExprInner(gz, scope, node, array_init.ast.elements, types.array, types.elem, tag);
         },
         .ty, .coerced_ty => {
-            const tag: Zir.Inst.Tag = if (array_ty != .none) .array_init else .array_init_anon;
-            const result = try arrayInitExprInner(gz, scope, node, array_init.ast.elements, array_ty, tag);
+            const tag: Zir.Inst.Tag = if (types.array != .none) .array_init else .array_init_anon;
+            const result = try arrayInitExprInner(gz, scope, node, array_init.ast.elements, types.array, types.elem, tag);
             return rvalue(gz, rl, result, node);
         },
         .ptr => |ptr_inst| {
-            return arrayInitExprRlPtr(gz, scope, rl, node, ptr_inst, array_init.ast.elements, array_ty);
+            return arrayInitExprRlPtr(gz, scope, rl, node, ptr_inst, array_init.ast.elements, types.array);
         },
         .inferred_ptr => |ptr_inst| {
-            if (array_ty == .none) {
+            if (types.array == .none) {
                 // We treat this case differently so that we don't get a crash when
                 // analyzing array_base_ptr against an alloc_inferred_mut.
                 // See corresponding logic in structInitExpr.
                 const result = try arrayInitExprRlNone(gz, scope, node, array_init.ast.elements, .array_init_anon);
                 return rvalue(gz, rl, result, node);
             } else {
-                return arrayInitExprRlPtr(gz, scope, rl, node, ptr_inst, array_init.ast.elements, array_ty);
+                return arrayInitExprRlPtr(gz, scope, rl, node, ptr_inst, array_init.ast.elements, types.array);
             }
         },
         .block_ptr => |block_gz| {
             // This condition is here for the same reason as the above condition in `inferred_ptr`.
             // See corresponding logic in structInitExpr.
-            if (array_ty == .none and astgen.isInferred(block_gz.rl_ptr)) {
+            if (types.array == .none and astgen.isInferred(block_gz.rl_ptr)) {
                 const result = try arrayInitExprRlNone(gz, scope, node, array_init.ast.elements, .array_init_anon);
                 return rvalue(gz, rl, result, node);
             }
-            return arrayInitExprRlPtr(gz, scope, rl, node, block_gz.rl_ptr, array_init.ast.elements, array_ty);
+            return arrayInitExprRlPtr(gz, scope, rl, node, block_gz.rl_ptr, array_init.ast.elements, types.array);
         },
     }
 }
@@ -1384,6 +1401,7 @@ fn arrayInitExprInner(
     node: Ast.Node.Index,
     elements: []const Ast.Node.Index,
     array_ty_inst: Zir.Inst.Ref,
+    elem_ty: Zir.Inst.Ref,
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
@@ -1398,8 +1416,21 @@ fn arrayInitExprInner(
         extra_index += 1;
     }
 
-    for (elements) |elem_init| {
-        const elem_ref = try expr(gz, scope, .none, elem_init);
+    for (elements) |elem_init, i| {
+        const rl = if (elem_ty != .none)
+            ResultLoc{ .coerced_ty = elem_ty }
+        else if (array_ty_inst != .none and nodeMayNeedMemoryLocation(astgen.tree, elem_init, true)) rl: {
+            const ty_expr = try gz.add(.{
+                .tag = .elem_type_index,
+                .data = .{ .bin = .{
+                    .lhs = array_ty_inst,
+                    .rhs = @intToEnum(Zir.Inst.Ref, i),
+                } },
+            });
+            break :rl ResultLoc{ .coerced_ty = ty_expr };
+        } else ResultLoc{ .none = {} };
+
+        const elem_ref = try expr(gz, scope, rl, elem_init);
         astgen.extra.items[extra_index] = @enumToInt(elem_ref);
         extra_index += 1;
     }
@@ -2192,6 +2223,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .array_mul,
             .array_type,
             .array_type_sentinel,
+            .elem_type_index,
             .vector_type,
             .indexable_ptr_len,
             .anyframe_type,

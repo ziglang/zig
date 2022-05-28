@@ -221,6 +221,9 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field with `Bin` payload.
         /// lhs is length, rhs is element type.
         vector_type,
+        /// Given an indexable type, returns the type of the element at given index.
+        /// Uses the `bin` union field. lhs is the indexable type, rhs is the index.
+        elem_type_index,
         /// Given a pointer to an indexable object, returns the len property. This is
         /// used by for loops. This instruction also emits a for-loop specific compile
         /// error if the indexable object is not indexable.
@@ -1008,6 +1011,7 @@ pub const Inst = struct {
                 .array_type,
                 .array_type_sentinel,
                 .vector_type,
+                .elem_type_index,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as,
@@ -1300,6 +1304,7 @@ pub const Inst = struct {
                 .array_type,
                 .array_type_sentinel,
                 .vector_type,
+                .elem_type_index,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as,
@@ -1537,6 +1542,7 @@ pub const Inst = struct {
                 .array_type = .bin,
                 .array_type_sentinel = .pl_node,
                 .vector_type = .pl_node,
+                .elem_type_index = .bin,
                 .indexable_ptr_len = .un_node,
                 .anyframe_type = .un_node,
                 .as = .bin,
