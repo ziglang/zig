@@ -536,9 +536,9 @@ const DocData = struct {
                         \\
                     , .{ v.is_allowzero, v.is_mutable, v.is_volatile, v.has_sentinel, v.has_align, v.has_addrspace, v.has_bit_range });
                     if (options.whitespace) |ws| try ws.outputIndent(w);
-                    // try w.print(
-                    //     \\"child":
-                    // , .{});
+                    try w.print(
+                        \\"child":
+                    , .{});
 
                     if (options.whitespace) |*ws| ws.indent_level += 1;
                     try v.child.jsonStringify(options, w);
@@ -2761,9 +2761,10 @@ fn analyzeFunction(
             const extra = file.zir.extraData(Zir.Inst.ExtendedFunc, inst_data.payload_index);
             var cc_index: ?usize = null;
             if (extra.data.bits.has_cc) {
-                const cc_ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra.end]);
-                _ = try self.walkRef(file, scope, cc_ref, false);
-                cc_index = self.types.items.len - 1;
+                // @panic with .calling_convention_inline
+                // const cc_ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra.end]);
+                // _ = try self.walkRef(file, scope, cc_ref, false);
+                // cc_index = self.types.items.len - 1;
             }
 
             break :blk .{
@@ -2773,7 +2774,7 @@ fn analyzeFunction(
                     .params = param_type_refs.items,
                     .ret = ret_type_ref.expr,
                     .is_extern = extra.data.bits.is_extern,
-                    .has_cc = extra.data.bits.has_cc,
+                    // .has_cc = extra.data.bits.has_cc,
                     .is_inferred_error = extra.data.bits.is_inferred_error,
                     .cc = cc_index,
                 },
