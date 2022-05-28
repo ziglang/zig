@@ -143,6 +143,9 @@ pub fn generateZirData(self: *Autodoc) !void {
                         .ComptimeFloat = .{ .name = tmpbuf.toOwnedSlice() },
                     },
 
+                    .anyopaque_type => .{
+                        .ComptimeExpr = .{ .name = tmpbuf.toOwnedSlice() },
+                    },
                     .bool_type => .{
                         .Bool = .{ .name = tmpbuf.toOwnedSlice() },
                     },
