@@ -226,7 +226,6 @@ const Writer = struct {
             .pop_count,
             .byte_swap,
             .bit_reverse,
-            .elem_type,
             .@"resume",
             .@"await",
             .switch_cond,
@@ -267,10 +266,6 @@ const Writer = struct {
             .array_init_anon,
             .array_init_anon_ref,
             => try self.writeArrayInit(stream, inst),
-
-            .array_init_sent,
-            .array_init_sent_ref,
-            => try self.writeArrayInitSent(stream, inst),
 
             .slice_start => try self.writeSliceStart(stream, inst),
             .slice_end => try self.writeSliceEnd(stream, inst),
@@ -2085,8 +2080,9 @@ const Writer = struct {
         const extra = self.code.extraData(Zir.Inst.MultiOp, inst_data.payload_index);
         const args = self.code.refSlice(extra.end, extra.data.operands_len);
 
-        try stream.writeAll(".{");
-        for (args) |arg, i| {
+        try self.writeInstRef(stream, args[0]);
+        try stream.writeAll("{");
+        for (args[1..]) |arg, i| {
             if (i != 0) try stream.writeAll(", ");
             try self.writeInstRef(stream, arg);
         }
