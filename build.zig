@@ -489,6 +489,7 @@ pub fn build(b: *Builder) !void {
 
     toolchain_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
     toolchain_step.dependOn(tests.addStandaloneTests(b, test_filter, modes, skip_non_native, enable_macos_sdk, target));
+    toolchain_step.dependOn(tests.addLinkTests(b, test_filter, modes, enable_macos_sdk));
     toolchain_step.dependOn(tests.addStackTraceTests(b, test_filter, modes));
     toolchain_step.dependOn(tests.addCliTests(b, test_filter, modes));
     toolchain_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));

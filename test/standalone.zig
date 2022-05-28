@@ -13,31 +13,12 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.addBuildFile("test/standalone/main_pkg_path/build.zig", .{});
     cases.addBuildFile("test/standalone/shared_library/build.zig", .{});
     cases.addBuildFile("test/standalone/mix_o_files/build.zig", .{});
-    if (builtin.os.tag == .macos) {
-        // Zig's macOS linker does not yet support LTO for LLVM IR files:
-        // https://github.com/ziglang/zig/issues/8680
-        cases.addBuildFile("test/standalone/mix_c_files/build.zig", .{
-            .build_modes = false,
-            .cross_targets = true,
-        });
-    } else {
-        cases.addBuildFile("test/standalone/mix_c_files/build.zig", .{
-            .build_modes = true,
-            .cross_targets = true,
-        });
-    }
+    cases.addBuildFile("test/standalone/mix_c_files/build.zig", .{
+        .build_modes = true,
+        .cross_targets = true,
+    });
     cases.addBuildFile("test/standalone/global_linkage/build.zig", .{});
     cases.addBuildFile("test/standalone/static_c_lib/build.zig", .{});
-    cases.addBuildFile("test/standalone/link_interdependent_static_c_libs/build.zig", .{});
-    cases.addBuildFile("test/standalone/link_static_lib_as_system_lib/build.zig", .{});
-    cases.addBuildFile("test/standalone/link_common_symbols/build.zig", .{});
-    cases.addBuildFile("test/standalone/link_frameworks/build.zig", .{
-        .requires_macos_sdk = true,
-    });
-    cases.addBuildFile("test/standalone/link_common_symbols_alignment/build.zig", .{});
-    if (builtin.os.tag == .macos) {
-        cases.addBuildFile("test/standalone/link_import_tls_dylib/build.zig", .{});
-    }
     cases.addBuildFile("test/standalone/issue_339/build.zig", .{});
     cases.addBuildFile("test/standalone/issue_8550/build.zig", .{});
     cases.addBuildFile("test/standalone/issue_794/build.zig", .{});
@@ -69,16 +50,6 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     if (builtin.os.tag == .linux) {
         cases.addBuildFile("test/standalone/pie/build.zig", .{});
     }
-    // Try to build and run an Objective-C executable.
-    cases.addBuildFile("test/standalone/objc/build.zig", .{
-        .build_modes = true,
-        .requires_macos_sdk = true,
-    });
-    // Try to build and run an Objective-C++ executable.
-    cases.addBuildFile("test/standalone/objcpp/build.zig", .{
-        .build_modes = true,
-        .requires_macos_sdk = true,
-    });
 
     // Ensure the development tools are buildable.
     cases.add("tools/gen_spirv_spec.zig");
