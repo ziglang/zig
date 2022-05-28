@@ -2029,6 +2029,7 @@ fn binOpImmediate(
     defer if (new_lhs_lock) |reg| self.register_manager.unlockReg(reg);
 
     const dest_reg = switch (mir_tag) {
+        .cmp => undefined, // cmp has no destination register
         else => if (metadata) |md| blk: {
             if (lhs_is_register and self.reuseOperand(
                 md.inst,
@@ -2148,6 +2149,7 @@ fn binOpRegister(
     defer if (new_rhs_lock) |reg| self.register_manager.unlockReg(reg);
 
     const dest_reg = switch (mir_tag) {
+        .cmp => undefined, // cmp has no destination register
         else => if (metadata) |md| blk: {
             if (lhs_is_register and self.reuseOperand(md.inst, md.lhs, 0, lhs)) {
                 break :blk lhs_reg;
@@ -3063,6 +3065,10 @@ fn processDeath(self: *Self, inst: Air.Inst.Index) void {
     switch (prev_value) {
         .register => |reg| {
             self.register_manager.freeReg(reg);
+        },
+        .register_with_overflow => |rwo| {
+            self.register_manager.freeReg(rwo.reg);
+            self.compare_flags_inst = null;
         },
         .compare_flags_signed, .compare_flags_unsigned => {
             self.compare_flags_inst = null;
