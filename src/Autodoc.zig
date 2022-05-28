@@ -153,6 +153,9 @@ pub fn generateZirData(self: *Autodoc) !void {
                     .type_type => .{
                         .Type = .{ .name = tmpbuf.toOwnedSlice() },
                     },
+                    .anyerror_type => .{
+                        .ErrorSet = .{ .name = tmpbuf.toOwnedSlice() },
+                    },
                 },
             );
         }
@@ -429,10 +432,11 @@ const DocData = struct {
             name: []const u8,
             child: Expr,
         },
-        ErrorUnion: struct { name: []const u8 },
+        ErrorUnion: struct { lhs: Expr, rhs: Expr },
+        // ErrorUnion: struct { name: []const u8 },
         ErrorSet: struct {
             name: []const u8,
-            fields: []const Field,
+            fields: ?[]const Field = null,
             // TODO: fn field for inferred error sets?
         },
         Enum: struct {
@@ -454,6 +458,14 @@ const DocData = struct {
             src: ?usize = null, // index into astNodes
             ret: Expr,
             params: ?[]Expr = null, // (use src->fields to find names)
+            is_var_args: bool = false,
+            is_inferred_error: bool = false,
+            has_lib_name: bool = false,
+            has_cc: bool = false,
+            cc: ?usize = null,
+            has_align: bool = false,
+            is_test: bool = false,
+            is_extern: bool = false,
         },
         BoundFn: struct { name: []const u8 },
         Opaque: struct { name: []const u8 },
@@ -492,6 +504,7 @@ const DocData = struct {
                 .Fn => |v| try printTypeBody(v, options, w),
                 .Union => |v| try printTypeBody(v, options, w),
                 .ErrorSet => |v| try printTypeBody(v, options, w),
+                .ErrorUnion => |v| try printTypeBody(v, options, w),
                 .Enum => |v| try printTypeBody(v, options, w),
                 .Int => |v| try printTypeBody(v, options, w),
                 .Float => |v| try printTypeBody(v, options, w),
@@ -588,6 +601,7 @@ const DocData = struct {
         enumLiteral: []const u8, // direct value
         typeOf: usize, // index in `exprs`
         typeOf_peer: []usize,
+        errorUnion: usize, // index in `exprs`
         as: As,
         sizeOf: usize, // index in `exprs`
         compileError: []const u8,
@@ -617,7 +631,7 @@ const DocData = struct {
                         \\{{ "{s}":{{}} }}
                     , .{@tagName(self)});
                 },
-                .type, .comptimeExpr, .call, .this, .declRef, .typeOf => |v| {
+                .type, .comptimeExpr, .call, .this, .declRef, .typeOf, .errorUnion => |v| {
                     try w.print(
                         \\{{ "{s}":{} }}
                     , .{ @tagName(self), v });
@@ -853,7 +867,7 @@ fn walkInstruction(
             const literal = file.zir.nullTerminatedString(str_tok.start);
             const type_index = self.types.items.len;
             try self.types.append(self.arena, .{
-                .EnumLiteral = .{ .name = "todo enum literal" },
+                .EnumLiteral = .{ .name = literal },
             });
 
             return DocData.WalkResult{
@@ -872,8 +886,29 @@ fn walkInstruction(
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
 
-            // TODO: return the actual error union instread of cheating
-            return self.walkRef(file, parent_scope, extra.data.rhs, need_type);
+            var lhs: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                extra.data.lhs,
+                false,
+            );
+            var rhs: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                extra.data.rhs,
+                false,
+            );
+
+            const type_slot_index = self.types.items.len;
+            try self.types.append(self.arena, .{ .ErrorUnion = .{
+                .lhs = lhs.expr,
+                .rhs = rhs.expr,
+            } });
+
+            return DocData.WalkResult{
+                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
+                .expr = .{ .errorUnion = type_slot_index },
+            };
         },
         .elem_type => {
             const un_node = data[inst_index].un_node;
@@ -2744,14 +2779,43 @@ fn analyzeFunction(
     };
 
     self.ast_nodes.items[self_ast_node_index].fields = param_ast_indexes.items;
-    self.types.items[type_slot_index] = .{
-        .Fn = .{
-            .name = "todo_name func",
-            .src = self_ast_node_index,
-            .params = param_type_refs.items,
-            .ret = ret_type_ref.expr,
+    self.types.items[type_slot_index] = switch (tags[inst_index]) {
+        .func, .func_inferred => blk: {
+            break :blk .{
+                .Fn = .{
+                    .name = "todo_name func",
+                    .src = self_ast_node_index,
+                    .params = param_type_refs.items,
+                    .ret = ret_type_ref.expr,
+                },
+            };
         },
+        .func_extended => blk: {
+            const inst_data = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.ExtendedFunc, inst_data.payload_index);
+
+            var cc_index: ?usize = null;
+            if (extra.data.bits.has_cc) {
+                const cc_ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra.end]);
+                _ = try self.walkRef(file, scope, cc_ref, false);
+                cc_index = self.types.items.len - 1;
+            }
+            break :blk .{
+                .Fn = .{
+                    .name = "todo_name func",
+                    .src = self_ast_node_index,
+                    .params = param_type_refs.items,
+                    .ret = ret_type_ref.expr,
+                    .is_extern = extra.data.bits.is_extern,
+                    .has_cc = extra.data.bits.has_cc,
+                    .is_inferred_error = extra.data.bits.is_inferred_error,
+                    .cc = cc_index,
+                },
+            };
+        },
+        else => unreachable,
     };
+
     return DocData.WalkResult{
         .typeRef = .{ .type = @enumToInt(Ref.type_type) },
         .expr = .{ .type = type_slot_index },
