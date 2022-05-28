@@ -162,6 +162,9 @@ pub fn generateZirData(self: *Autodoc) !void {
                     .anyerror_type => .{
                         .ErrorSet = .{ .name = tmpbuf.toOwnedSlice() },
                     },
+                    // .calling_convention_inline, .calling_convention_c, .calling_convention_type => .{
+                    //     .EnumLiteral = .{ .name = tmpbuf.toOwnedSlice() },
+                    // },
                 },
             );
         }
@@ -515,7 +518,15 @@ const DocData = struct {
                 .Int => |v| try printTypeBody(v, options, w),
                 .Float => |v| try printTypeBody(v, options, w),
                 .Type => |v| try printTypeBody(v, options, w),
+                .NoReturn => |v| try printTypeBody(v, options, w),
                 .EnumLiteral => |v| try printTypeBody(v, options, w),
+                .Unanalyzed => |_| {
+                    if (options.whitespace) |ws| try ws.outputIndent(w);
+                    try w.print(
+                        \\"Unanalyzed": "Unanalyzed"
+                        \\
+                    , .{});
+                },
                 .Pointer => |v| {
                     if (options.whitespace) |ws| try ws.outputIndent(w);
                     try w.print(
@@ -2767,12 +2778,16 @@ fn analyzeFunction(
             const inst_data = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.ExtendedFunc, inst_data.payload_index);
             var cc_index: ?usize = null;
-            if (extra.data.bits.has_cc) {
-                // @panic with .calling_convention_inline
-                // const cc_ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra.end]);
-                // _ = try self.walkRef(file, scope, cc_ref, false);
-                // cc_index = self.types.items.len - 1;
-            }
+            cc_index = self.types.items.len - 1;
+            // if (extra.data.bits.has_cc) {
+            //     const cc = file.zir.extra[extra.end];
+            //     const cc_ref = @intToEnum(Zir.Inst.Ref, cc);
+            //     _ = try self.walkRef(file, scope, cc_ref, false);
+            //     cc_index = self.types.items.len - 1;
+            //     std.debug.print("DONE\n", .{});
+            //     std.debug.print("cc_ref = {any}\n", .{cc_ref});
+            //     std.debug.print("index = {}\n", .{cc_index});
+            // }
 
             break :blk .{
                 .Fn = .{
@@ -2781,7 +2796,7 @@ fn analyzeFunction(
                     .params = param_type_refs.items,
                     .ret = ret_type_ref.expr,
                     .is_extern = extra.data.bits.is_extern,
-                    // .has_cc = extra.data.bits.has_cc,
+                    .has_cc = extra.data.bits.has_cc,
                     .is_inferred_error = extra.data.bits.is_inferred_error,
                     .cc = cc_index,
                 },
@@ -3015,24 +3030,27 @@ fn walkRef(
                 };
             },
             // TODO: dunno what to do with those
-            // .calling_convention_type => {
-            //     return DocData.WalkResult{
-            //         .typeRef = .{ .type = @enumToInt(Ref.calling_convention_type) },
-            //         .expr = .{ .int = .{ .value = 1 } },
-            //     };
-            // },
-            // .calling_convention_c => {
-            //     return DocData.WalkResult{
-            //         .typeRef = .{ .type = @enumToInt(Ref.calling_convention_c) },
-            //         .expr = .{ .int = .{ .value = 1 } },
-            //     };
-            // },
-            // .calling_convention_inline => {
-            //     return DocData.WalkResult{
-            //         .typeRef = .{ .type = @enumToInt(Ref.calling_convention_inline) },
-            //         .expr = .{ .int = .{ .value = 1 } },
-            //     };
-            // },
+            .calling_convention_type => {
+                return DocData.WalkResult{
+                    // .typeRef = .{ .type = @enumToInt(Ref.calling_convention_type) },
+                    .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
+                    .expr = .{ .int = .{ .value = 1 } },
+                };
+            },
+            .calling_convention_c => {
+                return DocData.WalkResult{
+                    // .typeRef = .{ .type = @enumToInt(Ref.calling_convention_c) },
+                    .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
+                    .expr = .{ .int = .{ .value = 1 } },
+                };
+            },
+            .calling_convention_inline => {
+                return DocData.WalkResult{
+                    // .typeRef = .{ .type = @enumToInt(Ref.calling_convention_inline) },
+                    .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
+                    .expr = .{ .int = .{ .value = 1 } },
+                };
+            },
             // .generic_poison => {
             //     return DocData.WalkResult{ .int = .{
             //         .type = @enumToInt(Ref.comptime_int_type),
