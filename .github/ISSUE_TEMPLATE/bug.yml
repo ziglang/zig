@@ -17,6 +17,14 @@ body:
       placeholder: "0.9.0-dev.1275+ac52e0056"
     validations:
       required: true
+  - type: input
+    id: target
+    attributes:
+      label: Zig Target Triple
+      description: "The output of `zig targets | jq .native.triple`"
+      placeholder: "x86_64-linux.5.17.9...5.17.9-gnu.2.19"
+    validations:
+      required: true
   - type: textarea
     id: repro
     attributes:
