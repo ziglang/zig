@@ -726,7 +726,6 @@ fn analyzeBodyInner(
             .elem_ptr_imm                 => try sema.zirElemPtrImm(block, inst),
             .elem_val                     => try sema.zirElemVal(block, inst),
             .elem_val_node                => try sema.zirElemValNode(block, inst),
-            .elem_type                    => try sema.zirElemType(block, inst),
             .enum_literal                 => try sema.zirEnumLiteral(block, inst),
             .enum_to_int                  => try sema.zirEnumToInt(block, inst),
             .int_to_enum                  => try sema.zirIntToEnum(block, inst),
@@ -798,10 +797,8 @@ fn analyzeBodyInner(
             .struct_init_ref              => try sema.zirStructInit(block, inst, true),
             .struct_init_anon             => try sema.zirStructInitAnon(block, inst, false),
             .struct_init_anon_ref         => try sema.zirStructInitAnon(block, inst, true),
-            .array_init                   => try sema.zirArrayInit(block, inst, false, false),
-            .array_init_sent              => try sema.zirArrayInit(block, inst, false, true),
-            .array_init_ref               => try sema.zirArrayInit(block, inst, true, false),
-            .array_init_sent_ref          => try sema.zirArrayInit(block, inst, true, true),
+            .array_init                   => try sema.zirArrayInit(block, inst, false),
+            .array_init_ref               => try sema.zirArrayInit(block, inst, true),
             .array_init_anon              => try sema.zirArrayInitAnon(block, inst, false),
             .array_init_anon_ref          => try sema.zirArrayInitAnon(block, inst, true),
             .union_init                   => try sema.zirUnionInit(block, inst),
@@ -13436,7 +13433,6 @@ fn zirArrayInit(
     block: *Block,
     inst: Zir.Inst.Index,
     is_ref: bool,
-    is_sent: bool,
 ) CompileError!Air.Inst.Ref {
     const gpa = sema.gpa;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
@@ -13444,30 +13440,23 @@ fn zirArrayInit(
 
     const extra = sema.code.extraData(Zir.Inst.MultiOp, inst_data.payload_index);
     const args = sema.code.refSlice(extra.end, extra.data.operands_len);
-    assert(args.len != 0);
+    assert(args.len >= 2); // array_ty + at least one element
 
-    const resolved_args = try gpa.alloc(Air.Inst.Ref, args.len);
+    const array_ty = try sema.resolveType(block, src, args[0]);
+    const sentinel_val = array_ty.sentinel();
+
+    const resolved_args = try gpa.alloc(Air.Inst.Ref, args.len - 1 + @boolToInt(sentinel_val != null));
     defer gpa.free(resolved_args);
+    const elem_ty = array_ty.elemType2();
+    for (args[1..]) |arg, i| {
+        const resolved_arg = try sema.resolveInst(arg);
+        const arg_src = src; // TODO better source location
+        resolved_args[i] = try sema.coerce(block, elem_ty, resolved_arg, arg_src);
+    }
 
-    for (args) |arg, i| resolved_args[i] = try sema.resolveInst(arg);
-
-    const elem_ty = sema.typeOf(resolved_args[0]);
-    const array_ty = blk: {
-        if (!is_sent) {
-            break :blk try Type.Tag.array.create(sema.arena, .{
-                .len = resolved_args.len,
-                .elem_type = elem_ty,
-            });
-        }
-
-        const sentinel_ref = resolved_args[resolved_args.len - 1];
-        const val = try sema.resolveConstValue(block, src, sentinel_ref);
-        break :blk try Type.Tag.array_sentinel.create(sema.arena, .{
-            .len = resolved_args.len - 1,
-            .sentinel = val,
-            .elem_type = elem_ty,
-        });
-    };
+    if (sentinel_val) |some| {
+        resolved_args[resolved_args.len - 1] = try sema.addConstant(elem_ty, some);
+    }
 
     const opt_runtime_src: ?LazySrcLoc = for (resolved_args) |arg| {
         const arg_src = src; // TODO better source location
@@ -13488,7 +13477,7 @@ fn zirArrayInit(
     };
 
     try sema.requireRuntimeBlock(block, runtime_src);
-    try sema.queueFullTypeResolution(elem_ty);
+    try sema.queueFullTypeResolution(array_ty);
 
     if (is_ref) {
         const target = sema.mod.getTarget();

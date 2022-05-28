@@ -221,9 +221,6 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field with `Bin` payload.
         /// lhs is length, rhs is element type.
         vector_type,
-        /// Given an array type, returns the element type.
-        /// Uses the `un_node` union field.
-        elem_type,
         /// Given a pointer to an indexable object, returns the len property. This is
         /// used by for loops. This instruction also emits a for-loop specific compile
         /// error if the indexable object is not indexable.
@@ -737,20 +734,12 @@ pub const Inst = struct {
         /// Array initialization syntax.
         /// Uses the `pl_node` field. Payload is `MultiOp`.
         array_init,
-        /// Array initialization with sentinel.
-        /// Uses the `pl_node` field. Payload is `MultiOp`.
-        /// Final op in MultiOp is the sentinel.
-        array_init_sent,
         /// Anonymous array initialization syntax.
         /// Uses the `pl_node` field. Payload is `MultiOp`.
         array_init_anon,
         /// Array initialization syntax, make the result a pointer.
         /// Uses the `pl_node` field. Payload is `MultiOp`.
         array_init_ref,
-        /// Array initialization with sentinel.
-        /// Uses the `pl_node` field. Payload is `MultiOp`.
-        /// Final op in MultiOp is the sentinel.
-        array_init_sent_ref,
         /// Anonymous array initialization syntax, make the result a pointer.
         /// Uses the `pl_node` field. Payload is `MultiOp`.
         array_init_anon_ref,
@@ -1019,7 +1008,6 @@ pub const Inst = struct {
                 .array_type,
                 .array_type_sentinel,
                 .vector_type,
-                .elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as,
@@ -1153,10 +1141,8 @@ pub const Inst = struct {
                 .struct_init_anon,
                 .struct_init_anon_ref,
                 .array_init,
-                .array_init_sent,
                 .array_init_anon,
                 .array_init_ref,
-                .array_init_sent_ref,
                 .array_init_anon_ref,
                 .union_init,
                 .field_type,
@@ -1314,7 +1300,6 @@ pub const Inst = struct {
                 .array_type,
                 .array_type_sentinel,
                 .vector_type,
-                .elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as,
@@ -1426,10 +1411,8 @@ pub const Inst = struct {
                 .struct_init_anon,
                 .struct_init_anon_ref,
                 .array_init,
-                .array_init_sent,
                 .array_init_anon,
                 .array_init_ref,
-                .array_init_sent_ref,
                 .array_init_anon_ref,
                 .union_init,
                 .field_type,
@@ -1554,7 +1537,6 @@ pub const Inst = struct {
                 .array_type = .bin,
                 .array_type_sentinel = .pl_node,
                 .vector_type = .pl_node,
-                .elem_type = .un_node,
                 .indexable_ptr_len = .un_node,
                 .anyframe_type = .un_node,
                 .as = .bin,
@@ -1688,10 +1670,8 @@ pub const Inst = struct {
                 .struct_init_anon = .pl_node,
                 .struct_init_anon_ref = .pl_node,
                 .array_init = .pl_node,
-                .array_init_sent = .pl_node,
                 .array_init_anon = .pl_node,
                 .array_init_ref = .pl_node,
-                .array_init_sent_ref = .pl_node,
                 .array_init_anon_ref = .pl_node,
                 .union_init = .pl_node,
                 .type_info = .un_node,

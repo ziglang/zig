@@ -942,3 +942,10 @@ test "comptime int in switch in catch is casted to correct inferred type" {
     };
     _ = b;
 }
+
+test "vector initialized with array init syntax has proper type" {
+    comptime {
+        const actual = -@Vector(4, i32){ 1, 2, 3, 4 };
+        try std.testing.expectEqual(@Vector(4, i32){ -1, -2, -3, -4 }, actual);
+    }
+}
