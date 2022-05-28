@@ -412,6 +412,10 @@ const DocData = struct {
             size: std.builtin.TypeInfo.Pointer.Size,
             child: Expr,
             sentinel: ?Expr = null,
+            @"align": ?Expr = null,
+            address_space: ?Expr = null,
+            bit_start: ?Expr = null,
+            host_size: ?Expr = null,
             is_allowzero: bool = false,
             is_mutable: bool = false,
             is_volatile: bool = false,
@@ -535,6 +539,38 @@ const DocData = struct {
                         , .{});
                         if (options.whitespace) |*ws| ws.indent_level += 1;
                         try sentinel.jsonStringify(options, w);
+                        try w.print(",", .{});
+                    }
+                    if (v.@"align") |@"align"| {
+                        try w.print(
+                            \\"align":
+                        , .{});
+                        if (options.whitespace) |*ws| ws.indent_level += 1;
+                        try @"align".jsonStringify(options, w);
+                        try w.print(",", .{});
+                    }
+                    if (v.address_space) |address_space| {
+                        try w.print(
+                            \\"address_space":
+                        , .{});
+                        if (options.whitespace) |*ws| ws.indent_level += 1;
+                        try address_space.jsonStringify(options, w);
+                        try w.print(",", .{});
+                    }
+                    if (v.bit_start) |bit_start| {
+                        try w.print(
+                            \\"bit_start":
+                        , .{});
+                        if (options.whitespace) |*ws| ws.indent_level += 1;
+                        try bit_start.jsonStringify(options, w);
+                        try w.print(",", .{});
+                    }
+                    if (v.host_size) |host_size| {
+                        try w.print(
+                            \\"host_size":
+                        , .{});
+                        if (options.whitespace) |*ws| ws.indent_level += 1;
+                        try host_size.jsonStringify(options, w);
                         try w.print(",", .{});
                     }
                     if (options.whitespace) |ws| try ws.outputIndent(w);
@@ -951,6 +987,7 @@ fn walkInstruction(
         .ptr_type => {
             const ptr = data[inst_index].ptr_type;
             const extra = file.zir.extraData(Zir.Inst.PtrType, ptr.payload_index);
+            var extra_index = extra.end;
 
             const type_slot_index = self.types.items.len;
             const elem_type_ref = try self.walkRef(
@@ -960,9 +997,61 @@ fn walkInstruction(
                 false,
             );
 
-            const sentinel: ?DocData.Expr = if (ptr.flags.has_sentinel) DocData.Expr{ .int = .{ .value = 0, .negated = false } } else null;
+            // @check if `addrspace`, `bit_start` and `host_size` really need to be
+            // present in json
+            var sentinel: ?DocData.Expr = null;
+            if (ptr.flags.has_sentinel) {
+                const ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
+                const ref_result = try self.walkRef(file, parent_scope, ref, false);
+                sentinel = ref_result.expr;
+                extra_index += 1;
+            }
+
+            var @"align": ?DocData.Expr = null;
+            if (ptr.flags.has_align) {
+                const ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
+                const ref_result = try self.walkRef(file, parent_scope, ref, false);
+                @"align" = ref_result.expr;
+                extra_index += 1;
+            }
+            var address_space: ?DocData.Expr = null;
+            if (ptr.flags.has_addrspace) {
+                const ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
+                const ref_result = try self.walkRef(file, parent_scope, ref, false);
+                address_space = ref_result.expr;
+                extra_index += 1;
+            }
+            var bit_start: ?DocData.Expr = null;
+            if (ptr.flags.has_bit_range) {
+                const ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
+                const ref_result = try self.walkRef(file, parent_scope, ref, false);
+                address_space = ref_result.expr;
+                extra_index += 1;
+            }
+
+            var host_size: ?DocData.Expr = null;
+            if (ptr.flags.has_bit_range) {
+                const ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
+                const ref_result = try self.walkRef(file, parent_scope, ref, false);
+                host_size = ref_result.expr;
+            }
+
             try self.types.append(self.arena, .{
-                .Pointer = .{ .size = ptr.size, .child = elem_type_ref.expr, .sentinel = sentinel, .is_mutable = ptr.flags.is_mutable, .has_align = ptr.flags.has_align, .has_sentinel = ptr.flags.has_sentinel, .is_volatile = ptr.flags.is_volatile, .has_addrspace = ptr.flags.has_addrspace, .has_bit_range = ptr.flags.has_bit_range },
+                .Pointer = .{
+                    .size = ptr.size,
+                    .child = elem_type_ref.expr,
+                    .has_align = ptr.flags.has_align,
+                    .@"align" = @"align",
+                    .has_addrspace = ptr.flags.has_addrspace,
+                    .address_space = address_space,
+                    .has_sentinel = ptr.flags.has_sentinel,
+                    .sentinel = sentinel,
+                    .is_mutable = ptr.flags.is_mutable,
+                    .is_volatile = ptr.flags.is_volatile,
+                    .has_bit_range = ptr.flags.has_bit_range,
+                    .bit_start = bit_start,
+                    .host_size = host_size,
+                },
             });
             return DocData.WalkResult{
                 .typeRef = .{ .type = @enumToInt(Ref.type_type) },
