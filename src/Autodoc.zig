@@ -467,11 +467,13 @@ const DocData = struct {
             src: ?usize = null, // index into astNodes
             ret: Expr,
             params: ?[]Expr = null, // (use src->fields to find names)
+            lib_name: []const u8 = "",
             is_var_args: bool = false,
             is_inferred_error: bool = false,
             has_lib_name: bool = false,
             has_cc: bool = false,
             cc: ?usize = null,
+            @"align": ?usize = null,
             has_align: bool = false,
             is_test: bool = false,
             is_extern: bool = false,
@@ -2771,27 +2773,35 @@ fn analyzeFunctionExtended(
     };
 
     self.ast_nodes.items[self_ast_node_index].fields = param_ast_indexes.items;
-    const inst_data = data[inst_index].pl_node;
 
+    const inst_data = data[inst_index].pl_node;
     const extra = file.zir.extraData(Zir.Inst.ExtendedFunc, inst_data.payload_index);
+
+    var extra_index: usize = extra.end;
+
+    var lib_name: []const u8 = "";
+    if (extra.data.bits.has_lib_name) {
+        lib_name = file.zir.nullTerminatedString(file.zir.extra[extra_index]);
+        extra_index += 1;
+    }
+
     var cc_index: ?usize = null;
+    var align_index: ?usize = null;
     if (extra.data.bits.has_cc) {
-        const cc_ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra.end]);
+        const cc_ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
         cc_index = self.exprs.items.len;
         _ = try self.walkRef(file, scope, cc_ref, false);
+        extra_index += 1;
+    }
+
+    if (extra.data.bits.has_align) {
+        const align_ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
+        align_index = self.exprs.items.len;
+        _ = try self.walkRef(file, scope, align_ref, false);
     }
 
     self.types.items[type_slot_index] = .{
-        .Fn = .{
-            .name = "todo_name func",
-            .src = self_ast_node_index,
-            .params = param_type_refs.items,
-            .ret = ret_type_ref.expr,
-            .is_extern = extra.data.bits.is_extern,
-            .has_cc = extra.data.bits.has_cc,
-            .is_inferred_error = extra.data.bits.is_inferred_error,
-            .cc = cc_index,
-        },
+        .Fn = .{ .name = "todo_name func", .src = self_ast_node_index, .params = param_type_refs.items, .ret = ret_type_ref.expr, .is_extern = extra.data.bits.is_extern, .has_cc = extra.data.bits.has_cc, .has_align = extra.data.bits.has_align, .has_lib_name = extra.data.bits.has_lib_name, .lib_name = lib_name, .is_inferred_error = extra.data.bits.is_inferred_error, .cc = cc_index, .@"align" = align_index },
     };
 
     return DocData.WalkResult{
