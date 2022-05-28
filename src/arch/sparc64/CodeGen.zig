@@ -991,9 +991,14 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
     const relocs = &self.blocks.getPtr(inst).?.relocs;
     if (relocs.items.len > 0 and relocs.items[relocs.items.len - 1] == self.mir_instructions.len - 1) {
         // If the last Mir instruction is the last relocation (which
-        // would just jump one instruction further), it can be safely
+        // would just jump two instruction further), it can be safely
         // removed
-        self.mir_instructions.orderedRemove(relocs.pop());
+        const index = relocs.pop();
+
+        // First, remove the delay slot, then remove
+        // the branch instruction itself.
+        self.mir_instructions.orderedRemove(index + 1);
+        self.mir_instructions.orderedRemove(index);
     }
     for (relocs.items) |reloc| {
         try self.performReloc(reloc);
