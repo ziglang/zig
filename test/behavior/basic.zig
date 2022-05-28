@@ -949,3 +949,31 @@ test "vector initialized with array init syntax has proper type" {
         try std.testing.expectEqual(@Vector(4, i32){ -1, -2, -3, -4 }, actual);
     }
 }
+
+test "weird array and tuple initializations" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const E = enum { a, b };
+    const S = struct { e: E };
+    var a = false;
+    const b = S{ .e = .a };
+
+    _ = &[_]S{
+        if (a) .{ .e = .a } else .{ .e = .b },
+    };
+
+    if (true) return error.SkipZigTest;
+
+    const S2 = @TypeOf(.{ false, b });
+    _ = &S2{
+        true,
+        if (a) .{ .e = .a } else .{ .e = .b },
+    };
+    const S3 = @TypeOf(.{ .a = false, .b = b });
+    _ = &S3{
+        .a = true,
+        .b = if (a) .{ .e = .a } else .{ .e = .b },
+    };
+}
