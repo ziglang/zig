@@ -915,6 +915,21 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     });
 
+    cases.add("pointer to struct demoted to opaque due to bit fields",
+        \\struct Foo {
+        \\    unsigned int: 1;
+        \\};
+        \\struct Bar {
+        \\    struct Foo *foo;
+        \\};
+    , &[_][]const u8{
+        \\pub const struct_Foo = opaque {};
+        ,
+        \\pub const struct_Bar = extern struct {
+        \\    foo: ?*struct_Foo,
+        \\};
+    });
+
     cases.add("macro with left shift",
         \\#define REDISMODULE_READ (1<<0)
     , &[_][]const u8{
@@ -3562,33 +3577,34 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add("function that dereferences bitfield works",
+    cases.add("Demote function that initializes opaque struct",
+        \\struct my_struct {
+        \\    unsigned a: 15;
+        \\    unsigned: 2;
+        \\    unsigned b: 15;
+        \\};
+        \\void initialize(void) {
+        \\    struct my_struct S = {.a = 1, .b = 2};
+        \\}
+    , &[_][]const u8{
+        \\warning: cannot initialize opaque type
+        ,
+        \\warning: unable to translate function, demoted to extern
+        \\pub extern fn initialize() void;
+    });
+
+    cases.add("Demote function that dereferences opaque type",
         \\struct my_struct {
         \\    unsigned a: 1;
-        \\    unsigned b: 28;
         \\};
         \\void deref(struct my_struct *s) {
         \\    *s;
         \\}
     , &[_][]const u8{
-        \\pub const struct_my_struct = extern struct {
-        \\    bitfield0: c_uint,
+        \\warning: cannot dereference opaque type
         ,
-        \\pub export fn deref(arg_s: ?*struct_my_struct) void {
-        \\    var s = arg_s;
-        \\    _ = s.*;
-        \\}
-    });
-
-    cases.add("bitfield don't cover requedted space",
-        \\struct inner {
-        \\    unsigned a: 1;
-        \\    char after;            
-        \\};
-    , &[_][]const u8{
-        \\less bits used than field size.
-        ,
-        \\pub const struct_inner = opaque {};
+        \\warning: unable to translate function, demoted to extern
+        \\pub extern fn deref(arg_s: ?*struct_my_struct) void;
     });
 
     cases.add("Function prototype declared within function",
