@@ -1788,6 +1788,14 @@ fn walkInstruction(
                 array_data[idx] = wr.expr.as.exprArg;
             }
 
+            // @check
+            // not working with
+            // const value_slice_float = []f32{42.0};
+            // const value_slice_float2: []f32 = .{42.0};
+            // rendering [][]f32
+            // the reason for that is it's initialized as a pointer
+            // in this case getting the last type index works fine
+            // but when it's not after a pointer it's thrown an error in js.
             const type_slot_index = self.types.items.len;
             try self.types.append(self.arena, .{ .Pointer = .{
                 .size = .Slice,
