@@ -3423,7 +3423,9 @@ fn tryResolveRefPath(
                         "failed to match `{s}` in struct",
                         .{child_string},
                     );
-                    path[i + 1] = (try self.cteTodo("match failure")).expr;
+                    // path[i + 1] = (try self.cteTodo("match failure")).expr;
+                    // this are working, check c.zig
+                    path[i + 1] = (try self.cteTodo(child_string)).expr;
                     continue :outer;
                 },
             },
