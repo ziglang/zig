@@ -655,6 +655,7 @@ const DocData = struct {
         errorUnion: usize, // index in `exprs`
         as: As,
         sizeOf: usize, // index in `exprs`
+        bitSizeOf: usize, // index in `exprs`
         compileError: []const u8,
         string: []const u8, // direct value
         // Index a `type` like struct with expressions
@@ -728,6 +729,11 @@ const DocData = struct {
                 .sizeOf => |v| {
                     try w.print(
                         \\{{ "sizeOf":{} }}
+                    , .{v});
+                },
+                .bitSizeOf => |v| {
+                    try w.print(
+                        \\{{ "bitSizeOf":{} }}
                     , .{v});
                 },
                 .fieldRef => |v| try std.json.stringify(
@@ -2149,6 +2155,22 @@ fn walkInstruction(
             return DocData.WalkResult{
                 .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
                 .expr = .{ .sizeOf = operand_index },
+            };
+        },
+        .bit_size_of => {
+            // not working correctly with `align()`
+            const un_node = data[inst_index].un_node;
+            const operand = try self.walkRef(
+                file,
+                parent_scope,
+                un_node.operand,
+                false,
+            );
+            const operand_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, operand.expr);
+            return DocData.WalkResult{
+                .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
+                .expr = .{ .bitSizeOf = operand_index },
             };
         },
 
