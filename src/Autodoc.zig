@@ -416,6 +416,7 @@ const DocData = struct {
             address_space: ?Expr = null,
             bit_start: ?Expr = null,
             host_size: ?Expr = null,
+            is_ref: bool = false,
             is_allowzero: bool = false,
             is_mutable: bool = false,
             is_volatile: bool = false,
@@ -582,8 +583,9 @@ const DocData = struct {
                         \\"has_align": {},
                         \\"has_addrspace": {},
                         \\"has_bit_range": {},
+                        \\"is_ref": {},
                         \\
-                    , .{ v.is_allowzero, v.is_mutable, v.is_volatile, v.has_sentinel, v.has_align, v.has_addrspace, v.has_bit_range });
+                    , .{ v.is_allowzero, v.is_mutable, v.is_volatile, v.has_sentinel, v.has_align, v.has_addrspace, v.has_bit_range, v.is_ref });
                     if (options.whitespace) |ws| try ws.outputIndent(w);
                     try w.print(
                         \\"child":
@@ -1962,17 +1964,12 @@ fn walkInstruction(
             }
 
             const type_slot_index = self.types.items.len;
-            try self.types.append(self.arena, .{
-                .Array = .{
-                    .len = .{
-                        .int = .{
-                            .value = operands.len - 1,
-                            .negated = false,
-                        },
-                    },
-                    .child = array_type.?,
-                },
-            });
+            try self.types.append(self.arena, .{ .Pointer = .{
+                .size = .Slice,
+                .child = array_type.?,
+                .is_mutable = true,
+                .is_ref = true,
+            } });
 
             return DocData.WalkResult{
                 .typeRef = .{ .type = type_slot_index },
