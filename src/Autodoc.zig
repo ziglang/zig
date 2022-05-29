@@ -656,6 +656,7 @@ const DocData = struct {
         as: As,
         sizeOf: usize, // index in `exprs`
         bitSizeOf: usize, // index in `exprs`
+        enumToInt: usize, // index in `exprs`
         compileError: []const u8,
         string: []const u8, // direct value
         // Index a `type` like struct with expressions
@@ -734,6 +735,11 @@ const DocData = struct {
                 .bitSizeOf => |v| {
                     try w.print(
                         \\{{ "bitSizeOf":{} }}
+                    , .{v});
+                },
+                .enumToInt => |v| {
+                    try w.print(
+                        \\{{ "enumToInt":{} }}
                     , .{v});
                 },
                 .fieldRef => |v| try std.json.stringify(
@@ -2171,6 +2177,26 @@ fn walkInstruction(
             return DocData.WalkResult{
                 .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
                 .expr = .{ .bitSizeOf = operand_index },
+            };
+        },
+        .enum_to_int => {
+            // not working correctly with `align()`
+            const un_node = data[inst_index].un_node;
+            const operand = try self.walkRef(
+                file,
+                parent_scope,
+                un_node.operand,
+                false,
+            );
+            const operand_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, operand.expr);
+
+            std.debug.print("un_node = {any}\n", .{un_node});
+            std.debug.print("operand = {any}\n", .{operand});
+            std.debug.print("operand_expr = {any}\n", .{operand.expr});
+            return DocData.WalkResult{
+                .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
+                .expr = .{ .enumToInt = operand_index },
             };
         },
 
