@@ -106,8 +106,9 @@ const DestTarget = struct {
             return @truncate(u32, hasher.final());
         }
 
-        pub fn eql(self: @This(), a: DestTarget, b: DestTarget) bool {
+        pub fn eql(self: @This(), a: DestTarget, b: DestTarget, b_index: usize) bool {
             _ = self;
+            _ = b_index;
             return a.arch.eql(b.arch);
         }
     };

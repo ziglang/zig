@@ -83,6 +83,10 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     // Ensure the development tools are buildable.
     cases.add("tools/gen_spirv_spec.zig");
     cases.add("tools/gen_stubs.zig");
+    cases.add("tools/generate_linux_syscalls.zig");
+    cases.add("tools/process_headers.zig");
+    cases.add("tools/update-license-headers.zig");
+    cases.add("tools/update-linux-headers.zig");
     cases.add("tools/update_clang_options.zig");
     cases.add("tools/update_cpu_features.zig");
     cases.add("tools/update_glibc.zig");
