@@ -3335,18 +3335,6 @@ bool ZigClangFieldDecl_isBitField(const struct ZigClangFieldDecl *self) {
     return casted->isBitField();
 }
 
-unsigned ZigClangFieldDecl_getBitWidthValue( const struct ZigClangFieldDecl *self, const ZigClangASTContext *ctx) {
-    auto casted = reinterpret_cast<const clang::FieldDecl *>(self);
-    auto casted_ctx = const_cast<clang::ASTContext *>(reinterpret_cast<const clang::ASTContext *>(ctx));
-    return casted->getBitWidthValue(*casted_ctx);
-}
-
-bool ZigClangFieldDecl_isZeroLengthBitField( ZigClangFieldDecl *self, const ZigClangASTContext  *ctx) {
-    auto casted = reinterpret_cast<const clang::FieldDecl *>(self);
-    auto casted_ctx = const_cast<clang::ASTContext *>(reinterpret_cast<const clang::ASTContext *>(ctx));
-    return casted->isZeroLengthBitField(*casted_ctx);
-}
-
 bool ZigClangFieldDecl_isAnonymousStructOrUnion(const ZigClangFieldDecl *field_decl) {
     return reinterpret_cast<const clang::FieldDecl*>(field_decl)->isAnonymousStructOrUnion();
 }

@@ -1085,14 +1085,16 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
         const layout = record_def.getASTRecordLayout(c.clang_context);
         const record_alignment = layout.getAlignment();
 
-        var record_bitfield_count: u32 = 0;
-        var bits_unused: i32 = 0;
-        var bits_type: clang.BuiltinTypeKind = clang.BuiltinTypeKind.Void;
-
         while (it.neq(end_it)) : (it = it.next()) {
             const field_decl = it.deref();
             const field_loc = field_decl.getLocation();
             const field_qt = field_decl.getType();
+
+            if (field_decl.isBitField()) {
+                try c.opaque_demotes.put(c.gpa, @ptrToInt(record_decl.getCanonicalDecl()), {});
+                try warn(c, scope, field_loc, "{s} demoted to opaque type - has bitfield", .{container_kind_name});
+                break :blk Tag.opaque_literal.init();
+            }
 
             var is_anon = false;
             var field_name = try c.str(@ptrCast(*const clang.NamedDecl, field_decl).getName_bytes_begin());
@@ -1123,53 +1125,6 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
                 else => |e| return e,
             };
 
-            if (field_decl.isBitField()) {
-                var this_field_width = @intCast(i32, field_decl.getBitWidthValue(c.clang_context));
-
-                // are we starting new bitfield?
-                if (bits_unused <= 0) {
-                    const size_map = std.ComptimeStringMap(u16, .{ .{ "u8", 8 }, .{ "c_ushort", 16 }, .{ "u16", 16 }, .{ "u32", 32 }, .{ "c_uint", 32 }, .{ "c_ulong", 32 }, .{ "c_ulonglong", 64 }, .{ "u64", 64 } });
-
-                    bits_type = @ptrCast(*const clang.BuiltinType, field_qt.getTypePtr()).getKind();
-
-                    var field_width = field_type.castTag(.type).?.*.data; // we just set it 10 lines back. this should not fail.
-
-                    if (size_map.get(field_width)) |sz| {
-                        bits_unused = @intCast(i32, sz) - this_field_width;
-                        field_name = try std.fmt.allocPrint(c.arena, "bitfield{d}", .{record_bitfield_count});
-                        record_bitfield_count += 1;
-                    } else {
-                        try warn(c, scope, field_loc, "{s} demoted to opaque type - bitfield type not unsigned or unknown. type:{s} ", .{ container_kind_name, field_width });
-                        break :blk Tag.opaque_literal.init();
-                    }
-                } else {
-                    var this_type = @ptrCast(*const clang.BuiltinType, field_qt.getTypePtr()).getKind();
-                    if (field_decl.isZeroLengthBitField(c.clang_context)) {
-                        try warn(c, scope, field_loc, "{s} demoted to opaque type - bitfield with zero size not supported", .{container_kind_name});
-                        break :blk Tag.opaque_literal.init();
-                    } else if (bits_type != this_type) {
-                        try warn(c, scope, field_loc, "{s} demoted to opaque type - bitfield type changed in the middle of bitfield was;{s} is:{s}", .{ container_kind_name, @tagName(bits_type), @tagName(this_type) });
-                        break :blk Tag.opaque_literal.init();
-                    } else {
-                        // next
-                        bits_unused -= this_field_width;
-                        if (bits_unused < 0) {
-                            try warn(c, scope, field_loc, "{s} demoted to opaque type - bitfield overrun type size not supported", .{container_kind_name});
-                            break :blk Tag.opaque_literal.init();
-                        }
-                    }
-                    continue; // free the field_type? tag is alloc'd
-                }
-            } else {
-                if (bits_unused >= 8) {
-                    // if they didn't add a "reserved:n" at the end, and the # of bits used is more than 1 byte of their requested size,
-                    // the layout is to compiler specific.
-                    try warn(c, scope, field_loc, "{s} demoted to opaque type - less bits used than field size. unused bit count:{d}", .{ container_kind_name, bits_unused });
-                    break :blk Tag.opaque_literal.init();
-                }
-                bits_unused = 0;
-            }
-
             const alignment = if (has_flexible_array and field_decl.getFieldIndex() == 0)
                 @intCast(c_uint, record_alignment)
             else
@@ -1184,10 +1139,6 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
                 .type = field_type,
                 .alignment = alignment,
             });
-        }
-        if (bits_unused >= 8) { // one last check if the last field was a bitfield
-            try warn(c, scope, record_loc, "{s} demoted to opaque type - less bits used than field size. unused bit count:{d}", .{ container_kind_name, bits_unused });
-            break :blk Tag.opaque_literal.init();
         }
 
         const record_payload = try c.arena.create(ast.Payload.Record);
@@ -2625,9 +2576,7 @@ fn transInitListExprRecord(
             continue;
         }
 
-        if (init_i >= init_count) {
-            return fail(c, error.UnsupportedTranslation, loc, "init list longer fields in record. Record has bitfield?", .{});
-        }
+        assert(init_i < init_count);
         const elem_expr = expr.getInit(init_i);
         init_i += 1;
 
