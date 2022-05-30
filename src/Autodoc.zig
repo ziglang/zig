@@ -219,22 +219,29 @@ pub fn generateZirData(self: *Autodoc) !void {
         (d.handle.openDir(self.doc_location.basename, .{}) catch unreachable)
     else
         (self.module.zig_cache_artifact_directory.handle.openDir(self.doc_location.basename, .{}) catch unreachable);
-    const data_js_f = output_dir.createFile("data.js", .{}) catch unreachable;
-    defer data_js_f.close();
-    const out = data_js_f.writer();
-    out.print(
-        \\ /** @type {{DocData}} */
-        \\ var zigAnalysis=
-    , .{}) catch unreachable;
-    std.json.stringify(
-        data,
-        .{
-            .whitespace = .{},
-            .emit_null_optional_fields = false,
-        },
-        out,
-    ) catch unreachable;
-    out.print(";", .{}) catch unreachable;
+    {
+        const data_js_f = output_dir.createFile("data.js", .{}) catch unreachable;
+        defer data_js_f.close();
+        var buffer = std.io.bufferedWriter(data_js_f.writer());
+
+        const out = buffer.writer();
+        out.print(
+            \\ /** @type {{DocData}} */
+            \\ var zigAnalysis=
+        , .{}) catch unreachable;
+        std.json.stringify(
+            data,
+            .{
+                .whitespace = .{},
+                .emit_null_optional_fields = false,
+            },
+            out,
+        ) catch unreachable;
+        out.print(";", .{}) catch unreachable;
+
+        // last thing (that can fail) that we do is flush
+        buffer.flush() catch unreachable;
+    }
     // copy main.js, index.html
     const docs = try self.module.comp.zig_lib_directory.join(self.arena, &.{ "docs", std.fs.path.sep_str });
     var docs_dir = std.fs.openDirAbsolute(docs, .{}) catch unreachable;
