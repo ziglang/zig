@@ -476,8 +476,9 @@ const DocData = struct {
         },
         Fn: struct {
             name: []const u8,
-            src: ?usize = null, // index into astNodes
+            src: ?usize = null, // index into `astNodes`
             ret: Expr,
+            generic_ret: ?Expr = null,
             params: ?[]Expr = null, // (use src->fields to find names)
             lib_name: []const u8 = "",
             is_var_args: bool = false,
@@ -522,7 +523,6 @@ const DocData = struct {
                 .ComptimeFloat => |v| try printTypeBody(v, options, w),
                 .Null => |v| try printTypeBody(v, options, w),
                 .Optional => |v| try printTypeBody(v, options, w),
-
                 .Struct => |v| try printTypeBody(v, options, w),
                 .Fn => |v| try printTypeBody(v, options, w),
                 .Union => |v| try printTypeBody(v, options, w),
@@ -885,6 +885,10 @@ fn walkInstruction(
                 .{@tagName(tags[inst_index])},
             );
             return self.cteTodo(@tagName(tags[inst_index]));
+        },
+        .ret_node => {
+            const un_node = data[inst_index].un_node;
+            return self.walkRef(file, parent_scope, un_node.operand, false);
         },
         .closure_get => {
             const inst_node = data[inst_index].inst_node;
@@ -3882,7 +3886,20 @@ fn analyzeFunctionExtended(
     }
 
     self.types.items[type_slot_index] = .{
-        .Fn = .{ .name = "todo_name func", .src = self_ast_node_index, .params = param_type_refs.items, .ret = ret_type_ref.expr, .is_extern = extra.data.bits.is_extern, .has_cc = extra.data.bits.has_cc, .has_align = extra.data.bits.has_align, .has_lib_name = extra.data.bits.has_lib_name, .lib_name = lib_name, .is_inferred_error = extra.data.bits.is_inferred_error, .cc = cc_index, .@"align" = align_index },
+        .Fn = .{
+            .name = "todo_name func",
+            .src = self_ast_node_index,
+            .params = param_type_refs.items,
+            .ret = ret_type_ref.expr,
+            .is_extern = extra.data.bits.is_extern,
+            .has_cc = extra.data.bits.has_cc,
+            .has_align = extra.data.bits.has_align,
+            .has_lib_name = extra.data.bits.has_lib_name,
+            .lib_name = lib_name,
+            .is_inferred_error = extra.data.bits.is_inferred_error,
+            .cc = cc_index,
+            .@"align" = align_index,
+        },
     };
 
     return DocData.WalkResult{
@@ -3974,6 +3991,21 @@ fn analyzeFunction(
         break :blk wr;
     };
 
+    // TODO: a complete version of this will probably need a scope
+    //       in order to evaluate correctly closures around funcion
+    //       parameters etc.
+    const generic_ret: ?DocData.Expr = switch (ret_type_ref.expr) {
+        .type => |t| if (t == @enumToInt(Ref.type_type))
+            try self.getGenericReturnType(
+                file,
+                scope,
+                fn_info.body[fn_info.body.len - 1],
+            )
+        else
+            null,
+        else => null,
+    };
+
     self.ast_nodes.items[self_ast_node_index].fields = param_ast_indexes.items;
     self.types.items[type_slot_index] = .{
         .Fn = .{
@@ -3981,6 +4013,7 @@ fn analyzeFunction(
             .src = self_ast_node_index,
             .params = param_type_refs.items,
             .ret = ret_type_ref.expr,
+            .generic_ret = generic_ret,
         },
     };
 
@@ -3988,6 +4021,16 @@ fn analyzeFunction(
         .typeRef = .{ .type = @enumToInt(Ref.type_type) },
         .expr = .{ .type = type_slot_index },
     };
+}
+
+fn getGenericReturnType(
+    self: *Autodoc,
+    file: *File,
+    scope: *Scope,
+    body_end: usize,
+) !DocData.Expr {
+    const wr = try self.walkInstruction(file, scope, body_end, false);
+    return wr.expr;
 }
 
 fn collectUnionFieldInfo(
