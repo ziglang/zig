@@ -659,6 +659,8 @@ const DocData = struct {
         enumToInt: usize, // index in `exprs`
         compileError: []const u8,
         string: []const u8, // direct value
+        switchIndex: usize, // index in `exprs`
+        switchOp: SwitchOp,
         // Index a `type` like struct with expressions
         // it's necessary because when a caller ask by a binOp maybe there are
         // more binary op inside them, so the caller get's the current `exprs` index
@@ -680,6 +682,13 @@ const DocData = struct {
             exact: bool = false,
             floor: bool = false,
             trunc: bool = false,
+        };
+        const SwitchOp = struct {
+            cases: []usize,
+            else_index: ?usize,
+            // body_cases: ?[]usize,
+
+            // const Case = struct { lhs: Expr, rhs: Expr };
         };
         const As = struct {
             typeRefArg: ?usize, // index in `exprs`
@@ -765,6 +774,16 @@ const DocData = struct {
                         try w.print("{s}", .{comma});
                     }
                 },
+                .switchOp => |v| try std.json.stringify(
+                    struct { switchOp: SwitchOp }{ .switchOp = v },
+                    options,
+                    w,
+                ),
+                .switchIndex => |v| try std.json.stringify(
+                    struct { switchIndex: usize }{ .switchIndex = v },
+                    options,
+                    w,
+                ),
                 .binOp => |v| try std.json.stringify(
                     struct { binOp: BinOp }{ .binOp = v },
                     options,
@@ -2170,12 +2189,13 @@ fn walkInstruction(
                 file,
                 parent_scope,
                 un_node.operand,
-                false,
+                need_type,
             );
             const operand_index = self.exprs.items.len;
             try self.exprs.append(self.arena, operand.expr);
+
             return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
+                .typeRef = operand.typeRef,
                 .expr = .{ .bitSizeOf = operand_index },
             };
         },
@@ -2191,12 +2211,133 @@ fn walkInstruction(
             const operand_index = self.exprs.items.len;
             try self.exprs.append(self.arena, operand.expr);
 
-            std.debug.print("un_node = {any}\n", .{un_node});
-            std.debug.print("operand = {any}\n", .{operand});
-            std.debug.print("operand_expr = {any}\n", .{operand.expr});
             return DocData.WalkResult{
                 .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
                 .expr = .{ .enumToInt = operand_index },
+            };
+        },
+        .switch_block => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.SwitchBlock, pl_node.payload_index);
+            const array_data = try self.arena.alloc(usize, extra.data.bits.scalar_cases_len);
+            var extra_index = extra.end;
+
+            const sep = "=" ** 200;
+            std.debug.print("{s}\n", .{sep});
+            std.debug.print("pl_node = {any}\n", .{pl_node});
+            std.debug.print("extra = {any}\n", .{extra});
+
+            const multi_cases_len = if (extra.data.bits.has_multi_cases) blk: {
+                const multi_cases_len = file.zir.extra[extra_index];
+                extra_index += 1;
+                break :blk multi_cases_len;
+            } else 0;
+
+            var else_index: ?usize = null;
+            const special_prong = extra.data.bits.specialProng();
+            if (special_prong != .none) {
+                const body_len = file.zir.extra[extra_index];
+                extra_index += 1;
+                const body = file.zir.extra[extra_index..][0..body_len];
+                extra_index += body.len;
+                for (body) |body_member| {
+                    const item_ref = @intToEnum(Ref, file.zir.extra[extra_index]);
+                    const item = try self.walkRef(file, parent_scope, item_ref, false);
+                    std.debug.print("prong item_ref = {any}\n", .{item_ref});
+                    std.debug.print("prong item = {any}\n", .{item});
+                    std.debug.print("body member = {any}\n", .{body_member});
+                    const item_index = self.exprs.items.len;
+                    try self.exprs.append(self.arena, item.expr);
+                    else_index = item_index;
+                }
+            }
+
+            // var array_type: ?DocData.Expr = null;
+            {
+                const scalar_cases_len = extra.data.bits.scalar_cases_len;
+                var scalar_i: usize = 0;
+                while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
+                    const item_ref = @intToEnum(Ref, file.zir.extra[extra_index]);
+                    const item = try self.walkRef(file, parent_scope, item_ref, false);
+                    extra_index += 1;
+                    const body_len = file.zir.extra[extra_index];
+                    extra_index += 1;
+                    const body = file.zir.extra[extra_index..][0..body_len];
+                    extra_index += body_len;
+                    _ = body;
+                    array_data[scalar_i] = item.expr.as.exprArg;
+
+                    const body_ref = @intToEnum(Ref, file.zir.extra[extra_index]);
+                    const body_item = try self.walkRef(file, parent_scope, item_ref, false);
+
+                    array_data[scalar_i] = item.expr.as.exprArg;
+                    std.debug.print("{s}\n", .{sep});
+                    std.debug.print("body item_ref = {any}\n", .{item_ref});
+                    std.debug.print("body item = {any}\n", .{item});
+                    std.debug.print("body_len scalar cases = {any}\n", .{body_ref});
+                    std.debug.print("body scalar cases = {any}\n", .{body_item});
+                    std.debug.print("{s}\n", .{sep});
+                }
+            }
+            {
+                var multi_i: usize = 0;
+                while (multi_i < multi_cases_len) : (multi_i += 1) {
+                    const items_len = file.zir.extra[extra_index];
+                    extra_index += 1;
+                    const ranges_len = file.zir.extra[extra_index];
+                    extra_index += 1;
+                    const body_len = file.zir.extra[extra_index];
+                    extra_index += 1;
+                    const items = file.zir.refSlice(extra_index, items_len);
+                    extra_index += items_len;
+                    _ = items;
+
+                    var range_i: usize = 0;
+                    while (range_i < ranges_len) : (range_i += 1) {
+                        extra_index += 1;
+                        extra_index += 1;
+                    }
+
+                    const body = file.zir.extra[extra_index..][0..body_len];
+                    extra_index += body_len;
+
+                    std.debug.print("body multi_i = {any}\n", .{body});
+                    std.debug.print("items = {any}\n", .{items});
+                }
+            }
+
+            // std.debug.print("multi_cases_len = {}\n", .{multi_cases_len});
+            std.debug.print("{s}\n", .{sep});
+
+            const switch_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, .{ .switchOp = .{ .cases = array_data, .else_index = else_index } });
+
+            return DocData.WalkResult{
+                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
+                .expr = .{ .switchIndex = switch_index },
+            };
+        },
+        .switch_cond => {
+            const un_node = data[inst_index].un_node;
+            const operand = try self.walkRef(
+                file,
+                parent_scope,
+                un_node.operand,
+                need_type,
+            );
+            const operand_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, operand.expr);
+
+            // const sep = "=" ** 200;
+            // std.debug.print("{s}\n", .{sep});
+            // std.debug.print("SWITCH COND\n", .{});
+            // std.debug.print("un_node {any} \n", .{un_node});
+            // std.debug.print("operand {any} \n", .{operand});
+            // std.debug.print("{s}\n", .{sep});
+
+            return DocData.WalkResult{
+                .typeRef = operand.typeRef,
+                .expr = .{ .typeOf = operand_index },
             };
         },
 
