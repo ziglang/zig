@@ -435,10 +435,18 @@ fn defaultSpec(comptime T: type) [:0]const u8 {
             .Many, .C => return "*",
             .Slice => return ANY,
         },
-        .Optional => |info| return defaultSpec(info.child),
+        .Optional => |info| return "?" ++ defaultSpec(info.child),
+        .ErrorUnion => |info| return "!" ++ defaultSpec(info.payload),
         else => {},
     }
     return "";
+}
+
+fn stripOptionalOrErrorUnionSpec(comptime fmt: []const u8) []const u8 {
+    return if (std.mem.eql(u8, fmt[1..], ANY))
+        ANY
+    else
+        fmt[1..];
 }
 
 pub fn formatType(
@@ -448,12 +456,18 @@ pub fn formatType(
     writer: anytype,
     max_depth: usize,
 ) @TypeOf(writer).Error!void {
-    const actual_fmt = comptime if (std.mem.eql(u8, fmt, ANY)) defaultSpec(@TypeOf(value)) else fmt;
+    const T = @TypeOf(value);
+    const actual_fmt = comptime if (std.mem.eql(u8, fmt, ANY))
+        defaultSpec(@TypeOf(value))
+    else if (fmt.len != 0 and (fmt[0] == '?' or fmt[0] == '!')) switch (@typeInfo(T)) {
+        .Optional, .ErrorUnion => fmt,
+        else => stripOptionalOrErrorUnionSpec(fmt),
+    } else fmt;
+
     if (comptime std.mem.eql(u8, actual_fmt, "*")) {
         return formatAddress(value, options, writer);
     }
 
-    const T = @TypeOf(value);
     if (comptime std.meta.trait.hasFn("format")(T)) {
         return try value.format(actual_fmt, options, writer);
     }
@@ -469,17 +483,23 @@ pub fn formatType(
             return formatBuf(if (value) "true" else "false", options, writer);
         },
         .Optional => {
+            if (actual_fmt.len == 0 or actual_fmt[0] != '?')
+                @compileError("cannot format optional without a specifier (i.e. {?} or {any})");
+            const remaining_fmt = comptime stripOptionalOrErrorUnionSpec(actual_fmt);
             if (value) |payload| {
-                return formatType(payload, actual_fmt, options, writer, max_depth);
+                return formatType(payload, remaining_fmt, options, writer, max_depth);
             } else {
                 return formatBuf("null", options, writer);
             }
         },
         .ErrorUnion => {
+            if (actual_fmt.len == 0 or actual_fmt[0] != '!')
+                @compileError("cannot format error union without a specifier (i.e. {!} or {any})");
+            const remaining_fmt = comptime stripOptionalOrErrorUnionSpec(actual_fmt);
             if (value) |payload| {
-                return formatType(payload, actual_fmt, options, writer, max_depth);
+                return formatType(payload, remaining_fmt, options, writer, max_depth);
             } else |err| {
-                return formatType(err, actual_fmt, options, writer, max_depth);
+                return formatType(err, remaining_fmt, options, writer, max_depth);
             }
         },
         .ErrorSet => {
@@ -1969,11 +1989,11 @@ test "escaped braces" {
 test "optional" {
     {
         const value: ?i32 = 1234;
-        try expectFmt("optional: 1234\n", "optional: {}\n", .{value});
+        try expectFmt("optional: 1234\n", "optional: {?}\n", .{value});
     }
     {
         const value: ?i32 = null;
-        try expectFmt("optional: null\n", "optional: {}\n", .{value});
+        try expectFmt("optional: null\n", "optional: {?}\n", .{value});
     }
     {
         const value = @intToPtr(?*i32, 0xf000d000);
@@ -1984,11 +2004,11 @@ test "optional" {
 test "error" {
     {
         const value: anyerror!i32 = 1234;
-        try expectFmt("error union: 1234\n", "error union: {}\n", .{value});
+        try expectFmt("error union: 1234\n", "error union: {!}\n", .{value});
     }
     {
         const value: anyerror!i32 = error.InvalidChar;
-        try expectFmt("error union: error.InvalidChar\n", "error union: {}\n", .{value});
+        try expectFmt("error union: error.InvalidChar\n", "error union: {!}\n", .{value});
     }
 }
 

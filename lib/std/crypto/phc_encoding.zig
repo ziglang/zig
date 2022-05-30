@@ -228,7 +228,7 @@ fn serializeTo(params: anytype, out: anytype) !void {
                 try out.print("{s}{s}{s}", .{ p.name, kv_delimiter, try value.toB64(&buf) });
             } else {
                 try out.print(
-                    if (@typeInfo(@TypeOf(value)) == .Pointer) "{s}{s}{s}" else "{s}{s}{}",
+                    if (@typeInfo(@TypeOf(value)) == .Pointer) "{s}{s}{s}" else "{s}{s}{any}",
                     .{ p.name, kv_delimiter, value },
                 );
             }
