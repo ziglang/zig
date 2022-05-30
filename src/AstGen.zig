@@ -3562,17 +3562,14 @@ fn fnDecl(
 
     var ret_gz = decl_gz.makeSubBlock(params_scope);
     defer ret_gz.unstack();
-    const ret_ref: Zir.Inst.Ref = switch (nodePrimitive(tree, fn_proto.ast.return_type)) {
-        .none => inst: {
-            const inst = try expr(&ret_gz, params_scope, coerced_type_rl, fn_proto.ast.return_type);
-            if (ret_gz.instructionsSlice().len == 0) {
-                // In this case we will send a len=0 body which can be encoded more efficiently.
-                break :inst inst;
-            }
-            _ = try ret_gz.addBreak(.break_inline, 0, inst);
+    const ret_ref: Zir.Inst.Ref = inst: {
+        const inst = try expr(&ret_gz, params_scope, coerced_type_rl, fn_proto.ast.return_type);
+        if (ret_gz.instructionsSlice().len == 0) {
+            // In this case we will send a len=0 body which can be encoded more efficiently.
             break :inst inst;
-        },
-        else => |p| p,
+        }
+        _ = try ret_gz.addBreak(.break_inline, 0, inst);
+        break :inst inst;
     };
 
     const func_inst: Zir.Inst.Ref = if (body_node == 0) func: {
@@ -9021,31 +9018,6 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
                     return false;
                 }
             },
-        }
-    }
-}
-
-fn nodePrimitive(tree: *const Ast, start_node: Ast.Node.Index) Zir.Inst.Ref {
-    const node_tags = tree.nodes.items(.tag);
-    const node_datas = tree.nodes.items(.data);
-
-    var node = start_node;
-    while (true) {
-        switch (node_tags[node]) {
-            // Forward the question to the LHS sub-expression.
-            .grouped_expression => node = node_datas[node].lhs,
-
-            .identifier => {
-                const main_tokens = tree.nodes.items(.main_token);
-                const ident_bytes = tree.tokenSlice(main_tokens[node]);
-                if (primitives.get(ident_bytes)) |primitive| {
-                    return primitive;
-                } else {
-                    return .none;
-                }
-            },
-
-            else => return .none,
         }
     }
 }
