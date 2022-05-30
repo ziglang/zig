@@ -582,7 +582,7 @@ pub fn main() void {
     optional_value = "hi";
     assert(optional_value != null);
 
-    print("\noptional 2\ntype: {s}\nvalue: {s}\n", .{
+    print("\noptional 2\ntype: {s}\nvalue: {?s}\n", .{
         @typeName(@TypeOf(optional_value)),
         optional_value,
     });
@@ -597,7 +597,7 @@ pub fn main() void {
 
     number_or_error = 1234;
 
-    print("\nerror union 2\ntype: {s}\nvalue: {}\n", .{
+    print("\nerror union 2\ntype: {s}\nvalue: {!}\n", .{
         @typeName(@TypeOf(number_or_error)),
         number_or_error,
     });
