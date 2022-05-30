@@ -4495,13 +4495,23 @@ fn airMulAdd(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         return self.fail("TODO: `@mulAdd` for vectors", .{});
     }
 
-    if (ty.floatBits(self.target) == 16) {
-        return self.fail("TODO: `@mulAdd` for f16", .{});
-    }
-
     const addend = try self.resolveInst(pl_op.operand);
     const lhs = try self.resolveInst(bin_op.lhs);
     const rhs = try self.resolveInst(bin_op.rhs);
+
+    if (ty.floatBits(self.target) == 16) {
+        const addend_ext = try self.fpext(addend, ty, Type.f32);
+        const lhs_ext = try self.fpext(lhs, ty, Type.f32);
+        const rhs_ext = try self.fpext(rhs, ty, Type.f32);
+        // call to compiler-rt `fn fmaf(f32, f32, f32) f32`
+        const result = try self.callIntrinsic(
+            "fmaf",
+            &.{ Type.f32, Type.f32, Type.f32 },
+            Type.f32,
+            &.{ rhs_ext, lhs_ext, addend_ext },
+        );
+        return try self.fptrunc(result, Type.f32, ty);
+    }
 
     const mul_result = try self.binOp(lhs, rhs, ty, .mul);
     return self.binOp(mul_result, addend, ty, .add);
