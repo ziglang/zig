@@ -57,8 +57,10 @@ pub const FormatOptions = struct {
 /// - `o`: output integer value in octal notation
 /// - `c`: output integer as an ASCII character. Integer type must have 8 bits at max.
 /// - `u`: output integer as an UTF-8 sequence. Integer type must have 21 bits at max.
+/// - `?`: output optional value as either the unwrapped value, or `null`; may be followed by a format specifier for the underlying value.
+/// - `!`: output error union value as either the unwrapped value, or the formatted error value; may be followed by a format specifier for the underlying value.
 /// - `*`: output the address of the value instead of the value itself.
-/// - `any`: output a value of any type using its default format
+/// - `any`: output a value of any type using its default format.
 ///
 /// If a formatted user type contains a function of the type
 /// ```
