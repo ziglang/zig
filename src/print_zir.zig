@@ -152,6 +152,8 @@ const Writer = struct {
             .store_to_inferred_ptr,
             => try self.writeBin(stream, inst),
 
+            .elem_type_index => try self.writeElemTypeIndex(stream, inst),
+
             .alloc,
             .alloc_mut,
             .alloc_comptime_mut,
@@ -226,7 +228,6 @@ const Writer = struct {
             .pop_count,
             .byte_swap,
             .bit_reverse,
-            .elem_type,
             .@"resume",
             .@"await",
             .switch_cond,
@@ -267,10 +268,6 @@ const Writer = struct {
             .array_init_anon,
             .array_init_anon_ref,
             => try self.writeArrayInit(stream, inst),
-
-            .array_init_sent,
-            .array_init_sent_ref,
-            => try self.writeArrayInitSent(stream, inst),
 
             .slice_start => try self.writeSliceStart(stream, inst),
             .slice_end => try self.writeSliceEnd(stream, inst),
@@ -541,6 +538,12 @@ const Writer = struct {
         try stream.writeAll(", ");
         try self.writeInstRef(stream, inst_data.rhs);
         try stream.writeByte(')');
+    }
+
+    fn writeElemTypeIndex(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].bin;
+        try self.writeInstRef(stream, inst_data.lhs);
+        try stream.print(", {d})", .{inst_data.rhs});
     }
 
     fn writeUnNode(
@@ -2085,8 +2088,9 @@ const Writer = struct {
         const extra = self.code.extraData(Zir.Inst.MultiOp, inst_data.payload_index);
         const args = self.code.refSlice(extra.end, extra.data.operands_len);
 
-        try stream.writeAll(".{");
-        for (args) |arg, i| {
+        try self.writeInstRef(stream, args[0]);
+        try stream.writeAll("{");
+        for (args[1..]) |arg, i| {
             if (i != 0) try stream.writeAll(", ");
             try self.writeInstRef(stream, arg);
         }
