@@ -300,7 +300,7 @@ pub fn RegisterManager(
         /// register.
         pub fn getReg(self: *Self, reg: Register, inst: ?Air.Inst.Index) AllocateRegistersError!void {
             const index = indexOfRegIntoTracked(reg) orelse return;
-            log.debug("getReg {} for inst {}", .{ reg, inst });
+            log.debug("getReg {} for inst {?}", .{ reg, inst });
             self.markRegAllocated(reg);
 
             if (inst) |tracked_inst|

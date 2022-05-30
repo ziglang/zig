@@ -747,7 +747,7 @@ pub const Builder = struct {
             },
             error.UnknownCpuFeature => {
                 warn(
-                    \\Unknown CPU feature: '{s}'
+                    \\Unknown CPU feature: '{?s}'
                     \\Available CPU features for architecture '{s}':
                     \\
                 , .{
@@ -763,7 +763,7 @@ pub const Builder = struct {
             },
             error.UnknownOperatingSystem => {
                 warn(
-                    \\Unknown OS: '{s}'
+                    \\Unknown OS: '{?s}'
                     \\Available operating systems:
                     \\
                 , .{diags.os_name});

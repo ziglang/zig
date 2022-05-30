@@ -1336,7 +1336,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .handle = artifact_dir,
                 .path = try options.local_cache_directory.join(arena, &[_][]const u8{artifact_sub_dir}),
             };
-            log.debug("zig_cache_artifact_directory='{s}' use_stage1={}", .{
+            log.debug("zig_cache_artifact_directory='{?s}' use_stage1={}", .{
                 zig_cache_artifact_directory.path, use_stage1,
             });
 
