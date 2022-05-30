@@ -6120,6 +6120,10 @@ pub const Type = extern union {
                 cc: std.builtin.CallingConvention,
                 is_var_args: bool,
                 is_generic: bool,
+                align_is_generic: bool = false,
+                cc_is_generic: bool = false,
+                section_is_generic: bool = false,
+                addrspace_is_generic: bool = false,
 
                 pub fn paramIsComptime(self: @This(), i: usize) bool {
                     assert(i < self.param_types.len);

@@ -334,25 +334,44 @@ fn simple4() align(4) i32 {
     return 0x19;
 }
 
-test "generic function with align param" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+test "function align expression depends on generic parameter" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     // function alignment is a compile error on wasm32/wasm64
     if (native_arch == .wasm32 or native_arch == .wasm64) return error.SkipZigTest;
     if (native_arch == .thumb) return error.SkipZigTest;
 
-    try expect(whyWouldYouEverDoThis(1) == 0x1);
-    try expect(whyWouldYouEverDoThis(4) == 0x1);
-    try expect(whyWouldYouEverDoThis(8) == 0x1);
+    const S = struct {
+        fn doTheTest() !void {
+            try expect(foobar(1) == 2);
+            try expect(foobar(4) == 5);
+            try expect(foobar(8) == 9);
+        }
+
+        fn foobar(comptime align_bytes: u8) align(align_bytes) u8 {
+            return align_bytes + 1;
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
-fn whyWouldYouEverDoThis(comptime align_bytes: u8) align(align_bytes) u8 {
-    _ = align_bytes;
-    return 0x1;
+test "function callconv expression depends on generic parameter" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
+    const S = struct {
+        fn doTheTest() !void {
+            try expect(foobar(.C, 1) == 2);
+            try expect(foobar(.Unspecified, 2) == 3);
+        }
+
+        fn foobar(comptime cc: std.builtin.CallingConvention, arg: u8) callconv(cc) u8 {
+            return arg + 1;
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "runtime known array index has best alignment possible" {
