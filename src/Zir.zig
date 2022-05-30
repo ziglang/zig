@@ -74,7 +74,7 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) struct { data: T, en
             Inst.Call.Flags => @bitCast(Inst.Call.Flags, code.extra[i]),
             Inst.BuiltinCall.Flags => @bitCast(Inst.BuiltinCall.Flags, code.extra[i]),
             Inst.SwitchBlock.Bits => @bitCast(Inst.SwitchBlock.Bits, code.extra[i]),
-            Inst.ExtendedFunc.Bits => @bitCast(Inst.ExtendedFunc.Bits, code.extra[i]),
+            Inst.FuncFancy.Bits => @bitCast(Inst.FuncFancy.Bits, code.extra[i]),
             else => @compileError("bad field type"),
         };
         i += 1;
@@ -424,8 +424,8 @@ pub const Inst = struct {
         func_inferred,
         /// Represents a function declaration or function prototype, depending on
         /// whether body_len is 0.
-        /// Uses the `pl_node` union field. `payload_index` points to a `ExtendedFunc`.
-        func_extended,
+        /// Uses the `pl_node` union field. `payload_index` points to a `FuncFancy`.
+        func_fancy,
         /// Implements the `@import` builtin.
         /// Uses the `str_tok` field.
         import,
@@ -1070,7 +1070,7 @@ pub const Inst = struct {
                 .field_val_named,
                 .func,
                 .func_inferred,
-                .func_extended,
+                .func_fancy,
                 .has_decl,
                 .int,
                 .int_big,
@@ -1356,7 +1356,7 @@ pub const Inst = struct {
                 .field_val_named,
                 .func,
                 .func_inferred,
-                .func_extended,
+                .func_fancy,
                 .has_decl,
                 .int,
                 .int_big,
@@ -1611,7 +1611,7 @@ pub const Inst = struct {
                 .field_call_bind = .pl_node,
                 .func = .pl_node,
                 .func_inferred = .pl_node,
-                .func_extended = .pl_node,
+                .func_fancy = .pl_node,
                 .import = .str_tok,
                 .int = .int,
                 .int_big = .str,
@@ -2620,29 +2620,100 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. lib_name: u32, // null terminated string index, if has_lib_name is set
-    /// 1. cc: Ref, // if has_cc is set
-    /// 2. align: Ref, // if has_align is set
-    /// 3. return_type: Index // for each ret_body_len
-    /// 4. body: Index // for each body_len
-    /// 5. src_locs: Func.SrcLocs // if body_len != 0
-    pub const ExtendedFunc = struct {
+    /// if (ret_body_len == 1) {
+    ///   0. return_type: Ref
+    /// }
+    /// if (ret_body_len > 1) {
+    ///   1. return_type: Index // for each ret_body_len
+    /// }
+    /// 2. body: Index // for each body_len
+    /// 3. src_locs: SrcLocs // if body_len != 0
+    pub const Func = struct {
         /// If this is 0 it means a void return type.
+        /// If this is 1 it means return_type is a simple Ref
         ret_body_len: u32,
+        /// Points to the block that contains the param instructions for this function.
+        param_block: Index,
+        body_len: u32,
+
+        pub const SrcLocs = struct {
+            /// Line index in the source file relative to the parent decl.
+            lbrace_line: u32,
+            /// Line index in the source file relative to the parent decl.
+            rbrace_line: u32,
+            /// lbrace_column is least significant bits u16
+            /// rbrace_column is most significant bits u16
+            columns: u32,
+        };
+    };
+
+    /// Trailing:
+    /// 0. lib_name: u32, // null terminated string index, if has_lib_name is set
+    /// if (has_align_ref and !has_align_body) {
+    ///   1. align: Ref,
+    /// }
+    /// if (has_align_body) {
+    ///   2. align_body_len: u32
+    ///   3. align_body: u32 // for each align_body_len
+    /// }
+    /// if (has_addrspace_ref and !has_addrspace_body) {
+    ///   4. addrspace: Ref,
+    /// }
+    /// if (has_addrspace_body) {
+    ///   5. addrspace_body_len: u32
+    ///   6. addrspace_body: u32 // for each addrspace_body_len
+    /// }
+    /// if (has_section_ref and !has_section_body) {
+    ///   7. section: Ref,
+    /// }
+    /// if (has_section_body) {
+    ///   8. section_body_len: u32
+    ///   9. section_body: u32 // for each section_body_len
+    /// }
+    /// if (has_cc_ref and !has_cc_body) {
+    ///   10. cc: Ref,
+    /// }
+    /// if (has_cc_body) {
+    ///   11. cc_body_len: u32
+    ///   12. cc_body: u32 // for each cc_body_len
+    /// }
+    /// if (has_ret_ty_ref and !has_ret_ty_body) {
+    ///   13. ret_ty: Ref,
+    /// }
+    /// if (has_ret_ty_body) {
+    ///   14. ret_ty_body_len: u32
+    ///   15. ret_ty_body: u32 // for each ret_ty_body_len
+    /// }
+    /// 16. body: Index // for each body_len
+    /// 17. src_locs: Func.SrcLocs // if body_len != 0
+    pub const FuncFancy = struct {
         /// Points to the block that contains the param instructions for this function.
         param_block: Index,
         body_len: u32,
         bits: Bits,
 
+        /// If both has_cc_ref and has_cc_body are false, it means auto calling convention.
+        /// If both has_align_ref and has_align_body are false, it means default alignment.
+        /// If both has_ret_ty_ref and has_ret_ty_body are false, it means void return type.
+        /// If both has_section_ref and has_section_body are false, it means default section.
+        /// If both has_addrspace_ref and has_addrspace_body are false, it means default addrspace.
         pub const Bits = packed struct {
             is_var_args: bool,
             is_inferred_error: bool,
-            has_lib_name: bool,
-            has_cc: bool,
-            has_align: bool,
             is_test: bool,
             is_extern: bool,
-            _: u25 = undefined,
+            has_align_ref: bool,
+            has_align_body: bool,
+            has_addrspace_ref: bool,
+            has_addrspace_body: bool,
+            has_section_ref: bool,
+            has_section_body: bool,
+            has_cc_ref: bool,
+            has_cc_body: bool,
+            has_ret_ty_ref: bool,
+            has_ret_ty_body: bool,
+            has_lib_name: bool,
+            _: u17 = undefined,
         };
     };
 
@@ -2661,28 +2732,6 @@ pub const Inst = struct {
             is_extern: bool,
             is_threadlocal: bool,
             _: u11 = undefined,
-        };
-    };
-
-    /// Trailing:
-    /// 0. return_type: Index // for each ret_body_len
-    /// 1. body: Index // for each body_len
-    /// 2. src_locs: SrcLocs // if body_len != 0
-    pub const Func = struct {
-        /// If this is 0 it means a void return type.
-        ret_body_len: u32,
-        /// Points to the block that contains the param instructions for this function.
-        param_block: Index,
-        body_len: u32,
-
-        pub const SrcLocs = struct {
-            /// Line index in the source file relative to the parent decl.
-            lbrace_line: u32,
-            /// Line index in the source file relative to the parent decl.
-            rbrace_line: u32,
-            /// lbrace_column is least significant bits u16
-            /// rbrace_column is most significant bits u16
-            columns: u32,
         };
     };
 
@@ -3487,7 +3536,7 @@ pub fn declIterator(zir: Zir, decl_inst: u32) DeclIterator {
     switch (tags[decl_inst]) {
         // Functions are allowed and yield no iterations.
         // There is one case matching this in the extended instruction set below.
-        .func, .func_inferred, .func_extended => return declIteratorInner(zir, 0, 0),
+        .func, .func_inferred, .func_fancy => return declIteratorInner(zir, 0, 0),
 
         .extended => {
             const extended = datas[decl_inst].extended;
@@ -3593,18 +3642,77 @@ fn findDeclsInner(
 
             const inst_data = datas[inst].pl_node;
             const extra = zir.extraData(Inst.Func, inst_data.payload_index);
-            const body = zir.extra[extra.end..][0..extra.data.body_len];
+            var extra_index: usize = extra.end;
+            switch (extra.data.ret_body_len) {
+                0 => {},
+                1 => extra_index += 1,
+                else => {
+                    const body = zir.extra[extra_index..][0..extra.data.ret_body_len];
+                    extra_index += body.len;
+                    try zir.findDeclsBody(list, body);
+                },
+            }
+            const body = zir.extra[extra_index..][0..extra.data.body_len];
             return zir.findDeclsBody(list, body);
         },
-        .func_extended => {
+        .func_fancy => {
             try list.append(inst);
 
             const inst_data = datas[inst].pl_node;
-            const extra = zir.extraData(Inst.ExtendedFunc, inst_data.payload_index);
+            const extra = zir.extraData(Inst.FuncFancy, inst_data.payload_index);
             var extra_index: usize = extra.end;
             extra_index += @boolToInt(extra.data.bits.has_lib_name);
-            extra_index += @boolToInt(extra.data.bits.has_cc);
-            extra_index += @boolToInt(extra.data.bits.has_align);
+
+            if (extra.data.bits.has_align_body) {
+                const body_len = zir.extra[extra_index];
+                extra_index += 1;
+                const body = zir.extra[extra_index..][0..body_len];
+                try zir.findDeclsBody(list, body);
+                extra_index += body.len;
+            } else if (extra.data.bits.has_align_ref) {
+                extra_index += 1;
+            }
+
+            if (extra.data.bits.has_addrspace_body) {
+                const body_len = zir.extra[extra_index];
+                extra_index += 1;
+                const body = zir.extra[extra_index..][0..body_len];
+                try zir.findDeclsBody(list, body);
+                extra_index += body.len;
+            } else if (extra.data.bits.has_addrspace_ref) {
+                extra_index += 1;
+            }
+
+            if (extra.data.bits.has_section_body) {
+                const body_len = zir.extra[extra_index];
+                extra_index += 1;
+                const body = zir.extra[extra_index..][0..body_len];
+                try zir.findDeclsBody(list, body);
+                extra_index += body.len;
+            } else if (extra.data.bits.has_section_ref) {
+                extra_index += 1;
+            }
+
+            if (extra.data.bits.has_cc_body) {
+                const body_len = zir.extra[extra_index];
+                extra_index += 1;
+                const body = zir.extra[extra_index..][0..body_len];
+                try zir.findDeclsBody(list, body);
+                extra_index += body.len;
+            } else if (extra.data.bits.has_cc_ref) {
+                extra_index += 1;
+            }
+
+            if (extra.data.bits.has_ret_ty_body) {
+                const body_len = zir.extra[extra_index];
+                extra_index += 1;
+                const body = zir.extra[extra_index..][0..body_len];
+                try zir.findDeclsBody(list, body);
+                extra_index += body.len;
+            } else if (extra.data.bits.has_ret_ty_ref) {
+                extra_index += 1;
+            }
+
             const body = zir.extra[extra_index..][0..extra.data.body_len];
             return zir.findDeclsBody(list, body);
         },
@@ -3729,6 +3837,7 @@ pub const FnInfo = struct {
     param_body_inst: Inst.Index,
     ret_ty_body: []const Inst.Index,
     body: []const Inst.Index,
+    ret_ty_ref: Zir.Inst.Ref,
     total_params_len: u32,
 };
 
@@ -3738,38 +3847,84 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
     const info: struct {
         param_block: Inst.Index,
         body: []const Inst.Index,
+        ret_ty_ref: Inst.Ref,
         ret_ty_body: []const Inst.Index,
     } = switch (tags[fn_inst]) {
         .func, .func_inferred => blk: {
             const inst_data = datas[fn_inst].pl_node;
             const extra = zir.extraData(Inst.Func, inst_data.payload_index);
-            var extra_index: usize = extra.end;
 
-            const ret_ty_body = zir.extra[extra_index..][0..extra.data.ret_body_len];
-            extra_index += ret_ty_body.len;
+            var extra_index: usize = extra.end;
+            var ret_ty_ref: Inst.Ref = .none;
+            var ret_ty_body: []const Inst.Index = &.{};
+
+            switch (extra.data.ret_body_len) {
+                0 => {
+                    ret_ty_ref = .void_type;
+                },
+                1 => {
+                    ret_ty_ref = @intToEnum(Inst.Ref, zir.extra[extra_index]);
+                    extra_index += 1;
+                },
+                else => {
+                    ret_ty_body = zir.extra[extra_index..][0..extra.data.ret_body_len];
+                    extra_index += ret_ty_body.len;
+                },
+            }
 
             const body = zir.extra[extra_index..][0..extra.data.body_len];
             extra_index += body.len;
 
             break :blk .{
                 .param_block = extra.data.param_block,
+                .ret_ty_ref = ret_ty_ref,
                 .ret_ty_body = ret_ty_body,
                 .body = body,
             };
         },
-        .func_extended => blk: {
+        .func_fancy => blk: {
             const inst_data = datas[fn_inst].pl_node;
-            const extra = zir.extraData(Inst.ExtendedFunc, inst_data.payload_index);
+            const extra = zir.extraData(Inst.FuncFancy, inst_data.payload_index);
+
             var extra_index: usize = extra.end;
+            var ret_ty_ref: Inst.Ref = .void_type;
+            var ret_ty_body: []const Inst.Index = &.{};
+
             extra_index += @boolToInt(extra.data.bits.has_lib_name);
-            extra_index += @boolToInt(extra.data.bits.has_cc);
-            extra_index += @boolToInt(extra.data.bits.has_align);
-            const ret_ty_body = zir.extra[extra_index..][0..extra.data.ret_body_len];
-            extra_index += ret_ty_body.len;
+            if (extra.data.bits.has_align_body) {
+                extra_index += zir.extra[extra_index] + 1;
+            } else if (extra.data.bits.has_align_ref) {
+                extra_index += 1;
+            }
+            if (extra.data.bits.has_addrspace_body) {
+                extra_index += zir.extra[extra_index] + 1;
+            } else if (extra.data.bits.has_addrspace_ref) {
+                extra_index += 1;
+            }
+            if (extra.data.bits.has_section_body) {
+                extra_index += zir.extra[extra_index] + 1;
+            } else if (extra.data.bits.has_section_ref) {
+                extra_index += 1;
+            }
+            if (extra.data.bits.has_cc_body) {
+                extra_index += zir.extra[extra_index] + 1;
+            } else if (extra.data.bits.has_cc_ref) {
+                extra_index += 1;
+            }
+            if (extra.data.bits.has_ret_ty_body) {
+                const body_len = zir.extra[extra_index];
+                extra_index += 1;
+                ret_ty_body = zir.extra[extra_index..][0..body_len];
+                extra_index += ret_ty_body.len;
+            } else if (extra.data.bits.has_ret_ty_ref) {
+                ret_ty_ref = @intToEnum(Inst.Ref, zir.extra[extra_index]);
+                extra_index += 1;
+            }
             const body = zir.extra[extra_index..][0..extra.data.body_len];
             extra_index += body.len;
             break :blk .{
                 .param_block = extra.data.param_block,
+                .ret_ty_ref = ret_ty_ref,
                 .ret_ty_body = ret_ty_body,
                 .body = body,
             };
@@ -3792,6 +3947,7 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
         .param_body = param_body,
         .param_body_inst = info.param_block,
         .ret_ty_body = info.ret_ty_body,
+        .ret_ty_ref = info.ret_ty_ref,
         .body = info.body,
         .total_params_len = total_params_len,
     };
