@@ -145,7 +145,7 @@ pub fn build(b: *Builder) !void {
 
     const exe = b.addExecutable("zig", main_file);
     exe.strip = strip;
-    exe.build_id = !strip;
+    exe.build_id = b.option(bool, "build-id", "Include a build id note") orelse false;
     exe.install();
     exe.setBuildMode(mode);
     exe.setTarget(target);
