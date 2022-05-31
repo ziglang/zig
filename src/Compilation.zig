@@ -1911,13 +1911,12 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             try comp.work_queue.writeItem(.libtsan);
         }
 
-        // The `use_stage1` condition is here only because stage2 cannot yet build compiler-rt.
-        // Once it is capable this condition should be removed. When removing this condition,
-        // also test the use case of `build-obj -fcompiler-rt` with the self-hosted compiler
-        // and make sure the compiler-rt symbols are emitted. Currently this is hooked up for
-        // stage1 but not stage2.
-        const capable_of_building_compiler_rt = comp.bin_file.options.use_stage1 or
-            comp.bin_file.options.use_llvm;
+        // The `have_llvm` condition is here only because native backends cannot yet build compiler-rt.
+        // Once they are capable this condition could be removed. When removing this condition,
+        // also test the use case of `build-obj -fcompiler-rt` with the native backends
+        // and make sure the compiler-rt symbols are emitted.
+        const capable_of_building_compiler_rt = build_options.have_llvm;
+
         const capable_of_building_zig_libc = comp.bin_file.options.use_stage1 or
             comp.bin_file.options.use_llvm;
         const capable_of_building_ssp = comp.bin_file.options.use_stage1;
