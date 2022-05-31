@@ -545,17 +545,17 @@ pub const ChildProcess = struct {
         }
         if (self.extra_streams) |extra_streams| {
             for (extra_streams) |*extra| {
-                switch (extra.*.direction) {
+                switch (extra.direction) {
                     .parent_to_child => {
-                        if (extra.*.output) |*outpipe| {
+                        if (extra.output) |*outpipe| {
                             outpipe.close();
-                            extra.*.output = null;
+                            extra.output = null;
                         }
                     },
                     .child_to_parent => {
-                        if (extra.*.input) |*inpipe| {
+                        if (extra.input) |*inpipe| {
                             inpipe.close();
-                            extra.*.input = null;
+                            extra.input = null;
                         }
                     },
                 }
@@ -660,21 +660,21 @@ pub const ChildProcess = struct {
 
         if (self.extra_streams) |extra_streams| {
             for (extra_streams) |*extra, i| {
-                std.debug.assert(extra.*.input == null);
-                std.debug.assert(extra.*.output == null);
+                std.debug.assert(extra.input == null);
+                std.debug.assert(extra.output == null);
 
                 const tmp_pipe = os.pipe() catch |err| {
                     for (extra_streams[0..i]) |*extra_fail| {
-                        extra_fail.*.input.?.close();
-                        extra_fail.*.output.?.close();
-                        extra_fail.*.input = null;
-                        extra_fail.*.output = null;
+                        extra_fail.input.?.close();
+                        extra_fail.output.?.close();
+                        extra_fail.input = null;
+                        extra_fail.output = null;
                     }
                     return err;
                 };
 
-                extra.*.input = File{ .handle = tmp_pipe[0] };
-                extra.*.output = File{ .handle = tmp_pipe[1] };
+                extra.input = File{ .handle = tmp_pipe[0] };
+                extra.output = File{ .handle = tmp_pipe[1] };
             }
         }
 
@@ -695,9 +695,9 @@ pub const ChildProcess = struct {
 
         if (self.extra_streams) |extra_streams| {
             for (extra_streams) |*extra| {
-                switch (extra.*.direction) {
-                    .parent_to_child => try actions.close(extra.*.output.?.handle),
-                    .child_to_parent => try actions.close(extra.*.input.?.handle),
+                switch (extra.direction) {
+                    .parent_to_child => try actions.close(extra.output.?.handle),
+                    .child_to_parent => try actions.close(extra.input.?.handle),
                 }
             }
         }
@@ -743,22 +743,22 @@ pub const ChildProcess = struct {
 
         if (self.extra_streams) |extra_streams| {
             for (extra_streams) |*extra| {
-                switch (extra.*.direction) {
+                switch (extra.direction) {
                     .parent_to_child => {
-                        extra.*.input.?.close(); // parent does not read
-                        extra.*.input = null;
-                        std.debug.assert(extra.*.output != null);
-                        var fcntl_flags = try os.fcntl(extra.*.output.?.handle, os.F.GETFD, 0);
+                        extra.input.?.close(); // parent does not read
+                        extra.input = null;
+                        std.debug.assert(extra.output != null);
+                        var fcntl_flags = try os.fcntl(extra.output.?.handle, os.F.GETFD, 0);
                         std.debug.assert((fcntl_flags & os.FD_CLOEXEC) == 0);
-                        _ = try os.fcntl(extra.*.output.?.handle, os.F.SETFD, os.FD_CLOEXEC);
+                        _ = try os.fcntl(extra.output.?.handle, os.F.SETFD, os.FD_CLOEXEC);
                     },
                     .child_to_parent => {
-                        extra.*.output.?.close(); // parent does not write
-                        extra.*.output = null;
-                        std.debug.assert(extra.*.input != null);
-                        var fcntl_flags = try os.fcntl(extra.*.input.?.handle, os.F.GETFD, 0);
+                        extra.output.?.close(); // parent does not write
+                        extra.output = null;
+                        std.debug.assert(extra.input != null);
+                        var fcntl_flags = try os.fcntl(extra.input.?.handle, os.F.GETFD, 0);
                         std.debug.assert((fcntl_flags & os.FD_CLOEXEC) == 0);
-                        _ = try os.fcntl(extra.*.input.?.handle, os.F.SETFD, os.FD_CLOEXEC);
+                        _ = try os.fcntl(extra.input.?.handle, os.F.SETFD, os.FD_CLOEXEC);
                     },
                 }
             }
@@ -838,21 +838,21 @@ pub const ChildProcess = struct {
 
         if (self.extra_streams) |extra_streams| {
             for (extra_streams) |*extra, i| {
-                std.debug.assert(extra.*.input == null);
-                std.debug.assert(extra.*.output == null);
+                std.debug.assert(extra.input == null);
+                std.debug.assert(extra.output == null);
 
                 const tmp_pipe = os.pipe() catch |err| {
                     for (extra_streams[0..i]) |*extra_fail| {
-                        extra_fail.*.input.?.close();
-                        extra_fail.*.output.?.close();
-                        extra_fail.*.input = null;
-                        extra_fail.*.output = null;
+                        extra_fail.input.?.close();
+                        extra_fail.output.?.close();
+                        extra_fail.input = null;
+                        extra_fail.output = null;
                     }
                     return err;
                 };
 
-                extra.*.input = File{ .handle = tmp_pipe[0] };
-                extra.*.output = File{ .handle = tmp_pipe[1] };
+                extra.input = File{ .handle = tmp_pipe[0] };
+                extra.output = File{ .handle = tmp_pipe[1] };
             }
         }
 
@@ -931,16 +931,16 @@ pub const ChildProcess = struct {
 
             if (self.extra_streams) |extra_streams| {
                 for (extra_streams) |*extra| {
-                    switch (extra.*.direction) {
+                    switch (extra.direction) {
                         .parent_to_child => {
-                            extra.*.output.?.close(); // child does not write
-                            extra.*.output = null;
-                            std.debug.assert(extra.*.input != null);
+                            extra.output.?.close(); // child does not write
+                            extra.output = null;
+                            std.debug.assert(extra.input != null);
                         },
                         .child_to_parent => {
-                            extra.*.input.?.close(); // child does not read
-                            extra.*.input = null;
-                            std.debug.assert(extra.*.output != null);
+                            extra.input.?.close(); // child does not read
+                            extra.input = null;
+                            std.debug.assert(extra.output != null);
                         },
                     }
                 }
@@ -987,22 +987,22 @@ pub const ChildProcess = struct {
         // to prevent non-standard streams to leak into children
         if (self.extra_streams) |extra_streams| {
             for (extra_streams) |*extra| {
-                switch (extra.*.direction) {
+                switch (extra.direction) {
                     .parent_to_child => {
-                        extra.*.input.?.close(); // parent does not read
-                        extra.*.input = null;
-                        std.debug.assert(extra.*.output != null);
-                        var fcntl_flags = try os.fcntl(extra.*.output.?.handle, os.F.GETFD, 0);
+                        extra.input.?.close(); // parent does not read
+                        extra.input = null;
+                        std.debug.assert(extra.output != null);
+                        var fcntl_flags = try os.fcntl(extra.output.?.handle, os.F.GETFD, 0);
                         std.debug.assert((fcntl_flags & os.FD_CLOEXEC) == 0);
-                        _ = try os.fcntl(extra.*.output.?.handle, os.F.SETFD, os.FD_CLOEXEC);
+                        _ = try os.fcntl(extra.output.?.handle, os.F.SETFD, os.FD_CLOEXEC);
                     },
                     .child_to_parent => {
-                        extra.*.output.?.close(); // parent does not write
-                        extra.*.output = null;
-                        std.debug.assert(extra.*.input != null);
-                        var fcntl_flags = try os.fcntl(extra.*.input.?.handle, os.F.GETFD, 0);
+                        extra.output.?.close(); // parent does not write
+                        extra.output = null;
+                        std.debug.assert(extra.input != null);
+                        var fcntl_flags = try os.fcntl(extra.input.?.handle, os.F.GETFD, 0);
                         std.debug.assert((fcntl_flags & os.FD_CLOEXEC) == 0);
-                        _ = try os.fcntl(extra.*.input.?.handle, os.F.SETFD, os.FD_CLOEXEC);
+                        _ = try os.fcntl(extra.input.?.handle, os.F.SETFD, os.FD_CLOEXEC);
                     },
                 }
             }
@@ -1137,8 +1137,8 @@ pub const ChildProcess = struct {
 
         if (self.extra_streams) |extra_streams| {
             for (extra_streams) |*extra, i| {
-                std.debug.assert(extra.*.input == null);
-                std.debug.assert(extra.*.output == null);
+                std.debug.assert(extra.input == null);
+                std.debug.assert(extra.output == null);
 
                 var g_hChildExtra_Stream_Rd: ?windows.HANDLE = null;
                 var g_hChildExtra_Stream_Wr: ?windows.HANDLE = null;
@@ -1146,18 +1146,18 @@ pub const ChildProcess = struct {
                     &g_hChildExtra_Stream_Rd,
                     &g_hChildExtra_Stream_Wr,
                     &saAttr,
-                    extra.*.direction,
+                    extra.direction,
                 ) catch |err| {
                     for (extra_streams[0..i]) |*extra_fail| {
-                        extra_fail.*.input.?.close();
-                        extra_fail.*.output.?.close();
-                        extra_fail.*.input = null;
-                        extra_fail.*.output = null;
+                        extra_fail.input.?.close();
+                        extra_fail.output.?.close();
+                        extra_fail.input = null;
+                        extra_fail.output = null;
                     }
                     return err;
                 };
-                extra.*.input = File{ .handle = g_hChildExtra_Stream_Rd.? };
-                extra.*.output = File{ .handle = g_hChildExtra_Stream_Wr.? };
+                extra.input = File{ .handle = g_hChildExtra_Stream_Rd.? };
+                extra.output = File{ .handle = g_hChildExtra_Stream_Wr.? };
             }
         }
 
@@ -1287,16 +1287,16 @@ pub const ChildProcess = struct {
 
         if (self.extra_streams) |extra_streams| {
             for (extra_streams) |*extra| {
-                switch (extra.*.direction) {
+                switch (extra.direction) {
                     .parent_to_child => {
-                        extra.*.input.?.close(); // reading end
-                        extra.*.input = null;
-                        try windows.SetHandleInformation(extra.*.output.?.handle, windows.HANDLE_FLAG_INHERIT, 0);
+                        extra.input.?.close(); // reading end
+                        extra.input = null;
+                        try windows.SetHandleInformation(extra.output.?.handle, windows.HANDLE_FLAG_INHERIT, 0);
                     },
                     .child_to_parent => {
-                        extra.*.output.?.close(); // writing end
-                        extra.*.output = null;
-                        try windows.SetHandleInformation(extra.*.input.?.handle, windows.HANDLE_FLAG_INHERIT, 0);
+                        extra.output.?.close(); // writing end
+                        extra.output = null;
+                        try windows.SetHandleInformation(extra.input.?.handle, windows.HANDLE_FLAG_INHERIT, 0);
                     },
                 }
             }
