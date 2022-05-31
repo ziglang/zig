@@ -3885,7 +3885,7 @@ pub const FuncGen = struct {
 
     fn genBody(self: *FuncGen, body: []const Air.Inst.Index) Error!void {
         const air_tags = self.air.instructions.items(.tag);
-        for (body) |inst| {
+        for (body) |inst, i| {
             const opt_value: ?*const llvm.Value = switch (air_tags[inst]) {
                 // zig fmt: off
                 .add       => try self.airAdd(inst),
@@ -3976,7 +3976,7 @@ pub const FuncGen = struct {
                 .fptrunc        => try self.airFptrunc(inst),
                 .fpext          => try self.airFpext(inst),
                 .ptrtoint       => try self.airPtrToInt(inst),
-                .load           => try self.airLoad(inst),
+                .load           => try self.airLoad(inst, body, i + 1),
                 .loop           => try self.airLoop(inst),
                 .not            => try self.airNot(inst),
                 .ret            => try self.airRet(inst),
@@ -6965,11 +6965,33 @@ pub const FuncGen = struct {
         return null;
     }
 
-    fn airLoad(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+    fn airLoad(
+        self: *FuncGen,
+        inst: Air.Inst.Index,
+        body: []const Air.Inst.Index,
+        body_i: usize,
+    ) !?*const llvm.Value {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const ptr_ty = self.air.typeOf(ty_op.operand);
-        if (!ptr_ty.isVolatilePtr() and self.liveness.isUnused(inst))
-            return null;
+        elide: {
+            const ptr_info = ptr_ty.ptrInfo().data;
+            if (ptr_info.@"volatile") break :elide;
+            if (self.liveness.isUnused(inst)) return null;
+            if (!isByRef(ptr_info.pointee_type)) break :elide;
+
+            // It would be valid to fall back to the code below here that simply calls
+            // load(). However, as an optimization, we want to avoid unnecessary copies
+            // of isByRef=true types. Here, we scan forward in the current block,
+            // looking to see if this load dies before any side effects occur.
+            // In such case, we can safely return the operand without making a copy.
+            for (body[body_i..]) |body_inst| {
+                switch (self.liveness.categorizeOperand(self.air, body_inst, inst)) {
+                    .none => continue,
+                    .write, .noret, .complex => break :elide,
+                    .tomb => return try self.resolveInst(ty_op.operand),
+                }
+            } else unreachable;
+        }
         const ptr = try self.resolveInst(ty_op.operand);
         return self.load(ptr, ptr_ty);
     }
