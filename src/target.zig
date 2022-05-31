@@ -487,6 +487,15 @@ pub fn hasRedZone(target: std.Target) bool {
 pub fn libcFullLinkFlags(target: std.Target) []const []const u8 {
     // The linking order of these is significant and should match the order other
     // c compilers such as gcc or clang use.
+    if (target.isGnuLibC()) return &[_][]const u8{
+        "-lm",
+        "-lpthread",
+        "-lc",
+        "-lc_nonshared",
+        "-ldl",
+        "-lrt",
+        "-lutil",
+    };
     return switch (target.os.tag) {
         .netbsd, .openbsd => &[_][]const u8{
             "-lm",
