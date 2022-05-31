@@ -3340,7 +3340,9 @@ fn validateStructInit(
     const struct_ptr = try sema.resolveInst(struct_ptr_zir_ref);
     const struct_ty = sema.typeOf(struct_ptr).childType();
 
-    if (is_comptime or block.is_comptime) {
+    if ((is_comptime or block.is_comptime) and
+        (try sema.resolveDefinedValue(block, init_src, struct_ptr)) != null)
+    {
         // In this case the only thing we need to do is evaluate the implicit
         // store instructions for default field values, and report any missing fields.
         // Avoid the cost of the extra machinery for detecting a comptime struct init value.
@@ -3544,7 +3546,9 @@ fn zirValidateArrayInit(
         });
     }
 
-    if (is_comptime or block.is_comptime) {
+    if ((is_comptime or block.is_comptime) and
+        (try sema.resolveDefinedValue(block, init_src, array_ptr)) != null)
+    {
         // In this case the comptime machinery will have evaluated the store instructions
         // at comptime so we have almost nothing to do here. However, in case of a
         // sentinel-terminated array, the sentinel will not have been populated by
