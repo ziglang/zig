@@ -192,6 +192,7 @@ pub const Feature = struct {
         sign_ext,
         simd128,
         tail_call,
+        shared_mem,
     };
 
     pub const Prefix = enum(u8) {
@@ -229,4 +230,5 @@ pub const known_features = std.ComptimeStringMap(Feature.Tag, .{
     .{ "sign-ext", .sign_ext },
     .{ "simd128", .simd128 },
     .{ "tail-call", .tail_call },
+    .{ "shared-mem", .shared_mem },
 });

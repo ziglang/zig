@@ -2286,7 +2286,9 @@ fn emitNameSection(self: *Wasm, file: fs.File, arena: Allocator) !void {
         }
     };
 
-    var funcs = try std.ArrayList(Name).initCapacity(arena, self.functions.count() + self.imported_functions_count);
+    // we must de-duplicate symbols that point to the same function
+    var funcs = std.AutoArrayHashMap(u32, Name).init(arena);
+    try funcs.ensureUnusedCapacity(self.functions.count() + self.imported_functions_count);
     var globals = try std.ArrayList(Name).initCapacity(arena, self.wasm_globals.items.len + self.imported_globals_count);
     var segments = try std.ArrayList(Name).initCapacity(arena, self.data_segments.count());
 
@@ -2296,7 +2298,12 @@ fn emitNameSection(self: *Wasm, file: fs.File, arena: Allocator) !void {
             break :blk self.string_table.get(self.imports.get(sym_loc).?.name);
         } else sym_loc.getName(self);
         switch (symbol.tag) {
-            .function => try funcs.append(.{ .index = symbol.index, .name = name }),
+            .function => {
+                const gop = funcs.getOrPutAssumeCapacity(symbol.index);
+                if (!gop.found_existing) {
+                    gop.value_ptr.* = .{ .index = symbol.index, .name = name };
+                }
+            },
             .global => globals.appendAssumeCapacity(.{ .index = symbol.index, .name = name }),
             else => {},
         }
@@ -2306,7 +2313,7 @@ fn emitNameSection(self: *Wasm, file: fs.File, arena: Allocator) !void {
         segments.appendAssumeCapacity(.{ .index = @intCast(u32, index), .name = key });
     }
 
-    std.sort.sort(Name, funcs.items, {}, Name.lessThan);
+    std.sort.sort(Name, funcs.values(), {}, Name.lessThan);
     std.sort.sort(Name, globals.items, {}, Name.lessThan);
 
     const header_offset = try reserveCustomSectionHeader(file);
@@ -2314,7 +2321,7 @@ fn emitNameSection(self: *Wasm, file: fs.File, arena: Allocator) !void {
     try leb.writeULEB128(writer, @intCast(u32, "name".len));
     try writer.writeAll("name");
 
-    try self.emitNameSubsection(.function, funcs.items, writer);
+    try self.emitNameSubsection(.function, funcs.values(), writer);
     try self.emitNameSubsection(.global, globals.items, writer);
     try self.emitNameSubsection(.data_segment, segments.items, writer);
 
