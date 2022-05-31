@@ -8,12 +8,12 @@ const IdentityElementError = crypto.errors.IdentityElementError;
 const NonCanonicalError = crypto.errors.NonCanonicalError;
 const NotSquareError = crypto.errors.NotSquareError;
 
-/// Group operations over P256.
-pub const P256 = struct {
+/// Group operations over P384.
+pub const P384 = struct {
     /// The underlying prime field.
-    pub const Fe = @import("p256/field.zig").Fe;
+    pub const Fe = @import("p384/field.zig").Fe;
     /// Field arithmetic mod the order of the main subgroup.
-    pub const scalar = @import("p256/scalar.zig");
+    pub const scalar = @import("p384/scalar.zig");
 
     x: Fe,
     y: Fe,
@@ -21,28 +21,28 @@ pub const P256 = struct {
 
     is_base: bool = false,
 
-    /// The P256 base point.
-    pub const basePoint = P256{
-        .x = Fe.fromInt(48439561293906451759052585252797914202762949526041747995844080717082404635286) catch unreachable,
-        .y = Fe.fromInt(36134250956749795798585127919587881956611106672985015071877198253568414405109) catch unreachable,
+    /// The P384 base point.
+    pub const basePoint = P384{
+        .x = Fe.fromInt(26247035095799689268623156744566981891852923491109213387815615900925518854738050089022388053975719786650872476732087) catch unreachable,
+        .y = Fe.fromInt(8325710961489029985546751289520108179287853048861315594709205902480503199884419224438643760392947333078086511627871) catch unreachable,
         .z = Fe.one,
         .is_base = true,
     };
 
-    /// The P256 neutral element.
-    pub const identityElement = P256{ .x = Fe.zero, .y = Fe.one, .z = Fe.zero };
+    /// The P384 neutral element.
+    pub const identityElement = P384{ .x = Fe.zero, .y = Fe.one, .z = Fe.zero };
 
-    pub const B = Fe.fromInt(41058363725152142129326129780047268409114441015993725554835256314039467401291) catch unreachable;
+    pub const B = Fe.fromInt(27580193559959705877849011840389048093056905856361568521428707301988689241309860865136260764883745107765439761230575) catch unreachable;
 
     /// Reject the neutral element.
-    pub fn rejectIdentity(p: P256) IdentityElementError!void {
+    pub fn rejectIdentity(p: P384) IdentityElementError!void {
         if (p.x.isZero()) {
             return error.IdentityElement;
         }
     }
 
     /// Create a point from affine coordinates after checking that they match the curve equation.
-    pub fn fromAffineCoordinates(p: AffineCoordinates) EncodingError!P256 {
+    pub fn fromAffineCoordinates(p: AffineCoordinates) EncodingError!P384 {
         const x = p.x;
         const y = p.y;
         const x3AxB = x.sq().mul(x).sub(x).sub(x).sub(x).add(B);
@@ -52,13 +52,13 @@ pub const P256 = struct {
         if ((on_curve | is_identity) == 0) {
             return error.InvalidEncoding;
         }
-        var ret = P256{ .x = x, .y = y, .z = Fe.one };
-        ret.z.cMov(P256.identityElement.z, is_identity);
+        var ret = P384{ .x = x, .y = y, .z = Fe.one };
+        ret.z.cMov(P384.identityElement.z, is_identity);
         return ret;
     }
 
     /// Create a point from serialized affine coordinates.
-    pub fn fromSerializedAffineCoordinates(xs: [32]u8, ys: [32]u8, endian: std.builtin.Endian) (NonCanonicalError || EncodingError)!P256 {
+    pub fn fromSerializedAffineCoordinates(xs: [48]u8, ys: [48]u8, endian: std.builtin.Endian) (NonCanonicalError || EncodingError)!P384 {
         const x = try Fe.fromBytes(xs, endian);
         const y = try Fe.fromBytes(ys, endian);
         return fromAffineCoordinates(.{ .x = x, .y = y });
@@ -74,35 +74,35 @@ pub const P256 = struct {
     }
 
     /// Deserialize a SEC1-encoded point.
-    pub fn fromSec1(s: []const u8) (EncodingError || NotSquareError || NonCanonicalError)!P256 {
+    pub fn fromSec1(s: []const u8) (EncodingError || NotSquareError || NonCanonicalError)!P384 {
         if (s.len < 1) return error.InvalidEncoding;
         const encoding_type = s[0];
         const encoded = s[1..];
         switch (encoding_type) {
             0 => {
                 if (encoded.len != 0) return error.InvalidEncoding;
-                return P256.identityElement;
+                return P384.identityElement;
             },
             2, 3 => {
-                if (encoded.len != 32) return error.InvalidEncoding;
-                const x = try Fe.fromBytes(encoded[0..32].*, .Big);
+                if (encoded.len != 48) return error.InvalidEncoding;
+                const x = try Fe.fromBytes(encoded[0..48].*, .Big);
                 const y_is_odd = (encoding_type == 3);
                 const y = try recoverY(x, y_is_odd);
-                return P256{ .x = x, .y = y };
+                return P384{ .x = x, .y = y };
             },
             4 => {
-                if (encoded.len != 64) return error.InvalidEncoding;
-                const x = try Fe.fromBytes(encoded[0..32].*, .Big);
-                const y = try Fe.fromBytes(encoded[32..64].*, .Big);
-                return P256.fromAffineCoordinates(.{ .x = x, .y = y });
+                if (encoded.len != 96) return error.InvalidEncoding;
+                const x = try Fe.fromBytes(encoded[0..48].*, .Big);
+                const y = try Fe.fromBytes(encoded[48..96].*, .Big);
+                return P384.fromAffineCoordinates(.{ .x = x, .y = y });
             },
             else => return error.InvalidEncoding,
         }
     }
 
     /// Serialize a point using the compressed SEC-1 format.
-    pub fn toCompressedSec1(p: P256) [33]u8 {
-        var out: [33]u8 = undefined;
+    pub fn toCompressedSec1(p: P384) [49]u8 {
+        var out: [49]u8 = undefined;
         const xy = p.affineCoordinates();
         out[0] = if (xy.y.isOdd()) 3 else 2;
         mem.copy(u8, out[1..], &xy.x.toBytes(.Big));
@@ -110,29 +110,29 @@ pub const P256 = struct {
     }
 
     /// Serialize a point using the uncompressed SEC-1 format.
-    pub fn toUncompressedSec1(p: P256) [65]u8 {
-        var out: [65]u8 = undefined;
+    pub fn toUncompressedSec1(p: P384) [97]u8 {
+        var out: [97]u8 = undefined;
         out[0] = 4;
         const xy = p.affineCoordinates();
-        mem.copy(u8, out[1..33], &xy.x.toBytes(.Big));
-        mem.copy(u8, out[33..65], &xy.y.toBytes(.Big));
+        mem.copy(u8, out[1..49], &xy.x.toBytes(.Big));
+        mem.copy(u8, out[49..97], &xy.y.toBytes(.Big));
         return out;
     }
 
     /// Return a random point.
-    pub fn random() P256 {
+    pub fn random() P384 {
         const n = scalar.random(.Little);
         return basePoint.mul(n, .Little) catch unreachable;
     }
 
     /// Flip the sign of the X coordinate.
-    pub fn neg(p: P256) P256 {
+    pub fn neg(p: P384) P384 {
         return .{ .x = p.x, .y = p.y.neg(), .z = p.z };
     }
 
-    /// Double a P256 point.
+    /// Double a P384 point.
     // Algorithm 6 from https://eprint.iacr.org/2015/1060.pdf
-    pub fn dbl(p: P256) P256 {
+    pub fn dbl(p: P384) P384 {
         var t0 = p.x.sq();
         var t1 = p.y.sq();
         var t2 = p.z.sq();
@@ -173,9 +173,9 @@ pub const P256 = struct {
         };
     }
 
-    /// Add P256 points, the second being specified using affine coordinates.
+    /// Add P384 points, the second being specified using affine coordinates.
     // Algorithm 5 from https://eprint.iacr.org/2015/1060.pdf
-    pub fn addMixed(p: P256, q: AffineCoordinates) P256 {
+    pub fn addMixed(p: P384, q: AffineCoordinates) P384 {
         var t0 = p.x.mul(q.x);
         var t1 = p.y.mul(q.y);
         var t3 = q.x.add(q.y);
@@ -212,7 +212,7 @@ pub const P256 = struct {
         Z3 = t4.mul(Z3);
         t1 = t3.mul(t0);
         Z3 = Z3.add(t1);
-        var ret = P256{
+        var ret = P384{
             .x = X3,
             .y = Y3,
             .z = Z3,
@@ -221,9 +221,9 @@ pub const P256 = struct {
         return ret;
     }
 
-    /// Add P256 points.
+    /// Add P384 points.
     // Algorithm 4 from https://eprint.iacr.org/2015/1060.pdf
-    pub fn add(p: P256, q: P256) P256 {
+    pub fn add(p: P384, q: P384) P384 {
         var t0 = p.x.mul(q.x);
         var t1 = p.y.mul(q.y);
         var t2 = p.z.mul(q.z);
@@ -274,18 +274,18 @@ pub const P256 = struct {
         };
     }
 
-    /// Subtract P256 points.
-    pub fn sub(p: P256, q: P256) P256 {
+    /// Subtract P384 points.
+    pub fn sub(p: P384, q: P384) P384 {
         return p.add(q.neg());
     }
 
-    /// Subtract P256 points, the second being specified using affine coordinates.
-    pub fn subMixed(p: P256, q: AffineCoordinates) P256 {
+    /// Subtract P384 points, the second being specified using affine coordinates.
+    pub fn subMixed(p: P384, q: AffineCoordinates) P384 {
         return p.addMixed(q.neg());
     }
 
     /// Return affine coordinates.
-    pub fn affineCoordinates(p: P256) AffineCoordinates {
+    pub fn affineCoordinates(p: P384) AffineCoordinates {
         const zinv = p.z.invert();
         var ret = AffineCoordinates{
             .x = p.x.mul(zinv),
@@ -296,7 +296,7 @@ pub const P256 = struct {
     }
 
     /// Return true if both coordinate sets represent the same point.
-    pub fn equivalent(a: P256, b: P256) bool {
+    pub fn equivalent(a: P384, b: P384) bool {
         if (a.sub(b).rejectIdentity()) {
             return false;
         } else |_| {
@@ -304,14 +304,14 @@ pub const P256 = struct {
         }
     }
 
-    fn cMov(p: *P256, a: P256, c: u1) void {
+    fn cMov(p: *P384, a: P384, c: u1) void {
         p.x.cMov(a.x, c);
         p.y.cMov(a.y, c);
         p.z.cMov(a.z, c);
     }
 
-    fn pcSelect(comptime n: usize, pc: *const [n]P256, b: u8) P256 {
-        var t = P256.identityElement;
+    fn pcSelect(comptime n: usize, pc: *const [n]P384, b: u8) P384 {
+        var t = P384.identityElement;
         comptime var i: u8 = 1;
         inline while (i < pc.len) : (i += 1) {
             t.cMov(pc[i], @truncate(u1, (@as(usize, b ^ i) -% 1) >> 8));
@@ -319,30 +319,30 @@ pub const P256 = struct {
         return t;
     }
 
-    fn slide(s: [32]u8) [2 * 32 + 1]i8 {
-        var e: [2 * 32 + 1]i8 = undefined;
+    fn slide(s: [48]u8) [2 * 48 + 1]i8 {
+        var e: [2 * 48 + 1]i8 = undefined;
         for (s) |x, i| {
             e[i * 2 + 0] = @as(i8, @truncate(u4, x));
             e[i * 2 + 1] = @as(i8, @truncate(u4, x >> 4));
         }
         // Now, e[0..63] is between 0 and 15, e[63] is between 0 and 7
         var carry: i8 = 0;
-        for (e[0..64]) |*x| {
+        for (e[0..96]) |*x| {
             x.* += carry;
             carry = (x.* + 8) >> 4;
             x.* -= carry * 16;
             std.debug.assert(x.* >= -8 and x.* <= 8);
         }
-        e[64] = carry;
+        e[96] = carry;
         // Now, e[*] is between -8 and 8, including e[64]
         std.debug.assert(carry >= -8 and carry <= 8);
         return e;
     }
 
-    fn pcMul(pc: *const [9]P256, s: [32]u8, comptime vartime: bool) IdentityElementError!P256 {
+    fn pcMul(pc: *const [9]P384, s: [48]u8, comptime vartime: bool) IdentityElementError!P384 {
         std.debug.assert(vartime);
         const e = slide(s);
-        var q = P256.identityElement;
+        var q = P384.identityElement;
         var pos = e.len - 1;
         while (true) : (pos -= 1) {
             const slot = e[pos];
@@ -358,9 +358,9 @@ pub const P256 = struct {
         return q;
     }
 
-    fn pcMul16(pc: *const [16]P256, s: [32]u8, comptime vartime: bool) IdentityElementError!P256 {
-        var q = P256.identityElement;
-        var pos: usize = 252;
+    fn pcMul16(pc: *const [16]P384, s: [48]u8, comptime vartime: bool) IdentityElementError!P384 {
+        var q = P384.identityElement;
+        var pos: usize = 380;
         while (true) : (pos -= 4) {
             const slot = @truncate(u4, (s[pos >> 3] >> @truncate(u3, pos)));
             if (vartime) {
@@ -377,9 +377,9 @@ pub const P256 = struct {
         return q;
     }
 
-    fn precompute(p: P256, comptime count: usize) [1 + count]P256 {
-        var pc: [1 + count]P256 = undefined;
-        pc[0] = P256.identityElement;
+    fn precompute(p: P384, comptime count: usize) [1 + count]P384 {
+        var pc: [1 + count]P384 = undefined;
+        pc[0] = P384.identityElement;
         pc[1] = p;
         var i: usize = 2;
         while (i <= count) : (i += 1) {
@@ -390,12 +390,12 @@ pub const P256 = struct {
 
     const basePointPc = pc: {
         @setEvalBranchQuota(50000);
-        break :pc precompute(P256.basePoint, 15);
+        break :pc precompute(P384.basePoint, 15);
     };
 
     /// Multiply an elliptic curve point by a scalar.
     /// Return error.IdentityElement if the result is the identity element.
-    pub fn mul(p: P256, s_: [32]u8, endian: std.builtin.Endian) IdentityElementError!P256 {
+    pub fn mul(p: P384, s_: [48]u8, endian: std.builtin.Endian) IdentityElementError!P384 {
         const s = if (endian == .Little) s_ else Fe.orderSwap(s_);
         if (p.is_base) {
             return pcMul16(&basePointPc, s, false);
@@ -407,7 +407,7 @@ pub const P256 = struct {
 
     /// Multiply an elliptic curve point by a *PUBLIC* scalar *IN VARIABLE TIME*
     /// This can be used for signature verification.
-    pub fn mulPublic(p: P256, s_: [32]u8, endian: std.builtin.Endian) IdentityElementError!P256 {
+    pub fn mulPublic(p: P384, s_: [48]u8, endian: std.builtin.Endian) IdentityElementError!P384 {
         const s = if (endian == .Little) s_ else Fe.orderSwap(s_);
         if (p.is_base) {
             return pcMul16(&basePointPc, s, true);
@@ -419,25 +419,25 @@ pub const P256 = struct {
 
     /// Double-base multiplication of public parameters - Compute (p1*s1)+(p2*s2) *IN VARIABLE TIME*
     /// This can be used for signature verification.
-    pub fn mulDoubleBasePublic(p1: P256, s1_: [32]u8, p2: P256, s2_: [32]u8, endian: std.builtin.Endian) IdentityElementError!P256 {
+    pub fn mulDoubleBasePublic(p1: P384, s1_: [48]u8, p2: P384, s2_: [48]u8, endian: std.builtin.Endian) IdentityElementError!P384 {
         const s1 = if (endian == .Little) s1_ else Fe.orderSwap(s1_);
         const s2 = if (endian == .Little) s2_ else Fe.orderSwap(s2_);
         try p1.rejectIdentity();
-        var pc1_array: [9]P256 = undefined;
+        var pc1_array: [9]P384 = undefined;
         const pc1 = if (p1.is_base) basePointPc[0..9] else pc: {
             pc1_array = precompute(p1, 8);
             break :pc &pc1_array;
         };
         try p2.rejectIdentity();
-        var pc2_array: [9]P256 = undefined;
+        var pc2_array: [9]P384 = undefined;
         const pc2 = if (p2.is_base) basePointPc[0..9] else pc: {
             pc2_array = precompute(p2, 8);
             break :pc &pc2_array;
         };
         const e1 = slide(s1);
         const e2 = slide(s2);
-        var q = P256.identityElement;
-        var pos: usize = 2 * 32 - 1;
+        var q = P384.identityElement;
+        var pos: usize = 2 * 48 - 1;
         while (true) : (pos -= 1) {
             const slot1 = e1[pos];
             if (slot1 > 0) {
@@ -461,11 +461,11 @@ pub const P256 = struct {
 
 /// A point in affine coordinates.
 pub const AffineCoordinates = struct {
-    x: P256.Fe,
-    y: P256.Fe,
+    x: P384.Fe,
+    y: P384.Fe,
 
     /// Identity element in affine coordinates.
-    pub const identityElement = AffineCoordinates{ .x = P256.identityElement.x, .y = P256.identityElement.y };
+    pub const identityElement = AffineCoordinates{ .x = P384.identityElement.x, .y = P384.identityElement.y };
 
     fn cMov(p: *AffineCoordinates, a: AffineCoordinates, c: u1) void {
         p.x.cMov(a.x, c);
@@ -473,6 +473,6 @@ pub const AffineCoordinates = struct {
     }
 };
 
-test "p256" {
-    _ = @import("tests/p256.zig");
+test "p384" {
+    _ = @import("tests/p384.zig");
 }
