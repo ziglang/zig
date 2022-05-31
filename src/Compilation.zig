@@ -4052,7 +4052,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
                 child.stdout_behavior = .Inherit;
                 child.stderr_behavior = .Inherit;
 
-                const term = child.spawnAndWait(null) catch |err| {
+                const term = child.spawnAndWait(.{}) catch |err| {
                     return comp.failCObj(c_object, "unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
                 };
                 switch (term) {
@@ -4070,7 +4070,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
                 child.stdout_behavior = .Ignore;
                 child.stderr_behavior = .Pipe;
 
-                try child.spawn(null);
+                try child.spawn(.{});
 
                 const stderr_reader = child.stderr.?.reader();
 

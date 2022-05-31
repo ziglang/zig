@@ -1194,7 +1194,7 @@ pub const Builder = struct {
         child.stderr_behavior = stderr_behavior;
         child.env_map = self.env_map;
 
-        try child.spawn(null);
+        try child.spawn(.{});
 
         const stdout = child.stdout.?.reader().readAllAlloc(self.allocator, max_output_size) catch {
             return error.ReadFailure;
