@@ -169,27 +169,32 @@ pub const ChildProcess = struct {
         else => ?*const fn (self: *ChildProcess) ChildProcess.SpawnError!void,
     };
 
+    pub const SpawnOptions = struct {
+        /// Use this field to execute custom code in parent process before the clone call.
+        /// For example, the child process must be told about non-standard pipes this way.
+        /// See field of ChildProcess 'extra_streams' for more information.
+        pipe_info_fn: ExPipeInfoProto = null,
+    };
+
     /// On success must call `kill` or `wait`.
-    /// Use null xor function pointer to tell child process about extra pipes
-    /// See field extra_streams for more information
-    pub fn spawn(self: *ChildProcess, pipe_info_fn: ExPipeInfoProto) SpawnError!void {
+    pub fn spawn(self: *ChildProcess, opts: SpawnOptions) SpawnError!void {
         if (!std.process.can_spawn) {
             @compileError("the target operating system cannot spawn processes");
         }
 
         if (comptime builtin.target.isDarwin()) {
-            return self.spawnMacos(pipe_info_fn);
+            return self.spawnMacos(opts);
         }
 
         if (builtin.os.tag == .windows) {
-            return self.spawnWindows(pipe_info_fn);
+            return self.spawnWindows(opts);
         } else {
-            return self.spawnPosix(pipe_info_fn);
+            return self.spawnPosix(opts);
         }
     }
 
-    pub fn spawnAndWait(self: *ChildProcess, pipe_info_fn: ExPipeInfoProto) SpawnError!Term {
-        try self.spawn(pipe_info_fn);
+    pub fn spawnAndWait(self: *ChildProcess, opts: SpawnOptions) SpawnError!Term {
+        try self.spawn(opts);
         return self.wait();
     }
 
@@ -433,7 +438,7 @@ pub const ChildProcess = struct {
         child.env_map = args.env_map;
         child.expand_arg0 = args.expand_arg0;
 
-        try child.spawn(null);
+        try child.spawn(.{});
 
         if (builtin.os.tag == .haiku) {
             const stdout_in = child.stdout.?.reader();
@@ -606,7 +611,7 @@ pub const ChildProcess = struct {
             Term{ .Unknown = status };
     }
 
-    fn spawnMacos(self: *ChildProcess, pipe_info_fn: ExPipeInfoProto) SpawnError!void {
+    fn spawnMacos(self: *ChildProcess, opts: SpawnOptions) SpawnError!void {
         const pipe_flags = if (io.is_async) os.O.NONBLOCK else 0;
         const stdin_pipe = if (self.stdin_behavior == StdIo.Pipe) try os.pipe2(pipe_flags) else undefined;
         errdefer if (self.stdin_behavior == StdIo.Pipe) destroyPipe(stdin_pipe);
@@ -716,8 +721,8 @@ pub const ChildProcess = struct {
         // user must communicate extra pipes to child process either via
         // environment variables or stdin
         if (self.extra_streams != null) {
-            std.debug.assert(pipe_info_fn != null);
-            try pipe_info_fn.?(self);
+            std.debug.assert(opts.pipe_info_fn != null);
+            try opts.pipe_info_fn.?(self);
         }
 
         const pid = try os.posix_spawn.spawnp(self.argv[0], actions, attr, argv_buf, envp);
@@ -774,7 +779,7 @@ pub const ChildProcess = struct {
         }
     }
 
-    fn spawnPosix(self: *ChildProcess, pipe_info_fn: ExPipeInfoProto) SpawnError!void {
+    fn spawnPosix(self: *ChildProcess, opts: SpawnOptions) SpawnError!void {
         const pipe_flags = if (io.is_async) os.O.NONBLOCK else 0;
         const stdin_pipe = if (self.stdin_behavior == StdIo.Pipe) try os.pipe2(pipe_flags) else undefined;
         errdefer if (self.stdin_behavior == StdIo.Pipe) {
@@ -881,8 +886,8 @@ pub const ChildProcess = struct {
         // user must communicate extra pipes to child process either via
         // environment variables or stdin
         if (self.extra_streams != null) {
-            std.debug.assert(pipe_info_fn != null);
-            try pipe_info_fn.?(self);
+            std.debug.assert(opts.pipe_info_fn != null);
+            try opts.pipe_info_fn.?(self);
         }
 
         // This pipe is used to communicate errors between the time of fork
@@ -993,7 +998,7 @@ pub const ChildProcess = struct {
         }
     }
 
-    fn spawnWindows(self: *ChildProcess, pipe_info_fn: ExPipeInfoProto) SpawnError!void {
+    fn spawnWindows(self: *ChildProcess, opts: SpawnOptions) SpawnError!void {
         const saAttr = windows.SECURITY_ATTRIBUTES{
             .nLength = @sizeOf(windows.SECURITY_ATTRIBUTES),
             .bInheritHandle = windows.TRUE,
@@ -1201,8 +1206,8 @@ pub const ChildProcess = struct {
         // user must communicate extra pipes to child process either via
         // environment variables or stdin
         if (self.extra_streams != null) {
-            std.debug.assert(pipe_info_fn != null);
-            try pipe_info_fn.?(self);
+            std.debug.assert(opts.pipe_info_fn != null);
+            try opts.pipe_info_fn.?(self);
         }
 
         windowsCreateProcess(app_path_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {

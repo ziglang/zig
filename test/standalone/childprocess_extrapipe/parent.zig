@@ -59,7 +59,7 @@ pub fn main() !void {
     };
     child_process.extra_streams = &extra_streams;
 
-    try child_process.spawn(testPipeInfo);
+    try child_process.spawn(.{ .pipe_info_fn = testPipeInfo });
     try std.testing.expect(child_process.extra_streams.?[0].input == null);
     if (builtin.target.os.tag == .windows) {
         var handle_flags = windows.DWORD;

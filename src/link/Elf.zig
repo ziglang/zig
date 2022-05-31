@@ -1765,7 +1765,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
                 child.stdout_behavior = .Inherit;
                 child.stderr_behavior = .Inherit;
 
-                const term = child.spawnAndWait(null) catch |err| {
+                const term = child.spawnAndWait(.{}) catch |err| {
                     log.err("unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
                     return error.UnableToSpawnSelf;
                 };
@@ -1782,7 +1782,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
                 child.stdout_behavior = .Ignore;
                 child.stderr_behavior = .Pipe;
 
-                try child.spawn(null);
+                try child.spawn(.{});
 
                 const stderr = try child.stderr.?.reader().readAllAlloc(arena, 10 * 1024 * 1024);
 

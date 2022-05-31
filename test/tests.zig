@@ -811,7 +811,7 @@ pub const StackTracesContext = struct {
             if (b.verbose) {
                 printInvocation(args.items);
             }
-            child.spawn(null) catch |err| debug.panic("Unable to spawn {s}: {s}\n", .{ full_exe_path, @errorName(err) });
+            child.spawn(.{}) catch |err| debug.panic("Unable to spawn {s}: {s}\n", .{ full_exe_path, @errorName(err) });
 
             const stdout = child.stdout.?.reader().readAllAlloc(b.allocator, max_stdout_size) catch unreachable;
             defer b.allocator.free(stdout);
