@@ -747,7 +747,7 @@ fn analyzeBodyInner(
             .field_call_bind              => try sema.zirFieldCallBind(block, inst),
             .func                         => try sema.zirFunc(block, inst, false),
             .func_inferred                => try sema.zirFunc(block, inst, true),
-            .func_extended                => try sema.zirFuncExtended(block, inst),
+            .func_fancy                   => try sema.zirFuncFancy(block, inst),
             .import                       => try sema.zirImport(block, inst),
             .indexable_ptr_len            => try sema.zirIndexablePtrLen(block, inst),
             .int                          => try sema.zirInt(block, inst),
@@ -5190,7 +5190,10 @@ fn analyzeCall(
         // on parameters, we must now do the same for the return type as we just did with
         // each of the parameters, resolving the return type and providing it to the child
         // `Sema` so that it can be used for the `ret_ptr` instruction.
-        const ret_ty_inst = try sema.resolveBody(&child_block, fn_info.ret_ty_body, module_fn.zir_body_inst);
+        const ret_ty_inst = if (fn_info.ret_ty_body.len != 0)
+            try sema.resolveBody(&child_block, fn_info.ret_ty_body, module_fn.zir_body_inst)
+        else
+            try sema.resolveInst(fn_info.ret_ty_ref);
         const ret_ty_src = func_src; // TODO better source location
         const bare_return_type = try sema.analyzeAsType(&child_block, ret_ty_src, ret_ty_inst);
         // Create a fresh inferred error set type for inline/comptime calls.
@@ -6506,9 +6509,34 @@ fn zirFunc(
 
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Func, inst_data.payload_index);
+    const target = sema.mod.getTarget();
+    const ret_ty_src = inst_data.src(); // TODO better source location
+
     var extra_index = extra.end;
-    const ret_ty_body = sema.code.extra[extra_index..][0..extra.data.ret_body_len];
-    extra_index += ret_ty_body.len;
+
+    const ret_ty: Type = switch (extra.data.ret_body_len) {
+        0 => Type.void,
+        1 => blk: {
+            const ret_ty_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+            extra_index += 1;
+            if (sema.resolveType(block, ret_ty_src, ret_ty_ref)) |ret_ty| {
+                break :blk ret_ty;
+            } else |err| switch (err) {
+                error.GenericPoison => {
+                    break :blk Type.initTag(.generic_poison);
+                },
+                else => |e| return e,
+            }
+        },
+        else => blk: {
+            const ret_ty_body = sema.code.extra[extra_index..][0..extra.data.ret_body_len];
+            extra_index += ret_ty_body.len;
+
+            const ret_ty_val = try sema.resolveGenericBody(block, ret_ty_src, ret_ty_body, inst, Type.type);
+            var buffer: Value.ToTypeBuffer = undefined;
+            break :blk try ret_ty_val.toType(&buffer).copy(sema.arena);
+        },
+    };
 
     var src_locs: Zir.Inst.Func.SrcLocs = undefined;
     const has_body = extra.data.body_len != 0;
@@ -6526,9 +6554,11 @@ fn zirFunc(
         block,
         inst_data.src_node,
         inst,
-        ret_ty_body,
+        0,
+        target_util.defaultAddressSpace(target, .function),
+        FuncLinkSection.default,
         cc,
-        Value.@"null",
+        ret_ty,
         false,
         inferred_error_set,
         false,
@@ -6536,6 +6566,44 @@ fn zirFunc(
         src_locs,
         null,
     );
+}
+
+// TODO this function and its callsites along with funcCommon need to be reworked
+// to handle when callconv, align, linksection, addrspace depend on comptime values
+// (thus triggering error.GenericPoison)
+fn resolveGenericBody(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    body: []const Zir.Inst.Index,
+    func_inst: Zir.Inst.Index,
+    dest_ty: Type,
+) !Value {
+    assert(body.len != 0);
+
+    const err = err: {
+        // Make sure any nested param instructions don't clobber our work.
+        const prev_params = block.params;
+        block.params = .{};
+        defer {
+            block.params.deinit(sema.gpa);
+            block.params = prev_params;
+        }
+        const uncasted = sema.resolveBody(block, body, func_inst) catch |err| break :err err;
+        const result = sema.coerce(block, dest_ty, uncasted, src) catch |err| break :err err;
+        const val = sema.resolveConstValue(block, src, result) catch |err| break :err err;
+        return val;
+    };
+    switch (err) {
+        error.GenericPoison => {
+            if (dest_ty.tag() == .type) {
+                return Value.initTag(.generic_poison_type);
+            } else {
+                return Value.initTag(.generic_poison);
+            }
+        },
+        else => |e| return e,
+    }
 }
 
 /// Given a library name, examines if the library name should end up in
@@ -6601,14 +6669,27 @@ fn handleExternLibName(
     return sema.gpa.dupeZ(u8, lib_name);
 }
 
+const FuncLinkSection = union(enum) {
+    generic,
+    default,
+    explicit: [*:0]const u8,
+};
+
 fn funcCommon(
     sema: *Sema,
     block: *Block,
     src_node_offset: i32,
     func_inst: Zir.Inst.Index,
-    ret_ty_body: []const Zir.Inst.Index,
-    cc: std.builtin.CallingConvention,
-    align_val: Value,
+    /// null means generic poison
+    alignment: ?u32,
+    /// null means generic poison
+    address_space: ?std.builtin.AddressSpace,
+    /// outer null means generic poison; inner null means default link section
+    section: FuncLinkSection,
+    /// null means generic poison
+    cc: ?std.builtin.CallingConvention,
+    /// this might be Type.generic_poison
+    bare_return_type: Type,
     var_args: bool,
     inferred_error_set: bool,
     is_extern: bool,
@@ -6618,42 +6699,15 @@ fn funcCommon(
 ) CompileError!Air.Inst.Ref {
     const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = src_node_offset };
 
-    // The return type body might be a type expression that depends on generic parameters.
-    // In such case we need to use a generic_poison value for the return type and mark
-    // the function as generic.
-    var is_generic = false;
-    const bare_return_type: Type = ret_ty: {
-        if (ret_ty_body.len == 0) break :ret_ty Type.void;
-
-        const err = err: {
-            // Make sure any nested param instructions don't clobber our work.
-            const prev_params = block.params;
-            block.params = .{};
-            defer {
-                block.params.deinit(sema.gpa);
-                block.params = prev_params;
-            }
-            if (sema.resolveBody(block, ret_ty_body, func_inst)) |ret_ty_inst| {
-                if (sema.analyzeAsType(block, ret_ty_src, ret_ty_inst)) |ret_ty| {
-                    break :ret_ty ret_ty;
-                } else |err| break :err err;
-            } else |err| break :err err;
-            // Check for generic params.
-            for (block.params.items) |param| {
-                if (param.ty.tag() == .generic_poison) is_generic = true;
-            }
-        };
-        switch (err) {
-            error.GenericPoison => {
-                // The type is not available until the generic instantiation.
-                is_generic = true;
-                break :ret_ty Type.initTag(.generic_poison);
-            },
-            else => |e| return e,
-        }
-    };
-
-    const mod = sema.mod;
+    var is_generic = bare_return_type.tag() == .generic_poison or
+        alignment == null or
+        address_space == null or
+        section == .generic or
+        cc == null;
+    // Check for generic params.
+    for (block.params.items) |param| {
+        if (param.ty.tag() == .generic_poison) is_generic = true;
+    }
 
     const new_func: *Module.Fn = new_func: {
         if (!has_body) break :new_func undefined;
@@ -6670,36 +6724,28 @@ fn funcCommon(
     errdefer if (maybe_inferred_error_set_node) |node| sema.gpa.destroy(node);
     // Note: no need to errdefer since this will still be in its default state at the end of the function.
 
-    const target = mod.getTarget();
-
+    const target = sema.mod.getTarget();
     const fn_ty: Type = fn_ty: {
-        const alignment: u32 = if (align_val.tag() == .null_value) 0 else a: {
-            const alignment = @intCast(u32, align_val.toUnsignedInt(target));
-            if (alignment == target_util.defaultFunctionAlignment(target)) {
-                break :a 0;
-            } else {
-                break :a alignment;
-            }
-        };
-
         // Hot path for some common function types.
         // TODO can we eliminate some of these Type tag values? seems unnecessarily complicated.
-        if (!is_generic and block.params.items.len == 0 and !var_args and
-            alignment == 0 and !inferred_error_set)
+        if (!is_generic and block.params.items.len == 0 and !var_args and !inferred_error_set and
+            alignment.? == 0 and
+            address_space.? == target_util.defaultAddressSpace(target, .function) and
+            section == .default)
         {
-            if (bare_return_type.zigTypeTag() == .NoReturn and cc == .Unspecified) {
+            if (bare_return_type.zigTypeTag() == .NoReturn and cc.? == .Unspecified) {
                 break :fn_ty Type.initTag(.fn_noreturn_no_args);
             }
 
-            if (bare_return_type.zigTypeTag() == .Void and cc == .Unspecified) {
+            if (bare_return_type.zigTypeTag() == .Void and cc.? == .Unspecified) {
                 break :fn_ty Type.initTag(.fn_void_no_args);
             }
 
-            if (bare_return_type.zigTypeTag() == .NoReturn and cc == .Naked) {
+            if (bare_return_type.zigTypeTag() == .NoReturn and cc.? == .Naked) {
                 break :fn_ty Type.initTag(.fn_naked_noreturn_no_args);
             }
 
-            if (bare_return_type.zigTypeTag() == .Void and cc == .C) {
+            if (bare_return_type.zigTypeTag() == .Void and cc.? == .C) {
                 break :fn_ty Type.initTag(.fn_ccc_void_no_args);
             }
         }
@@ -6745,16 +6791,34 @@ fn funcCommon(
             });
         };
 
+        // stage1 bug workaround
+        const cc_workaround = cc orelse undefined;
+        const align_workaround = alignment orelse @as(u32, undefined);
+
         break :fn_ty try Type.Tag.function.create(sema.arena, .{
             .param_types = param_types,
             .comptime_params = comptime_params.ptr,
             .return_type = return_type,
-            .cc = cc,
-            .alignment = alignment,
+            .cc = cc_workaround,
+            .cc_is_generic = cc == null,
+            .alignment = align_workaround,
+            .align_is_generic = alignment == null,
+            .section_is_generic = section == .generic,
+            .addrspace_is_generic = address_space == null,
             .is_var_args = var_args,
             .is_generic = is_generic,
         });
     };
+
+    if (sema.owner_decl.owns_tv) {
+        switch (section) {
+            .generic => sema.owner_decl.@"linksection" = undefined,
+            .default => sema.owner_decl.@"linksection" = null,
+            .explicit => |s| sema.owner_decl.@"linksection" = s,
+        }
+        if (alignment) |a| sema.owner_decl.@"align" = a;
+        if (address_space) |a| sema.owner_decl.@"addrspace" = a;
+    }
 
     if (is_extern) {
         const new_extern_fn = try sema.gpa.create(Module.ExternFn);
@@ -16750,16 +16814,20 @@ fn zirVarExtended(
     return result;
 }
 
-fn zirFuncExtended(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
-    const extra = sema.code.extraData(Zir.Inst.ExtendedFunc, inst_data.payload_index);
+    const extra = sema.code.extraData(Zir.Inst.FuncFancy, inst_data.payload_index);
+    const target = sema.mod.getTarget();
 
-    const cc_src: LazySrcLoc = .{ .node_offset_fn_type_cc = inst_data.src_node };
     const align_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at align
+    const addrspace_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at addrspace
+    const section_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at section
+    const cc_src: LazySrcLoc = .{ .node_offset_fn_type_cc = inst_data.src_node };
+    const ret_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at the return type
 
     var extra_index: usize = extra.end;
 
@@ -16769,22 +16837,135 @@ fn zirFuncExtended(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
         break :blk lib_name;
     } else null;
 
-    const cc: std.builtin.CallingConvention = if (extra.data.bits.has_cc) blk: {
-        const cc_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+    const @"align": ?u32 = if (extra.data.bits.has_align_body) blk: {
+        const body_len = sema.code.extra[extra_index];
         extra_index += 1;
-        const cc_tv = try sema.resolveInstConst(block, cc_src, cc_ref);
-        break :blk cc_tv.val.toEnum(std.builtin.CallingConvention);
-    } else .Unspecified;
+        const body = sema.code.extra[extra_index..][0..body_len];
+        extra_index += body.len;
 
-    const align_val: Value = if (extra.data.bits.has_align) blk: {
+        const val = try sema.resolveGenericBody(block, align_src, body, inst, Type.u16);
+        if (val.tag() == .generic_poison) {
+            break :blk null;
+        }
+        const alignment = @intCast(u32, val.toUnsignedInt(target));
+        if (alignment == target_util.defaultFunctionAlignment(target)) {
+            break :blk 0;
+        } else {
+            break :blk alignment;
+        }
+    } else if (extra.data.bits.has_align_ref) blk: {
         const align_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
         extra_index += 1;
-        const align_tv = try sema.resolveInstConst(block, align_src, align_ref);
-        break :blk align_tv.val;
-    } else Value.@"null";
+        const align_tv = sema.resolveInstConst(block, align_src, align_ref) catch |err| switch (err) {
+            error.GenericPoison => {
+                break :blk null;
+            },
+            else => |e| return e,
+        };
+        const alignment = @intCast(u32, align_tv.val.toUnsignedInt(target));
+        if (alignment == target_util.defaultFunctionAlignment(target)) {
+            break :blk 0;
+        } else {
+            break :blk alignment;
+        }
+    } else 0;
 
-    const ret_ty_body = sema.code.extra[extra_index..][0..extra.data.ret_body_len];
-    extra_index += ret_ty_body.len;
+    const @"addrspace": ?std.builtin.AddressSpace = if (extra.data.bits.has_addrspace_body) blk: {
+        const body_len = sema.code.extra[extra_index];
+        extra_index += 1;
+        const body = sema.code.extra[extra_index..][0..body_len];
+        extra_index += body.len;
+
+        const addrspace_ty = try sema.getBuiltinType(block, addrspace_src, "AddressSpace");
+        const val = try sema.resolveGenericBody(block, addrspace_src, body, inst, addrspace_ty);
+        if (val.tag() == .generic_poison) {
+            break :blk null;
+        }
+        break :blk val.toEnum(std.builtin.AddressSpace);
+    } else if (extra.data.bits.has_addrspace_ref) blk: {
+        const addrspace_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+        extra_index += 1;
+        const addrspace_tv = sema.resolveInstConst(block, addrspace_src, addrspace_ref) catch |err| switch (err) {
+            error.GenericPoison => {
+                break :blk null;
+            },
+            else => |e| return e,
+        };
+        break :blk addrspace_tv.val.toEnum(std.builtin.AddressSpace);
+    } else target_util.defaultAddressSpace(target, .function);
+
+    const @"linksection": FuncLinkSection = if (extra.data.bits.has_section_body) blk: {
+        const body_len = sema.code.extra[extra_index];
+        extra_index += 1;
+        const body = sema.code.extra[extra_index..][0..body_len];
+        extra_index += body.len;
+
+        const val = try sema.resolveGenericBody(block, section_src, body, inst, Type.initTag(.const_slice_u8));
+        if (val.tag() == .generic_poison) {
+            break :blk FuncLinkSection{ .generic = {} };
+        }
+        _ = val;
+        return sema.fail(block, section_src, "TODO implement linksection on functions", .{});
+    } else if (extra.data.bits.has_section_ref) blk: {
+        const section_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+        extra_index += 1;
+        const section_tv = sema.resolveInstConst(block, section_src, section_ref) catch |err| switch (err) {
+            error.GenericPoison => {
+                break :blk FuncLinkSection{ .generic = {} };
+            },
+            else => |e| return e,
+        };
+        _ = section_tv;
+        return sema.fail(block, section_src, "TODO implement linksection on functions", .{});
+    } else FuncLinkSection{ .default = {} };
+
+    const cc: ?std.builtin.CallingConvention = if (extra.data.bits.has_cc_body) blk: {
+        const body_len = sema.code.extra[extra_index];
+        extra_index += 1;
+        const body = sema.code.extra[extra_index..][0..body_len];
+        extra_index += body.len;
+
+        const cc_ty = try sema.getBuiltinType(block, addrspace_src, "CallingConvention");
+        const val = try sema.resolveGenericBody(block, cc_src, body, inst, cc_ty);
+        if (val.tag() == .generic_poison) {
+            break :blk null;
+        }
+        break :blk val.toEnum(std.builtin.CallingConvention);
+    } else if (extra.data.bits.has_cc_ref) blk: {
+        const cc_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+        extra_index += 1;
+        const cc_tv = sema.resolveInstConst(block, cc_src, cc_ref) catch |err| switch (err) {
+            error.GenericPoison => {
+                break :blk null;
+            },
+            else => |e| return e,
+        };
+        break :blk cc_tv.val.toEnum(std.builtin.CallingConvention);
+    } else std.builtin.CallingConvention.Unspecified;
+
+    const ret_ty: Type = if (extra.data.bits.has_ret_ty_body) blk: {
+        const body_len = sema.code.extra[extra_index];
+        extra_index += 1;
+        const body = sema.code.extra[extra_index..][0..body_len];
+        extra_index += body.len;
+
+        const val = try sema.resolveGenericBody(block, ret_src, body, inst, Type.type);
+        var buffer: Value.ToTypeBuffer = undefined;
+        const ty = try val.toType(&buffer).copy(sema.arena);
+        break :blk ty;
+    } else if (extra.data.bits.has_ret_ty_ref) blk: {
+        const ret_ty_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
+        extra_index += 1;
+        const ret_ty_tv = sema.resolveInstConst(block, ret_src, ret_ty_ref) catch |err| switch (err) {
+            error.GenericPoison => {
+                break :blk Type.initTag(.generic_poison);
+            },
+            else => |e| return e,
+        };
+        var buffer: Value.ToTypeBuffer = undefined;
+        const ty = try ret_ty_tv.val.toType(&buffer).copy(sema.arena);
+        break :blk ty;
+    } else Type.void;
 
     var src_locs: Zir.Inst.Func.SrcLocs = undefined;
     const has_body = extra.data.body_len != 0;
@@ -16801,9 +16982,11 @@ fn zirFuncExtended(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
         block,
         inst_data.src_node,
         inst,
-        ret_ty_body,
+        @"align",
+        @"addrspace",
+        @"linksection",
         cc,
-        align_val,
+        ret_ty,
         is_var_args,
         is_inferred_error,
         is_extern,
