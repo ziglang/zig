@@ -640,16 +640,16 @@ pub const Type = extern union {
                 if (!eql(a_info.return_type, b_info.return_type, mod))
                     return false;
 
-                if (a_info.cc != b_info.cc)
-                    return false;
-
-                if (a_info.alignment != b_info.alignment)
-                    return false;
-
                 if (a_info.is_var_args != b_info.is_var_args)
                     return false;
 
                 if (a_info.is_generic != b_info.is_generic)
+                    return false;
+
+                if (!a_info.cc_is_generic and a_info.cc != b_info.cc)
+                    return false;
+
+                if (!a_info.align_is_generic and a_info.alignment != b_info.alignment)
                     return false;
 
                 if (a_info.param_types.len != b_info.param_types.len)
@@ -1036,9 +1036,15 @@ pub const Type = extern union {
                 std.hash.autoHash(hasher, std.builtin.TypeId.Fn);
 
                 const fn_info = ty.fnInfo();
-                hashWithHasher(fn_info.return_type, hasher, mod);
-                std.hash.autoHash(hasher, fn_info.alignment);
-                std.hash.autoHash(hasher, fn_info.cc);
+                if (fn_info.return_type.tag() != .generic_poison) {
+                    hashWithHasher(fn_info.return_type, hasher, mod);
+                }
+                if (!fn_info.align_is_generic) {
+                    std.hash.autoHash(hasher, fn_info.alignment);
+                }
+                if (!fn_info.cc_is_generic) {
+                    std.hash.autoHash(hasher, fn_info.cc);
+                }
                 std.hash.autoHash(hasher, fn_info.is_var_args);
                 std.hash.autoHash(hasher, fn_info.is_generic);
 
