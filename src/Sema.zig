@@ -3453,6 +3453,10 @@ fn validateStructInit(
                     }
                 }
                 if (lhs != field_ptr_air_ref) continue;
+                while (block_index > 0) : (block_index -= 1) {
+                    const block_inst = block.instructions.items[block_index - 1];
+                    if (air_tags[block_inst] != .dbg_stmt) break;
+                }
                 if (block_index > 0 and
                     field_ptr_air_inst == block.instructions.items[block_index - 1])
                 {
