@@ -1311,7 +1311,6 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         // We can skip hashing libc and libc++ components that we are in charge of building from Zig
         // installation sources because they are always a product of the compiler version + target information.
         man.hash.addOptionalBytes(self.base.options.entry);
-        man.hash.add(stack_size);
         man.hash.addOptional(self.base.options.image_base_override);
         man.hash.add(gc_sections);
         man.hash.add(self.base.options.eh_frame_hdr);
@@ -1320,6 +1319,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         man.hash.addListOfBytes(self.base.options.lib_dirs);
         man.hash.addListOfBytes(self.base.options.rpath_list);
         man.hash.add(self.base.options.each_lib_rpath);
+        if (self.base.options.output_mode == .Exe) {
+            man.hash.add(stack_size);
+            man.hash.add(self.base.options.build_id);
+        }
         man.hash.add(self.base.options.skip_linker_dependencies);
         man.hash.add(self.base.options.z_nodelete);
         man.hash.add(self.base.options.z_notext);
@@ -1450,6 +1453,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         if (self.base.options.output_mode == .Exe) {
             try argv.append("-z");
             try argv.append(try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size}));
+
+            if (self.base.options.build_id) {
+                try argv.append("--build-id");
+            }
         }
 
         if (self.base.options.image_base_override) |image_base| {

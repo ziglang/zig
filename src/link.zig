@@ -146,6 +146,7 @@ pub const Options = struct {
     skip_linker_dependencies: bool,
     parent_compilation_link_libc: bool,
     each_lib_rpath: bool,
+    build_id: bool,
     disable_lld_caching: bool,
     is_test: bool,
     use_stage1: bool,

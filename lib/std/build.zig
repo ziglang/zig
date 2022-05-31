@@ -1549,6 +1549,12 @@ pub const LibExeObjStep = struct {
 
     valgrind_support: ?bool = null,
     each_lib_rpath: ?bool = null,
+    /// On ELF targets, this will emit a link section called ".note.gnu.build-id"
+    /// which can be used to coordinate a stripped binary with its debug symbols.
+    /// As an example, the bloaty project refuses to work unless its inputs have
+    /// build ids, in order to prevent accidental mismatches.
+    /// The default is to not include this section because it slows down linking.
+    build_id: ?bool = null,
 
     /// Create a .eh_frame_hdr section and a PT_GNU_EH_FRAME segment in the ELF
     /// file.
@@ -2950,6 +2956,14 @@ pub const LibExeObjStep = struct {
                 try zig_args.append("-feach-lib-rpath");
             } else {
                 try zig_args.append("-fno-each-lib-rpath");
+            }
+        }
+
+        if (self.build_id) |build_id| {
+            if (build_id) {
+                try zig_args.append("-fbuild-id");
+            } else {
+                try zig_args.append("-fno-build-id");
             }
         }
 

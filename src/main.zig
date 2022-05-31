@@ -423,6 +423,8 @@ const usage_build_generic =
     \\  -fno-each-lib-rpath            Prevent adding rpath for each used dynamic library
     \\  -fallow-shlib-undefined        Allows undefined symbols in shared libraries
     \\  -fno-allow-shlib-undefined     Disallows undefined symbols in shared libraries
+    \\  -fbuild-id                     Helps coordinate stripped binaries with debug symbols
+    \\  -fno-build-id                  (default) Saves a bit of time linking
     \\  --eh-frame-hdr                 Enable C++ exception handling by passing --eh-frame-hdr to linker
     \\  --emit-relocs                  Enable output of relocation sections for post build tools
     \\  -z [arg]                       Set linker extension flags
@@ -671,6 +673,7 @@ fn buildOutputType(
     var link_eh_frame_hdr = false;
     var link_emit_relocs = false;
     var each_lib_rpath: ?bool = null;
+    var build_id: ?bool = null;
     var sysroot: ?[]const u8 = null;
     var libc_paths_file: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LIBC");
     var machine_code_model: std.builtin.CodeModel = .default;
@@ -1030,6 +1033,10 @@ fn buildOutputType(
                         each_lib_rpath = true;
                     } else if (mem.eql(u8, arg, "-fno-each-lib-rpath")) {
                         each_lib_rpath = false;
+                    } else if (mem.eql(u8, arg, "-fbuild-id")) {
+                        build_id = true;
+                    } else if (mem.eql(u8, arg, "-fno-build-id")) {
+                        build_id = false;
                     } else if (mem.eql(u8, arg, "--enable-cache")) {
                         enable_cache = true;
                     } else if (mem.eql(u8, arg, "--test-cmd-bin")) {
@@ -1415,10 +1422,20 @@ fn buildOutputType(
                         while (split_it.next()) |linker_arg| {
                             // Handle nested-joined args like `-Wl,-rpath=foo`.
                             // Must be prefixed with 1 or 2 dashes.
-                            if (linker_arg.len >= 3 and linker_arg[0] == '-' and linker_arg[2] != '-') {
+                            if (linker_arg.len >= 3 and
+                                linker_arg[0] == '-' and
+                                linker_arg[2] != '-')
+                            {
                                 if (mem.indexOfScalar(u8, linker_arg, '=')) |equals_pos| {
-                                    try linker_args.append(linker_arg[0..equals_pos]);
-                                    try linker_args.append(linker_arg[equals_pos + 1 ..]);
+                                    const key = linker_arg[0..equals_pos];
+                                    const value = linker_arg[equals_pos + 1 ..];
+                                    if (mem.eql(u8, key, "build-id")) {
+                                        build_id = true;
+                                        warn("ignoring build-id style argument: '{s}'", .{value});
+                                        continue;
+                                    }
+                                    try linker_args.append(key);
+                                    try linker_args.append(value);
                                     continue;
                                 }
                             }
@@ -2727,6 +2744,7 @@ fn buildOutputType(
         .stack_report = stack_report,
         .is_test = arg_mode == .zig_test,
         .each_lib_rpath = each_lib_rpath,
+        .build_id = build_id,
         .test_evented_io = test_evented_io,
         .test_filter = test_filter,
         .test_name_prefix = test_name_prefix,
