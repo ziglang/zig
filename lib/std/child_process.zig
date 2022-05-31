@@ -545,16 +545,19 @@ pub const ChildProcess = struct {
         }
         if (self.extra_streams) |extra_streams| {
             for (extra_streams) |*extra| {
-                if (extra.*.direction == .parent_to_child) {
-                    if (extra.*.output) |*outpipe| {
-                        outpipe.close();
-                        extra.*.output = null;
-                    }
-                } else {
-                    if (extra.*.input) |*inpipe| {
-                        inpipe.close();
-                        extra.*.input = null;
-                    }
+                switch (extra.*.direction) {
+                    .parent_to_child => {
+                        if (extra.*.output) |*outpipe| {
+                            outpipe.close();
+                            extra.*.output = null;
+                        }
+                    },
+                    .child_to_parent => {
+                        if (extra.*.input) |*inpipe| {
+                            inpipe.close();
+                            extra.*.input = null;
+                        }
+                    },
                 }
             }
         }
@@ -692,10 +695,9 @@ pub const ChildProcess = struct {
 
         if (self.extra_streams) |extra_streams| {
             for (extra_streams) |*extra| {
-                if (extra.*.direction == .parent_to_child) {
-                    try actions.close(extra.*.output.?.handle);
-                } else {
-                    try actions.close(extra.*.input.?.handle);
+                switch (extra.*.direction) {
+                    .parent_to_child => try actions.close(extra.*.output.?.handle),
+                    .child_to_parent => try actions.close(extra.*.input.?.handle),
                 }
             }
         }
@@ -741,20 +743,23 @@ pub const ChildProcess = struct {
 
         if (self.extra_streams) |extra_streams| {
             for (extra_streams) |*extra| {
-                if (extra.*.direction == .parent_to_child) {
-                    extra.*.input.?.close(); // parent does not read
-                    extra.*.input = null;
-                    std.debug.assert(extra.*.output != null);
-                    var fcntl_flags = try os.fcntl(extra.*.output.?.handle, os.F.GETFD, 0);
-                    std.debug.assert((fcntl_flags & os.FD_CLOEXEC) == 0);
-                    _ = try os.fcntl(extra.*.output.?.handle, os.F.SETFD, os.FD_CLOEXEC);
-                } else {
-                    extra.*.output.?.close(); // parent does not write
-                    extra.*.output = null;
-                    std.debug.assert(extra.*.input != null);
-                    var fcntl_flags = try os.fcntl(extra.*.input.?.handle, os.F.GETFD, 0);
-                    std.debug.assert((fcntl_flags & os.FD_CLOEXEC) == 0);
-                    _ = try os.fcntl(extra.*.input.?.handle, os.F.SETFD, os.FD_CLOEXEC);
+                switch (extra.*.direction) {
+                    .parent_to_child => {
+                        extra.*.input.?.close(); // parent does not read
+                        extra.*.input = null;
+                        std.debug.assert(extra.*.output != null);
+                        var fcntl_flags = try os.fcntl(extra.*.output.?.handle, os.F.GETFD, 0);
+                        std.debug.assert((fcntl_flags & os.FD_CLOEXEC) == 0);
+                        _ = try os.fcntl(extra.*.output.?.handle, os.F.SETFD, os.FD_CLOEXEC);
+                    },
+                    .child_to_parent => {
+                        extra.*.output.?.close(); // parent does not write
+                        extra.*.output = null;
+                        std.debug.assert(extra.*.input != null);
+                        var fcntl_flags = try os.fcntl(extra.*.input.?.handle, os.F.GETFD, 0);
+                        std.debug.assert((fcntl_flags & os.FD_CLOEXEC) == 0);
+                        _ = try os.fcntl(extra.*.input.?.handle, os.F.SETFD, os.FD_CLOEXEC);
+                    },
                 }
             }
         }
@@ -926,14 +931,17 @@ pub const ChildProcess = struct {
 
             if (self.extra_streams) |extra_streams| {
                 for (extra_streams) |*extra| {
-                    if (extra.*.direction == .parent_to_child) {
-                        extra.*.output.?.close(); // child does not write
-                        extra.*.output = null;
-                        std.debug.assert(extra.*.input != null);
-                    } else {
-                        extra.*.input.?.close(); // child does not read
-                        extra.*.input = null;
-                        std.debug.assert(extra.*.output != null);
+                    switch (extra.*.direction) {
+                        .parent_to_child => {
+                            extra.*.output.?.close(); // child does not write
+                            extra.*.output = null;
+                            std.debug.assert(extra.*.input != null);
+                        },
+                        .child_to_parent => {
+                            extra.*.input.?.close(); // child does not read
+                            extra.*.input = null;
+                            std.debug.assert(extra.*.output != null);
+                        },
                     }
                 }
             }
@@ -979,20 +987,23 @@ pub const ChildProcess = struct {
         // to prevent non-standard streams to leak into children
         if (self.extra_streams) |extra_streams| {
             for (extra_streams) |*extra| {
-                if (extra.*.direction == .parent_to_child) {
-                    extra.*.input.?.close(); // parent does not read
-                    extra.*.input = null;
-                    std.debug.assert(extra.*.output != null);
-                    var fcntl_flags = try os.fcntl(extra.*.output.?.handle, os.F.GETFD, 0);
-                    std.debug.assert((fcntl_flags & os.FD_CLOEXEC) == 0);
-                    _ = try os.fcntl(extra.*.output.?.handle, os.F.SETFD, os.FD_CLOEXEC);
-                } else {
-                    extra.*.output.?.close(); // parent does not write
-                    extra.*.output = null;
-                    std.debug.assert(extra.*.input != null);
-                    var fcntl_flags = try os.fcntl(extra.*.input.?.handle, os.F.GETFD, 0);
-                    std.debug.assert((fcntl_flags & os.FD_CLOEXEC) == 0);
-                    _ = try os.fcntl(extra.*.input.?.handle, os.F.SETFD, os.FD_CLOEXEC);
+                switch (extra.*.direction) {
+                    .parent_to_child => {
+                        extra.*.input.?.close(); // parent does not read
+                        extra.*.input = null;
+                        std.debug.assert(extra.*.output != null);
+                        var fcntl_flags = try os.fcntl(extra.*.output.?.handle, os.F.GETFD, 0);
+                        std.debug.assert((fcntl_flags & os.FD_CLOEXEC) == 0);
+                        _ = try os.fcntl(extra.*.output.?.handle, os.F.SETFD, os.FD_CLOEXEC);
+                    },
+                    .child_to_parent => {
+                        extra.*.output.?.close(); // parent does not write
+                        extra.*.output = null;
+                        std.debug.assert(extra.*.input != null);
+                        var fcntl_flags = try os.fcntl(extra.*.input.?.handle, os.F.GETFD, 0);
+                        std.debug.assert((fcntl_flags & os.FD_CLOEXEC) == 0);
+                        _ = try os.fcntl(extra.*.input.?.handle, os.F.SETFD, os.FD_CLOEXEC);
+                    },
                 }
             }
         }
@@ -1276,14 +1287,17 @@ pub const ChildProcess = struct {
 
         if (self.extra_streams) |extra_streams| {
             for (extra_streams) |*extra| {
-                if (extra.*.direction == .parent_to_child) {
-                    extra.*.input.?.close(); // reading end
-                    extra.*.input = null;
-                    try windows.SetHandleInformation(extra.*.output.?.handle, windows.HANDLE_FLAG_INHERIT, 0);
-                } else {
-                    extra.*.output.?.close(); // writing end
-                    extra.*.output = null;
-                    try windows.SetHandleInformation(extra.*.input.?.handle, windows.HANDLE_FLAG_INHERIT, 0);
+                switch (extra.*.direction) {
+                    .parent_to_child => {
+                        extra.*.input.?.close(); // reading end
+                        extra.*.input = null;
+                        try windows.SetHandleInformation(extra.*.output.?.handle, windows.HANDLE_FLAG_INHERIT, 0);
+                    },
+                    .child_to_parent => {
+                        extra.*.output.?.close(); // writing end
+                        extra.*.output = null;
+                        try windows.SetHandleInformation(extra.*.input.?.handle, windows.HANDLE_FLAG_INHERIT, 0);
+                    },
                 }
             }
         }
@@ -1441,10 +1455,9 @@ fn windowsMakeAsyncPipe(
     }
     errdefer os.close(write_handle);
 
-    if (direction == .child_to_parent) {
-        try windows.SetHandleInformation(read_handle, windows.HANDLE_FLAG_INHERIT, 0);
-    } else {
-        try windows.SetHandleInformation(write_handle, windows.HANDLE_FLAG_INHERIT, 0);
+    switch (direction) {
+        .child_to_parent => try windows.SetHandleInformation(read_handle, windows.HANDLE_FLAG_INHERIT, 0),
+        .parent_to_child => try windows.SetHandleInformation(write_handle, windows.HANDLE_FLAG_INHERIT, 0),
     }
     rd.* = read_handle;
     wr.* = write_handle;
