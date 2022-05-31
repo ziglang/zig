@@ -977,3 +977,13 @@ test "weird array and tuple initializations" {
         .b = if (a) .{ .e = .a } else .{ .e = .b },
     };
 }
+
+test "array type comes from generic function" {
+    const S = struct {
+        fn A() type {
+            return struct { a: u8 = 0 };
+        }
+    };
+    const args = [_]S.A(){.{}};
+    _ = args;
+}

@@ -2976,7 +2976,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
 
                 // Even though we reuse the constant instruction, we still remove it from the
                 // block so that codegen does not see it.
-                block.instructions.shrinkRetainingCapacity(block.instructions.items.len - 3);
+                block.instructions.shrinkRetainingCapacity(search_index);
                 sema.air_values.items[value_index] = try Value.Tag.decl_ref.create(sema.arena, new_decl_index);
                 // if bitcast ty ref needs to be made const, make_ptr_const
                 // ZIR handles it later, so we can just use the ty ref here.
