@@ -2711,17 +2711,72 @@ fn zirAllocComptime(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
 
 fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const ptr = try sema.resolveInst(inst_data.operand);
-    const ptr_ty = sema.typeOf(ptr);
-    var ptr_info = ptr_ty.ptrInfo().data;
+    const src = inst_data.src();
+    const alloc = try sema.resolveInst(inst_data.operand);
+    const alloc_ty = sema.typeOf(alloc);
+
+    var ptr_info = alloc_ty.ptrInfo().data;
+    const elem_ty = ptr_info.pointee_type;
+
+    // Detect if all stores to an `.alloc` were comptime known.
+    ct: {
+        var search_index: usize = block.instructions.items.len;
+        const air_tags = sema.air_instructions.items(.tag);
+        const air_datas = sema.air_instructions.items(.data);
+
+        const store_inst = while (true) {
+            if (search_index == 0) break :ct;
+            search_index -= 1;
+
+            const candidate = block.instructions.items[search_index];
+            switch (air_tags[candidate]) {
+                .dbg_stmt => continue,
+                .store => break candidate,
+                else => break :ct,
+            }
+        } else unreachable; // TODO shouldn't need this
+
+        while (true) {
+            if (search_index == 0) break :ct;
+            search_index -= 1;
+
+            const candidate = block.instructions.items[search_index];
+            switch (air_tags[candidate]) {
+                .dbg_stmt => continue,
+                .alloc => {
+                    if (Air.indexToRef(candidate) != alloc) break :ct;
+                    break;
+                },
+                else => break :ct,
+            }
+        }
+
+        const store_op = air_datas[store_inst].bin_op;
+        const store_val = (try sema.resolveMaybeUndefVal(block, src, store_op.rhs)) orelse break :ct;
+        if (store_op.lhs != alloc) break :ct;
+
+        // Remove all the unnecessary runtime instructions.
+        block.instructions.shrinkRetainingCapacity(search_index);
+
+        var anon_decl = try block.startAnonDecl(src);
+        defer anon_decl.deinit();
+        return sema.analyzeDeclRef(try anon_decl.finish(
+            try elem_ty.copy(anon_decl.arena()),
+            try store_val.copy(anon_decl.arena()),
+            ptr_info.@"align",
+        ));
+    }
+
     ptr_info.mutable = false;
     const const_ptr_ty = try Type.ptr(sema.arena, sema.mod, ptr_info);
 
-    if (try sema.resolveMaybeUndefVal(block, inst_data.src(), ptr)) |val| {
+    // Detect if a comptime value simply needs to have its type changed.
+    if (try sema.resolveMaybeUndefVal(block, inst_data.src(), alloc)) |val| {
         return sema.addConstant(const_ptr_ty, val);
     }
-    try sema.requireRuntimeBlock(block, inst_data.src());
-    return block.addBitCast(const_ptr_ty, ptr);
+
+    try sema.requireRuntimeBlock(block, src);
+    return block.addBitCast(const_ptr_ty, alloc);
 }
 
 fn zirAllocInferredComptime(
