@@ -2214,16 +2214,31 @@ pub const DeclGen = struct {
         }
 
         // Set parameter attributes.
-        // TODO: more attributes. see codegen.cpp `make_fn_llvm_value`.
         switch (fn_info.cc) {
             .Unspecified, .Inline => {
                 var llvm_param_i: c_uint = @as(c_uint, @boolToInt(sret)) + @boolToInt(err_return_tracing);
                 for (fn_info.param_types) |param_ty| {
                     if (!param_ty.hasRuntimeBitsIgnoreComptime()) continue;
 
+                    // TODO: noalias attribute
+
                     if (isByRef(param_ty)) {
                         dg.addArgAttr(llvm_fn, llvm_param_i, "nonnull");
-                        // TODO readonly, noalias, align
+                        dg.addArgAttr(llvm_fn, llvm_param_i, "readonly");
+                        dg.addArgAttrInt(llvm_fn, llvm_param_i, "align", param_ty.abiAlignment(target));
+                    } else if (param_ty.isPtrAtRuntime()) {
+                        const ptr_info = param_ty.ptrInfo().data;
+                        if (!param_ty.isPtrLikeOptional() and !ptr_info.@"allowzero") {
+                            dg.addArgAttr(llvm_fn, llvm_param_i, "nonnull");
+                        }
+                        if (!ptr_info.mutable) {
+                            dg.addArgAttr(llvm_fn, llvm_param_i, "readonly");
+                        }
+                        if (ptr_info.@"align" != 0) {
+                            dg.addArgAttrInt(llvm_fn, llvm_param_i, "align", ptr_info.@"align");
+                        } else {
+                            dg.addArgAttrInt(llvm_fn, llvm_param_i, "align", ptr_info.pointee_type.abiAlignment(target));
+                        }
                     }
                     llvm_param_i += 1;
                 }
@@ -2237,6 +2252,12 @@ pub const DeclGen = struct {
                 @panic("TODO: LLVM backend lower async function");
             },
             else => {
+                // TODO set attributes such as noalias, nonnull, readonly, and align
+                // Note that there is not a one to one correspondence between fn_info.param_types
+                // and llvm parameters due to C ABI lowering. This will need to involve
+                // iterateParamTypes which is currently happening over in updateFunc.
+                // Probably this whole "set parameter attributes" section of code should
+                // move there and integrate with this abstraction.
                 llvm_fn.setFunctionCallConv(toLlvmCallConv(fn_info.cc, target));
             },
         }
@@ -3703,6 +3724,10 @@ pub const DeclGen = struct {
 
     fn addArgAttr(dg: DeclGen, fn_val: *const llvm.Value, param_index: u32, attr_name: []const u8) void {
         return dg.addAttr(fn_val, param_index + 1, attr_name);
+    }
+
+    fn addArgAttrInt(dg: DeclGen, fn_val: *const llvm.Value, param_index: u32, attr_name: []const u8, int: u64) void {
+        return dg.addAttrInt(fn_val, param_index + 1, attr_name, int);
     }
 
     fn removeAttr(val: *const llvm.Value, index: llvm.AttributeIndex, name: []const u8) void {
