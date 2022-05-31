@@ -1005,3 +1005,51 @@ test "generic function uses return type of other generic function" {
     };
     try std.testing.expect(S.call(S.func, .{@as(u8, 1)}) == 1);
 }
+
+test "const alloc with comptime known initializer is made comptime known" {
+    const S = struct {
+        a: bool,
+        b: [2]u8,
+    };
+    {
+        const s: S = .{
+            .a = false,
+            .b = .{ 1, 2 },
+        };
+        if (s.a) @compileError("bad");
+    }
+    {
+        const s: S = .{
+            .a = false,
+            .b = [2]u8{ 1, 2 },
+        };
+        if (s.a) @compileError("bad");
+    }
+    {
+        const s: S = comptime .{
+            .a = false,
+            .b = .{ 1, 2 },
+        };
+        if (s.a) @compileError("bad");
+    }
+    {
+        const Const = struct {
+            limbs: []const usize,
+            positive: bool,
+        };
+        const biggest: Const = .{
+            .limbs = &([1]usize{comptime std.math.maxInt(usize)} ** 128),
+            .positive = false,
+        };
+        if (biggest.positive) @compileError("bad");
+    }
+    {
+        const U = union(enum) {
+            a: usize,
+        };
+        const u: U = .{
+            .a = comptime std.math.maxInt(usize),
+        };
+        if (u.a == 0) @compileError("bad");
+    }
+}
