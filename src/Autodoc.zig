@@ -3744,12 +3744,32 @@ fn analyzeFunctionExtended(
         _ = try self.walkRef(file, scope, align_ref, false);
     }
 
+    // TODO: a complete version of this will probably need a scope
+    //       in order to evaluate correctly closures around funcion
+    //       parameters etc.
+    const generic_ret: ?DocData.Expr = switch (ret_type_ref.expr) {
+        .type => |t| blk: {
+            if (fn_info.body.len == 0) break :blk null;
+            if (t == @enumToInt(Ref.type_type)) {
+                break :blk try self.getGenericReturnType(
+                    file,
+                    scope,
+                    fn_info.body[fn_info.body.len - 1],
+                );
+            } else {
+                break :blk null;
+            }
+        },
+        else => null,
+    };
+
     self.types.items[type_slot_index] = .{
         .Fn = .{
             .name = "todo_name func",
             .src = self_ast_node_index,
             .params = param_type_refs.items,
             .ret = ret_type_ref.expr,
+            .generic_ret = generic_ret,
             .is_extern = extra.data.bits.is_extern,
             .has_cc = extra.data.bits.has_cc,
             .has_align = extra.data.bits.has_align,
@@ -3854,14 +3874,18 @@ fn analyzeFunction(
     //       in order to evaluate correctly closures around funcion
     //       parameters etc.
     const generic_ret: ?DocData.Expr = switch (ret_type_ref.expr) {
-        .type => |t| if (t == @enumToInt(Ref.type_type))
-            try self.getGenericReturnType(
-                file,
-                scope,
-                fn_info.body[fn_info.body.len - 1],
-            )
-        else
-            null,
+        .type => |t| blk: {
+            if (fn_info.body.len == 0) break :blk null;
+            if (t == @enumToInt(Ref.type_type)) {
+                break :blk try self.getGenericReturnType(
+                    file,
+                    scope,
+                    fn_info.body[fn_info.body.len - 1],
+                );
+            } else {
+                break :blk null;
+            }
+        },
         else => null,
     };
 
