@@ -3215,7 +3215,9 @@ fn validateUnionInit(
         return sema.failWithOwnedErrorMsg(block, msg);
     }
 
-    if (is_comptime or block.is_comptime) {
+    if ((is_comptime or block.is_comptime) and
+        (try sema.resolveDefinedValue(block, init_src, union_ptr)) != null)
+    {
         // In this case, comptime machinery already did everything. No work to do here.
         return;
     }
@@ -3261,7 +3263,18 @@ fn validateUnionInit(
         if (store_inst == field_ptr_air_inst) break;
         if (air_tags[store_inst] != .store) continue;
         const bin_op = air_datas[store_inst].bin_op;
-        if (bin_op.lhs != field_ptr_air_ref) continue;
+        var lhs = bin_op.lhs;
+        if (Air.refToIndex(lhs)) |lhs_index| {
+            if (air_tags[lhs_index] == .bitcast) {
+                lhs = air_datas[lhs_index].ty_op.operand;
+                block_index -= 1;
+            }
+        }
+        if (lhs != field_ptr_air_ref) continue;
+        while (block_index > 0) : (block_index -= 1) {
+            const block_inst = block.instructions.items[block_index - 1];
+            if (air_tags[block_inst] != .dbg_stmt) break;
+        }
         if (block_index > 0 and
             field_ptr_air_inst == block.instructions.items[block_index - 1])
         {
