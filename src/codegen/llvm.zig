@@ -6944,6 +6944,23 @@ pub const FuncGen = struct {
         // possibly do the safety 0xaa bytes for undefined.
         const val_is_undef = if (self.air.value(bin_op.rhs)) |val| val.isUndefDeep() else false;
         if (val_is_undef) {
+            {
+                // TODO let's handle this in AIR rather than by having each backend
+                // check the optimization mode of the compilation because the plan is
+                // to support setting the optimization mode at finer grained scopes
+                // which happens in Sema. Codegen should not be aware of this logic.
+                // I think this comment is basically the same as the other TODO comment just
+                // above but I'm leaving them both here to make it look super messy and
+                // thereby bait contributors (or let's be honest, probably myself) into
+                // fixing this instead of letting it rot.
+                const safety = switch (self.dg.module.comp.bin_file.options.optimize_mode) {
+                    .ReleaseSmall, .ReleaseFast => false,
+                    .Debug, .ReleaseSafe => true,
+                };
+                if (!safety) {
+                    return null;
+                }
+            }
             const target = self.dg.module.getTarget();
             const operand_size = operand_ty.abiSize(target);
             const u8_llvm_ty = self.context.intType(8);
