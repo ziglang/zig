@@ -501,7 +501,10 @@ fn printIndicatorLine(source: []const u8, indicator_index: usize) void {
         while (i < indicator_index) : (i += 1)
             print(" ", .{});
     }
-    print("^\n", .{});
+    if (indicator_index >= source.len)
+        print("^ (out of bounds)\n", .{})
+    else
+        print("^ ({d})\n", .{source[indicator_index]});
 }
 
 fn printWithVisibleNewlines(source: []const u8) void {
