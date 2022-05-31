@@ -712,7 +712,6 @@ pub const Object = struct {
                 .byval => {
                     const param_ty = fn_info.param_types[it.zig_index - 1];
                     const param = llvm_func.getParam(llvm_arg_i);
-                    llvm_arg_i += 1;
 
                     if (isByRef(param_ty)) {
                         const alignment = param_ty.abiAlignment(target);
@@ -724,11 +723,33 @@ pub const Object = struct {
                         try args.append(arg_ptr);
                     } else {
                         try args.append(param);
+
+                        if (param_ty.isPtrAtRuntime()) {
+                            // TODO noalias attribute
+                            const ptr_info = param_ty.ptrInfo().data;
+                            if (!param_ty.isPtrLikeOptional() and !ptr_info.@"allowzero") {
+                                dg.addArgAttr(llvm_func, llvm_arg_i, "nonnull");
+                            }
+                            if (!ptr_info.mutable) {
+                                dg.addArgAttr(llvm_func, llvm_arg_i, "readonly");
+                            }
+                            if (ptr_info.@"align" != 0) {
+                                dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", ptr_info.@"align");
+                            } else {
+                                dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", ptr_info.pointee_type.abiAlignment(target));
+                            }
+                        }
                     }
+                    llvm_arg_i += 1;
                 },
                 .byref => {
                     const param_ty = fn_info.param_types[it.zig_index - 1];
                     const param = llvm_func.getParam(llvm_arg_i);
+
+                    dg.addArgAttr(llvm_func, llvm_arg_i, "nonnull");
+                    dg.addArgAttr(llvm_func, llvm_arg_i, "readonly");
+                    dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", param_ty.abiAlignment(target));
+
                     llvm_arg_i += 1;
 
                     if (isByRef(param_ty)) {
@@ -2213,35 +2234,8 @@ pub const DeclGen = struct {
             dg.addArgAttr(llvm_fn, @boolToInt(sret), "nonnull");
         }
 
-        // Set parameter attributes.
         switch (fn_info.cc) {
             .Unspecified, .Inline => {
-                var llvm_param_i: c_uint = @as(c_uint, @boolToInt(sret)) + @boolToInt(err_return_tracing);
-                for (fn_info.param_types) |param_ty| {
-                    if (!param_ty.hasRuntimeBitsIgnoreComptime()) continue;
-
-                    // TODO: noalias attribute
-
-                    if (isByRef(param_ty)) {
-                        dg.addArgAttr(llvm_fn, llvm_param_i, "nonnull");
-                        dg.addArgAttr(llvm_fn, llvm_param_i, "readonly");
-                        dg.addArgAttrInt(llvm_fn, llvm_param_i, "align", param_ty.abiAlignment(target));
-                    } else if (param_ty.isPtrAtRuntime()) {
-                        const ptr_info = param_ty.ptrInfo().data;
-                        if (!param_ty.isPtrLikeOptional() and !ptr_info.@"allowzero") {
-                            dg.addArgAttr(llvm_fn, llvm_param_i, "nonnull");
-                        }
-                        if (!ptr_info.mutable) {
-                            dg.addArgAttr(llvm_fn, llvm_param_i, "readonly");
-                        }
-                        if (ptr_info.@"align" != 0) {
-                            dg.addArgAttrInt(llvm_fn, llvm_param_i, "align", ptr_info.@"align");
-                        } else {
-                            dg.addArgAttrInt(llvm_fn, llvm_param_i, "align", ptr_info.pointee_type.abiAlignment(target));
-                        }
-                    }
-                    llvm_param_i += 1;
-                }
                 llvm_fn.setFunctionCallConv(.Fast);
             },
             .Naked => {
@@ -2252,12 +2246,6 @@ pub const DeclGen = struct {
                 @panic("TODO: LLVM backend lower async function");
             },
             else => {
-                // TODO set attributes such as noalias, nonnull, readonly, and align
-                // Note that there is not a one to one correspondence between fn_info.param_types
-                // and llvm parameters due to C ABI lowering. This will need to involve
-                // iterateParamTypes which is currently happening over in updateFunc.
-                // Probably this whole "set parameter attributes" section of code should
-                // move there and integrate with this abstraction.
                 llvm_fn.setFunctionCallConv(toLlvmCallConv(fn_info.cc, target));
             },
         }
