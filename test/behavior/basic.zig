@@ -987,3 +987,21 @@ test "array type comes from generic function" {
     const args = [_]S.A(){.{}};
     _ = args;
 }
+
+test "generic function uses return type of other generic function" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn call(
+            f: anytype,
+            args: anytype,
+        ) @TypeOf(@call(.{}, f, @as(@TypeOf(args), undefined))) {
+            return @call(.{}, f, args);
+        }
+
+        fn func(arg: anytype) @TypeOf(arg) {
+            return arg;
+        }
+    };
+    try std.testing.expect(S.call(S.func, .{@as(u8, 1)}) == 1);
+}

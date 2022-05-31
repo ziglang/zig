@@ -1036,7 +1036,9 @@ pub const Type = extern union {
                 std.hash.autoHash(hasher, std.builtin.TypeId.Fn);
 
                 const fn_info = ty.fnInfo();
-                hashWithHasher(fn_info.return_type, hasher, mod);
+                if (fn_info.return_type.tag() != .generic_poison) {
+                    hashWithHasher(fn_info.return_type, hasher, mod);
+                }
                 std.hash.autoHash(hasher, fn_info.alignment);
                 std.hash.autoHash(hasher, fn_info.cc);
                 std.hash.autoHash(hasher, fn_info.is_var_args);
