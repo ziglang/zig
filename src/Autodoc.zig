@@ -657,6 +657,7 @@ const DocData = struct {
         array: []usize, // index in `exprs`
         call: usize, // index in `calls`
         enumLiteral: []const u8, // direct value
+        alignOf: usize, // index in `exprs`
         typeOf: usize, // index in `exprs`
         typeOf_peer: []usize,
         errorUnion: usize, // index in `exprs`
@@ -665,6 +666,7 @@ const DocData = struct {
         bitSizeOf: usize, // index in `exprs`
         enumToInt: usize, // index in `exprs`
         compileError: []const u8,
+        errorSets: usize,
         string: []const u8, // direct value
         switchIndex: usize, // index in `exprs`
         switchOp: SwitchOp,
@@ -693,9 +695,6 @@ const DocData = struct {
         const SwitchOp = struct {
             cases: []usize,
             else_index: ?usize,
-            // body_cases: ?[]usize,
-
-            // const Case = struct { lhs: Expr, rhs: Expr };
         };
         const As = struct {
             typeRefArg: ?usize, // index in `exprs`
@@ -722,7 +721,7 @@ const DocData = struct {
                         \\{{ "{s}":{{}} }}
                     , .{@tagName(self)});
                 },
-                .type, .comptimeExpr, .call, .this, .declRef, .typeOf, .errorUnion => |v| {
+                .type, .comptimeExpr, .call, .this, .declRef, .typeOf, .errorUnion, .errorSets, .alignOf => |v| {
                     try w.print(
                         \\{{ "{s}":{} }}
                     , .{ @tagName(self), v });
@@ -1792,6 +1791,33 @@ fn walkInstruction(
                 .expr = .{ .errorUnion = type_slot_index },
             };
         },
+        .merge_error_sets => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
+
+            var lhs: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                extra.data.lhs,
+                false,
+            );
+            var rhs: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                extra.data.rhs,
+                false,
+            );
+            const type_slot_index = self.types.items.len;
+            try self.types.append(self.arena, .{ .ErrorUnion = .{
+                .lhs = lhs.expr,
+                .rhs = rhs.expr,
+            } });
+
+            return DocData.WalkResult{
+                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
+                .expr = .{ .errorSets = type_slot_index },
+            };
+        },
         .elem_type => {
             const un_node = data[inst_index].un_node;
 
@@ -2228,15 +2254,17 @@ fn walkInstruction(
             };
         },
         .switch_block => {
+            // WIP
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.SwitchBlock, pl_node.payload_index);
             const array_data = try self.arena.alloc(usize, extra.data.bits.scalar_cases_len);
             var extra_index = extra.end;
 
-            const sep = "=" ** 200;
-            std.debug.print("{s}\n", .{sep});
-            std.debug.print("pl_node = {any}\n", .{pl_node});
-            std.debug.print("extra = {any}\n", .{extra});
+            // const sep = "=" ** 200;
+            // std.debug.print("{s}\n", .{sep});
+            // std.debug.print("pl_node = {any}\n", .{pl_node});
+            // std.debug.print("extra = {any}\n", .{extra});
+            // std.debug.print("{s}\n", .{sep});
 
             const multi_cases_len = if (extra.data.bits.has_multi_cases) blk: {
                 const multi_cases_len = file.zir.extra[extra_index];
@@ -2251,12 +2279,12 @@ fn walkInstruction(
                 extra_index += 1;
                 const body = file.zir.extra[extra_index..][0..body_len];
                 extra_index += body.len;
-                for (body) |body_member| {
+                for (body) |_| {
                     const item_ref = @intToEnum(Ref, file.zir.extra[extra_index]);
                     const item = try self.walkRef(file, parent_scope, item_ref, false);
-                    std.debug.print("prong item_ref = {any}\n", .{item_ref});
-                    std.debug.print("prong item = {any}\n", .{item});
-                    std.debug.print("body member = {any}\n", .{body_member});
+                    // std.debug.print("prong item_ref = {any}\n", .{item_ref});
+                    // std.debug.print("prong item = {any}\n", .{item});
+                    // std.debug.print("body member = {any}\n", .{body_member});
                     const item_index = self.exprs.items.len;
                     try self.exprs.append(self.arena, item.expr);
                     else_index = item_index;
@@ -2279,15 +2307,16 @@ fn walkInstruction(
                     array_data[scalar_i] = item.expr.as.exprArg;
 
                     const body_ref = @intToEnum(Ref, file.zir.extra[extra_index]);
-                    const body_item = try self.walkRef(file, parent_scope, item_ref, false);
+                    const body_item = try self.walkRef(file, parent_scope, body_ref, false);
+                    _ = body_item;
 
                     array_data[scalar_i] = item.expr.as.exprArg;
-                    std.debug.print("{s}\n", .{sep});
-                    std.debug.print("body item_ref = {any}\n", .{item_ref});
-                    std.debug.print("body item = {any}\n", .{item});
-                    std.debug.print("body_len scalar cases = {any}\n", .{body_ref});
-                    std.debug.print("body scalar cases = {any}\n", .{body_item});
-                    std.debug.print("{s}\n", .{sep});
+                    // std.debug.print("{s}\n", .{sep});
+                    // std.debug.print("body item_ref = {any}\n", .{item_ref});
+                    // std.debug.print("body item = {any}\n", .{item});
+                    // std.debug.print("body_len scalar cases = {any}\n", .{body_ref});
+                    // std.debug.print("body scalar cases = {any}\n", .{body_item});
+                    // std.debug.print("{s}\n", .{sep});
                 }
             }
             {
@@ -2311,14 +2340,15 @@ fn walkInstruction(
 
                     const body = file.zir.extra[extra_index..][0..body_len];
                     extra_index += body_len;
+                    _ = body;
 
-                    std.debug.print("body multi_i = {any}\n", .{body});
-                    std.debug.print("items = {any}\n", .{items});
+                    // std.debug.print("body multi_i = {any}\n", .{body});
+                    // std.debug.print("items = {any}\n", .{items});
                 }
             }
 
             // std.debug.print("multi_cases_len = {}\n", .{multi_cases_len});
-            std.debug.print("{s}\n", .{sep});
+            // std.debug.print("{s}\n", .{sep});
 
             const switch_index = self.exprs.items.len;
             try self.exprs.append(self.arena, .{ .switchOp = .{ .cases = array_data, .else_index = else_index } });
@@ -2368,6 +2398,26 @@ fn walkInstruction(
                 .expr = .{ .typeOf = operand_index },
             };
         },
+        .align_of => {
+            // WIP
+            // not fully working
+            // @alignOf() with some pointer type it's not even called in js
+            // @alignOf([*]u8) are being rendered as [*]u8
+            const un_node = data[inst_index].un_node;
+            const operand = try self.walkRef(
+                file,
+                parent_scope,
+                un_node.operand,
+                need_type,
+            );
+            const operand_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, operand.expr);
+
+            return DocData.WalkResult{
+                .typeRef = operand.typeRef,
+                .expr = .{ .alignOf = operand_index },
+            };
+        },
         .typeof_builtin => {
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Block, pl_node.payload_index);
@@ -2379,6 +2429,31 @@ fn walkInstruction(
                 data[body].@"break".operand,
                 false,
             );
+
+            const operand_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, operand.expr);
+
+            return DocData.WalkResult{
+                .typeRef = operand.typeRef,
+                .expr = .{ .typeOf = operand_index },
+            };
+        },
+        .typeof_log2_int_type => {
+            // @check
+            const un_node = data[inst_index].un_node;
+            const operand = try self.walkRef(
+                file,
+                parent_scope,
+                un_node.operand,
+                need_type,
+            );
+
+            // WIP
+            // const sep = "=" ** 200;
+            // std.debug.print("{s}\n", .{sep});
+            // std.debug.print("un_node = {any}\n", .{un_node});
+            // std.debug.print("operand = {any}\n", .{operand});
+            // std.debug.print("{s}\n", .{sep});
 
             const operand_index = self.exprs.items.len;
             try self.exprs.append(self.arena, operand.expr);
@@ -2535,6 +2610,23 @@ fn walkInstruction(
                 .typeRef = .{ .type = @enumToInt(Ref.type_type) },
                 .expr = .{ .type = self.types.items.len - 1 },
             };
+        },
+        .float128 => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.Float128, pl_node.payload_index);
+            _ = extra;
+            // const sep = "=" ** 200;
+            // std.debug.print("{s}\n", .{sep});
+            // std.debug.print("pl_node = {any}\n", .{pl_node});
+            // std.debug.print("extra = {any}\n", .{extra});
+            // std.debug.print("{s}\n", .{sep});
+            // printWithContext(
+            //     file,
+            //     inst_index,
+            //     "TODO: implement `{s}` for walkInstruction\n\n",
+            //     .{@tagName(tags[inst_index])},
+            // );
+            return self.cteTodo(@tagName(tags[inst_index]));
         },
         .block => {
             const res = DocData.WalkResult{ .expr = .{
@@ -3746,14 +3838,15 @@ fn tryResolveRefPath(
                     }
 
                     // if we got here, our search failed
-                    printWithContext(
-                        file,
-                        inst_index,
-                        "failed to match `{s}` in struct",
-                        .{child_string},
-                    );
+                    // printWithContext(
+                    //     file,
+                    //     inst_index,
+                    //     "failed to match `{s}` in struct",
+                    //     .{child_string},
+                    // );
                     // path[i + 1] = (try self.cteTodo("match failure")).expr;
-                    // this are working, check c.zig
+                    //
+                    // that's working
                     path[i + 1] = (try self.cteTodo(child_string)).expr;
                     continue :outer;
                 },
