@@ -3444,7 +3444,15 @@ fn validateStructInit(
                 }
                 if (air_tags[store_inst] != .store) continue;
                 const bin_op = air_datas[store_inst].bin_op;
-                if (bin_op.lhs != field_ptr_air_ref) continue;
+                var lhs = bin_op.lhs;
+                {
+                    const lhs_index = Air.refToIndex(lhs) orelse continue;
+                    if (air_tags[lhs_index] == .bitcast) {
+                        lhs = air_datas[lhs_index].ty_op.operand;
+                        block_index -= 1;
+                    }
+                }
+                if (lhs != field_ptr_air_ref) continue;
                 if (block_index > 0 and
                     field_ptr_air_inst == block.instructions.items[block_index - 1])
                 {
@@ -3603,7 +3611,14 @@ fn zirValidateArrayInit(
         switch (air_tags[next_air_inst]) {
             .store => {
                 const bin_op = air_datas[next_air_inst].bin_op;
-                if (bin_op.lhs != elem_ptr_air_ref) {
+                var lhs = bin_op.lhs;
+                if (Air.refToIndex(lhs)) |lhs_index| {
+                    if (air_tags[lhs_index] == .bitcast) {
+                        lhs = air_datas[lhs_index].ty_op.operand;
+                        block_index -= 1;
+                    }
+                }
+                if (lhs != elem_ptr_air_ref) {
                     array_is_comptime = false;
                     continue;
                 }
