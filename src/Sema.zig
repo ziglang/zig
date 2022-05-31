@@ -13011,10 +13011,13 @@ fn analyzeRet(
     const backend_supports_error_return_tracing =
         sema.mod.comp.bin_file.options.use_llvm;
 
-    if ((sema.fn_ret_ty.zigTypeTag() == .ErrorSet or sema.typeOf(uncasted_operand).zigTypeTag() == .ErrorUnion) and
+    if (sema.fn_ret_ty.isError() and
         sema.mod.comp.bin_file.options.error_return_tracing and
         backend_supports_error_return_tracing)
-    {
+    ret_err: {
+        if (try sema.resolveMaybeUndefVal(block, src, operand)) |ret_val| {
+            if (ret_val.tag() != .@"error") break :ret_err;
+        }
         const return_err_fn = try sema.getBuiltin(block, src, "returnError");
         const unresolved_stack_trace_ty = try sema.getBuiltinType(block, src, "StackTrace");
         const stack_trace_ty = try sema.resolveTypeFields(block, src, unresolved_stack_trace_ty);
