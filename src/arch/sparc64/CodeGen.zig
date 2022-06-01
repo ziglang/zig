@@ -1047,6 +1047,11 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
 
     var info = try self.resolveCallingConventionValues(fn_ty, .caller);
     defer info.deinit(self);
+
+    // CCR is volatile across function calls
+    // (SCD 2.4.1, page 3P-10)
+    try self.spillCompareFlagsIfOccupied();
+
     for (info.args) |mc_arg, arg_i| {
         const arg = args[arg_i];
         const arg_ty = self.air.typeOf(arg);
