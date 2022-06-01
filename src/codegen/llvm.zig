@@ -725,8 +725,12 @@ pub const Object = struct {
                         try args.append(param);
 
                         if (param_ty.isPtrAtRuntime()) {
-                            // TODO noalias attribute
                             const ptr_info = param_ty.ptrInfo().data;
+                            if (math.cast(u5, it.zig_index - 1)) |i| {
+                                if (@truncate(u1, fn_info.noalias_bits >> i) != 0) {
+                                    dg.addArgAttr(llvm_func, llvm_arg_i, "noalias");
+                                }
+                            }
                             if (!param_ty.isPtrLikeOptional() and !ptr_info.@"allowzero") {
                                 dg.addArgAttr(llvm_func, llvm_arg_i, "nonnull");
                             }

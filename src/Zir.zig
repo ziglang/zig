@@ -2670,8 +2670,10 @@ pub const Inst = struct {
     ///   14. ret_ty_body_len: u32
     ///   15. ret_ty_body: u32 // for each ret_ty_body_len
     /// }
-    /// 16. body: Index // for each body_len
-    /// 17. src_locs: Func.SrcLocs // if body_len != 0
+    /// 16. noalias_bits: u32 // if has_any_noalias
+    ///     - each bit starting with LSB corresponds to parameter indexes
+    /// 17. body: Index // for each body_len
+    /// 18. src_locs: Func.SrcLocs // if body_len != 0
     pub const FuncFancy = struct {
         /// Points to the block that contains the param instructions for this function.
         param_block: Index,
@@ -2699,7 +2701,8 @@ pub const Inst = struct {
             has_ret_ty_ref: bool,
             has_ret_ty_body: bool,
             has_lib_name: bool,
-            _: u17 = undefined,
+            has_any_noalias: bool,
+            _: u16 = undefined,
         };
     };
 
@@ -3699,6 +3702,8 @@ fn findDeclsInner(
                 extra_index += 1;
             }
 
+            extra_index += @boolToInt(extra.data.bits.has_any_noalias);
+
             const body = zir.extra[extra_index..][0..extra.data.body_len];
             return zir.findDeclsBody(list, body);
         },
@@ -3906,6 +3911,9 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
                 ret_ty_ref = @intToEnum(Inst.Ref, zir.extra[extra_index]);
                 extra_index += 1;
             }
+
+            extra_index += @boolToInt(extra.data.bits.has_any_noalias);
+
             const body = zir.extra[extra_index..][0..extra.data.body_len];
             extra_index += body.len;
             break :blk .{

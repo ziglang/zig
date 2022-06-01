@@ -1155,14 +1155,20 @@ fn fnProtoExpr(
 
     const block_inst = try gz.makeBlockInst(.block_inline, node);
 
+    var noalias_bits: u32 = 0;
     const is_var_args = is_var_args: {
         var param_type_i: usize = 0;
         var it = fn_proto.iterate(tree);
         while (it.next()) |param| : (param_type_i += 1) {
-            const is_comptime = if (param.comptime_noalias) |token|
-                token_tags[token] == .keyword_comptime
-            else
-                false;
+            const is_comptime = if (param.comptime_noalias) |token| switch (token_tags[token]) {
+                .keyword_noalias => is_comptime: {
+                    noalias_bits |= @as(u32, 1) << (std.math.cast(u5, param_type_i) orelse
+                        return astgen.failTok(token, "this compiler implementation only supports 'noalias' on the first 32 parameters", .{}));
+                    break :is_comptime false;
+                },
+                .keyword_comptime => true,
+                else => false,
+            } else false;
 
             const is_anytype = if (param.anytype_ellipsis3) |token| blk: {
                 switch (token_tags[token]) {
@@ -1255,6 +1261,7 @@ fn fnProtoExpr(
         .is_inferred_error = false,
         .is_test = false,
         .is_extern = false,
+        .noalias_bits = noalias_bits,
     });
 
     _ = try block_scope.addBreak(.break_inline, block_inst, result);
@@ -3381,15 +3388,21 @@ fn fnDecl(
     // align, linksection, and addrspace is passed in the func instruction in this case.
     wip_members.nextDecl(is_pub, is_export, false, false);
 
+    var noalias_bits: u32 = 0;
     var params_scope = &fn_gz.base;
     const is_var_args = is_var_args: {
         var param_type_i: usize = 0;
         var it = fn_proto.iterate(tree);
         while (it.next()) |param| : (param_type_i += 1) {
-            const is_comptime = if (param.comptime_noalias) |token|
-                token_tags[token] == .keyword_comptime
-            else
-                false;
+            const is_comptime = if (param.comptime_noalias) |token| switch (token_tags[token]) {
+                .keyword_noalias => is_comptime: {
+                    noalias_bits |= @as(u32, 1) << (std.math.cast(u5, param_type_i) orelse
+                        return astgen.failTok(token, "this compiler implementation only supports 'noalias' on the first 32 parameters", .{}));
+                    break :is_comptime false;
+                },
+                .keyword_comptime => true,
+                else => false,
+            } else false;
 
             const is_anytype = if (param.anytype_ellipsis3) |token| blk: {
                 switch (token_tags[token]) {
@@ -3576,6 +3589,7 @@ fn fnDecl(
             .is_inferred_error = false,
             .is_test = false,
             .is_extern = true,
+            .noalias_bits = noalias_bits,
         });
     } else func: {
         if (is_var_args) {
@@ -3623,6 +3637,7 @@ fn fnDecl(
             .is_inferred_error = is_inferred_error,
             .is_test = false,
             .is_extern = false,
+            .noalias_bits = noalias_bits,
         });
     };
 
@@ -4057,6 +4072,7 @@ fn testDecl(
         .is_inferred_error = true,
         .is_test = true,
         .is_extern = false,
+        .noalias_bits = 0,
     });
 
     _ = try decl_block.addBreak(.break_inline, block_inst, func_inst);
@@ -10024,6 +10040,7 @@ const GenZir = struct {
         ret_ref: Zir.Inst.Ref,
 
         lib_name: u32,
+        noalias_bits: u32,
         is_var_args: bool,
         is_inferred_error: bool,
         is_test: bool,
@@ -10071,7 +10088,7 @@ const GenZir = struct {
         if (args.cc_ref != .none or args.lib_name != 0 or
             args.is_var_args or args.is_test or args.is_extern or
             args.align_ref != .none or args.section_ref != .none or
-            args.addrspace_ref != .none)
+            args.addrspace_ref != .none or args.noalias_bits != 0)
         {
             var align_body: []Zir.Inst.Index = &.{};
             var addrspace_body: []Zir.Inst.Index = &.{};
@@ -10093,7 +10110,8 @@ const GenZir = struct {
                     fancyFnExprExtraLen(cc_body, args.cc_ref) +
                     fancyFnExprExtraLen(ret_body, ret_ref) +
                     body.len + src_locs.len +
-                    @boolToInt(args.lib_name != 0),
+                    @boolToInt(args.lib_name != 0) +
+                    @boolToInt(args.noalias_bits != 0),
             );
             const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.FuncFancy{
                 .param_block = args.param_block,
@@ -10104,6 +10122,7 @@ const GenZir = struct {
                     .is_test = args.is_test,
                     .is_extern = args.is_extern,
                     .has_lib_name = args.lib_name != 0,
+                    .has_any_noalias = args.noalias_bits != 0,
 
                     .has_align_ref = args.align_ref != .none,
                     .has_addrspace_ref = args.addrspace_ref != .none,
@@ -10157,6 +10176,10 @@ const GenZir = struct {
                 zir_datas[ret_body[ret_body.len - 1]].@"break".block_inst = new_index;
             } else if (ret_ref != .none) {
                 astgen.extra.appendAssumeCapacity(@enumToInt(ret_ref));
+            }
+
+            if (args.noalias_bits != 0) {
+                astgen.extra.appendAssumeCapacity(args.noalias_bits);
             }
 
             astgen.extra.appendSliceAssumeCapacity(body);
