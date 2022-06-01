@@ -3182,6 +3182,7 @@ fn performReloc(self: *Self, inst: Mir.Inst.Index) !void {
     const tag = self.mir_instructions.items(.tag)[inst];
     switch (tag) {
         .bpcc => self.mir_instructions.items(.data)[inst].branch_predict_int.inst = @intCast(Mir.Inst.Index, self.mir_instructions.len),
+        .bpr => self.mir_instructions.items(.data)[inst].branch_predict_reg.inst = @intCast(Mir.Inst.Index, self.mir_instructions.len),
         else => unreachable,
     }
 }
