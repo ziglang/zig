@@ -255,9 +255,15 @@ test "ResetEvent - broadcast" {
         counter: Atomic(usize) = Atomic(usize).init(num_threads),
 
         fn wait(self: *@This()) void {
-            if (self.counter.fetchSub(1, .AcqRel) == 1) {
+            // The last thread to call wait() releases the barrier's event and wakes all threads waiting on it.
+            const counter = self.counter.fetchSub(1, .AcqRel);
+            assert(counter > 0);
+            if (counter == 1) {
                 self.event.set();
             }
+
+            // Wait for the last thread to set the evnt
+            self.event.wait();
         }
     };
 

@@ -121,7 +121,7 @@ const FutexImpl = struct {
 
     const unlocked = 0;
     const locked = 1;
-    const contended = 2; 
+    const contended = 2;
 
     fn tryLock(self: *Impl) bool {
         // Lock with compareAndSwap instead of tryCompareAndSwap to avoid reporting spurious CAS failure.
