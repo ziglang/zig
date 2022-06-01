@@ -2302,19 +2302,21 @@ pub const DeclGen = struct {
     }
 
     fn addCommonFnAttributes(dg: *DeclGen, llvm_fn: *const llvm.Value) void {
-        if (!dg.module.comp.bin_file.options.red_zone) {
+        const comp = dg.module.comp;
+
+        if (!comp.bin_file.options.red_zone) {
             dg.addFnAttr(llvm_fn, "noredzone");
         }
-        if (dg.module.comp.bin_file.options.omit_frame_pointer) {
+        if (comp.bin_file.options.omit_frame_pointer) {
             dg.addFnAttrString(llvm_fn, "frame-pointer", "none");
         } else {
             dg.addFnAttrString(llvm_fn, "frame-pointer", "all");
         }
         dg.addFnAttr(llvm_fn, "nounwind");
-        if (dg.module.comp.unwind_tables) {
+        if (comp.unwind_tables) {
             dg.addFnAttr(llvm_fn, "uwtable");
         }
-        if (dg.module.comp.bin_file.options.skip_linker_dependencies) {
+        if (comp.bin_file.options.skip_linker_dependencies) {
             // The intent here is for compiler-rt and libc functions to not generate
             // infinite recursion. For example, if we are compiling the memcpy function,
             // and llvm detects that the body is equivalent to memcpy, it may replace the
@@ -2322,14 +2324,19 @@ pub const DeclGen = struct {
             // overflow instead of performing memcpy.
             dg.addFnAttr(llvm_fn, "nobuiltin");
         }
-        if (dg.module.comp.bin_file.options.optimize_mode == .ReleaseSmall) {
+        if (comp.bin_file.options.optimize_mode == .ReleaseSmall) {
             dg.addFnAttr(llvm_fn, "minsize");
             dg.addFnAttr(llvm_fn, "optsize");
         }
-        if (dg.module.comp.bin_file.options.tsan) {
+        if (comp.bin_file.options.tsan) {
             dg.addFnAttr(llvm_fn, "sanitize_thread");
         }
-        // TODO add target-cpu and target-features fn attributes
+        if (comp.getTarget().cpu.model.llvm_name) |s| {
+            llvm_fn.addFunctionAttr("target-cpu", s);
+        }
+        if (comp.bin_file.options.llvm_cpu_features) |s| {
+            llvm_fn.addFunctionAttr("target-features", s);
+        }
     }
 
     fn resolveGlobalDecl(dg: *DeclGen, decl_index: Module.Decl.Index) Error!*const llvm.Value {
