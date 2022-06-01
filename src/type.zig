@@ -646,6 +646,9 @@ pub const Type = extern union {
                 if (a_info.is_generic != b_info.is_generic)
                     return false;
 
+                if (a_info.noalias_bits != b_info.noalias_bits)
+                    return false;
+
                 if (!a_info.cc_is_generic and a_info.cc != b_info.cc)
                     return false;
 
@@ -1047,6 +1050,7 @@ pub const Type = extern union {
                 }
                 std.hash.autoHash(hasher, fn_info.is_var_args);
                 std.hash.autoHash(hasher, fn_info.is_generic);
+                std.hash.autoHash(hasher, fn_info.noalias_bits);
 
                 std.hash.autoHash(hasher, fn_info.param_types.len);
                 for (fn_info.param_types) |param_ty, i| {
@@ -1424,6 +1428,11 @@ pub const Type = extern union {
                     .is_var_args = payload.is_var_args,
                     .is_generic = payload.is_generic,
                     .comptime_params = comptime_params.ptr,
+                    .align_is_generic = payload.align_is_generic,
+                    .cc_is_generic = payload.cc_is_generic,
+                    .section_is_generic = payload.section_is_generic,
+                    .addrspace_is_generic = payload.addrspace_is_generic,
+                    .noalias_bits = payload.noalias_bits,
                 });
             },
             .pointer => {
@@ -4738,6 +4747,11 @@ pub const Type = extern union {
                 .alignment = 0,
                 .is_var_args = false,
                 .is_generic = false,
+                .align_is_generic = false,
+                .cc_is_generic = false,
+                .section_is_generic = false,
+                .addrspace_is_generic = false,
+                .noalias_bits = 0,
             },
             .fn_void_no_args => .{
                 .param_types = &.{},
@@ -4747,6 +4761,11 @@ pub const Type = extern union {
                 .alignment = 0,
                 .is_var_args = false,
                 .is_generic = false,
+                .align_is_generic = false,
+                .cc_is_generic = false,
+                .section_is_generic = false,
+                .addrspace_is_generic = false,
+                .noalias_bits = 0,
             },
             .fn_naked_noreturn_no_args => .{
                 .param_types = &.{},
@@ -4756,6 +4775,11 @@ pub const Type = extern union {
                 .alignment = 0,
                 .is_var_args = false,
                 .is_generic = false,
+                .align_is_generic = false,
+                .cc_is_generic = false,
+                .section_is_generic = false,
+                .addrspace_is_generic = false,
+                .noalias_bits = 0,
             },
             .fn_ccc_void_no_args => .{
                 .param_types = &.{},
@@ -4765,6 +4789,11 @@ pub const Type = extern union {
                 .alignment = 0,
                 .is_var_args = false,
                 .is_generic = false,
+                .align_is_generic = false,
+                .cc_is_generic = false,
+                .section_is_generic = false,
+                .addrspace_is_generic = false,
+                .noalias_bits = 0,
             },
             .function => ty.castTag(.function).?.data,
 
@@ -6123,13 +6152,14 @@ pub const Type = extern union {
                 return_type: Type,
                 /// If zero use default target function code alignment.
                 alignment: u32,
+                noalias_bits: u32,
                 cc: std.builtin.CallingConvention,
                 is_var_args: bool,
                 is_generic: bool,
-                align_is_generic: bool = false,
-                cc_is_generic: bool = false,
-                section_is_generic: bool = false,
-                addrspace_is_generic: bool = false,
+                align_is_generic: bool,
+                cc_is_generic: bool,
+                section_is_generic: bool,
+                addrspace_is_generic: bool,
 
                 pub fn paramIsComptime(self: @This(), i: usize) bool {
                     assert(i < self.param_types.len);
