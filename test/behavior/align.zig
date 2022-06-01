@@ -502,12 +502,9 @@ test "align(@alignOf(T)) T does not force resolution of T" {
 
 test "align(N) on functions" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     // function alignment is a compile error on wasm32/wasm64
     if (native_arch == .wasm32 or native_arch == .wasm64) return error.SkipZigTest;
@@ -531,5 +528,5 @@ test "comptime alloc alignment" {
 
     comptime var bytes2 align(256) = [_]u8{0};
     var bytes2_addr = @ptrToInt(&bytes2);
-    try std.testing.expect(bytes2_addr & 0xff == 0);
+    try expect(bytes2_addr & 0xff == 0);
 }

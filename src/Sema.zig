@@ -1540,6 +1540,24 @@ fn resolveMaybeUndefVal(
     }
 }
 
+/// Value Tag `variable` results in `null`.
+/// Value Tag `undef` results in the Value.
+/// Value Tag `generic_poison` causes `error.GenericPoison` to be returned.
+/// Value Tag `decl_ref` and `decl_ref_mut` or any nested such value results in `null`.
+fn resolveMaybeUndefValIntable(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    inst: Air.Inst.Ref,
+) CompileError!?Value {
+    const val = (try sema.resolveMaybeUndefValAllowVariables(block, src, inst)) orelse return null;
+    switch (val.tag()) {
+        .variable, .decl_ref, .decl_ref_mut => return null,
+        .generic_poison => return error.GenericPoison,
+        else => return val,
+    }
+}
+
 /// Returns all Value tags including `variable` and `undef`.
 fn resolveMaybeUndefValAllowVariables(
     sema: *Sema,
@@ -9302,19 +9320,27 @@ fn zirBitwise(
         return sema.fail(block, src, "invalid operands to binary bitwise expression: '{s}' and '{s}'", .{ @tagName(lhs_ty.zigTypeTag()), @tagName(rhs_ty.zigTypeTag()) });
     }
 
-    if (try sema.resolveMaybeUndefVal(block, lhs_src, casted_lhs)) |lhs_val| {
-        if (try sema.resolveMaybeUndefVal(block, rhs_src, casted_rhs)) |rhs_val| {
-            const result_val = switch (air_tag) {
-                .bit_and => try lhs_val.bitwiseAnd(rhs_val, resolved_type, sema.arena, target),
-                .bit_or => try lhs_val.bitwiseOr(rhs_val, resolved_type, sema.arena, target),
-                .xor => try lhs_val.bitwiseXor(rhs_val, resolved_type, sema.arena, target),
-                else => unreachable,
-            };
-            return sema.addConstant(resolved_type, result_val);
+    const runtime_src = runtime: {
+        // TODO: ask the linker what kind of relocations are available, and
+        // in some cases emit a Value that means "this decl's address AND'd with this operand".
+        if (try sema.resolveMaybeUndefValIntable(block, lhs_src, casted_lhs)) |lhs_val| {
+            if (try sema.resolveMaybeUndefValIntable(block, rhs_src, casted_rhs)) |rhs_val| {
+                const result_val = switch (air_tag) {
+                    .bit_and => try lhs_val.bitwiseAnd(rhs_val, resolved_type, sema.arena, target),
+                    .bit_or => try lhs_val.bitwiseOr(rhs_val, resolved_type, sema.arena, target),
+                    .xor => try lhs_val.bitwiseXor(rhs_val, resolved_type, sema.arena, target),
+                    else => unreachable,
+                };
+                return sema.addConstant(resolved_type, result_val);
+            } else {
+                break :runtime rhs_src;
+            }
+        } else {
+            break :runtime lhs_src;
         }
-    }
+    };
 
-    try sema.requireRuntimeBlock(block, src);
+    try sema.requireRuntimeBlock(block, runtime_src);
     return block.addBinOp(air_tag, casted_lhs, casted_rhs);
 }
 
@@ -10163,8 +10189,8 @@ fn analyzeArithmetic(
 
     const mod = sema.mod;
     const target = mod.getTarget();
-    const maybe_lhs_val = try sema.resolveMaybeUndefVal(block, lhs_src, casted_lhs);
-    const maybe_rhs_val = try sema.resolveMaybeUndefVal(block, rhs_src, casted_rhs);
+    const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(block, lhs_src, casted_lhs);
+    const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(block, rhs_src, casted_rhs);
     const rs: struct { src: LazySrcLoc, air_tag: Air.Inst.Tag } = rs: {
         switch (zir_tag) {
             .add => {
