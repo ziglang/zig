@@ -1961,6 +1961,7 @@ const Writer = struct {
             body,
             src,
             src_locs,
+            0,
         );
     }
 
@@ -2034,6 +2035,12 @@ const Writer = struct {
             extra_index += 1;
         }
 
+        const noalias_bits: u32 = if (extra.data.bits.has_any_noalias) blk: {
+            const x = self.code.extra[extra_index];
+            extra_index += 1;
+            break :blk x;
+        } else 0;
+
         const body = self.code.extra[extra_index..][0..extra.data.body_len];
         extra_index += body.len;
 
@@ -2059,6 +2066,7 @@ const Writer = struct {
             body,
             src,
             src_locs,
+            noalias_bits,
         );
     }
 
@@ -2216,6 +2224,7 @@ const Writer = struct {
         body: []const Zir.Inst.Index,
         src: LazySrcLoc,
         src_locs: Zir.Inst.Func.SrcLocs,
+        noalias_bits: u32,
     ) !void {
         try self.writeOptionalInstRefOrBody(stream, "align=", align_ref, align_body);
         try self.writeOptionalInstRefOrBody(stream, "addrspace=", addrspace_ref, addrspace_body);
@@ -2225,6 +2234,10 @@ const Writer = struct {
         try self.writeFlag(stream, "vargs, ", var_args);
         try self.writeFlag(stream, "extern, ", is_extern);
         try self.writeFlag(stream, "inferror, ", inferred_error_set);
+
+        if (noalias_bits != 0) {
+            try stream.print("noalias=0b{b}, ", .{noalias_bits});
+        }
 
         try stream.writeAll("body=");
         try self.writeBracedBody(stream, body);
