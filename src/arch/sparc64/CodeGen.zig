@@ -3569,11 +3569,13 @@ fn truncRegister(
             });
         },
         64 => {
+            if (dest_reg == operand_reg)
+                return; // Copy register to itself; nothing to do.
             _ = try self.addInst(.{
                 .tag = .mov,
                 .data = .{
                     .arithmetic_2op = .{
-                        .is_imm = true,
+                        .is_imm = false,
                         .rs1 = dest_reg,
                         .rs2_or_imm = .{ .rs2 = operand_reg },
                     },
