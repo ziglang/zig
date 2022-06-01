@@ -239,6 +239,9 @@ pub const Value = opaque {
 
     pub const getAlignment = LLVMGetAlignment;
     extern fn LLVMGetAlignment(V: *const Value) c_uint;
+
+    pub const addFunctionAttr = ZigLLVMAddFunctionAttr;
+    extern fn ZigLLVMAddFunctionAttr(Fn: *const Value, attr_name: [*:0]const u8, attr_value: [*:0]const u8) void;
 };
 
 pub const Type = opaque {
