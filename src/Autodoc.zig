@@ -1151,7 +1151,7 @@ fn walkInstruction(
             self.exprs.items[slice_index] = .{ .slice = .{ .lhs = lhs_index, .start = start_index } };
 
             return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
+                .typeRef = self.decls.items[lhs.expr.declRef].value.typeRef,
                 .expr = .{ .sliceIndex = slice_index },
             };
         },
@@ -1190,7 +1190,7 @@ fn walkInstruction(
             self.exprs.items[slice_index] = .{ .slice = .{ .lhs = lhs_index, .start = start_index, .end = end_index } };
 
             return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
+                .typeRef = self.decls.items[lhs.expr.declRef].value.typeRef,
                 .expr = .{ .sliceIndex = slice_index },
             };
         },
@@ -1237,7 +1237,7 @@ fn walkInstruction(
             self.exprs.items[slice_index] = .{ .slice = .{ .lhs = lhs_index, .start = start_index, .end = end_index, .sentinel = sentinel_index } };
 
             return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
+                .typeRef = self.decls.items[lhs.expr.declRef].value.typeRef,
                 .expr = .{ .sliceIndex = slice_index },
             };
         },
