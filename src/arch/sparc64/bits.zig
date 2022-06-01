@@ -1205,6 +1205,22 @@ pub const Instruction = union(enum) {
         };
     }
 
+    pub fn xor(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3a(0b10, 0b00_0011, rs1, rs2, rd),
+            i13 => format3b(0b10, 0b00_0011, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
+    pub fn xnor(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3a(0b10, 0b00_0111, rs1, rs2, rd),
+            i13 => format3b(0b10, 0b00_0111, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
     pub fn movcc(comptime s2: type, cond: Condition, ccr: CCR, rs2: s2, rd: Register) Instruction {
         return switch (s2) {
             Register => format4c(0b10_1100, cond, ccr, rs2, rd),

@@ -94,8 +94,8 @@ pub fn emitMir(
             .ldx => try emit.mirArithmetic3Op(inst),
 
             .@"or" => try emit.mirArithmetic3Op(inst),
-            .xor => @panic("TODO implement sparc64 xor"),
-            .xnor => @panic("TODO implement sparc64 xnor"),
+            .xor => try emit.mirArithmetic3Op(inst),
+            .xnor => try emit.mirArithmetic3Op(inst),
 
             .movcc => try emit.mirConditionalMove(inst),
 
@@ -131,7 +131,7 @@ pub fn emitMir(
 
             .mov => try emit.mirArithmetic2Op(inst),
 
-            .not => @panic("TODO implement sparc64 not"),
+            .not => try emit.mirArithmetic2Op(inst),
         }
     }
 }
@@ -192,6 +192,7 @@ fn mirArithmetic2Op(emit: *Emit, inst: Mir.Inst.Index) !void {
             .@"return" => try emit.writeInstruction(Instruction.@"return"(i13, rs1, imm)),
             .cmp => try emit.writeInstruction(Instruction.subcc(i13, rs1, imm, .g0)),
             .mov => try emit.writeInstruction(Instruction.@"or"(i13, .g0, imm, rs1)),
+            .not => try emit.writeInstruction(Instruction.xnor(i13, .g0, imm, rs1)),
             else => unreachable,
         }
     } else {
@@ -200,6 +201,7 @@ fn mirArithmetic2Op(emit: *Emit, inst: Mir.Inst.Index) !void {
             .@"return" => try emit.writeInstruction(Instruction.@"return"(Register, rs1, rs2)),
             .cmp => try emit.writeInstruction(Instruction.subcc(Register, rs1, rs2, .g0)),
             .mov => try emit.writeInstruction(Instruction.@"or"(Register, .g0, rs2, rs1)),
+            .not => try emit.writeInstruction(Instruction.xnor(Register, .g0, rs2, rs1)),
             else => unreachable,
         }
     }
@@ -223,6 +225,8 @@ fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
             .lduw => try emit.writeInstruction(Instruction.lduw(i13, rs1, imm, rd)),
             .ldx => try emit.writeInstruction(Instruction.ldx(i13, rs1, imm, rd)),
             .@"or" => try emit.writeInstruction(Instruction.@"or"(i13, rs1, imm, rd)),
+            .xor => try emit.writeInstruction(Instruction.xor(i13, rs1, imm, rd)),
+            .xnor => try emit.writeInstruction(Instruction.xnor(i13, rs1, imm, rd)),
             .mulx => try emit.writeInstruction(Instruction.mulx(i13, rs1, imm, rd)),
             .save => try emit.writeInstruction(Instruction.save(i13, rs1, imm, rd)),
             .restore => try emit.writeInstruction(Instruction.restore(i13, rs1, imm, rd)),
@@ -245,6 +249,8 @@ fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
             .lduw => try emit.writeInstruction(Instruction.lduw(Register, rs1, rs2, rd)),
             .ldx => try emit.writeInstruction(Instruction.ldx(Register, rs1, rs2, rd)),
             .@"or" => try emit.writeInstruction(Instruction.@"or"(Register, rs1, rs2, rd)),
+            .xor => try emit.writeInstruction(Instruction.xor(Register, rs1, rs2, rd)),
+            .xnor => try emit.writeInstruction(Instruction.xnor(Register, rs1, rs2, rd)),
             .mulx => try emit.writeInstruction(Instruction.mulx(Register, rs1, rs2, rd)),
             .save => try emit.writeInstruction(Instruction.save(Register, rs1, rs2, rd)),
             .restore => try emit.writeInstruction(Instruction.restore(Register, rs1, rs2, rd)),
