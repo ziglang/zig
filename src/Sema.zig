@@ -10938,6 +10938,7 @@ fn analyzePtrArithmetic(
 
     const new_ptr_ty = t: {
         // Calculate the new pointer alignment.
+        // This code is duplicated in `elemPtrType`.
         if (ptr_info.@"align" == 0) {
             // ABI-aligned pointer. Any pointer arithmetic maintains the same ABI-alignedness.
             break :t ptr_ty;
@@ -18617,20 +18618,20 @@ fn elemPtr(
         .Pointer => {
             // In all below cases, we have to deref the ptr operand to get the actual indexable pointer.
             const indexable = try sema.analyzeLoad(block, indexable_ptr_src, indexable_ptr, indexable_ptr_src);
-            const result_ty = try indexable_ty.elemPtrType(sema.arena, sema.mod);
             switch (indexable_ty.ptrSize()) {
                 .Slice => return sema.elemPtrSlice(block, indexable_ptr_src, indexable, elem_index_src, elem_index),
                 .Many, .C => {
                     const maybe_ptr_val = try sema.resolveDefinedValue(block, indexable_ptr_src, indexable);
                     const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
-
                     const runtime_src = rs: {
                         const ptr_val = maybe_ptr_val orelse break :rs indexable_ptr_src;
                         const index_val = maybe_index_val orelse break :rs elem_index_src;
                         const index = @intCast(usize, index_val.toUnsignedInt(target));
                         const elem_ptr = try ptr_val.elemPtr(indexable_ty, sema.arena, index, sema.mod);
+                        const result_ty = try sema.elemPtrType(indexable_ty, index);
                         return sema.addConstant(result_ty, elem_ptr);
                     };
+                    const result_ty = try sema.elemPtrType(indexable_ty, null);
 
                     try sema.requireRuntimeBlock(block, runtime_src);
                     return block.addPtrElemPtr(indexable, elem_index, result_ty);
@@ -18883,29 +18884,29 @@ fn elemPtrArray(
     const array_sent = array_ty.sentinel() != null;
     const array_len = array_ty.arrayLen();
     const array_len_s = array_len + @boolToInt(array_sent);
-    const elem_ptr_ty = try array_ptr_ty.elemPtrType(sema.arena, sema.mod);
 
     if (array_len_s == 0) {
         return sema.fail(block, elem_index_src, "indexing into empty array", .{});
     }
 
     const maybe_undef_array_ptr_val = try sema.resolveMaybeUndefVal(block, array_ptr_src, array_ptr);
-    // index must be defined since it can index out of bounds
-    const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
-
-    if (maybe_index_val) |index_val| {
-        const index = @intCast(usize, index_val.toUnsignedInt(target));
+    // The index must not be undefined since it can be out of bounds.
+    const offset: ?usize = if (try sema.resolveDefinedValue(block, elem_index_src, elem_index)) |index_val| o: {
+        const index = try sema.usizeCast(block, elem_index_src, index_val.toUnsignedInt(target));
         if (index >= array_len_s) {
             const sentinel_label: []const u8 = if (array_sent) " +1 (sentinel)" else "";
             return sema.fail(block, elem_index_src, "index {d} outside array of length {d}{s}", .{ index, array_len, sentinel_label });
         }
-    }
+        break :o index;
+    } else null;
+
+    const elem_ptr_ty = try sema.elemPtrType(array_ptr_ty, offset);
+
     if (maybe_undef_array_ptr_val) |array_ptr_val| {
         if (array_ptr_val.isUndef()) {
             return sema.addConstUndef(elem_ptr_ty);
         }
-        if (maybe_index_val) |index_val| {
-            const index = @intCast(usize, index_val.toUnsignedInt(target));
+        if (offset) |index| {
             const elem_ptr = try array_ptr_val.elemPtr(array_ptr_ty, sema.arena, index, sema.mod);
             return sema.addConstant(elem_ptr_ty, elem_ptr);
         }
@@ -18932,14 +18933,14 @@ fn elemPtrArray(
 
     const runtime_src = if (maybe_undef_array_ptr_val != null) elem_index_src else array_ptr_src;
     try sema.requireRuntimeBlock(block, runtime_src);
-    if (block.wantSafety()) {
-        // Runtime check is only needed if unable to comptime check
-        if (maybe_index_val == null) {
-            const len_inst = try sema.addIntUnsigned(Type.usize, array_len);
-            const cmp_op: Air.Inst.Tag = if (array_sent) .cmp_lte else .cmp_lt;
-            try sema.panicIndexOutOfBounds(block, elem_index_src, elem_index, len_inst, cmp_op);
-        }
+
+    // Runtime check is only needed if unable to comptime check.
+    if (block.wantSafety() and offset == null) {
+        const len_inst = try sema.addIntUnsigned(Type.usize, array_len);
+        const cmp_op: Air.Inst.Tag = if (array_sent) .cmp_lte else .cmp_lt;
+        try sema.panicIndexOutOfBounds(block, elem_index_src, elem_index, len_inst, cmp_op);
     }
+
     return block.addPtrElemPtr(array_ptr, elem_index, elem_ptr_ty);
 }
 
@@ -19007,11 +19008,15 @@ fn elemPtrSlice(
     const target = sema.mod.getTarget();
     const slice_ty = sema.typeOf(slice);
     const slice_sent = slice_ty.sentinel() != null;
-    const elem_ptr_ty = try slice_ty.elemPtrType(sema.arena, sema.mod);
 
     const maybe_undef_slice_val = try sema.resolveMaybeUndefVal(block, slice_src, slice);
-    // index must be defined since it can index out of bounds
-    const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
+    // The index must not be undefined since it can be out of bounds.
+    const offset: ?usize = if (try sema.resolveDefinedValue(block, elem_index_src, elem_index)) |index_val| o: {
+        const index = try sema.usizeCast(block, elem_index_src, index_val.toUnsignedInt(target));
+        break :o index;
+    } else null;
+
+    const elem_ptr_ty = try sema.elemPtrType(slice_ty, null);
 
     if (maybe_undef_slice_val) |slice_val| {
         if (slice_val.isUndef()) {
@@ -19022,8 +19027,7 @@ fn elemPtrSlice(
         if (slice_len_s == 0) {
             return sema.fail(block, elem_index_src, "indexing into empty slice", .{});
         }
-        if (maybe_index_val) |index_val| {
-            const index = @intCast(usize, index_val.toUnsignedInt(target));
+        if (offset) |index| {
             if (index >= slice_len_s) {
                 const sentinel_label: []const u8 = if (slice_sent) " +1 (sentinel)" else "";
                 return sema.fail(block, elem_index_src, "index {d} outside slice of length {d}{s}", .{ index, slice_len, sentinel_label });
@@ -25363,4 +25367,43 @@ fn compareVector(
         scalar.* = Value.makeBool(res_bool);
     }
     return Value.Tag.aggregate.create(sema.arena, result_data);
+}
+
+/// Returns the type of a pointer to an element.
+/// Asserts that the type is a pointer, and that the element type is indexable.
+/// For *[N]T, return *T
+/// For [*]T, returns *T
+/// For []T, returns *T
+/// Handles const-ness and address spaces in particular.
+/// This code is duplicated in `analyzePtrArithmetic`.
+fn elemPtrType(sema: *Sema, ptr_ty: Type, offset: ?usize) !Type {
+    const ptr_info = ptr_ty.ptrInfo().data;
+    const elem_ty = ptr_ty.elemType2();
+    const allow_zero = ptr_info.@"allowzero" and (offset orelse 0) == 0;
+    const alignment: u32 = a: {
+        // Calculate the new pointer alignment.
+        if (ptr_info.@"align" == 0) {
+            // ABI-aligned pointer. Any pointer arithmetic maintains the same ABI-alignedness.
+            break :a 0;
+        }
+        // If the addend is not a comptime-known value we can still count on
+        // it being a multiple of the type size.
+        const target = sema.mod.getTarget();
+        const elem_size = elem_ty.abiSize(target);
+        const addend = if (offset) |off| elem_size * off else elem_size;
+
+        // The resulting pointer is aligned to the lcd between the offset (an
+        // arbitrary number) and the alignment factor (always a power of two,
+        // non zero).
+        const new_align = @as(u32, 1) << @intCast(u5, @ctz(u64, addend | ptr_info.@"align"));
+        break :a new_align;
+    };
+    return try Type.ptr(sema.arena, sema.mod, .{
+        .pointee_type = elem_ty,
+        .mutable = ptr_info.mutable,
+        .@"addrspace" = ptr_info.@"addrspace",
+        .@"allowzero" = allow_zero,
+        .@"volatile" = ptr_info.@"volatile",
+        .@"align" = alignment,
+    });
 }

@@ -4177,20 +4177,6 @@ pub const Type = extern union {
         };
     }
 
-    /// Returns the type of a pointer to an element.
-    /// Asserts that the type is a pointer, and that the element type is indexable.
-    /// For *[N]T, return *T
-    /// For [*]T, returns *T
-    /// For []T, returns *T
-    /// Handles const-ness and address spaces in particular.
-    pub fn elemPtrType(ptr_ty: Type, arena: Allocator, mod: *Module) !Type {
-        return try Type.ptr(arena, mod, .{
-            .pointee_type = ptr_ty.elemType2(),
-            .mutable = ptr_ty.ptrIsMutable(),
-            .@"addrspace" = ptr_ty.ptrAddressSpace(),
-        });
-    }
-
     fn shallowElemType(child_ty: Type) Type {
         return switch (child_ty.zigTypeTag()) {
             .Array, .Vector => child_ty.childType(),
