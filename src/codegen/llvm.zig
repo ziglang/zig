@@ -3893,15 +3893,16 @@ pub const FuncGen = struct {
     /// This data structure is used to implement breaking to blocks.
     blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, struct {
         parent_bb: *const llvm.BasicBlock,
-        break_bbs: *BreakBasicBlocks,
-        break_vals: *BreakValues,
+        breaks: *BreakList,
     }),
 
     single_threaded: bool,
 
     const DbgState = struct { loc: *llvm.DILocation, scope: *llvm.DIScope, base_line: u32 };
-    const BreakBasicBlocks = std.ArrayListUnmanaged(*const llvm.BasicBlock);
-    const BreakValues = std.ArrayListUnmanaged(*const llvm.Value);
+    const BreakList = std.MultiArrayList(struct {
+        bb: *const llvm.BasicBlock,
+        val: *const llvm.Value,
+    });
 
     fn deinit(self: *FuncGen) void {
         self.builder.dispose();
@@ -4649,16 +4650,12 @@ pub const FuncGen = struct {
             return null;
         }
 
-        var break_bbs: BreakBasicBlocks = .{};
-        defer break_bbs.deinit(self.gpa);
-
-        var break_vals: BreakValues = .{};
-        defer break_vals.deinit(self.gpa);
+        var breaks: BreakList = .{};
+        defer breaks.deinit(self.gpa);
 
         try self.blocks.putNoClobber(self.gpa, inst, .{
             .parent_bb = parent_bb,
-            .break_bbs = &break_bbs,
-            .break_vals = &break_vals,
+            .breaks = &breaks,
         });
         defer assert(self.blocks.remove(inst));
 
@@ -4667,7 +4664,7 @@ pub const FuncGen = struct {
         self.llvm_func.appendExistingBasicBlock(parent_bb);
         self.builder.positionBuilderAtEnd(parent_bb);
 
-        // If the block does not return a value, we dont have to create a phi node.
+        // Create a phi node only if the block returns a value.
         const is_body = inst_ty.zigTypeTag() == .Fn;
         if (!is_body and !inst_ty.hasRuntimeBitsIgnoreComptime()) return null;
 
@@ -4686,9 +4683,9 @@ pub const FuncGen = struct {
 
         const phi_node = self.builder.buildPhi(llvm_ty, "");
         phi_node.addIncoming(
-            break_vals.items.ptr,
-            break_bbs.items.ptr,
-            @intCast(c_uint, break_vals.items.len),
+            breaks.items(.val).ptr,
+            breaks.items(.bb).ptr,
+            @intCast(c_uint, breaks.len),
         );
         return phi_node;
     }
@@ -4697,16 +4694,17 @@ pub const FuncGen = struct {
         const branch = self.air.instructions.items(.data)[inst].br;
         const block = self.blocks.get(branch.block_inst).?;
 
-        // If the break doesn't break a value, then we don't have to add
-        // the values to the lists.
+        // Add the values to the lists only if the break provides a value.
         const operand_ty = self.air.typeOf(branch.operand);
         if (operand_ty.hasRuntimeBitsIgnoreComptime() or operand_ty.zigTypeTag() == .Fn) {
             const val = try self.resolveInst(branch.operand);
 
             // For the phi node, we need the basic blocks and the values of the
             // break instructions.
-            try block.break_bbs.append(self.gpa, self.builder.getInsertBlock());
-            try block.break_vals.append(self.gpa, val);
+            try block.breaks.append(self.gpa, .{
+                .bb = self.builder.getInsertBlock(),
+                .val = val,
+            });
         }
         _ = self.builder.buildBr(block.parent_bb);
         return null;
