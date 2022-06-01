@@ -689,6 +689,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             // zig fmt: on
         }
 
+        assert(!self.register_manager.lockedRegsExist());
+
         if (std.debug.runtime_safety) {
             if (self.air_bookkeeping < old_air_bookkeeping + 1) {
                 std.debug.panic("in codegen.zig, handling of AIR instruction %{d} ('{}') did not do proper bookkeeping. Look for a missing call to finishAir.", .{ inst, air_tags[inst] });
@@ -2918,7 +2920,7 @@ fn isNonErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
     switch (is_err_result) {
         .compare_flags_unsigned => |op| {
             assert(op.cmp == .gt);
-            return MCValue{ .compare_flags_unsigned = .{ .cmp = .gt, .ccr = op.ccr } };
+            return MCValue{ .compare_flags_unsigned = .{ .cmp = .lte, .ccr = op.ccr } };
         },
         .immediate => |imm| {
             assert(imm == 0);
@@ -3179,7 +3181,7 @@ fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
     const ref_int = @enumToInt(inst);
     if (ref_int < Air.Inst.Ref.typed_value_map.len) {
         const tv = Air.Inst.Ref.typed_value_map[ref_int];
-        if (!tv.ty.hasRuntimeBits()) {
+        if (!tv.ty.hasRuntimeBits() and !tv.ty.isError()) {
             return MCValue{ .none = {} };
         }
         return self.genTypedValue(tv);
@@ -3187,7 +3189,7 @@ fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
 
     // If the type has no codegen bits, no need to store it.
     const inst_ty = self.air.typeOf(inst);
-    if (!inst_ty.hasRuntimeBits())
+    if (!inst_ty.hasRuntimeBits() and !inst_ty.isError())
         return MCValue{ .none = {} };
 
     const inst_index = @intCast(Air.Inst.Index, ref_int - Air.Inst.Ref.typed_value_map.len);
