@@ -11,9 +11,6 @@ pub const Token = struct {
     id: Id,
     start: usize,
     end: usize,
-    // Count of spaces/tabs.
-    // Only active for .Space and .Tab tokens.
-    count: ?usize = null,
 
     pub const Id = enum {
         Eof,
@@ -87,8 +84,8 @@ pub fn next(self: *Tokenizer) Token {
     var state: union(enum) {
         Start,
         NewLine,
-        Space: usize,
-        Tab: usize,
+        Space,
+        Tab,
         Hyphen: usize,
         Dot: usize,
         Literal,
@@ -99,10 +96,10 @@ pub fn next(self: *Tokenizer) Token {
         switch (state) {
             .Start => switch (c) {
                 ' ' => {
-                    state = .{ .Space = 1 };
+                    state = .Space;
                 },
                 '\t' => {
-                    state = .{ .Tab = 1 };
+                    state = .Tab;
                 },
                 '\n' => {
                     result.id = .NewLine;
@@ -182,23 +179,17 @@ pub fn next(self: *Tokenizer) Token {
                     state = .Literal;
                 },
             },
-            .Space => |*count| switch (c) {
-                ' ' => {
-                    count.* += 1;
-                },
+            .Space => switch (c) {
+                ' ' => {},
                 else => {
                     result.id = .Space;
-                    result.count = count.*;
                     break;
                 },
             },
-            .Tab => |*count| switch (c) {
-                ' ' => {
-                    count.* += 1;
-                },
+            .Tab => switch (c) {
+                '\t' => {},
                 else => {
                     result.id = .Tab;
-                    result.count = count.*;
                     break;
                 },
             },
@@ -272,10 +263,18 @@ fn testExpected(source: []const u8, expected: []const Token.Id) !void {
         .buffer = source,
     };
 
+    var token_len: usize = 0;
     for (expected) |exp| {
+        token_len += 1;
         const token = tokenizer.next();
         try testing.expectEqual(exp, token.id);
     }
+
+    while (tokenizer.next().id != .Eof) {
+        token_len += 1; // consume all tokens
+    }
+
+    try testing.expectEqual(expected.len, token_len);
 }
 
 test "empty doc" {
@@ -376,7 +375,7 @@ test "inline mapped sequence of values" {
     });
 }
 
-test "part of tdb" {
+test "part of tbd" {
     try testExpected(
         \\--- !tapi-tbd
         \\tbd-version:     4
@@ -435,5 +434,27 @@ test "part of tdb" {
         .NewLine,
         .DocEnd,
         .Eof,
+    });
+}
+
+test "Unindented list" {
+    try testExpected(
+        \\b:
+        \\- foo: 1
+        \\c: 1
+    , &[_]Token.Id{
+        .Literal,
+        .MapValueInd,
+        .NewLine,
+        .SeqItemInd,
+        .Literal,
+        .MapValueInd,
+        .Space,
+        .Literal,
+        .NewLine,
+        .Literal,
+        .MapValueInd,
+        .Space,
+        .Literal,
     });
 }
