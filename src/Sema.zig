@@ -2711,17 +2711,72 @@ fn zirAllocComptime(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
 
 fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const ptr = try sema.resolveInst(inst_data.operand);
-    const ptr_ty = sema.typeOf(ptr);
-    var ptr_info = ptr_ty.ptrInfo().data;
+    const src = inst_data.src();
+    const alloc = try sema.resolveInst(inst_data.operand);
+    const alloc_ty = sema.typeOf(alloc);
+
+    var ptr_info = alloc_ty.ptrInfo().data;
+    const elem_ty = ptr_info.pointee_type;
+
+    // Detect if all stores to an `.alloc` were comptime known.
+    ct: {
+        var search_index: usize = block.instructions.items.len;
+        const air_tags = sema.air_instructions.items(.tag);
+        const air_datas = sema.air_instructions.items(.data);
+
+        const store_inst = while (true) {
+            if (search_index == 0) break :ct;
+            search_index -= 1;
+
+            const candidate = block.instructions.items[search_index];
+            switch (air_tags[candidate]) {
+                .dbg_stmt => continue,
+                .store => break candidate,
+                else => break :ct,
+            }
+        } else unreachable; // TODO shouldn't need this
+
+        while (true) {
+            if (search_index == 0) break :ct;
+            search_index -= 1;
+
+            const candidate = block.instructions.items[search_index];
+            switch (air_tags[candidate]) {
+                .dbg_stmt => continue,
+                .alloc => {
+                    if (Air.indexToRef(candidate) != alloc) break :ct;
+                    break;
+                },
+                else => break :ct,
+            }
+        }
+
+        const store_op = air_datas[store_inst].bin_op;
+        const store_val = (try sema.resolveMaybeUndefVal(block, src, store_op.rhs)) orelse break :ct;
+        if (store_op.lhs != alloc) break :ct;
+
+        // Remove all the unnecessary runtime instructions.
+        block.instructions.shrinkRetainingCapacity(search_index);
+
+        var anon_decl = try block.startAnonDecl(src);
+        defer anon_decl.deinit();
+        return sema.analyzeDeclRef(try anon_decl.finish(
+            try elem_ty.copy(anon_decl.arena()),
+            try store_val.copy(anon_decl.arena()),
+            ptr_info.@"align",
+        ));
+    }
+
     ptr_info.mutable = false;
     const const_ptr_ty = try Type.ptr(sema.arena, sema.mod, ptr_info);
 
-    if (try sema.resolveMaybeUndefVal(block, inst_data.src(), ptr)) |val| {
+    // Detect if a comptime value simply needs to have its type changed.
+    if (try sema.resolveMaybeUndefVal(block, inst_data.src(), alloc)) |val| {
         return sema.addConstant(const_ptr_ty, val);
     }
-    try sema.requireRuntimeBlock(block, inst_data.src());
-    return block.addBitCast(const_ptr_ty, ptr);
+
+    try sema.requireRuntimeBlock(block, src);
+    return block.addBitCast(const_ptr_ty, alloc);
 }
 
 fn zirAllocInferredComptime(
@@ -3160,7 +3215,9 @@ fn validateUnionInit(
         return sema.failWithOwnedErrorMsg(block, msg);
     }
 
-    if (is_comptime or block.is_comptime) {
+    if ((is_comptime or block.is_comptime) and
+        (try sema.resolveDefinedValue(block, init_src, union_ptr)) != null)
+    {
         // In this case, comptime machinery already did everything. No work to do here.
         return;
     }
@@ -3206,7 +3263,18 @@ fn validateUnionInit(
         if (store_inst == field_ptr_air_inst) break;
         if (air_tags[store_inst] != .store) continue;
         const bin_op = air_datas[store_inst].bin_op;
-        if (bin_op.lhs != field_ptr_air_ref) continue;
+        var lhs = bin_op.lhs;
+        if (Air.refToIndex(lhs)) |lhs_index| {
+            if (air_tags[lhs_index] == .bitcast) {
+                lhs = air_datas[lhs_index].ty_op.operand;
+                block_index -= 1;
+            }
+        }
+        if (lhs != field_ptr_air_ref) continue;
+        while (block_index > 0) : (block_index -= 1) {
+            const block_inst = block.instructions.items[block_index - 1];
+            if (air_tags[block_inst] != .dbg_stmt) break;
+        }
         if (block_index > 0 and
             field_ptr_air_inst == block.instructions.items[block_index - 1])
         {
@@ -3285,7 +3353,9 @@ fn validateStructInit(
     const struct_ptr = try sema.resolveInst(struct_ptr_zir_ref);
     const struct_ty = sema.typeOf(struct_ptr).childType();
 
-    if (is_comptime or block.is_comptime) {
+    if ((is_comptime or block.is_comptime) and
+        (try sema.resolveDefinedValue(block, init_src, struct_ptr)) != null)
+    {
         // In this case the only thing we need to do is evaluate the implicit
         // store instructions for default field values, and report any missing fields.
         // Avoid the cost of the extra machinery for detecting a comptime struct init value.
@@ -3387,7 +3457,19 @@ fn validateStructInit(
                 }
                 if (air_tags[store_inst] != .store) continue;
                 const bin_op = air_datas[store_inst].bin_op;
-                if (bin_op.lhs != field_ptr_air_ref) continue;
+                var lhs = bin_op.lhs;
+                {
+                    const lhs_index = Air.refToIndex(lhs) orelse continue;
+                    if (air_tags[lhs_index] == .bitcast) {
+                        lhs = air_datas[lhs_index].ty_op.operand;
+                        block_index -= 1;
+                    }
+                }
+                if (lhs != field_ptr_air_ref) continue;
+                while (block_index > 0) : (block_index -= 1) {
+                    const block_inst = block.instructions.items[block_index - 1];
+                    if (air_tags[block_inst] != .dbg_stmt) break;
+                }
                 if (block_index > 0 and
                     field_ptr_air_inst == block.instructions.items[block_index - 1])
                 {
@@ -3489,7 +3571,9 @@ fn zirValidateArrayInit(
         });
     }
 
-    if (is_comptime or block.is_comptime) {
+    if ((is_comptime or block.is_comptime) and
+        (try sema.resolveDefinedValue(block, init_src, array_ptr)) != null)
+    {
         // In this case the comptime machinery will have evaluated the store instructions
         // at comptime so we have almost nothing to do here. However, in case of a
         // sentinel-terminated array, the sentinel will not have been populated by
@@ -3544,7 +3628,14 @@ fn zirValidateArrayInit(
         switch (air_tags[next_air_inst]) {
             .store => {
                 const bin_op = air_datas[next_air_inst].bin_op;
-                if (bin_op.lhs != elem_ptr_air_ref) {
+                var lhs = bin_op.lhs;
+                if (Air.refToIndex(lhs)) |lhs_index| {
+                    if (air_tags[lhs_index] == .bitcast) {
+                        lhs = air_datas[lhs_index].ty_op.operand;
+                        block_index -= 1;
+                    }
+                }
+                if (lhs != elem_ptr_air_ref) {
                     array_is_comptime = false;
                     continue;
                 }
