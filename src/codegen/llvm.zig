@@ -712,7 +712,6 @@ pub const Object = struct {
                 .byval => {
                     const param_ty = fn_info.param_types[it.zig_index - 1];
                     const param = llvm_func.getParam(llvm_arg_i);
-                    llvm_arg_i += 1;
 
                     if (isByRef(param_ty)) {
                         const alignment = param_ty.abiAlignment(target);
@@ -724,11 +723,33 @@ pub const Object = struct {
                         try args.append(arg_ptr);
                     } else {
                         try args.append(param);
+
+                        if (param_ty.isPtrAtRuntime()) {
+                            // TODO noalias attribute
+                            const ptr_info = param_ty.ptrInfo().data;
+                            if (!param_ty.isPtrLikeOptional() and !ptr_info.@"allowzero") {
+                                dg.addArgAttr(llvm_func, llvm_arg_i, "nonnull");
+                            }
+                            if (!ptr_info.mutable) {
+                                dg.addArgAttr(llvm_func, llvm_arg_i, "readonly");
+                            }
+                            if (ptr_info.@"align" != 0) {
+                                dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", ptr_info.@"align");
+                            } else {
+                                dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", ptr_info.pointee_type.abiAlignment(target));
+                            }
+                        }
                     }
+                    llvm_arg_i += 1;
                 },
                 .byref => {
                     const param_ty = fn_info.param_types[it.zig_index - 1];
                     const param = llvm_func.getParam(llvm_arg_i);
+
+                    dg.addArgAttr(llvm_func, llvm_arg_i, "nonnull");
+                    dg.addArgAttr(llvm_func, llvm_arg_i, "readonly");
+                    dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", param_ty.abiAlignment(target));
+
                     llvm_arg_i += 1;
 
                     if (isByRef(param_ty)) {
@@ -2213,20 +2234,8 @@ pub const DeclGen = struct {
             dg.addArgAttr(llvm_fn, @boolToInt(sret), "nonnull");
         }
 
-        // Set parameter attributes.
-        // TODO: more attributes. see codegen.cpp `make_fn_llvm_value`.
         switch (fn_info.cc) {
             .Unspecified, .Inline => {
-                var llvm_param_i: c_uint = @as(c_uint, @boolToInt(sret)) + @boolToInt(err_return_tracing);
-                for (fn_info.param_types) |param_ty| {
-                    if (!param_ty.hasRuntimeBitsIgnoreComptime()) continue;
-
-                    if (isByRef(param_ty)) {
-                        dg.addArgAttr(llvm_fn, llvm_param_i, "nonnull");
-                        // TODO readonly, noalias, align
-                    }
-                    llvm_param_i += 1;
-                }
                 llvm_fn.setFunctionCallConv(.Fast);
             },
             .Naked => {
@@ -3703,6 +3712,10 @@ pub const DeclGen = struct {
 
     fn addArgAttr(dg: DeclGen, fn_val: *const llvm.Value, param_index: u32, attr_name: []const u8) void {
         return dg.addAttr(fn_val, param_index + 1, attr_name);
+    }
+
+    fn addArgAttrInt(dg: DeclGen, fn_val: *const llvm.Value, param_index: u32, attr_name: []const u8, int: u64) void {
+        return dg.addAttrInt(fn_val, param_index + 1, attr_name, int);
     }
 
     fn removeAttr(val: *const llvm.Value, index: llvm.AttributeIndex, name: []const u8) void {
