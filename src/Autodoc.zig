@@ -668,6 +668,8 @@ const DocData = struct {
         compileError: []const u8,
         errorSets: usize,
         string: []const u8, // direct value
+        sliceIndex: usize,
+        slice: Slice,
         builtin: Builtin,
         builtinIndex: usize,
         builtinBin: BuiltinBin,
@@ -708,6 +710,12 @@ const DocData = struct {
         const Builtin = struct {
             name: []const u8 = "", // fn name
             param: usize, // index in `exprs`
+        };
+        const Slice = struct {
+            lhs: usize, // index in `exprs`
+            start: usize,
+            end: ?usize = null,
+            sentinel: ?usize = null, // index in `exprs`
         };
         const As = struct {
             typeRefArg: ?usize, // index in `exprs`
@@ -830,6 +838,16 @@ const DocData = struct {
                 ),
                 .builtinBinIndex => |v| try std.json.stringify(
                     struct { builtinBinIndex: usize }{ .builtinBinIndex = v },
+                    options,
+                    w,
+                ),
+                .slice => |v| try std.json.stringify(
+                    struct { slice: Slice }{ .slice = v },
+                    options,
+                    w,
+                ),
+                .sliceIndex => |v| try std.json.stringify(
+                    struct { sliceIndex: usize }{ .sliceIndex = v },
                     options,
                     w,
                 ),
@@ -1106,6 +1124,123 @@ fn walkInstruction(
         //         .expr = .{ .binOpIndex = binop_index },
         //     };
         // },
+        .slice_start => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.SliceStart, pl_node.payload_index);
+
+            const slice_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, .{ .slice = .{ .lhs = 0, .start = 0 } });
+
+            var lhs: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                extra.data.lhs,
+                false,
+            );
+            var start: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                extra.data.start,
+                false,
+            );
+
+            const lhs_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, lhs.expr);
+            const start_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, start.expr);
+            self.exprs.items[slice_index] = .{ .slice = .{ .lhs = lhs_index, .start = start_index } };
+
+            return DocData.WalkResult{
+                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
+                .expr = .{ .sliceIndex = slice_index },
+            };
+        },
+        .slice_end => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.SliceEnd, pl_node.payload_index);
+
+            const slice_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, .{ .slice = .{ .lhs = 0, .start = 0 } });
+
+            var lhs: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                extra.data.lhs,
+                false,
+            );
+            var start: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                extra.data.start,
+                false,
+            );
+            var end: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                extra.data.end,
+                false,
+            );
+
+            const lhs_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, lhs.expr);
+            const start_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, start.expr);
+            const end_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, end.expr);
+            self.exprs.items[slice_index] = .{ .slice = .{ .lhs = lhs_index, .start = start_index, .end = end_index } };
+
+            return DocData.WalkResult{
+                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
+                .expr = .{ .sliceIndex = slice_index },
+            };
+        },
+        .slice_sentinel => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.SliceSentinel, pl_node.payload_index);
+
+            const slice_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, .{ .slice = .{ .lhs = 0, .start = 0 } });
+
+            var lhs: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                extra.data.lhs,
+                false,
+            );
+            var start: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                extra.data.start,
+                false,
+            );
+            var end: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                extra.data.end,
+                false,
+            );
+            var sentinel: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                extra.data.sentinel,
+                false,
+            );
+
+            const lhs_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, lhs.expr);
+            const start_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, start.expr);
+            const end_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, end.expr);
+            const sentinel_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, sentinel.expr);
+            self.exprs.items[slice_index] = .{ .slice = .{ .lhs = lhs_index, .start = start_index, .end = end_index, .sentinel = sentinel_index } };
+
+            return DocData.WalkResult{
+                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
+                .expr = .{ .sliceIndex = slice_index },
+            };
+        },
         .bit_or => {
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
@@ -1924,6 +2059,7 @@ fn walkInstruction(
             };
         },
 
+        // builtin functions
         .align_of,
         .bool_to_int,
         .embed_file,
@@ -1966,6 +2102,8 @@ fn walkInstruction(
                 .expr = .{ .builtinIndex = bin_index },
             };
         },
+        // @check
+        // .clz, .ctz, .pop_count, .byte_swap, .bit_reverse
         .float_to_int, .int_to_float, .int_to_ptr, .int_to_enum, .float_cast, .int_cast, .ptr_cast, .truncate, .align_cast, .has_decl, .has_field => {
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
