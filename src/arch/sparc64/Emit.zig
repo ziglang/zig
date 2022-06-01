@@ -79,7 +79,7 @@ pub fn emitMir(
             .dbg_epilogue_begin => try emit.mirDebugEpilogueBegin(),
 
             .add => try emit.mirArithmetic3Op(inst),
-            .addcc => @panic("TODO implement sparc64 addcc"),
+            .addcc => try emit.mirArithmetic3Op(inst),
 
             .bpr => try emit.mirConditionalBranch(inst),
             .bpcc => try emit.mirConditionalBranch(inst),
@@ -95,7 +95,7 @@ pub fn emitMir(
 
             .@"or" => try emit.mirArithmetic3Op(inst),
 
-            .movcc => @panic("TODO implement sparc64 movcc"),
+            .movcc => try emit.mirConditionalMove(inst),
 
             .mulx => try emit.mirArithmetic3Op(inst),
 
@@ -212,6 +212,7 @@ fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
         const imm = data.rs2_or_imm.imm;
         switch (tag) {
             .add => try emit.writeInstruction(Instruction.add(i13, rs1, imm, rd)),
+            .addcc => try emit.writeInstruction(Instruction.addcc(i13, rs1, imm, rd)),
             .jmpl => try emit.writeInstruction(Instruction.jmpl(i13, rs1, imm, rd)),
             .ldub => try emit.writeInstruction(Instruction.ldub(i13, rs1, imm, rd)),
             .lduh => try emit.writeInstruction(Instruction.lduh(i13, rs1, imm, rd)),
@@ -233,6 +234,7 @@ fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
         const rs2 = data.rs2_or_imm.rs2;
         switch (tag) {
             .add => try emit.writeInstruction(Instruction.add(Register, rs1, rs2, rd)),
+            .addcc => try emit.writeInstruction(Instruction.addcc(Register, rs1, rs2, rd)),
             .jmpl => try emit.writeInstruction(Instruction.jmpl(Register, rs1, rs2, rd)),
             .ldub => try emit.writeInstruction(Instruction.ldub(Register, rs1, rs2, rd)),
             .lduh => try emit.writeInstruction(Instruction.lduh(Register, rs1, rs2, rd)),
@@ -294,6 +296,34 @@ fn mirConditionalBranch(emit: *Emit, inst: Mir.Inst.Index) !void {
             },
             else => unreachable,
         },
+    }
+}
+
+fn mirConditionalMove(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+
+    switch (tag) {
+        .movcc => {
+            const data = emit.mir.instructions.items(.data)[inst].conditional_move;
+            if (data.is_imm) {
+                try emit.writeInstruction(Instruction.movcc(
+                    i11,
+                    data.cond,
+                    data.ccr,
+                    data.rs2_or_imm.imm,
+                    data.rd,
+                ));
+            } else {
+                try emit.writeInstruction(Instruction.movcc(
+                    Register,
+                    data.cond,
+                    data.ccr,
+                    data.rs2_or_imm.rs2,
+                    data.rd,
+                ));
+            }
+        },
+        else => unreachable,
     }
 }
 
