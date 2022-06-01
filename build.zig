@@ -54,6 +54,7 @@ pub fn build(b: *Builder) !void {
     const skip_release_safe = b.option(bool, "skip-release-safe", "Main test suite skips release-safe builds") orelse skip_release;
     const skip_non_native = b.option(bool, "skip-non-native", "Main test suite skips non-native builds") orelse false;
     const skip_libc = b.option(bool, "skip-libc", "Main test suite skips tests that link libc") orelse false;
+    const skip_single_threaded = b.option(bool, "skip-single-threaded", "Main test suite skips tests that are single-threaded") orelse false;
     const skip_stage1 = b.option(bool, "skip-stage1", "Main test suite skips stage1 compile error tests") orelse false;
     const skip_run_translated_c = b.option(bool, "skip-run-translated-c", "Main test suite skips run-translated-c tests") orelse false;
     const skip_stage2_tests = b.option(bool, "skip-stage2-tests", "Main test suite skips self-hosted compiler tests") orelse false;
@@ -444,7 +445,7 @@ pub fn build(b: *Builder) !void {
         "behavior",
         "Run the behavior tests",
         modes,
-        false, // skip_single_threaded
+        skip_single_threaded,
         skip_non_native,
         skip_libc,
         skip_stage1,
@@ -501,7 +502,7 @@ pub fn build(b: *Builder) !void {
         "std",
         "Run the standard library tests",
         modes,
-        false,
+        skip_single_threaded,
         skip_non_native,
         skip_libc,
         skip_stage1,
