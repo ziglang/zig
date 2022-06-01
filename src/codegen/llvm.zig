@@ -712,6 +712,7 @@ pub const Object = struct {
                 .byval => {
                     const param_ty = fn_info.param_types[it.zig_index - 1];
                     const param = llvm_func.getParam(llvm_arg_i);
+                    try args.ensureUnusedCapacity(1);
 
                     if (isByRef(param_ty)) {
                         const alignment = param_ty.abiAlignment(target);
@@ -720,9 +721,9 @@ pub const Object = struct {
                         arg_ptr.setAlignment(alignment);
                         const store_inst = builder.buildStore(param, arg_ptr);
                         store_inst.setAlignment(alignment);
-                        try args.append(arg_ptr);
+                        args.appendAssumeCapacity(arg_ptr);
                     } else {
-                        try args.append(param);
+                        args.appendAssumeCapacity(param);
 
                         if (param_ty.isPtrAtRuntime()) {
                             const ptr_info = param_ty.ptrInfo().data;
@@ -756,13 +757,15 @@ pub const Object = struct {
 
                     llvm_arg_i += 1;
 
+                    try args.ensureUnusedCapacity(1);
+
                     if (isByRef(param_ty)) {
-                        try args.append(param);
+                        args.appendAssumeCapacity(param);
                     } else {
                         const alignment = param_ty.abiAlignment(target);
                         const load_inst = builder.buildLoad(param, "");
                         load_inst.setAlignment(alignment);
-                        try args.append(load_inst);
+                        args.appendAssumeCapacity(load_inst);
                     }
                 },
                 .abi_sized_int => {
@@ -784,13 +787,43 @@ pub const Object = struct {
                     const store_inst = builder.buildStore(param, casted_ptr);
                     store_inst.setAlignment(alignment);
 
+                    try args.ensureUnusedCapacity(1);
+
                     if (isByRef(param_ty)) {
-                        try args.append(arg_ptr);
+                        args.appendAssumeCapacity(arg_ptr);
                     } else {
                         const load_inst = builder.buildLoad(arg_ptr, "");
                         load_inst.setAlignment(alignment);
-                        try args.append(load_inst);
+                        args.appendAssumeCapacity(load_inst);
                     }
+                },
+                .slice => {
+                    const param_ty = fn_info.param_types[it.zig_index - 1];
+                    const ptr_info = param_ty.ptrInfo().data;
+
+                    if (math.cast(u5, it.zig_index - 1)) |i| {
+                        if (@truncate(u1, fn_info.noalias_bits >> i) != 0) {
+                            dg.addArgAttr(llvm_func, llvm_arg_i, "noalias");
+                        }
+                    }
+                    dg.addArgAttr(llvm_func, llvm_arg_i, "nonnull");
+                    if (!ptr_info.mutable) {
+                        dg.addArgAttr(llvm_func, llvm_arg_i, "readonly");
+                    }
+                    if (ptr_info.@"align" != 0) {
+                        dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", ptr_info.@"align");
+                    } else {
+                        dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", ptr_info.pointee_type.abiAlignment(target));
+                    }
+                    const ptr_param = llvm_func.getParam(llvm_arg_i);
+                    llvm_arg_i += 1;
+                    const len_param = llvm_func.getParam(llvm_arg_i);
+                    llvm_arg_i += 1;
+
+                    const slice_llvm_ty = try dg.lowerType(param_ty);
+                    const partial = builder.buildInsertValue(slice_llvm_ty.getUndef(), ptr_param, 0, "");
+                    const aggregate = builder.buildInsertValue(partial, len_param, 1, "");
+                    try args.append(aggregate);
                 },
                 .multiple_llvm_ints => {
                     const param_ty = fn_info.param_types[it.zig_index - 1];
@@ -2743,6 +2776,17 @@ pub const DeclGen = struct {
                 const abi_size = @intCast(c_uint, param_ty.abiSize(target));
                 try llvm_params.append(dg.context.intType(abi_size * 8));
             },
+            .slice => {
+                const param_ty = fn_info.param_types[it.zig_index - 1];
+                var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+                const ptr_ty = param_ty.slicePtrFieldType(&buf);
+                const ptr_llvm_ty = try dg.lowerType(ptr_ty);
+                const len_llvm_ty = try dg.lowerType(Type.usize);
+
+                try llvm_params.ensureUnusedCapacity(2);
+                llvm_params.appendAssumeCapacity(ptr_llvm_ty);
+                llvm_params.appendAssumeCapacity(len_llvm_ty);
+            },
             .multiple_llvm_ints => {
                 const param_ty = fn_info.param_types[it.zig_index - 1];
                 const llvm_ints = it.llvm_types_buffer[0..it.llvm_types_len];
@@ -4204,6 +4248,15 @@ pub const FuncGen = struct {
                     load_inst.setAlignment(alignment);
                     try llvm_args.append(load_inst);
                 }
+            },
+            .slice => {
+                const arg = args[it.zig_index - 1];
+                const llvm_arg = try self.resolveInst(arg);
+                const ptr = self.builder.buildExtractValue(llvm_arg, 0, "");
+                const len = self.builder.buildExtractValue(llvm_arg, 1, "");
+                try llvm_args.ensureUnusedCapacity(2);
+                llvm_args.appendAssumeCapacity(ptr);
+                llvm_args.appendAssumeCapacity(len);
             },
             .multiple_llvm_ints => {
                 const arg = args[it.zig_index - 1];
@@ -8811,6 +8864,7 @@ const ParamTypeIterator = struct {
         byref,
         abi_sized_int,
         multiple_llvm_ints,
+        slice,
     };
 
     fn next(it: *ParamTypeIterator) ?Lowering {
@@ -8826,7 +8880,9 @@ const ParamTypeIterator = struct {
             .Unspecified, .Inline => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
-                if (isByRef(ty)) {
+                if (ty.isSlice()) {
+                    return .slice;
+                } else if (isByRef(ty)) {
                     return .byref;
                 } else {
                     return .byval;
