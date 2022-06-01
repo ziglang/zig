@@ -586,7 +586,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .is_err_ptr      => @panic("TODO try self.airIsErrPtr(inst)"),
             .load            => try self.airLoad(inst),
             .loop            => try self.airLoop(inst),
-            .not             => @panic("TODO try self.airNot(inst)"),
+            .not             => try self.airNot(inst),
             .ptrtoint        => @panic("TODO try self.airPtrToInt(inst)"),
             .ret             => try self.airRet(inst),
             .ret_load        => try self.airRetLoad(inst),
@@ -1505,6 +1505,126 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
     try self.genBody(body);
     try self.jump(start);
     return self.finishAirBookkeeping();
+}
+
+fn airNot(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const operand = try self.resolveInst(ty_op.operand);
+        const operand_ty = self.air.typeOf(ty_op.operand);
+        switch (operand) {
+            .dead => unreachable,
+            .unreach => unreachable,
+            .compare_flags_unsigned => |op| {
+                const r = MCValue{
+                    .compare_flags_unsigned = .{
+                        .cmp = switch (op.cmp) {
+                            .gte => .lt,
+                            .gt => .lte,
+                            .neq => .eq,
+                            .lt => .gte,
+                            .lte => .gt,
+                            .eq => .neq,
+                        },
+                        .ccr = op.ccr,
+                    },
+                };
+                break :result r;
+            },
+            .compare_flags_signed => |op| {
+                const r = MCValue{
+                    .compare_flags_signed = .{
+                        .cmp = switch (op.cmp) {
+                            .gte => .lt,
+                            .gt => .lte,
+                            .neq => .eq,
+                            .lt => .gte,
+                            .lte => .gt,
+                            .eq => .neq,
+                        },
+                        .ccr = op.ccr,
+                    },
+                };
+                break :result r;
+            },
+            else => {
+                switch (operand_ty.zigTypeTag()) {
+                    .Bool => {
+                        // TODO convert this to mvn + and
+                        const op_reg = switch (operand) {
+                            .register => |r| r,
+                            else => try self.copyToTmpRegister(operand_ty, operand),
+                        };
+                        const reg_lock = self.register_manager.lockRegAssumeUnused(op_reg);
+                        defer self.register_manager.unlockReg(reg_lock);
+
+                        const dest_reg = blk: {
+                            if (operand == .register and self.reuseOperand(inst, ty_op.operand, 0, operand)) {
+                                break :blk op_reg;
+                            }
+
+                            const reg = try self.register_manager.allocReg(null, gp);
+                            break :blk reg;
+                        };
+
+                        _ = try self.addInst(.{
+                            .tag = .xor,
+                            .data = .{
+                                .arithmetic_3op = .{
+                                    .is_imm = true,
+                                    .rd = dest_reg,
+                                    .rs1 = op_reg,
+                                    .rs2_or_imm = .{ .imm = 1 },
+                                },
+                            },
+                        });
+
+                        break :result MCValue{ .register = dest_reg };
+                    },
+                    .Vector => return self.fail("TODO bitwise not for vectors", .{}),
+                    .Int => {
+                        const int_info = operand_ty.intInfo(self.target.*);
+                        if (int_info.bits <= 64) {
+                            const op_reg = switch (operand) {
+                                .register => |r| r,
+                                else => try self.copyToTmpRegister(operand_ty, operand),
+                            };
+                            const reg_lock = self.register_manager.lockRegAssumeUnused(op_reg);
+                            defer self.register_manager.unlockReg(reg_lock);
+
+                            const dest_reg = blk: {
+                                if (operand == .register and self.reuseOperand(inst, ty_op.operand, 0, operand)) {
+                                    break :blk op_reg;
+                                }
+
+                                const reg = try self.register_manager.allocReg(null, gp);
+                                break :blk reg;
+                            };
+
+                            _ = try self.addInst(.{
+                                .tag = .not,
+                                .data = .{
+                                    .arithmetic_2op = .{
+                                        .is_imm = false,
+                                        .rs1 = dest_reg,
+                                        .rs2_or_imm = .{ .rs2 = op_reg },
+                                    },
+                                },
+                            });
+
+                            try self.truncRegister(dest_reg, dest_reg, int_info.signedness, int_info.bits);
+
+                            break :result MCValue{ .register = dest_reg };
+                        } else {
+                            return self.fail("TODO AArch64 not on integers > u64/i64", .{});
+                        }
+                    },
+                    else => unreachable,
+                }
+            },
+        }
+    };
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airRet(self: *Self, inst: Air.Inst.Index) !void {
