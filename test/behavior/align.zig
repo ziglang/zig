@@ -2,6 +2,7 @@ const std = @import("std");
 const expect = std.testing.expect;
 const builtin = @import("builtin");
 const native_arch = builtin.target.cpu.arch;
+const assert = std.debug.assert;
 
 var foo: u8 align(4) = 100;
 
@@ -375,38 +376,37 @@ test "function callconv expression depends on generic parameter" {
 }
 
 test "runtime known array index has best alignment possible" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     // take full advantage of over-alignment
     var array align(4) = [_]u8{ 1, 2, 3, 4 };
-    try expect(@TypeOf(&array[0]) == *align(4) u8);
-    try expect(@TypeOf(&array[1]) == *u8);
-    try expect(@TypeOf(&array[2]) == *align(2) u8);
-    try expect(@TypeOf(&array[3]) == *u8);
+    comptime assert(@TypeOf(&array[0]) == *align(4) u8);
+    comptime assert(@TypeOf(&array[1]) == *u8);
+    comptime assert(@TypeOf(&array[2]) == *align(2) u8);
+    comptime assert(@TypeOf(&array[3]) == *u8);
 
     // because align is too small but we still figure out to use 2
     var bigger align(2) = [_]u64{ 1, 2, 3, 4 };
-    try expect(@TypeOf(&bigger[0]) == *align(2) u64);
-    try expect(@TypeOf(&bigger[1]) == *align(2) u64);
-    try expect(@TypeOf(&bigger[2]) == *align(2) u64);
-    try expect(@TypeOf(&bigger[3]) == *align(2) u64);
+    comptime assert(@TypeOf(&bigger[0]) == *align(2) u64);
+    comptime assert(@TypeOf(&bigger[1]) == *align(2) u64);
+    comptime assert(@TypeOf(&bigger[2]) == *align(2) u64);
+    comptime assert(@TypeOf(&bigger[3]) == *align(2) u64);
 
     // because pointer is align 2 and u32 align % 2 == 0 we can assume align 2
     var smaller align(2) = [_]u32{ 1, 2, 3, 4 };
     var runtime_zero: usize = 0;
-    comptime try expect(@TypeOf(smaller[runtime_zero..]) == []align(2) u32);
-    comptime try expect(@TypeOf(smaller[runtime_zero..].ptr) == [*]align(2) u32);
+    comptime assert(@TypeOf(smaller[runtime_zero..]) == []align(2) u32);
+    comptime assert(@TypeOf(smaller[runtime_zero..].ptr) == [*]align(2) u32);
     try testIndex(smaller[runtime_zero..].ptr, 0, *align(2) u32);
     try testIndex(smaller[runtime_zero..].ptr, 1, *align(2) u32);
     try testIndex(smaller[runtime_zero..].ptr, 2, *align(2) u32);
     try testIndex(smaller[runtime_zero..].ptr, 3, *align(2) u32);
 
     // has to use ABI alignment because index known at runtime only
-    try testIndex2(array[runtime_zero..].ptr, 0, *u8);
-    try testIndex2(array[runtime_zero..].ptr, 1, *u8);
-    try testIndex2(array[runtime_zero..].ptr, 2, *u8);
-    try testIndex2(array[runtime_zero..].ptr, 3, *u8);
+    try testIndex2(&array, 0, *u8);
+    try testIndex2(&array, 1, *u8);
+    try testIndex2(&array, 2, *u8);
+    try testIndex2(&array, 3, *u8);
 }
 fn testIndex(smaller: [*]align(2) u32, index: usize, comptime T: type) !void {
     comptime try expect(@TypeOf(&smaller[index]) == T);
