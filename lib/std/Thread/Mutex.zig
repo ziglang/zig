@@ -119,37 +119,30 @@ const DarwinImpl = struct {
 const FutexImpl = struct {
     state: Atomic(u32) = Atomic(u32).init(unlocked),
 
-    const unlocked = 0b00;
-    const locked = 0b01;
-    const contended = 0b11; // must contain the `locked` bit for x86 optimization below
+    const unlocked = 0;
+    const locked = 1;
+    const contended = 2; 
 
     fn tryLock(self: *Impl) bool {
         // Lock with compareAndSwap instead of tryCompareAndSwap to avoid reporting spurious CAS failure.
-        return self.lockFast("compareAndSwap");
+        //
+        // Acquire barrier ensures grabbing the lock happens before the critical section
+        // and that the previous lock holder's critical section happens before we grab the lock.
+        return self.state.compareAndSwap(unlocked, locked, .Acquire, .Monotonic) == null;
     }
 
     fn lock(self: *Impl) void {
         // Lock with tryCompareAndSwap instead of compareAndSwap due to being more inline-able on LL/SC archs like ARM.
-        if (!self.lockFast("tryCompareAndSwap")) {
-            self.lockSlow();
-        }
-    }
-
-    inline fn lockFast(self: *Impl, comptime casFn: []const u8) bool {
-        // On x86, use `lock bts` instead of `lock cmpxchg` as:
-        // - they both seem to mark the cache-line as modified regardless: https://stackoverflow.com/a/63350048
-        // - `lock bts` is smaller instruction-wise which makes it better for inlining
-        if (comptime builtin.target.cpu.arch.isX86()) {
-            const locked_bit = @ctz(u32, @as(u32, locked));
-            return self.state.bitSet(locked_bit, .Acquire) == 0;
-        }
-
+        //
         // Acquire barrier ensures grabbing the lock happens before the critical section
         // and that the previous lock holder's critical section happens before we grab the lock.
-        return @field(self.state, casFn)(unlocked, locked, .Acquire, .Monotonic) == null;
+        _ = self.state.tryCompareAndSwap(unlocked, locked, .Acquire, .Monotonic) orelse return;
+
+        // slow path outlined to hint that lock() can be inlined
+        self.lockContended();
     }
 
-    fn lockSlow(self: *Impl) void {
+    fn lockContended(self: *Impl) void {
         @setCold(true);
 
         // Avoid doing an atomic swap below if we already know the state is contended.
