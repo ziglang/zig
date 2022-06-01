@@ -94,6 +94,8 @@ pub fn emitMir(
             .ldx => try emit.mirArithmetic3Op(inst),
 
             .@"or" => try emit.mirArithmetic3Op(inst),
+            .xor => @panic("TODO implement sparc64 xor"),
+            .xnor => @panic("TODO implement sparc64 xnor"),
 
             .movcc => try emit.mirConditionalMove(inst),
 
@@ -128,6 +130,8 @@ pub fn emitMir(
             .cmp => try emit.mirArithmetic2Op(inst),
 
             .mov => try emit.mirArithmetic2Op(inst),
+
+            .not => @panic("TODO implement sparc64 not"),
         }
     }
 }
