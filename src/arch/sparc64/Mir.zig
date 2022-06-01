@@ -74,6 +74,8 @@ pub const Inst = struct {
         /// This uses the arithmetic_3op field.
         // TODO add other operations.
         @"or",
+        xor,
+        xnor,
 
         /// A.35 Move Integer Register on Condition (MOVcc)
         /// This uses the conditional_move field.
@@ -147,6 +149,13 @@ pub const Inst = struct {
         /// being the *destination* register.
         // TODO is it okay to abuse rs1 in this way?
         mov, // mov rs2/imm, rs1 -> or %g0, rs2/imm, rs1
+
+        /// Bitwise negation
+        /// This uses the arithmetic_2op field, with rs1
+        /// being the *destination* register.
+        // TODO is it okay to abuse rs1 in this way?
+        // TODO this differs from official encoding for convenience, fix it later
+        not, // not rs2/imm, rs1 -> xnor %g0, rs2/imm, rs1
     };
 
     /// The position of an MIR instruction within the `Mir` instructions array.
