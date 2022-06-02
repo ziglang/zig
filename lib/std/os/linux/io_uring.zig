@@ -2033,7 +2033,7 @@ test "sendmsg/recvmsg" {
     defer os.close(client);
 
     const buffer_send = [_]u8{42} ** 128;
-    var iovecs_send = [_]os.iovec_const{
+    const iovecs_send = [_]os.iovec_const{
         os.iovec_const{ .iov_base = &buffer_send, .iov_len = buffer_send.len },
     };
     const msg_send = os.msghdr_const{

@@ -304,9 +304,9 @@ pub const msghdr = extern struct {
 pub const msghdr_const = extern struct {
     name: ?*const sockaddr,
     namelen: socklen_t,
-    iov: [*]iovec_const,
+    iov: [*]const iovec_const,
     iovlen: i32,
-    control: ?*anyopaque,
+    control: ?*const anyopaque,
     controllen: socklen_t,
     flags: i32,
 };
