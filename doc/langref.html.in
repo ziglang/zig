@@ -8005,7 +8005,7 @@ fn func(y: *i32) void {
           <li>Convert {#syntax#}i32{#endsyntax#} to {#syntax#}u32{#endsyntax#} preserving twos complement</li>
       </ul>
       <p>
-      Works at compile-time if {#syntax#}value{#endsyntax#} is known at compile time. It's a compile error to bitcast a struct to a scalar type of the same size since structs have undefined layout. However if the struct is packed then it works.
+      Works at compile-time if {#syntax#}value{#endsyntax#} is known at compile time. It's a compile error to bitcast a value of undefined layout; this means that, besides the restriction from types which possess dedicated casting builtins (enums, pointers, error sets), bare structs, error unions, slices, optionals, and any other type without a well-defined memory layout, also cannot be used in this operation.
       </p>
       {#header_close#}
 
