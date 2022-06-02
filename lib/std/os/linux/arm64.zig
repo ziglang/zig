@@ -209,10 +209,10 @@ pub const msghdr = extern struct {
 pub const msghdr_const = extern struct {
     name: ?*const sockaddr,
     namelen: socklen_t,
-    iov: [*]iovec_const,
+    iov: [*]const iovec_const,
     iovlen: i32,
     __pad1: i32 = 0,
-    control: ?*anyopaque,
+    control: ?*const anyopaque,
     controllen: socklen_t,
     __pad2: socklen_t = 0,
     flags: i32,
