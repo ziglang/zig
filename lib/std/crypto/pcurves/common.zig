@@ -203,19 +203,17 @@ pub fn Field(comptime params: FieldParams) type {
             const XLimbs = [a.limbs.len + 1]Word;
 
             var d: Word = 1;
-            var f: XLimbs = undefined;
-            fiat.msat(&f);
-
+            var f = comptime blk: {
+                var f: XLimbs = undefined;
+                fiat.msat(&f);
+                break :blk f;
+            };
             var g: XLimbs = undefined;
             fiat.fromMontgomery(g[0..a.limbs.len], a.limbs);
             g[g.len - 1] = 0;
 
-            var r: Limbs = undefined;
-            fiat.setOne(&r);
-            var v = mem.zeroes(Limbs);
-
-            var precomp: Limbs = undefined;
-            fiat.divstepPrecomp(&precomp);
+            var r = Fe.one.limbs;
+            var v = Fe.zero.limbs;
 
             var out1: Word = undefined;
             var out2: XLimbs = undefined;
@@ -236,6 +234,12 @@ pub fn Field(comptime params: FieldParams) type {
             var v_opp: Limbs = undefined;
             fiat.opp(&v_opp, v);
             fiat.selectznz(&v, @truncate(u1, f[f.len - 1] >> (@bitSizeOf(Word) - 1)), v, v_opp);
+
+            const precomp = blk: {
+                var precomp: Limbs = undefined;
+                fiat.divstepPrecomp(&precomp);
+                break :blk precomp;
+            };
             var fe: Fe = undefined;
             fiat.mul(&fe.limbs, v, precomp);
             return fe;
