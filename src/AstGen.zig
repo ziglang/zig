@@ -2425,6 +2425,8 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .param_type,
             .ret_ptr,
             .ret_type,
+            .@"try",
+            .try_inline,
             => break :b false,
 
             .extended => switch (gz.astgen.instructions.items(.data)[inst].extended.opcode) {
@@ -4871,68 +4873,30 @@ fn tryExpr(
 
     if (parent_gz.in_defer) return astgen.failNode(node, "'try' not allowed inside defer expression", .{});
 
-    var block_scope = parent_gz.makeSubBlock(scope);
-    block_scope.setBreakResultLoc(rl);
-    defer block_scope.unstack();
-
-    const operand_rl: ResultLoc = switch (block_scope.break_result_loc) {
+    const operand_rl: ResultLoc = switch (rl) {
         .ref => .ref,
         else => .none,
     };
-    const err_ops = switch (operand_rl) {
-        // zig fmt: off
-        .ref => [3]Zir.Inst.Tag{ .is_non_err_ptr, .err_union_code_ptr, .err_union_payload_unsafe_ptr },
-        else => [3]Zir.Inst.Tag{ .is_non_err,     .err_union_code,     .err_union_payload_unsafe },
-        // zig fmt: on
-    };
-    // This could be a pointer or value depending on the `operand_rl` parameter.
-    // We cannot use `block_scope.break_result_loc` because that has the bare
-    // type, whereas this expression has the optional type. Later we make
-    // up for this fact by calling rvalue on the else branch.
-    const operand = try expr(&block_scope, &block_scope.base, operand_rl, operand_node);
-    const cond = try block_scope.addUnNode(err_ops[0], operand, node);
-    const condbr = try block_scope.addCondBr(.condbr, node);
+    // This could be a pointer or value depending on the `rl` parameter.
+    const operand = try expr(parent_gz, scope, operand_rl, operand_node);
+    const is_inline = parent_gz.force_comptime;
+    const block_tag: Zir.Inst.Tag = if (is_inline) .try_inline else .@"try";
+    const try_inst = try parent_gz.makeBlockInst(block_tag, node);
+    try parent_gz.instructions.append(astgen.gpa, try_inst);
 
-    const block = try parent_gz.makeBlockInst(.block, node);
-    try block_scope.setBlockBody(block);
-    // block_scope unstacked now, can add new instructions to parent_gz
-    try parent_gz.instructions.append(astgen.gpa, block);
-
-    var then_scope = parent_gz.makeSubBlock(scope);
-    defer then_scope.unstack();
-
-    block_scope.break_count += 1;
-    // This could be a pointer or value depending on `err_ops[2]`.
-    const unwrapped_payload = try then_scope.addUnNode(err_ops[2], operand, node);
-    const then_result = switch (rl) {
-        .ref => unwrapped_payload,
-        else => try rvalue(&then_scope, block_scope.break_result_loc, unwrapped_payload, node),
-    };
-
-    // else_scope will be stacked on then_scope as both are stacked on parent_gz
     var else_scope = parent_gz.makeSubBlock(scope);
     defer else_scope.unstack();
 
-    const err_code = try else_scope.addUnNode(err_ops[1], operand, node);
+    const err_tag = switch (rl) {
+        .ref => Zir.Inst.Tag.err_union_code_ptr,
+        else => Zir.Inst.Tag.err_union_code,
+    };
+    const err_code = try else_scope.addUnNode(err_tag, operand, node);
     try genDefers(&else_scope, &fn_block.base, scope, .{ .both = err_code });
-    const else_result = try else_scope.addUnNode(.ret_node, err_code, node);
+    _ = try else_scope.addUnNode(.ret_node, err_code, node);
 
-    const break_tag: Zir.Inst.Tag = if (parent_gz.force_comptime) .break_inline else .@"break";
-    return finishThenElseBlock(
-        parent_gz,
-        rl,
-        node,
-        &block_scope,
-        &then_scope,
-        &else_scope,
-        condbr,
-        cond,
-        then_result,
-        else_result,
-        block,
-        block,
-        break_tag,
-    );
+    try else_scope.setTryBody(try_inst, operand);
+    return indexToRef(try_inst);
 }
 
 fn orelseCatchExpr(
@@ -10006,6 +9970,22 @@ const GenZir = struct {
         const zir_datas = gz.astgen.instructions.items(.data);
         zir_datas[inst].pl_node.payload_index = gz.astgen.addExtraAssumeCapacity(
             Zir.Inst.Block{ .body_len = @intCast(u32, body.len) },
+        );
+        gz.astgen.extra.appendSliceAssumeCapacity(body);
+        gz.unstack();
+    }
+
+    /// Assumes nothing stacked on `gz`. Unstacks `gz`.
+    fn setTryBody(gz: *GenZir, inst: Zir.Inst.Index, operand: Zir.Inst.Ref) !void {
+        const gpa = gz.astgen.gpa;
+        const body = gz.instructionsSlice();
+        try gz.astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.Try).Struct.fields.len + body.len);
+        const zir_datas = gz.astgen.instructions.items(.data);
+        zir_datas[inst].pl_node.payload_index = gz.astgen.addExtraAssumeCapacity(
+            Zir.Inst.Try{
+                .operand = operand,
+                .body_len = @intCast(u32, body.len),
+            },
         );
         gz.astgen.extra.appendSliceAssumeCapacity(body);
         gz.unstack();
