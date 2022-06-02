@@ -2036,21 +2036,34 @@ fn binOp(
                     assert(lhs_ty.eql(rhs_ty, mod));
                     const int_info = lhs_ty.intInfo(self.target.*);
                     if (int_info.bits <= 64) {
-                        // If LHS is immediate, then swap it with RHS.
-                        const lhs_is_imm = lhs == .immediate;
-                        const new_lhs = if (lhs_is_imm) rhs else lhs;
-                        const new_rhs = if (lhs_is_imm) lhs else rhs;
-                        const new_lhs_ty = if (lhs_is_imm) rhs_ty else lhs_ty;
-                        const new_rhs_ty = if (lhs_is_imm) lhs_ty else rhs_ty;
+                        // Only say yes if the operation is
+                        // commutative, i.e. we can swap both of the
+                        // operands
+                        const lhs_immediate_ok = switch (tag) {
+                            .mul => lhs == .immediate and lhs.immediate <= std.math.maxInt(u12),
+                            else => unreachable,
+                        };
+                        const rhs_immediate_ok = switch (tag) {
+                            .mul => rhs == .immediate and rhs.immediate <= std.math.maxInt(u12),
+                            else => unreachable,
+                        };
 
-                        // At this point, RHS might be an immediate
-                        // If it's a power of two immediate then we emit an shl instead
-                        // TODO add similar checks for LHS
-                        if (new_rhs == .immediate and math.isPowerOfTwo(new_rhs.immediate)) {
-                            return try self.binOp(.shl, new_lhs, .{ .immediate = math.log2(new_rhs.immediate) }, new_lhs_ty, Type.usize, metadata);
+                        const mir_tag: Mir.Inst.Tag = switch (tag) {
+                            .mul => .mulx,
+                            else => unreachable,
+                        };
+
+                        if (rhs_immediate_ok) {
+                            // At this point, rhs is an immediate
+                            return try self.binOpImmediate(mir_tag, lhs, rhs, lhs_ty, false, metadata);
+                        } else if (lhs_immediate_ok) {
+                            // swap lhs and rhs
+                            // At this point, lhs is an immediate
+                            return try self.binOpImmediate(mir_tag, rhs, lhs, rhs_ty, true, metadata);
+                        } else {
+                            // TODO convert large immediates to register before adding
+                            return try self.binOpRegister(mir_tag, lhs, rhs, lhs_ty, rhs_ty, metadata);
                         }
-
-                        return try self.binOpRegister(.mulx, new_lhs, new_rhs, new_lhs_ty, new_rhs_ty, metadata);
                     } else {
                         return self.fail("TODO binary operations on int with bits > 64", .{});
                     }
