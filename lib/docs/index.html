@@ -342,6 +342,13 @@
         cursor: default;
       }
 
+	  #listFns dt {
+		  font-family: var(--mono);
+	  }
+	  .argBreaker {
+		  display: none;
+	  }
+
       /* tokens */
       .tok-kw {
           color: #333;
@@ -613,9 +620,7 @@
             <div id="sectFns" class="hidden">
               <h2>Functions</h2>
               <div class="table-container">
-                <table>
-                  <tbody id="listFns"></tbody>
-                </table>
+                <dl id="listFns"></dl>
               </div>
             </div>
             <div id="sectValues" class="hidden">
