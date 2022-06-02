@@ -2679,10 +2679,15 @@ fn walkInstruction(
                     array_data[scalar_i] = item.expr.as.exprArg;
 
                     const body_ref = @intToEnum(Ref, file.zir.extra[extra_index]);
-                    const body_item = try self.walkRef(file, parent_scope, body_ref, false);
-                    _ = body_item;
+                    if (extra.data.bits.is_ref) {
+                        const body_item = try self.walkRef(file, parent_scope, body_ref, false);
+                        _ = body_item;
 
-                    array_data[scalar_i] = item.expr.as.exprArg;
+                        array_data[scalar_i] = item.expr.as.exprArg;
+                    } else {
+                        array_data[scalar_i] = 0;
+                        // TODO: this is wrong, decide an actual strategy
+                    }
                     // std.debug.print("{s}\n", .{sep});
                     // std.debug.print("body item_ref = {any}\n", .{item_ref});
                     // std.debug.print("body item = {any}\n", .{item});
