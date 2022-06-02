@@ -1322,6 +1322,13 @@ fn analyzeBodyInner(
                     break break_data.inst;
                 }
             },
+            .@"try" => blk: {
+                if (!block.is_comptime) break :blk try sema.zirTry(block, inst);
+                @panic("TODO");
+            },
+            .try_inline => {
+                @panic("TODO");
+            },
         };
         if (sema.typeOf(air_inst).isNoReturn())
             break always_noreturn;
@@ -6426,32 +6433,43 @@ fn zirErrUnionPayload(
     const src = inst_data.src();
     const operand = try sema.resolveInst(inst_data.operand);
     const operand_src = src;
-    const operand_ty = sema.typeOf(operand);
-    if (operand_ty.zigTypeTag() != .ErrorUnion) {
+    const err_union_ty = sema.typeOf(operand);
+    if (err_union_ty.zigTypeTag() != .ErrorUnion) {
         return sema.fail(block, operand_src, "expected error union type, found '{}'", .{
-            operand_ty.fmt(sema.mod),
+            err_union_ty.fmt(sema.mod),
         });
     }
+    return sema.analyzeErrUnionPayload(block, src, err_union_ty, operand, operand_src, safety_check);
+}
 
-    const result_ty = operand_ty.errorUnionPayload();
-    if (try sema.resolveDefinedValue(block, src, operand)) |val| {
+fn analyzeErrUnionPayload(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    err_union_ty: Type,
+    operand: Zir.Inst.Ref,
+    operand_src: LazySrcLoc,
+    safety_check: bool,
+) CompileError!Air.Inst.Ref {
+    const payload_ty = err_union_ty.errorUnionPayload();
+    if (try sema.resolveDefinedValue(block, operand_src, operand)) |val| {
         if (val.getError()) |name| {
             return sema.fail(block, src, "caught unexpected error '{s}'", .{name});
         }
         const data = val.castTag(.eu_payload).?.data;
-        return sema.addConstant(result_ty, data);
+        return sema.addConstant(payload_ty, data);
     }
 
     try sema.requireRuntimeBlock(block, src);
 
     // If the error set has no fields then no safety check is needed.
     if (safety_check and block.wantSafety() and
-        operand_ty.errorUnionSet().errorSetCardinality() != .zero)
+        err_union_ty.errorUnionSet().errorSetCardinality() != .zero)
     {
         try sema.panicUnwrapError(block, src, operand, .unwrap_errunion_err, .is_non_err);
     }
 
-    return block.addTyOp(.unwrap_errunion_payload, result_ty, operand);
+    return block.addTyOp(.unwrap_errunion_payload, payload_ty, operand);
 }
 
 /// Pointer in, pointer out.
@@ -12967,6 +12985,43 @@ fn zirCondbr(
     sema.air_extra.appendSliceAssumeCapacity(true_instructions);
     sema.air_extra.appendSliceAssumeCapacity(sub_block.instructions.items);
     return always_noreturn;
+}
+
+fn zirTry(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Ref {
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    const operand_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
+    const extra = sema.code.extraData(Zir.Inst.Try, inst_data.payload_index);
+    const body = sema.code.extra[extra.end..][0..extra.data.body_len];
+    const operand = try sema.resolveInst(extra.data.operand);
+    const is_ptr = sema.typeOf(operand).zigTypeTag() == .Pointer;
+    const err_union = if (is_ptr)
+        try sema.analyzeLoad(parent_block, src, operand, operand_src)
+    else
+        operand;
+    const err_union_ty = sema.typeOf(err_union);
+    if (err_union_ty.zigTypeTag() != .ErrorUnion) {
+        return sema.fail(parent_block, operand_src, "expected error union type, found '{}'", .{
+            err_union_ty.fmt(sema.mod),
+        });
+    }
+    const is_non_err = try sema.analyzeIsNonErr(parent_block, operand_src, err_union);
+
+    if (try sema.resolveDefinedValue(parent_block, operand_src, is_non_err)) |is_non_err_val| {
+        if (is_non_err_val.toBool()) {
+            if (is_ptr) {
+                return sema.analyzeErrUnionPayloadPtr(parent_block, src, operand, false, false);
+            } else {
+                return sema.analyzeErrUnionPayload(parent_block, src, err_union_ty, operand, operand_src, false);
+            }
+        }
+        // We can analyze the body directly in the parent block because we know there are
+        // no breaks from the body possible, and that the body is noreturn.
+        return sema.resolveBody(parent_block, body, inst);
+    }
+    _ = body;
+    _ = is_non_err;
+    @panic("TODO");
 }
 
 // A `break` statement is inside a runtime condition, but trying to
