@@ -679,7 +679,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
             .wrap_optional         => @panic("TODO try self.airWrapOptional(inst)"),
             .wrap_errunion_payload => @panic("TODO try self.airWrapErrUnionPayload(inst)"),
-            .wrap_errunion_err     => @panic("TODO try self.airWrapErrUnionErr(inst)"),
+            .wrap_errunion_err     => try self.airWrapErrUnionErr(inst),
 
             .wasm_memory_size => unreachable,
             .wasm_memory_grow => unreachable,
@@ -1847,6 +1847,20 @@ fn airUnwrapErrPayload(self: *Self, inst: Air.Inst.Index) !void {
         if (!payload_ty.hasRuntimeBits()) break :result MCValue.none;
 
         return self.fail("TODO implement unwrap error union payload for non-empty payloads", .{});
+    };
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+/// E to E!T
+fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const error_union_ty = self.air.getRefType(ty_op.ty);
+        const payload_ty = error_union_ty.errorUnionPayload();
+        const mcv = try self.resolveInst(ty_op.operand);
+        if (!payload_ty.hasRuntimeBits()) break :result mcv;
+
+        return self.fail("TODO implement wrap errunion error for non-empty payloads", .{});
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
