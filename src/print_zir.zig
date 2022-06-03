@@ -381,7 +381,7 @@ const Writer = struct {
             => try self.writeCondBr(stream, inst),
 
             .@"try",
-            .try_inline,
+            .try_ptr,
             => try self.writeTry(stream, inst),
 
             .error_set_decl => try self.writeErrorSetDecl(stream, inst, .parent),

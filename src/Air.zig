@@ -1018,6 +1018,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .shl_with_overflow,
         .ptr_add,
         .ptr_sub,
+        .try_ptr,
         => return air.getRefType(datas[inst].ty_pl.ty),
 
         .not,
@@ -1055,7 +1056,6 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .popcount,
         .byte_swap,
         .bit_reverse,
-        .try_ptr,
         => return air.getRefType(datas[inst].ty_op.ty),
 
         .loop,
