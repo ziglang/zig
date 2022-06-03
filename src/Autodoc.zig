@@ -1196,7 +1196,25 @@ fn walkInstruction(
         },
 
         // @check array_cat and array_mul
-        .add, .addwrap, .add_sat, .sub, .subwrap, .sub_sat, .mul, .mulwrap, .mul_sat, .div, .shl, .shl_sat, .shr, .bit_or, .bit_and => {
+        .add,
+        .addwrap,
+        .add_sat,
+        .sub,
+        .subwrap,
+        .sub_sat,
+        .mul,
+        .mulwrap,
+        .mul_sat,
+        .div,
+        .shl,
+        .shl_sat,
+        .shr,
+        .bit_or,
+        .bit_and,
+        // @check still not working when applied in std
+        // .array_cat,
+        // .array_mul,
+        => {
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
 
