@@ -784,7 +784,7 @@ pub const Type = extern union {
 
             .anyframe_T => {
                 if (b.zigTypeTag() != .AnyFrame) return false;
-                return a.childType().eql(b.childType(), mod);
+                return a.elemType2().eql(b.elemType2(), mod);
             },
 
             .empty_struct => {
@@ -4125,14 +4125,15 @@ pub const Type = extern union {
     /// TODO this is deprecated in favor of `childType`.
     pub const elemType = childType;
 
-    /// For *[N]T,  returns T.
-    /// For ?*T,    returns T.
-    /// For ?*[N]T, returns T.
-    /// For ?[*]T,  returns T.
-    /// For *T,     returns T.
-    /// For [*]T,   returns T.
-    /// For [N]T,   returns T.
-    /// For []T,    returns T.
+    /// For *[N]T,       returns T.
+    /// For ?*T,         returns T.
+    /// For ?*[N]T,      returns T.
+    /// For ?[*]T,       returns T.
+    /// For *T,          returns T.
+    /// For [*]T,        returns T.
+    /// For [N]T,        returns T.
+    /// For []T,         returns T.
+    /// For anyframe->T, returns T.
     pub fn elemType2(ty: Type) Type {
         return switch (ty.tag()) {
             .vector => ty.castTag(.vector).?.data.elem_type,
@@ -4172,6 +4173,9 @@ pub const Type = extern union {
             .optional => ty.castTag(.optional).?.data.childType(),
             .optional_single_mut_pointer => ty.castPointer().?.data,
             .optional_single_const_pointer => ty.castPointer().?.data,
+
+            .anyframe_T => ty.castTag(.anyframe_T).?.data,
+            .@"anyframe" => Type.@"void",
 
             else => unreachable,
         };
