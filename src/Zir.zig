@@ -328,10 +328,14 @@ pub const Inst = struct {
         /// payload value, as if `err_union_payload_unsafe` was executed on the operand.
         /// Uses the `pl_node` union field. Payload is `Try`.
         @"try",
-        /// Same as `try` except the operand is coerced to a comptime value, and
-        /// only the taken branch is analyzed. The block must terminate with an "inline"
-        /// variant of a noreturn instruction.
-        try_inline,
+        ///// Same as `try` except the operand is coerced to a comptime value, and
+        ///// only the taken branch is analyzed. The block must terminate with an "inline"
+        ///// variant of a noreturn instruction.
+        //try_inline,
+        /// Same as `try` except the operand is a pointer and the result is a pointer.
+        try_ptr,
+        ///// Same as `try_inline` except the operand is a pointer and the result is a pointer.
+        //try_ptr_inline,
         /// An error set type definition. Contains a list of field names.
         /// Uses the `pl_node` union field. Payload is `ErrorSetDecl`.
         error_set_decl,
@@ -1245,7 +1249,9 @@ pub const Inst = struct {
                 .ret_ptr,
                 .ret_type,
                 .@"try",
-                .try_inline,
+                .try_ptr,
+                //.try_inline,
+                //.try_ptr_inline,
                 => false,
 
                 .@"break",
@@ -1525,7 +1531,9 @@ pub const Inst = struct {
                 .repeat_inline,
                 .panic,
                 .@"try",
-                .try_inline,
+                .try_ptr,
+                //.try_inline,
+                //.try_ptr_inline,
                 => false,
 
                 .extended => switch (data.extended.opcode) {
@@ -1587,7 +1595,9 @@ pub const Inst = struct {
                 .condbr = .pl_node,
                 .condbr_inline = .pl_node,
                 .@"try" = .pl_node,
-                .try_inline = .pl_node,
+                .try_ptr = .pl_node,
+                //.try_inline = .pl_node,
+                //.try_ptr_inline = .pl_node,
                 .error_set_decl = .pl_node,
                 .error_set_decl_anon = .pl_node,
                 .error_set_decl_func = .pl_node,
@@ -3766,7 +3776,7 @@ fn findDeclsInner(
             try zir.findDeclsBody(list, then_body);
             try zir.findDeclsBody(list, else_body);
         },
-        .@"try", .try_inline => {
+        .@"try", .try_ptr => {
             const inst_data = datas[inst].pl_node;
             const extra = zir.extraData(Inst.Try, inst_data.payload_index);
             const body = zir.extra[extra.end..][0..extra.data.body_len];
