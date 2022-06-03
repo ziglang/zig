@@ -30,32 +30,17 @@ pub fn floatExponentBits(comptime T: type) comptime_int {
 
 /// Returns the number of bits in the mantissa of floating point type T.
 pub fn floatMantissaBits(comptime T: type) comptime_int {
-    assert(@typeInfo(T) == .Float);
-
-    return switch (@typeInfo(T).Float.bits) {
-        16 => 10,
-        32 => 23,
-        64 => 52,
-        80 => 64,
-        128 => 112,
-        else => @compileError("unknown floating point type " ++ @typeName(T)),
-    };
+    return @typeInfo(T).Float.bits - floatExponentBits(T) - 1;
 }
 
 /// Returns the number of fractional bits in the mantissa of floating point type T.
 pub fn floatFractionalBits(comptime T: type) comptime_int {
-    assert(@typeInfo(T) == .Float);
-
     // standard IEEE floats have an implicit 0.m or 1.m integer part
     // f80 is special and has an explicitly stored bit in the MSB
     // this function corresponds to `MANT_DIG - 1' from C
     return switch (@typeInfo(T).Float.bits) {
-        16 => 10,
-        32 => 23,
-        64 => 52,
-        80 => 63,
-        128 => 112,
-        else => @compileError("unknown floating point type " ++ @typeName(T)),
+        80 => floatMantissaBits(T) - 1,
+        else => floatMantissaBits(T),
     };
 }
 
