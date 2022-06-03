@@ -20405,6 +20405,16 @@ fn beginComptimePtrMutation(
                             .ty = elem_ty,
                         },
 
+                        .the_only_possible_value => {
+                            const duped = try sema.arena.create(Value);
+                            duped.* = Value.initTag(.the_only_possible_value);
+                            return ComptimePtrMutationKit{
+                                .decl_ref_mut = parent.decl_ref_mut,
+                                .val = duped,
+                                .ty = elem_ty,
+                            };
+                        },
+
                         else => unreachable,
                     }
                 },
