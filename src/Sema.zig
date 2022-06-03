@@ -12994,7 +12994,8 @@ fn zirTry(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!
     const extra = sema.code.extraData(Zir.Inst.Try, inst_data.payload_index);
     const body = sema.code.extra[extra.end..][0..extra.data.body_len];
     const operand = try sema.resolveInst(extra.data.operand);
-    const is_ptr = sema.typeOf(operand).zigTypeTag() == .Pointer;
+    const operand_ty = sema.typeOf(operand);
+    const is_ptr = operand_ty.zigTypeTag() == .Pointer;
     const err_union = if (is_ptr)
         try sema.analyzeLoad(parent_block, src, operand, operand_src)
     else
@@ -13019,9 +13020,52 @@ fn zirTry(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!
         // no breaks from the body possible, and that the body is noreturn.
         return sema.resolveBody(parent_block, body, inst);
     }
-    _ = body;
-    _ = is_non_err;
-    @panic("TODO");
+
+    var sub_block = parent_block.makeSubBlock();
+    defer sub_block.instructions.deinit(sema.gpa);
+
+    // This body is guaranteed to end with noreturn and has no breaks.
+    _ = try sema.analyzeBodyInner(&sub_block, body);
+
+    if (is_ptr) {
+        const ptr_info = operand_ty.ptrInfo().data;
+        const res_ty = try Type.ptr(sema.arena, sema.mod, .{
+            .pointee_type = err_union_ty.errorUnionPayload(),
+            .@"addrspace" = ptr_info.@"addrspace",
+            .mutable = ptr_info.mutable,
+            .@"allowzero" = ptr_info.@"allowzero",
+            .@"volatile" = ptr_info.@"volatile",
+        });
+        const res_ty_ref = try sema.addType(res_ty);
+        try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.Try).Struct.fields.len +
+            sub_block.instructions.items.len);
+        const try_inst = try parent_block.addInst(.{
+            .tag = .try_ptr,
+            .data = .{ .ty_pl = .{
+                .ty = res_ty_ref,
+                .payload = sema.addExtraAssumeCapacity(Air.TryPtr{
+                    .ptr = operand,
+                    .body_len = @intCast(u32, sub_block.instructions.items.len),
+                }),
+            } },
+        });
+        sema.air_extra.appendSliceAssumeCapacity(sub_block.instructions.items);
+        return try_inst;
+    }
+
+    try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.Try).Struct.fields.len +
+        sub_block.instructions.items.len);
+    const try_inst = try parent_block.addInst(.{
+        .tag = .@"try",
+        .data = .{ .pl_op = .{
+            .operand = operand,
+            .payload = sema.addExtraAssumeCapacity(Air.Try{
+                .body_len = @intCast(u32, sub_block.instructions.items.len),
+            }),
+        } },
+    });
+    sema.air_extra.appendSliceAssumeCapacity(sub_block.instructions.items);
+    return try_inst;
 }
 
 // A `break` statement is inside a runtime condition, but trying to
