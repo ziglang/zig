@@ -675,6 +675,8 @@ const DocData = struct {
         string: []const u8, // direct value
         sliceIndex: usize,
         slice: Slice,
+        cmpxchgIndex: usize,
+        cmpxchg: Cmpxchg,
         builtin: Builtin,
         builtinIndex: usize,
         builtinBin: BuiltinBin,
@@ -709,6 +711,7 @@ const DocData = struct {
             end: ?usize = null,
             sentinel: ?usize = null, // index in `exprs`
         };
+        const Cmpxchg = struct { name: []const u8, type: usize, ptr: usize, expected_value: usize, new_value: usize, success_order: usize, failure_order: usize };
         const As = struct {
             typeRefArg: ?usize, // index in `exprs`
             exprArg: usize, // index in `exprs`
@@ -811,6 +814,16 @@ const DocData = struct {
                 ),
                 .switchIndex => |v| try std.json.stringify(
                     struct { switchIndex: usize }{ .switchIndex = v },
+                    options,
+                    w,
+                ),
+                .cmpxchg => |v| try std.json.stringify(
+                    struct { cmpxchg: Cmpxchg }{ .cmpxchg = v },
+                    options,
+                    w,
+                ),
+                .cmpxchgIndex => |v| try std.json.stringify(
+                    struct { cmpxchgIndex: usize }{ .cmpxchgIndex = v },
                     options,
                     w,
                 ),
@@ -989,6 +1002,67 @@ fn walkInstruction(
                 Zir.main_struct_inst,
                 need_type,
             );
+        },
+        .cmpxchg_strong, .cmpxchg_weak => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.Cmpxchg, pl_node.payload_index);
+
+            const last_type_index = self.exprs.items.len;
+            const last_type = self.exprs.items[last_type_index - 1];
+            const type_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, last_type);
+
+            const ptr_index = self.exprs.items.len;
+            var ptr: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                extra.data.ptr,
+                false,
+            );
+            try self.exprs.append(self.arena, ptr.expr);
+
+            const expected_value_index = self.exprs.items.len;
+            var expected_value: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                extra.data.expected_value,
+                false,
+            );
+            try self.exprs.append(self.arena, expected_value.expr);
+
+            const new_value_index = self.exprs.items.len;
+            var new_value: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                extra.data.new_value,
+                false,
+            );
+            try self.exprs.append(self.arena, new_value.expr);
+
+            const success_order_index = self.exprs.items.len;
+            var success_order: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                extra.data.success_order,
+                false,
+            );
+            try self.exprs.append(self.arena, success_order.expr);
+
+            const failure_order_index = self.exprs.items.len;
+            var failure_order: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                extra.data.failure_order,
+                false,
+            );
+            try self.exprs.append(self.arena, failure_order.expr);
+
+            const cmpxchg_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, .{ .cmpxchg = .{ .name = @tagName(tags[inst_index]), .type = type_index, .ptr = ptr_index, .expected_value = expected_value_index, .new_value = new_value_index, .success_order = success_order_index, .failure_order = failure_order_index } });
+            return DocData.WalkResult{
+                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
+                .expr = .{ .cmpxchgIndex = cmpxchg_index },
+            };
         },
         .str => {
             const str = data[inst_index].str.get(file.zir);
