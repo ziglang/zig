@@ -953,15 +953,6 @@ fn copyToTmpRegister(self: *Self, ty: Type, mcv: MCValue) !Register {
     return reg;
 }
 
-/// Allocates a new register and copies `mcv` into it.
-/// `reg_owner` is the instruction that gets associated with the register in the register table.
-/// This can have a side effect of spilling instructions to the stack to free up a register.
-fn copyToNewRegister(self: *Self, reg_owner: Air.Inst.Index, mcv: MCValue) !MCValue {
-    const reg = try self.register_manager.allocReg(reg_owner, gp);
-    try self.genSetReg(self.air.typeOfIndex(reg_owner), reg, mcv);
-    return MCValue{ .register = reg };
-}
-
 fn airAlloc(self: *Self, inst: Air.Inst.Index) !void {
     const stack_offset = try self.allocMemPtr(inst);
     return self.finishAir(inst, .{ .ptr_stack_offset = stack_offset }, .{ .none, .none, .none });
@@ -2185,6 +2176,9 @@ fn reuseOperand(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, op_ind
         .stack_offset => |off| {
             log.debug("%{d} => stack offset {d} (reused)", .{ inst, off });
         },
+        .cpsr_flags => {
+            log.debug("%{d} => cpsr_flags (reused)", .{inst});
+        },
         else => return false,
     }
 
@@ -2487,7 +2481,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                     else => unreachable,
                 };
 
-                if (self.liveness.operandDies(inst, 0)) {
+                if (self.reuseOperand(inst, operand, 0, field)) {
                     break :result field;
                 } else {
                     // Copy to new register
@@ -2509,6 +2503,41 @@ fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airFieldParentPtr", .{});
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
+/// Allocates a new register. If Inst in non-null, additionally tracks
+/// this register and the corresponding int and removes all previous
+/// tracking. Does not do the actual moving (that is handled by
+/// genSetReg).
+fn prepareNewRegForMoving(
+    self: *Self,
+    track_inst: ?Air.Inst.Index,
+    register_class: RegisterManager.RegisterBitSet,
+    mcv: MCValue,
+) !Register {
+    const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+    const reg = try self.register_manager.allocReg(track_inst, register_class);
+
+    if (track_inst) |inst| {
+        // Overwrite the MCValue associated with this inst
+        branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
+
+        // If the previous MCValue occupied some space we track, we
+        // need to make sure it is marked as free now.
+        switch (mcv) {
+            .cpsr_flags => {
+                assert(self.cpsr_flags_inst.? == inst);
+                self.cpsr_flags_inst = null;
+            },
+            .register => |prev_reg| {
+                assert(!self.register_manager.isRegFree(prev_reg));
+                self.register_manager.freeReg(prev_reg);
+            },
+            else => {},
+        }
+    }
+
+    return reg;
 }
 
 /// Don't call this function directly. Use binOp instead.
@@ -2537,18 +2566,12 @@ fn binOpRegister(
         null;
     defer if (lhs_lock) |reg| self.register_manager.unlockReg(reg);
 
-    const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
-
     const lhs_reg = if (lhs_is_register) lhs.register else blk: {
         const track_inst: ?Air.Inst.Index = if (metadata) |md| inst: {
             break :inst Air.refToIndex(md.lhs).?;
         } else null;
 
-        const reg = try self.register_manager.allocReg(track_inst, gp);
-
-        if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
-
-        break :blk reg;
+        break :blk try self.prepareNewRegForMoving(track_inst, gp, lhs);
     };
     const new_lhs_lock = self.register_manager.lockReg(lhs_reg);
     defer if (new_lhs_lock) |reg| self.register_manager.unlockReg(reg);
@@ -2558,11 +2581,7 @@ fn binOpRegister(
             break :inst Air.refToIndex(md.rhs).?;
         } else null;
 
-        const reg = try self.register_manager.allocReg(track_inst, gp);
-
-        if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
-
-        break :blk reg;
+        break :blk try self.prepareNewRegForMoving(track_inst, gp, rhs);
     };
     const new_rhs_lock = self.register_manager.lockReg(rhs_reg);
     defer if (new_rhs_lock) |reg| self.register_manager.unlockReg(reg);
@@ -2652,8 +2671,6 @@ fn binOpImmediate(
         null;
     defer if (lhs_lock) |reg| self.register_manager.unlockReg(reg);
 
-    const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
-
     const lhs_reg = if (lhs_is_register) lhs.register else blk: {
         const track_inst: ?Air.Inst.Index = if (metadata) |md| inst: {
             break :inst Air.refToIndex(
@@ -2661,11 +2678,7 @@ fn binOpImmediate(
             ).?;
         } else null;
 
-        const reg = try self.register_manager.allocReg(track_inst, gp);
-
-        if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
-
-        break :blk reg;
+        break :blk try self.prepareNewRegForMoving(track_inst, gp, lhs);
     };
     const new_lhs_lock = self.register_manager.lockReg(lhs_reg);
     defer if (new_lhs_lock) |reg| self.register_manager.unlockReg(reg);
@@ -3444,7 +3457,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                 if (RegisterManager.indexOfRegIntoTracked(reg) == null) {
                     // Save function return value into a tracked register
                     log.debug("airCall: copying {} as it is not tracked", .{reg});
-                    break :result try self.copyToNewRegister(inst, info.return_value);
+                    const new_reg = try self.copyToTmpRegister(fn_ty.fnReturnType(), info.return_value);
+                    break :result MCValue{ .register = new_reg };
                 }
             },
             else => {},
@@ -4124,7 +4138,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
     var case_i: u32 = 0;
     while (case_i < switch_br.data.cases_len) : (case_i += 1) {
         const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
-        const items = @bitCast([]const Air.Inst.Ref, self.air.extra[case.end..][0..case.data.items_len]);
+        const items = @ptrCast([]const Air.Inst.Ref, self.air.extra[case.end..][0..case.data.items_len]);
         assert(items.len > 0);
         const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
         extra_index = case.end + items.len + case_body.len;
