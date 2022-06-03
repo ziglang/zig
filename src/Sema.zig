@@ -13465,7 +13465,12 @@ fn zirStructInit(
         }
 
         if (is_ref) {
-            const alloc = try block.addTy(.alloc, resolved_ty);
+            const target = sema.mod.getTarget();
+            const alloc_ty = try Type.ptr(sema.arena, sema.mod, .{
+                .pointee_type = resolved_ty,
+                .@"addrspace" = target_util.defaultAddressSpace(target, .local),
+            });
+            const alloc = try block.addTy(.alloc, alloc_ty);
             const field_ptr = try sema.unionFieldPtr(block, field_src, alloc, field_name, field_src, resolved_ty);
             try sema.storePtr(block, src, field_ptr, init_inst);
             return alloc;
