@@ -2035,7 +2035,11 @@ pub const Type = extern union {
                 try writer.writeAll("fn(");
                 for (fn_info.param_types) |param_ty, i| {
                     if (i != 0) try writer.writeAll(", ");
-                    try print(param_ty, writer, mod);
+                    if (param_ty.tag() == .generic_poison) {
+                        try writer.writeAll("anytype");
+                    } else {
+                        try print(param_ty, writer, mod);
+                    }
                 }
                 if (fn_info.is_var_args) {
                     if (fn_info.param_types.len != 0) {
@@ -2052,7 +2056,11 @@ pub const Type = extern union {
                 if (fn_info.alignment != 0) {
                     try writer.print("align({d}) ", .{fn_info.alignment});
                 }
-                try print(fn_info.return_type, writer, mod);
+                if (fn_info.return_type.tag() == .generic_poison) {
+                    try writer.writeAll("anytype");
+                } else {
+                    try print(fn_info.return_type, writer, mod);
+                }
             },
 
             .error_union => {
