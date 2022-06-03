@@ -1875,8 +1875,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .union_init       => try airUnionInit(f, inst),
             .prefetch         => try airPrefetch(f, inst),
 
-            .@"try" => @panic("TODO"),
-            .try_ptr => @panic("TODO"),
+            .@"try"  => try airTry(f, inst),
+            .try_ptr => try airTryPtr(f, inst),
 
             .dbg_var_ptr,
             .dbg_var_val,
@@ -2862,6 +2862,91 @@ fn airBlock(f: *Function, inst: Air.Inst.Index) !CValue {
     // label must be followed by an expression, add an empty one.
     try writer.print("zig_block_{d}:;\n", .{block_id});
     return result;
+}
+
+fn airTry(f: *Function, inst: Air.Inst.Index) !CValue {
+    const pl_op = f.air.instructions.items(.data)[inst].pl_op;
+    const err_union = try f.resolveInst(pl_op.operand);
+    const extra = f.air.extraData(Air.Try, pl_op.payload);
+    const body = f.air.extra[extra.end..][0..extra.data.body_len];
+    const err_union_ty = f.air.typeOf(pl_op.operand);
+    const result_ty = f.air.typeOfIndex(inst);
+    return lowerTry(f, err_union, body, err_union_ty, false, result_ty);
+}
+
+fn airTryPtr(f: *Function, inst: Air.Inst.Index) !CValue {
+    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const extra = f.air.extraData(Air.TryPtr, ty_pl.payload);
+    const err_union_ptr = try f.resolveInst(extra.data.ptr);
+    const body = f.air.extra[extra.end..][0..extra.data.body_len];
+    const err_union_ty = f.air.typeOf(extra.data.ptr).childType();
+    const result_ty = f.air.typeOfIndex(inst);
+    return lowerTry(f, err_union_ptr, body, err_union_ty, true, result_ty);
+}
+
+fn lowerTry(
+    f: *Function,
+    err_union: CValue,
+    body: []const Air.Inst.Index,
+    err_union_ty: Type,
+    operand_is_ptr: bool,
+    result_ty: Type,
+) !CValue {
+    if (err_union_ty.errorUnionSet().errorSetCardinality() == .zero) {
+        // If the error set has no fields, then the payload and the error
+        // union are the same value.
+        return err_union;
+    }
+
+    const payload_ty = err_union_ty.errorUnionPayload();
+    const payload_has_bits = payload_ty.hasRuntimeBitsIgnoreComptime();
+
+    const writer = f.object.writer();
+
+    err: {
+        if (!payload_has_bits) {
+            if (operand_is_ptr) {
+                try writer.writeAll("if(*");
+            } else {
+                try writer.writeAll("if(");
+            }
+            try f.writeCValue(writer, err_union);
+            try writer.writeAll(")");
+            break :err;
+        }
+        if (operand_is_ptr or isByRef(err_union_ty)) {
+            try writer.writeAll("if(");
+            try f.writeCValue(writer, err_union);
+            try writer.writeAll("->error)");
+            break :err;
+        }
+        try writer.writeAll("if(");
+        try f.writeCValue(writer, err_union);
+        try writer.writeAll(".error)");
+    }
+
+    try genBody(f, body);
+    try f.object.indent_writer.insertNewline();
+
+    if (!payload_has_bits) {
+        if (!operand_is_ptr) {
+            return CValue.none;
+        } else {
+            return err_union;
+        }
+    }
+
+    const local = try f.allocLocal(result_ty, .Const);
+    if (operand_is_ptr or isByRef(payload_ty)) {
+        try writer.writeAll(" = &");
+        try f.writeCValue(writer, err_union);
+        try writer.writeAll("->payload;\n");
+    } else {
+        try writer.writeAll(" = ");
+        try f.writeCValue(writer, err_union);
+        try writer.writeAll(".payload;\n");
+    }
+    return local;
 }
 
 fn airBr(f: *Function, inst: Air.Inst.Index) !CValue {
@@ -4222,5 +4307,10 @@ fn loweredFnRetTyHasBits(fn_ty: Type) bool {
     if (ret_ty.isError()) {
         return true;
     }
+    return false;
+}
+
+fn isByRef(ty: Type) bool {
+    _ = ty;
     return false;
 }
