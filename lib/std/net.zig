@@ -1141,18 +1141,20 @@ fn linuxLookupNameFromHosts(
     };
     defer file.close();
 
-    const stream = std.io.bufferedReader(file.reader()).reader();
+    var buffered_reader = std.io.bufferedReader(file.reader());
+    const reader = buffered_reader.reader();
     var line_buf: [512]u8 = undefined;
-    while (stream.readUntilDelimiterOrEof(&line_buf, '\n') catch |err| switch (err) {
+    while (reader.readUntilDelimiterOrEof(&line_buf, '\n') catch |err| switch (err) {
         error.StreamTooLong => blk: {
-            // Skip to the delimiter in the stream, to fix parsing
-            try stream.skipUntilDelimiterOrEof('\n');
+            // Skip to the delimiter in the reader, to fix parsing
+            try reader.skipUntilDelimiterOrEof('\n');
             // Use the truncated line. A truncated comment or hostname will be handled correctly.
             break :blk &line_buf;
         },
         else => |e| return e,
     }) |line| {
-        const no_comment_line = mem.split(u8, line, "#").next().?;
+        var split_it = mem.split(u8, line, "#");
+        const no_comment_line = split_it.next().?;
 
         var line_it = mem.tokenize(u8, no_comment_line, " \t");
         const ip_text = line_it.next() orelse continue;
