@@ -1323,7 +1323,7 @@ fn analyzeBodyInner(
                 }
             },
             .@"try" => blk: {
-                if (!block.is_comptime) break :blk try sema.zirTry(block, inst, false);
+                if (!block.is_comptime) break :blk try sema.zirTry(block, inst);
                 const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
                 const src = inst_data.src();
                 const operand_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
@@ -1376,7 +1376,7 @@ fn analyzeBodyInner(
             //    }
             //},
             .try_ptr => blk: {
-                if (!block.is_comptime) break :blk try sema.zirTry(block, inst, true);
+                if (!block.is_comptime) break :blk try sema.zirTryPtr(block, inst);
                 const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
                 const src = inst_data.src();
                 const operand_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
@@ -13065,22 +13065,13 @@ fn zirCondbr(
     return always_noreturn;
 }
 
-fn zirTry(
-    sema: *Sema,
-    parent_block: *Block,
-    inst: Zir.Inst.Index,
-    is_ptr: bool,
-) CompileError!Zir.Inst.Ref {
+fn zirTry(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const operand_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Try, inst_data.payload_index);
     const body = sema.code.extra[extra.end..][0..extra.data.body_len];
-    const operand = try sema.resolveInst(extra.data.operand);
-    const err_union = if (is_ptr)
-        try sema.analyzeLoad(parent_block, src, operand, operand_src)
-    else
-        operand;
+    const err_union = try sema.resolveInst(extra.data.operand);
     const err_union_ty = sema.typeOf(err_union);
     if (err_union_ty.zigTypeTag() != .ErrorUnion) {
         return sema.fail(parent_block, operand_src, "expected error union type, found '{}'", .{
@@ -13091,11 +13082,7 @@ fn zirTry(
 
     if (try sema.resolveDefinedValue(parent_block, operand_src, is_non_err)) |is_non_err_val| {
         if (is_non_err_val.toBool()) {
-            if (is_ptr) {
-                return sema.analyzeErrUnionPayloadPtr(parent_block, src, operand, false, false);
-            } else {
-                return sema.analyzeErrUnionPayload(parent_block, src, err_union_ty, operand, operand_src, false);
-            }
+            return sema.analyzeErrUnionPayload(parent_block, src, err_union_ty, err_union, operand_src, false);
         }
         // We can analyze the body directly in the parent block because we know there are
         // no breaks from the body possible, and that the body is noreturn.
@@ -13108,40 +13095,70 @@ fn zirTry(
     // This body is guaranteed to end with noreturn and has no breaks.
     _ = try sema.analyzeBodyInner(&sub_block, body);
 
-    if (is_ptr) {
-        const operand_ty = sema.typeOf(operand);
-        const ptr_info = operand_ty.ptrInfo().data;
-        const res_ty = try Type.ptr(sema.arena, sema.mod, .{
-            .pointee_type = err_union_ty.errorUnionPayload(),
-            .@"addrspace" = ptr_info.@"addrspace",
-            .mutable = ptr_info.mutable,
-            .@"allowzero" = ptr_info.@"allowzero",
-            .@"volatile" = ptr_info.@"volatile",
-        });
-        const res_ty_ref = try sema.addType(res_ty);
-        try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.Try).Struct.fields.len +
-            sub_block.instructions.items.len);
-        const try_inst = try parent_block.addInst(.{
-            .tag = .try_ptr,
-            .data = .{ .ty_pl = .{
-                .ty = res_ty_ref,
-                .payload = sema.addExtraAssumeCapacity(Air.TryPtr{
-                    .ptr = operand,
-                    .body_len = @intCast(u32, sub_block.instructions.items.len),
-                }),
-            } },
-        });
-        sema.air_extra.appendSliceAssumeCapacity(sub_block.instructions.items);
-        return try_inst;
-    }
-
     try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.Try).Struct.fields.len +
         sub_block.instructions.items.len);
     const try_inst = try parent_block.addInst(.{
         .tag = .@"try",
         .data = .{ .pl_op = .{
-            .operand = operand,
+            .operand = err_union,
             .payload = sema.addExtraAssumeCapacity(Air.Try{
+                .body_len = @intCast(u32, sub_block.instructions.items.len),
+            }),
+        } },
+    });
+    sema.air_extra.appendSliceAssumeCapacity(sub_block.instructions.items);
+    return try_inst;
+}
+
+fn zirTryPtr(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Ref {
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    const operand_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
+    const extra = sema.code.extraData(Zir.Inst.Try, inst_data.payload_index);
+    const body = sema.code.extra[extra.end..][0..extra.data.body_len];
+    const operand = try sema.resolveInst(extra.data.operand);
+    const err_union = try sema.analyzeLoad(parent_block, src, operand, operand_src);
+    const err_union_ty = sema.typeOf(err_union);
+    if (err_union_ty.zigTypeTag() != .ErrorUnion) {
+        return sema.fail(parent_block, operand_src, "expected error union type, found '{}'", .{
+            err_union_ty.fmt(sema.mod),
+        });
+    }
+    const is_non_err = try sema.analyzeIsNonErr(parent_block, operand_src, err_union);
+
+    if (try sema.resolveDefinedValue(parent_block, operand_src, is_non_err)) |is_non_err_val| {
+        if (is_non_err_val.toBool()) {
+            return sema.analyzeErrUnionPayloadPtr(parent_block, src, operand, false, false);
+        }
+        // We can analyze the body directly in the parent block because we know there are
+        // no breaks from the body possible, and that the body is noreturn.
+        return sema.resolveBody(parent_block, body, inst);
+    }
+
+    var sub_block = parent_block.makeSubBlock();
+    defer sub_block.instructions.deinit(sema.gpa);
+
+    // This body is guaranteed to end with noreturn and has no breaks.
+    _ = try sema.analyzeBodyInner(&sub_block, body);
+
+    const operand_ty = sema.typeOf(operand);
+    const ptr_info = operand_ty.ptrInfo().data;
+    const res_ty = try Type.ptr(sema.arena, sema.mod, .{
+        .pointee_type = err_union_ty.errorUnionPayload(),
+        .@"addrspace" = ptr_info.@"addrspace",
+        .mutable = ptr_info.mutable,
+        .@"allowzero" = ptr_info.@"allowzero",
+        .@"volatile" = ptr_info.@"volatile",
+    });
+    const res_ty_ref = try sema.addType(res_ty);
+    try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.TryPtr).Struct.fields.len +
+        sub_block.instructions.items.len);
+    const try_inst = try parent_block.addInst(.{
+        .tag = .try_ptr,
+        .data = .{ .ty_pl = .{
+            .ty = res_ty_ref,
+            .payload = sema.addExtraAssumeCapacity(Air.TryPtr{
+                .ptr = operand,
                 .body_len = @intCast(u32, sub_block.instructions.items.len),
             }),
         } },
