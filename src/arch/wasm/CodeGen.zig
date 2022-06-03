@@ -1490,6 +1490,9 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .int_to_float => self.airIntToFloat(inst),
         .get_union_tag => self.airGetUnionTag(inst),
 
+        .@"try" => @panic("TODO"),
+        .try_ptr => @panic("TODO"),
+
         // TODO
         .dbg_inline_begin,
         .dbg_inline_end,

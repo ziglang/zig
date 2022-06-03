@@ -1875,6 +1875,9 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .union_init       => try airUnionInit(f, inst),
             .prefetch         => try airPrefetch(f, inst),
 
+            .@"try" => @panic("TODO"),
+            .try_ptr => @panic("TODO"),
+
             .dbg_var_ptr,
             .dbg_var_val,
             => try airDbgVar(f, inst),
