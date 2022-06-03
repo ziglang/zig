@@ -4896,7 +4896,8 @@ fn tryExpr(
     _ = try else_scope.addUnNode(.ret_node, err_code, node);
 
     try else_scope.setTryBody(try_inst, operand);
-    return indexToRef(try_inst);
+    const result = indexToRef(try_inst);
+    return rvalue(parent_gz, rl, result, node);
 }
 
 fn orelseCatchExpr(

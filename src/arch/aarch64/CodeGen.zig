@@ -665,6 +665,9 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .prefetch        => try self.airPrefetch(inst),
             .mul_add         => try self.airMulAdd(inst),
 
+            .@"try"          => @panic("TODO"),
+            .try_ptr         => @panic("TODO"),
+
             .dbg_var_ptr,
             .dbg_var_val,
             => try self.airDbgVar(inst),
