@@ -1323,28 +1323,18 @@ fn analyzeBodyInner(
                 }
             },
             .@"try" => blk: {
-                if (!block.is_comptime) break :blk try sema.zirTry(block, inst);
+                if (!block.is_comptime) break :blk try sema.zirTry(block, inst, false);
                 const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
                 const src = inst_data.src();
                 const operand_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
                 const extra = sema.code.extraData(Zir.Inst.Try, inst_data.payload_index);
                 const inline_body = sema.code.extra[extra.end..][0..extra.data.body_len];
-                const operand = try sema.resolveInst(extra.data.operand);
-                const operand_ty = sema.typeOf(operand);
-                const is_ptr = operand_ty.zigTypeTag() == .Pointer;
-                const err_union = if (is_ptr)
-                    try sema.analyzeLoad(block, src, operand, operand_src)
-                else
-                    operand;
+                const err_union = try sema.resolveInst(extra.data.operand);
                 const is_non_err = try sema.analyzeIsNonErr(block, operand_src, err_union);
                 const is_non_err_tv = try sema.resolveInstConst(block, operand_src, is_non_err);
                 if (is_non_err_tv.val.toBool()) {
-                    if (is_ptr) {
-                        break :blk try sema.analyzeErrUnionPayloadPtr(block, src, operand, false, false);
-                    } else {
-                        const err_union_ty = sema.typeOf(err_union);
-                        break :blk try sema.analyzeErrUnionPayload(block, src, err_union_ty, operand, operand_src, false);
-                    }
+                    const err_union_ty = sema.typeOf(err_union);
+                    break :blk try sema.analyzeErrUnionPayload(block, src, err_union_ty, err_union, operand_src, false);
                 }
                 const break_data = (try sema.analyzeBodyBreak(block, inline_body)) orelse
                     break always_noreturn;
@@ -1354,28 +1344,50 @@ fn analyzeBodyInner(
                     break break_data.inst;
                 }
             },
-            .try_inline => blk: {
+            //.try_inline => blk: {
+            //    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+            //    const src = inst_data.src();
+            //    const operand_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
+            //    const extra = sema.code.extraData(Zir.Inst.Try, inst_data.payload_index);
+            //    const inline_body = sema.code.extra[extra.end..][0..extra.data.body_len];
+            //    const operand = try sema.resolveInst(extra.data.operand);
+            //    const operand_ty = sema.typeOf(operand);
+            //    const is_ptr = operand_ty.zigTypeTag() == .Pointer;
+            //    const err_union = if (is_ptr)
+            //        try sema.analyzeLoad(block, src, operand, operand_src)
+            //    else
+            //        operand;
+            //    const is_non_err = try sema.analyzeIsNonErr(block, operand_src, err_union);
+            //    const is_non_err_tv = try sema.resolveInstConst(block, operand_src, is_non_err);
+            //    if (is_non_err_tv.val.toBool()) {
+            //        if (is_ptr) {
+            //            break :blk try sema.analyzeErrUnionPayloadPtr(block, src, operand, false, false);
+            //        } else {
+            //            const err_union_ty = sema.typeOf(err_union);
+            //            break :blk try sema.analyzeErrUnionPayload(block, src, err_union_ty, operand, operand_src, false);
+            //        }
+            //    }
+            //    const break_data = (try sema.analyzeBodyBreak(block, inline_body)) orelse
+            //        break always_noreturn;
+            //    if (inst == break_data.block_inst) {
+            //        break :blk try sema.resolveInst(break_data.operand);
+            //    } else {
+            //        break break_data.inst;
+            //    }
+            //},
+            .try_ptr => blk: {
+                if (!block.is_comptime) break :blk try sema.zirTry(block, inst, true);
                 const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
                 const src = inst_data.src();
                 const operand_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
                 const extra = sema.code.extraData(Zir.Inst.Try, inst_data.payload_index);
                 const inline_body = sema.code.extra[extra.end..][0..extra.data.body_len];
                 const operand = try sema.resolveInst(extra.data.operand);
-                const operand_ty = sema.typeOf(operand);
-                const is_ptr = operand_ty.zigTypeTag() == .Pointer;
-                const err_union = if (is_ptr)
-                    try sema.analyzeLoad(block, src, operand, operand_src)
-                else
-                    operand;
+                const err_union = try sema.analyzeLoad(block, src, operand, operand_src);
                 const is_non_err = try sema.analyzeIsNonErr(block, operand_src, err_union);
                 const is_non_err_tv = try sema.resolveInstConst(block, operand_src, is_non_err);
                 if (is_non_err_tv.val.toBool()) {
-                    if (is_ptr) {
-                        break :blk try sema.analyzeErrUnionPayloadPtr(block, src, operand, false, false);
-                    } else {
-                        const err_union_ty = sema.typeOf(err_union);
-                        break :blk try sema.analyzeErrUnionPayload(block, src, err_union_ty, operand, operand_src, false);
-                    }
+                    break :blk try sema.analyzeErrUnionPayloadPtr(block, src, operand, false, false);
                 }
                 const break_data = (try sema.analyzeBodyBreak(block, inline_body)) orelse
                     break always_noreturn;
@@ -1385,6 +1397,27 @@ fn analyzeBodyInner(
                     break break_data.inst;
                 }
             },
+            //.try_ptr_inline => blk: {
+            //    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+            //    const src = inst_data.src();
+            //    const operand_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
+            //    const extra = sema.code.extraData(Zir.Inst.Try, inst_data.payload_index);
+            //    const inline_body = sema.code.extra[extra.end..][0..extra.data.body_len];
+            //    const operand = try sema.resolveInst(extra.data.operand);
+            //    const err_union = try sema.analyzeLoad(block, src, operand, operand_src);
+            //    const is_non_err = try sema.analyzeIsNonErr(block, operand_src, err_union);
+            //    const is_non_err_tv = try sema.resolveInstConst(block, operand_src, is_non_err);
+            //    if (is_non_err_tv.val.toBool()) {
+            //        break :blk try sema.analyzeErrUnionPayloadPtr(block, src, operand, false, false);
+            //    }
+            //    const break_data = (try sema.analyzeBodyBreak(block, inline_body)) orelse
+            //        break always_noreturn;
+            //    if (inst == break_data.block_inst) {
+            //        break :blk try sema.resolveInst(break_data.operand);
+            //    } else {
+            //        break break_data.inst;
+            //    }
+            //},
         };
         if (sema.typeOf(air_inst).isNoReturn())
             break always_noreturn;
@@ -13043,15 +13076,18 @@ fn zirCondbr(
     return always_noreturn;
 }
 
-fn zirTry(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Ref {
+fn zirTry(
+    sema: *Sema,
+    parent_block: *Block,
+    inst: Zir.Inst.Index,
+    is_ptr: bool,
+) CompileError!Zir.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const operand_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Try, inst_data.payload_index);
     const body = sema.code.extra[extra.end..][0..extra.data.body_len];
     const operand = try sema.resolveInst(extra.data.operand);
-    const operand_ty = sema.typeOf(operand);
-    const is_ptr = operand_ty.zigTypeTag() == .Pointer;
     const err_union = if (is_ptr)
         try sema.analyzeLoad(parent_block, src, operand, operand_src)
     else
@@ -13084,6 +13120,7 @@ fn zirTry(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!
     _ = try sema.analyzeBodyInner(&sub_block, body);
 
     if (is_ptr) {
+        const operand_ty = sema.typeOf(operand);
         const ptr_info = operand_ty.ptrInfo().data;
         const res_ty = try Type.ptr(sema.arena, sema.mod, .{
             .pointee_type = err_union_ty.errorUnionPayload(),

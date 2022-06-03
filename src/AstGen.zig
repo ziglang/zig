@@ -2426,7 +2426,9 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .ret_ptr,
             .ret_type,
             .@"try",
-            .try_inline,
+            .try_ptr,
+            //.try_inline,
+            //.try_ptr_inline,
             => break :b false,
 
             .extended => switch (gz.astgen.instructions.items(.data)[inst].extended.opcode) {
@@ -4880,7 +4882,16 @@ fn tryExpr(
     // This could be a pointer or value depending on the `rl` parameter.
     const operand = try expr(parent_gz, scope, operand_rl, operand_node);
     const is_inline = parent_gz.force_comptime;
-    const block_tag: Zir.Inst.Tag = if (is_inline) .try_inline else .@"try";
+    const is_inline_bit = @as(u2, @boolToInt(is_inline));
+    const is_ptr_bit = @as(u2, @boolToInt(operand_rl == .ref)) << 1;
+    const block_tag: Zir.Inst.Tag = switch (is_inline_bit | is_ptr_bit) {
+        0b00 => .@"try",
+        0b01 => .@"try",
+        //0b01 => .try_inline,
+        0b10 => .try_ptr,
+        0b11 => .try_ptr,
+        //0b11 => .try_ptr_inline,
+    };
     const try_inst = try parent_gz.makeBlockInst(block_tag, node);
     try parent_gz.instructions.append(astgen.gpa, try_inst);
 
@@ -4897,7 +4908,10 @@ fn tryExpr(
 
     try else_scope.setTryBody(try_inst, operand);
     const result = indexToRef(try_inst);
-    return rvalue(parent_gz, rl, result, node);
+    switch (rl) {
+        .ref => return result,
+        else => return rvalue(parent_gz, rl, result, node),
+    }
 }
 
 fn orelseCatchExpr(
