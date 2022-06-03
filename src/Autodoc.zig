@@ -653,7 +653,12 @@ const DocData = struct {
             value: usize, // direct value
             negated: bool = false,
         },
+        int_big: struct {
+            value: []const u8, // direct value
+            negated: bool = false,
+        },
         float: f64, // direct value
+        float128: f128, // direct value
         array: []usize, // index in `exprs`
         call: usize, // index in `calls`
         enumLiteral: []const u8, // direct value
@@ -740,9 +745,20 @@ const DocData = struct {
                         \\{{ "int": {s}{} }}
                     , .{ neg, v.value });
                 },
+                .int_big => |v| {
+                    const neg = if (v.negated) "-" else "";
+                    try w.print(
+                        \\{{ "int_big": {s}{s} }}
+                    , .{ neg, v.value });
+                },
                 .float => |v| {
                     try w.print(
                         \\{{ "float": {} }}
+                    , .{v});
+                },
+                .float128 => |v| {
+                    try w.print(
+                        \\{{ "float128": {} }}
                     , .{v});
                 },
                 .bool => |v| {
@@ -1048,6 +1064,18 @@ fn walkInstruction(
                 .expr = .{ .int = .{ .value = int } },
             };
         },
+        .int_big => {
+            // @check
+            const str = data[inst_index].str.get(file.zir);
+            _ = str;
+            printWithContext(
+                file,
+                inst_index,
+                "TODO: implement `{s}` for walkInstruction\n\n",
+                .{@tagName(tags[inst_index])},
+            );
+            return self.cteTodo(@tagName(tags[inst_index]));
+        },
 
         .slice_start => {
             const pl_node = data[inst_index].pl_node;
@@ -1231,6 +1259,12 @@ fn walkInstruction(
         .type_name,
         .frame_type,
         .frame_size,
+        .ptr_to_int,
+        .error_to_int,
+        .int_to_error,
+        .minimum,
+        .maximum,
+        .bit_not,
         => {
             const un_node = data[inst_index].un_node;
             const bin_index = self.exprs.items.len;
@@ -1247,8 +1281,7 @@ fn walkInstruction(
                 .expr = .{ .builtinIndex = bin_index },
             };
         },
-        // @check
-        // .clz, .ctz, .pop_count, .byte_swap, .bit_reverse
+
         .float_to_int,
         .int_to_float,
         .int_to_ptr,
@@ -1270,6 +1303,11 @@ fn walkInstruction(
         .shr_exact,
         .bitcast,
         .vector_type,
+        // @check
+        .bit_offset_of,
+        .offset_of,
+        .splat,
+        .reduce,
         => {
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
@@ -1518,14 +1556,6 @@ fn walkInstruction(
                 array_data[idx] = wr.expr.as.exprArg;
             }
 
-            // @check
-            // not working with
-            // const value_slice_float = []f32{42.0};
-            // const value_slice_float2: []f32 = .{42.0};
-            // rendering [][]f32
-            // the reason for that is it's initialized as a pointer
-            // in this case getting the last type index works fine
-            // but when it's not after a pointer it's thrown an error in js.
             const type_slot_index = self.types.items.len;
             try self.types.append(self.arena, .{ .Pointer = .{
                 .size = .Slice,
@@ -1719,6 +1749,15 @@ fn walkInstruction(
             return DocData.WalkResult{
                 .typeRef = .{ .type = @enumToInt(Ref.comptime_float_type) },
                 .expr = .{ .float = float },
+            };
+        },
+        // @check: In frontend I'm handling float128 with `.toFixed(2)`
+        .float128 => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.Float128, pl_node.payload_index);
+            return DocData.WalkResult{
+                .typeRef = .{ .type = @enumToInt(Ref.comptime_float_type) },
+                .expr = .{ .float128 = extra.data.get() },
             };
         },
         .negate => {
@@ -2017,23 +2056,6 @@ fn walkInstruction(
                 .typeRef = .{ .type = @enumToInt(Ref.type_type) },
                 .expr = .{ .type = self.types.items.len - 1 },
             };
-        },
-        .float128 => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Float128, pl_node.payload_index);
-            _ = extra;
-            // const sep = "=" ** 200;
-            // std.debug.print("{s}\n", .{sep});
-            // std.debug.print("pl_node = {any}\n", .{pl_node});
-            // std.debug.print("extra = {any}\n", .{extra});
-            // std.debug.print("{s}\n", .{sep});
-            // printWithContext(
-            //     file,
-            //     inst_index,
-            //     "TODO: implement `{s}` for walkInstruction\n\n",
-            //     .{@tagName(tags[inst_index])},
-            // );
-            return self.cteTodo(@tagName(tags[inst_index]));
         },
         .block => {
             const res = DocData.WalkResult{ .expr = .{
