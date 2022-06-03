@@ -5389,7 +5389,9 @@ pub const FuncGen = struct {
             }
             llvm_constraints.appendSliceAssumeCapacity(constraint);
 
-            name_map.putAssumeCapacityNoClobber(name, {});
+            if (!std.mem.eql(u8, name, "_")) {
+                name_map.putAssumeCapacityNoClobber(name, {});
+            }
             llvm_param_i += 1;
             total_i += 1;
         }
