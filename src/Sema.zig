@@ -6654,7 +6654,11 @@ fn zirFunc(
         src_locs = sema.code.extraData(Zir.Inst.Func.SrcLocs, extra_index).data;
     }
 
-    const cc: std.builtin.CallingConvention = if (sema.owner_decl.is_exported)
+    // If this instruction has a body it means it's the type of the `owner_decl`
+    // otherwise it's a function type without a `callconv` attribute and should
+    // never be `.C`.
+    // NOTE: revisit when doing #1717
+    const cc: std.builtin.CallingConvention = if (sema.owner_decl.is_exported and has_body)
         .C
     else
         .Unspecified;
