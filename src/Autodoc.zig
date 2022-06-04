@@ -1375,7 +1375,7 @@ fn walkInstruction(
             self.exprs.items[bin_index] = .{ .builtin = .{ .name = @tagName(tags[inst_index]), .param = param_index } };
 
             return DocData.WalkResult{
-                .typeRef = param.typeRef,
+                .typeRef = param.typeRef orelse .{ .type = @enumToInt(Ref.type_type) },
                 .expr = .{ .builtinIndex = bin_index },
             };
         },
