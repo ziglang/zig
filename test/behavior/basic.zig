@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const assert = std.debug.assert;
 const mem = std.mem;
 const expect = std.testing.expect;
 const expectEqualStrings = std.testing.expectEqualStrings;
@@ -1052,4 +1053,12 @@ test "const alloc with comptime known initializer is made comptime known" {
         };
         if (u.a == 0) @compileError("bad");
     }
+}
+
+comptime {
+    // coerce result ptr outside a function
+    const S = struct { a: comptime_int };
+    var s: S = undefined;
+    s = S{ .a = 1 };
+    assert(s.a == 1);
 }
