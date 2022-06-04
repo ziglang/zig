@@ -1875,7 +1875,7 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
 
     const dummy_ptr = try trash_block.addTy(.alloc, sema.typeOf(ptr));
     const dummy_operand = try trash_block.addBitCast(pointee_ty, .void_value);
-    try sema.storePtr(&trash_block, src, dummy_ptr, dummy_operand);
+    try sema.storePtr2(&trash_block, src, dummy_ptr, src, dummy_operand, src, .bitcast);
 
     {
         const air_tags = sema.air_instructions.items(.tag);
@@ -20186,6 +20186,13 @@ fn storePtr2(
         return;
 
     // TODO handle if the element type requires comptime
+
+    if (air_tag == .bitcast) {
+        // `air_tag == .bitcast` is used as a special case for `zirCoerceResultPtr`
+        // to avoid calling `requireRuntimeBlock` for the dummy block.
+        _ = try block.addBinOp(.store, ptr, operand);
+        return;
+    }
 
     try sema.requireRuntimeBlock(block, runtime_src);
     try sema.queueFullTypeResolution(elem_ty);
