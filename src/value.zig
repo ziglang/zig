@@ -120,6 +120,8 @@ pub const Value = extern union {
         /// This Tag will never be seen by machine codegen backends. It is changed into a
         /// `decl_ref` when a comptime variable goes out of scope.
         decl_ref_mut,
+        /// Behaves like `decl_ref_mut` but validates that the stored value matches the field value.
+        comptime_field_ptr,
         /// Pointer to a specific element of an array, vector or slice.
         elem_ptr,
         /// Pointer to a specific field of a struct or union.
@@ -316,6 +318,7 @@ pub const Value = extern union {
                 .aggregate => Payload.Aggregate,
                 .@"union" => Payload.Union,
                 .bound_fn => Payload.BoundFn,
+                .comptime_field_ptr => Payload.ComptimeFieldPtr,
             };
         }
 
@@ -502,6 +505,18 @@ pub const Value = extern union {
                     .data = .{
                         .container_ptr = try payload.data.container_ptr.copy(arena),
                         .container_ty = try payload.data.container_ty.copy(arena),
+                    },
+                };
+                return Value{ .ptr_otherwise = &new_payload.base };
+            },
+            .comptime_field_ptr => {
+                const payload = self.cast(Payload.ComptimeFieldPtr).?;
+                const new_payload = try arena.create(Payload.ComptimeFieldPtr);
+                new_payload.* = .{
+                    .base = payload.base,
+                    .data = .{
+                        .field_val = try payload.data.field_val.copy(arena),
+                        .field_ty = try payload.data.field_ty.copy(arena),
                     },
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
@@ -753,6 +768,9 @@ pub const Value = extern union {
             .decl_ref => {
                 const decl_index = val.castTag(.decl_ref).?.data;
                 return out_stream.print("(decl_ref {d})", .{decl_index});
+            },
+            .comptime_field_ptr => {
+                return out_stream.writeAll("(comptime_field_ptr)");
             },
             .elem_ptr => {
                 const elem_ptr = val.castTag(.elem_ptr).?.data;
@@ -1706,6 +1724,7 @@ pub const Value = extern union {
             .int_big_negative => return self.castTag(.int_big_negative).?.asBigInt().bitCountTwosComp(),
 
             .decl_ref_mut,
+            .comptime_field_ptr,
             .extern_fn,
             .decl_ref,
             .function,
@@ -1770,6 +1789,7 @@ pub const Value = extern union {
             .bool_true,
             .decl_ref,
             .decl_ref_mut,
+            .comptime_field_ptr,
             .extern_fn,
             .function,
             .variable,
@@ -2362,7 +2382,7 @@ pub const Value = extern union {
 
     pub fn isComptimeMutablePtr(val: Value) bool {
         return switch (val.tag()) {
-            .decl_ref_mut => true,
+            .decl_ref_mut, .comptime_field_ptr => true,
             .elem_ptr => isComptimeMutablePtr(val.castTag(.elem_ptr).?.data.array_ptr),
             .field_ptr => isComptimeMutablePtr(val.castTag(.field_ptr).?.data.container_ptr),
             .eu_payload_ptr => isComptimeMutablePtr(val.castTag(.eu_payload_ptr).?.data.container_ptr),
@@ -2426,6 +2446,9 @@ pub const Value = extern union {
                 const decl: Module.Decl.Index = ptr_val.pointerDecl().?;
                 std.hash.autoHash(hasher, decl);
             },
+            .comptime_field_ptr => {
+                std.hash.autoHash(hasher, Value.Tag.comptime_field_ptr);
+            },
 
             .elem_ptr => {
                 const elem_ptr = ptr_val.castTag(.elem_ptr).?.data;
@@ -2471,7 +2494,7 @@ pub const Value = extern union {
         return switch (val.tag()) {
             .slice => val.castTag(.slice).?.data.ptr,
             // TODO this should require being a slice tag, and not allow decl_ref, field_ptr, etc.
-            .decl_ref, .decl_ref_mut, .field_ptr, .elem_ptr => val,
+            .decl_ref, .decl_ref_mut, .field_ptr, .elem_ptr, .comptime_field_ptr => val,
             else => unreachable,
         };
     }
@@ -2493,6 +2516,14 @@ pub const Value = extern union {
                 const decl = mod.declPtr(decl_index);
                 if (decl.ty.zigTypeTag() == .Array) {
                     return decl.ty.arrayLen();
+                } else {
+                    return 1;
+                }
+            },
+            .comptime_field_ptr => {
+                const payload = val.castTag(.comptime_field_ptr).?.data;
+                if (payload.field_ty.zigTypeTag() == .Array) {
+                    return payload.field_ty.arrayLen();
                 } else {
                     return 1;
                 }
@@ -2587,6 +2618,7 @@ pub const Value = extern union {
 
             .decl_ref => return mod.declPtr(val.castTag(.decl_ref).?.data).val.elemValueAdvanced(mod, index, arena, buffer),
             .decl_ref_mut => return mod.declPtr(val.castTag(.decl_ref_mut).?.data.decl_index).val.elemValueAdvanced(mod, index, arena, buffer),
+            .comptime_field_ptr => return val.castTag(.comptime_field_ptr).?.data.field_val.elemValueAdvanced(mod, index, arena, buffer),
             .elem_ptr => {
                 const data = val.castTag(.elem_ptr).?.data;
                 return data.array_ptr.elemValueAdvanced(mod, index + data.index, arena, buffer);
@@ -2623,6 +2655,7 @@ pub const Value = extern union {
 
             .decl_ref => sliceArray(mod.declPtr(val.castTag(.decl_ref).?.data).val, mod, arena, start, end),
             .decl_ref_mut => sliceArray(mod.declPtr(val.castTag(.decl_ref_mut).?.data.decl_index).val, mod, arena, start, end),
+            .comptime_field_ptr => sliceArray(val.castTag(.comptime_field_ptr).?.data.field_val, mod, arena, start, end),
             .elem_ptr => blk: {
                 const elem_ptr = val.castTag(.elem_ptr).?.data;
                 break :blk sliceArray(elem_ptr.array_ptr, mod, arena, start + elem_ptr.index, end + elem_ptr.index);
@@ -4739,6 +4772,14 @@ pub const Value = extern union {
             data: struct {
                 container_ptr: Value,
                 container_ty: Type,
+            },
+        };
+
+        pub const ComptimeFieldPtr = struct {
+            base: Payload,
+            data: struct {
+                field_val: Value,
+                field_ty: Type,
             },
         };
 
