@@ -1357,6 +1357,12 @@ fn walkInstruction(
         .minimum,
         .maximum,
         .bit_not,
+        // @check
+        .clz,
+        .ctz,
+        .pop_count,
+        .byte_swap,
+        .bit_reverse,
         => {
             const un_node = data[inst_index].un_node;
             const bin_index = self.exprs.items.len;
