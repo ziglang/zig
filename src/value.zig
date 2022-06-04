@@ -1174,6 +1174,10 @@ pub const Value = extern union {
             return;
         }
         switch (ty.zigTypeTag()) {
+            .Void => {},
+            .Bool => {
+                buffer[0] = @boolToInt(val.toBool());
+            },
             .Int => {
                 var bigint_buffer: BigIntSpace = undefined;
                 const bigint = val.toBigInt(&bigint_buffer, target);
@@ -1291,6 +1295,14 @@ pub const Value = extern union {
     ) Allocator.Error!Value {
         const target = mod.getTarget();
         switch (ty.zigTypeTag()) {
+            .Void => return Value.@"void",
+            .Bool => {
+                if (buffer[0] == 0) {
+                    return Value.@"false";
+                } else {
+                    return Value.@"true";
+                }
+            },
             .Int => {
                 if (buffer.len == 0) return Value.zero;
                 const int_info = ty.intInfo(target);
@@ -1311,7 +1323,7 @@ pub const Value = extern union {
                 128 => return Value.Tag.float_128.create(arena, floatReadFromMemory(f128, target, buffer)),
                 else => unreachable,
             },
-            .Array => {
+            .Array, .Vector => {
                 const elem_ty = ty.childType();
                 const elem_size = elem_ty.abiSize(target);
                 const elems = try arena.alloc(Value, @intCast(usize, ty.arrayLen()));

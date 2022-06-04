@@ -147,7 +147,8 @@ pub fn __log2x(a: f80) callconv(.C) f80 {
 }
 
 pub fn log2q(a: f128) callconv(.C) f128 {
-    return math.log2(a);
+    // TODO: more correct implementation
+    return log2(@floatCast(f64, a));
 }
 
 pub fn log2l(x: c_longdouble) callconv(.C) c_longdouble {

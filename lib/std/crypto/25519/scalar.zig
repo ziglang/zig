@@ -34,12 +34,14 @@ pub fn rejectNonCanonical(s: CompressedScalar) NonCanonicalError!void {
 
 /// Reduce a scalar to the field size.
 pub fn reduce(s: CompressedScalar) CompressedScalar {
-    return Scalar.fromBytes(s).toBytes();
+    var scalar = Scalar.fromBytes(s);
+    return scalar.toBytes();
 }
 
 /// Reduce a 64-bytes scalar to the field size.
 pub fn reduce64(s: [64]u8) CompressedScalar {
-    return ScalarDouble.fromBytes64(s).toBytes();
+    var scalar = ScalarDouble.fromBytes64(s);
+    return scalar.toBytes();
 }
 
 /// Perform the X25519 "clamping" operation.
@@ -106,12 +108,14 @@ pub const Scalar = struct {
 
     /// Unpack a 32-byte representation of a scalar
     pub fn fromBytes(bytes: CompressedScalar) Scalar {
-        return ScalarDouble.fromBytes32(bytes).reduce(5);
+        var scalar = ScalarDouble.fromBytes32(bytes);
+        return scalar.reduce(5);
     }
 
     /// Unpack a 64-byte representation of a scalar
     pub fn fromBytes64(bytes: [64]u8) Scalar {
-        return ScalarDouble.fromBytes64(bytes).reduce(5);
+        var scalar = ScalarDouble.fromBytes64(bytes);
+        return scalar.reduce(5);
     }
 
     /// Pack a scalar into bytes

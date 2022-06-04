@@ -784,7 +784,7 @@ pub const Type = extern union {
 
             .anyframe_T => {
                 if (b.zigTypeTag() != .AnyFrame) return false;
-                return a.childType().eql(b.childType(), mod);
+                return a.elemType2().eql(b.elemType2(), mod);
             },
 
             .empty_struct => {
@@ -2035,7 +2035,11 @@ pub const Type = extern union {
                 try writer.writeAll("fn(");
                 for (fn_info.param_types) |param_ty, i| {
                     if (i != 0) try writer.writeAll(", ");
-                    try print(param_ty, writer, mod);
+                    if (param_ty.tag() == .generic_poison) {
+                        try writer.writeAll("anytype");
+                    } else {
+                        try print(param_ty, writer, mod);
+                    }
                 }
                 if (fn_info.is_var_args) {
                     if (fn_info.param_types.len != 0) {
@@ -2052,7 +2056,11 @@ pub const Type = extern union {
                 if (fn_info.alignment != 0) {
                     try writer.print("align({d}) ", .{fn_info.alignment});
                 }
-                try print(fn_info.return_type, writer, mod);
+                if (fn_info.return_type.tag() == .generic_poison) {
+                    try writer.writeAll("anytype");
+                } else {
+                    try print(fn_info.return_type, writer, mod);
+                }
             },
 
             .error_union => {
@@ -4125,14 +4133,15 @@ pub const Type = extern union {
     /// TODO this is deprecated in favor of `childType`.
     pub const elemType = childType;
 
-    /// For *[N]T,  returns T.
-    /// For ?*T,    returns T.
-    /// For ?*[N]T, returns T.
-    /// For ?[*]T,  returns T.
-    /// For *T,     returns T.
-    /// For [*]T,   returns T.
-    /// For [N]T,   returns T.
-    /// For []T,    returns T.
+    /// For *[N]T,       returns T.
+    /// For ?*T,         returns T.
+    /// For ?*[N]T,      returns T.
+    /// For ?[*]T,       returns T.
+    /// For *T,          returns T.
+    /// For [*]T,        returns T.
+    /// For [N]T,        returns T.
+    /// For []T,         returns T.
+    /// For anyframe->T, returns T.
     pub fn elemType2(ty: Type) Type {
         return switch (ty.tag()) {
             .vector => ty.castTag(.vector).?.data.elem_type,
@@ -4172,6 +4181,9 @@ pub const Type = extern union {
             .optional => ty.castTag(.optional).?.data.childType(),
             .optional_single_mut_pointer => ty.castPointer().?.data,
             .optional_single_const_pointer => ty.castPointer().?.data,
+
+            .anyframe_T => ty.castTag(.anyframe_T).?.data,
+            .@"anyframe" => Type.@"void",
 
             else => unreachable,
         };

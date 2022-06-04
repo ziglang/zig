@@ -679,9 +679,12 @@ fn testBlake3(hasher: *Blake3, input_len: usize, expected_hex: [262]u8) !void {
 }
 
 test "BLAKE3 reference test cases" {
-    var hash = &Blake3.init(.{});
-    var keyed_hash = &Blake3.init(.{ .key = reference_test.key.* });
-    var derive_key = &Blake3.initKdf(reference_test.context_string, .{});
+    var hash_state = Blake3.init(.{});
+    const hash = &hash_state;
+    var keyed_hash_state = Blake3.init(.{ .key = reference_test.key.* });
+    const keyed_hash = &keyed_hash_state;
+    var derive_key_state = Blake3.initKdf(reference_test.context_string, .{});
+    const derive_key = &derive_key_state;
 
     for (reference_test.cases) |t| {
         try testBlake3(hash, t.input_len, t.hash.*);
