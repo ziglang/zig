@@ -912,7 +912,7 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
         0,
     );
     switch (rc) {
-        .SUCCESS => return CloseHandle(tmp_handle),
+        .SUCCESS => {},
         .OBJECT_NAME_INVALID => unreachable,
         .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
         .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
@@ -921,6 +921,21 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
         .NOT_A_DIRECTORY => return error.NotDir,
         .SHARING_VIOLATION => return error.FileBusy,
         .CANNOT_DELETE => return error.AccessDenied,
+        else => return unexpectedStatus(rc),
+    }
+    defer CloseHandle(tmp_handle);
+
+    var info = FILE_DISPOSITION_INFORMATION_EX{
+        .Flags = FILE_DISPOSITION_DELETE |
+            FILE_DISPOSITION_POSIX_SEMANTICS |
+            FILE_DISPOSITION_ON_CLOSE |
+            FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE,
+    };
+    rc = ntdll.NtSetInformationFile(tmp_handle, &io, &info, @sizeOf(FILE_DISPOSITION_INFORMATION_EX), .FileDispositionInformationEx);
+    switch (rc) {
+        .SUCCESS => {},
+        // CANNOT_DELETE indicates that the file is currently mapped
+        .CANNOT_DELETE => return error.FileBusy,
         else => return unexpectedStatus(rc),
     }
 }
@@ -2376,6 +2391,18 @@ pub const FILE_NAME_INFORMATION = extern struct {
     FileNameLength: ULONG,
     FileName: [1]WCHAR,
 };
+
+pub const FILE_DISPOSITION_INFORMATION_EX = extern struct {
+    /// combination of FILE_DISPOSITION_* flags
+    Flags: ULONG,
+};
+
+const FILE_DISPOSITION_DO_NOT_DELETE: ULONG = 0x00000000;
+const FILE_DISPOSITION_DELETE: ULONG = 0x00000001;
+const FILE_DISPOSITION_POSIX_SEMANTICS: ULONG = 0x00000002;
+const FILE_DISPOSITION_FORCE_IMAGE_SECTION_CHECK: ULONG = 0x00000004;
+const FILE_DISPOSITION_ON_CLOSE: ULONG = 0x00000008;
+const FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE: ULONG = 0x00000010;
 
 pub const FILE_RENAME_INFORMATION = extern struct {
     ReplaceIfExists: BOOLEAN,
