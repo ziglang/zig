@@ -681,8 +681,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .prefetch        => try self.airPrefetch(inst),
             .mul_add         => try self.airMulAdd(inst),
 
-            .@"try"          => @panic("TODO"),
-            .try_ptr         => @panic("TODO"),
+            .@"try"          => try self.airTry(inst),
+            .try_ptr         => try self.airTryPtr(inst),
 
             .dbg_var_ptr,
             .dbg_var_val,
@@ -1807,14 +1807,24 @@ fn airUnwrapErrPayload(self: *Self, inst: Air.Inst.Index) !void {
         return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
     }
     const err_union_ty = self.air.typeOf(ty_op.operand);
+    const operand = try self.resolveInst(ty_op.operand);
+    const result = try self.genUnwrapErrorUnionPayloadMir(inst, err_union_ty, operand);
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn genUnwrapErrorUnionPayloadMir(
+    self: *Self,
+    maybe_inst: ?Air.Inst.Index,
+    err_union_ty: Type,
+    err_union: MCValue,
+) !MCValue {
     const payload_ty = err_union_ty.errorUnionPayload();
     const err_ty = err_union_ty.errorUnionSet();
-    const operand = try self.resolveInst(ty_op.operand);
 
     const result: MCValue = result: {
         if (err_ty.errorSetCardinality() == .zero) {
             // TODO check if we can reuse
-            break :result operand;
+            break :result err_union;
         }
 
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
@@ -1822,7 +1832,7 @@ fn airUnwrapErrPayload(self: *Self, inst: Air.Inst.Index) !void {
         }
 
         const payload_off = errUnionPayloadOffset(payload_ty, self.target.*);
-        switch (operand) {
+        switch (err_union) {
             .stack_offset => |off| {
                 const offset = off - @intCast(i32, payload_off);
                 break :result MCValue{ .stack_offset = offset };
@@ -1831,19 +1841,23 @@ fn airUnwrapErrPayload(self: *Self, inst: Air.Inst.Index) !void {
                 // TODO reuse operand
                 const lock = self.register_manager.lockRegAssumeUnused(reg);
                 defer self.register_manager.unlockReg(lock);
-                const result = try self.copyToRegisterWithInstTracking(inst, err_union_ty, operand);
+                const result_reg: Register = if (maybe_inst) |inst|
+                    (try self.copyToRegisterWithInstTracking(inst, err_union_ty, err_union)).register
+                else
+                    try self.copyToTmpRegister(err_union_ty, err_union);
                 if (payload_off > 0) {
                     const shift = @intCast(u6, payload_off * 8);
-                    try self.genShiftBinOpMir(.shr, err_union_ty, result.register, .{ .immediate = shift });
+                    try self.genShiftBinOpMir(.shr, err_union_ty, result_reg, .{ .immediate = shift });
                 } else {
-                    try self.truncateRegister(payload_ty, result.register);
+                    try self.truncateRegister(payload_ty, result_reg);
                 }
-                break :result result;
+                break :result MCValue{ .register = result_reg };
             },
-            else => return self.fail("TODO implement unwrap_err_payload for {}", .{operand}),
+            else => return self.fail("TODO implement genUnwrapErrorUnionPayloadMir for {}", .{err_union}),
         }
     };
-    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+
+    return result;
 }
 
 // *(E!T) -> E
@@ -4231,6 +4245,45 @@ fn airCmpLtErrorsLen(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
+fn airTry(self: *Self, inst: Air.Inst.Index) !void {
+    const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+    const extra = self.air.extraData(Air.Try, pl_op.payload);
+    const body = self.air.extra[extra.end..][0..extra.data.body_len];
+    const err_union_ty = self.air.typeOf(pl_op.operand);
+    const err_union = try self.resolveInst(pl_op.operand);
+    const result = try self.genTry(inst, err_union, body, err_union_ty, false);
+    return self.finishAir(inst, result, .{ pl_op.operand, .none, .none });
+}
+
+fn airTryPtr(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.TryPtr, ty_pl.payload);
+    const body = self.air.extra[extra.end..][0..extra.data.body_len];
+    const err_union_ty = self.air.typeOf(extra.data.ptr).childType();
+    const err_union_ptr = try self.resolveInst(extra.data.ptr);
+    const result = try self.genTry(inst, err_union_ptr, body, err_union_ty, true);
+    return self.finishAir(inst, result, .{ extra.data.ptr, .none, .none });
+}
+
+fn genTry(
+    self: *Self,
+    inst: Air.Inst.Index,
+    err_union: MCValue,
+    body: []const Air.Inst.Index,
+    err_union_ty: Type,
+    operand_is_ptr: bool,
+) !MCValue {
+    if (operand_is_ptr) {
+        return self.fail("TODO genTry for pointers", .{});
+    }
+    const is_err_mcv = try self.isErr(null, err_union_ty, err_union);
+    const reloc = try self.genCondBrMir(Type.anyerror, is_err_mcv);
+    try self.genBody(body);
+    try self.performReloc(reloc);
+    const result = try self.genUnwrapErrorUnionPayloadMir(inst, err_union_ty, err_union);
+    return result;
+}
+
 fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
     const dbg_stmt = self.air.instructions.items(.data)[inst].dbg_stmt;
     const payload = try self.addExtra(Mir.DbgLineColumn{
@@ -4596,7 +4649,7 @@ fn isNonNull(self: *Self, inst: Air.Inst.Index, ty: Type, operand: MCValue) !MCV
     return MCValue{ .eflags = is_null_res.eflags.negate() };
 }
 
-fn isErr(self: *Self, inst: Air.Inst.Index, ty: Type, operand: MCValue) !MCValue {
+fn isErr(self: *Self, maybe_inst: ?Air.Inst.Index, ty: Type, operand: MCValue) !MCValue {
     const err_type = ty.errorUnionSet();
 
     if (err_type.errorSetCardinality() == .zero) {
@@ -4604,7 +4657,9 @@ fn isErr(self: *Self, inst: Air.Inst.Index, ty: Type, operand: MCValue) !MCValue
     }
 
     try self.spillEflagsIfOccupied();
-    self.eflags_inst = inst;
+    if (maybe_inst) |inst| {
+        self.eflags_inst = inst;
+    }
 
     const err_off = errUnionErrorOffset(ty.errorUnionPayload(), self.target.*);
     switch (operand) {
