@@ -3616,7 +3616,7 @@ fn zirValidateArrayInit(
     const air_tags = sema.air_instructions.items(.tag);
     const air_datas = sema.air_instructions.items(.data);
 
-    for (instrs) |elem_ptr, i| {
+    outer: for (instrs) |elem_ptr, i| {
         const elem_ptr_data = sema.code.instructions.items(.data)[elem_ptr].pl_node;
         const elem_src: LazySrcLoc = .{ .node_offset = elem_ptr_data.src_node };
 
@@ -3630,6 +3630,10 @@ fn zirValidateArrayInit(
         // of the for loop.
         var block_index = block.instructions.items.len - 1;
         while (block.instructions.items[block_index] != elem_ptr_air_inst) {
+            if (block_index == 0) {
+                array_is_comptime = true;
+                continue :outer;
+            }
             block_index -= 1;
         }
         first_block_index = @minimum(first_block_index, block_index);
@@ -3672,6 +3676,13 @@ fn zirValidateArrayInit(
     }
 
     if (array_is_comptime) {
+        if (try sema.resolveDefinedValue(block, init_src, array_ptr)) |ptr_val| {
+            if (ptr_val.tag() == .comptime_field_ptr) {
+                // This store was validated by the individual elem ptrs.
+                return;
+            }
+        }
+
         // Our task is to delete all the `elem_ptr` and `store` instructions, and insert
         // instead a single `store` to the array_ptr with a comptime struct value.
         // Also to populate the sentinel value, if any.
@@ -18462,14 +18473,11 @@ fn structFieldPtrByIndex(
     const ptr_field_ty = try Type.ptr(sema.arena, sema.mod, ptr_ty_data);
 
     if (field.is_comptime) {
-        var anon_decl = try block.startAnonDecl(field_src);
-        defer anon_decl.deinit();
-        const decl = try anon_decl.finish(
-            try field.ty.copy(anon_decl.arena()),
-            try field.default_val.copy(anon_decl.arena()),
-            ptr_ty_data.@"align",
-        );
-        return sema.analyzeDeclRef(decl);
+        const val = try Value.Tag.comptime_field_ptr.create(sema.arena, .{
+            .field_ty = try field.ty.copy(sema.arena),
+            .field_val = try field.default_val.copy(sema.arena),
+        });
+        return sema.addConstant(ptr_field_ty, val);
     }
 
     if (try sema.resolveDefinedValue(block, src, struct_ptr)) |struct_ptr_val| {
@@ -20247,6 +20255,14 @@ fn storePtrVal(
 
     const bitcasted_val = try sema.bitCastVal(block, src, operand_val, operand_ty, mut_kit.ty, 0);
 
+    if (mut_kit.decl_ref_mut.runtime_index == std.math.maxInt(u32)) {
+        // Special case for comptime field ptr.
+        if (!mut_kit.val.eql(bitcasted_val, mut_kit.ty, sema.mod)) {
+            return sema.fail(block, src, "value stored in comptime field does not match the default value of the field", .{});
+        }
+        return;
+    }
+
     const arena = mut_kit.beginArena(sema.mod);
     defer mut_kit.finishArena(sema.mod);
 
@@ -20294,6 +20310,19 @@ fn beginComptimePtrMutation(
                 .decl_ref_mut = decl_ref_mut,
                 .val = &decl.val,
                 .ty = decl.ty,
+            };
+        },
+        .comptime_field_ptr => {
+            const payload = ptr_val.castTag(.comptime_field_ptr).?.data;
+            const duped = try sema.arena.create(Value);
+            duped.* = payload.field_val;
+            return ComptimePtrMutationKit{
+                .decl_ref_mut = .{
+                    .decl_index = @intToEnum(Module.Decl.Index, 0),
+                    .runtime_index = std.math.maxInt(u32),
+                },
+                .val = duped,
+                .ty = payload.field_ty,
             };
         },
         .elem_ptr => {

@@ -264,6 +264,16 @@ pub fn print(
                 .val = decl.val,
             }, writer, level - 1, mod);
         },
+        .comptime_field_ptr => {
+            const payload = val.castTag(.comptime_field_ptr).?.data;
+            if (level == 0) {
+                return writer.writeAll("(comptime field ptr)");
+            }
+            return print(.{
+                .ty = payload.field_ty,
+                .val = payload.field_val,
+            }, writer, level - 1, mod);
+        },
         .elem_ptr => {
             const elem_ptr = val.castTag(.elem_ptr).?.data;
             try writer.writeAll("&");
