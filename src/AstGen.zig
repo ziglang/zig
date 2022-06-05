@@ -9875,6 +9875,9 @@ const GenZir = struct {
         errdefer as_scope.unstack();
         as_scope.rl_ptr = try as_scope.addBin(.coerce_result_ptr, dest_type, result_ptr);
 
+        // `rl_ty_inst` needs to be set in case the stores to `rl_ptr` are eliminated.
+        as_scope.rl_ty_inst = dest_type;
+
         return as_scope;
     }
 
