@@ -1074,3 +1074,15 @@ test "switch inside @as gets correct type" {
         else => 0,
     });
 }
+
+test "inline call of function with a switch inside the return statement" {
+    const S = struct {
+        inline fn foo(x: anytype) @TypeOf(x) {
+            return switch (x) {
+                1 => 1,
+                else => unreachable,
+            };
+        }
+    };
+    try expect(S.foo(1) == 1);
+}
