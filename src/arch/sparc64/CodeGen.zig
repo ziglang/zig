@@ -593,7 +593,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .store           => try self.airStore(inst),
             .struct_field_ptr=> @panic("TODO try self.airStructFieldPtr(inst)"),
             .struct_field_val=> try self.airStructFieldVal(inst),
-            .array_to_slice  => @panic("TODO try self.airArrayToSlice(inst)"),
+            .array_to_slice  => try self.airArrayToSlice(inst),
             .int_to_float    => @panic("TODO try self.airIntToFloat(inst)"),
             .float_to_int    => @panic("TODO try self.airFloatToInt(inst)"),
             .cmpxchg_strong  => @panic("TODO try self.airCmpxchg(inst)"),
@@ -784,6 +784,25 @@ fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 fn airAlloc(self: *Self, inst: Air.Inst.Index) !void {
     const stack_offset = try self.allocMemPtr(inst);
     return self.finishAir(inst, .{ .ptr_stack_offset = stack_offset }, .{ .none, .none, .none });
+}
+
+fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const ptr_ty = self.air.typeOf(ty_op.operand);
+        const ptr = try self.resolveInst(ty_op.operand);
+        const array_ty = ptr_ty.childType();
+        const array_len = @intCast(u32, array_ty.arrayLen());
+
+        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+        const ptr_bytes = @divExact(ptr_bits, 8);
+
+        const stack_offset = try self.allocMem(inst, ptr_bytes * 2, ptr_bytes * 2);
+        try self.genSetStack(ptr_ty, stack_offset, ptr);
+        try self.genSetStack(Type.initTag(.usize), stack_offset - ptr_bytes, .{ .immediate = array_len });
+        break :result MCValue{ .stack_offset = stack_offset };
+    };
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
