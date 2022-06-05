@@ -198,6 +198,51 @@ pub fn alignedCreate(
     return &slice[0];
 }
 
+test "create" {
+    // Non-zero type, greater alignment
+    {
+        const x = try std.testing.allocator.alignedCreate(u8, @alignOf(u32));
+        defer std.testing.allocator.destroy(x);
+
+        assert(@typeInfo(@TypeOf(x)).Pointer.alignment == @alignOf(u32));
+    }
+    // Non-zero type, null alignment
+    {
+        const x = try std.testing.allocator.alignedCreate(u8, null);
+        defer std.testing.allocator.destroy(x);
+
+        assert(@typeInfo(@TypeOf(x)).Pointer.alignment == @alignOf(u8));
+    }
+    // Non-zero type, lesser alignment
+    {
+        const x = try std.testing.allocator.alignedCreate(u32, @alignOf(u5));
+        defer std.testing.allocator.destroy(x);
+
+        assert(@typeInfo(@TypeOf(x)).Pointer.alignment == @alignOf(u5));
+    }
+    // Zero type, greater alignment
+    {
+        const x = try std.testing.allocator.alignedCreate([0]u8, @alignOf(u32));
+        defer std.testing.allocator.destroy(x);
+
+        assert(@typeInfo(@TypeOf(x)).Pointer.alignment == @alignOf(void));
+    }
+    // Zero type, null alignment
+    {
+        const x = try std.testing.allocator.alignedCreate([0]u8, null);
+        defer std.testing.allocator.destroy(x);
+
+        assert(@typeInfo(@TypeOf(x)).Pointer.alignment == @alignOf(void));
+    }
+    // Zero alignment, lesser alignment
+    {
+        const x = try std.testing.allocator.alignedCreate([0]u8, @alignOf(u5));
+        defer std.testing.allocator.destroy(x);
+
+        assert(@typeInfo(@TypeOf(x)).Pointer.alignment == @alignOf(void));
+    }
+}
+
 /// `ptr` should be the return value of `create`, or otherwise
 /// have the same address and alignment property.
 pub fn destroy(self: Allocator, ptr: anytype) void {
