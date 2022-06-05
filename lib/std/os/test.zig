@@ -766,8 +766,10 @@ test "sigaction" {
         }
     };
 
+    const actual_handler = if (builtin.zig_backend == .stage1) S.handler else &S.handler;
+
     var sa = os.Sigaction{
-        .handler = .{ .sigaction = S.handler },
+        .handler = .{ .sigaction = actual_handler },
         .mask = os.empty_sigset,
         .flags = os.SA.SIGINFO | os.SA.RESETHAND,
     };
@@ -776,7 +778,7 @@ test "sigaction" {
     try os.sigaction(os.SIG.USR1, &sa, null);
     // Check that we can read it back correctly.
     try os.sigaction(os.SIG.USR1, null, &old_sa);
-    try testing.expectEqual(S.handler, old_sa.handler.sigaction.?);
+    try testing.expectEqual(actual_handler, old_sa.handler.sigaction.?);
     try testing.expect((old_sa.flags & os.SA.SIGINFO) != 0);
     // Invoke the handler.
     try os.raise(os.SIG.USR1);
