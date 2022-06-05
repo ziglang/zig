@@ -79,6 +79,7 @@ pub fn print(
         .i8_type => return writer.writeAll("i8"),
         .u16_type => return writer.writeAll("u16"),
         .i16_type => return writer.writeAll("i16"),
+        .u29_type => return writer.writeAll("u29"),
         .u32_type => return writer.writeAll("u32"),
         .i32_type => return writer.writeAll("i32"),
         .u64_type => return writer.writeAll("u64"),

@@ -1961,6 +1961,7 @@ pub const Inst = struct {
         i8_type,
         u16_type,
         i16_type,
+        u29_type,
         u32_type,
         i32_type,
         u64_type,
@@ -2071,6 +2072,10 @@ pub const Inst = struct {
             .i16_type = .{
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.i16_type),
+            },
+            .u29_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.u29_type),
             },
             .u32_type = .{
                 .ty = Type.initTag(.type),
