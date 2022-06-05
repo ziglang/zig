@@ -663,7 +663,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .slice_elem_val      => try self.airSliceElemVal(inst),
             .slice_elem_ptr      => @panic("TODO try self.airSliceElemPtr(inst)"),
             .ptr_elem_val        => @panic("TODO try self.airPtrElemVal(inst)"),
-            .ptr_elem_ptr        => @panic("TODO try self.airPtrElemPtr(inst)"),
+            .ptr_elem_ptr        => try self.airPtrElemPtr(inst),
 
             .constant => unreachable, // excluded from function bodies
             .const_ty => unreachable, // excluded from function bodies
@@ -1647,6 +1647,13 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
         }
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn airPtrElemPtr(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement ptr_elem_ptr for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
 }
 
 fn airRet(self: *Self, inst: Air.Inst.Index) !void {
