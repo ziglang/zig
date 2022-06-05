@@ -887,10 +887,8 @@ pub const Dir = struct {
         }
 
         pub fn deinit(self: *Walker) void {
-            while (self.stack.popOrNull()) |*item| {
-                if (self.stack.items.len != 0) {
-                    item.iter.dir.close();
-                }
+            for (self.stack.items) |*item| {
+                item.iter.dir.close();
             }
             self.stack.deinit();
             self.name_buffer.deinit();
