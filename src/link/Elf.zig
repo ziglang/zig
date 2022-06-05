@@ -2300,7 +2300,7 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
     defer self.base.allocator.free(decl_name);
 
     log.debug("updateDeclCode {s}{*}", .{ decl_name, decl });
-    const required_alignment = decl.ty.abiAlignment(self.base.options.target);
+    const required_alignment = decl.getAlignment(self.base.options.target);
 
     const decl_ptr = self.decls.getPtr(decl_index).?;
     if (decl_ptr.* == null) {
