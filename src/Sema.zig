@@ -1739,9 +1739,9 @@ pub fn resolveAlign(
     block: *Block,
     src: LazySrcLoc,
     zir_ref: Zir.Inst.Ref,
-) !u16 {
-    const alignment_big = try sema.resolveInt(block, src, zir_ref, Type.initTag(.u16));
-    const alignment = @intCast(u16, alignment_big); // We coerce to u16 in the prev line.
+) !u32 {
+    const alignment_big = try sema.resolveInt(block, src, zir_ref, Type.initTag(.u29));
+    const alignment = @intCast(u32, alignment_big); // We coerce to u16 in the prev line.
     if (alignment == 0) return sema.fail(block, src, "alignment must be >= 1", .{});
     if (!std.math.isPowerOfTwo(alignment)) {
         return sema.fail(block, src, "alignment value {d} is not a power of two", .{
@@ -2663,7 +2663,7 @@ fn zirAllocExtended(
         break :blk try sema.resolveType(block, ty_src, type_ref);
     } else undefined;
 
-    const alignment: u16 = if (small.has_align) blk: {
+    const alignment: u32 = if (small.has_align) blk: {
         const align_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
         extra_index += 1;
         const alignment = try sema.resolveAlign(block, align_src, align_ref);
@@ -14210,7 +14210,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
                 .size = ptr_size,
                 .mutable = !is_const_val.toBool(),
                 .@"volatile" = is_volatile_val.toBool(),
-                .@"align" = @intCast(u16, alignment_val.toUnsignedInt(target)), // TODO: Validate this value.
+                .@"align" = @intCast(u29, alignment_val.toUnsignedInt(target)), // TODO: Validate this value.
                 .@"addrspace" = address_space_val.toEnum(std.builtin.AddressSpace),
                 .pointee_type = try child_ty.copy(sema.arena),
                 .@"allowzero" = is_allowzero_val.toBool(),
@@ -16984,7 +16984,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         const body = sema.code.extra[extra_index..][0..body_len];
         extra_index += body.len;
 
-        const val = try sema.resolveGenericBody(block, align_src, body, inst, Type.u16);
+        const val = try sema.resolveGenericBody(block, align_src, body, inst, Type.u29);
         if (val.tag() == .generic_poison) {
             break :blk null;
         }
@@ -23886,6 +23886,7 @@ pub fn typeHasOnePossibleValue(
         .i8,
         .u16,
         .i16,
+        .u29,
         .u32,
         .i32,
         .u64,
@@ -24179,6 +24180,7 @@ pub fn addType(sema: *Sema, ty: Type) !Air.Inst.Ref {
         .u8 => return .u8_type,
         .i8 => return .i8_type,
         .u16 => return .u16_type,
+        .u29 => return .u29_type,
         .i16 => return .i16_type,
         .u32 => return .u32_type,
         .i32 => return .i32_type,
@@ -24549,6 +24551,7 @@ pub fn typeRequiresComptime(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Typ
         .i8,
         .u16,
         .i16,
+        .u29,
         .u32,
         .i32,
         .u64,

@@ -4016,7 +4016,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     try wip_captures.finalize();
     const src: LazySrcLoc = .{ .node_offset = 0 };
     const decl_tv = try sema.resolveInstValue(&block_scope, src, result_ref);
-    const decl_align: u16 = blk: {
+    const decl_align: u32 = blk: {
         const align_ref = decl.zirAlignRef();
         if (align_ref == .none) break :blk 0;
         break :blk try sema.resolveAlign(&block_scope, src, align_ref);

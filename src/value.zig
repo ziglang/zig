@@ -30,6 +30,7 @@ pub const Value = extern union {
         i8_type,
         u16_type,
         i16_type,
+        u29_type,
         u32_type,
         i32_type,
         u64_type,
@@ -196,6 +197,7 @@ pub const Value = extern union {
                 .i8_type,
                 .u16_type,
                 .i16_type,
+                .u29_type,
                 .u32_type,
                 .i32_type,
                 .u64_type,
@@ -397,6 +399,7 @@ pub const Value = extern union {
             .i8_type,
             .u16_type,
             .i16_type,
+            .u29_type,
             .u32_type,
             .i32_type,
             .u64_type,
@@ -660,6 +663,7 @@ pub const Value = extern union {
             .u8_type => return out_stream.writeAll("u8"),
             .i8_type => return out_stream.writeAll("i8"),
             .u16_type => return out_stream.writeAll("u16"),
+            .u29_type => return out_stream.writeAll("u29"),
             .i16_type => return out_stream.writeAll("i16"),
             .u32_type => return out_stream.writeAll("u32"),
             .i32_type => return out_stream.writeAll("i32"),
@@ -900,6 +904,7 @@ pub const Value = extern union {
             .i8_type => Type.initTag(.i8),
             .u16_type => Type.initTag(.u16),
             .i16_type => Type.initTag(.i16),
+            .u29_type => Type.initTag(.u29),
             .u32_type => Type.initTag(.u32),
             .i32_type => Type.initTag(.i32),
             .u64_type => Type.initTag(.u64),
@@ -4905,7 +4910,7 @@ pub const Value = extern union {
                 /// `Module.resolvePeerTypes`.
                 stored_inst_list: std.ArrayListUnmanaged(Air.Inst.Ref) = .{},
                 /// 0 means ABI-aligned.
-                alignment: u16,
+                alignment: u32,
             },
         };
 
@@ -4916,7 +4921,7 @@ pub const Value = extern union {
             data: struct {
                 decl_index: Module.Decl.Index,
                 /// 0 means ABI-aligned.
-                alignment: u16,
+                alignment: u32,
             },
         };
 
