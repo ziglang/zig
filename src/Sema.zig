@@ -5800,6 +5800,7 @@ fn instantiateGenericCall(
         }
 
         new_decl.val = try Value.Tag.function.create(new_decl_arena_allocator, new_func);
+        new_decl.@"align" = 0;
         new_decl.has_tv = true;
         new_decl.owns_tv = true;
         new_decl.analysis = .complete;
