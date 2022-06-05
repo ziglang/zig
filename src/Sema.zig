@@ -2526,7 +2526,7 @@ fn zirRetPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const src: LazySrcLoc = .{ .node_offset = inst_data };
     try sema.requireFunctionBlock(block, src);
 
-    if (block.is_comptime) {
+    if (block.is_comptime or try sema.typeRequiresComptime(block, src, sema.fn_ret_ty)) {
         const fn_ret_ty = try sema.resolveTypeFields(block, src, sema.fn_ret_ty);
         return sema.analyzeComptimeAlloc(block, fn_ret_ty, 0, src);
     }
