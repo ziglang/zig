@@ -754,7 +754,7 @@ fn addDbgInfoTypeReloc(self: *Self, ty: Type) !void {
                 .macho => unreachable,
                 else => unreachable,
             };
-            try dw.addTypeReloc(atom, ty, @intCast(u32, index), null);
+            try dw.addTypeRelocGlobal(atom, ty, @intCast(u32, index));
         },
         .plan9 => {},
         .none => {},
