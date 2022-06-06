@@ -250,15 +250,6 @@ pub var argv: [][*:0]u8 = if (builtin.link_libc) undefined else switch (builtin.
     else => undefined,
 };
 
-/// Atomic to guard correct program teardown in abort()
-var abort_entered = impl: {
-    if (builtin.single_threaded) {
-        break :impl {};
-    } else {
-        break :impl std.atomic.Atomic(bool).init(false);
-    }
-};
-
 /// To obtain errno, call this function with the return value of the
 /// system function call. For some systems this will obtain the value directly
 /// from the return code; for others it will use a thread-local errno variable.
@@ -451,7 +442,7 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
 /// Causes abnormal process termination.
 /// If linking against libc, this calls the abort() libc function. Otherwise
 /// it raises SIGABRT followed by SIGKILL and finally lo
-/// assume: Current signal handler for SIGABRT does **not call abort**.
+/// Invokes the current signal handler for SIGABRT, if any.
 pub fn abort() noreturn {
     @setCold(true);
     // MSVCRT abort() sometimes opens a popup window which is undesirable, so
@@ -464,49 +455,44 @@ pub fn abort() noreturn {
         windows.kernel32.ExitProcess(3);
     }
     if (!builtin.link_libc and builtin.os.tag == .linux) {
-        // Linux man page wants to first "unblock SIG.ABRT", but this is a footgun
+        // The Linux man page says that the libc abort() function
+        // "first unblocks the SIGABRT signal", but this is a footgun
         // for user-defined signal handlers that want to restore some state in
-        // some program sections and crash in others
-
-        // user installed SIGABRT handler is run, if installed
+        // some program sections and crash in others.
+        // So, the user-installed SIGABRT handler is run, if present.
         raise(SIG.ABRT) catch {};
 
-        // disable all signal handlers
+        // Disable all signal handlers.
         sigprocmask(SIG.BLOCK, &linux.all_mask, null);
 
-        // ensure teardown by one thread
+        // Only one thread may proceed to the rest of abort().
         if (!builtin.single_threaded) {
-            while (abort_entered.compareAndSwap(false, true, .SeqCst, .SeqCst)) |_| {}
+            const global = struct {
+                var abort_entered: bool = false;
+            };
+            while (@cmpxchgWeak(bool, &global.abort_entered, false, true, .SeqCst, .SeqCst)) |_| {}
         }
 
-        // install default handler to terminate
+        // Install default handler so that the tkill below will terminate.
         const sigact = Sigaction{
             .handler = .{ .sigaction = SIG.DFL },
             .mask = undefined,
             .flags = undefined,
             .restorer = undefined,
         };
-        sigaction(SIG.ABRT, &sigact, null) catch unreachable;
+        sigaction(SIG.ABRT, &sigact, null) catch |err| switch (err) {
+            error.OperationNotSupported => unreachable,
+        };
 
-        // make sure we have a pending SIGABRT queued
-        const tid = std.Thread.getCurrentId();
-        _ = linux.tkill(@intCast(i32, tid), SIG.ABRT);
+        _ = linux.tkill(linux.gettid(), SIG.ABRT);
 
-        // SIG.ABRT signal will run default handler
         const sigabrtmask: linux.sigset_t = [_]u32{0} ** 31 ++ [_]u32{1 << (SIG.ABRT - 1)};
-        sigprocmask(SIG.UNBLOCK, &sigabrtmask, null); // [32]u32
+        sigprocmask(SIG.UNBLOCK, &sigabrtmask, null);
 
-        // Beyond this point should be unreachable
-
-        // abnormal termination without using signal handler
-        const nullptr: *allowzero volatile u8 = @intToPtr(*allowzero volatile u8, 0);
-        nullptr.* = 0;
-
-        // try SIGKILL, which is no abnormal termination as defined by POSIX and ISO C
+        // Beyond this point should be unreachable.
+        @intToPtr(*allowzero volatile u8, 0).* = 0;
         raise(SIG.KILL) catch {};
-
-        // pid 1 might not be signalled in some containers
-        exit(127);
+        exit(127); // Pid 1 might not be signalled in some containers.
     }
     if (builtin.os.tag == .uefi) {
         exit(0); // TODO choose appropriate exit code
@@ -5488,13 +5474,12 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     }
 }
 
-/// Set the thread signal mask
-/// Invalid masks are checked in Debug and ReleaseFast
+/// Sets the thread signal mask.
 pub fn sigprocmask(flags: u32, noalias set: ?*const sigset_t, noalias oldset: ?*sigset_t) void {
     switch (errno(system.sigprocmask(flags, set, oldset))) {
         .SUCCESS => return,
         .FAULT => unreachable,
-        .INVAL => unreachable, // main purpose: debug InvalidValue error
+        .INVAL => unreachable,
         else => unreachable,
     }
 }
