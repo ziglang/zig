@@ -79,6 +79,7 @@ pub fn print(
         .i8_type => return writer.writeAll("i8"),
         .u16_type => return writer.writeAll("u16"),
         .i16_type => return writer.writeAll("i16"),
+        .u29_type => return writer.writeAll("u29"),
         .u32_type => return writer.writeAll("u32"),
         .i32_type => return writer.writeAll("i32"),
         .u64_type => return writer.writeAll("u64"),
@@ -262,6 +263,16 @@ pub fn print(
             return print(.{
                 .ty = decl.ty,
                 .val = decl.val,
+            }, writer, level - 1, mod);
+        },
+        .comptime_field_ptr => {
+            const payload = val.castTag(.comptime_field_ptr).?.data;
+            if (level == 0) {
+                return writer.writeAll("(comptime field ptr)");
+            }
+            return print(.{
+                .ty = payload.field_ty,
+                .val = payload.field_val,
             }, writer, level - 1, mod);
         },
         .elem_ptr => {

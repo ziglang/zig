@@ -291,8 +291,8 @@ pub const ResultLoc = union(enum) {
     }
 };
 
-pub const align_rl: ResultLoc = .{ .ty = .u16_type };
-pub const coerced_align_rl: ResultLoc = .{ .coerced_ty = .u16_type };
+pub const align_rl: ResultLoc = .{ .ty = .u29_type };
+pub const coerced_align_rl: ResultLoc = .{ .coerced_ty = .u29_type };
 pub const bool_rl: ResultLoc = .{ .ty = .bool_type };
 pub const type_rl: ResultLoc = .{ .ty = .type_type };
 pub const coerced_type_rl: ResultLoc = .{ .coerced_ty = .type_type };
@@ -8077,6 +8077,7 @@ const primitives = std.ComptimeStringMap(Zir.Inst.Ref, .{
     .{ "true", .bool_true },
     .{ "type", .type_type },
     .{ "u16", .u16_type },
+    .{ "u29", .u29_type },
     .{ "u32", .u32_type },
     .{ "u64", .u64_type },
     .{ "u128", .u128_type },
@@ -8749,6 +8750,7 @@ fn nodeImpliesMoreThanOnePossibleValue(tree: *const Ast, start_node: Ast.Node.In
                     .isize_type,
                     .type_type,
                     .u16_type,
+                    .u29_type,
                     .u32_type,
                     .u64_type,
                     .u128_type,
@@ -8988,6 +8990,7 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
                     .i8_type,
                     .isize_type,
                     .u16_type,
+                    .u29_type,
                     .u32_type,
                     .u64_type,
                     .u128_type,
@@ -9063,6 +9066,7 @@ fn rvalue(
                 as_ty | @enumToInt(Zir.Inst.Ref.u8_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.i8_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.u16_type),
+                as_ty | @enumToInt(Zir.Inst.Ref.u29_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.i16_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.u32_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.i32_type),
@@ -9874,6 +9878,9 @@ const GenZir = struct {
         var as_scope = parent_gz.makeSubBlock(scope);
         errdefer as_scope.unstack();
         as_scope.rl_ptr = try as_scope.addBin(.coerce_result_ptr, dest_type, result_ptr);
+
+        // `rl_ty_inst` needs to be set in case the stores to `rl_ptr` are eliminated.
+        as_scope.rl_ty_inst = dest_type;
 
         return as_scope;
     }
