@@ -442,6 +442,7 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
 /// Causes abnormal process termination.
 /// If linking against libc, this calls the abort() libc function. Otherwise
 /// it raises SIGABRT followed by SIGKILL and finally lo
+/// Invokes the current signal handler for SIGABRT, if any.
 pub fn abort() noreturn {
     @setCold(true);
     // MSVCRT abort() sometimes opens a popup window which is undesirable, so
@@ -454,12 +455,44 @@ pub fn abort() noreturn {
         windows.kernel32.ExitProcess(3);
     }
     if (!builtin.link_libc and builtin.os.tag == .linux) {
+        // The Linux man page says that the libc abort() function
+        // "first unblocks the SIGABRT signal", but this is a footgun
+        // for user-defined signal handlers that want to restore some state in
+        // some program sections and crash in others.
+        // So, the user-installed SIGABRT handler is run, if present.
         raise(SIG.ABRT) catch {};
 
-        // TODO the rest of the implementation of abort() from musl libc here
+        // Disable all signal handlers.
+        sigprocmask(SIG.BLOCK, &linux.all_mask, null);
 
+        // Only one thread may proceed to the rest of abort().
+        if (!builtin.single_threaded) {
+            const global = struct {
+                var abort_entered: bool = false;
+            };
+            while (@cmpxchgWeak(bool, &global.abort_entered, false, true, .SeqCst, .SeqCst)) |_| {}
+        }
+
+        // Install default handler so that the tkill below will terminate.
+        const sigact = Sigaction{
+            .handler = .{ .sigaction = SIG.DFL },
+            .mask = undefined,
+            .flags = undefined,
+            .restorer = undefined,
+        };
+        sigaction(SIG.ABRT, &sigact, null) catch |err| switch (err) {
+            error.OperationNotSupported => unreachable,
+        };
+
+        _ = linux.tkill(linux.gettid(), SIG.ABRT);
+
+        const sigabrtmask: linux.sigset_t = [_]u32{0} ** 31 ++ [_]u32{1 << (SIG.ABRT - 1)};
+        sigprocmask(SIG.UNBLOCK, &sigabrtmask, null);
+
+        // Beyond this point should be unreachable.
+        @intToPtr(*allowzero volatile u8, 0).* = 0;
         raise(SIG.KILL) catch {};
-        exit(127);
+        exit(127); // Pid 1 might not be signalled in some containers.
     }
     if (builtin.os.tag == .uefi) {
         exit(0); // TODO choose appropriate exit code
@@ -485,13 +518,13 @@ pub fn raise(sig: u8) RaiseError!void {
     if (builtin.os.tag == .linux) {
         var set: sigset_t = undefined;
         // block application signals
-        _ = linux.sigprocmask(SIG.BLOCK, &linux.app_mask, &set);
+        sigprocmask(SIG.BLOCK, &linux.app_mask, &set);
 
         const tid = linux.gettid();
         const rc = linux.tkill(tid, sig);
 
         // restore signal mask
-        _ = linux.sigprocmask(SIG.SETMASK, &set, null);
+        sigprocmask(SIG.SETMASK, &set, null);
 
         switch (errno(rc)) {
             .SUCCESS => return,
@@ -5437,6 +5470,16 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     switch (errno(system.sigaction(sig, act, oact))) {
         .SUCCESS => return,
         .INVAL, .NOSYS => return error.OperationNotSupported,
+        else => unreachable,
+    }
+}
+
+/// Sets the thread signal mask.
+pub fn sigprocmask(flags: u32, noalias set: ?*const sigset_t, noalias oldset: ?*sigset_t) void {
+    switch (errno(system.sigprocmask(flags, set, oldset))) {
+        .SUCCESS => return,
+        .FAULT => unreachable,
+        .INVAL => unreachable,
         else => unreachable,
     }
 }
