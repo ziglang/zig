@@ -3786,7 +3786,13 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Modu
     atom.code.clearRetainingCapacity();
     try atom.code.appendSlice(self.base.allocator, code);
 
-    const match = try self.getMatchingSectionAtom(atom, decl_name, typed_value.ty, typed_value.val);
+    const match = try self.getMatchingSectionAtom(
+        atom,
+        decl_name,
+        typed_value.ty,
+        typed_value.val,
+        required_alignment,
+    );
     const addr = try self.allocateAtom(atom, code.len, required_alignment, match);
 
     log.debug("allocated atom for {s} at 0x{x}", .{ name, addr });
@@ -3949,11 +3955,16 @@ fn needsPointerRebase(ty: Type, val: Value, mod: *Module) bool {
     }
 }
 
-fn getMatchingSectionAtom(self: *MachO, atom: *Atom, name: []const u8, ty: Type, val: Value) !MatchingSection {
+fn getMatchingSectionAtom(
+    self: *MachO,
+    atom: *Atom,
+    name: []const u8,
+    ty: Type,
+    val: Value,
+    alignment: u32,
+) !MatchingSection {
     const code = atom.code.items;
-    const target = self.base.options.target;
     const mod = self.base.options.module.?;
-    const alignment = ty.abiAlignment(target);
     const align_log_2 = math.log2(alignment);
     const zig_ty = ty.zigTypeTag();
     const mode = self.base.options.optimize_mode;
@@ -4039,7 +4050,7 @@ fn getMatchingSectionAtom(self: *MachO, atom: *Atom, name: []const u8, ty: Type,
 fn placeDecl(self: *MachO, decl_index: Module.Decl.Index, code_len: usize) !*macho.nlist_64 {
     const module = self.base.options.module.?;
     const decl = module.declPtr(decl_index);
-    const required_alignment = decl.ty.abiAlignment(self.base.options.target);
+    const required_alignment = decl.getAlignment(self.base.options.target);
     assert(decl.link.macho.local_sym_index != 0); // Caller forgot to call allocateDeclIndexes()
     const symbol = &self.locals.items[decl.link.macho.local_sym_index];
 
@@ -4048,7 +4059,13 @@ fn placeDecl(self: *MachO, decl_index: Module.Decl.Index, code_len: usize) !*mac
 
     const decl_ptr = self.decls.getPtr(decl_index).?;
     if (decl_ptr.* == null) {
-        decl_ptr.* = try self.getMatchingSectionAtom(&decl.link.macho, sym_name, decl.ty, decl.val);
+        decl_ptr.* = try self.getMatchingSectionAtom(
+            &decl.link.macho,
+            sym_name,
+            decl.ty,
+            decl.val,
+            required_alignment,
+        );
     }
     const match = decl_ptr.*.?;
 
