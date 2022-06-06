@@ -1541,6 +1541,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .union_init => self.airUnionInit(inst),
         .prefetch => self.airPrefetch(inst),
         .popcount => self.airPopcount(inst),
+        .byte_swap => self.airByteSwap(inst),
 
         .slice => self.airSlice(inst),
         .slice_len => self.airSliceLen(inst),
@@ -1590,7 +1591,6 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .shl_sat,
         .ret_addr,
         .frame_addr,
-        .byte_swap,
         .bit_reverse,
         .is_err_ptr,
         .is_non_err_ptr,
@@ -4690,4 +4690,51 @@ fn lowerTry(
         return buildPointerOffset(self, err_union, pl_offset, .new);
     }
     return self.load(err_union, pl_ty, pl_offset);
+}
+
+fn airByteSwap(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) {
+        return WValue{ .none = {} };
+    }
+
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const ty = self.air.typeOfIndex(inst);
+    const operand = try self.resolveInst(ty_op.operand);
+
+    if (ty.zigTypeTag() == .Vector) {
+        return self.fail("TODO: @byteSwap for vectors", .{});
+    }
+    const int_info = ty.intInfo(self.target);
+
+    // bytes are no-op
+    if (int_info.bits == 8) {
+        return operand;
+    }
+
+    switch (int_info.bits) {
+        16 => {
+            const shl_res = try self.binOp(operand, .{ .imm32 = 8 }, ty, .shl);
+            const tmp = try self.binOp(operand, .{ .imm32 = 0xFF00 }, ty, .@"and");
+            const shr_res = try self.binOp(tmp, .{ .imm32 = 8 }, ty, .shr);
+            const res = if (int_info.signedness == .signed) blk: {
+                break :blk try self.wrapOperand(shr_res, Type.u8);
+            } else shr_res;
+            return self.binOp(shl_res, res, ty, .@"or");
+        },
+        32 => {
+            const shl_tmp = try self.binOp(operand, .{ .imm32 = 8 }, ty, .shl);
+            const lhs = try self.binOp(shl_tmp, .{ .imm32 = 0xFF00FF00 }, ty, .@"and");
+            const shr_tmp = try self.binOp(operand, .{ .imm32 = 8 }, ty, .shr);
+            const rhs = try self.binOp(shr_tmp, .{ .imm32 = 0xFF00FF }, ty, .@"and");
+            const tmp_or = try self.binOp(lhs, rhs, ty, .@"or");
+
+            const shl = try self.binOp(tmp_or, .{ .imm32 = 16 }, ty, .shl);
+            const shr = try self.binOp(tmp_or, .{ .imm32 = 16 }, ty, .shr);
+            const res = if (int_info.signedness == .signed) blk: {
+                break :blk try self.wrapOperand(shr, Type.u16);
+            } else shr;
+            return self.binOp(shl, res, ty, .@"or");
+        },
+        else => return self.fail("TODO: @byteSwap for integers with bitsize {d}", .{int_info.bits}),
+    }
 }
