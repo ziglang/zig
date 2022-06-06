@@ -1967,9 +1967,6 @@ fn blockExpr(
     }
 
     try blockExprStmts(gz, scope, statements);
-    if (gz.endsWithNoReturn() and !gz.endsWithBreak()) {
-        return Zir.Inst.Ref.unreachable_value;
-    }
     return rvalue(gz, rl, .void_value, block_node);
 }
 
@@ -9931,13 +9928,6 @@ const GenZir = struct {
         const tags = gz.astgen.instructions.items(.tag);
         const last_inst = gz.instructions.items[gz.instructions.items.len - 1];
         return tags[last_inst].isNoReturn();
-    }
-
-    fn endsWithBreak(gz: GenZir) bool {
-        if (gz.isEmpty()) return false;
-        const tags = gz.astgen.instructions.items(.tag);
-        const last_inst = gz.instructions.items[gz.instructions.items.len - 1];
-        return tags[last_inst].isBreak();
     }
 
     /// TODO all uses of this should be replaced with uses of `endsWithNoReturn`.
