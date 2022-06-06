@@ -1050,7 +1050,7 @@ fn addDbgInfoTypeReloc(self: *Self, ty: Type) !void {
             const index = dbg_info.items.len;
             try dbg_info.resize(index + 4);
             const atom = &self.decl.link.wasm.dbg_info_atom;
-            try dwarf.addTypeReloc(atom, ty, @intCast(u32, index), null);
+            try dwarf.addTypeRelocGlobal(atom, ty, @intCast(u32, index));
         },
         .plan9 => unreachable,
         .none => {},

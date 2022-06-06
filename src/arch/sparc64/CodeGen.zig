@@ -1550,7 +1550,7 @@ fn addDbgInfoTypeReloc(self: *Self, ty: Type) !void {
                 .elf => &mod.declPtr(self.mod_fn.owner_decl).link.elf.dbg_info_atom,
                 else => unreachable,
             };
-            try dw.addTypeReloc(atom, ty, @intCast(u32, index), null);
+            try dw.addTypeRelocGlobal(atom, ty, @intCast(u32, index));
         },
         else => {},
     }
