@@ -320,6 +320,20 @@ pub const Inst = struct {
         /// Result type is always noreturn; no instructions in a block follow this one.
         /// Uses the `pl_op` field. Operand is the condition. Payload is `SwitchBr`.
         switch_br,
+        /// Given an operand which is an error union, splits control flow. In
+        /// case of error, control flow goes into the block that is part of this
+        /// instruction, which is guaranteed to end with a return instruction
+        /// and never breaks out of the block.
+        /// In the case of non-error, control flow proceeds to the next instruction
+        /// after the `try`, with the result of this instruction being the unwrapped
+        /// payload value, as if `unwrap_errunion_payload` was executed on the operand.
+        /// Uses the `pl_op` field. Payload is `Try`.
+        @"try",
+        /// Same as `try` except the operand is a pointer to an error union, and the
+        /// result is a pointer to the payload. Result is as if `unwrap_errunion_payload_ptr`
+        /// was executed on the operand.
+        /// Uses the `ty_pl` field. Payload is `TryPtr`.
+        try_ptr,
         /// A comptime-known value. Uses the `ty_pl` field, payload is index of
         /// `values` array.
         constant,
@@ -780,6 +794,19 @@ pub const SwitchBr = struct {
     };
 };
 
+/// This data is stored inside extra. Trailing:
+/// 0. body: Inst.Index // for each body_len
+pub const Try = struct {
+    body_len: u32,
+};
+
+/// This data is stored inside extra. Trailing:
+/// 0. body: Inst.Index // for each body_len
+pub const TryPtr = struct {
+    ptr: Inst.Ref,
+    body_len: u32,
+};
+
 pub const StructField = struct {
     /// Whether this is a pointer or byval is determined by the AIR tag.
     struct_operand: Inst.Ref,
@@ -991,6 +1018,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .shl_with_overflow,
         .ptr_add,
         .ptr_sub,
+        .try_ptr,
         => return air.getRefType(datas[inst].ty_pl.ty),
 
         .not,
@@ -1101,6 +1129,11 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .select => {
             const extra = air.extraData(Air.Bin, datas[inst].pl_op.payload).data;
             return air.typeOf(extra.lhs);
+        },
+
+        .@"try" => {
+            const err_union_ty = air.typeOf(datas[inst].pl_op.operand);
+            return err_union_ty.errorUnionPayload();
         },
     }
 }

@@ -478,6 +478,12 @@ pub fn categorizeOperand(
         .block => {
             return .complex;
         },
+        .@"try" => {
+            return .complex;
+        },
+        .try_ptr => {
+            return .complex;
+        },
         .loop => {
             return .complex;
         },
@@ -1018,6 +1024,19 @@ fn analyzeInst(
             const body = a.air.extra[extra.end..][0..extra.data.body_len];
             try analyzeWithContext(a, new_set, body);
             return; // Loop has no operands and it is always unreferenced.
+        },
+        .@"try" => {
+            const pl_op = inst_datas[inst].pl_op;
+            const extra = a.air.extraData(Air.Try, pl_op.payload);
+            const body = a.air.extra[extra.end..][0..extra.data.body_len];
+            try analyzeWithContext(a, new_set, body);
+            return trackOperands(a, new_set, inst, main_tomb, .{ pl_op.operand, .none, .none });
+        },
+        .try_ptr => {
+            const extra = a.air.extraData(Air.TryPtr, inst_datas[inst].ty_pl.payload);
+            const body = a.air.extra[extra.end..][0..extra.data.body_len];
+            try analyzeWithContext(a, new_set, body);
+            return trackOperands(a, new_set, inst, main_tomb, .{ extra.data.ptr, .none, .none });
         },
         .cond_br => {
             // Each death that occurs inside one branch, but not the other, needs

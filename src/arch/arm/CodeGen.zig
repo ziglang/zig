@@ -677,6 +677,9 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .prefetch        => try self.airPrefetch(inst),
             .mul_add         => try self.airMulAdd(inst),
 
+            .@"try"          => try self.airTry(inst),
+            .try_ptr         => try self.airTryPtr(inst),
+
             .dbg_var_ptr,
             .dbg_var_val,
             => try self.airDbgVar(inst),
@@ -1834,8 +1837,8 @@ fn airUnwrapErrPayload(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const error_union_ty = self.air.typeOf(ty_op.operand);
-        const mcv = try self.resolveInst(ty_op.operand);
-        break :result try self.errUnionPayload(mcv, error_union_ty);
+        const error_union = try self.resolveInst(ty_op.operand);
+        break :result try self.errUnionPayload(error_union, error_union_ty);
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
@@ -3702,6 +3705,42 @@ fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, .dead, .{ operand, .none, .none });
 }
 
+/// Given a boolean condition, emit a jump that is taken when that
+/// condition is false.
+fn condBr(self: *Self, condition: MCValue) !Mir.Inst.Index {
+    const condition_code: Condition = switch (condition) {
+        .cpsr_flags => |cond| cond.negate(),
+        else => blk: {
+            const reg = switch (condition) {
+                .register => |r| r,
+                else => try self.copyToTmpRegister(Type.bool, condition),
+            };
+
+            try self.spillCompareFlagsIfOccupied();
+
+            // cmp reg, 1
+            // bne ...
+            _ = try self.addInst(.{
+                .tag = .cmp,
+                .cond = .al,
+                .data = .{ .rr_op = .{
+                    .rd = .r0,
+                    .rn = reg,
+                    .op = Instruction.Operand.imm(1, 0),
+                } },
+            });
+
+            break :blk .ne;
+        },
+    };
+
+    return try self.addInst(.{
+        .tag = .b,
+        .cond = condition_code,
+        .data = .{ .inst = undefined }, // populated later through performReloc
+    });
+}
+
 fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
     const cond_inst = try self.resolveInst(pl_op.operand);
@@ -3710,39 +3749,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     const else_body = self.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
     const liveness_condbr = self.liveness.getCondBr(inst);
 
-    const reloc: Mir.Inst.Index = reloc: {
-        const condition: Condition = switch (cond_inst) {
-            .cpsr_flags => |cond| cond.negate(),
-            else => blk: {
-                const reg = switch (cond_inst) {
-                    .register => |r| r,
-                    else => try self.copyToTmpRegister(Type.bool, cond_inst),
-                };
-
-                try self.spillCompareFlagsIfOccupied();
-
-                // cmp reg, 1
-                // bne ...
-                _ = try self.addInst(.{
-                    .tag = .cmp,
-                    .cond = .al,
-                    .data = .{ .rr_op = .{
-                        .rd = .r0,
-                        .rn = reg,
-                        .op = Instruction.Operand.imm(1, 0),
-                    } },
-                });
-
-                break :blk .ne;
-            },
-        };
-
-        break :reloc try self.addInst(.{
-            .tag = .b,
-            .cond = condition,
-            .data = .{ .inst = undefined }, // populated later through performReloc
-        });
-    };
+    const reloc: Mir.Inst.Index = try self.condBr(cond_inst);
 
     // If the condition dies here in this condbr instruction, process
     // that death now instead of later as this has an effect on
@@ -4154,13 +4161,8 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
                 .lhs = condition,
                 .rhs = item,
             } };
-            const cmp_result = try self.cmp(operands, condition_ty, .neq);
-
-            relocs[0] = try self.addInst(.{
-                .tag = .b,
-                .cond = cmp_result.cpsr_flags,
-                .data = .{ .inst = undefined }, // populated later through performReloc
-            });
+            const cmp_result = try self.cmp(operands, condition_ty, .eq);
+            relocs[0] = try self.condBr(cmp_result);
         } else {
             return self.fail("TODO switch with multiple items", .{});
         }
@@ -5143,6 +5145,33 @@ fn airMulAdd(self: *Self, inst: Air.Inst.Index) !void {
         return self.fail("TODO implement airMulAdd for arm", .{});
     };
     return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, pl_op.operand });
+}
+
+fn airTry(self: *Self, inst: Air.Inst.Index) !void {
+    const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+    const extra = self.air.extraData(Air.Try, pl_op.payload);
+    const body = self.air.extra[extra.end..][0..extra.data.body_len];
+    const result: MCValue = result: {
+        const error_union_ty = self.air.typeOf(pl_op.operand);
+        const error_union = try self.resolveInst(pl_op.operand);
+        const is_err_result = try self.isErr(error_union_ty, error_union);
+        const reloc = try self.condBr(is_err_result);
+
+        try self.genBody(body);
+
+        try self.performReloc(reloc);
+        break :result try self.errUnionPayload(error_union, error_union_ty);
+    };
+    return self.finishAir(inst, result, .{ pl_op.operand, .none, .none });
+}
+
+fn airTryPtr(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.TryPtr, ty_pl.payload);
+    const body = self.air.extra[extra.end..][0..extra.data.body_len];
+    _ = body;
+    return self.fail("TODO implement airTryPtr for arm", .{});
+    // return self.finishAir(inst, result, .{ extra.data.ptr, .none, .none });
 }
 
 fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {

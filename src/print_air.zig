@@ -258,6 +258,8 @@ const Writer = struct {
             .union_init => try w.writeUnionInit(s, inst),
             .br => try w.writeBr(s, inst),
             .cond_br => try w.writeCondBr(s, inst),
+            .@"try" => try w.writeTry(s, inst),
+            .try_ptr => try w.writeTryPtr(s, inst),
             .switch_br => try w.writeSwitchBr(s, inst),
             .cmpxchg_weak, .cmpxchg_strong => try w.writeCmpxchg(s, inst),
             .fence => try w.writeFence(s, inst),
@@ -622,6 +624,36 @@ const Writer = struct {
         try w.writeInstIndex(s, br.block_inst, false);
         try s.writeAll(", ");
         try w.writeOperand(s, inst, 0, br.operand);
+    }
+
+    fn writeTry(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const pl_op = w.air.instructions.items(.data)[inst].pl_op;
+        const extra = w.air.extraData(Air.Try, pl_op.payload);
+        const body = w.air.extra[extra.end..][0..extra.data.body_len];
+
+        try w.writeOperand(s, inst, 0, pl_op.operand);
+        try s.writeAll(", {\n");
+        const old_indent = w.indent;
+        w.indent += 2;
+        try w.writeBody(s, body);
+        w.indent = old_indent;
+        try s.writeByteNTimes(' ', w.indent);
+        try s.writeAll("}");
+    }
+
+    fn writeTryPtr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
+        const extra = w.air.extraData(Air.TryPtr, ty_pl.payload);
+        const body = w.air.extra[extra.end..][0..extra.data.body_len];
+
+        try w.writeOperand(s, inst, 0, extra.data.ptr);
+        try s.print(", {}, {{\n", .{w.air.getRefType(ty_pl.ty).fmtDebug()});
+        const old_indent = w.indent;
+        w.indent += 2;
+        try w.writeBody(s, body);
+        w.indent = old_indent;
+        try s.writeByteNTimes(' ', w.indent);
+        try s.writeAll("}");
     }
 
     fn writeCondBr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

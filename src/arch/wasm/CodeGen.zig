@@ -1490,6 +1490,9 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .int_to_float => self.airIntToFloat(inst),
         .get_union_tag => self.airGetUnionTag(inst),
 
+        .@"try" => self.airTry(inst),
+        .try_ptr => self.airTryPtr(inst),
+
         // TODO
         .dbg_inline_begin,
         .dbg_inline_end,
@@ -4622,4 +4625,69 @@ fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !WValue {
         }),
     } });
     return WValue{ .none = {} };
+}
+
+fn airTry(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+    const err_union = try self.resolveInst(pl_op.operand);
+    const extra = self.air.extraData(Air.Try, pl_op.payload);
+    const body = self.air.extra[extra.end..][0..extra.data.body_len];
+    const err_union_ty = self.air.typeOf(pl_op.operand);
+    return lowerTry(self, err_union, body, err_union_ty, false);
+}
+
+fn airTryPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.TryPtr, ty_pl.payload);
+    const err_union_ptr = try self.resolveInst(extra.data.ptr);
+    const body = self.air.extra[extra.end..][0..extra.data.body_len];
+    const err_union_ty = self.air.typeOf(extra.data.ptr).childType();
+    return lowerTry(self, err_union_ptr, body, err_union_ty, true);
+}
+
+fn lowerTry(
+    self: *Self,
+    err_union: WValue,
+    body: []const Air.Inst.Index,
+    err_union_ty: Type,
+    operand_is_ptr: bool,
+) InnerError!WValue {
+    if (operand_is_ptr) {
+        return self.fail("TODO: lowerTry for pointers", .{});
+    }
+
+    if (err_union_ty.errorUnionSet().errorSetCardinality() == .zero) {
+        return err_union;
+    }
+
+    const pl_ty = err_union_ty.errorUnionPayload();
+    const pl_has_bits = pl_ty.hasRuntimeBitsIgnoreComptime();
+
+    // Block we can jump out of when error is not set
+    try self.startBlock(.block, wasm.block_empty);
+
+    // check if the error tag is set for the error union.
+    try self.emitWValue(err_union);
+    if (pl_has_bits) {
+        const err_offset = @intCast(u32, errUnionErrorOffset(pl_ty, self.target));
+        try self.addMemArg(.i32_load16_u, .{
+            .offset = err_union.offset() + err_offset,
+            .alignment = Type.anyerror.abiAlignment(self.target),
+        });
+    }
+    try self.addTag(.i32_eqz);
+    try self.addLabel(.br_if, 0); // jump out of block when error is '0'
+    try self.genBody(body);
+    try self.endBlock();
+
+    // if we reach here it means error was not set, and we want the payload
+    if (!pl_has_bits) {
+        return WValue{ .none = {} };
+    }
+
+    const pl_offset = @intCast(u32, errUnionPayloadOffset(pl_ty, self.target));
+    if (isByRef(pl_ty, self.target)) {
+        return buildPointerOffset(self, err_union, pl_offset, .new);
+    }
+    return self.load(err_union, pl_ty, pl_offset);
 }
