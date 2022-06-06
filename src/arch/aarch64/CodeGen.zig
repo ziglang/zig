@@ -665,8 +665,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .prefetch        => try self.airPrefetch(inst),
             .mul_add         => try self.airMulAdd(inst),
 
-            .@"try"          => @panic("TODO"),
-            .try_ptr         => @panic("TODO"),
+            .@"try"          => try self.airTry(inst),
+            .try_ptr         => try self.airTryPtr(inst),
 
             .dbg_var_ptr,
             .dbg_var_val,
@@ -2308,27 +2308,70 @@ fn airOptionalPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
+/// Given an error union, returns the error
+fn errUnionErr(self: *Self, error_union_mcv: MCValue, error_union_ty: Type) !MCValue {
+    const err_ty = error_union_ty.errorUnionSet();
+    const payload_ty = error_union_ty.errorUnionPayload();
+    if (err_ty.errorSetCardinality() == .zero) {
+        return MCValue{ .immediate = 0 };
+    }
+    if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+        return error_union_mcv;
+    }
+
+    const err_offset = @intCast(u32, errUnionErrorOffset(payload_ty, self.target.*));
+    switch (error_union_mcv) {
+        .register => return self.fail("TODO errUnionErr for registers", .{}),
+        .stack_offset => |off| {
+            return MCValue{ .stack_offset = off - err_offset };
+        },
+        .memory => |addr| {
+            return MCValue{ .memory = addr + err_offset };
+        },
+        else => unreachable, // invalid MCValue for an error union
+    }
+}
+
 fn airUnwrapErrErr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const error_union_ty = self.air.typeOf(ty_op.operand);
-        const payload_ty = error_union_ty.errorUnionPayload();
         const mcv = try self.resolveInst(ty_op.operand);
-        if (!payload_ty.hasRuntimeBits()) break :result mcv;
-
-        return self.fail("TODO implement unwrap error union error for non-empty payloads", .{});
+        break :result try self.errUnionErr(mcv, error_union_ty);
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+/// Given an error union, returns the payload
+fn errUnionPayload(self: *Self, error_union_mcv: MCValue, error_union_ty: Type) !MCValue {
+    const err_ty = error_union_ty.errorUnionSet();
+    const payload_ty = error_union_ty.errorUnionPayload();
+    if (err_ty.errorSetCardinality() == .zero) {
+        return error_union_mcv;
+    }
+    if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+        return MCValue.none;
+    }
+
+    const payload_offset = @intCast(u32, errUnionPayloadOffset(payload_ty, self.target.*));
+    switch (error_union_mcv) {
+        .register => return self.fail("TODO errUnionPayload for registers", .{}),
+        .stack_offset => |off| {
+            return MCValue{ .stack_offset = off - payload_offset };
+        },
+        .memory => |addr| {
+            return MCValue{ .memory = addr + payload_offset };
+        },
+        else => unreachable, // invalid MCValue for an error union
+    }
 }
 
 fn airUnwrapErrPayload(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const error_union_ty = self.air.typeOf(ty_op.operand);
-        const payload_ty = error_union_ty.errorUnionPayload();
-        if (!payload_ty.hasRuntimeBits()) break :result MCValue.none;
-
-        return self.fail("TODO implement unwrap error union payload for non-empty payloads", .{});
+        const error_union = try self.resolveInst(ty_op.operand);
+        break :result try self.errUnionPayload(error_union, error_union_ty);
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
@@ -3389,45 +3432,38 @@ fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, .dead, .{ operand, .none, .none });
 }
 
-fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
-    const pl_op = self.air.instructions.items(.data)[inst].pl_op;
-    const cond = try self.resolveInst(pl_op.operand);
-    const extra = self.air.extraData(Air.CondBr, pl_op.payload);
-    const then_body = self.air.extra[extra.end..][0..extra.data.then_body_len];
-    const else_body = self.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
-    const liveness_condbr = self.liveness.getCondBr(inst);
-
-    const reloc: Mir.Inst.Index = switch (cond) {
+fn condBr(self: *Self, condition: MCValue) !Mir.Inst.Index {
+    switch (condition) {
         .compare_flags_signed,
         .compare_flags_unsigned,
-        => try self.addInst(.{
+        => return try self.addInst(.{
             .tag = .b_cond,
             .data = .{
                 .inst_cond = .{
                     .inst = undefined, // populated later through performReloc
-                    .cond = switch (cond) {
+                    .cond = switch (condition) {
                         .compare_flags_signed => |cmp_op| blk: {
                             // Here we map to the opposite condition because the jump is to the false branch.
-                            const condition = Instruction.Condition.fromCompareOperatorSigned(cmp_op);
-                            break :blk condition.negate();
+                            const condition_code = Instruction.Condition.fromCompareOperatorSigned(cmp_op);
+                            break :blk condition_code.negate();
                         },
                         .compare_flags_unsigned => |cmp_op| blk: {
                             // Here we map to the opposite condition because the jump is to the false branch.
-                            const condition = Instruction.Condition.fromCompareOperatorUnsigned(cmp_op);
-                            break :blk condition.negate();
+                            const condition_code = Instruction.Condition.fromCompareOperatorUnsigned(cmp_op);
+                            break :blk condition_code.negate();
                         },
                         else => unreachable,
                     },
                 },
             },
         }),
-        else => blk: {
-            const reg = switch (cond) {
+        else => {
+            const reg = switch (condition) {
                 .register => |r| r,
-                else => try self.copyToTmpRegister(Type.bool, cond),
+                else => try self.copyToTmpRegister(Type.bool, condition),
             };
 
-            break :blk try self.addInst(.{
+            return try self.addInst(.{
                 .tag = .cbz,
                 .data = .{
                     .r_inst = .{
@@ -3437,7 +3473,18 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
                 },
             });
         },
-    };
+    }
+}
+
+fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
+    const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+    const cond = try self.resolveInst(pl_op.operand);
+    const extra = self.air.extraData(Air.CondBr, pl_op.payload);
+    const then_body = self.air.extra[extra.end..][0..extra.data.then_body_len];
+    const else_body = self.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
+    const liveness_condbr = self.liveness.getCondBr(inst);
+
+    const reloc = try self.condBr(cond);
 
     // If the condition dies here in this condbr instruction, process
     // that death now instead of later as this has an effect on
@@ -4467,6 +4514,33 @@ fn airMulAdd(self: *Self, inst: Air.Inst.Index) !void {
         return self.fail("TODO implement airMulAdd for aarch64", .{});
     };
     return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, pl_op.operand });
+}
+
+fn airTry(self: *Self, inst: Air.Inst.Index) !void {
+    const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+    const extra = self.air.extraData(Air.Try, pl_op.payload);
+    const body = self.air.extra[extra.end..][0..extra.data.body_len];
+    const result: MCValue = result: {
+        const error_union_ty = self.air.typeOf(pl_op.operand);
+        const error_union = try self.resolveInst(pl_op.operand);
+        const is_err_result = try self.isErr(error_union_ty, error_union);
+        const reloc = try self.condBr(is_err_result);
+
+        try self.genBody(body);
+
+        try self.performReloc(reloc);
+        break :result try self.errUnionPayload(error_union, error_union_ty);
+    };
+    return self.finishAir(inst, result, .{ pl_op.operand, .none, .none });
+}
+
+fn airTryPtr(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.TryPtr, ty_pl.payload);
+    const body = self.air.extra[extra.end..][0..extra.data.body_len];
+    _ = body;
+    return self.fail("TODO implement airTryPtr for arm", .{});
+    // return self.finishAir(inst, result, .{ extra.data.ptr, .none, .none });
 }
 
 fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
