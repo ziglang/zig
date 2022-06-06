@@ -232,7 +232,7 @@ const Parser = struct {
     ///      / TopLevelComptime ContainerDeclarations
     ///      / KEYWORD_pub? TopLevelDecl ContainerDeclarations
     ///      /
-    /// TopLevelComptime <- KEYWORD_comptime BlockExpr
+    /// TopLevelComptime <- KEYWORD_comptime Block
     fn parseContainerMembers(p: *Parser) !Members {
         const scratch_top = p.scratch.items.len;
         defer p.scratch.shrinkRetainingCapacity(scratch_top);
@@ -849,7 +849,7 @@ const Parser = struct {
         }
     }
 
-    /// ContainerField <- KEYWORD_comptime? IDENTIFIER (COLON (KEYWORD_anytype / TypeExpr) ByteAlign?)? (EQUAL Expr)?
+    /// ContainerField <- KEYWORD_comptime? IDENTIFIER (COLON TypeExpr ByteAlign?)? (EQUAL Expr)?
     fn expectContainerField(p: *Parser) !Node.Index {
         _ = p.eatToken(.keyword_comptime);
         const name_token = p.assertToken(.identifier);
