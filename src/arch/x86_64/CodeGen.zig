@@ -4371,7 +4371,7 @@ fn addDbgInfoTypeReloc(self: *Self, ty: Type) !void {
                 .macho => &fn_owner_decl.link.macho.dbg_info_atom,
                 else => unreachable,
             };
-            try dw.addTypeReloc(atom, ty, @intCast(u32, index), null);
+            try dw.addTypeRelocGlobal(atom, ty, @intCast(u32, index));
         },
         .plan9 => {},
         .none => {},
