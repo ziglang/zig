@@ -653,7 +653,12 @@ const DocData = struct {
             value: usize, // direct value
             negated: bool = false,
         },
+        int_big: struct {
+            value: []const u8, // direct value
+            negated: bool = false,
+        },
         float: f64, // direct value
+        float128: f128, // direct value
         array: []usize, // index in `exprs`
         call: usize, // index in `calls`
         enumLiteral: []const u8, // direct value
@@ -670,37 +675,26 @@ const DocData = struct {
         string: []const u8, // direct value
         sliceIndex: usize,
         slice: Slice,
+        cmpxchgIndex: usize,
+        cmpxchg: Cmpxchg,
         builtin: Builtin,
         builtinIndex: usize,
         builtinBin: BuiltinBin,
         builtinBinIndex: usize,
         switchIndex: usize, // index in `exprs`
         switchOp: SwitchOp,
-        // Index a `type` like struct with expressions
-        // it's necessary because when a caller ask by a binOp maybe there are
-        // more binary op inside them, so the caller get's the current `exprs` index
-        // and the binOp can walk the tree preserving the first index of the tree
-        // for examples see `.mul` and `analyzeFunctionExtended` in `has_align` section
         binOp: BinOp,
         binOpIndex: usize,
         const BinOp = struct {
             lhs: usize, // index in `exprs`
             rhs: usize, // index in `exprs`
-            // opKind
-            // Identify the operator in js
-            // 0: add, 1: sub, 2: mul, 3: div, 4: mod, 5: rem, 6: rem_mod, 7: shl, 8: shr, 9: bitcast, 10: bit_or, 11: align_cast, 12: bit_and, 13: array_cat, 14: array_mul, 15: vector
-            // Others binOp are not handled yet
-            opKind: usize = 0,
-            // flags to operations
-            wrap: bool = false,
-            sat: bool = false,
-            exact: bool = false,
-            floor: bool = false,
-            trunc: bool = false,
+            name: []const u8 = "", // tag name
         };
         const SwitchOp = struct {
-            cases: []usize,
-            else_index: ?usize,
+            cond_index: usize,
+            node_name: []const u8,
+            file_name: []const u8,
+            line_start: usize,
         };
         const BuiltinBin = struct {
             name: []const u8 = "", // fn name
@@ -717,6 +711,7 @@ const DocData = struct {
             end: ?usize = null,
             sentinel: ?usize = null, // index in `exprs`
         };
+        const Cmpxchg = struct { name: []const u8, type: usize, ptr: usize, expected_value: usize, new_value: usize, success_order: usize, failure_order: usize };
         const As = struct {
             typeRefArg: ?usize, // index in `exprs`
             exprArg: usize, // index in `exprs`
@@ -753,9 +748,20 @@ const DocData = struct {
                         \\{{ "int": {s}{} }}
                     , .{ neg, v.value });
                 },
+                .int_big => |v| {
+                    const neg = if (v.negated) "-" else "";
+                    try w.print(
+                        \\{{ "int_big": {s}{s} }}
+                    , .{ neg, v.value });
+                },
                 .float => |v| {
                     try w.print(
                         \\{{ "float": {} }}
+                    , .{v});
+                },
+                .float128 => |v| {
+                    try w.print(
+                        \\{{ "float128": {} }}
                     , .{v});
                 },
                 .bool => |v| {
@@ -808,6 +814,16 @@ const DocData = struct {
                 ),
                 .switchIndex => |v| try std.json.stringify(
                     struct { switchIndex: usize }{ .switchIndex = v },
+                    options,
+                    w,
+                ),
+                .cmpxchg => |v| try std.json.stringify(
+                    struct { cmpxchg: Cmpxchg }{ .cmpxchg = v },
+                    options,
+                    w,
+                ),
+                .cmpxchgIndex => |v| try std.json.stringify(
+                    struct { cmpxchgIndex: usize }{ .cmpxchgIndex = v },
                     options,
                     w,
                 ),
@@ -987,6 +1003,67 @@ fn walkInstruction(
                 need_type,
             );
         },
+        .cmpxchg_strong, .cmpxchg_weak => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.Cmpxchg, pl_node.payload_index);
+
+            const last_type_index = self.exprs.items.len;
+            const last_type = self.exprs.items[last_type_index - 1];
+            const type_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, last_type);
+
+            const ptr_index = self.exprs.items.len;
+            var ptr: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                extra.data.ptr,
+                false,
+            );
+            try self.exprs.append(self.arena, ptr.expr);
+
+            const expected_value_index = self.exprs.items.len;
+            var expected_value: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                extra.data.expected_value,
+                false,
+            );
+            try self.exprs.append(self.arena, expected_value.expr);
+
+            const new_value_index = self.exprs.items.len;
+            var new_value: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                extra.data.new_value,
+                false,
+            );
+            try self.exprs.append(self.arena, new_value.expr);
+
+            const success_order_index = self.exprs.items.len;
+            var success_order: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                extra.data.success_order,
+                false,
+            );
+            try self.exprs.append(self.arena, success_order.expr);
+
+            const failure_order_index = self.exprs.items.len;
+            var failure_order: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                extra.data.failure_order,
+                false,
+            );
+            try self.exprs.append(self.arena, failure_order.expr);
+
+            const cmpxchg_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, .{ .cmpxchg = .{ .name = @tagName(tags[inst_index]), .type = type_index, .ptr = ptr_index, .expected_value = expected_value_index, .new_value = new_value_index, .success_order = success_order_index, .failure_order = failure_order_index } });
+            return DocData.WalkResult{
+                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
+                .expr = .{ .cmpxchgIndex = cmpxchg_index },
+            };
+        },
         .str => {
             const str = data[inst_index].str.get(file.zir);
 
@@ -1061,69 +1138,19 @@ fn walkInstruction(
                 .expr = .{ .int = .{ .value = int } },
             };
         },
-        .bitcast => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-
-            const binop_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-
-            var lhs: DocData.WalkResult = try self.walkRef(
+        .int_big => {
+            // @check
+            const str = data[inst_index].str.get(file.zir);
+            _ = str;
+            printWithContext(
                 file,
-                parent_scope,
-                extra.data.lhs,
-                false,
+                inst_index,
+                "TODO: implement `{s}` for walkInstruction\n\n",
+                .{@tagName(tags[inst_index])},
             );
-            var rhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.rhs,
-                false,
-            );
-
-            const lhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, lhs.expr);
-            const rhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, rhs.expr);
-            self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .opKind = 9 } };
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .binOpIndex = binop_index },
-            };
+            return self.cteTodo(@tagName(tags[inst_index]));
         },
-        // implementing in builtinBin @check if it's ok to delete it
-        // .align_cast => {
-        //     const pl_node = data[inst_index].pl_node;
-        //     const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-        //
-        //     const binop_index = self.exprs.items.len;
-        //     try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-        //
-        //     var lhs: DocData.WalkResult = try self.walkRef(
-        //         file,
-        //         parent_scope,
-        //         extra.data.lhs,
-        //         false,
-        //     );
-        //     var rhs: DocData.WalkResult = try self.walkRef(
-        //         file,
-        //         parent_scope,
-        //         extra.data.rhs,
-        //         false,
-        //     );
-        //
-        //     const lhs_index = self.exprs.items.len;
-        //     try self.exprs.append(self.arena, lhs.expr);
-        //     const rhs_index = self.exprs.items.len;
-        //     try self.exprs.append(self.arena, rhs.expr);
-        //     self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .opKind = 11 } };
-        //
-        //     return DocData.WalkResult{
-        //         .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-        //         .expr = .{ .binOpIndex = binop_index },
-        //     };
-        // },
+
         .slice_start => {
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.SliceStart, pl_node.payload_index);
@@ -1241,7 +1268,27 @@ fn walkInstruction(
                 .expr = .{ .sliceIndex = slice_index },
             };
         },
-        .bit_or => {
+
+        // @check array_cat and array_mul
+        .add,
+        .addwrap,
+        .add_sat,
+        .sub,
+        .subwrap,
+        .sub_sat,
+        .mul,
+        .mulwrap,
+        .mul_sat,
+        .div,
+        .shl,
+        .shl_sat,
+        .shr,
+        .bit_or,
+        .bit_and,
+        // @check still not working when applied in std
+        // .array_cat,
+        // .array_mul,
+        => {
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
 
@@ -1265,793 +1312,11 @@ fn walkInstruction(
             try self.exprs.append(self.arena, lhs.expr);
             const rhs_index = self.exprs.items.len;
             try self.exprs.append(self.arena, rhs.expr);
-            self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .opKind = 10 } };
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .binOpIndex = binop_index },
-            };
-        },
-        .bit_and => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-
-            const binop_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-
-            var lhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.lhs,
-                false,
-            );
-            var rhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.rhs,
-                false,
-            );
-
-            const lhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, lhs.expr);
-            const rhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, rhs.expr);
-            self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .opKind = 12 } };
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .binOpIndex = binop_index },
-            };
-        },
-        .add => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-
-            const binop_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-
-            var lhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.lhs,
-                false,
-            );
-            var rhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.rhs,
-                false,
-            );
-
-            const lhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, lhs.expr);
-            const rhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, rhs.expr);
-            self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .opKind = 0 } };
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .binOpIndex = binop_index },
-            };
-        },
-        .addwrap => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-
-            const binop_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-
-            var lhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.lhs,
-                false,
-            );
-            var rhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.rhs,
-                false,
-            );
-
-            const lhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, lhs.expr);
-            const rhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, rhs.expr);
-            self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .wrap = true, .opKind = 0 } };
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .binOpIndex = binop_index },
-            };
-        },
-        .add_sat => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-
-            const binop_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-
-            var lhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.lhs,
-                false,
-            );
-            var rhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.rhs,
-                false,
-            );
-
-            const lhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, lhs.expr);
-            const rhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, rhs.expr);
-            self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .sat = true, .opKind = 0 } };
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .binOpIndex = binop_index },
-            };
-        },
-
-        .sub => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-
-            const binop_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-
-            var lhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.lhs,
-                false,
-            );
-            var rhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.rhs,
-                false,
-            );
-
-            const lhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, lhs.expr);
-            const rhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, rhs.expr);
-            self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .opKind = 1 } };
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .binOpIndex = binop_index },
-            };
-        },
-        .subwrap => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-
-            const binop_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-
-            var lhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.lhs,
-                false,
-            );
-            var rhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.rhs,
-                false,
-            );
-
-            const lhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, lhs.expr);
-            const rhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, rhs.expr);
-            self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .wrap = true, .opKind = 1 } };
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .binOpIndex = binop_index },
-            };
-        },
-        .sub_sat => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-
-            const binop_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-
-            var lhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.lhs,
-                false,
-            );
-            var rhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.rhs,
-                false,
-            );
-
-            const lhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, lhs.expr);
-            const rhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, rhs.expr);
-            self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .sat = true, .opKind = 1 } };
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .binOpIndex = binop_index },
-            };
-        },
-
-        .mul => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-
-            const binop_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-
-            var lhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.lhs,
-                false,
-            );
-            var rhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.rhs,
-                false,
-            );
-
-            const lhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, lhs.expr);
-            const rhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, rhs.expr);
-            self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .opKind = 2 } };
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .binOpIndex = binop_index },
-            };
-        },
-        .mulwrap => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-
-            const binop_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-
-            var lhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.lhs,
-                false,
-            );
-            var rhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.rhs,
-                false,
-            );
-
-            const lhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, lhs.expr);
-            const rhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, rhs.expr);
-            self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .wrap = true, .opKind = 2 } };
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .binOpIndex = binop_index },
-            };
-        },
-        .mul_sat => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-
-            const binop_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-
-            var lhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.lhs,
-                false,
-            );
-            var rhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.rhs,
-                false,
-            );
-
-            const lhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, lhs.expr);
-            const rhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, rhs.expr);
-            self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .sat = true, .opKind = 2 } };
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .binOpIndex = binop_index },
-            };
-        },
-
-        .div => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-
-            const binop_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-
-            var lhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.lhs,
-                false,
-            );
-            var rhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.rhs,
-                false,
-            );
-
-            const lhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, lhs.expr);
-            const rhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, rhs.expr);
-            self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .opKind = 3 } };
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .binOpIndex = binop_index },
-            };
-        },
-        .div_exact => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-
-            const binop_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-
-            var lhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.lhs,
-                false,
-            );
-            var rhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.rhs,
-                false,
-            );
-
-            const lhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, lhs.expr);
-            const rhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, rhs.expr);
-            self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .exact = true, .opKind = 3 } };
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .binOpIndex = binop_index },
-            };
-        },
-        .div_floor => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-
-            const binop_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-
-            var lhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.lhs,
-                false,
-            );
-            var rhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.rhs,
-                false,
-            );
-
-            const lhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, lhs.expr);
-            const rhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, rhs.expr);
-            self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .floor = true, .opKind = 3 } };
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .binOpIndex = binop_index },
-            };
-        },
-        .div_trunc => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-
-            const binop_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-
-            var lhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.lhs,
-                false,
-            );
-            var rhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.rhs,
-                false,
-            );
-
-            const lhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, lhs.expr);
-            const rhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, rhs.expr);
-            self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .trunc = true, .opKind = 3 } };
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .binOpIndex = binop_index },
-            };
-        },
-
-        .mod => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-
-            const binop_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-
-            var lhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.lhs,
-                false,
-            );
-            var rhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.rhs,
-                false,
-            );
-
-            const lhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, lhs.expr);
-            const rhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, rhs.expr);
-            self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .exact = true, .opKind = 4 } };
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .binOpIndex = binop_index },
-            };
-        },
-        .rem => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-
-            const binop_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-
-            var lhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.lhs,
-                false,
-            );
-            var rhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.rhs,
-                false,
-            );
-
-            const lhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, lhs.expr);
-            const rhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, rhs.expr);
-            self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .floor = true, .opKind = 5 } };
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .binOpIndex = binop_index },
-            };
-        },
-
-        // @check how to test it
-        .mod_rem => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-
-            const binop_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-
-            var lhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.lhs,
-                false,
-            );
-            var rhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.rhs,
-                false,
-            );
-
-            const lhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, lhs.expr);
-            const rhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, rhs.expr);
-            self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .floor = true, .opKind = 6 } };
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .binOpIndex = binop_index },
-            };
-        },
-
-        .shl => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-
-            const binop_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-
-            var lhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.lhs,
-                false,
-            );
-            var rhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.rhs,
-                false,
-            );
-
-            const lhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, lhs.expr);
-            const rhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, rhs.expr);
-            self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .opKind = 7 } };
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .binOpIndex = binop_index },
-            };
-        },
-        .shl_exact => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-
-            const binop_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-
-            var lhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.lhs,
-                false,
-            );
-            var rhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.rhs,
-                false,
-            );
-
-            const lhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, lhs.expr);
-            const rhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, rhs.expr);
-            self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .exact = true, .opKind = 7 } };
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .binOpIndex = binop_index },
-            };
-        },
-        .shl_sat => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-
-            const binop_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-
-            var lhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.lhs,
-                false,
-            );
-            var rhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.rhs,
-                false,
-            );
-
-            const lhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, lhs.expr);
-            const rhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, rhs.expr);
-            self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .sat = true, .opKind = 7 } };
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .binOpIndex = binop_index },
-            };
-        },
-
-        .shr => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-
-            const binop_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-
-            var lhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.lhs,
-                false,
-            );
-            var rhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.rhs,
-                false,
-            );
-
-            const lhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, lhs.expr);
-            const rhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, rhs.expr);
-            self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .opKind = 8 } };
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .binOpIndex = binop_index },
-            };
-        },
-        .shr_exact => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-
-            const binop_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-
-            var lhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.lhs,
-                false,
-            );
-            var rhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.rhs,
-                false,
-            );
-
-            const lhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, lhs.expr);
-            const rhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, rhs.expr);
-            self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .exact = true, .opKind = 8 } };
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                .expr = .{ .binOpIndex = binop_index },
-            };
-        },
-
-        // throwing this TODO
-        // TODO: handle `Array` in tryResolveDeclPath.type
-        // .array_cat => {
-        //     const pl_node = data[inst_index].pl_node;
-        //     const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-        //
-        //     const binop_index = self.exprs.items.len;
-        //     try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-        //
-        //     var lhs: DocData.WalkResult = try self.walkRef(
-        //         file,
-        //         parent_scope,
-        //         extra.data.lhs,
-        //         false,
-        //     );
-        //     var rhs: DocData.WalkResult = try self.walkRef(
-        //         file,
-        //         parent_scope,
-        //         extra.data.rhs,
-        //         false,
-        //     );
-        //
-        //     const lhs_index = self.exprs.items.len;
-        //     try self.exprs.append(self.arena, lhs.expr);
-        //     const rhs_index = self.exprs.items.len;
-        //     try self.exprs.append(self.arena, rhs.expr);
-        //     self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .exact = true, .opKind = 13 } };
-        //
-        //     return DocData.WalkResult{
-        //         .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-        //         .expr = .{ .binOpIndex = binop_index },
-        //     };
-        // },
-        // .array_mul => {
-        //     const pl_node = data[inst_index].pl_node;
-        //     const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-        //
-        //     const binop_index = self.exprs.items.len;
-        //     try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-        //
-        //     var lhs: DocData.WalkResult = try self.walkRef(
-        //         file,
-        //         parent_scope,
-        //         extra.data.lhs,
-        //         false,
-        //     );
-        //     var rhs: DocData.WalkResult = try self.walkRef(
-        //         file,
-        //         parent_scope,
-        //         extra.data.rhs,
-        //         false,
-        //     );
-        //
-        //     const lhs_index = self.exprs.items.len;
-        //     try self.exprs.append(self.arena, lhs.expr);
-        //     const rhs_index = self.exprs.items.len;
-        //     try self.exprs.append(self.arena, rhs.expr);
-        //     self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .exact = true, .opKind = 14 } };
-        //
-        //     return DocData.WalkResult{
-        //         .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-        //         .expr = .{ .binOpIndex = binop_index },
-        //     };
-        // },
-        .vector_type => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
-
-            const binop_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
-
-            var lhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.lhs,
-                false,
-            );
-            var rhs: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                extra.data.rhs,
-                false,
-            );
-
-            const lhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, lhs.expr);
-            const rhs_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, rhs.expr);
-            self.exprs.items[binop_index] = .{ .binOp = .{ .lhs = lhs_index, .rhs = rhs_index, .exact = true, .opKind = 15 } };
+            self.exprs.items[binop_index] = .{ .binOp = .{
+                .name = @tagName(tags[inst_index]),
+                .lhs = lhs_index,
+                .rhs = rhs_index,
+            } };
 
             return DocData.WalkResult{
                 .typeRef = .{ .type = @enumToInt(Ref.type_type) },
@@ -2086,6 +1351,18 @@ fn walkInstruction(
         .type_name,
         .frame_type,
         .frame_size,
+        .ptr_to_int,
+        .error_to_int,
+        .int_to_error,
+        .minimum,
+        .maximum,
+        .bit_not,
+        // @check
+        .clz,
+        .ctz,
+        .pop_count,
+        .byte_swap,
+        .bit_reverse,
         => {
             const un_node = data[inst_index].un_node;
             const bin_index = self.exprs.items.len;
@@ -2098,13 +1375,38 @@ fn walkInstruction(
             self.exprs.items[bin_index] = .{ .builtin = .{ .name = @tagName(tags[inst_index]), .param = param_index } };
 
             return DocData.WalkResult{
-                .typeRef = param.typeRef,
+                .typeRef = param.typeRef orelse .{ .type = @enumToInt(Ref.type_type) },
                 .expr = .{ .builtinIndex = bin_index },
             };
         },
+
+        .float_to_int,
+        .int_to_float,
+        .int_to_ptr,
+        .int_to_enum,
+        .float_cast,
+        .int_cast,
+        .ptr_cast,
+        .truncate,
+        .align_cast,
+        .has_decl,
+        .has_field,
+        .div_exact,
+        .div_floor,
+        .div_trunc,
+        .mod,
+        .rem,
+        .mod_rem,
+        .shl_exact,
+        .shr_exact,
+        .bitcast,
+        .vector_type,
         // @check
-        // .clz, .ctz, .pop_count, .byte_swap, .bit_reverse
-        .float_to_int, .int_to_float, .int_to_ptr, .int_to_enum, .float_cast, .int_cast, .ptr_cast, .truncate, .align_cast, .has_decl, .has_field => {
+        .bit_offset_of,
+        .offset_of,
+        .splat,
+        .reduce,
+        => {
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
 
@@ -2352,14 +1654,6 @@ fn walkInstruction(
                 array_data[idx] = wr.expr.as.exprArg;
             }
 
-            // @check
-            // not working with
-            // const value_slice_float = []f32{42.0};
-            // const value_slice_float2: []f32 = .{42.0};
-            // rendering [][]f32
-            // the reason for that is it's initialized as a pointer
-            // in this case getting the last type index works fine
-            // but when it's not after a pointer it's thrown an error in js.
             const type_slot_index = self.types.items.len;
             try self.types.append(self.arena, .{ .Pointer = .{
                 .size = .Slice,
@@ -2555,6 +1849,15 @@ fn walkInstruction(
                 .expr = .{ .float = float },
             };
         },
+        // @check: In frontend I'm handling float128 with `.toFixed(2)`
+        .float128 => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.Float128, pl_node.payload_index);
+            return DocData.WalkResult{
+                .typeRef = .{ .type = @enumToInt(Ref.comptime_float_type) },
+                .expr = .{ .float128 = extra.data.get() },
+            };
+        },
         .negate => {
             const un_node = data[inst_index].un_node;
             var operand: DocData.WalkResult = try self.walkRef(
@@ -2629,106 +1932,22 @@ fn walkInstruction(
             // WIP
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.SwitchBlock, pl_node.payload_index);
-            const array_data = try self.arena.alloc(usize, extra.data.bits.scalar_cases_len);
-            var extra_index = extra.end;
+            const cond_index = self.exprs.items.len;
+            _ = try self.walkRef(file, parent_scope, extra.data.operand, false);
+
+            const ast_index = self.ast_nodes.items.len - 1;
+            const ast = self.ast_nodes.items[ast_index];
 
             // const sep = "=" ** 200;
             // std.debug.print("{s}\n", .{sep});
-            // std.debug.print("pl_node = {any}\n", .{pl_node});
-            // std.debug.print("extra = {any}\n", .{extra});
-            // std.debug.print("{s}\n", .{sep});
-
-            const multi_cases_len = if (extra.data.bits.has_multi_cases) blk: {
-                const multi_cases_len = file.zir.extra[extra_index];
-                extra_index += 1;
-                break :blk multi_cases_len;
-            } else 0;
-
-            var else_index: ?usize = null;
-            const special_prong = extra.data.bits.specialProng();
-            if (special_prong != .none) {
-                const body_len = file.zir.extra[extra_index];
-                extra_index += 1;
-                const body = file.zir.extra[extra_index..][0..body_len];
-                extra_index += body.len;
-                for (body) |_| {
-                    const item_ref = @intToEnum(Ref, file.zir.extra[extra_index]);
-                    const item = try self.walkRef(file, parent_scope, item_ref, false);
-                    // std.debug.print("prong item_ref = {any}\n", .{item_ref});
-                    // std.debug.print("prong item = {any}\n", .{item});
-                    // std.debug.print("body member = {any}\n", .{body_member});
-                    const item_index = self.exprs.items.len;
-                    try self.exprs.append(self.arena, item.expr);
-                    else_index = item_index;
-                }
-            }
-
-            // var array_type: ?DocData.Expr = null;
-            {
-                const scalar_cases_len = extra.data.bits.scalar_cases_len;
-                var scalar_i: usize = 0;
-                while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
-                    const item_ref = @intToEnum(Ref, file.zir.extra[extra_index]);
-                    const item = try self.walkRef(file, parent_scope, item_ref, false);
-                    extra_index += 1;
-                    const body_len = file.zir.extra[extra_index];
-                    extra_index += 1;
-                    const body = file.zir.extra[extra_index..][0..body_len];
-                    extra_index += body_len;
-                    _ = body;
-                    array_data[scalar_i] = item.expr.as.exprArg;
-
-                    const body_ref = @intToEnum(Ref, file.zir.extra[extra_index]);
-                    if (extra.data.bits.is_ref) {
-                        const body_item = try self.walkRef(file, parent_scope, body_ref, false);
-                        _ = body_item;
-
-                        array_data[scalar_i] = item.expr.as.exprArg;
-                    } else {
-                        array_data[scalar_i] = 0;
-                        // TODO: this is wrong, decide an actual strategy
-                    }
-                    // std.debug.print("{s}\n", .{sep});
-                    // std.debug.print("body item_ref = {any}\n", .{item_ref});
-                    // std.debug.print("body item = {any}\n", .{item});
-                    // std.debug.print("body_len scalar cases = {any}\n", .{body_ref});
-                    // std.debug.print("body scalar cases = {any}\n", .{body_item});
-                    // std.debug.print("{s}\n", .{sep});
-                }
-            }
-            {
-                var multi_i: usize = 0;
-                while (multi_i < multi_cases_len) : (multi_i += 1) {
-                    const items_len = file.zir.extra[extra_index];
-                    extra_index += 1;
-                    const ranges_len = file.zir.extra[extra_index];
-                    extra_index += 1;
-                    const body_len = file.zir.extra[extra_index];
-                    extra_index += 1;
-                    const items = file.zir.refSlice(extra_index, items_len);
-                    extra_index += items_len;
-                    _ = items;
-
-                    var range_i: usize = 0;
-                    while (range_i < ranges_len) : (range_i += 1) {
-                        extra_index += 1;
-                        extra_index += 1;
-                    }
-
-                    const body = file.zir.extra[extra_index..][0..body_len];
-                    extra_index += body_len;
-                    _ = body;
-
-                    // std.debug.print("body multi_i = {any}\n", .{body});
-                    // std.debug.print("items = {any}\n", .{items});
-                }
-            }
-
-            // std.debug.print("multi_cases_len = {}\n", .{multi_cases_len});
+            // std.debug.print("SWITCH BLOCK\n", .{});
+            // std.debug.print("file path = {any}\n", .{file.sub_file_path});
+            // std.debug.print("lazysrcloc = {any}\n", .{pl_node.src()});
+            // std.debug.print("ast = {any}\n", .{ast});
             // std.debug.print("{s}\n", .{sep});
 
             const switch_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .switchOp = .{ .cases = array_data, .else_index = else_index } });
+            try self.exprs.append(self.arena, .{ .switchOp = .{ .cond_index = cond_index, .node_name = ast.name orelse "", .file_name = file.sub_file_path, .line_start = ast.line } });
 
             return DocData.WalkResult{
                 .typeRef = .{ .type = @enumToInt(Ref.type_type) },
@@ -2745,13 +1964,6 @@ fn walkInstruction(
             );
             const operand_index = self.exprs.items.len;
             try self.exprs.append(self.arena, operand.expr);
-
-            // const sep = "=" ** 200;
-            // std.debug.print("{s}\n", .{sep});
-            // std.debug.print("SWITCH COND\n", .{});
-            // std.debug.print("un_node {any} \n", .{un_node});
-            // std.debug.print("operand {any} \n", .{operand});
-            // std.debug.print("{s}\n", .{sep});
 
             return DocData.WalkResult{
                 .typeRef = operand.typeRef,
@@ -2942,23 +2154,6 @@ fn walkInstruction(
                 .typeRef = .{ .type = @enumToInt(Ref.type_type) },
                 .expr = .{ .type = self.types.items.len - 1 },
             };
-        },
-        .float128 => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.Float128, pl_node.payload_index);
-            _ = extra;
-            // const sep = "=" ** 200;
-            // std.debug.print("{s}\n", .{sep});
-            // std.debug.print("pl_node = {any}\n", .{pl_node});
-            // std.debug.print("extra = {any}\n", .{extra});
-            // std.debug.print("{s}\n", .{sep});
-            // printWithContext(
-            //     file,
-            //     inst_index,
-            //     "TODO: implement `{s}` for walkInstruction\n\n",
-            //     .{@tagName(tags[inst_index])},
-            // );
-            return self.cteTodo(@tagName(tags[inst_index]));
         },
         .block => {
             const res = DocData.WalkResult{ .expr = .{
