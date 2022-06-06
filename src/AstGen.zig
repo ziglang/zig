@@ -1967,6 +1967,9 @@ fn blockExpr(
     }
 
     try blockExprStmts(gz, scope, statements);
+    if (gz.endsWithNoReturn()) {
+        return Zir.Inst.Ref.unreachable_value;
+    }
     return rvalue(gz, rl, .void_value, block_node);
 }
 
