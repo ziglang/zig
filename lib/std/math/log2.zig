@@ -17,12 +17,20 @@ pub fn log2(x: anytype) @TypeOf(x) {
         },
         .Float => return @log2(x),
         .ComptimeInt => comptime {
-            var result = 0;
             var x_shifted = x;
-            while (b: {
-                x_shifted >>= 1;
-                break :b x_shifted != 0;
-            }) : (result += 1) {}
+            // First, calculate floorPowerOfTwo(x)
+            var shift_amt = 1;
+            while (x_shifted >> (shift_amt << 1) != 0) shift_amt <<= 1;
+
+            // Answer is in the range [shift_amt, 2 * shift_amt - 1]
+            // We can find it in O(log(N)) using binary search.
+            var result = 0;
+            while (shift_amt != 0) : (shift_amt >>= 1) {
+                if (x_shifted >> shift_amt != 0) {
+                    x_shifted >>= shift_amt;
+                    result += shift_amt;
+                }
+            }
             return result;
         },
         .Int => |IntType| switch (IntType.signedness) {
@@ -36,4 +44,10 @@ pub fn log2(x: anytype) @TypeOf(x) {
 test "log2" {
     try expect(log2(@as(f32, 0.2)) == @log2(0.2));
     try expect(log2(@as(f64, 0.2)) == @log2(0.2));
+    comptime {
+        try expect(log2(1) == 0);
+        try expect(log2(15) == 3);
+        try expect(log2(16) == 4);
+        try expect(log2(1 << 4073) == 4073);
+    }
 }
