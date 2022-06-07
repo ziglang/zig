@@ -2730,15 +2730,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                             // movabs does not support indirect register addressing
                             // so we need an extra register and an extra mov.
                             const tmp_reg = try self.copyToTmpRegister(value_ty, value);
-                            _ = try self.addInst(.{
-                                .tag = .mov,
-                                .ops = Mir.Inst.Ops.encode(.{
-                                    .reg1 = reg.to64(),
-                                    .reg2 = tmp_reg.to64(),
-                                    .flags = 0b10,
-                                }),
-                                .data = .{ .imm = 0 },
-                            });
+                            return self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
                         },
                         else => {
                             return self.fail("TODO implement set pointee with immediate of ABI size {d}", .{abi_size});
@@ -2835,6 +2827,8 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                 .data = .{ .imm = 0 },
             });
 
+            const new_ptr = MCValue{ .register = addr_reg.to64() };
+
             switch (value) {
                 .immediate => |imm| {
                     if (abi_size > 8) {
@@ -2873,16 +2867,8 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                         .data = .{ .payload = payload },
                     });
                 },
-                .register => |reg| {
-                    _ = try self.addInst(.{
-                        .tag = .mov,
-                        .ops = Mir.Inst.Ops.encode(.{
-                            .reg1 = addr_reg.to64(),
-                            .reg2 = reg,
-                            .flags = 0b10,
-                        }),
-                        .data = .{ .imm = 0 },
-                    });
+                .register => {
+                    return self.store(new_ptr, value, ptr_ty, value_ty);
                 },
                 .got_load,
                 .direct_load,
@@ -2904,37 +2890,18 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                             }),
                             .data = .{ .imm = 0 },
                         });
-                        _ = try self.addInst(.{
-                            .tag = .mov,
-                            .ops = Mir.Inst.Ops.encode(.{
-                                .reg1 = addr_reg.to64(),
-                                .reg2 = tmp_reg,
-                                .flags = 0b10,
-                            }),
-                            .data = .{ .imm = 0 },
-                        });
-                        return;
+                        return self.store(new_ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
                     }
 
-                    try self.genInlineMemcpy(.{ .register = addr_reg.to64() }, value, .{ .immediate = abi_size }, .{});
+                    try self.genInlineMemcpy(new_ptr, value, .{ .immediate = abi_size }, .{});
                 },
                 .stack_offset => {
                     if (abi_size <= 8) {
-                        // TODO this should really be a recursive call
                         const tmp_reg = try self.copyToTmpRegister(value_ty, value);
-                        _ = try self.addInst(.{
-                            .tag = .mov,
-                            .ops = Mir.Inst.Ops.encode(.{
-                                .reg1 = addr_reg.to64(),
-                                .reg2 = tmp_reg,
-                                .flags = 0b10,
-                            }),
-                            .data = .{ .imm = 0 },
-                        });
-                        return;
+                        return self.store(new_ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
                     }
 
-                    try self.genInlineMemcpy(.{ .register = addr_reg.to64() }, value, .{ .immediate = abi_size }, .{});
+                    try self.genInlineMemcpy(new_ptr, value, .{ .immediate = abi_size }, .{});
                 },
                 else => return self.fail("TODO implement storing {} to MCValue.memory", .{value}),
             }
