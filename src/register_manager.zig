@@ -39,7 +39,7 @@ pub fn RegisterManager(
         /// register is free), the value in that slot is undefined.
         ///
         /// The key must be canonical register.
-        registers: [tracked_registers.len]Air.Inst.Index = undefined,
+        registers: TrackedRegisters = undefined,
         /// Tracks which registers are free (in which case the
         /// corresponding bit is set to 1)
         free_registers: RegisterBitSet = RegisterBitSet.initFull(),
@@ -51,6 +51,7 @@ pub fn RegisterManager(
 
         const Self = @This();
 
+        pub const TrackedRegisters = [tracked_registers.len]Air.Inst.Index;
         pub const RegisterBitSet = StaticBitSet(tracked_registers.len);
 
         fn getFunction(self: *Self) *Function {
