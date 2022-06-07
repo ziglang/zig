@@ -42,6 +42,7 @@ pub const Inst = struct {
         /// This uses the arithmetic_3op field.
         // TODO add other operations.
         add,
+        addcc,
 
         /// A.3 Branch on Integer Register with Prediction (BPr)
         /// This uses the branch_predict_reg field.
@@ -73,6 +74,12 @@ pub const Inst = struct {
         /// This uses the arithmetic_3op field.
         // TODO add other operations.
         @"or",
+        xor,
+        xnor,
+
+        /// A.35 Move Integer Register on Condition (MOVcc)
+        /// This uses the conditional_move field.
+        movcc,
 
         /// A.37 Multiply and Divide (64-bit)
         /// This uses the arithmetic_3op field.
@@ -142,6 +149,13 @@ pub const Inst = struct {
         /// being the *destination* register.
         // TODO is it okay to abuse rs1 in this way?
         mov, // mov rs2/imm, rs1 -> or %g0, rs2/imm, rs1
+
+        /// Bitwise negation
+        /// This uses the arithmetic_2op field, with rs1
+        /// being the *destination* register.
+        // TODO is it okay to abuse rs1 in this way?
+        // TODO this differs from official encoding for convenience, fix it later
+        not, // not rs2/imm, rs1 -> xnor %g0, rs2/imm, rs1
     };
 
     /// The position of an MIR instruction within the `Mir` instructions array.
@@ -214,6 +228,22 @@ pub const Inst = struct {
             cond: Instruction.RCondition,
             rs1: Register,
             inst: Index,
+        },
+
+        /// Conditional move.
+        /// if is_imm true then it uses the imm field of rs2_or_imm,
+        /// otherwise it uses rs2 field.
+        ///
+        /// Used by e.g. movcc
+        conditional_move: struct {
+            is_imm: bool,
+            ccr: Instruction.CCR,
+            cond: Instruction.Condition,
+            rd: Register,
+            rs2_or_imm: union {
+                rs2: Register,
+                imm: i11,
+            },
         },
 
         /// No additional data
