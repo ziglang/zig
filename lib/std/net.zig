@@ -1342,7 +1342,8 @@ fn getResolvConf(allocator: mem.Allocator, rc: *ResolvConf) !void {
     };
     defer file.close();
 
-    const stream = std.io.bufferedReader(file.reader()).reader();
+    var buf_reader = std.io.bufferedReader(file.reader());
+    const stream = buf_reader.reader();
     var line_buf: [512]u8 = undefined;
     while (stream.readUntilDelimiterOrEof(&line_buf, '\n') catch |err| switch (err) {
         error.StreamTooLong => blk: {
@@ -1353,7 +1354,10 @@ fn getResolvConf(allocator: mem.Allocator, rc: *ResolvConf) !void {
         },
         else => |e| return e,
     }) |line| {
-        const no_comment_line = mem.split(u8, line, "#").next().?;
+        const no_comment_line = no_comment_line: {
+            var split = mem.split(u8, line, "#");
+            break :no_comment_line split.next().?;
+        };
         var line_it = mem.tokenize(u8, no_comment_line, " \t");
 
         const token = line_it.next() orelse continue;
@@ -1363,7 +1367,8 @@ fn getResolvConf(allocator: mem.Allocator, rc: *ResolvConf) !void {
                 const name = colon_it.next().?;
                 const value_txt = colon_it.next() orelse continue;
                 const value = std.fmt.parseInt(u8, value_txt, 10) catch |err| switch (err) {
-                    error.Overflow => 255,
+                    // TODO https://github.com/ziglang/zig/issues/11812
+                    error.Overflow => @as(u8, 255),
                     error.InvalidCharacter => continue,
                 };
                 if (mem.eql(u8, name, "ndots")) {
