@@ -87,13 +87,9 @@ pub fn BitReader(endian: std.builtin.Endian, comptime ReaderType: type) type {
             //copy bytes until we have enough bits, then leave the rest in bit_buffer
             while (out_bits.* < bits) {
                 const n = bits - out_bits.*;
-                const next_byte = self.forward_reader.readByte() catch |err| {
-                    if (err == error.EndOfStream) {
-                        return @intCast(U, out_buffer);
-                    }
-                    //@BUG: See #1810. Not sure if the bug is that I have to do this for some
-                    // streams, or that I don't for streams with emtpy errorsets.
-                    return @errSetCast(Error, err);
+                const next_byte = self.forward_reader.readByte() catch |err| switch (err) {
+                    error.EndOfStream => return @intCast(U, out_buffer),
+                    else => |e| return e,
                 };
 
                 switch (endian) {
