@@ -5654,7 +5654,6 @@ fn genInlineMemcpyRegisterRegister(
 
     const abi_size = @intCast(u32, ty.abiSize(self.target.*));
 
-    // TODO common code-path with genSetStack, refactor!
     if (!math.isPowerOfTwo(abi_size)) {
         const tmp_reg = try self.copyToTmpRegister(ty, .{ .register = src_reg });
 
