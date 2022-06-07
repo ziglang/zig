@@ -2738,46 +2738,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                     }
                 },
                 .register => |src_reg| {
-                    const src_reg_lock = self.register_manager.lockReg(src_reg);
-                    defer if (src_reg_lock) |lock| self.register_manager.unlockReg(lock);
-
-                    // TODO common code-path with genSetStack, refactor!
-                    if (!math.isPowerOfTwo(abi_size)) {
-                        const tmp_reg = try self.copyToTmpRegister(value_ty, value);
-
-                        var next_offset: i32 = 0;
-                        var remainder = abi_size;
-                        while (remainder > 0) {
-                            const nearest_power_of_two = @as(u6, 1) << math.log2_int(u3, @intCast(u3, remainder));
-
-                            _ = try self.addInst(.{
-                                .tag = .mov,
-                                .ops = Mir.Inst.Ops.encode(.{
-                                    .reg1 = reg.to64(),
-                                    .reg2 = registerAlias(tmp_reg, nearest_power_of_two),
-                                    .flags = 0b10,
-                                }),
-                                .data = .{ .imm = @bitCast(u32, -next_offset) },
-                            });
-
-                            if (nearest_power_of_two > 1) {
-                                try self.genShiftBinOpMir(.shr, value_ty, tmp_reg, .{ .immediate = nearest_power_of_two * 8 });
-                            }
-
-                            remainder -= nearest_power_of_two;
-                            next_offset -= nearest_power_of_two;
-                        }
-                    } else {
-                        _ = try self.addInst(.{
-                            .tag = .mov,
-                            .ops = Mir.Inst.Ops.encode(.{
-                                .reg1 = reg.to64(),
-                                .reg2 = registerAlias(src_reg, @intCast(u32, abi_size)),
-                                .flags = 0b10,
-                            }),
-                            .data = .{ .imm = 0 },
-                        });
-                    }
+                    try self.genInlineMemcpyRegisterRegister(value_ty, reg, src_reg, 0);
                 },
                 .got_load,
                 .direct_load,
@@ -5638,45 +5599,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                     return self.fail("TODO genSetStack for register for type float with no intrinsics", .{});
                 },
                 else => {
-                    if (!math.isPowerOfTwo(abi_size)) {
-                        const reg_lock = self.register_manager.lockReg(reg);
-                        defer if (reg_lock) |lock| self.register_manager.unlockReg(lock);
-
-                        const tmp_reg = try self.copyToTmpRegister(ty, mcv);
-
-                        var next_offset = stack_offset;
-                        var remainder = abi_size;
-                        while (remainder > 0) {
-                            const nearest_power_of_two = @as(u6, 1) << math.log2_int(u3, @intCast(u3, remainder));
-
-                            _ = try self.addInst(.{
-                                .tag = .mov,
-                                .ops = Mir.Inst.Ops.encode(.{
-                                    .reg1 = base_reg,
-                                    .reg2 = registerAlias(tmp_reg, nearest_power_of_two),
-                                    .flags = 0b10,
-                                }),
-                                .data = .{ .imm = @bitCast(u32, -next_offset) },
-                            });
-
-                            if (nearest_power_of_two > 1) {
-                                try self.genShiftBinOpMir(.shr, ty, tmp_reg, .{ .immediate = nearest_power_of_two * 8 });
-                            }
-
-                            remainder -= nearest_power_of_two;
-                            next_offset -= nearest_power_of_two;
-                        }
-                    } else {
-                        _ = try self.addInst(.{
-                            .tag = .mov,
-                            .ops = Mir.Inst.Ops.encode(.{
-                                .reg1 = base_reg,
-                                .reg2 = registerAlias(reg, @intCast(u32, abi_size)),
-                                .flags = 0b10,
-                            }),
-                            .data = .{ .imm = @bitCast(u32, -stack_offset) },
-                        });
-                    }
+                    try self.genInlineMemcpyRegisterRegister(ty, base_reg, reg, stack_offset);
                 },
             }
         },
@@ -5708,6 +5631,67 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
 
             try self.genInlineMemcpy(.{ .stack_offset = stack_offset }, mcv, .{ .immediate = abi_size }, opts);
         },
+    }
+}
+
+/// Like `genInlineMemcpy` but copies value from a register to an address via dereferencing
+/// of destination register.
+/// Boils down to MOV r/m64, r64.
+fn genInlineMemcpyRegisterRegister(
+    self: *Self,
+    ty: Type,
+    dst_reg: Register,
+    src_reg: Register,
+    offset: i32,
+) InnerError!void {
+    assert(dst_reg.size() == 64);
+
+    const dst_reg_lock = self.register_manager.lockReg(dst_reg);
+    defer if (dst_reg_lock) |lock| self.register_manager.unlockReg(lock);
+
+    const src_reg_lock = self.register_manager.lockReg(src_reg);
+    defer if (src_reg_lock) |lock| self.register_manager.unlockReg(lock);
+
+    const abi_size = @intCast(u32, ty.abiSize(self.target.*));
+
+    // TODO common code-path with genSetStack, refactor!
+    if (!math.isPowerOfTwo(abi_size)) {
+        const tmp_reg = try self.copyToTmpRegister(ty, .{ .register = src_reg });
+
+        var next_offset = offset;
+        var remainder = abi_size;
+        while (remainder > 0) {
+            const nearest_power_of_two = @as(u6, 1) << math.log2_int(u3, @intCast(u3, remainder));
+
+            _ = try self.addInst(.{
+                .tag = .mov,
+                .ops = Mir.Inst.Ops.encode(.{
+                    .reg1 = dst_reg,
+                    .reg2 = registerAlias(tmp_reg, nearest_power_of_two),
+                    .flags = 0b10,
+                }),
+                .data = .{ .imm = @bitCast(u32, -next_offset) },
+            });
+
+            if (nearest_power_of_two > 1) {
+                try self.genShiftBinOpMir(.shr, ty, tmp_reg, .{
+                    .immediate = nearest_power_of_two * 8,
+                });
+            }
+
+            remainder -= nearest_power_of_two;
+            next_offset -= nearest_power_of_two;
+        }
+    } else {
+        _ = try self.addInst(.{
+            .tag = .mov,
+            .ops = Mir.Inst.Ops.encode(.{
+                .reg1 = dst_reg,
+                .reg2 = registerAlias(src_reg, @intCast(u32, abi_size)),
+                .flags = 0b10,
+            }),
+            .data = .{ .imm = @bitCast(u32, -offset) },
+        });
     }
 }
 
