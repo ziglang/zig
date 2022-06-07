@@ -7774,7 +7774,12 @@ fn zirSwitchCapture(
         }
 
         switch (operand_ty.zigTypeTag()) {
-            .ErrorSet => return sema.bitCast(block, block.switch_else_err_ty.?, operand, operand_src),
+            .ErrorSet => if (block.switch_else_err_ty) |some| {
+                return sema.bitCast(block, some, operand, operand_src);
+            } else {
+                try block.addUnreachable(operand_src, false);
+                return Air.Inst.Ref.unreachable_value;
+            },
             else => return operand,
         }
     }
@@ -8194,7 +8199,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     );
                 }
                 else_error_ty = Type.@"anyerror";
-            } else {
+            } else else_validation: {
                 var maybe_msg: ?*Module.ErrorMsg = null;
                 errdefer if (maybe_msg) |msg| msg.destroy(sema.gpa);
 
@@ -8231,6 +8236,27 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 }
 
                 if (special_prong == .@"else" and seen_errors.count() == operand_ty.errorSetNames().len) {
+
+                    // In order to enable common patterns for generic code allow simple else bodies
+                    // else => unreachable,
+                    // else => return,
+                    // else => |e| return e,
+                    // even if all the possible errors were already handled.
+                    const tags = sema.code.instructions.items(.tag);
+                    for (special.body) |else_inst| switch (tags[else_inst]) {
+                        .dbg_block_begin,
+                        .dbg_block_end,
+                        .dbg_stmt,
+                        .dbg_var_val,
+                        .switch_capture,
+                        .ret_type,
+                        .as_node,
+                        .ret_node,
+                        .@"unreachable",
+                        => {},
+                        else => break,
+                    } else break :else_validation;
+
                     return sema.fail(
                         block,
                         special_prong_src,
