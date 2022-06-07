@@ -5012,7 +5012,7 @@ pub const FuncGen = struct {
         const compiler_rt_operand_abbrev = compilerRtFloatAbbrev(operand_bits);
 
         const compiler_rt_dest_abbrev = compilerRtIntAbbrev(rt_int_bits);
-        const sign_prefix = if (dest_scalar_ty.isSignedInt()) "" else "un";
+        const sign_prefix = if (dest_scalar_ty.isSignedInt()) "" else "uns";
 
         var fn_name_buf: [64]u8 = undefined;
         const fn_name = std.fmt.bufPrintZ(&fn_name_buf, "__fix{s}{s}f{s}i", .{
@@ -9289,7 +9289,7 @@ fn needDbgVarWorkaround(dg: *DeclGen, ty: Type) bool {
 }
 
 fn compilerRtIntBits(bits: u16) u16 {
-    inline for (.{ 8, 16, 32, 64, 128 }) |b| {
+    inline for (.{ 32, 64, 128 }) |b| {
         if (bits <= b) {
             return b;
         }
