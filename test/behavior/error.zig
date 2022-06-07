@@ -754,3 +754,18 @@ test "error union payload is properly aligned" {
     const blk = S.foo() catch unreachable;
     if (blk.a != 1) unreachable;
 }
+
+test "ret_ptr doesn't cause own inferred error set to be resolved" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn foo() !void {}
+
+        fn doTheTest() !void {
+            errdefer @compileError("bad");
+
+            return try @This().foo();
+        }
+    };
+    try S.doTheTest();
+}
