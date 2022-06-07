@@ -2732,15 +2732,46 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                     }
                 },
                 .register => |src_reg| {
-                    _ = try self.addInst(.{
-                        .tag = .mov,
-                        .ops = Mir.Inst.Ops.encode(.{
-                            .reg1 = reg.to64(),
-                            .reg2 = registerAlias(src_reg, @intCast(u32, abi_size)),
-                            .flags = 0b10,
-                        }),
-                        .data = .{ .imm = 0 },
-                    });
+                    const src_reg_lock = self.register_manager.lockReg(src_reg);
+                    defer if (src_reg_lock) |lock| self.register_manager.unlockReg(lock);
+
+                    // TODO common code-path with genSetStack, refactor!
+                    if (!math.isPowerOfTwo(abi_size)) {
+                        const tmp_reg = try self.copyToTmpRegister(value_ty, value);
+
+                        var next_offset: i32 = 0;
+                        var remainder = abi_size;
+                        while (remainder > 0) {
+                            const nearest_power_of_two = @as(u6, 1) << math.log2_int(u3, @intCast(u3, remainder));
+
+                            _ = try self.addInst(.{
+                                .tag = .mov,
+                                .ops = Mir.Inst.Ops.encode(.{
+                                    .reg1 = reg.to64(),
+                                    .reg2 = registerAlias(tmp_reg, nearest_power_of_two),
+                                    .flags = 0b10,
+                                }),
+                                .data = .{ .imm = @bitCast(u32, -next_offset) },
+                            });
+
+                            if (nearest_power_of_two > 1) {
+                                try self.genShiftBinOpMir(.shr, value_ty, tmp_reg, .{ .immediate = nearest_power_of_two * 8 });
+                            }
+
+                            remainder -= nearest_power_of_two;
+                            next_offset -= nearest_power_of_two;
+                        }
+                    } else {
+                        _ = try self.addInst(.{
+                            .tag = .mov,
+                            .ops = Mir.Inst.Ops.encode(.{
+                                .reg1 = reg.to64(),
+                                .reg2 = registerAlias(src_reg, @intCast(u32, abi_size)),
+                                .flags = 0b10,
+                            }),
+                            .data = .{ .imm = 0 },
+                        });
+                    }
                 },
                 .got_load,
                 .direct_load,
