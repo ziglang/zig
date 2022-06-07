@@ -2100,8 +2100,22 @@ fn airPtrSlicePtrPtr(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn elemOffset(self: *Self, index_ty: Type, index: MCValue, elem_size: u64) !Register {
-    const reg = try self.copyToTmpRegister(index_ty, index);
-    try self.genIntMulComplexOpMir(index_ty, .{ .register = reg }, .{ .immediate = elem_size });
+    const reg: Register = blk: {
+        switch (index) {
+            .immediate => |imm| {
+                // Optimisation: if index MCValue is an immediate, we can multiply in `comptime`
+                // and set the register directly to the scaled offset as an immediate.
+                const reg = try self.register_manager.allocReg(null, gp);
+                try self.genSetReg(index_ty, reg, .{ .immediate = imm * elem_size });
+                break :blk reg;
+            },
+            else => {
+                const reg = try self.copyToTmpRegister(index_ty, index);
+                try self.genIntMulComplexOpMir(index_ty, .{ .register = reg }, .{ .immediate = elem_size });
+                break :blk reg;
+            },
+        }
+    };
     return reg;
 }
 
