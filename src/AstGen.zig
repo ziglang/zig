@@ -6876,6 +6876,9 @@ fn asmExpr(
         const constraint = (try astgen.strLitAsString(constraint_token)).index;
         const has_arrow = token_tags[symbolic_name + 4] == .arrow;
         if (has_arrow) {
+            if (output_type_bits != 0) {
+                return astgen.failNode(output_node, "inline assembly allows up to one output value", .{});
+            }
             output_type_bits |= @as(u32, 1) << @intCast(u5, i);
             const out_type_node = node_datas[output_node].lhs;
             const out_type_inst = try typeExpr(gz, scope, out_type_node);
@@ -6892,7 +6895,7 @@ fn asmExpr(
             outputs[i] = .{
                 .name = name,
                 .constraint = constraint,
-                .operand = try localVarRef(gz, scope, rl, node, ident_token),
+                .operand = try localVarRef(gz, scope, .ref, node, ident_token),
             };
         }
     }

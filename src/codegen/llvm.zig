@@ -5435,10 +5435,6 @@ pub const FuncGen = struct {
         const inputs = @ptrCast([]const Air.Inst.Ref, self.air.extra[extra_i..][0..extra.data.inputs_len]);
         extra_i += inputs.len;
 
-        if (outputs.len > 1) {
-            return self.todo("implement llvm codegen for asm with more than 1 output", .{});
-        }
-
         var llvm_constraints: std.ArrayListUnmanaged(u8) = .{};
         defer llvm_constraints.deinit(self.gpa);
 
@@ -5446,7 +5442,10 @@ pub const FuncGen = struct {
         defer arena_allocator.deinit();
         const arena = arena_allocator.allocator();
 
-        const llvm_params_len = inputs.len;
+        const return_count: u8 = for (outputs) |output| {
+            if (output == .none) break 1;
+        } else 0;
+        const llvm_params_len = inputs.len + outputs.len - return_count;
         const llvm_param_types = try arena.alloc(*const llvm.Type, llvm_params_len);
         const llvm_param_values = try arena.alloc(*const llvm.Value, llvm_params_len);
         var llvm_param_i: usize = 0;
@@ -5456,9 +5455,6 @@ pub const FuncGen = struct {
         try name_map.ensureUnusedCapacity(arena, outputs.len + inputs.len);
 
         for (outputs) |output| {
-            if (output != .none) {
-                return self.todo("implement inline asm with non-returned output", .{});
-            }
             const extra_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
             const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
             const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
@@ -5471,6 +5467,15 @@ pub const FuncGen = struct {
                 llvm_constraints.appendAssumeCapacity(',');
             }
             llvm_constraints.appendAssumeCapacity('=');
+            if (output != .none) {
+                try llvm_constraints.ensureUnusedCapacity(self.gpa, llvm_constraints.capacity + 1);
+                llvm_constraints.appendAssumeCapacity('*');
+
+                const output_inst = try self.resolveInst(output);
+                llvm_param_values[llvm_param_i] = output_inst;
+                llvm_param_types[llvm_param_i] = output_inst.typeOf();
+                llvm_param_i += 1;
+            }
             llvm_constraints.appendSliceAssumeCapacity(constraint[1..]);
 
             name_map.putAssumeCapacityNoClobber(name, {});
