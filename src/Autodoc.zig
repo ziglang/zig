@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_options = @import("build_options");
 const Autodoc = @This();
 const Compilation = @import("Compilation.zig");
 const Module = @import("Module.zig");
@@ -13,6 +14,7 @@ arena: std.mem.Allocator,
 // The goal of autodoc is to fill up these arrays
 // that will then be serialized as JSON and consumed
 // by the JS frontend.
+pkgs: std.ArrayListUnmanaged(DocData.Package) = .{},
 files: std.AutoHashMapUnmanaged(*File, usize) = .{},
 calls: std.ArrayListUnmanaged(DocData.Call) = .{},
 types: std.ArrayListUnmanaged(DocData.Type) = .{},
@@ -169,8 +171,28 @@ pub fn generateZirData(self: *Autodoc) !void {
             );
         }
     }
-
+    
+    
+    
     const main_type_index = self.types.items.len;
+    const rootName = blk: {
+        const rootName = std.fs.path.basename(self.module.main_pkg.root_src_path);
+        break :blk rootName[0..rootName.len - 4]; 
+    };
+    
+    try self.pkgs.append(self.arena, .{
+        .name = rootName,
+        .table = .{.data = std.StringHashMapUnmanaged(usize){}},
+    });
+    
+
+    {
+    const rootPkg: *DocData.Package = &self.pkgs.items[0];
+    try rootPkg.table.data.put(self.arena, rootName, 0);
+
+    rootPkg.main = main_type_index;
+    rootPkg.name = rootName;    
+    }
     var root_scope = Scope{ .parent = null, .enclosing_type = main_type_index };
     try self.ast_nodes.append(self.arena, .{ .name = "(root)" });
     try self.files.put(self.arena, file, main_type_index);
@@ -187,8 +209,12 @@ pub fn generateZirData(self: *Autodoc) !void {
     if (self.pending_ref_paths.count() > 0) {
         @panic("some decl paths were never fully analized");
     }
+    
 
+    
     var data = DocData{
+        .params = .{ .rootName = rootName },
+        .packages = self.pkgs.items,
         .files = .{ .data = self.files },
         .calls = self.calls.items,
         .types = self.types.items,
@@ -198,7 +224,7 @@ pub fn generateZirData(self: *Autodoc) !void {
         .comptimeExprs = self.comptime_exprs.items,
     };
 
-    data.packages[0].main = main_type_index;
+
 
     if (self.doc_location.directory) |d| {
         d.handle.makeDir(
@@ -282,14 +308,14 @@ const DocData = struct {
     rootPkg: u32 = 0,
     params: struct {
         zigId: []const u8 = "arst",
-        zigVersion: []const u8 = "arst",
+        zigVersion: []const u8 = build_options.version,
         target: []const u8 = "arst",
-        rootName: []const u8 = "arst",
+        rootName: []const u8,
         builds: []const struct { target: []const u8 } = &.{
             .{ .target = "arst" },
         },
-    } = .{},
-    packages: [1]Package = .{.{}},
+    },
+    packages: []const Package,
     errors: []struct {} = &.{},
 
     // non-hardcoded stuff
@@ -378,12 +404,52 @@ const DocData = struct {
         code: []const u8,
     };
     const Package = struct {
-        name: []const u8 = "root",
+        name: []const u8 = "(root)",
         file: usize = 0, // index into `files`
         main: usize = 0, // index into `decls`
-        table: struct { root: usize } = .{
-            .root = 0,
-        },
+        table: struct {
+        // this struct is a temporary hack to support json serialization
+        data: std.StringHashMapUnmanaged(usize),
+        pub fn jsonStringify(
+            self: @This(),
+            opt: std.json.StringifyOptions,
+            w: anytype,
+        ) !void {
+            var idx: usize = 0;
+            var it = self.data.iterator();
+            try w.writeAll("{\n");
+
+            var options = opt;
+            if (options.whitespace) |*ws| ws.indent_level += 1;
+            while (it.next()) |kv| : (idx += 1) {
+                if (options.whitespace) |ws| try ws.outputIndent(w);
+                const builtin = @import("builtin");
+                if (builtin.target.os.tag == .windows) {
+                    try w.print("\"", .{});
+                    for (kv.key_ptr.*) |c| {
+                        if (c == '\\') {
+                            try w.print("\\\\", .{});
+                        } else {
+                            try w.print("{c}", .{c});
+                        }
+                    }
+                    try w.print("\"", .{});
+                    try w.print(": {d}", .{
+                        kv.value_ptr.*,
+                    });
+                } else {
+                    try w.print("\"{s}\": {d}", .{
+                        kv.key_ptr.*,
+                        kv.value_ptr.*,
+                    });
+                }
+                if (idx != self.data.count() - 1) try w.writeByte(',');
+                try w.writeByte('\n');
+            }
+            if (opt.whitespace) |ws| try ws.outputIndent(w);
+            try w.writeAll("}");
+        }
+    },    
     };
 
     const Decl = struct {
