@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_options = @import("build_options");
 const Autodoc = @This();
 const Compilation = @import("Compilation.zig");
 const Module = @import("Module.zig");
@@ -282,7 +283,7 @@ const DocData = struct {
     rootPkg: u32 = 0,
     params: struct {
         zigId: []const u8 = "arst",
-        zigVersion: []const u8 = "arst",
+        zigVersion: []const u8 = build_options.version,
         target: []const u8 = "arst",
         rootName: []const u8 = "arst",
         builds: []const struct { target: []const u8 } = &.{
