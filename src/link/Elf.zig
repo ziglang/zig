@@ -1517,12 +1517,12 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append("noexecstack");
         }
         if (self.base.options.z_now) {
-            try argv.append("-z");
-            try argv.append("now");
+            // LLD defaults to -zlazy
+            try argv.append("-znow");
         }
-        if (self.base.options.z_relro) {
-            try argv.append("-z");
-            try argv.append("relro");
+        if (!self.base.options.z_relro) {
+            // LLD defaults to -zrelro
+            try argv.append("-znorelro");
         }
 
         if (getLDMOption(target)) |ldm| {

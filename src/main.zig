@@ -434,8 +434,10 @@ const usage_build_generic =
     \\    origin                       Indicate that the object must have its origin processed
     \\    nocopyreloc                  Disable the creation of copy relocations
     \\    noexecstack                  Indicate that the object requires an executable stack
-    \\    now                          Force all relocations to be processed on load
-    \\    relro                        Force all relocations to be resolved and be read-only on load
+    \\    now                          (default) Force all relocations to be processed on load
+    \\    lazy                         Don't force all relocations to be processed on load
+    \\    relro                        (default) Force all relocations to be read-only after processing
+    \\    norelro                      Don't force all relocations to be read-only after processing
     \\  -dynamic                       Force output to be dynamically linked
     \\  -static                        Force output to be statically linked
     \\  -Bsymbolic                     Bind global references locally
@@ -655,8 +657,8 @@ fn buildOutputType(
     var linker_z_defs = false;
     var linker_z_origin = false;
     var linker_z_noexecstack = false;
-    var linker_z_now = false;
-    var linker_z_relro = false;
+    var linker_z_now = true;
+    var linker_z_relro = true;
     var linker_tsaware = false;
     var linker_nxcompat = false;
     var linker_dynamicbase = false;
@@ -1209,8 +1211,12 @@ fn buildOutputType(
                             linker_z_noexecstack = true;
                         } else if (mem.eql(u8, z_arg, "now")) {
                             linker_z_now = true;
+                        } else if (mem.eql(u8, z_arg, "lazy")) {
+                            linker_z_now = false;
                         } else if (mem.eql(u8, z_arg, "relro")) {
                             linker_z_relro = true;
+                        } else if (mem.eql(u8, z_arg, "norelro")) {
+                            linker_z_relro = false;
                         } else {
                             warn("unsupported linker extension flag: -z {s}", .{z_arg});
                         }
@@ -1691,8 +1697,12 @@ fn buildOutputType(
                         linker_z_noexecstack = true;
                     } else if (mem.eql(u8, z_arg, "now")) {
                         linker_z_now = true;
+                    } else if (mem.eql(u8, z_arg, "lazy")) {
+                        linker_z_now = false;
                     } else if (mem.eql(u8, z_arg, "relro")) {
                         linker_z_relro = true;
+                    } else if (mem.eql(u8, z_arg, "norelro")) {
+                        linker_z_relro = false;
                     } else {
                         warn("unsupported linker extension flag: -z {s}", .{z_arg});
                     }
