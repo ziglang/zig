@@ -1441,7 +1441,11 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .subwrap => self.airWrapBinOp(inst, .sub),
         .mul => self.airBinOp(inst, .mul),
         .mulwrap => self.airWrapBinOp(inst, .mul),
-        .div_trunc => self.airBinOp(inst, .div),
+        .div_float,
+        .div_exact,
+        .div_trunc,
+        => self.airBinOp(inst, .div),
+        .div_floor => self.airDivFloor(inst),
         .bit_and => self.airBinOp(inst, .@"and"),
         .bit_or => self.airBinOp(inst, .@"or"),
         .bool_and => self.airBinOp(inst, .@"and"),
@@ -1583,9 +1587,6 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .add_sat,
         .sub_sat,
         .mul_sat,
-        .div_float,
-        .div_floor,
-        .div_exact,
         .mod,
         .assembly,
         .shl_sat,
@@ -4756,4 +4757,31 @@ fn airByteSwap(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         },
         else => return self.fail("TODO: @byteSwap for integers with bitsize {d}", .{int_info.bits}),
     }
+}
+
+fn airDivFloor(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const ty = self.air.typeOfIndex(inst);
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
+
+    const div_result = try self.binOp(lhs, rhs, ty, .div);
+    if (ty.isUnsignedInt()) {
+        return div_result;
+    } else if (ty.isSignedInt()) {
+        return self.fail("TODO: `@divFloor` for signed integers", .{});
+    }
+
+    try self.emitWValue(div_result);
+    switch (ty.floatBits(self.target)) {
+        32 => try self.addTag(.f32_floor),
+        64 => try self.addTag(.f64_floor),
+        else => |bit_size| return self.fail("TODO: `@divFloor` for floats with bitsize: {d}", .{bit_size}),
+    }
+
+    const result = try self.allocLocal(ty);
+    try self.addLabel(.local_set, result.local);
+    return result;
 }
