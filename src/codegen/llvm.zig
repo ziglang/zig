@@ -8311,23 +8311,41 @@ pub const FuncGen = struct {
         field_index: u32,
     ) !?*const llvm.Value {
         if (self.liveness.isUnused(inst)) return null;
+
+        const target = self.dg.object.target;
         const struct_ty = struct_ptr_ty.childType();
         switch (struct_ty.zigTypeTag()) {
             .Struct => switch (struct_ty.containerLayout()) {
                 .Packed => {
-                    // From LLVM's perspective, a pointer to a packed struct and a pointer
-                    // to a field of a packed struct are the same. The difference is in the
-                    // Zig pointer type which provides information for how to mask and shift
-                    // out the relevant bits when accessing the pointee.
-                    // Here we perform a bitcast because we want to use the host_size
-                    // as the llvm pointer element type.
-                    const result_llvm_ty = try self.dg.lowerType(self.air.typeOfIndex(inst));
-                    // TODO this can be removed if we change host_size to be bits instead
-                    // of bytes.
-                    return self.builder.buildBitCast(struct_ptr, result_llvm_ty, "");
+                    const result_ty = self.air.typeOfIndex(inst);
+                    const result_ty_info = result_ty.ptrInfo().data;
+                    const result_llvm_ty = try self.dg.lowerType(result_ty);
+
+                    if (result_ty_info.host_size != 0) {
+                        // From LLVM's perspective, a pointer to a packed struct and a pointer
+                        // to a field of a packed struct are the same. The difference is in the
+                        // Zig pointer type which provides information for how to mask and shift
+                        // out the relevant bits when accessing the pointee.
+                        // Here we perform a bitcast because we want to use the host_size
+                        // as the llvm pointer element type.
+                        return self.builder.buildBitCast(struct_ptr, result_llvm_ty, "");
+                    }
+
+                    // We have a pointer to a packed struct field that happens to be byte-aligned.
+                    // Offset our operand pointer by the correct number of bytes.
+                    const byte_offset = struct_ty.packedStructFieldByteOffset(field_index, target);
+                    if (byte_offset == 0) {
+                        return self.builder.buildBitCast(struct_ptr, result_llvm_ty, "");
+                    }
+                    const llvm_bytes_ptr_ty = self.context.intType(8).pointerType(0);
+                    const ptr_as_bytes = self.builder.buildBitCast(struct_ptr, llvm_bytes_ptr_ty, "");
+                    const llvm_usize = try self.dg.lowerType(Type.usize);
+                    const llvm_index = llvm_usize.constInt(byte_offset, .False);
+                    const indices: [1]*const llvm.Value = .{llvm_index};
+                    const new_ptr = self.builder.buildInBoundsGEP(ptr_as_bytes, &indices, indices.len, "");
+                    return self.builder.buildBitCast(new_ptr, result_llvm_ty, "");
                 },
                 else => {
-                    const target = self.dg.module.getTarget();
                     var ty_buf: Type.Payload.Pointer = undefined;
                     if (llvmFieldIndex(struct_ty, field_index, target, &ty_buf)) |llvm_field_index| {
                         return self.builder.buildStructGEP(struct_ptr, llvm_field_index, "");
