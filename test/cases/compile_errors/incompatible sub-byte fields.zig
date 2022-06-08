@@ -1,6 +1,3 @@
-const std = @import("std");
-const expect = std.testing.expect;
-
 const A = packed struct {
     a: u2,
     b: u6,
@@ -10,9 +7,7 @@ const B = packed struct {
     a: u2,
     b: u6,
 };
-test "bug 1120" {
-    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
-
+export fn entry() void {
     var a = A{ .a = 2, .b = 2 };
     var b = B{ .q = 22, .a = 3, .b = 2 };
     var t: usize = 0;
@@ -21,5 +16,12 @@ test "bug 1120" {
         1 => &b.a,
         else => unreachable,
     };
-    try expect(ptr.* == 2);
+    if (ptr.* == 2) {
+        @compileError("wrong compile error");
+    }
 }
+// error
+// backend=stage2
+// target=native
+//
+// :14:17: error: incompatible types: '*align(0:0:1) u2' and '*align(2:8:2) u2'
