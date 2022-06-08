@@ -18708,11 +18708,18 @@ fn structFieldPtrByIndex(
         // If the field happens to be byte-aligned, simplify the pointer type.
         // The pointee type bit size must match its ABI byte size so that loads and stores
         // do not interfere with the surrounding packed bits.
-        if (parent_align != 0 and ptr_ty_data.bit_offset % 8 == 0) {
-            const byte_offset = ptr_ty_data.bit_offset / 8;
+        // We do not attempt this with big-endian targets yet because of nested
+        // structs and floats. I need to double-check the desired behavior for big endian
+        // targets before adding the necessary complications to this code. This will not
+        // cause miscompilations; it only means the field pointer uses bit masking when it
+        // might not be strictly necessary.
+        if (parent_align != 0 and ptr_ty_data.bit_offset % 8 == 0 and
+            target.cpu.arch.endian() == .Little)
+        {
             const elem_size_bytes = ptr_ty_data.pointee_type.abiSize(target);
             const elem_size_bits = ptr_ty_data.pointee_type.bitSize(target);
             if (elem_size_bytes * 8 == elem_size_bits) {
+                const byte_offset = ptr_ty_data.bit_offset / 8;
                 const new_align = @as(u32, 1) << @intCast(u5, @ctz(u64, byte_offset | parent_align));
                 ptr_ty_data.bit_offset = 0;
                 ptr_ty_data.host_size = 0;
