@@ -5591,6 +5591,28 @@ pub const Type = extern union {
         }
     }
 
+    pub fn packedStructFieldByteOffset(ty: Type, field_index: usize, target: Target) u32 {
+        const struct_obj = ty.castTag(.@"struct").?.data;
+        assert(struct_obj.layout == .Packed);
+        comptime assert(Type.packed_struct_layout_version == 2);
+
+        var bit_offset: u16 = undefined;
+        var elem_size_bits: u16 = undefined;
+        var running_bits: u16 = 0;
+        for (struct_obj.fields.values()) |f, i| {
+            if (!f.ty.hasRuntimeBits()) continue;
+
+            const field_bits = @intCast(u16, f.ty.bitSize(target));
+            if (i == field_index) {
+                bit_offset = running_bits;
+                elem_size_bits = field_bits;
+            }
+            running_bits += field_bits;
+        }
+        const byte_offset = bit_offset / 8;
+        return byte_offset;
+    }
+
     pub const FieldOffset = struct {
         field: usize,
         offset: u64,

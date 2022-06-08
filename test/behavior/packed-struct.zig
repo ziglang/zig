@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const native_endian = builtin.cpu.arch.endian();
@@ -288,13 +289,7 @@ test "regular in irregular packed struct" {
 
     const Irregular = packed struct {
         bar: Regular = Regular{},
-
-        // This field forces the regular packed struct to be a part of single u48
-        // and thus it all gets represented as an array of 6 bytes in LLVM
         _: u24 = 0,
-
-        // This struct on its own can represent its fields directly in LLVM
-        // with no need to use array of bytes as underlaying representation.
         pub const Regular = packed struct { a: u16 = 0, b: u8 = 0 };
     };
 
@@ -304,4 +299,107 @@ test "regular in irregular packed struct" {
 
     try expectEqual(@as(u16, 235), foo.bar.a);
     try expectEqual(@as(u8, 42), foo.bar.b);
+}
+
+test "byte-aligned field pointer offsets" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
+    const S = struct {
+        const A = packed struct {
+            a: u8,
+            b: u8,
+            c: u8,
+            d: u8,
+        };
+
+        const B = packed struct {
+            a: u16,
+            b: u16,
+        };
+
+        fn doTheTest() !void {
+            var a: A = .{
+                .a = 1,
+                .b = 2,
+                .c = 3,
+                .d = 4,
+            };
+            switch (comptime builtin.cpu.arch.endian()) {
+                .Little => {
+                    comptime assert(@TypeOf(&a.a) == *align(4) u8);
+                    comptime assert(@TypeOf(&a.b) == *u8);
+                    comptime assert(@TypeOf(&a.c) == *align(2) u8);
+                    comptime assert(@TypeOf(&a.d) == *u8);
+                },
+                .Big => {
+                    // TODO re-evaluate packed struct endianness
+                    comptime assert(@TypeOf(&a.a) == *align(4:0:4) u8);
+                    comptime assert(@TypeOf(&a.b) == *align(4:8:4) u8);
+                    comptime assert(@TypeOf(&a.c) == *align(4:16:4) u8);
+                    comptime assert(@TypeOf(&a.d) == *align(4:24:4) u8);
+                },
+            }
+            try expect(a.a == 1);
+            try expect(a.b == 2);
+            try expect(a.c == 3);
+            try expect(a.d == 4);
+
+            a.a += 1;
+            try expect(a.a == 2);
+            try expect(a.b == 2);
+            try expect(a.c == 3);
+            try expect(a.d == 4);
+
+            a.b += 1;
+            try expect(a.a == 2);
+            try expect(a.b == 3);
+            try expect(a.c == 3);
+            try expect(a.d == 4);
+
+            a.c += 1;
+            try expect(a.a == 2);
+            try expect(a.b == 3);
+            try expect(a.c == 4);
+            try expect(a.d == 4);
+
+            a.d += 1;
+            try expect(a.a == 2);
+            try expect(a.b == 3);
+            try expect(a.c == 4);
+            try expect(a.d == 5);
+
+            var b: B = .{
+                .a = 1,
+                .b = 2,
+            };
+            switch (comptime builtin.cpu.arch.endian()) {
+                .Little => {
+                    comptime assert(@TypeOf(&b.a) == *align(4) u16);
+                    comptime assert(@TypeOf(&b.b) == *u16);
+                },
+                .Big => {
+                    comptime assert(@TypeOf(&b.a) == *align(4:0:4) u16);
+                    comptime assert(@TypeOf(&b.b) == *align(4:16:4) u16);
+                },
+            }
+            try expect(b.a == 1);
+            try expect(b.b == 2);
+
+            b.a += 1;
+            try expect(b.a == 2);
+            try expect(b.b == 2);
+
+            b.b += 1;
+            try expect(b.a == 2);
+            try expect(b.b == 3);
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }

@@ -18678,8 +18678,6 @@ fn structFieldPtrByIndex(
 
     const target = sema.mod.getTarget();
 
-    // TODO handle when the struct pointer is overaligned, we should return a potentially
-    // over-aligned field pointer too.
     if (struct_obj.layout == .Packed) {
         comptime assert(Type.packed_struct_layout_version == 2);
 
@@ -18699,6 +18697,34 @@ fn structFieldPtrByIndex(
         if (struct_ptr_ty_info.host_size != 0) {
             ptr_ty_data.host_size = struct_ptr_ty_info.host_size;
             ptr_ty_data.bit_offset += struct_ptr_ty_info.bit_offset;
+        }
+
+        const parent_align = if (struct_ptr_ty_info.@"align" != 0)
+            struct_ptr_ty_info.@"align"
+        else
+            struct_ptr_ty_info.pointee_type.abiAlignment(target);
+        ptr_ty_data.@"align" = parent_align;
+
+        // If the field happens to be byte-aligned, simplify the pointer type.
+        // The pointee type bit size must match its ABI byte size so that loads and stores
+        // do not interfere with the surrounding packed bits.
+        // We do not attempt this with big-endian targets yet because of nested
+        // structs and floats. I need to double-check the desired behavior for big endian
+        // targets before adding the necessary complications to this code. This will not
+        // cause miscompilations; it only means the field pointer uses bit masking when it
+        // might not be strictly necessary.
+        if (parent_align != 0 and ptr_ty_data.bit_offset % 8 == 0 and
+            target.cpu.arch.endian() == .Little)
+        {
+            const elem_size_bytes = ptr_ty_data.pointee_type.abiSize(target);
+            const elem_size_bits = ptr_ty_data.pointee_type.bitSize(target);
+            if (elem_size_bytes * 8 == elem_size_bits) {
+                const byte_offset = ptr_ty_data.bit_offset / 8;
+                const new_align = @as(u32, 1) << @intCast(u5, @ctz(u64, byte_offset | parent_align));
+                ptr_ty_data.bit_offset = 0;
+                ptr_ty_data.host_size = 0;
+                ptr_ty_data.@"align" = new_align;
+            }
         }
     } else {
         ptr_ty_data.@"align" = field.abi_align;
