@@ -18061,7 +18061,6 @@ fn safetyPanic(
 fn emitBackwardBranch(sema: *Sema, block: *Block, src: LazySrcLoc) !void {
     sema.branch_count += 1;
     if (sema.branch_count > sema.branch_quota) {
-        // TODO show the "called from here" stack
         return sema.fail(block, src, "evaluation exceeded {d} backwards branches", .{sema.branch_quota});
     }
 }
