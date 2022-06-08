@@ -433,7 +433,6 @@ const usage_build_generic =
     \\    defs                         Force a fatal error if any undefined symbols remain
     \\    origin                       Indicate that the object must have its origin processed
     \\    nocopyreloc                  Disable the creation of copy relocations
-    \\    noexecstack                  Indicate that the object requires an executable stack
     \\    now                          (default) Force all relocations to be processed on load
     \\    lazy                         Don't force all relocations to be processed on load
     \\    relro                        (default) Force all relocations to be read-only after processing
@@ -656,7 +655,6 @@ fn buildOutputType(
     var linker_z_notext = false;
     var linker_z_defs = false;
     var linker_z_origin = false;
-    var linker_z_noexecstack = false;
     var linker_z_now = true;
     var linker_z_relro = true;
     var linker_tsaware = false;
@@ -1207,8 +1205,6 @@ fn buildOutputType(
                             linker_z_defs = true;
                         } else if (mem.eql(u8, z_arg, "origin")) {
                             linker_z_origin = true;
-                        } else if (mem.eql(u8, z_arg, "noexecstack")) {
-                            linker_z_noexecstack = true;
                         } else if (mem.eql(u8, z_arg, "now")) {
                             linker_z_now = true;
                         } else if (mem.eql(u8, z_arg, "lazy")) {
@@ -1694,7 +1690,7 @@ fn buildOutputType(
                     } else if (mem.eql(u8, z_arg, "origin")) {
                         linker_z_origin = true;
                     } else if (mem.eql(u8, z_arg, "noexecstack")) {
-                        linker_z_noexecstack = true;
+                        // noexecstack is the default when linking with LLD
                     } else if (mem.eql(u8, z_arg, "now")) {
                         linker_z_now = true;
                     } else if (mem.eql(u8, z_arg, "lazy")) {
@@ -2719,7 +2715,6 @@ fn buildOutputType(
         .linker_z_notext = linker_z_notext,
         .linker_z_defs = linker_z_defs,
         .linker_z_origin = linker_z_origin,
-        .linker_z_noexecstack = linker_z_noexecstack,
         .linker_z_now = linker_z_now,
         .linker_z_relro = linker_z_relro,
         .linker_tsaware = linker_tsaware,

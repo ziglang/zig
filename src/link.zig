@@ -113,7 +113,6 @@ pub const Options = struct {
     z_defs: bool,
     z_origin: bool,
     z_nocopyreloc: bool,
-    z_noexecstack: bool,
     z_now: bool,
     z_relro: bool,
     tsaware: bool,
