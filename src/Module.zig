@@ -2529,11 +2529,9 @@ pub const SrcLoc = struct {
 /// where in semantic analysis the value got set.
 const TracedOffset = struct {
     x: i32,
-    trace: Trace = trace_init,
+    trace: std.debug.Trace = .{},
 
-    const want_tracing = builtin.mode == .Debug;
-    const trace_init = if (want_tracing) std.debug.Trace(1, 3){} else {};
-    const Trace = @TypeOf(trace_init);
+    const want_tracing = std.debug.Trace.enabled;
 };
 
 /// Resolving a source location into a byte offset may require doing work
