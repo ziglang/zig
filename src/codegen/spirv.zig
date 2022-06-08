@@ -184,7 +184,7 @@ pub const DeclGen = struct {
 
     fn fail(self: *DeclGen, comptime format: []const u8, args: anytype) Error {
         @setCold(true);
-        const src: LazySrcLoc = .{ .node_offset = 0 };
+        const src = LazySrcLoc.nodeOffset(0);
         const src_loc = src.toSrcLoc(self.decl);
         assert(self.error_msg == null);
         self.error_msg = try Module.ErrorMsg.create(self.module.gpa, src_loc, format, args);
@@ -193,7 +193,7 @@ pub const DeclGen = struct {
 
     fn todo(self: *DeclGen, comptime format: []const u8, args: anytype) Error {
         @setCold(true);
-        const src: LazySrcLoc = .{ .node_offset = 0 };
+        const src = LazySrcLoc.nodeOffset(0);
         const src_loc = src.toSrcLoc(self.decl);
         assert(self.error_msg == null);
         self.error_msg = try Module.ErrorMsg.create(self.module.gpa, src_loc, "TODO (SPIR-V): " ++ format, args);

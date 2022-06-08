@@ -659,7 +659,7 @@ pub const Decl = struct {
     }
 
     pub fn nodeSrcLoc(decl: Decl, node_index: Ast.Node.Index) LazySrcLoc {
-        return .{ .node_offset = decl.nodeIndexToRelative(node_index) };
+        return LazySrcLoc.nodeOffset(decl.nodeIndexToRelative(node_index));
     }
 
     pub fn srcLoc(decl: Decl) SrcLoc {
@@ -670,7 +670,7 @@ pub const Decl = struct {
         return .{
             .file_scope = decl.getFileScope(),
             .parent_decl_node = decl.src_node,
-            .lazy = .{ .node_offset = node_offset },
+            .lazy = LazySrcLoc.nodeOffset(node_offset),
         };
     }
 
@@ -861,7 +861,7 @@ pub const ErrorSet = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = .{ .node_offset = self.node_offset },
+            .lazy = LazySrcLoc.nodeOffset(self.node_offset),
         };
     }
 
@@ -947,7 +947,7 @@ pub const Struct = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = .{ .node_offset = s.node_offset },
+            .lazy = LazySrcLoc.nodeOffset(s.node_offset),
         };
     }
 
@@ -1066,7 +1066,7 @@ pub const EnumSimple = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = .{ .node_offset = self.node_offset },
+            .lazy = LazySrcLoc.nodeOffset(self.node_offset),
         };
     }
 };
@@ -1097,7 +1097,7 @@ pub const EnumNumbered = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = .{ .node_offset = self.node_offset },
+            .lazy = LazySrcLoc.nodeOffset(self.node_offset),
         };
     }
 };
@@ -1131,7 +1131,7 @@ pub const EnumFull = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = .{ .node_offset = self.node_offset },
+            .lazy = LazySrcLoc.nodeOffset(self.node_offset),
         };
     }
 };
@@ -1197,7 +1197,7 @@ pub const Union = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = .{ .node_offset = self.node_offset },
+            .lazy = LazySrcLoc.nodeOffset(self.node_offset),
         };
     }
 
@@ -1404,7 +1404,7 @@ pub const Opaque = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = .{ .node_offset = self.node_offset },
+            .lazy = LazySrcLoc.nodeOffset(self.node_offset),
         };
     }
 
@@ -2105,7 +2105,17 @@ pub const SrcLoc = struct {
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
-            .node_offset, .node_offset_bin_op => |node_off| {
+            .node_offset => |traced_off| {
+                const node_off = traced_off.x;
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
+                assert(src_loc.file_scope.tree_loaded);
+                const main_tokens = tree.nodes.items(.main_token);
+                const tok_index = main_tokens[node];
+                const token_starts = tree.tokens.items(.start);
+                return token_starts[tok_index];
+            },
+            .node_offset_bin_op => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 assert(src_loc.file_scope.tree_loaded);
@@ -2515,6 +2525,17 @@ pub const SrcLoc = struct {
     }
 };
 
+/// This wraps a simple integer in debug builds so that later on we can find out
+/// where in semantic analysis the value got set.
+const TracedOffset = struct {
+    x: i32,
+    trace: Trace = trace_init,
+
+    const want_tracing = builtin.mode == .Debug;
+    const trace_init = if (want_tracing) std.debug.Trace(1, 3){} else {};
+    const Trace = @TypeOf(trace_init);
+};
+
 /// Resolving a source location into a byte offset may require doing work
 /// that we would rather not do unless the error actually occurs.
 /// Therefore we need a data structure that contains the information necessary
@@ -2555,7 +2576,7 @@ pub const LazySrcLoc = union(enum) {
     /// The source location points to an AST node, which is this value offset
     /// from its containing Decl node AST index.
     /// The Decl is determined contextually.
-    node_offset: i32,
+    node_offset: TracedOffset,
     /// The source location points to two tokens left of the first token of an AST node,
     /// which is this value offset from its containing Decl node AST index.
     /// The Decl is determined contextually.
@@ -2704,6 +2725,18 @@ pub const LazySrcLoc = union(enum) {
     /// to the elem expression.
     /// The Decl is determined contextually.
     node_offset_array_type_elem: i32,
+
+    pub const nodeOffset = if (TracedOffset.want_tracing) nodeOffsetDebug else nodeOffsetRelease;
+
+    noinline fn nodeOffsetDebug(node_offset: i32) LazySrcLoc {
+        var result: LazySrcLoc = .{ .node_offset = .{ .x = node_offset } };
+        result.node_offset.trace.addAddr(@returnAddress(), "init");
+        return result;
+    }
+
+    fn nodeOffsetRelease(node_offset: i32) LazySrcLoc {
+        return .{ .node_offset = .{ .x = node_offset } };
+    }
 
     /// Upgrade to a `SrcLoc` based on the `Decl` provided.
     pub fn toSrcLoc(lazy: LazySrcLoc, decl: *Decl) SrcLoc {
@@ -4014,7 +4047,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     const body = zir.extra[extra.end..][0..extra.data.body_len];
     const result_ref = (try sema.analyzeBodyBreak(&block_scope, body)).?.operand;
     try wip_captures.finalize();
-    const src: LazySrcLoc = .{ .node_offset = 0 };
+    const src = LazySrcLoc.nodeOffset(0);
     const decl_tv = try sema.resolveInstValue(&block_scope, src, result_ref);
     const decl_align: u32 = blk: {
         const align_ref = decl.zirAlignRef();
@@ -5044,7 +5077,7 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
     // Crucially, this happens *after* we set the function state to success above,
     // so that dependencies on the function body will now be satisfied rather than
     // result in circular dependency errors.
-    const src: LazySrcLoc = .{ .node_offset = 0 };
+    const src = LazySrcLoc.nodeOffset(0);
     sema.resolveFnTypes(&inner_block, src, fn_ty_info) catch |err| switch (err) {
         error.NeededSourceLocation => unreachable,
         error.GenericPoison => unreachable,
@@ -5338,7 +5371,7 @@ pub const SwitchProngSrc = union(enum) {
             log.warn("unable to load {s}: {s}", .{
                 decl.getFileScope().sub_file_path, @errorName(err),
             });
-            return LazySrcLoc{ .node_offset = 0 };
+            return LazySrcLoc.nodeOffset(0);
         };
         const switch_node = decl.relativeToNodeIndex(switch_node_offset);
         const main_tokens = tree.nodes.items(.main_token);
@@ -5367,17 +5400,17 @@ pub const SwitchProngSrc = union(enum) {
                 node_tags[case.ast.values[0]] == .switch_range;
 
             switch (prong_src) {
-                .scalar => |i| if (!is_multi and i == scalar_i) return LazySrcLoc{
-                    .node_offset = decl.nodeIndexToRelative(case.ast.values[0]),
-                },
+                .scalar => |i| if (!is_multi and i == scalar_i) return LazySrcLoc.nodeOffset(
+                    decl.nodeIndexToRelative(case.ast.values[0]),
+                ),
                 .multi => |s| if (is_multi and s.prong == multi_i) {
                     var item_i: u32 = 0;
                     for (case.ast.values) |item_node| {
                         if (node_tags[item_node] == .switch_range) continue;
 
-                        if (item_i == s.item) return LazySrcLoc{
-                            .node_offset = decl.nodeIndexToRelative(item_node),
-                        };
+                        if (item_i == s.item) return LazySrcLoc.nodeOffset(
+                            decl.nodeIndexToRelative(item_node),
+                        );
                         item_i += 1;
                     } else unreachable;
                 },
@@ -5387,15 +5420,15 @@ pub const SwitchProngSrc = union(enum) {
                         if (node_tags[range] != .switch_range) continue;
 
                         if (range_i == s.item) switch (range_expand) {
-                            .none => return LazySrcLoc{
-                                .node_offset = decl.nodeIndexToRelative(range),
-                            },
-                            .first => return LazySrcLoc{
-                                .node_offset = decl.nodeIndexToRelative(node_datas[range].lhs),
-                            },
-                            .last => return LazySrcLoc{
-                                .node_offset = decl.nodeIndexToRelative(node_datas[range].rhs),
-                            },
+                            .none => return LazySrcLoc.nodeOffset(
+                                decl.nodeIndexToRelative(range),
+                            ),
+                            .first => return LazySrcLoc.nodeOffset(
+                                decl.nodeIndexToRelative(node_datas[range].lhs),
+                            ),
+                            .last => return LazySrcLoc.nodeOffset(
+                                decl.nodeIndexToRelative(node_datas[range].rhs),
+                            ),
                         };
                         range_i += 1;
                     } else unreachable;
@@ -5450,7 +5483,7 @@ pub const PeerTypeCandidateSrc = union(enum) {
                     log.warn("unable to load {s}: {s}", .{
                         decl.getFileScope().sub_file_path, @errorName(err),
                     });
-                    return LazySrcLoc{ .node_offset = 0 };
+                    return LazySrcLoc.nodeOffset(0);
                 };
                 const node = decl.relativeToNodeIndex(node_offset);
                 const node_datas = tree.nodes.items(.data);

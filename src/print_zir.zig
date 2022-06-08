@@ -497,7 +497,7 @@ const Writer = struct {
             .wasm_memory_size,
             => {
                 const inst_data = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;
-                const src: LazySrcLoc = .{ .node_offset = inst_data.node };
+                const src = LazySrcLoc.nodeOffset(inst_data.node);
                 try self.writeInstRef(stream, inst_data.operand);
                 try stream.writeAll(")) ");
                 try self.writeSrc(stream, src);
@@ -510,7 +510,7 @@ const Writer = struct {
             .prefetch,
             => {
                 const inst_data = self.code.extraData(Zir.Inst.BinNode, extended.operand).data;
-                const src: LazySrcLoc = .{ .node_offset = inst_data.node };
+                const src = LazySrcLoc.nodeOffset(inst_data.node);
                 try self.writeInstRef(stream, inst_data.lhs);
                 try stream.writeAll(", ");
                 try self.writeInstRef(stream, inst_data.rhs);
@@ -520,7 +520,7 @@ const Writer = struct {
 
             .field_call_bind_named => {
                 const extra = self.code.extraData(Zir.Inst.FieldNamedNode, extended.operand).data;
-                const src: LazySrcLoc = .{ .node_offset = extra.node };
+                const src = LazySrcLoc.nodeOffset(extra.node);
                 try self.writeInstRef(stream, extra.lhs);
                 try stream.writeAll(", ");
                 try self.writeInstRef(stream, extra.field_name);
@@ -531,7 +531,7 @@ const Writer = struct {
     }
 
     fn writeExtNode(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
-        const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
+        const src = LazySrcLoc.nodeOffset(@bitCast(i32, extended.operand));
         try stream.writeAll(")) ");
         try self.writeSrc(stream, src);
     }
@@ -1050,7 +1050,7 @@ const Writer = struct {
 
     fn writeNodeMultiOp(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
         const extra = self.code.extraData(Zir.Inst.NodeMultiOp, extended.operand);
-        const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
+        const src = LazySrcLoc.nodeOffset(extra.data.src_node);
         const operands = self.code.refSlice(extra.end, extended.small);
 
         for (operands) |operand, i| {
@@ -1074,7 +1074,7 @@ const Writer = struct {
 
     fn writeAsm(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
         const extra = self.code.extraData(Zir.Inst.Asm, extended.operand);
-        const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
+        const src = LazySrcLoc.nodeOffset(extra.data.src_node);
         const outputs_len = @truncate(u5, extended.small);
         const inputs_len = @truncate(u5, extended.small >> 5);
         const clobbers_len = @truncate(u5, extended.small >> 10);
@@ -1145,7 +1145,7 @@ const Writer = struct {
 
     fn writeOverflowArithmetic(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
         const extra = self.code.extraData(Zir.Inst.OverflowArithmetic, extended.operand).data;
-        const src: LazySrcLoc = .{ .node_offset = extra.node };
+        const src = LazySrcLoc.nodeOffset(extra.node);
 
         try self.writeInstRef(stream, extra.lhs);
         try stream.writeAll(", ");
@@ -1898,7 +1898,7 @@ const Writer = struct {
         inst: Zir.Inst.Index,
     ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
         const src_node = self.code.instructions.items(.data)[inst].node;
-        const src: LazySrcLoc = .{ .node_offset = src_node };
+        const src = LazySrcLoc.nodeOffset(src_node);
         try stream.writeAll(") ");
         try self.writeSrc(stream, src);
     }
@@ -2117,7 +2117,7 @@ const Writer = struct {
     fn writeAllocExtended(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
         const extra = self.code.extraData(Zir.Inst.AllocExtended, extended.operand);
         const small = @bitCast(Zir.Inst.AllocExtended.Small, extended.small);
-        const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
+        const src = LazySrcLoc.nodeOffset(extra.data.src_node);
 
         var extra_index: usize = extra.end;
         const type_inst: Zir.Inst.Ref = if (!small.has_type) .none else blk: {
@@ -2351,7 +2351,7 @@ const Writer = struct {
 
     fn writeSrcNode(self: *Writer, stream: anytype, src_node: ?i32) !void {
         const node_offset = src_node orelse return;
-        const src: LazySrcLoc = .{ .node_offset = node_offset };
+        const src = LazySrcLoc.nodeOffset(node_offset);
         try stream.writeAll(" ");
         return self.writeSrc(stream, src);
     }
