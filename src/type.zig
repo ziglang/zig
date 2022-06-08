@@ -5597,17 +5597,18 @@ pub const Type = extern union {
         comptime assert(Type.packed_struct_layout_version == 2);
 
         var bit_offset: u16 = undefined;
+        var elem_size_bits: u16 = undefined;
         var running_bits: u16 = 0;
         for (struct_obj.fields.values()) |f, i| {
             if (!f.ty.hasRuntimeBits()) continue;
 
+            const field_bits = @intCast(u16, f.ty.bitSize(target));
             if (i == field_index) {
                 bit_offset = running_bits;
+                elem_size_bits = field_bits;
             }
-            running_bits += @intCast(u16, f.ty.bitSize(target));
+            running_bits += field_bits;
         }
-        const host_size = (running_bits + 7) / 8;
-        _ = host_size; // TODO big-endian
         const byte_offset = bit_offset / 8;
         return byte_offset;
     }
