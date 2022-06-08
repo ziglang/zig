@@ -1943,3 +1943,60 @@ test "#4353: std.debug should manage resources correctly" {
 noinline fn showMyTrace() usize {
     return @returnAddress();
 }
+
+pub fn Trace(comptime size: usize, comptime stack_frame_count: usize) type {
+    return struct {
+        addrs: [size][stack_frame_count]usize = undefined,
+        notes: [size][]const u8 = undefined,
+        index: usize = 0,
+
+        const frames_init = [1]usize{0} ** stack_frame_count;
+
+        pub noinline fn add(t: *@This(), note: []const u8) void {
+            return addAddr(t, @returnAddress(), note);
+        }
+
+        pub fn addAddr(t: *@This(), addr: usize, note: []const u8) void {
+            if (t.index < size) {
+                t.notes[t.index] = note;
+                t.addrs[t.index] = [1]usize{0} ** stack_frame_count;
+                var stack_trace: std.builtin.StackTrace = .{
+                    .index = 0,
+                    .instruction_addresses = &t.addrs[t.index],
+                };
+                captureStackTrace(addr, &stack_trace);
+            }
+            // Keep counting even if the end is reached so that the
+            // user can find out how much more size they need.
+            t.index += 1;
+        }
+
+        pub fn dump(t: @This()) void {
+            const tty_config = detectTTYConfig();
+            const stderr = io.getStdErr().writer();
+            const end = @maximum(t.index, size);
+            const debug_info = getSelfDebugInfo() catch |err| {
+                stderr.print(
+                    "Unable to dump stack trace: Unable to open debug info: {s}\n",
+                    .{@errorName(err)},
+                ) catch return;
+                return;
+            };
+            for (t.addrs[0..end]) |frames_array, i| {
+                stderr.print("{s}:\n", .{t.notes[i]}) catch return;
+                var frames_array_mutable = frames_array;
+                const frames = mem.sliceTo(frames_array_mutable[0..], 0);
+                const stack_trace: std.builtin.StackTrace = .{
+                    .index = frames.len,
+                    .instruction_addresses = frames,
+                };
+                writeStackTrace(stack_trace, stderr, getDebugInfoAllocator(), debug_info, tty_config) catch continue;
+            }
+            if (t.index > end) {
+                stderr.print("{d} more traces not shown; consider increasing trace size\n", .{
+                    t.index - end,
+                }) catch return;
+            }
+        }
+    };
+}

@@ -1154,7 +1154,7 @@ fn analyzeBodyInner(
             .repeat => {
                 if (block.is_comptime) {
                     // Send comptime control flow back to the beginning of this block.
-                    const src: LazySrcLoc = .{ .node_offset = datas[inst].node };
+                    const src = LazySrcLoc.nodeOffset(datas[inst].node);
                     try sema.emitBackwardBranch(block, src);
                     if (wip_captures.scope.captures.count() != orig_captures) {
                         try wip_captures.reset(parent_capture_scope);
@@ -1165,14 +1165,14 @@ fn analyzeBodyInner(
                     continue;
                 } else {
                     const src_node = sema.code.instructions.items(.data)[inst].node;
-                    const src: LazySrcLoc = .{ .node_offset = src_node };
+                    const src = LazySrcLoc.nodeOffset(src_node);
                     try sema.requireRuntimeBlock(block, src);
                     break always_noreturn;
                 }
             },
             .repeat_inline => {
                 // Send comptime control flow back to the beginning of this block.
-                const src: LazySrcLoc = .{ .node_offset = datas[inst].node };
+                const src = LazySrcLoc.nodeOffset(datas[inst].node);
                 try sema.emitBackwardBranch(block, src);
                 if (wip_captures.scope.captures.count() != orig_captures) {
                     try wip_captures.reset(parent_capture_scope);
@@ -2087,7 +2087,7 @@ fn zirStructDecl(
     const small = @bitCast(Zir.Inst.StructDecl.Small, extended.small);
     const src: LazySrcLoc = if (small.has_src_node) blk: {
         const node_offset = @bitCast(i32, sema.code.extra[extended.operand]);
-        break :blk .{ .node_offset = node_offset };
+        break :blk LazySrcLoc.nodeOffset(node_offset);
     } else sema.src;
 
     var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
@@ -2108,7 +2108,7 @@ fn zirStructDecl(
     struct_obj.* = .{
         .owner_decl = new_decl_index,
         .fields = .{},
-        .node_offset = src.node_offset,
+        .node_offset = src.node_offset.x,
         .zir_index = inst,
         .layout = small.layout,
         .status = .none,
@@ -2210,7 +2210,7 @@ fn zirEnumDecl(
     const src: LazySrcLoc = if (small.has_src_node) blk: {
         const node_offset = @bitCast(i32, sema.code.extra[extra_index]);
         extra_index += 1;
-        break :blk .{ .node_offset = node_offset };
+        break :blk LazySrcLoc.nodeOffset(node_offset);
     } else sema.src;
 
     const tag_type_ref = if (small.has_tag_type) blk: {
@@ -2263,7 +2263,7 @@ fn zirEnumDecl(
         .tag_ty_inferred = true,
         .fields = .{},
         .values = .{},
-        .node_offset = src.node_offset,
+        .node_offset = src.node_offset.x,
         .namespace = .{
             .parent = block.namespace,
             .ty = enum_ty,
@@ -2385,8 +2385,8 @@ fn zirEnumDecl(
         const gop = enum_obj.fields.getOrPutAssumeCapacity(field_name);
         if (gop.found_existing) {
             const tree = try sema.getAstTree(block);
-            const field_src = enumFieldSrcLoc(sema.mod.declPtr(block.src_decl), tree.*, src.node_offset, field_i);
-            const other_tag_src = enumFieldSrcLoc(sema.mod.declPtr(block.src_decl), tree.*, src.node_offset, gop.index);
+            const field_src = enumFieldSrcLoc(sema.mod.declPtr(block.src_decl), tree.*, src.node_offset.x, field_i);
+            const other_tag_src = enumFieldSrcLoc(sema.mod.declPtr(block.src_decl), tree.*, src.node_offset.x, gop.index);
             const msg = msg: {
                 const msg = try sema.errMsg(block, field_src, "duplicate enum tag", .{});
                 errdefer msg.destroy(gpa);
@@ -2442,7 +2442,7 @@ fn zirUnionDecl(
     const src: LazySrcLoc = if (small.has_src_node) blk: {
         const node_offset = @bitCast(i32, sema.code.extra[extra_index]);
         extra_index += 1;
-        break :blk .{ .node_offset = node_offset };
+        break :blk LazySrcLoc.nodeOffset(node_offset);
     } else sema.src;
 
     extra_index += @boolToInt(small.has_tag_type);
@@ -2480,7 +2480,7 @@ fn zirUnionDecl(
         .owner_decl = new_decl_index,
         .tag_ty = Type.initTag(.@"null"),
         .fields = .{},
-        .node_offset = src.node_offset,
+        .node_offset = src.node_offset.x,
         .zir_index = inst,
         .layout = small.layout,
         .status = .none,
@@ -2516,7 +2516,7 @@ fn zirOpaqueDecl(
     const src: LazySrcLoc = if (small.has_src_node) blk: {
         const node_offset = @bitCast(i32, sema.code.extra[extra_index]);
         extra_index += 1;
-        break :blk .{ .node_offset = node_offset };
+        break :blk LazySrcLoc.nodeOffset(node_offset);
     } else sema.src;
 
     const decls_len = if (small.has_decls_len) blk: {
@@ -2547,7 +2547,7 @@ fn zirOpaqueDecl(
 
     opaque_obj.* = .{
         .owner_decl = new_decl_index,
-        .node_offset = src.node_offset,
+        .node_offset = src.node_offset.x,
         .namespace = .{
             .parent = block.namespace,
             .ty = opaque_ty,
@@ -2623,7 +2623,7 @@ fn zirRetPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].node;
-    const src: LazySrcLoc = .{ .node_offset = inst_data };
+    const src = LazySrcLoc.nodeOffset(inst_data);
     try sema.requireFunctionBlock(block, src);
 
     if (block.is_comptime or try sema.typeRequiresComptime(block, src, sema.fn_ret_ty)) {
@@ -2661,7 +2661,7 @@ fn zirRetType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].node;
-    const src: LazySrcLoc = .{ .node_offset = inst_data };
+    const src = LazySrcLoc.nodeOffset(inst_data);
     try sema.requireFunctionBlock(block, src);
     return sema.addType(sema.fn_ret_ty);
 }
@@ -2750,7 +2750,7 @@ fn zirAllocExtended(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.AllocExtended, extended.operand);
-    const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
+    const src = LazySrcLoc.nodeOffset(extra.data.src_node);
     const ty_src = src; // TODO better source location
     const align_src = src; // TODO better source location
     const small = @bitCast(Zir.Inst.AllocExtended.Small, extended.small);
@@ -2903,7 +2903,7 @@ fn zirAllocInferredComptime(
     inferred_alloc_ty: Type,
 ) CompileError!Air.Inst.Ref {
     const src_node = sema.code.instructions.items(.data)[inst].node;
-    const src: LazySrcLoc = .{ .node_offset = src_node };
+    const src = LazySrcLoc.nodeOffset(src_node);
     sema.src = src;
     return sema.addConstant(
         inferred_alloc_ty,
@@ -2967,7 +2967,7 @@ fn zirAllocInferred(
     defer tracy.end();
 
     const src_node = sema.code.instructions.items(.data)[inst].node;
-    const src: LazySrcLoc = .{ .node_offset = src_node };
+    const src = LazySrcLoc.nodeOffset(src_node);
     sema.src = src;
 
     if (block.is_comptime) {
@@ -3718,7 +3718,7 @@ fn zirValidateArrayInit(
 
     outer: for (instrs) |elem_ptr, i| {
         const elem_ptr_data = sema.code.instructions.items(.data)[elem_ptr].pl_node;
-        const elem_src: LazySrcLoc = .{ .node_offset = elem_ptr_data.src_node };
+        const elem_src = LazySrcLoc.nodeOffset(elem_ptr_data.src_node);
 
         // Determine whether the value stored to this pointer is comptime-known.
 
@@ -4203,7 +4203,7 @@ fn zirCompileLog(
 
     const extra = sema.code.extraData(Zir.Inst.NodeMultiOp, extended.operand);
     const src_node = extra.data.src_node;
-    const src: LazySrcLoc = .{ .node_offset = src_node };
+    const src = LazySrcLoc.nodeOffset(src_node);
     const args = sema.code.refSlice(extra.end, extended.small);
 
     for (args) |arg_ref, i| {
@@ -4707,7 +4707,7 @@ pub fn analyzeExport(
 fn zirSetAlignStack(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!void {
     const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
-    const src: LazySrcLoc = .{ .node_offset = extra.node };
+    const src = LazySrcLoc.nodeOffset(extra.node);
     const alignment = try sema.resolveAlign(block, operand_src, extra.operand);
     if (alignment > 256) {
         return sema.fail(block, src, "attempt to @setAlignStack({d}); maximum is 256", .{
@@ -5312,7 +5312,7 @@ fn analyzeCall(
             delete_memoized_call_key = true;
         }
 
-        try sema.emitBackwardBranch(&child_block, call_src);
+        try sema.emitBackwardBranch(block, call_src);
 
         // Whether this call should be memoized, set to false if the call can mutate
         // comptime state.
@@ -6988,7 +6988,7 @@ fn funcCommon(
         const param_types = try sema.arena.alloc(Type, block.params.items.len);
         const comptime_params = try sema.arena.alloc(bool, block.params.items.len);
         for (block.params.items) |param, i| {
-            const param_src: LazySrcLoc = .{ .node_offset = src_node_offset }; // TODO better src
+            const param_src = LazySrcLoc.nodeOffset(src_node_offset); // TODO better src
             param_types[i] = param.ty;
             comptime_params[i] = param.is_comptime or
                 try sema.typeRequiresComptime(block, param_src, param.ty);
@@ -7378,7 +7378,7 @@ fn zirFieldCallBindNamed(sema: *Sema, block: *Block, extended: Zir.Inst.Extended
     defer tracy.end();
 
     const extra = sema.code.extraData(Zir.Inst.FieldNamedNode, extended.operand).data;
-    const src: LazySrcLoc = .{ .node_offset = extra.node };
+    const src = LazySrcLoc.nodeOffset(extra.node);
     const field_name_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
     const object_ptr = try sema.resolveInst(extra.lhs);
     const field_name = try sema.resolveConstString(block, field_name_src, extra.field_name);
@@ -10088,7 +10088,7 @@ fn zirOverflowArithmetic(
     defer tracy.end();
 
     const extra = sema.code.extraData(Zir.Inst.OverflowArithmetic, extended.operand).data;
-    const src: LazySrcLoc = .{ .node_offset = extra.node };
+    const src = LazySrcLoc.nodeOffset(extra.node);
 
     const lhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
     const rhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
@@ -11309,7 +11309,7 @@ fn zirAsm(
     defer tracy.end();
 
     const extra = sema.code.extraData(Zir.Inst.Asm, extended.operand);
-    const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
+    const src = LazySrcLoc.nodeOffset(extra.data.src_node);
     const ret_ty_src: LazySrcLoc = .{ .node_offset_asm_ret_ty = extra.data.src_node };
     const outputs_len = @truncate(u5, extended.small);
     const inputs_len = @truncate(u5, extended.small >> 5);
@@ -11761,7 +11761,7 @@ fn zirThis(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const this_decl_index = block.namespace.getDeclIndex();
-    const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
+    const src = LazySrcLoc.nodeOffset(@bitCast(i32, extended.operand));
     return sema.analyzeDeclVal(block, src, this_decl_index);
 }
 
@@ -11815,7 +11815,7 @@ fn zirRetAddr(
     block: *Block,
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
-    const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
+    const src = LazySrcLoc.nodeOffset(@bitCast(i32, extended.operand));
     try sema.requireRuntimeBlock(block, src);
     return try block.addNoOp(.ret_addr);
 }
@@ -11825,7 +11825,7 @@ fn zirFrameAddress(
     block: *Block,
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
-    const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
+    const src = LazySrcLoc.nodeOffset(@bitCast(i32, extended.operand));
     try sema.requireRuntimeBlock(block, src);
     return try block.addNoOp(.frame_addr);
 }
@@ -11838,7 +11838,7 @@ fn zirBuiltinSrc(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
+    const src = LazySrcLoc.nodeOffset(@bitCast(i32, extended.operand));
     const extra = sema.code.extraData(Zir.Inst.LineColumn, extended.operand).data;
     const func = sema.func orelse return sema.fail(block, src, "@src outside function", .{});
     const fn_owner_decl = sema.mod.declPtr(func.owner_decl);
@@ -12842,7 +12842,7 @@ fn zirTypeofPeer(
     defer tracy.end();
 
     const extra = sema.code.extraData(Zir.Inst.TypeOfPeer, extended.operand);
-    const src: LazySrcLoc = .{ .node_offset = extra.data.src_node };
+    const src = LazySrcLoc.nodeOffset(extra.data.src_node);
     const body = sema.code.extra[extra.data.body_index..][0..extra.data.body_len];
 
     var child_block: Block = .{
@@ -14157,7 +14157,7 @@ fn zirErrorReturnTrace(
     block: *Block,
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
-    const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
+    const src = LazySrcLoc.nodeOffset(@bitCast(i32, extended.operand));
     return sema.getErrorReturnTrace(block, src);
 }
 
@@ -14185,7 +14185,7 @@ fn zirFrame(
     block: *Block,
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
-    const src: LazySrcLoc = .{ .node_offset = @bitCast(i32, extended.operand) };
+    const src = LazySrcLoc.nodeOffset(@bitCast(i32, extended.operand));
     return sema.fail(block, src, "TODO: Sema.zirFrame", .{});
 }
 
@@ -14629,7 +14629,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
                 .tag_ty_inferred = false,
                 .fields = .{},
                 .values = .{},
-                .node_offset = src.node_offset,
+                .node_offset = src.node_offset.x,
                 .namespace = .{
                     .parent = block.namespace,
                     .ty = enum_ty,
@@ -14711,7 +14711,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
 
             opaque_obj.* = .{
                 .owner_decl = new_decl_index,
-                .node_offset = src.node_offset,
+                .node_offset = src.node_offset.x,
                 .namespace = .{
                     .parent = block.namespace,
                     .ty = opaque_ty,
@@ -14763,7 +14763,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
                 .owner_decl = new_decl_index,
                 .tag_ty = Type.initTag(.@"null"),
                 .fields = .{},
-                .node_offset = src.node_offset,
+                .node_offset = src.node_offset.x,
                 .zir_index = inst,
                 .layout = layout_val.toEnum(std.builtin.Type.ContainerLayout),
                 .status = .have_field_types,
@@ -14930,7 +14930,7 @@ fn reifyStruct(
     struct_obj.* = .{
         .owner_decl = new_decl_index,
         .fields = .{},
-        .node_offset = src.node_offset,
+        .node_offset = src.node_offset.x,
         .zir_index = inst,
         .layout = layout_val.toEnum(std.builtin.Type.ContainerLayout),
         .status = .have_field_types,
@@ -15130,7 +15130,7 @@ fn zirIntToPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
 fn zirErrSetCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
-    const src: LazySrcLoc = .{ .node_offset = extra.node };
+    const src = LazySrcLoc.nodeOffset(extra.node);
     const dest_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
     const dest_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
@@ -17114,7 +17114,7 @@ fn zirAwaitNosuspend(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
-    const src: LazySrcLoc = .{ .node_offset = extra.node };
+    const src = LazySrcLoc.nodeOffset(extra.node);
 
     return sema.fail(block, src, "TODO: Sema.zirAwaitNosuspend", .{});
 }
@@ -17443,7 +17443,7 @@ fn zirWasmMemorySize(
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
     const index_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
-    const builtin_src: LazySrcLoc = .{ .node_offset = extra.node };
+    const builtin_src = LazySrcLoc.nodeOffset(extra.node);
     const target = sema.mod.getTarget();
     if (!target.isWasm()) {
         return sema.fail(block, builtin_src, "builtin @wasmMemorySize is available when targeting WebAssembly; targeted CPU architecture is {s}", .{@tagName(target.cpu.arch)});
@@ -17466,7 +17466,7 @@ fn zirWasmMemoryGrow(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
-    const builtin_src: LazySrcLoc = .{ .node_offset = extra.node };
+    const builtin_src = LazySrcLoc.nodeOffset(extra.node);
     const index_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
     const delta_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
     const target = sema.mod.getTarget();
@@ -17534,7 +17534,7 @@ fn zirBuiltinExtern(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
-    const src: LazySrcLoc = .{ .node_offset = extra.node };
+    const src = LazySrcLoc.nodeOffset(extra.node);
     const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
     const options_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
 
@@ -23586,7 +23586,7 @@ fn semaStructFields(
     const small = @bitCast(Zir.Inst.StructDecl.Small, extended.small);
     var extra_index: usize = extended.operand;
 
-    const src: LazySrcLoc = .{ .node_offset = struct_obj.node_offset };
+    const src = LazySrcLoc.nodeOffset(struct_obj.node_offset);
     extra_index += @boolToInt(small.has_src_node);
 
     const body_len = if (small.has_body_len) blk: {
@@ -23773,7 +23773,7 @@ fn semaUnionFields(block: *Block, mod: *Module, union_obj: *Module.Union) Compil
     const small = @bitCast(Zir.Inst.UnionDecl.Small, extended.small);
     var extra_index: usize = extended.operand;
 
-    const src: LazySrcLoc = .{ .node_offset = union_obj.node_offset };
+    const src = LazySrcLoc.nodeOffset(union_obj.node_offset);
     extra_index += @boolToInt(small.has_src_node);
 
     const tag_type_ref: Zir.Inst.Ref = if (small.has_tag_type) blk: {
@@ -24459,7 +24459,7 @@ fn enumFieldSrcLoc(
             .container_field,
             => {
                 if (it_index == field_index) {
-                    return .{ .node_offset = decl.nodeIndexToRelative(member_node) };
+                    return LazySrcLoc.nodeOffset(decl.nodeIndexToRelative(member_node));
                 }
                 it_index += 1;
             },
