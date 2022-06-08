@@ -4714,12 +4714,31 @@ fn airByteSwap(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     switch (int_info.bits) {
         16 => {
             const shl_res = try self.binOp(operand, .{ .imm32 = 8 }, ty, .shl);
-            const tmp = try self.binOp(operand, .{ .imm32 = 0xFF00 }, ty, .@"and");
-            const shr_res = try self.binOp(tmp, .{ .imm32 = 8 }, ty, .shr);
+            const lhs = try self.binOp(shl_res, .{ .imm32 = 0xFF00 }, ty, .@"and");
+            const shr_res = try self.binOp(operand, .{ .imm32 = 8 }, ty, .shr);
             const res = if (int_info.signedness == .signed) blk: {
                 break :blk try self.wrapOperand(shr_res, Type.u8);
             } else shr_res;
-            return self.binOp(shl_res, res, ty, .@"or");
+            return self.binOp(lhs, res, ty, .@"or");
+        },
+        24 => {
+            const msb = try self.wrapOperand(operand, Type.u16);
+            const lsb = try self.wrapBinOp(operand, .{ .imm32 = 16 }, Type.u8, .shr);
+
+            const shl_res = try self.binOp(msb, .{ .imm32 = 8 }, Type.u16, .shl);
+            const lhs = try self.binOp(shl_res, .{ .imm32 = 0xFF0000 }, Type.u16, .@"and");
+            const shr_res = try self.binOp(msb, .{ .imm32 = 8 }, ty, .shr);
+
+            const res = if (int_info.signedness == .signed) blk: {
+                break :blk try self.wrapOperand(shr_res, Type.u8);
+            } else shr_res;
+            const lhs_tmp = try self.binOp(lhs, res, ty, .@"or");
+            const lhs_result = try self.binOp(lhs_tmp, .{ .imm32 = 8 }, ty, .shr);
+            const rhs_wrap = try self.wrapOperand(msb, Type.u8);
+            const rhs_result = try self.binOp(rhs_wrap, .{ .imm32 = 16 }, ty, .shl);
+
+            const tmp = try self.binOp(lhs_result, rhs_result, ty, .@"or");
+            return self.binOp(tmp, lsb, ty, .@"or");
         },
         32 => {
             const shl_tmp = try self.binOp(operand, .{ .imm32 = 8 }, ty, .shl);
