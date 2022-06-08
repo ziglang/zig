@@ -1944,19 +1944,42 @@ noinline fn showMyTrace() usize {
     return @returnAddress();
 }
 
-pub fn Trace(comptime size: usize, comptime stack_frame_count: usize) type {
+/// This API helps you track where a value originated and where it was mutated,
+/// or any other points of interest.
+/// In debug mode, it adds a small size penalty (104 bytes on 64-bit architectures)
+/// to the aggregate that you add it to.
+/// In release mode, it is size 0 and all methods are no-ops.
+/// This is a pre-made type with default settings.
+/// For more advanced usage, see `ConfigurableTrace`.
+pub const Trace = ConfigurableTrace(2, 4, builtin.mode == .Debug);
+
+pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize, comptime enabled: bool) type {
     return struct {
-        addrs: [size][stack_frame_count]usize = undefined,
-        notes: [size][]const u8 = undefined,
-        index: usize = 0,
+        addrs: [actual_size][stack_frame_count]usize = undefined,
+        notes: [actual_size][]const u8 = undefined,
+        index: Index = 0,
 
-        const frames_init = [1]usize{0} ** stack_frame_count;
+        const actual_size = if (enabled) size else 0;
+        const Index = if (enabled) usize else u0;
 
-        pub noinline fn add(t: *@This(), note: []const u8) void {
+        pub const enabled = enabled;
+
+        pub const add = if (enabled) addNoInline else addNoOp;
+
+        pub noinline fn addNoInline(t: *@This(), note: []const u8) void {
+            comptime assert(enabled);
             return addAddr(t, @returnAddress(), note);
         }
 
+        pub inline fn addNoOp(t: *@This(), note: []const u8) void {
+            _ = t;
+            _ = note;
+            comptime assert(!enabled);
+        }
+
         pub fn addAddr(t: *@This(), addr: usize, note: []const u8) void {
+            if (!enabled) return;
+
             if (t.index < size) {
                 t.notes[t.index] = note;
                 t.addrs[t.index] = [1]usize{0} ** stack_frame_count;
@@ -1972,6 +1995,8 @@ pub fn Trace(comptime size: usize, comptime stack_frame_count: usize) type {
         }
 
         pub fn dump(t: @This()) void {
+            if (!enabled) return;
+
             const tty_config = detectTTYConfig();
             const stderr = io.getStdErr().writer();
             const end = @maximum(t.index, size);
