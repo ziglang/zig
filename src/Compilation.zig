@@ -339,6 +339,8 @@ pub const AllErrors = struct {
             line: u32,
             column: u32,
             byte_offset: u32,
+            /// Usually one, but incremented for redundant messages.
+            count: u32 = 1,
             /// Does not include the trailing newline.
             source_line: ?[]const u8,
             notes: []Message = &.{},
@@ -346,7 +348,20 @@ pub const AllErrors = struct {
         plain: struct {
             msg: []const u8,
             notes: []Message = &.{},
+            /// Usually one, but incremented for redundant messages.
+            count: u32 = 1,
         },
+
+        pub fn incrementCount(msg: *Message) void {
+            switch (msg.*) {
+                .src => |*src| {
+                    src.count += 1;
+                },
+                .plain => |*plain| {
+                    plain.count += 1;
+                },
+            }
+        }
 
         pub fn renderToStdErr(msg: Message, ttyconf: std.debug.TTY.Config) void {
             std.debug.getStderrMutex().lock();
@@ -377,7 +392,13 @@ pub const AllErrors = struct {
                     try stderr.writeAll(kind);
                     ttyconf.setColor(stderr, .Reset);
                     ttyconf.setColor(stderr, .Bold);
-                    try stderr.print(" {s}\n", .{src.msg});
+                    if (src.count == 1) {
+                        try stderr.print(" {s}\n", .{src.msg});
+                    } else {
+                        try stderr.print(" {s}", .{src.msg});
+                        ttyconf.setColor(stderr, .Dim);
+                        try stderr.print(" ({d} times)\n", .{src.count});
+                    }
                     ttyconf.setColor(stderr, .Reset);
                     if (ttyconf != .no_color) {
                         if (src.source_line) |line| {
@@ -401,7 +422,13 @@ pub const AllErrors = struct {
                     try stderr.writeByteNTimes(' ', indent);
                     try stderr.writeAll(kind);
                     ttyconf.setColor(stderr, .Reset);
-                    try stderr.print(" {s}\n", .{plain.msg});
+                    if (plain.count == 1) {
+                        try stderr.print(" {s}\n", .{plain.msg});
+                    } else {
+                        try stderr.print(" {s}", .{plain.msg});
+                        ttyconf.setColor(stderr, .Dim);
+                        try stderr.print(" ({d} times)\n", .{plain.count});
+                    }
                     ttyconf.setColor(stderr, .Reset);
                     for (plain.notes) |note| {
                         try note.renderToStdErrInner(ttyconf, stderr_file, "error:", .Red, indent + 4);
@@ -409,6 +436,50 @@ pub const AllErrors = struct {
                 },
             }
         }
+
+        pub const HashContext = struct {
+            pub fn hash(ctx: HashContext, key: *Message) u64 {
+                _ = ctx;
+                var hasher = std.hash.Wyhash.init(0);
+
+                switch (key.*) {
+                    .src => |src| {
+                        hasher.update(src.msg);
+                        hasher.update(src.src_path);
+                        std.hash.autoHash(&hasher, src.line);
+                        std.hash.autoHash(&hasher, src.column);
+                        std.hash.autoHash(&hasher, src.byte_offset);
+                    },
+                    .plain => |plain| {
+                        hasher.update(plain.msg);
+                    },
+                }
+
+                return hasher.final();
+            }
+
+            pub fn eql(ctx: HashContext, a: *Message, b: *Message) bool {
+                _ = ctx;
+                switch (a.*) {
+                    .src => |a_src| switch (b.*) {
+                        .src => |b_src| {
+                            return mem.eql(u8, a_src.msg, b_src.msg) and
+                                mem.eql(u8, a_src.src_path, b_src.src_path) and
+                                a_src.line == b_src.line and
+                                a_src.column == b_src.column and
+                                a_src.byte_offset == b_src.byte_offset;
+                        },
+                        .plain => return false,
+                    },
+                    .plain => |a_plain| switch (b.*) {
+                        .src => return false,
+                        .plain => |b_plain| {
+                            return mem.eql(u8, a_plain.msg, b_plain.msg);
+                        },
+                    },
+                }
+            }
+        };
     };
 
     pub fn deinit(self: *AllErrors, gpa: Allocator) void {
@@ -422,13 +493,25 @@ pub const AllErrors = struct {
         module_err_msg: Module.ErrorMsg,
     ) !void {
         const allocator = arena.allocator();
-        const notes = try allocator.alloc(Message, module_err_msg.notes.len);
-        for (notes) |*note, i| {
-            const module_note = module_err_msg.notes[i];
+
+        const notes_buf = try allocator.alloc(Message, module_err_msg.notes.len);
+        var note_i: usize = 0;
+
+        // De-duplicate error notes. The main use case in mind for this is
+        // too many "note: called from here" notes when eval branch quota is reached.
+        var seen_notes = std.HashMap(
+            *Message,
+            void,
+            Message.HashContext,
+            std.hash_map.default_max_load_percentage,
+        ).init(allocator);
+
+        for (module_err_msg.notes) |module_note| {
             const source = try module_note.src_loc.file_scope.getSource(module.gpa);
             const byte_offset = try module_note.src_loc.byteOffset(module.gpa);
             const loc = std.zig.findLineColumn(source.bytes, byte_offset);
             const file_path = try module_note.src_loc.file_scope.fullPath(allocator);
+            const note = &notes_buf[note_i];
             note.* = .{
                 .src = .{
                     .src_path = file_path,
@@ -439,6 +522,12 @@ pub const AllErrors = struct {
                     .source_line = try allocator.dupe(u8, loc.source_line),
                 },
             };
+            const gop = try seen_notes.getOrPut(note);
+            if (gop.found_existing) {
+                gop.key_ptr.*.incrementCount();
+            } else {
+                note_i += 1;
+            }
         }
         if (module_err_msg.src_loc.lazy == .entire_file) {
             try errors.append(.{
@@ -459,7 +548,7 @@ pub const AllErrors = struct {
                 .byte_offset = byte_offset,
                 .line = @intCast(u32, loc.line),
                 .column = @intCast(u32, loc.column),
-                .notes = notes,
+                .notes = notes_buf[0..note_i],
                 .source_line = try allocator.dupe(u8, loc.source_line),
             },
         });
