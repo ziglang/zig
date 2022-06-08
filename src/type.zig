@@ -1843,7 +1843,7 @@ pub const Type = extern union {
                     if (payload.@"align" != 0 or payload.host_size != 0) {
                         try writer.print("align({d}", .{payload.@"align"});
 
-                        if (payload.bit_offset != 0) {
+                        if (payload.bit_offset != 0 or payload.host_size != 0) {
                             try writer.print(":{d}:{d}", .{ payload.bit_offset, payload.host_size });
                         }
                         try writer.writeAll(") ");
@@ -2167,7 +2167,7 @@ pub const Type = extern union {
                 if (info.@"align" != 0 or info.host_size != 0) {
                     try writer.print("align({d}", .{info.@"align"});
 
-                    if (info.bit_offset != 0) {
+                    if (info.bit_offset != 0 or info.host_size != 0) {
                         try writer.print(":{d}:{d}", .{ info.bit_offset, info.host_size });
                     }
                     try writer.writeAll(") ");
