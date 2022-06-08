@@ -4,6 +4,7 @@ const Autodoc = @This();
 const Compilation = @import("Compilation.zig");
 const Module = @import("Module.zig");
 const File = Module.File;
+const Package = @import("Package.zig");
 const Zir = @import("Zir.zig");
 const Ref = Zir.Inst.Ref;
 
@@ -14,8 +15,8 @@ arena: std.mem.Allocator,
 // The goal of autodoc is to fill up these arrays
 // that will then be serialized as JSON and consumed
 // by the JS frontend.
-pkgs: std.ArrayListUnmanaged(DocData.Package) = .{},
-files: std.AutoHashMapUnmanaged(*File, usize) = .{},
+packages: std.AutoArrayHashMapUnmanaged(*Package, DocData.DocPackage) = .{},
+files: std.AutoArrayHashMapUnmanaged(*File, usize) = .{},
 calls: std.ArrayListUnmanaged(DocData.Call) = .{},
 types: std.ArrayListUnmanaged(DocData.Type) = .{},
 decls: std.ArrayListUnmanaged(DocData.Decl) = .{},
@@ -171,28 +172,17 @@ pub fn generateZirData(self: *Autodoc) !void {
             );
         }
     }
-    
-    
-    
+
     const main_type_index = self.types.items.len;
-    const rootName = blk: {
-        const rootName = std.fs.path.basename(self.module.main_pkg.root_src_path);
-        break :blk rootName[0..rootName.len - 4]; 
-    };
-    
-    try self.pkgs.append(self.arena, .{
-        .name = rootName,
-        .table = .{.data = std.StringHashMapUnmanaged(usize){}},
-    });
-    
-
     {
-    const rootPkg: *DocData.Package = &self.pkgs.items[0];
-    try rootPkg.table.data.put(self.arena, rootName, 0);
-
-    rootPkg.main = main_type_index;
-    rootPkg.name = rootName;    
+        try self.packages.put(self.arena, self.module.main_pkg, .{
+            .name = "root",
+            .main = main_type_index,
+            .table = .{ .data = std.StringHashMapUnmanaged(usize){} },
+        });
+        try self.packages.entries.items(.value)[0].table.data.put(self.arena, "root", 0);
     }
+
     var root_scope = Scope{ .parent = null, .enclosing_type = main_type_index };
     try self.ast_nodes.append(self.arena, .{ .name = "(root)" });
     try self.files.put(self.arena, file, main_type_index);
@@ -209,12 +199,15 @@ pub fn generateZirData(self: *Autodoc) !void {
     if (self.pending_ref_paths.count() > 0) {
         @panic("some decl paths were never fully analized");
     }
-    
 
-    
+    const rootName = blk: {
+        const rootName = std.fs.path.basename(self.module.main_pkg.root_src_path);
+        break :blk rootName[0 .. rootName.len - 4];
+    };
     var data = DocData{
-        .params = .{ .rootName = rootName },
-        .packages = self.pkgs.items,
+        .rootPkgName = rootName,
+        .params = .{ .rootName = "root" },
+        .packages = self.packages.values(),
         .files = .{ .data = self.files },
         .calls = self.calls.items,
         .types = self.types.items,
@@ -223,8 +216,6 @@ pub fn generateZirData(self: *Autodoc) !void {
         .astNodes = self.ast_nodes.items,
         .comptimeExprs = self.comptime_exprs.items,
     };
-
-
 
     if (self.doc_location.directory) |d| {
         d.handle.makeDir(
@@ -306,6 +297,7 @@ const Scope = struct {
 const DocData = struct {
     typeKinds: []const []const u8 = std.meta.fieldNames(DocTypeKinds),
     rootPkg: u32 = 0,
+    rootPkgName: []const u8,
     params: struct {
         zigId: []const u8 = "arst",
         zigVersion: []const u8 = build_options.version,
@@ -315,7 +307,7 @@ const DocData = struct {
             .{ .target = "arst" },
         },
     },
-    packages: []const Package,
+    packages: []const DocPackage,
     errors: []struct {} = &.{},
 
     // non-hardcoded stuff
@@ -323,7 +315,7 @@ const DocData = struct {
     calls: []Call,
     files: struct {
         // this struct is a temporary hack to support json serialization
-        data: std.AutoHashMapUnmanaged(*File, usize),
+        data: std.AutoArrayHashMapUnmanaged(*File, usize),
         pub fn jsonStringify(
             self: @This(),
             opt: std.json.StringifyOptions,
@@ -403,53 +395,53 @@ const DocData = struct {
     const ComptimeExpr = struct {
         code: []const u8,
     };
-    const Package = struct {
+    const DocPackage = struct {
         name: []const u8 = "(root)",
         file: usize = 0, // index into `files`
-        main: usize = 0, // index into `decls`
+        main: usize = 0, // index into `types`
         table: struct {
-        // this struct is a temporary hack to support json serialization
-        data: std.StringHashMapUnmanaged(usize),
-        pub fn jsonStringify(
-            self: @This(),
-            opt: std.json.StringifyOptions,
-            w: anytype,
-        ) !void {
-            var idx: usize = 0;
-            var it = self.data.iterator();
-            try w.writeAll("{\n");
+            // this struct is a temporary hack to support json serialization
+            data: std.StringHashMapUnmanaged(usize),
+            pub fn jsonStringify(
+                self: @This(),
+                opt: std.json.StringifyOptions,
+                w: anytype,
+            ) !void {
+                var idx: usize = 0;
+                var it = self.data.iterator();
+                try w.writeAll("{\n");
 
-            var options = opt;
-            if (options.whitespace) |*ws| ws.indent_level += 1;
-            while (it.next()) |kv| : (idx += 1) {
-                if (options.whitespace) |ws| try ws.outputIndent(w);
-                const builtin = @import("builtin");
-                if (builtin.target.os.tag == .windows) {
-                    try w.print("\"", .{});
-                    for (kv.key_ptr.*) |c| {
-                        if (c == '\\') {
-                            try w.print("\\\\", .{});
-                        } else {
-                            try w.print("{c}", .{c});
+                var options = opt;
+                if (options.whitespace) |*ws| ws.indent_level += 1;
+                while (it.next()) |kv| : (idx += 1) {
+                    if (options.whitespace) |ws| try ws.outputIndent(w);
+                    const builtin = @import("builtin");
+                    if (builtin.target.os.tag == .windows) {
+                        try w.print("\"", .{});
+                        for (kv.key_ptr.*) |c| {
+                            if (c == '\\') {
+                                try w.print("\\\\", .{});
+                            } else {
+                                try w.print("{c}", .{c});
+                            }
                         }
+                        try w.print("\"", .{});
+                        try w.print(": {d}", .{
+                            kv.value_ptr.*,
+                        });
+                    } else {
+                        try w.print("\"{s}\": {d}", .{
+                            kv.key_ptr.*,
+                            kv.value_ptr.*,
+                        });
                     }
-                    try w.print("\"", .{});
-                    try w.print(": {d}", .{
-                        kv.value_ptr.*,
-                    });
-                } else {
-                    try w.print("\"{s}\": {d}", .{
-                        kv.key_ptr.*,
-                        kv.value_ptr.*,
-                    });
+                    if (idx != self.data.count() - 1) try w.writeByte(',');
+                    try w.writeByte('\n');
                 }
-                if (idx != self.data.count() - 1) try w.writeByte(',');
-                try w.writeByte('\n');
+                if (opt.whitespace) |ws| try ws.outputIndent(w);
+                try w.writeAll("}");
             }
-            if (opt.whitespace) |ws| try ws.outputIndent(w);
-            try w.writeAll("}");
-        }
-    },    
+        },
     };
 
     const Decl = struct {
@@ -1035,15 +1027,59 @@ fn walkInstruction(
             const path = str_tok.get(file.zir);
             // importFile cannot error out since all files
             // are already loaded at this point
-            if (file.pkg.table.get(path) != null) {
-                const cte_slot_index = self.comptime_exprs.items.len;
-                try self.comptime_exprs.append(self.arena, .{
-                    .code = path,
-                });
-                return DocData.WalkResult{
-                    .typeRef = .{ .type = @enumToInt(Ref.type_type) },
-                    .expr = .{ .comptimeExpr = cte_slot_index },
+            if (file.pkg.table.get(path)) |other_package| {
+                const result = try self.packages.getOrPut(self.arena, other_package);
+                
+                // Immediately add this package to the import table of our 
+                // current package, regardless of wether it's new or not.
+                const current_package = self.packages.getPtr(file.pkg).?;
+                _ = try current_package.table.data.getOrPutValue(
+                    self.arena,
+                    path,
+                    self.packages.getIndex(other_package).?,
+                );
+
+                if (result.found_existing) {
+                    return DocData.WalkResult{
+                        .typeRef = .{ .type = @enumToInt(Ref.type_type) },
+                        .expr = .{ .type = result.value_ptr.main },
+                    };
+                }
+
+                // create a new package entry
+                const main_type_index = self.types.items.len;
+                result.value_ptr.* = .{
+                    .name = path,
+                    .main = main_type_index,
+                    .table = .{
+                        .data = std.StringHashMapUnmanaged(usize){},
+                    },
                 };
+
+
+                // TODO: Add this package as a dependency to the current pakcage
+                // TODO: this seems something that could be done in bulk
+                //       at the beginning or the end, or something.
+                var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+                const dir =
+                    if (other_package.root_src_directory.path) |rp|
+                    std.os.realpath(rp, &buf) catch unreachable
+                else
+                    std.os.getcwd(&buf) catch unreachable;
+                const root_file_path = other_package.root_src_path;
+                const abs_root_path = try std.fs.path.join(self.arena, &.{ dir, root_file_path });
+                defer self.arena.free(abs_root_path);
+                const new_file = self.module.import_table.get(abs_root_path).?;
+
+                var root_scope = Scope{ .parent = null, .enclosing_type = main_type_index };
+                try self.ast_nodes.append(self.arena, .{ .name = "(root)" });
+                try self.files.put(self.arena, new_file, main_type_index);
+                return self.walkInstruction(
+                    new_file,
+                    &root_scope,
+                    Zir.main_struct_inst,
+                    false,
+                );
             }
 
             const new_file = self.module.importFile(file, path) catch unreachable;
