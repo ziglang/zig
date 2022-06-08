@@ -762,7 +762,6 @@ pub const InitOptions = struct {
     linker_z_notext: bool = false,
     linker_z_defs: bool = false,
     linker_z_origin: bool = false,
-    linker_z_noexecstack: bool = false,
     linker_z_now: bool = true,
     linker_z_relro: bool = true,
     linker_z_nocopyreloc: bool = false,
@@ -1602,7 +1601,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .z_defs = options.linker_z_defs,
             .z_origin = options.linker_z_origin,
             .z_nocopyreloc = options.linker_z_nocopyreloc,
-            .z_noexecstack = options.linker_z_noexecstack,
             .z_now = options.linker_z_now,
             .z_relro = options.linker_z_relro,
             .tsaware = options.linker_tsaware,
@@ -2350,7 +2348,6 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.add(comp.bin_file.options.z_defs);
     man.hash.add(comp.bin_file.options.z_origin);
     man.hash.add(comp.bin_file.options.z_nocopyreloc);
-    man.hash.add(comp.bin_file.options.z_noexecstack);
     man.hash.add(comp.bin_file.options.z_now);
     man.hash.add(comp.bin_file.options.z_relro);
     man.hash.add(comp.bin_file.options.hash_style);
