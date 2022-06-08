@@ -1333,7 +1333,6 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         man.hash.add(self.base.options.z_defs);
         man.hash.add(self.base.options.z_origin);
         man.hash.add(self.base.options.z_nocopyreloc);
-        man.hash.add(self.base.options.z_noexecstack);
         man.hash.add(self.base.options.z_now);
         man.hash.add(self.base.options.z_relro);
         man.hash.add(self.base.options.hash_style);
@@ -1511,10 +1510,6 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         if (self.base.options.z_nocopyreloc) {
             try argv.append("-z");
             try argv.append("nocopyreloc");
-        }
-        if (self.base.options.z_noexecstack) {
-            try argv.append("-z");
-            try argv.append("noexecstack");
         }
         if (self.base.options.z_now) {
             // LLD defaults to -zlazy
