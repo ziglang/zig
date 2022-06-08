@@ -114,6 +114,7 @@ test "StreamSource (mutable buffer)" {
 }
 
 test "StreamSource (const buffer)" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest;
     const buffer: [64]u8 = "Hello, World!".* ++ ([1]u8{0xAA} ** 51);
     var source = StreamSource{ .const_buffer = std.io.fixedBufferStream(&buffer) };
 

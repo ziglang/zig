@@ -7774,7 +7774,12 @@ fn zirSwitchCapture(
         }
 
         switch (operand_ty.zigTypeTag()) {
-            .ErrorSet => return sema.bitCast(block, block.switch_else_err_ty.?, operand, operand_src),
+            .ErrorSet => if (block.switch_else_err_ty) |some| {
+                return sema.bitCast(block, some, operand, operand_src);
+            } else {
+                try block.addUnreachable(operand_src, false);
+                return Air.Inst.Ref.unreachable_value;
+            },
             else => return operand,
         }
     }
@@ -8194,7 +8199,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     );
                 }
                 else_error_ty = Type.@"anyerror";
-            } else {
+            } else else_validation: {
                 var maybe_msg: ?*Module.ErrorMsg = null;
                 errdefer if (maybe_msg) |msg| msg.destroy(sema.gpa);
 
@@ -8231,6 +8236,27 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 }
 
                 if (special_prong == .@"else" and seen_errors.count() == operand_ty.errorSetNames().len) {
+
+                    // In order to enable common patterns for generic code allow simple else bodies
+                    // else => unreachable,
+                    // else => return,
+                    // else => |e| return e,
+                    // even if all the possible errors were already handled.
+                    const tags = sema.code.instructions.items(.tag);
+                    for (special.body) |else_inst| switch (tags[else_inst]) {
+                        .dbg_block_begin,
+                        .dbg_block_end,
+                        .dbg_stmt,
+                        .dbg_var_val,
+                        .switch_capture,
+                        .ret_type,
+                        .as_node,
+                        .ret_node,
+                        .@"unreachable",
+                        => {},
+                        else => break,
+                    } else break :else_validation;
+
                     return sema.fail(
                         block,
                         special_prong_src,
@@ -11308,43 +11334,40 @@ fn zirAsm(
         try sema.requireRuntimeBlock(block, src);
     }
 
-    if (outputs_len > 1) {
-        return sema.fail(block, src, "TODO implement Sema for asm with more than 1 output", .{});
-    }
-
     var extra_i = extra.end;
     var output_type_bits = extra.data.output_type_bits;
     var needed_capacity: usize = @typeInfo(Air.Asm).Struct.fields.len + outputs_len + inputs_len;
 
-    const Output = struct {
-        constraint: []const u8,
-        name: []const u8,
-        ty: Type,
-    };
-    const output: ?Output = if (outputs_len == 0) null else blk: {
+    const ConstraintName = struct { c: []const u8, n: []const u8 };
+    const out_args = try sema.arena.alloc(Air.Inst.Ref, outputs_len);
+    const outputs = try sema.arena.alloc(ConstraintName, outputs_len);
+    var expr_ty = Air.Inst.Ref.void_type;
+
+    for (out_args) |*arg, out_i| {
         const output = sema.code.extraData(Zir.Inst.Asm.Output, extra_i);
         extra_i = output.end;
 
         const is_type = @truncate(u1, output_type_bits) != 0;
         output_type_bits >>= 1;
 
-        if (!is_type) {
-            return sema.fail(block, src, "TODO implement Sema for asm with non `->` output", .{});
+        if (is_type) {
+            // Indicate the output is the asm instruction return value.
+            arg.* = .none;
+            const out_ty = try sema.resolveType(block, ret_ty_src, output.data.operand);
+            expr_ty = try sema.addType(out_ty);
+        } else {
+            arg.* = try sema.resolveInst(output.data.operand);
         }
 
         const constraint = sema.code.nullTerminatedString(output.data.constraint);
         const name = sema.code.nullTerminatedString(output.data.name);
         needed_capacity += (constraint.len + name.len + (2 + 3)) / 4;
 
-        break :blk Output{
-            .constraint = constraint,
-            .name = name,
-            .ty = try sema.resolveType(block, ret_ty_src, output.data.operand),
-        };
-    };
+        outputs[out_i] = .{ .c = constraint, .n = name };
+    }
 
     const args = try sema.arena.alloc(Air.Inst.Ref, inputs_len);
-    const inputs = try sema.arena.alloc(struct { c: []const u8, n: []const u8 }, inputs_len);
+    const inputs = try sema.arena.alloc(ConstraintName, inputs_len);
 
     for (args) |*arg, arg_i| {
         const input = sema.code.extraData(Zir.Inst.Asm.Input, extra_i);
@@ -11379,7 +11402,7 @@ fn zirAsm(
     const asm_air = try block.addInst(.{
         .tag = .assembly,
         .data = .{ .ty_pl = .{
-            .ty = if (output) |o| try sema.addType(o.ty) else Air.Inst.Ref.void_type,
+            .ty = expr_ty,
             .payload = sema.addExtraAssumeCapacity(Air.Asm{
                 .source_len = @intCast(u32, asm_source.len),
                 .outputs_len = outputs_len,
@@ -11388,18 +11411,15 @@ fn zirAsm(
             }),
         } },
     });
-    if (output != null) {
-        // Indicate the output is the asm instruction return value.
-        sema.air_extra.appendAssumeCapacity(@enumToInt(Air.Inst.Ref.none));
-    }
+    sema.appendRefsAssumeCapacity(out_args);
     sema.appendRefsAssumeCapacity(args);
-    if (output) |o| {
+    for (outputs) |o| {
         const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());
-        mem.copy(u8, buffer, o.constraint);
-        buffer[o.constraint.len] = 0;
-        mem.copy(u8, buffer[o.constraint.len + 1 ..], o.name);
-        buffer[o.constraint.len + 1 + o.name.len] = 0;
-        sema.air_extra.items.len += (o.constraint.len + o.name.len + (2 + 3)) / 4;
+        mem.copy(u8, buffer, o.c);
+        buffer[o.c.len] = 0;
+        mem.copy(u8, buffer[o.c.len + 1 ..], o.n);
+        buffer[o.c.len + 1 + o.n.len] = 0;
+        sema.air_extra.items.len += (o.c.len + o.n.len + (2 + 3)) / 4;
     }
     for (inputs) |input| {
         const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());
@@ -21870,6 +21890,28 @@ fn analyzeIsNonErrComptimeOnly(
             if (ies.is_anyerror) break :blk;
             if (ies.errors.count() != 0) break :blk;
             if (maybe_operand_val == null) {
+                // Try to avoid resolving inferred error set if possible.
+                if (ies.errors.count() != 0) break :blk;
+                if (ies.is_anyerror) break :blk;
+                var it = ies.inferred_error_sets.keyIterator();
+                while (it.next()) |other_error_set_ptr| {
+                    const other_ies: *Module.Fn.InferredErrorSet = other_error_set_ptr.*;
+                    if (ies == other_ies) continue;
+                    try sema.resolveInferredErrorSet(block, src, other_ies);
+                    if (other_ies.is_anyerror) {
+                        ies.is_anyerror = true;
+                        ies.is_resolved = true;
+                        break :blk;
+                    }
+
+                    if (other_ies.errors.count() != 0) break :blk;
+                }
+                if (ies.func == sema.owner_func) {
+                    // We're checking the inferred errorset of the current function and none of
+                    // its child inferred error sets contained any errors meaning that any value
+                    // so far with this type can't contain errors either.
+                    return Air.Inst.Ref.bool_true;
+                }
                 try sema.resolveInferredErrorSet(block, src, ies);
                 if (ies.is_anyerror) break :blk;
                 if (ies.errors.count() == 0) return Air.Inst.Ref.bool_true;

@@ -754,3 +754,45 @@ test "error union payload is properly aligned" {
     const blk = S.foo() catch unreachable;
     if (blk.a != 1) unreachable;
 }
+
+test "ret_ptr doesn't cause own inferred error set to be resolved" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn foo() !void {}
+
+        fn doTheTest() !void {
+            errdefer @compileError("bad");
+
+            return try @This().foo();
+        }
+    };
+    try S.doTheTest();
+}
+
+test "simple else prong allowed even when all errors handled" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn foo() !u8 {
+            return error.Foo;
+        }
+    };
+    var value = S.foo() catch |err| switch (err) {
+        error.Foo => 255,
+        else => |e| return e,
+    };
+    try expect(value == 255);
+    value = S.foo() catch |err| switch (err) {
+        error.Foo => 255,
+        else => unreachable,
+    };
+    try expect(value == 255);
+    value = S.foo() catch |err| switch (err) {
+        error.Foo => 255,
+        else => return,
+    };
+    try expect(value == 255);
+}
