@@ -490,9 +490,7 @@ fn getTestFileNameParts(name: []const u8) struct {
 
 /// Sort test filenames in-place, so that incremental test cases ("foo.0.zig",
 /// "foo.1.zig", etc.) are contiguous and appear in numerical order.
-fn sortTestFilenames(
-    filenames: [][]const u8,
-) void {
+fn sortTestFilenames(filenames: [][]const u8) void {
     const Context = struct {
         pub fn lessThan(_: @This(), a: []const u8, b: []const u8) bool {
             const a_parts = getTestFileNameParts(a);
@@ -505,14 +503,20 @@ fn sortTestFilenames(
                 .eq => switch (std.mem.order(u8, a_parts.file_ext, b_parts.file_ext)) {
                     .lt => true,
                     .gt => false,
-                    .eq => b: { // a and b differ only in their ".X" part
+                    .eq => {
+                        // a and b differ only in their ".X" part
 
                         // Sort "<base_name>.<file_ext>" before any "<base_name>.X.<file_ext>"
-                        if (a_parts.test_index == null) break :b true;
-                        if (b_parts.test_index == null) break :b false;
-
-                        // Make sure that incremental tests appear in linear order
-                        return a_parts.test_index.? < b_parts.test_index.?;
+                        if (a_parts.test_index) |a_index| {
+                            if (b_parts.test_index) |b_index| {
+                                // Make sure that incremental tests appear in linear order
+                                return a_index < b_index;
+                            } else {
+                                return false;
+                            }
+                        } else {
+                            return b_parts.test_index != null;
+                        }
                     },
                 },
             };
