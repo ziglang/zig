@@ -1570,6 +1570,12 @@ pub const LibExeObjStep = struct {
     /// Permit read-only relocations in read-only segments. Disallowed by default.
     link_z_notext: bool = false,
 
+    /// Force all relocations to be read-only after processing.
+    link_z_relro: bool = true,
+
+    /// Allow relocations to be lazily processed after load.
+    link_z_lazy: bool = false,
+
     /// (Darwin) Install name for the dylib
     install_name: ?[]const u8 = null,
 
@@ -2576,6 +2582,14 @@ pub const LibExeObjStep = struct {
         if (self.link_z_notext) {
             try zig_args.append("-z");
             try zig_args.append("notext");
+        }
+        if (!self.link_z_relro) {
+            try zig_args.append("-z");
+            try zig_args.append("norelro");
+        }
+        if (self.link_z_lazy) {
+            try zig_args.append("-z");
+            try zig_args.append("lazy");
         }
 
         if (self.libc_file) |libc_file| {
