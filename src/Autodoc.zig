@@ -1032,12 +1032,18 @@ fn walkInstruction(
                 
                 // Immediately add this package to the import table of our 
                 // current package, regardless of wether it's new or not.
-                const current_package = self.packages.getPtr(file.pkg).?;
-                _ = try current_package.table.data.getOrPutValue(
-                    self.arena,
-                    path,
-                    self.packages.getIndex(other_package).?,
-                );
+                if (self.packages.getPtr(file.pkg)) |current_package| {
+                    // TODO: apparently, in the stdlib a file gets analized before
+                    //       its package gets added. I guess we're importing a file
+                    //       that belongs to another package through its file path?
+                    //       (ie not through its package name).
+                    //       We're bailing for now, but maybe we shouldn't?
+                    _ = try current_package.table.data.getOrPutValue(
+                        self.arena,
+                        path,
+                        self.packages.getIndex(other_package).?,
+                    );
+                }
 
                 if (result.found_existing) {
                     return DocData.WalkResult{
