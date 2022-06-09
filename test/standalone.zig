@@ -28,6 +28,7 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     }
     cases.addBuildFile("test/standalone/global_linkage/build.zig", .{});
     cases.addBuildFile("test/standalone/static_c_lib/build.zig", .{});
+    cases.addBuildFile("test/standalone/link_weak_reexports/build.zig", .{});
     cases.addBuildFile("test/standalone/link_interdependent_static_c_libs/build.zig", .{});
     cases.addBuildFile("test/standalone/link_static_lib_as_system_lib/build.zig", .{});
     cases.addBuildFile("test/standalone/link_common_symbols/build.zig", .{});

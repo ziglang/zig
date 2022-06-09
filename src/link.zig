@@ -798,9 +798,8 @@ pub const File = struct {
             } else {
                 try base.flushModule(comp, prog_node);
             }
-            break :blk try fs.path.join(arena, &.{
-                fs.path.dirname(full_out_path_z).?, base.intermediary_basename.?,
-            });
+            const dirname = fs.path.dirname(full_out_path_z) orelse ".";
+            break :blk try fs.path.join(arena, &.{ dirname, base.intermediary_basename.? });
         } else null;
 
         log.debug("module_obj_path={s}", .{if (module_obj_path) |s| s else "(null)"});

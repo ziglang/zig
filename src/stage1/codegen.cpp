@@ -501,7 +501,8 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
 
         for (size_t i = 1; i < fn->export_list.length; i += 1) {
             GlobalExport *fn_export = &fn->export_list.items[i];
-            LLVMAddAlias(g->module, LLVMTypeOf(llvm_fn), llvm_fn, buf_ptr(&fn_export->name));
+            LLVMValueRef alias = LLVMAddAlias(g->module, LLVMTypeOf(llvm_fn), llvm_fn, buf_ptr(&fn_export->name));
+            LLVMSetLinkage(alias, to_llvm_linkage(fn_export->linkage, false));
         }
     }
 
@@ -9015,7 +9016,8 @@ static void do_code_gen(CodeGen *g) {
 
         for (size_t export_i = 1; export_i < var->export_list.length; export_i += 1) {
             GlobalExport *global_export = &var->export_list.items[export_i];
-            LLVMAddAlias(g->module, LLVMTypeOf(var->value_ref), var->value_ref, buf_ptr(&global_export->name));
+            LLVMValueRef alias = LLVMAddAlias(g->module, LLVMTypeOf(var->value_ref), var->value_ref, buf_ptr(&global_export->name));
+            LLVMSetLinkage(alias, to_llvm_linkage(global_export->linkage, false));
         }
     }
 
