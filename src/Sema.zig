@@ -7026,9 +7026,14 @@ fn funcCommon(
             });
         };
 
-        // stage1 bug workaround
-        const cc_workaround = cc orelse undefined;
-        const align_workaround = alignment orelse @as(u32, undefined);
+        // These locals are pulled out from the init expression below to work around
+        // a stage1 compiler bug.
+        // In the case of generic calling convention, or generic alignment, we use
+        // default values which are only meaningful for the generic function, *not*
+        // the instantiation, which can depend on comptime parameters.
+        // Related proposal: https://github.com/ziglang/zig/issues/11834
+        const cc_workaround = cc orelse .Unspecified;
+        const align_workaround = alignment orelse 0;
 
         break :fn_ty try Type.Tag.function.create(sema.arena, .{
             .param_types = param_types,
