@@ -2531,7 +2531,7 @@ const TracedOffset = struct {
     x: i32,
     trace: std.debug.Trace = .{},
 
-    const want_tracing = std.debug.Trace.enabled;
+    const want_tracing = build_options.value_tracing;
 };
 
 /// Resolving a source location into a byte offset may require doing work
