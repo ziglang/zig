@@ -3790,9 +3790,12 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func: *Fn) SemaError!void {
             defer liveness.deinit(gpa);
 
             if (builtin.mode == .Debug and mod.comp.verbose_air) {
-                std.debug.print("# Begin Function AIR: {s}:\n", .{decl.name});
+                const fqn = try decl.getFullyQualifiedName(mod);
+                defer mod.gpa.free(fqn);
+
+                std.debug.print("# Begin Function AIR: {s}:\n", .{fqn});
                 @import("print_air.zig").dump(mod, air, liveness);
-                std.debug.print("# End Function AIR: {s}\n\n", .{decl.name});
+                std.debug.print("# End Function AIR: {s}\n\n", .{fqn});
             }
 
             mod.comp.bin_file.updateFunc(mod, func, air, liveness) catch |err| switch (err) {

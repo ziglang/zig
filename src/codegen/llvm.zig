@@ -599,6 +599,13 @@ pub const Object = struct {
             self.llvm_module.dump();
         }
 
+        var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
+        defer arena_allocator.deinit();
+        const arena = arena_allocator.allocator();
+
+        const mod = comp.bin_file.options.module.?;
+        const cache_dir = mod.zig_cache_artifact_directory;
+
         if (std.debug.runtime_safety) {
             var error_message: [*:0]const u8 = undefined;
             // verifyModule always allocs the error_message even if there is no error
@@ -606,16 +613,14 @@ pub const Object = struct {
 
             if (self.llvm_module.verify(.ReturnStatus, &error_message).toBool()) {
                 std.debug.print("\n{s}\n", .{error_message});
+
+                if (try locPath(arena, comp.emit_llvm_ir, cache_dir)) |emit_llvm_ir_path| {
+                    _ = self.llvm_module.printModuleToFile(emit_llvm_ir_path, &error_message);
+                }
+
                 @panic("LLVM module verification failed");
             }
         }
-
-        var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
-        defer arena_allocator.deinit();
-        const arena = arena_allocator.allocator();
-
-        const mod = comp.bin_file.options.module.?;
-        const cache_dir = mod.zig_cache_artifact_directory;
 
         var emit_bin_path: ?[*:0]const u8 = if (comp.bin_file.options.emit) |emit|
             try emit.basenamePath(arena, try arena.dupeZ(u8, comp.bin_file.intermediary_basename.?))
