@@ -1191,8 +1191,6 @@ test "no dependency loop for alignment of self tagged union" {
 }
 
 test "equality of pointers to comptime const" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const a: i32 = undefined;
     comptime assert(&a == &a);
 }

@@ -1271,6 +1271,18 @@ pub const Inst = struct {
             };
         }
 
+        pub fn isParam(tag: Tag) bool {
+            return switch (tag) {
+                .param,
+                .param_comptime,
+                .param_anytype,
+                .param_anytype_comptime,
+                => true,
+
+                else => false,
+            };
+        }
+
         /// AstGen uses this to find out if `Ref.void_value` should be used in place
         /// of the result of a given instruction. This allows Sema to forego adding
         /// the instruction to the map after analysis.
