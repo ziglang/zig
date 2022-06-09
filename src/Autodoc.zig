@@ -501,6 +501,9 @@ const DocData = struct {
             privDecls: []usize = &.{}, // index into decls
             pubDecls: []usize = &.{}, // index into decls
             fields: ?[]Expr = null, // (use src->fields to find names)
+            line_number: usize,
+            outer_decl: usize,
+            ast: usize,
         },
         ComptimeExpr: struct { name: []const u8 },
         ComptimeFloat: struct { name: []const u8 },
@@ -523,6 +526,7 @@ const DocData = struct {
             src: usize, // index into astNodes
             privDecls: []usize = &.{}, // index into decls
             pubDecls: []usize = &.{}, // index into decls
+            ast: usize,
             // (use src->fields to find field names)
         },
         Union: struct {
@@ -531,6 +535,7 @@ const DocData = struct {
             privDecls: []usize = &.{}, // index into decls
             pubDecls: []usize = &.{}, // index into decls
             fields: []Expr = &.{}, // (use src->fields to find names)
+            ast: usize,
         },
         Fn: struct {
             name: []const u8,
@@ -750,9 +755,9 @@ const DocData = struct {
         };
         const SwitchOp = struct {
             cond_index: usize,
-            node_name: []const u8,
             file_name: []const u8,
-            line_start: usize,
+            ast: usize,
+            outer_decl: usize, // index in `types`
         };
         const BuiltinBin = struct {
             name: []const u8 = "", // fn name
@@ -1029,8 +1034,8 @@ fn walkInstruction(
             // are already loaded at this point
             if (file.pkg.table.get(path)) |other_package| {
                 const result = try self.packages.getOrPut(self.arena, other_package);
-                
-                // Immediately add this package to the import table of our 
+
+                // Immediately add this package to the import table of our
                 // current package, regardless of wether it's new or not.
                 if (self.packages.getPtr(file.pkg)) |current_package| {
                     // TODO: apparently, in the stdlib a file gets analized before
@@ -1061,7 +1066,6 @@ fn walkInstruction(
                         .data = std.StringHashMapUnmanaged(usize){},
                     },
                 };
-
 
                 // TODO: Add this package as a dependency to the current pakcage
                 // TODO: this seems something that could be done in bulk
@@ -2043,19 +2047,21 @@ fn walkInstruction(
             const cond_index = self.exprs.items.len;
             _ = try self.walkRef(file, parent_scope, extra.data.operand, false);
 
-            const ast_index = self.ast_nodes.items.len - 1;
-            const ast = self.ast_nodes.items[ast_index];
+            const ast_index = self.ast_nodes.items.len;
+            const type_index = self.types.items.len - 1;
 
-            // const sep = "=" ** 200;
-            // std.debug.print("{s}\n", .{sep});
-            // std.debug.print("SWITCH BLOCK\n", .{});
-            // std.debug.print("file path = {any}\n", .{file.sub_file_path});
-            // std.debug.print("lazysrcloc = {any}\n", .{pl_node.src()});
-            // std.debug.print("ast = {any}\n", .{ast});
-            // std.debug.print("{s}\n", .{sep});
+            const ast_line = self.ast_nodes.items[ast_index - 1];
+
+            const sep = "=" ** 200;
+            std.debug.print("{s}\n", .{sep});
+            std.debug.print("SWITCH BLOCK\n", .{});
+            std.debug.print("extra = {any}\n", .{extra});
+            std.debug.print("outer_decl = {any}\n", .{self.types.items[type_index]});
+            std.debug.print("ast_lines = {}\n", .{ast_line});
+            std.debug.print("{s}\n", .{sep});
 
             const switch_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .switchOp = .{ .cond_index = cond_index, .node_name = ast.name orelse "", .file_name = file.sub_file_path, .line_start = ast.line } });
+            try self.exprs.append(self.arena, .{ .switchOp = .{ .cond_index = cond_index, .file_name = file.sub_file_path, .ast = ast_index, .outer_decl = type_index } });
 
             return DocData.WalkResult{
                 .typeRef = .{ .type = @enumToInt(Ref.type_type) },
@@ -2072,6 +2078,14 @@ fn walkInstruction(
             );
             const operand_index = self.exprs.items.len;
             try self.exprs.append(self.arena, operand.expr);
+
+            const ast_index = self.ast_nodes.items.len;
+            const sep = "=" ** 200;
+            std.debug.print("{s}\n", .{sep});
+            std.debug.print("SWITCH COND\n", .{});
+            std.debug.print("ast index = {}\n", .{ast_index});
+            std.debug.print("ast previous = {}\n", .{self.ast_nodes.items[ast_index - 1]});
+            std.debug.print("{s}\n", .{sep});
 
             return DocData.WalkResult{
                 .typeRef = operand.typeRef,
@@ -2633,13 +2647,7 @@ fn walkInstruction(
                     self.ast_nodes.items[self_ast_node_index].fields = field_name_indexes.items;
 
                     self.types.items[type_slot_index] = .{
-                        .Union = .{
-                            .name = "todo_name",
-                            .src = self_ast_node_index,
-                            .privDecls = priv_decl_indexes.items,
-                            .pubDecls = decl_indexes.items,
-                            .fields = field_type_refs.items,
-                        },
+                        .Union = .{ .name = "todo_name", .src = self_ast_node_index, .privDecls = priv_decl_indexes.items, .pubDecls = decl_indexes.items, .fields = field_type_refs.items, .ast = self_ast_node_index },
                     };
 
                     if (self.ref_paths_pending_on_types.get(type_slot_index)) |paths| {
@@ -2786,12 +2794,7 @@ fn walkInstruction(
                     self.ast_nodes.items[self_ast_node_index].fields = field_name_indexes.items;
 
                     self.types.items[type_slot_index] = .{
-                        .Enum = .{
-                            .name = "todo_name",
-                            .src = self_ast_node_index,
-                            .privDecls = priv_decl_indexes.items,
-                            .pubDecls = decl_indexes.items,
-                        },
+                        .Enum = .{ .name = "todo_name", .src = self_ast_node_index, .privDecls = priv_decl_indexes.items, .pubDecls = decl_indexes.items, .ast = self_ast_node_index },
                     };
                     if (self.ref_paths_pending_on_types.get(type_slot_index)) |paths| {
                         for (paths.items) |resume_info| {
@@ -2897,13 +2900,7 @@ fn walkInstruction(
                     self.ast_nodes.items[self_ast_node_index].fields = field_name_indexes.items;
 
                     self.types.items[type_slot_index] = .{
-                        .Struct = .{
-                            .name = "todo_name",
-                            .src = self_ast_node_index,
-                            .privDecls = priv_decl_indexes.items,
-                            .pubDecls = decl_indexes.items,
-                            .fields = field_type_refs.items,
-                        },
+                        .Struct = .{ .name = "todo_name", .src = self_ast_node_index, .privDecls = priv_decl_indexes.items, .pubDecls = decl_indexes.items, .fields = field_type_refs.items, .line_number = self.ast_nodes.items[self_ast_node_index].line, .outer_decl = type_slot_index - 1, .ast = self_ast_node_index },
                     };
                     if (self.ref_paths_pending_on_types.get(type_slot_index)) |paths| {
                         for (paths.items) |resume_info| {
