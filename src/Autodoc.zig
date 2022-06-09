@@ -178,9 +178,9 @@ pub fn generateZirData(self: *Autodoc) !void {
         try self.packages.put(self.arena, self.module.main_pkg, .{
             .name = "root",
             .main = main_type_index,
-            .table = .{ .data = std.StringHashMapUnmanaged(usize){} },
+            .table = std.StringHashMapUnmanaged(usize){},
         });
-        try self.packages.entries.items(.value)[0].table.data.put(self.arena, "root", 0);
+        try self.packages.entries.items(.value)[0].table.put(self.arena, "root", 0);
     }
 
     var root_scope = Scope{ .parent = null, .enclosing_type = main_type_index };
@@ -208,7 +208,7 @@ pub fn generateZirData(self: *Autodoc) !void {
         .rootPkgName = rootName,
         .params = .{ .rootName = "root" },
         .packages = self.packages.values(),
-        .files = .{ .data = self.files },
+        .files = self.files,
         .calls = self.calls.items,
         .types = self.types.items,
         .decls = self.decls.items,
@@ -313,49 +313,7 @@ const DocData = struct {
     // non-hardcoded stuff
     astNodes: []AstNode,
     calls: []Call,
-    files: struct {
-        // this struct is a temporary hack to support json serialization
-        data: std.AutoArrayHashMapUnmanaged(*File, usize),
-        pub fn jsonStringify(
-            self: @This(),
-            opt: std.json.StringifyOptions,
-            w: anytype,
-        ) !void {
-            var idx: usize = 0;
-            var it = self.data.iterator();
-            try w.writeAll("{\n");
-
-            var options = opt;
-            if (options.whitespace) |*ws| ws.indent_level += 1;
-            while (it.next()) |kv| : (idx += 1) {
-                if (options.whitespace) |ws| try ws.outputIndent(w);
-                const builtin = @import("builtin");
-                if (builtin.target.os.tag == .windows) {
-                    try w.print("\"", .{});
-                    for (kv.key_ptr.*.sub_file_path) |c| {
-                        if (c == '\\') {
-                            try w.print("\\\\", .{});
-                        } else {
-                            try w.print("{c}", .{c});
-                        }
-                    }
-                    try w.print("\"", .{});
-                    try w.print(": {d}", .{
-                        kv.value_ptr.*,
-                    });
-                } else {
-                    try w.print("\"{s}\": {d}", .{
-                        kv.key_ptr.*.sub_file_path,
-                        kv.value_ptr.*,
-                    });
-                }
-                if (idx != self.data.count() - 1) try w.writeByte(',');
-                try w.writeByte('\n');
-            }
-            if (opt.whitespace) |ws| try ws.outputIndent(w);
-            try w.writeAll("}");
-        }
-    },
+    files: std.AutoArrayHashMapUnmanaged(*File, usize),
     types: []Type,
     decls: []Decl,
     exprs: []Expr,
@@ -366,6 +324,26 @@ const DocData = struct {
         ret: Expr,
     };
 
+    pub fn jsonStringify(
+        self: DocData,
+        opts: std.json.StringifyOptions,
+        w: anytype,
+    ) !void {
+        var jsw = std.json.writeStream(w, 15);
+        try jsw.beginObject();
+        inline for (comptime std.meta.tags(std.meta.FieldEnum(DocData))) |f| {
+            const f_name = @tagName(f);
+            try jsw.objectField(f_name);
+            switch (f) {
+                .files => try writeFileTableToJson(self.files, &jsw),
+                else => {
+                    try std.json.stringify(@field(self, f_name), opts, w);
+                    jsw.state_index -= 1;
+                },
+            }
+        }
+        try jsw.endObject();
+    }
     /// All the type "families" as described by `std.builtin.TypeId`
     /// plus a couple extra that are unique to our use case.
     ///
@@ -399,49 +377,28 @@ const DocData = struct {
         name: []const u8 = "(root)",
         file: usize = 0, // index into `files`
         main: usize = 0, // index into `types`
-        table: struct {
-            // this struct is a temporary hack to support json serialization
-            data: std.StringHashMapUnmanaged(usize),
-            pub fn jsonStringify(
-                self: @This(),
-                opt: std.json.StringifyOptions,
-                w: anytype,
-            ) !void {
-                var idx: usize = 0;
-                var it = self.data.iterator();
-                try w.writeAll("{\n");
+        table: std.StringHashMapUnmanaged(usize),
 
-                var options = opt;
-                if (options.whitespace) |*ws| ws.indent_level += 1;
-                while (it.next()) |kv| : (idx += 1) {
-                    if (options.whitespace) |ws| try ws.outputIndent(w);
-                    const builtin = @import("builtin");
-                    if (builtin.target.os.tag == .windows) {
-                        try w.print("\"", .{});
-                        for (kv.key_ptr.*) |c| {
-                            if (c == '\\') {
-                                try w.print("\\\\", .{});
-                            } else {
-                                try w.print("{c}", .{c});
-                            }
-                        }
-                        try w.print("\"", .{});
-                        try w.print(": {d}", .{
-                            kv.value_ptr.*,
-                        });
-                    } else {
-                        try w.print("\"{s}\": {d}", .{
-                            kv.key_ptr.*,
-                            kv.value_ptr.*,
-                        });
-                    }
-                    if (idx != self.data.count() - 1) try w.writeByte(',');
-                    try w.writeByte('\n');
+        pub fn jsonStringify(
+            self: DocPackage,
+            opts: std.json.StringifyOptions,
+            w: anytype,
+        ) !void {
+            var jsw = std.json.writeStream(w, 15);
+            try jsw.beginObject();
+            inline for (comptime std.meta.tags(std.meta.FieldEnum(DocPackage))) |f| {
+                const f_name = @tagName(f);
+                try jsw.objectField(f_name);
+                switch (f) {
+                    .table => try writePackageTableToJson(self.table, &jsw),
+                    else => {
+                        try std.json.stringify(@field(self, f_name), opts, w);
+                        jsw.state_index -= 1;
+                    },
                 }
-                if (opt.whitespace) |ws| try ws.outputIndent(w);
-                try w.writeAll("}");
             }
-        },
+            try jsw.endObject();
+        }
     };
 
     const Decl = struct {
@@ -466,7 +423,7 @@ const DocData = struct {
     };
 
     const Type = union(DocTypeKinds) {
-        Unanalyzed: void,
+        Unanalyzed: struct {},
         Type: struct { name: []const u8 },
         Void: struct { name: []const u8 },
         Bool: struct { name: []const u8 },
@@ -563,130 +520,29 @@ const DocData = struct {
 
         pub fn jsonStringify(
             self: Type,
-            opt: std.json.StringifyOptions,
+            opts: std.json.StringifyOptions,
             w: anytype,
         ) !void {
-            try w.print(
-                \\{{ "kind": {},
-                \\
-            , .{@enumToInt(std.meta.activeTag(self))});
-            var options = opt;
-            if (options.whitespace) |*ws| ws.indent_level += 1;
-            switch (self) {
-                .Array => |v| try printTypeBody(v, options, w),
-                .Bool => |v| try printTypeBody(v, options, w),
-                .Void => |v| try printTypeBody(v, options, w),
-                .ComptimeExpr => |v| try printTypeBody(v, options, w),
-                .ComptimeInt => |v| try printTypeBody(v, options, w),
-                .ComptimeFloat => |v| try printTypeBody(v, options, w),
-                .Null => |v| try printTypeBody(v, options, w),
-                .Optional => |v| try printTypeBody(v, options, w),
-                .Struct => |v| try printTypeBody(v, options, w),
-                .Fn => |v| try printTypeBody(v, options, w),
-                .Union => |v| try printTypeBody(v, options, w),
-                .ErrorSet => |v| try printTypeBody(v, options, w),
-                .ErrorUnion => |v| try printTypeBody(v, options, w),
-                .Enum => |v| try printTypeBody(v, options, w),
-                .Int => |v| try printTypeBody(v, options, w),
-                .Float => |v| try printTypeBody(v, options, w),
-                .Type => |v| try printTypeBody(v, options, w),
-                .NoReturn => |v| try printTypeBody(v, options, w),
-                .EnumLiteral => |v| try printTypeBody(v, options, w),
-                .Pointer => |v| {
-                    if (options.whitespace) |ws| try ws.outputIndent(w);
-                    try w.print(
-                        \\"size": {},
-                        \\
-                    , .{@enumToInt(v.size)});
-                    if (options.whitespace) |ws| try ws.outputIndent(w);
-                    if (v.sentinel) |sentinel| {
-                        try w.print(
-                            \\"sentinel":
-                        , .{});
-                        if (options.whitespace) |*ws| ws.indent_level += 1;
-                        try sentinel.jsonStringify(options, w);
-                        try w.print(",", .{});
+            const active_tag = std.meta.activeTag(self);
+            var jsw = std.json.writeStream(w, 15);
+            try jsw.beginObject();
+            try jsw.objectField("kind");
+            try jsw.emitNumber(@enumToInt(active_tag));
+            inline for (comptime std.meta.fields(Type)) |case| {
+                if (@field(Type, case.name) == active_tag) {
+                    const current_value = @field(self, case.name);
+                    inline for (comptime std.meta.fields(case.field_type)) |f| {
+                        try jsw.objectField(f.name);
+                        if (f.field_type == std.builtin.TypeInfo.Pointer.Size) {
+                            try jsw.emitNumber(@enumToInt(@field(current_value, f.name)));
+                        } else {
+                            try std.json.stringify(@field(current_value, f.name), opts, w);
+                            jsw.state_index -= 1;
+                        }
                     }
-                    if (v.@"align") |@"align"| {
-                        try w.print(
-                            \\"align":
-                        , .{});
-                        if (options.whitespace) |*ws| ws.indent_level += 1;
-                        try @"align".jsonStringify(options, w);
-                        try w.print(",", .{});
-                    }
-                    if (v.address_space) |address_space| {
-                        try w.print(
-                            \\"address_space":
-                        , .{});
-                        if (options.whitespace) |*ws| ws.indent_level += 1;
-                        try address_space.jsonStringify(options, w);
-                        try w.print(",", .{});
-                    }
-                    if (v.bit_start) |bit_start| {
-                        try w.print(
-                            \\"bit_start":
-                        , .{});
-                        if (options.whitespace) |*ws| ws.indent_level += 1;
-                        try bit_start.jsonStringify(options, w);
-                        try w.print(",", .{});
-                    }
-                    if (v.host_size) |host_size| {
-                        try w.print(
-                            \\"host_size":
-                        , .{});
-                        if (options.whitespace) |*ws| ws.indent_level += 1;
-                        try host_size.jsonStringify(options, w);
-                        try w.print(",", .{});
-                    }
-                    if (options.whitespace) |ws| try ws.outputIndent(w);
-                    try w.print(
-                        \\"is_allowzero": {},
-                        \\"is_mutable": {},
-                        \\"is_volatile": {},
-                        \\"has_sentinel": {},
-                        \\"has_align": {},
-                        \\"has_addrspace": {},
-                        \\"has_bit_range": {},
-                        \\"is_ref": {},
-                        \\
-                    , .{ v.is_allowzero, v.is_mutable, v.is_volatile, v.has_sentinel, v.has_align, v.has_addrspace, v.has_bit_range, v.is_ref });
-                    if (options.whitespace) |ws| try ws.outputIndent(w);
-                    try w.print(
-                        \\"child":
-                    , .{});
-
-                    if (options.whitespace) |*ws| ws.indent_level += 1;
-                    try v.child.jsonStringify(options, w);
-                },
-                else => {
-                    std.debug.print(
-                        "TODO: add {s} to `DocData.Type.jsonStringify`\n",
-                        .{@tagName(self)},
-                    );
-                },
+                }
             }
-            try w.print("}}", .{});
-        }
-
-        fn printTypeBody(
-            body: anytype,
-            options: std.json.StringifyOptions,
-            w: anytype,
-        ) !void {
-            const fields = std.meta.fields(@TypeOf(body));
-            inline for (fields) |f, idx| {
-                if (options.whitespace) |ws| try ws.outputIndent(w);
-                try w.print("\"{s}\": ", .{f.name});
-                try std.json.stringify(@field(body, f.name), options, w);
-                if (idx != fields.len - 1) try w.writeByte(',');
-                try w.writeByte('\n');
-            }
-            if (options.whitespace) |ws| {
-                var up = ws;
-                up.indent_level -= 1;
-                try up.outputIndent(w);
-            }
+            try jsw.endObject();
         }
     };
 
@@ -695,13 +551,13 @@ const DocData = struct {
     /// type definition will hold an index into `self.types`.
     pub const Expr = union(enum) {
         comptimeExpr: usize, // index in `comptimeExprs`
-        void,
-        @"unreachable",
-        @"null",
-        @"undefined",
+        void: struct {},
+        @"unreachable": struct {},
+        @"null": struct {},
+        @"undefined": struct {},
         @"struct": []FieldVal,
         bool: bool,
-        @"anytype",
+        @"anytype": struct {},
         type: usize, // index in `types`
         this: usize, // index in `types`
         declRef: usize, // index in `decls`
@@ -786,184 +642,40 @@ const DocData = struct {
 
         pub fn jsonStringify(
             self: Expr,
-            options: std.json.StringifyOptions,
+            opt: std.json.StringifyOptions,
             w: anytype,
-        ) std.os.WriteError!void {
-            switch (self) {
-                .void, .@"unreachable", .@"anytype", .@"null", .@"undefined" => {
-                    try w.print(
-                        \\{{ "{s}":{{}} }}
-                    , .{@tagName(self)});
-                },
-                .type, .comptimeExpr, .call, .this, .declRef, .typeOf, .errorUnion, .errorSets, .alignOf => |v| {
-                    try w.print(
-                        \\{{ "{s}":{} }}
-                    , .{ @tagName(self), v });
-                },
-                .int => |v| {
-                    const neg = if (v.negated) "-" else "";
-                    try w.print(
-                        \\{{ "int": {s}{} }}
-                    , .{ neg, v.value });
-                },
-                .int_big => |v| {
-                    const neg = if (v.negated) "-" else "";
-                    try w.print(
-                        \\{{ "int_big": {s}{s} }}
-                    , .{ neg, v.value });
-                },
-                .float => |v| {
-                    try w.print(
-                        \\{{ "float": {} }}
-                    , .{v});
-                },
-                .float128 => |v| {
-                    try w.print(
-                        \\{{ "float128": {} }}
-                    , .{v});
-                },
-                .bool => |v| {
-                    try w.print(
-                        \\{{ "bool":{} }}
-                    , .{v});
-                },
-                .sizeOf => |v| {
-                    try w.print(
-                        \\{{ "sizeOf":{} }}
-                    , .{v});
-                },
-                .bitSizeOf => |v| {
-                    try w.print(
-                        \\{{ "bitSizeOf":{} }}
-                    , .{v});
-                },
-                .enumToInt => |v| {
-                    try w.print(
-                        \\{{ "enumToInt":{} }}
-                    , .{v});
-                },
-                .fieldRef => |v| try std.json.stringify(
-                    struct { fieldRef: FieldRef }{ .fieldRef = v },
-                    options,
-                    w,
-                ),
-                .as => |v| try std.json.stringify(
-                    struct { as: As }{ .as = v },
-                    options,
-                    w,
-                ),
-                .@"struct" => |v| try std.json.stringify(
-                    struct { @"struct": []FieldVal }{ .@"struct" = v },
-                    options,
-                    w,
-                ),
-                .refPath => |v| {
-                    try w.print("{{ \"refPath\": [", .{});
-                    for (v) |c, i| {
-                        const comma = if (i == v.len - 1) "]}" else ",\n";
-                        try c.jsonStringify(options, w);
-                        try w.print("{s}", .{comma});
+        ) !void {
+            const active_tag = std.meta.activeTag(self);
+            var jsw = std.json.writeStream(w, 15);
+            try jsw.beginObject();
+            try jsw.objectField(@tagName(active_tag));
+            inline for (comptime std.meta.fields(Expr)) |case| {
+                if (@field(Expr, case.name) == active_tag) {
+                    switch (active_tag) {
+                        .int => {
+                            if (self.int.negated) try w.writeAll("-");
+                            try jsw.emitNumber(self.int.value);
+                        },
+                        .int_big => {
+
+                            //@panic("TODO: json serialization of big ints!");
+                            //if (v.negated) try w.writeAll("-");
+                            //try jsw.emitNumber(v.value);
+                        },
+                        else => {
+                            try std.json.stringify(@field(self, case.name), opt, w);
+                            jsw.state_index -= 1;
+                            // TODO: we should not reach into the state of the
+                            //       json writer, but alas, this is what's
+                            //       necessary with the current api.
+                            //       would be nice to have a proper integration
+                            //       between the json writer and the generic
+                            //       std.json.stringify implementation
+                        },
                     }
-                },
-                .switchOp => |v| try std.json.stringify(
-                    struct { switchOp: SwitchOp }{ .switchOp = v },
-                    options,
-                    w,
-                ),
-                .switchIndex => |v| try std.json.stringify(
-                    struct { switchIndex: usize }{ .switchIndex = v },
-                    options,
-                    w,
-                ),
-                .cmpxchg => |v| try std.json.stringify(
-                    struct { cmpxchg: Cmpxchg }{ .cmpxchg = v },
-                    options,
-                    w,
-                ),
-                .cmpxchgIndex => |v| try std.json.stringify(
-                    struct { cmpxchgIndex: usize }{ .cmpxchgIndex = v },
-                    options,
-                    w,
-                ),
-                .binOp => |v| try std.json.stringify(
-                    struct { binOp: BinOp }{ .binOp = v },
-                    options,
-                    w,
-                ),
-                .binOpIndex => |v| try std.json.stringify(
-                    struct { binOpIndex: usize }{ .binOpIndex = v },
-                    options,
-                    w,
-                ),
-                .builtin => |v| try std.json.stringify(
-                    struct { builtin: Builtin }{ .builtin = v },
-                    options,
-                    w,
-                ),
-                .builtinIndex => |v| try std.json.stringify(
-                    struct { builtinIndex: usize }{ .builtinIndex = v },
-                    options,
-                    w,
-                ),
-                .builtinBin => |v| try std.json.stringify(
-                    struct { builtinBin: BuiltinBin }{ .builtinBin = v },
-                    options,
-                    w,
-                ),
-                .builtinBinIndex => |v| try std.json.stringify(
-                    struct { builtinBinIndex: usize }{ .builtinBinIndex = v },
-                    options,
-                    w,
-                ),
-                .slice => |v| try std.json.stringify(
-                    struct { slice: Slice }{ .slice = v },
-                    options,
-                    w,
-                ),
-                .sliceIndex => |v| try std.json.stringify(
-                    struct { sliceIndex: usize }{ .sliceIndex = v },
-                    options,
-                    w,
-                ),
-                .typeOf_peer => |v| try std.json.stringify(
-                    struct { typeOf_peer: []usize }{ .typeOf_peer = v },
-                    options,
-                    w,
-                ),
-                .array => |v| try std.json.stringify(
-                    struct { @"array": []usize }{ .@"array" = v },
-                    options,
-                    w,
-                ),
-                .compileError => |v| try std.json.stringify(
-                    struct { compileError: []const u8 }{ .compileError = v },
-                    options,
-                    w,
-                ),
-                .string => |v| try std.json.stringify(
-                    struct { string: []const u8 }{ .string = v },
-                    options,
-                    w,
-                ),
-                .enumLiteral => |v| try std.json.stringify(
-                    struct { @"enumLiteral": []const u8 }{ .@"enumLiteral" = v },
-                    options,
-                    w,
-                ),
-
-                // try w.print("{ len: {},\n", .{v.len});
-
-                // if (options.whitespace) |ws| try ws.outputIndent(w);
-                // try w.print("typeRef: ", .{});
-                // try v.typeRef.jsonStringify(options, w);
-
-                // try w.print("{{ \"data\": [", .{});
-                // for (v.data) |d, i| {
-                //     const comma = if (i == v.len - 1) "]}" else ",";
-                //     try w.print("{d}{s}", .{ d, comma });
-                // }
-
+                }
             }
+            try jsw.endObject();
         }
     };
 
@@ -1029,8 +741,8 @@ fn walkInstruction(
             // are already loaded at this point
             if (file.pkg.table.get(path)) |other_package| {
                 const result = try self.packages.getOrPut(self.arena, other_package);
-                
-                // Immediately add this package to the import table of our 
+
+                // Immediately add this package to the import table of our
                 // current package, regardless of wether it's new or not.
                 if (self.packages.getPtr(file.pkg)) |current_package| {
                     // TODO: apparently, in the stdlib a file gets analized before
@@ -1038,7 +750,7 @@ fn walkInstruction(
                     //       that belongs to another package through its file path?
                     //       (ie not through its package name).
                     //       We're bailing for now, but maybe we shouldn't?
-                    _ = try current_package.table.data.getOrPutValue(
+                    _ = try current_package.table.getOrPutValue(
                         self.arena,
                         path,
                         self.packages.getIndex(other_package).?,
@@ -1057,11 +769,8 @@ fn walkInstruction(
                 result.value_ptr.* = .{
                     .name = path,
                     .main = main_type_index,
-                    .table = .{
-                        .data = std.StringHashMapUnmanaged(usize){},
-                    },
+                    .table = std.StringHashMapUnmanaged(usize){},
                 };
-
 
                 // TODO: Add this package as a dependency to the current pakcage
                 // TODO: this seems something that could be done in bulk
@@ -2450,7 +2159,7 @@ fn walkInstruction(
         },
         .func, .func_inferred => {
             const type_slot_index = self.types.items.len;
-            try self.types.append(self.arena, .{ .Unanalyzed = {} });
+            try self.types.append(self.arena, .{ .Unanalyzed = .{} });
 
             const result = self.analyzeFunction(
                 file,
@@ -2464,7 +2173,7 @@ fn walkInstruction(
         },
         .func_extended => {
             const type_slot_index = self.types.items.len;
-            try self.types.append(self.arena, .{ .Unanalyzed = {} });
+            try self.types.append(self.arena, .{ .Unanalyzed = .{} });
 
             const result = self.analyzeFunctionExtended(
                 file,
@@ -2532,13 +2241,17 @@ fn walkInstruction(
                     if (small.has_lib_name) extra_index += 1;
                     if (small.has_align) extra_index += 1;
 
-                    const value: DocData.WalkResult = if (small.has_init) .{ .expr = .{ .void = {} } } else .{ .expr = .{ .void = {} } };
+                    const value: DocData.WalkResult = if (small.has_init) .{
+                        .expr = .{ .void = .{} },
+                    } else .{
+                        .expr = .{ .void = .{} },
+                    };
 
                     return value;
                 },
                 .union_decl => {
                     const type_slot_index = self.types.items.len;
-                    try self.types.append(self.arena, .{ .Unanalyzed = {} });
+                    try self.types.append(self.arena, .{ .Unanalyzed = .{} });
 
                     var scope: Scope = .{
                         .parent = parent_scope,
@@ -2664,7 +2377,7 @@ fn walkInstruction(
                 },
                 .enum_decl => {
                     const type_slot_index = self.types.items.len;
-                    try self.types.append(self.arena, .{ .Unanalyzed = {} });
+                    try self.types.append(self.arena, .{ .Unanalyzed = .{} });
 
                     var scope: Scope = .{
                         .parent = parent_scope,
@@ -2814,7 +2527,7 @@ fn walkInstruction(
                 },
                 .struct_decl => {
                     const type_slot_index = self.types.items.len;
-                    try self.types.append(self.arena, .{ .Unanalyzed = {} });
+                    try self.types.append(self.arena, .{ .Unanalyzed = .{} });
 
                     var scope: Scope = .{
                         .parent = parent_scope,
@@ -3125,7 +2838,7 @@ fn walkDecls(
         };
 
         const walk_result = if (is_test) // TODO: decide if tests should show up at all
-            DocData.WalkResult{ .expr = .{ .void = {} } }
+            DocData.WalkResult{ .expr = .{ .void = .{} } }
         else
             try self.walkInstruction(file, scope, value_index, true);
 
@@ -3548,7 +3261,7 @@ fn analyzeFunctionExtended(
                 });
 
                 param_type_refs.appendAssumeCapacity(
-                    DocData.Expr{ .@"anytype" = {} },
+                    DocData.Expr{ .@"anytype" = .{} },
                 );
             },
             .param, .param_comptime => {
@@ -3702,7 +3415,7 @@ fn analyzeFunction(
                 });
 
                 param_type_refs.appendAssumeCapacity(
-                    DocData.Expr{ .@"anytype" = {} },
+                    DocData.Expr{ .@"anytype" = .{} },
                 );
             },
             .param, .param_comptime => {
@@ -3964,13 +3677,13 @@ fn walkRef(
             .void_value => {
                 return DocData.WalkResult{
                     .typeRef = .{ .type = @enumToInt(Ref.void_type) },
-                    .expr = .{ .void = {} },
+                    .expr = .{ .void = .{} },
                 };
             },
             .unreachable_value => {
                 return DocData.WalkResult{
                     .typeRef = .{ .type = @enumToInt(Ref.noreturn_type) },
-                    .expr = .{ .@"unreachable" = {} },
+                    .expr = .{ .@"unreachable" = .{} },
                 };
             },
             .null_value => {
@@ -4065,4 +3778,24 @@ fn cteTodo(self: *Autodoc, msg: []const u8) error{OutOfMemory}!DocData.WalkResul
         .code = msg,
     });
     return DocData.WalkResult{ .expr = .{ .comptimeExpr = cte_slot_index } };
+}
+
+fn writeFileTableToJson(map: std.AutoArrayHashMapUnmanaged(*File, usize), jsw: anytype) !void {
+    try jsw.beginObject();
+    var it = map.iterator();
+    while (it.next()) |entry| {
+        try jsw.objectField(entry.key_ptr.*.sub_file_path);
+        try jsw.emitNumber(entry.value_ptr.*);
+    }
+    try jsw.endObject();
+}
+
+fn writePackageTableToJson(map: std.StringHashMapUnmanaged(usize), jsw: anytype) !void {
+    try jsw.beginObject();
+    var it = map.iterator();
+    while (it.next()) |entry| {
+        try jsw.objectField(entry.key_ptr.*);
+        try jsw.emitNumber(entry.value_ptr.*);
+    }
+    try jsw.endObject();
 }
