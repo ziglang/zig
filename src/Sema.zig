@@ -4967,6 +4967,8 @@ fn lookupInNamespace(
             var it = check_ns.usingnamespace_set.iterator();
             while (it.next()) |entry| {
                 const sub_usingnamespace_decl_index = entry.key_ptr.*;
+                // Skip the decl we're currently analysing.
+                if (sub_usingnamespace_decl_index == sema.owner_decl_index) continue;
                 const sub_usingnamespace_decl = mod.declPtr(sub_usingnamespace_decl_index);
                 const sub_is_pub = entry.value_ptr.*;
                 if (!sub_is_pub and src_file != sub_usingnamespace_decl.getFileScope()) {
