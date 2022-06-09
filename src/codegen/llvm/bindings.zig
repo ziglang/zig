@@ -390,6 +390,9 @@ pub const Module = opaque {
 
     pub const setModuleInlineAsm2 = LLVMSetModuleInlineAsm2;
     extern fn LLVMSetModuleInlineAsm2(M: *const Module, Asm: [*]const u8, Len: usize) void;
+
+    pub const printModuleToFile = LLVMPrintModuleToFile;
+    extern fn LLVMPrintModuleToFile(M: *const Module, Filename: [*:0]const u8, ErrorMessage: *[*:0]const u8) Bool;
 };
 
 pub const lookupIntrinsicID = LLVMLookupIntrinsicID;
