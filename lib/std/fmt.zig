@@ -2111,7 +2111,6 @@ test "slice" {
 }
 
 test "escape non-printable" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
     try expectFmt("abc", "{s}", .{fmtSliceEscapeLower("abc")});
     try expectFmt("ab\\xffc", "{s}", .{fmtSliceEscapeLower("ab\xffc")});
     try expectFmt("ab\\xFFc", "{s}", .{fmtSliceEscapeUpper("ab\xffc")});
@@ -2148,7 +2147,6 @@ test "cstr" {
 }
 
 test "filesize" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
     try expectFmt("file size: 42B\n", "file size: {}\n", .{fmtIntSizeDec(42)});
     try expectFmt("file size: 42B\n", "file size: {}\n", .{fmtIntSizeBin(42)});
     try expectFmt("file size: 63MB\n", "file size: {}\n", .{fmtIntSizeDec(63 * 1000 * 1000)});
@@ -2448,7 +2446,6 @@ test "struct.zero-size" {
 }
 
 test "bytes.hex" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
     const some_bytes = "\xCA\xFE\xBA\xBE";
     try expectFmt("lowercase: cafebabe\n", "lowercase: {x}\n", .{fmtSliceHexLower(some_bytes)});
     try expectFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", .{fmtSliceHexUpper(some_bytes)});
@@ -2480,7 +2477,6 @@ pub fn hexToBytes(out: []u8, input: []const u8) ![]u8 {
 }
 
 test "hexToBytes" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
     var buf: [32]u8 = undefined;
     try expectFmt("90" ** 32, "{s}", .{fmtSliceHexUpper(try hexToBytes(&buf, "90" ** 32))});
     try expectFmt("ABCD", "{s}", .{fmtSliceHexUpper(try hexToBytes(&buf, "ABCD"))});
