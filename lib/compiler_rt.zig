@@ -2,6 +2,7 @@ pub const panic = @import("compiler_rt/common.zig").panic;
 
 comptime {
     _ = @import("compiler_rt/atomics.zig");
+    _ = @import("compiler_rt/lse_atomics.zig");
 
     _ = @import("compiler_rt/addf3.zig");
     _ = @import("compiler_rt/addhf3.zig");
