@@ -771,7 +771,7 @@ fn analyzeBodyInner(
             .ptr_type                     => try sema.zirPtrType(block, inst),
             .ptr_type_simple              => try sema.zirPtrTypeSimple(block, inst),
             .ref                          => try sema.zirRef(block, inst),
-            .ret_err_value_code           => try sema.zirRetErrValueCode(block, inst),
+            .ret_err_value_code           => try sema.zirRetErrValueCode(inst),
             .shr                          => try sema.zirShr(block, inst, .shr),
             .shr_exact                    => try sema.zirShr(block, inst, .shr_exact),
             .slice_end                    => try sema.zirSliceEnd(block, inst),
@@ -9250,10 +9250,17 @@ fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     return sema.analyzeDeclRef(embed_file.owner_decl);
 }
 
-fn zirRetErrValueCode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    _ = block;
-    _ = inst;
-    return sema.fail(block, sema.src, "TODO implement zirRetErrValueCode", .{});
+fn zirRetErrValueCode(sema: *Sema, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const inst_data = sema.code.instructions.items(.data)[inst].str_tok;
+    const err_name = inst_data.get(sema.code);
+
+    // Return the error code from the function.
+    const kv = try sema.mod.getErrorValue(err_name);
+    const result_inst = try sema.addConstant(
+        try Type.Tag.error_set_single.create(sema.arena, kv.key),
+        try Value.Tag.@"error".create(sema.arena, .{ .name = kv.key }),
+    );
+    return result_inst;
 }
 
 fn zirShl(
