@@ -804,7 +804,6 @@ pub fn fmtUtf16le(utf16le: []const u16) std.fmt.Formatter(formatUtf16le) {
 }
 
 test "fmtUtf16le" {
-    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest;
     const expectFmt = std.testing.expectFmt;
     try expectFmt("", "{}", .{fmtUtf16le(utf8ToUtf16LeStringLiteral(""))});
     try expectFmt("foo", "{}", .{fmtUtf16le(utf8ToUtf16LeStringLiteral("foo"))});
