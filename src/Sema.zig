@@ -23540,7 +23540,17 @@ pub fn resolveTypeFully(
             const child_ty = try sema.resolveTypeFields(block, src, ty.childType());
             return resolveTypeFully(sema, block, src, child_ty);
         },
-        .Struct => return resolveStructFully(sema, block, src, ty),
+        .Struct => switch (ty.tag()) {
+            .@"struct" => return resolveStructFully(sema, block, src, ty),
+            .tuple, .anon_struct => {
+                const tuple = ty.tupleFields();
+
+                for (tuple.types) |field_ty| {
+                    try sema.resolveTypeFully(block, src, field_ty);
+                }
+            },
+            else => {},
+        },
         .Union => return resolveUnionFully(sema, block, src, ty),
         .Array => return resolveTypeFully(sema, block, src, ty.childType()),
         .Optional => {
@@ -23575,7 +23585,7 @@ fn resolveStructFully(
     try resolveStructLayout(sema, block, src, ty);
 
     const resolved_ty = try sema.resolveTypeFields(block, src, ty);
-    const payload = resolved_ty.castTag(.@"struct") orelse return;
+    const payload = resolved_ty.castTag(.@"struct").?;
     const struct_obj = payload.data;
 
     switch (struct_obj.status) {
