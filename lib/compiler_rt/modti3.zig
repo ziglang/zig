@@ -2,9 +2,34 @@
 //
 // https://github.com/llvm/llvm-project/blob/2ffb1b0413efa9a24eb3c49e710e36f92e2cb50b/compiler-rt/lib/builtins/modti3.c
 
-const udivmod = @import("udivmod.zig").udivmod;
+const std = @import("std");
 const builtin = @import("builtin");
-const compiler_rt = @import("../compiler_rt.zig");
+const udivmod = @import("udivmod.zig").udivmod;
+const arch = builtin.cpu.arch;
+const is_test = builtin.is_test;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    if (builtin.os.tag == .windows) {
+        switch (arch) {
+            .i386 => {
+                @export(__modti3, .{ .name = "__modti3", .linkage = linkage });
+            },
+            .x86_64 => {
+                // The "ti" functions must use Vector(2, u64) parameter types to adhere to the ABI
+                // that LLVM expects compiler-rt to have.
+                @export(__modti3_windows_x86_64, .{ .name = "__modti3", .linkage = linkage });
+            },
+            else => {},
+        }
+        if (arch.isAARCH64()) {
+            @export(__modti3, .{ .name = "__modti3", .linkage = linkage });
+        }
+    } else {
+        @export(__modti3, .{ .name = "__modti3", .linkage = linkage });
+    }
+}
 
 pub fn __modti3(a: i128, b: i128) callconv(.C) i128 {
     @setRuntimeSafety(builtin.is_test);

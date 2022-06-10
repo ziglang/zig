@@ -1,21 +1,30 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
-const native_arch = builtin.cpu.arch;
+const arch = builtin.cpu.arch;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    @export(__extendhfxf2, .{ .name = "__extendhfxf2", .linkage = linkage });
+    @export(__extendsfxf2, .{ .name = "__extendsfxf2", .linkage = linkage });
+    @export(__extenddfxf2, .{ .name = "__extenddfxf2", .linkage = linkage });
+    @export(__extendxftf2, .{ .name = "__extendxftf2", .linkage = linkage });
+}
 
 // AArch64 is the only ABI (at the moment) to support f16 arguments without the
 // need for extending them to wider fp types.
-pub const F16T = if (native_arch.isAARCH64()) f16 else u16;
+const F16T = if (arch.isAARCH64()) f16 else u16;
 
-pub fn __extendhfxf2(a: F16T) callconv(.C) f80 {
+fn __extendhfxf2(a: F16T) callconv(.C) f80 {
     return extendF80(f16, @bitCast(u16, a));
 }
 
-pub fn __extendsfxf2(a: f32) callconv(.C) f80 {
+fn __extendsfxf2(a: f32) callconv(.C) f80 {
     return extendF80(f32, @bitCast(u32, a));
 }
 
-pub fn __extenddfxf2(a: f64) callconv(.C) f80 {
+fn __extenddfxf2(a: f64) callconv(.C) f80 {
     return extendF80(f64, @bitCast(u64, a));
 }
 
@@ -86,7 +95,7 @@ inline fn extendF80(comptime src_t: type, a: std.meta.Int(.unsigned, @typeInfo(s
     return std.math.make_f80(dst);
 }
 
-pub fn __extendxftf2(a: f80) callconv(.C) f128 {
+fn __extendxftf2(a: f80) callconv(.C) f128 {
     @setRuntimeSafety(builtin.is_test);
 
     const src_int_bit: u64 = 0x8000000000000000;

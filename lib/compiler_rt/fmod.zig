@@ -2,7 +2,27 @@ const builtin = @import("builtin");
 const std = @import("std");
 const math = std.math;
 const assert = std.debug.assert;
-const normalize = @import("divdf3.zig").normalize;
+const arch = builtin.cpu.arch;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+
+const common = @import("common.zig");
+const normalize = common.normalize;
+pub const panic = common.panic;
+
+comptime {
+    @export(__fmodh, .{ .name = "__fmodh", .linkage = linkage });
+    @export(fmodf, .{ .name = "fmodf", .linkage = linkage });
+    @export(fmod, .{ .name = "fmod", .linkage = linkage });
+    @export(__fmodx, .{ .name = "__fmodx", .linkage = linkage });
+    @export(fmodq, .{ .name = "fmodq", .linkage = linkage });
+    @export(fmodl, .{ .name = "fmodl", .linkage = linkage });
+
+    if (!builtin.is_test) {
+        if (arch.isPPC() or arch.isPPC64()) {
+            @export(fmodf128, .{ .name = "fmodf128", .linkage = linkage });
+        }
+    }
+}
 
 pub fn __fmodh(x: f16, y: f16) callconv(.C) f16 {
     // TODO: more efficient implementation
@@ -235,6 +255,10 @@ pub fn fmodq(a: f128, b: f128) callconv(.C) f128 {
     }
 
     return amod;
+}
+
+pub fn fmodf128(a: f128, b: f128) callconv(.C) f128 {
+    return @call(.{ .modifier = .always_inline }, fmodq, .{ a, b });
 }
 
 pub fn fmodl(a: c_longdouble, b: c_longdouble) callconv(.C) c_longdouble {

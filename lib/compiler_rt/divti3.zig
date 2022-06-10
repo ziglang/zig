@@ -1,5 +1,31 @@
-const udivmod = @import("udivmod.zig").udivmod;
+const std = @import("std");
 const builtin = @import("builtin");
+const udivmod = @import("udivmod.zig").udivmod;
+const arch = builtin.cpu.arch;
+const is_test = builtin.is_test;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    if (builtin.os.tag == .windows) {
+        switch (arch) {
+            .i386 => {
+                @export(__divti3, .{ .name = "__divti3", .linkage = linkage });
+            },
+            .x86_64 => {
+                // The "ti" functions must use Vector(2, u64) parameter types to adhere to the ABI
+                // that LLVM expects compiler-rt to have.
+                @export(__divti3_windows_x86_64, .{ .name = "__divti3", .linkage = linkage });
+            },
+            else => {},
+        }
+        if (arch.isAARCH64()) {
+            @export(__divti3, .{ .name = "__divti3", .linkage = linkage });
+        }
+    } else {
+        @export(__divti3, .{ .name = "__divti3", .linkage = linkage });
+    }
+}
 
 pub fn __divti3(a: i128, b: i128) callconv(.C) i128 {
     @setRuntimeSafety(builtin.is_test);

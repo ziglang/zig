@@ -1,5 +1,14 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const is_test = builtin.is_test;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    @export(__popcountsi2, .{ .name = "__popcountsi2", .linkage = linkage });
+    @export(__popcountdi2, .{ .name = "__popcountdi2", .linkage = linkage });
+    @export(__popcountti2, .{ .name = "__popcountti2", .linkage = linkage });
+}
 
 // popcount - population count
 // counts the number of 1 bits

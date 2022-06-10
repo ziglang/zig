@@ -1,5 +1,45 @@
 // ARM specific builtins
+const std = @import("std");
 const builtin = @import("builtin");
+const arch = builtin.cpu.arch;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    if (!builtin.is_test) {
+        if (arch.isARM() or arch.isThumb()) {
+            @export(__aeabi_unwind_cpp_pr0, .{ .name = "__aeabi_unwind_cpp_pr0", .linkage = linkage });
+            @export(__aeabi_unwind_cpp_pr1, .{ .name = "__aeabi_unwind_cpp_pr1", .linkage = linkage });
+            @export(__aeabi_unwind_cpp_pr2, .{ .name = "__aeabi_unwind_cpp_pr2", .linkage = linkage });
+
+            @export(__aeabi_ldivmod, .{ .name = "__aeabi_ldivmod", .linkage = linkage });
+            @export(__aeabi_uldivmod, .{ .name = "__aeabi_uldivmod", .linkage = linkage });
+
+            @export(__aeabi_idivmod, .{ .name = "__aeabi_idivmod", .linkage = linkage });
+            @export(__aeabi_uidivmod, .{ .name = "__aeabi_uidivmod", .linkage = linkage });
+
+            @export(__aeabi_memcpy, .{ .name = "__aeabi_memcpy", .linkage = linkage });
+            @export(__aeabi_memcpy4, .{ .name = "__aeabi_memcpy4", .linkage = linkage });
+            @export(__aeabi_memcpy8, .{ .name = "__aeabi_memcpy8", .linkage = linkage });
+
+            @export(__aeabi_memmove, .{ .name = "__aeabi_memmove", .linkage = linkage });
+            @export(__aeabi_memmove4, .{ .name = "__aeabi_memmove4", .linkage = linkage });
+            @export(__aeabi_memmove8, .{ .name = "__aeabi_memmove8", .linkage = linkage });
+
+            @export(__aeabi_memset, .{ .name = "__aeabi_memset", .linkage = linkage });
+            @export(__aeabi_memset4, .{ .name = "__aeabi_memset4", .linkage = linkage });
+            @export(__aeabi_memset8, .{ .name = "__aeabi_memset8", .linkage = linkage });
+
+            @export(__aeabi_memclr, .{ .name = "__aeabi_memclr", .linkage = linkage });
+            @export(__aeabi_memclr4, .{ .name = "__aeabi_memclr4", .linkage = linkage });
+            @export(__aeabi_memclr8, .{ .name = "__aeabi_memclr8", .linkage = linkage });
+
+            if (builtin.os.tag == .linux) {
+                @export(__aeabi_read_tp, .{ .name = "__aeabi_read_tp", .linkage = linkage });
+            }
+        }
+    }
+}
 
 const __divmodsi4 = @import("int.zig").__divmodsi4;
 const __udivmodsi4 = @import("int.zig").__udivmodsi4;
@@ -14,8 +54,24 @@ pub fn __aeabi_memcpy(dest: [*]u8, src: [*]u8, n: usize) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
     _ = memcpy(dest, src, n);
 }
+pub fn __aeabi_memcpy4(dest: [*]u8, src: [*]u8, n: usize) callconv(.AAPCS) void {
+    @setRuntimeSafety(false);
+    _ = memcpy(dest, src, n);
+}
+pub fn __aeabi_memcpy8(dest: [*]u8, src: [*]u8, n: usize) callconv(.AAPCS) void {
+    @setRuntimeSafety(false);
+    _ = memcpy(dest, src, n);
+}
 
 pub fn __aeabi_memmove(dest: [*]u8, src: [*]u8, n: usize) callconv(.AAPCS) void {
+    @setRuntimeSafety(false);
+    _ = memmove(dest, src, n);
+}
+pub fn __aeabi_memmove4(dest: [*]u8, src: [*]u8, n: usize) callconv(.AAPCS) void {
+    @setRuntimeSafety(false);
+    _ = memmove(dest, src, n);
+}
+pub fn __aeabi_memmove8(dest: [*]u8, src: [*]u8, n: usize) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
     _ = memmove(dest, src, n);
 }
@@ -26,8 +82,24 @@ pub fn __aeabi_memset(dest: [*]u8, n: usize, c: u8) callconv(.AAPCS) void {
     // two arguments swapped
     _ = memset(dest, c, n);
 }
+pub fn __aeabi_memset4(dest: [*]u8, n: usize, c: u8) callconv(.AAPCS) void {
+    @setRuntimeSafety(false);
+    _ = memset(dest, c, n);
+}
+pub fn __aeabi_memset8(dest: [*]u8, n: usize, c: u8) callconv(.AAPCS) void {
+    @setRuntimeSafety(false);
+    _ = memset(dest, c, n);
+}
 
 pub fn __aeabi_memclr(dest: [*]u8, n: usize) callconv(.AAPCS) void {
+    @setRuntimeSafety(false);
+    _ = memset(dest, 0, n);
+}
+pub fn __aeabi_memclr4(dest: [*]u8, n: usize) callconv(.AAPCS) void {
+    @setRuntimeSafety(false);
+    _ = memset(dest, 0, n);
+}
+pub fn __aeabi_memclr8(dest: [*]u8, n: usize) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
     _ = memset(dest, 0, n);
 }

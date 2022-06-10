@@ -1,5 +1,24 @@
 const std = @import("std");
+const builtin = @import("builtin");
+const arch = builtin.cpu.arch;
 const math = std.math;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    @export(__sqrth, .{ .name = "__sqrth", .linkage = linkage });
+    @export(sqrtf, .{ .name = "sqrtf", .linkage = linkage });
+    @export(sqrt, .{ .name = "sqrt", .linkage = linkage });
+    @export(__sqrtx, .{ .name = "__sqrtx", .linkage = linkage });
+    @export(sqrtq, .{ .name = "sqrtq", .linkage = linkage });
+    @export(sqrtl, .{ .name = "sqrtl", .linkage = linkage });
+
+    if (!builtin.is_test) {
+        if (arch.isPPC() or arch.isPPC64()) {
+            @export(sqrtf128, .{ .name = "sqrtf128", .linkage = linkage });
+        }
+    }
+}
 
 pub fn __sqrth(x: f16) callconv(.C) f16 {
     // TODO: more efficient implementation
@@ -234,6 +253,10 @@ pub fn sqrtl(x: c_longdouble) callconv(.C) c_longdouble {
         128 => return sqrtq(x),
         else => @compileError("unreachable"),
     }
+}
+
+pub fn sqrtf128(x: f128) callconv(.C) f128 {
+    return @call(.{ .modifier = .always_inline }, sqrtq, .{x});
 }
 
 test "sqrtf" {

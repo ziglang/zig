@@ -23,6 +23,7 @@ const mingw = @import("mingw.zig");
 const libunwind = @import("libunwind.zig");
 const libcxx = @import("libcxx.zig");
 const wasi_libc = @import("wasi_libc.zig");
+const compiler_rt = @import("compiler_rt.zig");
 const fatal = @import("main.zig").fatal;
 const clangMain = @import("main.zig").clangMain;
 const Module = @import("Module.zig");
@@ -132,7 +133,7 @@ libssp_static_lib: ?CRTFile = null,
 libc_static_lib: ?CRTFile = null,
 /// Populated when we build the libcompiler_rt static library. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
-compiler_rt_static_lib: ?CRTFile = null,
+compiler_rt_static_lib: compiler_rt.CompilerRtLib = .{},
 /// Populated when we build the compiler_rt_obj object. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
 compiler_rt_obj: ?CRTFile = null,
@@ -176,7 +177,7 @@ pub const CRTFile = struct {
     lock: Cache.Lock,
     full_object_path: []const u8,
 
-    fn deinit(self: *CRTFile, gpa: Allocator) void {
+    pub fn deinit(self: *CRTFile, gpa: Allocator) void {
         self.lock.release();
         gpa.free(self.full_object_path);
         self.* = undefined;
@@ -1979,9 +1980,7 @@ pub fn destroy(self: *Compilation) void {
     if (self.libcxxabi_static_lib) |*crt_file| {
         crt_file.deinit(gpa);
     }
-    if (self.compiler_rt_static_lib) |*crt_file| {
-        crt_file.deinit(gpa);
-    }
+    self.compiler_rt_static_lib.deinit(gpa);
     if (self.compiler_rt_obj) |*crt_file| {
         crt_file.deinit(gpa);
     }
@@ -3147,11 +3146,9 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             const named_frame = tracy.namedFrame("compiler_rt_lib");
             defer named_frame.end();
 
-            comp.buildOutputFromZig(
-                "compiler_rt.zig",
-                .Lib,
+            compiler_rt.buildCompilerRtLib(
+                comp,
                 &comp.compiler_rt_static_lib,
-                .compiler_rt,
             ) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.SubCompilationFailed => return, // error reported already
@@ -4906,7 +4903,7 @@ pub fn updateSubCompilation(sub_compilation: *Compilation) !void {
     }
 }
 
-fn buildOutputFromZig(
+pub fn buildOutputFromZig(
     comp: *Compilation,
     src_basename: []const u8,
     output_mode: std.builtin.OutputMode,
@@ -4923,7 +4920,15 @@ fn buildOutputFromZig(
         .root_src_path = src_basename,
     };
     defer main_pkg.deinitTable(comp.gpa);
-    const root_name = src_basename[0 .. src_basename.len - std.fs.path.extension(src_basename).len];
+
+    const root_name = root_name: {
+        const basename = if (std.fs.path.dirname(src_basename)) |dirname|
+            src_basename[dirname.len + 1 ..]
+        else
+            src_basename;
+        const root_name = basename[0 .. basename.len - std.fs.path.extension(basename).len];
+        break :root_name root_name;
+    };
     const target = comp.getTarget();
     const bin_basename = try std.zig.binNameAlloc(comp.gpa, .{
         .root_name = root_name,

@@ -1,5 +1,14 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const is_test = builtin.is_test;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    @export(__bswapsi2, .{ .name = "__bswapsi2", .linkage = linkage });
+    @export(__bswapdi2, .{ .name = "__bswapdi2", .linkage = linkage });
+    @export(__bswapti2, .{ .name = "__bswapti2", .linkage = linkage });
+}
 
 // bswap - byteswap
 // - bswapXi2 for unoptimized big and little endian

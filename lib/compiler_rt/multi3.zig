@@ -1,12 +1,32 @@
-const compiler_rt = @import("../compiler_rt.zig");
 const std = @import("std");
 const builtin = @import("builtin");
+const arch = builtin.cpu.arch;
 const is_test = builtin.is_test;
 const native_endian = builtin.cpu.arch.endian();
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
 
 // Ported from git@github.com:llvm-project/llvm-project-20170507.git
 // ae684fad6d34858c014c94da69c15e7774a633c3
 // 2018-08-13
+
+comptime {
+    if (builtin.os.tag == .windows) {
+        switch (arch) {
+            .i386 => {
+                @export(__multi3, .{ .name = "__multi3", .linkage = linkage });
+            },
+            .x86_64 => {
+                // The "ti" functions must use Vector(2, u64) parameter types to adhere to the ABI
+                // that LLVM expects compiler-rt to have.
+                @export(__multi3_windows_x86_64, .{ .name = "__multi3", .linkage = linkage });
+            },
+            else => {},
+        }
+    } else {
+        @export(__multi3, .{ .name = "__multi3", .linkage = linkage });
+    }
+}
 
 pub fn __multi3(a: i128, b: i128) callconv(.C) i128 {
     @setRuntimeSafety(is_test);
@@ -25,7 +45,7 @@ pub fn __multi3_windows_x86_64(a: v128, b: v128) callconv(.C) v128 {
     }));
 }
 
-fn __mulddi3(a: u64, b: u64) i128 {
+pub fn __mulddi3(a: u64, b: u64) i128 {
     const bits_in_dword_2 = (@sizeOf(i64) * 8) / 2;
     const lower_mask = ~@as(u64, 0) >> bits_in_dword_2;
     var r: twords = undefined;

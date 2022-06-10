@@ -1,5 +1,24 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const math = std.math;
+const arch = builtin.cpu.arch;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    @export(__fmaxh, .{ .name = "__fmaxh", .linkage = linkage });
+    @export(fmaxf, .{ .name = "fmaxf", .linkage = linkage });
+    @export(fmax, .{ .name = "fmax", .linkage = linkage });
+    @export(__fmaxx, .{ .name = "__fmaxx", .linkage = linkage });
+    @export(fmaxq, .{ .name = "fmaxq", .linkage = linkage });
+    @export(fmaxl, .{ .name = "fmaxl", .linkage = linkage });
+
+    if (!builtin.is_test) {
+        if (arch.isPPC() or arch.isPPC64()) {
+            @export(fmaxf128, .{ .name = "fmaxf128", .linkage = linkage });
+        }
+    }
+}
 
 pub fn __fmaxh(x: f16, y: f16) callconv(.C) f16 {
     return generic_fmax(f16, x, y);
@@ -19,6 +38,10 @@ pub fn __fmaxx(x: f80, y: f80) callconv(.C) f80 {
 
 pub fn fmaxq(x: f128, y: f128) callconv(.C) f128 {
     return generic_fmax(f128, x, y);
+}
+
+pub fn fmaxf128(x: f128, y: f128) callconv(.C) f128 {
+    return @call(.{ .modifier = .always_inline }, fmaxq, .{ x, y });
 }
 
 pub fn fmaxl(x: c_longdouble, y: c_longdouble) callconv(.C) c_longdouble {

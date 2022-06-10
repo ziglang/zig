@@ -5,8 +5,27 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/ln.c
 
 const std = @import("std");
+const builtin = @import("builtin");
 const math = std.math;
 const testing = std.testing;
+const arch = builtin.cpu.arch;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    @export(__logh, .{ .name = "__logh", .linkage = linkage });
+    @export(logf, .{ .name = "logf", .linkage = linkage });
+    @export(log, .{ .name = "log", .linkage = linkage });
+    @export(__logx, .{ .name = "__logx", .linkage = linkage });
+    @export(logq, .{ .name = "logq", .linkage = linkage });
+    @export(logl, .{ .name = "logl", .linkage = linkage });
+
+    if (!builtin.is_test) {
+        if (arch.isPPC() or arch.isPPC64()) {
+            @export(logf128, .{ .name = "logf128", .linkage = linkage });
+        }
+    }
+}
 
 pub fn __logh(a: f16) callconv(.C) f16 {
     // TODO: more efficient implementation
@@ -129,6 +148,10 @@ pub fn __logx(a: f80) callconv(.C) f80 {
 pub fn logq(a: f128) callconv(.C) f128 {
     // TODO: more correct implementation
     return log(@floatCast(f64, a));
+}
+
+pub fn logf128(a: f128) callconv(.C) f128 {
+    return @call(.{ .modifier = .always_inline }, logq, .{a});
 }
 
 pub fn logl(x: c_longdouble) callconv(.C) c_longdouble {

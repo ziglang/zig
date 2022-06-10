@@ -1,7 +1,20 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const is_test = builtin.is_test;
 const native_endian = builtin.cpu.arch.endian();
+const arch = builtin.cpu.arch;
+const is_test = builtin.is_test;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    @export(__muldi3, .{ .name = "__muldi3", .linkage = linkage });
+
+    if (!is_test) {
+        if (arch.isARM() or arch.isThumb()) {
+            @export(__aeabi_lmul, .{ .name = "__aeabi_lmul", .linkage = linkage });
+        }
+    }
+}
 
 // Ported from
 // https://github.com/llvm/llvm-project/blob/llvmorg-9.0.0/compiler-rt/lib/builtins/muldi3.c
@@ -20,7 +33,11 @@ const dwords = extern union {
     },
 };
 
-fn __muldsi3(a: u32, b: u32) i64 {
+pub fn __aeabi_lmul(a: i64, b: i64) callconv(.C) i64 {
+    return @call(.{ .modifier = .always_inline }, __muldi3, .{ a, b });
+}
+
+pub fn __muldsi3(a: u32, b: u32) i64 {
     @setRuntimeSafety(is_test);
 
     const bits_in_word_2 = @sizeOf(i32) * 8 / 2;
