@@ -30,6 +30,7 @@ pub const Value = extern union {
         i8_type,
         u16_type,
         i16_type,
+        u29_type,
         u32_type,
         i32_type,
         u64_type,
@@ -120,12 +121,16 @@ pub const Value = extern union {
         /// This Tag will never be seen by machine codegen backends. It is changed into a
         /// `decl_ref` when a comptime variable goes out of scope.
         decl_ref_mut,
+        /// Behaves like `decl_ref_mut` but validates that the stored value matches the field value.
+        comptime_field_ptr,
         /// Pointer to a specific element of an array, vector or slice.
         elem_ptr,
         /// Pointer to a specific field of a struct or union.
         field_ptr,
         /// A slice of u8 whose memory is managed externally.
         bytes,
+        /// Similar to bytes however it stores an index relative to `Module.string_literal_bytes`.
+        str_lit,
         /// This value is repeated some number of times. The amount of times to repeat
         /// is stored externally.
         repeated,
@@ -179,6 +184,8 @@ pub const Value = extern union {
         bound_fn,
         /// The ABI alignment of the payload type.
         lazy_align,
+        /// The ABI alignment of the payload type.
+        lazy_size,
 
         pub const last_no_payload_tag = Tag.empty_array;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
@@ -190,6 +197,7 @@ pub const Value = extern union {
                 .i8_type,
                 .u16_type,
                 .i16_type,
+                .u29_type,
                 .u32_type,
                 .i32_type,
                 .u64_type,
@@ -283,12 +291,14 @@ pub const Value = extern union {
                 .enum_literal,
                 => Payload.Bytes,
 
+                .str_lit => Payload.StrLit,
                 .slice => Payload.Slice,
 
                 .enum_field_index => Payload.U32,
 
                 .ty,
                 .lazy_align,
+                .lazy_size,
                 => Payload.Ty,
 
                 .int_type => Payload.IntType,
@@ -310,6 +320,7 @@ pub const Value = extern union {
                 .aggregate => Payload.Aggregate,
                 .@"union" => Payload.Union,
                 .bound_fn => Payload.BoundFn,
+                .comptime_field_ptr => Payload.ComptimeFieldPtr,
             };
         }
 
@@ -388,6 +399,7 @@ pub const Value = extern union {
             .i8_type,
             .u16_type,
             .i16_type,
+            .u29_type,
             .u32_type,
             .i32_type,
             .u64_type,
@@ -460,7 +472,7 @@ pub const Value = extern union {
             .bound_fn,
             => unreachable,
 
-            .ty, .lazy_align => {
+            .ty, .lazy_align, .lazy_size => {
                 const payload = self.cast(Payload.Ty).?;
                 const new_payload = try arena.create(Payload.Ty);
                 new_payload.* = .{
@@ -500,6 +512,18 @@ pub const Value = extern union {
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
+            .comptime_field_ptr => {
+                const payload = self.cast(Payload.ComptimeFieldPtr).?;
+                const new_payload = try arena.create(Payload.ComptimeFieldPtr);
+                new_payload.* = .{
+                    .base = payload.base,
+                    .data = .{
+                        .field_val = try payload.data.field_val.copy(arena),
+                        .field_ty = try payload.data.field_ty.copy(arena),
+                    },
+                };
+                return Value{ .ptr_otherwise = &new_payload.base };
+            },
             .elem_ptr => {
                 const payload = self.castTag(.elem_ptr).?;
                 const new_payload = try arena.create(Payload.ElemPtr);
@@ -535,6 +559,7 @@ pub const Value = extern union {
                 };
                 return Value{ .ptr_otherwise = &new_payload.base };
             },
+            .str_lit => return self.copyPayloadShallow(arena, Payload.StrLit),
             .repeated,
             .eu_payload,
             .opt_payload,
@@ -638,6 +663,7 @@ pub const Value = extern union {
             .u8_type => return out_stream.writeAll("u8"),
             .i8_type => return out_stream.writeAll("i8"),
             .u16_type => return out_stream.writeAll("u16"),
+            .u29_type => return out_stream.writeAll("u29"),
             .i16_type => return out_stream.writeAll("i16"),
             .u32_type => return out_stream.writeAll("u32"),
             .i32_type => return out_stream.writeAll("i32"),
@@ -720,6 +746,11 @@ pub const Value = extern union {
                 try val.castTag(.lazy_align).?.data.dump("", options, out_stream);
                 return try out_stream.writeAll(")");
             },
+            .lazy_size => {
+                try out_stream.writeAll("@sizeOf(");
+                try val.castTag(.lazy_size).?.data.dump("", options, out_stream);
+                return try out_stream.writeAll(")");
+            },
             .int_type => {
                 const int_type = val.castTag(.int_type).?.data;
                 return out_stream.print("{s}{d}", .{
@@ -742,6 +773,9 @@ pub const Value = extern union {
                 const decl_index = val.castTag(.decl_ref).?.data;
                 return out_stream.print("(decl_ref {d})", .{decl_index});
             },
+            .comptime_field_ptr => {
+                return out_stream.writeAll("(comptime_field_ptr)");
+            },
             .elem_ptr => {
                 const elem_ptr = val.castTag(.elem_ptr).?.data;
                 try out_stream.print("&[{}] ", .{elem_ptr.index});
@@ -756,6 +790,12 @@ pub const Value = extern union {
             .enum_literal => return out_stream.print(".{}", .{std.zig.fmtId(val.castTag(.enum_literal).?.data)}),
             .enum_field_index => return out_stream.print("(enum field {d})", .{val.castTag(.enum_field_index).?.data}),
             .bytes => return out_stream.print("\"{}\"", .{std.zig.fmtEscapes(val.castTag(.bytes).?.data)}),
+            .str_lit => {
+                const str_lit = val.castTag(.str_lit).?.data;
+                return out_stream.print("(.str_lit index={d} len={d})", .{
+                    str_lit.index, str_lit.len,
+                });
+            },
             .repeated => {
                 try out_stream.writeAll("(repeated) ");
                 val = val.castTag(.repeated).?.data;
@@ -816,6 +856,11 @@ pub const Value = extern union {
                 const adjusted_bytes = bytes[0..adjusted_len];
                 return allocator.dupe(u8, adjusted_bytes);
             },
+            .str_lit => {
+                const str_lit = val.castTag(.str_lit).?.data;
+                const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
+                return allocator.dupe(u8, bytes);
+            },
             .enum_literal => return allocator.dupe(u8, val.castTag(.enum_literal).?.data),
             .repeated => {
                 const byte = @intCast(u8, val.castTag(.repeated).?.data.toUnsignedInt(target));
@@ -859,6 +904,7 @@ pub const Value = extern union {
             .i8_type => Type.initTag(.i8),
             .u16_type => Type.initTag(.u16),
             .i16_type => Type.initTag(.i16),
+            .u29_type => Type.initTag(.u29),
             .u32_type => Type.initTag(.u32),
             .i32_type => Type.initTag(.i32),
             .u64_type => Type.initTag(.u64),
@@ -1040,6 +1086,14 @@ pub const Value = extern union {
                 const x = ty.abiAlignment(target);
                 return BigIntMutable.init(&space.limbs, x).toConst();
             },
+            .lazy_size => {
+                const ty = val.castTag(.lazy_size).?.data;
+                if (sema_kit) |sk| {
+                    try sk.sema.resolveTypeLayout(sk.block, sk.src, ty);
+                }
+                const x = ty.abiSize(target);
+                return BigIntMutable.init(&space.limbs, x).toConst();
+            },
 
             .elem_ptr => {
                 const elem_ptr = val.castTag(.elem_ptr).?.data;
@@ -1085,6 +1139,14 @@ pub const Value = extern union {
                     return (try ty.abiAlignmentAdvanced(target, .{ .sema_kit = sk })).scalar;
                 } else {
                     return ty.abiAlignment(target);
+                }
+            },
+            .lazy_size => {
+                const ty = val.castTag(.lazy_size).?.data;
+                if (sema_kit) |sk| {
+                    return (try ty.abiSizeAdvanced(target, .{ .sema_kit = sk })).scalar;
+                } else {
+                    return ty.abiSize(target);
                 }
             },
 
@@ -1135,6 +1197,10 @@ pub const Value = extern union {
             return;
         }
         switch (ty.zigTypeTag()) {
+            .Void => {},
+            .Bool => {
+                buffer[0] = @boolToInt(val.toBool());
+            },
             .Int => {
                 var bigint_buffer: BigIntSpace = undefined;
                 const bigint = val.toBigInt(&bigint_buffer, target);
@@ -1252,6 +1318,14 @@ pub const Value = extern union {
     ) Allocator.Error!Value {
         const target = mod.getTarget();
         switch (ty.zigTypeTag()) {
+            .Void => return Value.@"void",
+            .Bool => {
+                if (buffer[0] == 0) {
+                    return Value.@"false";
+                } else {
+                    return Value.@"true";
+                }
+            },
             .Int => {
                 if (buffer.len == 0) return Value.zero;
                 const int_info = ty.intInfo(target);
@@ -1272,7 +1346,7 @@ pub const Value = extern union {
                 128 => return Value.Tag.float_128.create(arena, floatReadFromMemory(f128, target, buffer)),
                 else => unreachable,
             },
-            .Array => {
+            .Array, .Vector => {
                 const elem_ty = ty.childType();
                 const elem_size = elem_ty.abiSize(target);
                 const elems = try arena.alloc(Value, @intCast(usize, ty.arrayLen()));
@@ -1655,6 +1729,7 @@ pub const Value = extern union {
             .int_big_negative => return self.castTag(.int_big_negative).?.asBigInt().bitCountTwosComp(),
 
             .decl_ref_mut,
+            .comptime_field_ptr,
             .extern_fn,
             .decl_ref,
             .function,
@@ -1667,107 +1742,6 @@ pub const Value = extern union {
                 var buffer: BigIntSpace = undefined;
                 return self.toBigInt(&buffer, target).bitCountTwosComp();
             },
-        }
-    }
-
-    /// Asserts the value is an integer, and the destination type is ComptimeInt or Int.
-    pub fn intFitsInType(self: Value, ty: Type, target: Target) bool {
-        switch (self.tag()) {
-            .zero,
-            .undef,
-            .bool_false,
-            => return true,
-
-            .one,
-            .bool_true,
-            => switch (ty.zigTypeTag()) {
-                .Int => {
-                    const info = ty.intInfo(target);
-                    return switch (info.signedness) {
-                        .signed => info.bits >= 2,
-                        .unsigned => info.bits >= 1,
-                    };
-                },
-                .ComptimeInt => return true,
-                else => unreachable,
-            },
-
-            .lazy_align => {
-                const info = ty.intInfo(target);
-                const max_needed_bits = @as(u16, 16) + @boolToInt(info.signedness == .signed);
-                // If it is u16 or bigger we know the alignment fits without resolving it.
-                if (info.bits >= max_needed_bits) return true;
-                const x = self.castTag(.lazy_align).?.data.abiAlignment(target);
-                if (x == 0) return true;
-                const actual_needed_bits = std.math.log2(x) + 1 + @boolToInt(info.signedness == .signed);
-                return info.bits >= actual_needed_bits;
-            },
-
-            .int_u64 => switch (ty.zigTypeTag()) {
-                .Int => {
-                    const x = self.castTag(.int_u64).?.data;
-                    if (x == 0) return true;
-                    const info = ty.intInfo(target);
-                    const needed_bits = std.math.log2(x) + 1 + @boolToInt(info.signedness == .signed);
-                    return info.bits >= needed_bits;
-                },
-                .ComptimeInt => return true,
-                else => unreachable,
-            },
-            .int_i64 => switch (ty.zigTypeTag()) {
-                .Int => {
-                    const x = self.castTag(.int_i64).?.data;
-                    if (x == 0) return true;
-                    const info = ty.intInfo(target);
-                    if (info.signedness == .unsigned and x < 0)
-                        return false;
-                    var buffer: BigIntSpace = undefined;
-                    return self.toBigInt(&buffer, target).fitsInTwosComp(info.signedness, info.bits);
-                },
-                .ComptimeInt => return true,
-                else => unreachable,
-            },
-            .int_big_positive => switch (ty.zigTypeTag()) {
-                .Int => {
-                    const info = ty.intInfo(target);
-                    return self.castTag(.int_big_positive).?.asBigInt().fitsInTwosComp(info.signedness, info.bits);
-                },
-                .ComptimeInt => return true,
-                else => unreachable,
-            },
-            .int_big_negative => switch (ty.zigTypeTag()) {
-                .Int => {
-                    const info = ty.intInfo(target);
-                    return self.castTag(.int_big_negative).?.asBigInt().fitsInTwosComp(info.signedness, info.bits);
-                },
-                .ComptimeInt => return true,
-                else => unreachable,
-            },
-
-            .the_only_possible_value => {
-                assert(ty.intInfo(target).bits == 0);
-                return true;
-            },
-
-            .decl_ref_mut,
-            .extern_fn,
-            .decl_ref,
-            .function,
-            .variable,
-            => switch (ty.zigTypeTag()) {
-                .Int => {
-                    const info = ty.intInfo(target);
-                    const ptr_bits = target.cpu.arch.ptrBitWidth();
-                    return switch (info.signedness) {
-                        .signed => info.bits > ptr_bits,
-                        .unsigned => info.bits >= ptr_bits,
-                    };
-                },
-                .ComptimeInt => return true,
-                else => unreachable,
-            },
-
-            else => unreachable,
         }
     }
 
@@ -1802,27 +1776,6 @@ pub const Value = extern union {
         };
     }
 
-    /// Asserts the value is numeric
-    pub fn isZero(self: Value) bool {
-        return switch (self.tag()) {
-            .zero, .the_only_possible_value => true,
-            .one => false,
-
-            .int_u64 => self.castTag(.int_u64).?.data == 0,
-            .int_i64 => self.castTag(.int_i64).?.data == 0,
-
-            .float_16 => self.castTag(.float_16).?.data == 0,
-            .float_32 => self.castTag(.float_32).?.data == 0,
-            .float_64 => self.castTag(.float_64).?.data == 0,
-            .float_80 => self.castTag(.float_80).?.data == 0,
-            .float_128 => self.castTag(.float_128).?.data == 0,
-
-            .int_big_positive => self.castTag(.int_big_positive).?.asBigInt().eqZero(),
-            .int_big_negative => self.castTag(.int_big_negative).?.asBigInt().eqZero(),
-            else => unreachable,
-        };
-    }
-
     pub fn orderAgainstZero(lhs: Value) std.math.Order {
         return orderAgainstZeroAdvanced(lhs, null) catch unreachable;
     }
@@ -1841,6 +1794,7 @@ pub const Value = extern union {
             .bool_true,
             .decl_ref,
             .decl_ref_mut,
+            .comptime_field_ptr,
             .extern_fn,
             .function,
             .variable,
@@ -1853,6 +1807,14 @@ pub const Value = extern union {
 
             .lazy_align => {
                 const ty = lhs.castTag(.lazy_align).?.data;
+                if (try ty.hasRuntimeBitsAdvanced(false, sema_kit)) {
+                    return .gt;
+                } else {
+                    return .eq;
+                }
+            },
+            .lazy_size => {
+                const ty = lhs.castTag(.lazy_size).?.data;
                 if (try ty.hasRuntimeBitsAdvanced(false, sema_kit)) {
                     return .gt;
                 } else {
@@ -2002,38 +1964,28 @@ pub const Value = extern union {
         };
     }
 
-    /// Asserts the values are comparable vectors of type `ty`.
-    pub fn compareVector(
-        lhs: Value,
-        op: std.math.CompareOperator,
-        rhs: Value,
-        ty: Type,
-        allocator: Allocator,
-        mod: *Module,
-    ) !Value {
-        assert(ty.zigTypeTag() == .Vector);
-        const result_data = try allocator.alloc(Value, ty.vectorLen());
-        for (result_data) |*scalar, i| {
-            const res_bool = compareScalar(lhs.indexVectorlike(i), op, rhs.indexVectorlike(i), ty.scalarType(), mod);
-            scalar.* = if (res_bool) Value.@"true" else Value.@"false";
-        }
-        return Value.Tag.aggregate.create(allocator, result_data);
-    }
-
     /// Asserts the value is comparable.
     /// Vector results will be reduced with AND.
     pub fn compareWithZero(lhs: Value, op: std.math.CompareOperator) bool {
+        return compareWithZeroAdvanced(lhs, op, null) catch unreachable;
+    }
+
+    pub fn compareWithZeroAdvanced(
+        lhs: Value,
+        op: std.math.CompareOperator,
+        sema_kit: ?Module.WipAnalysis,
+    ) Module.CompileError!bool {
         switch (lhs.tag()) {
-            .repeated => return lhs.castTag(.repeated).?.data.compareWithZero(op),
+            .repeated => return lhs.castTag(.repeated).?.data.compareWithZeroAdvanced(op, sema_kit),
             .aggregate => {
                 for (lhs.castTag(.aggregate).?.data) |elem_val| {
-                    if (!elem_val.compareWithZero(op)) return false;
+                    if (!(try elem_val.compareWithZeroAdvanced(op, sema_kit))) return false;
                 }
                 return true;
             },
             else => {},
         }
-        return orderAgainstZero(lhs).compare(op);
+        return (try orderAgainstZeroAdvanced(lhs, sema_kit)).compare(op);
     }
 
     /// This function is used by hash maps and so treats floating-point NaNs as equal
@@ -2042,9 +1994,20 @@ pub const Value = extern union {
     /// This function has to be able to support implicit coercion of `a` to `ty`. That is,
     /// `ty` will be an exactly correct Type for `b` but it may be a post-coerced Type
     /// for `a`. This function must act *as if* `a` has been coerced to `ty`. This complication
-    /// is required in order to make generic function instantiation effecient - specifically
+    /// is required in order to make generic function instantiation efficient - specifically
     /// the insertion into the monomorphized function table.
     pub fn eql(a: Value, b: Value, ty: Type, mod: *Module) bool {
+        return eqlAdvanced(a, b, ty, mod, null) catch unreachable;
+    }
+
+    /// If `null` is provided for `sema_kit` then it is guaranteed no error will be returned.
+    pub fn eqlAdvanced(
+        a: Value,
+        b: Value,
+        ty: Type,
+        mod: *Module,
+        sema_kit: ?Module.WipAnalysis,
+    ) Module.CompileError!bool {
         const target = mod.getTarget();
         const a_tag = a.tag();
         const b_tag = b.tag();
@@ -2065,31 +2028,33 @@ pub const Value = extern union {
                 const a_payload = a.castTag(.opt_payload).?.data;
                 const b_payload = b.castTag(.opt_payload).?.data;
                 var buffer: Type.Payload.ElemType = undefined;
-                return eql(a_payload, b_payload, ty.optionalChild(&buffer), mod);
+                return eqlAdvanced(a_payload, b_payload, ty.optionalChild(&buffer), mod, sema_kit);
             },
             .slice => {
                 const a_payload = a.castTag(.slice).?.data;
                 const b_payload = b.castTag(.slice).?.data;
-                if (!eql(a_payload.len, b_payload.len, Type.usize, mod)) return false;
+                if (!(try eqlAdvanced(a_payload.len, b_payload.len, Type.usize, mod, sema_kit))) {
+                    return false;
+                }
 
                 var ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
                 const ptr_ty = ty.slicePtrFieldType(&ptr_buf);
 
-                return eql(a_payload.ptr, b_payload.ptr, ptr_ty, mod);
+                return eqlAdvanced(a_payload.ptr, b_payload.ptr, ptr_ty, mod, sema_kit);
             },
             .elem_ptr => {
                 const a_payload = a.castTag(.elem_ptr).?.data;
                 const b_payload = b.castTag(.elem_ptr).?.data;
                 if (a_payload.index != b_payload.index) return false;
 
-                return eql(a_payload.array_ptr, b_payload.array_ptr, ty, mod);
+                return eqlAdvanced(a_payload.array_ptr, b_payload.array_ptr, ty, mod, sema_kit);
             },
             .field_ptr => {
                 const a_payload = a.castTag(.field_ptr).?.data;
                 const b_payload = b.castTag(.field_ptr).?.data;
                 if (a_payload.field_index != b_payload.field_index) return false;
 
-                return eql(a_payload.container_ptr, b_payload.container_ptr, ty, mod);
+                return eqlAdvanced(a_payload.container_ptr, b_payload.container_ptr, ty, mod, sema_kit);
             },
             .@"error" => {
                 const a_name = a.castTag(.@"error").?.data.name;
@@ -2099,7 +2064,7 @@ pub const Value = extern union {
             .eu_payload => {
                 const a_payload = a.castTag(.eu_payload).?.data;
                 const b_payload = b.castTag(.eu_payload).?.data;
-                return eql(a_payload, b_payload, ty.errorUnionPayload(), mod);
+                return eqlAdvanced(a_payload, b_payload, ty.errorUnionPayload(), mod, sema_kit);
             },
             .eu_payload_ptr => @panic("TODO: Implement more pointer eql cases"),
             .opt_payload_ptr => @panic("TODO: Implement more pointer eql cases"),
@@ -2117,7 +2082,9 @@ pub const Value = extern union {
                     const types = ty.tupleFields().types;
                     assert(types.len == a_field_vals.len);
                     for (types) |field_ty, i| {
-                        if (!eql(a_field_vals[i], b_field_vals[i], field_ty, mod)) return false;
+                        if (!(try eqlAdvanced(a_field_vals[i], b_field_vals[i], field_ty, mod, sema_kit))) {
+                            return false;
+                        }
                     }
                     return true;
                 }
@@ -2126,7 +2093,9 @@ pub const Value = extern union {
                     const fields = ty.structFields().values();
                     assert(fields.len == a_field_vals.len);
                     for (fields) |field, i| {
-                        if (!eql(a_field_vals[i], b_field_vals[i], field.ty, mod)) return false;
+                        if (!(try eqlAdvanced(a_field_vals[i], b_field_vals[i], field.ty, mod, sema_kit))) {
+                            return false;
+                        }
                     }
                     return true;
                 }
@@ -2135,7 +2104,9 @@ pub const Value = extern union {
                 for (a_field_vals) |a_elem, i| {
                     const b_elem = b_field_vals[i];
 
-                    if (!eql(a_elem, b_elem, elem_ty, mod)) return false;
+                    if (!(try eqlAdvanced(a_elem, b_elem, elem_ty, mod, sema_kit))) {
+                        return false;
+                    }
                 }
                 return true;
             },
@@ -2145,7 +2116,7 @@ pub const Value = extern union {
                 switch (ty.containerLayout()) {
                     .Packed, .Extern => {
                         const tag_ty = ty.unionTagTypeHypothetical();
-                        if (!a_union.tag.eql(b_union.tag, tag_ty, mod)) {
+                        if (!(try a_union.tag.eqlAdvanced(b_union.tag, tag_ty, mod, sema_kit))) {
                             // In this case, we must disregard mismatching tags and compare
                             // based on the in-memory bytes of the payloads.
                             @panic("TODO comptime comparison of extern union values with mismatching tags");
@@ -2153,13 +2124,13 @@ pub const Value = extern union {
                     },
                     .Auto => {
                         const tag_ty = ty.unionTagTypeHypothetical();
-                        if (!a_union.tag.eql(b_union.tag, tag_ty, mod)) {
+                        if (!(try a_union.tag.eqlAdvanced(b_union.tag, tag_ty, mod, sema_kit))) {
                             return false;
                         }
                     },
                 }
                 const active_field_ty = ty.unionFieldType(a_union.tag, mod);
-                return a_union.val.eql(b_union.val, active_field_ty, mod);
+                return a_union.val.eqlAdvanced(b_union.val, active_field_ty, mod, sema_kit);
             },
             else => {},
         } else if (a_tag == .null_value or b_tag == .null_value) {
@@ -2193,7 +2164,7 @@ pub const Value = extern union {
                 const b_val = b.enumToInt(ty, &buf_b);
                 var buf_ty: Type.Payload.Bits = undefined;
                 const int_ty = ty.intTagType(&buf_ty);
-                return eql(a_val, b_val, int_ty, mod);
+                return eqlAdvanced(a_val, b_val, int_ty, mod, sema_kit);
             },
             .Array, .Vector => {
                 const len = ty.arrayLen();
@@ -2204,7 +2175,9 @@ pub const Value = extern union {
                 while (i < len) : (i += 1) {
                     const a_elem = elemValueBuffer(a, mod, i, &a_buf);
                     const b_elem = elemValueBuffer(b, mod, i, &b_buf);
-                    if (!eql(a_elem, b_elem, elem_ty, mod)) return false;
+                    if (!(try eqlAdvanced(a_elem, b_elem, elem_ty, mod, sema_kit))) {
+                        return false;
+                    }
                 }
                 return true;
             },
@@ -2228,12 +2201,12 @@ pub const Value = extern union {
                         .base = .{ .tag = .opt_payload },
                         .data = a,
                     };
-                    return eql(Value.initPayload(&buffer.base), b, ty, mod);
+                    return eqlAdvanced(Value.initPayload(&buffer.base), b, ty, mod, sema_kit);
                 }
             },
             else => {},
         }
-        return order(a, b, target).compare(.eq);
+        return (try orderAdvanced(a, b, target, sema_kit)).compare(.eq);
     }
 
     /// This function is used by hash maps and so treats floating-point NaNs as equal
@@ -2414,7 +2387,7 @@ pub const Value = extern union {
 
     pub fn isComptimeMutablePtr(val: Value) bool {
         return switch (val.tag()) {
-            .decl_ref_mut => true,
+            .decl_ref_mut, .comptime_field_ptr => true,
             .elem_ptr => isComptimeMutablePtr(val.castTag(.elem_ptr).?.data.array_ptr),
             .field_ptr => isComptimeMutablePtr(val.castTag(.field_ptr).?.data.container_ptr),
             .eu_payload_ptr => isComptimeMutablePtr(val.castTag(.eu_payload_ptr).?.data.container_ptr),
@@ -2478,6 +2451,9 @@ pub const Value = extern union {
                 const decl: Module.Decl.Index = ptr_val.pointerDecl().?;
                 std.hash.autoHash(hasher, decl);
             },
+            .comptime_field_ptr => {
+                std.hash.autoHash(hasher, Value.Tag.comptime_field_ptr);
+            },
 
             .elem_ptr => {
                 const elem_ptr = ptr_val.castTag(.elem_ptr).?.data;
@@ -2512,6 +2488,7 @@ pub const Value = extern union {
             .bool_true,
             .the_only_possible_value,
             .lazy_align,
+            .lazy_size,
             => return hashInt(ptr_val, hasher, target),
 
             else => unreachable,
@@ -2522,7 +2499,7 @@ pub const Value = extern union {
         return switch (val.tag()) {
             .slice => val.castTag(.slice).?.data.ptr,
             // TODO this should require being a slice tag, and not allow decl_ref, field_ptr, etc.
-            .decl_ref, .decl_ref_mut, .field_ptr, .elem_ptr => val,
+            .decl_ref, .decl_ref_mut, .field_ptr, .elem_ptr, .comptime_field_ptr => val,
             else => unreachable,
         };
     }
@@ -2544,6 +2521,14 @@ pub const Value = extern union {
                 const decl = mod.declPtr(decl_index);
                 if (decl.ty.zigTypeTag() == .Array) {
                     return decl.ty.arrayLen();
+                } else {
+                    return 1;
+                }
+            },
+            .comptime_field_ptr => {
+                const payload = val.castTag(.comptime_field_ptr).?.data;
+                if (payload.field_ty.zigTypeTag() == .Array) {
+                    return payload.field_ty.arrayLen();
                 } else {
                     return 1;
                 }
@@ -2615,6 +2600,20 @@ pub const Value = extern union {
                     return initPayload(&buffer.base);
                 }
             },
+            .str_lit => {
+                const str_lit = val.castTag(.str_lit).?.data;
+                const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
+                const byte = bytes[index];
+                if (arena) |a| {
+                    return Tag.int_u64.create(a, byte);
+                } else {
+                    buffer.* = .{
+                        .base = .{ .tag = .int_u64 },
+                        .data = byte,
+                    };
+                    return initPayload(&buffer.base);
+                }
+            },
 
             // No matter the index; all the elements are the same!
             .repeated => return val.castTag(.repeated).?.data,
@@ -2624,6 +2623,7 @@ pub const Value = extern union {
 
             .decl_ref => return mod.declPtr(val.castTag(.decl_ref).?.data).val.elemValueAdvanced(mod, index, arena, buffer),
             .decl_ref_mut => return mod.declPtr(val.castTag(.decl_ref_mut).?.data.decl_index).val.elemValueAdvanced(mod, index, arena, buffer),
+            .comptime_field_ptr => return val.castTag(.comptime_field_ptr).?.data.field_val.elemValueAdvanced(mod, index, arena, buffer),
             .elem_ptr => {
                 const data = val.castTag(.elem_ptr).?.data;
                 return data.array_ptr.elemValueAdvanced(mod, index + data.index, arena, buffer);
@@ -2648,11 +2648,19 @@ pub const Value = extern union {
         return switch (val.tag()) {
             .empty_array_sentinel => if (start == 0 and end == 1) val else Value.initTag(.empty_array),
             .bytes => Tag.bytes.create(arena, val.castTag(.bytes).?.data[start..end]),
+            .str_lit => {
+                const str_lit = val.castTag(.str_lit).?.data;
+                return Tag.str_lit.create(arena, .{
+                    .index = @intCast(u32, str_lit.index + start),
+                    .len = @intCast(u32, end - start),
+                });
+            },
             .aggregate => Tag.aggregate.create(arena, val.castTag(.aggregate).?.data[start..end]),
             .slice => sliceArray(val.castTag(.slice).?.data.ptr, mod, arena, start, end),
 
             .decl_ref => sliceArray(mod.declPtr(val.castTag(.decl_ref).?.data).val, mod, arena, start, end),
             .decl_ref_mut => sliceArray(mod.declPtr(val.castTag(.decl_ref_mut).?.data.decl_index).val, mod, arena, start, end),
+            .comptime_field_ptr => sliceArray(val.castTag(.comptime_field_ptr).?.data.field_val, mod, arena, start, end),
             .elem_ptr => blk: {
                 const elem_ptr = val.castTag(.elem_ptr).?.data;
                 break :blk sliceArray(elem_ptr.array_ptr, mod, arena, start + elem_ptr.index, end + elem_ptr.index);
@@ -2687,6 +2695,7 @@ pub const Value = extern union {
                 }
                 unreachable;
             },
+            .undef => return Value.undef,
 
             else => unreachable,
         }
@@ -2892,54 +2901,6 @@ pub const Value = extern union {
         }
     }
 
-    pub fn floatToInt(val: Value, arena: Allocator, float_ty: Type, int_ty: Type, target: Target) error{ FloatCannotFit, OutOfMemory }!Value {
-        if (float_ty.zigTypeTag() == .Vector) {
-            const result_data = try arena.alloc(Value, float_ty.vectorLen());
-            for (result_data) |*scalar, i| {
-                scalar.* = try floatToIntScalar(val.indexVectorlike(i), arena, int_ty.scalarType(), target);
-            }
-            return Value.Tag.aggregate.create(arena, result_data);
-        }
-        return floatToIntScalar(val, arena, int_ty, target);
-    }
-
-    pub fn floatToIntScalar(val: Value, arena: Allocator, int_ty: Type, target: Target) error{ FloatCannotFit, OutOfMemory }!Value {
-        const Limb = std.math.big.Limb;
-
-        var value = val.toFloat(f64); // TODO: f128 ?
-        if (std.math.isNan(value) or std.math.isInf(value)) {
-            return error.FloatCannotFit;
-        }
-
-        const isNegative = std.math.signbit(value);
-        value = @fabs(value);
-
-        const floored = @floor(value);
-
-        var rational = try std.math.big.Rational.init(arena);
-        defer rational.deinit();
-        rational.setFloat(f64, floored) catch |err| switch (err) {
-            error.NonFiniteFloat => unreachable,
-            error.OutOfMemory => return error.OutOfMemory,
-        };
-
-        // The float is reduced in rational.setFloat, so we assert that denominator is equal to one
-        const bigOne = std.math.big.int.Const{ .limbs = &.{1}, .positive = true };
-        assert(rational.q.toConst().eqAbs(bigOne));
-
-        const result_limbs = try arena.dupe(Limb, rational.p.toConst().limbs);
-        const result = if (isNegative)
-            try Value.Tag.int_big_negative.create(arena, result_limbs)
-        else
-            try Value.Tag.int_big_positive.create(arena, result_limbs);
-
-        if (result.intFitsInType(int_ty, target)) {
-            return result;
-        } else {
-            return error.FloatCannotFit;
-        }
-    }
-
     fn calcLimbLenFloat(scalar: anytype) usize {
         if (scalar == 0) {
             return 1;
@@ -2950,77 +2911,12 @@ pub const Value = extern union {
     }
 
     pub const OverflowArithmeticResult = struct {
-        overflowed: bool,
+        /// TODO: Rename to `overflow_bit` and make of type `u1`.
+        overflowed: Value,
         wrapped_result: Value,
     };
 
-    pub fn intAddWithOverflow(
-        lhs: Value,
-        rhs: Value,
-        ty: Type,
-        arena: Allocator,
-        target: Target,
-    ) !OverflowArithmeticResult {
-        const info = ty.intInfo(target);
-
-        var lhs_space: Value.BigIntSpace = undefined;
-        var rhs_space: Value.BigIntSpace = undefined;
-        const lhs_bigint = lhs.toBigInt(&lhs_space, target);
-        const rhs_bigint = rhs.toBigInt(&rhs_space, target);
-        const limbs = try arena.alloc(
-            std.math.big.Limb,
-            std.math.big.int.calcTwosCompLimbCount(info.bits),
-        );
-        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
-        const overflowed = result_bigint.addWrap(lhs_bigint, rhs_bigint, info.signedness, info.bits);
-        const result = try fromBigInt(arena, result_bigint.toConst());
-        return OverflowArithmeticResult{
-            .overflowed = overflowed,
-            .wrapped_result = result,
-        };
-    }
-
-    /// Supports both (vectors of) floats and ints; handles undefined scalars.
-    pub fn numberAddWrap(
-        lhs: Value,
-        rhs: Value,
-        ty: Type,
-        arena: Allocator,
-        target: Target,
-    ) !Value {
-        if (ty.zigTypeTag() == .Vector) {
-            const result_data = try arena.alloc(Value, ty.vectorLen());
-            for (result_data) |*scalar, i| {
-                scalar.* = try numberAddWrapScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), ty.scalarType(), arena, target);
-            }
-            return Value.Tag.aggregate.create(arena, result_data);
-        }
-        return numberAddWrapScalar(lhs, rhs, ty, arena, target);
-    }
-
-    /// Supports both floats and ints; handles undefined.
-    pub fn numberAddWrapScalar(
-        lhs: Value,
-        rhs: Value,
-        ty: Type,
-        arena: Allocator,
-        target: Target,
-    ) !Value {
-        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
-
-        if (ty.zigTypeTag() == .ComptimeInt) {
-            return intAdd(lhs, rhs, ty, arena, target);
-        }
-
-        if (ty.isAnyFloat()) {
-            return floatAdd(lhs, rhs, ty, arena, target);
-        }
-
-        const overflow_result = try intAddWithOverflow(lhs, rhs, ty, arena, target);
-        return overflow_result.wrapped_result;
-    }
-
-    fn fromBigInt(arena: Allocator, big_int: BigIntConst) !Value {
+    pub fn fromBigInt(arena: Allocator, big_int: BigIntConst) !Value {
         if (big_int.positive) {
             if (big_int.to(u64)) |x| {
                 return Value.Tag.int_u64.create(arena, x);
@@ -3080,72 +2976,6 @@ pub const Value = extern union {
         return fromBigInt(arena, result_bigint.toConst());
     }
 
-    pub fn intSubWithOverflow(
-        lhs: Value,
-        rhs: Value,
-        ty: Type,
-        arena: Allocator,
-        target: Target,
-    ) !OverflowArithmeticResult {
-        const info = ty.intInfo(target);
-
-        var lhs_space: Value.BigIntSpace = undefined;
-        var rhs_space: Value.BigIntSpace = undefined;
-        const lhs_bigint = lhs.toBigInt(&lhs_space, target);
-        const rhs_bigint = rhs.toBigInt(&rhs_space, target);
-        const limbs = try arena.alloc(
-            std.math.big.Limb,
-            std.math.big.int.calcTwosCompLimbCount(info.bits),
-        );
-        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
-        const overflowed = result_bigint.subWrap(lhs_bigint, rhs_bigint, info.signedness, info.bits);
-        const wrapped_result = try fromBigInt(arena, result_bigint.toConst());
-        return OverflowArithmeticResult{
-            .overflowed = overflowed,
-            .wrapped_result = wrapped_result,
-        };
-    }
-
-    /// Supports both (vectors of) floats and ints; handles undefined scalars.
-    pub fn numberSubWrap(
-        lhs: Value,
-        rhs: Value,
-        ty: Type,
-        arena: Allocator,
-        target: Target,
-    ) !Value {
-        if (ty.zigTypeTag() == .Vector) {
-            const result_data = try arena.alloc(Value, ty.vectorLen());
-            for (result_data) |*scalar, i| {
-                scalar.* = try numberSubWrapScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), ty.scalarType(), arena, target);
-            }
-            return Value.Tag.aggregate.create(arena, result_data);
-        }
-        return numberSubWrapScalar(lhs, rhs, ty, arena, target);
-    }
-
-    /// Supports both floats and ints; handles undefined.
-    pub fn numberSubWrapScalar(
-        lhs: Value,
-        rhs: Value,
-        ty: Type,
-        arena: Allocator,
-        target: Target,
-    ) !Value {
-        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
-
-        if (ty.zigTypeTag() == .ComptimeInt) {
-            return intSub(lhs, rhs, ty, arena, target);
-        }
-
-        if (ty.isAnyFloat()) {
-            return floatSub(lhs, rhs, ty, arena, target);
-        }
-
-        const overflow_result = try intSubWithOverflow(lhs, rhs, ty, arena, target);
-        return overflow_result.wrapped_result;
-    }
-
     /// Supports (vectors of) integers only; asserts neither operand is undefined.
     pub fn intSubSat(
         lhs: Value,
@@ -3197,6 +3027,29 @@ pub const Value = extern union {
         arena: Allocator,
         target: Target,
     ) !OverflowArithmeticResult {
+        if (ty.zigTypeTag() == .Vector) {
+            const overflowed_data = try arena.alloc(Value, ty.vectorLen());
+            const result_data = try arena.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                const of_math_result = try intMulWithOverflowScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), ty.scalarType(), arena, target);
+                overflowed_data[i] = of_math_result.overflowed;
+                scalar.* = of_math_result.wrapped_result;
+            }
+            return OverflowArithmeticResult{
+                .overflowed = try Value.Tag.aggregate.create(arena, overflowed_data),
+                .wrapped_result = try Value.Tag.aggregate.create(arena, result_data),
+            };
+        }
+        return intMulWithOverflowScalar(lhs, rhs, ty, arena, target);
+    }
+
+    pub fn intMulWithOverflowScalar(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        arena: Allocator,
+        target: Target,
+    ) !OverflowArithmeticResult {
         const info = ty.intInfo(target);
 
         var lhs_space: Value.BigIntSpace = undefined;
@@ -3220,7 +3073,7 @@ pub const Value = extern union {
         }
 
         return OverflowArithmeticResult{
-            .overflowed = overflowed,
+            .overflowed = makeBool(overflowed),
             .wrapped_result = try fromBigInt(arena, result_bigint.toConst()),
         };
     }
@@ -3361,7 +3214,6 @@ pub const Value = extern union {
         const info = ty.intInfo(target);
 
         if (info.bits == 0) {
-            assert(val.isZero()); // Sema should guarantee
             return val;
         }
 
@@ -3498,60 +3350,6 @@ pub const Value = extern union {
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.bitXor(lhs_bigint, rhs_bigint);
         return fromBigInt(arena, result_bigint.toConst());
-    }
-
-    pub fn intAdd(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, target: Target) !Value {
-        if (ty.zigTypeTag() == .Vector) {
-            const result_data = try allocator.alloc(Value, ty.vectorLen());
-            for (result_data) |*scalar, i| {
-                scalar.* = try intAddScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), allocator, target);
-            }
-            return Value.Tag.aggregate.create(allocator, result_data);
-        }
-        return intAddScalar(lhs, rhs, allocator, target);
-    }
-
-    pub fn intAddScalar(lhs: Value, rhs: Value, allocator: Allocator, target: Target) !Value {
-        // TODO is this a performance issue? maybe we should try the operation without
-        // resorting to BigInt first.
-        var lhs_space: Value.BigIntSpace = undefined;
-        var rhs_space: Value.BigIntSpace = undefined;
-        const lhs_bigint = lhs.toBigInt(&lhs_space, target);
-        const rhs_bigint = rhs.toBigInt(&rhs_space, target);
-        const limbs = try allocator.alloc(
-            std.math.big.Limb,
-            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
-        );
-        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
-        result_bigint.add(lhs_bigint, rhs_bigint);
-        return fromBigInt(allocator, result_bigint.toConst());
-    }
-
-    pub fn intSub(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, target: Target) !Value {
-        if (ty.zigTypeTag() == .Vector) {
-            const result_data = try allocator.alloc(Value, ty.vectorLen());
-            for (result_data) |*scalar, i| {
-                scalar.* = try intSubScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), allocator, target);
-            }
-            return Value.Tag.aggregate.create(allocator, result_data);
-        }
-        return intSubScalar(lhs, rhs, allocator, target);
-    }
-
-    pub fn intSubScalar(lhs: Value, rhs: Value, allocator: Allocator, target: Target) !Value {
-        // TODO is this a performance issue? maybe we should try the operation without
-        // resorting to BigInt first.
-        var lhs_space: Value.BigIntSpace = undefined;
-        var rhs_space: Value.BigIntSpace = undefined;
-        const lhs_bigint = lhs.toBigInt(&lhs_space, target);
-        const rhs_bigint = rhs.toBigInt(&rhs_space, target);
-        const limbs = try allocator.alloc(
-            std.math.big.Limb,
-            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
-        );
-        var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
-        result_bigint.sub(lhs_bigint, rhs_bigint);
-        return fromBigInt(allocator, result_bigint.toConst());
     }
 
     pub fn intDiv(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, target: Target) !Value {
@@ -3911,6 +3709,29 @@ pub const Value = extern union {
         allocator: Allocator,
         target: Target,
     ) !OverflowArithmeticResult {
+        if (ty.zigTypeTag() == .Vector) {
+            const overflowed_data = try allocator.alloc(Value, ty.vectorLen());
+            const result_data = try allocator.alloc(Value, ty.vectorLen());
+            for (result_data) |*scalar, i| {
+                const of_math_result = try shlWithOverflowScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), ty.scalarType(), allocator, target);
+                overflowed_data[i] = of_math_result.overflowed;
+                scalar.* = of_math_result.wrapped_result;
+            }
+            return OverflowArithmeticResult{
+                .overflowed = try Value.Tag.aggregate.create(allocator, overflowed_data),
+                .wrapped_result = try Value.Tag.aggregate.create(allocator, result_data),
+            };
+        }
+        return shlWithOverflowScalar(lhs, rhs, ty, allocator, target);
+    }
+
+    pub fn shlWithOverflowScalar(
+        lhs: Value,
+        rhs: Value,
+        ty: Type,
+        allocator: Allocator,
+        target: Target,
+    ) !OverflowArithmeticResult {
         const info = ty.intInfo(target);
         var lhs_space: Value.BigIntSpace = undefined;
         const lhs_bigint = lhs.toBigInt(&lhs_space, target);
@@ -3930,7 +3751,7 @@ pub const Value = extern union {
             result_bigint.truncate(result_bigint.toConst(), info.signedness, info.bits);
         }
         return OverflowArithmeticResult{
-            .overflowed = overflowed,
+            .overflowed = makeBool(overflowed),
             .wrapped_result = try fromBigInt(allocator, result_bigint.toConst()),
         };
     }
@@ -4045,114 +3866,6 @@ pub const Value = extern union {
         };
         result_bigint.shiftRight(lhs_bigint, shift);
         return fromBigInt(allocator, result_bigint.toConst());
-    }
-
-    pub fn floatAdd(
-        lhs: Value,
-        rhs: Value,
-        float_type: Type,
-        arena: Allocator,
-        target: Target,
-    ) !Value {
-        if (float_type.zigTypeTag() == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen());
-            for (result_data) |*scalar, i| {
-                scalar.* = try floatAddScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), float_type.scalarType(), arena, target);
-            }
-            return Value.Tag.aggregate.create(arena, result_data);
-        }
-        return floatAddScalar(lhs, rhs, float_type, arena, target);
-    }
-
-    pub fn floatAddScalar(
-        lhs: Value,
-        rhs: Value,
-        float_type: Type,
-        arena: Allocator,
-        target: Target,
-    ) !Value {
-        switch (float_type.floatBits(target)) {
-            16 => {
-                const lhs_val = lhs.toFloat(f16);
-                const rhs_val = rhs.toFloat(f16);
-                return Value.Tag.float_16.create(arena, lhs_val + rhs_val);
-            },
-            32 => {
-                const lhs_val = lhs.toFloat(f32);
-                const rhs_val = rhs.toFloat(f32);
-                return Value.Tag.float_32.create(arena, lhs_val + rhs_val);
-            },
-            64 => {
-                const lhs_val = lhs.toFloat(f64);
-                const rhs_val = rhs.toFloat(f64);
-                return Value.Tag.float_64.create(arena, lhs_val + rhs_val);
-            },
-            80 => {
-                const lhs_val = lhs.toFloat(f80);
-                const rhs_val = rhs.toFloat(f80);
-                return Value.Tag.float_80.create(arena, lhs_val + rhs_val);
-            },
-            128 => {
-                const lhs_val = lhs.toFloat(f128);
-                const rhs_val = rhs.toFloat(f128);
-                return Value.Tag.float_128.create(arena, lhs_val + rhs_val);
-            },
-            else => unreachable,
-        }
-    }
-
-    pub fn floatSub(
-        lhs: Value,
-        rhs: Value,
-        float_type: Type,
-        arena: Allocator,
-        target: Target,
-    ) !Value {
-        if (float_type.zigTypeTag() == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen());
-            for (result_data) |*scalar, i| {
-                scalar.* = try floatSubScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), float_type.scalarType(), arena, target);
-            }
-            return Value.Tag.aggregate.create(arena, result_data);
-        }
-        return floatSubScalar(lhs, rhs, float_type, arena, target);
-    }
-
-    pub fn floatSubScalar(
-        lhs: Value,
-        rhs: Value,
-        float_type: Type,
-        arena: Allocator,
-        target: Target,
-    ) !Value {
-        switch (float_type.floatBits(target)) {
-            16 => {
-                const lhs_val = lhs.toFloat(f16);
-                const rhs_val = rhs.toFloat(f16);
-                return Value.Tag.float_16.create(arena, lhs_val - rhs_val);
-            },
-            32 => {
-                const lhs_val = lhs.toFloat(f32);
-                const rhs_val = rhs.toFloat(f32);
-                return Value.Tag.float_32.create(arena, lhs_val - rhs_val);
-            },
-            64 => {
-                const lhs_val = lhs.toFloat(f64);
-                const rhs_val = rhs.toFloat(f64);
-                return Value.Tag.float_64.create(arena, lhs_val - rhs_val);
-            },
-            80 => {
-                const lhs_val = lhs.toFloat(f80);
-                const rhs_val = rhs.toFloat(f80);
-                return Value.Tag.float_80.create(arena, lhs_val - rhs_val);
-            },
-            128 => {
-                const lhs_val = lhs.toFloat(f128);
-                const rhs_val = rhs.toFloat(f128);
-                return Value.Tag.float_128.create(arena, lhs_val - rhs_val);
-            },
-            else => unreachable,
-        }
     }
 
     pub fn floatNeg(
@@ -5067,6 +4780,14 @@ pub const Value = extern union {
             },
         };
 
+        pub const ComptimeFieldPtr = struct {
+            base: Payload,
+            data: struct {
+                field_val: Value,
+                field_ty: Type,
+            },
+        };
+
         pub const ElemPtr = struct {
             pub const base_tag = Tag.elem_ptr;
 
@@ -5093,6 +4814,11 @@ pub const Value = extern union {
             base: Payload,
             /// Includes the sentinel, if any.
             data: []const u8,
+        };
+
+        pub const StrLit = struct {
+            base: Payload,
+            data: Module.StringLiteralContext.Key,
         };
 
         pub const Aggregate = struct {
@@ -5184,7 +4910,7 @@ pub const Value = extern union {
                 /// `Module.resolvePeerTypes`.
                 stored_inst_list: std.ArrayListUnmanaged(Air.Inst.Ref) = .{},
                 /// 0 means ABI-aligned.
-                alignment: u16,
+                alignment: u32,
             },
         };
 
@@ -5195,7 +4921,7 @@ pub const Value = extern union {
             data: struct {
                 decl_index: Module.Decl.Index,
                 /// 0 means ABI-aligned.
-                alignment: u16,
+                alignment: u32,
             },
         };
 

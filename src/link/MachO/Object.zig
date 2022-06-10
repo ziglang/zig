@@ -504,7 +504,7 @@ pub fn parseIntoAtoms(self: *Object, allocator: Allocator, macho_file: *MachO) !
 
             for (dices) |dice| {
                 atom.dices.appendAssumeCapacity(.{
-                    .offset = dice.offset - try math.cast(u32, sect.addr),
+                    .offset = dice.offset - (math.cast(u32, sect.addr) orelse return error.Overflow),
                     .length = dice.length,
                     .kind = dice.kind,
                 });

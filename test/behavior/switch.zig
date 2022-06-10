@@ -5,7 +5,6 @@ const expectError = std.testing.expectError;
 const expectEqual = std.testing.expectEqual;
 
 test "switch with numbers" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try testSwitchWithNumbers(13);
@@ -21,7 +20,6 @@ fn testSwitchWithNumbers(x: u32) !void {
 }
 
 test "switch with all ranges" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try expect(testSwitchWithAllRanges(50, 3) == 1);
@@ -176,7 +174,6 @@ test "undefined.u0" {
 }
 
 test "switch with disjoint range" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     var q: u8 = 0;
@@ -397,7 +394,6 @@ fn switchWithUnreachable(x: i32) i32 {
 }
 
 test "capture value of switch with all unreachable prongs" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const x = return_a_number() catch |err| switch (err) {
@@ -412,7 +408,6 @@ fn return_a_number() anyerror!i32 {
 
 test "switch on integer with else capturing expr" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -658,7 +653,6 @@ test "switch capture copies its payload" {
 }
 
 test "capture of integer forwards the switch condition directly" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {

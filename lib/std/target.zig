@@ -269,19 +269,18 @@ pub const Target = struct {
                     .macos => return switch (arch) {
                         .aarch64 => VersionRange{
                             .semver = .{
-                                .min = .{ .major = 11, .minor = 6 },
-                                .max = .{ .major = 12, .minor = 0 },
+                                .min = .{ .major = 11, .minor = 6, .patch = 6 },
+                                .max = .{ .major = 12, .minor = 4 },
                             },
                         },
                         .x86_64 => VersionRange{
                             .semver = .{
-                                .min = .{ .major = 10, .minor = 13 },
-                                .max = .{ .major = 12, .minor = 0 },
+                                .min = .{ .major = 10, .minor = 15, .patch = 7 },
+                                .max = .{ .major = 12, .minor = 4 },
                             },
                         },
                         else => unreachable,
                     },
-
                     .ios => return .{
                         .semver = .{
                             .min = .{ .major = 12, .minor = 0 },
@@ -510,11 +509,7 @@ pub const Target = struct {
                 .other,
                 => return .eabi,
                 .openbsd,
-                .macos,
                 .freebsd,
-                .ios,
-                .tvos,
-                .watchos,
                 .fuchsia,
                 .kfreebsd,
                 .netbsd,
@@ -531,6 +526,10 @@ pub const Target = struct {
                 .glsl450,
                 .vulkan,
                 .plan9, // TODO specify abi
+                .macos,
+                .ios,
+                .tvos,
+                .watchos,
                 => return .none,
             }
         }

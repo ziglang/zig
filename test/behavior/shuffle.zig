@@ -44,7 +44,7 @@ test "@shuffle int" {
     comptime try S.doTheTest();
 }
 
-test "@shuffle bool" {
+test "@shuffle bool 1" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -60,11 +60,11 @@ test "@shuffle bool" {
             try expect(mem.eql(bool, &@as([4]bool, res), &[4]bool{ false, false, true, false }));
         }
     };
-    if (builtin.zig_backend == .stage1) try S.doTheTest();
+    try S.doTheTest();
     comptime try S.doTheTest();
 }
 
-test "@shuffle bool" {
+test "@shuffle bool 2" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO

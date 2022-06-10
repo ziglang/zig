@@ -239,6 +239,9 @@ pub const Value = opaque {
 
     pub const getAlignment = LLVMGetAlignment;
     extern fn LLVMGetAlignment(V: *const Value) c_uint;
+
+    pub const addFunctionAttr = ZigLLVMAddFunctionAttr;
+    extern fn ZigLLVMAddFunctionAttr(Fn: *const Value, attr_name: [*:0]const u8, attr_value: [*:0]const u8) void;
 };
 
 pub const Type = opaque {
@@ -1019,6 +1022,9 @@ pub const TargetMachine = opaque {
 pub const TargetData = opaque {
     pub const dispose = LLVMDisposeTargetData;
     extern fn LLVMDisposeTargetData(*const TargetData) void;
+
+    pub const abiAlignmentOfType = LLVMABIAlignmentOfType;
+    extern fn LLVMABIAlignmentOfType(TD: *const TargetData, Ty: *const Type) c_uint;
 };
 
 pub const CodeModel = enum(c_int) {

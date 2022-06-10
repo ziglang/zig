@@ -284,7 +284,7 @@ pub const ChildProcess = struct {
             const next_buf = buf.unusedCapacitySlice();
             if (next_buf.len == 0) return .full;
             var read_bytes: u32 = undefined;
-            const read_result = windows.kernel32.ReadFile(handle, next_buf.ptr, math.cast(u32, next_buf.len) catch maxInt(u32), &read_bytes, overlapped);
+            const read_result = windows.kernel32.ReadFile(handle, next_buf.ptr, math.cast(u32, next_buf.len) orelse maxInt(u32), &read_bytes, overlapped);
             if (read_result == 0) return switch (windows.kernel32.GetLastError()) {
                 .IO_PENDING => .pending,
                 .BROKEN_PIPE => .closed,
@@ -1321,93 +1321,5 @@ test "createNullDelimitedEnvMap" {
         } else {
             try testing.expect(false); // Environment variable not found
         }
-    }
-}
-
-const childstr =
-    \\ const std = @import("std");
-    \\ const builtin = @import("builtin");
-    \\ pub fn main() !void {
-    \\     var it = try std.process.argsWithAllocator(std.testing.allocator);
-    \\     defer it.deinit(); // no-op unless WASI or Windows
-    \\     _ = it.next() orelse unreachable; // skip binary name
-    \\     const input = it.next() orelse unreachable;
-    \\     var expect_helloworld = "hello world".*;
-    \\     try std.testing.expect(std.mem.eql(u8, &expect_helloworld, input));
-    \\     try std.testing.expect(it.next() == null);
-    \\     try std.testing.expect(!it.skip());
-    \\ }
-;
-
-test "build and call child_process" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-    const testing = std.testing;
-    const allocator = testing.allocator;
-
-    var it = try std.process.argsWithAllocator(allocator);
-    defer it.deinit(); // no-op unless WASI or Windows
-    const testargs = try testing.getTestArgs(&it);
-
-    var tmp = testing.tmpDir(.{ .no_follow = true }); // ie zig-cache/tmp/8DLgoSEqz593PAEE
-    defer tmp.cleanup();
-    const tmpdirpath = try tmp.getFullPath(allocator);
-    defer allocator.free(tmpdirpath);
-    const child_name = "child"; // no need for suffixes (.exe, .wasm) due to '-femit-bin'
-    const suffix_zig = ".zig";
-    const child_path = try fs.path.join(allocator, &[_][]const u8{ tmpdirpath, child_name });
-    defer allocator.free(child_path);
-    const child_zig = try mem.concat(allocator, u8, &[_][]const u8{ child_path, suffix_zig });
-    defer allocator.free(child_zig);
-
-    try tmp.dir.writeFile("child.zig", childstr);
-    try testing.buildExe(testargs.zigexec, child_zig, child_path);
-
-    // spawn compiled file as child_process with argument 'hello world' + expect success
-    const args = [_][]const u8{ child_path, "hello world" };
-    var child_proc = ChildProcess.init(&args, allocator);
-    const ret_val = try child_proc.spawnAndWait();
-    try testing.expectEqual(ret_val, .{ .Exited = 0 });
-}
-
-test "creating a child process with stdin and stdout behavior set to StdIo.Pipe" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-    const testing = std.testing;
-    const allocator = testing.allocator;
-
-    var child_process = std.ChildProcess.init(
-        &[_][]const u8{ testing.zig_exe_path, "fmt", "--stdin" },
-        allocator,
-    );
-    child_process.stdin_behavior = .Pipe;
-    child_process.stdout_behavior = .Pipe;
-
-    try child_process.spawn();
-
-    const input_program =
-        \\ const std = @import("std");
-        \\ pub fn main() void {
-        \\ std.debug.print("Hello World", .{});
-        \\ }
-    ;
-
-    try child_process.stdin.?.writer().writeAll(input_program);
-    child_process.stdin.?.close();
-    child_process.stdin = null;
-
-    const out_bytes = try child_process.stdout.?.reader().readAllAlloc(allocator, std.math.maxInt(usize));
-    defer allocator.free(out_bytes);
-
-    switch (try child_process.wait()) {
-        .Exited => |code| if (code == 0) {
-            const expected_program =
-                \\const std = @import("std");
-                \\pub fn main() void {
-                \\    std.debug.print("Hello World", .{});
-                \\}
-                \\
-            ;
-            try testing.expectEqualStrings(expected_program, out_bytes);
-        },
-        else => unreachable,
     }
 }

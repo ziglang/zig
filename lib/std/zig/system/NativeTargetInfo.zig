@@ -657,9 +657,7 @@ pub fn abiAndDynamicLinkerFromFile(
                 const strtab_read_len = try preadMin(file, &strtab_buf, ds.offset, strtab_len);
                 const strtab = strtab_buf[0..strtab_read_len];
                 // TODO this pointer cast should not be necessary
-                const rpoff_usize = std.math.cast(usize, rpoff) catch |err| switch (err) {
-                    error.Overflow => return error.InvalidElfFile,
-                };
+                const rpoff_usize = std.math.cast(usize, rpoff) orelse return error.InvalidElfFile;
                 const rpath_list = mem.sliceTo(std.meta.assumeSentinel(strtab[rpoff_usize..].ptr, 0), 0);
                 var it = mem.tokenize(u8, rpath_list, ":");
                 while (it.next()) |rpath| {

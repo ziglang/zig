@@ -114,8 +114,6 @@ const Writer = struct {
             .div_exact,
             .rem,
             .mod,
-            .ptr_add,
-            .ptr_sub,
             .bit_and,
             .bit_or,
             .xor,
@@ -170,6 +168,7 @@ const Writer = struct {
             .round,
             .trunc_float,
             .cmp_lt_errors_len,
+            .set_err_return_trace,
             => try w.writeUnOp(s, inst),
 
             .breakpoint,
@@ -182,6 +181,7 @@ const Writer = struct {
             .alloc,
             .ret_ptr,
             .arg,
+            .err_return_trace,
             => try w.writeTy(s, inst),
 
             .not,
@@ -229,6 +229,12 @@ const Writer = struct {
             .slice,
             .slice_elem_ptr,
             .ptr_elem_ptr,
+            .ptr_add,
+            .ptr_sub,
+            .add_with_overflow,
+            .sub_with_overflow,
+            .mul_with_overflow,
+            .shl_with_overflow,
             => try w.writeTyPlBin(s, inst),
 
             .call,
@@ -252,6 +258,8 @@ const Writer = struct {
             .union_init => try w.writeUnionInit(s, inst),
             .br => try w.writeBr(s, inst),
             .cond_br => try w.writeCondBr(s, inst),
+            .@"try" => try w.writeTry(s, inst),
+            .try_ptr => try w.writeTryPtr(s, inst),
             .switch_br => try w.writeSwitchBr(s, inst),
             .cmpxchg_weak, .cmpxchg_strong => try w.writeCmpxchg(s, inst),
             .fence => try w.writeFence(s, inst),
@@ -272,12 +280,6 @@ const Writer = struct {
             .shuffle => try w.writeShuffle(s, inst),
             .reduce => try w.writeReduce(s, inst),
             .cmp_vector => try w.writeCmpVector(s, inst),
-
-            .add_with_overflow,
-            .sub_with_overflow,
-            .mul_with_overflow,
-            .shl_with_overflow,
-            => try w.writeOverflow(s, inst),
 
             .dbg_block_begin, .dbg_block_end => {},
         }
@@ -476,15 +478,6 @@ const Writer = struct {
         try s.print(", {s}, {s}", .{ @tagName(extra.op()), @tagName(extra.ordering()) });
     }
 
-    fn writeOverflow(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
-        const extra = w.air.extraData(Air.Bin, ty_pl.payload).data;
-
-        try w.writeOperand(s, inst, 0, extra.lhs);
-        try s.writeAll(", ");
-        try w.writeOperand(s, inst, 1, extra.rhs);
-    }
-
     fn writeMemset(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const pl_op = w.air.instructions.items(.data)[inst].pl_op;
         const extra = w.air.extraData(Air.Bin, pl_op.payload).data;
@@ -631,6 +624,36 @@ const Writer = struct {
         try w.writeInstIndex(s, br.block_inst, false);
         try s.writeAll(", ");
         try w.writeOperand(s, inst, 0, br.operand);
+    }
+
+    fn writeTry(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const pl_op = w.air.instructions.items(.data)[inst].pl_op;
+        const extra = w.air.extraData(Air.Try, pl_op.payload);
+        const body = w.air.extra[extra.end..][0..extra.data.body_len];
+
+        try w.writeOperand(s, inst, 0, pl_op.operand);
+        try s.writeAll(", {\n");
+        const old_indent = w.indent;
+        w.indent += 2;
+        try w.writeBody(s, body);
+        w.indent = old_indent;
+        try s.writeByteNTimes(' ', w.indent);
+        try s.writeAll("}");
+    }
+
+    fn writeTryPtr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
+        const extra = w.air.extraData(Air.TryPtr, ty_pl.payload);
+        const body = w.air.extra[extra.end..][0..extra.data.body_len];
+
+        try w.writeOperand(s, inst, 0, extra.data.ptr);
+        try s.print(", {}, {{\n", .{w.air.getRefType(ty_pl.ty).fmtDebug()});
+        const old_indent = w.indent;
+        w.indent += 2;
+        try w.writeBody(s, body);
+        w.indent = old_indent;
+        try s.writeByteNTimes(' ', w.indent);
+        try s.writeAll("}");
     }
 
     fn writeCondBr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

@@ -882,6 +882,7 @@ test "extern union doesn't trigger field check at comptime" {
 test "anonymous union literal syntax" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     const S = struct {
         const Number = union {
@@ -1110,7 +1111,6 @@ test "union enum type gets a separate scope" {
 test "global variable struct contains union initialized to non-most-aligned field" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const T = struct {
         const U = union(enum) {

@@ -70,6 +70,17 @@ import_table: std.StringArrayHashMapUnmanaged(*File) = .{},
 /// Keys are fully resolved file paths. This table owns the keys and values.
 embed_table: std.StringHashMapUnmanaged(*EmbedFile) = .{},
 
+/// This is a temporary addition to stage2 in order to match stage1 behavior,
+/// however the end-game once the lang spec is settled will be to use a global
+/// InternPool for comptime memoized objects, making this behavior consistent across all types,
+/// not only string literals. Or, we might decide to not guarantee string literals
+/// to have equal comptime pointers, in which case this field can be deleted (perhaps
+/// the commit that introduced it can simply be reverted).
+/// This table uses an optional index so that when a Decl is destroyed, the string literal
+/// is still reclaimable by a future Decl.
+string_literal_table: std.HashMapUnmanaged(StringLiteralContext.Key, Decl.OptionalIndex, StringLiteralContext, std.hash_map.default_max_load_percentage) = .{},
+string_literal_bytes: std.ArrayListUnmanaged(u8) = .{},
+
 /// The set of all the generic function instantiations. This is used so that when a generic
 /// function is called twice with the same comptime parameter arguments, both calls dispatch
 /// to the same function.
@@ -156,6 +167,39 @@ allocated_decls: std.SegmentedList(Decl, 0) = .{},
 decls_free_list: std.ArrayListUnmanaged(Decl.Index) = .{},
 
 global_assembly: std.AutoHashMapUnmanaged(Decl.Index, []u8) = .{},
+
+pub const StringLiteralContext = struct {
+    bytes: *std.ArrayListUnmanaged(u8),
+
+    pub const Key = struct {
+        index: u32,
+        len: u32,
+    };
+
+    pub fn eql(self: @This(), a: Key, b: Key) bool {
+        _ = self;
+        return a.index == b.index and a.len == b.len;
+    }
+
+    pub fn hash(self: @This(), x: Key) u64 {
+        const x_slice = self.bytes.items[x.index..][0..x.len];
+        return std.hash_map.hashString(x_slice);
+    }
+};
+
+pub const StringLiteralAdapter = struct {
+    bytes: *std.ArrayListUnmanaged(u8),
+
+    pub fn eql(self: @This(), a_slice: []const u8, b: StringLiteralContext.Key) bool {
+        const b_slice = self.bytes.items[b.index..][0..b.len];
+        return mem.eql(u8, a_slice, b_slice);
+    }
+
+    pub fn hash(self: @This(), adapted_key: []const u8) u64 {
+        _ = self;
+        return std.hash_map.hashString(adapted_key);
+    }
+};
 
 const MonomorphedFuncsSet = std.HashMapUnmanaged(
     *Fn,
@@ -507,7 +551,8 @@ pub const Decl = struct {
         decl.name = undefined;
     }
 
-    pub fn clearValues(decl: *Decl, gpa: Allocator) void {
+    pub fn clearValues(decl: *Decl, mod: *Module) void {
+        const gpa = mod.gpa;
         if (decl.getExternFn()) |extern_fn| {
             extern_fn.deinit(gpa);
             gpa.destroy(extern_fn);
@@ -521,6 +566,13 @@ pub const Decl = struct {
             gpa.destroy(variable);
         }
         if (decl.value_arena) |arena_state| {
+            if (decl.owns_tv) {
+                if (decl.val.castTag(.str_lit)) |str_lit| {
+                    mod.string_literal_table.getPtrContext(str_lit.data, .{
+                        .bytes = &mod.string_literal_bytes,
+                    }).?.* = .none;
+                }
+            }
             arena_state.promote(gpa).deinit();
             decl.value_arena = null;
             decl.has_tv = false;
@@ -607,7 +659,7 @@ pub const Decl = struct {
     }
 
     pub fn nodeSrcLoc(decl: Decl, node_index: Ast.Node.Index) LazySrcLoc {
-        return .{ .node_offset = decl.nodeIndexToRelative(node_index) };
+        return LazySrcLoc.nodeOffset(decl.nodeIndexToRelative(node_index));
     }
 
     pub fn srcLoc(decl: Decl) SrcLoc {
@@ -618,7 +670,7 @@ pub const Decl = struct {
         return .{
             .file_scope = decl.getFileScope(),
             .parent_decl_node = decl.src_node,
-            .lazy = .{ .node_offset = node_offset },
+            .lazy = LazySrcLoc.nodeOffset(node_offset),
         };
     }
 
@@ -809,7 +861,7 @@ pub const ErrorSet = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = .{ .node_offset = self.node_offset },
+            .lazy = LazySrcLoc.nodeOffset(self.node_offset),
         };
     }
 
@@ -895,7 +947,7 @@ pub const Struct = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = .{ .node_offset = s.node_offset },
+            .lazy = LazySrcLoc.nodeOffset(s.node_offset),
         };
     }
 
@@ -1014,7 +1066,7 @@ pub const EnumSimple = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = .{ .node_offset = self.node_offset },
+            .lazy = LazySrcLoc.nodeOffset(self.node_offset),
         };
     }
 };
@@ -1045,7 +1097,7 @@ pub const EnumNumbered = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = .{ .node_offset = self.node_offset },
+            .lazy = LazySrcLoc.nodeOffset(self.node_offset),
         };
     }
 };
@@ -1079,7 +1131,7 @@ pub const EnumFull = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = .{ .node_offset = self.node_offset },
+            .lazy = LazySrcLoc.nodeOffset(self.node_offset),
         };
     }
 };
@@ -1145,7 +1197,7 @@ pub const Union = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = .{ .node_offset = self.node_offset },
+            .lazy = LazySrcLoc.nodeOffset(self.node_offset),
         };
     }
 
@@ -1352,7 +1404,7 @@ pub const Opaque = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = .{ .node_offset = self.node_offset },
+            .lazy = LazySrcLoc.nodeOffset(self.node_offset),
         };
     }
 
@@ -1424,9 +1476,14 @@ pub const Fn = struct {
     lbrace_column: u16,
     rbrace_column: u16,
 
+    /// When a generic function is instantiated, this value is inherited from the
+    /// active Sema context. Importantly, this value is also updated when an existing
+    /// generic function instantiation is found and called.
+    branch_quota: u32,
     state: Analysis,
     is_cold: bool = false,
     is_noinline: bool = false,
+    calls_or_awaits_errorable_fn: bool = false,
 
     /// Any inferred error sets that this function owns, both its own inferred error set and
     /// inferred error sets of any inline/comptime functions called. Not to be confused
@@ -1538,9 +1595,9 @@ pub const Fn = struct {
         switch (zir_tags[func.zir_body_inst]) {
             .func => return false,
             .func_inferred => return true,
-            .func_extended => {
+            .func_fancy => {
                 const inst_data = zir.instructions.items(.data)[func.zir_body_inst].pl_node;
-                const extra = zir.extraData(Zir.Inst.ExtendedFunc, inst_data.payload_index);
+                const extra = zir.extraData(Zir.Inst.FuncFancy, inst_data.payload_index);
                 return extra.data.bits.is_inferred_error;
             },
             else => unreachable,
@@ -2048,7 +2105,17 @@ pub const SrcLoc = struct {
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
-            .node_offset, .node_offset_bin_op => |node_off| {
+            .node_offset => |traced_off| {
+                const node_off = traced_off.x;
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
+                assert(src_loc.file_scope.tree_loaded);
+                const main_tokens = tree.nodes.items(.main_token);
+                const tok_index = main_tokens[node];
+                const token_starts = tree.tokens.items(.start);
+                return token_starts[tok_index];
+            },
+            .node_offset_bin_op => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 assert(src_loc.file_scope.tree_loaded);
@@ -2458,6 +2525,15 @@ pub const SrcLoc = struct {
     }
 };
 
+/// This wraps a simple integer in debug builds so that later on we can find out
+/// where in semantic analysis the value got set.
+const TracedOffset = struct {
+    x: i32,
+    trace: std.debug.Trace = .{},
+
+    const want_tracing = build_options.value_tracing;
+};
+
 /// Resolving a source location into a byte offset may require doing work
 /// that we would rather not do unless the error actually occurs.
 /// Therefore we need a data structure that contains the information necessary
@@ -2498,7 +2574,7 @@ pub const LazySrcLoc = union(enum) {
     /// The source location points to an AST node, which is this value offset
     /// from its containing Decl node AST index.
     /// The Decl is determined contextually.
-    node_offset: i32,
+    node_offset: TracedOffset,
     /// The source location points to two tokens left of the first token of an AST node,
     /// which is this value offset from its containing Decl node AST index.
     /// The Decl is determined contextually.
@@ -2647,6 +2723,18 @@ pub const LazySrcLoc = union(enum) {
     /// to the elem expression.
     /// The Decl is determined contextually.
     node_offset_array_type_elem: i32,
+
+    pub const nodeOffset = if (TracedOffset.want_tracing) nodeOffsetDebug else nodeOffsetRelease;
+
+    noinline fn nodeOffsetDebug(node_offset: i32) LazySrcLoc {
+        var result: LazySrcLoc = .{ .node_offset = .{ .x = node_offset } };
+        result.node_offset.trace.addAddr(@returnAddress(), "init");
+        return result;
+    }
+
+    fn nodeOffsetRelease(node_offset: i32) LazySrcLoc {
+        return .{ .node_offset = .{ .x = node_offset } };
+    }
 
     /// Upgrade to a `SrcLoc` based on the `Decl` provided.
     pub fn toSrcLoc(lazy: LazySrcLoc, decl: *Decl) SrcLoc {
@@ -2838,6 +2926,9 @@ pub fn deinit(mod: *Module) void {
     mod.decls_free_list.deinit(gpa);
     mod.allocated_decls.deinit(gpa);
     mod.global_assembly.deinit(gpa);
+
+    mod.string_literal_table.deinit(gpa);
+    mod.string_literal_bytes.deinit(gpa);
 }
 
 pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
@@ -2856,7 +2947,7 @@ pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
             if (decl.getInnerNamespace()) |namespace| {
                 namespace.destroyDecls(mod);
             }
-            decl.clearValues(gpa);
+            decl.clearValues(mod);
         }
         decl.dependants.deinit(gpa);
         decl.dependencies.deinit(gpa);
@@ -3954,9 +4045,9 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     const body = zir.extra[extra.end..][0..extra.data.body_len];
     const result_ref = (try sema.analyzeBodyBreak(&block_scope, body)).?.operand;
     try wip_captures.finalize();
-    const src: LazySrcLoc = .{ .node_offset = 0 };
+    const src = LazySrcLoc.nodeOffset(0);
     const decl_tv = try sema.resolveInstValue(&block_scope, src, result_ref);
-    const decl_align: u16 = blk: {
+    const decl_align: u32 = blk: {
         const align_ref = decl.zirAlignRef();
         if (align_ref == .none) break :blk 0;
         break :blk try sema.resolveAlign(&block_scope, src, align_ref);
@@ -4033,7 +4124,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
                 if (decl.getFunction()) |prev_func| {
                     prev_is_inline = prev_func.state == .inline_only;
                 }
-                decl.clearValues(gpa);
+                decl.clearValues(mod);
             }
 
             decl.ty = try decl_tv.ty.copy(decl_arena_allocator);
@@ -4079,7 +4170,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     var type_changed = true;
     if (decl.has_tv) {
         type_changed = !decl.ty.eql(decl_tv.ty, mod);
-        decl.clearValues(gpa);
+        decl.clearValues(mod);
     }
 
     decl.owns_tv = false;
@@ -4335,7 +4426,7 @@ pub fn embedFile(mod: *Module, cur_file: *File, rel_file_path: []const u8) !*Emb
         .inode = actual_stat.inode,
         .mtime = actual_stat.mtime,
     };
-    const size_usize = try std.math.cast(usize, actual_stat.size);
+    const size_usize = std.math.cast(usize, actual_stat.size) orelse return error.Overflow;
     const bytes = try file.readToEndAllocOptions(gpa, std.math.maxInt(u32), size_usize, 1, 0);
     errdefer gpa.free(bytes);
 
@@ -4375,7 +4466,7 @@ pub fn detectEmbedFileUpdate(mod: *Module, embed_file: *EmbedFile) !void {
     if (unchanged_metadata) return;
 
     const gpa = mod.gpa;
-    const size_usize = try std.math.cast(usize, stat.size);
+    const size_usize = std.math.cast(usize, stat.size) orelse return error.Overflow;
     const bytes = try file.readToEndAllocOptions(gpa, std.math.maxInt(u32), size_usize, 1, 0);
     gpa.free(embed_file.bytes);
     embed_file.bytes = bytes;
@@ -4693,7 +4784,7 @@ pub fn clearDecl(
         if (decl.getInnerNamespace()) |namespace| {
             try namespace.deleteAllDecls(mod, outdated_decls);
         }
-        decl.clearValues(gpa);
+        decl.clearValues(mod);
     }
 
     if (decl.deletion_flag) {
@@ -4835,8 +4926,12 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
         .func = func,
         .fn_ret_ty = decl.ty.fnReturnType(),
         .owner_func = func,
+        .branch_quota = @maximum(func.branch_quota, Sema.default_branch_quota),
     };
     defer sema.deinit();
+
+    // reset in case calls to errorable functions are removed.
+    func.calls_or_awaits_errorable_fn = false;
 
     // First few indexes of extra are reserved and set at the end.
     const reserved_count = @typeInfo(Air.ExtraIndex).Enum.fields.len;
@@ -4936,6 +5031,8 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
     func.state = .in_progress;
     log.debug("set {s} to in_progress", .{decl.name});
 
+    const last_arg_index = inner_block.instructions.items.len;
+
     sema.analyzeBody(&inner_block, fn_info.body) catch |err| switch (err) {
         // TODO make these unreachable instead of @panic
         error.NeededSourceLocation => @panic("zig compiler bug: NeededSourceLocation"),
@@ -4943,6 +5040,21 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
         error.ComptimeReturn => @panic("zig compiler bug: ComptimeReturn"),
         else => |e| return e,
     };
+
+    // If we don't get an error return trace from a caller, create our own.
+    if (func.calls_or_awaits_errorable_fn and
+        mod.comp.bin_file.options.error_return_tracing and
+        !sema.fn_ret_ty.isError())
+    {
+        sema.setupErrorReturnTrace(&inner_block, last_arg_index) catch |err| switch (err) {
+            // TODO make these unreachable instead of @panic
+            error.NeededSourceLocation => @panic("zig compiler bug: NeededSourceLocation"),
+            error.GenericPoison => @panic("zig compiler bug: GenericPoison"),
+            error.ComptimeReturn => @panic("zig compiler bug: ComptimeReturn"),
+            error.ComptimeBreak => @panic("zig compiler bug: ComptimeBreak"),
+            else => |e| return e,
+        };
+    }
 
     try wip_captures.finalize();
 
@@ -4963,7 +5075,7 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
     // Crucially, this happens *after* we set the function state to success above,
     // so that dependencies on the function body will now be satisfied rather than
     // result in circular dependency errors.
-    const src: LazySrcLoc = .{ .node_offset = 0 };
+    const src = LazySrcLoc.nodeOffset(0);
     sema.resolveFnTypes(&inner_block, src, fn_ty_info) catch |err| switch (err) {
         error.NeededSourceLocation => unreachable,
         error.GenericPoison => unreachable,
@@ -5257,7 +5369,7 @@ pub const SwitchProngSrc = union(enum) {
             log.warn("unable to load {s}: {s}", .{
                 decl.getFileScope().sub_file_path, @errorName(err),
             });
-            return LazySrcLoc{ .node_offset = 0 };
+            return LazySrcLoc.nodeOffset(0);
         };
         const switch_node = decl.relativeToNodeIndex(switch_node_offset);
         const main_tokens = tree.nodes.items(.main_token);
@@ -5286,17 +5398,17 @@ pub const SwitchProngSrc = union(enum) {
                 node_tags[case.ast.values[0]] == .switch_range;
 
             switch (prong_src) {
-                .scalar => |i| if (!is_multi and i == scalar_i) return LazySrcLoc{
-                    .node_offset = decl.nodeIndexToRelative(case.ast.values[0]),
-                },
+                .scalar => |i| if (!is_multi and i == scalar_i) return LazySrcLoc.nodeOffset(
+                    decl.nodeIndexToRelative(case.ast.values[0]),
+                ),
                 .multi => |s| if (is_multi and s.prong == multi_i) {
                     var item_i: u32 = 0;
                     for (case.ast.values) |item_node| {
                         if (node_tags[item_node] == .switch_range) continue;
 
-                        if (item_i == s.item) return LazySrcLoc{
-                            .node_offset = decl.nodeIndexToRelative(item_node),
-                        };
+                        if (item_i == s.item) return LazySrcLoc.nodeOffset(
+                            decl.nodeIndexToRelative(item_node),
+                        );
                         item_i += 1;
                     } else unreachable;
                 },
@@ -5306,15 +5418,15 @@ pub const SwitchProngSrc = union(enum) {
                         if (node_tags[range] != .switch_range) continue;
 
                         if (range_i == s.item) switch (range_expand) {
-                            .none => return LazySrcLoc{
-                                .node_offset = decl.nodeIndexToRelative(range),
-                            },
-                            .first => return LazySrcLoc{
-                                .node_offset = decl.nodeIndexToRelative(node_datas[range].lhs),
-                            },
-                            .last => return LazySrcLoc{
-                                .node_offset = decl.nodeIndexToRelative(node_datas[range].rhs),
-                            },
+                            .none => return LazySrcLoc.nodeOffset(
+                                decl.nodeIndexToRelative(range),
+                            ),
+                            .first => return LazySrcLoc.nodeOffset(
+                                decl.nodeIndexToRelative(node_datas[range].lhs),
+                            ),
+                            .last => return LazySrcLoc.nodeOffset(
+                                decl.nodeIndexToRelative(node_datas[range].rhs),
+                            ),
                         };
                         range_i += 1;
                     } else unreachable;
@@ -5369,7 +5481,7 @@ pub const PeerTypeCandidateSrc = union(enum) {
                     log.warn("unable to load {s}: {s}", .{
                         decl.getFileScope().sub_file_path, @errorName(err),
                     });
-                    return LazySrcLoc{ .node_offset = 0 };
+                    return LazySrcLoc.nodeOffset(0);
                 };
                 const node = decl.relativeToNodeIndex(node_offset);
                 const node_datas = tree.nodes.items(.data);
@@ -5602,7 +5714,7 @@ pub fn populateTestFunctions(mod: *Module) !void {
 
         // Since we are replacing the Decl's value we must perform cleanup on the
         // previous value.
-        decl.clearValues(gpa);
+        decl.clearValues(mod);
         decl.ty = new_ty;
         decl.val = new_val;
         decl.has_tv = true;

@@ -83,7 +83,7 @@ pub const Id = struct {
             switch (version) {
                 .int => |int| {
                     var out: u32 = 0;
-                    const major = try math.cast(u16, int);
+                    const major = math.cast(u16, int) orelse return error.Overflow;
                     out += @intCast(u32, major) << 16;
                     return out;
                 },
@@ -303,8 +303,9 @@ const TargetMatcher = struct {
         };
         const os = @tagName(target.os.tag);
         const abi: ?[]const u8 = switch (target.abi) {
-            .gnu => null,
+            .none => null,
             .simulator => "simulator",
+            .macabi => "maccatalyst",
             else => unreachable,
         };
         if (abi) |x| {

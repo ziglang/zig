@@ -385,7 +385,7 @@ pub const Builder = struct {
     pub fn dupePkg(self: *Builder, package: Pkg) Pkg {
         var the_copy = Pkg{
             .name = self.dupe(package.name),
-            .path = package.path.dupe(self),
+            .source = package.source.dupe(self),
         };
 
         if (package.dependencies) |dependencies| {
@@ -1353,7 +1353,7 @@ pub const Target = @compileError("deprecated; Use `std.zig.CrossTarget`");
 
 pub const Pkg = struct {
     name: []const u8,
-    path: FileSource,
+    source: FileSource,
     dependencies: ?[]const Pkg = null,
 };
 
@@ -1549,6 +1549,12 @@ pub const LibExeObjStep = struct {
 
     valgrind_support: ?bool = null,
     each_lib_rpath: ?bool = null,
+    /// On ELF targets, this will emit a link section called ".note.gnu.build-id"
+    /// which can be used to coordinate a stripped binary with its debug symbols.
+    /// As an example, the bloaty project refuses to work unless its inputs have
+    /// build ids, in order to prevent accidental mismatches.
+    /// The default is to not include this section because it slows down linking.
+    build_id: ?bool = null,
 
     /// Create a .eh_frame_hdr section and a PT_GNU_EH_FRAME segment in the ELF
     /// file.
@@ -1563,6 +1569,12 @@ pub const LibExeObjStep = struct {
 
     /// Permit read-only relocations in read-only segments. Disallowed by default.
     link_z_notext: bool = false,
+
+    /// Force all relocations to be read-only after processing.
+    link_z_relro: bool = true,
+
+    /// Allow relocations to be lazily processed after load.
+    link_z_lazy: bool = false,
 
     /// (Darwin) Install name for the dylib
     install_name: ?[]const u8 = null,
@@ -2228,7 +2240,7 @@ pub const LibExeObjStep = struct {
     }
 
     fn addRecursiveBuildDeps(self: *LibExeObjStep, package: Pkg) void {
-        package.path.addStepDependencies(&self.step);
+        package.source.addStepDependencies(&self.step);
         if (package.dependencies) |deps| {
             for (deps) |dep| {
                 self.addRecursiveBuildDeps(dep);
@@ -2239,7 +2251,7 @@ pub const LibExeObjStep = struct {
     pub fn addPackagePath(self: *LibExeObjStep, name: []const u8, pkg_index_path: []const u8) void {
         self.addPackage(Pkg{
             .name = self.builder.dupe(name),
-            .path = .{ .path = self.builder.dupe(pkg_index_path) },
+            .source = .{ .path = self.builder.dupe(pkg_index_path) },
         });
     }
 
@@ -2300,7 +2312,7 @@ pub const LibExeObjStep = struct {
 
         try zig_args.append("--pkg-begin");
         try zig_args.append(pkg.name);
-        try zig_args.append(builder.pathFromRoot(pkg.path.getPath(self.builder)));
+        try zig_args.append(builder.pathFromRoot(pkg.source.getPath(self.builder)));
 
         if (pkg.dependencies) |dependencies| {
             for (dependencies) |sub_pkg| {
@@ -2570,6 +2582,14 @@ pub const LibExeObjStep = struct {
         if (self.link_z_notext) {
             try zig_args.append("-z");
             try zig_args.append("notext");
+        }
+        if (!self.link_z_relro) {
+            try zig_args.append("-z");
+            try zig_args.append("norelro");
+        }
+        if (self.link_z_lazy) {
+            try zig_args.append("-z");
+            try zig_args.append("lazy");
         }
 
         if (self.libc_file) |libc_file| {
@@ -2950,6 +2970,14 @@ pub const LibExeObjStep = struct {
                 try zig_args.append("-feach-lib-rpath");
             } else {
                 try zig_args.append("-fno-each-lib-rpath");
+            }
+        }
+
+        if (self.build_id) |build_id| {
+            if (build_id) {
+                try zig_args.append("-fbuild-id");
+            } else {
+                try zig_args.append("-fno-build-id");
             }
         }
 
@@ -3560,11 +3588,11 @@ test "Builder.dupePkg()" {
 
     var pkg_dep = Pkg{
         .name = "pkg_dep",
-        .path = .{ .path = "/not/a/pkg_dep.zig" },
+        .source = .{ .path = "/not/a/pkg_dep.zig" },
     };
     var pkg_top = Pkg{
         .name = "pkg_top",
-        .path = .{ .path = "/not/a/pkg_top.zig" },
+        .source = .{ .path = "/not/a/pkg_top.zig" },
         .dependencies = &[_]Pkg{pkg_dep},
     };
     const dupe = builder.dupePkg(pkg_top);
@@ -3583,9 +3611,9 @@ test "Builder.dupePkg()" {
     // the same as those in stack allocated package's fields
     try std.testing.expect(dupe_deps.ptr != original_deps.ptr);
     try std.testing.expect(dupe.name.ptr != pkg_top.name.ptr);
-    try std.testing.expect(dupe.path.path.ptr != pkg_top.path.path.ptr);
+    try std.testing.expect(dupe.source.path.ptr != pkg_top.source.path.ptr);
     try std.testing.expect(dupe_deps[0].name.ptr != pkg_dep.name.ptr);
-    try std.testing.expect(dupe_deps[0].path.path.ptr != pkg_dep.path.path.ptr);
+    try std.testing.expect(dupe_deps[0].source.path.ptr != pkg_dep.source.path.ptr);
 }
 
 test "LibExeObjStep.addPackage" {
@@ -3605,11 +3633,11 @@ test "LibExeObjStep.addPackage" {
 
     const pkg_dep = Pkg{
         .name = "pkg_dep",
-        .path = .{ .path = "/not/a/pkg_dep.zig" },
+        .source = .{ .path = "/not/a/pkg_dep.zig" },
     };
     const pkg_top = Pkg{
         .name = "pkg_dep",
-        .path = .{ .path = "/not/a/pkg_top.zig" },
+        .source = .{ .path = "/not/a/pkg_top.zig" },
         .dependencies = &[_]Pkg{pkg_dep},
     };
 

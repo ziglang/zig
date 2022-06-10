@@ -88,7 +88,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
         .windows => {
             var buf: [max_name_len]u16 = undefined;
             const len = try std.unicode.utf8ToUtf16Le(&buf, name);
-            const byte_len = math.cast(c_ushort, len * 2) catch return error.NameTooLong;
+            const byte_len = math.cast(c_ushort, len * 2) orelse return error.NameTooLong;
 
             // Note: NT allocates its own copy, no use-after-free here.
             const unicode_string = os.windows.UNICODE_STRING{
@@ -526,7 +526,7 @@ const WindowsThreadImpl = struct {
         // Windows appears to only support SYSTEM_INFO.dwAllocationGranularity minimum stack size.
         // Going lower makes it default to that specified in the executable (~1mb).
         // Its also fine if the limit here is incorrect as stack size is only a hint.
-        var stack_size = std.math.cast(u32, config.stack_size) catch std.math.maxInt(u32);
+        var stack_size = std.math.cast(u32, config.stack_size) orelse std.math.maxInt(u32);
         stack_size = std.math.max(64 * 1024, stack_size);
 
         instance.thread.thread_handle = windows.kernel32.CreateThread(
@@ -893,6 +893,7 @@ const LinuxThreadImpl = struct {
     };
 
     fn spawn(config: SpawnConfig, comptime f: anytype, args: anytype) !Impl {
+        const page_size = std.mem.page_size;
         const Args = @TypeOf(args);
         const Instance = struct {
             fn_args: Args,
@@ -915,11 +916,11 @@ const LinuxThreadImpl = struct {
         var instance_offset: usize = undefined;
 
         const map_bytes = blk: {
-            var bytes: usize = std.mem.page_size;
+            var bytes: usize = page_size;
             guard_offset = bytes;
 
-            bytes += std.math.max(std.mem.page_size, config.stack_size);
-            bytes = std.mem.alignForward(bytes, std.mem.page_size);
+            bytes += std.math.max(page_size, config.stack_size);
+            bytes = std.mem.alignForward(bytes, page_size);
             stack_offset = bytes;
 
             bytes = std.mem.alignForward(bytes, linux.tls.tls_image.alloc_align);
@@ -930,7 +931,7 @@ const LinuxThreadImpl = struct {
             instance_offset = bytes;
             bytes += @sizeOf(Instance);
 
-            bytes = std.mem.alignForward(bytes, std.mem.page_size);
+            bytes = std.mem.alignForward(bytes, page_size);
             break :blk bytes;
         };
 
@@ -954,7 +955,7 @@ const LinuxThreadImpl = struct {
 
         // map everything but the guard page as read/write
         os.mprotect(
-            mapped[guard_offset..],
+            @alignCast(page_size, mapped[guard_offset..]),
             os.PROT.READ | os.PROT.WRITE,
         ) catch |err| switch (err) {
             error.AccessDenied => unreachable,

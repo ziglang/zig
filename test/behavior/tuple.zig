@@ -192,3 +192,9 @@ test "tuple as the result from a labeled block" {
     try S.doTheTest();
     comptime try S.doTheTest();
 }
+
+test "initializing tuple with explicit type" {
+    const T = @TypeOf(.{ @as(i32, 0), @as(u32, 0) });
+    var a = T{ 0, 0 };
+    _ = a;
+}

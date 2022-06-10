@@ -887,10 +887,8 @@ pub const Dir = struct {
         }
 
         pub fn deinit(self: *Walker) void {
-            while (self.stack.popOrNull()) |*item| {
-                if (self.stack.items.len != 0) {
-                    item.iter.dir.close();
-                }
+            for (self.stack.items) |*item| {
+                item.iter.dir.close();
             }
             self.stack.deinit();
             self.name_buffer.deinit();
@@ -1899,7 +1897,7 @@ pub const Dir = struct {
 
         // If the file size doesn't fit a usize it'll be certainly greater than
         // `max_bytes`
-        const stat_size = size_hint orelse math.cast(usize, try file.getEndPos()) catch
+        const stat_size = size_hint orelse math.cast(usize, try file.getEndPos()) orelse
             return error.FileTooBig;
 
         return file.readToEndAllocOptions(allocator, max_bytes, stat_size, alignment, optional_sentinel);

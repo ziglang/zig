@@ -267,8 +267,9 @@ const DestTarget = struct {
                 (@enumToInt(a.abi) *% @as(u32, 4082223418));
         }
 
-        pub fn eql(self: @This(), a: DestTarget, b: DestTarget) bool {
+        pub fn eql(self: @This(), a: DestTarget, b: DestTarget, b_index: usize) bool {
             _ = self;
+            _ = b_index;
             return a.arch.eql(b.arch) and
                 a.os == b.os and
                 a.abi == b.abi;

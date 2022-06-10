@@ -42,7 +42,7 @@ pub const Node = struct {
             .doc => @fieldParentPtr(Node.Doc, "base", self).deinit(allocator),
             .map => @fieldParentPtr(Node.Map, "base", self).deinit(allocator),
             .list => @fieldParentPtr(Node.List, "base", self).deinit(allocator),
-            .value => {},
+            .value => @fieldParentPtr(Node.Value, "base", self).deinit(allocator),
         }
     }
 
@@ -82,8 +82,8 @@ pub const Node = struct {
             options: std.fmt.FormatOptions,
             writer: anytype,
         ) !void {
-            _ = fmt;
             _ = options;
+            _ = fmt;
             if (self.directive) |id| {
                 try std.fmt.format(writer, "{{ ", .{});
                 const directive = self.base.tree.tokens[id];
@@ -127,8 +127,8 @@ pub const Node = struct {
             options: std.fmt.FormatOptions,
             writer: anytype,
         ) !void {
-            _ = fmt;
             _ = options;
+            _ = fmt;
             try std.fmt.format(writer, "{{ ", .{});
             for (self.values.items) |entry| {
                 const key = self.base.tree.tokens[entry.key];
@@ -163,8 +163,8 @@ pub const Node = struct {
             options: std.fmt.FormatOptions,
             writer: anytype,
         ) !void {
-            _ = fmt;
             _ = options;
+            _ = fmt;
             try std.fmt.format(writer, "[ ", .{});
             for (self.values.items) |node| {
                 try std.fmt.format(writer, "{}, ", .{node});
@@ -180,14 +180,19 @@ pub const Node = struct {
 
         pub const base_tag: Node.Tag = .value;
 
+        pub fn deinit(self: *Value, allocator: Allocator) void {
+            _ = self;
+            _ = allocator;
+        }
+
         pub fn format(
             self: *const Value,
             comptime fmt: []const u8,
             options: std.fmt.FormatOptions,
             writer: anytype,
         ) !void {
-            _ = fmt;
             _ = options;
+            _ = fmt;
             const start = self.base.tree.tokens[self.start.?];
             const end = self.base.tree.tokens[self.end.?];
             return std.fmt.format(writer, "{s}", .{
@@ -197,10 +202,16 @@ pub const Node = struct {
     };
 };
 
+pub const LineCol = struct {
+    line: usize,
+    col: usize,
+};
+
 pub const Tree = struct {
     allocator: Allocator,
     source: []const u8,
     tokens: []Token,
+    line_cols: std.AutoHashMap(TokenIndex, LineCol),
     docs: std.ArrayListUnmanaged(*Node) = .{},
 
     pub fn init(allocator: Allocator) Tree {
@@ -208,11 +219,13 @@ pub const Tree = struct {
             .allocator = allocator,
             .source = undefined,
             .tokens = undefined,
+            .line_cols = std.AutoHashMap(TokenIndex, LineCol).init(allocator),
         };
     }
 
     pub fn deinit(self: *Tree) void {
         self.allocator.free(self.tokens);
+        self.line_cols.deinit();
         for (self.docs.items) |doc| {
             doc.deinit(self.allocator);
             self.allocator.destroy(doc);
@@ -223,12 +236,29 @@ pub const Tree = struct {
     pub fn parse(self: *Tree, source: []const u8) !void {
         var tokenizer = Tokenizer{ .buffer = source };
         var tokens = std.ArrayList(Token).init(self.allocator);
-        errdefer tokens.deinit();
+        defer tokens.deinit();
+
+        var line: usize = 0;
+        var prev_line_last_col: usize = 0;
 
         while (true) {
             const token = tokenizer.next();
+            const tok_id = tokens.items.len;
             try tokens.append(token);
-            if (token.id == .Eof) break;
+
+            try self.line_cols.putNoClobber(tok_id, .{
+                .line = line,
+                .col = token.start - prev_line_last_col,
+            });
+
+            switch (token.id) {
+                .Eof => break,
+                .NewLine => {
+                    line += 1;
+                    prev_line_last_col = token.end;
+                },
+                else => {},
+            }
         }
 
         self.source = source;
@@ -239,15 +269,12 @@ pub const Tree = struct {
             .allocator = self.allocator,
             .tree = self,
             .token_it = &it,
+            .line_cols = &self.line_cols,
         };
-        defer parser.deinit();
-
-        try parser.scopes.append(self.allocator, .{
-            .indent = 0,
-        });
 
         while (true) {
             if (parser.token_it.peek() == null) return;
+
             const pos = parser.token_it.pos;
             const token = parser.token_it.next();
 
@@ -269,22 +296,12 @@ const Parser = struct {
     allocator: Allocator,
     tree: *Tree,
     token_it: *TokenIterator,
-    scopes: std.ArrayListUnmanaged(Scope) = .{},
-
-    const Scope = struct {
-        indent: usize,
-    };
-
-    fn deinit(self: *Parser) void {
-        self.scopes.deinit(self.allocator);
-    }
+    line_cols: *const std.AutoHashMap(TokenIndex, LineCol),
 
     fn doc(self: *Parser, start: TokenIndex) ParseError!*Node.Doc {
         const node = try self.allocator.create(Node.Doc);
         errdefer self.allocator.destroy(node);
-        node.* = .{
-            .start = start,
-        };
+        node.* = .{ .start = start };
         node.base.tree = self.tree;
 
         self.token_it.seekTo(start);
@@ -346,19 +363,24 @@ const Parser = struct {
     fn map(self: *Parser, start: TokenIndex) ParseError!*Node.Map {
         const node = try self.allocator.create(Node.Map);
         errdefer self.allocator.destroy(node);
-        node.* = .{
-            .start = start,
-        };
+        node.* = .{ .start = start };
         node.base.tree = self.tree;
 
         self.token_it.seekTo(start);
 
         log.debug("Map start: {}, {}", .{ start, self.tree.tokens[start] });
-        log.debug("Current scope: {}", .{self.scopes.items[self.scopes.items.len - 1]});
+
+        const col = self.getCol(start);
 
         while (true) {
+            self.eatCommentsAndSpace();
+
             // Parse key.
             const key_pos = self.token_it.pos;
+            if (self.getCol(key_pos) != col) {
+                break;
+            }
+
             const key = self.token_it.next();
             switch (key.id) {
                 .Literal => {},
@@ -372,13 +394,13 @@ const Parser = struct {
 
             // Separator
             _ = try self.expectToken(.MapValueInd);
-            self.eatCommentsAndSpace();
 
             // Parse value.
             const value: *Node = value: {
                 if (self.eatToken(.NewLine)) |_| {
+                    self.eatCommentsAndSpace();
+
                     // Explicit, complex value such as list or map.
-                    try self.openScope();
                     const value_pos = self.token_it.pos;
                     const value = self.token_it.next();
                     switch (value.id) {
@@ -398,6 +420,8 @@ const Parser = struct {
                         },
                     }
                 } else {
+                    self.eatCommentsAndSpace();
+
                     const value_pos = self.token_it.pos;
                     const value = self.token_it.next();
                     switch (value.id) {
@@ -424,11 +448,7 @@ const Parser = struct {
                 .value = value,
             });
 
-            if (self.eatToken(.NewLine)) |_| {
-                if (try self.closeScope()) {
-                    break;
-                }
-            }
+            _ = self.eatToken(.NewLine);
         }
 
         node.end = self.token_it.pos - 1;
@@ -449,14 +469,18 @@ const Parser = struct {
         self.token_it.seekTo(start);
 
         log.debug("List start: {}, {}", .{ start, self.tree.tokens[start] });
-        log.debug("Current scope: {}", .{self.scopes.items[self.scopes.items.len - 1]});
+
+        const col = self.getCol(start);
 
         while (true) {
+            self.eatCommentsAndSpace();
+
+            if (self.getCol(self.token_it.pos) != col) {
+                break;
+            }
             _ = self.eatToken(.SeqItemInd) orelse {
-                _ = try self.closeScope();
                 break;
             };
-            self.eatCommentsAndSpace();
 
             const pos = self.token_it.pos;
             const token = self.token_it.next();
@@ -464,9 +488,6 @@ const Parser = struct {
                 switch (token.id) {
                     .Literal, .SingleQuote, .DoubleQuote => {
                         if (self.eatToken(.MapValueInd)) |_| {
-                            if (self.eatToken(.NewLine)) |_| {
-                                try self.openScope();
-                            }
                             // nested map
                             const map_node = try self.map(pos);
                             break :value &map_node.base;
@@ -501,15 +522,12 @@ const Parser = struct {
     fn list_bracketed(self: *Parser, start: TokenIndex) ParseError!*Node.List {
         const node = try self.allocator.create(Node.List);
         errdefer self.allocator.destroy(node);
-        node.* = .{
-            .start = start,
-        };
+        node.* = .{ .start = start };
         node.base.tree = self.tree;
 
         self.token_it.seekTo(start);
 
         log.debug("List start: {}, {}", .{ start, self.tree.tokens[start] });
-        log.debug("Current scope: {}", .{self.scopes.items[self.scopes.items.len - 1]});
 
         _ = try self.expectToken(.FlowSeqStart);
 
@@ -556,9 +574,7 @@ const Parser = struct {
     fn leaf_value(self: *Parser, start: TokenIndex) ParseError!*Node.Value {
         const node = try self.allocator.create(Node.Value);
         errdefer self.allocator.destroy(node);
-        node.* = .{
-            .start = start,
-        };
+        node.* = .{ .start = start };
         node.base.tree = self.tree;
 
         self.token_it.seekTo(start);
@@ -625,48 +641,6 @@ const Parser = struct {
         return node;
     }
 
-    fn openScope(self: *Parser) !void {
-        const peek = self.token_it.peek() orelse return error.UnexpectedEof;
-        if (peek.id != .Space and peek.id != .Tab) {
-            // No need to open scope.
-            return;
-        }
-        const indent = self.token_it.next().count.?;
-        const prev_scope = self.scopes.items[self.scopes.items.len - 1];
-        if (indent < prev_scope.indent) {
-            return error.MalformedYaml;
-        }
-
-        log.debug("Opening scope...", .{});
-
-        try self.scopes.append(self.allocator, .{
-            .indent = indent,
-        });
-    }
-
-    fn closeScope(self: *Parser) !bool {
-        const indent = indent: {
-            const peek = self.token_it.peek() orelse return error.UnexpectedEof;
-            switch (peek.id) {
-                .Space, .Tab => {
-                    break :indent self.token_it.next().count.?;
-                },
-                else => {
-                    break :indent 0;
-                },
-            }
-        };
-
-        const scope = self.scopes.items[self.scopes.items.len - 1];
-        if (indent < scope.indent) {
-            log.debug("Closing scope...", .{});
-            _ = self.scopes.pop();
-            return true;
-        }
-
-        return false;
-    }
-
     fn eatCommentsAndSpace(self: *Parser) void {
         while (true) {
             _ = self.token_it.peek() orelse return;
@@ -700,6 +674,14 @@ const Parser = struct {
 
     fn expectToken(self: *Parser, id: Token.Id) ParseError!TokenIndex {
         return self.eatToken(id) orelse error.UnexpectedToken;
+    }
+
+    fn getLine(self: *Parser, index: TokenIndex) usize {
+        return self.line_cols.get(index).?.line;
+    }
+
+    fn getCol(self: *Parser, index: TokenIndex) usize {
+        return self.line_cols.get(index).?.col;
     }
 };
 

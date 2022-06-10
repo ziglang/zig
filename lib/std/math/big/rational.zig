@@ -573,6 +573,7 @@ test "big.rational setFloatString" {
 }
 
 test "big.rational toFloat" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest;
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
 
@@ -586,6 +587,7 @@ test "big.rational toFloat" {
 }
 
 test "big.rational set/to Float round-trip" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest;
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
     var prng = std.rand.DefaultPrng.init(0x5EED);

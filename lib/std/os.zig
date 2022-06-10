@@ -97,6 +97,7 @@ pub const MADV = system.MADV;
 pub const MAP = system.MAP;
 pub const MSF = system.MSF;
 pub const MAX_ADDR_LEN = system.MAX_ADDR_LEN;
+pub const MFD = system.MFD;
 pub const MMAP2_UNIT = system.MMAP2_UNIT;
 pub const MSG = system.MSG;
 pub const NAME_MAX = system.NAME_MAX;
@@ -441,6 +442,7 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
 /// Causes abnormal process termination.
 /// If linking against libc, this calls the abort() libc function. Otherwise
 /// it raises SIGABRT followed by SIGKILL and finally lo
+/// Invokes the current signal handler for SIGABRT, if any.
 pub fn abort() noreturn {
     @setCold(true);
     // MSVCRT abort() sometimes opens a popup window which is undesirable, so
@@ -453,12 +455,44 @@ pub fn abort() noreturn {
         windows.kernel32.ExitProcess(3);
     }
     if (!builtin.link_libc and builtin.os.tag == .linux) {
+        // The Linux man page says that the libc abort() function
+        // "first unblocks the SIGABRT signal", but this is a footgun
+        // for user-defined signal handlers that want to restore some state in
+        // some program sections and crash in others.
+        // So, the user-installed SIGABRT handler is run, if present.
         raise(SIG.ABRT) catch {};
 
-        // TODO the rest of the implementation of abort() from musl libc here
+        // Disable all signal handlers.
+        sigprocmask(SIG.BLOCK, &linux.all_mask, null);
 
+        // Only one thread may proceed to the rest of abort().
+        if (!builtin.single_threaded) {
+            const global = struct {
+                var abort_entered: bool = false;
+            };
+            while (@cmpxchgWeak(bool, &global.abort_entered, false, true, .SeqCst, .SeqCst)) |_| {}
+        }
+
+        // Install default handler so that the tkill below will terminate.
+        const sigact = Sigaction{
+            .handler = .{ .sigaction = SIG.DFL },
+            .mask = undefined,
+            .flags = undefined,
+            .restorer = undefined,
+        };
+        sigaction(SIG.ABRT, &sigact, null) catch |err| switch (err) {
+            error.OperationNotSupported => unreachable,
+        };
+
+        _ = linux.tkill(linux.gettid(), SIG.ABRT);
+
+        const sigabrtmask: linux.sigset_t = [_]u32{0} ** 31 ++ [_]u32{1 << (SIG.ABRT - 1)};
+        sigprocmask(SIG.UNBLOCK, &sigabrtmask, null);
+
+        // Beyond this point should be unreachable.
+        @intToPtr(*allowzero volatile u8, 0).* = 0;
         raise(SIG.KILL) catch {};
-        exit(127);
+        exit(127); // Pid 1 might not be signalled in some containers.
     }
     if (builtin.os.tag == .uefi) {
         exit(0); // TODO choose appropriate exit code
@@ -484,13 +518,13 @@ pub fn raise(sig: u8) RaiseError!void {
     if (builtin.os.tag == .linux) {
         var set: sigset_t = undefined;
         // block application signals
-        _ = linux.sigprocmask(SIG.BLOCK, &linux.app_mask, &set);
+        sigprocmask(SIG.BLOCK, &linux.app_mask, &set);
 
         const tid = linux.gettid();
         const rc = linux.tkill(tid, sig);
 
         // restore signal mask
-        _ = linux.sigprocmask(SIG.SETMASK, &set, null);
+        sigprocmask(SIG.SETMASK, &set, null);
 
         switch (errno(rc)) {
             .SUCCESS => return,
@@ -659,7 +693,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
             else => |err| return unexpectedErrno(err),
         }
     }
-    const iov_count = math.cast(u31, iov.len) catch math.maxInt(u31);
+    const iov_count = math.cast(u31, iov.len) orelse math.maxInt(u31);
     while (true) {
         // TODO handle the case when iov_len is too large and get rid of this @intCast
         const rc = system.readv(fd, iov.ptr, iov_count);
@@ -876,7 +910,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
         }
     }
 
-    const iov_count = math.cast(u31, iov.len) catch math.maxInt(u31);
+    const iov_count = math.cast(u31, iov.len) orelse math.maxInt(u31);
 
     const preadv_sym = if (builtin.os.tag == .linux and builtin.link_libc)
         system.preadv64
@@ -4162,9 +4196,9 @@ pub fn kevent(
         const rc = system.kevent(
             kq,
             changelist.ptr,
-            try math.cast(c_int, changelist.len),
+            math.cast(c_int, changelist.len) orelse return error.Overflow,
             eventlist.ptr,
-            try math.cast(c_int, eventlist.len),
+            math.cast(c_int, eventlist.len) orelse return error.Overflow,
             timeout,
         );
         switch (errno(rc)) {
@@ -4530,9 +4564,7 @@ pub fn faccessatW(dirfd: fd_t, sub_path_w: [*:0]const u16, mode: u32, flags: u32
         return;
     }
 
-    const path_len_bytes = math.cast(u16, mem.sliceTo(sub_path_w, 0).len * 2) catch |err| switch (err) {
-        error.Overflow => return error.NameTooLong,
-    };
+    const path_len_bytes = math.cast(u16, mem.sliceTo(sub_path_w, 0).len * 2) orelse return error.NameTooLong;
     var nt_name = windows.UNICODE_STRING{
         .Length = path_len_bytes,
         .MaximumLength = path_len_bytes,
@@ -4649,7 +4681,7 @@ pub fn sysctl(
         @panic("unsupported"); // TODO should be compile error, not panic
     }
 
-    const name_len = math.cast(c_uint, name.len) catch return error.NameTooLong;
+    const name_len = math.cast(c_uint, name.len) orelse return error.NameTooLong;
     switch (errno(system.sysctl(name.ptr, name_len, oldp, oldlenp, newp, newlen))) {
         .SUCCESS => return,
         .FAULT => unreachable,
@@ -5190,8 +5222,8 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
 /// Spurious wakeups are possible and no precision of timing is guaranteed.
 pub fn nanosleep(seconds: u64, nanoseconds: u64) void {
     var req = timespec{
-        .tv_sec = math.cast(isize, seconds) catch math.maxInt(isize),
-        .tv_nsec = math.cast(isize, nanoseconds) catch math.maxInt(isize),
+        .tv_sec = math.cast(isize, seconds) orelse math.maxInt(isize),
+        .tv_nsec = math.cast(isize, nanoseconds) orelse math.maxInt(isize),
     };
     var rem: timespec = undefined;
     while (true) {
@@ -5438,6 +5470,16 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     switch (errno(system.sigaction(sig, act, oact))) {
         .SUCCESS => return,
         .INVAL, .NOSYS => return error.OperationNotSupported,
+        else => unreachable,
+    }
+}
+
+/// Sets the thread signal mask.
+pub fn sigprocmask(flags: u32, noalias set: ?*const sigset_t, noalias oldset: ?*sigset_t) void {
+    switch (errno(system.sigprocmask(flags, set, oldset))) {
+        .SUCCESS => return,
+        .FAULT => unreachable,
+        .INVAL => unreachable,
         else => unreachable,
     }
 }
@@ -6005,10 +6047,10 @@ pub fn sendfile(
             if (headers.len != 0 or trailers.len != 0) {
                 // Here we carefully avoid `@intCast` by returning partial writes when
                 // too many io vectors are provided.
-                const hdr_cnt = math.cast(u31, headers.len) catch math.maxInt(u31);
+                const hdr_cnt = math.cast(u31, headers.len) orelse math.maxInt(u31);
                 if (headers.len > hdr_cnt) return writev(out_fd, headers);
 
-                const trl_cnt = math.cast(u31, trailers.len) catch math.maxInt(u31);
+                const trl_cnt = math.cast(u31, trailers.len) orelse math.maxInt(u31);
 
                 hdtr_data = std.c.sf_hdtr{
                     .headers = headers.ptr,
@@ -6084,10 +6126,10 @@ pub fn sendfile(
             if (headers.len != 0 or trailers.len != 0) {
                 // Here we carefully avoid `@intCast` by returning partial writes when
                 // too many io vectors are provided.
-                const hdr_cnt = math.cast(u31, headers.len) catch math.maxInt(u31);
+                const hdr_cnt = math.cast(u31, headers.len) orelse math.maxInt(u31);
                 if (headers.len > hdr_cnt) return writev(out_fd, headers);
 
-                const trl_cnt = math.cast(u31, trailers.len) catch math.maxInt(u31);
+                const trl_cnt = math.cast(u31, trailers.len) orelse math.maxInt(u31);
 
                 hdtr_data = std.c.sf_hdtr{
                     .headers = headers.ptr,
@@ -6275,7 +6317,7 @@ pub const PollError = error{
 
 pub fn poll(fds: []pollfd, timeout: i32) PollError!usize {
     while (true) {
-        const fds_count = math.cast(nfds_t, fds.len) catch return error.SystemResources;
+        const fds_count = math.cast(nfds_t, fds.len) orelse return error.SystemResources;
         const rc = system.poll(fds.ptr, fds_count, timeout);
         if (builtin.os.tag == .windows) {
             if (rc == windows.ws2_32.SOCKET_ERROR) {
@@ -6318,7 +6360,7 @@ pub fn ppoll(fds: []pollfd, timeout: ?*const timespec, mask: ?*const sigset_t) P
         ts_ptr = &ts;
         ts = timeout_ns.*;
     }
-    const fds_count = math.cast(nfds_t, fds.len) catch return error.SystemResources;
+    const fds_count = math.cast(nfds_t, fds.len) orelse return error.SystemResources;
     const rc = system.ppoll(fds.ptr, fds_count, ts_ptr, mask);
     switch (errno(rc)) {
         .SUCCESS => return @intCast(usize, rc),
@@ -6522,20 +6564,37 @@ pub const MemFdCreateError = error{
 } || UnexpectedError;
 
 pub fn memfd_createZ(name: [*:0]const u8, flags: u32) MemFdCreateError!fd_t {
-    // memfd_create is available only in glibc versions starting with 2.27.
-    const use_c = std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }).ok;
-    const sys = if (use_c) std.c else linux;
-    const getErrno = if (use_c) std.c.getErrno else linux.getErrno;
-    const rc = sys.memfd_create(name, flags);
-    switch (getErrno(rc)) {
-        .SUCCESS => return @intCast(fd_t, rc),
-        .FAULT => unreachable, // name has invalid memory
-        .INVAL => unreachable, // name/flags are faulty
-        .NFILE => return error.SystemFdQuotaExceeded,
-        .MFILE => return error.ProcessFdQuotaExceeded,
-        .NOMEM => return error.OutOfMemory,
-        .NOSYS => return error.SystemOutdated,
-        else => |err| return unexpectedErrno(err),
+    switch (builtin.os.tag) {
+        .linux => {
+            // memfd_create is available only in glibc versions starting with 2.27.
+            const use_c = std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }).ok;
+            const sys = if (use_c) std.c else linux;
+            const getErrno = if (use_c) std.c.getErrno else linux.getErrno;
+            const rc = sys.memfd_create(name, flags);
+            switch (getErrno(rc)) {
+                .SUCCESS => return @intCast(fd_t, rc),
+                .FAULT => unreachable, // name has invalid memory
+                .INVAL => unreachable, // name/flags are faulty
+                .NFILE => return error.SystemFdQuotaExceeded,
+                .MFILE => return error.ProcessFdQuotaExceeded,
+                .NOMEM => return error.OutOfMemory,
+                .NOSYS => return error.SystemOutdated,
+                else => |err| return unexpectedErrno(err),
+            }
+        },
+        .freebsd => {
+            const rc = system.memfd_create(name, flags);
+            switch (errno(rc)) {
+                .SUCCESS => return rc,
+                .BADF => unreachable, // name argument NULL
+                .INVAL => unreachable, // name too long or invalid/unsupported flags.
+                .MFILE => return error.ProcessFdQuotaExceeded,
+                .NFILE => return error.SystemFdQuotaExceeded,
+                .NOSYS => return error.SystemOutdated,
+                else => |err| return unexpectedErrno(err),
+            }
+        },
+        else => @compileError("target OS does not support memfd_create()"),
     }
 }
 
@@ -6907,4 +6966,53 @@ pub fn perf_event_open(
         .SRCH => return error.ProcessNotFound,
         else => |err| return unexpectedErrno(err),
     }
+}
+
+pub const TimerFdCreateError = error{
+    AccessDenied,
+    ProcessFdQuotaExceeded,
+    SystemFdQuotaExceeded,
+    NoDevice,
+    SystemResources,
+} || UnexpectedError;
+
+pub const TimerFdGetError = error{InvalidHandle} || UnexpectedError;
+pub const TimerFdSetError = TimerFdGetError || error{Canceled};
+
+pub fn timerfd_create(clokid: i32, flags: u32) TimerFdCreateError!fd_t {
+    var rc = linux.timerfd_create(clokid, flags);
+    return switch (errno(rc)) {
+        .SUCCESS => @intCast(fd_t, rc),
+        .INVAL => unreachable,
+        .MFILE => return error.ProcessFdQuotaExceeded,
+        .NFILE => return error.SystemFdQuotaExceeded,
+        .NODEV => return error.NoDevice,
+        .NOMEM => return error.SystemResources,
+        .PERM => return error.AccessDenied,
+        else => |err| return unexpectedErrno(err),
+    };
+}
+
+pub fn timerfd_settime(fd: i32, flags: u32, new_value: *const linux.itimerspec, old_value: ?*linux.itimerspec) TimerFdSetError!void {
+    var rc = linux.timerfd_settime(fd, flags, new_value, old_value);
+    return switch (errno(rc)) {
+        .SUCCESS => {},
+        .BADF => error.InvalidHandle,
+        .FAULT => unreachable,
+        .INVAL => unreachable,
+        .CANCELED => error.Canceled,
+        else => |err| return unexpectedErrno(err),
+    };
+}
+
+pub fn timerfd_gettime(fd: i32) TimerFdGetError!linux.itimerspec {
+    var curr_value: linux.itimerspec = undefined;
+    var rc = linux.timerfd_gettime(fd, &curr_value);
+    return switch (errno(rc)) {
+        .SUCCESS => return curr_value,
+        .BADF => error.InvalidHandle,
+        .FAULT => unreachable,
+        .INVAL => unreachable,
+        else => |err| return unexpectedErrno(err),
+    };
 }

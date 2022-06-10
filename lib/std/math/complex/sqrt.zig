@@ -43,9 +43,9 @@ fn sqrt32(z: Complex(f32)) Complex(f32) {
         // sqrt(-inf + i nan)   = nan +- inf i
         // sqrt(-inf + iy)      = 0 + inf i
         if (math.signbit(x)) {
-            return Complex(f32).init(@fabs(x - y), math.copysign(f32, x, y));
+            return Complex(f32).init(@fabs(x - y), math.copysign(x, y));
         } else {
-            return Complex(f32).init(x, math.copysign(f32, y - y, y));
+            return Complex(f32).init(x, math.copysign(y - y, y));
         }
     }
 
@@ -65,7 +65,7 @@ fn sqrt32(z: Complex(f32)) Complex(f32) {
         const t = @sqrt((-dx + math.hypot(f64, dx, dy)) * 0.5);
         return Complex(f32).init(
             @floatCast(f32, @fabs(y) / (2.0 * t)),
-            @floatCast(f32, math.copysign(f64, t, y)),
+            @floatCast(f32, math.copysign(t, y)),
         );
     }
 }
@@ -94,9 +94,9 @@ fn sqrt64(z: Complex(f64)) Complex(f64) {
         // sqrt(-inf + i nan)   = nan +- inf i
         // sqrt(-inf + iy)      = 0 + inf i
         if (math.signbit(x)) {
-            return Complex(f64).init(@fabs(x - y), math.copysign(f64, x, y));
+            return Complex(f64).init(@fabs(x - y), math.copysign(x, y));
         } else {
-            return Complex(f64).init(x, math.copysign(f64, y - y, y));
+            return Complex(f64).init(x, math.copysign(y - y, y));
         }
     }
 
@@ -116,7 +116,7 @@ fn sqrt64(z: Complex(f64)) Complex(f64) {
         result = Complex(f64).init(t, y / (2.0 * t));
     } else {
         const t = @sqrt((-x + math.hypot(f64, x, y)) * 0.5);
-        result = Complex(f64).init(@fabs(y) / (2.0 * t), math.copysign(f64, t, y));
+        result = Complex(f64).init(@fabs(y) / (2.0 * t), math.copysign(t, y));
     }
 
     if (scale) {

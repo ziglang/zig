@@ -19,7 +19,6 @@ test "@sizeOf on compile-time types" {
 
 test "@TypeOf() with multiple arguments" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     {
@@ -169,8 +168,6 @@ test "@bitOffsetOf" {
 }
 
 test "@sizeOf(T) == 0 doesn't force resolving struct size" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const S = struct {
         const Foo = struct {
             y: if (@sizeOf(Foo) == 0) u64 else u32,
@@ -281,4 +278,24 @@ test "@sizeOf comparison against zero" {
     try S.doTheTest(U0, true);
     try S.doTheTest(S1, true);
     try S.doTheTest(U1, true);
+}
+
+test "hardcoded address in typeof expression" {
+    const S = struct {
+        fn func() @TypeOf(@intToPtr(*[]u8, 0x10).*[0]) {
+            return 0;
+        }
+    };
+    try expect(S.func() == 0);
+    comptime try expect(S.func() == 0);
+}
+
+test "array access of generic param in typeof expression" {
+    const S = struct {
+        fn first(comptime items: anytype) @TypeOf(items[0]) {
+            return items[0];
+        }
+    };
+    try expect(S.first("a") == 'a');
+    comptime try expect(S.first("a") == 'a');
 }

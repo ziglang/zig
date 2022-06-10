@@ -20,7 +20,7 @@ const Fe = Field(.{
     .fiat = @import("p256_scalar_64.zig"),
     .field_order = 115792089210356248762697446949407573529996955224135760342422259061068512044369,
     .field_bits = 256,
-    .saturated_bits = 255,
+    .saturated_bits = 256,
     .encoded_length = encoded_length,
 });
 

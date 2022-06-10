@@ -99,6 +99,7 @@ pub fn build(b: *Builder) !void {
     const force_gpa = b.option(bool, "force-gpa", "Force the compiler to use GeneralPurposeAllocator") orelse false;
     const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse enable_llvm;
     const strip = b.option(bool, "strip", "Omit debug information") orelse false;
+    const value_tracing = b.option(bool, "value-tracing", "Enable extra state tracking to help troubleshoot bugs in the compiler (using the std.debug.Trace API)") orelse false;
 
     const mem_leak_frames: u32 = b.option(u32, "mem-leak-frames", "How many stack frames to print when a memory leak occurs. Tests get 2x this amount.") orelse blk: {
         if (strip) break :blk @as(u32, 0);
@@ -303,6 +304,7 @@ pub fn build(b: *Builder) !void {
     exe_options.addOption(bool, "enable_tracy", tracy != null);
     exe_options.addOption(bool, "enable_tracy_callstack", tracy_callstack);
     exe_options.addOption(bool, "enable_tracy_allocation", tracy_allocation);
+    exe_options.addOption(bool, "value_tracing", value_tracing);
     exe_options.addOption(bool, "is_stage1", is_stage1);
     exe_options.addOption(bool, "omit_stage2", omit_stage2);
     if (tracy) |tracy_path| {

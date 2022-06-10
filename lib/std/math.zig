@@ -270,6 +270,41 @@ pub const sinh = @import("math/sinh.zig").sinh;
 pub const cosh = @import("math/cosh.zig").cosh;
 pub const tanh = @import("math/tanh.zig").tanh;
 
+/// Sine trigonometric function on a floating point number.
+/// Uses a dedicated hardware instruction when available.
+/// This is the same as calling the builtin @sin
+pub inline fn sin(value: anytype) @TypeOf(value) {
+    return @sin(value);
+}
+
+/// Cosine trigonometric function on a floating point number.
+/// Uses a dedicated hardware instruction when available.
+/// This is the same as calling the builtin @cos
+pub inline fn cos(value: anytype) @TypeOf(value) {
+    return @cos(value);
+}
+
+/// Tangent trigonometric function on a floating point number.
+/// Uses a dedicated hardware instruction when available.
+/// This is the same as calling the builtin @tan
+pub inline fn tan(value: anytype) @TypeOf(value) {
+    return @tan(value);
+}
+
+/// Base-e exponential function on a floating point number.
+/// Uses a dedicated hardware instruction when available.
+/// This is the same as calling the builtin @exp
+pub inline fn exp(value: anytype) @TypeOf(value) {
+    return @exp(value);
+}
+
+/// Base-2 exponential function on a floating point number.
+/// Uses a dedicated hardware instruction when available.
+/// This is the same as calling the builtin @exp2
+pub inline fn exp2(value: anytype) @TypeOf(value) {
+    return @exp2(value);
+}
+
 pub const complex = @import("math/complex.zig");
 pub const Complex = complex.Complex;
 
@@ -887,6 +922,13 @@ fn testRem() !void {
     try testing.expectError(error.DivisionByZero, rem(f32, 10, 0));
 }
 
+/// Returns the absolute value of a floating point number.
+/// Uses a dedicated hardware instruction when available.
+/// This is the same as calling the builtin @fabs
+pub inline fn fabs(value: anytype) @TypeOf(value) {
+    return @fabs(value);
+}
+
 /// Returns the absolute value of the integer parameter.
 /// Result is an unsigned integer.
 pub fn absCast(x: anytype) switch (@typeInfo(@TypeOf(x))) {
@@ -947,28 +989,27 @@ test "negateCast" {
 }
 
 /// Cast an integer to a different integer type. If the value doesn't fit,
-/// return an error.
-/// TODO make this an optional not an error.
-pub fn cast(comptime T: type, x: anytype) (error{Overflow}!T) {
+/// return null.
+pub fn cast(comptime T: type, x: anytype) ?T {
     comptime assert(@typeInfo(T) == .Int); // must pass an integer
     comptime assert(@typeInfo(@TypeOf(x)) == .Int); // must pass an integer
     if (maxInt(@TypeOf(x)) > maxInt(T) and x > maxInt(T)) {
-        return error.Overflow;
+        return null;
     } else if (minInt(@TypeOf(x)) < minInt(T) and x < minInt(T)) {
-        return error.Overflow;
+        return null;
     } else {
         return @intCast(T, x);
     }
 }
 
 test "cast" {
-    try testing.expectError(error.Overflow, cast(u8, @as(u32, 300)));
-    try testing.expectError(error.Overflow, cast(i8, @as(i32, -200)));
-    try testing.expectError(error.Overflow, cast(u8, @as(i8, -1)));
-    try testing.expectError(error.Overflow, cast(u64, @as(i8, -1)));
+    try testing.expect(cast(u8, @as(u32, 300)) == null);
+    try testing.expect(cast(i8, @as(i32, -200)) == null);
+    try testing.expect(cast(u8, @as(i8, -1)) == null);
+    try testing.expect(cast(u64, @as(i8, -1)) == null);
 
-    try testing.expect((try cast(u8, @as(u32, 255))) == @as(u8, 255));
-    try testing.expect(@TypeOf(try cast(u8, @as(u32, 255))) == u8);
+    try testing.expect(cast(u8, @as(u32, 255)).? == @as(u8, 255));
+    try testing.expect(@TypeOf(cast(u8, @as(u32, 255)).?) == u8);
 }
 
 pub const AlignCastError = error{UnalignedMemory};
@@ -985,6 +1026,27 @@ pub fn alignCast(comptime alignment: u29, ptr: anytype) AlignCastError!@TypeOf(@
 pub fn isPowerOfTwo(v: anytype) bool {
     assert(v != 0);
     return (v & (v - 1)) == 0;
+}
+
+/// Rounds the given floating point number to an integer, away from zero.
+/// Uses a dedicated hardware instruction when available.
+/// This is the same as calling the builtin @round
+pub inline fn round(value: anytype) @TypeOf(value) {
+    return @round(value);
+}
+
+/// Rounds the given floating point number to an integer, towards zero.
+/// Uses a dedicated hardware instruction when available.
+/// This is the same as calling the builtin @trunc
+pub inline fn trunc(value: anytype) @TypeOf(value) {
+    return @trunc(value);
+}
+
+/// Returns the largest integral value not greater than the given floating point number.
+/// Uses a dedicated hardware instruction when available.
+/// This is the same as calling the builtin @floor
+pub inline fn floor(value: anytype) @TypeOf(value) {
+    return @floor(value);
 }
 
 /// Returns the nearest power of two less than or equal to value, or
@@ -1013,6 +1075,13 @@ fn testFloorPowerOfTwo() !void {
     try testing.expect(floorPowerOfTwo(i4, -8) == 0);
     try testing.expect(floorPowerOfTwo(i4, -1) == 0);
     try testing.expect(floorPowerOfTwo(i4, 0) == 0);
+}
+
+/// Returns the smallest integral value not less than the given floating point number.
+/// Uses a dedicated hardware instruction when available.
+/// This is the same as calling the builtin @ceil
+pub inline fn ceil(value: anytype) @TypeOf(value) {
+    return @ceil(value);
 }
 
 /// Returns the next power of two (if the value is not already a power of two).

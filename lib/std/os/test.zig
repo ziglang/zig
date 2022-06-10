@@ -495,8 +495,9 @@ test "argsAlloc" {
 }
 
 test "memfd_create" {
-    // memfd_create is linux specific.
-    if (native_os != .linux) return error.SkipZigTest;
+    // memfd_create is only supported by linux and freebsd.
+    if (native_os != .linux and native_os != .freebsd) return error.SkipZigTest;
+
     const fd = std.os.memfd_create("test", 0) catch |err| switch (err) {
         // Related: https://github.com/ziglang/zig/issues/4019
         error.SystemOutdated => return error.SkipZigTest,
@@ -765,8 +766,10 @@ test "sigaction" {
         }
     };
 
+    const actual_handler = if (builtin.zig_backend == .stage1) S.handler else &S.handler;
+
     var sa = os.Sigaction{
-        .handler = .{ .sigaction = S.handler },
+        .handler = .{ .sigaction = actual_handler },
         .mask = os.empty_sigset,
         .flags = os.SA.SIGINFO | os.SA.RESETHAND,
     };
@@ -775,7 +778,7 @@ test "sigaction" {
     try os.sigaction(os.SIG.USR1, &sa, null);
     // Check that we can read it back correctly.
     try os.sigaction(os.SIG.USR1, null, &old_sa);
-    try testing.expectEqual(S.handler, old_sa.handler.sigaction.?);
+    try testing.expectEqual(actual_handler, old_sa.handler.sigaction.?);
     try testing.expect((old_sa.flags & os.SA.SIGINFO) != 0);
     // Invoke the handler.
     try os.raise(os.SIG.USR1);
@@ -998,4 +1001,24 @@ test "access smoke test" {
     // Try to access() the directory
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_dir" });
     try os.access(file_path, os.F_OK);
+}
+
+test "timerfd" {
+    if (native_os != .linux)
+        return error.SkipZigTest;
+
+    const linux = os.linux;
+    var tfd = try os.timerfd_create(linux.CLOCK.MONOTONIC, linux.TFD.CLOEXEC);
+    defer os.close(tfd);
+
+    var sit: linux.itimerspec = .{ .it_interval = .{ .tv_sec = 0, .tv_nsec = 0 }, .it_value = .{ .tv_sec = 0, .tv_nsec = 10 * (1000 * 1000) } };
+    try os.timerfd_settime(tfd, 0, &sit, null);
+
+    var fds: [1]os.pollfd = .{.{ .fd = tfd, .events = os.linux.POLL.IN, .revents = 0 }};
+    try expectEqual(try os.poll(&fds, -1), 1);
+    var git = try os.timerfd_gettime(tfd);
+    try expectEqual(git, .{ .it_interval = .{ .tv_sec = 0, .tv_nsec = 0 }, .it_value = .{ .tv_sec = 0, .tv_nsec = 0 } });
+
+    try os.timerfd_settime(tfd, 0, &sit, null);
+    try expectEqual(try os.poll(&fds, 5), 0);
 }

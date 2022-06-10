@@ -5,10 +5,7 @@ const expect = std.testing.expect;
 /// Returns whether x is an infinity, ignoring sign.
 pub fn isInf(x: anytype) bool {
     const T = @TypeOf(x);
-    const TBits = std.meta.Int(.unsigned, @bitSizeOf(T));
-    if (@typeInfo(T) != .Float) {
-        @compileError("isInf not implemented for " ++ @typeName(T));
-    }
+    const TBits = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
     const remove_sign = ~@as(TBits, 0) >> 1;
     return @bitCast(TBits, x) & remove_sign == @bitCast(TBits, math.inf(T));
 }

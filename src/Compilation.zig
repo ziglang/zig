@@ -339,6 +339,8 @@ pub const AllErrors = struct {
             line: u32,
             column: u32,
             byte_offset: u32,
+            /// Usually one, but incremented for redundant messages.
+            count: u32 = 1,
             /// Does not include the trailing newline.
             source_line: ?[]const u8,
             notes: []Message = &.{},
@@ -346,7 +348,20 @@ pub const AllErrors = struct {
         plain: struct {
             msg: []const u8,
             notes: []Message = &.{},
+            /// Usually one, but incremented for redundant messages.
+            count: u32 = 1,
         },
+
+        pub fn incrementCount(msg: *Message) void {
+            switch (msg.*) {
+                .src => |*src| {
+                    src.count += 1;
+                },
+                .plain => |*plain| {
+                    plain.count += 1;
+                },
+            }
+        }
 
         pub fn renderToStdErr(msg: Message, ttyconf: std.debug.TTY.Config) void {
             std.debug.getStderrMutex().lock();
@@ -377,7 +392,13 @@ pub const AllErrors = struct {
                     try stderr.writeAll(kind);
                     ttyconf.setColor(stderr, .Reset);
                     ttyconf.setColor(stderr, .Bold);
-                    try stderr.print(" {s}\n", .{src.msg});
+                    if (src.count == 1) {
+                        try stderr.print(" {s}\n", .{src.msg});
+                    } else {
+                        try stderr.print(" {s}", .{src.msg});
+                        ttyconf.setColor(stderr, .Dim);
+                        try stderr.print(" ({d} times)\n", .{src.count});
+                    }
                     ttyconf.setColor(stderr, .Reset);
                     if (ttyconf != .no_color) {
                         if (src.source_line) |line| {
@@ -401,7 +422,13 @@ pub const AllErrors = struct {
                     try stderr.writeByteNTimes(' ', indent);
                     try stderr.writeAll(kind);
                     ttyconf.setColor(stderr, .Reset);
-                    try stderr.print(" {s}\n", .{plain.msg});
+                    if (plain.count == 1) {
+                        try stderr.print(" {s}\n", .{plain.msg});
+                    } else {
+                        try stderr.print(" {s}", .{plain.msg});
+                        ttyconf.setColor(stderr, .Dim);
+                        try stderr.print(" ({d} times)\n", .{plain.count});
+                    }
                     ttyconf.setColor(stderr, .Reset);
                     for (plain.notes) |note| {
                         try note.renderToStdErrInner(ttyconf, stderr_file, "error:", .Red, indent + 4);
@@ -409,6 +436,50 @@ pub const AllErrors = struct {
                 },
             }
         }
+
+        pub const HashContext = struct {
+            pub fn hash(ctx: HashContext, key: *Message) u64 {
+                _ = ctx;
+                var hasher = std.hash.Wyhash.init(0);
+
+                switch (key.*) {
+                    .src => |src| {
+                        hasher.update(src.msg);
+                        hasher.update(src.src_path);
+                        std.hash.autoHash(&hasher, src.line);
+                        std.hash.autoHash(&hasher, src.column);
+                        std.hash.autoHash(&hasher, src.byte_offset);
+                    },
+                    .plain => |plain| {
+                        hasher.update(plain.msg);
+                    },
+                }
+
+                return hasher.final();
+            }
+
+            pub fn eql(ctx: HashContext, a: *Message, b: *Message) bool {
+                _ = ctx;
+                switch (a.*) {
+                    .src => |a_src| switch (b.*) {
+                        .src => |b_src| {
+                            return mem.eql(u8, a_src.msg, b_src.msg) and
+                                mem.eql(u8, a_src.src_path, b_src.src_path) and
+                                a_src.line == b_src.line and
+                                a_src.column == b_src.column and
+                                a_src.byte_offset == b_src.byte_offset;
+                        },
+                        .plain => return false,
+                    },
+                    .plain => |a_plain| switch (b.*) {
+                        .src => return false,
+                        .plain => |b_plain| {
+                            return mem.eql(u8, a_plain.msg, b_plain.msg);
+                        },
+                    },
+                }
+            }
+        };
     };
 
     pub fn deinit(self: *AllErrors, gpa: Allocator) void {
@@ -422,13 +493,25 @@ pub const AllErrors = struct {
         module_err_msg: Module.ErrorMsg,
     ) !void {
         const allocator = arena.allocator();
-        const notes = try allocator.alloc(Message, module_err_msg.notes.len);
-        for (notes) |*note, i| {
-            const module_note = module_err_msg.notes[i];
+
+        const notes_buf = try allocator.alloc(Message, module_err_msg.notes.len);
+        var note_i: usize = 0;
+
+        // De-duplicate error notes. The main use case in mind for this is
+        // too many "note: called from here" notes when eval branch quota is reached.
+        var seen_notes = std.HashMap(
+            *Message,
+            void,
+            Message.HashContext,
+            std.hash_map.default_max_load_percentage,
+        ).init(allocator);
+
+        for (module_err_msg.notes) |module_note| {
             const source = try module_note.src_loc.file_scope.getSource(module.gpa);
             const byte_offset = try module_note.src_loc.byteOffset(module.gpa);
             const loc = std.zig.findLineColumn(source.bytes, byte_offset);
             const file_path = try module_note.src_loc.file_scope.fullPath(allocator);
+            const note = &notes_buf[note_i];
             note.* = .{
                 .src = .{
                     .src_path = file_path,
@@ -439,6 +522,12 @@ pub const AllErrors = struct {
                     .source_line = try allocator.dupe(u8, loc.source_line),
                 },
             };
+            const gop = try seen_notes.getOrPut(note);
+            if (gop.found_existing) {
+                gop.key_ptr.*.incrementCount();
+            } else {
+                note_i += 1;
+            }
         }
         if (module_err_msg.src_loc.lazy == .entire_file) {
             try errors.append(.{
@@ -459,7 +548,7 @@ pub const AllErrors = struct {
                 .byte_offset = byte_offset,
                 .line = @intCast(u32, loc.line),
                 .column = @intCast(u32, loc.column),
-                .notes = notes,
+                .notes = notes_buf[0..note_i],
                 .source_line = try allocator.dupe(u8, loc.source_line),
             },
         });
@@ -757,14 +846,15 @@ pub const InitOptions = struct {
     linker_global_base: ?u64 = null,
     linker_export_symbol_names: []const []const u8 = &.{},
     each_lib_rpath: ?bool = null,
+    build_id: ?bool = null,
     disable_c_depfile: bool = false,
     linker_z_nodelete: bool = false,
     linker_z_notext: bool = false,
     linker_z_defs: bool = false,
     linker_z_origin: bool = false,
-    linker_z_noexecstack: bool = false,
-    linker_z_now: bool = false,
-    linker_z_relro: bool = false,
+    linker_z_now: bool = true,
+    linker_z_relro: bool = true,
+    linker_z_nocopyreloc: bool = false,
     linker_tsaware: bool = false,
     linker_nxcompat: bool = false,
     linker_dynamicbase: bool = false,
@@ -974,6 +1064,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const unwind_tables = options.want_unwind_tables orelse
             (link_libunwind or target_util.needUnwindTables(options.target));
         const link_eh_frame_hdr = options.link_eh_frame_hdr or unwind_tables;
+        const build_id = options.build_id orelse false;
 
         // Make a decision on whether to use LLD or our own linker.
         const use_lld = options.use_lld orelse blk: {
@@ -1004,7 +1095,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 options.output_mode == .Lib or
                 options.image_base_override != null or
                 options.linker_script != null or options.version_script != null or
-                options.emit_implib != null)
+                options.emit_implib != null or
+                build_id)
             {
                 break :blk true;
             }
@@ -1458,7 +1550,8 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         errdefer if (module) |zm| zm.deinit();
 
         const error_return_tracing = !strip and switch (options.optimize_mode) {
-            .Debug, .ReleaseSafe => true,
+            .Debug, .ReleaseSafe => (!options.target.isWasm() or options.target.os.tag == .emscripten) and
+                !options.target.cpu.arch.isBpf(),
             .ReleaseFast, .ReleaseSmall => false,
         };
 
@@ -1597,7 +1690,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .z_notext = options.linker_z_notext,
             .z_defs = options.linker_z_defs,
             .z_origin = options.linker_z_origin,
-            .z_noexecstack = options.linker_z_noexecstack,
+            .z_nocopyreloc = options.linker_z_nocopyreloc,
             .z_now = options.linker_z_now,
             .z_relro = options.linker_z_relro,
             .tsaware = options.linker_tsaware,
@@ -1637,6 +1730,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .skip_linker_dependencies = options.skip_linker_dependencies,
             .parent_compilation_link_libc = options.parent_compilation_link_libc,
             .each_lib_rpath = options.each_lib_rpath orelse options.is_native_os,
+            .build_id = build_id,
             .cache_mode = cache_mode,
             .disable_lld_caching = options.disable_lld_caching or cache_mode == .whole,
             .subsystem = options.subsystem,
@@ -1717,6 +1811,15 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
     const have_bin_emit = comp.bin_file.options.emit != null or comp.whole_bin_sub_path != null;
 
     if (have_bin_emit and !comp.bin_file.options.skip_linker_dependencies) {
+        if (comp.getTarget().isDarwin()) {
+            switch (comp.getTarget().abi) {
+                .none,
+                .simulator,
+                .macabi,
+                => {},
+                else => return error.LibCUnavailable,
+            }
+        }
         // If we need to build glibc for the target, add work items for it.
         // We go through the work queue so that building can be done in parallel.
         if (comp.wantBuildGLibCFromSource()) {
@@ -2255,7 +2358,7 @@ fn prepareWholeEmitSubPath(arena: Allocator, opt_emit: ?EmitLoc) error{OutOfMemo
 /// to remind the programmer to update multiple related pieces of code that
 /// are in different locations. Bump this number when adding or deleting
 /// anything from the link cache manifest.
-pub const link_hash_implementation_version = 2;
+pub const link_hash_implementation_version = 3;
 
 fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifest) !void {
     const gpa = comp.gpa;
@@ -2265,7 +2368,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    comptime assert(link_hash_implementation_version == 2);
+    comptime assert(link_hash_implementation_version == 3);
 
     if (comp.bin_file.options.module) |mod| {
         const main_zig_file = try mod.main_pkg.root_src_directory.join(arena, &[_][]const u8{
@@ -2328,12 +2431,13 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.addListOfBytes(comp.bin_file.options.lib_dirs);
     man.hash.addListOfBytes(comp.bin_file.options.rpath_list);
     man.hash.add(comp.bin_file.options.each_lib_rpath);
+    man.hash.add(comp.bin_file.options.build_id);
     man.hash.add(comp.bin_file.options.skip_linker_dependencies);
     man.hash.add(comp.bin_file.options.z_nodelete);
     man.hash.add(comp.bin_file.options.z_notext);
     man.hash.add(comp.bin_file.options.z_defs);
     man.hash.add(comp.bin_file.options.z_origin);
-    man.hash.add(comp.bin_file.options.z_noexecstack);
+    man.hash.add(comp.bin_file.options.z_nocopyreloc);
     man.hash.add(comp.bin_file.options.z_now);
     man.hash.add(comp.bin_file.options.z_relro);
     man.hash.add(comp.bin_file.options.hash_style);
@@ -4294,7 +4398,7 @@ fn getZigShippedLibCIncludeDirsDarwin(arena: Allocator, zig_lib_dir: []const u8,
 
     list[0] = try std.fmt.allocPrint(
         arena,
-        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-gnu",
+        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-none",
         .{ zig_lib_dir, arch_name, os_name },
     );
     list[1] = try std.fmt.allocPrint(

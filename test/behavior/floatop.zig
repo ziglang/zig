@@ -651,11 +651,7 @@ test "negation f128" {
 }
 
 test "eval @setFloatMode at compile-time" {
-    if (builtin.zig_backend != .stage1) {
-        // let's delay solving this one; I want to re-evaluate this language feature, and
-        // we don't rely on it for self-hosted.
-        return error.SkipZigTest; // TODO
-    }
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const result = comptime fnWithFloatMode();
     try expect(result == 1234.0);

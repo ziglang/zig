@@ -326,8 +326,7 @@ test "array coersion to undefined at runtime" {
 
     @setRuntimeSafety(true);
 
-    // TODO implement @setRuntimeSafety in stage2
-    if (builtin.zig_backend != .stage1 and builtin.mode != .Debug and builtin.mode != .ReleaseSafe) {
+    if (builtin.mode != .Debug and builtin.mode != .ReleaseSafe) {
         return error.SkipZigTest;
     }
 
@@ -588,7 +587,11 @@ test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
 }
 
 test "vector casts" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -627,7 +630,9 @@ test "vector casts" {
 }
 
 test "@floatCast cast down" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     {
         var double: f64 = 0.001534;
@@ -838,7 +843,6 @@ test "peer cast *[0]T to []const T" {
 }
 
 test "peer cast *[N]T to [*]T" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     var array = [4:99]i32{ 1, 2, 3, 4 };
@@ -1111,7 +1115,6 @@ fn incrementVoidPtrArray(array: ?*anyopaque, len: usize) void {
 test "compile time int to ptr of function" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 

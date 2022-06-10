@@ -79,6 +79,7 @@ pub fn print(
         .i8_type => return writer.writeAll("i8"),
         .u16_type => return writer.writeAll("u16"),
         .i16_type => return writer.writeAll("i16"),
+        .u29_type => return writer.writeAll("u29"),
         .u32_type => return writer.writeAll("u32"),
         .i32_type => return writer.writeAll("i32"),
         .u64_type => return writer.writeAll("u64"),
@@ -232,6 +233,11 @@ pub fn print(
             const x = sub_ty.abiAlignment(target);
             return writer.print("{d}", .{x});
         },
+        .lazy_size => {
+            const sub_ty = val.castTag(.lazy_size).?.data;
+            const x = sub_ty.abiSize(target);
+            return writer.print("{d}", .{x});
+        },
         .function => return writer.print("(function '{s}')", .{
             mod.declPtr(val.castTag(.function).?.data.owner_decl).name,
         }),
@@ -257,6 +263,16 @@ pub fn print(
             return print(.{
                 .ty = decl.ty,
                 .val = decl.val,
+            }, writer, level - 1, mod);
+        },
+        .comptime_field_ptr => {
+            const payload = val.castTag(.comptime_field_ptr).?.data;
+            if (level == 0) {
+                return writer.writeAll("(comptime field ptr)");
+            }
+            return print(.{
+                .ty = payload.field_ty,
+                .val = payload.field_val,
             }, writer, level - 1, mod);
         },
         .elem_ptr => {
@@ -290,6 +306,11 @@ pub fn print(
             return writer.print(".{s}", .{ty.enumFieldName(val.castTag(.enum_field_index).?.data)});
         },
         .bytes => return writer.print("\"{}\"", .{std.zig.fmtEscapes(val.castTag(.bytes).?.data)}),
+        .str_lit => {
+            const str_lit = val.castTag(.str_lit).?.data;
+            const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
+            return writer.print("\"{}\"", .{std.zig.fmtEscapes(bytes)});
+        },
         .repeated => {
             if (level == 0) {
                 return writer.writeAll(".{ ... }");

@@ -364,3 +364,18 @@ pub const RTLD = struct {
     pub const GLOBAL = 256;
     pub const LOCAL = 0;
 };
+
+pub const dirent = struct {
+    d_ino: c_uint,
+    d_off: c_uint,
+    d_reclen: c_ushort,
+    d_type: u8,
+    d_name: [256]u8,
+};
+pub const dirent64 = struct {
+    d_ino: c_ulong,
+    d_off: c_ulong,
+    d_reclen: c_ushort,
+    d_type: u8,
+    d_name: [256]u8,
+};

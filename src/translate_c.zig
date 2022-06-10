@@ -793,6 +793,10 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
     var is_extern = storage_class == .Extern and !has_init;
     var is_export = !is_extern and storage_class != .Static;
 
+    if (!is_extern and qualTypeWasDemotedToOpaque(c, qual_type)) {
+        return failDecl(c, var_decl_loc, var_name, "non-extern variable has opaque type", .{});
+    }
+
     const type_node = transQualTypeMaybeInitialized(c, scope, qual_type, decl_init, var_decl_loc) catch |err| switch (err) {
         error.UnsupportedTranslation, error.UnsupportedType => {
             return failDecl(c, var_decl_loc, var_name, "unable to resolve variable type", .{});
@@ -1839,6 +1843,7 @@ fn transDeclStmtOne(
         .Var => {
             const var_decl = @ptrCast(*const clang.VarDecl, decl);
             const decl_init = var_decl.getInit();
+            const loc = decl.getLocation();
 
             const qual_type = var_decl.getTypeSourceInfo_getType();
             const name = try c.str(@ptrCast(*const clang.NamedDecl, var_decl).getName_bytes_begin());
@@ -1848,12 +1853,12 @@ fn transDeclStmtOne(
                 // This is actually a global variable, put it in the global scope and reference it.
                 // `_ = mangled_name;`
                 return visitVarDecl(c, var_decl, mangled_name);
+            } else if (qualTypeWasDemotedToOpaque(c, qual_type)) {
+                return fail(c, error.UnsupportedTranslation, loc, "local variable has opaque type", .{});
             }
 
             const is_static_local = var_decl.isStaticLocal();
             const is_const = qual_type.isConstQualified();
-
-            const loc = decl.getLocation();
             const type_node = try transQualTypeMaybeInitialized(c, scope, qual_type, decl_init, loc);
 
             var init_node = if (decl_init) |expr|
@@ -4526,9 +4531,7 @@ fn transCreateNodeBoolInfixOp(
 }
 
 fn transCreateNodeAPInt(c: *Context, int: *const clang.APSInt) !Node {
-    const num_limbs = math.cast(usize, int.getNumWords()) catch |err| switch (err) {
-        error.Overflow => return error.OutOfMemory,
-    };
+    const num_limbs = math.cast(usize, int.getNumWords()) orelse return error.OutOfMemory;
     var aps_int = int;
     const is_negative = int.isSigned() and int.isNegative();
     if (is_negative) aps_int = aps_int.negate();
@@ -4833,7 +4836,16 @@ fn qualTypeWasDemotedToOpaque(c: *Context, qt: clang.QualType) bool {
 
             const record_decl = record_ty.getDecl();
             const canonical = @ptrToInt(record_decl.getCanonicalDecl());
-            return c.opaque_demotes.contains(canonical);
+            if (c.opaque_demotes.contains(canonical)) return true;
+
+            // check all childern for opaque types.
+            var it = record_decl.field_begin();
+            const end_it = record_decl.field_end();
+            while (it.neq(end_it)) : (it = it.next()) {
+                const field_decl = it.deref();
+                if (qualTypeWasDemotedToOpaque(c, field_decl.getType())) return true;
+            }
+            return false;
         },
         .Enum => {
             const enum_ty = @ptrCast(*const clang.EnumType, ty);
@@ -5627,12 +5639,12 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!Node {
             // make the output less noisy by skipping promoteIntLiteral where
             // it's guaranteed to not be required because of C standard type constraints
             const guaranteed_to_fit = switch (suffix) {
-                .none => !meta.isError(math.cast(i16, value)),
-                .u => !meta.isError(math.cast(u16, value)),
-                .l => !meta.isError(math.cast(i32, value)),
-                .lu => !meta.isError(math.cast(u32, value)),
-                .ll => !meta.isError(math.cast(i64, value)),
-                .llu => !meta.isError(math.cast(u64, value)),
+                .none => math.cast(i16, value) != null,
+                .u => math.cast(u16, value) != null,
+                .l => math.cast(i32, value) != null,
+                .lu => math.cast(u32, value) != null,
+                .ll => math.cast(i64, value) != null,
+                .llu => math.cast(u64, value) != null,
                 .f => unreachable,
             };
 

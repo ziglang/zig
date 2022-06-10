@@ -489,21 +489,18 @@ fn generateTable(invert: bool) [4][256]u32 {
 fn mul(a: u8, b: u8) u8 {
     @setEvalBranchQuota(30000);
 
-    var i: u9 = a;
-    var j: u8 = b;
-    var k: u8 = 1;
+    var i: u8 = a;
+    var j: u9 = b;
     var s: u9 = 0;
 
-    while (k < 0x100 and j != 0) : (k <<= 1) {
-        if (j & k != 0) {
-            s ^= i;
-            j ^= k;
+    while (i > 0) : (i >>= 1) {
+        if (i & 1 != 0) {
+            s ^= j;
         }
 
-        i <<= 1;
-
-        if (i & 0x100 != 0) {
-            i ^= poly;
+        j *= 2;
+        if (j & 0x100 != 0) {
+            j ^= poly;
         }
     }
 

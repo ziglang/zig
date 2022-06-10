@@ -474,5 +474,5 @@ pub const AffineCoordinates = struct {
 };
 
 test "p256" {
-    _ = @import("tests.zig");
+    _ = @import("tests/p256.zig");
 }
