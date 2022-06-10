@@ -1444,7 +1444,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .div_float,
         .div_exact,
         .div_trunc,
-        => self.airBinOp(inst, .div),
+        => self.airDiv(inst),
         .div_floor => self.airDivFloor(inst),
         .bit_and => self.airBinOp(inst, .@"and"),
         .bit_or => self.airBinOp(inst, .@"or"),
@@ -4759,6 +4759,20 @@ fn airByteSwap(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     }
 }
 
+fn airDiv(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const ty = self.air.typeOfIndex(inst);
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
+
+    if (ty.isSignedInt()) {
+        return self.divSigned(lhs, rhs, ty);
+    }
+    return self.binOp(lhs, rhs, ty, .div);
+}
+
 fn airDivFloor(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
 
@@ -4780,6 +4794,39 @@ fn airDivFloor(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         64 => try self.addTag(.f64_floor),
         else => |bit_size| return self.fail("TODO: `@divFloor` for floats with bitsize: {d}", .{bit_size}),
     }
+
+    const result = try self.allocLocal(ty);
+    try self.addLabel(.local_set, result.local);
+    return result;
+}
+
+fn divSigned(self: *Self, lhs: WValue, rhs: WValue, ty: Type) InnerError!WValue {
+    const int_bits = ty.intInfo(self.target).bits;
+    const wasm_bits = toWasmBits(int_bits) orelse {
+        return self.fail("TODO: Implement signed division for integers with bitsize '{d}'", .{int_bits});
+    };
+
+    if (wasm_bits == 128) {
+        return self.fail("TODO: Implement signed division for 128-bit integerrs", .{});
+    }
+
+    if (wasm_bits != int_bits) {
+        const shift_val = switch (wasm_bits) {
+            32 => WValue{ .imm32 = wasm_bits - int_bits },
+            64 => WValue{ .imm64 = wasm_bits - int_bits },
+            else => unreachable,
+        };
+        const shl_lhs = try self.binOp(lhs, shift_val, ty, .shl);
+        const shr_lhs = try self.binOp(shl_lhs, shift_val, ty, .shr);
+        const shl_rhs = try self.binOp(rhs, shift_val, ty, .shl);
+        const shr_rhs = try self.binOp(shl_rhs, shift_val, ty, .shr);
+        try self.emitWValue(shr_lhs);
+        try self.emitWValue(shr_rhs);
+    } else {
+        try self.emitWValue(lhs);
+        try self.emitWValue(rhs);
+    }
+    try self.addTag(.i32_div_s);
 
     const result = try self.allocLocal(ty);
     try self.addLabel(.local_set, result.local);
