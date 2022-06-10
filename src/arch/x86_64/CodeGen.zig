@@ -1806,7 +1806,7 @@ fn airUnwrapErrErr(self: *Self, inst: Air.Inst.Index) !void {
     const operand = try self.resolveInst(ty_op.operand);
 
     const result: MCValue = result: {
-        if (err_ty.errorSetCardinality() == .zero) {
+        if (err_ty.errorSetIsEmpty()) {
             break :result MCValue{ .immediate = 0 };
         }
 
@@ -1857,14 +1857,8 @@ fn genUnwrapErrorUnionPayloadMir(
     err_union: MCValue,
 ) !MCValue {
     const payload_ty = err_union_ty.errorUnionPayload();
-    const err_ty = err_union_ty.errorUnionSet();
 
     const result: MCValue = result: {
-        if (err_ty.errorSetCardinality() == .zero) {
-            // TODO check if we can reuse
-            break :result err_union;
-        }
-
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
             break :result MCValue.none;
         }
@@ -1991,15 +1985,10 @@ fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) !void {
     }
 
     const error_union_ty = self.air.getRefType(ty_op.ty);
-    const error_ty = error_union_ty.errorUnionSet();
     const payload_ty = error_union_ty.errorUnionPayload();
     const operand = try self.resolveInst(ty_op.operand);
 
     const result: MCValue = result: {
-        if (error_ty.errorSetCardinality() == .zero) {
-            break :result operand;
-        }
-
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
             break :result operand;
         }
@@ -4651,7 +4640,7 @@ fn isNonNull(self: *Self, inst: Air.Inst.Index, ty: Type, operand: MCValue) !MCV
 fn isErr(self: *Self, maybe_inst: ?Air.Inst.Index, ty: Type, operand: MCValue) !MCValue {
     const err_type = ty.errorUnionSet();
 
-    if (err_type.errorSetCardinality() == .zero) {
+    if (err_type.errorSetIsEmpty()) {
         return MCValue{ .immediate = 0 }; // always false
     }
 
@@ -6909,12 +6898,6 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
         .ErrorUnion => {
             const error_type = typed_value.ty.errorUnionSet();
             const payload_type = typed_value.ty.errorUnionPayload();
-
-            if (error_type.errorSetCardinality() == .zero) {
-                const payload_val = typed_value.val.castTag(.eu_payload).?.data;
-                return self.genTypedValue(.{ .ty = payload_type, .val = payload_val });
-            }
-
             const is_pl = typed_value.val.errorUnionIsPayload();
 
             if (!payload_type.hasRuntimeBitsIgnoreComptime()) {

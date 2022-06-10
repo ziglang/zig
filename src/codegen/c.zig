@@ -752,12 +752,6 @@ pub const DeclGen = struct {
                 const error_type = ty.errorUnionSet();
                 const payload_type = ty.errorUnionPayload();
 
-                if (error_type.errorSetCardinality() == .zero) {
-                    // We use the payload directly as the type.
-                    const payload_val = val.castTag(.eu_payload).?.data;
-                    return dg.renderValue(writer, payload_type, payload_val, location);
-                }
-
                 if (!payload_type.hasRuntimeBits()) {
                     // We use the error type directly as the type.
                     const err_val = if (val.errorUnionIsPayload()) Value.initTag(.zero) else val;
@@ -1381,12 +1375,7 @@ pub const DeclGen = struct {
                 return w.writeAll("uint16_t");
             },
             .ErrorUnion => {
-                const error_ty = t.errorUnionSet();
                 const payload_ty = t.errorUnionPayload();
-
-                if (error_ty.errorSetCardinality() == .zero) {
-                    return dg.renderType(w, payload_ty);
-                }
 
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
                     return dg.renderType(w, Type.anyerror);
@@ -2892,41 +2881,36 @@ fn lowerTry(
     operand_is_ptr: bool,
     result_ty: Type,
 ) !CValue {
-    if (err_union_ty.errorUnionSet().errorSetCardinality() == .zero) {
-        // If the error set has no fields, then the payload and the error
-        // union are the same value.
-        return err_union;
-    }
-
+    const writer = f.object.writer();
     const payload_ty = err_union_ty.errorUnionPayload();
     const payload_has_bits = payload_ty.hasRuntimeBitsIgnoreComptime();
 
-    const writer = f.object.writer();
-
-    err: {
-        if (!payload_has_bits) {
-            if (operand_is_ptr) {
-                try writer.writeAll("if(*");
-            } else {
-                try writer.writeAll("if(");
+    if (!err_union_ty.errorUnionSet().errorSetIsEmpty()) {
+        err: {
+            if (!payload_has_bits) {
+                if (operand_is_ptr) {
+                    try writer.writeAll("if(*");
+                } else {
+                    try writer.writeAll("if(");
+                }
+                try f.writeCValue(writer, err_union);
+                try writer.writeAll(")");
+                break :err;
             }
-            try f.writeCValue(writer, err_union);
-            try writer.writeAll(")");
-            break :err;
-        }
-        if (operand_is_ptr or isByRef(err_union_ty)) {
+            if (operand_is_ptr or isByRef(err_union_ty)) {
+                try writer.writeAll("if(");
+                try f.writeCValue(writer, err_union);
+                try writer.writeAll("->error)");
+                break :err;
+            }
             try writer.writeAll("if(");
             try f.writeCValue(writer, err_union);
-            try writer.writeAll("->error)");
-            break :err;
+            try writer.writeAll(".error)");
         }
-        try writer.writeAll("if(");
-        try f.writeCValue(writer, err_union);
-        try writer.writeAll(".error)");
-    }
 
-    try genBody(f, body);
-    try f.object.indent_writer.insertNewline();
+        try genBody(f, body);
+        try f.object.indent_writer.insertNewline();
+    }
 
     if (!payload_has_bits) {
         if (!operand_is_ptr) {
@@ -3466,7 +3450,7 @@ fn airUnwrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
 
     if (operand_ty.zigTypeTag() == .Pointer) {
         const err_union_ty = operand_ty.childType();
-        if (err_union_ty.errorUnionSet().errorSetCardinality() == .zero) {
+        if (err_union_ty.errorUnionSet().errorSetIsEmpty()) {
             return CValue{ .bytes = "0" };
         }
         if (!err_union_ty.errorUnionPayload().hasRuntimeBits()) {
@@ -3478,7 +3462,7 @@ fn airUnwrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
         try writer.writeAll(";\n");
         return local;
     }
-    if (operand_ty.errorUnionSet().errorSetCardinality() == .zero) {
+    if (operand_ty.errorUnionSet().errorSetIsEmpty()) {
         return CValue{ .bytes = "0" };
     }
     if (!operand_ty.errorUnionPayload().hasRuntimeBits()) {
@@ -3506,10 +3490,6 @@ fn airUnwrapErrUnionPay(f: *Function, inst: Air.Inst.Index, maybe_addrof: [*:0]c
     const operand_ty = f.air.typeOf(ty_op.operand);
     const operand_is_ptr = operand_ty.zigTypeTag() == .Pointer;
     const error_union_ty = if (operand_is_ptr) operand_ty.childType() else operand_ty;
-
-    if (error_union_ty.errorUnionSet().errorSetCardinality() == .zero) {
-        return operand;
-    }
 
     if (!error_union_ty.errorUnionPayload().hasRuntimeBits()) {
         return CValue.none;
@@ -3575,11 +3555,6 @@ fn airErrUnionPayloadPtrSet(f: *Function, inst: Air.Inst.Index) !CValue {
     const error_ty = error_union_ty.errorUnionSet();
     const payload_ty = error_union_ty.errorUnionPayload();
 
-    if (error_ty.errorSetCardinality() == .zero) {
-        // TODO: write undefined bytes through the pointer here
-        return operand;
-    }
-
     // First, set the non-error value.
     if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
         try f.writeCValueDeref(writer, operand);
@@ -3623,9 +3598,6 @@ fn airWrapErrUnionPay(f: *Function, inst: Air.Inst.Index) !CValue {
     const operand = try f.resolveInst(ty_op.operand);
 
     const inst_ty = f.air.typeOfIndex(inst);
-    if (inst_ty.errorUnionSet().errorSetCardinality() == .zero) {
-        return operand;
-    }
     const local = try f.allocLocal(inst_ty, .Const);
     try writer.writeAll(" = { .error = 0, .payload = ");
     try f.writeCValue(writer, operand);
@@ -3652,7 +3624,7 @@ fn airIsErr(
 
     try writer.writeAll(" = ");
 
-    if (error_ty.errorSetCardinality() == .zero) {
+    if (error_ty.errorSetIsEmpty()) {
         try writer.print("0 {s} 0;\n", .{op_str});
     } else {
         if (is_ptr) {

@@ -2277,7 +2277,7 @@ fn airOptionalPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
 fn errUnionErr(self: *Self, error_union_mcv: MCValue, error_union_ty: Type) !MCValue {
     const err_ty = error_union_ty.errorUnionSet();
     const payload_ty = error_union_ty.errorUnionPayload();
-    if (err_ty.errorSetCardinality() == .zero) {
+    if (err_ty.errorSetIsEmpty()) {
         return MCValue{ .immediate = 0 };
     }
     if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
@@ -2311,7 +2311,7 @@ fn airUnwrapErrErr(self: *Self, inst: Air.Inst.Index) !void {
 fn errUnionPayload(self: *Self, error_union_mcv: MCValue, error_union_ty: Type) !MCValue {
     const err_ty = error_union_ty.errorUnionSet();
     const payload_ty = error_union_ty.errorUnionPayload();
-    if (err_ty.errorSetCardinality() == .zero) {
+    if (err_ty.errorSetIsEmpty()) {
         return error_union_mcv;
     }
     if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
@@ -3590,7 +3590,7 @@ fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
     const error_type = ty.errorUnionSet();
     const payload_type = ty.errorUnionPayload();
 
-    if (error_type.errorSetCardinality() == .zero) {
+    if (error_type.errorSetIsEmpty()) {
         return MCValue{ .immediate = 0 }; // always false
     }
 
@@ -4686,11 +4686,6 @@ fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
         .ErrorUnion => {
             const error_type = typed_value.ty.errorUnionSet();
             const payload_type = typed_value.ty.errorUnionPayload();
-
-            if (error_type.errorSetCardinality() == .zero) {
-                const payload_val = typed_value.val.castTag(.eu_payload).?.data;
-                return self.genTypedValue(.{ .ty = payload_type, .val = payload_val });
-            }
 
             const is_pl = typed_value.val.errorUnionIsPayload();
 

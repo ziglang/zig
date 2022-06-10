@@ -1571,22 +1571,6 @@ pub const Object = struct {
             },
             .ErrorUnion => {
                 const payload_ty = ty.errorUnionPayload();
-                switch (ty.errorUnionSet().errorSetCardinality()) {
-                    .zero => {
-                        const payload_di_ty = try o.lowerDebugType(payload_ty, .full);
-                        // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                        try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(payload_di_ty), .{ .mod = o.module });
-                        return payload_di_ty;
-                    },
-                    .one => {
-                        if (payload_ty.isNoReturn()) {
-                            const di_type = dib.createBasicType("void", 0, DW.ATE.signed);
-                            gop.value_ptr.* = AnnotatedDITypePtr.initFull(di_type);
-                            return di_type;
-                        }
-                    },
-                    .many => {},
-                }
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
                     const err_set_di_ty = try o.lowerDebugType(Type.anyerror, .full);
                     // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
@@ -2554,15 +2538,6 @@ pub const DeclGen = struct {
             },
             .ErrorUnion => {
                 const payload_ty = t.errorUnionPayload();
-                switch (t.errorUnionSet().errorSetCardinality()) {
-                    .zero => return dg.lowerType(payload_ty),
-                    .one => {
-                        if (payload_ty.isNoReturn()) {
-                            return dg.context.voidType();
-                        }
-                    },
-                    .many => {},
-                }
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
                     return try dg.lowerType(Type.anyerror);
                 }
@@ -3222,10 +3197,6 @@ pub const DeclGen = struct {
             },
             .ErrorUnion => {
                 const payload_type = tv.ty.errorUnionPayload();
-                if (tv.ty.errorUnionSet().errorSetCardinality() == .zero) {
-                    const payload_val = tv.val.castTag(.eu_payload).?.data;
-                    return dg.lowerValue(.{ .ty = payload_type, .val = payload_val });
-                }
                 const is_pl = tv.val.errorUnionIsPayload();
 
                 if (!payload_type.hasRuntimeBitsIgnoreComptime()) {
@@ -4795,40 +4766,37 @@ pub const FuncGen = struct {
     }
 
     fn lowerTry(fg: *FuncGen, err_union: *const llvm.Value, body: []const Air.Inst.Index, err_union_ty: Type, operand_is_ptr: bool, result_ty: Type) !?*const llvm.Value {
-        if (err_union_ty.errorUnionSet().errorSetCardinality() == .zero) {
-            // If the error set has no fields, then the payload and the error
-            // union are the same value.
-            return err_union;
-        }
-
         const payload_ty = err_union_ty.errorUnionPayload();
         const payload_has_bits = payload_ty.hasRuntimeBitsIgnoreComptime();
         const target = fg.dg.module.getTarget();
-        const is_err = err: {
-            const err_set_ty = try fg.dg.lowerType(Type.anyerror);
-            const zero = err_set_ty.constNull();
-            if (!payload_has_bits) {
-                const loaded = if (operand_is_ptr) fg.builder.buildLoad(err_union, "") else err_union;
+
+        if (!err_union_ty.errorUnionSet().errorSetIsEmpty()) {
+            const is_err = err: {
+                const err_set_ty = try fg.dg.lowerType(Type.anyerror);
+                const zero = err_set_ty.constNull();
+                if (!payload_has_bits) {
+                    const loaded = if (operand_is_ptr) fg.builder.buildLoad(err_union, "") else err_union;
+                    break :err fg.builder.buildICmp(.NE, loaded, zero, "");
+                }
+                const err_field_index = errUnionErrorOffset(payload_ty, target);
+                if (operand_is_ptr or isByRef(err_union_ty)) {
+                    const err_field_ptr = fg.builder.buildStructGEP(err_union, err_field_index, "");
+                    const loaded = fg.builder.buildLoad(err_field_ptr, "");
+                    break :err fg.builder.buildICmp(.NE, loaded, zero, "");
+                }
+                const loaded = fg.builder.buildExtractValue(err_union, err_field_index, "");
                 break :err fg.builder.buildICmp(.NE, loaded, zero, "");
-            }
-            const err_field_index = errUnionErrorOffset(payload_ty, target);
-            if (operand_is_ptr or isByRef(err_union_ty)) {
-                const err_field_ptr = fg.builder.buildStructGEP(err_union, err_field_index, "");
-                const loaded = fg.builder.buildLoad(err_field_ptr, "");
-                break :err fg.builder.buildICmp(.NE, loaded, zero, "");
-            }
-            const loaded = fg.builder.buildExtractValue(err_union, err_field_index, "");
-            break :err fg.builder.buildICmp(.NE, loaded, zero, "");
-        };
+            };
 
-        const return_block = fg.context.appendBasicBlock(fg.llvm_func, "TryRet");
-        const continue_block = fg.context.appendBasicBlock(fg.llvm_func, "TryCont");
-        _ = fg.builder.buildCondBr(is_err, return_block, continue_block);
+            const return_block = fg.context.appendBasicBlock(fg.llvm_func, "TryRet");
+            const continue_block = fg.context.appendBasicBlock(fg.llvm_func, "TryCont");
+            _ = fg.builder.buildCondBr(is_err, return_block, continue_block);
 
-        fg.builder.positionBuilderAtEnd(return_block);
-        try fg.genBody(body);
+            fg.builder.positionBuilderAtEnd(return_block);
+            try fg.genBody(body);
 
-        fg.builder.positionBuilderAtEnd(continue_block);
+            fg.builder.positionBuilderAtEnd(continue_block);
+        }
         if (!payload_has_bits) {
             if (!operand_is_ptr) return null;
 
@@ -5665,7 +5633,7 @@ pub const FuncGen = struct {
         const err_set_ty = try self.dg.lowerType(Type.initTag(.anyerror));
         const zero = err_set_ty.constNull();
 
-        if (err_union_ty.errorUnionSet().errorSetCardinality() == .zero) {
+        if (err_union_ty.errorUnionSet().errorSetIsEmpty()) {
             const llvm_i1 = self.context.intType(1);
             switch (op) {
                 .EQ => return llvm_i1.constInt(1, .False), // 0 == 0
@@ -5788,13 +5756,6 @@ pub const FuncGen = struct {
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
-        const operand_ty = self.air.typeOf(ty_op.operand);
-        const error_union_ty = if (operand_is_ptr) operand_ty.childType() else operand_ty;
-        if (error_union_ty.errorUnionSet().errorSetCardinality() == .zero) {
-            // If the error set has no fields, then the payload and the error
-            // union are the same value.
-            return operand;
-        }
         const result_ty = self.air.typeOfIndex(inst);
         const payload_ty = if (operand_is_ptr) result_ty.childType() else result_ty;
         const target = self.dg.module.getTarget();
@@ -5825,7 +5786,7 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(ty_op.operand);
         const operand_ty = self.air.typeOf(ty_op.operand);
         const err_union_ty = if (operand_is_ptr) operand_ty.childType() else operand_ty;
-        if (err_union_ty.errorUnionSet().errorSetCardinality() == .zero) {
+        if (err_union_ty.errorUnionSet().errorSetIsEmpty()) {
             const err_llvm_ty = try self.dg.lowerType(Type.anyerror);
             if (operand_is_ptr) {
                 return self.builder.buildBitCast(operand, err_llvm_ty.pointerType(0), "");
@@ -5856,10 +5817,6 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(ty_op.operand);
         const error_union_ty = self.air.typeOf(ty_op.operand).childType();
 
-        if (error_union_ty.errorUnionSet().errorSetCardinality() == .zero) {
-            // TODO: write undefined bytes through the pointer here
-            return operand;
-        }
         const payload_ty = error_union_ty.errorUnionPayload();
         const non_error_val = try self.dg.lowerValue(.{ .ty = Type.anyerror, .val = Value.zero });
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
@@ -5938,9 +5895,6 @@ pub const FuncGen = struct {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const inst_ty = self.air.typeOfIndex(inst);
         const operand = try self.resolveInst(ty_op.operand);
-        if (inst_ty.errorUnionSet().errorSetCardinality() == .zero) {
-            return operand;
-        }
         const payload_ty = self.air.typeOf(ty_op.operand);
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
             return operand;
