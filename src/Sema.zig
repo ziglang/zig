@@ -6182,6 +6182,17 @@ fn zirErrorToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
         }
     }
 
+    const op_ty = sema.typeOf(op);
+    try sema.resolveInferredErrorSetTy(block, src, op_ty);
+    if (!op_ty.isAnyError()) {
+        const names = op_ty.errorSetNames();
+        switch (names.len) {
+            0 => return sema.addConstant(result_ty, Value.zero),
+            1 => return sema.addIntUnsigned(result_ty, sema.mod.global_error_set.get(names[0]).?),
+            else => {},
+        }
+    }
+
     try sema.requireRuntimeBlock(block, src);
     return block.addBitCast(result_ty, op_coerced);
 }
@@ -6560,7 +6571,7 @@ fn analyzeErrUnionPayload(
 
     // If the error set has no fields then no safety check is needed.
     if (safety_check and block.wantSafety() and
-        err_union_ty.errorUnionSet().errorSetCardinality() != .zero)
+        !err_union_ty.errorUnionSet().errorSetIsEmpty())
     {
         try sema.panicUnwrapError(block, src, operand, .unwrap_errunion_err, .is_non_err);
     }
@@ -6646,7 +6657,7 @@ fn analyzeErrUnionPayloadPtr(
 
     // If the error set has no fields then no safety check is needed.
     if (safety_check and block.wantSafety() and
-        err_union_ty.errorUnionSet().errorSetCardinality() != .zero)
+        !err_union_ty.errorUnionSet().errorSetIsEmpty())
     {
         try sema.panicUnwrapError(block, src, operand, .unwrap_errunion_err_ptr, .is_non_err_ptr);
     }
@@ -24231,6 +24242,10 @@ pub fn typeHasOnePossibleValue(
         .bool,
         .type,
         .anyerror,
+        .error_set_single,
+        .error_set,
+        .error_set_merged,
+        .error_union,
         .fn_noreturn_no_args,
         .fn_void_no_args,
         .fn_naked_noreturn_no_args,
@@ -24285,46 +24300,6 @@ pub fn typeHasOnePossibleValue(
             } else {
                 return null;
             }
-        },
-
-        .error_union => {
-            const error_ty = ty.errorUnionSet();
-            switch (error_ty.errorSetCardinality()) {
-                .zero => {
-                    const payload_ty = ty.errorUnionPayload();
-                    if (try typeHasOnePossibleValue(sema, block, src, payload_ty)) |payload_val| {
-                        return try Value.Tag.eu_payload.create(sema.arena, payload_val);
-                    } else {
-                        return null;
-                    }
-                },
-                .one => {
-                    if (ty.errorUnionPayload().isNoReturn()) {
-                        const error_val = (try typeHasOnePossibleValue(sema, block, src, error_ty)).?;
-                        return error_val;
-                    } else {
-                        return null;
-                    }
-                },
-                .many => return null,
-            }
-        },
-
-        .error_set_single => {
-            const name = ty.castTag(.error_set_single).?.data;
-            return try Value.Tag.@"error".create(sema.arena, .{ .name = name });
-        },
-        .error_set => {
-            const err_set_obj = ty.castTag(.error_set).?.data;
-            const names = err_set_obj.names.keys();
-            if (names.len > 1) return null;
-            return try Value.Tag.@"error".create(sema.arena, .{ .name = names[0] });
-        },
-        .error_set_merged => {
-            const name_map = ty.castTag(.error_set_merged).?.data;
-            const names = name_map.keys();
-            if (names.len > 1) return null;
-            return try Value.Tag.@"error".create(sema.arena, .{ .name = names[0] });
         },
 
         .@"struct" => {

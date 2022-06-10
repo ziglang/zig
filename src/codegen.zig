@@ -705,15 +705,6 @@ pub fn generateSymbol(
         .ErrorUnion => {
             const error_ty = typed_value.ty.errorUnionSet();
             const payload_ty = typed_value.ty.errorUnionPayload();
-
-            if (error_ty.errorSetCardinality() == .zero) {
-                const payload_val = typed_value.val.castTag(.eu_payload).?.data;
-                return generateSymbol(bin_file, src_loc, .{
-                    .ty = payload_ty,
-                    .val = payload_val,
-                }, code, debug_output, reloc_info);
-            }
-
             const is_payload = typed_value.val.errorUnionIsPayload();
 
             if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
