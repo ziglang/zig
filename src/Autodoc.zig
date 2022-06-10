@@ -563,6 +563,7 @@ const DocData = struct {
         @"struct": []FieldVal,
         bool: bool,
         @"anytype": struct {},
+        @"&": usize, // index in `exprs`
         type: usize, // index in `types`
         this: usize, // index in `types`
         declRef: usize, // index in `decls`
@@ -1314,18 +1315,18 @@ fn walkInstruction(
                 .expr = .{ .errorSets = type_slot_index },
             };
         },
-        .elem_type => {
-            const un_node = data[inst_index].un_node;
+        // .elem_type => {
+        //     const un_node = data[inst_index].un_node;
 
-            var operand: DocData.WalkResult = try self.walkRef(
-                file,
-                parent_scope,
-                un_node.operand,
-                false,
-            );
+        //     var operand: DocData.WalkResult = try self.walkRef(
+        //         file,
+        //         parent_scope,
+        //         un_node.operand,
+        //         false,
+        //     );
 
-            return operand;
-        },
+        //     return operand;
+        // },
         .ptr_type_simple => {
             const ptr = data[inst_index].ptr_type_simple;
             const elem_type_ref = try self.walkRef(file, parent_scope, ptr.elem_type, false);
@@ -1455,69 +1456,20 @@ fn walkInstruction(
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.MultiOp, pl_node.payload_index);
             const operands = file.zir.refSlice(extra.end, extra.data.operands_len);
-            const array_data = try self.arena.alloc(usize, operands.len);
-
-            // TODO: make sure that you want the array to be fully normalized for real
-            // then update this code to conform to your choice.
-
-            var array_type: ?DocData.Expr = null;
-            for (operands) |op, idx| {
-                // we only ask to figure out type info for the first element
-                // as it will be used later on to find out the array type!
-                const wr = try self.walkRef(file, parent_scope, op, idx == 0);
-
-                if (idx == 0) {
-                    array_type = wr.typeRef;
-                }
-
-                // We know that Zir wraps every operand in an @as expression
-                // so we want to peel it away and only save the target type
-                // once, since we need it later to define the array type.
-                array_data[idx] = wr.expr.as.exprArg;
-            }
-
-            const type_slot_index = self.types.items.len;
-            try self.types.append(self.arena, .{ .Pointer = .{
-                .size = .Slice,
-                .child = array_type.?,
-                .is_mutable = true,
-            } });
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = type_slot_index },
-                .expr = .{ .array = array_data },
-            };
-        },
-        .array_init_sent => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.MultiOp, pl_node.payload_index);
-            const operands = file.zir.refSlice(extra.end, extra.data.operands_len);
             const array_data = try self.arena.alloc(usize, operands.len - 1);
 
-            // TODO: make sure that you want the array to be fully normalized for real
-            // then update this code to conform to your choice.
-            var sentinel: ?DocData.Expr = null;
-            var array_type: ?DocData.Expr = null;
-            for (operands) |op, idx| {
-                // we only ask to figure out type info for the first element
-                // as it will be used later on to find out the array type!
-                const wr = try self.walkRef(file, parent_scope, op, idx == 0);
-                if (idx == 0) {
-                    array_type = wr.typeRef;
-                }
+            std.debug.assert(operands.len > 0);
+            var array_type = try self.walkRef(file, parent_scope, operands[0], false);
 
-                if (idx == extra.data.operands_len - 1) {
-                    sentinel = self.exprs.items[wr.expr.as.exprArg];
-                } else {
-                    array_data[idx] = wr.expr.as.exprArg;
-                }
+            for (operands[1..]) |op, idx| {
+                const wr = try self.walkRef(file, parent_scope, op, false);
+                const expr_index = self.exprs.items.len;
+                try self.exprs.append(self.arena, wr.expr);
+                array_data[idx] = expr_index;
             }
 
-            const type_slot_index = self.types.items.len;
-            try self.types.append(self.arena, .{ .Pointer = .{ .size = .Slice, .child = array_type.?, .is_mutable = true, .sentinel = sentinel } });
-
             return DocData.WalkResult{
-                .typeRef = .{ .type = type_slot_index },
+                .typeRef = array_type.expr,
                 .expr = .{ .array = array_data },
             };
         },
@@ -1527,50 +1479,15 @@ fn walkInstruction(
             const operands = file.zir.refSlice(extra.end, extra.data.operands_len);
             const array_data = try self.arena.alloc(usize, operands.len);
 
-            // TODO: make sure that you want the array to be fully normalized for real
-            // then update this code to conform to your choice.
-
-            var array_type: ?DocData.Expr = null;
             for (operands) |op, idx| {
-                // we only ask to figure out type info for the first element
-                // as it will be used later on to find out the array type!
-                const wr = try self.walkRef(file, parent_scope, op, idx == 0);
-                if (idx == 0) {
-                    array_type = wr.typeRef;
-                }
-
-                // array_init_anon doesn't have the elements in @as nodes
-                // so it's necessary append them to expr array
-                // and remember their positions
+                const wr = try self.walkRef(file, parent_scope, op, false);
                 const expr_index = self.exprs.items.len;
                 try self.exprs.append(self.arena, wr.expr);
                 array_data[idx] = expr_index;
             }
 
-            if (array_type == null) {
-                panicWithContext(
-                    file,
-                    inst_index,
-                    "array_type was null!!",
-                    .{},
-                );
-            }
-
-            const type_slot_index = self.types.items.len;
-            try self.types.append(self.arena, .{
-                .Array = .{
-                    .len = .{
-                        .int = .{
-                            .value = operands.len,
-                            .negated = false,
-                        },
-                    },
-                    .child = array_type.?,
-                },
-            });
-
             return DocData.WalkResult{
-                .typeRef = .{ .type = type_slot_index },
+                .typeRef = null,
                 .expr = .{ .array = array_data },
             };
         },
@@ -1578,59 +1495,32 @@ fn walkInstruction(
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.MultiOp, pl_node.payload_index);
             const operands = file.zir.refSlice(extra.end, extra.data.operands_len);
-            const array_data = try self.arena.alloc(usize, operands.len);
-
-            var array_type: ?DocData.Expr = null;
-            for (operands) |op, idx| {
-                const wr = try self.walkRef(file, parent_scope, op, idx == 0);
-                if (idx == 0) {
-                    array_type = wr.typeRef;
-                }
-                array_data[idx] = wr.expr.as.exprArg;
-            }
-
-            const type_slot_index = self.types.items.len;
-            try self.types.append(self.arena, .{ .Pointer = .{
-                .size = .One,
-                .child = array_type.?,
-            } });
-
-            return DocData.WalkResult{
-                .typeRef = .{ .type = type_slot_index },
-                .expr = .{ .array = array_data },
-            };
-        },
-        .array_init_sent_ref => {
-            const pl_node = data[inst_index].pl_node;
-            const extra = file.zir.extraData(Zir.Inst.MultiOp, pl_node.payload_index);
-            const operands = file.zir.refSlice(extra.end, extra.data.operands_len);
             const array_data = try self.arena.alloc(usize, operands.len - 1);
 
-            // TODO: This should output:
-            // const array: *[value:sentinel]type = &.{};
-            // but right now it's printing:
-            // const array: [value:sentinel]u8 = .{};
+            std.debug.assert(operands.len > 0);
+            var array_type = try self.walkRef(file, parent_scope, operands[0], false);
 
-            var sentinel: ?DocData.Expr = null;
-            var array_type: ?DocData.Expr = null;
-            for (operands) |op, idx| {
-                const wr = try self.walkRef(file, parent_scope, op, idx == 0);
-                if (idx == 0) {
-                    array_type = wr.typeRef;
-                }
-                if (idx == extra.data.operands_len - 1) {
-                    sentinel = self.exprs.items[wr.expr.as.exprArg];
-                } else {
-                    array_data[idx] = wr.expr.as.exprArg;
-                }
+            for (operands[1..]) |op, idx| {
+                const wr = try self.walkRef(file, parent_scope, op, false);
+                const expr_index = self.exprs.items.len;
+                try self.exprs.append(self.arena, wr.expr);
+                array_data[idx] = expr_index;
             }
 
             const type_slot_index = self.types.items.len;
-            try self.types.append(self.arena, .{ .Pointer = .{ .size = .Slice, .child = array_type.?, .is_mutable = true, .sentinel = sentinel } });
+            try self.types.append(self.arena, .{
+                .Pointer = .{
+                    .size = .One,
+                    .child = array_type.expr,
+                },
+            });
+
+            const expr_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, .{ .array = array_data });
 
             return DocData.WalkResult{
                 .typeRef = .{ .type = type_slot_index },
-                .expr = .{ .array = array_data },
+                .expr = .{ .@"&" = expr_index },
             };
         },
         .array_init_anon_ref => {
@@ -1639,29 +1529,19 @@ fn walkInstruction(
             const operands = file.zir.refSlice(extra.end, extra.data.operands_len);
             const array_data = try self.arena.alloc(usize, operands.len);
 
-            var array_type: ?DocData.Expr = null;
             for (operands) |op, idx| {
-                const wr = try self.walkRef(file, parent_scope, op, idx == 0);
-                if (idx == 0) {
-                    array_type = wr.typeRef;
-                }
-
+                const wr = try self.walkRef(file, parent_scope, op, false);
                 const expr_index = self.exprs.items.len;
                 try self.exprs.append(self.arena, wr.expr);
                 array_data[idx] = expr_index;
             }
 
-            const type_slot_index = self.types.items.len;
-            try self.types.append(self.arena, .{ .Pointer = .{
-                .size = .Slice,
-                .child = array_type.?,
-                .is_mutable = true,
-                .is_ref = true,
-            } });
+            const expr_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, .{ .array = array_data });
 
             return DocData.WalkResult{
-                .typeRef = .{ .type = type_slot_index },
-                .expr = .{ .array = array_data },
+                .typeRef = null,
+                .expr = .{ .@"&" = expr_index },
             };
         },
         .float => {
@@ -2188,20 +2068,20 @@ fn walkInstruction(
 
             return result;
         },
-        .func_extended => {
-            const type_slot_index = self.types.items.len;
-            try self.types.append(self.arena, .{ .Unanalyzed = .{} });
+        // .func_extended => {
+        //     const type_slot_index = self.types.items.len;
+        //     try self.types.append(self.arena, .{ .Unanalyzed = .{} });
 
-            const result = self.analyzeFunctionExtended(
-                file,
-                parent_scope,
-                inst_index,
-                self_ast_node_index,
-                type_slot_index,
-            );
+        //     const result = self.analyzeFunctionExtended(
+        //         file,
+        //         parent_scope,
+        //         inst_index,
+        //         self_ast_node_index,
+        //         type_slot_index,
+        //     );
 
-            return result;
-        },
+        //     return result;
+        // },
         .extended => {
             const extended = data[inst_index].extended;
             switch (extended.opcode) {
@@ -2766,81 +2646,83 @@ fn walkDecls(
                 break :blk "test";
             } else if (decl_name_index == 2) {
                 is_test = true;
-                // it is a decltest
-                const decl_being_tested = scope.resolveDeclName(doc_comment_index);
-                const ast_node_index = idx: {
-                    const idx = self.ast_nodes.items.len;
-                    const file_source = file.getSource(self.module.gpa) catch unreachable; // TODO fix this
-                    const source_of_decltest_function = srcloc: {
-                        const func_index = getBlockInlineBreak(file.zir, value_index);
-                        // a decltest is always a function
-                        const tag = file.zir.instructions.items(.tag)[Zir.refToIndex(func_index).?];
-                        std.debug.assert(tag == .func_extended);
+                // TODO: remove temporary hack
+                break :blk "test";
+                // // it is a decltest
+                // const decl_being_tested = scope.resolveDeclName(doc_comment_index);
+                // const ast_node_index = idx: {
+                //     const idx = self.ast_nodes.items.len;
+                //     const file_source = file.getSource(self.module.gpa) catch unreachable; // TODO fix this
+                //     const source_of_decltest_function = srcloc: {
+                //         const func_index = getBlockInlineBreak(file.zir, value_index);
+                //         // a decltest is always a function
+                //         const tag = file.zir.instructions.items(.tag)[Zir.refToIndex(func_index).?];
+                //         std.debug.assert(tag == .func_extended);
 
-                        const pl_node = file.zir.instructions.items(.data)[Zir.refToIndex(func_index).?].pl_node;
-                        const extra = file.zir.extraData(Zir.Inst.ExtendedFunc, pl_node.payload_index);
-                        const bits = @bitCast(Zir.Inst.ExtendedFunc.Bits, extra.data.bits);
+                //         const pl_node = file.zir.instructions.items(.data)[Zir.refToIndex(func_index).?].pl_node;
+                //         const extra = file.zir.extraData(Zir.Inst.ExtendedFunc, pl_node.payload_index);
+                //         const bits = @bitCast(Zir.Inst.ExtendedFunc.Bits, extra.data.bits);
 
-                        var extra_index_for_this_func: usize = extra.end;
-                        if (bits.has_lib_name) extra_index_for_this_func += 1;
-                        if (bits.has_cc) extra_index_for_this_func += 1;
-                        if (bits.has_align) extra_index_for_this_func += 1;
+                //         var extra_index_for_this_func: usize = extra.end;
+                //         if (bits.has_lib_name) extra_index_for_this_func += 1;
+                //         if (bits.has_cc) extra_index_for_this_func += 1;
+                //         if (bits.has_align) extra_index_for_this_func += 1;
 
-                        const ret_ty_body = file.zir.extra[extra_index_for_this_func..][0..extra.data.ret_body_len];
-                        extra_index_for_this_func += ret_ty_body.len;
+                //         const ret_ty_body = file.zir.extra[extra_index_for_this_func..][0..extra.data.ret_body_len];
+                //         extra_index_for_this_func += ret_ty_body.len;
 
-                        const body = file.zir.extra[extra_index_for_this_func..][0..extra.data.body_len];
-                        extra_index_for_this_func += body.len;
+                //         const body = file.zir.extra[extra_index_for_this_func..][0..extra.data.body_len];
+                //         extra_index_for_this_func += body.len;
 
-                        var src_locs: Zir.Inst.Func.SrcLocs = undefined;
-                        if (body.len != 0) {
-                            src_locs = file.zir.extraData(Zir.Inst.Func.SrcLocs, extra_index_for_this_func).data;
-                        } else {
-                            src_locs = .{
-                                .lbrace_line = line,
-                                .rbrace_line = line,
-                                .columns = 0, // TODO get columns when body.len == 0
-                            };
-                        }
-                        break :srcloc src_locs;
-                    };
-                    const source_slice = slice: {
-                        var start_byte_offset: u32 = 0;
-                        var end_byte_offset: u32 = 0;
-                        const rbrace_col = @truncate(u16, source_of_decltest_function.columns >> 16);
-                        var lines: u32 = 0;
-                        for (file_source.bytes) |b, i| {
-                            if (b == '\n') {
-                                lines += 1;
-                            }
-                            if (lines == source_of_decltest_function.lbrace_line) {
-                                start_byte_offset = @intCast(u32, i);
-                            }
-                            if (lines == source_of_decltest_function.rbrace_line) {
-                                end_byte_offset = @intCast(u32, i) + rbrace_col;
-                                break;
-                            }
-                        }
-                        break :slice file_source.bytes[start_byte_offset..end_byte_offset];
-                    };
-                    try self.ast_nodes.append(self.arena, .{
-                        .file = 0,
-                        .line = line,
-                        .col = 0,
-                        .name = try self.arena.dupe(u8, source_slice),
-                    });
-                    break :idx idx;
-                };
-                self.decls.items[decl_being_tested].decltest = ast_node_index;
-                self.decls.items[decls_slot_index] = .{
-                    ._analyzed = true,
-                    .name = "test",
-                    .isTest = true,
-                    .src = ast_node_index,
-                    .value = .{ .expr = .{ .type = 0 } },
-                    .kind = "const",
-                };
-                continue;
+                //         var src_locs: Zir.Inst.Func.SrcLocs = undefined;
+                //         if (body.len != 0) {
+                //             src_locs = file.zir.extraData(Zir.Inst.Func.SrcLocs, extra_index_for_this_func).data;
+                //         } else {
+                //             src_locs = .{
+                //                 .lbrace_line = line,
+                //                 .rbrace_line = line,
+                //                 .columns = 0, // TODO get columns when body.len == 0
+                //             };
+                //         }
+                //         break :srcloc src_locs;
+                //     };
+                //     const source_slice = slice: {
+                //         var start_byte_offset: u32 = 0;
+                //         var end_byte_offset: u32 = 0;
+                //         const rbrace_col = @truncate(u16, source_of_decltest_function.columns >> 16);
+                //         var lines: u32 = 0;
+                //         for (file_source.bytes) |b, i| {
+                //             if (b == '\n') {
+                //                 lines += 1;
+                //             }
+                //             if (lines == source_of_decltest_function.lbrace_line) {
+                //                 start_byte_offset = @intCast(u32, i);
+                //             }
+                //             if (lines == source_of_decltest_function.rbrace_line) {
+                //                 end_byte_offset = @intCast(u32, i) + rbrace_col;
+                //                 break;
+                //             }
+                //         }
+                //         break :slice file_source.bytes[start_byte_offset..end_byte_offset];
+                //     };
+                //     try self.ast_nodes.append(self.arena, .{
+                //         .file = 0,
+                //         .line = line,
+                //         .col = 0,
+                //         .name = try self.arena.dupe(u8, source_slice),
+                //     });
+                //     break :idx idx;
+                // };
+                // self.decls.items[decl_being_tested].decltest = ast_node_index;
+                // self.decls.items[decls_slot_index] = .{
+                //     ._analyzed = true,
+                //     .name = "test",
+                //     .isTest = true,
+                //     .src = ast_node_index,
+                //     .value = .{ .expr = .{ .type = 0 } },
+                //     .kind = "const",
+                // };
+                // continue;
             } else {
                 const raw_decl_name = file.zir.nullTerminatedString(decl_name_index);
                 if (raw_decl_name.len == 0) {
