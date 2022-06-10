@@ -49,6 +49,10 @@ pub fn deinit(self: *ThreadPool) void {
 }
 
 fn join(self: *ThreadPool, spawned: usize) void {
+    if (builtin.single_threaded) {
+        return;
+    }
+
     {
         self.mutex.lock();
         defer self.mutex.unlock();
