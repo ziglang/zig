@@ -907,12 +907,12 @@ pub const File = struct {
         }
         const times = [2]os.timespec{
             os.timespec{
-                .tv_sec = math.cast(isize, @divFloor(atime, std.time.ns_per_s)) catch maxInt(isize),
-                .tv_nsec = math.cast(isize, @mod(atime, std.time.ns_per_s)) catch maxInt(isize),
+                .tv_sec = math.cast(isize, @divFloor(atime, std.time.ns_per_s)) orelse maxInt(isize),
+                .tv_nsec = math.cast(isize, @mod(atime, std.time.ns_per_s)) orelse maxInt(isize),
             },
             os.timespec{
-                .tv_sec = math.cast(isize, @divFloor(mtime, std.time.ns_per_s)) catch maxInt(isize),
-                .tv_nsec = math.cast(isize, @mod(mtime, std.time.ns_per_s)) catch maxInt(isize),
+                .tv_sec = math.cast(isize, @divFloor(mtime, std.time.ns_per_s)) orelse maxInt(isize),
+                .tv_nsec = math.cast(isize, @mod(mtime, std.time.ns_per_s)) orelse maxInt(isize),
             },
         };
         try os.futimens(self.handle, &times);
@@ -1218,7 +1218,7 @@ pub const File = struct {
     pub const CopyRangeError = os.CopyFileRangeError;
 
     pub fn copyRange(in: File, in_offset: u64, out: File, out_offset: u64, len: u64) CopyRangeError!u64 {
-        const adjusted_len = math.cast(usize, len) catch math.maxInt(usize);
+        const adjusted_len = math.cast(usize, len) orelse math.maxInt(usize);
         const result = try os.copy_file_range(in.handle, in_offset, out.handle, out_offset, adjusted_len, 0);
         return result;
     }

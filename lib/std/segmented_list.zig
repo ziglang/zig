@@ -391,7 +391,10 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 }
 
 test "SegmentedList basic usage" {
-    try testSegmentedList(0);
+    if (@import("builtin").zig_backend == .stage1) {
+        // https://github.com/ziglang/zig/issues/11787
+        try testSegmentedList(0);
+    }
     try testSegmentedList(1);
     try testSegmentedList(2);
     try testSegmentedList(4);

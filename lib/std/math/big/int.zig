@@ -2014,7 +2014,7 @@ pub const Const = struct {
                     } else {
                         if (math.cast(T, r)) |ok| {
                             return -ok;
-                        } else |_| {
+                        } else {
                             return minInt(T);
                         }
                     }
@@ -2063,9 +2063,8 @@ pub const Const = struct {
         // This is the inverse of calcDivLimbsBufferLen
         const available_len = (limbs.len / 3) - 2;
 
-        // TODO https://github.com/ziglang/zig/issues/11439
-        const biggest = comptime Const{
-            .limbs = &([1]Limb{math.maxInt(Limb)} ** available_len),
+        const biggest: Const = .{
+            .limbs = &([1]Limb{comptime math.maxInt(Limb)} ** available_len),
             .positive = false,
         };
         var buf: [biggest.sizeInBaseUpperBound(radix)]u8 = undefined;

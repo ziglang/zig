@@ -164,7 +164,7 @@ fn optimalBranchType(emit: *Emit, tag: Mir.Inst.Tag, offset: i64) !BranchType {
         .b => {
             if (std.math.cast(i24, @divExact(offset, 4))) |_| {
                 return BranchType.b;
-            } else |_| {
+            } else {
                 return emit.fail("TODO support larger branches", .{});
             }
         },
@@ -394,7 +394,7 @@ fn mirDataProcessing(emit: *Emit, inst: Mir.Inst.Index) !void {
         .orr => try emit.writeInstruction(Instruction.orr(cond, rr_op.rd, rr_op.rn, rr_op.op)),
         .rsb => try emit.writeInstruction(Instruction.rsb(cond, rr_op.rd, rr_op.rn, rr_op.op)),
         .sub => try emit.writeInstruction(Instruction.sub(cond, rr_op.rd, rr_op.rn, rr_op.op)),
-        .subs => try emit.writeInstruction(Instruction.sub(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+        .subs => try emit.writeInstruction(Instruction.subs(cond, rr_op.rd, rr_op.rn, rr_op.op)),
         else => unreachable,
     }
 }

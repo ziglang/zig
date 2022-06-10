@@ -168,14 +168,12 @@ const MemberFnTestFoo = struct {
 };
 
 test "call member function directly" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     const instance = MemberFnTestFoo{ .x = 1234 };
     const result = MemberFnTestFoo.member(instance);
     try expect(result == 1234);
 }
 
 test "store member function in variable" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     const instance = MemberFnTestFoo{ .x = 1234 };
     const memberFn = MemberFnTestFoo.member;
     const result = memberFn(instance);
@@ -844,7 +842,6 @@ test "non-packed struct with u128 entry in union" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     const U = union(enum) {
         Num: u128,
@@ -1001,8 +998,6 @@ test "tuple element initialized with fn call" {
 }
 
 test "struct with union field" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-
     const Value = struct {
         ref: u32 = 2,
         kind: union(enum) {
@@ -1319,4 +1314,47 @@ test "packed struct aggregate init" {
     };
     const result = @bitCast(u8, S.foo(1, 2));
     try expect(result == 9);
+}
+
+test "packed struct field access via pointer" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            const S = packed struct { a: u30 };
+            var s1: S = .{ .a = 1 };
+            var s2 = &s1;
+            try expect(s2.a == 1);
+            var s3: S = undefined;
+            var s4 = &s3;
+            _ = s4;
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "store to comptime field" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
+    {
+        const S = struct {
+            comptime a: [2]u32 = [2]u32{ 1, 2 },
+        };
+        var s: S = .{};
+        s.a = [2]u32{ 1, 2 };
+        s.a[0] = 1;
+    }
+    {
+        const T = struct { a: u32, b: u32 };
+        const S = struct {
+            comptime a: T = T{ .a = 1, .b = 2 },
+        };
+        var s: S = .{};
+        s.a = T{ .a = 1, .b = 2 };
+        s.a.a = 1;
+    }
 }

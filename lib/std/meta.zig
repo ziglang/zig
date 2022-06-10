@@ -10,6 +10,10 @@ pub const TrailerFlags = @import("meta/trailer_flags.zig").TrailerFlags;
 
 const Type = std.builtin.Type;
 
+test "std.meta.TrailerFlags" {
+    _ = TrailerFlags;
+}
+
 pub fn tagName(v: anytype) []const u8 {
     const T = @TypeOf(v);
     switch (@typeInfo(T)) {
@@ -307,7 +311,10 @@ pub fn assumeSentinel(p: anytype, comptime sentinel_val: Elem(@TypeOf(p))) Senti
     const ReturnType = Sentinel(T, sentinel_val);
     switch (@typeInfo(T)) {
         .Pointer => |info| switch (info.size) {
-            .Slice => return @bitCast(ReturnType, p),
+            .Slice => if (@import("builtin").zig_backend == .stage1)
+                return @bitCast(ReturnType, p)
+            else
+                return @ptrCast(ReturnType, p),
             .Many, .One => return @ptrCast(ReturnType, p),
             .C => {},
         },

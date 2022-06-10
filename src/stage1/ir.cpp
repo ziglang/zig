@@ -15500,7 +15500,7 @@ static Stage1AirInst *ir_analyze_struct_field_ptr(IrAnalyze *ira, Scope *scope, 
                 is_const, is_volatile, PtrLenSingle, field->align,
                 (uint32_t)(ptr_bit_offset + field->bit_offset_in_host),
                 (uint32_t)host_int_bytes_for_result_type, false);
-        
+
         if (field == struct_type->data.structure.misaligned_field) {
             // If field is the last single misaligned field it will be represented as array
             // of bytes in LLVM but get_pointer_to_type_extra will set its host_int_bytes to 0.
@@ -24781,7 +24781,9 @@ static Stage1AirInst *ir_analyze_instruction_end_expr(IrAnalyze *ira, Stage1ZirI
             if (type_is_invalid(store_ptr->value->type)) {
                 if (instruction->result_loc->id == ResultLocIdReturn &&
                     (value->value->type->id == ZigTypeIdErrorUnion || value->value->type->id == ZigTypeIdErrorSet) &&
-                    ira->explicit_return_type->id != ZigTypeIdErrorUnion && ira->explicit_return_type->id != ZigTypeIdErrorSet)
+                    ira->explicit_return_type->id != ZigTypeIdErrorUnion && ira->explicit_return_type->id != ZigTypeIdErrorSet &&
+                    // Only add error note if we have a node to attach it to
+                    ira->explicit_return_type_source_node)
                 {
                     add_error_note(ira->codegen, ira->new_irb.exec->first_err_trace_msg,
                         ira->explicit_return_type_source_node, buf_create_from_str("function cannot return an error"));

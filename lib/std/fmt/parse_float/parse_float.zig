@@ -1,7 +1,5 @@
 const std = @import("std");
 const parse = @import("parse.zig");
-const parseNumber = parse.parseNumber;
-const parseInfOrNan = parse.parseInfOrNan;
 const convertFast = @import("convert_fast.zig").convertFast;
 const convertEiselLemire = @import("convert_eisel_lemire.zig").convertEiselLemire;
 const convertSlow = @import("convert_slow.zig").convertSlow;

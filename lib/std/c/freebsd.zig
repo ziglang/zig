@@ -1640,3 +1640,12 @@ pub const POLL = struct {
 
     pub const STANDARD = IN | PRI | OUT | RDNORM | RDBAND | WRBAND | ERR | HUP | NVAL;
 };
+
+pub const NAME_MAX = 255;
+
+pub const MFD = struct {
+    pub const CLOEXEC = 0x0001;
+    pub const ALLOW_SEALING = 0x0002;
+};
+
+pub extern "c" fn memfd_create(name: [*:0]const u8, flags: c_uint) c_int;

@@ -67,7 +67,6 @@ pub const LOCK = arch_bits.LOCK;
 pub const MMAP2_UNIT = arch_bits.MMAP2_UNIT;
 pub const REG = arch_bits.REG;
 pub const SC = arch_bits.SC;
-pub const SYS = arch_bits.SYS;
 pub const Stat = arch_bits.Stat;
 pub const VDSO = arch_bits.VDSO;
 pub const blkcnt_t = arch_bits.blkcnt_t;
@@ -92,6 +91,20 @@ pub const pie = @import("linux/start_pie.zig");
 pub const BPF = @import("linux/bpf.zig");
 pub const IOCTL = @import("linux/ioctl.zig");
 pub const SECCOMP = @import("linux/seccomp.zig");
+
+pub const syscalls = @import("linux/syscalls.zig");
+pub const SYS = switch (@import("builtin").cpu.arch) {
+    .i386 => syscalls.X86,
+    .x86_64 => syscalls.X64,
+    .aarch64 => syscalls.Arm64,
+    .arm, .thumb => syscalls.Arm,
+    .riscv64 => syscalls.RiscV64,
+    .sparc64 => syscalls.Sparc64,
+    .mips, .mipsel => syscalls.Mips,
+    .powerpc => syscalls.PowerPC,
+    .powerpc64, .powerpc64le => syscalls.PowerPC64,
+    else => @compileError("The Zig Standard Library is missing syscall definitions for the target CPU architecture"),
+};
 
 pub const MAP = struct {
     pub usingnamespace arch_bits.MAP;
@@ -3051,7 +3064,7 @@ pub const NSIG = if (is_mips) 128 else 65;
 
 pub const sigset_t = [1024 / 32]u32;
 
-pub const all_mask: sigset_t = [_]u32{0xffffffff} ** sigset_t.len;
+pub const all_mask: sigset_t = [_]u32{0xffffffff} ** @typeInfo(sigset_t).Array.len;
 pub const app_mask: sigset_t = [2]u32{ 0xfffffffc, 0x7fffffff } ++ [_]u32{0xffffffff} ** 30;
 
 const k_sigaction_funcs = if (builtin.zig_backend == .stage1) struct {
@@ -3972,11 +3985,6 @@ pub const POLL = struct {
     pub const RDBAND = 0x080;
 };
 
-pub const MFD_CLOEXEC = 0x0001;
-pub const MFD_ALLOW_SEALING = 0x0002;
-pub const MFD_HUGETLB = 0x0004;
-pub const MFD_ALL_FLAGS = MFD_CLOEXEC | MFD_ALLOW_SEALING | MFD_HUGETLB;
-
 pub const HUGETLB_FLAG_ENCODE_SHIFT = 26;
 pub const HUGETLB_FLAG_ENCODE_MASK = 0x3f;
 pub const HUGETLB_FLAG_ENCODE_64KB = 16 << HUGETLB_FLAG_ENCODE_SHIFT;
@@ -3992,20 +4000,27 @@ pub const HUGETLB_FLAG_ENCODE_1GB = 30 << HUGETLB_FLAG_ENCODE_SHIFT;
 pub const HUGETLB_FLAG_ENCODE_2GB = 31 << HUGETLB_FLAG_ENCODE_SHIFT;
 pub const HUGETLB_FLAG_ENCODE_16GB = 34 << HUGETLB_FLAG_ENCODE_SHIFT;
 
-pub const MFD_HUGE_SHIFT = HUGETLB_FLAG_ENCODE_SHIFT;
-pub const MFD_HUGE_MASK = HUGETLB_FLAG_ENCODE_MASK;
-pub const MFD_HUGE_64KB = HUGETLB_FLAG_ENCODE_64KB;
-pub const MFD_HUGE_512KB = HUGETLB_FLAG_ENCODE_512KB;
-pub const MFD_HUGE_1MB = HUGETLB_FLAG_ENCODE_1MB;
-pub const MFD_HUGE_2MB = HUGETLB_FLAG_ENCODE_2MB;
-pub const MFD_HUGE_8MB = HUGETLB_FLAG_ENCODE_8MB;
-pub const MFD_HUGE_16MB = HUGETLB_FLAG_ENCODE_16MB;
-pub const MFD_HUGE_32MB = HUGETLB_FLAG_ENCODE_32MB;
-pub const MFD_HUGE_256MB = HUGETLB_FLAG_ENCODE_256MB;
-pub const MFD_HUGE_512MB = HUGETLB_FLAG_ENCODE_512MB;
-pub const MFD_HUGE_1GB = HUGETLB_FLAG_ENCODE_1GB;
-pub const MFD_HUGE_2GB = HUGETLB_FLAG_ENCODE_2GB;
-pub const MFD_HUGE_16GB = HUGETLB_FLAG_ENCODE_16GB;
+pub const MFD = struct {
+    pub const CLOEXEC = 0x0001;
+    pub const ALLOW_SEALING = 0x0002;
+    pub const HUGETLB = 0x0004;
+    pub const ALL_FLAGS = CLOEXEC | ALLOW_SEALING | HUGETLB;
+
+    pub const HUGE_SHIFT = HUGETLB_FLAG_ENCODE_SHIFT;
+    pub const HUGE_MASK = HUGETLB_FLAG_ENCODE_MASK;
+    pub const HUGE_64KB = HUGETLB_FLAG_ENCODE_64KB;
+    pub const HUGE_512KB = HUGETLB_FLAG_ENCODE_512KB;
+    pub const HUGE_1MB = HUGETLB_FLAG_ENCODE_1MB;
+    pub const HUGE_2MB = HUGETLB_FLAG_ENCODE_2MB;
+    pub const HUGE_8MB = HUGETLB_FLAG_ENCODE_8MB;
+    pub const HUGE_16MB = HUGETLB_FLAG_ENCODE_16MB;
+    pub const HUGE_32MB = HUGETLB_FLAG_ENCODE_32MB;
+    pub const HUGE_256MB = HUGETLB_FLAG_ENCODE_256MB;
+    pub const HUGE_512MB = HUGETLB_FLAG_ENCODE_512MB;
+    pub const HUGE_1GB = HUGETLB_FLAG_ENCODE_1GB;
+    pub const HUGE_2GB = HUGETLB_FLAG_ENCODE_2GB;
+    pub const HUGE_16GB = HUGETLB_FLAG_ENCODE_16GB;
+};
 
 pub const rusage = extern struct {
     utime: timeval,

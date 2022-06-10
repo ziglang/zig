@@ -165,8 +165,24 @@
 
 #define int128_t __int128
 #define uint128_t unsigned __int128
+#define UINT128_MAX ((uint128_t)(0xffffffffffffffffull) | 0xffffffffffffffffull)
 ZIG_EXTERN_C void *memcpy (void *ZIG_RESTRICT, const void *ZIG_RESTRICT, size_t);
 ZIG_EXTERN_C void *memset (void *, int, size_t);
+ZIG_EXTERN_C int64_t    __addodi4(int64_t   lhs, int64_t   rhs, int *overflow);
+ZIG_EXTERN_C int128_t   __addoti4(int128_t  lhs, int128_t  rhs, int *overflow);
+ZIG_EXTERN_C uint64_t  __uaddodi4(uint64_t  lhs, uint64_t  rhs, int *overflow);
+ZIG_EXTERN_C uint128_t __uaddoti4(uint128_t lhs, uint128_t rhs, int *overflow);
+ZIG_EXTERN_C int32_t    __subosi4(int32_t   lhs, int32_t   rhs, int *overflow);
+ZIG_EXTERN_C int64_t    __subodi4(int64_t   lhs, int64_t   rhs, int *overflow);
+ZIG_EXTERN_C int128_t   __suboti4(int128_t  lhs, int128_t  rhs, int *overflow);
+ZIG_EXTERN_C uint32_t  __usubosi4(uint32_t  lhs, uint32_t  rhs, int *overflow);
+ZIG_EXTERN_C uint64_t  __usubodi4(uint64_t  lhs, uint64_t  rhs, int *overflow);
+ZIG_EXTERN_C uint128_t __usuboti4(uint128_t lhs, uint128_t rhs, int *overflow);
+ZIG_EXTERN_C int64_t    __mulodi4(int64_t   lhs, int64_t   rhs, int *overflow);
+ZIG_EXTERN_C int128_t   __muloti4(int128_t  lhs, int128_t  rhs, int *overflow);
+ZIG_EXTERN_C uint64_t  __umulodi4(uint64_t  lhs, uint64_t  rhs, int *overflow);
+ZIG_EXTERN_C uint128_t __umuloti4(uint128_t lhs, uint128_t rhs, int *overflow);
+
 
 static inline uint8_t zig_addw_u8(uint8_t lhs, uint8_t rhs, uint8_t max) {
     uint8_t thresh = max - rhs;
@@ -396,6 +412,689 @@ static inline long long zig_subw_longlong(long long lhs, long long rhs, long lon
     return (long long)(((unsigned long long)lhs) - ((unsigned long long)rhs));
 }
 
+static inline bool zig_addo_i8(int8_t lhs, int8_t rhs, int8_t *res, int8_t min, int8_t max) {
+#if defined(__GNUC__) && INT8_MAX == INT_MAX
+    if (min == INT8_MIN && max == INT8_MAX) {
+        return __builtin_sadd_overflow(lhs, rhs, (int*)res);
+    }
+#elif defined(__GNUC__) && INT8_MAX == LONG_MAX
+    if (min == INT8_MIN && max == INT8_MAX) {
+        return __builtin_saddl_overflow(lhs, rhs, (long*)res);
+    }
+#elif defined(__GNUC__) && INT8_MAX == LLONG_MAX
+    if (min == INT8_MIN && max == INT8_MAX) {
+        return __builtin_saddll_overflow(lhs, rhs, (long long*)res);
+    }
+#endif
+    int16_t big_result = (int16_t)lhs + (int16_t)rhs;
+    if (big_result > max) {
+        *res = big_result - ((int16_t)max - (int16_t)min);
+        return true;
+    }
+    if (big_result < min) {
+        *res = big_result + ((int16_t)max - (int16_t)min);
+        return true;
+    }
+    *res = big_result;
+    return false;
+}
+
+static inline bool zig_addo_i16(int16_t lhs, int16_t rhs, int16_t *res, int16_t min, int16_t max) {
+#if defined(__GNUC__) && INT16_MAX == INT_MAX
+    if (min == INT16_MIN && max == INT16_MAX) {
+        return __builtin_sadd_overflow(lhs, rhs, (int*)res);
+    }
+#elif defined(__GNUC__) && INT16_MAX == LONG_MAX
+    if (min == INT16_MIN && max == INT16_MAX) {
+        return __builtin_saddl_overflow(lhs, rhs, (long*)res);
+    }
+#elif defined(__GNUC__) && INT16_MAX == LLONG_MAX
+    if (min == INT16_MIN && max == INT16_MAX) {
+        return __builtin_saddll_overflow(lhs, rhs, (long long*)res);
+    }
+#endif
+    int32_t big_result = (int32_t)lhs + (int32_t)rhs;
+    if (big_result > max) {
+        *res = big_result - ((int32_t)max - (int32_t)min);
+        return true;
+    }
+    if (big_result < min) {
+        *res = big_result + ((int32_t)max - (int32_t)min);
+        return true;
+    }
+    *res = big_result;
+    return false;
+}
+
+static inline bool zig_addo_i32(int32_t lhs, int32_t rhs, int32_t *res, int32_t min, int32_t max) {
+#if defined(__GNUC__) && INT32_MAX == INT_MAX
+    if (min == INT32_MIN && max == INT32_MAX) {
+        return __builtin_sadd_overflow(lhs, rhs, (int*)res);
+    }
+#elif defined(__GNUC__) && INT32_MAX == LONG_MAX
+    if (min == INT32_MIN && max == INT32_MAX) {
+        return __builtin_saddl_overflow(lhs, rhs, (long*)res);
+    }
+#elif defined(__GNUC__) && INT32_MAX == LLONG_MAX
+    if (min == INT32_MIN && max == INT32_MAX) {
+        return __builtin_saddll_overflow(lhs, rhs, (long long*)res);
+    }
+#endif
+    int64_t big_result = (int64_t)lhs + (int64_t)rhs;
+    if (big_result > max) {
+        *res = big_result - ((int64_t)max - (int64_t)min);
+        return true;
+    }
+    if (big_result < min) {
+        *res = big_result + ((int64_t)max - (int64_t)min);
+        return true;
+    }
+    *res = big_result;
+    return false;
+}
+
+static inline bool zig_addo_i64(int64_t lhs, int64_t rhs, int64_t *res, int64_t min, int64_t max) {
+    bool overflow;
+#if defined(__GNUC__) && INT64_MAX == INT_MAX
+    overflow = __builtin_sadd_overflow(lhs, rhs, (int*)res);
+#elif defined(__GNUC__) && INT64_MAX == LONG_MAX
+    overflow = __builtin_saddl_overflow(lhs, rhs, (long*)res);
+#elif defined(__GNUC__) && INT64_MAX == LLONG_MAX
+    overflow = __builtin_saddll_overflow(lhs, rhs, (long long*)res);
+#else
+    int int_overflow;
+    *res = __addodi4(lhs, rhs, &int_overflow);
+    overflow = int_overflow != 0;
+#endif
+    if (!overflow) {
+        if (*res > max) {
+            // TODO adjust the result to be the truncated bits
+            return true;
+        } else if (*res < min) {
+            // TODO adjust the result to be the truncated bits
+            return true;
+        }
+    }
+    return overflow;
+}
+
+static inline bool zig_addo_i128(int128_t lhs, int128_t rhs, int128_t *res, int128_t min, int128_t max) {
+    bool overflow;
+#if defined(__GNUC__) && INT128_MAX == INT_MAX
+    overflow = __builtin_sadd_overflow(lhs, rhs, (int*)res);
+#elif defined(__GNUC__) && INT128_MAX == LONG_MAX
+    overflow = __builtin_saddl_overflow(lhs, rhs, (long*)res);
+#elif defined(__GNUC__) && INT128_MAX == LLONG_MAX
+    overflow = __builtin_saddll_overflow(lhs, rhs, (long long*)res);
+#else
+    int int_overflow;
+    *res = __addoti4(lhs, rhs, &int_overflow);
+    overflow = int_overflow != 0;
+#endif
+    if (!overflow) {
+        if (*res > max) {
+            // TODO adjust the result to be the truncated bits
+            return true;
+        } else if (*res < min) {
+            // TODO adjust the result to be the truncated bits
+            return true;
+        }
+    }
+    return overflow;
+}
+
+static inline bool zig_addo_u8(uint8_t lhs, uint8_t rhs, uint8_t *res, uint8_t max) {
+#if defined(__GNUC__) && UINT8_MAX == UINT_MAX
+    if (max == UINT8_MAX) {
+        return __builtin_uadd_overflow(lhs, rhs, (unsigned int*)res);
+    }
+#elif defined(__GNUC__) && UINT8_MAX == ULONG_MAX
+    if (max == UINT8_MAX) {
+        return __builtin_uaddl_overflow(lhs, rhs, (unsigned long*)res);
+    }
+#elif defined(__GNUC__) && UINT8_MAX == ULLONG_MAX
+    if (max == UINT8_MAX) {
+        return __builtin_uaddll_overflow(lhs, rhs, (unsigned long long*)res);
+    }
+#endif
+    uint16_t big_result = (uint16_t)lhs + (uint16_t)rhs;
+    if (big_result > max) {
+        *res = big_result - max - 1;
+        return true;
+    }
+    *res = big_result;
+    return false;
+}
+
+static inline uint16_t zig_addo_u16(uint16_t lhs, uint16_t rhs, uint16_t *res, uint16_t max) {
+#if defined(__GNUC__) && UINT16_MAX == UINT_MAX
+    if (max == UINT16_MAX) {
+        return __builtin_uadd_overflow(lhs, rhs, (unsigned int*)res);
+    }
+#elif defined(__GNUC__) && UINT16_MAX == ULONG_MAX
+    if (max == UINT16_MAX) {
+        return __builtin_uaddl_overflow(lhs, rhs, (unsigned long*)res);
+    }
+#elif defined(__GNUC__) && UINT16_MAX == ULLONG_MAX
+    if (max == UINT16_MAX) {
+        return __builtin_uaddll_overflow(lhs, rhs, (unsigned long long*)res);
+    }
+#endif
+    uint32_t big_result = (uint32_t)lhs + (uint32_t)rhs;
+    if (big_result > max) {
+        *res = big_result - max - 1;
+        return true;
+    }
+    *res = big_result;
+    return false;
+}
+
+static inline uint32_t zig_addo_u32(uint32_t lhs, uint32_t rhs, uint32_t *res, uint32_t max) {
+#if defined(__GNUC__) && UINT32_MAX == UINT_MAX
+    if (max == UINT32_MAX) {
+        return __builtin_uadd_overflow(lhs, rhs, (unsigned int*)res);
+    }
+#elif defined(__GNUC__) && UINT32_MAX == ULONG_MAX
+    if (max == UINT32_MAX) {
+        return __builtin_uaddl_overflow(lhs, rhs, (unsigned long*)res);
+    }
+#elif defined(__GNUC__) && UINT32_MAX == ULLONG_MAX
+    if (max == UINT32_MAX) {
+        return __builtin_uaddll_overflow(lhs, rhs, (unsigned long long*)res);
+    }
+#endif
+    uint64_t big_result = (uint64_t)lhs + (uint64_t)rhs;
+    if (big_result > max) {
+        *res = big_result - max - 1;
+        return true;
+    }
+    *res = big_result;
+    return false;
+}
+
+static inline uint64_t zig_addo_u64(uint64_t lhs, uint64_t rhs, uint64_t *res, uint64_t max) {
+    bool overflow;
+#if defined(__GNUC__) && UINT64_MAX == UINT_MAX
+    overflow = __builtin_uadd_overflow(lhs, rhs, (unsigned int*)res);
+#elif defined(__GNUC__) && UINT64_MAX == ULONG_MAX
+    overflow = __builtin_uaddl_overflow(lhs, rhs, (unsigned long*)res);
+#elif defined(__GNUC__) && UINT64_MAX == ULLONG_MAX
+    overflow = __builtin_uaddll_overflow(lhs, rhs, (unsigned long long*)res);
+#else
+    int int_overflow;
+    *res = __uaddodi4(lhs, rhs, &int_overflow);
+    overflow = int_overflow != 0;
+#endif
+    if (*res > max && !overflow) {
+        *res -= max - 1;
+        return true;
+    }
+    return overflow;
+}
+
+static inline uint128_t zig_addo_u128(uint128_t lhs, uint128_t rhs, uint128_t *res, uint128_t max) {
+    int overflow;
+    *res = __uaddoti4(lhs, rhs, &overflow);
+    if (*res > max && overflow == 0) {
+        *res -= max - 1;
+        return true;
+    }
+    return overflow != 0;
+}
+
+static inline bool zig_subo_i8(int8_t lhs, int8_t rhs, int8_t *res, int8_t min, int8_t max) {
+#if defined(__GNUC__) && INT8_MAX == INT_MAX
+    if (min == INT8_MIN && max == INT8_MAX) {
+        return __builtin_ssub_overflow(lhs, rhs, (int*)res);
+    }
+#elif defined(__GNUC__) && INT8_MAX == LONG_MAX
+    if (min == INT8_MIN && max == INT8_MAX) {
+        return __builtin_ssubl_overflow(lhs, rhs, (long*)res);
+    }
+#elif defined(__GNUC__) && INT8_MAX == LLONG_MAX
+    if (min == INT8_MIN && max == INT8_MAX) {
+        return __builtin_ssubll_overflow(lhs, rhs, (long long*)res);
+    }
+#endif
+    int16_t big_result = (int16_t)lhs - (int16_t)rhs;
+    if (big_result > max) {
+        *res = big_result - ((int16_t)max - (int16_t)min);
+        return true;
+    }
+    if (big_result < min) {
+        *res = big_result + ((int16_t)max - (int16_t)min);
+        return true;
+    }
+    *res = big_result;
+    return false;
+}
+
+static inline bool zig_subo_i16(int16_t lhs, int16_t rhs, int16_t *res, int16_t min, int16_t max) {
+#if defined(__GNUC__) && INT16_MAX == INT_MAX
+    if (min == INT16_MIN && max == INT16_MAX) {
+        return __builtin_ssub_overflow(lhs, rhs, (int*)res);
+    }
+#elif defined(__GNUC__) && INT16_MAX == LONG_MAX
+    if (min == INT16_MIN && max == INT16_MAX) {
+        return __builtin_ssubl_overflow(lhs, rhs, (long*)res);
+    }
+#elif defined(__GNUC__) && INT16_MAX == LLONG_MAX
+    if (min == INT16_MIN && max == INT16_MAX) {
+        return __builtin_ssubll_overflow(lhs, rhs, (long long*)res);
+    }
+#endif
+    int32_t big_result = (int32_t)lhs - (int32_t)rhs;
+    if (big_result > max) {
+        *res = big_result - ((int32_t)max - (int32_t)min);
+        return true;
+    }
+    if (big_result < min) {
+        *res = big_result + ((int32_t)max - (int32_t)min);
+        return true;
+    }
+    *res = big_result;
+    return false;
+}
+
+static inline bool zig_subo_i32(int32_t lhs, int32_t rhs, int32_t *res, int32_t min, int32_t max) {
+#if defined(__GNUC__) && INT32_MAX == INT_MAX
+    if (min == INT32_MIN && max == INT32_MAX) {
+        return __builtin_ssub_overflow(lhs, rhs, (int*)res);
+    }
+#elif defined(__GNUC__) && INT32_MAX == LONG_MAX
+    if (min == INT32_MIN && max == INT32_MAX) {
+        return __builtin_ssubl_overflow(lhs, rhs, (long*)res);
+    }
+#elif defined(__GNUC__) && INT32_MAX == LLONG_MAX
+    if (min == INT32_MIN && max == INT32_MAX) {
+        return __builtin_ssubll_overflow(lhs, rhs, (long long*)res);
+    }
+#endif
+    int64_t big_result = (int64_t)lhs - (int64_t)rhs;
+    if (big_result > max) {
+        *res = big_result - ((int64_t)max - (int64_t)min);
+        return true;
+    }
+    if (big_result < min) {
+        *res = big_result + ((int64_t)max - (int64_t)min);
+        return true;
+    }
+    *res = big_result;
+    return false;
+}
+
+static inline bool zig_subo_i64(int64_t lhs, int64_t rhs, int64_t *res, int64_t min, int64_t max) {
+    bool overflow;
+#if defined(__GNUC__) && INT64_MAX == INT_MAX
+    overflow = __builtin_ssub_overflow(lhs, rhs, (int*)res);
+#elif defined(__GNUC__) && INT64_MAX == LONG_MAX
+    overflow = __builtin_ssubl_overflow(lhs, rhs, (long*)res);
+#elif defined(__GNUC__) && INT64_MAX == LLONG_MAX
+    overflow = __builtin_ssubll_overflow(lhs, rhs, (long long*)res);
+#else
+    int int_overflow;
+    *res = __subodi4(lhs, rhs, &int_overflow);
+    overflow = int_overflow != 0;
+#endif
+    if (!overflow) {
+        if (*res > max) {
+            // TODO adjust the result to be the truncated bits
+            return true;
+        } else if (*res < min) {
+            // TODO adjust the result to be the truncated bits
+            return true;
+        }
+    }
+    return overflow;
+}
+
+static inline bool zig_subo_i128(int128_t lhs, int128_t rhs, int128_t *res, int128_t min, int128_t max) {
+    bool overflow;
+#if defined(__GNUC__) && INT128_MAX == INT_MAX
+    overflow = __builtin_ssub_overflow(lhs, rhs, (int*)res);
+#elif defined(__GNUC__) && INT128_MAX == LONG_MAX
+    overflow = __builtin_ssubl_overflow(lhs, rhs, (long*)res);
+#elif defined(__GNUC__) && INT128_MAX == LLONG_MAX
+    overflow = __builtin_ssubll_overflow(lhs, rhs, (long long*)res);
+#else
+    int int_overflow;
+    *res = __suboti4(lhs, rhs, &int_overflow);
+    overflow = int_overflow != 0;
+#endif
+    if (!overflow) {
+        if (*res > max) {
+            // TODO adjust the result to be the truncated bits
+            return true;
+        } else if (*res < min) {
+            // TODO adjust the result to be the truncated bits
+            return true;
+        }
+    }
+    return overflow;
+}
+
+static inline bool zig_subo_u8(uint8_t lhs, uint8_t rhs, uint8_t *res, uint8_t max) {
+#if defined(__GNUC__) && UINT8_MAX == UINT_MAX
+    return __builtin_usub_overflow(lhs, rhs, (unsigned int*)res);
+#elif defined(__GNUC__) && UINT8_MAX == ULONG_MAX
+    return __builtin_usubl_overflow(lhs, rhs, (unsigned long*)res);
+#elif defined(__GNUC__) && UINT8_MAX == ULLONG_MAX
+    return __builtin_usubll_overflow(lhs, rhs, (unsigned long long*)res);
+#endif
+    if (rhs > lhs) {
+        *res = max - (rhs - lhs - 1);
+        return true;
+    }
+    *res = lhs - rhs;
+    return false;
+}
+
+static inline uint16_t zig_subo_u16(uint16_t lhs, uint16_t rhs, uint16_t *res, uint16_t max) {
+#if defined(__GNUC__) && UINT16_MAX == UINT_MAX
+    return __builtin_usub_overflow(lhs, rhs, (unsigned int*)res);
+#elif defined(__GNUC__) && UINT16_MAX == ULONG_MAX
+    return __builtin_usubl_overflow(lhs, rhs, (unsigned long*)res);
+#elif defined(__GNUC__) && UINT16_MAX == ULLONG_MAX
+    return __builtin_usubll_overflow(lhs, rhs, (unsigned long long*)res);
+#endif
+    if (rhs > lhs) {
+        *res = max - (rhs - lhs - 1);
+        return true;
+    }
+    *res = lhs - rhs;
+    return false;
+}
+
+static inline uint32_t zig_subo_u32(uint32_t lhs, uint32_t rhs, uint32_t *res, uint32_t max) {
+    if (max == UINT32_MAX) {
+#if defined(__GNUC__) && UINT32_MAX == UINT_MAX
+        return __builtin_usub_overflow(lhs, rhs, (unsigned int*)res);
+#elif defined(__GNUC__) && UINT32_MAX == ULONG_MAX
+        return __builtin_usubl_overflow(lhs, rhs, (unsigned long*)res);
+#elif defined(__GNUC__) && UINT32_MAX == ULLONG_MAX
+        return __builtin_usubll_overflow(lhs, rhs, (unsigned long long*)res);
+#endif
+        int int_overflow;
+        *res = __usubosi4(lhs, rhs, &int_overflow);
+        return int_overflow != 0;
+    } else {
+        if (rhs > lhs) {
+            *res = max - (rhs - lhs - 1);
+            return true;
+        }
+        *res = lhs - rhs;
+        return false;
+    }
+}
+
+static inline uint64_t zig_subo_u64(uint64_t lhs, uint64_t rhs, uint64_t *res, uint64_t max) {
+    if (max == UINT64_MAX) {
+#if defined(__GNUC__) && UINT64_MAX == UINT_MAX
+        return __builtin_usub_overflow(lhs, rhs, (unsigned int*)res);
+#elif defined(__GNUC__) && UINT64_MAX == ULONG_MAX
+        return __builtin_usubl_overflow(lhs, rhs, (unsigned long*)res);
+#elif defined(__GNUC__) && UINT64_MAX == ULLONG_MAX
+        return __builtin_usubll_overflow(lhs, rhs, (unsigned long long*)res);
+#else
+        int int_overflow;
+        *res = __usubodi4(lhs, rhs, &int_overflow);
+        return int_overflow != 0;
+#endif
+    } else {
+        if (rhs > lhs) {
+            *res = max - (rhs - lhs - 1);
+            return true;
+        }
+        *res = lhs - rhs;
+        return false;
+    }
+}
+
+static inline uint128_t zig_subo_u128(uint128_t lhs, uint128_t rhs, uint128_t *res, uint128_t max) {
+    if (max == UINT128_MAX) {
+        int int_overflow;
+        *res = __usuboti4(lhs, rhs, &int_overflow);
+        return int_overflow != 0;
+    } else {
+        if (rhs > lhs) {
+            *res = max - (rhs - lhs - 1);
+            return true;
+        }
+        *res = lhs - rhs;
+        return false;
+    }
+}
+
+static inline bool zig_mulo_i8(int8_t lhs, int8_t rhs, int8_t *res, int8_t min, int8_t max) {
+#if defined(__GNUC__) && INT8_MAX == INT_MAX
+    if (min == INT8_MIN && max == INT8_MAX) {
+        return __builtin_smul_overflow(lhs, rhs, (int*)res);
+    }
+#elif defined(__GNUC__) && INT8_MAX == LONG_MAX
+    if (min == INT8_MIN && max == INT8_MAX) {
+        return __builtin_smull_overflow(lhs, rhs, (long*)res);
+    }
+#elif defined(__GNUC__) && INT8_MAX == LLONG_MAX
+    if (min == INT8_MIN && max == INT8_MAX) {
+        return __builtin_smulll_overflow(lhs, rhs, (long long*)res);
+    }
+#endif
+    int16_t big_result = (int16_t)lhs * (int16_t)rhs;
+    if (big_result > max) {
+        *res = big_result - ((int16_t)max - (int16_t)min);
+        return true;
+    }
+    if (big_result < min) {
+        *res = big_result + ((int16_t)max - (int16_t)min);
+        return true;
+    }
+    *res = big_result;
+    return false;
+}
+
+static inline bool zig_mulo_i16(int16_t lhs, int16_t rhs, int16_t *res, int16_t min, int16_t max) {
+#if defined(__GNUC__) && INT16_MAX == INT_MAX
+    if (min == INT16_MIN && max == INT16_MAX) {
+        return __builtin_smul_overflow(lhs, rhs, (int*)res);
+    }
+#elif defined(__GNUC__) && INT16_MAX == LONG_MAX
+    if (min == INT16_MIN && max == INT16_MAX) {
+        return __builtin_smull_overflow(lhs, rhs, (long*)res);
+    }
+#elif defined(__GNUC__) && INT16_MAX == LLONG_MAX
+    if (min == INT16_MIN && max == INT16_MAX) {
+        return __builtin_smulll_overflow(lhs, rhs, (long long*)res);
+    }
+#endif
+    int32_t big_result = (int32_t)lhs * (int32_t)rhs;
+    if (big_result > max) {
+        *res = big_result - ((int32_t)max - (int32_t)min);
+        return true;
+    }
+    if (big_result < min) {
+        *res = big_result + ((int32_t)max - (int32_t)min);
+        return true;
+    }
+    *res = big_result;
+    return false;
+}
+
+static inline bool zig_mulo_i32(int32_t lhs, int32_t rhs, int32_t *res, int32_t min, int32_t max) {
+#if defined(__GNUC__) && INT32_MAX == INT_MAX
+    if (min == INT32_MIN && max == INT32_MAX) {
+        return __builtin_smul_overflow(lhs, rhs, (int*)res);
+    }
+#elif defined(__GNUC__) && INT32_MAX == LONG_MAX
+    if (min == INT32_MIN && max == INT32_MAX) {
+        return __builtin_smull_overflow(lhs, rhs, (long*)res);
+    }
+#elif defined(__GNUC__) && INT32_MAX == LLONG_MAX
+    if (min == INT32_MIN && max == INT32_MAX) {
+        return __builtin_smulll_overflow(lhs, rhs, (long long*)res);
+    }
+#endif
+    int64_t big_result = (int64_t)lhs * (int64_t)rhs;
+    if (big_result > max) {
+        *res = big_result - ((int64_t)max - (int64_t)min);
+        return true;
+    }
+    if (big_result < min) {
+        *res = big_result + ((int64_t)max - (int64_t)min);
+        return true;
+    }
+    *res = big_result;
+    return false;
+}
+
+static inline bool zig_mulo_i64(int64_t lhs, int64_t rhs, int64_t *res, int64_t min, int64_t max) {
+    bool overflow;
+#if defined(__GNUC__) && INT64_MAX == INT_MAX
+    overflow = __builtin_smul_overflow(lhs, rhs, (int*)res);
+#elif defined(__GNUC__) && INT64_MAX == LONG_MAX
+    overflow = __builtin_smull_overflow(lhs, rhs, (long*)res);
+#elif defined(__GNUC__) && INT64_MAX == LLONG_MAX
+    overflow = __builtin_smulll_overflow(lhs, rhs, (long long*)res);
+#else
+    int int_overflow;
+    *res = __mulodi4(lhs, rhs, &int_overflow);
+    overflow = int_overflow != 0;
+#endif
+    if (!overflow) {
+        if (*res > max) {
+            // TODO adjust the result to be the truncated bits
+            return true;
+        } else if (*res < min) {
+            // TODO adjust the result to be the truncated bits
+            return true;
+        }
+    }
+    return overflow;
+}
+
+static inline bool zig_mulo_i128(int128_t lhs, int128_t rhs, int128_t *res, int128_t min, int128_t max) {
+    bool overflow;
+#if defined(__GNUC__) && INT128_MAX == INT_MAX
+    overflow = __builtin_smul_overflow(lhs, rhs, (int*)res);
+#elif defined(__GNUC__) && INT128_MAX == LONG_MAX
+    overflow = __builtin_smull_overflow(lhs, rhs, (long*)res);
+#elif defined(__GNUC__) && INT128_MAX == LLONG_MAX
+    overflow = __builtin_smulll_overflow(lhs, rhs, (long long*)res);
+#else
+    int int_overflow;
+    *res = __muloti4(lhs, rhs, &int_overflow);
+    overflow = int_overflow != 0;
+#endif
+    if (!overflow) {
+        if (*res > max) {
+            // TODO adjust the result to be the truncated bits
+            return true;
+        } else if (*res < min) {
+            // TODO adjust the result to be the truncated bits
+            return true;
+        }
+    }
+    return overflow;
+}
+
+static inline bool zig_mulo_u8(uint8_t lhs, uint8_t rhs, uint8_t *res, uint8_t max) {
+#if defined(__GNUC__) && UINT8_MAX == UINT_MAX
+    if (max == UINT8_MAX) {
+        return __builtin_umul_overflow(lhs, rhs, (unsigned int*)res);
+    }
+#elif defined(__GNUC__) && UINT8_MAX == ULONG_MAX
+    if (max == UINT8_MAX) {
+        return __builtin_umull_overflow(lhs, rhs, (unsigned long*)res);
+    }
+#elif defined(__GNUC__) && UINT8_MAX == ULLONG_MAX
+    if (max == UINT8_MAX) {
+        return __builtin_umulll_overflow(lhs, rhs, (unsigned long long*)res);
+    }
+#endif
+    uint16_t big_result = (uint16_t)lhs * (uint16_t)rhs;
+    if (big_result > max) {
+        *res = big_result - max - 1;
+        return true;
+    }
+    *res = big_result;
+    return false;
+}
+
+static inline uint16_t zig_mulo_u16(uint16_t lhs, uint16_t rhs, uint16_t *res, uint16_t max) {
+#if defined(__GNUC__) && UINT16_MAX == UINT_MAX
+    if (max == UINT16_MAX) {
+        return __builtin_umul_overflow(lhs, rhs, (unsigned int*)res);
+    }
+#elif defined(__GNUC__) && UINT16_MAX == ULONG_MAX
+    if (max == UINT16_MAX) {
+        return __builtin_umull_overflow(lhs, rhs, (unsigned long*)res);
+    }
+#elif defined(__GNUC__) && UINT16_MAX == ULLONG_MAX
+    if (max == UINT16_MAX) {
+        return __builtin_umulll_overflow(lhs, rhs, (unsigned long long*)res);
+    }
+#endif
+    uint32_t big_result = (uint32_t)lhs * (uint32_t)rhs;
+    if (big_result > max) {
+        *res = big_result - max - 1;
+        return true;
+    }
+    *res = big_result;
+    return false;
+}
+
+static inline uint32_t zig_mulo_u32(uint32_t lhs, uint32_t rhs, uint32_t *res, uint32_t max) {
+#if defined(__GNUC__) && UINT32_MAX == UINT_MAX
+    if (max == UINT32_MAX) {
+        return __builtin_umul_overflow(lhs, rhs, (unsigned int*)res);
+    }
+#elif defined(__GNUC__) && UINT32_MAX == ULONG_MAX
+    if (max == UINT32_MAX) {
+        return __builtin_umull_overflow(lhs, rhs, (unsigned long*)res);
+    }
+#elif defined(__GNUC__) && UINT32_MAX == ULLONG_MAX
+    if (max == UINT32_MAX) {
+        return __builtin_umulll_overflow(lhs, rhs, (unsigned long long*)res);
+    }
+#endif
+    uint64_t big_result = (uint64_t)lhs * (uint64_t)rhs;
+    if (big_result > max) {
+        *res = big_result - max - 1;
+        return true;
+    }
+    *res = big_result;
+    return false;
+}
+
+static inline uint64_t zig_mulo_u64(uint64_t lhs, uint64_t rhs, uint64_t *res, uint64_t max) {
+    bool overflow;
+#if defined(__GNUC__) && UINT64_MAX == UINT_MAX
+    overflow = __builtin_umul_overflow(lhs, rhs, (unsigned int*)res);
+#elif defined(__GNUC__) && UINT64_MAX == ULONG_MAX
+    overflow = __builtin_umull_overflow(lhs, rhs, (unsigned long*)res);
+#elif defined(__GNUC__) && UINT64_MAX == ULLONG_MAX
+    overflow = __builtin_umulll_overflow(lhs, rhs, (unsigned long long*)res);
+#else
+    int int_overflow;
+    *res = __umulodi4(lhs, rhs, &int_overflow);
+    overflow = int_overflow != 0;
+#endif
+    if (*res > max && !overflow) {
+        *res -= max - 1;
+        return true;
+    }
+    return overflow;
+}
+
+static inline uint128_t zig_mulo_u128(uint128_t lhs, uint128_t rhs, uint128_t *res, uint128_t max) {
+    int overflow;
+    *res = __umuloti4(lhs, rhs, &overflow);
+    if (*res > max && overflow == 0) {
+        *res -= max - 1;
+        return true;
+    }
+    return overflow != 0;
+}
+
 static inline float zig_bitcast_f32_u32(uint32_t arg) {
     float dest;
     memcpy(&dest, &arg, sizeof dest);
@@ -607,6 +1306,76 @@ static inline int zig_popcount_u128(uint128_t value, uint8_t zig_type_bit_width)
 }
 
 #define zig_popcount_i128 zig_popcount_u128
+
+static inline bool zig_shlo_i8(int8_t lhs, int8_t rhs, int8_t *res, uint8_t bits) {
+    *res = lhs << rhs;
+    if (zig_clz_i8(lhs, bits) >= rhs) return false;
+    *res &= UINT8_MAX >> (8 - bits);
+    return true;
+}
+
+static inline bool zig_shlo_i16(int16_t lhs, int16_t rhs, int16_t *res, uint8_t bits) {
+    *res = lhs << rhs;
+    if (zig_clz_i16(lhs, bits) >= rhs) return false;
+    *res &= UINT16_MAX >> (16 - bits);
+    return true;
+}
+
+static inline bool zig_shlo_i32(int32_t lhs, int32_t rhs, int32_t *res, uint8_t bits) {
+    *res = lhs << rhs;
+    if (zig_clz_i32(lhs, bits) >= rhs) return false;
+    *res &= UINT32_MAX >> (32 - bits);
+    return true;
+}
+
+static inline bool zig_shlo_i64(int64_t lhs, int64_t rhs, int64_t *res, uint8_t bits) {
+    *res = lhs << rhs;
+    if (zig_clz_i64(lhs, bits) >= rhs) return false;
+    *res &= UINT64_MAX >> (64 - bits);
+    return true;
+}
+
+static inline bool zig_shlo_i128(int128_t lhs, int128_t rhs, int128_t *res, uint8_t bits) {
+    *res = lhs << rhs;
+    if (zig_clz_i128(lhs, bits) >= rhs) return false;
+    *res &= UINT128_MAX >> (128 - bits);
+    return true;
+}
+
+static inline bool zig_shlo_u8(uint8_t lhs, uint8_t rhs, uint8_t *res, uint8_t bits) {
+    *res = lhs << rhs;
+    if (zig_clz_u8(lhs, bits) >= rhs) return false;
+    *res &= UINT8_MAX >> (8 - bits);
+    return true;
+}
+
+static inline uint16_t zig_shlo_u16(uint16_t lhs, uint16_t rhs, uint16_t *res, uint8_t bits) {
+    *res = lhs << rhs;
+    if (zig_clz_u16(lhs, bits) >= rhs) return false;
+    *res &= UINT16_MAX >> (16 - bits);
+    return true;
+}
+
+static inline uint32_t zig_shlo_u32(uint32_t lhs, uint32_t rhs, uint32_t *res, uint8_t bits) {
+    *res = lhs << rhs;
+    if (zig_clz_u32(lhs, bits) >= rhs) return false;
+    *res &= UINT32_MAX >> (32 - bits);
+    return true;
+}
+
+static inline uint64_t zig_shlo_u64(uint64_t lhs, uint64_t rhs, uint64_t *res, uint8_t bits) {
+    *res = lhs << rhs;
+    if (zig_clz_u64(lhs, bits) >= rhs) return false;
+    *res &= UINT64_MAX >> (64 - bits);
+    return true;
+}
+
+static inline uint128_t zig_shlo_u128(uint128_t lhs, uint128_t rhs, uint128_t *res, uint8_t bits) {
+    *res = lhs << rhs;
+    if (zig_clz_u128(lhs, bits) >= rhs) return false;
+    *res &= UINT128_MAX >> (128 - bits);
+    return true;
+}
 
 #define zig_sign_extend(T) \
     static inline T zig_sign_extend_##T(T value, uint8_t zig_type_bit_width) { \

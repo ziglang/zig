@@ -1068,7 +1068,7 @@ pub const DwarfInfo = struct {
                         });
                     },
                     else => {
-                        const fwd_amt = math.cast(isize, op_size - 1) catch return error.InvalidDebugInfo;
+                        const fwd_amt = math.cast(isize, op_size - 1) orelse return error.InvalidDebugInfo;
                         try seekable.seekBy(fwd_amt);
                     },
                 }
@@ -1133,7 +1133,7 @@ pub const DwarfInfo = struct {
     fn getString(di: *DwarfInfo, offset: u64) ![]const u8 {
         if (offset > di.debug_str.len)
             return error.InvalidDebugInfo;
-        const casted_offset = math.cast(usize, offset) catch
+        const casted_offset = math.cast(usize, offset) orelse
             return error.InvalidDebugInfo;
 
         // Valid strings always have a terminating zero byte
@@ -1148,7 +1148,7 @@ pub const DwarfInfo = struct {
         const debug_line_str = di.debug_line_str orelse return error.InvalidDebugInfo;
         if (offset > debug_line_str.len)
             return error.InvalidDebugInfo;
-        const casted_offset = math.cast(usize, offset) catch
+        const casted_offset = math.cast(usize, offset) orelse
             return error.InvalidDebugInfo;
 
         // Valid strings always have a terminating zero byte

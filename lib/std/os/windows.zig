@@ -78,9 +78,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
 
     var result: HANDLE = undefined;
 
-    const path_len_bytes = math.cast(u16, sub_path_w.len * 2) catch |err| switch (err) {
-        error.Overflow => return error.NameTooLong,
-    };
+    const path_len_bytes = math.cast(u16, sub_path_w.len * 2) orelse return error.NameTooLong;
     var nt_name = UNICODE_STRING{
         .Length = path_len_bytes,
         .MaximumLength = path_len_bytes,
@@ -551,7 +549,7 @@ pub fn WriteFile(
         };
         loop.beginOneEvent();
         suspend {
-            const adjusted_len = math.cast(DWORD, bytes.len) catch maxInt(DWORD);
+            const adjusted_len = math.cast(DWORD, bytes.len) orelse maxInt(DWORD);
             _ = kernel32.WriteFile(handle, bytes.ptr, adjusted_len, null, &resume_node.base.overlapped);
         }
         var bytes_transferred: DWORD = undefined;
@@ -589,7 +587,7 @@ pub fn WriteFile(
             };
             break :blk &overlapped_data;
         } else null;
-        const adjusted_len = math.cast(u32, bytes.len) catch maxInt(u32);
+        const adjusted_len = math.cast(u32, bytes.len) orelse maxInt(u32);
         if (kernel32.WriteFile(handle, bytes.ptr, adjusted_len, &bytes_written, overlapped) == 0) {
             switch (kernel32.GetLastError()) {
                 .INVALID_USER_BUFFER => return error.SystemResources,
@@ -618,9 +616,7 @@ pub const SetCurrentDirectoryError = error{
 };
 
 pub fn SetCurrentDirectory(path_name: []const u16) SetCurrentDirectoryError!void {
-    const path_len_bytes = math.cast(u16, path_name.len * 2) catch |err| switch (err) {
-        error.Overflow => return error.NameTooLong,
-    };
+    const path_len_bytes = math.cast(u16, path_name.len * 2) orelse return error.NameTooLong;
 
     var nt_name = UNICODE_STRING{
         .Length = path_len_bytes,
@@ -753,9 +749,7 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
     // With the latter, we'd need to call `NtCreateFile` twice, once for file symlink, and if that
     // failed, again for dir symlink. Omitting any mention of file/dir flags makes it possible
     // to open the symlink there and then.
-    const path_len_bytes = math.cast(u16, sub_path_w.len * 2) catch |err| switch (err) {
-        error.Overflow => return error.NameTooLong,
-    };
+    const path_len_bytes = math.cast(u16, sub_path_w.len * 2) orelse return error.NameTooLong;
     var nt_name = UNICODE_STRING{
         .Length = path_len_bytes,
         .MaximumLength = path_len_bytes,
@@ -1013,9 +1007,7 @@ pub fn QueryObjectName(
 
     const info = @ptrCast(*OBJECT_NAME_INFORMATION, out_buffer_aligned);
     //buffer size is specified in bytes
-    const out_buffer_len = std.math.cast(ULONG, out_buffer_aligned.len * 2) catch |e| switch (e) {
-        error.Overflow => std.math.maxInt(ULONG),
-    };
+    const out_buffer_len = std.math.cast(ULONG, out_buffer_aligned.len * 2) orelse std.math.maxInt(ULONG);
     //last argument would return the length required for full_buffer, not exposed here
     const rc = ntdll.NtQueryObject(handle, .ObjectNameInformation, info, out_buffer_len, null);
     switch (rc) {
@@ -1221,7 +1213,7 @@ pub fn QueryInformationFile(
     out_buffer: []u8,
 ) QueryInformationFileError!void {
     var io: IO_STATUS_BLOCK = undefined;
-    const len_bytes = std.math.cast(u32, out_buffer.len) catch unreachable;
+    const len_bytes = std.math.cast(u32, out_buffer.len) orelse unreachable;
     const rc = ntdll.NtQueryInformationFile(handle, &io, out_buffer.ptr, len_bytes, info_class);
     switch (rc) {
         .SUCCESS => {},

@@ -113,13 +113,13 @@ pub const Inst = struct {
         /// The offset is in element type units, not bytes.
         /// Wrapping is undefined behavior.
         /// The lhs is the pointer, rhs is the offset. Result type is the same as lhs.
-        /// Uses the `bin_op` field.
+        /// Uses the `ty_pl` field. Payload is `Bin`.
         ptr_add,
         /// Subtract an offset from a pointer, returning a new pointer.
         /// The offset is in element type units, not bytes.
         /// Wrapping is undefined behavior.
         /// The lhs is the pointer, rhs is the offset. Result type is the same as lhs.
-        /// Uses the `bin_op` field.
+        /// Uses the `ty_pl` field. Payload is `Bin`.
         ptr_sub,
         /// Given two operands which can be floats, integers, or vectors, returns the
         /// greater of the operands. For vectors it operates element-wise.
@@ -320,6 +320,20 @@ pub const Inst = struct {
         /// Result type is always noreturn; no instructions in a block follow this one.
         /// Uses the `pl_op` field. Operand is the condition. Payload is `SwitchBr`.
         switch_br,
+        /// Given an operand which is an error union, splits control flow. In
+        /// case of error, control flow goes into the block that is part of this
+        /// instruction, which is guaranteed to end with a return instruction
+        /// and never breaks out of the block.
+        /// In the case of non-error, control flow proceeds to the next instruction
+        /// after the `try`, with the result of this instruction being the unwrapped
+        /// payload value, as if `unwrap_errunion_payload` was executed on the operand.
+        /// Uses the `pl_op` field. Payload is `Try`.
+        @"try",
+        /// Same as `try` except the operand is a pointer to an error union, and the
+        /// result is a pointer to the payload. Result is as if `unwrap_errunion_payload_ptr`
+        /// was executed on the operand.
+        /// Uses the `ty_pl` field. Payload is `TryPtr`.
+        try_ptr,
         /// A comptime-known value. Uses the `ty_pl` field, payload is index of
         /// `values` array.
         constant,
@@ -609,6 +623,8 @@ pub const Inst = struct {
         /// Some of the elements may be comptime-known.
         /// Uses the `ty_pl` field, payload is index of an array of elements, each of which
         /// is a `Ref`. Length of the array is given by the vector type.
+        /// If the type is an array with a sentinel, the AIR elements do not include it
+        /// explicitly.
         aggregate_init,
 
         /// Constructs a union from a field index and a runtime-known init value.
@@ -648,6 +664,12 @@ pub const Inst = struct {
         /// Note that the number of errors in the Module cannot be considered stable until
         /// flush().
         cmp_lt_errors_len,
+
+        /// Returns pointer to current error return trace.
+        err_return_trace,
+
+        /// Sets the operand as the current error return trace,
+        set_err_return_trace,
 
         pub fn fromCmpOp(op: std.math.CompareOperator) Tag {
             return switch (op) {
@@ -770,6 +792,19 @@ pub const SwitchBr = struct {
         items_len: u32,
         body_len: u32,
     };
+};
+
+/// This data is stored inside extra. Trailing:
+/// 0. body: Inst.Index // for each body_len
+pub const Try = struct {
+    body_len: u32,
+};
+
+/// This data is stored inside extra. Trailing:
+/// 0. body: Inst.Index // for each body_len
+pub const TryPtr = struct {
+    ptr: Inst.Ref,
+    body_len: u32,
 };
 
 pub const StructField = struct {
@@ -910,8 +945,6 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .bit_and,
         .bit_or,
         .xor,
-        .ptr_add,
-        .ptr_sub,
         .shr,
         .shr_exact,
         .shl,
@@ -961,6 +994,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .alloc,
         .ret_ptr,
         .arg,
+        .err_return_trace,
         => return datas[inst].ty,
 
         .assembly,
@@ -982,6 +1016,9 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .sub_with_overflow,
         .mul_with_overflow,
         .shl_with_overflow,
+        .ptr_add,
+        .ptr_sub,
+        .try_ptr,
         => return air.getRefType(datas[inst].ty_pl.ty),
 
         .not,
@@ -1048,6 +1085,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .memcpy,
         .set_union_tag,
         .prefetch,
+        .set_err_return_trace,
         => return Type.void,
 
         .ptrtoint,
@@ -1091,6 +1129,11 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .select => {
             const extra = air.extraData(Air.Bin, datas[inst].pl_op.payload).data;
             return air.typeOf(extra.lhs);
+        },
+
+        .@"try" => {
+            const err_union_ty = air.typeOf(datas[inst].pl_op.operand);
+            return err_union_ty.errorUnionPayload();
         },
     }
 }

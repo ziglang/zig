@@ -100,7 +100,19 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
             const item = self.items[index];
             self.items[index] = last;
             self.len -= 1;
-            siftDown(self, index);
+
+            if (index == 0) {
+                siftDown(self, index);
+            } else {
+                const parent_index = ((index - 1) >> 1);
+                const parent = self.items[parent_index];
+                if (compareFn(self.context, last, parent) == .gt) {
+                    siftDown(self, index);
+                } else {
+                    siftUp(self, index);
+                }
+            }
+
             return item;
         }
 
@@ -387,6 +399,7 @@ test "std.PriorityQueue: fromOwnedSlice trivial case 1" {
 }
 
 test "std.PriorityQueue: fromOwnedSlice" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest;
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
     const heap_items = try testing.allocator.dupe(u32, items[0..]);
     var queue = PQlt.fromOwnedSlice(testing.allocator, heap_items[0..], {});
@@ -574,6 +587,20 @@ test "std.PriorityQueue: update same max heap" {
     try expectEqual(@as(u32, 4), queue.remove());
     try expectEqual(@as(u32, 2), queue.remove());
     try expectEqual(@as(u32, 1), queue.remove());
+}
+
+test "std.PriorityQueue: siftUp in remove" {
+    var queue = PQlt.init(testing.allocator, {});
+    defer queue.deinit();
+
+    try queue.addSlice(&.{ 0, 1, 100, 2, 3, 101, 102, 4, 5, 6, 7, 103, 104, 105, 106, 8 });
+
+    _ = queue.removeIndex(std.mem.indexOfScalar(u32, queue.items[0..queue.len], 102).?);
+
+    const sorted_items = [_]u32{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 100, 101, 103, 104, 105, 106 };
+    for (sorted_items) |e| {
+        try expectEqual(e, queue.remove());
+    }
 }
 
 fn contextLessThan(context: []const u32, a: usize, b: usize) Order {

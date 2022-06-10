@@ -17,11 +17,11 @@ case "$1" in
     ;;
   3)
     # ReleaseSafe
-    ./build/zig build $BUILD_FLAGS test-std -Dskip-debug -Dskip-release-fast -Dskip-release-small
+    ./build/zig build $BUILD_FLAGS test-std -Dskip-debug -Dskip-release-fast -Dskip-release-small -Dskip-non-native -Dskip-single-threaded
     ;;
   4)
-    # Releasefast
-    ./build/zig build $BUILD_FLAGS test-std -Dskip-debug -Dskip-release-safe -Dskip-release-small
+    # ReleaseFast
+    ./build/zig build $BUILD_FLAGS test-std -Dskip-debug -Dskip-release-safe -Dskip-release-small -Dskip-non-native -Dskip-single-threaded
     ;;
   5)
     # ReleaseSmall

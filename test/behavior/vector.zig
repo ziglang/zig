@@ -903,3 +903,123 @@ test "multiplication-assignment operator with an array operand" {
     try S.doTheTest();
     comptime try S.doTheTest();
 }
+
+test "@addWithOverflow" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 doesn't support vector args
+        return error.SkipZigTest;
+    }
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            {
+                var result: @Vector(4, u8) = undefined;
+                var overflow = @addWithOverflow(@Vector(4, u8), @Vector(4, u8){ 250, 250, 250, 250 }, @Vector(4, u8){ 0, 5, 6, 10 }, &result);
+                var expected: @Vector(4, bool) = .{ false, false, true, true };
+                try expect(mem.eql(bool, &@as([4]bool, overflow), &@as([4]bool, expected)));
+            }
+            {
+                var result: @Vector(4, i8) = undefined;
+                var overflow = @addWithOverflow(@Vector(4, i8), @Vector(4, i8){ -125, -125, 125, 125 }, @Vector(4, i8){ -3, -4, 2, 3 }, &result);
+                var expected: @Vector(4, bool) = .{ false, true, false, true };
+                try expect(mem.eql(bool, &@as([4]bool, overflow), &@as([4]bool, expected)));
+            }
+            {
+                var result: @Vector(4, u1) = undefined;
+                var overflow = @addWithOverflow(@Vector(4, u1), @Vector(4, u1){ 0, 0, 1, 1 }, @Vector(4, u1){ 0, 1, 0, 1 }, &result);
+                var expected: @Vector(4, bool) = .{ false, false, false, true };
+                try expect(mem.eql(bool, &@as([4]bool, overflow), &@as([4]bool, expected)));
+            }
+            {
+                var result: @Vector(4, u0) = undefined;
+                var overflow = @addWithOverflow(@Vector(4, u0), @Vector(4, u0){ 0, 0, 0, 0 }, @Vector(4, u0){ 0, 0, 0, 0 }, &result);
+                var expected: @Vector(4, bool) = .{ false, false, false, false };
+                try expect(mem.eql(bool, &@as([4]bool, overflow), &@as([4]bool, expected)));
+            }
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "@subWithOverflow" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 doesn't support vector args
+        return error.SkipZigTest;
+    }
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            {
+                var result: @Vector(2, u8) = undefined;
+                var overflow = @subWithOverflow(@Vector(2, u8), @Vector(2, u8){ 5, 5 }, @Vector(2, u8){ 5, 6 }, &result);
+                var expected: @Vector(2, bool) = .{ false, true };
+                try expect(mem.eql(bool, &@as([2]bool, overflow), &@as([2]bool, expected)));
+            }
+            {
+                var result: @Vector(4, i8) = undefined;
+                var overflow = @subWithOverflow(@Vector(4, i8), @Vector(4, i8){ -120, -120, 120, 120 }, @Vector(4, i8){ 8, 9, -7, -8 }, &result);
+                var expected: @Vector(4, bool) = .{ false, true, false, true };
+                try expect(mem.eql(bool, &@as([4]bool, overflow), &@as([4]bool, expected)));
+            }
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "@mulWithOverflow" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 doesn't support vector args
+        return error.SkipZigTest;
+    }
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            var result: @Vector(4, u8) = undefined;
+            var overflow = @mulWithOverflow(@Vector(4, u8), @Vector(4, u8){ 10, 10, 10, 10 }, @Vector(4, u8){ 25, 26, 0, 30 }, &result);
+            var expected: @Vector(4, bool) = .{ false, true, false, true };
+            try expect(mem.eql(bool, &@as([4]bool, overflow), &@as([4]bool, expected)));
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "@shlWithOverflow" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 doesn't support vector args
+        return error.SkipZigTest;
+    }
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            var result: @Vector(4, u8) = undefined;
+            var overflow = @shlWithOverflow(@Vector(4, u8), @Vector(4, u8){ 0, 1, 8, 255 }, @Vector(4, u3){ 7, 7, 7, 7 }, &result);
+            var expected: @Vector(4, bool) = .{ false, false, true, true };
+            try expect(mem.eql(bool, &@as([4]bool, overflow), &@as([4]bool, expected)));
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}

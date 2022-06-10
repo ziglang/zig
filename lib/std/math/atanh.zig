@@ -33,7 +33,7 @@ fn atanh_32(x: f32) f32 {
     var y = @bitCast(f32, i); // |x|
 
     if (y == 1.0) {
-        return math.copysign(f32, math.inf(f32), x);
+        return math.copysign(math.inf(f32), x);
     }
 
     if (u < 0x3F800000 - (1 << 23)) {
@@ -62,7 +62,7 @@ fn atanh_64(x: f64) f64 {
     var y = @bitCast(f64, u & (maxInt(u64) >> 1)); // |x|
 
     if (y == 1.0) {
-        return math.copysign(f64, math.inf(f64), x);
+        return math.copysign(math.inf(f64), x);
     }
 
     if (e < 0x3FF - 1) {

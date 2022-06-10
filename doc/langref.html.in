@@ -392,7 +392,7 @@ pub fn main() !void {
         The code sample begins by adding the {#link|Zig Standard Library#} to the build using the {#link|@import#} builtin function.
         The {#syntax#}@import("std"){#endsyntax#} function call creates a structure that represents the Zig Standard Library.
         The code then {#link|declares|Container Level Variables#} a
-        {#link|constant identifier|Assignment#}, named {#syntax#}std{#endsyntax#}, that gives access the features of the Zig Standard Library.
+        {#link|constant identifier|Assignment#}, named {#syntax#}std{#endsyntax#}, that gives access to the features of the Zig Standard Library.
       </p>
       <p>
         Next, a {#link|public function|Functions#}, {#syntax#}pub fn{#endsyntax#}, named {#syntax#}main{#endsyntax#}

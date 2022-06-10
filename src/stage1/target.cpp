@@ -971,11 +971,7 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
         case OsOther:
             return ZigLLVM_EABI;
         case OsOpenBSD:
-        case OsMacOSX:
         case OsFreeBSD:
-        case OsIOS:
-        case OsTvOS:
-        case OsWatchOS:
         case OsFuchsia:
         case OsKFreeBSD:
         case OsNetBSD:
@@ -994,6 +990,10 @@ ZigLLVM_EnvironmentType target_default_abi(ZigLLVM_ArchType arch, Os os) {
         case OsGLSL450:
         case OsVulkan:
         case OsPlan9:
+        case OsMacOSX:
+        case OsIOS:
+        case OsTvOS:
+        case OsWatchOS:
             return ZigLLVM_UnknownEnvironment;
     }
     zig_unreachable();

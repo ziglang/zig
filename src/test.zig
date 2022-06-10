@@ -61,10 +61,12 @@ const ErrorMsg = union(enum) {
         // this is a workaround for stage1 compiler bug I ran into when making it ?u32
         column: u32,
         kind: Kind,
+        count: u32,
     },
     plain: struct {
         msg: []const u8,
         kind: Kind,
+        count: u32,
     },
 
     const Kind = enum {
@@ -81,12 +83,14 @@ const ErrorMsg = union(enum) {
                     .line = @intCast(u32, src.line),
                     .column = @intCast(u32, src.column),
                     .kind = kind,
+                    .count = src.count,
                 },
             },
             .plain => |plain| return .{
                 .plain = .{
                     .msg = plain.msg,
                     .kind = kind,
+                    .count = plain.count,
                 },
             },
         }
@@ -118,10 +122,16 @@ const ErrorMsg = union(enum) {
                         try writer.writeAll("?: ");
                     }
                 }
-                return writer.print("{s}: {s}", .{ @tagName(src.kind), src.msg });
+                try writer.print("{s}: {s}", .{ @tagName(src.kind), src.msg });
+                if (src.count != 1) {
+                    try writer.print(" ({d} times)", .{src.count});
+                }
             },
             .plain => |plain| {
-                return writer.print("{s}: {s}", .{ @tagName(plain.kind), plain.msg });
+                try writer.print("{s}: {s}", .{ @tagName(plain.kind), plain.msg });
+                if (plain.count != 1) {
+                    try writer.print(" ({d} times)", .{plain.count});
+                }
             },
         }
     }
@@ -490,9 +500,7 @@ fn getTestFileNameParts(name: []const u8) struct {
 
 /// Sort test filenames in-place, so that incremental test cases ("foo.0.zig",
 /// "foo.1.zig", etc.) are contiguous and appear in numerical order.
-fn sortTestFilenames(
-    filenames: [][]const u8,
-) void {
+fn sortTestFilenames(filenames: [][]const u8) void {
     const Context = struct {
         pub fn lessThan(_: @This(), a: []const u8, b: []const u8) bool {
             const a_parts = getTestFileNameParts(a);
@@ -505,14 +513,20 @@ fn sortTestFilenames(
                 .eq => switch (std.mem.order(u8, a_parts.file_ext, b_parts.file_ext)) {
                     .lt => true,
                     .gt => false,
-                    .eq => b: { // a and b differ only in their ".X" part
+                    .eq => {
+                        // a and b differ only in their ".X" part
 
                         // Sort "<base_name>.<file_ext>" before any "<base_name>.X.<file_ext>"
-                        if (a_parts.test_index == null) break :b true;
-                        if (b_parts.test_index == null) break :b false;
-
-                        // Make sure that incremental tests appear in linear order
-                        return a_parts.test_index.? < b_parts.test_index.?;
+                        if (a_parts.test_index) |a_index| {
+                            if (b_parts.test_index) |b_index| {
+                                // Make sure that incremental tests appear in linear order
+                                return a_index < b_index;
+                            } else {
+                                return false;
+                            }
+                        } else {
+                            return b_parts.test_index != null;
+                        }
                     },
                 },
             };
@@ -643,12 +657,20 @@ pub const TestContext = struct {
             for (errors) |err_msg_line, i| {
                 if (std.mem.startsWith(u8, err_msg_line, "error: ")) {
                     array[i] = .{
-                        .plain = .{ .msg = err_msg_line["error: ".len..], .kind = .@"error" },
+                        .plain = .{
+                            .msg = err_msg_line["error: ".len..],
+                            .kind = .@"error",
+                            .count = 1,
+                        },
                     };
                     continue;
                 } else if (std.mem.startsWith(u8, err_msg_line, "note: ")) {
                     array[i] = .{
-                        .plain = .{ .msg = err_msg_line["note: ".len..], .kind = .note },
+                        .plain = .{
+                            .msg = err_msg_line["note: ".len..],
+                            .kind = .note,
+                            .count = 1,
+                        },
                     };
                     continue;
                 }
@@ -658,7 +680,7 @@ pub const TestContext = struct {
                 const line_text = it.next() orelse @panic("missing line");
                 const col_text = it.next() orelse @panic("missing column");
                 const kind_text = it.next() orelse @panic("missing 'error'/'note'");
-                const msg = it.rest()[1..]; // skip over the space at end of "error: "
+                var msg = it.rest()[1..]; // skip over the space at end of "error: "
 
                 const line: ?u32 = if (std.mem.eql(u8, line_text, "?"))
                     null
@@ -691,6 +713,14 @@ pub const TestContext = struct {
                     break :blk n - 1;
                 } else std.math.maxInt(u32);
 
+                const suffix = " times)";
+                const count = if (std.mem.endsWith(u8, msg, suffix)) count: {
+                    const lparen = std.mem.lastIndexOfScalar(u8, msg, '(').?;
+                    const count = std.fmt.parseInt(u32, msg[lparen + 1 .. msg.len - suffix.len], 10) catch @panic("bad error note count number");
+                    msg = msg[0 .. lparen - 1];
+                    break :count count;
+                } else 1;
+
                 array[i] = .{
                     .src = .{
                         .src_path = src_path,
@@ -698,6 +728,7 @@ pub const TestContext = struct {
                         .line = line_0based,
                         .column = column_0based,
                         .kind = kind,
+                        .count = count,
                     },
                 };
             }
@@ -1574,6 +1605,8 @@ pub const TestContext = struct {
 
                     for (actual_errors.list) |actual_error| {
                         for (case_error_list) |case_msg, i| {
+                            if (handled_errors[i]) continue;
+
                             const ex_tag: std.meta.Tag(@TypeOf(case_msg)) = case_msg;
                             switch (actual_error) {
                                 .src => |actual_msg| {
@@ -1600,7 +1633,8 @@ pub const TestContext = struct {
                                         (case_msg.src.column == std.math.maxInt(u32) or
                                         actual_msg.column == case_msg.src.column) and
                                         std.mem.eql(u8, expected_msg, actual_msg.msg) and
-                                        case_msg.src.kind == .@"error")
+                                        case_msg.src.kind == .@"error" and
+                                        actual_msg.count == case_msg.src.count)
                                     {
                                         handled_errors[i] = true;
                                         break;
@@ -1610,7 +1644,8 @@ pub const TestContext = struct {
                                     if (ex_tag != .plain) continue;
 
                                     if (std.mem.eql(u8, case_msg.plain.msg, plain.msg) and
-                                        case_msg.plain.kind == .@"error")
+                                        case_msg.plain.kind == .@"error" and
+                                        case_msg.plain.count == plain.count)
                                     {
                                         handled_errors[i] = true;
                                         break;

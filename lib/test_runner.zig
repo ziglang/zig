@@ -37,7 +37,8 @@ pub fn main() void {
         .dont_print_on_dumb = true,
     };
     const root_node = progress.start("Test", test_fn_list.len);
-    const have_tty = progress.terminal != null and progress.supports_ansi_escape_codes;
+    const have_tty = progress.terminal != null and
+        (progress.supports_ansi_escape_codes or progress.is_windows_terminal);
 
     var async_frame_buffer: []align(std.Target.stack_align) u8 = undefined;
     // TODO this is on the next line (using `undefined` above) because otherwise zig incorrectly
@@ -73,7 +74,6 @@ pub fn main() void {
                 skip_count += 1;
                 test_node.end();
                 progress.log("SKIP (async test)\n", .{});
-                if (!have_tty) std.debug.print("SKIP (async test)\n", .{});
                 continue;
             },
         } else test_fn.func();
@@ -85,16 +85,14 @@ pub fn main() void {
             error.SkipZigTest => {
                 skip_count += 1;
                 progress.log("SKIP\n", .{});
-                if (!have_tty) std.debug.print("SKIP\n", .{});
                 test_node.end();
             },
             else => {
                 fail_count += 1;
                 progress.log("FAIL ({s})\n", .{@errorName(err)});
-                if (!have_tty) std.debug.print("FAIL ({s})\n", .{@errorName(err)});
-                if (builtin.zig_backend != .stage2_llvm) if (@errorReturnTrace()) |trace| {
+                if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
-                };
+                }
                 test_node.end();
             },
         }

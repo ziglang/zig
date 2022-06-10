@@ -128,18 +128,16 @@ fn keccakF(comptime F: usize, d: *[F / 8]u8) void {
         r.* = mem.readIntLittle(u64, d[8 * i ..][0..8]);
     }
 
-    comptime var x: usize = 0;
-    comptime var y: usize = 0;
     for (RC[0..no_rounds]) |round| {
         // theta
-        x = 0;
+        comptime var x: usize = 0;
         inline while (x < 5) : (x += 1) {
             c[x] = s[x] ^ s[x + 5] ^ s[x + 10] ^ s[x + 15] ^ s[x + 20];
         }
         x = 0;
         inline while (x < 5) : (x += 1) {
             t[0] = c[M5[x + 4]] ^ math.rotl(u64, c[M5[x + 1]], @as(usize, 1));
-            y = 0;
+            comptime var y: usize = 0;
             inline while (y < 5) : (y += 1) {
                 s[x + y * 5] ^= t[0];
             }
@@ -155,7 +153,7 @@ fn keccakF(comptime F: usize, d: *[F / 8]u8) void {
         }
 
         // chi
-        y = 0;
+        comptime var y: usize = 0;
         inline while (y < 5) : (y += 1) {
             x = 0;
             inline while (x < 5) : (x += 1) {

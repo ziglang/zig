@@ -24,9 +24,9 @@ pub const FormatOptions = struct {
     fill: u8 = ' ',
 };
 
-/// Renders fmt string with args, calling output with slices of bytes.
-/// If `output` returns an error, the error is returned from `format` and
-/// `output` is not called again.
+/// Renders fmt string with args, calling `writer` with slices of bytes.
+/// If `writer` returns an error, the error is returned from `format` and
+/// `writer` is not called again.
 ///
 /// The format string must be comptime known and may contain placeholders following
 /// this format:
@@ -1778,8 +1778,8 @@ fn parseWithSign(
         if (c == '_') continue;
         const digit = try charToDigit(c, buf_radix);
 
-        if (x != 0) x = try math.mul(T, x, try math.cast(T, buf_radix));
-        x = try add(T, x, try math.cast(T, digit));
+        if (x != 0) x = try math.mul(T, x, math.cast(T, buf_radix) orelse return error.Overflow);
+        x = try add(T, x, math.cast(T, digit) orelse return error.Overflow);
     }
 
     return x;
@@ -1869,6 +1869,9 @@ pub const BufPrintError = error{
     /// As much as possible was written to the buffer, but it was too small to fit all the printed bytes.
     NoSpaceLeft,
 };
+
+/// print a Formatter string into `buf`. Actually just a thin wrapper around `format` and `fixedBufferStream`.
+/// returns a slice of the bytes printed to.
 pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![]u8 {
     var fbs = std.io.fixedBufferStream(buf);
     try format(fbs.writer(), fmt, args);
@@ -1890,10 +1893,7 @@ pub fn count(comptime fmt: []const u8, args: anytype) u64 {
 pub const AllocPrintError = error{OutOfMemory};
 
 pub fn allocPrint(allocator: mem.Allocator, comptime fmt: []const u8, args: anytype) AllocPrintError![]u8 {
-    const size = math.cast(usize, count(fmt, args)) catch |err| switch (err) {
-        // Output too long. Can't possibly allocate enough memory to display it.
-        error.Overflow => return error.OutOfMemory,
-    };
+    const size = math.cast(usize, count(fmt, args)) orelse return error.OutOfMemory;
     const buf = try allocator.alloc(u8, size);
     return bufPrint(buf, fmt, args) catch |err| switch (err) {
         error.NoSpaceLeft => unreachable, // we just counted the size above
@@ -2111,6 +2111,7 @@ test "slice" {
 }
 
 test "escape non-printable" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
     try expectFmt("abc", "{s}", .{fmtSliceEscapeLower("abc")});
     try expectFmt("ab\\xffc", "{s}", .{fmtSliceEscapeLower("ab\xffc")});
     try expectFmt("ab\\xFFc", "{s}", .{fmtSliceEscapeUpper("ab\xffc")});
@@ -2122,6 +2123,7 @@ test "pointer" {
         try expectFmt("pointer: i32@deadbeef\n", "pointer: {}\n", .{value});
         try expectFmt("pointer: i32@deadbeef\n", "pointer: {*}\n", .{value});
     }
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
     {
         const value = @intToPtr(fn () void, 0xdeadbeef);
         try expectFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
@@ -2146,6 +2148,7 @@ test "cstr" {
 }
 
 test "filesize" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
     try expectFmt("file size: 42B\n", "file size: {}\n", .{fmtIntSizeDec(42)});
     try expectFmt("file size: 42B\n", "file size: {}\n", .{fmtIntSizeBin(42)});
     try expectFmt("file size: 63MB\n", "file size: {}\n", .{fmtIntSizeDec(63 * 1000 * 1000)});
@@ -2445,6 +2448,7 @@ test "struct.zero-size" {
 }
 
 test "bytes.hex" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
     const some_bytes = "\xCA\xFE\xBA\xBE";
     try expectFmt("lowercase: cafebabe\n", "lowercase: {x}\n", .{fmtSliceHexLower(some_bytes)});
     try expectFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", .{fmtSliceHexUpper(some_bytes)});
@@ -2476,6 +2480,7 @@ pub fn hexToBytes(out: []u8, input: []const u8) ![]u8 {
 }
 
 test "hexToBytes" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
     var buf: [32]u8 = undefined;
     try expectFmt("90" ** 32, "{s}", .{fmtSliceHexUpper(try hexToBytes(&buf, "90" ** 32))});
     try expectFmt("ABCD", "{s}", .{fmtSliceHexUpper(try hexToBytes(&buf, "ABCD"))});

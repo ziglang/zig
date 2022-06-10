@@ -423,6 +423,8 @@ const usage_build_generic =
     \\  -fno-each-lib-rpath            Prevent adding rpath for each used dynamic library
     \\  -fallow-shlib-undefined        Allows undefined symbols in shared libraries
     \\  -fno-allow-shlib-undefined     Disallows undefined symbols in shared libraries
+    \\  -fbuild-id                     Helps coordinate stripped binaries with debug symbols
+    \\  -fno-build-id                  (default) Saves a bit of time linking
     \\  --eh-frame-hdr                 Enable C++ exception handling by passing --eh-frame-hdr to linker
     \\  --emit-relocs                  Enable output of relocation sections for post build tools
     \\  -z [arg]                       Set linker extension flags
@@ -430,9 +432,11 @@ const usage_build_generic =
     \\    notext                       Permit read-only relocations in read-only segments
     \\    defs                         Force a fatal error if any undefined symbols remain
     \\    origin                       Indicate that the object must have its origin processed
-    \\    noexecstack                  Indicate that the object requires an executable stack
-    \\    now                          Force all relocations to be processed on load
-    \\    relro                        Force all relocations to be resolved and be read-only on load
+    \\    nocopyreloc                  Disable the creation of copy relocations
+    \\    now                          (default) Force all relocations to be processed on load
+    \\    lazy                         Don't force all relocations to be processed on load
+    \\    relro                        (default) Force all relocations to be read-only after processing
+    \\    norelro                      Don't force all relocations to be read-only after processing
     \\  -dynamic                       Force output to be dynamically linked
     \\  -static                        Force output to be statically linked
     \\  -Bsymbolic                     Bind global references locally
@@ -651,9 +655,8 @@ fn buildOutputType(
     var linker_z_notext = false;
     var linker_z_defs = false;
     var linker_z_origin = false;
-    var linker_z_noexecstack = false;
-    var linker_z_now = false;
-    var linker_z_relro = false;
+    var linker_z_now = true;
+    var linker_z_relro = true;
     var linker_tsaware = false;
     var linker_nxcompat = false;
     var linker_dynamicbase = false;
@@ -670,6 +673,7 @@ fn buildOutputType(
     var link_eh_frame_hdr = false;
     var link_emit_relocs = false;
     var each_lib_rpath: ?bool = null;
+    var build_id: ?bool = null;
     var sysroot: ?[]const u8 = null;
     var libc_paths_file: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LIBC");
     var machine_code_model: std.builtin.CodeModel = .default;
@@ -1029,6 +1033,10 @@ fn buildOutputType(
                         each_lib_rpath = true;
                     } else if (mem.eql(u8, arg, "-fno-each-lib-rpath")) {
                         each_lib_rpath = false;
+                    } else if (mem.eql(u8, arg, "-fbuild-id")) {
+                        build_id = true;
+                    } else if (mem.eql(u8, arg, "-fno-build-id")) {
+                        build_id = false;
                     } else if (mem.eql(u8, arg, "--enable-cache")) {
                         enable_cache = true;
                     } else if (mem.eql(u8, arg, "--test-cmd-bin")) {
@@ -1197,12 +1205,14 @@ fn buildOutputType(
                             linker_z_defs = true;
                         } else if (mem.eql(u8, z_arg, "origin")) {
                             linker_z_origin = true;
-                        } else if (mem.eql(u8, z_arg, "noexecstack")) {
-                            linker_z_noexecstack = true;
                         } else if (mem.eql(u8, z_arg, "now")) {
                             linker_z_now = true;
+                        } else if (mem.eql(u8, z_arg, "lazy")) {
+                            linker_z_now = false;
                         } else if (mem.eql(u8, z_arg, "relro")) {
                             linker_z_relro = true;
+                        } else if (mem.eql(u8, z_arg, "norelro")) {
+                            linker_z_relro = false;
                         } else {
                             warn("unsupported linker extension flag: -z {s}", .{z_arg});
                         }
@@ -1414,10 +1424,20 @@ fn buildOutputType(
                         while (split_it.next()) |linker_arg| {
                             // Handle nested-joined args like `-Wl,-rpath=foo`.
                             // Must be prefixed with 1 or 2 dashes.
-                            if (linker_arg.len >= 3 and linker_arg[0] == '-' and linker_arg[2] != '-') {
+                            if (linker_arg.len >= 3 and
+                                linker_arg[0] == '-' and
+                                linker_arg[2] != '-')
+                            {
                                 if (mem.indexOfScalar(u8, linker_arg, '=')) |equals_pos| {
-                                    try linker_args.append(linker_arg[0..equals_pos]);
-                                    try linker_args.append(linker_arg[equals_pos + 1 ..]);
+                                    const key = linker_arg[0..equals_pos];
+                                    const value = linker_arg[equals_pos + 1 ..];
+                                    if (mem.eql(u8, key, "build-id")) {
+                                        build_id = true;
+                                        warn("ignoring build-id style argument: '{s}'", .{value});
+                                        continue;
+                                    }
+                                    try linker_args.append(key);
+                                    try linker_args.append(value);
                                     continue;
                                 }
                             }
@@ -1670,11 +1690,15 @@ fn buildOutputType(
                     } else if (mem.eql(u8, z_arg, "origin")) {
                         linker_z_origin = true;
                     } else if (mem.eql(u8, z_arg, "noexecstack")) {
-                        linker_z_noexecstack = true;
+                        // noexecstack is the default when linking with LLD
                     } else if (mem.eql(u8, z_arg, "now")) {
                         linker_z_now = true;
+                    } else if (mem.eql(u8, z_arg, "lazy")) {
+                        linker_z_now = false;
                     } else if (mem.eql(u8, z_arg, "relro")) {
                         linker_z_relro = true;
+                    } else if (mem.eql(u8, z_arg, "norelro")) {
+                        linker_z_relro = false;
                     } else {
                         warn("unsupported linker extension flag: -z {s}", .{z_arg});
                     }
@@ -2691,7 +2715,6 @@ fn buildOutputType(
         .linker_z_notext = linker_z_notext,
         .linker_z_defs = linker_z_defs,
         .linker_z_origin = linker_z_origin,
-        .linker_z_noexecstack = linker_z_noexecstack,
         .linker_z_now = linker_z_now,
         .linker_z_relro = linker_z_relro,
         .linker_tsaware = linker_tsaware,
@@ -2726,6 +2749,7 @@ fn buildOutputType(
         .stack_report = stack_report,
         .is_test = arg_mode == .zig_test,
         .each_lib_rpath = each_lib_rpath,
+        .build_id = build_id,
         .test_evented_io = test_evented_io,
         .test_filter = test_filter,
         .test_name_prefix = test_name_prefix,
@@ -4066,7 +4090,7 @@ fn fmtPathFile(
     const source_code = try readSourceFileToEndAlloc(
         fmt.gpa,
         &source_file,
-        std.math.cast(usize, stat.size) catch return error.FileTooBig,
+        std.math.cast(usize, stat.size) orelse return error.FileTooBig,
     );
     defer fmt.gpa.free(source_code);
 

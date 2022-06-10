@@ -2274,7 +2274,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 2);
+        comptime assert(Compilation.link_hash_implementation_version == 3);
 
         for (self.base.options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -2485,6 +2485,10 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
             "-o",
             full_out_path,
         });
+
+        if (target.cpu.arch == .wasm64) {
+            try argv.append("-mwasm64");
+        }
 
         if (target.os.tag == .wasi) {
             const is_exe_or_dyn_lib = self.base.options.output_mode == .Exe or

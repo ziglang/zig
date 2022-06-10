@@ -198,19 +198,17 @@ comptime {
     const __trunctfxf2 = @import("compiler_rt/trunc_f80.zig").__trunctfxf2;
     @export(__trunctfxf2, .{ .name = "__trunctfxf2", .linkage = linkage });
 
-    if (builtin.zig_backend == .stage1) { // TODO
-        switch (arch) {
-            .i386,
-            .x86_64,
-            => {
-                const zig_probe_stack = @import("compiler_rt/stack_probe.zig").zig_probe_stack;
-                @export(zig_probe_stack, .{
-                    .name = "__zig_probe_stack",
-                    .linkage = linkage,
-                });
-            },
-            else => {},
-        }
+    switch (arch) {
+        .i386,
+        .x86_64,
+        => {
+            const zig_probe_stack = @import("compiler_rt/stack_probe.zig").zig_probe_stack;
+            @export(zig_probe_stack, .{
+                .name = "__zig_probe_stack",
+                .linkage = linkage,
+            });
+        },
+        else => {},
     }
 
     const __unordsf2 = @import("compiler_rt/compareXf2.zig").__unordsf2;

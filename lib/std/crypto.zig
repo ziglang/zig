@@ -62,6 +62,7 @@ pub const ecc = struct {
     pub const Curve25519 = @import("crypto/25519/curve25519.zig").Curve25519;
     pub const Edwards25519 = @import("crypto/25519/edwards25519.zig").Edwards25519;
     pub const P256 = @import("crypto/pcurves/p256.zig").P256;
+    pub const P384 = @import("crypto/pcurves/p384.zig").P384;
     pub const Ristretto255 = @import("crypto/25519/ristretto255.zig").Ristretto255;
 };
 
@@ -201,6 +202,7 @@ test {
     _ = ecc.Curve25519;
     _ = ecc.Edwards25519;
     _ = ecc.P256;
+    _ = ecc.P384;
     _ = ecc.Ristretto255;
 
     _ = hash.blake2;

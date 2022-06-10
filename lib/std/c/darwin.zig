@@ -62,9 +62,13 @@ const private = struct {
     /// force 64bit version.
     /// Note that this is fixed on aarch64 and no longer necessary.
     extern "c" fn @"fstatat$INODE64"(dirfd: fd_t, path_name: [*:0]const u8, buf: *Stat, flags: u32) c_int;
+
+    extern "c" fn readdir(dir: *std.c.DIR) ?*dirent;
+    extern "c" fn @"readdir$INODE64"(dir: *std.c.DIR) ?*dirent;
 };
 pub const fstat = if (native_arch == .aarch64) private.fstat else private.@"fstat$INODE64";
 pub const fstatat = if (native_arch == .aarch64) private.fstatat else private.@"fstatat$INODE64";
+pub const readdir = if (native_arch == .aarch64) private.readdir else private.@"readdir$INODE64";
 
 pub extern "c" fn mach_absolute_time() u64;
 pub extern "c" fn mach_continuous_time() u64;
@@ -696,19 +700,6 @@ pub extern "c" fn os_unfair_lock_assert_not_owner(o: os_unfair_lock_t) void;
 
 // XXX: close -> close$NOCANCEL
 // XXX: getdirentries -> _getdirentries64
-pub extern "c" fn clock_getres(clk_id: c_int, tp: *timespec) c_int;
-pub extern "c" fn clock_gettime(clk_id: c_int, tp: *timespec) c_int;
-pub extern "c" fn getrusage(who: c_int, usage: *rusage) c_int;
-pub extern "c" fn gettimeofday(noalias tv: ?*timeval, noalias tz: ?*timezone) c_int;
-pub extern "c" fn nanosleep(rqtp: *const timespec, rmtp: ?*timespec) c_int;
-pub extern "c" fn sched_yield() c_int;
-pub extern "c" fn sigaction(sig: c_int, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
-pub extern "c" fn sigprocmask(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
-pub extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
-pub extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *Stat) c_int;
-pub extern "c" fn sigfillset(set: ?*sigset_t) void;
-pub extern "c" fn alarm(seconds: c_uint) c_uint;
-pub extern "c" fn sigwait(set: ?*sigset_t, sig: ?*c_int) c_int;
 
 // See: https://opensource.apple.com/source/xnu/xnu-6153.141.1/bsd/sys/_types.h.auto.html
 // TODO: audit mode_t/pid_t, should likely be u16/i32
@@ -937,12 +928,12 @@ pub const Sigaction = extern struct {
 };
 
 pub const dirent = extern struct {
-    d_ino: usize,
-    d_seekoff: usize,
+    d_ino: u64,
+    d_seekoff: u64,
     d_reclen: u16,
     d_namlen: u16,
     d_type: u8,
-    d_name: u8, // field address is address of first byte of name
+    d_name: [1024]u8,
 
     pub fn reclen(self: dirent) u16 {
         return self.d_reclen;

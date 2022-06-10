@@ -42,9 +42,14 @@ pub const Inst = struct {
         /// This uses the arithmetic_3op field.
         // TODO add other operations.
         add,
+        addcc,
+
+        /// A.3 Branch on Integer Register with Prediction (BPr)
+        /// This uses the branch_predict_reg field.
+        bpr,
 
         /// A.7 Branch on Integer Condition Codes with Prediction (BPcc)
-        /// This uses the branch_predict field.
+        /// This uses the branch_predict_int field.
         bpcc,
 
         /// A.8 Call and Link
@@ -69,6 +74,17 @@ pub const Inst = struct {
         /// This uses the arithmetic_3op field.
         // TODO add other operations.
         @"or",
+        xor,
+        xnor,
+
+        /// A.35 Move Integer Register on Condition (MOVcc)
+        /// This uses the conditional_move field.
+        movcc,
+
+        /// A.37 Multiply and Divide (64-bit)
+        /// This uses the arithmetic_3op field.
+        // TODO add other operations.
+        mulx,
 
         /// A.40 No Operation
         /// This uses the nop field.
@@ -89,8 +105,12 @@ pub const Inst = struct {
 
         /// A.49 Shift
         /// This uses the shift field.
-        // TODO add other operations.
+        sll,
+        srl,
+        sra,
         sllx,
+        srlx,
+        srax,
 
         /// A.54 Store Integer
         /// This uses the arithmetic_3op field.
@@ -106,10 +126,36 @@ pub const Inst = struct {
         /// This uses the arithmetic_3op field.
         // TODO add other operations.
         sub,
+        subcc,
 
         /// A.61 Trap on Integer Condition Codes (Tcc)
         /// This uses the trap field.
         tcc,
+
+        // SPARCv9 synthetic instructions
+        // Note that the instructions that is added here are only those that
+        // will simplify backend development. Synthetic instructions that is
+        // only used to provide syntactic sugar in, e.g. inline assembly should
+        // be deconstructed inside the parser instead.
+        // See also: G.3 Synthetic Instructions
+        // TODO add more synthetic instructions
+
+        /// Comparison
+        /// This uses the arithmetic_2op field.
+        cmp, // cmp rs1, rs2/imm -> subcc rs1, rs2/imm, %g0
+
+        /// Copy register/immediate contents to another register
+        /// This uses the arithmetic_2op field, with rs1
+        /// being the *destination* register.
+        // TODO is it okay to abuse rs1 in this way?
+        mov, // mov rs2/imm, rs1 -> or %g0, rs2/imm, rs1
+
+        /// Bitwise negation
+        /// This uses the arithmetic_2op field, with rs1
+        /// being the *destination* register.
+        // TODO is it okay to abuse rs1 in this way?
+        // TODO this differs from official encoding for convenience, fix it later
+        not, // not rs2/imm, rs1 -> xnor %g0, rs2/imm, rs1
     };
 
     /// The position of an MIR instruction within the `Mir` instructions array.
@@ -164,14 +210,40 @@ pub const Inst = struct {
             link: Register = .o7,
         },
 
-        /// Branch with prediction.
+        /// Branch with prediction, checking the integer status code
         /// Used by e.g. bpcc
-        branch_predict: struct {
+        branch_predict_int: struct {
             annul: bool = false,
             pt: bool = true,
             ccr: Instruction.CCR,
-            cond: Instruction.Condition,
+            cond: Instruction.ICondition,
             inst: Index,
+        },
+
+        /// Branch with prediction, comparing a register's content with zero
+        /// Used by e.g. bpr
+        branch_predict_reg: struct {
+            annul: bool = false,
+            pt: bool = true,
+            cond: Instruction.RCondition,
+            rs1: Register,
+            inst: Index,
+        },
+
+        /// Conditional move.
+        /// if is_imm true then it uses the imm field of rs2_or_imm,
+        /// otherwise it uses rs2 field.
+        ///
+        /// Used by e.g. movcc
+        conditional_move: struct {
+            is_imm: bool,
+            ccr: Instruction.CCR,
+            cond: Instruction.Condition,
+            rd: Register,
+            rs2_or_imm: union {
+                rs2: Register,
+                imm: i11,
+            },
         },
 
         /// No additional data
@@ -191,7 +263,7 @@ pub const Inst = struct {
         /// if is_imm true then it uses the imm field of rs2_or_imm,
         /// otherwise it uses rs2 field.
         ///
-        /// Used by e.g. add, sub
+        /// Used by e.g. sllx
         shift: struct {
             is_imm: bool,
             width: Instruction.ShiftWidth,
@@ -210,7 +282,7 @@ pub const Inst = struct {
         /// Used by e.g. tcc
         trap: struct {
             is_imm: bool = true,
-            cond: Instruction.Condition,
+            cond: Instruction.ICondition,
             ccr: Instruction.CCR = .icc,
             rs1: Register = .g0,
             rs2_or_imm: union {
