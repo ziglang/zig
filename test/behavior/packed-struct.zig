@@ -243,7 +243,12 @@ test "correct sizeOf and offsets in packed structs" {
 }
 
 test "nested packed structs" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S1 = packed struct { a: u8, b: u8, c: u8 };
 
@@ -253,7 +258,7 @@ test "nested packed structs" {
     const S3Padded = packed struct { s3: S3, pad: u16 };
 
     try expectEqual(48, @bitSizeOf(S3));
-    try expectEqual(6, @sizeOf(S3));
+    try expectEqual(@sizeOf(u48), @sizeOf(S3));
 
     try expectEqual(3, @offsetOf(S3, "y"));
     try expectEqual(24, @bitOffsetOf(S3, "y"));
@@ -273,7 +278,7 @@ test "nested packed structs" {
     const S6 = packed struct { a: i32, b: S4, c: i8 };
 
     const expectedBitSize = 80;
-    const expectedByteSize = expectedBitSize / 8;
+    const expectedByteSize = @sizeOf(u80);
     try expectEqual(expectedBitSize, @bitSizeOf(S5));
     try expectEqual(expectedByteSize, @sizeOf(S5));
     try expectEqual(expectedBitSize, @bitSizeOf(S6));
