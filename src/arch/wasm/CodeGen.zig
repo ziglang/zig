@@ -622,7 +622,7 @@ pub fn deinit(self: *Self) void {
 
 /// Sets `err_msg` on `CodeGen` and returns `error.CodegenFail` which is caught in link/Wasm.zig
 fn fail(self: *Self, comptime fmt: []const u8, args: anytype) InnerError {
-    const src: LazySrcLoc = .{ .node_offset = 0 };
+    const src = LazySrcLoc.nodeOffset(0);
     const src_loc = src.toSrcLoc(self.decl);
     self.err_msg = try Module.ErrorMsg.create(self.gpa, src_loc, fmt, args);
     return error.CodegenFail;

@@ -363,7 +363,7 @@ pub const DeclGen = struct {
 
     fn fail(dg: *DeclGen, comptime format: []const u8, args: anytype) error{ AnalysisFail, OutOfMemory } {
         @setCold(true);
-        const src: LazySrcLoc = .{ .node_offset = 0 };
+        const src = LazySrcLoc.nodeOffset(0);
         const src_loc = src.toSrcLoc(dg.decl);
         dg.error_msg = try Module.ErrorMsg.create(dg.module.gpa, src_loc, format, args);
         return error.AnalysisFail;
