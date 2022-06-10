@@ -3360,9 +3360,10 @@ fn analyzeFunction(
 
     // ret
     const ret_type_ref = blk: {
-        const last_instr_index = fn_info.ret_ty_body[fn_info.ret_ty_body.len - 1];
-        const break_operand = data[last_instr_index].@"break".operand;
-        const wr = try self.walkRef(file, scope, break_operand, false);
+        // const last_instr_index = fn_info.ret_ty_body[fn_info.ret_ty_body.len - 1];
+        // const break_operand = data[last_instr_index].@"break".operand;
+        // const wr = try self.walkRef(file, scope, break_operand, false);
+        const wr = try self.walkRef(file, scope, fn_info.ret_ty_ref, false);
 
         break :blk wr;
     };
