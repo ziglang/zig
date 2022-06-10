@@ -1,7 +1,79 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const math = std.math;
 const Log2Int = math.Log2Int;
-const is_test = @import("builtin").is_test;
+const arch = builtin.cpu.arch;
+const is_test = builtin.is_test;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    // Float -> Integral Conversion
+
+    // Conversion from f32
+    @export(__fixsfsi, .{ .name = "__fixsfsi", .linkage = linkage });
+    @export(__fixunssfsi, .{ .name = "__fixunssfsi", .linkage = linkage });
+
+    @export(__fixsfdi, .{ .name = "__fixsfdi", .linkage = linkage });
+    @export(__fixunssfdi, .{ .name = "__fixunssfdi", .linkage = linkage });
+
+    @export(__fixsfti, .{ .name = "__fixsfti", .linkage = linkage });
+    @export(__fixunssfti, .{ .name = "__fixunssfti", .linkage = linkage });
+
+    // Conversion from f64
+    @export(__fixdfsi, .{ .name = "__fixdfsi", .linkage = linkage });
+    @export(__fixunsdfsi, .{ .name = "__fixunsdfsi", .linkage = linkage });
+
+    @export(__fixdfdi, .{ .name = "__fixdfdi", .linkage = linkage });
+    @export(__fixunsdfdi, .{ .name = "__fixunsdfdi", .linkage = linkage });
+
+    @export(__fixdfti, .{ .name = "__fixdfti", .linkage = linkage });
+    @export(__fixunsdfti, .{ .name = "__fixunsdfti", .linkage = linkage });
+
+    // Conversion from f80
+    @export(__fixxfsi, .{ .name = "__fixxfsi", .linkage = linkage });
+    @export(__fixunsxfsi, .{ .name = "__fixunsxfsi", .linkage = linkage });
+
+    @export(__fixxfdi, .{ .name = "__fixxfdi", .linkage = linkage });
+    @export(__fixunsxfdi, .{ .name = "__fixunsxfdi", .linkage = linkage });
+
+    @export(__fixxfti, .{ .name = "__fixxfti", .linkage = linkage });
+    @export(__fixunsxfti, .{ .name = "__fixunsxfti", .linkage = linkage });
+
+    // Conversion from f128
+    @export(__fixtfsi, .{ .name = "__fixtfsi", .linkage = linkage });
+    @export(__fixunstfsi, .{ .name = "__fixunstfsi", .linkage = linkage });
+
+    @export(__fixtfdi, .{ .name = "__fixtfdi", .linkage = linkage });
+    @export(__fixunstfdi, .{ .name = "__fixunstfdi", .linkage = linkage });
+
+    @export(__fixtfti, .{ .name = "__fixtfti", .linkage = linkage });
+    @export(__fixunstfti, .{ .name = "__fixunstfti", .linkage = linkage });
+
+    if (!is_test) {
+        if (arch.isARM() or arch.isThumb()) {
+            @export(__aeabi_f2ulz, .{ .name = "__aeabi_f2ulz", .linkage = linkage });
+            @export(__aeabi_d2ulz, .{ .name = "__aeabi_d2ulz", .linkage = linkage });
+
+            @export(__aeabi_f2lz, .{ .name = "__aeabi_f2lz", .linkage = linkage });
+            @export(__aeabi_d2lz, .{ .name = "__aeabi_d2lz", .linkage = linkage });
+
+            @export(__aeabi_d2uiz, .{ .name = "__aeabi_d2uiz", .linkage = linkage });
+
+            @export(__aeabi_f2uiz, .{ .name = "__aeabi_f2uiz", .linkage = linkage });
+
+            @export(__aeabi_f2iz, .{ .name = "__aeabi_f2iz", .linkage = linkage });
+            @export(__aeabi_d2iz, .{ .name = "__aeabi_d2iz", .linkage = linkage });
+        }
+
+        if (arch.isPPC() or arch.isPPC64()) {
+            @export(__fixkfdi, .{ .name = "__fixkfdi", .linkage = linkage });
+            @export(__fixkfsi, .{ .name = "__fixkfsi", .linkage = linkage });
+            @export(__fixunskfsi, .{ .name = "__fixunskfsi", .linkage = linkage });
+            @export(__fixunskfdi, .{ .name = "__fixunskfdi", .linkage = linkage });
+        }
+    }
+}
 
 pub inline fn fixXfYi(comptime I: type, a: anytype) I {
     @setRuntimeSafety(is_test);
@@ -163,16 +235,32 @@ pub fn __fixtfsi(a: f128) callconv(.C) i32 {
     return fixXfYi(i32, a);
 }
 
+pub fn __fixkfsi(a: f128) callconv(.C) i32 {
+    return __fixtfsi(a);
+}
+
 pub fn __fixunstfsi(a: f128) callconv(.C) u32 {
     return fixXfYi(u32, a);
+}
+
+pub fn __fixunskfsi(a: f128) callconv(.C) u32 {
+    return @call(.{ .modifier = .always_inline }, __fixunstfsi, .{a});
 }
 
 pub fn __fixtfdi(a: f128) callconv(.C) i64 {
     return fixXfYi(i64, a);
 }
 
+pub fn __fixkfdi(a: f128) callconv(.C) i64 {
+    return @call(.{ .modifier = .always_inline }, __fixtfdi, .{a});
+}
+
 pub fn __fixunstfdi(a: f128) callconv(.C) u64 {
     return fixXfYi(u64, a);
+}
+
+pub fn __fixunskfdi(a: f128) callconv(.C) u64 {
+    return @call(.{ .modifier = .always_inline }, __fixunstfdi, .{a});
 }
 
 pub fn __fixtfti(a: f128) callconv(.C) i128 {

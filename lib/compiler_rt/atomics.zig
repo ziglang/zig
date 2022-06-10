@@ -2,8 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const cpu = builtin.cpu;
 const arch = cpu.arch;
-
 const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
 
 // This parameter is true iff the target architecture supports the bare minimum
 // to implement the atomic load/store intrinsics.

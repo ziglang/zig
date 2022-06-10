@@ -1,11 +1,21 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const native_arch = builtin.cpu.arch;
+const arch = builtin.cpu.arch;
 const testing = std.testing;
+const is_test = builtin.is_test;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    @export(__truncxfhf2, .{ .name = "__truncxfhf2", .linkage = linkage });
+    @export(__truncxfsf2, .{ .name = "__truncxfsf2", .linkage = linkage });
+    @export(__truncxfdf2, .{ .name = "__truncxfdf2", .linkage = linkage });
+    @export(__trunctfxf2, .{ .name = "__trunctfxf2", .linkage = linkage });
+}
 
 // AArch64 is the only ABI (at the moment) to support f16 arguments without the
 // need for extending them to wider fp types.
-pub const F16T = if (native_arch.isAARCH64()) f16 else u16;
+const F16T = if (arch.isAARCH64()) f16 else u16;
 
 pub fn __truncxfhf2(a: f80) callconv(.C) F16T {
     return @bitCast(F16T, trunc(f16, a));

@@ -5,9 +5,28 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/log2.c
 
 const std = @import("std");
+const builtin = @import("builtin");
 const math = std.math;
 const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
+const arch = builtin.cpu.arch;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    @export(__log2h, .{ .name = "__log2h", .linkage = linkage });
+    @export(log2f, .{ .name = "log2f", .linkage = linkage });
+    @export(log2, .{ .name = "log2", .linkage = linkage });
+    @export(__log2x, .{ .name = "__log2x", .linkage = linkage });
+    @export(log2q, .{ .name = "log2q", .linkage = linkage });
+    @export(log2l, .{ .name = "log2l", .linkage = linkage });
+
+    if (!builtin.is_test) {
+        if (arch.isPPC() or arch.isPPC64()) {
+            @export(log2f128, .{ .name = "log2f128", .linkage = linkage });
+        }
+    }
+}
 
 pub fn __log2h(a: f16) callconv(.C) f16 {
     // TODO: more efficient implementation
@@ -149,6 +168,10 @@ pub fn __log2x(a: f80) callconv(.C) f80 {
 pub fn log2q(a: f128) callconv(.C) f128 {
     // TODO: more correct implementation
     return log2(@floatCast(f64, a));
+}
+
+pub fn log2f128(a: f128) callconv(.C) f128 {
+    return @call(.{ .modifier = .always_inline }, log2q, .{a});
 }
 
 pub fn log2l(x: c_longdouble) callconv(.C) c_longdouble {

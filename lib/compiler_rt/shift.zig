@@ -1,13 +1,35 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Log2Int = std.math.Log2Int;
-const native_endian = @import("builtin").cpu.arch.endian();
+const native_endian = builtin.cpu.arch.endian();
+const arch = builtin.cpu.arch;
+const is_test = builtin.is_test;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    @export(__ashldi3, .{ .name = "__ashldi3", .linkage = linkage });
+    @export(__ashlti3, .{ .name = "__ashlti3", .linkage = linkage });
+    @export(__ashrdi3, .{ .name = "__ashrdi3", .linkage = linkage });
+    @export(__ashrti3, .{ .name = "__ashrti3", .linkage = linkage });
+    @export(__lshrdi3, .{ .name = "__lshrdi3", .linkage = linkage });
+    @export(__lshrti3, .{ .name = "__lshrti3", .linkage = linkage });
+
+    if (!is_test) {
+        if (arch.isARM() or arch.isThumb()) {
+            @export(__aeabi_llsl, .{ .name = "__aeabi_llsl", .linkage = linkage });
+            @export(__aeabi_lasr, .{ .name = "__aeabi_lasr", .linkage = linkage });
+            @export(__aeabi_llsr, .{ .name = "__aeabi_llsr", .linkage = linkage });
+        }
+    }
+}
 
 fn Dwords(comptime T: type, comptime signed_half: bool) type {
     return extern union {
-        pub const bits = @divExact(@typeInfo(T).Int.bits, 2);
-        pub const HalfTU = std.meta.Int(.unsigned, bits);
-        pub const HalfTS = std.meta.Int(.signed, bits);
-        pub const HalfT = if (signed_half) HalfTS else HalfTU;
+        const bits = @divExact(@typeInfo(T).Int.bits, 2);
+        const HalfTU = std.meta.Int(.unsigned, bits);
+        const HalfTS = std.meta.Int(.signed, bits);
+        const HalfT = if (signed_half) HalfTS else HalfTU;
 
         all: T,
         s: if (native_endian == .Little)
@@ -19,7 +41,7 @@ fn Dwords(comptime T: type, comptime signed_half: bool) type {
 
 // Arithmetic shift left
 // Precondition: 0 <= b < bits_in_dword
-pub inline fn ashlXi3(comptime T: type, a: T, b: i32) T {
+inline fn ashlXi3(comptime T: type, a: T, b: i32) T {
     const dwords = Dwords(T, false);
     const S = Log2Int(dwords.HalfT);
 
@@ -42,7 +64,7 @@ pub inline fn ashlXi3(comptime T: type, a: T, b: i32) T {
 
 // Arithmetic shift right
 // Precondition: 0 <= b < T.bit_count
-pub inline fn ashrXi3(comptime T: type, a: T, b: i32) T {
+inline fn ashrXi3(comptime T: type, a: T, b: i32) T {
     const dwords = Dwords(T, true);
     const S = Log2Int(dwords.HalfT);
 
@@ -69,7 +91,7 @@ pub inline fn ashrXi3(comptime T: type, a: T, b: i32) T {
 
 // Logical shift right
 // Precondition: 0 <= b < T.bit_count
-pub inline fn lshrXi3(comptime T: type, a: T, b: i32) T {
+inline fn lshrXi3(comptime T: type, a: T, b: i32) T {
     const dwords = Dwords(T, false);
     const S = Log2Int(dwords.HalfT);
 

@@ -4,6 +4,78 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const is_test = builtin.is_test;
+const arch = builtin.cpu.arch;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    @export(__lesf2, .{ .name = "__lesf2", .linkage = linkage });
+    @export(__ledf2, .{ .name = "__ledf2", .linkage = linkage });
+    @export(__letf2, .{ .name = "__letf2", .linkage = linkage });
+    @export(__lexf2, .{ .name = "__lexf2", .linkage = linkage });
+
+    @export(__gesf2, .{ .name = "__gesf2", .linkage = linkage });
+    @export(__gedf2, .{ .name = "__gedf2", .linkage = linkage });
+    @export(__getf2, .{ .name = "__getf2", .linkage = linkage });
+    @export(__gexf2, .{ .name = "__gexf2", .linkage = linkage });
+
+    @export(__eqsf2, .{ .name = "__eqsf2", .linkage = linkage });
+    @export(__eqdf2, .{ .name = "__eqdf2", .linkage = linkage });
+    @export(__eqxf2, .{ .name = "__eqxf2", .linkage = linkage });
+
+    @export(__ltsf2, .{ .name = "__ltsf2", .linkage = linkage });
+    @export(__ltdf2, .{ .name = "__ltdf2", .linkage = linkage });
+    @export(__ltxf2, .{ .name = "__ltxf2", .linkage = linkage });
+
+    @export(__nesf2, .{ .name = "__nesf2", .linkage = linkage });
+    @export(__nedf2, .{ .name = "__nedf2", .linkage = linkage });
+    @export(__nexf2, .{ .name = "__nexf2", .linkage = linkage });
+
+    @export(__gtsf2, .{ .name = "__gtsf2", .linkage = linkage });
+    @export(__gtdf2, .{ .name = "__gtdf2", .linkage = linkage });
+    @export(__gtxf2, .{ .name = "__gtxf2", .linkage = linkage });
+
+    @export(__unordsf2, .{ .name = "__unordsf2", .linkage = linkage });
+    @export(__unorddf2, .{ .name = "__unorddf2", .linkage = linkage });
+    @export(__unordtf2, .{ .name = "__unordtf2", .linkage = linkage });
+
+    if (!is_test) {
+        @export(__cmpsf2, .{ .name = "__cmpsf2", .linkage = linkage });
+        @export(__cmpdf2, .{ .name = "__cmpdf2", .linkage = linkage });
+        @export(__cmptf2, .{ .name = "__cmptf2", .linkage = linkage });
+        @export(__eqtf2, .{ .name = "__eqtf2", .linkage = linkage });
+        @export(__lttf2, .{ .name = "__lttf2", .linkage = linkage });
+        @export(__gttf2, .{ .name = "__gttf2", .linkage = linkage });
+        @export(__netf2, .{ .name = "__netf2", .linkage = linkage });
+
+        if (arch.isARM() or arch.isThumb()) {
+            @export(__aeabi_fcmpeq, .{ .name = "__aeabi_fcmpeq", .linkage = linkage });
+            @export(__aeabi_fcmplt, .{ .name = "__aeabi_fcmplt", .linkage = linkage });
+            @export(__aeabi_fcmple, .{ .name = "__aeabi_fcmple", .linkage = linkage });
+            @export(__aeabi_fcmpge, .{ .name = "__aeabi_fcmpge", .linkage = linkage });
+            @export(__aeabi_fcmpgt, .{ .name = "__aeabi_fcmpgt", .linkage = linkage });
+            @export(__aeabi_fcmpun, .{ .name = "__aeabi_fcmpun", .linkage = linkage });
+
+            @export(__aeabi_dcmpeq, .{ .name = "__aeabi_dcmpeq", .linkage = linkage });
+            @export(__aeabi_dcmplt, .{ .name = "__aeabi_dcmplt", .linkage = linkage });
+            @export(__aeabi_dcmple, .{ .name = "__aeabi_dcmple", .linkage = linkage });
+            @export(__aeabi_dcmpge, .{ .name = "__aeabi_dcmpge", .linkage = linkage });
+            @export(__aeabi_dcmpgt, .{ .name = "__aeabi_dcmpgt", .linkage = linkage });
+            @export(__aeabi_dcmpun, .{ .name = "__aeabi_dcmpun", .linkage = linkage });
+        }
+
+        if (arch.isPPC() or arch.isPPC64()) {
+            @export(__eqkf2, .{ .name = "__eqkf2", .linkage = linkage });
+            @export(__nekf2, .{ .name = "__nekf2", .linkage = linkage });
+            @export(__gekf2, .{ .name = "__gekf2", .linkage = linkage });
+            @export(__ltkf2, .{ .name = "__ltkf2", .linkage = linkage });
+            @export(__lekf2, .{ .name = "__lekf2", .linkage = linkage });
+            @export(__gtkf2, .{ .name = "__gtkf2", .linkage = linkage });
+            @export(__unordkf2, .{ .name = "__unordkf2", .linkage = linkage });
+        }
+    }
+}
 
 const LE = enum(i32) {
     Less = -1,
@@ -98,20 +170,24 @@ pub fn __gesf2(a: f32, b: f32) callconv(.C) i32 {
     return @bitCast(i32, float);
 }
 
+pub fn __cmpsf2(a: f32, b: f32) callconv(.C) i32 {
+    return @call(.{ .modifier = .always_inline }, __lesf2, .{ a, b });
+}
+
 pub fn __eqsf2(a: f32, b: f32) callconv(.C) i32 {
-    return __lesf2(a, b);
+    return @call(.{ .modifier = .always_inline }, __lesf2, .{ a, b });
 }
 
 pub fn __ltsf2(a: f32, b: f32) callconv(.C) i32 {
-    return __lesf2(a, b);
+    return @call(.{ .modifier = .always_inline }, __lesf2, .{ a, b });
 }
 
 pub fn __nesf2(a: f32, b: f32) callconv(.C) i32 {
-    return __lesf2(a, b);
+    return @call(.{ .modifier = .always_inline }, __lesf2, .{ a, b });
 }
 
 pub fn __gtsf2(a: f32, b: f32) callconv(.C) i32 {
-    return __gesf2(a, b);
+    return @call(.{ .modifier = .always_inline }, __gesf2, .{ a, b });
 }
 
 // Comparison between f64
@@ -128,20 +204,24 @@ pub fn __gedf2(a: f64, b: f64) callconv(.C) i32 {
     return @bitCast(i32, float);
 }
 
+pub fn __cmpdf2(a: f64, b: f64) callconv(.C) i32 {
+    return @call(.{ .modifier = .always_inline }, __ledf2, .{ a, b });
+}
+
 pub fn __eqdf2(a: f64, b: f64) callconv(.C) i32 {
-    return __ledf2(a, b);
+    return @call(.{ .modifier = .always_inline }, __ledf2, .{ a, b });
 }
 
 pub fn __ltdf2(a: f64, b: f64) callconv(.C) i32 {
-    return __ledf2(a, b);
+    return @call(.{ .modifier = .always_inline }, __ledf2, .{ a, b });
 }
 
 pub fn __nedf2(a: f64, b: f64) callconv(.C) i32 {
-    return __ledf2(a, b);
+    return @call(.{ .modifier = .always_inline }, __ledf2, .{ a, b });
 }
 
 pub fn __gtdf2(a: f64, b: f64) callconv(.C) i32 {
-    return __gedf2(a, b);
+    return @call(.{ .modifier = .always_inline }, __gedf2, .{ a, b });
 }
 
 // Comparison between f80
@@ -196,19 +276,19 @@ pub fn __gexf2(a: f80, b: f80) callconv(.C) i32 {
 }
 
 pub fn __eqxf2(a: f80, b: f80) callconv(.C) i32 {
-    return __lexf2(a, b);
+    return @call(.{ .modifier = .always_inline }, __lexf2, .{ a, b });
 }
 
 pub fn __ltxf2(a: f80, b: f80) callconv(.C) i32 {
-    return __lexf2(a, b);
+    return @call(.{ .modifier = .always_inline }, __lexf2, .{ a, b });
 }
 
 pub fn __nexf2(a: f80, b: f80) callconv(.C) i32 {
-    return __lexf2(a, b);
+    return @call(.{ .modifier = .always_inline }, __lexf2, .{ a, b });
 }
 
 pub fn __gtxf2(a: f80, b: f80) callconv(.C) i32 {
-    return __gexf2(a, b);
+    return @call(.{ .modifier = .always_inline }, __gexf2, .{ a, b });
 }
 
 // Comparison between f128
@@ -225,20 +305,48 @@ pub fn __getf2(a: f128, b: f128) callconv(.C) i32 {
     return @bitCast(i32, float);
 }
 
+pub fn __cmptf2(a: f128, b: f128) callconv(.C) i32 {
+    return @call(.{ .modifier = .always_inline }, __letf2, .{ a, b });
+}
+
 pub fn __eqtf2(a: f128, b: f128) callconv(.C) i32 {
-    return __letf2(a, b);
+    return @call(.{ .modifier = .always_inline }, __letf2, .{ a, b });
 }
 
 pub fn __lttf2(a: f128, b: f128) callconv(.C) i32 {
-    return __letf2(a, b);
+    return @call(.{ .modifier = .always_inline }, __letf2, .{ a, b });
 }
 
 pub fn __netf2(a: f128, b: f128) callconv(.C) i32 {
-    return __letf2(a, b);
+    return @call(.{ .modifier = .always_inline }, __letf2, .{ a, b });
 }
 
 pub fn __gttf2(a: f128, b: f128) callconv(.C) i32 {
-    return __getf2(a, b);
+    return @call(.{ .modifier = .always_inline }, __getf2, .{ a, b });
+}
+
+pub fn __eqkf2(a: f128, b: f128) callconv(.C) i32 {
+    return @call(.{ .modifier = .always_inline }, __letf2, .{ a, b });
+}
+
+pub fn __nekf2(a: f128, b: f128) callconv(.C) i32 {
+    return @call(.{ .modifier = .always_inline }, __letf2, .{ a, b });
+}
+
+pub fn __gekf2(a: f128, b: f128) callconv(.C) i32 {
+    return @call(.{ .modifier = .always_inline }, __getf2, .{ a, b });
+}
+
+pub fn __ltkf2(a: f128, b: f128) callconv(.C) i32 {
+    return @call(.{ .modifier = .always_inline }, __letf2, .{ a, b });
+}
+
+pub fn __lekf2(a: f128, b: f128) callconv(.C) i32 {
+    return @call(.{ .modifier = .always_inline }, __letf2, .{ a, b });
+}
+
+pub fn __gtkf2(a: f128, b: f128) callconv(.C) i32 {
+    return @call(.{ .modifier = .always_inline }, __getf2, .{ a, b });
 }
 
 // Unordered comparison between f32/f64/f128
@@ -256,6 +364,10 @@ pub fn __unorddf2(a: f64, b: f64) callconv(.C) i32 {
 pub fn __unordtf2(a: f128, b: f128) callconv(.C) i32 {
     @setRuntimeSafety(builtin.is_test);
     return unordcmp(f128, a, b);
+}
+
+pub fn __unordkf2(a: f128, b: f128) callconv(.C) i32 {
+    return @call(.{ .modifier = .always_inline }, __unordtf2, .{ a, b });
 }
 
 // ARM EABI intrinsics

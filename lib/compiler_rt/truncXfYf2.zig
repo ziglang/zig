@@ -1,15 +1,47 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const native_arch = builtin.cpu.arch;
+const arch = builtin.cpu.arch;
+const is_test = builtin.is_test;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    @export(__truncdfhf2, .{ .name = "__truncdfhf2", .linkage = linkage });
+    @export(__trunctfhf2, .{ .name = "__trunctfhf2", .linkage = linkage });
+    @export(__trunctfdf2, .{ .name = "__trunctfdf2", .linkage = linkage });
+    @export(__trunctfsf2, .{ .name = "__trunctfsf2", .linkage = linkage });
+
+    @export(__truncdfsf2, .{ .name = "__truncdfsf2", .linkage = linkage });
+    @export(__truncsfhf2, .{ .name = "__truncsfhf2", .linkage = linkage });
+
+    if (!is_test) {
+        @export(__gnu_f2h_ieee, .{ .name = "__gnu_f2h_ieee", .linkage = linkage });
+
+        if (arch.isARM() or arch.isThumb()) {
+            @export(__aeabi_d2h, .{ .name = "__aeabi_d2h", .linkage = linkage });
+            @export(__aeabi_f2h, .{ .name = "__aeabi_f2h", .linkage = linkage });
+            @export(__aeabi_d2f, .{ .name = "__aeabi_d2f", .linkage = linkage });
+        }
+
+        if (arch.isPPC() or arch.isPPC64()) {
+            @export(__trunckfsf2, .{ .name = "__trunckfsf2", .linkage = linkage });
+            @export(__trunckfdf2, .{ .name = "__trunckfdf2", .linkage = linkage });
+        }
+    }
+}
 
 // AArch64 is the only ABI (at the moment) to support f16 arguments without the
 // need for extending them to wider fp types.
 // TODO remove this; do this type selection in the language rather than
 // here in compiler-rt.
-pub const F16T = if (native_arch.isAARCH64()) f16 else u16;
+const F16T = if (arch.isAARCH64()) f16 else u16;
 
 pub fn __truncsfhf2(a: f32) callconv(.C) F16T {
     return @bitCast(F16T, truncXfYf2(f16, f32, a));
+}
+
+pub fn __gnu_f2h_ieee(a: f32) callconv(.C) F16T {
+    return @call(.{ .modifier = .always_inline }, __truncsfhf2, .{a});
 }
 
 pub fn __truncdfhf2(a: f64) callconv(.C) F16T {
@@ -24,7 +56,15 @@ pub fn __trunctfsf2(a: f128) callconv(.C) f32 {
     return truncXfYf2(f32, f128, a);
 }
 
+pub fn __trunckfsf2(a: f128) callconv(.C) f32 {
+    return truncXfYf2(f32, f128, a);
+}
+
 pub fn __trunctfdf2(a: f128) callconv(.C) f64 {
+    return truncXfYf2(f64, f128, a);
+}
+
+pub fn __trunckfdf2(a: f128) callconv(.C) f64 {
     return truncXfYf2(f64, f128, a);
 }
 

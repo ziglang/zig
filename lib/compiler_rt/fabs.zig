@@ -1,4 +1,23 @@
 const std = @import("std");
+const builtin = @import("builtin");
+const arch = builtin.cpu.arch;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    @export(__fabsh, .{ .name = "__fabsh", .linkage = linkage });
+    @export(fabsf, .{ .name = "fabsf", .linkage = linkage });
+    @export(fabs, .{ .name = "fabs", .linkage = linkage });
+    @export(__fabsx, .{ .name = "__fabsx", .linkage = linkage });
+    @export(fabsq, .{ .name = "fabsq", .linkage = linkage });
+    @export(fabsl, .{ .name = "fabsl", .linkage = linkage });
+
+    if (!builtin.is_test) {
+        if (arch.isPPC() or arch.isPPC64()) {
+            @export(fabsf128, .{ .name = "fabsf128", .linkage = linkage });
+        }
+    }
+}
 
 pub fn __fabsh(a: f16) callconv(.C) f16 {
     return generic_fabs(a);
@@ -18,6 +37,10 @@ pub fn __fabsx(a: f80) callconv(.C) f80 {
 
 pub fn fabsq(a: f128) callconv(.C) f128 {
     return generic_fabs(a);
+}
+
+pub fn fabsf128(a: f128) callconv(.C) f128 {
+    return @call(.{ .modifier = .always_inline }, fabsq, .{a});
 }
 
 pub fn fabsl(x: c_longdouble) callconv(.C) c_longdouble {

@@ -4,6 +4,23 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const arch = builtin.cpu.arch;
+const is_test = builtin.is_test;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+
+const common = @import("common.zig");
+const normalize = common.normalize;
+pub const panic = common.panic;
+
+comptime {
+    @export(__divsf3, .{ .name = "__divsf3", .linkage = linkage });
+
+    if (!is_test) {
+        if (arch.isARM() or arch.isThumb()) {
+            @export(__aeabi_fdiv, .{ .name = "__aeabi_fdiv", .linkage = linkage });
+        }
+    }
+}
 
 pub fn __divsf3(a: f32, b: f32) callconv(.C) f32 {
     @setRuntimeSafety(builtin.is_test);
@@ -182,17 +199,6 @@ pub fn __divsf3(a: f32, b: f32) callconv(.C) f32 {
         // Insert the sign and return
         return @bitCast(f32, absResult | quotientSign);
     }
-}
-
-fn normalize(comptime T: type, significand: *std.meta.Int(.unsigned, @typeInfo(T).Float.bits)) i32 {
-    @setRuntimeSafety(builtin.is_test);
-    const Z = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
-    const significandBits = std.math.floatMantissaBits(T);
-    const implicitBit = @as(Z, 1) << significandBits;
-
-    const shift = @clz(Z, significand.*) - @clz(Z, implicitBit);
-    significand.* <<= @intCast(std.math.Log2Int(Z), shift);
-    return 1 - shift;
 }
 
 pub fn __aeabi_fdiv(a: f32, b: f32) callconv(.AAPCS) f32 {

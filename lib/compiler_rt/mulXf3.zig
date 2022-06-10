@@ -5,8 +5,32 @@
 const std = @import("std");
 const math = std.math;
 const builtin = @import("builtin");
-const compiler_rt = @import("../compiler_rt.zig");
+const arch = builtin.cpu.arch;
+const is_test = builtin.is_test;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
 
+comptime {
+    @export(__mulsf3, .{ .name = "__mulsf3", .linkage = linkage });
+    @export(__muldf3, .{ .name = "__muldf3", .linkage = linkage });
+    @export(__mulxf3, .{ .name = "__mulxf3", .linkage = linkage });
+    @export(__multf3, .{ .name = "__multf3", .linkage = linkage });
+
+    if (!is_test) {
+        if (arch.isARM() or arch.isThumb()) {
+            @export(__aeabi_fmul, .{ .name = "__aeabi_fmul", .linkage = linkage });
+            @export(__aeabi_dmul, .{ .name = "__aeabi_dmul", .linkage = linkage });
+        }
+
+        if (arch.isPPC() or arch.isPPC64()) {
+            @export(__mulkf3, .{ .name = "__mulkf3", .linkage = linkage });
+        }
+    }
+}
+
+pub fn __mulkf3(a: f128, b: f128) callconv(.C) f128 {
+    return @call(.{ .modifier = .always_inline }, __multf3, .{ a, b });
+}
 pub fn __multf3(a: f128, b: f128) callconv(.C) f128 {
     return mulXf3(f128, a, b);
 }
@@ -30,7 +54,7 @@ pub fn __aeabi_dmul(a: f64, b: f64) callconv(.C) f64 {
     return @call(.{ .modifier = .always_inline }, __muldf3, .{ a, b });
 }
 
-fn mulXf3(comptime T: type, a: T, b: T) T {
+pub fn mulXf3(comptime T: type, a: T, b: T) T {
     @setRuntimeSafety(builtin.is_test);
     const typeWidth = @typeInfo(T).Float.bits;
     const significandBits = math.floatMantissaBits(T);

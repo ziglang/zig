@@ -1,5 +1,17 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const is_test = builtin.is_test;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    @export(__cmpsi2, .{ .name = "__cmpsi2", .linkage = linkage });
+    @export(__cmpdi2, .{ .name = "__cmpdi2", .linkage = linkage });
+    @export(__cmpti2, .{ .name = "__cmpti2", .linkage = linkage });
+    @export(__ucmpsi2, .{ .name = "__ucmpsi2", .linkage = linkage });
+    @export(__ucmpdi2, .{ .name = "__ucmpdi2", .linkage = linkage });
+    @export(__ucmpti2, .{ .name = "__ucmpti2", .linkage = linkage });
+}
 
 // cmp - signed compare
 // - cmpXi2_generic for unoptimized little and big endian

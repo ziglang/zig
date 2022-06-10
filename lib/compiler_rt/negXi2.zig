@@ -1,5 +1,14 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const is_test = builtin.is_test;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    @export(__negsi2, .{ .name = "__negsi2", .linkage = linkage });
+    @export(__negdi2, .{ .name = "__negdi2", .linkage = linkage });
+    @export(__negti2, .{ .name = "__negti2", .linkage = linkage });
+}
 
 // neg - negate (the number)
 // - negXi2 for unoptimized little and big endian

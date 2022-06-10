@@ -6,12 +6,32 @@
 // https://golang.org/src/math/tan.go
 
 const std = @import("std");
+const builtin = @import("builtin");
 const math = std.math;
 const expect = std.testing.expect;
 
 const kernel = @import("trig.zig");
 const rem_pio2 = @import("rem_pio2.zig").rem_pio2;
 const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;
+
+const arch = builtin.cpu.arch;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    @export(__tanh, .{ .name = "__tanh", .linkage = linkage });
+    @export(tanf, .{ .name = "tanf", .linkage = linkage });
+    @export(tan, .{ .name = "tan", .linkage = linkage });
+    @export(__tanx, .{ .name = "__tanx", .linkage = linkage });
+    @export(tanq, .{ .name = "tanq", .linkage = linkage });
+    @export(tanl, .{ .name = "tanl", .linkage = linkage });
+
+    if (!builtin.is_test) {
+        if (arch.isPPC() or arch.isPPC64()) {
+            @export(tanf128, .{ .name = "tanf128", .linkage = linkage });
+        }
+    }
+}
 
 pub fn __tanh(x: f16) callconv(.C) f16 {
     // TODO: more efficient implementation
@@ -94,6 +114,10 @@ pub fn __tanx(x: f80) callconv(.C) f80 {
 pub fn tanq(x: f128) callconv(.C) f128 {
     // TODO: more correct implementation
     return tan(@floatCast(f64, x));
+}
+
+pub fn tanf128(x: f128) callconv(.C) f128 {
+    return @call(.{ .modifier = .always_inline }, tanq, .{x});
 }
 
 pub fn tanl(x: c_longdouble) callconv(.C) c_longdouble {

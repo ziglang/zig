@@ -3,6 +3,40 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const arch = builtin.cpu.arch;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    if (arch.isSPARC()) {
+        // SPARC systems use a different naming scheme
+        @export(_Qp_add, .{ .name = "_Qp_add", .linkage = linkage });
+        @export(_Qp_div, .{ .name = "_Qp_div", .linkage = linkage });
+        @export(_Qp_mul, .{ .name = "_Qp_mul", .linkage = linkage });
+        @export(_Qp_sub, .{ .name = "_Qp_sub", .linkage = linkage });
+
+        @export(_Qp_cmp, .{ .name = "_Qp_cmp", .linkage = linkage });
+        @export(_Qp_feq, .{ .name = "_Qp_feq", .linkage = linkage });
+        @export(_Qp_fne, .{ .name = "_Qp_fne", .linkage = linkage });
+        @export(_Qp_flt, .{ .name = "_Qp_flt", .linkage = linkage });
+        @export(_Qp_fle, .{ .name = "_Qp_fle", .linkage = linkage });
+        @export(_Qp_fgt, .{ .name = "_Qp_fgt", .linkage = linkage });
+        @export(_Qp_fge, .{ .name = "_Qp_fge", .linkage = linkage });
+
+        @export(_Qp_itoq, .{ .name = "_Qp_itoq", .linkage = linkage });
+        @export(_Qp_uitoq, .{ .name = "_Qp_uitoq", .linkage = linkage });
+        @export(_Qp_xtoq, .{ .name = "_Qp_xtoq", .linkage = linkage });
+        @export(_Qp_uxtoq, .{ .name = "_Qp_uxtoq", .linkage = linkage });
+        @export(_Qp_stoq, .{ .name = "_Qp_stoq", .linkage = linkage });
+        @export(_Qp_dtoq, .{ .name = "_Qp_dtoq", .linkage = linkage });
+        @export(_Qp_qtoi, .{ .name = "_Qp_qtoi", .linkage = linkage });
+        @export(_Qp_qtoui, .{ .name = "_Qp_qtoui", .linkage = linkage });
+        @export(_Qp_qtox, .{ .name = "_Qp_qtox", .linkage = linkage });
+        @export(_Qp_qtoux, .{ .name = "_Qp_qtoux", .linkage = linkage });
+        @export(_Qp_qtos, .{ .name = "_Qp_qtos", .linkage = linkage });
+        @export(_Qp_qtod, .{ .name = "_Qp_qtod", .linkage = linkage });
+    }
+}
 
 // The SPARC Architecture Manual, Version 9:
 // A.13 Floating-Point Compare
