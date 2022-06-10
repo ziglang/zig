@@ -1377,11 +1377,7 @@ fn isByRef(ty: Type, target: std.Target) bool {
         .Int => return ty.intInfo(target).bits > 64,
         .Float => return ty.floatBits(target) > 64,
         .ErrorUnion => {
-            const err_ty = ty.errorUnionSet();
             const pl_ty = ty.errorUnionPayload();
-            if (err_ty.errorSetCardinality() == .zero) {
-                return isByRef(pl_ty, target);
-            }
             if (!pl_ty.hasRuntimeBitsIgnoreComptime()) {
                 return false;
             }
@@ -1817,11 +1813,7 @@ fn airStore(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerError!void {
     switch (ty.zigTypeTag()) {
         .ErrorUnion => {
-            const err_ty = ty.errorUnionSet();
             const pl_ty = ty.errorUnionPayload();
-            if (err_ty.errorSetCardinality() == .zero) {
-                return self.store(lhs, rhs, pl_ty, 0);
-            }
             if (!pl_ty.hasRuntimeBitsIgnoreComptime()) {
                 return self.store(lhs, rhs, Type.anyerror, 0);
             }
@@ -2357,10 +2349,6 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
         },
         .ErrorUnion => {
             const error_type = ty.errorUnionSet();
-            if (error_type.errorSetCardinality() == .zero) {
-                const pl_val = if (val.castTag(.eu_payload)) |pl| pl.data else Value.initTag(.undef);
-                return self.lowerConstant(pl_val, ty.errorUnionPayload());
-            }
             const is_pl = val.errorUnionIsPayload();
             const err_val = if (!is_pl) val else Value.initTag(.zero);
             return self.lowerConstant(err_val, error_type);
@@ -2929,7 +2917,7 @@ fn airIsErr(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!W
     const err_union_ty = self.air.typeOf(un_op);
     const pl_ty = err_union_ty.errorUnionPayload();
 
-    if (err_union_ty.errorUnionSet().errorSetCardinality() == .zero) {
+    if (err_union_ty.errorUnionSet().errorSetIsEmpty()) {
         switch (opcode) {
             .i32_ne => return WValue{ .imm32 = 0 },
             .i32_eq => return WValue{ .imm32 = 1 },
@@ -2962,10 +2950,6 @@ fn airUnwrapErrUnionPayload(self: *Self, inst: Air.Inst.Index, op_is_ptr: bool) 
     const err_ty = if (op_is_ptr) op_ty.childType() else op_ty;
     const payload_ty = err_ty.errorUnionPayload();
 
-    if (err_ty.errorUnionSet().errorSetCardinality() == .zero) {
-        return operand;
-    }
-
     if (!payload_ty.hasRuntimeBitsIgnoreComptime()) return WValue{ .none = {} };
 
     const pl_offset = @intCast(u32, errUnionPayloadOffset(payload_ty, self.target));
@@ -2984,7 +2968,7 @@ fn airUnwrapErrUnionError(self: *Self, inst: Air.Inst.Index, op_is_ptr: bool) In
     const err_ty = if (op_is_ptr) op_ty.childType() else op_ty;
     const payload_ty = err_ty.errorUnionPayload();
 
-    if (err_ty.errorUnionSet().errorSetCardinality() == .zero) {
+    if (err_ty.errorUnionSet().errorSetIsEmpty()) {
         return WValue{ .imm32 = 0 };
     }
 
@@ -3001,10 +2985,6 @@ fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const operand = try self.resolveInst(ty_op.operand);
     const err_ty = self.air.typeOfIndex(inst);
-
-    if (err_ty.errorUnionSet().errorSetCardinality() == .zero) {
-        return operand;
-    }
 
     const pl_ty = self.air.typeOf(ty_op.operand);
     if (!pl_ty.hasRuntimeBitsIgnoreComptime()) {
@@ -4633,29 +4613,27 @@ fn lowerTry(
         return self.fail("TODO: lowerTry for pointers", .{});
     }
 
-    if (err_union_ty.errorUnionSet().errorSetCardinality() == .zero) {
-        return err_union;
-    }
-
     const pl_ty = err_union_ty.errorUnionPayload();
     const pl_has_bits = pl_ty.hasRuntimeBitsIgnoreComptime();
 
-    // Block we can jump out of when error is not set
-    try self.startBlock(.block, wasm.block_empty);
+    if (!err_union_ty.errorUnionSet().errorSetIsEmpty()) {
+        // Block we can jump out of when error is not set
+        try self.startBlock(.block, wasm.block_empty);
 
-    // check if the error tag is set for the error union.
-    try self.emitWValue(err_union);
-    if (pl_has_bits) {
-        const err_offset = @intCast(u32, errUnionErrorOffset(pl_ty, self.target));
-        try self.addMemArg(.i32_load16_u, .{
-            .offset = err_union.offset() + err_offset,
-            .alignment = Type.anyerror.abiAlignment(self.target),
-        });
+        // check if the error tag is set for the error union.
+        try self.emitWValue(err_union);
+        if (pl_has_bits) {
+            const err_offset = @intCast(u32, errUnionErrorOffset(pl_ty, self.target));
+            try self.addMemArg(.i32_load16_u, .{
+                .offset = err_union.offset() + err_offset,
+                .alignment = Type.anyerror.abiAlignment(self.target),
+            });
+        }
+        try self.addTag(.i32_eqz);
+        try self.addLabel(.br_if, 0); // jump out of block when error is '0'
+        try self.genBody(body);
+        try self.endBlock();
     }
-    try self.addTag(.i32_eqz);
-    try self.addLabel(.br_if, 0); // jump out of block when error is '0'
-    try self.genBody(body);
-    try self.endBlock();
 
     // if we reach here it means error was not set, and we want the payload
     if (!pl_has_bits) {

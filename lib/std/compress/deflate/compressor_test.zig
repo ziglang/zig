@@ -179,7 +179,6 @@ test "deflate/inflate" {
 }
 
 test "very long sparse chunk" {
-    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest;
     // A SparseReader returns a stream consisting of 0s ending with 65,536 (1<<16) 1s.
     // This tests missing hash references in a very large input.
     const SparseReader = struct {
@@ -377,7 +376,6 @@ test "compressor dictionary" {
 // Update the hash for best_speed only if d.index < d.maxInsertIndex
 // See https://golang.org/issue/2508
 test "Go non-regression test for 2508" {
-    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest;
     var comp = try compressor(
         testing.allocator,
         io.null_writer,
