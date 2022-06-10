@@ -5,12 +5,31 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/sin.c
 
 const std = @import("std");
+const builtin = @import("builtin");
+const arch = builtin.cpu.arch;
 const math = std.math;
 const expect = std.testing.expect;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
 
 const trig = @import("trig.zig");
 const rem_pio2 = @import("rem_pio2.zig").rem_pio2;
 const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;
+
+comptime {
+    @export(__sinh, .{ .name = "__sinh", .linkage = linkage });
+    @export(sinf, .{ .name = "sinf", .linkage = linkage });
+    @export(sin, .{ .name = "sin", .linkage = linkage });
+    @export(__sinx, .{ .name = "__sinx", .linkage = linkage });
+    @export(sinq, .{ .name = "sinq", .linkage = linkage });
+    @export(sinl, .{ .name = "sinl", .linkage = linkage });
+
+    if (!builtin.is_test) {
+        if (arch.isPPC() or arch.isPPC64()) {
+            @export(sinf128, .{ .name = "sinf128", .linkage = linkage });
+        }
+    }
+}
 
 pub fn __sinh(x: f16) callconv(.C) f16 {
     // TODO: more efficient implementation
@@ -109,6 +128,10 @@ pub fn __sinx(x: f80) callconv(.C) f80 {
 pub fn sinq(x: f128) callconv(.C) f128 {
     // TODO: more correct implementation
     return sin(@floatCast(f64, x));
+}
+
+pub fn sinf128(x: f128) callconv(.C) f128 {
+    return @call(.{ .modifier = .always_inline }, sinq, .{x});
 }
 
 pub fn sinl(x: c_longdouble) callconv(.C) c_longdouble {

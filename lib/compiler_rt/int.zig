@@ -4,8 +4,35 @@ const std = @import("std");
 const testing = std.testing;
 const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
+const arch = builtin.cpu.arch;
+const is_test = builtin.is_test;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
 
 const udivmod = @import("udivmod.zig").udivmod;
+
+comptime {
+    @export(__udivmoddi4, .{ .name = "__udivmoddi4", .linkage = linkage });
+    @export(__mulsi3, .{ .name = "__mulsi3", .linkage = linkage });
+    @export(__divmoddi4, .{ .name = "__divmoddi4", .linkage = linkage });
+    @export(__divsi3, .{ .name = "__divsi3", .linkage = linkage });
+    @export(__divdi3, .{ .name = "__divdi3", .linkage = linkage });
+    @export(__udivsi3, .{ .name = "__udivsi3", .linkage = linkage });
+    @export(__udivdi3, .{ .name = "__udivdi3", .linkage = linkage });
+    @export(__modsi3, .{ .name = "__modsi3", .linkage = linkage });
+    @export(__moddi3, .{ .name = "__moddi3", .linkage = linkage });
+    @export(__umodsi3, .{ .name = "__umodsi3", .linkage = linkage });
+    @export(__umoddi3, .{ .name = "__umoddi3", .linkage = linkage });
+    @export(__divmodsi4, .{ .name = "__divmodsi4", .linkage = linkage });
+    @export(__udivmodsi4, .{ .name = "__udivmodsi4", .linkage = linkage });
+
+    if (!is_test) {
+        if (arch.isARM() or arch.isThumb()) {
+            @export(__aeabi_idiv, .{ .name = "__aeabi_idiv", .linkage = linkage });
+            @export(__aeabi_uidiv, .{ .name = "__aeabi_uidiv", .linkage = linkage });
+        }
+    }
+}
 
 pub fn __divmoddi4(a: i64, b: i64, rem: *i64) callconv(.C) i64 {
     @setRuntimeSafety(builtin.is_test);
@@ -187,6 +214,10 @@ pub fn __divsi3(n: i32, d: i32) callconv(.C) i32 {
     return @bitCast(i32, (res ^ sign) -% sign);
 }
 
+pub fn __aeabi_idiv(n: i32, d: i32) callconv(.C) i32 {
+    return @call(.{ .modifier = .always_inline }, __divsi3, .{ n, d });
+}
+
 test "test_divsi3" {
     const cases = [_][3]i32{
         [_]i32{ 0, 1, 0 },
@@ -251,6 +282,10 @@ pub fn __udivsi3(n: u32, d: u32) callconv(.C) u32 {
     }
     q = (q << 1) | carry;
     return q;
+}
+
+pub fn __aeabi_uidiv(n: u32, d: u32) callconv(.C) u32 {
+    return @call(.{ .modifier = .always_inline }, __udivsi3, .{ n, d });
 }
 
 test "test_udivsi3" {

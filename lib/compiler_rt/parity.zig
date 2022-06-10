@@ -1,5 +1,14 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const is_test = builtin.is_test;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    @export(__paritysi2, .{ .name = "__paritysi2", .linkage = linkage });
+    @export(__paritydi2, .{ .name = "__paritydi2", .linkage = linkage });
+    @export(__parityti2, .{ .name = "__parityti2", .linkage = linkage });
+}
 
 // parity - if number of bits set is even => 0, else => 1
 // - pariytXi2_generic for big and little endian

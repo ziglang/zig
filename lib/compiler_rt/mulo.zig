@@ -1,6 +1,15 @@
-const builtin = @import("builtin");
 const std = @import("std");
+const builtin = @import("builtin");
 const math = std.math;
+const is_test = builtin.is_test;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    @export(__mulosi4, .{ .name = "__mulosi4", .linkage = linkage });
+    @export(__mulodi4, .{ .name = "__mulodi4", .linkage = linkage });
+    @export(__muloti4, .{ .name = "__muloti4", .linkage = linkage });
+}
 
 // mulo - multiplication overflow
 // * return a*%b.

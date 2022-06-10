@@ -5,8 +5,27 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/floor.c
 
 const std = @import("std");
+const builtin = @import("builtin");
 const math = std.math;
 const expect = std.testing.expect;
+const arch = builtin.cpu.arch;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    @export(__floorh, .{ .name = "__floorh", .linkage = linkage });
+    @export(floorf, .{ .name = "floorf", .linkage = linkage });
+    @export(floor, .{ .name = "floor", .linkage = linkage });
+    @export(__floorx, .{ .name = "__floorx", .linkage = linkage });
+    @export(floorq, .{ .name = "floorq", .linkage = linkage });
+    @export(floorl, .{ .name = "floorl", .linkage = linkage });
+
+    if (!builtin.is_test) {
+        if (arch.isPPC() or arch.isPPC64()) {
+            @export(floorf128, .{ .name = "floorf128", .linkage = linkage });
+        }
+    }
+}
 
 pub fn __floorh(x: f16) callconv(.C) f16 {
     var u = @bitCast(u16, x);
@@ -139,6 +158,10 @@ pub fn floorq(x: f128) callconv(.C) f128 {
     } else {
         return x + y;
     }
+}
+
+pub fn floorf128(x: f128) callconv(.C) f128 {
+    return @call(.{ .modifier = .always_inline }, floorq, .{x});
 }
 
 pub fn floorl(x: c_longdouble) callconv(.C) c_longdouble {

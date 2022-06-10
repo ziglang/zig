@@ -3,9 +3,41 @@
 // https://github.com/llvm/llvm-project/blob/02d85149a05cb1f6dc49f0ba7a2ceca53718ae17/compiler-rt/lib/builtins/fp_add_impl.inc
 
 const std = @import("std");
-const math = std.math;
 const builtin = @import("builtin");
-const compiler_rt = @import("../compiler_rt.zig");
+const math = std.math;
+const arch = builtin.cpu.arch;
+const is_test = builtin.is_test;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+
+const common = @import("common.zig");
+const normalize = common.normalize;
+pub const panic = common.panic;
+
+comptime {
+    @export(__addsf3, .{ .name = "__addsf3", .linkage = linkage });
+    @export(__adddf3, .{ .name = "__adddf3", .linkage = linkage });
+    @export(__addxf3, .{ .name = "__addxf3", .linkage = linkage });
+    @export(__addtf3, .{ .name = "__addtf3", .linkage = linkage });
+
+    @export(__subsf3, .{ .name = "__subsf3", .linkage = linkage });
+    @export(__subdf3, .{ .name = "__subdf3", .linkage = linkage });
+    @export(__subxf3, .{ .name = "__subxf3", .linkage = linkage });
+    @export(__subtf3, .{ .name = "__subtf3", .linkage = linkage });
+
+    if (!is_test) {
+        if (arch.isARM() or arch.isThumb()) {
+            @export(__aeabi_fadd, .{ .name = "__aeabi_fadd", .linkage = linkage });
+            @export(__aeabi_dadd, .{ .name = "__aeabi_dadd", .linkage = linkage });
+            @export(__aeabi_fsub, .{ .name = "__aeabi_fsub", .linkage = linkage });
+            @export(__aeabi_dsub, .{ .name = "__aeabi_dsub", .linkage = linkage });
+        }
+
+        if (arch.isPPC() or arch.isPPC64()) {
+            @export(__addkf3, .{ .name = "__addkf3", .linkage = linkage });
+            @export(__subkf3, .{ .name = "__subkf3", .linkage = linkage });
+        }
+    }
+}
 
 pub fn __addsf3(a: f32, b: f32) callconv(.C) f32 {
     return addXf3(f32, a, b);
@@ -29,6 +61,10 @@ pub fn __addtf3(a: f128, b: f128) callconv(.C) f128 {
     return addXf3(f128, a, b);
 }
 
+pub fn __addkf3(a: f128, b: f128) callconv(.C) f128 {
+    return @call(.{ .modifier = .always_inline }, __addtf3, .{ a, b });
+}
+
 pub fn __subsf3(a: f32, b: f32) callconv(.C) f32 {
     const neg_b = @bitCast(f32, @bitCast(u32, b) ^ (@as(u32, 1) << 31));
     return addXf3(f32, a, neg_b);
@@ -42,6 +78,10 @@ pub fn __subdf3(a: f64, b: f64) callconv(.C) f64 {
 pub fn __subtf3(a: f128, b: f128) callconv(.C) f128 {
     const neg_b = @bitCast(f128, @bitCast(u128, b) ^ (@as(u128, 1) << 127));
     return addXf3(f128, a, neg_b);
+}
+
+pub fn __subkf3(a: f128, b: f128) callconv(.C) f128 {
+    return @call(.{ .modifier = .always_inline }, __subtf3, .{ a, b });
 }
 
 pub fn __aeabi_fadd(a: f32, b: f32) callconv(.AAPCS) f32 {
@@ -65,20 +105,7 @@ pub fn __aeabi_dsub(a: f64, b: f64) callconv(.AAPCS) f64 {
 }
 
 // TODO: restore inline keyword, see: https://github.com/ziglang/zig/issues/2154
-fn normalize(comptime T: type, significand: *std.meta.Int(.unsigned, @typeInfo(T).Float.bits)) i32 {
-    const bits = @typeInfo(T).Float.bits;
-    const Z = std.meta.Int(.unsigned, bits);
-    const S = std.meta.Int(.unsigned, bits - @clz(Z, @as(Z, bits) - 1));
-    const fractionalBits = math.floatFractionalBits(T);
-    const integerBit = @as(Z, 1) << fractionalBits;
-
-    const shift = @clz(std.meta.Int(.unsigned, bits), significand.*) - @clz(Z, integerBit);
-    significand.* <<= @intCast(S, shift);
-    return @as(i32, 1) - shift;
-}
-
-// TODO: restore inline keyword, see: https://github.com/ziglang/zig/issues/2154
-fn addXf3(comptime T: type, a: T, b: T) T {
+pub fn addXf3(comptime T: type, a: T, b: T) T {
     const bits = @typeInfo(T).Float.bits;
     const Z = std.meta.Int(.unsigned, bits);
     const S = std.meta.Int(.unsigned, bits - @clz(Z, @as(Z, bits) - 1));

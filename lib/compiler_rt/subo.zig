@@ -1,4 +1,14 @@
+const std = @import("std");
 const builtin = @import("builtin");
+const is_test = builtin.is_test;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    @export(__subosi4, .{ .name = "__subosi4", .linkage = linkage });
+    @export(__subodi4, .{ .name = "__subodi4", .linkage = linkage });
+    @export(__suboti4, .{ .name = "__suboti4", .linkage = linkage });
+}
 
 // subo - subtract overflow
 // * return a-%b.

@@ -1,8 +1,77 @@
 const builtin = @import("builtin");
-const is_test = builtin.is_test;
 const std = @import("std");
 const math = std.math;
 const expect = std.testing.expect;
+const arch = builtin.cpu.arch;
+const is_test = builtin.is_test;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    // Integral -> Float Conversion
+
+    // Conversion to f32
+    @export(__floatsisf, .{ .name = "__floatsisf", .linkage = linkage });
+    @export(__floatunsisf, .{ .name = "__floatunsisf", .linkage = linkage });
+
+    @export(__floatundisf, .{ .name = "__floatundisf", .linkage = linkage });
+    @export(__floatdisf, .{ .name = "__floatdisf", .linkage = linkage });
+
+    @export(__floattisf, .{ .name = "__floattisf", .linkage = linkage });
+    @export(__floatuntisf, .{ .name = "__floatuntisf", .linkage = linkage });
+
+    // Conversion to f64
+    @export(__floatsidf, .{ .name = "__floatsidf", .linkage = linkage });
+    @export(__floatunsidf, .{ .name = "__floatunsidf", .linkage = linkage });
+
+    @export(__floatdidf, .{ .name = "__floatdidf", .linkage = linkage });
+    @export(__floatundidf, .{ .name = "__floatundidf", .linkage = linkage });
+
+    @export(__floattidf, .{ .name = "__floattidf", .linkage = linkage });
+    @export(__floatuntidf, .{ .name = "__floatuntidf", .linkage = linkage });
+
+    // Conversion to f80
+    @export(__floatsixf, .{ .name = "__floatsixf", .linkage = linkage });
+    @export(__floatunsixf, .{ .name = "__floatunsixf", .linkage = linkage });
+
+    @export(__floatdixf, .{ .name = "__floatdixf", .linkage = linkage });
+    @export(__floatundixf, .{ .name = "__floatundixf", .linkage = linkage });
+
+    @export(__floattixf, .{ .name = "__floattixf", .linkage = linkage });
+    @export(__floatuntixf, .{ .name = "__floatuntixf", .linkage = linkage });
+
+    // Conversion to f128
+    @export(__floatsitf, .{ .name = "__floatsitf", .linkage = linkage });
+    @export(__floatunsitf, .{ .name = "__floatunsitf", .linkage = linkage });
+
+    @export(__floatditf, .{ .name = "__floatditf", .linkage = linkage });
+    @export(__floatunditf, .{ .name = "__floatunditf", .linkage = linkage });
+
+    @export(__floattitf, .{ .name = "__floattitf", .linkage = linkage });
+    @export(__floatuntitf, .{ .name = "__floatuntitf", .linkage = linkage });
+
+    if (!is_test) {
+        if (arch.isARM() or arch.isThumb()) {
+            @export(__aeabi_i2d, .{ .name = "__aeabi_i2d", .linkage = linkage });
+            @export(__aeabi_l2d, .{ .name = "__aeabi_l2d", .linkage = linkage });
+            @export(__aeabi_l2f, .{ .name = "__aeabi_l2f", .linkage = linkage });
+            @export(__aeabi_ui2d, .{ .name = "__aeabi_ui2d", .linkage = linkage });
+            @export(__aeabi_ul2d, .{ .name = "__aeabi_ul2d", .linkage = linkage });
+            @export(__aeabi_ui2f, .{ .name = "__aeabi_ui2f", .linkage = linkage });
+            @export(__aeabi_ul2f, .{ .name = "__aeabi_ul2f", .linkage = linkage });
+
+            @export(__aeabi_i2f, .{ .name = "__aeabi_i2f", .linkage = linkage });
+        }
+
+        if (arch.isPPC() or arch.isPPC64()) {
+            @export(__floatsikf, .{ .name = "__floatsikf", .linkage = linkage });
+            @export(__floatdikf, .{ .name = "__floatdikf", .linkage = linkage });
+            @export(__floatundikf, .{ .name = "__floatundikf", .linkage = linkage });
+            @export(__floatunsikf, .{ .name = "__floatunsikf", .linkage = linkage });
+            @export(__floatuntikf, .{ .name = "__floatuntikf", .linkage = linkage });
+        }
+    }
+}
 
 pub fn floatXiYf(comptime T: type, x: anytype) T {
     @setRuntimeSafety(is_test);
@@ -163,16 +232,32 @@ pub fn __floatsitf(a: i32) callconv(.C) f128 {
     return floatXiYf(f128, a);
 }
 
+pub fn __floatsikf(a: i32) callconv(.C) f128 {
+    return @call(.{ .modifier = .always_inline }, __floatsitf, .{a});
+}
+
 pub fn __floatunsitf(a: u32) callconv(.C) f128 {
     return floatXiYf(f128, a);
+}
+
+pub fn __floatunsikf(a: u32) callconv(.C) f128 {
+    return @call(.{ .modifier = .always_inline }, __floatunsitf, .{a});
 }
 
 pub fn __floatditf(a: i64) callconv(.C) f128 {
     return floatXiYf(f128, a);
 }
 
+pub fn __floatdikf(a: i64) callconv(.C) f128 {
+    return @call(.{ .modifier = .always_inline }, __floatditf, .{a});
+}
+
 pub fn __floatunditf(a: u64) callconv(.C) f128 {
     return floatXiYf(f128, a);
+}
+
+pub fn __floatundikf(a: u64) callconv(.C) f128 {
+    return @call(.{ .modifier = .always_inline }, __floatunditf, .{a});
 }
 
 pub fn __floattitf(a: i128) callconv(.C) f128 {
@@ -181,6 +266,10 @@ pub fn __floattitf(a: i128) callconv(.C) f128 {
 
 pub fn __floatuntitf(a: u128) callconv(.C) f128 {
     return floatXiYf(f128, a);
+}
+
+pub fn __floatuntikf(a: u128) callconv(.C) f128 {
+    return @call(.{ .modifier = .always_inline }, __floatuntitf, .{a});
 }
 
 // Conversion to f32

@@ -1,7 +1,31 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
-const native_arch = builtin.cpu.arch;
+const arch = builtin.cpu.arch;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    @export(__extenddftf2, .{ .name = "__extenddftf2", .linkage = linkage });
+    @export(__extendsftf2, .{ .name = "__extendsftf2", .linkage = linkage });
+    @export(__extendhfsf2, .{ .name = "__extendhfsf2", .linkage = linkage });
+    @export(__extendhftf2, .{ .name = "__extendhftf2", .linkage = linkage });
+    @export(__extendsfdf2, .{ .name = "__extendsfdf2", .linkage = linkage });
+
+    if (!is_test) {
+        @export(__gnu_h2f_ieee, .{ .name = "__gnu_h2f_ieee", .linkage = linkage });
+
+        if (arch.isARM() or arch.isThumb()) {
+            @export(__aeabi_f2d, .{ .name = "__aeabi_f2d", .linkage = linkage });
+            @export(__aeabi_h2f, .{ .name = "__aeabi_h2f", .linkage = linkage });
+        }
+
+        if (arch.isPPC() or arch.isPPC64()) {
+            @export(__extendsfkf2, .{ .name = "__extendsfkf2", .linkage = linkage });
+            @export(__extenddfkf2, .{ .name = "__extenddfkf2", .linkage = linkage });
+        }
+    }
+}
 
 pub fn __extendsfdf2(a: f32) callconv(.C) f64 {
     return extendXfYf2(f64, f32, @bitCast(u32, a));
@@ -11,16 +35,28 @@ pub fn __extenddftf2(a: f64) callconv(.C) f128 {
     return extendXfYf2(f128, f64, @bitCast(u64, a));
 }
 
+pub fn __extenddfkf2(a: f64) callconv(.C) f128 {
+    return @call(.{ .modifier = .always_inline }, __extenddftf2, .{a});
+}
+
 pub fn __extendsftf2(a: f32) callconv(.C) f128 {
     return extendXfYf2(f128, f32, @bitCast(u32, a));
 }
 
+pub fn __extendsfkf2(a: f32) callconv(.C) f128 {
+    return @call(.{ .modifier = .always_inline }, __extendsftf2, .{a});
+}
+
 // AArch64 is the only ABI (at the moment) to support f16 arguments without the
 // need for extending them to wider fp types.
-pub const F16T = if (native_arch.isAARCH64()) f16 else u16;
+pub const F16T = if (arch.isAARCH64()) f16 else u16;
 
 pub fn __extendhfsf2(a: F16T) callconv(.C) f32 {
     return extendXfYf2(f32, f16, @bitCast(u16, a));
+}
+
+pub fn __gnu_h2f_ieee(a: F16T) callconv(.C) f32 {
+    return @call(.{ .modifier = .always_inline }, __extendhfsf2, .{a});
 }
 
 pub fn __extendhftf2(a: F16T) callconv(.C) f128 {

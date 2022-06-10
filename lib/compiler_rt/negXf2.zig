@@ -1,4 +1,21 @@
 const std = @import("std");
+const builtin = @import("builtin");
+const arch = builtin.cpu.arch;
+const is_test = builtin.is_test;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    @export(__negsf2, .{ .name = "__negsf2", .linkage = linkage });
+    @export(__negdf2, .{ .name = "__negdf2", .linkage = linkage });
+
+    if (!is_test) {
+        if (arch.isARM() or arch.isThumb()) {
+            @export(__aeabi_fneg, .{ .name = "__aeabi_fneg", .linkage = linkage });
+            @export(__aeabi_dneg, .{ .name = "__aeabi_dneg", .linkage = linkage });
+        }
+    }
+}
 
 pub fn __negsf2(a: f32) callconv(.C) f32 {
     return negXf2(f32, a);

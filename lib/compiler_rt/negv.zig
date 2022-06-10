@@ -1,6 +1,17 @@
 // negv - negate oVerflow
 // * @panic, if result can not be represented
 // - negvXi4_generic for unoptimized version
+const std = @import("std");
+const builtin = @import("builtin");
+const is_test = builtin.is_test;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    @export(__negvsi2, .{ .name = "__negvsi2", .linkage = linkage });
+    @export(__negvdi2, .{ .name = "__negvdi2", .linkage = linkage });
+    @export(__negvti2, .{ .name = "__negvti2", .linkage = linkage });
+}
 
 // assume -0 == 0 is gracefully handled by the hardware
 inline fn negvXi(comptime ST: type, a: ST) ST {
