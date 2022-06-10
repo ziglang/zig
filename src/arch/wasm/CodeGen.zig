@@ -2266,7 +2266,7 @@ fn toTwosComplement(value: anytype, bits: u7) std.meta.Int(.unsigned, @typeInfo(
     const WantedT = std.meta.Int(.unsigned, @typeInfo(T).Int.bits);
     if (value >= 0) return @bitCast(WantedT, value);
     const max_value = @intCast(u64, (@as(u65, 1) << bits) - 1);
-    const flipped = (~-value) + 1;
+    const flipped = @intCast(T, (~-@as(i65, value)) + 1);
     const result = @bitCast(WantedT, flipped) & max_value;
     return @intCast(WantedT, result);
 }
@@ -2294,7 +2294,10 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
                         val.toSignedInt(),
                         @intCast(u6, int_info.bits),
                     )) },
-                    33...64 => return WValue{ .imm64 = @bitCast(u64, val.toSignedInt()) },
+                    33...64 => return WValue{ .imm64 = toTwosComplement(
+                        val.toSignedInt(),
+                        @intCast(u7, int_info.bits),
+                    ) },
                     else => unreachable,
                 },
                 .unsigned => switch (int_info.bits) {
@@ -4781,18 +4784,56 @@ fn airDivFloor(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const lhs = try self.resolveInst(bin_op.lhs);
     const rhs = try self.resolveInst(bin_op.rhs);
 
-    const div_result = try self.binOp(lhs, rhs, ty, .div);
     if (ty.isUnsignedInt()) {
-        return div_result;
+        return self.binOp(lhs, rhs, ty, .div);
     } else if (ty.isSignedInt()) {
-        return self.fail("TODO: `@divFloor` for signed integers", .{});
-    }
+        const int_bits = ty.intInfo(self.target).bits;
+        const wasm_bits = toWasmBits(int_bits) orelse {
+            return self.fail("TODO: `@divFloor` for signed integers larger than '{d}' bits", .{int_bits});
+        };
+        const lhs_res = if (wasm_bits != int_bits) blk: {
+            break :blk try self.signAbsValue(lhs, ty);
+        } else lhs;
+        const rhs_res = if (wasm_bits != int_bits) blk: {
+            break :blk try self.signAbsValue(rhs, ty);
+        } else rhs;
 
-    try self.emitWValue(div_result);
-    switch (ty.floatBits(self.target)) {
-        32 => try self.addTag(.f32_floor),
-        64 => try self.addTag(.f64_floor),
-        else => |bit_size| return self.fail("TODO: `@divFloor` for floats with bitsize: {d}", .{bit_size}),
+        const div_result = try self.binOp(lhs_res, rhs_res, ty, .div);
+        const rem_result = try self.binOp(lhs_res, rhs_res, ty, .rem);
+
+        const zero = switch (wasm_bits) {
+            32 => WValue{ .imm32 = 0 },
+            64 => WValue{ .imm64 = 0 },
+            else => unreachable,
+        };
+        const lhs_less_than_zero = try self.cmp(lhs_res, zero, ty, .lt);
+        const rhs_less_than_zero = try self.cmp(rhs_res, zero, ty, .lt);
+
+        try self.emitWValue(div_result);
+        try self.emitWValue(lhs_less_than_zero);
+        try self.emitWValue(rhs_less_than_zero);
+        switch (wasm_bits) {
+            32 => {
+                try self.addTag(.i32_xor);
+                try self.addTag(.i32_sub);
+            },
+            64 => {
+                try self.addTag(.i64_xor);
+                try self.addTag(.i64_sub);
+            },
+            else => unreachable,
+        }
+        try self.emitWValue(div_result);
+        try self.emitWValue(rem_result);
+        try self.addTag(.select);
+    } else {
+        const div_result = try self.binOp(lhs, rhs, ty, .div);
+        try self.emitWValue(div_result);
+        switch (ty.floatBits(self.target)) {
+            32 => try self.addTag(.f32_floor),
+            64 => try self.addTag(.f64_floor),
+            else => |bit_size| return self.fail("TODO: `@divFloor` for floats with bitsize: {d}", .{bit_size}),
+        }
     }
 
     const result = try self.allocLocal(ty);
@@ -4811,23 +4852,49 @@ fn divSigned(self: *Self, lhs: WValue, rhs: WValue, ty: Type) InnerError!WValue 
     }
 
     if (wasm_bits != int_bits) {
-        const shift_val = switch (wasm_bits) {
-            32 => WValue{ .imm32 = wasm_bits - int_bits },
-            64 => WValue{ .imm64 = wasm_bits - int_bits },
-            else => unreachable,
-        };
-        const shl_lhs = try self.binOp(lhs, shift_val, ty, .shl);
-        const shr_lhs = try self.binOp(shl_lhs, shift_val, ty, .shr);
-        const shl_rhs = try self.binOp(rhs, shift_val, ty, .shl);
-        const shr_rhs = try self.binOp(shl_rhs, shift_val, ty, .shr);
-        try self.emitWValue(shr_lhs);
-        try self.emitWValue(shr_rhs);
+        const lhs_abs = try self.signAbsValue(lhs, ty);
+        const rhs_abs = try self.signAbsValue(rhs, ty);
+        try self.emitWValue(lhs_abs);
+        try self.emitWValue(rhs_abs);
     } else {
         try self.emitWValue(lhs);
         try self.emitWValue(rhs);
     }
     try self.addTag(.i32_div_s);
 
+    const result = try self.allocLocal(ty);
+    try self.addLabel(.local_set, result.local);
+    return result;
+}
+
+fn signAbsValue(self: *Self, operand: WValue, ty: Type) InnerError!WValue {
+    const int_bits = ty.intInfo(self.target).bits;
+    const wasm_bits = toWasmBits(int_bits) orelse {
+        return self.fail("TODO: signAbsValue for signed integers larger than '{d}' bits", .{int_bits});
+    };
+
+    const shift_val = switch (wasm_bits) {
+        32 => WValue{ .imm32 = wasm_bits - int_bits },
+        64 => WValue{ .imm64 = wasm_bits - int_bits },
+        else => return self.fail("TODO: signAbsValue for i128", .{}),
+    };
+
+    try self.emitWValue(operand);
+    switch (wasm_bits) {
+        32 => {
+            try self.emitWValue(shift_val);
+            try self.addTag(.i32_shl);
+            try self.emitWValue(shift_val);
+            try self.addTag(.i32_shr_s);
+        },
+        64 => {
+            try self.emitWValue(shift_val);
+            try self.addTag(.i64_shl);
+            try self.emitWValue(shift_val);
+            try self.addTag(.i64_shr_s);
+        },
+        else => unreachable,
+    }
     const result = try self.allocLocal(ty);
     try self.addLabel(.local_set, result.local);
     return result;
