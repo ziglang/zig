@@ -19988,6 +19988,11 @@ fn coerce(
         },
         .Vector => switch (inst_ty.zigTypeTag()) {
             .Array, .Vector => return sema.coerceArrayLike(block, dest_ty, dest_ty_src, inst, inst_src),
+            .Struct => {
+                if (inst_ty.isTuple()) {
+                    return sema.coerceTupleToArray(block, dest_ty, dest_ty_src, inst, inst_src);
+                }
+            },
             .Undefined => {
                 return sema.addConstUndef(dest_ty);
             },
