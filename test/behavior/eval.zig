@@ -1196,7 +1196,9 @@ test "equality of pointers to comptime const" {
 }
 
 test "storing an array of type in a field" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() void {
@@ -1220,4 +1222,33 @@ test "storing an array of type in a field" {
     };
 
     S.doTheTest();
+}
+
+test "pass pointer to field of comptime-only type as a runtime parameter" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const Mixed = struct {
+            T: type,
+            x: i32,
+        };
+        const bag: Mixed = .{
+            .T = bool,
+            .x = 1234,
+        };
+
+        var ok = false;
+
+        fn doTheTest() !void {
+            foo(&bag.x);
+            try expect(ok);
+        }
+
+        fn foo(ptr: *const i32) void {
+            ok = ptr.* == 1234;
+        }
+    };
+    try S.doTheTest();
 }
