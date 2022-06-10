@@ -4162,22 +4162,14 @@ fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!W
         64 => WValue{ .imm64 = 0 },
         else => unreachable,
     };
-    const shift_amt = wasm_bits - int_info.bits;
-    const shift_val = switch (wasm_bits) {
-        32 => WValue{ .imm32 = shift_amt },
-        64 => WValue{ .imm64 = shift_amt },
-        else => unreachable,
-    };
 
     // for signed integers, we first apply signed shifts by the difference in bits
     // to get the signed value, as we store it internally as 2's complement.
     const lhs = if (wasm_bits != int_info.bits and is_signed) blk: {
-        const shl = try self.binOp(lhs_op, shift_val, lhs_ty, .shl);
-        break :blk try self.binOp(shl, shift_val, lhs_ty, .shr);
+        break :blk try self.signAbsValue(lhs_op, lhs_ty);
     } else lhs_op;
     const rhs = if (wasm_bits != int_info.bits and is_signed) blk: {
-        const shl = try self.binOp(rhs_op, shift_val, lhs_ty, .shl);
-        break :blk try self.binOp(shl, shift_val, lhs_ty, .shr);
+        break :blk try self.signAbsValue(rhs_op, lhs_ty);
     } else rhs_op;
 
     const bin_op = try self.binOp(lhs, rhs, lhs_ty, op);
@@ -4192,9 +4184,8 @@ fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!W
             const lt = try self.cmp(bin_op, lhs, lhs_ty, .lt);
             break :blk try self.binOp(cmp_zero, lt, Type.u32, .xor); // result of cmp_zero and lt is always 32bit
         }
-        const shl = try self.binOp(bin_op, shift_val, lhs_ty, .shl);
-        const shr = try self.binOp(shl, shift_val, lhs_ty, .shr);
-        break :blk try self.cmp(shr, bin_op, lhs_ty, .neq);
+        const abs = try self.signAbsValue(bin_op, lhs_ty);
+        break :blk try self.cmp(abs, bin_op, lhs_ty, .neq);
     } else if (wasm_bits == int_info.bits)
         try self.cmp(bin_op, lhs, lhs_ty, cmp_op)
     else
@@ -4289,17 +4280,9 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     } else shl;
 
     const overflow_bit = if (wasm_bits != int_info.bits and is_signed) blk: {
-        const shift_amt = wasm_bits - int_info.bits;
-        const shift_val = switch (wasm_bits) {
-            32 => WValue{ .imm32 = shift_amt },
-            64 => WValue{ .imm64 = shift_amt },
-            else => unreachable,
-        };
-
-        const secondary_shl = try self.binOp(shl, shift_val, lhs_ty, .shl);
-        const initial_shr = try self.binOp(secondary_shl, shift_val, lhs_ty, .shr);
-        const shr = try self.wrapBinOp(initial_shr, rhs, lhs_ty, .shr);
-        break :blk try self.cmp(lhs, shr, lhs_ty, .neq);
+        const abs = try self.signAbsValue(shl, lhs_ty);
+        const wrapped = try self.wrapBinOp(abs, rhs, lhs_ty, .shr);
+        break :blk try self.cmp(lhs, wrapped, lhs_ty, .neq);
     } else blk: {
         const shr = try self.binOp(result, rhs, lhs_ty, .shr);
         break :blk try self.cmp(lhs, shr, lhs_ty, .neq);
@@ -4367,21 +4350,11 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
             break :blk down_cast;
         }
     } else if (int_info.signedness == .signed) blk: {
-        const shift_imm = if (wasm_bits == 32)
-            WValue{ .imm32 = wasm_bits - int_info.bits }
-        else
-            WValue{ .imm64 = wasm_bits - int_info.bits };
-
-        const lhs_shl = try self.binOp(lhs, shift_imm, lhs_ty, .shl);
-        const lhs_shr = try self.binOp(lhs_shl, shift_imm, lhs_ty, .shr);
-        const rhs_shl = try self.binOp(rhs, shift_imm, lhs_ty, .shl);
-        const rhs_shr = try self.binOp(rhs_shl, shift_imm, lhs_ty, .shr);
-
-        const bin_op = try self.binOp(lhs_shr, rhs_shr, lhs_ty, .mul);
-        const shl = try self.binOp(bin_op, shift_imm, lhs_ty, .shl);
-        const shr = try self.binOp(shl, shift_imm, lhs_ty, .shr);
-
-        const cmp_op = try self.cmp(shr, bin_op, lhs_ty, .neq);
+        const lhs_abs = try self.signAbsValue(lhs, lhs_ty);
+        const rhs_abs = try self.signAbsValue(rhs, lhs_ty);
+        const bin_op = try self.binOp(lhs_abs, rhs_abs, lhs_ty, .mul);
+        const mul_abs = try self.signAbsValue(bin_op, lhs_ty);
+        const cmp_op = try self.cmp(mul_abs, bin_op, lhs_ty, .neq);
         try self.emitWValue(cmp_op);
         try self.addLabel(.local_set, overflow_bit.local);
         break :blk try self.wrapOperand(bin_op, lhs_ty);
