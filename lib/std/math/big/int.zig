@@ -2593,9 +2593,8 @@ pub const Managed = struct {
     /// Converts self to a string in the requested base. Memory is allocated from the provided
     /// allocator and not the one present in self.
     pub fn toString(self: Managed, allocator: Allocator, base: u8, case: std.fmt.Case) ![]u8 {
-        _ = allocator;
         if (base < 2 or base > 16) return error.InvalidBase;
-        return self.toConst().toStringAlloc(self.allocator, base, case);
+        return self.toConst().toStringAlloc(allocator, base, case);
     }
 
     /// To allow `std.fmt.format` to work with `Managed`.
