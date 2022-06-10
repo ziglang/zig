@@ -167,6 +167,31 @@ test "array to vector" {
     comptime try S.doTheTest();
 }
 
+test "tuple to vector" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            const Vec3 = @Vector(3, i32);
+            var v: Vec3 = .{ 1, 0, 0 };
+            for ([_]Vec3{ .{ 0, 1, 0 }, .{ 0, 0, 1 } }) |it| {
+                v += it;
+            }
+
+            try std.testing.expectEqual(v, Vec3{ 1, 1, 1 });
+            if (builtin.zig_backend != .stage1) {
+                try std.testing.expectEqual(v, .{ 1, 1, 1 });
+            }
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
 test "vector casts of sizes not divisible by 8" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
