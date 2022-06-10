@@ -117,6 +117,7 @@ pub const Reactor = struct {
 };
 
 test "reactor/linux: drive async tcp client/listener pair" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest;
     if (native_os.tag != .linux) return error.SkipZigTest;
 
     const ip = std.x.net.ip;

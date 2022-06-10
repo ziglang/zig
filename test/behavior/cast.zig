@@ -1426,6 +1426,7 @@ test "coerce undefined single-item pointer of array to error union of slice" {
 }
 
 test "pointer to empty struct literal to mutable slice" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     var x: []i32 = &.{};
     try expect(x.len == 0);
 }
