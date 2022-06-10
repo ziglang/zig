@@ -381,7 +381,7 @@ pub const IPv6 = extern struct {
             });
         }
 
-        const zero_span = span: {
+        const zero_span: struct { from: usize, to: usize } = span: {
             var i: usize = 0;
             while (i < self.octets.len) : (i += 2) {
                 if (self.octets[i] == 0 and self.octets[i + 1] == 0) break;

@@ -13,7 +13,6 @@ pub const net = struct {
 };
 
 test {
-    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest;
     inline for (.{ os, net }) |module| {
         std.testing.refAllDecls(module);
     }
