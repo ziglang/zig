@@ -2365,6 +2365,7 @@ pub const Type = extern union {
             .@"anyframe",
             .anyopaque,
             .@"opaque",
+            .type_info,
             => return true,
 
             // These are false because they are comptime-only types.
@@ -2379,7 +2380,6 @@ pub const Type = extern union {
             .enum_literal,
             .empty_struct,
             .empty_struct_literal,
-            .type_info,
             .bound_fn,
             // These are function *bodies*, not pointers.
             // Special exceptions have to be made when emitting functions due to
@@ -2464,14 +2464,6 @@ pub const Type = extern union {
 
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
-                if (sema_kit) |sk| {
-                    _ = try sk.sema.typeRequiresComptime(sk.block, sk.src, ty);
-                }
-                switch (struct_obj.requires_comptime) {
-                    .yes => return false,
-                    .wip, .no => if (struct_obj.known_non_opv) return true,
-                    .unknown => {},
-                }
                 if (struct_obj.status == .field_types_wip) {
                     // In this case, we guess that hasRuntimeBits() for this type is true,
                     // and then later if our guess was incorrect, we emit a compile error.

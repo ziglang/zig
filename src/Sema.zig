@@ -25048,9 +25048,7 @@ pub fn typeRequiresComptime(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Typ
 }
 
 pub fn typeHasRuntimeBits(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!bool {
-    if ((try sema.typeHasOnePossibleValue(block, src, ty)) != null) return false;
-    if (try sema.typeRequiresComptime(block, src, ty)) return false;
-    return true;
+    return ty.hasRuntimeBitsAdvanced(false, sema.kit(block, src));
 }
 
 fn typeAbiSize(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !u64 {

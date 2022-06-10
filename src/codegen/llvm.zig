@@ -9185,7 +9185,7 @@ fn isByRef(ty: Type) bool {
         .AnyFrame,
         => return false,
 
-        .Array, .Frame => return ty.hasRuntimeBitsIgnoreComptime(),
+        .Array, .Frame => return ty.hasRuntimeBits(),
         .Struct => {
             // Packed structs are represented to LLVM as integers.
             if (ty.containerLayout() == .Packed) return false;
@@ -9204,7 +9204,7 @@ fn isByRef(ty: Type) bool {
             var count: usize = 0;
             const fields = ty.structFields();
             for (fields.values()) |field| {
-                if (field.is_comptime or !field.ty.hasRuntimeBitsIgnoreComptime()) continue;
+                if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
 
                 count += 1;
                 if (count > max_fields_byval) return true;
@@ -9212,7 +9212,7 @@ fn isByRef(ty: Type) bool {
             }
             return false;
         },
-        .Union => return ty.hasRuntimeBitsIgnoreComptime(),
+        .Union => return ty.hasRuntimeBits(),
         .ErrorUnion => return isByRef(ty.errorUnionPayload()),
         .Optional => {
             var buf: Type.Payload.ElemType = undefined;
