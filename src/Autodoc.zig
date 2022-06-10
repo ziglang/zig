@@ -2249,7 +2249,40 @@ fn walkInstruction(
 
                     return result;
                 },
-                .opaque_decl => return self.cteTodo("opaque {...}"),
+                .opaque_decl => {
+                    const small = @bitCast(Zir.Inst.OpaqueDecl.Small, extended.small);
+                    var extra_index: usize = extended.operand;
+                    const src_node: ?i32 = if (small.has_src_node) blk: {
+                        const src_node = @bitCast(i32, file.zir.extra[extra_index]);
+                        extra_index += 1;
+                        break :blk src_node;
+                    } else null;
+                    _ = src_node;
+
+                    const decls_len = if (small.has_decls_len) blk: {
+                        const decls_len = file.zir.extra[extra_index];
+                        extra_index += 1;
+                        break :blk decls_len;
+                    } else 0;
+                    _ = decls_len;
+
+                    const decls_bits = file.zir.extra[extra_index];
+                    _ = decls_bits;
+
+                    // const sep = "=" ** 200;
+                    // std.debug.print("{s}\n", .{sep});
+                    // std.debug.print("small = {any}\n", .{small});
+                    // std.debug.print("src_node = {}\n", .{src_node});
+                    // std.debug.print("decls_len = {}\n", .{decls_len});
+                    // std.debug.print("decls_bit = {}\n", .{decls_bits});
+                    // std.debug.print("{s}\n", .{sep});
+                    const type_slot_index = self.types.items.len - 1;
+                    try self.types.append(self.arena, .{ .Opaque = .{ .name = "TODO" } });
+                    return DocData.WalkResult{
+                        .typeRef = .{ .type = @enumToInt(Ref.anyopaque_type) },
+                        .expr = .{ .type = type_slot_index },
+                    };
+                },
                 .variable => {
                     const small = @bitCast(Zir.Inst.ExtendedVar.Small, extended.small);
                     var extra_index: usize = extended.operand;
