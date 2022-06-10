@@ -1760,15 +1760,15 @@ fn walkInstruction(
             const ast_index = self.ast_nodes.items.len;
             const type_index = self.types.items.len - 1;
 
-            const ast_line = self.ast_nodes.items[ast_index - 1];
+            // const ast_line = self.ast_nodes.items[ast_index - 1];
 
-            const sep = "=" ** 200;
-            std.debug.print("{s}\n", .{sep});
-            std.debug.print("SWITCH BLOCK\n", .{});
-            std.debug.print("extra = {any}\n", .{extra});
-            std.debug.print("outer_decl = {any}\n", .{self.types.items[type_index]});
-            std.debug.print("ast_lines = {}\n", .{ast_line});
-            std.debug.print("{s}\n", .{sep});
+            // const sep = "=" ** 200;
+            // std.debug.print("{s}\n", .{sep});
+            // std.debug.print("SWITCH BLOCK\n", .{});
+            // std.debug.print("extra = {any}\n", .{extra});
+            // std.debug.print("outer_decl = {any}\n", .{self.types.items[type_index]});
+            // std.debug.print("ast_lines = {}\n", .{ast_line});
+            // std.debug.print("{s}\n", .{sep});
 
             const switch_index = self.exprs.items.len;
             try self.exprs.append(self.arena, .{ .switchOp = .{ .cond_index = cond_index, .file_name = file.sub_file_path, .ast = ast_index, .outer_decl = type_index } });
@@ -1789,13 +1789,13 @@ fn walkInstruction(
             const operand_index = self.exprs.items.len;
             try self.exprs.append(self.arena, operand.expr);
 
-            const ast_index = self.ast_nodes.items.len;
-            const sep = "=" ** 200;
-            std.debug.print("{s}\n", .{sep});
-            std.debug.print("SWITCH COND\n", .{});
-            std.debug.print("ast index = {}\n", .{ast_index});
-            std.debug.print("ast previous = {}\n", .{self.ast_nodes.items[ast_index - 1]});
-            std.debug.print("{s}\n", .{sep});
+            // const ast_index = self.ast_nodes.items.len;
+            // const sep = "=" ** 200;
+            // std.debug.print("{s}\n", .{sep});
+            // std.debug.print("SWITCH COND\n", .{});
+            // std.debug.print("ast index = {}\n", .{ast_index});
+            // std.debug.print("ast previous = {}\n", .{self.ast_nodes.items[ast_index - 1]});
+            // std.debug.print("{s}\n", .{sep});
 
             return DocData.WalkResult{
                 .typeRef = operand.typeRef,
@@ -1917,7 +1917,9 @@ fn walkInstruction(
             // While it would make sense to grab the original decl's typeRef info,
             // that decl might not have been analyzed yet! The frontend will have
             // to navigate through all declRefs to find the underlying type.
-            return DocData.WalkResult{ .expr = .{ .declRef = decls_slot_index } };
+            return DocData.WalkResult{
+                .expr = .{ .declRef = decls_slot_index },
+            };
         },
         .field_val, .field_call_bind, .field_ptr, .field_type => {
             // TODO: field type uses Zir.Inst.FieldType, it just happens to have the
