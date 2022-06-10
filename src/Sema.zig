@@ -19702,7 +19702,8 @@ fn coerce(
                     // pointer to tuple to slice
                     if (inst_ty.isSinglePointer() and
                         inst_ty.childType().isTuple() and
-                        !dest_info.mutable and dest_info.size == .Slice)
+                        (!dest_info.mutable or inst_ty.ptrIsMutable() or inst_ty.childType().tupleFields().types.len == 0) and
+                        dest_info.size == .Slice)
                     {
                         return sema.coerceTupleToSlicePtrs(block, dest_ty, dest_ty_src, inst, inst_src);
                     }

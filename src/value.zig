@@ -1062,6 +1062,7 @@ pub const Value = extern union {
         sema_kit: ?Module.WipAnalysis,
     ) Module.CompileError!BigIntConst {
         switch (val.tag()) {
+            .null_value,
             .zero,
             .bool_false,
             .the_only_possible_value, // i0, u0

@@ -78,11 +78,8 @@ test "best speed" {
                 var decompressed = try testing.allocator.alloc(u8, want.items.len);
                 defer testing.allocator.free(decompressed);
 
-                var decomp = try inflate.decompressor(
-                    testing.allocator,
-                    io.fixedBufferStream(compressed.items).reader(),
-                    null,
-                );
+                var fib = io.fixedBufferStream(compressed.items);
+                var decomp = try inflate.decompressor(testing.allocator, fib.reader(), null);
                 defer decomp.deinit();
 
                 var read = try decomp.reader().readAll(decompressed);
@@ -122,13 +119,13 @@ test "best speed max match offset" {
                 //	zeros1 is between 0 and 30 zeros.
                 // The difference between the two abc's will be offset, which
                 // is max_match_offset plus or minus a small adjustment.
-                var src_len: usize = @intCast(usize, offset + abc.len + @intCast(i32, extra));
+                var src_len: usize = @intCast(usize, offset + @as(i32, abc.len) + @intCast(i32, extra));
                 var src = try testing.allocator.alloc(u8, src_len);
                 defer testing.allocator.free(src);
 
                 mem.copy(u8, src, abc);
                 if (!do_match_before) {
-                    var src_offset: usize = @intCast(usize, offset - xyz.len);
+                    var src_offset: usize = @intCast(usize, offset - @as(i32, xyz.len));
                     mem.copy(u8, src[src_offset..], xyz);
                 }
                 var src_offset: usize = @intCast(usize, offset);
@@ -149,11 +146,8 @@ test "best speed max match offset" {
                 var decompressed = try testing.allocator.alloc(u8, src.len);
                 defer testing.allocator.free(decompressed);
 
-                var decomp = try inflate.decompressor(
-                    testing.allocator,
-                    io.fixedBufferStream(compressed.items).reader(),
-                    null,
-                );
+                var fib = io.fixedBufferStream(compressed.items);
+                var decomp = try inflate.decompressor(testing.allocator, fib.reader(), null);
                 defer decomp.deinit();
                 var read = try decomp.reader().readAll(decompressed);
                 _ = decomp.close();
