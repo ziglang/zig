@@ -1446,6 +1446,9 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .div_trunc,
         => self.airDiv(inst),
         .div_floor => self.airDivFloor(inst),
+        .ceil => self.airCeilFloorTrunc(inst, .ceil),
+        .floor => self.airCeilFloorTrunc(inst, .floor),
+        .trunc_float => self.airCeilFloorTrunc(inst, .trunc),
         .bit_and => self.airBinOp(inst, .@"and"),
         .bit_or => self.airBinOp(inst, .@"or"),
         .bool_and => self.airBinOp(inst, .@"and"),
@@ -1606,10 +1609,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .log2,
         .log10,
         .fabs,
-        .floor,
-        .ceil,
         .round,
-        .trunc_float,
 
         .cmpxchg_weak,
         .cmpxchg_strong,
@@ -4868,6 +4868,34 @@ fn signAbsValue(self: *Self, operand: WValue, ty: Type) InnerError!WValue {
         },
         else => unreachable,
     }
+    const result = try self.allocLocal(ty);
+    try self.addLabel(.local_set, result.local);
+    return result;
+}
+
+fn airCeilFloorTrunc(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const ty = self.air.typeOfIndex(inst);
+
+    if (ty.zigTypeTag() == .Vector) {
+        return self.fail("TODO: Implement `@ceil` for vectors", .{});
+    }
+
+    const operand = try self.resolveInst(un_op);
+    try self.emitWValue(operand);
+    switch (ty.floatBits(self.target)) {
+        32, 64 => {
+            const opcode = buildOpcode(.{
+                .op = op,
+                .valtype1 = typeToValtype(ty, self.target),
+            });
+            try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
+        },
+        else => |bit_size| return self.fail("TODO: Implement `@ceil` for floats with bitsize {d}", .{bit_size}),
+    }
+
     const result = try self.allocLocal(ty);
     try self.addLabel(.local_set, result.local);
     return result;
