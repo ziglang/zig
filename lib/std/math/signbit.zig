@@ -10,6 +10,7 @@ pub fn signbit(x: anytype) bool {
 }
 
 test "math.signbit" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
         try expect(!signbit(@as(T, 0.0)));
         try expect(!signbit(@as(T, 1.0)));

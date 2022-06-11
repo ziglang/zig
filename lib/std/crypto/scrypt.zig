@@ -683,6 +683,7 @@ test "unix-scrypt" {
 }
 
 test "crypt format" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     const str = "$7$C6..../....SodiumChloride$kBGj9fHznVYFQMEn/qDCfrDevf9YDtcDdKvEqHJLV8D";
     const params = try crypt_format.deserialize(crypt_format.HashResult(32), str);
     var buf: [str.len]u8 = undefined;
