@@ -135,7 +135,7 @@ pub const Block = struct {
     src_decl: Decl.Index,
     /// Non zero if a non-inline loop or a runtime conditional have been encountered.
     /// Stores to to comptime variables are only allowed when var.runtime_index <= runtime_index.
-    runtime_index: u32 = 0,
+    runtime_index: Value.RuntimeIndex = .zero,
 
     is_comptime: bool,
     is_typeof: bool = false,
@@ -4276,7 +4276,7 @@ fn zirLoop(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError
     child_block.label = &label;
     child_block.runtime_cond = null;
     child_block.runtime_loop = src;
-    child_block.runtime_index += 1;
+    child_block.runtime_index.increment();
     const merges = &child_block.label.?.merges;
 
     defer child_block.instructions.deinit(gpa);
@@ -4795,7 +4795,7 @@ fn zirBreak(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index) CompileError
                 const br_ref = try start_block.addBr(label.merges.block_inst, operand);
                 try label.merges.results.append(sema.gpa, operand);
                 try label.merges.br_list.append(sema.gpa, Air.refToIndex(br_ref).?);
-                block.runtime_index += 1;
+                block.runtime_index.increment();
                 if (block.runtime_cond == null and block.runtime_loop == null) {
                     block.runtime_cond = start_block.runtime_cond orelse start_block.runtime_loop;
                     block.runtime_loop = start_block.runtime_loop;
@@ -8650,7 +8650,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     var case_block = child_block.makeSubBlock();
     case_block.runtime_loop = null;
     case_block.runtime_cond = operand_src;
-    case_block.runtime_index += 1;
+    case_block.runtime_index.increment();
     defer case_block.instructions.deinit(gpa);
 
     var extra_index: usize = special.end;
@@ -12938,7 +12938,7 @@ fn zirBoolBr(
     var child_block = parent_block.makeSubBlock();
     child_block.runtime_loop = null;
     child_block.runtime_cond = lhs_src;
-    child_block.runtime_index += 1;
+    child_block.runtime_index.increment();
     defer child_block.instructions.deinit(gpa);
 
     var then_block = child_block.makeSubBlock();
@@ -13066,7 +13066,7 @@ fn zirCondbr(
     var sub_block = parent_block.makeSubBlock();
     sub_block.runtime_loop = null;
     sub_block.runtime_cond = cond_src;
-    sub_block.runtime_index += 1;
+    sub_block.runtime_index.increment();
     defer sub_block.instructions.deinit(gpa);
 
     _ = sema.analyzeBodyInner(&sub_block, then_body) catch |err| switch (err) {
@@ -13263,7 +13263,7 @@ fn addRuntimeBreak(sema: *Sema, child_block: *Block, break_data: BreakData) !voi
     const br_ref = try child_block.addBr(labeled_block.label.merges.block_inst, operand);
     try labeled_block.label.merges.results.append(sema.gpa, operand);
     try labeled_block.label.merges.br_list.append(sema.gpa, Air.refToIndex(br_ref).?);
-    labeled_block.block.runtime_index += 1;
+    labeled_block.block.runtime_index.increment();
     if (labeled_block.block.runtime_cond == null and labeled_block.block.runtime_loop == null) {
         labeled_block.block.runtime_cond = child_block.runtime_cond orelse child_block.runtime_loop;
         labeled_block.block.runtime_loop = child_block.runtime_loop;
@@ -15812,7 +15812,7 @@ fn checkComptimeVarStore(
     src: LazySrcLoc,
     decl_ref_mut: Value.Payload.DeclRefMut.Data,
 ) CompileError!void {
-    if (decl_ref_mut.runtime_index < block.runtime_index) {
+    if (@enumToInt(decl_ref_mut.runtime_index) < @enumToInt(block.runtime_index)) {
         if (block.runtime_cond) |cond_src| {
             const msg = msg: {
                 const msg = try sema.errMsg(block, src, "store to comptime variable depends on runtime condition", .{});
@@ -20526,8 +20526,7 @@ fn storePtrVal(
 
     const bitcasted_val = try sema.bitCastVal(block, src, operand_val, operand_ty, mut_kit.ty, 0);
 
-    if (mut_kit.decl_ref_mut.runtime_index == std.math.maxInt(u32)) {
-        // Special case for comptime field ptr.
+    if (mut_kit.decl_ref_mut.runtime_index == .comptime_field_ptr) {
         if (!mut_kit.val.eql(bitcasted_val, mut_kit.ty, sema.mod)) {
             return sema.fail(block, src, "value stored in comptime field does not match the default value of the field", .{});
         }
@@ -20590,7 +20589,7 @@ fn beginComptimePtrMutation(
             return ComptimePtrMutationKit{
                 .decl_ref_mut = .{
                     .decl_index = @intToEnum(Module.Decl.Index, 0),
-                    .runtime_index = std.math.maxInt(u32),
+                    .runtime_index = .comptime_field_ptr,
                 },
                 .val = duped,
                 .ty = payload.field_ty,
