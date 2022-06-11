@@ -914,9 +914,9 @@ fn analyzeBodyInner(
                     // zig fmt: off
                     .variable              => try sema.zirVarExtended(       block, extended),
                     .struct_decl           => try sema.zirStructDecl(        block, extended, inst),
-                    .enum_decl             => try sema.zirEnumDecl(          block, extended),
+                    .enum_decl             => try sema.zirEnumDecl(          block, extended, inst),
                     .union_decl            => try sema.zirUnionDecl(         block, extended, inst),
-                    .opaque_decl           => try sema.zirOpaqueDecl(        block, extended),
+                    .opaque_decl           => try sema.zirOpaqueDecl(        block, extended, inst),
                     .this                  => try sema.zirThis(              block, extended),
                     .ret_addr              => try sema.zirRetAddr(           block, extended),
                     .builtin_src           => try sema.zirBuiltinSrc(        block, extended),
@@ -2101,7 +2101,7 @@ fn zirStructDecl(
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
         .ty = Type.type,
         .val = struct_val,
-    }, small.name_strategy, "struct");
+    }, small.name_strategy, "struct", inst);
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
@@ -2133,6 +2133,7 @@ fn createAnonymousDeclTypeNamed(
     typed_value: TypedValue,
     name_strategy: Zir.Inst.NameStrategy,
     anon_prefix: []const u8,
+    inst: ?Zir.Inst.Index,
 ) !Decl.Index {
     const mod = sema.mod;
     const namespace = block.namespace;
@@ -2152,11 +2153,13 @@ fn createAnonymousDeclTypeNamed(
             const name = try std.fmt.allocPrintZ(sema.gpa, "{s}__{s}_{d}", .{
                 src_decl.name, anon_prefix, @enumToInt(new_decl_index),
             });
+            errdefer sema.gpa.free(name);
             try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, namespace, typed_value, name);
             return new_decl_index;
         },
         .parent => {
             const name = try sema.gpa.dupeZ(u8, mem.sliceTo(sema.mod.declPtr(block.src_decl).name, 0));
+            errdefer sema.gpa.free(name);
             try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, namespace, typed_value, name);
             return new_decl_index;
         },
@@ -2188,8 +2191,30 @@ fn createAnonymousDeclTypeNamed(
 
             try buf.appendSlice(")");
             const name = try buf.toOwnedSliceSentinel(0);
+            errdefer sema.gpa.free(name);
             try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, namespace, typed_value, name);
             return new_decl_index;
+        },
+        .dbg_var => {
+            const ref = Zir.indexToRef(inst.?);
+            const zir_tags = sema.code.instructions.items(.tag);
+            const zir_data = sema.code.instructions.items(.data);
+            var i = inst.?;
+            while (i < zir_tags.len) : (i += 1) switch (zir_tags[i]) {
+                .dbg_var_ptr, .dbg_var_val => {
+                    if (zir_data[i].str_op.operand != ref) continue;
+
+                    const name = try std.fmt.allocPrintZ(sema.gpa, "{s}.{s}", .{
+                        src_decl.name, zir_data[i].str_op.getStr(sema.code),
+                    });
+                    errdefer sema.gpa.free(name);
+
+                    try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, namespace, typed_value, name);
+                    return new_decl_index;
+                },
+                else => {},
+            };
+            return sema.createAnonymousDeclTypeNamed(block, typed_value, .anon, anon_prefix, null);
         },
     }
 }
@@ -2198,6 +2223,7 @@ fn zirEnumDecl(
     sema: *Sema,
     block: *Block,
     extended: Zir.Inst.Extended.InstData,
+    inst: Zir.Inst.Index,
 ) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -2252,7 +2278,7 @@ fn zirEnumDecl(
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
         .ty = Type.type,
         .val = enum_val,
-    }, small.name_strategy, "enum");
+    }, small.name_strategy, "enum", inst);
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
@@ -2472,7 +2498,7 @@ fn zirUnionDecl(
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
         .ty = Type.type,
         .val = union_val,
-    }, small.name_strategy, "union");
+    }, small.name_strategy, "union", inst);
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
@@ -2504,6 +2530,7 @@ fn zirOpaqueDecl(
     sema: *Sema,
     block: *Block,
     extended: Zir.Inst.Extended.InstData,
+    inst: Zir.Inst.Index,
 ) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -2540,7 +2567,7 @@ fn zirOpaqueDecl(
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
         .ty = Type.type,
         .val = opaque_val,
-    }, small.name_strategy, "opaque");
+    }, small.name_strategy, "opaque", inst);
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
@@ -2589,7 +2616,7 @@ fn zirErrorSetDecl(
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
         .ty = Type.type,
         .val = error_set_val,
-    }, name_strategy, "error");
+    }, name_strategy, "error", inst);
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
@@ -14632,7 +14659,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
                 .ty = Type.type,
                 .val = enum_val,
-            }, .anon, "enum");
+            }, .anon, "enum", null);
             const new_decl = mod.declPtr(new_decl_index);
             new_decl.owns_tv = true;
             errdefer mod.abortAnonDecl(new_decl_index);
@@ -14722,7 +14749,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
                 .ty = Type.type,
                 .val = opaque_val,
-            }, .anon, "opaque");
+            }, .anon, "opaque", null);
             const new_decl = mod.declPtr(new_decl_index);
             new_decl.owns_tv = true;
             errdefer mod.abortAnonDecl(new_decl_index);
@@ -14773,7 +14800,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
                 .ty = Type.type,
                 .val = new_union_val,
-            }, .anon, "union");
+            }, .anon, "union", null);
             const new_decl = mod.declPtr(new_decl_index);
             new_decl.owns_tv = true;
             errdefer mod.abortAnonDecl(new_decl_index);
@@ -14941,7 +14968,7 @@ fn reifyStruct(
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
         .ty = Type.type,
         .val = new_struct_val,
-    }, .anon, "struct");
+    }, .anon, "struct", null);
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);

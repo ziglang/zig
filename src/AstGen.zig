@@ -2753,7 +2753,10 @@ fn varDecl(
                 const result_loc: ResultLoc = if (type_node != 0) .{
                     .ty = try typeExpr(gz, scope, type_node),
                 } else .none;
+                const prev_anon_name_strategy = gz.anon_name_strategy;
+                gz.anon_name_strategy = .dbg_var;
                 const init_inst = try reachableExpr(gz, scope, result_loc, var_decl.ast.init_node, node);
+                gz.anon_name_strategy = prev_anon_name_strategy;
 
                 try gz.addDbgVar(.dbg_var_val, ident_name, init_inst);
 
@@ -2777,6 +2780,7 @@ fn varDecl(
             var init_scope = gz.makeSubBlock(scope);
             // we may add more instructions to gz before stacking init_scope
             init_scope.instructions_top = GenZir.unstacked_top;
+            init_scope.anon_name_strategy = .dbg_var;
             defer init_scope.unstack();
 
             var resolve_inferred_alloc: Zir.Inst.Ref = .none;
@@ -2956,7 +2960,10 @@ fn varDecl(
                 resolve_inferred_alloc = alloc;
                 break :a .{ .alloc = alloc, .result_loc = .{ .inferred_ptr = alloc } };
             };
+            const prev_anon_name_strategy = gz.anon_name_strategy;
+            gz.anon_name_strategy = .dbg_var;
             _ = try reachableExprComptime(gz, scope, var_data.result_loc, var_decl.ast.init_node, node, is_comptime);
+            gz.anon_name_strategy = prev_anon_name_strategy;
             if (resolve_inferred_alloc != .none) {
                 _ = try gz.addUnNode(.resolve_inferred_alloc, resolve_inferred_alloc, node);
             }
