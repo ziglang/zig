@@ -13,6 +13,7 @@ pub fn copysign(magnitude: anytype, sign: @TypeOf(magnitude)) @TypeOf(magnitude)
 }
 
 test "math.copysign" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
         try expect(copysign(@as(T, 1.0), @as(T, 1.0)) == 1.0);
         try expect(copysign(@as(T, 2.0), @as(T, -2.0)) == -2.0);
