@@ -11747,11 +11747,11 @@ fn zirSizeOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
 
 fn zirBitSizeOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const unresolved_operand_ty = try sema.resolveType(block, operand_src, inst_data.operand);
-    const operand_ty = try sema.resolveTypeFields(block, operand_src, unresolved_operand_ty);
+    const operand_ty = try sema.resolveType(block, operand_src, inst_data.operand);
     const target = sema.mod.getTarget();
-    const bit_size = operand_ty.bitSize(target);
+    const bit_size = try operand_ty.bitSizeAdvanced(target, sema.kit(block, src));
     return sema.addIntUnsigned(Type.comptime_int, bit_size);
 }
 
@@ -25047,9 +25047,7 @@ pub fn typeRequiresComptime(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Typ
 }
 
 pub fn typeHasRuntimeBits(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!bool {
-    if ((try sema.typeHasOnePossibleValue(block, src, ty)) != null) return false;
-    if (try sema.typeRequiresComptime(block, src, ty)) return false;
-    return true;
+    return ty.hasRuntimeBitsAdvanced(false, sema.kit(block, src));
 }
 
 fn typeAbiSize(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !u64 {
