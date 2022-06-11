@@ -2051,20 +2051,20 @@ fn walkInstruction(
 
             return result;
         },
-        // .func_extended => {
-        //     const type_slot_index = self.types.items.len;
-        //     try self.types.append(self.arena, .{ .Unanalyzed = .{} });
+        .func_fancy => {
+            const type_slot_index = self.types.items.len;
+            try self.types.append(self.arena, .{ .Unanalyzed = .{} });
 
-        //     const result = self.analyzeFunctionExtended(
-        //         file,
-        //         parent_scope,
-        //         inst_index,
-        //         self_ast_node_index,
-        //         type_slot_index,
-        //     );
+            const result = self.analyzeFancyFunction(
+                file,
+                parent_scope,
+                inst_index,
+                self_ast_node_index,
+                type_slot_index,
+            );
 
-        //     return result;
-        // },
+            return result;
+        },
         .extended => {
             const extended = data[inst_index].extended;
             switch (extended.opcode) {
@@ -3096,7 +3096,7 @@ fn tryResolveRefPath(
         //       that said, we might want to store it elsewhere and reclaim memory asap
     }
 }
-fn analyzeFunctionExtended(
+fn analyzeFancyFunction(
     self: *Autodoc,
     file: *File,
     scope: *Scope,
@@ -3171,19 +3171,10 @@ fn analyzeFunctionExtended(
         }
     }
 
-    // ret
-    const ret_type_ref = blk: {
-        const last_instr_index = fn_info.ret_ty_body[fn_info.ret_ty_body.len - 1];
-        const break_operand = data[last_instr_index].@"break".operand;
-        const wr = try self.walkRef(file, scope, break_operand, false);
-
-        break :blk wr;
-    };
-
     self.ast_nodes.items[self_ast_node_index].fields = param_ast_indexes.items;
 
     const inst_data = data[inst_index].pl_node;
-    const extra = file.zir.extraData(Zir.Inst.ExtendedFunc, inst_data.payload_index);
+    const extra = file.zir.extraData(Zir.Inst.FuncFancy, inst_data.payload_index);
 
     var extra_index: usize = extra.end;
 
@@ -3193,25 +3184,96 @@ fn analyzeFunctionExtended(
         extra_index += 1;
     }
 
-    var cc_index: ?usize = null;
     var align_index: ?usize = null;
-    if (extra.data.bits.has_cc) {
+    if (extra.data.bits.has_align_ref) {
+        const align_ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
+        align_index = self.exprs.items.len;
+        _ = try self.walkRef(file, scope, align_ref, false);
+        extra_index += 1;
+    } else if (extra.data.bits.has_align_body) {
+        const align_body_len = file.zir.extra[extra_index];
+        extra_index += 1;
+        const align_body = file.zir.extra[extra_index .. extra_index + align_body_len];
+        _ = align_body;
+        // TODO: analyze the block (or bail with a comptimeExpr)
+        extra_index += align_body_len;
+    } else {
+        // default alignment
+    }
+
+    var addrspace_index: ?usize = null;
+    if (extra.data.bits.has_addrspace_ref) {
+        const addrspace_ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
+        addrspace_index = self.exprs.items.len;
+        _ = try self.walkRef(file, scope, addrspace_ref, false);
+        extra_index += 1;
+    } else if (extra.data.bits.has_addrspace_body) {
+        const addrspace_body_len = file.zir.extra[extra_index];
+        extra_index += 1;
+        const addrspace_body = file.zir.extra[extra_index .. extra_index + addrspace_body_len];
+        _ = addrspace_body;
+        // TODO: analyze the block (or bail with a comptimeExpr)
+        extra_index += addrspace_body_len;
+    } else {
+        // default alignment
+    }
+
+    var section_index: ?usize = null;
+    if (extra.data.bits.has_section_ref) {
+        const section_ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
+        section_index = self.exprs.items.len;
+        _ = try self.walkRef(file, scope, section_ref, false);
+        extra_index += 1;
+    } else if (extra.data.bits.has_section_body) {
+        const section_body_len = file.zir.extra[extra_index];
+        extra_index += 1;
+        const section_body = file.zir.extra[extra_index .. extra_index + section_body_len];
+        _ = section_body;
+        // TODO: analyze the block (or bail with a comptimeExpr)
+        extra_index += section_body_len;
+    } else {
+        // default alignment
+    }
+
+    var cc_index: ?usize = null;
+    if (extra.data.bits.has_cc_ref) {
         const cc_ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
         cc_index = self.exprs.items.len;
         _ = try self.walkRef(file, scope, cc_ref, false);
         extra_index += 1;
+    } else if (extra.data.bits.has_cc_body) {
+        const cc_body_len = file.zir.extra[extra_index];
+        extra_index += 1;
+        const cc_body = file.zir.extra[extra_index .. extra_index + cc_body_len];
+        _ = cc_body;
+        // TODO: analyze the block (or bail with a comptimeExpr)
+        extra_index += cc_body_len;
+    } else {
+        // auto calling convention
     }
 
-    if (extra.data.bits.has_align) {
-        const align_ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
-        align_index = self.exprs.items.len;
-        _ = try self.walkRef(file, scope, align_ref, false);
-    }
+    // ret
+    const ret_type_ref: DocData.Expr = switch (fn_info.ret_ty_body.len) {
+        0 => switch (fn_info.ret_ty_ref) {
+            .none => DocData.Expr{ .void = .{} },
+            else => blk: {
+                const ref = fn_info.ret_ty_ref;
+                const wr = try self.walkRef(file, scope, ref, false);
+                break :blk wr.expr;
+            },
+        },
+        else => blk: {
+            const last_instr_index = fn_info.ret_ty_body[fn_info.ret_ty_body.len - 1];
+            const break_operand = data[last_instr_index].@"break".operand;
+            const wr = try self.walkRef(file, scope, break_operand, false);
+            break :blk wr.expr;
+        },
+    };
 
     // TODO: a complete version of this will probably need a scope
     //       in order to evaluate correctly closures around funcion
     //       parameters etc.
-    const generic_ret: ?DocData.Expr = switch (ret_type_ref.expr) {
+    const generic_ret: ?DocData.Expr = switch (ret_type_ref) {
         .type => |t| blk: {
             if (fn_info.body.len == 0) break :blk null;
             if (t == @enumToInt(Ref.type_type)) {
@@ -3232,11 +3294,11 @@ fn analyzeFunctionExtended(
             .name = "todo_name func",
             .src = self_ast_node_index,
             .params = param_type_refs.items,
-            .ret = ret_type_ref.expr,
+            .ret = ret_type_ref,
             .generic_ret = generic_ret,
             .is_extern = extra.data.bits.is_extern,
-            .has_cc = extra.data.bits.has_cc,
-            .has_align = extra.data.bits.has_align,
+            .has_cc = cc_index != null,
+            .has_align = align_index != null,
             .has_lib_name = extra.data.bits.has_lib_name,
             .lib_name = lib_name,
             .is_inferred_error = extra.data.bits.is_inferred_error,
@@ -3326,18 +3388,27 @@ fn analyzeFunction(
     }
 
     // ret
-    const ret_type_ref = blk: {
-        const last_instr_index = fn_info.ret_ty_body[fn_info.ret_ty_body.len - 1];
-        const break_operand = data[last_instr_index].@"break".operand;
-        const wr = try self.walkRef(file, scope, break_operand, false);
-
-        break :blk wr;
+    const ret_type_ref: DocData.Expr = switch (fn_info.ret_ty_body.len) {
+        0 => switch (fn_info.ret_ty_ref) {
+            .none => DocData.Expr{ .void = .{} },
+            else => blk: {
+                const ref = fn_info.ret_ty_ref;
+                const wr = try self.walkRef(file, scope, ref, false);
+                break :blk wr.expr;
+            },
+        },
+        else => blk: {
+            const last_instr_index = fn_info.ret_ty_body[fn_info.ret_ty_body.len - 1];
+            const break_operand = data[last_instr_index].@"break".operand;
+            const wr = try self.walkRef(file, scope, break_operand, false);
+            break :blk wr.expr;
+        },
     };
 
     // TODO: a complete version of this will probably need a scope
     //       in order to evaluate correctly closures around funcion
     //       parameters etc.
-    const generic_ret: ?DocData.Expr = switch (ret_type_ref.expr) {
+    const generic_ret: ?DocData.Expr = switch (ret_type_ref) {
         .type => |t| blk: {
             if (fn_info.body.len == 0) break :blk null;
             if (t == @enumToInt(Ref.type_type)) {
@@ -3359,7 +3430,7 @@ fn analyzeFunction(
             .name = "todo_name func",
             .src = self_ast_node_index,
             .params = param_type_refs.items,
-            .ret = ret_type_ref.expr,
+            .ret = ret_type_ref,
             .generic_ret = generic_ret,
         },
     };
