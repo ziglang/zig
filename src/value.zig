@@ -4768,7 +4768,7 @@ pub const Value = extern union {
 
             pub const Data = struct {
                 decl_index: Module.Decl.Index,
-                runtime_index: u32,
+                runtime_index: RuntimeIndex,
             };
         };
 
@@ -4965,6 +4965,16 @@ pub const Value = extern union {
     pub fn makeBool(x: bool) Value {
         return if (x) Value.@"true" else Value.@"false";
     }
+
+    pub const RuntimeIndex = enum(u32) {
+        zero = 0,
+        comptime_field_ptr = std.math.maxInt(u32),
+        _,
+
+        pub fn increment(ri: *RuntimeIndex) void {
+            ri.* = @intToEnum(RuntimeIndex, @enumToInt(ri.*) + 1);
+        }
+    };
 };
 
 var negative_one_payload: Value.Payload.I64 = .{
