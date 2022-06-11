@@ -742,6 +742,7 @@ test "thread local variable" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch != .x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .windows) return error.SkipZigTest; // TODO
 
     const S = struct {
         threadlocal var t: i32 = 1234;
