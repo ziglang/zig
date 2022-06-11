@@ -65,7 +65,6 @@ pub fn generateZirData(self: *Autodoc) !void {
             std.debug.print("path: {s}\n", .{path});
         }
     }
-    std.debug.print("basename: {s}\n", .{self.doc_location.basename});
 
     var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     const dir =
@@ -178,9 +177,16 @@ pub fn generateZirData(self: *Autodoc) !void {
         try self.packages.put(self.arena, self.module.main_pkg, .{
             .name = "root",
             .main = main_type_index,
-            .table = std.StringHashMapUnmanaged(usize){},
+            .table = .{},
         });
-        try self.packages.entries.items(.value)[0].table.put(self.arena, "root", 0);
+        try self.packages.entries.items(.value)[0].table.put(
+            self.arena,
+            self.module.main_pkg,
+            .{
+                .name = "root",
+                .value = 0,
+            },
+        );
     }
 
     var root_scope = Scope{ .parent = null, .enclosing_type = main_type_index };
@@ -377,7 +383,11 @@ const DocData = struct {
         name: []const u8 = "(root)",
         file: usize = 0, // index into `files`
         main: usize = 0, // index into `types`
-        table: std.StringHashMapUnmanaged(usize),
+        table: std.AutoHashMapUnmanaged(*Package, TableEntry),
+        pub const TableEntry = struct {
+            name: []const u8,
+            value: usize,
+        };
 
         pub fn jsonStringify(
             self: DocPackage,
@@ -737,10 +747,19 @@ fn walkInstruction(
         },
         .import => {
             const str_tok = data[inst_index].str_tok;
-            const path = str_tok.get(file.zir);
+            var path = str_tok.get(file.zir);
+
+            const maybe_other_package: ?*Package = blk: {
+                if (self.module.main_pkg_in_std and std.mem.eql(u8, path, "std")) {
+                    path = "root";
+                    break :blk self.module.main_pkg;
+                } else {
+                    break :blk file.pkg.table.get(path);
+                }
+            };
             // importFile cannot error out since all files
             // are already loaded at this point
-            if (file.pkg.table.get(path)) |other_package| {
+            if (maybe_other_package) |other_package| {
                 const result = try self.packages.getOrPut(self.arena, other_package);
 
                 // Immediately add this package to the import table of our
@@ -753,8 +772,11 @@ fn walkInstruction(
                     //       We're bailing for now, but maybe we shouldn't?
                     _ = try current_package.table.getOrPutValue(
                         self.arena,
-                        path,
-                        self.packages.getIndex(other_package).?,
+                        other_package,
+                        .{
+                            .name = path,
+                            .value = self.packages.getIndex(other_package).?,
+                        },
                     );
                 }
 
@@ -770,7 +792,7 @@ fn walkInstruction(
                 result.value_ptr.* = .{
                     .name = path,
                     .main = main_type_index,
-                    .table = std.StringHashMapUnmanaged(usize){},
+                    .table = .{},
                 };
 
                 // TODO: Add this package as a dependency to the current pakcage
@@ -3743,12 +3765,15 @@ fn writeFileTableToJson(map: std.AutoArrayHashMapUnmanaged(*File, usize), jsw: a
     try jsw.endObject();
 }
 
-fn writePackageTableToJson(map: std.StringHashMapUnmanaged(usize), jsw: anytype) !void {
+fn writePackageTableToJson(
+    map: std.AutoHashMapUnmanaged(*Package, DocData.DocPackage.TableEntry),
+    jsw: anytype,
+) !void {
     try jsw.beginObject();
-    var it = map.iterator();
+    var it = map.valueIterator();
     while (it.next()) |entry| {
-        try jsw.objectField(entry.key_ptr.*);
-        try jsw.emitNumber(entry.value_ptr.*);
+        try jsw.objectField(entry.name);
+        try jsw.emitNumber(entry.value);
     }
     try jsw.endObject();
 }
