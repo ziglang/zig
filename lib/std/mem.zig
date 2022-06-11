@@ -2080,6 +2080,7 @@ fn testReadIntImpl() !void {
 }
 
 test "writeIntSlice" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     try testWriteIntImpl();
     comptime try testWriteIntImpl();
 }
