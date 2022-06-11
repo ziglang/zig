@@ -352,6 +352,7 @@ pub const DeclState = struct {
                         const fields = ty.structFields();
                         for (fields.keys()) |field_name, field_index| {
                             const field = fields.get(field_name).?;
+                            if (!field.ty.hasRuntimeBits()) continue;
                             // DW.AT.member
                             try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2);
                             dbg_info_buffer.appendAssumeCapacity(@enumToInt(AbbrevKind.struct_member));
@@ -1037,6 +1038,7 @@ pub fn commitDeclState(
         }
     }
 
+    log.debug("updateDeclDebugInfoAllocation for '{s}'", .{decl.name});
     try self.updateDeclDebugInfoAllocation(file, atom, @intCast(u32, dbg_info_buffer.items.len));
 
     while (decl_state.abbrev_relocs.popOrNull()) |reloc| {
@@ -1098,6 +1100,7 @@ pub fn commitDeclState(
         }
     }
 
+    log.debug("writeDeclDebugInfo for '{s}", .{decl.name});
     try self.writeDeclDebugInfo(file, atom, dbg_info_buffer.items);
 }
 
@@ -1141,7 +1144,10 @@ fn updateDeclDebugInfoAllocation(self: *Dwarf, file: *File, atom: *Atom, len: u3
                     },
                     .wasm => {
                         const wasm_file = file.cast(File.Wasm).?;
-                        writeDbgInfoNopsBuffered(wasm_file.debug_info.items, atom.off, 0, &.{0}, atom.len, false);
+                        const segment_index = try wasm_file.getDebugInfoIndex();
+                        const segment = &wasm_file.segments.items[segment_index];
+                        const offset = segment.offset + atom.off;
+                        try writeDbgInfoNopsToArrayList(gpa, &wasm_file.debug_info, offset, 0, &.{0}, atom.len, false);
                     },
                     else => unreachable,
                 }
@@ -1283,8 +1289,12 @@ fn writeDeclDebugInfo(self: *Dwarf, file: *File, atom: *Atom, dbg_info_buf: []co
                 debug_info.items.len = needed_size;
             }
             const offset = segment.offset + atom.off;
-            writeDbgInfoNopsBuffered(
-                debug_info.items,
+            log.debug(" writeDbgInfoNopsToArrayList debug_info_len={d} offset={d} content_len={d} next_padding_size={d}", .{
+                debug_info.items.len, offset, dbg_info_buf.len, next_padding_size,
+            });
+            try writeDbgInfoNopsToArrayList(
+                gpa,
+                debug_info,
                 offset,
                 prev_padding_size,
                 dbg_info_buf,
@@ -1678,7 +1688,7 @@ pub fn writeDbgInfoHeader(self: *Dwarf, file: *File, module: *Module, low_pc: u6
         },
         .wasm => {
             const wasm_file = file.cast(File.Wasm).?;
-            writeDbgInfoNopsBuffered(wasm_file.debug_info.items, 0, 0, di_buf.items, jmp_amt, false);
+            try writeDbgInfoNopsToArrayList(self.allocator, &wasm_file.debug_info, 0, 0, di_buf.items, jmp_amt, false);
         },
         else => unreachable,
     }
@@ -1884,35 +1894,25 @@ fn pwriteDbgInfoNops(
     try file.pwritevAll(vecs[0..vec_index], offset - prev_padding_size);
 }
 
-fn writeDbgInfoNopsBuffered(
-    buf: []u8,
+fn writeDbgInfoNopsToArrayList(
+    gpa: Allocator,
+    buffer: *std.ArrayListUnmanaged(u8),
     offset: u32,
     prev_padding_size: usize,
     content: []const u8,
     next_padding_size: usize,
     trailing_zero: bool,
-) void {
-    assert(buf.len >= content.len + prev_padding_size + next_padding_size + @boolToInt(trailing_zero));
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    {
-        var padding_left = prev_padding_size;
-        while (padding_left > 0) : (padding_left -= 1) {
-            buf[offset - padding_left] = @enumToInt(AbbrevKind.pad1);
-        }
-    }
-
-    mem.copy(u8, buf[offset..], content);
-    {
-        var padding_left = next_padding_size;
-        while (padding_left > 0) : (padding_left -= 1) {
-            buf[offset + content.len + padding_left] = @enumToInt(AbbrevKind.pad1);
-        }
-    }
+) Allocator.Error!void {
+    try buffer.resize(gpa, @maximum(
+        buffer.items.len,
+        offset + content.len + next_padding_size + 1,
+    ));
+    mem.set(u8, buffer.items[offset - prev_padding_size .. offset], @enumToInt(AbbrevKind.pad1));
+    mem.copy(u8, buffer.items[offset..], content);
+    mem.set(u8, buffer.items[offset + content.len ..][0..next_padding_size], @enumToInt(AbbrevKind.pad1));
 
     if (trailing_zero) {
-        buf[offset + content.len + next_padding_size] = 0;
+        buffer.items[offset + content.len + next_padding_size] = 0;
     }
 }
 
@@ -2249,7 +2249,9 @@ pub fn flushModule(self: *Dwarf, file: *File, module: *Module) !void {
         try addDbgInfoErrorSet(arena, module, error_ty, self.target, &dbg_info_buffer);
 
         try self.managed_atoms.append(gpa, atom);
+        log.debug("updateDeclDebugInfoAllocation in flushModule", .{});
         try self.updateDeclDebugInfoAllocation(file, atom, @intCast(u32, dbg_info_buffer.items.len));
+        log.debug("writeDeclDebugInfo in flushModule", .{});
         try self.writeDeclDebugInfo(file, atom, dbg_info_buffer.items);
 
         const file_pos = blk: {
