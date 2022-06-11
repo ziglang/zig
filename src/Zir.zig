@@ -3156,6 +3156,8 @@ pub const Inst = struct {
         /// Create an anonymous name for this declaration.
         /// Like this: "ParentDeclName_struct_69"
         anon,
+        /// Use the name specified in the next `dbg_var_{val,ptr}` instruction.
+        dbg_var,
     };
 
     /// Trailing:
