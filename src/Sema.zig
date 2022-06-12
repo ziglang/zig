@@ -13757,10 +13757,10 @@ fn zirStructInit(
         const field_type_extra = sema.code.extraData(Zir.Inst.FieldType, field_type_data.payload_index).data;
         const field_name = sema.code.nullTerminatedString(field_type_extra.name_start);
         const field_index = try sema.unionFieldIndex(block, resolved_ty, field_name, field_src);
+        const tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
 
         const init_inst = try sema.resolveInst(item.data.init);
         if (try sema.resolveMaybeUndefVal(block, field_src, init_inst)) |val| {
-            const tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
             return sema.addConstantMaybeRef(
                 block,
                 src,
@@ -13779,6 +13779,8 @@ fn zirStructInit(
             const alloc = try block.addTy(.alloc, alloc_ty);
             const field_ptr = try sema.unionFieldPtr(block, field_src, alloc, field_name, field_src, resolved_ty);
             try sema.storePtr(block, src, field_ptr, init_inst);
+            const new_tag = try sema.addConstant(resolved_ty.unionTagTypeHypothetical(), tag_val);
+            _ = try block.addBinOp(.set_union_tag, alloc, new_tag);
             return alloc;
         }
 

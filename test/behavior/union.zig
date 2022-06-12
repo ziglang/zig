@@ -1183,3 +1183,21 @@ test "comptime equality of extern unions with same tag" {
     const b = S.U{ .a = 1234 };
     try expect(S.foo(a) == S.foo(b));
 }
+
+test "union tag is set when initiated as a temporary value at runtime" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const U = union(enum) {
+        a,
+        b: u32,
+        c,
+
+        fn doTheTest(u: @This()) !void {
+            try expect(u == .b);
+        }
+    };
+    var b: u32 = 1;
+    try (U{ .b = b }).doTheTest();
+}
