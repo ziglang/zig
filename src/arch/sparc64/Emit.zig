@@ -99,6 +99,8 @@ pub fn emitMir(
 
             .movcc => try emit.mirConditionalMove(inst),
 
+            .movr => @panic("TODO implement sparc64 movr"),
+
             .mulx => try emit.mirArithmetic3Op(inst),
 
             .nop => try emit.mirNop(),
@@ -314,7 +316,7 @@ fn mirConditionalMove(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     switch (tag) {
         .movcc => {
-            const data = emit.mir.instructions.items(.data)[inst].conditional_move;
+            const data = emit.mir.instructions.items(.data)[inst].conditional_move_int;
             if (data.is_imm) {
                 try emit.writeInstruction(Instruction.movcc(
                     i11,

@@ -475,6 +475,21 @@ pub const Instruction = union(enum) {
         ne_zero,
         gt_zero,
         ge_zero,
+
+        /// Returns the condition which is true iff the given condition is
+        /// false (if such a condition exists).
+        pub fn negate(cond: RCondition) RCondition {
+            return switch (cond) {
+                .eq_zero => .ne_zero,
+                .ne_zero => .eq_zero,
+                .lt_zero => .ge_zero,
+                .ge_zero => .lt_zero,
+                .le_zero => .gt_zero,
+                .gt_zero => .le_zero,
+                .reserved1 => unreachable,
+                .reserved2 => unreachable,
+            };
+        }
     };
 
     pub const ASI = enum(u8) {
