@@ -11406,6 +11406,7 @@ fn zirAsm(
             // Indicate the output is the asm instruction return value.
             arg.* = .none;
             const out_ty = try sema.resolveType(block, ret_ty_src, output.data.operand);
+            try sema.queueFullTypeResolution(out_ty);
             expr_ty = try sema.addType(out_ty);
         } else {
             arg.* = try sema.resolveInst(output.data.operand);
@@ -11430,7 +11431,10 @@ fn zirAsm(
         switch (uncasted_arg_ty.zigTypeTag()) {
             .ComptimeInt => arg.* = try sema.coerce(block, Type.initTag(.usize), uncasted_arg, src),
             .ComptimeFloat => arg.* = try sema.coerce(block, Type.initTag(.f64), uncasted_arg, src),
-            else => arg.* = uncasted_arg,
+            else => {
+                arg.* = uncasted_arg;
+                try sema.queueFullTypeResolution(uncasted_arg_ty);
+            },
         }
 
         const constraint = sema.code.nullTerminatedString(input.data.constraint);
