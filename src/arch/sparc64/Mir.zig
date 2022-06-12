@@ -158,8 +158,9 @@ pub const Inst = struct {
         /// This uses the arithmetic_2op field, with rs1
         /// being the *destination* register.
         // TODO is it okay to abuse rs1 in this way?
-        // TODO this differs from official encoding for convenience, fix it later
-        not, // not rs2/imm, rs1 -> xnor %g0, rs2/imm, rs1
+        // not rs2, rs1 -> xnor rs2, %g0, rs1
+        // not imm, rs1 -> xnor %g0, imm, rs1
+        not,
     };
 
     /// The position of an MIR instruction within the `Mir` instructions array.
