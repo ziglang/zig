@@ -1355,7 +1355,6 @@ pub const Value = union(enum) {
 };
 
 test "Value.jsonStringify" {
-    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     {
         var buffer: [10]u8 = undefined;
         var fbs = std.io.fixedBufferStream(&buffer);
