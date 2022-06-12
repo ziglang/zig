@@ -65,7 +65,6 @@ pub fn generateZirData(self: *Autodoc) !void {
             std.debug.print("path: {s}\n", .{path});
         }
     }
-    std.debug.print("basename: {s}\n", .{self.doc_location.basename});
 
     var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     const dir =
@@ -178,9 +177,16 @@ pub fn generateZirData(self: *Autodoc) !void {
         try self.packages.put(self.arena, self.module.main_pkg, .{
             .name = "root",
             .main = main_type_index,
-            .table = std.StringHashMapUnmanaged(usize){},
+            .table = .{},
         });
-        try self.packages.entries.items(.value)[0].table.put(self.arena, "root", 0);
+        try self.packages.entries.items(.value)[0].table.put(
+            self.arena,
+            self.module.main_pkg,
+            .{
+                .name = "root",
+                .value = 0,
+            },
+        );
     }
 
     var root_scope = Scope{ .parent = null, .enclosing_type = main_type_index };
@@ -377,7 +383,11 @@ const DocData = struct {
         name: []const u8 = "(root)",
         file: usize = 0, // index into `files`
         main: usize = 0, // index into `types`
-        table: std.StringHashMapUnmanaged(usize),
+        table: std.AutoHashMapUnmanaged(*Package, TableEntry),
+        pub const TableEntry = struct {
+            name: []const u8,
+            value: usize,
+        };
 
         pub fn jsonStringify(
             self: DocPackage,
@@ -742,10 +752,19 @@ fn walkInstruction(
         },
         .import => {
             const str_tok = data[inst_index].str_tok;
-            const path = str_tok.get(file.zir);
+            var path = str_tok.get(file.zir);
+
+            const maybe_other_package: ?*Package = blk: {
+                if (self.module.main_pkg_in_std and std.mem.eql(u8, path, "std")) {
+                    path = "root";
+                    break :blk self.module.main_pkg;
+                } else {
+                    break :blk file.pkg.table.get(path);
+                }
+            };
             // importFile cannot error out since all files
             // are already loaded at this point
-            if (file.pkg.table.get(path)) |other_package| {
+            if (maybe_other_package) |other_package| {
                 const result = try self.packages.getOrPut(self.arena, other_package);
 
                 // Immediately add this package to the import table of our
@@ -758,8 +777,11 @@ fn walkInstruction(
                     //       We're bailing for now, but maybe we shouldn't?
                     _ = try current_package.table.getOrPutValue(
                         self.arena,
-                        path,
-                        self.packages.getIndex(other_package).?,
+                        other_package,
+                        .{
+                            .name = path,
+                            .value = self.packages.getIndex(other_package).?,
+                        },
                     );
                 }
 
@@ -775,7 +797,7 @@ fn walkInstruction(
                 result.value_ptr.* = .{
                     .name = path,
                     .main = main_type_index,
-                    .table = std.StringHashMapUnmanaged(usize){},
+                    .table = .{},
                 };
 
                 // TODO: Add this package as a dependency to the current pakcage
@@ -2068,20 +2090,20 @@ fn walkInstruction(
 
             return result;
         },
-        // .func_extended => {
-        //     const type_slot_index = self.types.items.len;
-        //     try self.types.append(self.arena, .{ .Unanalyzed = .{} });
+        .func_fancy => {
+            const type_slot_index = self.types.items.len;
+            try self.types.append(self.arena, .{ .Unanalyzed = .{} });
 
-        //     const result = self.analyzeFunctionExtended(
-        //         file,
-        //         parent_scope,
-        //         inst_index,
-        //         self_ast_node_index,
-        //         type_slot_index,
-        //     );
+            const result = self.analyzeFancyFunction(
+                file,
+                parent_scope,
+                inst_index,
+                self_ast_node_index,
+                type_slot_index,
+            );
 
-        //     return result;
-        // },
+            return result;
+        },
         .extended => {
             const extended = data[inst_index].extended;
             switch (extended.opcode) {
@@ -3129,7 +3151,7 @@ fn tryResolveRefPath(
         //       that said, we might want to store it elsewhere and reclaim memory asap
     }
 }
-fn analyzeFunctionExtended(
+fn analyzeFancyFunction(
     self: *Autodoc,
     file: *File,
     scope: *Scope,
@@ -3204,19 +3226,10 @@ fn analyzeFunctionExtended(
         }
     }
 
-    // ret
-    const ret_type_ref = blk: {
-        const last_instr_index = fn_info.ret_ty_body[fn_info.ret_ty_body.len - 1];
-        const break_operand = data[last_instr_index].@"break".operand;
-        const wr = try self.walkRef(file, scope, break_operand, false);
-
-        break :blk wr;
-    };
-
     self.ast_nodes.items[self_ast_node_index].fields = param_ast_indexes.items;
 
     const inst_data = data[inst_index].pl_node;
-    const extra = file.zir.extraData(Zir.Inst.ExtendedFunc, inst_data.payload_index);
+    const extra = file.zir.extraData(Zir.Inst.FuncFancy, inst_data.payload_index);
 
     var extra_index: usize = extra.end;
 
@@ -3226,25 +3239,96 @@ fn analyzeFunctionExtended(
         extra_index += 1;
     }
 
-    var cc_index: ?usize = null;
     var align_index: ?usize = null;
-    if (extra.data.bits.has_cc) {
+    if (extra.data.bits.has_align_ref) {
+        const align_ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
+        align_index = self.exprs.items.len;
+        _ = try self.walkRef(file, scope, align_ref, false);
+        extra_index += 1;
+    } else if (extra.data.bits.has_align_body) {
+        const align_body_len = file.zir.extra[extra_index];
+        extra_index += 1;
+        const align_body = file.zir.extra[extra_index .. extra_index + align_body_len];
+        _ = align_body;
+        // TODO: analyze the block (or bail with a comptimeExpr)
+        extra_index += align_body_len;
+    } else {
+        // default alignment
+    }
+
+    var addrspace_index: ?usize = null;
+    if (extra.data.bits.has_addrspace_ref) {
+        const addrspace_ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
+        addrspace_index = self.exprs.items.len;
+        _ = try self.walkRef(file, scope, addrspace_ref, false);
+        extra_index += 1;
+    } else if (extra.data.bits.has_addrspace_body) {
+        const addrspace_body_len = file.zir.extra[extra_index];
+        extra_index += 1;
+        const addrspace_body = file.zir.extra[extra_index .. extra_index + addrspace_body_len];
+        _ = addrspace_body;
+        // TODO: analyze the block (or bail with a comptimeExpr)
+        extra_index += addrspace_body_len;
+    } else {
+        // default alignment
+    }
+
+    var section_index: ?usize = null;
+    if (extra.data.bits.has_section_ref) {
+        const section_ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
+        section_index = self.exprs.items.len;
+        _ = try self.walkRef(file, scope, section_ref, false);
+        extra_index += 1;
+    } else if (extra.data.bits.has_section_body) {
+        const section_body_len = file.zir.extra[extra_index];
+        extra_index += 1;
+        const section_body = file.zir.extra[extra_index .. extra_index + section_body_len];
+        _ = section_body;
+        // TODO: analyze the block (or bail with a comptimeExpr)
+        extra_index += section_body_len;
+    } else {
+        // default alignment
+    }
+
+    var cc_index: ?usize = null;
+    if (extra.data.bits.has_cc_ref) {
         const cc_ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
         cc_index = self.exprs.items.len;
         _ = try self.walkRef(file, scope, cc_ref, false);
         extra_index += 1;
+    } else if (extra.data.bits.has_cc_body) {
+        const cc_body_len = file.zir.extra[extra_index];
+        extra_index += 1;
+        const cc_body = file.zir.extra[extra_index .. extra_index + cc_body_len];
+        _ = cc_body;
+        // TODO: analyze the block (or bail with a comptimeExpr)
+        extra_index += cc_body_len;
+    } else {
+        // auto calling convention
     }
 
-    if (extra.data.bits.has_align) {
-        const align_ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
-        align_index = self.exprs.items.len;
-        _ = try self.walkRef(file, scope, align_ref, false);
-    }
+    // ret
+    const ret_type_ref: DocData.Expr = switch (fn_info.ret_ty_body.len) {
+        0 => switch (fn_info.ret_ty_ref) {
+            .none => DocData.Expr{ .void = .{} },
+            else => blk: {
+                const ref = fn_info.ret_ty_ref;
+                const wr = try self.walkRef(file, scope, ref, false);
+                break :blk wr.expr;
+            },
+        },
+        else => blk: {
+            const last_instr_index = fn_info.ret_ty_body[fn_info.ret_ty_body.len - 1];
+            const break_operand = data[last_instr_index].@"break".operand;
+            const wr = try self.walkRef(file, scope, break_operand, false);
+            break :blk wr.expr;
+        },
+    };
 
     // TODO: a complete version of this will probably need a scope
     //       in order to evaluate correctly closures around funcion
     //       parameters etc.
-    const generic_ret: ?DocData.Expr = switch (ret_type_ref.expr) {
+    const generic_ret: ?DocData.Expr = switch (ret_type_ref) {
         .type => |t| blk: {
             if (fn_info.body.len == 0) break :blk null;
             if (t == @enumToInt(Ref.type_type)) {
@@ -3265,11 +3349,11 @@ fn analyzeFunctionExtended(
             .name = "todo_name func",
             .src = self_ast_node_index,
             .params = param_type_refs.items,
-            .ret = ret_type_ref.expr,
+            .ret = ret_type_ref,
             .generic_ret = generic_ret,
             .is_extern = extra.data.bits.is_extern,
-            .has_cc = extra.data.bits.has_cc,
-            .has_align = extra.data.bits.has_align,
+            .has_cc = cc_index != null,
+            .has_align = align_index != null,
             .has_lib_name = extra.data.bits.has_lib_name,
             .lib_name = lib_name,
             .is_inferred_error = extra.data.bits.is_inferred_error,
@@ -3359,19 +3443,27 @@ fn analyzeFunction(
     }
 
     // ret
-    const ret_type_ref = blk: {
-        // const last_instr_index = fn_info.ret_ty_body[fn_info.ret_ty_body.len - 1];
-        // const break_operand = data[last_instr_index].@"break".operand;
-        // const wr = try self.walkRef(file, scope, break_operand, false);
-        const wr = try self.walkRef(file, scope, fn_info.ret_ty_ref, false);
-
-        break :blk wr;
+    const ret_type_ref: DocData.Expr = switch (fn_info.ret_ty_body.len) {
+        0 => switch (fn_info.ret_ty_ref) {
+            .none => DocData.Expr{ .void = .{} },
+            else => blk: {
+                const ref = fn_info.ret_ty_ref;
+                const wr = try self.walkRef(file, scope, ref, false);
+                break :blk wr.expr;
+            },
+        },
+        else => blk: {
+            const last_instr_index = fn_info.ret_ty_body[fn_info.ret_ty_body.len - 1];
+            const break_operand = data[last_instr_index].@"break".operand;
+            const wr = try self.walkRef(file, scope, break_operand, false);
+            break :blk wr.expr;
+        },
     };
 
     // TODO: a complete version of this will probably need a scope
     //       in order to evaluate correctly closures around funcion
     //       parameters etc.
-    const generic_ret: ?DocData.Expr = switch (ret_type_ref.expr) {
+    const generic_ret: ?DocData.Expr = switch (ret_type_ref) {
         .type => |t| blk: {
             if (fn_info.body.len == 0) break :blk null;
             if (t == @enumToInt(Ref.type_type)) {
@@ -3393,7 +3485,7 @@ fn analyzeFunction(
             .name = "todo_name func",
             .src = self_ast_node_index,
             .params = param_type_refs.items,
-            .ret = ret_type_ref.expr,
+            .ret = ret_type_ref,
             .generic_ret = generic_ret,
         },
     };
@@ -3706,12 +3798,15 @@ fn writeFileTableToJson(map: std.AutoArrayHashMapUnmanaged(*File, usize), jsw: a
     try jsw.endObject();
 }
 
-fn writePackageTableToJson(map: std.StringHashMapUnmanaged(usize), jsw: anytype) !void {
+fn writePackageTableToJson(
+    map: std.AutoHashMapUnmanaged(*Package, DocData.DocPackage.TableEntry),
+    jsw: anytype,
+) !void {
     try jsw.beginObject();
-    var it = map.iterator();
+    var it = map.valueIterator();
     while (it.next()) |entry| {
-        try jsw.objectField(entry.key_ptr.*);
-        try jsw.emitNumber(entry.value_ptr.*);
+        try jsw.objectField(entry.name);
+        try jsw.emitNumber(entry.value);
     }
     try jsw.endObject();
 }
