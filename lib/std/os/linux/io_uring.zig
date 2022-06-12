@@ -2154,7 +2154,6 @@ test "timeout (after a number of completions)" {
 }
 
 test "timeout_remove" {
-    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
     var ring = IO_Uring.init(2, 0) catch |err| switch (err) {
@@ -2951,7 +2950,6 @@ test "provide_buffers: read" {
 }
 
 test "remove_buffers" {
-    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
     var ring = IO_Uring.init(1, 0) catch |err| switch (err) {
