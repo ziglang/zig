@@ -5421,6 +5421,8 @@ pub const FuncGen = struct {
         const llvm_params_len = inputs.len + outputs.len - return_count;
         const llvm_param_types = try arena.alloc(*const llvm.Type, llvm_params_len);
         const llvm_param_values = try arena.alloc(*const llvm.Value, llvm_params_len);
+        const target = self.dg.module.getTarget();
+
         var llvm_param_i: usize = 0;
         var total_i: usize = 0;
 
@@ -5449,7 +5451,18 @@ pub const FuncGen = struct {
                 llvm_param_types[llvm_param_i] = output_inst.typeOf();
                 llvm_param_i += 1;
             }
-            llvm_constraints.appendSliceAssumeCapacity(constraint[1..]);
+
+            // LLVM uses commas internally to separate different constraints,
+            // alternative constraints are achieved with pipes.
+            // We still allow the user to use commas in a way that is similar
+            // to GCC's inline assembly.
+            // http://llvm.org/docs/LangRef.html#constraint-codes
+            for (constraint[1..]) |byte| {
+                llvm_constraints.appendAssumeCapacity(switch (byte) {
+                    ',' => '|',
+                    else => byte,
+                });
+            }
 
             name_map.putAssumeCapacityNoClobber(name, {});
             total_i += 1;
@@ -5464,15 +5477,43 @@ pub const FuncGen = struct {
             extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
             const arg_llvm_value = try self.resolveInst(input);
-
-            llvm_param_values[llvm_param_i] = arg_llvm_value;
-            llvm_param_types[llvm_param_i] = arg_llvm_value.typeOf();
+            const arg_ty = self.air.typeOf(input);
+            if (isByRef(arg_ty)) {
+                if (constraintAllowsMemory(constraint)) {
+                    llvm_param_values[llvm_param_i] = arg_llvm_value;
+                    llvm_param_types[llvm_param_i] = arg_llvm_value.typeOf();
+                } else {
+                    const alignment = arg_ty.abiAlignment(target);
+                    const load_inst = self.builder.buildLoad(arg_llvm_value, "");
+                    load_inst.setAlignment(alignment);
+                    llvm_param_values[llvm_param_i] = load_inst;
+                    llvm_param_types[llvm_param_i] = load_inst.typeOf();
+                }
+            } else {
+                if (constraintAllowsRegister(constraint)) {
+                    llvm_param_values[llvm_param_i] = arg_llvm_value;
+                    llvm_param_types[llvm_param_i] = arg_llvm_value.typeOf();
+                } else {
+                    const alignment = arg_ty.abiAlignment(target);
+                    const arg_ptr = self.buildAlloca(arg_llvm_value.typeOf());
+                    arg_ptr.setAlignment(alignment);
+                    const store_inst = self.builder.buildStore(arg_llvm_value, arg_ptr);
+                    store_inst.setAlignment(alignment);
+                    llvm_param_values[llvm_param_i] = arg_ptr;
+                    llvm_param_types[llvm_param_i] = arg_ptr.typeOf();
+                }
+            }
 
             try llvm_constraints.ensureUnusedCapacity(self.gpa, constraint.len + 1);
             if (total_i != 0) {
                 llvm_constraints.appendAssumeCapacity(',');
             }
-            llvm_constraints.appendSliceAssumeCapacity(constraint);
+            for (constraint) |byte| {
+                llvm_constraints.appendAssumeCapacity(switch (byte) {
+                    ',' => '|',
+                    else => byte,
+                });
+            }
 
             if (!std.mem.eql(u8, name, "_")) {
                 name_map.putAssumeCapacityNoClobber(name, {});
@@ -9306,4 +9347,12 @@ fn errUnionPayloadOffset(payload_ty: Type, target: std.Target) u1 {
 
 fn errUnionErrorOffset(payload_ty: Type, target: std.Target) u1 {
     return @boolToInt(Type.anyerror.abiAlignment(target) <= payload_ty.abiAlignment(target));
+}
+
+fn constraintAllowsMemory(constraint: []const u8) bool {
+    return constraint[0] == 'm';
+}
+
+fn constraintAllowsRegister(constraint: []const u8) bool {
+    return constraint[0] != 'm';
 }
