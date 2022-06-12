@@ -1231,46 +1231,8 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     const else_body = self.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
     const liveness_condbr = self.liveness.getCondBr(inst);
 
-    // Here we either emit a BPcc for branching on CCR content,
-    // or emit a BPr to branch on register content.
-    const reloc: Mir.Inst.Index = switch (condition) {
-        .condition_flags => |flags| try self.addInst(.{
-            .tag = .bpcc,
-            .data = .{
-                .branch_predict_int = .{
-                    .ccr = flags.ccr,
-                    // Here we map to the opposite condition because the jump is to the false branch.
-                    .cond = flags.cond.icond.negate(),
-                    .inst = undefined, // Will be filled by performReloc
-                },
-            },
-        }),
-        else => blk: {
-            const reg = switch (condition) {
-                .register => |r| r,
-                else => try self.copyToTmpRegister(Type.bool, condition),
-            };
-
-            break :blk try self.addInst(.{
-                .tag = .bpr,
-                .data = .{
-                    .branch_predict_reg = .{
-                        .cond = .eq_zero,
-                        .rs1 = reg,
-                        .inst = undefined, // populated later through performReloc
-                    },
-                },
-            });
-        },
-    };
-
-    // Regardless of the branch type that's emitted, we need to reserve
-    // a space for the delay slot.
-    // TODO Find a way to fill this delay slot
-    _ = try self.addInst(.{
-        .tag = .nop,
-        .data = .{ .nop = {} },
-    });
+    // Here we emit a branch to the false section.
+    const reloc: Mir.Inst.Index = try self.condBr(condition);
 
     // If the condition dies here in this condbr instruction, process
     // that death now instead of later as this has an effect on
@@ -2422,6 +2384,51 @@ fn brVoid(self: *Self, block: Air.Inst.Index) !void {
     });
 
     block_data.relocs.appendAssumeCapacity(br_index);
+}
+
+fn condBr(self: *Self, condition: MCValue) !Mir.Inst.Index {
+    // Here we either emit a BPcc for branching on CCR content,
+    // or emit a BPr to branch on register content.
+    const reloc: Mir.Inst.Index = switch (condition) {
+        .condition_flags => |flags| try self.addInst(.{
+            .tag = .bpcc,
+            .data = .{
+                .branch_predict_int = .{
+                    .ccr = flags.ccr,
+                    // Here we map to the opposite condition because the jump is to the false branch.
+                    .cond = flags.cond.icond.negate(),
+                    .inst = undefined, // Will be filled by performReloc
+                },
+            },
+        }),
+        else => blk: {
+            const reg = switch (condition) {
+                .register => |r| r,
+                else => try self.copyToTmpRegister(Type.bool, condition),
+            };
+
+            break :blk try self.addInst(.{
+                .tag = .bpr,
+                .data = .{
+                    .branch_predict_reg = .{
+                        .cond = .eq_zero,
+                        .rs1 = reg,
+                        .inst = undefined, // populated later through performReloc
+                    },
+                },
+            });
+        },
+    };
+
+    // Regardless of the branch type that's emitted, we need to reserve
+    // a space for the delay slot.
+    // TODO Find a way to fill this delay slot
+    _ = try self.addInst(.{
+        .tag = .nop,
+        .data = .{ .nop = {} },
+    });
+
+    return reloc;
 }
 
 /// Copies a value to a register without tracking the register. The register is not considered
