@@ -203,7 +203,7 @@ fn mirArithmetic2Op(emit: *Emit, inst: Mir.Inst.Index) !void {
             .@"return" => try emit.writeInstruction(Instruction.@"return"(Register, rs1, rs2)),
             .cmp => try emit.writeInstruction(Instruction.subcc(Register, rs1, rs2, .g0)),
             .mov => try emit.writeInstruction(Instruction.@"or"(Register, .g0, rs2, rs1)),
-            .not => try emit.writeInstruction(Instruction.xnor(Register, .g0, rs2, rs1)),
+            .not => try emit.writeInstruction(Instruction.xnor(Register, rs2, .g0, rs1)),
             else => unreachable,
         }
     }
