@@ -96,6 +96,9 @@ stack: std.AutoHashMapUnmanaged(u32, StackAllocation) = .{},
 /// Tracks the current instruction allocated to the condition flags
 condition_flags_inst: ?Air.Inst.Index = null,
 
+/// Tracks the current instruction allocated to the condition register
+condition_register_inst: ?Air.Inst.Index = null,
+
 /// Offset from the stack base, representing the end of the stack frame.
 max_end_stack: u32 = 0,
 /// Represents the current end stack offset. If there is no existing slot
@@ -148,6 +151,13 @@ const MCValue = union(enum) {
         cond: Instruction.Condition,
         ccr: Instruction.CCR,
     },
+    /// The value is in the specified Register. The value is 1 (if
+    /// the type is u1) or true (if the type in bool) iff the
+    /// specified condition is true.
+    condition_register: struct {
+        cond: Instruction.RCondition,
+        reg: Register,
+    },
 
     fn isMemory(mcv: MCValue) bool {
         return switch (mcv) {
@@ -171,6 +181,8 @@ const MCValue = union(enum) {
 
             .immediate,
             .memory,
+            .condition_flags,
+            .condition_register,
             .ptr_stack_offset,
             .undef,
             => false,
@@ -1748,7 +1760,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                         _ = try self.addInst(.{
                             .tag = .movcc,
                             .data = .{
-                                .conditional_move = .{
+                                .conditional_move_int = .{
                                     .ccr = rwo.flag.ccr,
                                     .cond = .{ .icond = rwo.flag.cond },
                                     .is_imm = true,
@@ -2401,6 +2413,17 @@ fn condBr(self: *Self, condition: MCValue) !Mir.Inst.Index {
                 },
             },
         }),
+        .condition_register => |reg| try self.addInst(.{
+            .tag = .bpr,
+            .data = .{
+                .branch_predict_reg = .{
+                    .rs1 = reg.reg,
+                    // Here we map to the opposite condition because the jump is to the false branch.
+                    .cond = reg.cond.negate(),
+                    .inst = undefined, // Will be filled by performReloc
+                },
+            },
+        }),
         else => blk: {
             const reg = switch (condition) {
                 .register => |r| r,
@@ -2655,11 +2678,39 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             _ = try self.addInst(.{
                 .tag = .movcc,
                 .data = .{
-                    .conditional_move = .{
+                    .conditional_move_int = .{
                         .ccr = ccr,
                         .cond = condition,
                         .is_imm = true,
                         .rd = reg,
+                        .rs2_or_imm = .{ .imm = 1 },
+                    },
+                },
+            });
+        },
+        .condition_register => |op| {
+            const condition = op.cond;
+            const register = op.reg;
+
+            _ = try self.addInst(.{
+                .tag = .mov,
+                .data = .{
+                    .arithmetic_2op = .{
+                        .is_imm = false,
+                        .rs1 = reg,
+                        .rs2_or_imm = .{ .rs2 = .g0 },
+                    },
+                },
+            });
+
+            _ = try self.addInst(.{
+                .tag = .movr,
+                .data = .{
+                    .conditional_move_reg = .{
+                        .cond = condition,
+                        .is_imm = true,
+                        .rd = reg,
+                        .rs1 = register,
                         .rs2_or_imm = .{ .imm = 1 },
                     },
                 },
@@ -2832,6 +2883,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             }
         },
         .condition_flags,
+        .condition_register,
         .immediate,
         .ptr_stack_offset,
         => {
@@ -2872,7 +2924,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             _ = try self.addInst(.{
                 .tag = .movcc,
                 .data = .{
-                    .conditional_move = .{
+                    .conditional_move_int = .{
                         .ccr = rwo.flag.ccr,
                         .cond = .{ .icond = rwo.flag.cond },
                         .is_imm = true,
@@ -3124,6 +3176,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         .unreach => unreachable,
         .dead => unreachable,
         .condition_flags,
+        .condition_register,
         .register_with_overflow,
         => unreachable, // cannot hold an address
         .immediate => |imm| try self.setRegOrMem(elem_ty, dst_mcv, .{ .memory = imm }),
@@ -3475,6 +3528,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
         .unreach => unreachable,
         .dead => unreachable,
         .condition_flags,
+        .condition_register,
         .register_with_overflow,
         => unreachable, // cannot hold an address
         .immediate => |imm| {
