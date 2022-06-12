@@ -133,7 +133,7 @@ libssp_static_lib: ?CRTFile = null,
 libc_static_lib: ?CRTFile = null,
 /// Populated when we build the libcompiler_rt static library. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
-compiler_rt_static_lib: compiler_rt.CompilerRtLib = .{},
+compiler_rt_lib: ?CRTFile = null,
 /// Populated when we build the compiler_rt_obj object. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
 compiler_rt_obj: ?CRTFile = null,
@@ -1980,7 +1980,9 @@ pub fn destroy(self: *Compilation) void {
     if (self.libcxxabi_static_lib) |*crt_file| {
         crt_file.deinit(gpa);
     }
-    self.compiler_rt_static_lib.deinit(gpa);
+    if (self.compiler_rt_lib) |*crt_file| {
+        crt_file.deinit(gpa);
+    }
     if (self.compiler_rt_obj) |*crt_file| {
         crt_file.deinit(gpa);
     }
@@ -3148,7 +3150,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
 
             compiler_rt.buildCompilerRtLib(
                 comp,
-                &comp.compiler_rt_static_lib,
+                &comp.compiler_rt_lib,
             ) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.SubCompilationFailed => return, // error reported already

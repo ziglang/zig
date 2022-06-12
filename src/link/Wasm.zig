@@ -2255,7 +2255,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
     const is_obj = self.base.options.output_mode == .Obj;
 
     const compiler_rt_path: ?[]const u8 = if (self.base.options.include_compiler_rt and !is_obj)
-        comp.compiler_rt_static_lib.crt_lib_file.?.full_object_path
+        comp.compiler_rt_lib.?.full_object_path
     else
         null;
 
