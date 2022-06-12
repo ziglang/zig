@@ -738,18 +738,6 @@ fn walkInstruction(
             );
             return self.cteTodo(@tagName(tags[inst_index]));
         },
-        .ret_node => {
-            const un_node = data[inst_index].un_node;
-            return self.walkRef(file, parent_scope, un_node.operand, false);
-        },
-        .closure_get => {
-            const inst_node = data[inst_index].inst_node;
-            return try self.walkInstruction(file, parent_scope, inst_node.inst, need_type);
-        },
-        .closure_capture => {
-            const un_tok = data[inst_index].un_tok;
-            return try self.walkRef(file, parent_scope, un_tok.operand, need_type);
-        },
         .import => {
             const str_tok = data[inst_index].str_tok;
             var path = str_tok.get(file.zir);
@@ -847,6 +835,54 @@ fn walkInstruction(
                 Zir.main_struct_inst,
                 need_type,
             );
+        },
+        .ret_node => {
+            const un_node = data[inst_index].un_node;
+            return self.walkRef(file, parent_scope, un_node.operand, false);
+        },
+        .ret_load => {
+            const un_node = data[inst_index].un_node;
+            const res_ptr_ref = un_node.operand;
+            const res_ptr_inst = @enumToInt(res_ptr_ref) - Ref.typed_value_map.len;
+            // TODO: this instruction doesn't let us know trivially if there's
+            //       branching involved or not. For now here's the strat:
+            //       We search backwarts until `ret_ptr` for `store_node`,
+            //       if we find only one, then that's our value, if we find more
+            //       than one, then it means that there's branching involved.
+            //       Maybe.
+
+            var i = inst_index - 1;
+            var result_ref: ?Ref = null;
+            while (i > res_ptr_inst) : (i -= 1) {
+                if (tags[i] == .store_node) {
+                    const pl_node = data[i].pl_node;
+                    const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
+                    if (extra.data.lhs == res_ptr_ref) {
+                        // this store_load instruction is indeed pointing at
+                        // the result location that we care about!
+                        if (result_ref != null) return DocData.WalkResult{
+                            .expr = .{ .comptimeExpr = 0 },
+                        };
+                        result_ref = extra.data.rhs;
+                    }
+                }
+            }
+
+            if (result_ref) |rr| {
+                return self.walkRef(file, parent_scope, rr, need_type);
+            }
+
+            return DocData.WalkResult{
+                .expr = .{ .comptimeExpr = 0 },
+            };
+        },
+        .closure_get => {
+            const inst_node = data[inst_index].inst_node;
+            return try self.walkInstruction(file, parent_scope, inst_node.inst, need_type);
+        },
+        .closure_capture => {
+            const un_tok = data[inst_index].un_tok;
+            return try self.walkRef(file, parent_scope, un_tok.operand, need_type);
         },
         .cmpxchg_strong, .cmpxchg_weak => {
             const pl_node = data[inst_index].pl_node;
