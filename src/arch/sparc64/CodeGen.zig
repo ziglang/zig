@@ -93,8 +93,8 @@ register_manager: RegisterManager = .{},
 /// Maps offset to what is stored there.
 stack: std.AutoHashMapUnmanaged(u32, StackAllocation) = .{},
 
-/// Tracks the current instruction allocated to the compare flags
-compare_flags_inst: ?Air.Inst.Index = null,
+/// Tracks the current instruction allocated to the condition flags
+condition_flags_inst: ?Air.Inst.Index = null,
 
 /// Offset from the stack base, representing the end of the stack frame.
 max_end_stack: u32 = 0,
@@ -141,16 +141,11 @@ const MCValue = union(enum) {
     stack_offset: u32,
     /// The value is a pointer to one of the stack variables (payload is stack offset).
     ptr_stack_offset: u32,
-    /// The value is in the specified CCR assuming an unsigned operation,
-    /// with the operator applied on top of it.
-    compare_flags_unsigned: struct {
-        cmp: math.CompareOperator,
-        ccr: Instruction.CCR,
-    },
-    /// The value is in the specified CCR assuming an signed operation,
-    /// with the operator applied on top of it.
-    compare_flags_signed: struct {
-        cmp: math.CompareOperator,
+    /// The value is in the specified CCR. The value is 1 (if
+    /// the type is u1) or true (if the type in bool) iff the
+    /// specified condition is true.
+    condition_flags: struct {
+        cond: Instruction.Condition,
         ccr: Instruction.CCR,
     },
 
@@ -738,8 +733,8 @@ fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                             else => unreachable,
                         };
 
-                        try self.spillCompareFlagsIfOccupied();
-                        self.compare_flags_inst = inst;
+                        try self.spillConditionFlagsIfOccupied();
+                        self.condition_flags_inst = inst;
 
                         const dest = blk: {
                             if (rhs_immediate_ok) {
@@ -1072,7 +1067,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
 
     // CCR is volatile across function calls
     // (SCD 2.4.1, page 3P-10)
-    try self.spillCompareFlagsIfOccupied();
+    try self.spillConditionFlagsIfOccupied();
 
     for (info.args) |mc_arg, arg_i| {
         const arg = args[arg_i];
@@ -1208,12 +1203,18 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
                 .inst = inst,
             });
 
-            try self.spillCompareFlagsIfOccupied();
-            self.compare_flags_inst = inst;
+            try self.spillConditionFlagsIfOccupied();
+            self.condition_flags_inst = inst;
 
             break :result switch (int_info.signedness) {
-                .signed => MCValue{ .compare_flags_signed = .{ .cmp = op, .ccr = .xcc } },
-                .unsigned => MCValue{ .compare_flags_unsigned = .{ .cmp = op, .ccr = .xcc } },
+                .signed => MCValue{ .condition_flags = .{
+                    .cond = .{ .icond = Instruction.ICondition.fromCompareOperatorSigned(op) },
+                    .ccr = .xcc,
+                } },
+                .unsigned => MCValue{ .condition_flags = .{
+                    .cond = .{ .icond = Instruction.ICondition.fromCompareOperatorUnsigned(op) },
+                    .ccr = .xcc,
+                } },
             };
         } else {
             return self.fail("TODO SPARCv9 cmp for ints > 64 bits", .{});
@@ -1224,7 +1225,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
 
 fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
-    const cond = try self.resolveInst(pl_op.operand);
+    const condition = try self.resolveInst(pl_op.operand);
     const extra = self.air.extraData(Air.CondBr, pl_op.payload);
     const then_body = self.air.extra[extra.end..][0..extra.data.then_body_len];
     const else_body = self.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
@@ -1232,39 +1233,22 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
 
     // Here we either emit a BPcc for branching on CCR content,
     // or emit a BPr to branch on register content.
-    const reloc: Mir.Inst.Index = switch (cond) {
-        .compare_flags_signed,
-        .compare_flags_unsigned,
-        => try self.addInst(.{
+    const reloc: Mir.Inst.Index = switch (condition) {
+        .condition_flags => |flags| try self.addInst(.{
             .tag = .bpcc,
             .data = .{
                 .branch_predict_int = .{
-                    .ccr = switch (cond) {
-                        .compare_flags_signed => |cmp_op| cmp_op.ccr,
-                        .compare_flags_unsigned => |cmp_op| cmp_op.ccr,
-                        else => unreachable,
-                    },
-                    .cond = switch (cond) {
-                        .compare_flags_signed => |cmp_op| blk: {
-                            // Here we map to the opposite condition because the jump is to the false branch.
-                            const condition = Instruction.ICondition.fromCompareOperatorSigned(cmp_op.cmp);
-                            break :blk condition.negate();
-                        },
-                        .compare_flags_unsigned => |cmp_op| blk: {
-                            // Here we map to the opposite condition because the jump is to the false branch.
-                            const condition = Instruction.ICondition.fromCompareOperatorUnsigned(cmp_op.cmp);
-                            break :blk condition.negate();
-                        },
-                        else => unreachable,
-                    },
+                    .ccr = flags.ccr,
+                    // Here we map to the opposite condition because the jump is to the false branch.
+                    .cond = flags.cond.icond.negate(),
                     .inst = undefined, // Will be filled by performReloc
                 },
             },
         }),
         else => blk: {
-            const reg = switch (cond) {
+            const reg = switch (condition) {
                 .register => |r| r,
-                else => try self.copyToTmpRegister(Type.bool, cond),
+                else => try self.copyToTmpRegister(Type.bool, condition),
             };
 
             break :blk try self.addInst(.{
@@ -1305,7 +1289,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     var parent_stack = try self.stack.clone(self.gpa);
     defer parent_stack.deinit(self.gpa);
     const parent_registers = self.register_manager.registers;
-    const parent_compare_flags_inst = self.compare_flags_inst;
+    const parent_condition_flags_inst = self.condition_flags_inst;
 
     try self.branch_stack.append(.{});
     errdefer {
@@ -1324,7 +1308,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     defer saved_then_branch.deinit(self.gpa);
 
     self.register_manager.registers = parent_registers;
-    self.compare_flags_inst = parent_compare_flags_inst;
+    self.condition_flags_inst = parent_condition_flags_inst;
 
     self.stack.deinit(self.gpa);
     self.stack = parent_stack;
@@ -1537,37 +1521,13 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
         switch (operand) {
             .dead => unreachable,
             .unreach => unreachable,
-            .compare_flags_unsigned => |op| {
-                const r = MCValue{
-                    .compare_flags_unsigned = .{
-                        .cmp = switch (op.cmp) {
-                            .gte => .lt,
-                            .gt => .lte,
-                            .neq => .eq,
-                            .lt => .gte,
-                            .lte => .gt,
-                            .eq => .neq,
-                        },
+            .condition_flags => |op| {
+                break :result MCValue{
+                    .condition_flags = .{
+                        .cond = op.cond.negate(),
                         .ccr = op.ccr,
                     },
                 };
-                break :result r;
-            },
-            .compare_flags_signed => |op| {
-                const r = MCValue{
-                    .compare_flags_signed = .{
-                        .cmp = switch (op.cmp) {
-                            .gte => .lt,
-                            .gt => .lte,
-                            .neq => .eq,
-                            .lt => .gte,
-                            .lte => .gt,
-                            .eq => .neq,
-                        },
-                        .ccr = op.ccr,
-                    },
-                };
-                break :result r;
             },
             else => {
                 switch (operand_ty.zigTypeTag()) {
@@ -2667,20 +2627,10 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
     switch (mcv) {
         .dead => unreachable,
         .unreach, .none => return, // Nothing to do.
-        .compare_flags_signed,
-        .compare_flags_unsigned,
-        => {
-            const condition = switch (mcv) {
-                .compare_flags_unsigned => |op| Instruction.ICondition.fromCompareOperatorUnsigned(op.cmp),
-                .compare_flags_signed => |op| Instruction.ICondition.fromCompareOperatorSigned(op.cmp),
-                else => unreachable,
-            };
+        .condition_flags => |op| {
+            const condition = op.cond;
+            const ccr = op.ccr;
 
-            const ccr = switch (mcv) {
-                .compare_flags_unsigned => |op| op.ccr,
-                .compare_flags_signed => |op| op.ccr,
-                else => unreachable,
-            };
             // TODO handle floating point CCRs
             assert(ccr == .xcc or ccr == .icc);
 
@@ -2700,7 +2650,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 .data = .{
                     .conditional_move = .{
                         .ccr = ccr,
-                        .cond = .{ .icond = condition },
+                        .cond = condition,
                         .is_imm = true,
                         .rd = reg,
                         .rs2_or_imm = .{ .imm = 1 },
@@ -2874,8 +2824,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 else => return self.fail("TODO implement memset", .{}),
             }
         },
-        .compare_flags_unsigned,
-        .compare_flags_signed,
+        .condition_flags,
         .immediate,
         .ptr_stack_offset,
         => {
@@ -3103,7 +3052,7 @@ fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
                 } },
             });
 
-            return MCValue{ .compare_flags_unsigned = .{ .cmp = .gt, .ccr = .xcc } };
+            return MCValue{ .condition_flags = .{ .cond = .{ .icond = .gu }, .ccr = .xcc } };
         } else {
             return self.fail("TODO isErr for errors with size > 8", .{});
         }
@@ -3116,9 +3065,8 @@ fn isNonErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
     // Call isErr, then negate the result.
     const is_err_result = try self.isErr(ty, operand);
     switch (is_err_result) {
-        .compare_flags_unsigned => |op| {
-            assert(op.cmp == .gt);
-            return MCValue{ .compare_flags_unsigned = .{ .cmp = .lte, .ccr = op.ccr } };
+        .condition_flags => |op| {
+            return MCValue{ .condition_flags = .{ .cond = op.cond.negate(), .ccr = op.ccr } };
         },
         .immediate => |imm| {
             assert(imm == 0);
@@ -3168,8 +3116,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         .undef => unreachable,
         .unreach => unreachable,
         .dead => unreachable,
-        .compare_flags_unsigned,
-        .compare_flags_signed,
+        .condition_flags,
         .register_with_overflow,
         => unreachable, // cannot hold an address
         .immediate => |imm| try self.setRegOrMem(elem_ty, dst_mcv, .{ .memory = imm }),
@@ -3181,7 +3128,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
             switch (dst_mcv) {
                 .dead => unreachable,
                 .undef => unreachable,
-                .compare_flags_signed, .compare_flags_unsigned => unreachable,
+                .condition_flags => unreachable,
                 .register => |dst_reg| {
                     try self.genLoad(dst_reg, addr_reg, i13, 0, elem_size);
                 },
@@ -3277,10 +3224,10 @@ fn processDeath(self: *Self, inst: Air.Inst.Index) void {
         },
         .register_with_overflow => |rwo| {
             self.register_manager.freeReg(rwo.reg);
-            self.compare_flags_inst = null;
+            self.condition_flags_inst = null;
         },
-        .compare_flags_signed, .compare_flags_unsigned => {
-            self.compare_flags_inst = null;
+        .condition_flags => {
+            self.condition_flags_inst = null;
         },
         else => {}, // TODO process stack allocation death
     }
@@ -3474,15 +3421,13 @@ fn setRegOrMem(self: *Self, ty: Type, loc: MCValue, val: MCValue) !void {
     }
 }
 
-/// Save the current instruction stored in the compare flags if
+/// Save the current instruction stored in the condition flags if
 /// occupied
-fn spillCompareFlagsIfOccupied(self: *Self) !void {
-    if (self.compare_flags_inst) |inst_to_save| {
+fn spillConditionFlagsIfOccupied(self: *Self) !void {
+    if (self.condition_flags_inst) |inst_to_save| {
         const mcv = self.getResolvedInstValue(inst_to_save);
         const new_mcv = switch (mcv) {
-            .compare_flags_signed,
-            .compare_flags_unsigned,
-            => try self.allocRegOrMem(inst_to_save, true),
+            .condition_flags => try self.allocRegOrMem(inst_to_save, true),
             .register_with_overflow => try self.allocRegOrMem(inst_to_save, false),
             else => unreachable, // mcv doesn't occupy the compare flags
         };
@@ -3493,7 +3438,7 @@ fn spillCompareFlagsIfOccupied(self: *Self) !void {
         const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
         try branch.inst_table.put(self.gpa, inst_to_save, new_mcv);
 
-        self.compare_flags_inst = null;
+        self.condition_flags_inst = null;
 
         // TODO consolidate with register manager and spillInstruction
         // this call should really belong in the register manager!
@@ -3522,8 +3467,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
         .undef => unreachable,
         .unreach => unreachable,
         .dead => unreachable,
-        .compare_flags_unsigned,
-        .compare_flags_signed,
+        .condition_flags,
         .register_with_overflow,
         => unreachable, // cannot hold an address
         .immediate => |imm| {

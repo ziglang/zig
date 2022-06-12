@@ -673,10 +673,27 @@ pub const Instruction = union(enum) {
         }
     };
 
-    pub const Condition = packed union {
+    pub const ConditionTag = enum { fcond, icond };
+    pub const Condition = union(ConditionTag) {
         fcond: FCondition,
         icond: ICondition,
-        encoded: u4,
+
+        /// Encodes the condition into the instruction bit pattern.
+        pub fn enc(cond: Condition) u4 {
+            return switch (cond) {
+                .icond => |c| @enumToInt(c),
+                .fcond => |c| @enumToInt(c),
+            };
+        }
+
+        /// Returns the condition which is true iff the given condition is
+        /// false (if such a condition exists).
+        pub fn negate(cond: Condition) Condition {
+            return switch (cond) {
+                .icond => |c| .{ .icond = c.negate() },
+                .fcond => |c| .{ .fcond = c.negate() },
+            };
+        }
     };
 
     pub fn toU32(self: Instruction) u32 {
@@ -755,7 +772,7 @@ pub const Instruction = union(enum) {
         return Instruction{
             .format_2b = .{
                 .a = @boolToInt(annul),
-                .cond = cond.encoded,
+                .cond = cond.enc(),
                 .op2 = op2,
                 .disp22 = udisp_truncated,
             },
@@ -776,7 +793,7 @@ pub const Instruction = union(enum) {
         return Instruction{
             .format_2c = .{
                 .a = @boolToInt(annul),
-                .cond = cond.encoded,
+                .cond = cond.enc(),
                 .op2 = op2,
                 .cc1 = ccr_cc1,
                 .cc0 = ccr_cc0,
@@ -1057,7 +1074,7 @@ pub const Instruction = union(enum) {
                 .rd = rd.enc(),
                 .op3 = op3,
                 .cc2 = ccr_cc2,
-                .cond = cond.encoded,
+                .cond = cond.enc(),
                 .cc1 = ccr_cc1,
                 .cc0 = ccr_cc0,
                 .rs2 = rs2.enc(),
@@ -1074,7 +1091,7 @@ pub const Instruction = union(enum) {
                 .rd = rd.enc(),
                 .op3 = op3,
                 .cc2 = ccr_cc2,
-                .cond = cond.encoded,
+                .cond = cond.enc(),
                 .cc1 = ccr_cc1,
                 .cc0 = ccr_cc0,
                 .simm11 = @bitCast(u11, imm),
@@ -1122,7 +1139,7 @@ pub const Instruction = union(enum) {
             .format_4g = .{
                 .rd = rd.enc(),
                 .op3 = op3,
-                .cond = cond.encoded,
+                .cond = cond.enc(),
                 .opf_cc = opf_cc,
                 .opf_low = opf_low,
                 .rs2 = rs2.enc(),
