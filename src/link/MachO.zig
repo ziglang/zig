@@ -738,7 +738,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
                 try positionals.append(p);
             }
 
-            if (comp.compiler_rt_static_lib.crt_lib_file) |lib| {
+            if (comp.compiler_rt_lib) |lib| {
                 try positionals.append(lib.full_object_path);
             }
 

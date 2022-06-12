@@ -490,6 +490,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/ceil.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/clear_cache.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/cmp.zig"
+    "${CMAKE_SOURCE_DIR}/lib/compiler_rt/common.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/compareXf2.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/cos.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/count0bits.zig"
