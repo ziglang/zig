@@ -1354,7 +1354,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) !
             }
             // MSVC compiler_rt is missing some stuff, so we build it unconditionally but
             // and rely on weak linkage to allow MSVC compiler_rt functions to override ours.
-            if (comp.compiler_rt_static_lib.crt_lib_file) |lib| {
+            if (comp.compiler_rt_lib) |lib| {
                 try argv.append(lib.full_object_path);
             }
         }
