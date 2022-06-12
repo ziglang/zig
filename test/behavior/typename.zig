@@ -137,43 +137,8 @@ const A_Enum = enum {
 
 fn regular() void {}
 
-test "fn body decl" {
-    if (builtin.zig_backend == .stage1) {
-        // stage1 fails to return fully qualified namespaces.
-        return error.SkipZigTest;
-    }
-
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-
-    try B.doTest();
-}
-
 const B = struct {
-    fn doTest() !void {
-        const B_Struct = struct {};
-        const B_Union = union {
-            unused: u8,
-        };
-        const B_Enum = enum {
-            unused,
-        };
-
-        try expectEqualStringsIgnoreDigits(
-            "behavior.typename.B.doTest__struct_0",
-            @typeName(B_Struct),
-        );
-        try expectEqualStringsIgnoreDigits(
-            "behavior.typename.B.doTest__union_0",
-            @typeName(B_Union),
-        );
-        try expectEqualStringsIgnoreDigits(
-            "behavior.typename.B.doTest__enum_0",
-            @typeName(B_Enum),
-        );
-    }
+    fn doTest() !void {}
 };
 
 test "fn param" {
@@ -245,4 +210,28 @@ pub fn expectEqualStringsIgnoreDigits(expected: []const u8, actual: []const u8) 
         }
     }
     return expectEqualStrings(expected, actual_buf[0..actual_i]);
+}
+
+test "local variable" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 fails to return fully qualified namespaces.
+        return error.SkipZigTest;
+    }
+
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const Foo = struct { a: u32 };
+    const Bar = union { a: u32 };
+    const Baz = enum { a, b };
+    const Qux = enum { a, b };
+    const Quux = enum { a, b };
+
+    try expectEqualStrings("behavior.typename.test.local variable.Foo", @typeName(Foo));
+    try expectEqualStrings("behavior.typename.test.local variable.Bar", @typeName(Bar));
+    try expectEqualStrings("behavior.typename.test.local variable.Baz", @typeName(Baz));
+    try expectEqualStrings("behavior.typename.test.local variable.Qux", @typeName(Qux));
+    try expectEqualStrings("behavior.typename.test.local variable.Quux", @typeName(Quux));
 }

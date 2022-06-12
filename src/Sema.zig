@@ -914,9 +914,9 @@ fn analyzeBodyInner(
                     // zig fmt: off
                     .variable              => try sema.zirVarExtended(       block, extended),
                     .struct_decl           => try sema.zirStructDecl(        block, extended, inst),
-                    .enum_decl             => try sema.zirEnumDecl(          block, extended),
+                    .enum_decl             => try sema.zirEnumDecl(          block, extended, inst),
                     .union_decl            => try sema.zirUnionDecl(         block, extended, inst),
-                    .opaque_decl           => try sema.zirOpaqueDecl(        block, extended),
+                    .opaque_decl           => try sema.zirOpaqueDecl(        block, extended, inst),
                     .this                  => try sema.zirThis(              block, extended),
                     .ret_addr              => try sema.zirRetAddr(           block, extended),
                     .builtin_src           => try sema.zirBuiltinSrc(        block, extended),
@@ -2101,7 +2101,7 @@ fn zirStructDecl(
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
         .ty = Type.type,
         .val = struct_val,
-    }, small.name_strategy, "struct");
+    }, small.name_strategy, "struct", inst);
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
@@ -2133,6 +2133,7 @@ fn createAnonymousDeclTypeNamed(
     typed_value: TypedValue,
     name_strategy: Zir.Inst.NameStrategy,
     anon_prefix: []const u8,
+    inst: ?Zir.Inst.Index,
 ) !Decl.Index {
     const mod = sema.mod;
     const namespace = block.namespace;
@@ -2152,11 +2153,13 @@ fn createAnonymousDeclTypeNamed(
             const name = try std.fmt.allocPrintZ(sema.gpa, "{s}__{s}_{d}", .{
                 src_decl.name, anon_prefix, @enumToInt(new_decl_index),
             });
+            errdefer sema.gpa.free(name);
             try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, namespace, typed_value, name);
             return new_decl_index;
         },
         .parent => {
             const name = try sema.gpa.dupeZ(u8, mem.sliceTo(sema.mod.declPtr(block.src_decl).name, 0));
+            errdefer sema.gpa.free(name);
             try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, namespace, typed_value, name);
             return new_decl_index;
         },
@@ -2188,8 +2191,30 @@ fn createAnonymousDeclTypeNamed(
 
             try buf.appendSlice(")");
             const name = try buf.toOwnedSliceSentinel(0);
+            errdefer sema.gpa.free(name);
             try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, namespace, typed_value, name);
             return new_decl_index;
+        },
+        .dbg_var => {
+            const ref = Zir.indexToRef(inst.?);
+            const zir_tags = sema.code.instructions.items(.tag);
+            const zir_data = sema.code.instructions.items(.data);
+            var i = inst.?;
+            while (i < zir_tags.len) : (i += 1) switch (zir_tags[i]) {
+                .dbg_var_ptr, .dbg_var_val => {
+                    if (zir_data[i].str_op.operand != ref) continue;
+
+                    const name = try std.fmt.allocPrintZ(sema.gpa, "{s}.{s}", .{
+                        src_decl.name, zir_data[i].str_op.getStr(sema.code),
+                    });
+                    errdefer sema.gpa.free(name);
+
+                    try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, namespace, typed_value, name);
+                    return new_decl_index;
+                },
+                else => {},
+            };
+            return sema.createAnonymousDeclTypeNamed(block, typed_value, .anon, anon_prefix, null);
         },
     }
 }
@@ -2198,6 +2223,7 @@ fn zirEnumDecl(
     sema: *Sema,
     block: *Block,
     extended: Zir.Inst.Extended.InstData,
+    inst: Zir.Inst.Index,
 ) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -2252,7 +2278,7 @@ fn zirEnumDecl(
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
         .ty = Type.type,
         .val = enum_val,
-    }, small.name_strategy, "enum");
+    }, small.name_strategy, "enum", inst);
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
@@ -2472,7 +2498,7 @@ fn zirUnionDecl(
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
         .ty = Type.type,
         .val = union_val,
-    }, small.name_strategy, "union");
+    }, small.name_strategy, "union", inst);
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
@@ -2504,6 +2530,7 @@ fn zirOpaqueDecl(
     sema: *Sema,
     block: *Block,
     extended: Zir.Inst.Extended.InstData,
+    inst: Zir.Inst.Index,
 ) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -2540,7 +2567,7 @@ fn zirOpaqueDecl(
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
         .ty = Type.type,
         .val = opaque_val,
-    }, small.name_strategy, "opaque");
+    }, small.name_strategy, "opaque", inst);
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
@@ -2589,7 +2616,7 @@ fn zirErrorSetDecl(
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
         .ty = Type.type,
         .val = error_set_val,
-    }, name_strategy, "error");
+    }, name_strategy, "error", inst);
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
@@ -4967,6 +4994,8 @@ fn lookupInNamespace(
             var it = check_ns.usingnamespace_set.iterator();
             while (it.next()) |entry| {
                 const sub_usingnamespace_decl_index = entry.key_ptr.*;
+                // Skip the decl we're currently analysing.
+                if (sub_usingnamespace_decl_index == sema.owner_decl_index) continue;
                 const sub_usingnamespace_decl = mod.declPtr(sub_usingnamespace_decl_index);
                 const sub_is_pub = entry.value_ptr.*;
                 if (!sub_is_pub and src_file != sub_usingnamespace_decl.getFileScope()) {
@@ -6180,6 +6209,17 @@ fn zirErrorToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
         }
     }
 
+    const op_ty = sema.typeOf(op);
+    try sema.resolveInferredErrorSetTy(block, src, op_ty);
+    if (!op_ty.isAnyError()) {
+        const names = op_ty.errorSetNames();
+        switch (names.len) {
+            0 => return sema.addConstant(result_ty, Value.zero),
+            1 => return sema.addIntUnsigned(result_ty, sema.mod.global_error_set.get(names[0]).?),
+            else => {},
+        }
+    }
+
     try sema.requireRuntimeBlock(block, src);
     return block.addBitCast(result_ty, op_coerced);
 }
@@ -6558,7 +6598,7 @@ fn analyzeErrUnionPayload(
 
     // If the error set has no fields then no safety check is needed.
     if (safety_check and block.wantSafety() and
-        err_union_ty.errorUnionSet().errorSetCardinality() != .zero)
+        !err_union_ty.errorUnionSet().errorSetIsEmpty())
     {
         try sema.panicUnwrapError(block, src, operand, .unwrap_errunion_err, .is_non_err);
     }
@@ -6644,7 +6684,7 @@ fn analyzeErrUnionPayloadPtr(
 
     // If the error set has no fields then no safety check is needed.
     if (safety_check and block.wantSafety() and
-        err_union_ty.errorUnionSet().errorSetCardinality() != .zero)
+        !err_union_ty.errorUnionSet().errorSetIsEmpty())
     {
         try sema.panicUnwrapError(block, src, operand, .unwrap_errunion_err_ptr, .is_non_err_ptr);
     }
@@ -11859,10 +11899,14 @@ fn zirBuiltinSrc(
     const file_name_val = blk: {
         var anon_decl = try block.startAnonDecl(src);
         defer anon_decl.deinit();
-        const name = try fn_owner_decl.getFileScope().fullPathZ(anon_decl.arena());
+        const relative_path = try fn_owner_decl.getFileScope().fullPath(sema.arena);
+        const absolute_path = std.fs.realpathAlloc(sema.arena, relative_path) catch |err| {
+            return sema.fail(block, src, "failed to get absolute path of file '{s}': {s}", .{ relative_path, @errorName(err) });
+        };
+        const aboslute_duped = try anon_decl.arena().dupeZ(u8, absolute_path);
         const new_decl = try anon_decl.finish(
-            try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), name.len),
-            try Value.Tag.bytes.create(anon_decl.arena(), name[0 .. name.len + 1]),
+            try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), aboslute_duped.len),
+            try Value.Tag.bytes.create(anon_decl.arena(), aboslute_duped[0 .. aboslute_duped.len + 1]),
             0, // default alignment
         );
         break :blk try Value.Tag.decl_ref.create(sema.arena, new_decl);
@@ -11873,6 +11917,7 @@ fn zirBuiltinSrc(
     field_values[0] = file_name_val;
     // fn_name: [:0]const u8,
     field_values[1] = func_name_val;
+    // TODO these should be runtime only!
     // line: u32
     field_values[2] = try Value.Tag.int_u64.create(sema.arena, extra.line + 1);
     // column: u32,
@@ -13712,10 +13757,10 @@ fn zirStructInit(
         const field_type_extra = sema.code.extraData(Zir.Inst.FieldType, field_type_data.payload_index).data;
         const field_name = sema.code.nullTerminatedString(field_type_extra.name_start);
         const field_index = try sema.unionFieldIndex(block, resolved_ty, field_name, field_src);
+        const tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
 
         const init_inst = try sema.resolveInst(item.data.init);
         if (try sema.resolveMaybeUndefVal(block, field_src, init_inst)) |val| {
-            const tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
             return sema.addConstantMaybeRef(
                 block,
                 src,
@@ -13734,6 +13779,8 @@ fn zirStructInit(
             const alloc = try block.addTy(.alloc, alloc_ty);
             const field_ptr = try sema.unionFieldPtr(block, field_src, alloc, field_name, field_src, resolved_ty);
             try sema.storePtr(block, src, field_ptr, init_inst);
+            const new_tag = try sema.addConstant(resolved_ty.unionTagTypeHypothetical(), tag_val);
+            _ = try block.addBinOp(.set_union_tag, alloc, new_tag);
             return alloc;
         }
 
@@ -14614,7 +14661,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
                 .ty = Type.type,
                 .val = enum_val,
-            }, .anon, "enum");
+            }, .anon, "enum", null);
             const new_decl = mod.declPtr(new_decl_index);
             new_decl.owns_tv = true;
             errdefer mod.abortAnonDecl(new_decl_index);
@@ -14704,7 +14751,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
                 .ty = Type.type,
                 .val = opaque_val,
-            }, .anon, "opaque");
+            }, .anon, "opaque", null);
             const new_decl = mod.declPtr(new_decl_index);
             new_decl.owns_tv = true;
             errdefer mod.abortAnonDecl(new_decl_index);
@@ -14755,7 +14802,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
                 .ty = Type.type,
                 .val = new_union_val,
-            }, .anon, "union");
+            }, .anon, "union", null);
             const new_decl = mod.declPtr(new_decl_index);
             new_decl.owns_tv = true;
             errdefer mod.abortAnonDecl(new_decl_index);
@@ -14923,7 +14970,7 @@ fn reifyStruct(
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
         .ty = Type.type,
         .val = new_struct_val,
-    }, .anon, "struct");
+    }, .anon, "struct", null);
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
@@ -19700,7 +19747,8 @@ fn coerce(
                     // pointer to tuple to slice
                     if (inst_ty.isSinglePointer() and
                         inst_ty.childType().isTuple() and
-                        !dest_info.mutable and dest_info.size == .Slice)
+                        (!dest_info.mutable or inst_ty.ptrIsMutable() or inst_ty.childType().tupleFields().types.len == 0) and
+                        dest_info.size == .Slice)
                     {
                         return sema.coerceTupleToSlicePtrs(block, dest_ty, dest_ty_src, inst, inst_src);
                     }
@@ -23540,7 +23588,17 @@ pub fn resolveTypeFully(
             const child_ty = try sema.resolveTypeFields(block, src, ty.childType());
             return resolveTypeFully(sema, block, src, child_ty);
         },
-        .Struct => return resolveStructFully(sema, block, src, ty),
+        .Struct => switch (ty.tag()) {
+            .@"struct" => return resolveStructFully(sema, block, src, ty),
+            .tuple, .anon_struct => {
+                const tuple = ty.tupleFields();
+
+                for (tuple.types) |field_ty| {
+                    try sema.resolveTypeFully(block, src, field_ty);
+                }
+            },
+            else => {},
+        },
         .Union => return resolveUnionFully(sema, block, src, ty),
         .Array => return resolveTypeFully(sema, block, src, ty.childType()),
         .Optional => {
@@ -23575,7 +23633,7 @@ fn resolveStructFully(
     try resolveStructLayout(sema, block, src, ty);
 
     const resolved_ty = try sema.resolveTypeFields(block, src, ty);
-    const payload = resolved_ty.castTag(.@"struct") orelse return;
+    const payload = resolved_ty.castTag(.@"struct").?;
     const struct_obj = payload.data;
 
     switch (struct_obj.status) {
@@ -24425,6 +24483,10 @@ pub fn typeHasOnePossibleValue(
         .bool,
         .type,
         .anyerror,
+        .error_set_single,
+        .error_set,
+        .error_set_merged,
+        .error_union,
         .fn_noreturn_no_args,
         .fn_void_no_args,
         .fn_naked_noreturn_no_args,
@@ -24479,46 +24541,6 @@ pub fn typeHasOnePossibleValue(
             } else {
                 return null;
             }
-        },
-
-        .error_union => {
-            const error_ty = ty.errorUnionSet();
-            switch (error_ty.errorSetCardinality()) {
-                .zero => {
-                    const payload_ty = ty.errorUnionPayload();
-                    if (try typeHasOnePossibleValue(sema, block, src, payload_ty)) |payload_val| {
-                        return try Value.Tag.eu_payload.create(sema.arena, payload_val);
-                    } else {
-                        return null;
-                    }
-                },
-                .one => {
-                    if (ty.errorUnionPayload().isNoReturn()) {
-                        const error_val = (try typeHasOnePossibleValue(sema, block, src, error_ty)).?;
-                        return error_val;
-                    } else {
-                        return null;
-                    }
-                },
-                .many => return null,
-            }
-        },
-
-        .error_set_single => {
-            const name = ty.castTag(.error_set_single).?.data;
-            return try Value.Tag.@"error".create(sema.arena, .{ .name = name });
-        },
-        .error_set => {
-            const err_set_obj = ty.castTag(.error_set).?.data;
-            const names = err_set_obj.names.keys();
-            if (names.len > 1) return null;
-            return try Value.Tag.@"error".create(sema.arena, .{ .name = names[0] });
-        },
-        .error_set_merged => {
-            const name_map = ty.castTag(.error_set_merged).?.data;
-            const names = name_map.keys();
-            if (names.len > 1) return null;
-            return try Value.Tag.@"error".create(sema.arena, .{ .name = names[0] });
         },
 
         .@"struct" => {

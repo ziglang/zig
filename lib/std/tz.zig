@@ -214,6 +214,7 @@ pub const Tz = struct {
 };
 
 test "slim" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     const data = @embedFile("tz/asia_tokyo.tzif");
     var in_stream = std.io.fixedBufferStream(data);
 
@@ -227,6 +228,7 @@ test "slim" {
 }
 
 test "fat" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     const data = @embedFile("tz/antarctica_davis.tzif");
     var in_stream = std.io.fixedBufferStream(data);
 
@@ -239,6 +241,7 @@ test "fat" {
 }
 
 test "legacy" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     // Taken from Slackware 8.0, from 2001
     const data = @embedFile("tz/europe_vatican.tzif");
     var in_stream = std.io.fixedBufferStream(data);

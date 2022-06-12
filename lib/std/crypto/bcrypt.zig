@@ -802,6 +802,7 @@ test "bcrypt crypt format" {
 }
 
 test "bcrypt phc format" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     const hash_options = HashOptions{
         .params = .{ .rounds_log = 5 },
         .encoding = .phc,

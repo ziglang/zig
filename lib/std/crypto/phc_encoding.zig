@@ -260,6 +260,7 @@ fn kvSplit(str: []const u8) !struct { key: []const u8, value: []const u8 } {
 }
 
 test "phc format - encoding/decoding" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     const Input = struct {
         str: []const u8,
         HashResult: type,

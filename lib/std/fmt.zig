@@ -2111,7 +2111,6 @@ test "slice" {
 }
 
 test "escape non-printable" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
     try expectFmt("abc", "{s}", .{fmtSliceEscapeLower("abc")});
     try expectFmt("ab\\xffc", "{s}", .{fmtSliceEscapeLower("ab\xffc")});
     try expectFmt("ab\\xFFc", "{s}", .{fmtSliceEscapeUpper("ab\xffc")});
@@ -2148,7 +2147,6 @@ test "cstr" {
 }
 
 test "filesize" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
     try expectFmt("file size: 42B\n", "file size: {}\n", .{fmtIntSizeDec(42)});
     try expectFmt("file size: 42B\n", "file size: {}\n", .{fmtIntSizeBin(42)});
     try expectFmt("file size: 63MB\n", "file size: {}\n", .{fmtIntSizeDec(63 * 1000 * 1000)});
@@ -2192,18 +2190,22 @@ test "enum" {
 }
 
 test "non-exhaustive enum" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 fails to return fully qualified namespaces.
+        return error.SkipZigTest;
+    }
     const Enum = enum(u16) {
         One = 0x000f,
         Two = 0xbeef,
         _,
     };
-    try expectFmt("enum: Enum.One\n", "enum: {}\n", .{Enum.One});
-    try expectFmt("enum: Enum.Two\n", "enum: {}\n", .{Enum.Two});
-    try expectFmt("enum: Enum(4660)\n", "enum: {}\n", .{@intToEnum(Enum, 0x1234)});
-    try expectFmt("enum: Enum.One\n", "enum: {x}\n", .{Enum.One});
-    try expectFmt("enum: Enum.Two\n", "enum: {x}\n", .{Enum.Two});
-    try expectFmt("enum: Enum.Two\n", "enum: {X}\n", .{Enum.Two});
-    try expectFmt("enum: Enum(1234)\n", "enum: {x}\n", .{@intToEnum(Enum, 0x1234)});
+    try expectFmt("enum: fmt.test.non-exhaustive enum.Enum.One\n", "enum: {}\n", .{Enum.One});
+    try expectFmt("enum: fmt.test.non-exhaustive enum.Enum.Two\n", "enum: {}\n", .{Enum.Two});
+    try expectFmt("enum: fmt.test.non-exhaustive enum.Enum(4660)\n", "enum: {}\n", .{@intToEnum(Enum, 0x1234)});
+    try expectFmt("enum: fmt.test.non-exhaustive enum.Enum.One\n", "enum: {x}\n", .{Enum.One});
+    try expectFmt("enum: fmt.test.non-exhaustive enum.Enum.Two\n", "enum: {x}\n", .{Enum.Two});
+    try expectFmt("enum: fmt.test.non-exhaustive enum.Enum.Two\n", "enum: {X}\n", .{Enum.Two});
+    try expectFmt("enum: fmt.test.non-exhaustive enum.Enum(1234)\n", "enum: {x}\n", .{@intToEnum(Enum, 0x1234)});
 }
 
 test "float.scientific" {
@@ -2223,6 +2225,7 @@ test "float.scientific.precision" {
 }
 
 test "float.special" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     try expectFmt("f64: nan", "f64: {}", .{math.nan_f64});
     // negative nan is not defined by IEE 754,
     // and ARM thus normalizes it to positive nan
@@ -2234,6 +2237,7 @@ test "float.special" {
 }
 
 test "float.hexadecimal.special" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     try expectFmt("f64: nan", "f64: {x}", .{math.nan_f64});
     // negative nan is not defined by IEE 754,
     // and ARM thus normalizes it to positive nan
@@ -2359,6 +2363,10 @@ test "custom" {
 }
 
 test "struct" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 fails to return fully qualified namespaces.
+        return error.SkipZigTest;
+    }
     const S = struct {
         a: u32,
         b: anyerror,
@@ -2369,7 +2377,7 @@ test "struct" {
         .b = error.Unused,
     };
 
-    try expectFmt("S{ .a = 456, .b = error.Unused }", "{}", .{inst});
+    try expectFmt("fmt.test.struct.S{ .a = 456, .b = error.Unused }", "{}", .{inst});
     // Tuples
     try expectFmt("{ }", "{}", .{.{}});
     try expectFmt("{ -1 }", "{}", .{.{-1}});
@@ -2377,6 +2385,10 @@ test "struct" {
 }
 
 test "union" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 fails to return fully qualified namespaces.
+        return error.SkipZigTest;
+    }
     const TU = union(enum) {
         float: f32,
         int: u32,
@@ -2396,17 +2408,21 @@ test "union" {
     const uu_inst = UU{ .int = 456 };
     const eu_inst = EU{ .float = 321.123 };
 
-    try expectFmt("TU{ .int = 123 }", "{}", .{tu_inst});
+    try expectFmt("fmt.test.union.TU{ .int = 123 }", "{}", .{tu_inst});
 
     var buf: [100]u8 = undefined;
     const uu_result = try bufPrint(buf[0..], "{}", .{uu_inst});
-    try std.testing.expect(mem.eql(u8, uu_result[0..3], "UU@"));
+    try std.testing.expect(mem.eql(u8, uu_result[0..18], "fmt.test.union.UU@"));
 
     const eu_result = try bufPrint(buf[0..], "{}", .{eu_inst});
-    try std.testing.expect(mem.eql(u8, eu_result[0..3], "EU@"));
+    try std.testing.expect(mem.eql(u8, eu_result[0..18], "fmt.test.union.EU@"));
 }
 
 test "enum" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 fails to return fully qualified namespaces.
+        return error.SkipZigTest;
+    }
     const E = enum {
         One,
         Two,
@@ -2415,10 +2431,14 @@ test "enum" {
 
     const inst = E.Two;
 
-    try expectFmt("E.Two", "{}", .{inst});
+    try expectFmt("fmt.test.enum.E.Two", "{}", .{inst});
 }
 
 test "struct.self-referential" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 fails to return fully qualified namespaces.
+        return error.SkipZigTest;
+    }
     const S = struct {
         const SelfType = @This();
         a: ?*SelfType,
@@ -2429,10 +2449,14 @@ test "struct.self-referential" {
     };
     inst.a = &inst;
 
-    try expectFmt("S{ .a = S{ .a = S{ .a = S{ ... } } } }", "{}", .{inst});
+    try expectFmt("fmt.test.struct.self-referential.S{ .a = fmt.test.struct.self-referential.S{ .a = fmt.test.struct.self-referential.S{ .a = fmt.test.struct.self-referential.S{ ... } } } }", "{}", .{inst});
 }
 
 test "struct.zero-size" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 fails to return fully qualified namespaces.
+        return error.SkipZigTest;
+    }
     const A = struct {
         fn foo() void {}
     };
@@ -2444,11 +2468,10 @@ test "struct.zero-size" {
     const a = A{};
     const b = B{ .a = a, .c = 0 };
 
-    try expectFmt("B{ .a = A{ }, .c = 0 }", "{}", .{b});
+    try expectFmt("fmt.test.struct.zero-size.B{ .a = fmt.test.struct.zero-size.A{ }, .c = 0 }", "{}", .{b});
 }
 
 test "bytes.hex" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
     const some_bytes = "\xCA\xFE\xBA\xBE";
     try expectFmt("lowercase: cafebabe\n", "lowercase: {x}\n", .{fmtSliceHexLower(some_bytes)});
     try expectFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", .{fmtSliceHexUpper(some_bytes)});
@@ -2480,7 +2503,6 @@ pub fn hexToBytes(out: []u8, input: []const u8) ![]u8 {
 }
 
 test "hexToBytes" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
     var buf: [32]u8 = undefined;
     try expectFmt("90" ** 32, "{s}", .{fmtSliceHexUpper(try hexToBytes(&buf, "90" ** 32))});
     try expectFmt("ABCD", "{s}", .{fmtSliceHexUpper(try hexToBytes(&buf, "ABCD"))});
@@ -2512,6 +2534,10 @@ test "formatFloatValue with comptime_float" {
 }
 
 test "formatType max_depth" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 fails to return fully qualified namespaces.
+        return error.SkipZigTest;
+    }
     const Vec2 = struct {
         const SelfType = @This();
         x: f32,
@@ -2562,19 +2588,19 @@ test "formatType max_depth" {
     var buf: [1000]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
     try formatType(inst, "", FormatOptions{}, fbs.writer(), 0);
-    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "S{ ... }"));
+    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "fmt.test.formatType max_depth.S{ ... }"));
 
     fbs.reset();
     try formatType(inst, "", FormatOptions{}, fbs.writer(), 1);
-    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }"));
+    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ ... }, .tu = fmt.test.formatType max_depth.TU{ ... }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }"));
 
     fbs.reset();
     try formatType(inst, "", FormatOptions{}, fbs.writer(), 2);
-    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }"));
+    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ ... }, .tu = fmt.test.formatType max_depth.TU{ ... }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }, .tu = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ ... } }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }"));
 
     fbs.reset();
     try formatType(inst, "", FormatOptions{}, fbs.writer(), 3);
-    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "S{ .a = S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ .ptr = TU{ ... } } }, .e = E.Two, .vec = (10.200,2.220) }"));
+    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ ... }, .tu = fmt.test.formatType max_depth.TU{ ... }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }, .tu = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ ... } }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }, .tu = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ ... } } }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }"));
 }
 
 test "positional" {

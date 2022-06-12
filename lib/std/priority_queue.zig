@@ -286,6 +286,7 @@ const PQlt = PriorityQueue(u32, void, lessThan);
 const PQgt = PriorityQueue(u32, void, greaterThan);
 
 test "std.PriorityQueue: add and remove min heap" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     var queue = PQlt.init(testing.allocator, {});
     defer queue.deinit();
 
@@ -304,6 +305,7 @@ test "std.PriorityQueue: add and remove min heap" {
 }
 
 test "std.PriorityQueue: add and remove same min heap" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     var queue = PQlt.init(testing.allocator, {});
     defer queue.deinit();
 
@@ -353,6 +355,7 @@ test "std.PriorityQueue: peek" {
 }
 
 test "std.PriorityQueue: sift up with odd indices" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     var queue = PQlt.init(testing.allocator, {});
     defer queue.deinit();
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
@@ -367,6 +370,7 @@ test "std.PriorityQueue: sift up with odd indices" {
 }
 
 test "std.PriorityQueue: addSlice" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     var queue = PQlt.init(testing.allocator, {});
     defer queue.deinit();
     const items = [_]u32{ 15, 7, 21, 14, 13, 22, 12, 6, 7, 25, 5, 24, 11, 16, 15, 24, 2, 1 };
@@ -412,6 +416,7 @@ test "std.PriorityQueue: fromOwnedSlice" {
 }
 
 test "std.PriorityQueue: add and remove max heap" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     var queue = PQgt.init(testing.allocator, {});
     defer queue.deinit();
 
@@ -430,6 +435,7 @@ test "std.PriorityQueue: add and remove max heap" {
 }
 
 test "std.PriorityQueue: add and remove same max heap" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     var queue = PQgt.init(testing.allocator, {});
     defer queue.deinit();
 
@@ -470,6 +476,7 @@ test "std.PriorityQueue: iterator" {
 }
 
 test "std.PriorityQueue: remove at index" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     var queue = PQlt.init(testing.allocator, {});
     defer queue.deinit();
 
@@ -505,6 +512,7 @@ test "std.PriorityQueue: iterator while empty" {
 }
 
 test "std.PriorityQueue: shrinkAndFree" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     var queue = PQlt.init(testing.allocator, {});
     defer queue.deinit();
 
@@ -528,6 +536,7 @@ test "std.PriorityQueue: shrinkAndFree" {
 }
 
 test "std.PriorityQueue: update min heap" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     var queue = PQlt.init(testing.allocator, {});
     defer queue.deinit();
 
@@ -543,6 +552,7 @@ test "std.PriorityQueue: update min heap" {
 }
 
 test "std.PriorityQueue: update same min heap" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     var queue = PQlt.init(testing.allocator, {});
     defer queue.deinit();
 
@@ -559,6 +569,7 @@ test "std.PriorityQueue: update same min heap" {
 }
 
 test "std.PriorityQueue: update max heap" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     var queue = PQgt.init(testing.allocator, {});
     defer queue.deinit();
 
@@ -574,6 +585,7 @@ test "std.PriorityQueue: update max heap" {
 }
 
 test "std.PriorityQueue: update same max heap" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     var queue = PQgt.init(testing.allocator, {});
     defer queue.deinit();
 
@@ -590,6 +602,7 @@ test "std.PriorityQueue: update same max heap" {
 }
 
 test "std.PriorityQueue: siftUp in remove" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     var queue = PQlt.init(testing.allocator, {});
     defer queue.deinit();
 
@@ -610,6 +623,7 @@ fn contextLessThan(context: []const u32, a: usize, b: usize) Order {
 const CPQlt = PriorityQueue(usize, []const u32, contextLessThan);
 
 test "std.PriorityQueue: add and remove min heap with contextful comparator" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     const context = [_]u32{ 5, 3, 4, 2, 2, 8, 0 };
 
     var queue = CPQlt.init(testing.allocator, context[0..]);

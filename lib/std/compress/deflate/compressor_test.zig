@@ -122,11 +122,8 @@ fn testToFromWithLevelAndLimit(level: deflate.Compression, input: []const u8, li
         try expect(compressed.items.len <= limit);
     }
 
-    var decomp = try decompressor(
-        testing.allocator,
-        io.fixedBufferStream(compressed.items).reader(),
-        null,
-    );
+    var fib = io.fixedBufferStream(compressed.items);
+    var decomp = try decompressor(testing.allocator, fib.reader(), null);
     defer decomp.deinit();
 
     var decompressed = try testing.allocator.alloc(u8, input.len);
@@ -136,7 +133,9 @@ fn testToFromWithLevelAndLimit(level: deflate.Compression, input: []const u8, li
     try expect(read == input.len);
     try expect(mem.eql(u8, input, decompressed));
 
-    try testSync(level, input);
+    if (builtin.zig_backend == .stage1) {
+        try testSync(level, input);
+    }
 }
 
 fn testToFromWithLimit(input: []const u8, limit: [11]u32) !void {
@@ -475,21 +474,16 @@ test "inflate reset" {
         try comp.close();
     }
 
-    var decomp = try decompressor(
-        testing.allocator,
-        io.fixedBufferStream(compressed_strings[0].items).reader(),
-        null,
-    );
+    var fib = io.fixedBufferStream(compressed_strings[0].items);
+    var decomp = try decompressor(testing.allocator, fib.reader(), null);
     defer decomp.deinit();
 
     var decompressed_0: []u8 = try decomp.reader()
         .readAllAlloc(testing.allocator, math.maxInt(usize));
     defer testing.allocator.free(decompressed_0);
 
-    try decomp.reset(
-        io.fixedBufferStream(compressed_strings[1].items).reader(),
-        null,
-    );
+    fib = io.fixedBufferStream(compressed_strings[1].items);
+    try decomp.reset(fib.reader(), null);
 
     var decompressed_1: []u8 = try decomp.reader()
         .readAllAlloc(testing.allocator, math.maxInt(usize));
@@ -530,21 +524,16 @@ test "inflate reset dictionary" {
         try comp.close();
     }
 
-    var decomp = try decompressor(
-        testing.allocator,
-        io.fixedBufferStream(compressed_strings[0].items).reader(),
-        dict,
-    );
+    var fib = io.fixedBufferStream(compressed_strings[0].items);
+    var decomp = try decompressor(testing.allocator, fib.reader(), dict);
     defer decomp.deinit();
 
     var decompressed_0: []u8 = try decomp.reader()
         .readAllAlloc(testing.allocator, math.maxInt(usize));
     defer testing.allocator.free(decompressed_0);
 
-    try decomp.reset(
-        io.fixedBufferStream(compressed_strings[1].items).reader(),
-        dict,
-    );
+    fib = io.fixedBufferStream(compressed_strings[1].items);
+    try decomp.reset(fib.reader(), dict);
 
     var decompressed_1: []u8 = try decomp.reader()
         .readAllAlloc(testing.allocator, math.maxInt(usize));
