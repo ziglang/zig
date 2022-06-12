@@ -1252,3 +1252,20 @@ test "pass pointer to field of comptime-only type as a runtime parameter" {
     };
     try S.doTheTest();
 }
+
+test "comptime write through extern struct reinterpreted as array" {
+    comptime {
+        const S = extern struct {
+            a: u8,
+            b: u8,
+            c: u8,
+        };
+        var s: S = undefined;
+        @ptrCast(*[3]u8, &s)[0] = 1;
+        @ptrCast(*[3]u8, &s)[1] = 2;
+        @ptrCast(*[3]u8, &s)[2] = 3;
+        assert(s.a == 1);
+        assert(s.b == 2);
+        assert(s.c == 3);
+    }
+}
