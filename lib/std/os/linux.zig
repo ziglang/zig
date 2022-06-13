@@ -5172,7 +5172,9 @@ pub const rtnl_link_stats64 = extern struct {
 
 pub const perf_event_attr = extern struct {
     /// Major type: hardware/software/tracepoint/etc.
-    type: PERF.TYPE = undefined,
+    /// Either a static PMU type defined in PERF.COUNT, or a dynamic PMU type
+    /// which can be queried from /sys/bus/event_source/devices/*/type.
+    type: u32 = 0,
     /// Size of the attr structure, for fwd/bwd compat.
     size: u32 = @sizeOf(perf_event_attr),
     /// Type specific configuration information.
