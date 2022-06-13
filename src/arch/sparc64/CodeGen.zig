@@ -1081,6 +1081,13 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
     // (SCD 2.4.1, page 3P-10)
     try self.spillConditionFlagsIfOccupied();
 
+    // Save caller-saved registers, but crucially *after* we save the
+    // compare flags as saving compare flags may require a new
+    // caller-saved register
+    for (abi.caller_preserved_regs) |reg| {
+        try self.register_manager.getReg(reg, null);
+    }
+
     for (info.args) |mc_arg, arg_i| {
         const arg = args[arg_i];
         const arg_ty = self.air.typeOf(arg);
