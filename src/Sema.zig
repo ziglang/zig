@@ -3795,6 +3795,32 @@ fn zirValidateArrayInit(
                 }
                 continue;
             },
+            .bitcast => {
+                // %a = bitcast(*arr_ty, %array_base)
+                // %b = ptr_elem_ptr(%a, %index)
+                // %c = bitcast(*elem_ty, %b)
+                // %d = store(%c, %val)
+                if (air_datas[next_air_inst].ty_op.operand != elem_ptr_air_ref) {
+                    array_is_comptime = false;
+                    continue;
+                }
+                const store_inst = block.instructions.items[block_index + 2];
+                if (air_tags[store_inst] != .store) {
+                    array_is_comptime = false;
+                    continue;
+                }
+                const bin_op = air_datas[store_inst].bin_op;
+                if (bin_op.lhs != Air.indexToRef(next_air_inst)) {
+                    array_is_comptime = false;
+                    continue;
+                }
+                if (try sema.resolveMaybeUndefValAllowVariables(block, elem_src, bin_op.rhs)) |val| {
+                    element_vals[i] = val;
+                } else {
+                    array_is_comptime = false;
+                }
+                continue;
+            },
             else => {
                 array_is_comptime = false;
                 continue;
