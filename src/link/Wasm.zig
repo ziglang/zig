@@ -1840,7 +1840,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         try positionals.append(c_object.status.success.object_path);
     }
 
-    if (comp.compiler_rt_static_lib) |lib| {
+    if (comp.compiler_rt_lib) |lib| {
         try positionals.append(lib.full_object_path);
     }
 
