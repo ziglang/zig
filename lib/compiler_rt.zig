@@ -62,6 +62,7 @@ comptime {
     _ = @import("compiler_rt/emutls.zig");
     _ = @import("compiler_rt/arm.zig");
     _ = @import("compiler_rt/aulldiv.zig");
+    _ = @import("compiler_rt/aullrem.zig");
     _ = @import("compiler_rt/sparc.zig");
     _ = @import("compiler_rt/clear_cache.zig");
 
