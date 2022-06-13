@@ -1,4 +1,17 @@
+const std = @import("std");
 const builtin = @import("builtin");
+const arch = builtin.cpu.arch;
+const abi = builtin.abi;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Strong;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    if (arch == .i386 and abi == .msvc) {
+        // Don't let LLVM apply the stdcall name mangling on those MSVC builtins
+        @export(_allrem, .{ .name = "\x01__allrem", .linkage = linkage });
+        @export(_aullrem, .{ .name = "\x01__aullrem", .linkage = linkage });
+    }
+}
 
 pub fn _allrem(a: i64, b: i64) callconv(.Stdcall) i64 {
     @setRuntimeSafety(builtin.is_test);
