@@ -2,8 +2,21 @@ const builtin = @import("builtin");
 pub const panic = @import("compiler_rt/common.zig").panic;
 
 comptime {
-    // These files do their own comptime exporting logic.
+    // TODO moving these around makes or breaks compilation of zig1.o for some reason
+    // Perhaps, until we switch to stage2, exports should be duplicated between this file
+    // and files included as a standalone units?
     _ = @import("compiler_rt/atomics.zig");
+    _ = @import("compiler_rt/addXf3.zig");
+    _ = @import("compiler_rt/mulXf3.zig");
+    _ = @import("compiler_rt/compareXf2.zig");
+    _ = @import("compiler_rt/extendXfYf2.zig");
+    _ = @import("compiler_rt/extend_f80.zig");
+    _ = @import("compiler_rt/truncXfYf2.zig");
+    _ = @import("compiler_rt/trunc_f80.zig");
+    _ = @import("compiler_rt/divtf3.zig");
+    _ = @import("compiler_rt/divsf3.zig");
+    _ = @import("compiler_rt/divdf3.zig");
+    _ = @import("compiler_rt/divxf3.zig");
     _ = @import("compiler_rt/sin.zig");
     _ = @import("compiler_rt/cos.zig");
     _ = @import("compiler_rt/sincos.zig");
@@ -23,9 +36,6 @@ comptime {
     _ = @import("compiler_rt/sqrt.zig");
     _ = @import("compiler_rt/tan.zig");
     _ = @import("compiler_rt/trunc.zig");
-    _ = @import("compiler_rt/extendXfYf2.zig");
-    _ = @import("compiler_rt/extend_f80.zig");
-    _ = @import("compiler_rt/compareXf2.zig");
     _ = @import("compiler_rt/stack_probe.zig");
     _ = @import("compiler_rt/divti3.zig");
     _ = @import("compiler_rt/modti3.zig");
@@ -33,14 +43,6 @@ comptime {
     _ = @import("compiler_rt/udivti3.zig");
     _ = @import("compiler_rt/udivmodti4.zig");
     _ = @import("compiler_rt/umodti3.zig");
-    _ = @import("compiler_rt/truncXfYf2.zig");
-    _ = @import("compiler_rt/trunc_f80.zig");
-    _ = @import("compiler_rt/addXf3.zig");
-    _ = @import("compiler_rt/mulXf3.zig");
-    _ = @import("compiler_rt/divsf3.zig");
-    _ = @import("compiler_rt/divdf3.zig");
-    _ = @import("compiler_rt/divxf3.zig");
-    _ = @import("compiler_rt/divtf3.zig");
     _ = @import("compiler_rt/floatXiYf.zig");
     _ = @import("compiler_rt/fixXfYi.zig");
     _ = @import("compiler_rt/count0bits.zig");
