@@ -13,6 +13,7 @@ const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
 const TypedValue = @import("../../TypedValue.zig");
 const ErrorMsg = Module.ErrorMsg;
+const codegen = @import("../../codegen.zig");
 const Air = @import("../../Air.zig");
 const Mir = @import("Mir.zig");
 const Emit = @import("Emit.zig");
@@ -26,6 +27,8 @@ const build_options = @import("build_options");
 
 const bits = @import("bits.zig");
 const abi = @import("abi.zig");
+const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
+const errUnionErrorOffset = codegen.errUnionErrorOffset;
 const Instruction = bits.Instruction;
 const ShiftWidth = Instruction.ShiftWidth;
 const RegisterManager = abi.RegisterManager;
@@ -627,7 +630,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .prefetch        => @panic("TODO try self.airPrefetch(inst)"),
             .mul_add         => @panic("TODO try self.airMulAdd(inst)"),
 
-            .@"try"          => @panic("TODO try self.airTry(inst)"),
+            .@"try"          => try self.airTry(inst),
             .try_ptr         => @panic("TODO try self.airTryPtr(inst)"),
 
             .dbg_var_ptr,
@@ -1796,6 +1799,24 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
     return self.fail("TODO implement switch for {}", .{self.target.cpu.arch});
 }
 
+fn airTry(self: *Self, inst: Air.Inst.Index) !void {
+    const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+    const extra = self.air.extraData(Air.Try, pl_op.payload);
+    const body = self.air.extra[extra.end..][0..extra.data.body_len];
+    const result: MCValue = result: {
+        const error_union_ty = self.air.typeOf(pl_op.operand);
+        const error_union = try self.resolveInst(pl_op.operand);
+        const is_err_result = try self.isErr(error_union_ty, error_union);
+        const reloc = try self.condBr(is_err_result);
+
+        try self.genBody(body);
+
+        try self.performReloc(reloc);
+        break :result try self.errUnionPayload(error_union, error_union_ty);
+    };
+    return self.finishAir(inst, result, .{ pl_op.operand, .none, .none });
+}
+
 fn airUnwrapErrErr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
@@ -2473,6 +2494,30 @@ fn copyToTmpRegister(self: *Self, ty: Type, mcv: MCValue) !Register {
 fn ensureProcessDeathCapacity(self: *Self, additional_count: usize) !void {
     const table = &self.branch_stack.items[self.branch_stack.items.len - 1].inst_table;
     try table.ensureUnusedCapacity(self.gpa, additional_count);
+}
+
+/// Given an error union, returns the payload
+fn errUnionPayload(self: *Self, error_union_mcv: MCValue, error_union_ty: Type) !MCValue {
+    const err_ty = error_union_ty.errorUnionSet();
+    const payload_ty = error_union_ty.errorUnionPayload();
+    if (err_ty.errorSetIsEmpty()) {
+        return error_union_mcv;
+    }
+    if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+        return MCValue.none;
+    }
+
+    const payload_offset = @intCast(u32, errUnionPayloadOffset(payload_ty, self.target.*));
+    switch (error_union_mcv) {
+        .register => return self.fail("TODO errUnionPayload for registers", .{}),
+        .stack_offset => |off| {
+            return MCValue{ .stack_offset = off - payload_offset };
+        },
+        .memory => |addr| {
+            return MCValue{ .memory = addr + payload_offset };
+        },
+        else => unreachable, // invalid MCValue for an error union
+    }
 }
 
 fn fail(self: *Self, comptime format: []const u8, args: anytype) InnerError {
