@@ -31,16 +31,20 @@ static int find_relpath2(
 static int find_relpath(const char *path, char **relative) {
     static __thread char *relative_buf = NULL;
     static __thread size_t relative_buf_len = 0;
+    int fd = find_relpath2(path, &relative_buf, &relative_buf_len);
+    // find_relpath2 can update relative_buf, so assign it after the call
     *relative = relative_buf;
-    return find_relpath2(path, relative, &relative_buf_len);
+    return fd;
 }
 
 // same as `find_relpath`, but uses another set of static variables to cache
 static int find_relpath_alt(const char *path, char **relative) {
     static __thread char *relative_buf = NULL;
     static __thread size_t relative_buf_len = 0;
+    int fd = find_relpath2(path, &relative_buf, &relative_buf_len);
+    // find_relpath2 can update relative_buf, so assign it after the call
     *relative = relative_buf;
-    return find_relpath2(path, relative, &relative_buf_len);
+    return fd;
 }
 
 int open(const char *path, int oflag, ...) {
@@ -134,6 +138,28 @@ int utime(const char *path, const struct utimbuf *times) {
                      times ? ((struct timespec [2]) {
                                  { .tv_sec = times->actime },
                                  { .tv_sec = times->modtime }
+                             })
+                           : NULL,
+                     0);
+}
+
+int utimes(const char *path, const struct timeval times[2]) {
+    char *relative_path;
+    int dirfd = find_relpath(path, &relative_path);
+
+    // If we can't find a preopen for it, indicate that we lack capabilities.
+    if (dirfd == -1) {
+        errno = ENOTCAPABLE;
+        return -1;
+    }
+
+    return __wasilibc_nocwd_utimensat(
+             dirfd, relative_path,
+                     times ? ((struct timespec [2]) {
+                                 { .tv_sec = times[0].tv_sec,
+				   .tv_nsec = times[0].tv_usec * 1000 },
+                                 { .tv_sec = times[1].tv_sec,
+				   .tv_nsec = times[1].tv_usec * 1000 },
                              })
                            : NULL,
                      0);

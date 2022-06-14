@@ -23,9 +23,7 @@ struct itimerval {
 int getitimer (int, struct itimerval *);
 int setitimer (int, const struct itimerval *__restrict, struct itimerval *__restrict);
 #endif
-#ifdef __wasilibc_unmodified_upstream /* WASI libc doesn't build the legacy functions */
 int utimes (const char *, const struct timeval [2]);
-#endif
 
 #if defined(_GNU_SOURCE) || defined(_BSD_SOURCE)
 struct timezone {
@@ -34,7 +32,9 @@ struct timezone {
 };
 #ifdef __wasilibc_unmodified_upstream /* WASI libc doesn't build the legacy functions */
 int futimes(int, const struct timeval [2]);
+#endif
 int futimesat(int, const char *, const struct timeval [2]);
+#ifdef __wasilibc_unmodified_upstream /* WASI libc doesn't build the legacy functions */
 int lutimes(const char *, const struct timeval [2]);
 #endif
 #ifdef __wasilibc_unmodified_upstream /* WASI has no way to set the time */

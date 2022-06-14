@@ -298,6 +298,8 @@ struct linger {
 #define SCM_TXTIME              SO_TXTIME
 #define SO_BINDTOIFINDEX        62
 #define SO_DETACH_REUSEPORT_BPF 68
+#define SO_PREFER_BUSY_POLL     69
+#define SO_BUSY_POLL_BUDGET     70
 
 #ifndef SOL_SOCKET
 #define SOL_SOCKET      1
@@ -404,9 +406,10 @@ int shutdown (int, int);
 int bind (int, const struct sockaddr *, socklen_t);
 int connect (int, const struct sockaddr *, socklen_t);
 int listen (int, int);
+#endif
+
 int accept (int, struct sockaddr *__restrict, socklen_t *__restrict);
 int accept4(int, struct sockaddr *__restrict, socklen_t *__restrict, int);
-#endif
 
 #ifdef __wasilibc_unmodified_upstream /* WASI has no getsockname/getpeername */
 int getsockname (int, struct sockaddr *__restrict, socklen_t *__restrict);

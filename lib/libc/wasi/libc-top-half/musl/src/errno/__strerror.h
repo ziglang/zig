@@ -124,6 +124,12 @@ E(ENOMEDIUM,    "No medium found")
 E(EMEDIUMTYPE,  "Wrong medium type")
 #endif
 E(EMULTIHOP,    "Multihop attempted")
+#ifdef __wasilibc_unmodified_upstream // errno value not in WASI
+E(ENOKEY,       "Required key not available")
+E(EKEYEXPIRED,  "Key has expired")
+E(EKEYREVOKED,  "Key has been revoked")
+E(EKEYREJECTED, "Key was rejected by service")
+#endif
 #ifdef __wasilibc_unmodified_upstream // errno value in WASI and not musl
 #else
 // WASI adds this errno code.
