@@ -792,11 +792,8 @@ pub const File = struct {
                     }),
                 }
             }
-            if (base.options.object_format == .macho) {
-                try base.cast(MachO).?.flushObject(comp, prog_node);
-            } else {
-                try base.flushModule(comp, prog_node);
-            }
+            try base.flushModule(comp, prog_node);
+
             const dirname = fs.path.dirname(full_out_path_z) orelse ".";
             break :blk try fs.path.join(arena, &.{ dirname, base.intermediary_basename.? });
         } else null;

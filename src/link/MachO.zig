@@ -436,7 +436,7 @@ pub fn flush(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) !v
             return error.TODOImplementWritingStaticLibFiles;
         }
     }
-    try self.flushModule(comp, prog_node);
+    return self.flushModule(comp, prog_node);
 }
 
 pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) !void {
@@ -444,8 +444,19 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     defer tracy.end();
 
     const use_stage1 = build_options.is_stage1 and self.base.options.use_stage1;
-    if (!use_stage1 and self.base.options.output_mode == .Obj)
-        return self.flushObject(comp, prog_node);
+
+    if (build_options.have_llvm and !use_stage1) {
+        if (self.llvm_object) |llvm_object| {
+            try llvm_object.flushModule(comp, prog_node);
+
+            llvm_object.destroy(self.base.allocator);
+            self.llvm_object = null;
+        }
+    }
+
+    var sub_prog_node = prog_node.start("MachO Flush", 0);
+    sub_prog_node.activate();
+    defer sub_prog_node.end();
 
     var arena_allocator = std.heap.ArenaAllocator.init(self.base.allocator);
     defer arena_allocator.deinit();
@@ -453,12 +464,6 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
     const directory = self.base.options.emit.?.directory; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.options.emit.?.sub_path});
-
-    if (self.d_sym) |*d_sym| {
-        if (self.base.options.module) |module| {
-            try d_sym.dwarf.flushModule(&self.base, module);
-        }
-    }
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
@@ -482,8 +487,6 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
         const obj_basename = self.base.intermediary_basename orelse break :blk null;
 
-        try self.flushObject(comp, prog_node);
-
         if (fs.path.dirname(full_out_path)) |dirname| {
             break :blk try fs.path.join(arena, &.{ dirname, obj_basename });
         } else {
@@ -491,9 +494,11 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         }
     } else null;
 
-    var sub_prog_node = prog_node.start("MachO Flush", 0);
-    sub_prog_node.activate();
-    defer sub_prog_node.end();
+    if (self.d_sym) |*d_sym| {
+        if (self.base.options.module) |module| {
+            try d_sym.dwarf.flushModule(&self.base, module);
+        }
+    }
 
     const is_lib = self.base.options.output_mode == .Lib;
     const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
@@ -1117,17 +1122,6 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     }
 
     self.cold_start = false;
-}
-
-pub fn flushObject(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    if (build_options.have_llvm)
-        if (self.llvm_object) |llvm_object|
-            return llvm_object.flushModule(comp, prog_node);
-
-    return error.TODOImplementWritingObjFiles;
 }
 
 fn resolveSearchDir(
