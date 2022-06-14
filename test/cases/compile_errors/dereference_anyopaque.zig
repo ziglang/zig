@@ -41,6 +41,7 @@ pub export fn entry() void {
 }
 
 // error
+// target=native
 // backend=llvm
 //
 // :11:22: error: comparison of 'void' with null

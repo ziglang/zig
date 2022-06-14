@@ -21,7 +21,8 @@ pub export fn entry3() void {
     _ = &test_fns[i];
 }
 // error
-// backend=stage2,llvm
+// target=native
+// backend=stage2
 //
 // :6:5: error: values of type '[2]fn() void' must be comptime known, but index value is runtime known
 // :6:5: note: use '*const fn() void' for a function pointer type
