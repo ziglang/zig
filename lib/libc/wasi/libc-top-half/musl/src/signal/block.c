@@ -3,9 +3,9 @@
 #include <signal.h>
 
 static const unsigned long all_mask[] = {
-#if ULONG_MAX == 0xffffffff && _NSIG == 129
+#if ULONG_MAX == 0xffffffff && _NSIG > 65
 	-1UL, -1UL, -1UL, -1UL
-#elif ULONG_MAX == 0xffffffff
+#elif ULONG_MAX == 0xffffffff || _NSIG > 65
 	-1UL, -1UL
 #else
 	-1UL
