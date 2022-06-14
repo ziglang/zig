@@ -14,7 +14,8 @@ pub export fn entry1() void {
     s.a = T{ .a = 2, .b = 2 };
 }
 // error
-// backend=stage2,llvm
+// target=native
+// backend=stage2
 //
 // :6:19: error: value stored in comptime field does not match the default value of the field
 // :14:19: error: value stored in comptime field does not match the default value of the field
