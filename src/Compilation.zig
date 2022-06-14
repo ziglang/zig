@@ -1494,30 +1494,13 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 );
                 errdefer test_pkg.destroy(gpa);
 
-                try test_pkg.add(gpa, "builtin", builtin_pkg);
-                try test_pkg.add(gpa, "root", test_pkg);
-                try test_pkg.add(gpa, "std", std_pkg);
-
                 break :root_pkg test_pkg;
             } else main_pkg;
             errdefer if (options.is_test) root_pkg.destroy(gpa);
 
-            var other_pkg_iter = main_pkg.table.valueIterator();
-            while (other_pkg_iter.next()) |pkg| {
-                try pkg.*.add(gpa, "builtin", builtin_pkg);
-                try pkg.*.add(gpa, "std", std_pkg);
-            }
-
             try main_pkg.addAndAdopt(gpa, "builtin", builtin_pkg);
             try main_pkg.add(gpa, "root", root_pkg);
             try main_pkg.addAndAdopt(gpa, "std", std_pkg);
-
-            try std_pkg.add(gpa, "builtin", builtin_pkg);
-            try std_pkg.add(gpa, "root", root_pkg);
-            try std_pkg.add(gpa, "std", std_pkg);
-
-            try builtin_pkg.add(gpa, "std", std_pkg);
-            try builtin_pkg.add(gpa, "builtin", builtin_pkg);
 
             const main_pkg_in_std = m: {
                 const std_path = try std.fs.path.resolve(arena, &[_][]const u8{
