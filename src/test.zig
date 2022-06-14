@@ -1808,6 +1808,11 @@ pub const TestContext = struct {
                                 // We wouldn't be able to run the compiled C code.
                                 return; // Pass test.
                             }
+                            // Use an absolute path here so that the unique directory name
+                            // for this Case makes it into the cache hash, avoiding cache
+                            // collisions from multiple threads doing `zig run` at the same
+                            // time on the same test_case.c input filename.
+                            const abs_exe_path = try tmp.dir.realpathAlloc(arena, bin_name);
                             try argv.appendSlice(&[_][]const u8{
                                 std.testing.zig_exe_path,
                                 "run",
@@ -1818,7 +1823,7 @@ pub const TestContext = struct {
                                 "-Wno-incompatible-library-redeclaration", // https://github.com/ziglang/zig/issues/875
                                 "--",
                                 "-lc",
-                                exe_path,
+                                abs_exe_path,
                             });
                         } else switch (host.getExternalExecutor(target_info, .{ .link_libc = case.link_libc })) {
                             .native => try argv.append(exe_path),
