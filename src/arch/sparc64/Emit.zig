@@ -98,6 +98,8 @@ pub fn emitMir(
             .xor => try emit.mirArithmetic3Op(inst),
             .xnor => try emit.mirArithmetic3Op(inst),
 
+            .membar => try emit.mirMembar(inst),
+
             .movcc => try emit.mirConditionalMove(inst),
 
             .movr => @panic("TODO implement sparc64 movr"),
@@ -340,6 +342,17 @@ fn mirConditionalMove(emit: *Emit, inst: Mir.Inst.Index) !void {
         },
         else => unreachable,
     }
+}
+
+fn mirMembar(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const mask = emit.mir.instructions.items(.data)[inst].membar_mask;
+    assert(tag == .membar);
+
+    try emit.writeInstruction(Instruction.membar(
+        mask.cmask,
+        mask.mmask,
+    ));
 }
 
 fn mirNop(emit: *Emit) !void {

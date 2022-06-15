@@ -1261,6 +1261,10 @@ pub const Instruction = union(enum) {
         };
     }
 
+    pub fn membar(cmask: MemCompletionConstraint, mmask: MemOrderingConstraint) Instruction {
+        return format3h(cmask, mmask);
+    }
+
     pub fn movcc(comptime s2: type, cond: Condition, ccr: CCR, rs2: s2, rd: Register) Instruction {
         return switch (s2) {
             Register => format4c(0b10_1100, cond, ccr, rs2, rd),
