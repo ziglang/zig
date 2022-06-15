@@ -1800,19 +1800,21 @@ pub const TestContext = struct {
                         exec_node.activate();
                         defer exec_node.end();
 
-                        // We use relative to cwd here because we pass a new cwd to the
-                        // child process.
-                        const exe_path = try std.fmt.allocPrint(arena, "." ++ std.fs.path.sep_str ++ "{s}", .{bin_name});
+                        // We go out of our way here to use the unique temporary directory name in
+                        // the exe_path so that it makes its way into the cache hash, avoiding
+                        // cache collisions from multiple threads doing `zig run` at the same time
+                        // on the same test_case.c input filename.
+                        const ss = std.fs.path.sep_str;
+                        const exe_path = try std.fmt.allocPrint(
+                            arena,
+                            ".." ++ ss ++ "{s}" ++ ss ++ "{s}",
+                            .{ &tmp.sub_path, bin_name },
+                        );
                         if (case.object_format != null and case.object_format.? == .c) {
                             if (host.getExternalExecutor(target_info, .{ .link_libc = true }) != .native) {
                                 // We wouldn't be able to run the compiled C code.
                                 return; // Pass test.
                             }
-                            // Use an absolute path here so that the unique directory name
-                            // for this Case makes it into the cache hash, avoiding cache
-                            // collisions from multiple threads doing `zig run` at the same
-                            // time on the same test_case.c input filename.
-                            const abs_exe_path = try tmp.dir.realpathAlloc(arena, bin_name);
                             try argv.appendSlice(&[_][]const u8{
                                 std.testing.zig_exe_path,
                                 "run",
@@ -1823,7 +1825,7 @@ pub const TestContext = struct {
                                 "-Wno-incompatible-library-redeclaration", // https://github.com/ziglang/zig/issues/875
                                 "--",
                                 "-lc",
-                                abs_exe_path,
+                                exe_path,
                             });
                         } else switch (host.getExternalExecutor(target_info, .{ .link_libc = case.link_libc })) {
                             .native => try argv.append(exe_path),
