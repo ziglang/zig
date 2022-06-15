@@ -125,6 +125,7 @@ pub const pwhash = struct {
 /// Digital signature functions.
 pub const sign = struct {
     pub const Ed25519 = @import("crypto/25519/ed25519.zig").Ed25519;
+    pub const ecdsa = @import("crypto/ecdsa.zig");
 };
 
 /// Stream ciphers. These do not provide any kind of authentication.
@@ -232,6 +233,7 @@ test {
     _ = pwhash.phc_format;
 
     _ = sign.Ed25519;
+    _ = sign.ecdsa;
 
     _ = stream.chacha.ChaCha20IETF;
     _ = stream.chacha.ChaCha12IETF;
