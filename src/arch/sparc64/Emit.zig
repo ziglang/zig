@@ -93,6 +93,7 @@ pub fn emitMir(
             .lduw => try emit.mirArithmetic3Op(inst),
             .ldx => try emit.mirArithmetic3Op(inst),
 
+            .@"and" => @panic("TODO implement sparc64 and"),
             .@"or" => try emit.mirArithmetic3Op(inst),
             .xor => try emit.mirArithmetic3Op(inst),
             .xnor => try emit.mirArithmetic3Op(inst),
