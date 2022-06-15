@@ -73,6 +73,7 @@ pub const Inst = struct {
         /// A.31 Logical Operations
         /// This uses the arithmetic_3op field.
         // TODO add other operations.
+        @"and",
         @"or",
         xor,
         xnor,
