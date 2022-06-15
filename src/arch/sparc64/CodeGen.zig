@@ -669,7 +669,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .ptr_slice_len_ptr => @panic("TODO try self.airPtrSliceLenPtr(inst)"),
             .ptr_slice_ptr_ptr => @panic("TODO try self.airPtrSlicePtrPtr(inst)"),
 
-            .array_elem_val      => @panic("TODO try self.airArrayElemVal(inst)"),
+            .array_elem_val      => try self.airArrayElemVal(inst),
             .slice_elem_val      => try self.airSliceElemVal(inst),
             .slice_elem_ptr      => @panic("TODO try self.airSliceElemPtr(inst)"),
             .ptr_elem_val        => @panic("TODO try self.airPtrElemVal(inst)"),
@@ -794,6 +794,12 @@ fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 fn airAlloc(self: *Self, inst: Air.Inst.Index) !void {
     const stack_offset = try self.allocMemPtr(inst);
     return self.finishAir(inst, .{ .ptr_stack_offset = stack_offset }, .{ .none, .none, .none });
+}
+
+fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement array_elem_val for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
