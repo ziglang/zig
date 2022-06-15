@@ -582,3 +582,14 @@ test "array with comptime only element type" {
     try testing.expect(a[0] == u32);
     try testing.expect(a[1] == i32);
 }
+
+test "tuple to array handles sentinel" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const a = .{ 1, 2, 3 };
+        var b: [3:0]u8 = a;
+    };
+    try expect(S.b[0] == 1);
+}
