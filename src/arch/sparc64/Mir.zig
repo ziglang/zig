@@ -78,6 +78,10 @@ pub const Inst = struct {
         xor,
         xnor,
 
+        /// A.32 Memory Barrier
+        /// This uses the membar_mask field.
+        membar,
+
         /// A.35 Move Integer Register on Condition (MOVcc)
         /// This uses the conditional_move_int field.
         movcc,
@@ -234,6 +238,13 @@ pub const Inst = struct {
             cond: Instruction.RCondition,
             rs1: Register,
             inst: Index,
+        },
+
+        /// Membar mask, controls the barrier behavior
+        /// Used by e.g. membar
+        membar_mask: struct {
+            mmask: Instruction.MemOrderingConstraint = .{},
+            cmask: Instruction.MemCompletionConstraint = .{},
         },
 
         /// Conditional move, checking the integer status code

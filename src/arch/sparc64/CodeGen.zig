@@ -578,7 +578,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .breakpoint      => try self.airBreakpoint(),
             .ret_addr        => @panic("TODO try self.airRetAddr(inst)"),
             .frame_addr      => @panic("TODO try self.airFrameAddress(inst)"),
-            .fence           => @panic("TODO try self.airFence()"),
+            .fence           => try self.airFence(inst),
             .cond_br         => try self.airCondBr(inst),
             .dbg_stmt        => try self.airDbgStmt(inst),
             .fptrunc         => @panic("TODO try self.airFptrunc(inst)"),
@@ -1440,6 +1440,29 @@ fn airDiv(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement div for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
+fn airFence(self: *Self, inst: Air.Inst.Index) !void {
+    // TODO weaken this as needed, currently this implements the strongest membar form
+    const fence = self.air.instructions.items(.data)[inst].fence;
+    _ = fence;
+
+    // membar #StoreStore | #LoadStore | #StoreLoad | #LoadLoad
+    _ = try self.addInst(.{
+        .tag = .membar,
+        .data = .{
+            .membar_mask = .{
+                .mmask = .{
+                    .store_store = true,
+                    .store_load = true,
+                    .load_store = true,
+                    .load_load = true,
+                },
+            },
+        },
+    });
+
+    return self.finishAir(inst, .dead, .{ .none, .none, .none });
 }
 
 fn airIsErr(self: *Self, inst: Air.Inst.Index) !void {
