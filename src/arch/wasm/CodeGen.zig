@@ -1432,8 +1432,10 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .const_ty => unreachable,
 
         .add => self.airBinOp(inst, .add),
+        .add_sat => self.airSatBinOp(inst, .add),
         .addwrap => self.airWrapBinOp(inst, .add),
         .sub => self.airBinOp(inst, .sub),
+        .sub_sat => self.airSatBinOp(inst, .sub),
         .subwrap => self.airWrapBinOp(inst, .sub),
         .mul => self.airBinOp(inst, .mul),
         .mulwrap => self.airWrapBinOp(inst, .mul),
@@ -1583,8 +1585,6 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
 
         .memcpy => self.airMemcpy(inst),
 
-        .add_sat,
-        .sub_sat,
         .mul_sat,
         .mod,
         .assembly,
@@ -4874,6 +4874,67 @@ fn airCeilFloorTrunc(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValu
         else => |bit_size| return self.fail("TODO: Implement `@ceil` for floats with bitsize {d}", .{bit_size}),
     }
 
+    const result = try self.allocLocal(ty);
+    try self.addLabel(.local_set, result.local);
+    return result;
+}
+
+fn airSatBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
+    assert(op == .add or op == .sub);
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const ty = self.air.typeOfIndex(inst);
+    const lhs_operand = try self.resolveInst(bin_op.lhs);
+    const rhs_operand = try self.resolveInst(bin_op.rhs);
+
+    const int_info = ty.intInfo(self.target);
+    const is_signed = int_info.signedness == .signed;
+
+    if (int_info.bits > 64) {
+        return self.fail("TODO: saturating arithmetic for integers with bitsize '{d}'", .{int_info.bits});
+    }
+
+    const wasm_bits = toWasmBits(int_info.bits).?;
+
+    const lhs = if (is_signed) blk: {
+        break :blk try self.signAbsValue(lhs_operand, ty);
+    } else lhs_operand;
+    const rhs = if (is_signed) blk: {
+        break :blk try self.signAbsValue(rhs_operand, ty);
+    } else rhs_operand;
+
+    const opcode = buildOpcode(.{ .op = op, .valtype1 = typeToValtype(ty, self.target) });
+    try self.emitWValue(lhs);
+    try self.emitWValue(rhs);
+    try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
+    const bin_result = try self.allocLocal(ty);
+    try self.addLabel(.local_set, bin_result.local);
+
+    if (wasm_bits != int_info.bits and op == .add) {
+        const val: u64 = @intCast(u64, (@as(u65, 1) << @intCast(u7, int_info.bits)) - 1);
+        const imm_val = switch (wasm_bits) {
+            32 => WValue{ .imm32 = @intCast(u32, val) },
+            64 => WValue{ .imm64 = val },
+            else => unreachable,
+        };
+
+        const cmp_result = try self.cmp(bin_result, imm_val, ty, if (op == .add) .lt else .gt);
+        try self.emitWValue(bin_result);
+        try self.emitWValue(imm_val);
+        try self.emitWValue(cmp_result);
+    } else {
+        const cmp_result = try self.cmp(bin_result, lhs, ty, if (op == .add) .lt else .gt);
+        switch (wasm_bits) {
+            32 => try self.addImm32(if (op == .add) @as(i32, -1) else 0),
+            64 => try self.addImm64(if (op == .add) @bitCast(u64, @as(i64, -1)) else 0),
+            else => unreachable,
+        }
+        try self.emitWValue(bin_result);
+        try self.emitWValue(cmp_result);
+    }
+
+    try self.addTag(.select);
     const result = try self.allocLocal(ty);
     try self.addLabel(.local_set, result.local);
     return result;
