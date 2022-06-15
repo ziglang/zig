@@ -1,6 +1,5 @@
 #include "stdio_impl.h"
 #include <wchar.h>
-#include <errno.h>
 
 wint_t __fgetwc_unlocked(FILE *);
 
@@ -12,10 +11,6 @@ wchar_t *fgetws(wchar_t *restrict s, int n, FILE *restrict f)
 
 	FLOCK(f);
 
-	/* Setup a dummy errno so we can detect EILSEQ. This is
-	 * the only way to catch encoding errors in the form of a
-	 * partial character just before EOF. */
-	errno = EAGAIN;
 	for (; n; n--) {
 		wint_t c = __fgetwc_unlocked(f);
 		if (c == WEOF) break;
@@ -23,7 +18,7 @@ wchar_t *fgetws(wchar_t *restrict s, int n, FILE *restrict f)
 		if (c == '\n') break;
 	}
 	*p = 0;
-	if (ferror(f) || errno==EILSEQ) p = s;
+	if (ferror(f)) p = s;
 
 	FUNLOCK(f);
 

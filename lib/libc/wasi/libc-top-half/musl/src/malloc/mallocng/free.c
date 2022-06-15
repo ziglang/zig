@@ -119,7 +119,11 @@ void free(void *p)
 	if (((uintptr_t)(start-1) ^ (uintptr_t)end) >= 2*PGSZ && g->last_idx) {
 		unsigned char *base = start + (-(uintptr_t)start & (PGSZ-1));
 		size_t len = (end-base) & -PGSZ;
-		if (len) madvise(base, len, MADV_FREE);
+		if (len) {
+			int e = errno;
+			madvise(base, len, MADV_FREE);
+			errno = e;
+		}
 	}
 
 	// atomic free without locking if this is neither first or last slot
@@ -139,5 +143,9 @@ void free(void *p)
 	wrlock();
 	struct mapinfo mi = nontrivial_free(g, idx);
 	unlock();
-	if (mi.len) munmap(mi.base, mi.len);
+	if (mi.len) {
+		int e = errno;
+		munmap(mi.base, mi.len);
+		errno = e;
+	}
 }
