@@ -21798,7 +21798,7 @@ fn coerceTupleToArray(
 ) !Air.Inst.Ref {
     const inst_ty = sema.typeOf(inst);
     const inst_len = inst_ty.arrayLen();
-    const dest_len = try sema.usizeCast(block, dest_ty_src, dest_ty.arrayLen());
+    const dest_len = dest_ty.arrayLen();
 
     if (dest_len != inst_len) {
         const msg = msg: {
@@ -21813,13 +21813,19 @@ fn coerceTupleToArray(
         return sema.failWithOwnedErrorMsg(block, msg);
     }
 
-    const element_vals = try sema.arena.alloc(Value, dest_len);
-    const element_refs = try sema.arena.alloc(Air.Inst.Ref, dest_len);
+    const dest_elems = try sema.usizeCast(block, dest_ty_src, dest_ty.arrayLenIncludingSentinel());
+    const element_vals = try sema.arena.alloc(Value, dest_elems);
+    const element_refs = try sema.arena.alloc(Air.Inst.Ref, dest_elems);
     const dest_elem_ty = dest_ty.childType();
 
     var runtime_src: ?LazySrcLoc = null;
     for (element_vals) |*elem, i_usize| {
         const i = @intCast(u32, i_usize);
+        if (i_usize == inst_len) {
+            elem.* = dest_ty.sentinel().?;
+            element_refs[i] = try sema.addConstant(dest_elem_ty, elem.*);
+            break;
+        }
         const elem_src = inst_src; // TODO better source location
         const elem_ref = try tupleField(sema, block, inst_src, inst, elem_src, i);
         const coerced = try sema.coerce(block, dest_elem_ty, elem_ref, elem_src);
