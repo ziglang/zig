@@ -33,7 +33,7 @@ const dwords = extern union {
     },
 };
 
-pub fn __aeabi_lmul(a: i64, b: i64) callconv(.C) i64 {
+pub fn __aeabi_lmul(a: i64, b: i64) callconv(.AAPCS) i64 {
     return @call(.{ .modifier = .always_inline }, __muldi3, .{ a, b });
 }
 

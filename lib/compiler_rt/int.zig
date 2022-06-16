@@ -214,7 +214,7 @@ pub fn __divsi3(n: i32, d: i32) callconv(.C) i32 {
     return @bitCast(i32, (res ^ sign) -% sign);
 }
 
-pub fn __aeabi_idiv(n: i32, d: i32) callconv(.C) i32 {
+pub fn __aeabi_idiv(n: i32, d: i32) callconv(.AAPCS) i32 {
     return @call(.{ .modifier = .always_inline }, __divsi3, .{ n, d });
 }
 
@@ -284,7 +284,7 @@ pub fn __udivsi3(n: u32, d: u32) callconv(.C) u32 {
     return q;
 }
 
-pub fn __aeabi_uidiv(n: u32, d: u32) callconv(.C) u32 {
+pub fn __aeabi_uidiv(n: u32, d: u32) callconv(.AAPCS) u32 {
     return @call(.{ .modifier = .always_inline }, __udivsi3, .{ n, d });
 }
 
