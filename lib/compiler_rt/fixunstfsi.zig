@@ -13,7 +13,7 @@ comptime {
     }
 }
 
-fn __fixunstfsi(a: f128) callconv(.C) u32 {
+pub fn __fixunstfsi(a: f128) callconv(.C) u32 {
     return floatToInt(u32, a);
 }
 

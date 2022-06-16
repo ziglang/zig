@@ -13,7 +13,7 @@ comptime {
     }
 }
 
-fn __extendsftf2(a: f32) callconv(.C) f128 {
+pub fn __extendsftf2(a: f32) callconv(.C) f128 {
     return extendf(f128, f32, @bitCast(u32, a));
 }
 

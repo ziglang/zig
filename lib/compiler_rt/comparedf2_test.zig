@@ -6,7 +6,15 @@ const std = @import("std");
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
 
-const comparedf2 = @import("compareXf2.zig");
+const __eqdf2 = @import("./cmpdf2.zig").__eqdf2;
+const __ledf2 = @import("./cmpdf2.zig").__ledf2;
+const __ltdf2 = @import("./cmpdf2.zig").__ltdf2;
+const __nedf2 = @import("./cmpdf2.zig").__nedf2;
+
+const __gedf2 = @import("./gedf2.zig").__gedf2;
+const __gtdf2 = @import("./gedf2.zig").__gtdf2;
+
+const __unorddf2 = @import("./unorddf2.zig").__unorddf2;
 
 const TestVector = struct {
     a: f64,
@@ -21,25 +29,25 @@ const TestVector = struct {
 };
 
 fn test__cmpdf2(vector: TestVector) bool {
-    if (comparedf2.__eqdf2(vector.a, vector.b) != vector.eqReference) {
+    if (__eqdf2(vector.a, vector.b) != vector.eqReference) {
         return false;
     }
-    if (comparedf2.__gedf2(vector.a, vector.b) != vector.geReference) {
+    if (__gedf2(vector.a, vector.b) != vector.geReference) {
         return false;
     }
-    if (comparedf2.__gtdf2(vector.a, vector.b) != vector.gtReference) {
+    if (__gtdf2(vector.a, vector.b) != vector.gtReference) {
         return false;
     }
-    if (comparedf2.__ledf2(vector.a, vector.b) != vector.leReference) {
+    if (__ledf2(vector.a, vector.b) != vector.leReference) {
         return false;
     }
-    if (comparedf2.__ltdf2(vector.a, vector.b) != vector.ltReference) {
+    if (__ltdf2(vector.a, vector.b) != vector.ltReference) {
         return false;
     }
-    if (comparedf2.__nedf2(vector.a, vector.b) != vector.neReference) {
+    if (__nedf2(vector.a, vector.b) != vector.neReference) {
         return false;
     }
-    if (comparedf2.__unorddf2(vector.a, vector.b) != vector.unReference) {
+    if (__unorddf2(vector.a, vector.b) != vector.unReference) {
         return false;
     }
     return true;

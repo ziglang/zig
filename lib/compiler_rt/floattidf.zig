@@ -7,6 +7,6 @@ comptime {
     @export(__floattidf, .{ .name = "__floattidf", .linkage = common.linkage });
 }
 
-fn __floattidf(a: i128) callconv(.C) f64 {
+pub fn __floattidf(a: i128) callconv(.C) f64 {
     return intToFloat(f64, a);
 }

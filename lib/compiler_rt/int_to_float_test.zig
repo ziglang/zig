@@ -2,31 +2,32 @@ const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
 const math = std.math;
-const floatXiYf = @import("floatXiYf.zig").floatXiYf;
+
+const __floatunsihf = @import("floatunsihf.zig").__floatunsihf;
 
 // Conversion to f32
-const __floatsisf = @import("floatXiYf.zig").__floatsisf;
-const __floatunsisf = @import("floatXiYf.zig").__floatunsisf;
-const __floatdisf = @import("floatXiYf.zig").__floatdisf;
-const __floatundisf = @import("floatXiYf.zig").__floatundisf;
-const __floattisf = @import("floatXiYf.zig").__floattisf;
-const __floatuntisf = @import("floatXiYf.zig").__floatuntisf;
+const __floatsisf = @import("floatsisf.zig").__floatsisf;
+const __floatunsisf = @import("floatunsisf.zig").__floatunsisf;
+const __floatdisf = @import("floatdisf.zig").__floatdisf;
+const __floatundisf = @import("floatundisf.zig").__floatundisf;
+const __floattisf = @import("floattisf.zig").__floattisf;
+const __floatuntisf = @import("floatuntisf.zig").__floatuntisf;
 
 // Conversion to f64
-const __floatsidf = @import("floatXiYf.zig").__floatsidf;
-const __floatunsidf = @import("floatXiYf.zig").__floatunsidf;
-const __floatdidf = @import("floatXiYf.zig").__floatdidf;
-const __floatundidf = @import("floatXiYf.zig").__floatundidf;
-const __floattidf = @import("floatXiYf.zig").__floattidf;
-const __floatuntidf = @import("floatXiYf.zig").__floatuntidf;
+const __floatsidf = @import("floatsidf.zig").__floatsidf;
+const __floatunsidf = @import("floatunsidf.zig").__floatunsidf;
+const __floatdidf = @import("floatdidf.zig").__floatdidf;
+const __floatundidf = @import("floatundidf.zig").__floatundidf;
+const __floattidf = @import("floattidf.zig").__floattidf;
+const __floatuntidf = @import("floatuntidf.zig").__floatuntidf;
 
 // Conversion to f128
-const __floatsitf = @import("floatXiYf.zig").__floatsitf;
-const __floatunsitf = @import("floatXiYf.zig").__floatunsitf;
-const __floatditf = @import("floatXiYf.zig").__floatditf;
-const __floatunditf = @import("floatXiYf.zig").__floatunditf;
-const __floattitf = @import("floatXiYf.zig").__floattitf;
-const __floatuntitf = @import("floatXiYf.zig").__floatuntitf;
+const __floatsitf = @import("floatsitf.zig").__floatsitf;
+const __floatunsitf = @import("floatunsitf.zig").__floatunsitf;
+const __floatditf = @import("floatditf.zig").__floatditf;
+const __floatunditf = @import("floatunditf.zig").__floatunditf;
+const __floattitf = @import("floattitf.zig").__floattitf;
+const __floatuntitf = @import("floatuntitf.zig").__floatuntitf;
 
 fn test__floatsisf(a: i32, expected: u32) !void {
     const r = __floatsisf(a);
@@ -791,45 +792,47 @@ fn make_tf(high: u64, low: u64) f128 {
 }
 
 test "conversion to f16" {
-    try testing.expect(floatXiYf(f16, @as(u32, 0)) == 0.0);
-    try testing.expect(floatXiYf(f16, @as(u32, 1)) == 1.0);
-    try testing.expect(floatXiYf(f16, @as(u32, 65504)) == 65504);
-    try testing.expect(floatXiYf(f16, @as(u32, 65504 + (1 << 4))) == math.inf(f16));
+    try testing.expect(__floatunsihf(@as(u32, 0)) == 0.0);
+    try testing.expect(__floatunsihf(@as(u32, 1)) == 1.0);
+    try testing.expect(__floatunsihf(@as(u32, 65504)) == 65504);
+    try testing.expect(__floatunsihf(@as(u32, 65504 + (1 << 4))) == math.inf(f16));
 }
 
 test "conversion to f32" {
-    try testing.expect(floatXiYf(f32, @as(u32, 0)) == 0.0);
-    try testing.expect(floatXiYf(f32, @as(u32, math.maxInt(u32))) != 1.0);
-    try testing.expect(floatXiYf(f32, @as(i32, math.minInt(i32))) != 1.0);
-    try testing.expect(floatXiYf(f32, @as(u32, math.maxInt(u24))) == math.maxInt(u24));
-    try testing.expect(floatXiYf(f32, @as(u32, math.maxInt(u24)) + 1) == math.maxInt(u24) + 1); // 0x100_0000 - Exact
-    try testing.expect(floatXiYf(f32, @as(u32, math.maxInt(u24)) + 2) == math.maxInt(u24) + 1); // 0x100_0001 - Tie: Rounds down to even
-    try testing.expect(floatXiYf(f32, @as(u32, math.maxInt(u24)) + 3) == math.maxInt(u24) + 3); // 0x100_0002 - Exact
-    try testing.expect(floatXiYf(f32, @as(u32, math.maxInt(u24)) + 4) == math.maxInt(u24) + 5); // 0x100_0003 - Tie: Rounds up to even
-    try testing.expect(floatXiYf(f32, @as(u32, math.maxInt(u24)) + 5) == math.maxInt(u24) + 5); // 0x100_0004 - Exact
+    try testing.expect(__floatunsisf(@as(u32, 0)) == 0.0);
+    try testing.expect(__floatunsisf(@as(u32, math.maxInt(u32))) != 1.0);
+    try testing.expect(__floatsisf(@as(i32, math.minInt(i32))) != 1.0);
+    try testing.expect(__floatunsisf(@as(u32, math.maxInt(u24))) == math.maxInt(u24));
+    try testing.expect(__floatunsisf(@as(u32, math.maxInt(u24)) + 1) == math.maxInt(u24) + 1); // 0x100_0000 - Exact
+    try testing.expect(__floatunsisf(@as(u32, math.maxInt(u24)) + 2) == math.maxInt(u24) + 1); // 0x100_0001 - Tie: Rounds down to even
+    try testing.expect(__floatunsisf(@as(u32, math.maxInt(u24)) + 3) == math.maxInt(u24) + 3); // 0x100_0002 - Exact
+    try testing.expect(__floatunsisf(@as(u32, math.maxInt(u24)) + 4) == math.maxInt(u24) + 5); // 0x100_0003 - Tie: Rounds up to even
+    try testing.expect(__floatunsisf(@as(u32, math.maxInt(u24)) + 5) == math.maxInt(u24) + 5); // 0x100_0004 - Exact
 }
 
 test "conversion to f80" {
     if (builtin.zig_backend == .stage1 and builtin.cpu.arch != .x86_64)
         return error.SkipZigTest; // https://github.com/ziglang/zig/issues/11408
 
-    try testing.expect(floatXiYf(f80, @as(i80, -12)) == -12);
-    try testing.expect(@floatToInt(u80, floatXiYf(f80, @as(u64, math.maxInt(u64)) + 0)) == math.maxInt(u64) + 0);
-    try testing.expect(@floatToInt(u80, floatXiYf(f80, @as(u80, math.maxInt(u64)) + 1)) == math.maxInt(u64) + 1);
+    const intToFloat = @import("./int_to_float.zig").intToFloat;
 
-    try testing.expect(floatXiYf(f80, @as(u32, 0)) == 0.0);
-    try testing.expect(floatXiYf(f80, @as(u32, 1)) == 1.0);
-    try testing.expect(@floatToInt(u128, floatXiYf(f80, @as(u32, math.maxInt(u24)) + 0)) == math.maxInt(u24));
-    try testing.expect(@floatToInt(u128, floatXiYf(f80, @as(u80, math.maxInt(u64)) + 0)) == math.maxInt(u64));
-    try testing.expect(@floatToInt(u128, floatXiYf(f80, @as(u80, math.maxInt(u64)) + 1)) == math.maxInt(u64) + 1); // Exact
-    try testing.expect(@floatToInt(u128, floatXiYf(f80, @as(u80, math.maxInt(u64)) + 2)) == math.maxInt(u64) + 1); // Rounds down
-    try testing.expect(@floatToInt(u128, floatXiYf(f80, @as(u80, math.maxInt(u64)) + 3)) == math.maxInt(u64) + 3); // Tie - Exact
-    try testing.expect(@floatToInt(u128, floatXiYf(f80, @as(u80, math.maxInt(u64)) + 4)) == math.maxInt(u64) + 5); // Rounds up
+    try testing.expect(intToFloat(f80, @as(i80, -12)) == -12);
+    try testing.expect(@floatToInt(u80, intToFloat(f80, @as(u64, math.maxInt(u64)) + 0)) == math.maxInt(u64) + 0);
+    try testing.expect(@floatToInt(u80, intToFloat(f80, @as(u80, math.maxInt(u64)) + 1)) == math.maxInt(u64) + 1);
 
-    try testing.expect(@floatToInt(u128, floatXiYf(f80, @as(u80, math.maxInt(u65)) + 0)) == math.maxInt(u65) + 1); // Rounds up
-    try testing.expect(@floatToInt(u128, floatXiYf(f80, @as(u80, math.maxInt(u65)) + 1)) == math.maxInt(u65) + 1); // Exact
-    try testing.expect(@floatToInt(u128, floatXiYf(f80, @as(u80, math.maxInt(u65)) + 2)) == math.maxInt(u65) + 1); // Rounds down
-    try testing.expect(@floatToInt(u128, floatXiYf(f80, @as(u80, math.maxInt(u65)) + 3)) == math.maxInt(u65) + 1); // Tie - Rounds down
-    try testing.expect(@floatToInt(u128, floatXiYf(f80, @as(u80, math.maxInt(u65)) + 4)) == math.maxInt(u65) + 5); // Rounds up
-    try testing.expect(@floatToInt(u128, floatXiYf(f80, @as(u80, math.maxInt(u65)) + 5)) == math.maxInt(u65) + 5); // Exact
+    try testing.expect(intToFloat(f80, @as(u32, 0)) == 0.0);
+    try testing.expect(intToFloat(f80, @as(u32, 1)) == 1.0);
+    try testing.expect(@floatToInt(u128, intToFloat(f80, @as(u32, math.maxInt(u24)) + 0)) == math.maxInt(u24));
+    try testing.expect(@floatToInt(u128, intToFloat(f80, @as(u80, math.maxInt(u64)) + 0)) == math.maxInt(u64));
+    try testing.expect(@floatToInt(u128, intToFloat(f80, @as(u80, math.maxInt(u64)) + 1)) == math.maxInt(u64) + 1); // Exact
+    try testing.expect(@floatToInt(u128, intToFloat(f80, @as(u80, math.maxInt(u64)) + 2)) == math.maxInt(u64) + 1); // Rounds down
+    try testing.expect(@floatToInt(u128, intToFloat(f80, @as(u80, math.maxInt(u64)) + 3)) == math.maxInt(u64) + 3); // Tie - Exact
+    try testing.expect(@floatToInt(u128, intToFloat(f80, @as(u80, math.maxInt(u64)) + 4)) == math.maxInt(u64) + 5); // Rounds up
+
+    try testing.expect(@floatToInt(u128, intToFloat(f80, @as(u80, math.maxInt(u65)) + 0)) == math.maxInt(u65) + 1); // Rounds up
+    try testing.expect(@floatToInt(u128, intToFloat(f80, @as(u80, math.maxInt(u65)) + 1)) == math.maxInt(u65) + 1); // Exact
+    try testing.expect(@floatToInt(u128, intToFloat(f80, @as(u80, math.maxInt(u65)) + 2)) == math.maxInt(u65) + 1); // Rounds down
+    try testing.expect(@floatToInt(u128, intToFloat(f80, @as(u80, math.maxInt(u65)) + 3)) == math.maxInt(u65) + 1); // Tie - Rounds down
+    try testing.expect(@floatToInt(u128, intToFloat(f80, @as(u80, math.maxInt(u65)) + 4)) == math.maxInt(u65) + 5); // Rounds up
+    try testing.expect(@floatToInt(u128, intToFloat(f80, @as(u80, math.maxInt(u65)) + 5)) == math.maxInt(u65) + 5); // Exact
 }

@@ -13,7 +13,7 @@ comptime {
     }
 }
 
-fn __extenddftf2(a: f64) callconv(.C) f128 {
+pub fn __extenddftf2(a: f64) callconv(.C) f128 {
     return extendf(f128, f64, @bitCast(u64, a));
 }
 
@@ -22,6 +22,5 @@ fn __extenddfkf2(a: f64) callconv(.C) f128 {
 }
 
 fn _Qp_dtoq(c: *f128, a: f64) callconv(.C) void {
-    c.* = @import("extendXfYf2.zig").__extenddftf2(a);
     c.* = extendf(f128, f64, @bitCast(u64, a));
 }

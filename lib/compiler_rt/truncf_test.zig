@@ -1,6 +1,12 @@
 const std = @import("std");
 const testing = std.testing;
-const __truncsfhf2 = @import("truncXfYf2.zig").__truncsfhf2;
+
+const __truncsfhf2 = @import("truncsfhf2.zig").__truncsfhf2;
+const __truncdfhf2 = @import("truncdfhf2.zig").__truncdfhf2;
+const __truncdfsf2 = @import("truncdfsf2.zig").__truncdfsf2;
+const __trunctfhf2 = @import("trunctfhf2.zig").__trunctfhf2;
+const __trunctfsf2 = @import("trunctfsf2.zig").__trunctfsf2;
+const __trunctfdf2 = @import("trunctfdf2.zig").__trunctfdf2;
 const __trunctfxf2 = @import("trunctfxf2.zig").__trunctfxf2;
 
 fn test__truncsfhf2(a: u32, expected: u16) !void {
@@ -65,8 +71,6 @@ test "truncsfhf2" {
     try test__truncsfhf2(0x33280000, 0x0001); // denormal, 0x1.5p-25 -> 0x1.0p-24
     try test__truncsfhf2(0x33000000, 0x0000); // 0x1.0p-25 -> zero
 }
-
-const __truncdfhf2 = @import("truncXfYf2.zig").__truncdfhf2;
 
 fn test__truncdfhf2(a: f64, expected: u16) void {
     const rep = @bitCast(u16, __truncdfhf2(a));
@@ -134,8 +138,6 @@ test "truncdfhf2" {
     test__truncdfhf2(65536.0, 0x7c00);
 }
 
-const __trunctfsf2 = @import("truncXfYf2.zig").__trunctfsf2;
-
 fn test__trunctfsf2(a: f128, expected: u32) void {
     const x = __trunctfsf2(a);
 
@@ -169,8 +171,6 @@ test "trunctfsf2" {
     test__trunctfsf2(0x1.edcba9bb8c76a5a43dd21f334634p-435, 0x0);
 }
 
-const __trunctfdf2 = @import("truncXfYf2.zig").__trunctfdf2;
-
 fn test__trunctfdf2(a: f128, expected: u64) void {
     const x = __trunctfdf2(a);
 
@@ -203,8 +203,6 @@ test "trunctfdf2" {
     test__trunctfdf2(0x1.2f34dd5f437e849b4baab754cdefp+4534, 0x7ff0000000000000);
     test__trunctfdf2(0x1.edcbff8ad76ab5bf46463233214fp-435, 0x24cedcbff8ad76ab);
 }
-
-const __truncdfsf2 = @import("truncXfYf2.zig").__truncdfsf2;
 
 fn test__truncdfsf2(a: f64, expected: u32) void {
     const x = __truncdfsf2(a);
@@ -240,8 +238,6 @@ test "truncdfsf2" {
     // huge number becomes inf
     test__truncdfsf2(340282366920938463463374607431768211456.0, 0x7f800000);
 }
-
-const __trunctfhf2 = @import("truncXfYf2.zig").__trunctfhf2;
 
 fn test__trunctfhf2(a: f128, expected: u16) void {
     const x = __trunctfhf2(a);

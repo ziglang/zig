@@ -138,5 +138,5 @@ pub inline fn extend_f80(comptime src_t: type, a: std.meta.Int(.unsigned, @typeI
 }
 
 test {
-    _ = @import("extendXfYf2_test.zig");
+    _ = @import("extendf_test.zig");
 }

@@ -11,7 +11,7 @@ comptime {
     }
 }
 
-fn __fixunssfdi(a: f32) callconv(.C) u64 {
+pub fn __fixunssfdi(a: f32) callconv(.C) u64 {
     return floatToInt(u64, a);
 }
 

@@ -11,7 +11,7 @@ comptime {
     }
 }
 
-fn __unorddf2(a: f64, b: f64) callconv(.C) i32 {
+pub fn __unorddf2(a: f64, b: f64) callconv(.C) i32 {
     return comparef.unordcmp(f64, a, b);
 }
 

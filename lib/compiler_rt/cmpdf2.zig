@@ -31,27 +31,27 @@ fn __cmpdf2(a: f64, b: f64) callconv(.C) i32 {
 
 /// "These functions return a value less than or equal to zero if neither argument is NaN,
 /// and a is less than or equal to b."
-fn __ledf2(a: f64, b: f64) callconv(.C) i32 {
+pub fn __ledf2(a: f64, b: f64) callconv(.C) i32 {
     return __cmpdf2(a, b);
 }
 
 /// "These functions return zero if neither argument is NaN, and a and b are equal."
 /// Note that due to some kind of historical accident, __eqdf2 and __nedf2 are defined
 /// to have the same return value.
-fn __eqdf2(a: f64, b: f64) callconv(.C) i32 {
+pub fn __eqdf2(a: f64, b: f64) callconv(.C) i32 {
     return __cmpdf2(a, b);
 }
 
 /// "These functions return a nonzero value if either argument is NaN, or if a and b are unequal."
 /// Note that due to some kind of historical accident, __eqdf2 and __nedf2 are defined
 /// to have the same return value.
-fn __nedf2(a: f64, b: f64) callconv(.C) i32 {
+pub fn __nedf2(a: f64, b: f64) callconv(.C) i32 {
     return __cmpdf2(a, b);
 }
 
 /// "These functions return a value less than zero if neither argument is NaN, and a
 /// is strictly less than b."
-fn __ltdf2(a: f64, b: f64) callconv(.C) i32 {
+pub fn __ltdf2(a: f64, b: f64) callconv(.C) i32 {
     return __cmpdf2(a, b);
 }
 

@@ -11,7 +11,7 @@ comptime {
     }
 }
 
-fn __truncdfsf2(a: f64) callconv(.C) f32 {
+pub fn __truncdfsf2(a: f64) callconv(.C) f32 {
     return truncf(f32, f64, a);
 }
 

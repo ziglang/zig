@@ -7,6 +7,6 @@ comptime {
     @export(__floatunsihf, .{ .name = "__floatunsihf", .linkage = common.linkage });
 }
 
-fn __floatunsihf(a: u32) callconv(.C) f16 {
+pub fn __floatunsihf(a: u32) callconv(.C) f16 {
     return intToFloat(f16, a);
 }

@@ -7,7 +7,9 @@ const std = @import("std");
 const math = std.math;
 const qnan128 = @bitCast(f128, @as(u128, 0x7fff800000000000) << 64);
 
-const __addtf3 = @import("addf3.zig").__addtf3;
+const __addtf3 = @import("addtf3.zig").__addtf3;
+const __addxf3 = @import("addxf3.zig").__addxf3;
+const __subtf3 = @import("subtf3.zig").__subtf3;
 
 fn test__addtf3(a: f128, b: f128, expected_hi: u64, expected_lo: u64) !void {
     const x = __addtf3(a, b);
@@ -48,8 +50,6 @@ test "addtf3" {
     try test__addtf3(0x1.edcba52449872455634654321fp-1, 0x1.23456734245345543849abcdefp+5, 0x40042afc95c8b579, 0x61e58dd6c51eb77c);
 }
 
-const __subtf3 = @import("addf3.zig").__subtf3;
-
 fn test__subtf3(a: f128, b: f128, expected_hi: u64, expected_lo: u64) !void {
     const x = __subtf3(a, b);
 
@@ -87,7 +87,6 @@ test "subtf3" {
     try test__subtf3(0x1.ee9d7c52354a6936ab8d7654321fp-1, 0x1.234567829a3bcdef5678ade36734p+5, 0xc0041b8af1915166, 0xa44a7bca780a166c);
 }
 
-const __addxf3 = @import("addf3.zig").__addxf3;
 const qnan80 = @bitCast(f80, @bitCast(u80, math.nan(f80)) | (1 << (math.floatFractionalBits(f80) - 1)));
 
 fn test__addxf3(a: f80, b: f80, expected: u80) !void {
