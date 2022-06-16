@@ -619,7 +619,6 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/shift.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/sin.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/sincos.zig"
-    "${CMAKE_SOURCE_DIR}/lib/compiler_rt/sparc.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/sqrt.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/stack_probe.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/subo.zig"

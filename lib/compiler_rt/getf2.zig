@@ -9,6 +9,9 @@ comptime {
     if (common.want_ppc_abi) {
         @export(__gekf2, .{ .name = "__gekf2", .linkage = common.linkage });
         @export(__gtkf2, .{ .name = "__gtkf2", .linkage = common.linkage });
+    } else if (common.want_sparc_abi) {
+        // These exports are handled in cmptf2.zig because gt and ge on sparc
+        // are based on calling _Qp_cmp.
     } else {
         @export(__getf2, .{ .name = "__getf2", .linkage = common.linkage });
         @export(__gttf2, .{ .name = "__gttf2", .linkage = common.linkage });

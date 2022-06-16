@@ -1,30 +1,35 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const arch = builtin.cpu.arch;
-const is_test = builtin.is_test;
-const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
 
 const common = @import("common.zig");
 const normalize = common.normalize;
 const wideMultiply = common.wideMultiply;
+
 pub const panic = common.panic;
 
 comptime {
-    @export(__divtf3, .{ .name = "__divtf3", .linkage = linkage });
-
-    if (!is_test) {
-        if (arch.isPPC() or arch.isPPC64()) {
-            @export(__divkf3, .{ .name = "__divkf3", .linkage = linkage });
-        }
+    if (common.want_ppc_abi) {
+        @export(__divkf3, .{ .name = "__divkf3", .linkage = common.linkage });
+    } else if (common.want_sparc_abi) {
+        @export(_Qp_div, .{ .name = "_Qp_div", .linkage = common.linkage });
+    } else {
+        @export(__divtf3, .{ .name = "__divtf3", .linkage = common.linkage });
     }
 }
 
-pub fn __divkf3(a: f128, b: f128) callconv(.C) f128 {
-    return @call(.{ .modifier = .always_inline }, __divtf3, .{ a, b });
+fn __divkf3(a: f128, b: f128) callconv(.C) f128 {
+    return div(a, b);
 }
 
-pub fn __divtf3(a: f128, b: f128) callconv(.C) f128 {
-    @setRuntimeSafety(builtin.is_test);
+fn _Qp_div(c: *f128, a: *const f128, b: *const f128) callconv(.C) void {
+    c.* = div(a.*, b.*);
+}
+
+fn __divtf3(a: f128, b: f128) callconv(.C) f128 {
+    return div(a, b);
+}
+
+inline fn div(a: f128, b: f128) f128 {
     const Z = std.meta.Int(.unsigned, 128);
 
     const significandBits = std.math.floatMantissaBits(f128);
