@@ -8,6 +8,7 @@ pub const want_aeabi = builtin.cpu.arch.isARM() or builtin.cpu.arch.isThumb();
 pub const want_ppc_abi = builtin.cpu.arch.isPPC() or builtin.cpu.arch.isPPC64();
 pub const want_msvc_abi = builtin.abi == .msvc;
 pub const want_gnu_abi = builtin.abi.isGnu();
+pub const want_sparc_abi = builtin.cpu.arch.isSPARC();
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test compiler-rt.

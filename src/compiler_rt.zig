@@ -228,6 +228,5 @@ const sources = &[_][]const u8{
     "compiler_rt/arm.zig",
     "compiler_rt/aulldiv.zig",
     "compiler_rt/aullrem.zig",
-    "compiler_rt/sparc.zig",
     "compiler_rt/clear_cache.zig",
 };

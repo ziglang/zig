@@ -179,6 +179,4 @@ comptime {
     _ = @import("compiler_rt/aulldiv.zig");
     _ = @import("compiler_rt/aullrem.zig");
     _ = @import("compiler_rt/clear_cache.zig");
-
-    _ = @import("compiler_rt/sparc.zig");
 }
