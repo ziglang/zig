@@ -115,12 +115,12 @@ pub fn emitMir(
 
             .sethi => try emit.mirSethi(inst),
 
-            .sll => @panic("TODO implement sparc64 sll"),
-            .srl => @panic("TODO implement sparc64 srl"),
-            .sra => @panic("TODO implement sparc64 sra"),
-            .sllx => @panic("TODO implement sparc64 sllx"),
-            .srlx => @panic("TODO implement sparc64 srlx"),
-            .srax => @panic("TODO implement sparc64 srax"),
+            .sll => try emit.mirShift(inst),
+            .srl => try emit.mirShift(inst),
+            .sra => try emit.mirShift(inst),
+            .sllx => try emit.mirShift(inst),
+            .srlx => try emit.mirShift(inst),
+            .srax => try emit.mirShift(inst),
 
             .stb => try emit.mirArithmetic3Op(inst),
             .sth => try emit.mirArithmetic3Op(inst),
@@ -368,6 +368,38 @@ fn mirSethi(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     assert(tag == .sethi);
     try emit.writeInstruction(Instruction.sethi(imm, rd));
+}
+
+fn mirShift(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const data = emit.mir.instructions.items(.data)[inst].shift;
+
+    const rd = data.rd;
+    const rs1 = data.rs1;
+
+    if (data.is_imm) {
+        const imm = data.rs2_or_imm.imm;
+        switch (tag) {
+            .sll => try emit.writeInstruction(Instruction.sll(u5, rs1, @truncate(u5, imm), rd)),
+            .srl => try emit.writeInstruction(Instruction.srl(u5, rs1, @truncate(u5, imm), rd)),
+            .sra => try emit.writeInstruction(Instruction.sra(u5, rs1, @truncate(u5, imm), rd)),
+            .sllx => try emit.writeInstruction(Instruction.sllx(u6, rs1, imm, rd)),
+            .srlx => try emit.writeInstruction(Instruction.srlx(u6, rs1, imm, rd)),
+            .srax => try emit.writeInstruction(Instruction.srax(u6, rs1, imm, rd)),
+            else => unreachable,
+        }
+    } else {
+        const rs2 = data.rs2_or_imm.rs2;
+        switch (tag) {
+            .sll => try emit.writeInstruction(Instruction.sll(Register, rs1, rs2, rd)),
+            .srl => try emit.writeInstruction(Instruction.srl(Register, rs1, rs2, rd)),
+            .sra => try emit.writeInstruction(Instruction.sra(Register, rs1, rs2, rd)),
+            .sllx => try emit.writeInstruction(Instruction.sllx(Register, rs1, rs2, rd)),
+            .srlx => try emit.writeInstruction(Instruction.srlx(Register, rs1, rs2, rd)),
+            .srax => try emit.writeInstruction(Instruction.srax(Register, rs1, rs2, rd)),
+            else => unreachable,
+        }
+    }
 }
 
 fn mirTrap(emit: *Emit, inst: Mir.Inst.Index) !void {
