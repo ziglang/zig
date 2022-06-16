@@ -11,6 +11,14 @@ comptime {
         @export(__nekf2, .{ .name = "__nekf2", .linkage = common.linkage });
         @export(__ltkf2, .{ .name = "__ltkf2", .linkage = common.linkage });
         @export(__lekf2, .{ .name = "__lekf2", .linkage = common.linkage });
+    } else if (common.want_sparc_abi) {
+        @export(_Qp_cmp, .{ .name = "_Qp_cmp", .linkage = common.linkage });
+        @export(_Qp_feq, .{ .name = "_Qp_feq", .linkage = common.linkage });
+        @export(_Qp_fne, .{ .name = "_Qp_fne", .linkage = common.linkage });
+        @export(_Qp_flt, .{ .name = "_Qp_flt", .linkage = common.linkage });
+        @export(_Qp_fle, .{ .name = "_Qp_fle", .linkage = common.linkage });
+        @export(_Qp_fgt, .{ .name = "_Qp_fgt", .linkage = common.linkage });
+        @export(_Qp_fge, .{ .name = "_Qp_fge", .linkage = common.linkage });
     } else {
         @export(__eqtf2, .{ .name = "__eqtf2", .linkage = common.linkage });
         @export(__netf2, .{ .name = "__netf2", .linkage = common.linkage });
@@ -70,4 +78,45 @@ fn __ltkf2(a: f128, b: f128) callconv(.C) i32 {
 
 fn __lekf2(a: f128, b: f128) callconv(.C) i32 {
     return __cmptf2(a, b);
+}
+
+const SparcFCMP = enum(i32) {
+    Equal = 0,
+    Less = 1,
+    Greater = 2,
+    Unordered = 3,
+};
+
+fn _Qp_cmp(a: *const f128, b: *const f128) callconv(.C) i32 {
+    return @enumToInt(comparef.cmpf2(f128, SparcFCMP, a.*, b.*));
+}
+
+fn _Qp_feq(a: *const f128, b: *const f128) callconv(.C) bool {
+    return @intToEnum(SparcFCMP, _Qp_cmp(a, b)) == .Equal;
+}
+
+fn _Qp_fne(a: *const f128, b: *const f128) callconv(.C) bool {
+    return @intToEnum(SparcFCMP, _Qp_cmp(a, b)) != .Equal;
+}
+
+fn _Qp_flt(a: *const f128, b: *const f128) callconv(.C) bool {
+    return @intToEnum(SparcFCMP, _Qp_cmp(a, b)) == .Less;
+}
+
+fn _Qp_fgt(a: *const f128, b: *const f128) callconv(.C) bool {
+    return @intToEnum(SparcFCMP, _Qp_cmp(a, b)) == .Greater;
+}
+
+fn _Qp_fge(a: *const f128, b: *const f128) callconv(.C) bool {
+    return switch (@intToEnum(SparcFCMP, _Qp_cmp(a, b))) {
+        .Equal, .Greater => true,
+        .Less, .Unordered => false,
+    };
+}
+
+fn _Qp_fle(a: *const f128, b: *const f128) callconv(.C) bool {
+    return switch (@intToEnum(SparcFCMP, _Qp_cmp(a, b))) {
+        .Equal, .Less => true,
+        .Greater, .Unordered => false,
+    };
 }

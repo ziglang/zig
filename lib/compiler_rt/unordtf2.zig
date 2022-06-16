@@ -6,6 +6,9 @@ pub const panic = common.panic;
 comptime {
     if (common.want_ppc_abi) {
         @export(__unordkf2, .{ .name = "__unordkf2", .linkage = common.linkage });
+    } else if (common.want_sparc_abi) {
+        // These exports are handled in cmptf2.zig because unordered comparisons
+        // are based on calling _Qp_cmp.
     } else {
         @export(__unordtf2, .{ .name = "__unordtf2", .linkage = common.linkage });
     }
