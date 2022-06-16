@@ -1454,6 +1454,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .rem => self.airBinOp(inst, .rem),
         .shl => self.airWrapBinOp(inst, .shl),
         .shl_exact => self.airBinOp(inst, .shl),
+        .shl_sat => self.airShlSat(inst),
         .shr, .shr_exact => self.airBinOp(inst, .shr),
         .xor => self.airBinOp(inst, .xor),
         .max => self.airMaxMin(inst, .max),
@@ -1588,7 +1589,6 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .mul_sat,
         .mod,
         .assembly,
-        .shl_sat,
         .ret_addr,
         .frame_addr,
         .bit_reverse,
@@ -4986,5 +4986,59 @@ fn signedSat(self: *Self, lhs_operand: WValue, rhs_operand: WValue, ty: Type, op
         try self.addTag(.select);
         try self.addLabel(.local_set, bin_result.local); // re-use local
         return bin_result;
+    }
+}
+
+fn airShlSat(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const ty = self.air.typeOfIndex(inst);
+    const int_info = ty.intInfo(self.target);
+    if (int_info.bits > 64) {
+        return self.fail("TODO: Saturating shifting left for integers with bitsize '{d}'", .{int_info.bits});
+    }
+
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
+    if (int_info.signedness == .signed) {}
+    const wasm_bits = toWasmBits(int_info.bits).?;
+    const result = try self.allocLocal(ty);
+
+    if (wasm_bits == int_info.bits) {
+        const shl = try self.binOp(lhs, rhs, ty, .shl);
+        const shr = try self.binOp(shl, rhs, ty, .shr);
+        const cmp_result = try self.cmp(lhs, shr, ty, .neq);
+        if (wasm_bits == 32)
+            try self.addImm32(-1)
+        else
+            try self.addImm64(@bitCast(u64, @as(i64, -1)));
+        try self.emitWValue(shl);
+        try self.emitWValue(cmp_result);
+        try self.addTag(.select);
+        try self.addLabel(.local_set, result.local);
+        return result;
+    } else {
+        const shift_size = wasm_bits - int_info.bits;
+        const shift_value = switch (wasm_bits) {
+            32 => WValue{ .imm32 = shift_size },
+            64 => WValue{ .imm64 = shift_size },
+            else => unreachable,
+        };
+
+        const shl_res = try self.binOp(lhs, shift_value, ty, .shl);
+        const shl = try self.binOp(shl_res, rhs, ty, .shl);
+        const shr = try self.binOp(shl, rhs, ty, .shr);
+
+        const cmp_result = try self.cmp(shl_res, shr, ty, .neq);
+        if (wasm_bits == 32)
+            try self.addImm32(-1)
+        else
+            try self.addImm64(@bitCast(u64, @as(i64, -1)));
+        try self.emitWValue(shl);
+        try self.emitWValue(cmp_result);
+        try self.addTag(.select);
+        try self.addLabel(.local_set, result.local);
+        return self.binOp(result, shift_value, ty, .shr);
     }
 }
