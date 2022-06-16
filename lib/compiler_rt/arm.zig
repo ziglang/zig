@@ -105,9 +105,9 @@ pub fn __aeabi_memclr8(dest: [*]u8, n: usize) callconv(.AAPCS) void {
 }
 
 // Dummy functions to avoid errors during the linking phase
-pub fn __aeabi_unwind_cpp_pr0() callconv(.C) void {}
-pub fn __aeabi_unwind_cpp_pr1() callconv(.C) void {}
-pub fn __aeabi_unwind_cpp_pr2() callconv(.C) void {}
+pub fn __aeabi_unwind_cpp_pr0() callconv(.AAPCS) void {}
+pub fn __aeabi_unwind_cpp_pr1() callconv(.AAPCS) void {}
+pub fn __aeabi_unwind_cpp_pr2() callconv(.AAPCS) void {}
 
 // This function can only clobber r0 according to the ABI
 pub fn __aeabi_read_tp() callconv(.Naked) void {
