@@ -13,7 +13,7 @@ comptime {
     }
 }
 
-fn __truncsfhf2(a: f32) callconv(.C) common.F16T {
+pub fn __truncsfhf2(a: f32) callconv(.C) common.F16T {
     return @bitCast(common.F16T, truncf(f16, f32, a));
 }
 

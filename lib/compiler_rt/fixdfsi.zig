@@ -11,7 +11,7 @@ comptime {
     }
 }
 
-fn __fixdfsi(a: f64) callconv(.C) i32 {
+pub fn __fixdfsi(a: f64) callconv(.C) i32 {
     return floatToInt(i32, a);
 }
 

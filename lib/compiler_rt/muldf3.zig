@@ -11,7 +11,7 @@ comptime {
     }
 }
 
-fn __muldf3(a: f64, b: f64) callconv(.C) f64 {
+pub fn __muldf3(a: f64, b: f64) callconv(.C) f64 {
     return mulf3(f64, a, b);
 }
 

@@ -7,10 +7,10 @@ const math = std.math;
 const qnan128 = @bitCast(f128, @as(u128, 0x7fff800000000000) << 64);
 const inf128 = @bitCast(f128, @as(u128, 0x7fff000000000000) << 64);
 
-const __multf3 = @import("mulf3.zig").__multf3;
-const __mulxf3 = @import("mulf3.zig").__mulxf3;
-const __muldf3 = @import("mulf3.zig").__muldf3;
-const __mulsf3 = @import("mulf3.zig").__mulsf3;
+const __multf3 = @import("multf3.zig").__multf3;
+const __mulxf3 = @import("mulxf3.zig").__mulxf3;
+const __muldf3 = @import("muldf3.zig").__muldf3;
+const __mulsf3 = @import("mulsf3.zig").__mulsf3;
 
 // return true if equal
 // use two 64-bit integers intead of one 128-bit integer

@@ -7,6 +7,6 @@ comptime {
     @export(__floattisf, .{ .name = "__floattisf", .linkage = common.linkage });
 }
 
-fn __floattisf(a: i128) callconv(.C) f32 {
+pub fn __floattisf(a: i128) callconv(.C) f32 {
     return intToFloat(f32, a);
 }

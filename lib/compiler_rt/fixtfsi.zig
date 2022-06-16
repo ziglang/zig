@@ -13,7 +13,7 @@ comptime {
     }
 }
 
-fn __fixtfsi(a: f128) callconv(.C) i32 {
+pub fn __fixtfsi(a: f128) callconv(.C) i32 {
     return floatToInt(i32, a);
 }
 

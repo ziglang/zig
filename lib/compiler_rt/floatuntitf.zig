@@ -11,7 +11,7 @@ comptime {
     }
 }
 
-fn __floatuntitf(a: u128) callconv(.C) f128 {
+pub fn __floatuntitf(a: u128) callconv(.C) f128 {
     return intToFloat(f128, a);
 }
 

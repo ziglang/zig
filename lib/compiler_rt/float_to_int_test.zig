@@ -1,31 +1,33 @@
 const std = @import("std");
 const testing = std.testing;
 const math = std.math;
-const fixXfYi = @import("fixXfYi.zig").fixXfYi;
+
+const __fixunshfti = @import("fixunshfti.zig").__fixunshfti;
+const __fixunsxfti = @import("fixunsxfti.zig").__fixunsxfti;
 
 // Conversion from f32
-const __fixsfsi = @import("fixXfYi.zig").__fixsfsi;
-const __fixunssfsi = @import("fixXfYi.zig").__fixunssfsi;
-const __fixsfdi = @import("fixXfYi.zig").__fixsfdi;
-const __fixunssfdi = @import("fixXfYi.zig").__fixunssfdi;
-const __fixsfti = @import("fixXfYi.zig").__fixsfti;
-const __fixunssfti = @import("fixXfYi.zig").__fixunssfti;
+const __fixsfsi = @import("fixsfsi.zig").__fixsfsi;
+const __fixunssfsi = @import("fixunssfsi.zig").__fixunssfsi;
+const __fixsfdi = @import("fixsfdi.zig").__fixsfdi;
+const __fixunssfdi = @import("fixunssfdi.zig").__fixunssfdi;
+const __fixsfti = @import("fixsfti.zig").__fixsfti;
+const __fixunssfti = @import("fixunssfti.zig").__fixunssfti;
 
 // Conversion from f64
-const __fixdfsi = @import("fixXfYi.zig").__fixdfsi;
-const __fixunsdfsi = @import("fixXfYi.zig").__fixunsdfsi;
-const __fixdfdi = @import("fixXfYi.zig").__fixdfdi;
-const __fixunsdfdi = @import("fixXfYi.zig").__fixunsdfdi;
-const __fixdfti = @import("fixXfYi.zig").__fixdfti;
-const __fixunsdfti = @import("fixXfYi.zig").__fixunsdfti;
+const __fixdfsi = @import("fixdfsi.zig").__fixdfsi;
+const __fixunsdfsi = @import("fixunsdfsi.zig").__fixunsdfsi;
+const __fixdfdi = @import("fixdfdi.zig").__fixdfdi;
+const __fixunsdfdi = @import("fixunsdfdi.zig").__fixunsdfdi;
+const __fixdfti = @import("fixdfti.zig").__fixdfti;
+const __fixunsdfti = @import("fixunsdfti.zig").__fixunsdfti;
 
 // Conversion from f128
-const __fixtfsi = @import("fixXfYi.zig").__fixtfsi;
-const __fixunstfsi = @import("fixXfYi.zig").__fixunstfsi;
-const __fixtfdi = @import("fixXfYi.zig").__fixtfdi;
-const __fixunstfdi = @import("fixXfYi.zig").__fixunstfdi;
-const __fixtfti = @import("fixXfYi.zig").__fixtfti;
-const __fixunstfti = @import("fixXfYi.zig").__fixunstfti;
+const __fixtfsi = @import("fixtfsi.zig").__fixtfsi;
+const __fixunstfsi = @import("fixunstfsi.zig").__fixunstfsi;
+const __fixtfdi = @import("fixtfdi.zig").__fixtfdi;
+const __fixunstfdi = @import("fixunstfdi.zig").__fixunstfdi;
+const __fixtfti = @import("fixtfti.zig").__fixtfti;
+const __fixunstfti = @import("fixunstfti.zig").__fixunstfti;
 
 fn test__fixsfsi(a: f32, expected: i32) !void {
     const x = __fixsfsi(a);
@@ -927,21 +929,21 @@ test "fixunstfti" {
 }
 
 fn test__fixunshfti(a: f16, expected: u128) !void {
-    const x = fixXfYi(u128, a);
+    const x = __fixunshfti(a);
     try testing.expect(x == expected);
 }
 
-test "fixXfYi for f16" {
+test "fixunshfti for f16" {
     try test__fixunshfti(math.inf(f16), math.maxInt(u128));
     try test__fixunshfti(math.floatMax(f16), 65504);
 }
 
 fn test__fixunsxfti(a: f80, expected: u128) !void {
-    const x = fixXfYi(u128, a);
+    const x = __fixunsxfti(a);
     try testing.expect(x == expected);
 }
 
-test "fixXfYi for f80" {
+test "fixunsxfti for f80" {
     try test__fixunsxfti(math.inf(f80), math.maxInt(u128));
     try test__fixunsxfti(math.floatMax(f80), math.maxInt(u128));
     try test__fixunsxfti(math.maxInt(u64), math.maxInt(u64));

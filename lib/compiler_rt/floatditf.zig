@@ -13,7 +13,7 @@ comptime {
     }
 }
 
-fn __floatditf(a: i64) callconv(.C) f128 {
+pub fn __floatditf(a: i64) callconv(.C) f128 {
     return intToFloat(f128, a);
 }
 

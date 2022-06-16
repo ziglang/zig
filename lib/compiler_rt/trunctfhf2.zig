@@ -7,6 +7,6 @@ comptime {
     @export(__trunctfhf2, .{ .name = "__trunctfhf2", .linkage = common.linkage });
 }
 
-fn __trunctfhf2(a: f128) callconv(.C) common.F16T {
+pub fn __trunctfhf2(a: f128) callconv(.C) common.F16T {
     return @bitCast(common.F16T, truncf(f16, f128, a));
 }

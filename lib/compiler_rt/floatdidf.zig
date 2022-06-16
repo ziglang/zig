@@ -11,7 +11,7 @@ comptime {
     }
 }
 
-fn __floatdidf(a: i64) callconv(.C) f64 {
+pub fn __floatdidf(a: i64) callconv(.C) f64 {
     return intToFloat(f64, a);
 }
 

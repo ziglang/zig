@@ -7,6 +7,6 @@ comptime {
     @export(__absvdi2, .{ .name = "__absvdi2", .linkage = common.linkage });
 }
 
-fn __absvdi2(a: i64) callconv(.C) i64 {
+pub fn __absvdi2(a: i64) callconv(.C) i64 {
     return absv(i64, a);
 }

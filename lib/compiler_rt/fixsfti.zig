@@ -7,6 +7,6 @@ comptime {
     @export(__fixsfti, .{ .name = "__fixsfti", .linkage = common.linkage });
 }
 
-fn __fixsfti(a: f32) callconv(.C) i128 {
+pub fn __fixsfti(a: f32) callconv(.C) i128 {
     return floatToInt(i128, a);
 }
