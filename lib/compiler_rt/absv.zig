@@ -1,18 +1,6 @@
-// absv - absolute oVerflow
-// * @panic, if value can not be represented
-// - absvXi4_generic for unoptimized version
-const std = @import("std");
-const builtin = @import("builtin");
-const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
-pub const panic = @import("common.zig").panic;
-
-comptime {
-    @export(__absvsi2, .{ .name = "__absvsi2", .linkage = linkage });
-    @export(__absvdi2, .{ .name = "__absvdi2", .linkage = linkage });
-    @export(__absvti2, .{ .name = "__absvti2", .linkage = linkage });
-}
-
-inline fn absvXi(comptime ST: type, a: ST) ST {
+/// absv - absolute oVerflow
+/// * @panic if value can not be represented
+pub inline fn absv(comptime ST: type, a: ST) ST {
     const UT = switch (ST) {
         i32 => u32,
         i64 => u64,
@@ -29,18 +17,6 @@ inline fn absvXi(comptime ST: type, a: ST) ST {
     if (x < 0)
         @panic("compiler_rt absv: overflow");
     return x;
-}
-
-pub fn __absvsi2(a: i32) callconv(.C) i32 {
-    return absvXi(i32, a);
-}
-
-pub fn __absvdi2(a: i64) callconv(.C) i64 {
-    return absvXi(i64, a);
-}
-
-pub fn __absvti2(a: i128) callconv(.C) i128 {
-    return absvXi(i128, a);
 }
 
 test {

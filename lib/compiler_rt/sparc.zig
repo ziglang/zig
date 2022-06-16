@@ -50,7 +50,7 @@ const FCMP = enum(i32) {
 // Basic arithmetic
 
 pub fn _Qp_add(c: *f128, a: *f128, b: *f128) callconv(.C) void {
-    c.* = @import("addXf3.zig").__addtf3(a.*, b.*);
+    c.* = @import("addf3.zig").__addtf3(a.*, b.*);
 }
 
 pub fn _Qp_div(c: *f128, a: *f128, b: *f128) callconv(.C) void {
@@ -58,11 +58,11 @@ pub fn _Qp_div(c: *f128, a: *f128, b: *f128) callconv(.C) void {
 }
 
 pub fn _Qp_mul(c: *f128, a: *f128, b: *f128) callconv(.C) void {
-    c.* = @import("mulXf3.zig").__multf3(a.*, b.*);
+    c.* = @import("mulf3.zig").__multf3(a.*, b.*);
 }
 
 pub fn _Qp_sub(c: *f128, a: *f128, b: *f128) callconv(.C) void {
-    c.* = @import("addXf3.zig").__subtf3(a.*, b.*);
+    c.* = @import("addf3.zig").__subtf3(a.*, b.*);
 }
 
 // Comparison
