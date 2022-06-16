@@ -1445,6 +1445,8 @@ fn buildOutputType(
                                 needed = false;
                             } else if (mem.eql(u8, linker_arg, "--no-as-needed")) {
                                 needed = true;
+                            } else if (mem.eql(u8, linker_arg, "-no-pie")) {
+                                want_pie = false;
                             } else if (mem.eql(u8, linker_arg, "--whole-archive") or
                                 mem.eql(u8, linker_arg, "-whole-archive"))
                             {
