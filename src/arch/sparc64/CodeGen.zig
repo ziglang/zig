@@ -583,7 +583,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .dbg_stmt        => try self.airDbgStmt(inst),
             .fptrunc         => @panic("TODO try self.airFptrunc(inst)"),
             .fpext           => @panic("TODO try self.airFpext(inst)"),
-            .intcast         => @panic("TODO try self.airIntCast(inst)"),
+            .intcast         => try self.airIntCast(inst),
             .trunc           => @panic("TODO try self.airTrunc(inst)"),
             .bool_to_int     => @panic("TODO try self.airBoolToInt(inst)"),
             .is_non_null     => @panic("TODO try self.airIsNonNull(inst)"),
@@ -1463,6 +1463,24 @@ fn airFence(self: *Self, inst: Air.Inst.Index) !void {
     });
 
     return self.finishAir(inst, .dead, .{ .none, .none, .none });
+}
+
+fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    if (self.liveness.isUnused(inst))
+        return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
+
+    const operand_ty = self.air.typeOf(ty_op.operand);
+    const operand = try self.resolveInst(ty_op.operand);
+    const info_a = operand_ty.intInfo(self.target.*);
+    const info_b = self.air.typeOfIndex(inst).intInfo(self.target.*);
+    if (info_a.signedness != info_b.signedness)
+        return self.fail("TODO gen intcast sign safety in semantic analysis", .{});
+
+    if (info_a.bits == info_b.bits)
+        return self.finishAir(inst, operand, .{ ty_op.operand, .none, .none });
+
+    return self.fail("TODO implement intCast for {}", .{self.target.cpu.arch});
 }
 
 fn airIsErr(self: *Self, inst: Air.Inst.Index) !void {
