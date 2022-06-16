@@ -113,7 +113,6 @@ pub fn buildCompilerRtLib(comp: *Compilation, compiler_rt_lib: *?CRTFile) !void 
             .main_pkg = null,
             .output_mode = .Lib,
             .link_mode = .Static,
-            .function_sections = true,
             .thread_pool = comp.thread_pool,
             .libc_installation = comp.bin_file.options.libc_installation,
             .emit_bin = emit_bin,
