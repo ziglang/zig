@@ -1,8 +1,9 @@
-const absv = @import("absv.zig");
 const testing = @import("std").testing;
 
+const __absvti2 = @import("absvti2.zig").__absvti2;
+
 fn test__absvti2(a: i128, expected: i128) !void {
-    var result = absv.__absvti2(a);
+    var result = __absvti2(a);
     try testing.expectEqual(expected, result);
 }
 

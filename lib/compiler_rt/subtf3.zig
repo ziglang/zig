@@ -12,7 +12,7 @@ comptime {
     }
 }
 
-fn __subtf3(a: f128, b: f128) callconv(.C) f128 {
+pub fn __subtf3(a: f128, b: f128) callconv(.C) f128 {
     return sub(a, b);
 }
 

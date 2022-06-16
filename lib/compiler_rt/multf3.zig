@@ -13,7 +13,7 @@ comptime {
     }
 }
 
-fn __multf3(a: f128, b: f128) callconv(.C) f128 {
+pub fn __multf3(a: f128, b: f128) callconv(.C) f128 {
     return mulf3(f128, a, b);
 }
 

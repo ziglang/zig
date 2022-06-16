@@ -13,7 +13,7 @@ comptime {
     }
 }
 
-fn __floatunsitf(a: u32) callconv(.C) f128 {
+pub fn __floatunsitf(a: u32) callconv(.C) f128 {
     return intToFloat(f128, a);
 }
 

@@ -54,5 +54,5 @@ pub fn intToFloat(comptime T: type, x: anytype) T {
 }
 
 test {
-    _ = @import("floatXiYf_test.zig");
+    _ = @import("int_to_float_test.zig");
 }

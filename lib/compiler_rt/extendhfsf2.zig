@@ -13,7 +13,7 @@ comptime {
     }
 }
 
-fn __extendhfsf2(a: common.F16T) callconv(.C) f32 {
+pub fn __extendhfsf2(a: common.F16T) callconv(.C) f32 {
     return extendf(f32, f16, @bitCast(u16, a));
 }
 

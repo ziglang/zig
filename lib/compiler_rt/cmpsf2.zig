@@ -31,27 +31,27 @@ fn __cmpsf2(a: f32, b: f32) callconv(.C) i32 {
 
 /// "These functions return a value less than or equal to zero if neither argument is NaN,
 /// and a is less than or equal to b."
-fn __lesf2(a: f32, b: f32) callconv(.C) i32 {
+pub fn __lesf2(a: f32, b: f32) callconv(.C) i32 {
     return __cmpsf2(a, b);
 }
 
 /// "These functions return zero if neither argument is NaN, and a and b are equal."
 /// Note that due to some kind of historical accident, __eqsf2 and __nesf2 are defined
 /// to have the same return value.
-fn __eqsf2(a: f32, b: f32) callconv(.C) i32 {
+pub fn __eqsf2(a: f32, b: f32) callconv(.C) i32 {
     return __cmpsf2(a, b);
 }
 
 /// "These functions return a nonzero value if either argument is NaN, or if a and b are unequal."
 /// Note that due to some kind of historical accident, __eqsf2 and __nesf2 are defined
 /// to have the same return value.
-fn __nesf2(a: f32, b: f32) callconv(.C) i32 {
+pub fn __nesf2(a: f32, b: f32) callconv(.C) i32 {
     return __cmpsf2(a, b);
 }
 
 /// "These functions return a value less than zero if neither argument is NaN, and a
 /// is strictly less than b."
-fn __ltsf2(a: f32, b: f32) callconv(.C) i32 {
+pub fn __ltsf2(a: f32, b: f32) callconv(.C) i32 {
     return __cmpsf2(a, b);
 }
 

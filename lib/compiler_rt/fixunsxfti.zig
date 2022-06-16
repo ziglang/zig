@@ -7,6 +7,6 @@ comptime {
     @export(__fixunsxfti, .{ .name = "__fixunsxfti", .linkage = common.linkage });
 }
 
-fn __fixunsxfti(a: f80) callconv(.C) u128 {
+pub fn __fixunsxfti(a: f80) callconv(.C) u128 {
     return floatToInt(u128, a);
 }

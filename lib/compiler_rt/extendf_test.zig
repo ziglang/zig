@@ -1,22 +1,22 @@
 const builtin = @import("builtin");
-const __extendhfsf2 = @import("extendXfYf2.zig").__extendhfsf2;
-const __extendhftf2 = @import("extendXfYf2.zig").__extendhftf2;
-const __extendsftf2 = @import("extendXfYf2.zig").__extendsftf2;
-const __extenddftf2 = @import("extendXfYf2.zig").__extenddftf2;
-const F16T = @import("extendXfYf2.zig").F16T;
+const __extendhfsf2 = @import("extendhfsf2.zig").__extendhfsf2;
+const __extendhftf2 = @import("extendhftf2.zig").__extendhftf2;
+const __extendsftf2 = @import("extendsftf2.zig").__extendsftf2;
+const __extenddftf2 = @import("extenddftf2.zig").__extenddftf2;
+const F16T = @import("./common.zig").F16T;
 
-fn test__extenddftf2(a: f64, expectedHi: u64, expectedLo: u64) !void {
+fn test__extenddftf2(a: f64, expected_hi: u64, expected_lo: u64) !void {
     const x = __extenddftf2(a);
 
     const rep = @bitCast(u128, x);
     const hi = @intCast(u64, rep >> 64);
     const lo = @truncate(u64, rep);
 
-    if (hi == expectedHi and lo == expectedLo)
+    if (hi == expected_hi and lo == expected_lo)
         return;
 
     // test other possible NaN representation(signal NaN)
-    if (expectedHi == 0x7fff800000000000 and expectedLo == 0x0) {
+    if (expected_hi == 0x7fff800000000000 and expected_lo == 0x0) {
         if ((hi & 0x7fff000000000000) == 0x7fff000000000000 and
             ((hi & 0xffffffffffff) > 0 or lo > 0))
         {
@@ -43,18 +43,18 @@ fn test__extendhfsf2(a: u16, expected: u32) !void {
     return error.TestFailure;
 }
 
-fn test__extendsftf2(a: f32, expectedHi: u64, expectedLo: u64) !void {
+fn test__extendsftf2(a: f32, expected_hi: u64, expected_lo: u64) !void {
     const x = __extendsftf2(a);
 
     const rep = @bitCast(u128, x);
     const hi = @intCast(u64, rep >> 64);
     const lo = @truncate(u64, rep);
 
-    if (hi == expectedHi and lo == expectedLo)
+    if (hi == expected_hi and lo == expected_lo)
         return;
 
     // test other possible NaN representation(signal NaN)
-    if (expectedHi == 0x7fff800000000000 and expectedLo == 0x0) {
+    if (expected_hi == 0x7fff800000000000 and expected_lo == 0x0) {
         if ((hi & 0x7fff000000000000) == 0x7fff000000000000 and
             ((hi & 0xffffffffffff) > 0 or lo > 0))
         {
@@ -159,18 +159,18 @@ fn makeInf32() f32 {
     return @bitCast(f32, @as(u32, 0x7f800000));
 }
 
-fn test__extendhftf2(a: u16, expectedHi: u64, expectedLo: u64) !void {
+fn test__extendhftf2(a: u16, expected_hi: u64, expected_lo: u64) !void {
     const x = __extendhftf2(@bitCast(F16T, a));
 
     const rep = @bitCast(u128, x);
     const hi = @intCast(u64, rep >> 64);
     const lo = @truncate(u64, rep);
 
-    if (hi == expectedHi and lo == expectedLo)
+    if (hi == expected_hi and lo == expected_lo)
         return;
 
     // test other possible NaN representation(signal NaN)
-    if (expectedHi == 0x7fff800000000000 and expectedLo == 0x0) {
+    if (expected_hi == 0x7fff800000000000 and expected_lo == 0x0) {
         if ((hi & 0x7fff000000000000) == 0x7fff000000000000 and
             ((hi & 0xffffffffffff) > 0 or lo > 0))
         {
