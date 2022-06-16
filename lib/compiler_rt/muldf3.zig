@@ -15,6 +15,6 @@ fn __muldf3(a: f64, b: f64) callconv(.C) f64 {
     return mulf3(f64, a, b);
 }
 
-fn __aeabi_dmul(a: f64, b: f64) callconv(.C) f64 {
+fn __aeabi_dmul(a: f64, b: f64) callconv(.AAPCS) f64 {
     return mulf3(f64, a, b);
 }
