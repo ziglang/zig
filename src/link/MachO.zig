@@ -286,8 +286,8 @@ const default_dyld_path: [*:0]const u8 = "/usr/lib/dyld";
 const minimum_text_block_size = 64;
 pub const min_text_capacity = padToIdeal(minimum_text_block_size);
 
-/// Virtual memory offset corresponds to the size of __PAGEZERO segment and start of
-/// __TEXT segment.
+/// Virtual memory offset corresponds to the size of __PAGEZERO segment and
+/// start of __TEXT segment.
 const pagezero_vmsize: u64 = 0x100000000;
 
 pub const Export = struct {
@@ -536,7 +536,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 3);
+        comptime assert(Compilation.link_hash_implementation_version == 4);
 
         for (self.base.options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -549,6 +549,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         // We can skip hashing libc and libc++ components that we are in charge of building from Zig
         // installation sources because they are always a product of the compiler version + target information.
         man.hash.add(stack_size);
+        if (self.base.options.pagezero_size) |value| man.hash.add(value);
         man.hash.addListOfBytes(self.base.options.lib_dirs);
         man.hash.addListOfBytes(self.base.options.framework_dirs);
         man.hash.addListOfBytes(self.base.options.frameworks);
@@ -4372,7 +4373,7 @@ fn populateMissingMetadata(self: *MachO) !void {
             .segment = .{
                 .inner = .{
                     .segname = makeStaticString("__PAGEZERO"),
-                    .vmsize = pagezero_vmsize,
+                    .vmsize = self.base.options.pagezero_size orelse pagezero_vmsize,
                     .cmdsize = @sizeOf(macho.segment_command_64),
                 },
             },
@@ -4394,7 +4395,7 @@ fn populateMissingMetadata(self: *MachO) !void {
             .segment = .{
                 .inner = .{
                     .segname = makeStaticString("__TEXT"),
-                    .vmaddr = pagezero_vmsize,
+                    .vmaddr = self.base.options.pagezero_size orelse pagezero_vmsize,
                     .vmsize = needed_size,
                     .filesize = needed_size,
                     .maxprot = macho.PROT.READ | macho.PROT.EXEC,
