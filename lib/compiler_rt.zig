@@ -1,18 +1,59 @@
-const builtin = @import("builtin");
 pub const panic = @import("compiler_rt/common.zig").panic;
 
 comptime {
-    // TODO moving these around makes or breaks compilation of zig1.o for some reason
-    // Perhaps, until we switch to stage2, exports should be duplicated between this file
-    // and files included as a standalone units?
     _ = @import("compiler_rt/atomics.zig");
-    _ = @import("compiler_rt/addXf3.zig");
-    _ = @import("compiler_rt/mulXf3.zig");
-    _ = @import("compiler_rt/compareXf2.zig");
-    _ = @import("compiler_rt/extendXfYf2.zig");
-    _ = @import("compiler_rt/extend_f80.zig");
-    _ = @import("compiler_rt/truncXfYf2.zig");
-    _ = @import("compiler_rt/trunc_f80.zig");
+
+    _ = @import("compiler_rt/addf3.zig");
+    _ = @import("compiler_rt/addsf3.zig");
+    _ = @import("compiler_rt/addtf3.zig");
+    _ = @import("compiler_rt/addxf3.zig");
+    _ = @import("compiler_rt/subdf3.zig");
+    _ = @import("compiler_rt/subsf3.zig");
+    _ = @import("compiler_rt/subtf3.zig");
+    _ = @import("compiler_rt/subxf3.zig");
+
+    _ = @import("compiler_rt/mulf3.zig");
+    _ = @import("compiler_rt/muldf3.zig");
+    _ = @import("compiler_rt/mulsf3.zig");
+    _ = @import("compiler_rt/multf3.zig");
+    _ = @import("compiler_rt/mulxf3.zig");
+
+    _ = @import("compiler_rt/comparef.zig");
+    _ = @import("compiler_rt/cmpsf2.zig");
+    _ = @import("compiler_rt/cmpdf2.zig");
+    _ = @import("compiler_rt/cmptf2.zig");
+    _ = @import("compiler_rt/cmpxf2.zig");
+    _ = @import("compiler_rt/gesf2.zig");
+    _ = @import("compiler_rt/gedf2.zig");
+    _ = @import("compiler_rt/getf2.zig");
+    _ = @import("compiler_rt/gexf2.zig");
+    _ = @import("compiler_rt/unordsf2.zig");
+    _ = @import("compiler_rt/unorddf2.zig");
+    _ = @import("compiler_rt/unordtf2.zig");
+
+    _ = @import("compiler_rt/extendf.zig");
+    _ = @import("compiler_rt/extenddftf2.zig");
+    _ = @import("compiler_rt/extenddfxf2.zig");
+    _ = @import("compiler_rt/extendhfsf2.zig");
+    _ = @import("compiler_rt/extendhftf2.zig");
+    _ = @import("compiler_rt/extendhfxf2.zig");
+    _ = @import("compiler_rt/extendsfdf2.zig");
+    _ = @import("compiler_rt/extendsftf2.zig");
+    _ = @import("compiler_rt/extendsfxf2.zig");
+    _ = @import("compiler_rt/extendxftf2.zig");
+
+    _ = @import("compiler_rt/truncf.zig");
+    _ = @import("compiler_rt/truncsfhf2.zig");
+    _ = @import("compiler_rt/truncdfhf2.zig");
+    _ = @import("compiler_rt/truncdfsf2.zig");
+    _ = @import("compiler_rt/trunctfhf2.zig");
+    _ = @import("compiler_rt/trunctfsf2.zig");
+    _ = @import("compiler_rt/trunctfdf2.zig");
+    _ = @import("compiler_rt/trunctfxf2.zig");
+    _ = @import("compiler_rt/truncxfhf2.zig");
+    _ = @import("compiler_rt/truncxfsf2.zig");
+    _ = @import("compiler_rt/truncxfdf2.zig");
+
     _ = @import("compiler_rt/divtf3.zig");
     _ = @import("compiler_rt/divsf3.zig");
     _ = @import("compiler_rt/divdf3.zig");
@@ -43,35 +84,101 @@ comptime {
     _ = @import("compiler_rt/udivti3.zig");
     _ = @import("compiler_rt/udivmodti4.zig");
     _ = @import("compiler_rt/umodti3.zig");
-    _ = @import("compiler_rt/floatXiYf.zig");
-    _ = @import("compiler_rt/fixXfYi.zig");
+
+    _ = @import("compiler_rt/int_to_float.zig");
+    _ = @import("compiler_rt/floatsihf.zig");
+    _ = @import("compiler_rt/floatsisf.zig");
+    _ = @import("compiler_rt/floatsidf.zig");
+    _ = @import("compiler_rt/floatsitf.zig");
+    _ = @import("compiler_rt/floatsixf.zig");
+    _ = @import("compiler_rt/floatdihf.zig");
+    _ = @import("compiler_rt/floatdisf.zig");
+    _ = @import("compiler_rt/floatdidf.zig");
+    _ = @import("compiler_rt/floatditf.zig");
+    _ = @import("compiler_rt/floatdixf.zig");
+    _ = @import("compiler_rt/floattihf.zig");
+    _ = @import("compiler_rt/floattisf.zig");
+    _ = @import("compiler_rt/floattidf.zig");
+    _ = @import("compiler_rt/floattitf.zig");
+    _ = @import("compiler_rt/floattixf.zig");
+    _ = @import("compiler_rt/floatundihf.zig");
+    _ = @import("compiler_rt/floatundisf.zig");
+    _ = @import("compiler_rt/floatundidf.zig");
+    _ = @import("compiler_rt/floatunditf.zig");
+    _ = @import("compiler_rt/floatundixf.zig");
+    _ = @import("compiler_rt/floatunsihf.zig");
+    _ = @import("compiler_rt/floatunsisf.zig");
+    _ = @import("compiler_rt/floatunsidf.zig");
+    _ = @import("compiler_rt/floatunsitf.zig");
+    _ = @import("compiler_rt/floatunsixf.zig");
+    _ = @import("compiler_rt/floatuntihf.zig");
+    _ = @import("compiler_rt/floatuntisf.zig");
+    _ = @import("compiler_rt/floatuntidf.zig");
+    _ = @import("compiler_rt/floatuntitf.zig");
+    _ = @import("compiler_rt/floatuntixf.zig");
+
+    _ = @import("compiler_rt/float_to_int.zig");
+    _ = @import("compiler_rt/fixhfsi.zig");
+    _ = @import("compiler_rt/fixhfdi.zig");
+    _ = @import("compiler_rt/fixhfti.zig");
+    _ = @import("compiler_rt/fixsfsi.zig");
+    _ = @import("compiler_rt/fixsfdi.zig");
+    _ = @import("compiler_rt/fixsfti.zig");
+    _ = @import("compiler_rt/fixdfsi.zig");
+    _ = @import("compiler_rt/fixdfdi.zig");
+    _ = @import("compiler_rt/fixdfti.zig");
+    _ = @import("compiler_rt/fixtfsi.zig");
+    _ = @import("compiler_rt/fixtfdi.zig");
+    _ = @import("compiler_rt/fixtfti.zig");
+    _ = @import("compiler_rt/fixxfsi.zig");
+    _ = @import("compiler_rt/fixxfdi.zig");
+    _ = @import("compiler_rt/fixxfti.zig");
+    _ = @import("compiler_rt/fixunshfsi.zig");
+    _ = @import("compiler_rt/fixunshfdi.zig");
+    _ = @import("compiler_rt/fixunshfti.zig");
+    _ = @import("compiler_rt/fixunssfsi.zig");
+    _ = @import("compiler_rt/fixunssfdi.zig");
+    _ = @import("compiler_rt/fixunssfti.zig");
+    _ = @import("compiler_rt/fixunsdfsi.zig");
+    _ = @import("compiler_rt/fixunsdfdi.zig");
+    _ = @import("compiler_rt/fixunsdfti.zig");
+    _ = @import("compiler_rt/fixunstfsi.zig");
+    _ = @import("compiler_rt/fixunstfdi.zig");
+    _ = @import("compiler_rt/fixunstfti.zig");
+    _ = @import("compiler_rt/fixunsxfsi.zig");
+    _ = @import("compiler_rt/fixunsxfdi.zig");
+    _ = @import("compiler_rt/fixunsxfti.zig");
+
     _ = @import("compiler_rt/count0bits.zig");
     _ = @import("compiler_rt/parity.zig");
     _ = @import("compiler_rt/popcount.zig");
     _ = @import("compiler_rt/bswap.zig");
     _ = @import("compiler_rt/int.zig");
     _ = @import("compiler_rt/shift.zig");
+
     _ = @import("compiler_rt/negXi2.zig");
+
     _ = @import("compiler_rt/muldi3.zig");
+
     _ = @import("compiler_rt/absv.zig");
+    _ = @import("compiler_rt/absvsi2.zig");
+    _ = @import("compiler_rt/absvdi2.zig");
+    _ = @import("compiler_rt/absvti2.zig");
+
     _ = @import("compiler_rt/negv.zig");
     _ = @import("compiler_rt/addo.zig");
     _ = @import("compiler_rt/subo.zig");
     _ = @import("compiler_rt/mulo.zig");
     _ = @import("compiler_rt/cmp.zig");
+
     _ = @import("compiler_rt/negXf2.zig");
+
     _ = @import("compiler_rt/os_version_check.zig");
     _ = @import("compiler_rt/emutls.zig");
     _ = @import("compiler_rt/arm.zig");
     _ = @import("compiler_rt/aulldiv.zig");
     _ = @import("compiler_rt/aullrem.zig");
-    _ = @import("compiler_rt/sparc.zig");
     _ = @import("compiler_rt/clear_cache.zig");
 
-    // missing: Floating point raised to integer power
-
-    // missing: Complex arithmetic
-    // (a + ib) * (c + id)
-    // (a + ib) / (c + id)
-
+    _ = @import("compiler_rt/sparc.zig");
 }

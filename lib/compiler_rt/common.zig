@@ -3,8 +3,14 @@ const builtin = @import("builtin");
 const math = std.math;
 const is_test = builtin.is_test;
 
+pub const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const want_aeabi = builtin.cpu.arch.isARM() or builtin.cpu.arch.isThumb();
+pub const want_ppc_abi = builtin.cpu.arch.isPPC() or builtin.cpu.arch.isPPC64();
+pub const want_msvc_abi = builtin.abi == .msvc;
+pub const want_gnu_abi = builtin.abi.isGnu();
+
 // Avoid dragging in the runtime safety mechanisms into this .o file,
-// unless we're trying to test this file.
+// unless we're trying to test compiler-rt.
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
     _ = error_return_trace;
     @setCold(true);
@@ -15,8 +21,13 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) nore
     }
 }
 
+/// AArch64 is the only ABI (at the moment) to support f16 arguments without the
+/// need for extending them to wider fp types.
+/// TODO remove this; do this type selection in the language rather than
+/// here in compiler-rt.
+pub const F16T = if (builtin.cpu.arch.isAARCH64()) f16 else u16;
+
 pub fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
-    @setRuntimeSafety(is_test);
     switch (Z) {
         u16 => {
             // 16x16 --> 32 bit multiply
@@ -130,15 +141,11 @@ pub fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
     }
 }
 
-// TODO: restore inline keyword, see: https://github.com/ziglang/zig/issues/2154
 pub fn normalize(comptime T: type, significand: *std.meta.Int(.unsigned, @typeInfo(T).Float.bits)) i32 {
-    const bits = @typeInfo(T).Float.bits;
-    const Z = std.meta.Int(.unsigned, bits);
-    const S = std.meta.Int(.unsigned, bits - @clz(Z, @as(Z, bits) - 1));
-    const fractionalBits = math.floatFractionalBits(T);
-    const integerBit = @as(Z, 1) << fractionalBits;
+    const Z = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
+    const integerBit = @as(Z, 1) << std.math.floatFractionalBits(T);
 
-    const shift = @clz(std.meta.Int(.unsigned, bits), significand.*) - @clz(Z, integerBit);
-    significand.* <<= @intCast(S, shift);
+    const shift = @clz(Z, significand.*) - @clz(Z, integerBit);
+    significand.* <<= @intCast(std.math.Log2Int(Z), shift);
     return @as(i32, 1) - shift;
 }
