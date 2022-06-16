@@ -299,7 +299,6 @@ pub const Inst = struct {
         /// Used by e.g. sllx
         shift: struct {
             is_imm: bool,
-            width: Instruction.ShiftWidth,
             rd: Register,
             rs1: Register,
             rs2_or_imm: union {

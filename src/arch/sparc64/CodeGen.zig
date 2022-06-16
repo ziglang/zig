@@ -2337,7 +2337,6 @@ fn binOpImmediate(
         .sllx => .{
             .shift = .{
                 .is_imm = true,
-                .width = ShiftWidth.shift64,
                 .rd = dest_reg,
                 .rs1 = lhs_reg,
                 .rs2_or_imm = .{ .imm = @intCast(u6, rhs.immediate) },
@@ -2459,7 +2458,6 @@ fn binOpRegister(
         .sllx => .{
             .shift = .{
                 .is_imm = false,
-                .width = ShiftWidth.shift64,
                 .rd = dest_reg,
                 .rs1 = lhs_reg,
                 .rs2_or_imm = .{ .rs2 = rhs_reg },
@@ -2940,7 +2938,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     .data = .{
                         .shift = .{
                             .is_imm = true,
-                            .width = .shift64,
                             .rd = reg,
                             .rs1 = reg,
                             .rs2_or_imm = .{ .imm = 12 },
@@ -2971,7 +2968,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     .data = .{
                         .shift = .{
                             .is_imm = true,
-                            .width = .shift64,
                             .rd = reg,
                             .rs1 = reg,
                             .rs2_or_imm = .{ .imm = 32 },
@@ -3768,7 +3764,6 @@ fn truncRegister(
                 .data = .{
                     .shift = .{
                         .is_imm = true,
-                        .width = ShiftWidth.shift64,
                         .rd = dest_reg,
                         .rs1 = operand_reg,
                         .rs2_or_imm = .{ .imm = @intCast(u6, 64 - int_bits) },
@@ -3783,7 +3778,6 @@ fn truncRegister(
                 .data = .{
                     .shift = .{
                         .is_imm = true,
-                        .width = ShiftWidth.shift32,
                         .rd = dest_reg,
                         .rs1 = dest_reg,
                         .rs2_or_imm = .{ .imm = @intCast(u6, int_bits) },
@@ -3800,7 +3794,6 @@ fn truncRegister(
                 .data = .{
                     .shift = .{
                         .is_imm = true,
-                        .width = ShiftWidth.shift32,
                         .rd = dest_reg,
                         .rs1 = operand_reg,
                         .rs2_or_imm = .{ .imm = 0 },
