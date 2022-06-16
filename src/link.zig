@@ -187,6 +187,9 @@ pub const Options = struct {
     /// (Darwin) Path to entitlements file
     entitlements: ?[]const u8 = null,
 
+    /// (Darwin) size of the __PAGEZERO segment
+    pagezero_size: ?u64 = null,
+
     pub fn effectiveOutputMode(options: Options) std.builtin.OutputMode {
         return if (options.use_lld) .Obj else options.output_mode;
     }

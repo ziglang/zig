@@ -447,6 +447,7 @@ const usage_build_generic =
     \\  -F[dir]                        (Darwin) add search path for frameworks
     \\  -install_name=[value]          (Darwin) add dylib's install name
     \\  --entitlements [path]          (Darwin) add path to entitlements file for embedding in code signature
+    \\  -pagezero_size [value]         (Darwin) size of the __PAGEZERO segment
     \\  --import-memory                (WebAssembly) import memory from the environment
     \\  --import-table                 (WebAssembly) import function table from the host environment
     \\  --export-table                 (WebAssembly) export function table to the host environment
@@ -694,6 +695,7 @@ fn buildOutputType(
     var install_name: ?[]const u8 = null;
     var hash_style: link.HashStyle = .both;
     var entitlements: ?[]const u8 = null;
+    var pagezero_size: ?u64 = null;
 
     // e.g. -m3dnow or -mno-outline-atomics. They correspond to std.Target llvm cpu feature names.
     // This array is populated by zig cc frontend and then has to be converted to zig-style
@@ -1645,6 +1647,15 @@ fn buildOutputType(
                     };
                 } else if (mem.startsWith(u8, arg, "-O")) {
                     linker_optimization = std.fmt.parseUnsigned(u8, arg["-O".len..], 10) catch |err| {
+                        fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
+                    };
+                } else if (mem.eql(u8, arg, "-pagezero_size")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    const next_arg = linker_args.items[i];
+                    pagezero_size = std.fmt.parseUnsigned(u64, next_arg, 0) catch |err| {
                         fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "--gc-sections")) {
@@ -2763,6 +2774,7 @@ fn buildOutputType(
         .native_darwin_sdk = native_darwin_sdk,
         .install_name = install_name,
         .entitlements = entitlements,
+        .pagezero_size = pagezero_size,
     }) catch |err| switch (err) {
         error.LibCUnavailable => {
             const target = target_info.target;
