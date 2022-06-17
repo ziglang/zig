@@ -2186,7 +2186,7 @@ pub const Value = extern union {
                 // A tuple can be represented with .empty_struct_value,
                 // the_one_possible_value, .aggregate in which case we could
                 // end up here and the values are equal if the type has zero fields.
-                return ty.structFieldCount() != 0;
+                return ty.isTupleOrAnonStruct() and ty.structFieldCount() != 0;
             },
             .Float => {
                 const a_nan = a.isNan();

@@ -1330,7 +1330,6 @@ fn testStaticBitSet(comptime Set: type) !void {
 }
 
 test "IntegerBitSet" {
-    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     try testStaticBitSet(IntegerBitSet(0));
     try testStaticBitSet(IntegerBitSet(1));
     try testStaticBitSet(IntegerBitSet(2));
@@ -1342,7 +1341,6 @@ test "IntegerBitSet" {
 }
 
 test "ArrayBitSet" {
-    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     if (@import("builtin").cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/9879
         return error.SkipZigTest;
@@ -1357,7 +1355,6 @@ test "ArrayBitSet" {
 }
 
 test "DynamicBitSetUnmanaged" {
-    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     const allocator = std.testing.allocator;
     var a = try DynamicBitSetUnmanaged.initEmpty(allocator, 300);
     try testing.expectEqual(@as(usize, 0), a.count());
@@ -1398,7 +1395,6 @@ test "DynamicBitSetUnmanaged" {
 }
 
 test "DynamicBitSet" {
-    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     const allocator = std.testing.allocator;
     var a = try DynamicBitSet.initEmpty(allocator, 300);
     try testing.expectEqual(@as(usize, 0), a.count());
