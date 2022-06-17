@@ -1283,11 +1283,11 @@ pub const Value = extern union {
             const field_val = field_vals[i];
             const field_bigint_const = switch (field.ty.zigTypeTag()) {
                 .Float => switch (field.ty.floatBits(target)) {
-                    16 => bitcastFloatToBigInt(f16, val.toFloat(f16), &field_buf),
-                    32 => bitcastFloatToBigInt(f32, val.toFloat(f32), &field_buf),
-                    64 => bitcastFloatToBigInt(f64, val.toFloat(f64), &field_buf),
-                    80 => bitcastFloatToBigInt(f80, val.toFloat(f80), &field_buf),
-                    128 => bitcastFloatToBigInt(f128, val.toFloat(f128), &field_buf),
+                    16 => bitcastFloatToBigInt(f16, field_val.toFloat(f16), &field_buf),
+                    32 => bitcastFloatToBigInt(f32, field_val.toFloat(f32), &field_buf),
+                    64 => bitcastFloatToBigInt(f64, field_val.toFloat(f64), &field_buf),
+                    80 => bitcastFloatToBigInt(f80, field_val.toFloat(f80), &field_buf),
+                    128 => bitcastFloatToBigInt(f128, field_val.toFloat(f128), &field_buf),
                     else => unreachable,
                 },
                 .Int, .Bool => field_val.toBigInt(&field_space, target),
