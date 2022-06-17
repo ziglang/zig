@@ -28,7 +28,7 @@ pub fn __gtdf2(a: f64, b: f64) callconv(.C) i32 {
 }
 
 fn __aeabi_dcmpge(a: f64, b: f64) callconv(.AAPCS) i32 {
-    return comparef.cmpf2(f64, comparef.GE, a, b) != .Less;
+    return @boolToInt(comparef.cmpf2(f64, comparef.GE, a, b) != .Less);
 }
 
 fn __aeabi_dcmpgt(a: f64, b: f64) callconv(.AAPCS) i32 {
