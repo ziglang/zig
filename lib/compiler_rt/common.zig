@@ -7,7 +7,10 @@ pub const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal el
 pub const want_aeabi = builtin.cpu.arch.isARM() or builtin.cpu.arch.isThumb();
 pub const want_ppc_abi = builtin.cpu.arch.isPPC() or builtin.cpu.arch.isPPC64();
 pub const want_msvc_abi = builtin.abi == .msvc;
-pub const want_gnu_abi = builtin.abi.isGnu();
+/// Example symbols:
+/// * __gnu_f2h_ieee
+/// * __gnu_h2f_ieee
+pub const want_gnu_abi = builtin.abi.isGnu() or builtin.abi.isMusl();
 pub const want_sparc_abi = builtin.cpu.arch.isSPARC();
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
