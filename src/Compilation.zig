@@ -94,6 +94,9 @@ unwind_tables: bool,
 test_evented_io: bool,
 debug_compiler_runtime_libs: bool,
 debug_compile_errors: bool,
+job_queued_compiler_rt_lib: bool = false,
+job_queued_compiler_rt_obj: bool = false,
+alloc_failure_occurred: bool = false,
 
 c_source_files: []const CSourceFile,
 clang_argv: []const []const u8,
@@ -131,11 +134,11 @@ libssp_static_lib: ?CRTFile = null,
 /// Populated when we build the libc static library. A Job to build this is placed in the queue
 /// and resolved before calling linker.flush().
 libc_static_lib: ?CRTFile = null,
-/// Populated when we build the libcompiler_rt static library. A Job to build this is placed in the queue
-/// and resolved before calling linker.flush().
+/// Populated when we build the libcompiler_rt static library. A Job to build this is indicated
+/// by setting `job_queued_compiler_rt_lib` and resolved before calling linker.flush().
 compiler_rt_lib: ?CRTFile = null,
-/// Populated when we build the compiler_rt_obj object. A Job to build this is placed in the queue
-/// and resolved before calling linker.flush().
+/// Populated when we build the compiler_rt_obj object. A Job to build this is indicated
+/// by setting `job_queued_compiler_rt_obj` and resolved before calling linker.flush().
 compiler_rt_obj: ?CRTFile = null,
 
 glibc_so_files: ?glibc.BuiltSharedObjects = null,
@@ -225,8 +228,6 @@ const Job = union(enum) {
     libcxxabi: void,
     libtsan: void,
     libssp: void,
-    compiler_rt_lib: void,
-    compiler_rt_obj: void,
     /// needed when not linking libc and using LLVM for code generation because it generates
     /// calls to, for example, memcpy and memset.
     zig_libc: void,
@@ -1926,13 +1927,13 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         if (comp.bin_file.options.include_compiler_rt and capable_of_building_compiler_rt) {
             if (is_exe_or_dyn_lib) {
                 log.debug("queuing a job to build compiler_rt_lib", .{});
-                try comp.work_queue.writeItem(.{ .compiler_rt_lib = {} });
+                comp.job_queued_compiler_rt_lib = true;
             } else if (options.output_mode != .Obj) {
                 log.debug("queuing a job to build compiler_rt_obj", .{});
                 // If build-obj with -fcompiler-rt is requested, that is handled specially
                 // elsewhere. In this case we are making a static library, so we ask
                 // for a compiler-rt object to put in it.
-                try comp.work_queue.writeItem(.{ .compiler_rt_obj = {} });
+                comp.job_queued_compiler_rt_obj = true;
             }
         }
         if (needs_c_symbols) {
@@ -2022,6 +2023,7 @@ pub fn destroy(self: *Compilation) void {
 }
 
 pub fn clearMiscFailures(comp: *Compilation) void {
+    comp.alloc_failure_occurred = false;
     for (comp.misc_failures.values()) |*value| {
         value.deinit(comp.gpa);
     }
@@ -2534,8 +2536,10 @@ pub fn makeBinFileWritable(self: *Compilation) !void {
     return self.bin_file.makeWritable();
 }
 
+/// This function is temporally single-threaded.
 pub fn totalErrorCount(self: *Compilation) usize {
-    var total: usize = self.failed_c_objects.count() + self.misc_failures.count();
+    var total: usize = self.failed_c_objects.count() + self.misc_failures.count() +
+        @boolToInt(self.alloc_failure_occurred);
 
     if (self.bin_file.options.module) |module| {
         total += module.failed_exports.count();
@@ -2592,6 +2596,7 @@ pub fn totalErrorCount(self: *Compilation) usize {
     return total;
 }
 
+/// This function is temporally single-threaded.
 pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
     var arena = std.heap.ArenaAllocator.init(self.gpa);
     errdefer arena.deinit();
@@ -2623,6 +2628,9 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
     }
     for (self.misc_failures.values()) |*value| {
         try AllErrors.addPlainWithChildren(&arena, &errors, value.msg, value.children);
+    }
+    if (self.alloc_failure_occurred) {
+        try AllErrors.addPlain(&arena, &errors, "memory allocation failure");
     }
     if (self.bin_file.options.module) |module| {
         {
@@ -2738,8 +2746,14 @@ pub fn performAllTheWork(
     var embed_file_prog_node = main_progress_node.start("Detect @embedFile updates", comp.embed_file_work_queue.count);
     defer embed_file_prog_node.end();
 
+    // +1 for the link step
+    var compiler_rt_prog_node = main_progress_node.start("compiler_rt", compiler_rt.sources.len + 1);
+    defer compiler_rt_prog_node.end();
+
     comp.work_queue_wait_group.reset();
     defer comp.work_queue_wait_group.wait();
+
+    const use_stage1 = build_options.is_stage1 and comp.bin_file.options.use_stage1;
 
     {
         const astgen_frame = tracy.namedFrame("astgen");
@@ -2783,6 +2797,26 @@ pub fn performAllTheWork(
                 comp, c_object, &c_obj_prog_node, &comp.work_queue_wait_group,
             });
         }
+
+        if (comp.job_queued_compiler_rt_lib) {
+            comp.job_queued_compiler_rt_lib = false;
+
+            if (use_stage1) {
+                // stage1 LLVM backend uses the global context and thus cannot be used in
+                // a multi-threaded context.
+                buildCompilerRtOneShot(comp, .Lib, &comp.compiler_rt_lib);
+            } else {
+                comp.work_queue_wait_group.start();
+                try comp.thread_pool.spawn(workerBuildCompilerRtLib, .{
+                    comp, &compiler_rt_prog_node, &comp.work_queue_wait_group,
+                });
+            }
+        }
+
+        if (comp.job_queued_compiler_rt_obj) {
+            comp.job_queued_compiler_rt_obj = false;
+            buildCompilerRtOneShot(comp, .Obj, &comp.compiler_rt_obj);
+        }
     }
 
     if (comp.emit_docs) |doc_location| {
@@ -2793,7 +2827,6 @@ pub fn performAllTheWork(
         }
     }
 
-    const use_stage1 = build_options.is_stage1 and comp.bin_file.options.use_stage1;
     if (!use_stage1) {
         const outdated_and_deleted_decls_frame = tracy.namedFrame("outdated_and_deleted_decls");
         defer outdated_and_deleted_decls_frame.end();
@@ -3006,7 +3039,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             module.semaPkg(pkg) catch |err| switch (err) {
                 error.CurrentWorkingDirectoryUnlinked,
                 error.Unexpected,
-                => try comp.setMiscFailure(
+                => comp.lockAndSetMiscFailure(
                     .analyze_pkg,
                     "unexpected problem analyzing package '{s}'",
                     .{pkg.root_src_path},
@@ -3021,7 +3054,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
 
             glibc.buildCRTFile(comp, crt_file) catch |err| {
                 // TODO Surface more error details.
-                try comp.setMiscFailure(.glibc_crt_file, "unable to build glibc CRT file: {s}", .{
+                comp.lockAndSetMiscFailure(.glibc_crt_file, "unable to build glibc CRT file: {s}", .{
                     @errorName(err),
                 });
             };
@@ -3032,7 +3065,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
 
             glibc.buildSharedObjects(comp) catch |err| {
                 // TODO Surface more error details.
-                try comp.setMiscFailure(
+                comp.lockAndSetMiscFailure(
                     .glibc_shared_objects,
                     "unable to build glibc shared objects: {s}",
                     .{@errorName(err)},
@@ -3045,7 +3078,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
 
             musl.buildCRTFile(comp, crt_file) catch |err| {
                 // TODO Surface more error details.
-                try comp.setMiscFailure(
+                comp.lockAndSetMiscFailure(
                     .musl_crt_file,
                     "unable to build musl CRT file: {s}",
                     .{@errorName(err)},
@@ -3058,7 +3091,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
 
             mingw.buildCRTFile(comp, crt_file) catch |err| {
                 // TODO Surface more error details.
-                try comp.setMiscFailure(
+                comp.lockAndSetMiscFailure(
                     .mingw_crt_file,
                     "unable to build mingw-w64 CRT file: {s}",
                     .{@errorName(err)},
@@ -3072,7 +3105,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             const link_lib = comp.bin_file.options.system_libs.keys()[index];
             mingw.buildImportLib(comp, link_lib) catch |err| {
                 // TODO Surface more error details.
-                try comp.setMiscFailure(
+                comp.lockAndSetMiscFailure(
                     .windows_import_lib,
                     "unable to generate DLL import .lib file: {s}",
                     .{@errorName(err)},
@@ -3085,7 +3118,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
 
             libunwind.buildStaticLib(comp) catch |err| {
                 // TODO Surface more error details.
-                try comp.setMiscFailure(
+                comp.lockAndSetMiscFailure(
                     .libunwind,
                     "unable to build libunwind: {s}",
                     .{@errorName(err)},
@@ -3098,7 +3131,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
 
             libcxx.buildLibCXX(comp) catch |err| {
                 // TODO Surface more error details.
-                try comp.setMiscFailure(
+                comp.lockAndSetMiscFailure(
                     .libcxx,
                     "unable to build libcxx: {s}",
                     .{@errorName(err)},
@@ -3111,7 +3144,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
 
             libcxx.buildLibCXXABI(comp) catch |err| {
                 // TODO Surface more error details.
-                try comp.setMiscFailure(
+                comp.lockAndSetMiscFailure(
                     .libcxxabi,
                     "unable to build libcxxabi: {s}",
                     .{@errorName(err)},
@@ -3124,7 +3157,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
 
             libtsan.buildTsan(comp) catch |err| {
                 // TODO Surface more error details.
-                try comp.setMiscFailure(
+                comp.lockAndSetMiscFailure(
                     .libtsan,
                     "unable to build TSAN library: {s}",
                     .{@errorName(err)},
@@ -3137,47 +3170,11 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
 
             wasi_libc.buildCRTFile(comp, crt_file) catch |err| {
                 // TODO Surface more error details.
-                try comp.setMiscFailure(
+                comp.lockAndSetMiscFailure(
                     .wasi_libc_crt_file,
                     "unable to build WASI libc CRT file: {s}",
                     .{@errorName(err)},
                 );
-            };
-        },
-        .compiler_rt_lib => {
-            const named_frame = tracy.namedFrame("compiler_rt_lib");
-            defer named_frame.end();
-
-            compiler_rt.buildCompilerRtLib(
-                comp,
-                &comp.compiler_rt_lib,
-            ) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.SubCompilationFailed => return, // error reported already
-                else => try comp.setMiscFailure(
-                    .compiler_rt,
-                    "unable to build compiler_rt: {s}",
-                    .{@errorName(err)},
-                ),
-            };
-        },
-        .compiler_rt_obj => {
-            const named_frame = tracy.namedFrame("compiler_rt_obj");
-            defer named_frame.end();
-
-            comp.buildOutputFromZig(
-                "compiler_rt.zig",
-                .Obj,
-                &comp.compiler_rt_obj,
-                .compiler_rt,
-            ) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.SubCompilationFailed => return, // error reported already
-                else => try comp.setMiscFailure(
-                    .compiler_rt,
-                    "unable to build compiler_rt: {s}",
-                    .{@errorName(err)},
-                ),
             };
         },
         .libssp => {
@@ -3192,7 +3189,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             ) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.SubCompilationFailed => return, // error reported already
-                else => try comp.setMiscFailure(
+                else => comp.lockAndSetMiscFailure(
                     .libssp,
                     "unable to build libssp: {s}",
                     .{@errorName(err)},
@@ -3211,7 +3208,7 @@ fn processOneJob(comp: *Compilation, job: Job) !void {
             ) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.SubCompilationFailed => return, // error reported already
-                else => try comp.setMiscFailure(
+                else => comp.lockAndSetMiscFailure(
                     .zig_libc,
                     "unable to build zig's multitarget libc: {s}",
                     .{@errorName(err)},
@@ -3315,11 +3312,7 @@ fn workerUpdateBuiltinZigFile(
 
         comp.setMiscFailure(.write_builtin_zig, "unable to write builtin.zig to {s}: {s}", .{
             dir_path, @errorName(err),
-        }) catch |oom| switch (oom) {
-            error.OutOfMemory => log.err("unable to write builtin.zig to {s}: {s}", .{
-                dir_path, @errorName(err),
-            }),
-        };
+        });
     };
 }
 
@@ -3530,6 +3523,38 @@ fn workerUpdateCObject(
                 error.OutOfMemory => {},
             };
         },
+    };
+}
+
+fn buildCompilerRtOneShot(
+    comp: *Compilation,
+    output_mode: std.builtin.OutputMode,
+    out: *?CRTFile,
+) void {
+    comp.buildOutputFromZig("compiler_rt.zig", output_mode, out, .compiler_rt) catch |err| switch (err) {
+        error.SubCompilationFailed => return, // error reported already
+        else => comp.lockAndSetMiscFailure(
+            .compiler_rt,
+            "unable to build compiler_rt: {s}",
+            .{@errorName(err)},
+        ),
+    };
+}
+
+fn workerBuildCompilerRtLib(
+    comp: *Compilation,
+    progress_node: *std.Progress.Node,
+    wg: *WaitGroup,
+) void {
+    defer wg.finish();
+
+    compiler_rt.buildCompilerRtLib(comp, progress_node) catch |err| switch (err) {
+        error.SubCompilationFailed => return, // error reported already
+        else => comp.lockAndSetMiscFailure(
+            .compiler_rt,
+            "unable to build compiler_rt: {s}",
+            .{@errorName(err)},
+        ),
     };
 }
 
@@ -4631,19 +4656,39 @@ fn wantBuildLibUnwindFromSource(comp: *Compilation) bool {
         comp.bin_file.options.object_format != .c;
 }
 
-fn setMiscFailure(
+fn setAllocFailure(comp: *Compilation) void {
+    log.debug("memory allocation failure", .{});
+    comp.alloc_failure_occurred = true;
+}
+
+/// Assumes that Compilation mutex is locked.
+/// See also `lockAndSetMiscFailure`.
+pub fn setMiscFailure(
     comp: *Compilation,
     tag: MiscTask,
     comptime format: []const u8,
     args: anytype,
-) Allocator.Error!void {
-    try comp.misc_failures.ensureUnusedCapacity(comp.gpa, 1);
-    const msg = try std.fmt.allocPrint(comp.gpa, format, args);
+) void {
+    comp.misc_failures.ensureUnusedCapacity(comp.gpa, 1) catch return comp.setAllocFailure();
+    const msg = std.fmt.allocPrint(comp.gpa, format, args) catch return comp.setAllocFailure();
     const gop = comp.misc_failures.getOrPutAssumeCapacity(tag);
     if (gop.found_existing) {
         gop.value_ptr.deinit(comp.gpa);
     }
     gop.value_ptr.* = .{ .msg = msg };
+}
+
+/// See also `setMiscFailure`.
+pub fn lockAndSetMiscFailure(
+    comp: *Compilation,
+    tag: MiscTask,
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    comp.mutex.lock();
+    defer comp.mutex.unlock();
+
+    return setMiscFailure(comp, tag, format, args);
 }
 
 pub fn dump_argv(argv: []const []const u8) void {
@@ -4905,7 +4950,7 @@ pub fn updateSubCompilation(sub_compilation: *Compilation) !void {
     }
 }
 
-pub fn buildOutputFromZig(
+fn buildOutputFromZig(
     comp: *Compilation,
     src_basename: []const u8,
     output_mode: std.builtin.OutputMode,
@@ -4922,15 +4967,7 @@ pub fn buildOutputFromZig(
         .root_src_path = src_basename,
     };
     defer main_pkg.deinitTable(comp.gpa);
-
-    const root_name = root_name: {
-        const basename = if (std.fs.path.dirname(src_basename)) |dirname|
-            src_basename[dirname.len + 1 ..]
-        else
-            src_basename;
-        const root_name = basename[0 .. basename.len - std.fs.path.extension(basename).len];
-        break :root_name root_name;
-    };
+    const root_name = src_basename[0 .. src_basename.len - std.fs.path.extension(src_basename).len];
     const target = comp.getTarget();
     const bin_basename = try std.zig.binNameAlloc(comp.gpa, .{
         .root_name = root_name,

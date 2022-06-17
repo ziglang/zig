@@ -37,3 +37,10 @@ pub fn reset(self: *WaitGroup) void {
     self.state.store(0, .Monotonic);
     self.event.reset();
 }
+
+pub fn isDone(wg: *WaitGroup) bool {
+    const state = wg.state.load(.Acquire);
+    assert(state & is_waiting == 0);
+
+    return (state / one_pending) == 0;
+}
