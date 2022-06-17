@@ -2801,7 +2801,9 @@ pub fn performAllTheWork(
         if (comp.job_queued_compiler_rt_lib) {
             comp.job_queued_compiler_rt_lib = false;
 
-            if (use_stage1) {
+            // I have disabled the multi-threaded compiler-rt for now until
+            // the threading deadlock is resolved.
+            if (use_stage1 or true) {
                 // stage1 LLVM backend uses the global context and thus cannot be used in
                 // a multi-threaded context.
                 buildCompilerRtOneShot(comp, .Lib, &comp.compiler_rt_lib);
