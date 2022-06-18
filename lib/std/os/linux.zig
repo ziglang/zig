@@ -376,7 +376,7 @@ pub fn mknodat(dirfd: i32, path: [*:0]const u8, mode: u32, dev: u32) usize {
     return syscall4(.mknodat, @bitCast(usize, @as(isize, dirfd)), @ptrToInt(path), mode, dev);
 }
 
-pub fn mount(special: [*:0]const u8, dir: [*:0]const u8, fstype: [*:0]const u8, flags: u32, data: usize) usize {
+pub fn mount(special: [*:0]const u8, dir: [*:0]const u8, fstype: ?[*:0]const u8, flags: u32, data: usize) usize {
     return syscall5(.mount, @ptrToInt(special), @ptrToInt(dir), @ptrToInt(fstype), flags, data);
 }
 
