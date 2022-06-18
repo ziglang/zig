@@ -4,7 +4,7 @@ const extendf = @import("./extendf.zig").extendf;
 pub const panic = common.panic;
 
 comptime {
-    if (common.want_gnu_abi) {
+    if (common.gnu_f16_abi) {
         @export(__gnu_h2f_ieee, .{ .name = "__gnu_h2f_ieee", .linkage = common.linkage });
     } else if (common.want_aeabi) {
         @export(__aeabi_h2f, .{ .name = "__aeabi_h2f", .linkage = common.linkage });
