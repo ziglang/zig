@@ -4,7 +4,19 @@ const math = std.math;
 const is_test = builtin.is_test;
 
 pub const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
-pub const want_aeabi = builtin.cpu.arch.isARM() or builtin.cpu.arch.isThumb();
+pub const want_aeabi = switch (builtin.abi) {
+    .eabi,
+    .eabihf,
+    .musleabi,
+    .musleabihf,
+    .gnueabi,
+    .gnueabihf,
+    => switch (builtin.cpu.arch) {
+        .arm, .armeb, .thumb, .thumbeb => true,
+        else => false,
+    },
+    else => false,
+};
 pub const want_ppc_abi = builtin.cpu.arch.isPPC() or builtin.cpu.arch.isPPC64();
 pub const want_msvc_abi = builtin.abi == .msvc;
 /// Example symbols:
