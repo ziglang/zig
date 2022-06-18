@@ -1,20 +1,18 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
-const is_test = builtin.is_test;
-const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
 
 const common = @import("common.zig");
 const normalize = common.normalize;
 const wideMultiply = common.wideMultiply;
+
 pub const panic = common.panic;
 
 comptime {
-    @export(__divxf3, .{ .name = "__divxf3", .linkage = linkage });
+    @export(__divxf3, .{ .name = "__divxf3", .linkage = common.linkage });
 }
 
 pub fn __divxf3(a: f80, b: f80) callconv(.C) f80 {
-    @setRuntimeSafety(builtin.is_test);
     const T = f80;
     const Z = std.meta.Int(.unsigned, @bitSizeOf(T));
 

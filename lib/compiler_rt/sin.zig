@@ -1,34 +1,30 @@
-// Ported from musl, which is licensed under the MIT license:
-// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
-//
-// https://git.musl-libc.org/cgit/musl/tree/src/math/sinf.c
-// https://git.musl-libc.org/cgit/musl/tree/src/math/sin.c
+//! Ported from musl, which is licensed under the MIT license:
+//! https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//!
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/sinf.c
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/sin.c
 
 const std = @import("std");
 const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
 const math = std.math;
 const expect = std.testing.expect;
-const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
-pub const panic = @import("common.zig").panic;
+const common = @import("common.zig");
 
 const trig = @import("trig.zig");
 const rem_pio2 = @import("rem_pio2.zig").rem_pio2;
 const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;
 
-comptime {
-    @export(__sinh, .{ .name = "__sinh", .linkage = linkage });
-    @export(sinf, .{ .name = "sinf", .linkage = linkage });
-    @export(sin, .{ .name = "sin", .linkage = linkage });
-    @export(__sinx, .{ .name = "__sinx", .linkage = linkage });
-    @export(sinq, .{ .name = "sinq", .linkage = linkage });
-    @export(sinl, .{ .name = "sinl", .linkage = linkage });
+pub const panic = common.panic;
 
-    if (!builtin.is_test) {
-        if (arch.isPPC() or arch.isPPC64()) {
-            @export(sinf128, .{ .name = "sinf128", .linkage = linkage });
-        }
-    }
+comptime {
+    @export(__sinh, .{ .name = "__sinh", .linkage = common.linkage });
+    @export(sinf, .{ .name = "sinf", .linkage = common.linkage });
+    @export(sin, .{ .name = "sin", .linkage = common.linkage });
+    @export(__sinx, .{ .name = "__sinx", .linkage = common.linkage });
+    const sinq_sym_name = if (common.want_ppc_abi) "sinf128" else "sinq";
+    @export(sinq, .{ .name = sinq_sym_name, .linkage = common.linkage });
+    @export(sinl, .{ .name = "sinl", .linkage = common.linkage });
 }
 
 pub fn __sinh(x: f16) callconv(.C) f16 {
@@ -128,10 +124,6 @@ pub fn __sinx(x: f80) callconv(.C) f80 {
 pub fn sinq(x: f128) callconv(.C) f128 {
     // TODO: more correct implementation
     return sin(@floatCast(f64, x));
-}
-
-pub fn sinf128(x: f128) callconv(.C) f128 {
-    return @call(.{ .modifier = .always_inline }, sinq, .{x});
 }
 
 pub fn sinl(x: c_longdouble) callconv(.C) c_longdouble {

@@ -1,30 +1,26 @@
-// Ported from musl, which is licensed under the MIT license:
-// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
-//
-// https://git.musl-libc.org/cgit/musl/tree/src/math/truncf.c
-// https://git.musl-libc.org/cgit/musl/tree/src/math/trunc.c
+//! Ported from musl, which is MIT licensed.
+//! https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//!
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/truncf.c
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/trunc.c
 
 const std = @import("std");
 const builtin = @import("builtin");
+const arch = builtin.cpu.arch;
 const math = std.math;
 const expect = std.testing.expect;
-const arch = builtin.cpu.arch;
-const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
-pub const panic = @import("common.zig").panic;
+const common = @import("common.zig");
+
+pub const panic = common.panic;
 
 comptime {
-    @export(__trunch, .{ .name = "__trunch", .linkage = linkage });
-    @export(truncf, .{ .name = "truncf", .linkage = linkage });
-    @export(trunc, .{ .name = "trunc", .linkage = linkage });
-    @export(__truncx, .{ .name = "__truncx", .linkage = linkage });
-    @export(truncq, .{ .name = "truncq", .linkage = linkage });
-    @export(truncl, .{ .name = "truncl", .linkage = linkage });
-
-    if (!builtin.is_test) {
-        if (arch.isPPC() or arch.isPPC64()) {
-            @export(truncf128, .{ .name = "truncf128", .linkage = linkage });
-        }
-    }
+    @export(__trunch, .{ .name = "__trunch", .linkage = common.linkage });
+    @export(truncf, .{ .name = "truncf", .linkage = common.linkage });
+    @export(trunc, .{ .name = "trunc", .linkage = common.linkage });
+    @export(__truncx, .{ .name = "__truncx", .linkage = common.linkage });
+    const truncq_sym_name = if (common.want_ppc_abi) "truncf128" else "truncq";
+    @export(truncq, .{ .name = truncq_sym_name, .linkage = common.linkage });
+    @export(truncl, .{ .name = "truncl", .linkage = common.linkage });
 }
 
 pub fn __trunch(x: f16) callconv(.C) f16 {
@@ -98,10 +94,6 @@ pub fn truncq(x: f128) callconv(.C) f128 {
         math.doNotOptimizeAway(x + 0x1p120);
         return @bitCast(f128, u & ~m);
     }
-}
-
-pub fn truncf128(x: f128) callconv(.C) f128 {
-    return @call(.{ .modifier = .always_inline }, truncq, .{x});
 }
 
 pub fn truncl(x: c_longdouble) callconv(.C) c_longdouble {

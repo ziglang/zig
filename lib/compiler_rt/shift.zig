@@ -2,25 +2,23 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Log2Int = std.math.Log2Int;
 const native_endian = builtin.cpu.arch.endian();
-const arch = builtin.cpu.arch;
-const is_test = builtin.is_test;
-const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
-pub const panic = @import("common.zig").panic;
+const common = @import("common.zig");
+
+pub const panic = common.panic;
 
 comptime {
-    @export(__ashldi3, .{ .name = "__ashldi3", .linkage = linkage });
-    @export(__ashlti3, .{ .name = "__ashlti3", .linkage = linkage });
-    @export(__ashrdi3, .{ .name = "__ashrdi3", .linkage = linkage });
-    @export(__ashrti3, .{ .name = "__ashrti3", .linkage = linkage });
-    @export(__lshrdi3, .{ .name = "__lshrdi3", .linkage = linkage });
-    @export(__lshrti3, .{ .name = "__lshrti3", .linkage = linkage });
+    @export(__ashlti3, .{ .name = "__ashlti3", .linkage = common.linkage });
+    @export(__ashrti3, .{ .name = "__ashrti3", .linkage = common.linkage });
+    @export(__lshrti3, .{ .name = "__lshrti3", .linkage = common.linkage });
 
-    if (!is_test) {
-        if (arch.isARM() or arch.isThumb()) {
-            @export(__aeabi_llsl, .{ .name = "__aeabi_llsl", .linkage = linkage });
-            @export(__aeabi_lasr, .{ .name = "__aeabi_lasr", .linkage = linkage });
-            @export(__aeabi_llsr, .{ .name = "__aeabi_llsr", .linkage = linkage });
-        }
+    if (common.want_aeabi) {
+        @export(__aeabi_llsl, .{ .name = "__aeabi_llsl", .linkage = common.linkage });
+        @export(__aeabi_lasr, .{ .name = "__aeabi_lasr", .linkage = common.linkage });
+        @export(__aeabi_llsr, .{ .name = "__aeabi_llsr", .linkage = common.linkage });
+    } else {
+        @export(__ashldi3, .{ .name = "__ashldi3", .linkage = common.linkage });
+        @export(__ashrdi3, .{ .name = "__ashrdi3", .linkage = common.linkage });
+        @export(__lshrdi3, .{ .name = "__lshrdi3", .linkage = common.linkage });
     }
 }
 
@@ -115,30 +113,34 @@ inline fn lshrXi3(comptime T: type, a: T, b: i32) T {
 pub fn __ashldi3(a: i64, b: i32) callconv(.C) i64 {
     return ashlXi3(i64, a, b);
 }
+fn __aeabi_llsl(a: i64, b: i32) callconv(.AAPCS) i64 {
+    return ashlXi3(i64, a, b);
+}
+
 pub fn __ashlti3(a: i128, b: i32) callconv(.C) i128 {
     return ashlXi3(i128, a, b);
 }
+
 pub fn __ashrdi3(a: i64, b: i32) callconv(.C) i64 {
     return ashrXi3(i64, a, b);
 }
+fn __aeabi_lasr(a: i64, b: i32) callconv(.AAPCS) i64 {
+    return ashrXi3(i64, a, b);
+}
+
 pub fn __ashrti3(a: i128, b: i32) callconv(.C) i128 {
     return ashrXi3(i128, a, b);
 }
+
 pub fn __lshrdi3(a: i64, b: i32) callconv(.C) i64 {
     return lshrXi3(i64, a, b);
 }
-pub fn __lshrti3(a: i128, b: i32) callconv(.C) i128 {
-    return lshrXi3(i128, a, b);
+fn __aeabi_llsr(a: i64, b: i32) callconv(.AAPCS) i64 {
+    return lshrXi3(i64, a, b);
 }
 
-pub fn __aeabi_llsl(a: i64, b: i32) callconv(.AAPCS) i64 {
-    return ashlXi3(i64, a, b);
-}
-pub fn __aeabi_lasr(a: i64, b: i32) callconv(.AAPCS) i64 {
-    return ashrXi3(i64, a, b);
-}
-pub fn __aeabi_llsr(a: i64, b: i32) callconv(.AAPCS) i64 {
-    return lshrXi3(i64, a, b);
+pub fn __lshrti3(a: i128, b: i32) callconv(.C) i128 {
+    return lshrXi3(i128, a, b);
 }
 
 test {

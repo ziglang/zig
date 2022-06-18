@@ -1,30 +1,35 @@
-// Ported from:
-//
-// https://github.com/llvm/llvm-project/commit/d674d96bc56c0f377879d01c9d8dfdaaa7859cdb/compiler-rt/lib/builtins/divdf3.c
+//! Ported from:
+//!
+//! https://github.com/llvm/llvm-project/commit/d674d96bc56c0f377879d01c9d8dfdaaa7859cdb/compiler-rt/lib/builtins/divdf3.c
 
 const std = @import("std");
 const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
 const is_test = builtin.is_test;
-const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
-
 const common = @import("common.zig");
+
 const normalize = common.normalize;
 const wideMultiply = common.wideMultiply;
+
 pub const panic = common.panic;
 
 comptime {
-    @export(__divdf3, .{ .name = "__divdf3", .linkage = linkage });
-
-    if (!is_test) {
-        if (arch.isARM() or arch.isThumb()) {
-            @export(__aeabi_ddiv, .{ .name = "__aeabi_ddiv", .linkage = linkage });
-        }
+    if (common.want_aeabi) {
+        @export(__aeabi_ddiv, .{ .name = "__aeabi_ddiv", .linkage = common.linkage });
+    } else {
+        @export(__divdf3, .{ .name = "__divdf3", .linkage = common.linkage });
     }
 }
 
 pub fn __divdf3(a: f64, b: f64) callconv(.C) f64 {
-    @setRuntimeSafety(builtin.is_test);
+    return div(a, b);
+}
+
+fn __aeabi_ddiv(a: f64, b: f64) callconv(.AAPCS) f64 {
+    return div(a, b);
+}
+
+inline fn div(a: f64, b: f64) f64 {
     const Z = std.meta.Int(.unsigned, 64);
     const SignedZ = std.meta.Int(.signed, 64);
 
@@ -218,11 +223,6 @@ pub fn __divdf3(a: f64, b: f64) callconv(.C) f64 {
         // Insert the sign and return
         return @bitCast(f64, absResult | quotientSign);
     }
-}
-
-pub fn __aeabi_ddiv(a: f64, b: f64) callconv(.AAPCS) f64 {
-    @setRuntimeSafety(false);
-    return @call(.{ .modifier = .always_inline }, __divdf3, .{ a, b });
 }
 
 test {

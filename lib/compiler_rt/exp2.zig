@@ -9,22 +9,18 @@ const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
 const math = std.math;
 const expect = std.testing.expect;
-const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
-pub const panic = @import("common.zig").panic;
+const common = @import("common.zig");
+
+pub const panic = common.panic;
 
 comptime {
-    @export(__exp2h, .{ .name = "__exp2h", .linkage = linkage });
-    @export(exp2f, .{ .name = "exp2f", .linkage = linkage });
-    @export(exp2, .{ .name = "exp2", .linkage = linkage });
-    @export(__exp2x, .{ .name = "__exp2x", .linkage = linkage });
-    @export(exp2q, .{ .name = "exp2q", .linkage = linkage });
-    @export(exp2l, .{ .name = "exp2l", .linkage = linkage });
-
-    if (!builtin.is_test) {
-        if (arch.isPPC() or arch.isPPC64()) {
-            @export(exp2f128, .{ .name = "exp2f128", .linkage = linkage });
-        }
-    }
+    @export(__exp2h, .{ .name = "__exp2h", .linkage = common.linkage });
+    @export(exp2f, .{ .name = "exp2f", .linkage = common.linkage });
+    @export(exp2, .{ .name = "exp2", .linkage = common.linkage });
+    @export(__exp2x, .{ .name = "__exp2x", .linkage = common.linkage });
+    const exp2q_sym_name = if (common.want_ppc_abi) "exp2f128" else "exp2q";
+    @export(exp2q, .{ .name = exp2q_sym_name, .linkage = common.linkage });
+    @export(exp2l, .{ .name = "exp2l", .linkage = common.linkage });
 }
 
 pub fn __exp2h(x: f16) callconv(.C) f16 {
@@ -166,10 +162,6 @@ pub fn __exp2x(x: f80) callconv(.C) f80 {
 pub fn exp2q(x: f128) callconv(.C) f128 {
     // TODO: more correct implementation
     return exp2(@floatCast(f64, x));
-}
-
-pub fn exp2f128(x: f128) callconv(.C) f128 {
-    return @call(.{ .modifier = .always_inline }, exp2q, .{x});
 }
 
 pub fn exp2l(x: c_longdouble) callconv(.C) c_longdouble {

@@ -1,30 +1,26 @@
-// Ported from musl, which is licensed under the MIT license:
-// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
-//
-// https://git.musl-libc.org/cgit/musl/tree/src/math/roundf.c
-// https://git.musl-libc.org/cgit/musl/tree/src/math/round.c
+//! Ported from musl, which is licensed under the MIT license:
+//! https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//!
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/roundf.c
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/round.c
 
 const std = @import("std");
 const builtin = @import("builtin");
 const math = std.math;
 const expect = std.testing.expect;
 const arch = builtin.cpu.arch;
-const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
-pub const panic = @import("common.zig").panic;
+const common = @import("common.zig");
+
+pub const panic = common.panic;
 
 comptime {
-    @export(__roundh, .{ .name = "__roundh", .linkage = linkage });
-    @export(roundf, .{ .name = "roundf", .linkage = linkage });
-    @export(round, .{ .name = "round", .linkage = linkage });
-    @export(__roundx, .{ .name = "__roundx", .linkage = linkage });
-    @export(roundq, .{ .name = "roundq", .linkage = linkage });
-    @export(roundl, .{ .name = "roundl", .linkage = linkage });
-
-    if (!builtin.is_test) {
-        if (arch.isPPC() or arch.isPPC64()) {
-            @export(roundf128, .{ .name = "roundf128", .linkage = linkage });
-        }
-    }
+    @export(__roundh, .{ .name = "__roundh", .linkage = common.linkage });
+    @export(roundf, .{ .name = "roundf", .linkage = common.linkage });
+    @export(round, .{ .name = "round", .linkage = common.linkage });
+    @export(__roundx, .{ .name = "__roundx", .linkage = common.linkage });
+    const roundq_sym_name = if (common.want_ppc_abi) "roundf128" else "roundq";
+    @export(roundq, .{ .name = roundq_sym_name, .linkage = common.linkage });
+    @export(roundl, .{ .name = "roundl", .linkage = common.linkage });
 }
 
 pub fn __roundh(x: f16) callconv(.C) f16 {
@@ -140,10 +136,6 @@ pub fn roundq(x_: f128) callconv(.C) f128 {
     } else {
         return y;
     }
-}
-
-pub fn roundf128(x_: f128) callconv(.C) f128 {
-    return @call(.{ .modifier = .always_inline }, roundq, .{x_});
 }
 
 pub fn roundl(x: c_longdouble) callconv(.C) c_longdouble {

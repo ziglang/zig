@@ -5,22 +5,18 @@ const math = std.math;
 const trig = @import("trig.zig");
 const rem_pio2 = @import("rem_pio2.zig").rem_pio2;
 const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;
-const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
-pub const panic = @import("common.zig").panic;
+const common = @import("common.zig");
+
+pub const panic = common.panic;
 
 comptime {
-    @export(__sincosh, .{ .name = "__sincosh", .linkage = linkage });
-    @export(sincosf, .{ .name = "sincosf", .linkage = linkage });
-    @export(sincos, .{ .name = "sincos", .linkage = linkage });
-    @export(__sincosx, .{ .name = "__sincosx", .linkage = linkage });
-    @export(sincosq, .{ .name = "sincosq", .linkage = linkage });
-    @export(sincosl, .{ .name = "sincosl", .linkage = linkage });
-
-    if (!builtin.is_test) {
-        if (arch.isPPC() or arch.isPPC64()) {
-            @export(sincosf128, .{ .name = "sincosf128", .linkage = linkage });
-        }
-    }
+    @export(__sincosh, .{ .name = "__sincosh", .linkage = common.linkage });
+    @export(sincosf, .{ .name = "sincosf", .linkage = common.linkage });
+    @export(sincos, .{ .name = "sincos", .linkage = common.linkage });
+    @export(__sincosx, .{ .name = "__sincosx", .linkage = common.linkage });
+    const sincosq_sym_name = if (common.want_ppc_abi) "sincosf128" else "sincosq";
+    @export(sincosq, .{ .name = sincosq_sym_name, .linkage = common.linkage });
+    @export(sincosl, .{ .name = "sincosl", .linkage = common.linkage });
 }
 
 pub fn __sincosh(x: f16, r_sin: *f16, r_cos: *f16) callconv(.C) void {
@@ -196,10 +192,6 @@ pub fn sincosq(x: f128, r_sin: *f128, r_cos: *f128) callconv(.C) void {
     sincos(@floatCast(f64, x), &small_sin, &small_cos);
     r_sin.* = small_sin;
     r_cos.* = small_cos;
-}
-
-pub fn sincosf128(x: f128, r_sin: *f128, r_cos: *f128) callconv(.C) void {
-    return @call(.{ .modifier = .always_inline }, sincosq, .{ x, r_sin, r_cos });
 }
 
 pub fn sincosl(x: c_longdouble, r_sin: *c_longdouble, r_cos: *c_longdouble) callconv(.C) void {

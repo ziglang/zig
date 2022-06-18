@@ -1,9 +1,9 @@
-// Ported from musl, which is licensed under the MIT license:
-// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
-//
-// https://git.musl-libc.org/cgit/musl/tree/src/math/tanf.c
-// https://git.musl-libc.org/cgit/musl/tree/src/math/tan.c
-// https://golang.org/src/math/tan.go
+//! Ported from musl, which is licensed under the MIT license:
+//! https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//!
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/tanf.c
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/tan.c
+//! https://golang.org/src/math/tan.go
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -15,22 +15,18 @@ const rem_pio2 = @import("rem_pio2.zig").rem_pio2;
 const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;
 
 const arch = builtin.cpu.arch;
-const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
-pub const panic = @import("common.zig").panic;
+const common = @import("common.zig");
+
+pub const panic = common.panic;
 
 comptime {
-    @export(__tanh, .{ .name = "__tanh", .linkage = linkage });
-    @export(tanf, .{ .name = "tanf", .linkage = linkage });
-    @export(tan, .{ .name = "tan", .linkage = linkage });
-    @export(__tanx, .{ .name = "__tanx", .linkage = linkage });
-    @export(tanq, .{ .name = "tanq", .linkage = linkage });
-    @export(tanl, .{ .name = "tanl", .linkage = linkage });
-
-    if (!builtin.is_test) {
-        if (arch.isPPC() or arch.isPPC64()) {
-            @export(tanf128, .{ .name = "tanf128", .linkage = linkage });
-        }
-    }
+    @export(__tanh, .{ .name = "__tanh", .linkage = common.linkage });
+    @export(tanf, .{ .name = "tanf", .linkage = common.linkage });
+    @export(tan, .{ .name = "tan", .linkage = common.linkage });
+    @export(__tanx, .{ .name = "__tanx", .linkage = common.linkage });
+    const tanq_sym_name = if (common.want_ppc_abi) "tanf128" else "tanq";
+    @export(tanq, .{ .name = tanq_sym_name, .linkage = common.linkage });
+    @export(tanl, .{ .name = "tanl", .linkage = common.linkage });
 }
 
 pub fn __tanh(x: f16) callconv(.C) f16 {
@@ -114,10 +110,6 @@ pub fn __tanx(x: f80) callconv(.C) f80 {
 pub fn tanq(x: f128) callconv(.C) f128 {
     // TODO: more correct implementation
     return tan(@floatCast(f64, x));
-}
-
-pub fn tanf128(x: f128) callconv(.C) f128 {
-    return @call(.{ .modifier = .always_inline }, tanq, .{x});
 }
 
 pub fn tanl(x: c_longdouble) callconv(.C) c_longdouble {
