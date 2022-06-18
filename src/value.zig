@@ -2414,6 +2414,7 @@ pub const Value = extern union {
                 return false;
             },
             .@"union" => return val.cast(Payload.Union).?.data.val.canMutateComptimeVarState(),
+            .slice => return val.castTag(.slice).?.data.ptr.canMutateComptimeVarState(),
             else => return false,
         }
     }
