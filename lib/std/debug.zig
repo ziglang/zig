@@ -842,7 +842,10 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_file: File) !ModuleDebugInfo
         defer allocator.free(path);
 
         di.debug_data = PdbOrDwarf{ .pdb = undefined };
-        di.debug_data.pdb = try pdb.Pdb.init(allocator, path);
+        di.debug_data.pdb = pdb.Pdb.init(allocator, path) catch |err| switch (err) {
+            error.FileNotFound, error.IsDir => return error.MissingDebugInfo,
+            else => return err,
+        };
         try di.debug_data.pdb.parseInfoStream();
         try di.debug_data.pdb.parseDbiStream();
 
