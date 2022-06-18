@@ -2,22 +2,18 @@ const std = @import("std");
 const builtin = @import("builtin");
 const math = std.math;
 const arch = builtin.cpu.arch;
-const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
-pub const panic = @import("common.zig").panic;
+const common = @import("common.zig");
+
+pub const panic = common.panic;
 
 comptime {
-    @export(__fminh, .{ .name = "__fminh", .linkage = linkage });
-    @export(fminf, .{ .name = "fminf", .linkage = linkage });
-    @export(fmin, .{ .name = "fmin", .linkage = linkage });
-    @export(__fminx, .{ .name = "__fminx", .linkage = linkage });
-    @export(fminq, .{ .name = "fminq", .linkage = linkage });
-    @export(fminl, .{ .name = "fminl", .linkage = linkage });
-
-    if (!builtin.is_test) {
-        if (arch.isPPC() or arch.isPPC64()) {
-            @export(fminf128, .{ .name = "fminf128", .linkage = linkage });
-        }
-    }
+    @export(__fminh, .{ .name = "__fminh", .linkage = common.linkage });
+    @export(fminf, .{ .name = "fminf", .linkage = common.linkage });
+    @export(fmin, .{ .name = "fmin", .linkage = common.linkage });
+    @export(__fminx, .{ .name = "__fminx", .linkage = common.linkage });
+    const fminq_sym_name = if (common.want_ppc_abi) "fminf128" else "fminq";
+    @export(fminq, .{ .name = fminq_sym_name, .linkage = common.linkage });
+    @export(fminl, .{ .name = "fminl", .linkage = common.linkage });
 }
 
 pub fn __fminh(x: f16, y: f16) callconv(.C) f16 {
@@ -38,10 +34,6 @@ pub fn __fminx(x: f80, y: f80) callconv(.C) f80 {
 
 pub fn fminq(x: f128, y: f128) callconv(.C) f128 {
     return generic_fmin(f128, x, y);
-}
-
-pub fn fminf128(x: f128, y: f128) callconv(.C) f128 {
-    return @call(.{ .modifier = .always_inline }, fminq, .{ x, y });
 }
 
 pub fn fminl(x: c_longdouble, y: c_longdouble) callconv(.C) c_longdouble {

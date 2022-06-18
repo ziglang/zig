@@ -3,26 +3,22 @@ const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
 const math = std.math;
 const expect = std.testing.expect;
-const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
-pub const panic = @import("common.zig").panic;
+const common = @import("common.zig");
+
+pub const panic = common.panic;
 
 const trig = @import("trig.zig");
 const rem_pio2 = @import("rem_pio2.zig").rem_pio2;
 const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;
 
 comptime {
-    @export(__cosh, .{ .name = "__cosh", .linkage = linkage });
-    @export(cosf, .{ .name = "cosf", .linkage = linkage });
-    @export(cos, .{ .name = "cos", .linkage = linkage });
-    @export(__cosx, .{ .name = "__cosx", .linkage = linkage });
-    @export(cosq, .{ .name = "cosq", .linkage = linkage });
-    @export(cosl, .{ .name = "cosl", .linkage = linkage });
-
-    if (!builtin.is_test) {
-        if (arch.isPPC() or arch.isPPC64()) {
-            @export(cosf128, .{ .name = "cosf128", .linkage = linkage });
-        }
-    }
+    @export(__cosh, .{ .name = "__cosh", .linkage = common.linkage });
+    @export(cosf, .{ .name = "cosf", .linkage = common.linkage });
+    @export(cos, .{ .name = "cos", .linkage = common.linkage });
+    @export(__cosx, .{ .name = "__cosx", .linkage = common.linkage });
+    const cosq_sym_name = if (common.want_ppc_abi) "cosf128" else "cosq";
+    @export(cosq, .{ .name = cosq_sym_name, .linkage = common.linkage });
+    @export(cosl, .{ .name = "cosl", .linkage = common.linkage });
 }
 
 pub fn __cosh(a: f16) callconv(.C) f16 {
@@ -124,10 +120,6 @@ pub fn __cosx(a: f80) callconv(.C) f80 {
 pub fn cosq(a: f128) callconv(.C) f128 {
     // TODO: more correct implementation
     return cos(@floatCast(f64, a));
-}
-
-pub fn cosf128(a: f128) callconv(.C) f128 {
-    return @call(.{ .modifier = .always_inline }, cosq, .{a});
 }
 
 pub fn cosl(x: c_longdouble) callconv(.C) c_longdouble {

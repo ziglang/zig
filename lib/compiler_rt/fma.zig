@@ -1,31 +1,27 @@
-// Ported from musl, which is MIT licensed:
-// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
-//
-// https://git.musl-libc.org/cgit/musl/tree/src/math/fmal.c
-// https://git.musl-libc.org/cgit/musl/tree/src/math/fmaf.c
-// https://git.musl-libc.org/cgit/musl/tree/src/math/fma.c
+//! Ported from musl, which is MIT licensed:
+//! https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//!
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/fmal.c
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/fmaf.c
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/fma.c
 
 const std = @import("std");
 const builtin = @import("builtin");
 const math = std.math;
 const expect = std.testing.expect;
 const arch = builtin.cpu.arch;
-const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
-pub const panic = @import("common.zig").panic;
+const common = @import("common.zig");
+
+pub const panic = common.panic;
 
 comptime {
-    @export(__fmah, .{ .name = "__fmah", .linkage = linkage });
-    @export(fmaf, .{ .name = "fmaf", .linkage = linkage });
-    @export(fma, .{ .name = "fma", .linkage = linkage });
-    @export(__fmax, .{ .name = "__fmax", .linkage = linkage });
-    @export(fmaq, .{ .name = "fmaq", .linkage = linkage });
-    @export(fmal, .{ .name = "fmal", .linkage = linkage });
-
-    if (!builtin.is_test) {
-        if (arch.isPPC() or arch.isPPC64()) {
-            @export(fmaf128, .{ .name = "fmaf128", .linkage = linkage });
-        }
-    }
+    @export(__fmah, .{ .name = "__fmah", .linkage = common.linkage });
+    @export(fmaf, .{ .name = "fmaf", .linkage = common.linkage });
+    @export(fma, .{ .name = "fma", .linkage = common.linkage });
+    @export(__fmax, .{ .name = "__fmax", .linkage = common.linkage });
+    const fmaq_sym_name = if (common.want_ppc_abi) "fmaf128" else "fmaq";
+    @export(fmaq, .{ .name = fmaq_sym_name, .linkage = common.linkage });
+    @export(fmal, .{ .name = "fmal", .linkage = common.linkage });
 }
 
 pub fn __fmah(x: f16, y: f16, z: f16) callconv(.C) f16 {
@@ -152,10 +148,6 @@ pub fn fmaq(x: f128, y: f128, z: f128) callconv(.C) f128 {
     } else {
         return add_and_denorm128(r.hi, adj, spread);
     }
-}
-
-pub fn fmaf128(x: f128, y: f128, z: f128) callconv(.C) f128 {
-    return @call(.{ .modifier = .always_inline }, fmaq, .{ x, y, z });
 }
 
 pub fn fmal(x: c_longdouble, y: c_longdouble, z: c_longdouble) callconv(.C) c_longdouble {

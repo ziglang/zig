@@ -1,16 +1,17 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
-const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
-pub const panic = @import("common.zig").panic;
+const common = @import("common.zig");
+
+pub const panic = common.panic;
 
 comptime {
-    @export(__cmpsi2, .{ .name = "__cmpsi2", .linkage = linkage });
-    @export(__cmpdi2, .{ .name = "__cmpdi2", .linkage = linkage });
-    @export(__cmpti2, .{ .name = "__cmpti2", .linkage = linkage });
-    @export(__ucmpsi2, .{ .name = "__ucmpsi2", .linkage = linkage });
-    @export(__ucmpdi2, .{ .name = "__ucmpdi2", .linkage = linkage });
-    @export(__ucmpti2, .{ .name = "__ucmpti2", .linkage = linkage });
+    @export(__cmpsi2, .{ .name = "__cmpsi2", .linkage = common.linkage });
+    @export(__cmpdi2, .{ .name = "__cmpdi2", .linkage = common.linkage });
+    @export(__cmpti2, .{ .name = "__cmpti2", .linkage = common.linkage });
+    @export(__ucmpsi2, .{ .name = "__ucmpsi2", .linkage = common.linkage });
+    @export(__ucmpdi2, .{ .name = "__ucmpdi2", .linkage = common.linkage });
+    @export(__ucmpti2, .{ .name = "__ucmpti2", .linkage = common.linkage });
 }
 
 // cmp - signed compare
@@ -24,7 +25,6 @@ comptime {
 // a >  b => 2
 
 inline fn XcmpXi2(comptime T: type, a: T, b: T) i32 {
-    @setRuntimeSafety(builtin.is_test);
     var cmp1: i32 = 0;
     var cmp2: i32 = 0;
     if (a > b)
