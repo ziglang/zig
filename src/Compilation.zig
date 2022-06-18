@@ -23,7 +23,6 @@ const mingw = @import("mingw.zig");
 const libunwind = @import("libunwind.zig");
 const libcxx = @import("libcxx.zig");
 const wasi_libc = @import("wasi_libc.zig");
-const compiler_rt = @import("compiler_rt.zig");
 const fatal = @import("main.zig").fatal;
 const clangMain = @import("main.zig").clangMain;
 const Module = @import("Module.zig");
@@ -2746,10 +2745,6 @@ pub fn performAllTheWork(
     var embed_file_prog_node = main_progress_node.start("Detect @embedFile updates", comp.embed_file_work_queue.count);
     defer embed_file_prog_node.end();
 
-    // +1 for the link step
-    var compiler_rt_prog_node = main_progress_node.start("compiler_rt", compiler_rt.sources.len + 1);
-    defer compiler_rt_prog_node.end();
-
     comp.work_queue_wait_group.reset();
     defer comp.work_queue_wait_group.wait();
 
@@ -2796,28 +2791,6 @@ pub fn performAllTheWork(
             try comp.thread_pool.spawn(workerUpdateCObject, .{
                 comp, c_object, &c_obj_prog_node, &comp.work_queue_wait_group,
             });
-        }
-
-        if (comp.job_queued_compiler_rt_lib) {
-            comp.job_queued_compiler_rt_lib = false;
-
-            // I have disabled the multi-threaded compiler-rt for now until
-            // the threading deadlock is resolved.
-            if (use_stage1 or true) {
-                // stage1 LLVM backend uses the global context and thus cannot be used in
-                // a multi-threaded context.
-                buildCompilerRtOneShot(comp, .Lib, &comp.compiler_rt_lib);
-            } else {
-                comp.work_queue_wait_group.start();
-                try comp.thread_pool.spawn(workerBuildCompilerRtLib, .{
-                    comp, &compiler_rt_prog_node, &comp.work_queue_wait_group,
-                });
-            }
-        }
-
-        if (comp.job_queued_compiler_rt_obj) {
-            comp.job_queued_compiler_rt_obj = false;
-            buildCompilerRtOneShot(comp, .Obj, &comp.compiler_rt_obj);
         }
     }
 
@@ -2870,6 +2843,16 @@ pub fn performAllTheWork(
             continue;
         }
         break;
+    }
+
+    if (comp.job_queued_compiler_rt_lib) {
+        comp.job_queued_compiler_rt_lib = false;
+        buildCompilerRtOneShot(comp, .Lib, &comp.compiler_rt_lib);
+    }
+
+    if (comp.job_queued_compiler_rt_obj) {
+        comp.job_queued_compiler_rt_obj = false;
+        buildCompilerRtOneShot(comp, .Obj, &comp.compiler_rt_obj);
     }
 }
 
@@ -3534,23 +3517,6 @@ fn buildCompilerRtOneShot(
     out: *?CRTFile,
 ) void {
     comp.buildOutputFromZig("compiler_rt.zig", output_mode, out, .compiler_rt) catch |err| switch (err) {
-        error.SubCompilationFailed => return, // error reported already
-        else => comp.lockAndSetMiscFailure(
-            .compiler_rt,
-            "unable to build compiler_rt: {s}",
-            .{@errorName(err)},
-        ),
-    };
-}
-
-fn workerBuildCompilerRtLib(
-    comp: *Compilation,
-    progress_node: *std.Progress.Node,
-    wg: *WaitGroup,
-) void {
-    defer wg.finish();
-
-    compiler_rt.buildCompilerRtLib(comp, progress_node) catch |err| switch (err) {
         error.SubCompilationFailed => return, // error reported already
         else => comp.lockAndSetMiscFailure(
             .compiler_rt,
