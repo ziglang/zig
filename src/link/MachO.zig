@@ -451,6 +451,10 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
             llvm_object.destroy(self.base.allocator);
             self.llvm_object = null;
+
+            if (self.base.options.output_mode == .Lib and self.base.options.link_mode == .Static) {
+                return;
+            }
         }
     }
 
