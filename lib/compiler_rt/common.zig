@@ -1,7 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const math = std.math;
-const is_test = builtin.is_test;
 
 pub const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
 pub const want_aeabi = switch (builtin.abi) {
@@ -18,19 +16,44 @@ pub const want_aeabi = switch (builtin.abi) {
     else => false,
 };
 pub const want_ppc_abi = builtin.cpu.arch.isPPC() or builtin.cpu.arch.isPPC64();
-pub const want_msvc_abi = builtin.abi == .msvc;
-/// Example symbols:
+
+/// This governs whether to use these symbol names for f16/f32 conversions
+/// rather than the standard names:
 /// * __gnu_f2h_ieee
 /// * __gnu_h2f_ieee
-pub const want_gnu_abi = builtin.abi.isGnu() or builtin.abi.isMusl();
+/// Known correct configurations:
+///   x86_64-freestanding-none => true
+///   x86_64-linux-none => true
+///   x86_64-linux-gnu => true
+///   x86_64-linux-musl => true
+///   x86_64-linux-eabi => true
+///   arm-linux-musleabihf => true
+///   arm-linux-gnueabihf => true
+///   arm-linux-eabihf => false
+///   wasm32-wasi-musl => false
+///   wasm32-freestanding-none => false
+///   x86_64-windows-gnu => true
+///   x86_64-windows-msvc => true
+///   any-macos-any => doesn't matter; libSystem has both symbol flavors
+pub const gnu_f16_abi = switch (builtin.cpu.arch) {
+    .wasm32, .wasm64 => false,
+
+    .arm, .armeb, .thumb, .thumbeb => switch (builtin.abi) {
+        .eabi, .eabihf => false,
+        else => true,
+    },
+
+    else => true,
+};
+
 pub const want_sparc_abi = builtin.cpu.arch.isSPARC();
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test compiler-rt.
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
     _ = error_return_trace;
-    @setCold(true);
-    if (is_test) {
+    if (builtin.is_test) {
+        @setCold(true);
         std.debug.panic("{s}", .{msg});
     } else {
         unreachable;

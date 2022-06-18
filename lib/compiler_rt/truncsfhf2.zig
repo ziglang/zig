@@ -4,7 +4,7 @@ const truncf = @import("./truncf.zig").truncf;
 pub const panic = common.panic;
 
 comptime {
-    if (common.want_gnu_abi) {
+    if (common.gnu_f16_abi) {
         @export(__gnu_f2h_ieee, .{ .name = "__gnu_f2h_ieee", .linkage = common.linkage });
     } else if (common.want_aeabi) {
         @export(__aeabi_f2h, .{ .name = "__aeabi_f2h", .linkage = common.linkage });
