@@ -1,14 +1,14 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const math = std.math;
-const is_test = builtin.is_test;
-const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
-pub const panic = @import("common.zig").panic;
+const common = @import("common.zig");
+
+pub const panic = common.panic;
 
 comptime {
-    @export(__mulosi4, .{ .name = "__mulosi4", .linkage = linkage });
-    @export(__mulodi4, .{ .name = "__mulodi4", .linkage = linkage });
-    @export(__muloti4, .{ .name = "__muloti4", .linkage = linkage });
+    @export(__mulosi4, .{ .name = "__mulosi4", .linkage = common.linkage });
+    @export(__mulodi4, .{ .name = "__mulodi4", .linkage = common.linkage });
+    @export(__muloti4, .{ .name = "__muloti4", .linkage = common.linkage });
 }
 
 // mulo - multiplication overflow
@@ -18,7 +18,6 @@ comptime {
 // - muloXi4_genericFast for 2*bitsize <= usize
 
 inline fn muloXi4_genericSmall(comptime ST: type, a: ST, b: ST, overflow: *c_int) ST {
-    @setRuntimeSafety(builtin.is_test);
     overflow.* = 0;
     const min = math.minInt(ST);
     var res: ST = a *% b;
@@ -33,7 +32,6 @@ inline fn muloXi4_genericSmall(comptime ST: type, a: ST, b: ST, overflow: *c_int
 }
 
 inline fn muloXi4_genericFast(comptime ST: type, a: ST, b: ST, overflow: *c_int) ST {
-    @setRuntimeSafety(builtin.is_test);
     overflow.* = 0;
     const EST = switch (ST) {
         i32 => i64,

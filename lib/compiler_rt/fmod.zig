@@ -3,25 +3,19 @@ const std = @import("std");
 const math = std.math;
 const assert = std.debug.assert;
 const arch = builtin.cpu.arch;
-const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
-
 const common = @import("common.zig");
 const normalize = common.normalize;
+
 pub const panic = common.panic;
 
 comptime {
-    @export(__fmodh, .{ .name = "__fmodh", .linkage = linkage });
-    @export(fmodf, .{ .name = "fmodf", .linkage = linkage });
-    @export(fmod, .{ .name = "fmod", .linkage = linkage });
-    @export(__fmodx, .{ .name = "__fmodx", .linkage = linkage });
-    @export(fmodq, .{ .name = "fmodq", .linkage = linkage });
-    @export(fmodl, .{ .name = "fmodl", .linkage = linkage });
-
-    if (!builtin.is_test) {
-        if (arch.isPPC() or arch.isPPC64()) {
-            @export(fmodf128, .{ .name = "fmodf128", .linkage = linkage });
-        }
-    }
+    @export(__fmodh, .{ .name = "__fmodh", .linkage = common.linkage });
+    @export(fmodf, .{ .name = "fmodf", .linkage = common.linkage });
+    @export(fmod, .{ .name = "fmod", .linkage = common.linkage });
+    @export(__fmodx, .{ .name = "__fmodx", .linkage = common.linkage });
+    const fmodq_sym_name = if (common.want_ppc_abi) "fmodf128" else "fmodq";
+    @export(fmodq, .{ .name = fmodq_sym_name, .linkage = common.linkage });
+    @export(fmodl, .{ .name = "fmodl", .linkage = common.linkage });
 }
 
 pub fn __fmodh(x: f16, y: f16) callconv(.C) f16 {
@@ -40,8 +34,6 @@ pub fn fmod(x: f64, y: f64) callconv(.C) f64 {
 /// fmodx - floating modulo large, returns the remainder of division for f80 types
 /// Logic and flow heavily inspired by MUSL fmodl for 113 mantissa digits
 pub fn __fmodx(a: f80, b: f80) callconv(.C) f80 {
-    @setRuntimeSafety(builtin.is_test);
-
     const T = f80;
     const Z = std.meta.Int(.unsigned, @bitSizeOf(T));
 
@@ -140,7 +132,6 @@ pub fn __fmodx(a: f80, b: f80) callconv(.C) f80 {
 /// fmodq - floating modulo large, returns the remainder of division for f128 types
 /// Logic and flow heavily inspired by MUSL fmodl for 113 mantissa digits
 pub fn fmodq(a: f128, b: f128) callconv(.C) f128 {
-    @setRuntimeSafety(builtin.is_test);
     var amod = a;
     var bmod = b;
     const aPtr_u64 = @ptrCast([*]u64, &amod);
@@ -257,10 +248,6 @@ pub fn fmodq(a: f128, b: f128) callconv(.C) f128 {
     return amod;
 }
 
-pub fn fmodf128(a: f128, b: f128) callconv(.C) f128 {
-    return @call(.{ .modifier = .always_inline }, fmodq, .{ a, b });
-}
-
 pub fn fmodl(a: c_longdouble, b: c_longdouble) callconv(.C) c_longdouble {
     switch (@typeInfo(c_longdouble).Float.bits) {
         16 => return __fmodh(a, b),
@@ -273,8 +260,6 @@ pub fn fmodl(a: c_longdouble, b: c_longdouble) callconv(.C) c_longdouble {
 }
 
 inline fn generic_fmod(comptime T: type, x: T, y: T) T {
-    @setRuntimeSafety(false);
-
     const bits = @typeInfo(T).Float.bits;
     const uint = std.meta.Int(.unsigned, bits);
     const log2uint = math.Log2Int(uint);

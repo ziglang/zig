@@ -1,25 +1,25 @@
-// __emutls_get_address specific builtin
-//
-// derived work from LLVM Compiler Infrastructure - release 8.0 (MIT)
-// https://github.com/llvm-mirror/compiler-rt/blob/release_80/lib/builtins/emutls.c
-//
+//! __emutls_get_address specific builtin
+//!
+//! derived work from LLVM Compiler Infrastructure - release 8.0 (MIT)
+//! https://github.com/llvm-mirror/compiler-rt/blob/release_80/lib/builtins/emutls.c
 
 const std = @import("std");
 const builtin = @import("builtin");
-const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
-pub const panic = @import("common.zig").panic;
+const common = @import("common.zig");
 
 const abort = std.os.abort;
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 
-// defined in C as:
-// typedef unsigned int gcc_word __attribute__((mode(word)));
+/// defined in C as:
+/// typedef unsigned int gcc_word __attribute__((mode(word)));
 const gcc_word = usize;
+
+pub const panic = common.panic;
 
 comptime {
     if (builtin.link_libc and builtin.os.tag == .openbsd) {
-        @export(__emutls_get_address, .{ .name = "__emutls_get_address", .linkage = linkage });
+        @export(__emutls_get_address, .{ .name = "__emutls_get_address", .linkage = common.linkage });
     }
 }
 
