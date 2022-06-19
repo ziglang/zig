@@ -1197,7 +1197,12 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
         return self.finishAir(inst, result, buf);
     }
 
-    @panic("TODO handle return value with BigTomb");
+    var bt = try self.iterateBigTomb(inst, 1 + args.len);
+    bt.feed(callee);
+    for (args) |arg| {
+        bt.feed(arg);
+    }
+    return bt.finishAir(result);
 }
 
 fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
