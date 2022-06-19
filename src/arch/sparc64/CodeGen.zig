@@ -611,7 +611,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .atomic_rmw      => @panic("TODO try self.airAtomicRmw(inst)"),
             .atomic_load     => @panic("TODO try self.airAtomicLoad(inst)"),
             .memcpy          => @panic("TODO try self.airMemcpy(inst)"),
-            .memset          => @panic("TODO try self.airMemset(inst)"),
+            .memset          => try self.airMemset(inst),
             .set_union_tag   => @panic("TODO try self.airSetUnionTag(inst)"),
             .get_union_tag   => @panic("TODO try self.airGetUnionTag(inst)"),
             .clz             => @panic("TODO try self.airClz(inst)"),
@@ -1567,6 +1567,20 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
     try self.genBody(body);
     try self.jump(start);
     return self.finishAirBookkeeping();
+}
+
+fn airMemset(self: *Self, inst: Air.Inst.Index) !void {
+    const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+    const extra = self.air.extraData(Air.Bin, pl_op.payload);
+
+    const operand = pl_op.operand;
+    const value = extra.data.lhs;
+    const length = extra.data.rhs;
+    _ = operand;
+    _ = value;
+    _ = length;
+
+    return self.fail("TODO implement airMemset for {}", .{self.target.cpu.arch});
 }
 
 fn airNot(self: *Self, inst: Air.Inst.Index) !void {
