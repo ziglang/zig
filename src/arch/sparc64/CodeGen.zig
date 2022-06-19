@@ -1581,7 +1581,6 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
             else => {
                 switch (operand_ty.zigTypeTag()) {
                     .Bool => {
-                        // TODO convert this to mvn + and
                         const op_reg = switch (operand) {
                             .register => |r| r,
                             else => try self.copyToTmpRegister(operand_ty, operand),
@@ -1647,7 +1646,7 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
 
                             break :result MCValue{ .register = dest_reg };
                         } else {
-                            return self.fail("TODO AArch64 not on integers > u64/i64", .{});
+                            return self.fail("TODO sparc64 not on integers > u64/i64", .{});
                         }
                     },
                     else => unreachable,
