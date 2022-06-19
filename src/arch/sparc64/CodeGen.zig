@@ -611,7 +611,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .select          => @panic("TODO try self.airSelect(inst)"),
             .shuffle         => @panic("TODO try self.airShuffle(inst)"),
             .reduce          => @panic("TODO try self.airReduce(inst)"),
-            .aggregate_init  => @panic("TODO try self.airAggregateInit(inst)"),
+            .aggregate_init  => try self.airAggregateInit(inst),
             .union_init      => @panic("TODO try self.airUnionInit(inst)"),
             .prefetch        => @panic("TODO try self.airPrefetch(inst)"),
             .mul_add         => @panic("TODO try self.airMulAdd(inst)"),
@@ -775,6 +775,28 @@ fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         }
     };
     return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
+}
+
+fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
+    const vector_ty = self.air.typeOfIndex(inst);
+    const len = vector_ty.vectorLen();
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const elements = @ptrCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
+    const result: MCValue = res: {
+        if (self.liveness.isUnused(inst)) break :res MCValue.dead;
+        return self.fail("TODO implement airAggregateInit for {}", .{self.target.cpu.arch});
+    };
+
+    if (elements.len <= Liveness.bpi - 1) {
+        var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
+        std.mem.copy(Air.Inst.Ref, &buf, elements);
+        return self.finishAir(inst, result, buf);
+    }
+    var bt = try self.iterateBigTomb(inst, elements.len);
+    for (elements) |elem| {
+        bt.feed(elem);
+    }
+    return bt.finishAir(result);
 }
 
 fn airAlloc(self: *Self, inst: Air.Inst.Index) !void {
