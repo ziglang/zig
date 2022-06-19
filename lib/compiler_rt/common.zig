@@ -34,7 +34,7 @@ pub const want_ppc_abi = builtin.cpu.arch.isPPC() or builtin.cpu.arch.isPPC64();
 ///   wasm32-freestanding-none => false
 ///   x86_64-windows-gnu => true
 ///   x86_64-windows-msvc => true
-///   any-macos-any => doesn't matter; libSystem has both symbol flavors
+///   any-macos-any => false
 pub const gnu_f16_abi = switch (builtin.cpu.arch) {
     .wasm32, .wasm64 => false,
 
@@ -43,7 +43,7 @@ pub const gnu_f16_abi = switch (builtin.cpu.arch) {
         else => true,
     },
 
-    else => true,
+    else => !builtin.os.tag.isDarwin(),
 };
 
 pub const want_sparc_abi = builtin.cpu.arch.isSPARC();
