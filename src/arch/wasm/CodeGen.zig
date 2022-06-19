@@ -4995,13 +4995,13 @@ fn airShlSat(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const ty = self.air.typeOfIndex(inst);
     const int_info = ty.intInfo(self.target);
+    const is_signed = int_info.signedness == .signed;
     if (int_info.bits > 64) {
         return self.fail("TODO: Saturating shifting left for integers with bitsize '{d}'", .{int_info.bits});
     }
 
     const lhs = try self.resolveInst(bin_op.lhs);
     const rhs = try self.resolveInst(bin_op.rhs);
-    if (int_info.signedness == .signed) {}
     const wasm_bits = toWasmBits(int_info.bits).?;
     const result = try self.allocLocal(ty);
 
@@ -5009,10 +5009,32 @@ fn airShlSat(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         const shl = try self.binOp(lhs, rhs, ty, .shl);
         const shr = try self.binOp(shl, rhs, ty, .shr);
         const cmp_result = try self.cmp(lhs, shr, ty, .neq);
-        if (wasm_bits == 32)
-            try self.addImm32(-1)
-        else
-            try self.addImm64(@bitCast(u64, @as(i64, -1)));
+
+        switch (wasm_bits) {
+            32 => blk: {
+                if (!is_signed) {
+                    try self.addImm32(-1);
+                    break :blk;
+                }
+                const less_than_zero = try self.cmp(lhs, .{ .imm32 = 0 }, ty, .lt);
+                try self.addImm32(std.math.minInt(i32));
+                try self.addImm32(std.math.maxInt(i32));
+                try self.emitWValue(less_than_zero);
+                try self.addTag(.select);
+            },
+            64 => blk: {
+                if (!is_signed) {
+                    try self.addImm64(@bitCast(u64, @as(i64, -1)));
+                    break :blk;
+                }
+                const less_than_zero = try self.cmp(lhs, .{ .imm64 = 0 }, ty, .lt);
+                try self.addImm64(@bitCast(u64, @as(i64, std.math.minInt(i64))));
+                try self.addImm64(@bitCast(u64, @as(i64, std.math.maxInt(i64))));
+                try self.emitWValue(less_than_zero);
+                try self.addTag(.select);
+            },
+            else => unreachable,
+        }
         try self.emitWValue(shl);
         try self.emitWValue(cmp_result);
         try self.addTag(.select);
@@ -5029,12 +5051,35 @@ fn airShlSat(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         const shl_res = try self.binOp(lhs, shift_value, ty, .shl);
         const shl = try self.binOp(shl_res, rhs, ty, .shl);
         const shr = try self.binOp(shl, rhs, ty, .shr);
-
         const cmp_result = try self.cmp(shl_res, shr, ty, .neq);
-        if (wasm_bits == 32)
-            try self.addImm32(-1)
-        else
-            try self.addImm64(@bitCast(u64, @as(i64, -1)));
+
+        switch (wasm_bits) {
+            32 => blk: {
+                if (!is_signed) {
+                    try self.addImm32(-1);
+                    break :blk;
+                }
+
+                const less_than_zero = try self.cmp(shl_res, .{ .imm32 = 0 }, ty, .lt);
+                try self.addImm32(std.math.minInt(i32));
+                try self.addImm32(std.math.maxInt(i32));
+                try self.emitWValue(less_than_zero);
+                try self.addTag(.select);
+            },
+            64 => blk: {
+                if (!is_signed) {
+                    try self.addImm64(@bitCast(u64, @as(i64, -1)));
+                    break :blk;
+                }
+
+                const less_than_zero = try self.cmp(shl_res, .{ .imm64 = 0 }, ty, .lt);
+                try self.addImm64(@bitCast(u64, @as(i64, std.math.minInt(i64))));
+                try self.addImm64(@bitCast(u64, @as(i64, std.math.maxInt(i64))));
+                try self.emitWValue(less_than_zero);
+                try self.addTag(.select);
+            },
+            else => unreachable,
+        }
         try self.emitWValue(shl);
         try self.emitWValue(cmp_result);
         try self.addTag(.select);
