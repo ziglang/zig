@@ -586,9 +586,9 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .intcast         => try self.airIntCast(inst),
             .trunc           => @panic("TODO try self.airTrunc(inst)"),
             .bool_to_int     => @panic("TODO try self.airBoolToInt(inst)"),
-            .is_non_null     => @panic("TODO try self.airIsNonNull(inst)"),
+            .is_non_null     => try self.airIsNonNull(inst),
             .is_non_null_ptr => @panic("TODO try self.airIsNonNullPtr(inst)"),
-            .is_null         => @panic("TODO try self.airIsNull(inst)"),
+            .is_null         => try self.airIsNull(inst),
             .is_null_ptr     => @panic("TODO try self.airIsNullPtr(inst)"),
             .is_non_err      => try self.airIsNonErr(inst),
             .is_non_err_ptr  => @panic("TODO try self.airIsNonErrPtr(inst)"),
@@ -1499,6 +1499,24 @@ fn airIsNonErr(self: *Self, inst: Air.Inst.Index) !void {
         const operand = try self.resolveInst(un_op);
         const ty = self.air.typeOf(un_op);
         break :result try self.isNonErr(ty, operand);
+    };
+    return self.finishAir(inst, result, .{ un_op, .none, .none });
+}
+
+fn airIsNull(self: *Self, inst: Air.Inst.Index) !void {
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const operand = try self.resolveInst(un_op);
+        break :result try self.isNull(operand);
+    };
+    return self.finishAir(inst, result, .{ un_op, .none, .none });
+}
+
+fn airIsNonNull(self: *Self, inst: Air.Inst.Index) !void {
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const operand = try self.resolveInst(un_op);
+        break :result try self.isNonNull(operand);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -3279,6 +3297,28 @@ fn isNonErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
     // Call isErr, then negate the result.
     const is_err_result = try self.isErr(ty, operand);
     switch (is_err_result) {
+        .condition_flags => |op| {
+            return MCValue{ .condition_flags = .{ .cond = op.cond.negate(), .ccr = op.ccr } };
+        },
+        .immediate => |imm| {
+            assert(imm == 0);
+            return MCValue{ .immediate = 1 };
+        },
+        else => unreachable,
+    }
+}
+
+fn isNull(self: *Self, operand: MCValue) !MCValue {
+    _ = operand;
+    // Here you can specialize this instruction if it makes sense to, otherwise the default
+    // will call isNonNull and invert the result.
+    return self.fail("TODO call isNonNull and invert the result", .{});
+}
+
+fn isNonNull(self: *Self, operand: MCValue) !MCValue {
+    // Call isNull, then negate the result.
+    const is_null_result = try self.isNull(operand);
+    switch (is_null_result) {
         .condition_flags => |op| {
             return MCValue{ .condition_flags = .{ .cond = op.cond.negate(), .ccr = op.ccr } };
         },
