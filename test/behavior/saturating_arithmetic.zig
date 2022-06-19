@@ -5,7 +5,6 @@ const maxInt = std.math.maxInt;
 const expect = std.testing.expect;
 
 test "saturating add" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -20,8 +19,6 @@ test "saturating add" {
             try testSatAdd(i2, 1, -1, 0);
             try testSatAdd(i2, -1, -1, -2);
             try testSatAdd(i64, maxInt(i64), 1, maxInt(i64));
-            try testSatAdd(i128, maxInt(i128), -maxInt(i128), 0);
-            try testSatAdd(i128, minInt(i128), maxInt(i128), -1);
             try testSatAdd(i8, 127, 127, 127);
             try testSatAdd(u2, 0, 0, 0);
             try testSatAdd(u2, 0, 1, 1);
@@ -29,7 +26,6 @@ test "saturating add" {
             try testSatAdd(u8, 255, 255, 255);
             try testSatAdd(u2, 3, 2, 3);
             try testSatAdd(u3, 7, 1, 7);
-            try testSatAdd(u128, maxInt(u128), 1, maxInt(u128));
         }
 
         fn testSatAdd(comptime T: type, lhs: T, rhs: T, expected: T) !void {
@@ -54,8 +50,32 @@ test "saturating add" {
     comptime try S.testSatAdd(comptime_int, 7, -593423721213448152027139550640105366508, -593423721213448152027139550640105366501);
 }
 
-test "saturating subtraction" {
+test "saturating add 128bit" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    const S = struct {
+        fn doTheTest() !void {
+            try testSatAdd(i128, maxInt(i128), -maxInt(i128), 0);
+            try testSatAdd(i128, minInt(i128), maxInt(i128), -1);
+            try testSatAdd(u128, maxInt(u128), 1, maxInt(u128));
+        }
+        fn testSatAdd(comptime T: type, lhs: T, rhs: T, expected: T) !void {
+            try expect((lhs +| rhs) == expected);
+
+            var x = lhs;
+            x +|= rhs;
+            try expect(x == expected);
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "saturating subtraction" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -71,14 +91,11 @@ test "saturating subtraction" {
             try testSatSub(i2, 1, -1, 1);
             try testSatSub(i2, -2, -2, 0);
             try testSatSub(i64, minInt(i64), 1, minInt(i64));
-            try testSatSub(i128, maxInt(i128), -1, maxInt(i128));
-            try testSatSub(i128, minInt(i128), -maxInt(i128), -1);
             try testSatSub(u2, 0, 0, 0);
             try testSatSub(u2, 0, 1, 0);
             try testSatSub(u5, 0, 31, 0);
             try testSatSub(u8, 10, 3, 7);
             try testSatSub(u8, 0, 255, 0);
-            try testSatSub(u128, 0, maxInt(u128), 0);
         }
 
         fn testSatSub(comptime T: type, lhs: T, rhs: T, expected: T) !void {
@@ -101,6 +118,33 @@ test "saturating subtraction" {
     comptime try S.testSatSub(comptime_int, -3, 2, -5);
     comptime try S.testSatSub(comptime_int, 651075816498665588400716961808225370057, 468229432685078038144554201546849378455, 182846383813587550256162760261375991602);
     comptime try S.testSatSub(comptime_int, 7, -593423721213448152027139550640105366508, 593423721213448152027139550640105366515);
+}
+
+test "saturating subtraction 128bit" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest() !void {
+            try testSatSub(i128, maxInt(i128), -1, maxInt(i128));
+            try testSatSub(i128, minInt(i128), -maxInt(i128), -1);
+            try testSatSub(u128, 0, maxInt(u128), 0);
+        }
+
+        fn testSatSub(comptime T: type, lhs: T, rhs: T, expected: T) !void {
+            try expect((lhs -| rhs) == expected);
+
+            var x = lhs;
+            x -|= rhs;
+            try expect(x == expected);
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "saturating multiplication" {
@@ -153,7 +197,6 @@ test "saturating multiplication" {
 }
 
 test "saturating shift-left" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -193,7 +236,6 @@ test "saturating shift-left" {
 }
 
 test "saturating shl uses the LHS type" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
