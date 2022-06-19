@@ -57,6 +57,73 @@ test "std.meta.tagName" {
     try testing.expect(mem.eql(u8, tagName(u2b), "D"));
 }
 
+/// Given an enum or tagged union, returns true if the comptime-supplied
+/// string matches the name of the tag value.  This match process should
+/// be, at runtime, O(1) in the number of tags available to the enum or
+/// union, and it should also be O(1) in the length of the comptime tag
+/// names.
+pub fn isTag(enum_or_union: anytype, comptime tag_name: []const u8) bool {
+    const T = @TypeOf(enum_or_union);
+    const type_info = @typeInfo(T);
+    const type_name = @typeName(T);
+
+    // select the Enum type out of the type (in the case of the struct, extract it)
+    const E = if (.Enum == type_info) T else if (.Union == type_info) (if (type_info.Union.tag_type) |TT| TT else {
+        @compileError("attempted to use isTag on the untagged union " ++ type_name);
+    }) else {
+        @compileError("attempted to use isTag on a value of type (" ++ type_name ++ ") that isn't an enum or a union.");
+    };
+
+    comptime var unmatched: bool = true;
+    inline for (@typeInfo(E).Enum.fields) |field| {
+        // note that the next if statement is comptime, and is pruned if
+        // the field name doesn't match the supplied value.  *At most* one
+        // code block in this list of if statements should exist in
+        // generated code.
+        if (std.mem.eql(u8, field.name, tag_name)) {
+            unmatched = false;
+
+            // NB: for unions, this uses the "tagged union coerces to enum"
+            // feature.
+            return @enumToInt(enum_or_union) == field.value;
+        }
+    }
+
+    if (unmatched) {
+        @compileError("attempted to use isTag with the type " ++ type_name ++ " which doesn't have the tag " ++ tag_name);
+    }
+
+    unreachable;
+}
+
+test "isTag works with Enums" {
+    const EnumType = enum { a, b };
+    var a_type: EnumType = .a;
+    var b_type: EnumType = .b;
+
+    try testing.expect(isTag(a_type, "a"));
+    try testing.expect(!isTag(a_type, "b"));
+    try testing.expect(isTag(b_type, "b"));
+    try testing.expect(!isTag(b_type, "a"));
+}
+
+test "isTag works with Tagged Unions" {
+    const TaggedUnionEnum = enum { int, flt };
+
+    const TaggedUnionType = union(TaggedUnionEnum) {
+        int: i64,
+        flt: f64,
+    };
+
+    var int = TaggedUnionType{ .int = 1234 };
+    var flt = TaggedUnionType{ .flt = 12.34 };
+
+    try testing.expect(isTag(int, "int"));
+    try testing.expect(!isTag(int, "flt"));
+    try testing.expect(isTag(flt, "flt"));
+    try testing.expect(!isTag(flt, "int"));
+}
+
 pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
     // Using ComptimeStringMap here is more performant, but it will start to take too
     // long to compile if the enum is large enough, due to the current limits of comptime
