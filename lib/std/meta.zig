@@ -67,7 +67,7 @@ pub fn isTag(enum_or_union: anytype, comptime tag_name: []const u8) bool {
     const type_info = @typeInfo(T);
     const type_name = @typeName(T);
 
-    // select the Enum type out of the type (in the case of the struct, extract it)
+    // select the Enum type out of the type (in the case of the tagged union, extract it)
     const E = if (.Enum == type_info) T else if (.Union == type_info) (if (type_info.Union.tag_type) |TT| TT else {
         @compileError("attempted to use isTag on the untagged union " ++ type_name);
     }) else {
@@ -76,15 +76,15 @@ pub fn isTag(enum_or_union: anytype, comptime tag_name: []const u8) bool {
 
     comptime var unmatched: bool = true;
     inline for (@typeInfo(E).Enum.fields) |field| {
-        // note that the next if statement is comptime, and is pruned if
-        // the field name doesn't match the supplied value.  *At most* one
-        // code block in this list of if statements should exist in
-        // generated code.
+        // note that the next if statement is comptime, and will be pruned if
+        // the field name doesn't match the supplied value.  Thus *at most* one
+        // code block in this list of if statements should exist in generated
+        // code, leading to the O(1) characteristics of this function.
         if (std.mem.eql(u8, field.name, tag_name)) {
             unmatched = false;
 
             // NB: for unions, this uses the "tagged union coerces to enum"
-            // feature.
+            // language feature.
             return @enumToInt(enum_or_union) == field.value;
         }
     }
