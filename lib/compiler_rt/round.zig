@@ -1,12 +1,27 @@
-// Ported from musl, which is licensed under the MIT license:
-// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
-//
-// https://git.musl-libc.org/cgit/musl/tree/src/math/roundf.c
-// https://git.musl-libc.org/cgit/musl/tree/src/math/round.c
+//! Ported from musl, which is licensed under the MIT license:
+//! https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//!
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/roundf.c
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/round.c
 
 const std = @import("std");
+const builtin = @import("builtin");
 const math = std.math;
 const expect = std.testing.expect;
+const arch = builtin.cpu.arch;
+const common = @import("common.zig");
+
+pub const panic = common.panic;
+
+comptime {
+    @export(__roundh, .{ .name = "__roundh", .linkage = common.linkage });
+    @export(roundf, .{ .name = "roundf", .linkage = common.linkage });
+    @export(round, .{ .name = "round", .linkage = common.linkage });
+    @export(__roundx, .{ .name = "__roundx", .linkage = common.linkage });
+    const roundq_sym_name = if (common.want_ppc_abi) "roundf128" else "roundq";
+    @export(roundq, .{ .name = roundq_sym_name, .linkage = common.linkage });
+    @export(roundl, .{ .name = "roundl", .linkage = common.linkage });
+}
 
 pub fn __roundh(x: f16) callconv(.C) f16 {
     // TODO: more efficient implementation

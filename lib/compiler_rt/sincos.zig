@@ -1,10 +1,23 @@
 const std = @import("std");
+const builtin = @import("builtin");
+const arch = builtin.cpu.arch;
 const math = std.math;
-const sin = @import("sin.zig");
-const cos = @import("cos.zig");
 const trig = @import("trig.zig");
 const rem_pio2 = @import("rem_pio2.zig").rem_pio2;
 const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;
+const common = @import("common.zig");
+
+pub const panic = common.panic;
+
+comptime {
+    @export(__sincosh, .{ .name = "__sincosh", .linkage = common.linkage });
+    @export(sincosf, .{ .name = "sincosf", .linkage = common.linkage });
+    @export(sincos, .{ .name = "sincos", .linkage = common.linkage });
+    @export(__sincosx, .{ .name = "__sincosx", .linkage = common.linkage });
+    const sincosq_sym_name = if (common.want_ppc_abi) "sincosf128" else "sincosq";
+    @export(sincosq, .{ .name = sincosq_sym_name, .linkage = common.linkage });
+    @export(sincosl, .{ .name = "sincosl", .linkage = common.linkage });
+}
 
 pub fn __sincosh(x: f16, r_sin: *f16, r_cos: *f16) callconv(.C) void {
     // TODO: more efficient implementation
@@ -192,7 +205,7 @@ pub fn sincosl(x: c_longdouble, r_sin: *c_longdouble, r_cos: *c_longdouble) call
     }
 }
 
-const rem_pio2_generic = @compileError("TODO");
+pub const rem_pio2_generic = @compileError("TODO");
 
 /// Ported from musl sincosl.c. Needs the following dependencies to be complete:
 /// * rem_pio2_generic ported from __rem_pio2l.c

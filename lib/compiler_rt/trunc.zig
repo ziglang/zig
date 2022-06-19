@@ -1,12 +1,27 @@
-// Ported from musl, which is licensed under the MIT license:
-// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
-//
-// https://git.musl-libc.org/cgit/musl/tree/src/math/truncf.c
-// https://git.musl-libc.org/cgit/musl/tree/src/math/trunc.c
+//! Ported from musl, which is MIT licensed.
+//! https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//!
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/truncf.c
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/trunc.c
 
 const std = @import("std");
+const builtin = @import("builtin");
+const arch = builtin.cpu.arch;
 const math = std.math;
 const expect = std.testing.expect;
+const common = @import("common.zig");
+
+pub const panic = common.panic;
+
+comptime {
+    @export(__trunch, .{ .name = "__trunch", .linkage = common.linkage });
+    @export(truncf, .{ .name = "truncf", .linkage = common.linkage });
+    @export(trunc, .{ .name = "trunc", .linkage = common.linkage });
+    @export(__truncx, .{ .name = "__truncx", .linkage = common.linkage });
+    const truncq_sym_name = if (common.want_ppc_abi) "truncf128" else "truncq";
+    @export(truncq, .{ .name = truncq_sym_name, .linkage = common.linkage });
+    @export(truncl, .{ .name = "truncl", .linkage = common.linkage });
+}
 
 pub fn __trunch(x: f16) callconv(.C) f16 {
     // TODO: more efficient implementation

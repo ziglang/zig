@@ -1,12 +1,31 @@
-const builtin = @import("builtin");
+//! subo - subtract overflow
+//! * return a-%b.
+//! * return if a-b overflows => 1 else => 0
+//! - suboXi4_generic as default
 
-// subo - subtract overflow
-// * return a-%b.
-// * return if a-b overflows => 1 else => 0
-// - suboXi4_generic as default
+const std = @import("std");
+const builtin = @import("builtin");
+const common = @import("common.zig");
+
+pub const panic = common.panic;
+
+comptime {
+    @export(__subosi4, .{ .name = "__subosi4", .linkage = common.linkage });
+    @export(__subodi4, .{ .name = "__subodi4", .linkage = common.linkage });
+    @export(__suboti4, .{ .name = "__suboti4", .linkage = common.linkage });
+}
+
+pub fn __subosi4(a: i32, b: i32, overflow: *c_int) callconv(.C) i32 {
+    return suboXi4_generic(i32, a, b, overflow);
+}
+pub fn __subodi4(a: i64, b: i64, overflow: *c_int) callconv(.C) i64 {
+    return suboXi4_generic(i64, a, b, overflow);
+}
+pub fn __suboti4(a: i128, b: i128, overflow: *c_int) callconv(.C) i128 {
+    return suboXi4_generic(i128, a, b, overflow);
+}
 
 inline fn suboXi4_generic(comptime ST: type, a: ST, b: ST, overflow: *c_int) ST {
-    @setRuntimeSafety(builtin.is_test);
     overflow.* = 0;
     var sum: ST = a -% b;
     // Hackers Delight: section Overflow Detection, subsection Signed Add/Subtract
@@ -19,16 +38,6 @@ inline fn suboXi4_generic(comptime ST: type, a: ST, b: ST, overflow: *c_int) ST 
     if (((a ^ b) & (sum ^ a)) < 0)
         overflow.* = 1;
     return sum;
-}
-
-pub fn __subosi4(a: i32, b: i32, overflow: *c_int) callconv(.C) i32 {
-    return suboXi4_generic(i32, a, b, overflow);
-}
-pub fn __subodi4(a: i64, b: i64, overflow: *c_int) callconv(.C) i64 {
-    return suboXi4_generic(i64, a, b, overflow);
-}
-pub fn __suboti4(a: i128, b: i128, overflow: *c_int) callconv(.C) i128 {
-    return suboXi4_generic(i128, a, b, overflow);
 }
 
 test {

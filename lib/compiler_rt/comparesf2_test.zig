@@ -6,7 +6,15 @@ const std = @import("std");
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
 
-const comparesf2 = @import("compareXf2.zig");
+const __eqsf2 = @import("./cmpsf2.zig").__eqsf2;
+const __lesf2 = @import("./cmpsf2.zig").__lesf2;
+const __ltsf2 = @import("./cmpsf2.zig").__ltsf2;
+const __nesf2 = @import("./cmpsf2.zig").__nesf2;
+
+const __gesf2 = @import("./gesf2.zig").__gesf2;
+const __gtsf2 = @import("./gesf2.zig").__gtsf2;
+
+const __unordsf2 = @import("./unordsf2.zig").__unordsf2;
 
 const TestVector = struct {
     a: f32,
@@ -21,25 +29,25 @@ const TestVector = struct {
 };
 
 fn test__cmpsf2(vector: TestVector) bool {
-    if (comparesf2.__eqsf2(vector.a, vector.b) != vector.eqReference) {
+    if (__eqsf2(vector.a, vector.b) != vector.eqReference) {
         return false;
     }
-    if (comparesf2.__gesf2(vector.a, vector.b) != vector.geReference) {
+    if (__gesf2(vector.a, vector.b) != vector.geReference) {
         return false;
     }
-    if (comparesf2.__gtsf2(vector.a, vector.b) != vector.gtReference) {
+    if (__gtsf2(vector.a, vector.b) != vector.gtReference) {
         return false;
     }
-    if (comparesf2.__lesf2(vector.a, vector.b) != vector.leReference) {
+    if (__lesf2(vector.a, vector.b) != vector.leReference) {
         return false;
     }
-    if (comparesf2.__ltsf2(vector.a, vector.b) != vector.ltReference) {
+    if (__ltsf2(vector.a, vector.b) != vector.ltReference) {
         return false;
     }
-    if (comparesf2.__nesf2(vector.a, vector.b) != vector.neReference) {
+    if (__nesf2(vector.a, vector.b) != vector.neReference) {
         return false;
     }
-    if (comparesf2.__unordsf2(vector.a, vector.b) != vector.unReference) {
+    if (__unordsf2(vector.a, vector.b) != vector.unReference) {
         return false;
     }
     return true;

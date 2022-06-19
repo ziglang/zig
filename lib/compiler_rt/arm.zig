@@ -1,5 +1,46 @@
 // ARM specific builtins
+const std = @import("std");
 const builtin = @import("builtin");
+const arch = builtin.cpu.arch;
+const common = @import("common.zig");
+
+pub const panic = common.panic;
+
+comptime {
+    if (!builtin.is_test) {
+        if (arch.isARM() or arch.isThumb()) {
+            @export(__aeabi_unwind_cpp_pr0, .{ .name = "__aeabi_unwind_cpp_pr0", .linkage = common.linkage });
+            @export(__aeabi_unwind_cpp_pr1, .{ .name = "__aeabi_unwind_cpp_pr1", .linkage = common.linkage });
+            @export(__aeabi_unwind_cpp_pr2, .{ .name = "__aeabi_unwind_cpp_pr2", .linkage = common.linkage });
+
+            @export(__aeabi_ldivmod, .{ .name = "__aeabi_ldivmod", .linkage = common.linkage });
+            @export(__aeabi_uldivmod, .{ .name = "__aeabi_uldivmod", .linkage = common.linkage });
+
+            @export(__aeabi_idivmod, .{ .name = "__aeabi_idivmod", .linkage = common.linkage });
+            @export(__aeabi_uidivmod, .{ .name = "__aeabi_uidivmod", .linkage = common.linkage });
+
+            @export(__aeabi_memcpy, .{ .name = "__aeabi_memcpy", .linkage = common.linkage });
+            @export(__aeabi_memcpy4, .{ .name = "__aeabi_memcpy4", .linkage = common.linkage });
+            @export(__aeabi_memcpy8, .{ .name = "__aeabi_memcpy8", .linkage = common.linkage });
+
+            @export(__aeabi_memmove, .{ .name = "__aeabi_memmove", .linkage = common.linkage });
+            @export(__aeabi_memmove4, .{ .name = "__aeabi_memmove4", .linkage = common.linkage });
+            @export(__aeabi_memmove8, .{ .name = "__aeabi_memmove8", .linkage = common.linkage });
+
+            @export(__aeabi_memset, .{ .name = "__aeabi_memset", .linkage = common.linkage });
+            @export(__aeabi_memset4, .{ .name = "__aeabi_memset4", .linkage = common.linkage });
+            @export(__aeabi_memset8, .{ .name = "__aeabi_memset8", .linkage = common.linkage });
+
+            @export(__aeabi_memclr, .{ .name = "__aeabi_memclr", .linkage = common.linkage });
+            @export(__aeabi_memclr4, .{ .name = "__aeabi_memclr4", .linkage = common.linkage });
+            @export(__aeabi_memclr8, .{ .name = "__aeabi_memclr8", .linkage = common.linkage });
+
+            if (builtin.os.tag == .linux) {
+                @export(__aeabi_read_tp, .{ .name = "__aeabi_read_tp", .linkage = common.linkage });
+            }
+        }
+    }
+}
 
 const __divmodsi4 = @import("int.zig").__divmodsi4;
 const __udivmodsi4 = @import("int.zig").__udivmodsi4;
@@ -14,8 +55,24 @@ pub fn __aeabi_memcpy(dest: [*]u8, src: [*]u8, n: usize) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
     _ = memcpy(dest, src, n);
 }
+pub fn __aeabi_memcpy4(dest: [*]u8, src: [*]u8, n: usize) callconv(.AAPCS) void {
+    @setRuntimeSafety(false);
+    _ = memcpy(dest, src, n);
+}
+pub fn __aeabi_memcpy8(dest: [*]u8, src: [*]u8, n: usize) callconv(.AAPCS) void {
+    @setRuntimeSafety(false);
+    _ = memcpy(dest, src, n);
+}
 
 pub fn __aeabi_memmove(dest: [*]u8, src: [*]u8, n: usize) callconv(.AAPCS) void {
+    @setRuntimeSafety(false);
+    _ = memmove(dest, src, n);
+}
+pub fn __aeabi_memmove4(dest: [*]u8, src: [*]u8, n: usize) callconv(.AAPCS) void {
+    @setRuntimeSafety(false);
+    _ = memmove(dest, src, n);
+}
+pub fn __aeabi_memmove8(dest: [*]u8, src: [*]u8, n: usize) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
     _ = memmove(dest, src, n);
 }
@@ -26,16 +83,32 @@ pub fn __aeabi_memset(dest: [*]u8, n: usize, c: u8) callconv(.AAPCS) void {
     // two arguments swapped
     _ = memset(dest, c, n);
 }
+pub fn __aeabi_memset4(dest: [*]u8, n: usize, c: u8) callconv(.AAPCS) void {
+    @setRuntimeSafety(false);
+    _ = memset(dest, c, n);
+}
+pub fn __aeabi_memset8(dest: [*]u8, n: usize, c: u8) callconv(.AAPCS) void {
+    @setRuntimeSafety(false);
+    _ = memset(dest, c, n);
+}
 
 pub fn __aeabi_memclr(dest: [*]u8, n: usize) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
     _ = memset(dest, 0, n);
 }
+pub fn __aeabi_memclr4(dest: [*]u8, n: usize) callconv(.AAPCS) void {
+    @setRuntimeSafety(false);
+    _ = memset(dest, 0, n);
+}
+pub fn __aeabi_memclr8(dest: [*]u8, n: usize) callconv(.AAPCS) void {
+    @setRuntimeSafety(false);
+    _ = memset(dest, 0, n);
+}
 
 // Dummy functions to avoid errors during the linking phase
-pub fn __aeabi_unwind_cpp_pr0() callconv(.C) void {}
-pub fn __aeabi_unwind_cpp_pr1() callconv(.C) void {}
-pub fn __aeabi_unwind_cpp_pr2() callconv(.C) void {}
+pub fn __aeabi_unwind_cpp_pr0() callconv(.AAPCS) void {}
+pub fn __aeabi_unwind_cpp_pr1() callconv(.AAPCS) void {}
+pub fn __aeabi_unwind_cpp_pr2() callconv(.AAPCS) void {}
 
 // This function can only clobber r0 according to the ABI
 pub fn __aeabi_read_tp() callconv(.Naked) void {

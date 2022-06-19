@@ -1,10 +1,18 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const normalize = @import("divdf3.zig").normalize;
-const wideMultiply = @import("divdf3.zig").wideMultiply;
+const arch = builtin.cpu.arch;
+
+const common = @import("common.zig");
+const normalize = common.normalize;
+const wideMultiply = common.wideMultiply;
+
+pub const panic = common.panic;
+
+comptime {
+    @export(__divxf3, .{ .name = "__divxf3", .linkage = common.linkage });
+}
 
 pub fn __divxf3(a: f80, b: f80) callconv(.C) f80 {
-    @setRuntimeSafety(builtin.is_test);
     const T = f80;
     const Z = std.meta.Int(.unsigned, @bitSizeOf(T));
 

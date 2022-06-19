@@ -1,5 +1,14 @@
-const testing = @import("std").testing;
+const std = @import("std");
+const testing = std.testing;
 const builtin = @import("builtin");
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    if (builtin.os.tag.isDarwin()) {
+        @export(__isPlatformVersionAtLeast, .{ .name = "__isPlatformVersionAtLeast", .linkage = linkage });
+    }
+}
 
 // Ported from llvm-project 13.0.0 d7b669b3a30345cfcdb2fde2af6f48aa4b94845d
 //
@@ -16,30 +25,32 @@ const builtin = @import("builtin");
 // the newer codepath, which merely calls out to the Darwin _availability_version_check API which is
 // available on macOS 10.15+, iOS 13+, tvOS 13+ and watchOS 6+.
 
-inline fn constructVersion(major: u32, minor: u32, subminor: u32) u32 {
-    return ((major & 0xffff) << 16) | ((minor & 0xff) << 8) | (subminor & 0xff);
-}
+const __isPlatformVersionAtLeast = if (builtin.os.tag.isDarwin()) struct {
+    inline fn constructVersion(major: u32, minor: u32, subminor: u32) u32 {
+        return ((major & 0xffff) << 16) | ((minor & 0xff) << 8) | (subminor & 0xff);
+    }
 
-// Darwin-only
-pub fn __isPlatformVersionAtLeast(platform: u32, major: u32, minor: u32, subminor: u32) callconv(.C) i32 {
-    const build_version = dyld_build_version_t{
-        .platform = platform,
-        .version = constructVersion(major, minor, subminor),
+    // Darwin-only
+    fn __isPlatformVersionAtLeast(platform: u32, major: u32, minor: u32, subminor: u32) callconv(.C) i32 {
+        const build_version = dyld_build_version_t{
+            .platform = platform,
+            .version = constructVersion(major, minor, subminor),
+        };
+        return @boolToInt(_availability_version_check(1, &[_]dyld_build_version_t{build_version}));
+    }
+
+    // _availability_version_check darwin API support.
+    const dyld_platform_t = u32;
+    const dyld_build_version_t = extern struct {
+        platform: dyld_platform_t,
+        version: u32,
     };
-    return @boolToInt(_availability_version_check(1, &[_]dyld_build_version_t{build_version}));
-}
-
-// _availability_version_check darwin API support.
-const dyld_platform_t = u32;
-const dyld_build_version_t = extern struct {
-    platform: dyld_platform_t,
-    version: u32,
-};
-// Darwin-only
-extern "c" fn _availability_version_check(count: u32, versions: [*c]const dyld_build_version_t) bool;
+    // Darwin-only
+    extern "c" fn _availability_version_check(count: u32, versions: [*c]const dyld_build_version_t) bool;
+}.__isPlatformVersionAtLeast else struct {};
 
 test "isPlatformVersionAtLeast" {
-    if (!builtin.os.tag.isDarwin()) return error.SkipZigTest;
+    if (!comptime builtin.os.tag.isDarwin()) return error.SkipZigTest;
 
     // Note: this test depends on the actual host OS version since it is merely calling into the
     // native Darwin API.

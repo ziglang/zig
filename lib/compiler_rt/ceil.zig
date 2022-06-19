@@ -1,12 +1,27 @@
-// Ported from musl, which is licensed under the MIT license:
-// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
-//
-// https://git.musl-libc.org/cgit/musl/tree/src/math/ceilf.c
-// https://git.musl-libc.org/cgit/musl/tree/src/math/ceil.c
+//! Ported from musl, which is MIT licensed.
+//! https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//!
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/ceilf.c
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/ceil.c
 
 const std = @import("std");
+const builtin = @import("builtin");
+const arch = builtin.cpu.arch;
 const math = std.math;
 const expect = std.testing.expect;
+const common = @import("common.zig");
+
+pub const panic = common.panic;
+
+comptime {
+    @export(__ceilh, .{ .name = "__ceilh", .linkage = common.linkage });
+    @export(ceilf, .{ .name = "ceilf", .linkage = common.linkage });
+    @export(ceil, .{ .name = "ceil", .linkage = common.linkage });
+    @export(__ceilx, .{ .name = "__ceilx", .linkage = common.linkage });
+    const ceilq_sym_name = if (common.want_ppc_abi) "ceilf128" else "ceilq";
+    @export(ceilq, .{ .name = ceilq_sym_name, .linkage = common.linkage });
+    @export(ceill, .{ .name = "ceill", .linkage = common.linkage });
+}
 
 pub fn __ceilh(x: f16) callconv(.C) f16 {
     // TODO: more efficient implementation

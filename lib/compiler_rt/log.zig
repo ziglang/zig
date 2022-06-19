@@ -1,12 +1,27 @@
-// Ported from musl, which is licensed under the MIT license:
-// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
-//
-// https://git.musl-libc.org/cgit/musl/tree/src/math/lnf.c
-// https://git.musl-libc.org/cgit/musl/tree/src/math/ln.c
+//! Ported from musl, which is licensed under the MIT license:
+//! https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//!
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/lnf.c
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/ln.c
 
 const std = @import("std");
+const builtin = @import("builtin");
 const math = std.math;
 const testing = std.testing;
+const arch = builtin.cpu.arch;
+const common = @import("common.zig");
+
+pub const panic = common.panic;
+
+comptime {
+    @export(__logh, .{ .name = "__logh", .linkage = common.linkage });
+    @export(logf, .{ .name = "logf", .linkage = common.linkage });
+    @export(log, .{ .name = "log", .linkage = common.linkage });
+    @export(__logx, .{ .name = "__logx", .linkage = common.linkage });
+    const logq_sym_name = if (common.want_ppc_abi) "logf128" else "logq";
+    @export(logq, .{ .name = logq_sym_name, .linkage = common.linkage });
+    @export(logl, .{ .name = "logl", .linkage = common.linkage });
+}
 
 pub fn __logh(a: f16) callconv(.C) f16 {
     // TODO: more efficient implementation

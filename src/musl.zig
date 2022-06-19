@@ -4,7 +4,6 @@ const mem = std.mem;
 const path = std.fs.path;
 const assert = std.debug.assert;
 
-const target_util = @import("target.zig");
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 

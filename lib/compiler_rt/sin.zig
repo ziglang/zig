@@ -1,16 +1,31 @@
-// Ported from musl, which is licensed under the MIT license:
-// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
-//
-// https://git.musl-libc.org/cgit/musl/tree/src/math/sinf.c
-// https://git.musl-libc.org/cgit/musl/tree/src/math/sin.c
+//! Ported from musl, which is licensed under the MIT license:
+//! https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//!
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/sinf.c
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/sin.c
 
 const std = @import("std");
+const builtin = @import("builtin");
+const arch = builtin.cpu.arch;
 const math = std.math;
 const expect = std.testing.expect;
+const common = @import("common.zig");
 
 const trig = @import("trig.zig");
 const rem_pio2 = @import("rem_pio2.zig").rem_pio2;
 const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;
+
+pub const panic = common.panic;
+
+comptime {
+    @export(__sinh, .{ .name = "__sinh", .linkage = common.linkage });
+    @export(sinf, .{ .name = "sinf", .linkage = common.linkage });
+    @export(sin, .{ .name = "sin", .linkage = common.linkage });
+    @export(__sinx, .{ .name = "__sinx", .linkage = common.linkage });
+    const sinq_sym_name = if (common.want_ppc_abi) "sinf128" else "sinq";
+    @export(sinq, .{ .name = sinq_sym_name, .linkage = common.linkage });
+    @export(sinl, .{ .name = "sinl", .linkage = common.linkage });
+}
 
 pub fn __sinh(x: f16) callconv(.C) f16 {
     // TODO: more efficient implementation
