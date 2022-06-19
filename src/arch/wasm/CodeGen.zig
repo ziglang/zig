@@ -4939,9 +4939,9 @@ fn signedSat(self: *Self, lhs_operand: WValue, rhs_operand: WValue, ty: Type, op
     const rhs = if (!is_wasm_bits) try self.signAbsValue(rhs_operand, ty) else rhs_operand;
 
     const max_val: u64 = @intCast(u64, (@as(u65, 1) << @intCast(u7, int_info.bits - 1)) - 1);
-    const min_val = @intCast(i64, ~@intCast(u63, max_val));
+    const min_val: i64 = (-@intCast(i64, @intCast(u63, max_val))) - 1;
     const max_wvalue = switch (wasm_bits) {
-        32 => WValue{ .imm32 = @intCast(u32, max_val) },
+        32 => WValue{ .imm32 = @truncate(u32, max_val) },
         64 => WValue{ .imm64 = max_val },
         else => unreachable,
     };
@@ -4975,7 +4975,7 @@ fn signedSat(self: *Self, lhs_operand: WValue, rhs_operand: WValue, ty: Type, op
         };
         const cmp_bin_result = try self.cmp(bin_result, lhs, ty, .lt);
         const cmp_zero_result = try self.cmp(rhs, zero, ty, if (op == .add) .lt else .gt);
-        const xor = try self.binOp(cmp_zero_result, cmp_bin_result, ty, .xor);
+        const xor = try self.binOp(cmp_zero_result, cmp_bin_result, Type.u32, .xor); // comparisons always return i32, so provide u32 as type to xor.
         const cmp_bin_zero_result = try self.cmp(bin_result, zero, ty, .lt);
         try self.emitWValue(max_wvalue);
         try self.emitWValue(min_wvalue);
@@ -5084,6 +5084,10 @@ fn airShlSat(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         try self.emitWValue(cmp_result);
         try self.addTag(.select);
         try self.addLabel(.local_set, result.local);
-        return self.binOp(result, shift_value, ty, .shr);
+        const shift_result = try self.binOp(result, shift_value, ty, .shr);
+        if (is_signed) {
+            return self.wrapOperand(shift_result, ty);
+        }
+        return shift_result;
     }
 }
