@@ -62,7 +62,7 @@ test "std.meta.tagName" {
 /// be, at runtime, O(1) in the number of tags available to the enum or
 /// union, and it should also be O(1) in the length of the comptime tag
 /// names.
-pub fn isTag(enum_or_union: anytype, comptime tag_name: []const u8) bool {
+pub fn isTag(tagged_value: anytype, comptime tag_name: []const u8) bool {
     const T = @TypeOf(enum_or_union);
     const type_info = @typeInfo(T);
     const type_name = @typeName(T);
@@ -74,26 +74,7 @@ pub fn isTag(enum_or_union: anytype, comptime tag_name: []const u8) bool {
         @compileError("attempted to use isTag on a value of type (" ++ type_name ++ ") that isn't an enum or a union.");
     };
 
-    comptime var unmatched: bool = true;
-    inline for (@typeInfo(E).Enum.fields) |field| {
-        // note that the next if statement is comptime, and will be pruned if
-        // the field name doesn't match the supplied value.  Thus *at most* one
-        // code block in this list of if statements should exist in generated
-        // code, leading to the O(1) characteristics of this function.
-        if (comptime std.mem.eql(u8, field.name, tag_name)) {
-            unmatched = false;
-
-            // NB: for unions, this uses the "tagged union coerces to enum"
-            // language feature.
-            return @enumToInt(enum_or_union) == field.value;
-        }
-    }
-
-    if (unmatched) {
-        @compileError("attempted to use isTag with the type " ++ type_name ++ " which doesn't have the tag " ++ tag_name);
-    }
-
-    unreachable;
+    return tagged_value == @field(E, tag_name);
 }
 
 test "std.meta.isTag for Enums" {
