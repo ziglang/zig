@@ -7,10 +7,6 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
         .build_modes = false, // we only guarantee zerofill for undefined in Debug
     });
 
-    cases.addBuildFile("test/link/dylib/build.zig", .{
-        .build_modes = true,
-    });
-
     cases.addBuildFile("test/link/common_symbols/build.zig", .{
         .build_modes = true,
     });
@@ -32,6 +28,10 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     });
 
     if (builtin.os.tag == .macos) {
+        cases.addBuildFile("test/link/dylib/build.zig", .{
+            .build_modes = true,
+        });
+
         cases.addBuildFile("test/link/frameworks/build.zig", .{
             .build_modes = true,
             .requires_macos_sdk = true,
