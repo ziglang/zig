@@ -3,6 +3,7 @@ const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
 const testing = std.testing;
+const SeekMethods = std.io.SeekMethods;
 
 pub fn Reader(
     comptime Context: type,
@@ -13,11 +14,47 @@ pub fn Reader(
     comptime readFn: fn (context: Context, buffer: []u8) ReadError!usize,
 ) type {
     return struct {
-        pub const Error = ReadError;
-
         context: Context,
 
         const Self = @This();
+
+        pub usingnamespace ReaderMethods(Self, Context, ReadError, readFn);
+    };
+}
+
+pub fn SeekableReader(
+    comptime Context: type,
+    comptime ReadError: type,
+    comptime SeekErrorType: type,
+    comptime GetSeekPosErrorType: type,
+    /// Returns the number of bytes read. It may be less than buffer.len.
+    /// If the number of bytes read is 0, it means end of stream.
+    /// End of stream is not an error condition.
+    comptime readFn: fn (context: Context, buffer: []u8) ReadError!usize,
+) type {
+    return struct {
+        context: Context,
+
+        const Self = @This();
+
+        pub usingnamespace ReaderMethods(Self, Context, ReadError, readFn);
+
+        pub usingnamespace SeekMethods(Self, SeekErrorType, GetSeekPosErrorType);
+    };
+}
+
+pub fn ReaderMethods(
+    comptime Self: type,
+    comptime Context: type,
+    comptime ReadError: type,
+    /// Returns the number of bytes read. It may be less than buffer.len.
+    /// If the number of bytes read is 0, it means end of stream.
+    /// End of stream is not an error condition.
+    comptime readFn: fn (context: Context, buffer: []u8) ReadError!usize,
+) type {
+    return struct {
+        pub const reader_interface_id = @typeName(Context) ++ ".Reader";
+        pub const Error = ReadError;
 
         /// Returns the number of bytes read. It may be less than buffer.len.
         /// If the number of bytes read is 0, it means end of stream.

@@ -100,9 +100,14 @@ pub fn getStdIn() File {
     };
 }
 
+pub const SeekMethods = @import("io/seek_methods.zig").SeekMethods;
+pub const ReaderMethods = @import("io/reader.zig").ReaderMethods;
+pub const WriterMethods = @import("io/writer.zig").WriterMethods;
+
 pub const Reader = @import("io/reader.zig").Reader;
+pub const SeekableReader = @import("io/reader.zig").SeekableReader;
 pub const Writer = @import("io/writer.zig").Writer;
-pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
+pub const SeekableWriter = @import("io/writer.zig").SeekableWriter;
 
 pub const BufferedWriter = @import("io/buffered_writer.zig").BufferedWriter;
 pub const bufferedWriter = @import("io/buffered_writer.zig").bufferedWriter;
@@ -175,7 +180,7 @@ test {
     _ = @import("io/reader.zig");
     _ = @import("io/writer.zig");
     _ = @import("io/peek_stream.zig");
-    _ = @import("io/seekable_stream.zig");
+    _ = @import("io/seek_methods.zig");
     _ = @import("io/stream_source.zig");
     _ = @import("io/test.zig");
 }

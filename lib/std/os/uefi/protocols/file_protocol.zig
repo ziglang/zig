@@ -23,13 +23,8 @@ pub const FileProtocol = extern struct {
     pub const ReadError = error{ReadError};
     pub const WriteError = error{WriteError};
 
-    pub const SeekableStream = io.SeekableStream(*const FileProtocol, SeekError, GetSeekPosError, seekTo, seekBy, getPos, getEndPos);
-    pub const Reader = io.Reader(*const FileProtocol, ReadError, readFn);
-    pub const Writer = io.Writer(*const FileProtocol, WriteError, writeFn);
-
-    pub fn seekableStream(self: *FileProtocol) SeekableStream {
-        return .{ .context = self };
-    }
+    pub const Reader = io.SeekableReader(*const FileProtocol, ReadError, SeekError, GetSeekPosError, readFn);
+    pub const Writer = io.SeekableWriter(*const FileProtocol, WriteError, SeekError, GetSeekPosError, writeFn);
 
     pub fn reader(self: *FileProtocol) Reader {
         return .{ .context = self };

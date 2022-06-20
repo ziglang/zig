@@ -1,6 +1,7 @@
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
+const SeekMethods = std.io.SeekMethods;
 
 pub fn Writer(
     comptime Context: type,
@@ -11,6 +12,39 @@ pub fn Writer(
         context: Context,
 
         const Self = @This();
+
+        pub usingnamespace WriterMethods(Self, Context, WriteError, writeFn);
+    };
+}
+
+pub fn SeekableWriter(
+    comptime Context: type,
+    comptime WriteError: type,
+    comptime SeekErrorType: type,
+    comptime GetSeekPosErrorType: type,
+    /// Returns the number of bytes read. It may be less than buffer.len.
+    /// If the number of bytes read is 0, it means end of stream.
+    /// End of stream is not an error condition.
+    comptime writeFn: fn (context: Context, bytes: []const u8) WriteError!usize,
+) type {
+    return struct {
+        context: Context,
+
+        const Self = @This();
+
+        pub usingnamespace WriterMethods(Self, Context, WriteError, writeFn);
+
+        pub usingnamespace SeekMethods(Self, SeekErrorType, GetSeekPosErrorType);
+    };
+}
+
+pub fn WriterMethods(
+    comptime Self: type,
+    comptime Context: type,
+    comptime WriteError: type,
+    comptime writeFn: fn (context: Context, bytes: []const u8) WriteError!usize,
+) type {
+    return struct {
         pub const Error = WriteError;
 
         pub fn write(self: Self, bytes: []const u8) Error!usize {
