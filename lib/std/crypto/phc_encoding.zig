@@ -41,7 +41,7 @@ pub fn BinValue(comptime max_len: usize) type {
         }
 
         /// Return the slice containing the actual value.
-        pub fn constSlice(self: Self) []const u8 {
+        pub fn constSlice(self: *const Self) []const u8 {
             return self.buf[0..self.len];
         }
 
@@ -52,7 +52,7 @@ pub fn BinValue(comptime max_len: usize) type {
             self.len = len;
         }
 
-        fn toB64(self: Self, buf: []u8) ![]const u8 {
+        fn toB64(self: *const Self, buf: []u8) ![]const u8 {
             const value = self.constSlice();
             const len = B64Encoder.calcSize(value.len);
             if (len > buf.len) return Error.NoSpaceLeft;
@@ -260,7 +260,6 @@ fn kvSplit(str: []const u8) !struct { key: []const u8, value: []const u8 } {
 }
 
 test "phc format - encoding/decoding" {
-    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     const Input = struct {
         str: []const u8,
         HashResult: type,
