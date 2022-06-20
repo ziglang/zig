@@ -903,6 +903,8 @@ pub const InitOptions = struct {
     install_name: ?[]const u8 = null,
     /// (Darwin) Path to entitlements file
     entitlements: ?[]const u8 = null,
+    /// (Darwin) size of the __PAGEZERO segment
+    pagezero_size: ?u64 = null,
 };
 
 fn addPackageTableToCacheHash(
@@ -1742,6 +1744,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .native_darwin_sdk = options.native_darwin_sdk,
             .install_name = options.install_name,
             .entitlements = options.entitlements,
+            .pagezero_size = options.pagezero_size,
         });
         errdefer bin_file.destroy();
         comp.* = .{
@@ -2359,7 +2362,7 @@ fn prepareWholeEmitSubPath(arena: Allocator, opt_emit: ?EmitLoc) error{OutOfMemo
 /// to remind the programmer to update multiple related pieces of code that
 /// are in different locations. Bump this number when adding or deleting
 /// anything from the link cache manifest.
-pub const link_hash_implementation_version = 3;
+pub const link_hash_implementation_version = 4;
 
 fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifest) !void {
     const gpa = comp.gpa;
@@ -2369,7 +2372,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    comptime assert(link_hash_implementation_version == 3);
+    comptime assert(link_hash_implementation_version == 4);
 
     if (comp.bin_file.options.module) |mod| {
         const main_zig_file = try mod.main_pkg.root_src_directory.join(arena, &[_][]const u8{
@@ -2474,6 +2477,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.addListOfBytes(comp.bin_file.options.framework_dirs);
     man.hash.addListOfBytes(comp.bin_file.options.frameworks);
     try man.addOptionalFile(comp.bin_file.options.entitlements);
+    man.hash.addOptional(comp.bin_file.options.pagezero_size);
 
     // COFF specific stuff
     man.hash.addOptional(comp.bin_file.options.subsystem);
