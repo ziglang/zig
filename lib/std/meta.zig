@@ -63,7 +63,7 @@ test "std.meta.tagName" {
 /// union, and it should also be O(1) in the length of the comptime tag
 /// names.
 pub fn isTag(tagged_value: anytype, comptime tag_name: []const u8) bool {
-    const T = @TypeOf(enum_or_union);
+    const T = @TypeOf(tagged_value);
     const type_info = @typeInfo(T);
     const type_name = @typeName(T);
 
