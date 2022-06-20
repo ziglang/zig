@@ -929,6 +929,11 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
                     try argv.append(rpath);
                 }
 
+                if (self.base.options.pagezero_size) |pagezero_size| {
+                    try argv.append("-pagezero_size");
+                    try argv.append(try std.fmt.allocPrint(arena, "0x{x}", .{pagezero_size}));
+                }
+
                 try argv.appendSlice(positionals.items);
 
                 try argv.append("-o");
