@@ -225,9 +225,6 @@ fn formatIdent(
 }
 
 pub fn fmtIdent(ident: []const u8) std.fmt.Formatter(formatIdent) {
-    if (builtin.zig_backend != .stage1) {
-        @panic("TODO");
-    }
     return .{ .data = ident };
 }
 
