@@ -286,9 +286,9 @@ const default_dyld_path: [*:0]const u8 = "/usr/lib/dyld";
 const minimum_text_block_size = 64;
 pub const min_text_capacity = padToIdeal(minimum_text_block_size);
 
-/// Virtual memory offset corresponds to the size of __PAGEZERO segment and
+/// Default virtual memory offset corresponds to the size of __PAGEZERO segment and
 /// start of __TEXT segment.
-const pagezero_vmsize: u64 = 0x100000000;
+const default_pagezero_vmsize: u64 = 0x100000000;
 
 pub const Export = struct {
     sym_index: ?u32 = null,
@@ -549,7 +549,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         // We can skip hashing libc and libc++ components that we are in charge of building from Zig
         // installation sources because they are always a product of the compiler version + target information.
         man.hash.add(stack_size);
-        if (self.base.options.pagezero_size) |value| man.hash.add(value);
+        man.hash.addOptional(self.base.options.pagezero_size);
         man.hash.addListOfBytes(self.base.options.lib_dirs);
         man.hash.addListOfBytes(self.base.options.framework_dirs);
         man.hash.addListOfBytes(self.base.options.frameworks);
@@ -4366,14 +4366,21 @@ pub fn getDeclVAddr(self: *MachO, decl_index: Module.Decl.Index, reloc_info: Fil
 
 fn populateMissingMetadata(self: *MachO) !void {
     const cpu_arch = self.base.options.target.cpu.arch;
+    const pagezero_vmsize = self.base.options.pagezero_size orelse default_pagezero_vmsize;
+    const aligned_pagezero_vmsize = mem.alignBackwardGeneric(u64, pagezero_vmsize, self.page_size);
 
-    if (self.pagezero_segment_cmd_index == null) {
+    if (self.pagezero_segment_cmd_index == null) blk: {
+        if (aligned_pagezero_vmsize == 0) break :blk;
+        if (aligned_pagezero_vmsize != pagezero_vmsize) {
+            log.warn("requested __PAGEZERO size is not page aligned", .{});
+            log.warn("  rounding down to 0x{x}", .{aligned_pagezero_vmsize});
+        }
         self.pagezero_segment_cmd_index = @intCast(u16, self.load_commands.items.len);
         try self.load_commands.append(self.base.allocator, .{
             .segment = .{
                 .inner = .{
                     .segname = makeStaticString("__PAGEZERO"),
-                    .vmsize = self.base.options.pagezero_size orelse pagezero_vmsize,
+                    .vmsize = aligned_pagezero_vmsize,
                     .cmdsize = @sizeOf(macho.segment_command_64),
                 },
             },
@@ -4395,7 +4402,7 @@ fn populateMissingMetadata(self: *MachO) !void {
             .segment = .{
                 .inner = .{
                     .segname = makeStaticString("__TEXT"),
-                    .vmaddr = self.base.options.pagezero_size orelse pagezero_vmsize,
+                    .vmaddr = aligned_pagezero_vmsize,
                     .vmsize = needed_size,
                     .filesize = needed_size,
                     .maxprot = macho.PROT.READ | macho.PROT.EXEC,
@@ -4882,7 +4889,10 @@ fn populateMissingMetadata(self: *MachO) !void {
 
 fn allocateTextSegment(self: *MachO) !void {
     const seg = &self.load_commands.items[self.text_segment_cmd_index.?].segment;
-    const base_vmaddr = self.load_commands.items[self.pagezero_segment_cmd_index.?].segment.inner.vmsize;
+    const base_vmaddr = if (self.pagezero_segment_cmd_index) |index|
+        self.load_commands.items[index].segment.inner.vmsize
+    else
+        0;
     seg.inner.fileoff = 0;
     seg.inner.vmaddr = base_vmaddr;
 

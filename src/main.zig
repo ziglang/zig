@@ -910,6 +910,13 @@ fn buildOutputType(
                         install_name = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
+                    } else if (mem.eql(u8, arg, "-pagezero_size")) {
+                        const next_arg = args_iter.next() orelse {
+                            fatal("expected parameter after {s}", .{arg});
+                        };
+                        pagezero_size = std.fmt.parseUnsigned(u64, next_arg, 0) catch |err| {
+                            fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
+                        };
                     } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
                         linker_script = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
