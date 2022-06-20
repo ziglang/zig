@@ -1432,8 +1432,10 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .const_ty => unreachable,
 
         .add => self.airBinOp(inst, .add),
+        .add_sat => self.airSatBinOp(inst, .add),
         .addwrap => self.airWrapBinOp(inst, .add),
         .sub => self.airBinOp(inst, .sub),
+        .sub_sat => self.airSatBinOp(inst, .sub),
         .subwrap => self.airWrapBinOp(inst, .sub),
         .mul => self.airBinOp(inst, .mul),
         .mulwrap => self.airWrapBinOp(inst, .mul),
@@ -1452,6 +1454,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .rem => self.airBinOp(inst, .rem),
         .shl => self.airWrapBinOp(inst, .shl),
         .shl_exact => self.airBinOp(inst, .shl),
+        .shl_sat => self.airShlSat(inst),
         .shr, .shr_exact => self.airBinOp(inst, .shr),
         .xor => self.airBinOp(inst, .xor),
         .max => self.airMaxMin(inst, .max),
@@ -1583,12 +1586,9 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
 
         .memcpy => self.airMemcpy(inst),
 
-        .add_sat,
-        .sub_sat,
         .mul_sat,
         .mod,
         .assembly,
-        .shl_sat,
         .ret_addr,
         .frame_addr,
         .bit_reverse,
@@ -4877,4 +4877,217 @@ fn airCeilFloorTrunc(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValu
     const result = try self.allocLocal(ty);
     try self.addLabel(.local_set, result.local);
     return result;
+}
+
+fn airSatBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
+    assert(op == .add or op == .sub);
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const ty = self.air.typeOfIndex(inst);
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
+
+    const int_info = ty.intInfo(self.target);
+    const is_signed = int_info.signedness == .signed;
+
+    if (int_info.bits > 64) {
+        return self.fail("TODO: saturating arithmetic for integers with bitsize '{d}'", .{int_info.bits});
+    }
+
+    if (is_signed) {
+        return signedSat(self, lhs, rhs, ty, op);
+    }
+
+    const wasm_bits = toWasmBits(int_info.bits).?;
+    const bin_result = try self.binOp(lhs, rhs, ty, op);
+    if (wasm_bits != int_info.bits and op == .add) {
+        const val: u64 = @intCast(u64, (@as(u65, 1) << @intCast(u7, int_info.bits)) - 1);
+        const imm_val = switch (wasm_bits) {
+            32 => WValue{ .imm32 = @intCast(u32, val) },
+            64 => WValue{ .imm64 = val },
+            else => unreachable,
+        };
+
+        const cmp_result = try self.cmp(bin_result, imm_val, ty, .lt);
+        try self.emitWValue(bin_result);
+        try self.emitWValue(imm_val);
+        try self.emitWValue(cmp_result);
+    } else {
+        const cmp_result = try self.cmp(bin_result, lhs, ty, if (op == .add) .lt else .gt);
+        switch (wasm_bits) {
+            32 => try self.addImm32(if (op == .add) @as(i32, -1) else 0),
+            64 => try self.addImm64(if (op == .add) @bitCast(u64, @as(i64, -1)) else 0),
+            else => unreachable,
+        }
+        try self.emitWValue(bin_result);
+        try self.emitWValue(cmp_result);
+    }
+
+    try self.addTag(.select);
+    const result = try self.allocLocal(ty);
+    try self.addLabel(.local_set, result.local);
+    return result;
+}
+
+fn signedSat(self: *Self, lhs_operand: WValue, rhs_operand: WValue, ty: Type, op: Op) InnerError!WValue {
+    const int_info = ty.intInfo(self.target);
+    const wasm_bits = toWasmBits(int_info.bits).?;
+    const is_wasm_bits = wasm_bits == int_info.bits;
+
+    const lhs = if (!is_wasm_bits) try self.signAbsValue(lhs_operand, ty) else lhs_operand;
+    const rhs = if (!is_wasm_bits) try self.signAbsValue(rhs_operand, ty) else rhs_operand;
+
+    const max_val: u64 = @intCast(u64, (@as(u65, 1) << @intCast(u7, int_info.bits - 1)) - 1);
+    const min_val: i64 = (-@intCast(i64, @intCast(u63, max_val))) - 1;
+    const max_wvalue = switch (wasm_bits) {
+        32 => WValue{ .imm32 = @truncate(u32, max_val) },
+        64 => WValue{ .imm64 = max_val },
+        else => unreachable,
+    };
+    const min_wvalue = switch (wasm_bits) {
+        32 => WValue{ .imm32 = @bitCast(u32, @truncate(i32, min_val)) },
+        64 => WValue{ .imm64 = @bitCast(u64, min_val) },
+        else => unreachable,
+    };
+
+    const bin_result = try self.binOp(lhs, rhs, ty, op);
+    if (!is_wasm_bits) {
+        const cmp_result_lt = try self.cmp(bin_result, max_wvalue, ty, .lt);
+        try self.emitWValue(bin_result);
+        try self.emitWValue(max_wvalue);
+        try self.emitWValue(cmp_result_lt);
+        try self.addTag(.select);
+        try self.addLabel(.local_set, bin_result.local); // re-use local
+
+        const cmp_result_gt = try self.cmp(bin_result, min_wvalue, ty, .gt);
+        try self.emitWValue(bin_result);
+        try self.emitWValue(min_wvalue);
+        try self.emitWValue(cmp_result_gt);
+        try self.addTag(.select);
+        try self.addLabel(.local_set, bin_result.local); // re-use local
+        return self.wrapOperand(bin_result, ty);
+    } else {
+        const zero = switch (wasm_bits) {
+            32 => WValue{ .imm32 = 0 },
+            64 => WValue{ .imm64 = 0 },
+            else => unreachable,
+        };
+        const cmp_bin_result = try self.cmp(bin_result, lhs, ty, .lt);
+        const cmp_zero_result = try self.cmp(rhs, zero, ty, if (op == .add) .lt else .gt);
+        const xor = try self.binOp(cmp_zero_result, cmp_bin_result, Type.u32, .xor); // comparisons always return i32, so provide u32 as type to xor.
+        const cmp_bin_zero_result = try self.cmp(bin_result, zero, ty, .lt);
+        try self.emitWValue(max_wvalue);
+        try self.emitWValue(min_wvalue);
+        try self.emitWValue(cmp_bin_zero_result);
+        try self.addTag(.select);
+        try self.emitWValue(bin_result);
+        try self.emitWValue(xor);
+        try self.addTag(.select);
+        try self.addLabel(.local_set, bin_result.local); // re-use local
+        return bin_result;
+    }
+}
+
+fn airShlSat(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const ty = self.air.typeOfIndex(inst);
+    const int_info = ty.intInfo(self.target);
+    const is_signed = int_info.signedness == .signed;
+    if (int_info.bits > 64) {
+        return self.fail("TODO: Saturating shifting left for integers with bitsize '{d}'", .{int_info.bits});
+    }
+
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
+    const wasm_bits = toWasmBits(int_info.bits).?;
+    const result = try self.allocLocal(ty);
+
+    if (wasm_bits == int_info.bits) {
+        const shl = try self.binOp(lhs, rhs, ty, .shl);
+        const shr = try self.binOp(shl, rhs, ty, .shr);
+        const cmp_result = try self.cmp(lhs, shr, ty, .neq);
+
+        switch (wasm_bits) {
+            32 => blk: {
+                if (!is_signed) {
+                    try self.addImm32(-1);
+                    break :blk;
+                }
+                const less_than_zero = try self.cmp(lhs, .{ .imm32 = 0 }, ty, .lt);
+                try self.addImm32(std.math.minInt(i32));
+                try self.addImm32(std.math.maxInt(i32));
+                try self.emitWValue(less_than_zero);
+                try self.addTag(.select);
+            },
+            64 => blk: {
+                if (!is_signed) {
+                    try self.addImm64(@bitCast(u64, @as(i64, -1)));
+                    break :blk;
+                }
+                const less_than_zero = try self.cmp(lhs, .{ .imm64 = 0 }, ty, .lt);
+                try self.addImm64(@bitCast(u64, @as(i64, std.math.minInt(i64))));
+                try self.addImm64(@bitCast(u64, @as(i64, std.math.maxInt(i64))));
+                try self.emitWValue(less_than_zero);
+                try self.addTag(.select);
+            },
+            else => unreachable,
+        }
+        try self.emitWValue(shl);
+        try self.emitWValue(cmp_result);
+        try self.addTag(.select);
+        try self.addLabel(.local_set, result.local);
+        return result;
+    } else {
+        const shift_size = wasm_bits - int_info.bits;
+        const shift_value = switch (wasm_bits) {
+            32 => WValue{ .imm32 = shift_size },
+            64 => WValue{ .imm64 = shift_size },
+            else => unreachable,
+        };
+
+        const shl_res = try self.binOp(lhs, shift_value, ty, .shl);
+        const shl = try self.binOp(shl_res, rhs, ty, .shl);
+        const shr = try self.binOp(shl, rhs, ty, .shr);
+        const cmp_result = try self.cmp(shl_res, shr, ty, .neq);
+
+        switch (wasm_bits) {
+            32 => blk: {
+                if (!is_signed) {
+                    try self.addImm32(-1);
+                    break :blk;
+                }
+
+                const less_than_zero = try self.cmp(shl_res, .{ .imm32 = 0 }, ty, .lt);
+                try self.addImm32(std.math.minInt(i32));
+                try self.addImm32(std.math.maxInt(i32));
+                try self.emitWValue(less_than_zero);
+                try self.addTag(.select);
+            },
+            64 => blk: {
+                if (!is_signed) {
+                    try self.addImm64(@bitCast(u64, @as(i64, -1)));
+                    break :blk;
+                }
+
+                const less_than_zero = try self.cmp(shl_res, .{ .imm64 = 0 }, ty, .lt);
+                try self.addImm64(@bitCast(u64, @as(i64, std.math.minInt(i64))));
+                try self.addImm64(@bitCast(u64, @as(i64, std.math.maxInt(i64))));
+                try self.emitWValue(less_than_zero);
+                try self.addTag(.select);
+            },
+            else => unreachable,
+        }
+        try self.emitWValue(shl);
+        try self.emitWValue(cmp_result);
+        try self.addTag(.select);
+        try self.addLabel(.local_set, result.local);
+        const shift_result = try self.binOp(result, shift_value, ty, .shr);
+        if (is_signed) {
+            return self.wrapOperand(shift_result, ty);
+        }
+        return shift_result;
+    }
 }
