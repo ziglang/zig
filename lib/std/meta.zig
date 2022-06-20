@@ -80,7 +80,7 @@ pub fn isTag(enum_or_union: anytype, comptime tag_name: []const u8) bool {
         // the field name doesn't match the supplied value.  Thus *at most* one
         // code block in this list of if statements should exist in generated
         // code, leading to the O(1) characteristics of this function.
-        if (std.mem.eql(u8, field.name, tag_name)) {
+        if (comptime std.mem.eql(u8, field.name, tag_name)) {
             unmatched = false;
 
             // NB: for unions, this uses the "tagged union coerces to enum"
