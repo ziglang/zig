@@ -1582,6 +1582,9 @@ pub const LibExeObjStep = struct {
     /// (Darwin) Path to entitlements file
     entitlements: ?[]const u8 = null,
 
+    /// (Darwin) Size of the pagezero segment.
+    pagezero_size: ?u64 = null,
+
     /// Position Independent Code
     force_pic: ?bool = null,
 
@@ -2637,6 +2640,10 @@ pub const LibExeObjStep = struct {
 
         if (self.entitlements) |entitlements| {
             try zig_args.appendSlice(&[_][]const u8{ "--entitlements", entitlements });
+        }
+        if (self.pagezero_size) |pagezero_size| {
+            const size = try std.fmt.allocPrint(builder.allocator, "{x}", .{pagezero_size});
+            try zig_args.appendSlice(&[_][]const u8{ "-pagezero_size", size });
         }
 
         if (self.bundle_compiler_rt) |x| {

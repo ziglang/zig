@@ -28,6 +28,10 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     });
 
     if (builtin.os.tag == .macos) {
+        cases.addBuildFile("test/link/pagezero/build.zig", .{
+            .build_modes = false,
+        });
+
         cases.addBuildFile("test/link/dylib/build.zig", .{
             .build_modes = true,
         });
