@@ -96,7 +96,7 @@ pub fn isTag(enum_or_union: anytype, comptime tag_name: []const u8) bool {
     unreachable;
 }
 
-test "isTag works with Enums" {
+test "std.meta.isTag for Enums" {
     const EnumType = enum { a, b };
     var a_type: EnumType = .a;
     var b_type: EnumType = .b;
@@ -107,7 +107,7 @@ test "isTag works with Enums" {
     try testing.expect(!isTag(b_type, "a"));
 }
 
-test "isTag works with Tagged Unions" {
+test "std.meta.isTag for Tagged Unions" {
     const TaggedUnionEnum = enum { int, flt };
 
     const TaggedUnionType = union(TaggedUnionEnum) {
