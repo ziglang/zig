@@ -4377,7 +4377,7 @@ fn populateMissingMetadata(self: *MachO) !void {
     if (self.pagezero_segment_cmd_index == null) blk: {
         if (aligned_pagezero_vmsize == 0) break :blk;
         if (aligned_pagezero_vmsize != pagezero_vmsize) {
-            log.warn("requested __PAGEZERO size is not page aligned", .{});
+            log.warn("requested __PAGEZERO size (0x{x}) is not page aligned", .{pagezero_vmsize});
             log.warn("  rounding down to 0x{x}", .{aligned_pagezero_vmsize});
         }
         self.pagezero_segment_cmd_index = @intCast(u16, self.load_commands.items.len);

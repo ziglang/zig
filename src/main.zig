@@ -447,7 +447,7 @@ const usage_build_generic =
     \\  -F[dir]                        (Darwin) add search path for frameworks
     \\  -install_name=[value]          (Darwin) add dylib's install name
     \\  --entitlements [path]          (Darwin) add path to entitlements file for embedding in code signature
-    \\  -pagezero_size [value]         (Darwin) size of the __PAGEZERO segment
+    \\  -pagezero_size [value]         (Darwin) size of the __PAGEZERO segment in hexadecimal notation
     \\  --import-memory                (WebAssembly) import memory from the environment
     \\  --import-table                 (WebAssembly) import function table from the host environment
     \\  --export-table                 (WebAssembly) export function table to the host environment
@@ -914,7 +914,7 @@ fn buildOutputType(
                         const next_arg = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
-                        pagezero_size = std.fmt.parseUnsigned(u64, next_arg, 0) catch |err| {
+                        pagezero_size = std.fmt.parseUnsigned(u64, eatIntPrefix(next_arg, 16), 16) catch |err| {
                             fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
                         };
                     } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
@@ -1662,7 +1662,7 @@ fn buildOutputType(
                         fatal("expected linker arg after '{s}'", .{arg});
                     }
                     const next_arg = linker_args.items[i];
-                    pagezero_size = std.fmt.parseUnsigned(u64, next_arg, 0) catch |err| {
+                    pagezero_size = std.fmt.parseUnsigned(u64, eatIntPrefix(next_arg, 16), 16) catch |err| {
                         fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
                     };
                 } else if (mem.eql(u8, arg, "--gc-sections")) {
@@ -5065,6 +5065,18 @@ pub fn cmdChangelist(
         }
     }
     try bw.flush();
+}
+
+fn eatIntPrefix(arg: []const u8, radix: u8) []const u8 {
+    if (arg.len > 2 and arg[0] == '0') {
+        switch (std.ascii.toLower(arg[1])) {
+            'b' => if (radix == 2) return arg[2..],
+            'o' => if (radix == 8) return arg[2..],
+            'x' => if (radix == 16) return arg[2..],
+            else => {},
+        }
+    }
+    return arg;
 }
 
 fn parseIntSuffix(arg: []const u8, prefix_len: usize) u64 {
