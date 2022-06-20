@@ -995,7 +995,8 @@ pub const StandaloneContext = struct {
         }
 
         if (features.cross_targets and !self.target.isNative()) {
-            const target_arg = fmt.allocPrint(b.allocator, "-Dtarget={s}", .{self.target.zigTriple(b.allocator) catch unreachable}) catch unreachable;
+            const target_triple = self.target.zigTriple(b.allocator) catch unreachable;
+            const target_arg = fmt.allocPrint(b.allocator, "-Dtarget={s}", .{target_triple}) catch unreachable;
             zig_args.append(target_arg) catch unreachable;
         }
 
