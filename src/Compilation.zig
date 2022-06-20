@@ -1744,6 +1744,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .native_darwin_sdk = options.native_darwin_sdk,
             .install_name = options.install_name,
             .entitlements = options.entitlements,
+            .pagezero_size = options.pagezero_size,
         });
         errdefer bin_file.destroy();
         comp.* = .{
@@ -2476,7 +2477,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.addListOfBytes(comp.bin_file.options.framework_dirs);
     man.hash.addListOfBytes(comp.bin_file.options.frameworks);
     try man.addOptionalFile(comp.bin_file.options.entitlements);
-    if (comp.bin_file.options.pagezero_size) |value| man.hash.add(value);
+    man.hash.addOptional(comp.bin_file.options.pagezero_size);
 
     // COFF specific stuff
     man.hash.addOptional(comp.bin_file.options.subsystem);
