@@ -28,29 +28,37 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     });
 
     if (builtin.os.tag == .macos) {
-        cases.addBuildFile("test/link/pagezero/build.zig", .{
-            .build_modes = false,
-        });
-
-        cases.addBuildFile("test/link/dylib/build.zig", .{
+        cases.addBuildFile("test/link/entry/build.zig", .{
             .build_modes = true,
         });
 
-        cases.addBuildFile("test/link/frameworks/build.zig", .{
+        cases.addBuildFile("test/link/macho/pagezero/build.zig", .{
+            .build_modes = false,
+        });
+
+        cases.addBuildFile("test/link/macho/dylib/build.zig", .{
+            .build_modes = true,
+        });
+
+        cases.addBuildFile("test/link/macho/frameworks/build.zig", .{
             .build_modes = true,
             .requires_macos_sdk = true,
         });
 
         // Try to build and run an Objective-C executable.
-        cases.addBuildFile("test/link/objc/build.zig", .{
+        cases.addBuildFile("test/link/macho/objc/build.zig", .{
             .build_modes = true,
             .requires_macos_sdk = true,
         });
 
         // Try to build and run an Objective-C++ executable.
-        cases.addBuildFile("test/link/objcpp/build.zig", .{
+        cases.addBuildFile("test/link/macho/objcpp/build.zig", .{
             .build_modes = true,
             .requires_macos_sdk = true,
+        });
+
+        cases.addBuildFile("test/link/macho/stack_size/build.zig", .{
+            .build_modes = true,
         });
     }
 }
