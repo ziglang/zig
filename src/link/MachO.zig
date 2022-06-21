@@ -934,6 +934,11 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
                     try argv.append(try std.fmt.allocPrint(arena, "0x{x}", .{pagezero_size}));
                 }
 
+                if (self.base.options.entry) |entry| {
+                    try argv.append("-e");
+                    try argv.append(entry);
+                }
+
                 try argv.appendSlice(positionals.items);
 
                 try argv.append("-o");
@@ -3371,13 +3376,12 @@ fn addCodeSignatureLC(self: *MachO) !void {
 fn setEntryPoint(self: *MachO) !void {
     if (self.base.options.output_mode != .Exe) return;
 
-    // TODO we should respect the -entry flag passed in by the user to set a custom
-    // entrypoint. For now, assume default of `_main`.
     const seg = self.load_commands.items[self.text_segment_cmd_index.?].segment;
-    const n_strx = self.strtab_dir.getKeyAdapted(@as([]const u8, "_main"), StringIndexAdapter{
+    const entry_name = self.base.options.entry orelse "_main";
+    const n_strx = self.strtab_dir.getKeyAdapted(entry_name, StringIndexAdapter{
         .bytes = &self.strtab,
     }) orelse {
-        log.err("'_main' export not found", .{});
+        log.err("entrypoint '{s}' not found", .{entry_name});
         return error.MissingMainEntrypoint;
     };
     const resolv = self.symbol_resolver.get(n_strx) orelse unreachable;
