@@ -2076,6 +2076,13 @@ pub const SIG = if (is_mips) struct {
     pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
 };
 
+pub const SIGEV = struct {
+    pub const SIGNAL = 0;
+    pub const NONE = 1;
+    pub const THREAD = 2;
+    pub const THREAD_ID = 4;
+};
+
 pub const kernel_rwf = u32;
 
 pub const RWF = struct {
@@ -3513,6 +3520,22 @@ else
         code: i32,
         fields: siginfo_fields_union,
     };
+
+pub const sigevent = extern struct {
+    value: sigval,
+    signo: i32,
+    notify: i32,
+    fields: sigevent_fields_union,
+};
+
+const sigevent_fields_union = extern union {
+    pad: [64 - 2 * @sizeOf(c_int) - @sizeOf(c_long)]u8,
+    tid: pid_t,
+    thread: extern struct {
+        function: ?fn (sigval) callconv(.C) void,
+        attribute: ?*anyopaque,
+    },
+};
 
 pub const io_uring_params = extern struct {
     sq_entries: u32,
