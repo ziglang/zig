@@ -1129,15 +1129,12 @@ const usize_bits = @typeInfo(usize).Int.bits;
 
 pub fn sigaddset(set: *sigset_t, sig: u6) void {
     const s = sig - 1;
-    // shift in musl: s&8*sizeof *set->__bits-1
-    const shift = @intCast(u5, s & (usize_bits - 1));
-    const val = @intCast(u32, 1) << shift;
-    (set.*)[@intCast(usize, s) / usize_bits] |= val;
+    (set.*)[s / 32] |= @intCast(u32, 1) << @intCast(u5, s & 31);
 }
 
 pub fn sigismember(set: *const sigset_t, sig: u6) bool {
     const s = sig - 1;
-    return ((set.*)[@intCast(usize, s) / usize_bits] & (@intCast(usize, 1) << (s & (usize_bits - 1)))) != 0;
+    return (((set.*)[s / 32] & (@intCast(u32, 1) << @intCast(u5, s & 31))) != 0);
 }
 
 pub fn getsockname(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
@@ -3066,7 +3063,7 @@ pub const NSIG = if (is_mips) 128 else 65;
 pub const sigset_t = [1024 / 32]u32;
 
 pub const all_mask: sigset_t = [_]u32{0xffffffff} ** @typeInfo(sigset_t).Array.len;
-pub const app_mask: sigset_t = [2]u32{ 0xfffffffc, 0x7fffffff } ++ [_]u32{0xffffffff} ** 30;
+pub const app_mask: sigset_t = [2]u32{ 0x7fffffff, 0xfffffffc } ++ [_]u32{0xffffffff} ** 30;
 
 const k_sigaction_funcs = if (builtin.zig_backend == .stage1) struct {
     const handler = ?fn (c_int) callconv(.C) void;

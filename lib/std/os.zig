@@ -485,7 +485,7 @@ pub fn abort() noreturn {
 
         _ = linux.tkill(linux.gettid(), SIG.ABRT);
 
-        const sigabrtmask: linux.sigset_t = [_]u32{0} ** 31 ++ [_]u32{1 << (SIG.ABRT - 1)};
+        const sigabrtmask: linux.sigset_t = [_]u32{1 << (SIG.ABRT - 1)} ++ [_]u32{0} ** 31;
         sigprocmask(SIG.UNBLOCK, &sigabrtmask, null);
 
         // Beyond this point should be unreachable.
