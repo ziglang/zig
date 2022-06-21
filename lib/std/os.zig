@@ -1821,11 +1821,11 @@ pub fn execvpeZ_expandArg0(
     };
 
     while (it.next()) |search_path| {
-        if (path_buf.len < search_path.len + file_slice.len + 1) return error.NameTooLong;
+        const path_len = search_path.len + file_slice.len + 1;
+        if (path_buf.len < path_len + 1) return error.NameTooLong;
         mem.copy(u8, &path_buf, search_path);
         path_buf[search_path.len] = '/';
         mem.copy(u8, path_buf[search_path.len + 1 ..], file_slice);
-        const path_len = search_path.len + file_slice.len + 1;
         path_buf[path_len] = 0;
         const full_path = path_buf[0..path_len :0].ptr;
         switch (arg0_expand) {
