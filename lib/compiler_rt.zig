@@ -4,6 +4,7 @@ comptime {
     _ = @import("compiler_rt/atomics.zig");
 
     _ = @import("compiler_rt/addf3.zig");
+    _ = @import("compiler_rt/adddf3.zig");
     _ = @import("compiler_rt/addsf3.zig");
     _ = @import("compiler_rt/addtf3.zig");
     _ = @import("compiler_rt/addxf3.zig");
