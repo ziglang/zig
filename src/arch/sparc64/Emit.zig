@@ -105,6 +105,8 @@ pub fn emitMir(
             .movr => @panic("TODO implement sparc64 movr"),
 
             .mulx => try emit.mirArithmetic3Op(inst),
+            .sdivx => try emit.mirArithmetic3Op(inst),
+            .udivx => try emit.mirArithmetic3Op(inst),
 
             .nop => try emit.mirNop(),
 
@@ -234,6 +236,8 @@ fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
             .xor => try emit.writeInstruction(Instruction.xor(i13, rs1, imm, rd)),
             .xnor => try emit.writeInstruction(Instruction.xnor(i13, rs1, imm, rd)),
             .mulx => try emit.writeInstruction(Instruction.mulx(i13, rs1, imm, rd)),
+            .sdivx => try emit.writeInstruction(Instruction.sdivx(i13, rs1, imm, rd)),
+            .udivx => try emit.writeInstruction(Instruction.udivx(i13, rs1, imm, rd)),
             .save => try emit.writeInstruction(Instruction.save(i13, rs1, imm, rd)),
             .restore => try emit.writeInstruction(Instruction.restore(i13, rs1, imm, rd)),
             .stb => try emit.writeInstruction(Instruction.stb(i13, rs1, imm, rd)),
@@ -259,6 +263,8 @@ fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
             .xor => try emit.writeInstruction(Instruction.xor(Register, rs1, rs2, rd)),
             .xnor => try emit.writeInstruction(Instruction.xnor(Register, rs1, rs2, rd)),
             .mulx => try emit.writeInstruction(Instruction.mulx(Register, rs1, rs2, rd)),
+            .sdivx => try emit.writeInstruction(Instruction.sdivx(Register, rs1, rs2, rd)),
+            .udivx => try emit.writeInstruction(Instruction.udivx(Register, rs1, rs2, rd)),
             .save => try emit.writeInstruction(Instruction.save(Register, rs1, rs2, rd)),
             .restore => try emit.writeInstruction(Instruction.restore(Register, rs1, rs2, rd)),
             .stb => try emit.writeInstruction(Instruction.stb(Register, rs1, rs2, rd)),
