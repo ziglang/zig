@@ -1127,13 +1127,51 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
 
 const usize_bits = @typeInfo(usize).Int.bits;
 
-pub fn sigaddset(set: *sigset_t, sig: u6) void {
-    const s = sig - 1;
-    (set.*)[s / 32] |= @intCast(u32, 1) << @intCast(u5, s & 31);
+pub fn sigemptyset(set: *sigset_t) usize {
+    (set.*)[0] = 0;
+    (set.*)[1] = 0;
+    if (NSIG > 65) {
+        (set.*)[2] = 0;
+        (set.*)[3] = 0;
+    }
+    return 0;
 }
 
-pub fn sigismember(set: *const sigset_t, sig: u6) bool {
+pub fn sigfillset(set: *sigset_t) usize {
+    (set.*)[0] = 0x7fffffff;
+    (set.*)[1] = 0xfffffffc;
+    if (NSIG > 65) {
+        (set.*)[2] = 0xffffffff;
+        (set.*)[3] = 0xffffffff;
+    }
+    return 0;
+}
+
+pub fn sigaddset(set: *sigset_t, sig: u32) usize {
     const s = sig - 1;
+    if (s >= NSIG - 1 or (sig >= 32 and sig < 35))
+        return @bitCast(usize, -@as(isize, @enumToInt(E.INVAL)));
+
+    (set.*)[s / 32] |= @intCast(u32, 1) << @intCast(u5, s & 31);
+
+    return 0;
+}
+
+pub fn sigdelset(set: *sigset_t, sig: u32) usize {
+    const s = sig - 1;
+    if (s >= NSIG - 1 or (sig >= 32 and sig < 35))
+        return @bitCast(usize, -@as(isize, @enumToInt(E.INVAL)));
+
+    (set.*)[s / 32] &= ~(@intCast(u32, 1) << @intCast(u5, s & 31));
+
+    return 0;
+}
+
+pub fn sigismember(set: *const sigset_t, sig: u32) usize {
+    const s = sig - 1;
+    if (s >= NSIG - 1 or (sig >= 32 and sig < 35))
+        return 0;
+
     return (((set.*)[s / 32] & (@intCast(u32, 1) << @intCast(u5, s & 31))) != 0);
 }
 

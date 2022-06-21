@@ -5508,6 +5508,49 @@ pub fn sigprocmask(flags: u32, noalias set: ?*const sigset_t, noalias oldset: ?*
     }
 }
 
+pub fn sigemptyset(set: *sigset_t) void {
+    switch (errno(system.sigemptyset(set))) {
+        .SUCCESS => return,
+        else => unreachable,
+    }
+}
+
+pub fn sigfillset(set: *sigset_t) void {
+    switch (errno(system.sigfillset(set))) {
+        .SUCCESS => return,
+        else => unreachable,
+    }
+}
+
+pub const SigSetError = error{
+    InvalidSignalNumber,
+};
+
+pub fn sigaddset(set: *sigset_t, sig: u6) !void {
+    switch (errno(system.sigaddset(set, sig))) {
+        .SUCCESS => return,
+        .INVAL => return error.InvalidSignalNumber,
+        else => unreachable,
+    }
+}
+
+pub fn sigdelset(set: *sigset_t, sig: u6) !void {
+    switch (errno(system.sigdelset(set, sig))) {
+        .SUCCESS => return,
+        .INVAL => return error.InvalidSignalNumber,
+        else => unreachable,
+    }
+}
+
+pub fn sigismember(set: *sigset_t, sig: u6) !bool {
+    var rc = system.sigismember(set, sig);
+    return switch (errno(rc)) {
+        .SUCCESS => rc > 0,
+        .INVAL => error.InvalidSignalNumber,
+        else => unreachable,
+    };
+}
+
 pub const FutimensError = error{
     /// times is NULL, or both tv_nsec values are UTIME_NOW, and either:
     /// *  the effective user ID of the caller does not match the  owner
