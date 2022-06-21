@@ -18,6 +18,7 @@ builder: *Builder,
 source: build.FileSource,
 max_bytes: usize = 20 * 1024 * 1024,
 checks: std.ArrayList(Check),
+dump_symtab: bool = false,
 
 pub fn create(builder: *Builder, source: build.FileSource) *CheckMachOStep {
     const gpa = builder.allocator;
@@ -32,32 +33,107 @@ pub fn create(builder: *Builder, source: build.FileSource) *CheckMachOStep {
     return self;
 }
 
+const Action = union(enum) {
+    exact_match: []const u8,
+    extract_var: struct {
+        fuzzy_match: []const u8,
+        var_name: []const u8,
+        var_value: u64,
+    },
+    compare: CompareAction,
+};
+
+const CompareAction = struct {
+    expected: union(enum) {
+        literal: u64,
+        varr: []const u8,
+    },
+    var_stack: std.ArrayList([]const u8),
+    op_stack: std.ArrayList(Op),
+
+    const Op = enum {
+        add,
+    };
+};
+
 const Check = struct {
     builder: *Builder,
-    phrases: std.ArrayList([]const u8),
+    actions: std.ArrayList(Action),
 
     fn create(b: *Builder) Check {
         return .{
             .builder = b,
-            .phrases = std.ArrayList([]const u8).init(b.allocator),
+            .actions = std.ArrayList(Action).init(b.allocator),
         };
     }
 
-    fn addPhrase(self: *Check, phrase: []const u8) void {
-        self.phrases.append(self.builder.dupe(phrase)) catch unreachable;
+    fn exactMatch(self: *Check, phrase: []const u8) void {
+        self.actions.append(.{
+            .exact_match = self.builder.dupe(phrase),
+        }) catch unreachable;
+    }
+
+    fn extractVar(self: *Check, phrase: []const u8, var_name: []const u8) void {
+        self.actions.append(.{
+            .extract_var = .{
+                .fuzzy_match = self.builder.dupe(phrase),
+                .var_name = self.builder.dupe(var_name),
+                .var_value = undefined,
+            },
+        }) catch unreachable;
     }
 };
 
 pub fn check(self: *CheckMachOStep, phrase: []const u8) void {
     var new_check = Check.create(self.builder);
-    new_check.addPhrase(phrase);
+    new_check.exactMatch(phrase);
     self.checks.append(new_check) catch unreachable;
 }
 
 pub fn checkNext(self: *CheckMachOStep, phrase: []const u8) void {
     assert(self.checks.items.len > 0);
     const last = &self.checks.items[self.checks.items.len - 1];
-    last.addPhrase(phrase);
+    last.exactMatch(phrase);
+}
+
+pub fn checkNextExtract(self: *CheckMachOStep, comptime phrase: []const u8) void {
+    assert(self.checks.items.len > 0);
+    const matcher_start = comptime mem.indexOf(u8, phrase, "{") orelse
+        @compileError("missing {  } matcher");
+    const matcher_end = comptime mem.indexOf(u8, phrase, "}") orelse
+        @compileError("missing {  } matcher");
+    const last = &self.checks.items[self.checks.items.len - 1];
+    last.extractVar(phrase[0..matcher_start], phrase[matcher_start + 1 .. matcher_end]);
+}
+
+pub fn checkInSymtab(self: *CheckMachOStep) void {
+    self.dump_symtab = true;
+    self.check("symtab");
+}
+
+pub fn checkCompare(self: *CheckMachOStep, comptime phrase: []const u8, expected: anytype) void {
+    comptime assert(phrase[0] == '{');
+    comptime assert(phrase[phrase.len - 1] == '}');
+
+    const gpa = self.builder.allocator;
+    var ca = CompareAction{
+        .expected = expected,
+        .var_stack = std.ArrayList([]const u8).init(gpa),
+        .op_stack = std.ArrayList(CompareAction.Op).init(gpa),
+    };
+
+    var it = mem.tokenize(u8, phrase[1 .. phrase.len - 1], " ");
+    while (it.next()) |next| {
+        if (mem.eql(u8, next, "+")) {
+            ca.op_stack.append(.add) catch unreachable;
+        } else {
+            ca.var_stack.append(self.builder.dupe(next)) catch unreachable;
+        }
+    }
+
+    var new_check = Check.create(self.builder);
+    new_check.actions.append(.{ .compare = ca }) catch unreachable;
+    self.checks.append(new_check) catch unreachable;
 }
 
 fn make(step: *Step) !void {
@@ -79,34 +155,111 @@ fn make(step: *Step) !void {
     var metadata = std.ArrayList(u8).init(gpa);
     const writer = metadata.writer();
 
+    var symtab_cmd: ?macho.symtab_command = null;
     var i: u16 = 0;
     while (i < hdr.ncmds) : (i += 1) {
         var cmd = try macho.LoadCommand.read(gpa, reader);
+
+        if (self.dump_symtab and cmd.cmd() == .SYMTAB) {
+            symtab_cmd = cmd.symtab;
+        }
+
         try dumpLoadCommand(cmd, i, writer);
         try writer.writeByte('\n');
     }
 
+    if (symtab_cmd) |cmd| {
+        try writer.writeAll("symtab\n");
+        const strtab = contents[cmd.stroff..][0..cmd.strsize];
+        const symtab = @ptrCast(
+            [*]const macho.nlist_64,
+            @alignCast(@alignOf(macho.nlist_64), contents.ptr + cmd.symoff),
+        )[0..cmd.nsyms];
+
+        for (symtab) |sym| {
+            if (sym.stab()) continue;
+            const sym_name = mem.sliceTo(@ptrCast([*:0]const u8, strtab.ptr + sym.n_strx), 0);
+            try writer.print("{s} {x}\n", .{ sym_name, sym.n_value });
+        }
+    }
+
+    var vars = std.StringHashMap(u64).init(gpa);
+
     for (self.checks.items) |chk| {
-        const first_phrase = chk.phrases.items[0];
+        const first_action = chk.actions.items[0];
 
-        if (mem.indexOf(u8, metadata.items, first_phrase)) |index| {
-            // TODO backtrack to track current scope
-            var it = std.mem.tokenize(u8, metadata.items[index..], "\r\n");
+        switch (first_action) {
+            .exact_match => |first| {
+                if (mem.indexOf(u8, metadata.items, first)) |index| {
+                    // TODO backtrack to track current scope
+                    var it = std.mem.tokenize(u8, metadata.items[index..], "\r\n");
 
-            outer: for (chk.phrases.items[1..]) |next_phrase| {
-                while (it.next()) |line| {
-                    if (mem.eql(u8, line, next_phrase)) {
-                        std.debug.print("{s} == {s}\n", .{ line, next_phrase });
-                        continue :outer;
+                    outer: for (chk.actions.items[1..]) |next_action| {
+                        switch (next_action) {
+                            .exact_match => |exact| {
+                                while (it.next()) |line| {
+                                    if (mem.eql(u8, line, exact)) {
+                                        std.debug.print("{s} == {s}\n", .{ line, exact });
+                                        continue :outer;
+                                    }
+                                    std.debug.print("{s} != {s}\n", .{ line, exact });
+                                } else {
+                                    return error.TestFailed;
+                                }
+                            },
+                            .extract_var => |extract| {
+                                const phrase = extract.fuzzy_match;
+                                while (it.next()) |line| {
+                                    if (mem.indexOf(u8, line, phrase)) |found| {
+                                        std.debug.print("{s} in {s}\n", .{ phrase, line });
+                                        // Extract variable and save back in the action.
+                                        const trimmed = mem.trim(u8, line[found + phrase.len ..], " ");
+                                        const parsed = try std.fmt.parseInt(u64, trimmed, 16);
+                                        try vars.putNoClobber(extract.var_name, parsed);
+                                        continue :outer;
+                                    }
+                                    std.debug.print("{s} not in {s}\n", .{ extract.fuzzy_match, line });
+                                }
+                            },
+                            .compare => unreachable,
+                        }
                     }
-                    std.debug.print("{s} != {s}\n", .{ line, next_phrase });
                 } else {
                     return error.TestFailed;
                 }
-            }
-        } else {
-            return error.TestFailed;
+            },
+            .compare => |act| {
+                var values = std.ArrayList(u64).init(gpa);
+                try values.ensureTotalCapacity(act.var_stack.items.len);
+                for (act.var_stack.items) |vv| {
+                    const val = vars.get(vv) orelse return error.TestFailed;
+                    values.appendAssumeCapacity(val);
+                }
+
+                var op_i: usize = 1;
+                var reduced: u64 = values.items[0];
+                for (act.op_stack.items) |op| {
+                    const other = values.items[op_i];
+                    switch (op) {
+                        .add => {
+                            reduced += other;
+                        },
+                    }
+                }
+
+                const expected = switch (act.expected) {
+                    .literal => |exp| exp,
+                    .varr => |vv| vars.get(vv) orelse return error.TestFailed,
+                };
+                if (reduced != expected) return error.TestFailed;
+            },
+            .extract_var => unreachable,
         }
+    }
+
+    var it = vars.iterator();
+    while (it.next()) |entry| {
+        std.debug.print("  {s} => {x}", .{ entry.key_ptr.*, entry.value_ptr.* });
     }
 }
 
