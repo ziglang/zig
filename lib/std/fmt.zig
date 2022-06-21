@@ -2117,18 +2117,18 @@ test "escape non-printable" {
 }
 
 test "pointer" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     {
         const value = @intToPtr(*align(1) i32, 0xdeadbeef);
         try expectFmt("pointer: i32@deadbeef\n", "pointer: {}\n", .{value});
         try expectFmt("pointer: i32@deadbeef\n", "pointer: {*}\n", .{value});
     }
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
     {
-        const value = @intToPtr(fn () void, 0xdeadbeef);
+        const value = @intToPtr(*const fn () void, 0xdeadbeef);
         try expectFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
     }
     {
-        const value = @intToPtr(fn () void, 0xdeadbeef);
+        const value = @intToPtr(*const fn () void, 0xdeadbeef);
         try expectFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
     }
 }

@@ -248,7 +248,7 @@ const crypt_format = struct {
             }
 
             /// Return the slice containing the actual value.
-            pub fn constSlice(self: Self) []const u8 {
+            pub fn constSlice(self: *const Self) []const u8 {
                 return self.buf[0..self.len];
             }
 
@@ -259,7 +259,7 @@ const crypt_format = struct {
                 self.len = len;
             }
 
-            fn toB64(self: Self, buf: []u8) ![]const u8 {
+            fn toB64(self: *const Self, buf: []u8) ![]const u8 {
                 const value = self.constSlice();
                 const len = Codec.encodedLen(value.len);
                 if (len > buf.len) return EncodingError.NoSpaceLeft;
@@ -683,7 +683,6 @@ test "unix-scrypt" {
 }
 
 test "crypt format" {
-    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     const str = "$7$C6..../....SodiumChloride$kBGj9fHznVYFQMEn/qDCfrDevf9YDtcDdKvEqHJLV8D";
     const params = try crypt_format.deserialize(crypt_format.HashResult(32), str);
     var buf: [str.len]u8 = undefined;
