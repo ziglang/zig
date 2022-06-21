@@ -507,8 +507,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .mul             => @panic("TODO try self.airMul(inst)"),
             .mulwrap         => @panic("TODO try self.airMulWrap(inst)"),
             .mul_sat         => @panic("TODO try self.airMulSat(inst)"),
-            .rem             => @panic("TODO try self.airRem(inst)"),
-            .mod             => @panic("TODO try self.airMod(inst)"),
+            .rem             => try self.airRem(inst),
+            .mod             => try self.airMod(inst),
             .shl, .shl_exact => @panic("TODO try self.airShl(inst)"),
             .shl_sat         => @panic("TODO try self.airShlSat(inst)"),
             .min             => @panic("TODO try self.airMin(inst)"),
@@ -1602,6 +1602,144 @@ fn airMemset(self: *Self, inst: Air.Inst.Index) !void {
     return self.fail("TODO implement airMemset for {}", .{self.target.cpu.arch});
 }
 
+fn airMod(self: *Self, inst: Air.Inst.Index) !void {
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
+    const lhs_ty = self.air.typeOf(bin_op.lhs);
+    const rhs_ty = self.air.typeOf(bin_op.rhs);
+    assert(lhs_ty.eql(rhs_ty, self.bin_file.options.module.?));
+
+    if (self.liveness.isUnused(inst))
+        return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
+
+    // TODO add safety check
+
+    // We use manual assembly emission to generate faster code
+    // First, ensure lhs, rhs, rem, and added are in registers
+
+    const lhs_is_register = lhs == .register;
+    const rhs_is_register = rhs == .register;
+
+    const lhs_reg = if (lhs_is_register)
+        lhs.register
+    else
+        try self.register_manager.allocReg(null, gp);
+
+    const lhs_lock = self.register_manager.lockReg(lhs_reg);
+    defer if (lhs_lock) |reg| self.register_manager.unlockReg(reg);
+
+    const rhs_reg = if (rhs_is_register)
+        rhs.register
+    else
+        try self.register_manager.allocReg(null, gp);
+    const rhs_lock = self.register_manager.lockReg(rhs_reg);
+    defer if (rhs_lock) |reg| self.register_manager.unlockReg(reg);
+
+    if (!lhs_is_register) try self.genSetReg(lhs_ty, lhs_reg, lhs);
+    if (!rhs_is_register) try self.genSetReg(rhs_ty, rhs_reg, rhs);
+
+    const regs = try self.register_manager.allocRegs(2, .{ null, null }, gp);
+    const regs_locks = self.register_manager.lockRegsAssumeUnused(2, regs);
+    defer for (regs_locks) |reg| {
+        self.register_manager.unlockReg(reg);
+    };
+
+    const add_reg = regs[0];
+    const mod_reg = regs[1];
+
+    // mod_reg = @rem(lhs_reg, rhs_reg)
+    _ = try self.addInst(.{
+        .tag = .sdivx,
+        .data = .{
+            .arithmetic_3op = .{
+                .is_imm = false,
+                .rd = mod_reg,
+                .rs1 = lhs_reg,
+                .rs2_or_imm = .{ .rs2 = rhs_reg },
+            },
+        },
+    });
+
+    _ = try self.addInst(.{
+        .tag = .mulx,
+        .data = .{
+            .arithmetic_3op = .{
+                .is_imm = false,
+                .rd = mod_reg,
+                .rs1 = mod_reg,
+                .rs2_or_imm = .{ .rs2 = rhs_reg },
+            },
+        },
+    });
+
+    _ = try self.addInst(.{
+        .tag = .sub,
+        .data = .{
+            .arithmetic_3op = .{
+                .is_imm = false,
+                .rd = mod_reg,
+                .rs1 = lhs_reg,
+                .rs2_or_imm = .{ .rs2 = mod_reg },
+            },
+        },
+    });
+
+    // add_reg = mod_reg + rhs_reg
+    _ = try self.addInst(.{
+        .tag = .add,
+        .data = .{
+            .arithmetic_3op = .{
+                .is_imm = false,
+                .rd = add_reg,
+                .rs1 = mod_reg,
+                .rs2_or_imm = .{ .rs2 = rhs_reg },
+            },
+        },
+    });
+
+    // if (add_reg == rhs_reg) add_reg = 0
+    _ = try self.addInst(.{
+        .tag = .cmp,
+        .data = .{
+            .arithmetic_2op = .{
+                .is_imm = false,
+                .rs1 = add_reg,
+                .rs2_or_imm = .{ .rs2 = rhs_reg },
+            },
+        },
+    });
+
+    _ = try self.addInst(.{
+        .tag = .movcc,
+        .data = .{
+            .conditional_move_int = .{
+                .is_imm = true,
+                .ccr = .xcc,
+                .cond = .{ .icond = .eq },
+                .rd = add_reg,
+                .rs2_or_imm = .{ .imm = 0 },
+            },
+        },
+    });
+
+    // if (lhs_reg < 0) mod_reg = add_reg
+    _ = try self.addInst(.{
+        .tag = .movr,
+        .data = .{
+            .conditional_move_reg = .{
+                .is_imm = false,
+                .cond = .lt_zero,
+                .rd = mod_reg,
+                .rs1 = lhs_reg,
+                .rs2_or_imm = .{ .rs2 = add_reg },
+            },
+        },
+    });
+
+    return self.finishAir(inst, .{ .register = mod_reg }, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
 fn airNot(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
@@ -1702,6 +1840,27 @@ fn airPtrElemPtr(self: *Self, inst: Air.Inst.Index) !void {
     const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement ptr_elem_ptr for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
+}
+
+fn airRem(self: *Self, inst: Air.Inst.Index) !void {
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
+    const lhs_ty = self.air.typeOf(bin_op.lhs);
+    const rhs_ty = self.air.typeOf(bin_op.rhs);
+
+    // TODO add safety check
+
+    // result = lhs - @divTrunc(lhs, rhs) * rhs
+    const result: MCValue = if (self.liveness.isUnused(inst)) blk: {
+        break :blk .dead;
+    } else blk: {
+        const tmp0 = try self.binOp(.div_trunc, lhs, rhs, lhs_ty, rhs_ty, null);
+        const tmp1 = try self.binOp(.mul, tmp0, rhs, lhs_ty, rhs_ty, null);
+        break :blk try self.binOp(.sub, lhs, tmp1, lhs_ty, rhs_ty, null);
+    };
+
+    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airRet(self: *Self, inst: Air.Inst.Index) !void {
@@ -2077,7 +2236,10 @@ fn binOp(
 ) InnerError!MCValue {
     const mod = self.bin_file.options.module.?;
     switch (tag) {
-        .add, .cmp_eq => {
+        .add,
+        .sub,
+        .cmp_eq,
+        => {
             switch (lhs_ty.zigTypeTag()) {
                 .Float => return self.fail("TODO binary operations on floats", .{}),
                 .Vector => return self.fail("TODO binary operations on vectors", .{}),
@@ -2103,6 +2265,7 @@ fn binOp(
 
                         const mir_tag: Mir.Inst.Tag = switch (tag) {
                             .add => .add,
+                            .sub => .sub,
                             .cmp_eq => .cmp,
                             else => unreachable,
                         };
@@ -2114,6 +2277,39 @@ fn binOp(
                             return try self.binOpImmediate(mir_tag, rhs, lhs, rhs_ty, true, metadata);
                         } else {
                             // TODO convert large immediates to register before adding
+                            return try self.binOpRegister(mir_tag, lhs, rhs, lhs_ty, rhs_ty, metadata);
+                        }
+                    } else {
+                        return self.fail("TODO binary operations on int with bits > 64", .{});
+                    }
+                },
+                else => unreachable,
+            }
+        },
+
+        .div_trunc => {
+            switch (lhs_ty.zigTypeTag()) {
+                .Vector => return self.fail("TODO binary operations on vectors", .{}),
+                .Int => {
+                    assert(lhs_ty.eql(rhs_ty, mod));
+                    const int_info = lhs_ty.intInfo(self.target.*);
+                    if (int_info.bits <= 64) {
+                        const rhs_immediate_ok = switch (tag) {
+                            .div_trunc => rhs == .immediate and rhs.immediate <= std.math.maxInt(u12),
+                            else => unreachable,
+                        };
+
+                        const mir_tag: Mir.Inst.Tag = switch (tag) {
+                            .div_trunc => switch (int_info.signedness) {
+                                .signed => Mir.Inst.Tag.sdivx,
+                                .unsigned => Mir.Inst.Tag.udivx,
+                            },
+                            else => unreachable,
+                        };
+
+                        if (rhs_immediate_ok) {
+                            return try self.binOpImmediate(mir_tag, lhs, rhs, lhs_ty, true, metadata);
+                        } else {
                             return try self.binOpRegister(mir_tag, lhs, rhs, lhs_ty, rhs_ty, metadata);
                         }
                     } else {
@@ -2382,6 +2578,9 @@ fn binOpImmediate(
         .xor,
         .xnor,
         .mulx,
+        .sdivx,
+        .udivx,
+        .sub,
         .subcc,
         => .{
             .arithmetic_3op = .{
@@ -2503,6 +2702,9 @@ fn binOpRegister(
         .xor,
         .xnor,
         .mulx,
+        .sdivx,
+        .udivx,
+        .sub,
         .subcc,
         => .{
             .arithmetic_3op = .{

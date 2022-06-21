@@ -1281,6 +1281,22 @@ pub const Instruction = union(enum) {
         };
     }
 
+    pub fn sdivx(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3a(0b10, 0b10_1101, rs1, rs2, rd),
+            i13 => format3b(0b10, 0b10_1101, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
+    pub fn udivx(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3a(0b10, 0b00_1101, rs1, rs2, rd),
+            i13 => format3b(0b10, 0b00_1101, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
     pub fn nop() Instruction {
         return sethi(0, .g0);
     }
