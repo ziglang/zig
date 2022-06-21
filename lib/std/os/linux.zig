@@ -1125,6 +1125,10 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     return 0;
 }
 
+pub fn sigsuspend(mask: ?*const sigset_t) usize {
+    return syscall2(.rt_sigsuspend, @ptrToInt(mask), NSIG / 8);
+}
+
 const usize_bits = @typeInfo(usize).Int.bits;
 
 pub fn sigemptyset(set: *sigset_t) usize {

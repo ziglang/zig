@@ -5551,6 +5551,14 @@ pub fn sigismember(set: *sigset_t, sig: u6) !bool {
     };
 }
 
+pub fn sigsuspend(mask: ?*const sigset_t) void {
+    switch (errno(system.sigsuspend(mask))) {
+        .INTR => return,
+        .FAULT => unreachable,
+        else => unreachable,
+    }
+}
+
 pub const FutimensError = error{
     /// times is NULL, or both tv_nsec values are UTIME_NOW, and either:
     /// *  the effective user ID of the caller does not match the  owner
