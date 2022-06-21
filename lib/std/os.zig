@@ -190,6 +190,7 @@ pub const ucontext_t = system.ucontext_t;
 pub const uid_t = system.uid_t;
 pub const user_desc = system.user_desc;
 pub const utsname = system.utsname;
+pub const itimerspec = system.itimerspec;
 
 pub const F_OK = system.F_OK;
 pub const R_OK = system.R_OK;

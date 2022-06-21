@@ -99,6 +99,7 @@ pub const tcflag_t = linux.tcflag_t;
 pub const termios = linux.termios;
 pub const time_t = linux.time_t;
 pub const timespec = linux.timespec;
+pub const itimerspec = linux.itimerspec;
 pub const timeval = linux.timeval;
 pub const timezone = linux.timezone;
 pub const ucontext_t = linux.ucontext_t;
