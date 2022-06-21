@@ -1179,6 +1179,26 @@ pub fn sigismember(set: *const sigset_t, sig: u32) usize {
     return (((set.*)[s / 32] & (@intCast(u32, 1) << @intCast(u5, s & 31))) != 0);
 }
 
+pub fn timer_create(clockid: i32, noalias sevp: *sigevent, noalias timerid: *i32) usize {
+    return syscall3(.timer_create, @bitCast(usize, @as(isize, clockid)), @ptrToInt(sevp), @ptrToInt(timerid));
+}
+
+pub fn timer_settime(timerid: i32, flags: u32, noalias new_value: *const itimerspec, noalias old_value: ?*itimerspec) usize {
+    return syscall4(.timer_settime, @bitCast(usize, @as(isize, timerid)), flags, @ptrToInt(new_value), @ptrToInt(old_value));
+}
+
+pub fn timer_gettime(timerid: i32, curr_value: *itimerspec) usize {
+    return syscall2(.timer_gettime, @bitCast(usize, @as(isize, timerid)), @ptrToInt(curr_value));
+}
+
+pub fn timer_getoverrun(timerid: i32) usize {
+    return syscall1(.timer_getoverrun, @bitCast(usize, @as(isize, timerid)));
+}
+
+pub fn timer_delete(timerid: i32) usize {
+    return syscall1(.timer_delete, @bitCast(usize, @as(isize, timerid)));
+}
+
 pub fn getsockname(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
     if (native_arch == .i386) {
         return socketcall(SC.getsockname, &[3]usize{ @bitCast(usize, @as(isize, fd)), @ptrToInt(addr), @ptrToInt(len) });
@@ -1759,6 +1779,8 @@ pub const fd_t = i32;
 pub const uid_t = u32;
 pub const gid_t = u32;
 pub const clock_t = isize;
+pub const clockid_t = i32;
+pub const timer_t = i32;
 
 pub const NAME_MAX = 255;
 pub const PATH_MAX = 4096;

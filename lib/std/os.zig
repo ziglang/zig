@@ -191,6 +191,7 @@ pub const uid_t = system.uid_t;
 pub const user_desc = system.user_desc;
 pub const utsname = system.utsname;
 pub const itimerspec = system.itimerspec;
+pub const timer_t = system.timer_t;
 
 pub const F_OK = system.F_OK;
 pub const R_OK = system.R_OK;
@@ -5559,6 +5560,50 @@ pub fn sigsuspend(mask: ?*const sigset_t) void {
         .INTR => return,
         .FAULT => unreachable,
         else => unreachable,
+    }
+}
+
+pub fn timer_create(clockid: i32, noalias event: *sigevent, noalias timerid: *timer_t) !void {
+    switch (errno(system.timer_create(clockid, event, timerid))) {
+        .SUCCESS => return,
+        .INVAL => unreachable,
+        .NOMEM => return error.SystemResources,
+        .PERM => return error.AccessDenied,
+        .OPNOTSUPP => return error.NotSupported,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub fn timer_settime(timerid: timer_t, flags: u32, noalias new_value: *const itimerspec, noalias old_value: ?*itimerspec) !void {
+    switch (errno(system.timer_settime(timerid, flags, new_value, old_value))) {
+        .SUCCESS => return,
+        .INVAL => unreachable,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub fn timer_gettime(timerid: timer_t, curr_value: *itimerspec) !void {
+    switch (errno(system.timer_gettime(timerid, curr_value))) {
+        .SUCCESS => return,
+        .INVAL => unreachable,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub fn timer_getoverrun(timerid: timer_t) !i32 {
+    var rc = system.timer_getoverrun(timerid);
+    return switch (errno(rc)) {
+        .SUCCESS => @intCast(i32, rc),
+        .INVAL => unreachable,
+        else => |err| unexpectedErrno(err),
+    };
+}
+
+pub fn timer_delete(timerid: timer_t) !void {
+    switch (errno(system.timer_delete(timerid))) {
+        .SUCCESS => return,
+        .INVAL => unreachable,
+        else => |err| return unexpectedErrno(err),
     }
 }
 

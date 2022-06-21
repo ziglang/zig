@@ -89,6 +89,11 @@ pub usingnamespace switch (builtin.os.tag) {
         pub extern "c" fn sigdelset(set: ?*c.sigset_t, signum: c_int) c_int;
         pub extern "c" fn sigismember(set: ?*const c.sigset_t, signum: c_int) c_int;
         pub extern "c" fn sigwait(set: ?*c.sigset_t, sig: ?*c_int) c_int;
+        pub extern "c" fn timer_create(clockid: c.clockid_t, noalias sevp: ?*c.sigevent, noalias timerid: ?*c.timer_t) c_int;
+        pub extern "c" fn timer_settime(timerid: c.timer_t, flags: c_uint, noalias new_value: ?*const c.itimerspec, noalias old_value: ?*c.itimerspec) c_int;
+        pub extern "c" fn timer_gettime(timerid: c.timer_t, curr_value: ?*c.itimerspec) c_int;
+        pub extern "c" fn timer_getoverrun(timerid: c.timer_t) c_int;
+        pub extern "c" fn timer_delete(timerid: c.timer_t) c_int;
 
         pub extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
 
