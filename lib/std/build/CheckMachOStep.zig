@@ -1,12 +1,15 @@
 const std = @import("../std.zig");
+const assert = std.debug.assert;
 const build = std.build;
-const Step = build.Step;
-const Builder = build.Builder;
 const fs = std.fs;
 const macho = std.macho;
 const mem = std.mem;
 
 const CheckMachOStep = @This();
+
+const Allocator = mem.Allocator;
+const Builder = build.Builder;
+const Step = build.Step;
 
 pub const base_id = .check_macho;
 
@@ -14,23 +17,7 @@ step: Step,
 builder: *Builder,
 source: build.FileSource,
 max_bytes: usize = 20 * 1024 * 1024,
-lc_checks: std.ArrayList(LCCheck),
-
-const LCCheck = struct {
-    // common to most LCs
-    cmd: macho.LC,
-    name: ?[]const u8 = null,
-    // LC.SEGMENT_64 specific
-    index: ?usize = null,
-    vaddr: ?u64 = null,
-    memsz: ?u64 = null,
-    offset: ?u64 = null,
-    filesz: ?u64 = null,
-    // LC.LOAD_DYLIB specific
-    timestamp: ?u64 = null,
-    current_version: ?u32 = null,
-    compat_version: ?u32 = null,
-};
+checks: std.ArrayList(Check),
 
 pub fn create(builder: *Builder, source: build.FileSource) *CheckMachOStep {
     const gpa = builder.allocator;
@@ -39,25 +26,38 @@ pub fn create(builder: *Builder, source: build.FileSource) *CheckMachOStep {
         .builder = builder,
         .step = Step.init(.check_file, "CheckMachO", gpa, make),
         .source = source.dupe(builder),
-        .lc_checks = std.ArrayList(LCCheck).init(gpa),
+        .checks = std.ArrayList(Check).init(gpa),
     };
     self.source.addStepDependencies(&self.step);
     return self;
 }
 
-pub fn checkLoadCommand(self: *CheckMachOStep, check: LCCheck) void {
-    self.lc_checks.append(.{
-        .cmd = check.cmd,
-        .index = check.index,
-        .name = if (check.name) |name| self.builder.dupe(name) else null,
-        .vaddr = check.vaddr,
-        .memsz = check.memsz,
-        .offset = check.offset,
-        .filesz = check.filesz,
-        .timestamp = check.timestamp,
-        .current_version = check.current_version,
-        .compat_version = check.compat_version,
-    }) catch unreachable;
+const Check = struct {
+    builder: *Builder,
+    phrases: std.ArrayList([]const u8),
+
+    fn create(b: *Builder) Check {
+        return .{
+            .builder = b,
+            .phrases = std.ArrayList([]const u8).init(b.allocator),
+        };
+    }
+
+    fn addPhrase(self: *Check, phrase: []const u8) void {
+        self.phrases.append(self.builder.dupe(phrase)) catch unreachable;
+    }
+};
+
+pub fn check(self: *CheckMachOStep, phrase: []const u8) void {
+    var new_check = Check.create(self.builder);
+    new_check.addPhrase(phrase);
+    self.checks.append(new_check) catch unreachable;
+}
+
+pub fn checkNext(self: *CheckMachOStep, phrase: []const u8) void {
+    assert(self.checks.items.len > 0);
+    const last = &self.checks.items[self.checks.items.len - 1];
+    last.addPhrase(phrase);
 }
 
 fn make(step: *Step) !void {
@@ -76,135 +76,95 @@ fn make(step: *Step) !void {
         return error.InvalidMagicNumber;
     }
 
-    var load_commands = std.ArrayList(macho.LoadCommand).init(gpa);
-    try load_commands.ensureTotalCapacity(hdr.ncmds);
+    var metadata = std.ArrayList(u8).init(gpa);
+    const writer = metadata.writer();
 
     var i: u16 = 0;
     while (i < hdr.ncmds) : (i += 1) {
         var cmd = try macho.LoadCommand.read(gpa, reader);
-        load_commands.appendAssumeCapacity(cmd);
+        try dumpLoadCommand(cmd, i, writer);
+        try writer.writeByte('\n');
     }
 
-    outer: for (self.lc_checks.items) |ch| {
-        if (ch.index) |index| {
-            const lc = load_commands.items[index];
-            try cmpLoadCommand(ch, lc);
-        } else {
-            for (load_commands.items) |lc| {
-                if (lc.cmd() == ch.cmd) {
-                    try cmpLoadCommand(ch, lc);
-                    continue :outer;
+    for (self.checks.items) |chk| {
+        const first_phrase = chk.phrases.items[0];
+
+        if (mem.indexOf(u8, metadata.items, first_phrase)) |index| {
+            // TODO backtrack to track current scope
+            var it = std.mem.tokenize(u8, metadata.items[index..], "\r\n");
+
+            outer: for (chk.phrases.items[1..]) |next_phrase| {
+                while (it.next()) |line| {
+                    if (mem.eql(u8, line, next_phrase)) {
+                        std.debug.print("{s} == {s}\n", .{ line, next_phrase });
+                        continue :outer;
+                    }
+                    std.debug.print("{s} != {s}\n", .{ line, next_phrase });
+                } else {
+                    return error.TestFailed;
                 }
-            } else {
-                return err("LC not found", ch.cmd, "");
             }
+        } else {
+            return error.TestFailed;
         }
     }
 }
 
-fn cmpLoadCommand(exp: LCCheck, given: macho.LoadCommand) error{TestFailed}!void {
-    if (exp.cmd != given.cmd()) {
-        return err("LC mismatch", exp.cmd, given.cmd());
-    }
-    switch (exp.cmd) {
+fn dumpLoadCommand(lc: macho.LoadCommand, index: u16, writer: anytype) !void {
+    // print header first
+    try writer.print(
+        \\LC {d}
+        \\cmd {s}
+        \\cmdsize {d}
+    , .{ index, @tagName(lc.cmd()), lc.cmdsize() });
+
+    switch (lc.cmd()) {
         .SEGMENT_64 => {
-            const lc = given.segment.inner;
-            if (exp.name) |name| {
-                if (!mem.eql(u8, name, lc.segName())) {
-                    return err("segment name mismatch", name, lc.segName());
-                }
-            }
-            if (exp.vaddr) |vaddr| {
-                if (vaddr != lc.vmaddr) {
-                    return err("segment VM address mismatch", vaddr, lc.vmaddr);
-                }
-            }
-            if (exp.memsz) |memsz| {
-                if (memsz != lc.vmsize) {
-                    return err("segment VM size mismatch", memsz, lc.vmsize);
-                }
-            }
-            if (exp.offset) |offset| {
-                if (offset != lc.fileoff) {
-                    return err("segment file offset mismatch", offset, lc.fileoff);
-                }
-            }
-            if (exp.filesz) |filesz| {
-                if (filesz != lc.filesize) {
-                    return err("segment file size mismatch", filesz, lc.filesize);
-                }
-            }
+            // TODO dump section headers
+            const seg = lc.segment.inner;
+            try writer.writeByte('\n');
+            try writer.print(
+                \\segname {s}
+                \\vmaddr {x}
+                \\vmsize {x}
+                \\fileoff {x}
+                \\filesz {x}
+            , .{
+                seg.segName(),
+                seg.vmaddr,
+                seg.vmsize,
+                seg.fileoff,
+                seg.filesize,
+            });
         },
-        .ID_DYLIB, .LOAD_DYLIB => {
-            const lc = given.dylib;
-            if (exp.name) |name| {
-                if (!mem.eql(u8, name, mem.sliceTo(lc.data, 0))) {
-                    return err("dylib path mismatch", name, mem.sliceTo(lc.data, 0));
-                }
-            }
-            if (exp.timestamp) |ts| {
-                if (ts != lc.inner.dylib.timestamp) {
-                    return err("timestamp mismatch", ts, lc.inner.dylib.timestamp);
-                }
-            }
-            if (exp.current_version) |cv| {
-                if (cv != lc.inner.dylib.current_version) {
-                    return err("current version mismatch", cv, lc.inner.dylib.current_version);
-                }
-            }
-            if (exp.compat_version) |cv| {
-                if (cv != lc.inner.dylib.compatibility_version) {
-                    return err("compatibility version mismatch", cv, lc.inner.dylib.compatibility_version);
-                }
-            }
+
+        .ID_DYLIB,
+        .LOAD_DYLIB,
+        => {
+            const dylib = lc.dylib.inner.dylib;
+            try writer.writeByte('\n');
+            try writer.print(
+                \\path {s}
+                \\timestamp {d}
+                \\current version {x}
+                \\compatibility version {x}
+            , .{
+                mem.sliceTo(lc.dylib.data, 0),
+                dylib.timestamp,
+                dylib.current_version,
+                dylib.compatibility_version,
+            });
         },
+
         .RPATH => {
-            const lc = given.rpath;
-            if (exp.name) |name| {
-                if (!mem.eql(u8, name, mem.sliceTo(lc.data, 0))) {
-                    return err("rpath path mismatch", name, mem.sliceTo(lc.data, 0));
-                }
-            }
+            try writer.writeByte('\n');
+            try writer.print(
+                \\path {s}
+            , .{
+                mem.sliceTo(lc.rpath.data, 0),
+            });
         },
-        else => @panic("TODO compare more load commands"),
-    }
-}
 
-fn err(msg: []const u8, exp: anytype, giv: anytype) error{TestFailed} {
-    const fmt_specifier = if (comptime isString(@TypeOf(exp))) "{s}" else switch (@typeInfo(@TypeOf(exp))) {
-        .Int => "{x}",
-        .Float => "{d}",
-        else => "{any}",
-    };
-    std.debug.print(
-        \\=====================================
-        \\{s}
-        \\
-        \\======== Expected to find: ==========
-        \\
-    ++ fmt_specifier ++
-        \\
-        \\======== But instead found: =========
-        \\
-    ++ fmt_specifier ++
-        \\
-        \\
-    , .{ msg, exp, giv });
-    return error.TestFailed;
-}
-
-fn isString(comptime T: type) bool {
-    switch (@typeInfo(T)) {
-        .Array => return std.meta.Elem(T) == u8,
-        .Pointer => |pinfo| {
-            switch (pinfo.size) {
-                .Slice, .Many => return std.meta.Elem(T) == u8,
-                else => switch (@typeInfo(pinfo.child)) {
-                    .Array => return isString(pinfo.child),
-                    else => return false,
-                },
-            }
-        },
-        else => return false,
+        else => {},
     }
 }
