@@ -14,22 +14,16 @@ pub fn build(b: *Builder) void {
         exe.linkLibC();
         exe.pagezero_size = 0x4000;
 
-        const check_macho = exe.checkMachO();
-        check_macho.checkLoadCommand(.{
-            .cmd = std.macho.LC.SEGMENT_64,
-            .index = 0,
-            .name = "__PAGEZERO",
-            .vaddr = 0,
-            .memsz = 0x4000,
-        });
-        check_macho.checkLoadCommand(.{
-            .cmd = std.macho.LC.SEGMENT_64,
-            .index = 1,
-            .name = "__TEXT",
-            .vaddr = 0x4000,
-        });
+        const check = exe.checkMachO();
+        check.check("LC 0");
+        check.checkNext("segname __PAGEZERO");
+        check.checkNext("vmaddr 0");
+        check.checkNext("vmsize 4000");
 
-        test_step.dependOn(&check_macho.step);
+        check.check("segname __TEXT");
+        check.checkNext("vmaddr 4000");
+
+        test_step.dependOn(&check.step);
     }
 
     {
@@ -39,14 +33,11 @@ pub fn build(b: *Builder) void {
         exe.linkLibC();
         exe.pagezero_size = 0;
 
-        const check_macho = exe.checkMachO();
-        check_macho.checkLoadCommand(.{
-            .cmd = std.macho.LC.SEGMENT_64,
-            .index = 0,
-            .name = "__TEXT",
-            .vaddr = 0,
-        });
+        const check = exe.checkMachO();
+        check.check("LC 0");
+        check.checkNext("segname __TEXT");
+        check.checkNext("vmaddr 0");
 
-        test_step.dependOn(&check_macho.step);
+        test_step.dependOn(&check.step);
     }
 }
