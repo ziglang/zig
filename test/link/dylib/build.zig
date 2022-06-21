@@ -13,17 +13,14 @@ pub fn build(b: *Builder) void {
     dylib.linkLibC();
     dylib.install();
 
-    {
-        const check_macho = dylib.checkMachO();
-        check_macho.checkLoadCommand(.{
-            .cmd = std.macho.LC.ID_DYLIB,
-            .name = "@rpath/liba.dylib",
-            .timestamp = 2,
-            .current_version = 0x10000,
-            .compat_version = 0x10000,
-        });
-        test_step.dependOn(&check_macho.step);
-    }
+    const check_dylib = dylib.checkMachO();
+    check_dylib.check("cmd ID_DYLIB");
+    check_dylib.checkNext("path @rpath/liba.dylib");
+    check_dylib.checkNext("timestamp 2");
+    check_dylib.checkNext("current version 10000");
+    check_dylib.checkNext("compatibility version 10000");
+
+    test_step.dependOn(&check_dylib.step);
 
     const exe = b.addExecutable("main", null);
     exe.setBuildMode(mode);
@@ -33,25 +30,17 @@ pub fn build(b: *Builder) void {
     exe.addLibraryPath(b.pathFromRoot("zig-out/lib/"));
     exe.addRPath(b.pathFromRoot("zig-out/lib"));
 
-    {
-        const check_macho = exe.checkMachO();
-        check_macho.checkLoadCommand(.{
-            .cmd = std.macho.LC.LOAD_DYLIB,
-            .name = "@rpath/liba.dylib",
-            .timestamp = 2,
-            .current_version = 0x10000,
-            .compat_version = 0x10000,
-        });
-        test_step.dependOn(&check_macho.step);
-    }
-    {
-        const check_macho = exe.checkMachO();
-        check_macho.checkLoadCommand(.{
-            .cmd = std.macho.LC.RPATH,
-            .name = b.pathFromRoot("zig-out/lib"),
-        });
-        test_step.dependOn(&check_macho.step);
-    }
+    const check_exe = exe.checkMachO();
+    check_exe.check("cmd LOAD_DYLIB");
+    check_exe.checkNext("path @rpath/liba.dylib");
+    check_exe.checkNext("timestamp 2");
+    check_exe.checkNext("current version 10000");
+    check_exe.checkNext("compatibility version 10000");
+
+    check_exe.check("cmd RPATH");
+    check_exe.checkNext(std.fmt.allocPrint(b.allocator, "path {s}", .{b.pathFromRoot("zig-out/lib")}) catch unreachable);
+
+    test_step.dependOn(&check_exe.step);
 
     const run = exe.run();
     run.cwd = b.pathFromRoot(".");
