@@ -92,8 +92,9 @@ pub const Inst = struct {
 
         /// A.37 Multiply and Divide (64-bit)
         /// This uses the arithmetic_3op field.
-        // TODO add other operations.
         mulx,
+        sdivx,
+        udivx,
 
         /// A.40 No Operation
         /// This uses the nop field.
