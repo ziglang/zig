@@ -156,6 +156,14 @@ fn dumpLoadCommand(lc: macho.LoadCommand, index: u16, writer: anytype) !void {
             });
         },
 
+        .MAIN => {
+            try writer.writeByte('\n');
+            try writer.print(
+                \\entryoff {x}
+                \\stacksize {x}
+            , .{ lc.main.entryoff, lc.main.stacksize });
+        },
+
         .RPATH => {
             try writer.writeByte('\n');
             try writer.print(
