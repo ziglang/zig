@@ -1022,3 +1022,83 @@ test "timerfd" {
     try os.timerfd_settime(tfd, 0, &sit, null);
     try expectEqual(try os.poll(&fds, 5), 0);
 }
+
+test "POSIX timer" {
+    if (native_os != .linux)
+        return error.SkipZigTest;
+
+    // https://github.com/ziglang/zig/issues/7427 (sigaction)
+    if (native_os == .linux and builtin.target.cpu.arch == .i386)
+        return error.SkipZigTest;
+
+    const S = struct {
+        fn handler(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const anyopaque) callconv(.C) void {
+            _ = ctx_ptr;
+            if (sig != os.SIG.ALRM or info.signo != os.SIG.ALRM)
+                return;
+
+            // Get ptr value set during timer creation
+            const ptr = @ptrCast(*i32, @alignCast(@alignOf(i32), info.*.fields.common.second.value.ptr));
+
+            if (ptr.* != 1234)
+                return;
+
+            ptr.* = 4321;
+        }
+    };
+
+    // Install signal handler
+    var old_sa: os.Sigaction = undefined;
+    var sa = os.Sigaction{
+        .handler = .{ .sigaction = S.handler },
+        .flags = os.SA.SIGINFO,
+        .mask = os.empty_sigset,
+    };
+    try os.sigaction(os.SIG.ALRM, &sa, &old_sa);
+
+    // Block SIGALRM so it will only fire inside sigsuspend
+    var set: os.sigset_t = os.empty_sigset;
+    try os.sigaddset(&set, os.SIG.ALRM);
+    var old_set: os.sigset_t = undefined;
+    os.sigprocmask(os.SIG.BLOCK, &set, &old_set);
+
+    // Create timer
+    var dummy: i32 = 1234;
+    var sev = os.sigevent{
+        .value = .{ .ptr = &dummy },
+        .signo = os.SIG.ALRM,
+        .notify = os.SIGEV.SIGNAL,
+        .fields = undefined,
+    };
+    var timer_id: os.timer_t = undefined;
+    try os.timer_create(os.CLOCK.MONOTONIC, &sev, &timer_id);
+
+    // Program timer to fire in a 10 milliseconds
+    var curr_its: os.itimerspec = undefined;
+    const its = os.itimerspec{
+        .it_interval = os.timespec{ .tv_sec = 0, .tv_nsec = 0 },
+        .it_value = os.timespec{ .tv_sec = 0, .tv_nsec = 10 * 1_000_000 },
+    };
+    try os.timer_settime(timer_id, 0, &its, &curr_its);
+
+    // Confirm old timer was disarmed
+    try testing.expectEqual(curr_its.it_value, os.timespec{ .tv_sec = 0, .tv_nsec = 0 });
+    // Confirm time started elapsing
+    try os.timer_gettime(timer_id, &curr_its);
+    try testing.expect(curr_its.it_value.tv_nsec < 10 * 1_000_000);
+
+    // Wait for signal to fire
+    os.sigsuspend(&old_set);
+    // Ensure handler was called
+    try testing.expectEqual(dummy, 4321);
+    try testing.expectEqual(os.timer_getoverrun(timer_id), 0);
+
+    // Delete timer
+    try os.timer_delete(timer_id);
+
+    // Unblock signal
+    os.sigprocmask(os.SIG.SETMASK, &old_set, null);
+
+    // restore standard disposition
+    try os.sigaction(os.SIG.ALRM, &old_sa, null);
+}
