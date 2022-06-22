@@ -1702,23 +1702,32 @@ pub fn split(comptime T: type, buffer: []const T, delimiter: []const T) SplitIte
 
 test "split" {
     var it = split(u8, "abc|def||ghi", "|");
-    try testing.expect(eql(u8, it.next().?, "abc"));
-    try testing.expect(eql(u8, it.next().?, "def"));
-    try testing.expect(eql(u8, it.next().?, ""));
-    try testing.expect(eql(u8, it.next().?, "ghi"));
+    try testing.expectEqualSlices(u8, it.rest(), "abc|def||ghi");
+    try testing.expectEqualSlices(u8, it.next().?, "abc");
+
+    try testing.expectEqualSlices(u8, it.rest(), "def||ghi");
+    try testing.expectEqualSlices(u8, it.next().?, "def");
+
+    try testing.expectEqualSlices(u8, it.rest(), "|ghi");
+    try testing.expectEqualSlices(u8, it.next().?, "");
+
+    try testing.expectEqualSlices(u8, it.rest(), "ghi");
+    try testing.expectEqualSlices(u8, it.next().?, "ghi");
+
+    try testing.expectEqualSlices(u8, it.rest(), "");
     try testing.expect(it.next() == null);
 
     it = split(u8, "", "|");
-    try testing.expect(eql(u8, it.next().?, ""));
+    try testing.expectEqualSlices(u8, it.next().?, "");
     try testing.expect(it.next() == null);
 
     it = split(u8, "|", "|");
-    try testing.expect(eql(u8, it.next().?, ""));
-    try testing.expect(eql(u8, it.next().?, ""));
+    try testing.expectEqualSlices(u8, it.next().?, "");
+    try testing.expectEqualSlices(u8, it.next().?, "");
     try testing.expect(it.next() == null);
 
     it = split(u8, "hello", " ");
-    try testing.expect(eql(u8, it.next().?, "hello"));
+    try testing.expectEqualSlices(u8, it.next().?, "hello");
     try testing.expect(it.next() == null);
 
     var it16 = split(
@@ -1726,17 +1735,18 @@ test "split" {
         std.unicode.utf8ToUtf16LeStringLiteral("hello"),
         std.unicode.utf8ToUtf16LeStringLiteral(" "),
     );
-    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("hello")));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("hello"));
     try testing.expect(it16.next() == null);
 }
 
 test "split (multibyte)" {
     var it = split(u8, "a, b ,, c, d, e", ", ");
-    try testing.expect(eql(u8, it.next().?, "a"));
-    try testing.expect(eql(u8, it.next().?, "b ,"));
-    try testing.expect(eql(u8, it.next().?, "c"));
-    try testing.expect(eql(u8, it.next().?, "d"));
-    try testing.expect(eql(u8, it.next().?, "e"));
+    try testing.expectEqualSlices(u8, it.next().?, "a");
+    try testing.expectEqualSlices(u8, it.rest(), "b ,, c, d, e");
+    try testing.expectEqualSlices(u8, it.next().?, "b ,");
+    try testing.expectEqualSlices(u8, it.next().?, "c");
+    try testing.expectEqualSlices(u8, it.next().?, "d");
+    try testing.expectEqualSlices(u8, it.next().?, "e");
     try testing.expect(it.next() == null);
 
     var it16 = split(
