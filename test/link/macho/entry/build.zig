@@ -16,15 +16,15 @@ pub fn build(b: *Builder) void {
     const check_exe = exe.checkObject(.macho);
 
     check_exe.check("segname __TEXT");
-    check_exe.checkNextExtract("vmaddr {vmaddr}");
+    check_exe.checkNext("vmaddr {vmaddr}");
 
     check_exe.check("cmd MAIN");
-    check_exe.checkNextExtract("entryoff {entryoff}");
+    check_exe.checkNext("entryoff {entryoff}");
 
     check_exe.checkInSymtab();
-    check_exe.checkNextExtract("_non_main {n_value}");
+    check_exe.checkNext("_non_main {n_value}");
 
-    check_exe.checkCompare("{vmaddr entryoff +}", .{ .varr = "n_value" });
+    check_exe.checkComputeEq("vmaddr entryoff +", "n_value");
 
     test_step.dependOn(&check_exe.step);
 
