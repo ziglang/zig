@@ -320,7 +320,7 @@ const MachODumper = struct {
                 const dylib = lc.dylib.inner.dylib;
                 try writer.writeByte('\n');
                 try writer.print(
-                    \\path {s}
+                    \\name {s}
                     \\timestamp {d}
                     \\current version {x}
                     \\compatibility version {x}
