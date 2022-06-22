@@ -13,7 +13,7 @@ pub fn build(b: *Builder) void {
     dylib.linkLibC();
     dylib.install();
 
-    const check_dylib = dylib.checkMachO();
+    const check_dylib = dylib.checkObject(.macho);
     check_dylib.check("cmd ID_DYLIB");
     check_dylib.checkNext("path @rpath/liba.dylib");
     check_dylib.checkNext("timestamp 2");
@@ -30,7 +30,7 @@ pub fn build(b: *Builder) void {
     exe.addLibraryPath(b.pathFromRoot("zig-out/lib/"));
     exe.addRPath(b.pathFromRoot("zig-out/lib"));
 
-    const check_exe = exe.checkMachO();
+    const check_exe = exe.checkObject(.macho);
     check_exe.check("cmd LOAD_DYLIB");
     check_exe.checkNext("path @rpath/liba.dylib");
     check_exe.checkNext("timestamp 2");

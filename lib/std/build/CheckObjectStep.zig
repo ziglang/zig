@@ -5,13 +5,13 @@ const fs = std.fs;
 const macho = std.macho;
 const mem = std.mem;
 
-const CheckMachOStep = @This();
+const CheckObjectStep = @This();
 
 const Allocator = mem.Allocator;
 const Builder = build.Builder;
 const Step = build.Step;
 
-pub const base_id = .check_macho;
+pub const base_id = .check_obj;
 
 step: Step,
 builder: *Builder,
@@ -19,15 +19,17 @@ source: build.FileSource,
 max_bytes: usize = 20 * 1024 * 1024,
 checks: std.ArrayList(Check),
 dump_symtab: bool = false,
+obj_format: std.Target.ObjectFormat,
 
-pub fn create(builder: *Builder, source: build.FileSource) *CheckMachOStep {
+pub fn create(builder: *Builder, source: build.FileSource, obj_format: std.Target.ObjectFormat) *CheckObjectStep {
     const gpa = builder.allocator;
-    const self = gpa.create(CheckMachOStep) catch unreachable;
-    self.* = CheckMachOStep{
+    const self = gpa.create(CheckObjectStep) catch unreachable;
+    self.* = .{
         .builder = builder,
-        .step = Step.init(.check_file, "CheckMachO", gpa, make),
+        .step = Step.init(.check_file, "CheckObject", gpa, make),
         .source = source.dupe(builder),
         .checks = std.ArrayList(Check).init(gpa),
+        .obj_format = obj_format,
     };
     self.source.addStepDependencies(&self.step);
     return self;
@@ -84,19 +86,19 @@ const Check = struct {
     }
 };
 
-pub fn check(self: *CheckMachOStep, phrase: []const u8) void {
+pub fn check(self: *CheckObjectStep, phrase: []const u8) void {
     var new_check = Check.create(self.builder);
     new_check.exactMatch(phrase);
     self.checks.append(new_check) catch unreachable;
 }
 
-pub fn checkNext(self: *CheckMachOStep, phrase: []const u8) void {
+pub fn checkNext(self: *CheckObjectStep, phrase: []const u8) void {
     assert(self.checks.items.len > 0);
     const last = &self.checks.items[self.checks.items.len - 1];
     last.exactMatch(phrase);
 }
 
-pub fn checkNextExtract(self: *CheckMachOStep, comptime phrase: []const u8) void {
+pub fn checkNextExtract(self: *CheckObjectStep, comptime phrase: []const u8) void {
     assert(self.checks.items.len > 0);
     const matcher_start = comptime mem.indexOf(u8, phrase, "{") orelse
         @compileError("missing {  } matcher");
@@ -106,12 +108,12 @@ pub fn checkNextExtract(self: *CheckMachOStep, comptime phrase: []const u8) void
     last.extractVar(phrase[0..matcher_start], phrase[matcher_start + 1 .. matcher_end]);
 }
 
-pub fn checkInSymtab(self: *CheckMachOStep) void {
+pub fn checkInSymtab(self: *CheckObjectStep) void {
     self.dump_symtab = true;
     self.check("symtab");
 }
 
-pub fn checkCompare(self: *CheckMachOStep, comptime phrase: []const u8, expected: anytype) void {
+pub fn checkCompare(self: *CheckObjectStep, comptime phrase: []const u8, expected: anytype) void {
     comptime assert(phrase[0] == '{');
     comptime assert(phrase[phrase.len - 1] == '}');
 
@@ -137,51 +139,22 @@ pub fn checkCompare(self: *CheckMachOStep, comptime phrase: []const u8, expected
 }
 
 fn make(step: *Step) !void {
-    const self = @fieldParentPtr(CheckMachOStep, "step", step);
+    const self = @fieldParentPtr(CheckObjectStep, "step", step);
 
     const gpa = self.builder.allocator;
     const src_path = self.source.getPath(self.builder);
     const contents = try fs.cwd().readFileAlloc(gpa, src_path, self.max_bytes);
 
-    // Parse the object file's header
-    var stream = std.io.fixedBufferStream(contents);
-    const reader = stream.reader();
-
-    const hdr = try reader.readStruct(macho.mach_header_64);
-    if (hdr.magic != macho.MH_MAGIC_64) {
-        return error.InvalidMagicNumber;
-    }
-
-    var metadata = std.ArrayList(u8).init(gpa);
-    const writer = metadata.writer();
-
-    var symtab_cmd: ?macho.symtab_command = null;
-    var i: u16 = 0;
-    while (i < hdr.ncmds) : (i += 1) {
-        var cmd = try macho.LoadCommand.read(gpa, reader);
-
-        if (self.dump_symtab and cmd.cmd() == .SYMTAB) {
-            symtab_cmd = cmd.symtab;
-        }
-
-        try dumpLoadCommand(cmd, i, writer);
-        try writer.writeByte('\n');
-    }
-
-    if (symtab_cmd) |cmd| {
-        try writer.writeAll("symtab\n");
-        const strtab = contents[cmd.stroff..][0..cmd.strsize];
-        const symtab = @ptrCast(
-            [*]const macho.nlist_64,
-            @alignCast(@alignOf(macho.nlist_64), contents.ptr + cmd.symoff),
-        )[0..cmd.nsyms];
-
-        for (symtab) |sym| {
-            if (sym.stab()) continue;
-            const sym_name = mem.sliceTo(@ptrCast([*:0]const u8, strtab.ptr + sym.n_strx), 0);
-            try writer.print("{s} {x}\n", .{ sym_name, sym.n_value });
-        }
-    }
+    const output = switch (self.obj_format) {
+        .macho => try MachODumper.parseAndDump(contents, .{
+            .gpa = gpa,
+            .dump_symtab = self.dump_symtab,
+        }),
+        .elf => @panic("TODO elf parser"),
+        .coff => @panic("TODO coff parser"),
+        .wasm => @panic("TODO wasm parser"),
+        else => unreachable,
+    };
 
     var vars = std.StringHashMap(u64).init(gpa);
 
@@ -190,9 +163,9 @@ fn make(step: *Step) !void {
 
         switch (first_action) {
             .exact_match => |first| {
-                if (mem.indexOf(u8, metadata.items, first)) |index| {
+                if (mem.indexOf(u8, output, first)) |index| {
                     // TODO backtrack to track current scope
-                    var it = std.mem.tokenize(u8, metadata.items[index..], "\r\n");
+                    var it = std.mem.tokenize(u8, output[index..], "\r\n");
 
                     outer: for (chk.actions.items[1..]) |next_action| {
                         switch (next_action) {
@@ -263,69 +236,120 @@ fn make(step: *Step) !void {
     }
 }
 
-fn dumpLoadCommand(lc: macho.LoadCommand, index: u16, writer: anytype) !void {
-    // print header first
-    try writer.print(
-        \\LC {d}
-        \\cmd {s}
-        \\cmdsize {d}
-    , .{ index, @tagName(lc.cmd()), lc.cmdsize() });
+const Opts = struct {
+    gpa: ?Allocator = null,
+    dump_symtab: bool = false,
+};
 
-    switch (lc.cmd()) {
-        .SEGMENT_64 => {
-            // TODO dump section headers
-            const seg = lc.segment.inner;
+const MachODumper = struct {
+    fn parseAndDump(bytes: []const u8, opts: Opts) ![]const u8 {
+        const gpa = opts.gpa orelse unreachable; // MachO dumper requires an allocator
+        var stream = std.io.fixedBufferStream(bytes);
+        const reader = stream.reader();
+
+        const hdr = try reader.readStruct(macho.mach_header_64);
+        if (hdr.magic != macho.MH_MAGIC_64) {
+            return error.InvalidMagicNumber;
+        }
+
+        var output = std.ArrayList(u8).init(gpa);
+        const writer = output.writer();
+
+        var symtab_cmd: ?macho.symtab_command = null;
+        var i: u16 = 0;
+        while (i < hdr.ncmds) : (i += 1) {
+            var cmd = try macho.LoadCommand.read(gpa, reader);
+
+            if (opts.dump_symtab and cmd.cmd() == .SYMTAB) {
+                symtab_cmd = cmd.symtab;
+            }
+
+            try dumpLoadCommand(cmd, i, writer);
             try writer.writeByte('\n');
-            try writer.print(
-                \\segname {s}
-                \\vmaddr {x}
-                \\vmsize {x}
-                \\fileoff {x}
-                \\filesz {x}
-            , .{
-                seg.segName(),
-                seg.vmaddr,
-                seg.vmsize,
-                seg.fileoff,
-                seg.filesize,
-            });
-        },
+        }
 
-        .ID_DYLIB,
-        .LOAD_DYLIB,
-        => {
-            const dylib = lc.dylib.inner.dylib;
-            try writer.writeByte('\n');
-            try writer.print(
-                \\path {s}
-                \\timestamp {d}
-                \\current version {x}
-                \\compatibility version {x}
-            , .{
-                mem.sliceTo(lc.dylib.data, 0),
-                dylib.timestamp,
-                dylib.current_version,
-                dylib.compatibility_version,
-            });
-        },
+        if (symtab_cmd) |cmd| {
+            try writer.writeAll("symtab\n");
+            const strtab = bytes[cmd.stroff..][0..cmd.strsize];
+            const symtab = @ptrCast(
+                [*]const macho.nlist_64,
+                @alignCast(@alignOf(macho.nlist_64), bytes.ptr + cmd.symoff),
+            )[0..cmd.nsyms];
 
-        .MAIN => {
-            try writer.writeByte('\n');
-            try writer.print(
-                \\entryoff {x}
-                \\stacksize {x}
-            , .{ lc.main.entryoff, lc.main.stacksize });
-        },
+            for (symtab) |sym| {
+                if (sym.stab()) continue;
+                const sym_name = mem.sliceTo(@ptrCast([*:0]const u8, strtab.ptr + sym.n_strx), 0);
+                try writer.print("{s} {x}\n", .{ sym_name, sym.n_value });
+            }
+        }
 
-        .RPATH => {
-            try writer.writeByte('\n');
-            try writer.print(
-                \\path {s}
-            , .{
-                mem.sliceTo(lc.rpath.data, 0),
-            });
-        },
-
-        else => {},
+        return output.toOwnedSlice();
     }
-}
+
+    fn dumpLoadCommand(lc: macho.LoadCommand, index: u16, writer: anytype) !void {
+        // print header first
+        try writer.print(
+            \\LC {d}
+            \\cmd {s}
+            \\cmdsize {d}
+        , .{ index, @tagName(lc.cmd()), lc.cmdsize() });
+
+        switch (lc.cmd()) {
+            .SEGMENT_64 => {
+                // TODO dump section headers
+                const seg = lc.segment.inner;
+                try writer.writeByte('\n');
+                try writer.print(
+                    \\segname {s}
+                    \\vmaddr {x}
+                    \\vmsize {x}
+                    \\fileoff {x}
+                    \\filesz {x}
+                , .{
+                    seg.segName(),
+                    seg.vmaddr,
+                    seg.vmsize,
+                    seg.fileoff,
+                    seg.filesize,
+                });
+            },
+
+            .ID_DYLIB,
+            .LOAD_DYLIB,
+            => {
+                const dylib = lc.dylib.inner.dylib;
+                try writer.writeByte('\n');
+                try writer.print(
+                    \\path {s}
+                    \\timestamp {d}
+                    \\current version {x}
+                    \\compatibility version {x}
+                , .{
+                    mem.sliceTo(lc.dylib.data, 0),
+                    dylib.timestamp,
+                    dylib.current_version,
+                    dylib.compatibility_version,
+                });
+            },
+
+            .MAIN => {
+                try writer.writeByte('\n');
+                try writer.print(
+                    \\entryoff {x}
+                    \\stacksize {x}
+                , .{ lc.main.entryoff, lc.main.stacksize });
+            },
+
+            .RPATH => {
+                try writer.writeByte('\n');
+                try writer.print(
+                    \\path {s}
+                , .{
+                    mem.sliceTo(lc.rpath.data, 0),
+                });
+            },
+
+            else => {},
+        }
+    }
+};
