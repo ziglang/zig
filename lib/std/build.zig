@@ -24,7 +24,7 @@ pub const TranslateCStep = @import("build/TranslateCStep.zig");
 pub const WriteFileStep = @import("build/WriteFileStep.zig");
 pub const RunStep = @import("build/RunStep.zig");
 pub const CheckFileStep = @import("build/CheckFileStep.zig");
-pub const CheckMachOStep = @import("build/CheckMachOStep.zig");
+pub const CheckObjectStep = @import("build/CheckObjectStep.zig");
 pub const InstallRawStep = @import("build/InstallRawStep.zig");
 pub const OptionsStep = @import("build/OptionsStep.zig");
 
@@ -1865,8 +1865,8 @@ pub const LibExeObjStep = struct {
         return run_step;
     }
 
-    pub fn checkMachO(self: *LibExeObjStep) *CheckMachOStep {
-        return CheckMachOStep.create(self.builder, self.getOutputSource());
+    pub fn checkObject(self: *LibExeObjStep, obj_format: std.Target.ObjectFormat) *CheckObjectStep {
+        return CheckObjectStep.create(self.builder, self.getOutputSource(), obj_format);
     }
 
     pub fn setLinkerScriptPath(self: *LibExeObjStep, source: FileSource) void {
@@ -3455,7 +3455,7 @@ pub const Step = struct {
         write_file,
         run,
         check_file,
-        check_macho,
+        check_object,
         install_raw,
         options,
         custom,
