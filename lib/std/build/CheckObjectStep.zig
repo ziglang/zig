@@ -36,20 +36,52 @@ pub fn create(builder: *Builder, source: build.FileSource, obj_format: std.Targe
 }
 
 const Action = union(enum) {
-    exact_match: []const u8,
-    extract_var: struct {
-        fuzzy_match: []const u8,
-        var_name: []const u8,
-        var_value: u64,
-    },
-    compare: CompareAction,
+    match: MatchAction,
+    compute_eq: ComputeEqAction,
 };
 
-const CompareAction = struct {
-    expected: union(enum) {
-        literal: u64,
-        varr: []const u8,
-    },
+const MatchAction = struct {
+    needle: []const u8,
+
+    fn match(act: MatchAction, haystack: []const u8, global_vars: anytype) !bool {
+        var hay_it = mem.tokenize(u8, mem.trim(u8, haystack, " "), " ");
+        var needle_it = mem.tokenize(u8, mem.trim(u8, act.needle, " "), " ");
+
+        while (needle_it.next()) |needle_tok| {
+            const hay_tok = hay_it.next() orelse return false;
+
+            if (mem.indexOf(u8, needle_tok, "{*}")) |index| {
+                // We have fuzzy matchers within the search pattern, so we match substrings.
+                var start = index;
+                var n_tok = needle_tok;
+                var h_tok = hay_tok;
+                while (true) {
+                    n_tok = n_tok[start + 3 ..];
+                    const inner = if (mem.indexOf(u8, n_tok, "{*}")) |sub_end|
+                        n_tok[0..sub_end]
+                    else
+                        n_tok;
+                    if (mem.indexOf(u8, h_tok, inner) == null) return false;
+                    start = mem.indexOf(u8, n_tok, "{*}") orelse break;
+                }
+            } else if (mem.startsWith(u8, needle_tok, "{")) {
+                const closing_brace = mem.indexOf(u8, needle_tok, "}") orelse return error.MissingClosingBrace;
+                if (closing_brace != needle_tok.len - 1) return error.ClosingBraceNotLast;
+
+                const name = needle_tok[1..closing_brace];
+                const value = try std.fmt.parseInt(u64, hay_tok, 16);
+                try global_vars.putNoClobber(name, value);
+            } else {
+                if (!mem.eql(u8, hay_tok, needle_tok)) return false;
+            }
+        }
+
+        return true;
+    }
+};
+
+const ComputeEqAction = struct {
+    expected: []const u8,
     var_stack: std.ArrayList([]const u8),
     op_stack: std.ArrayList(Op),
 
@@ -69,43 +101,29 @@ const Check = struct {
         };
     }
 
-    fn exactMatch(self: *Check, phrase: []const u8) void {
+    fn match(self: *Check, needle: []const u8) void {
         self.actions.append(.{
-            .exact_match = self.builder.dupe(phrase),
+            .match = .{ .needle = self.builder.dupe(needle) },
         }) catch unreachable;
     }
 
-    fn extractVar(self: *Check, phrase: []const u8, var_name: []const u8) void {
+    fn computeEq(self: *Check, act: ComputeEqAction) void {
         self.actions.append(.{
-            .extract_var = .{
-                .fuzzy_match = self.builder.dupe(phrase),
-                .var_name = self.builder.dupe(var_name),
-                .var_value = undefined,
-            },
+            .compute_eq = act,
         }) catch unreachable;
     }
 };
 
 pub fn check(self: *CheckObjectStep, phrase: []const u8) void {
     var new_check = Check.create(self.builder);
-    new_check.exactMatch(phrase);
+    new_check.match(phrase);
     self.checks.append(new_check) catch unreachable;
 }
 
 pub fn checkNext(self: *CheckObjectStep, phrase: []const u8) void {
     assert(self.checks.items.len > 0);
     const last = &self.checks.items[self.checks.items.len - 1];
-    last.exactMatch(phrase);
-}
-
-pub fn checkNextExtract(self: *CheckObjectStep, comptime phrase: []const u8) void {
-    assert(self.checks.items.len > 0);
-    const matcher_start = comptime mem.indexOf(u8, phrase, "{") orelse
-        @compileError("missing {  } matcher");
-    const matcher_end = comptime mem.indexOf(u8, phrase, "}") orelse
-        @compileError("missing {  } matcher");
-    const last = &self.checks.items[self.checks.items.len - 1];
-    last.extractVar(phrase[0..matcher_start], phrase[matcher_start + 1 .. matcher_end]);
+    last.match(phrase);
 }
 
 pub fn checkInSymtab(self: *CheckObjectStep) void {
@@ -113,18 +131,15 @@ pub fn checkInSymtab(self: *CheckObjectStep) void {
     self.check("symtab");
 }
 
-pub fn checkCompare(self: *CheckObjectStep, comptime phrase: []const u8, expected: anytype) void {
-    comptime assert(phrase[0] == '{');
-    comptime assert(phrase[phrase.len - 1] == '}');
-
+pub fn checkComputeEq(self: *CheckObjectStep, program: []const u8, expected: []const u8) void {
     const gpa = self.builder.allocator;
-    var ca = CompareAction{
+    var ca = ComputeEqAction{
         .expected = expected,
         .var_stack = std.ArrayList([]const u8).init(gpa),
-        .op_stack = std.ArrayList(CompareAction.Op).init(gpa),
+        .op_stack = std.ArrayList(ComputeEqAction.Op).init(gpa),
     };
 
-    var it = mem.tokenize(u8, phrase[1 .. phrase.len - 1], " ");
+    var it = mem.tokenize(u8, program, " ");
     while (it.next()) |next| {
         if (mem.eql(u8, next, "+")) {
             ca.op_stack.append(.add) catch unreachable;
@@ -134,7 +149,7 @@ pub fn checkCompare(self: *CheckObjectStep, comptime phrase: []const u8, expecte
     }
 
     var new_check = Check.create(self.builder);
-    new_check.actions.append(.{ .compare = ca }) catch unreachable;
+    new_check.computeEq(ca);
     self.checks.append(new_check) catch unreachable;
 }
 
@@ -159,80 +174,50 @@ fn make(step: *Step) !void {
     var vars = std.StringHashMap(u64).init(gpa);
 
     for (self.checks.items) |chk| {
-        const first_action = chk.actions.items[0];
+        var it = mem.tokenize(u8, output, "\r\n");
+        for (chk.actions.items) |act| {
+            switch (act) {
+                .match => |match_act| {
+                    while (it.next()) |line| {
+                        if (try match_act.match(line, &vars)) {
+                            std.debug.print("{s} == {s}\n", .{ line, match_act.needle });
+                            break;
+                        } else {
+                            std.debug.print("{s} != {s}\n", .{ line, match_act.needle });
+                        }
+                    } else {
+                        return error.TestFailed;
+                    }
+                },
+                .compute_eq => |c_eq| {
+                    var values = std.ArrayList(u64).init(gpa);
+                    try values.ensureTotalCapacity(c_eq.var_stack.items.len);
+                    for (c_eq.var_stack.items) |vv| {
+                        const val = vars.get(vv) orelse return error.TestFailed;
+                        values.appendAssumeCapacity(val);
+                    }
 
-        switch (first_action) {
-            .exact_match => |first| {
-                if (mem.indexOf(u8, output, first)) |index| {
-                    // TODO backtrack to track current scope
-                    var it = std.mem.tokenize(u8, output[index..], "\r\n");
-
-                    outer: for (chk.actions.items[1..]) |next_action| {
-                        switch (next_action) {
-                            .exact_match => |exact| {
-                                while (it.next()) |line| {
-                                    if (mem.eql(u8, line, exact)) {
-                                        std.debug.print("{s} == {s}\n", .{ line, exact });
-                                        continue :outer;
-                                    }
-                                    std.debug.print("{s} != {s}\n", .{ line, exact });
-                                } else {
-                                    return error.TestFailed;
-                                }
+                    var op_i: usize = 1;
+                    var reduced: u64 = values.items[0];
+                    for (c_eq.op_stack.items) |op| {
+                        const other = values.items[op_i];
+                        switch (op) {
+                            .add => {
+                                reduced += other;
                             },
-                            .extract_var => |extract| {
-                                const phrase = extract.fuzzy_match;
-                                while (it.next()) |line| {
-                                    if (mem.indexOf(u8, line, phrase)) |found| {
-                                        std.debug.print("{s} in {s}\n", .{ phrase, line });
-                                        // Extract variable and save back in the action.
-                                        const trimmed = mem.trim(u8, line[found + phrase.len ..], " ");
-                                        const parsed = try std.fmt.parseInt(u64, trimmed, 16);
-                                        try vars.putNoClobber(extract.var_name, parsed);
-                                        continue :outer;
-                                    }
-                                    std.debug.print("{s} not in {s}\n", .{ extract.fuzzy_match, line });
-                                }
-                            },
-                            .compare => unreachable,
                         }
                     }
-                } else {
-                    return error.TestFailed;
-                }
-            },
-            .compare => |act| {
-                var values = std.ArrayList(u64).init(gpa);
-                try values.ensureTotalCapacity(act.var_stack.items.len);
-                for (act.var_stack.items) |vv| {
-                    const val = vars.get(vv) orelse return error.TestFailed;
-                    values.appendAssumeCapacity(val);
-                }
 
-                var op_i: usize = 1;
-                var reduced: u64 = values.items[0];
-                for (act.op_stack.items) |op| {
-                    const other = values.items[op_i];
-                    switch (op) {
-                        .add => {
-                            reduced += other;
-                        },
-                    }
-                }
-
-                const expected = switch (act.expected) {
-                    .literal => |exp| exp,
-                    .varr => |vv| vars.get(vv) orelse return error.TestFailed,
-                };
-                if (reduced != expected) return error.TestFailed;
-            },
-            .extract_var => unreachable,
+                    const expected = vars.get(c_eq.expected) orelse return error.TestFailed;
+                    if (reduced != expected) return error.TestFailed;
+                },
+            }
         }
     }
 
     var it = vars.iterator();
     while (it.next()) |entry| {
-        std.debug.print("  {s} => {x}", .{ entry.key_ptr.*, entry.value_ptr.* });
+        std.debug.print("  {s} => {x}\n", .{ entry.key_ptr.*, entry.value_ptr.* });
     }
 }
 
