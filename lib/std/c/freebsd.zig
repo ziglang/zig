@@ -181,6 +181,7 @@ pub const AI = struct {
 pub const blksize_t = i32;
 pub const blkcnt_t = i64;
 pub const clockid_t = i32;
+pub const timer_t = ?*anyopaque;
 pub const fsblkcnt_t = u64;
 pub const fsfilcnt_t = u64;
 pub const nlink_t = u64;
@@ -337,6 +338,11 @@ pub const Stat = extern struct {
 pub const timespec = extern struct {
     tv_sec: isize,
     tv_nsec: isize,
+};
+
+pub const itimerspec = extern struct {
+    it_interval: timespec,
+    it_value: timespec,
 };
 
 pub const timeval = extern struct {
@@ -690,6 +696,15 @@ pub const SIG = struct {
         return sig <= MAXSIG and sig > 0;
     }
 };
+
+pub const SIGEV = struct {
+    pub const NONE = 0;
+    pub const SIGNAL = 1;
+    pub const THREAD = 2;
+    pub const KEVENT = 3;
+    pub const THREAD_ID = 4;
+};
+
 pub const sigval = extern union {
     int: c_int,
     ptr: ?*anyopaque,
@@ -1219,6 +1234,23 @@ pub const siginfo_t = extern struct {
             spare2: [7]c_int,
         },
     },
+};
+
+pub const sigevent = extern struct {
+    notify: i32,
+    signo: i32,
+    value: sigval,
+    fields: sigevent_fields_union,
+};
+
+const sigevent_fields_union = extern union {
+    tid: pid_t,
+    thread: extern struct {
+        function: ?fn (sigval) callconv(.C) void,
+        attribute: ?*anyopaque,
+    },
+    kevent_flags: u16,
+    spare: [8]c_long,
 };
 
 pub usingnamespace switch (builtin.cpu.arch) {

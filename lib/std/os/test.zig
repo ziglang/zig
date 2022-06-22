@@ -1024,8 +1024,10 @@ test "timerfd" {
 }
 
 test "POSIX timer" {
-    if (native_os != .linux)
-        return error.SkipZigTest;
+    switch (native_os) {
+        .linux, .freebsd => {},
+        else => return error.SkipZigTest,
+    }
 
     // https://github.com/ziglang/zig/issues/7427 (sigaction)
     if (native_os == .linux and builtin.target.cpu.arch == .i386)
@@ -1038,8 +1040,11 @@ test "POSIX timer" {
                 return;
 
             // Get ptr value set during timer creation
-            const ptr = @ptrCast(*i32, @alignCast(@alignOf(i32), info.*.fields.common.second.value.ptr));
-
+            const ptr = @ptrCast(*i32, @alignCast(@alignOf(i32), switch (native_os) {
+                .linux => info.*.fields.common.second.value.ptr,
+                .freebsd => info.*.value.ptr,
+                else => unreachable,
+            }));
             if (ptr.* != 1234)
                 return;
 
@@ -1085,7 +1090,7 @@ test "POSIX timer" {
     try testing.expectEqual(curr_its.it_value, os.timespec{ .tv_sec = 0, .tv_nsec = 0 });
     // Confirm time started elapsing
     try os.timer_gettime(timer_id, &curr_its);
-    try testing.expect(curr_its.it_value.tv_nsec < 10 * 1_000_000);
+    try testing.expect(curr_its.it_value.tv_nsec <= 10 * 1_000_000);
 
     // Wait for signal to fire
     os.sigsuspend(&old_set);
