@@ -1355,7 +1355,7 @@ fn buildOutputType(
                         } else if (mem.startsWith(u8, z_arg, "max-page-size=")) {
                             linker_z_max_page_size = parseIntSuffix(z_arg, "max-page-size=".len);
                         } else {
-                            warn("unsupported linker extension flag: -z {s}", .{z_arg});
+                            fatal("unsupported linker extension flag: -z {s}", .{z_arg});
                         }
                     } else if (mem.eql(u8, arg, "--import-memory")) {
                         linker_import_memory = true;
@@ -1993,7 +1993,7 @@ fn buildOutputType(
                     } else if (mem.startsWith(u8, z_arg, "max-page-size=")) {
                         linker_z_max_page_size = parseIntSuffix(z_arg, "max-page-size=".len);
                     } else {
-                        warn("unsupported linker extension flag: -z {s}", .{z_arg});
+                        fatal("unsupported linker extension flag: -z {s}", .{z_arg});
                     }
                 } else if (mem.eql(u8, arg, "--major-image-version")) {
                     i += 1;
@@ -2226,7 +2226,7 @@ fn buildOutputType(
 
                     have_version = true;
                 } else {
-                    warn("unsupported linker arg: {s}", .{arg});
+                    fatal("unsupported linker arg: {s}", .{arg});
                 }
             }
 
