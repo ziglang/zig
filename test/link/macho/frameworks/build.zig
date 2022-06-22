@@ -11,9 +11,13 @@ pub fn build(b: *Builder) void {
     exe.addCSourceFile("main.c", &[0][]const u8{});
     exe.setBuildMode(mode);
     exe.linkLibC();
-    // TODO when we figure out how to ship framework stubs for cross-compilation,
-    // populate paths to the sysroot here.
     exe.linkFramework("Cocoa");
+
+    const check = exe.checkObject(.macho);
+    check.check("cmd LOAD_DYLIB");
+    check.checkNext("name /System/Library/Frameworks/Cocoa.framework/Versions/A/Cocoa");
+
+    test_step.dependOn(&check.step);
 
     const run_cmd = exe.run();
     test_step.dependOn(&run_cmd.step);
