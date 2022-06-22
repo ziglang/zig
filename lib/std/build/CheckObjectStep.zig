@@ -41,9 +41,22 @@ const Action = union(enum) {
     compute_eq: ComputeEqAction,
 };
 
+/// MatchAction is the main building block of standard matchers with optional eat-all token `{*}`
+/// and extractors by name such as `{n_value}`. Please note this action is very simplistic in nature
+/// i.e., it won't really handle edge cases/nontrivial examples. But given that we do want to use
+/// it mainly to test the output of our object format parser-dumpers when testing the linkers, etc.
+/// it should be plenty useful in its current form.
 const MatchAction = struct {
     needle: []const u8,
 
+    /// Will return true if the `needle` was found in the `haystack`.
+    /// Some examples include:
+    ///
+    /// LC 0                     => will match in its entirety
+    /// vmaddr {vmaddr}          => will match `vmaddr` and then extract the following value as u64
+    ///                             and save under `vmaddr` global name (see `global_vars` param)
+    /// name {*}libobjc{*}.dylib => will match `name` followed by a token which contains `libobjc` and `.dylib`
+    ///                             in that order with other letters in between
     fn match(act: MatchAction, haystack: []const u8, global_vars: anytype) !bool {
         var hay_it = mem.tokenize(u8, mem.trim(u8, haystack, " "), " ");
         var needle_it = mem.tokenize(u8, mem.trim(u8, act.needle, " "), " ");
@@ -81,6 +94,12 @@ const MatchAction = struct {
     }
 };
 
+/// ComputeEqAction can be used to perform an operation on the extracted global variables
+/// using the MatchAction. It currently only supports an addition. The operation is required
+/// to be specified in Reverse Polish Notation to ease in operator-precedence parsing (well,
+/// to avoid any parsing really).
+/// For example, if the two extracted values were saved as `vmaddr` and `entryoff` respectively
+/// they could then be added with this simple program `vmaddr entryoff +`.
 const ComputeEqAction = struct {
     expected: []const u8,
     var_stack: std.ArrayList([]const u8),
@@ -115,23 +134,32 @@ const Check = struct {
     }
 };
 
+/// Creates a new sequence of actions with `phrase` as the first anchor searched phrase.
 pub fn check(self: *CheckObjectStep, phrase: []const u8) void {
     var new_check = Check.create(self.builder);
     new_check.match(phrase);
     self.checks.append(new_check) catch unreachable;
 }
 
+/// Adds another searched phrase to the latest created Check with `CheckObjectStep.check(...)`.
+/// Asserts at least one check already exists.
 pub fn checkNext(self: *CheckObjectStep, phrase: []const u8) void {
     assert(self.checks.items.len > 0);
     const last = &self.checks.items[self.checks.items.len - 1];
     last.match(phrase);
 }
 
+/// Creates a new check checking specifically symbol table parsed and dumped from the object
+/// file.
+/// Issuing this check will force parsing and dumping of the symbol table.
 pub fn checkInSymtab(self: *CheckObjectStep) void {
     self.dump_symtab = true;
     self.check("symtab");
 }
 
+/// Creates a new standalone, singular check which allows running simple binary operations
+/// on the extracted variables. It will then compare the reduced program with the value of
+/// the expected variable.
 pub fn checkComputeEq(self: *CheckObjectStep, program: []const u8, expected: []const u8) void {
     const gpa = self.builder.allocator;
     var ca = ComputeEqAction{
