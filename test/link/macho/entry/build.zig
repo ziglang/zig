@@ -13,7 +13,7 @@ pub fn build(b: *Builder) void {
     exe.linkLibC();
     exe.entry_symbol_name = "_non_main";
 
-    const check_exe = exe.checkMachO();
+    const check_exe = exe.checkObject(.macho);
 
     check_exe.check("segname __TEXT");
     check_exe.checkNextExtract("vmaddr {vmaddr}");

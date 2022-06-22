@@ -28,7 +28,7 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     });
 
     if (builtin.os.tag == .macos) {
-        cases.addBuildFile("test/link/entry/build.zig", .{
+        cases.addBuildFile("test/link/macho/entry/build.zig", .{
             .build_modes = true,
         });
 
