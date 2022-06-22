@@ -17,8 +17,13 @@ pub fn build(b: *Builder) void {
     check.check("cmd LOAD_DYLIB");
     check.checkNext("name {*}Cocoa");
 
-    check.check("cmd LOAD_DYLIB");
-    check.checkNext("name {*}libobjc{*}.dylib");
+    switch (mode) {
+        .Debug, .ReleaseSafe => {
+            check.check("cmd LOAD_DYLIB");
+            check.checkNext("name {*}libobjc{*}.dylib");
+        },
+        else => {},
+    }
 
     test_step.dependOn(&check.step);
 
