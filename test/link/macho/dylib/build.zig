@@ -15,7 +15,7 @@ pub fn build(b: *Builder) void {
 
     const check_dylib = dylib.checkObject(.macho);
     check_dylib.check("cmd ID_DYLIB");
-    check_dylib.checkNext("path @rpath/liba.dylib");
+    check_dylib.checkNext("name @rpath/liba.dylib");
     check_dylib.checkNext("timestamp 2");
     check_dylib.checkNext("current version 10000");
     check_dylib.checkNext("compatibility version 10000");
@@ -32,7 +32,7 @@ pub fn build(b: *Builder) void {
 
     const check_exe = exe.checkObject(.macho);
     check_exe.check("cmd LOAD_DYLIB");
-    check_exe.checkNext("path @rpath/liba.dylib");
+    check_exe.checkNext("name @rpath/liba.dylib");
     check_exe.checkNext("timestamp 2");
     check_exe.checkNext("current version 10000");
     check_exe.checkNext("compatibility version 10000");
