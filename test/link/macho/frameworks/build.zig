@@ -15,7 +15,10 @@ pub fn build(b: *Builder) void {
 
     const check = exe.checkObject(.macho);
     check.check("cmd LOAD_DYLIB");
-    check.checkNext("name /System/Library/Frameworks/Cocoa.framework/Versions/A/Cocoa");
+    check.checkNext("name {*}Cocoa");
+
+    check.check("cmd LOAD_DYLIB");
+    check.checkNext("name {*}libobjc{*}.dylib");
 
     test_step.dependOn(&check.step);
 
