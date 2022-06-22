@@ -4,6 +4,7 @@ const build = std.build;
 const fs = std.fs;
 const macho = std.macho;
 const mem = std.mem;
+const testing = std.testing;
 
 const CheckObjectStep = @This();
 
@@ -179,13 +180,16 @@ fn make(step: *Step) !void {
             switch (act) {
                 .match => |match_act| {
                     while (it.next()) |line| {
-                        if (try match_act.match(line, &vars)) {
-                            std.debug.print("{s} == {s}\n", .{ line, match_act.needle });
-                            break;
-                        } else {
-                            std.debug.print("{s} != {s}\n", .{ line, match_act.needle });
-                        }
+                        if (try match_act.match(line, &vars)) break;
                     } else {
+                        std.debug.print(
+                            \\
+                            \\========= Expected to find: ==========================
+                            \\{s}
+                            \\========= But parsed file does not contain it: =======
+                            \\{s}
+                            \\
+                        , .{ match_act.needle, output });
                         return error.TestFailed;
                     }
                 },
@@ -193,7 +197,17 @@ fn make(step: *Step) !void {
                     var values = std.ArrayList(u64).init(gpa);
                     try values.ensureTotalCapacity(c_eq.var_stack.items.len);
                     for (c_eq.var_stack.items) |vv| {
-                        const val = vars.get(vv) orelse return error.TestFailed;
+                        const val = vars.get(vv) orelse {
+                            std.debug.print(
+                                \\
+                                \\========= Variable was not extracted: ===========
+                                \\{s}
+                                \\========= From parsed file: =====================
+                                \\{s}
+                                \\
+                            , .{ vv, output });
+                            return error.TestFailed;
+                        };
                         values.appendAssumeCapacity(val);
                     }
 
@@ -208,16 +222,21 @@ fn make(step: *Step) !void {
                         }
                     }
 
-                    const expected = vars.get(c_eq.expected) orelse return error.TestFailed;
-                    if (reduced != expected) return error.TestFailed;
+                    const expected = vars.get(c_eq.expected) orelse {
+                        std.debug.print(
+                            \\
+                            \\========= Variable was not extracted: ===========
+                            \\{s}
+                            \\========= From parsed file: =====================
+                            \\{s}
+                            \\
+                        , .{ c_eq.expected, output });
+                        return error.TestFailed;
+                    };
+                    try testing.expectEqual(reduced, expected);
                 },
             }
         }
-    }
-
-    var it = vars.iterator();
-    while (it.next()) |entry| {
-        std.debug.print("  {s} => {x}\n", .{ entry.key_ptr.*, entry.value_ptr.* });
     }
 }
 
