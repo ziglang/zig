@@ -1754,11 +1754,99 @@ test "split (multibyte)" {
         std.unicode.utf8ToUtf16LeStringLiteral("a, b ,, c, d, e"),
         std.unicode.utf8ToUtf16LeStringLiteral(", "),
     );
-    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("a")));
-    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("b ,")));
-    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("c")));
-    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("d")));
-    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("e")));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("a"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("b ,"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("c"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("d"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("e"));
+    try testing.expect(it16.next() == null);
+}
+
+/// Returns an iterator that iterates backwards over the slices of `buffer`
+/// that are separated by bytes in `delimiter`.
+/// splitBackwards(u8, "abc|def||ghi", "|")
+/// will return slices for "ghi", "", "def", "abc", null, in that order.
+/// If `delimiter` does not exist in buffer,
+/// the iterator will return `buffer`, null, in that order.
+/// The delimiter length must not be zero.
+pub fn splitBackwards(comptime T: type, buffer: []const T, delimiter: []const T) SplitBackwardsIterator(T) {
+    assert(delimiter.len != 0);
+    return SplitBackwardsIterator(T){
+        .index = buffer.len,
+        .buffer = buffer,
+        .delimiter = delimiter,
+    };
+}
+
+test "splitBackwards" {
+    var it = splitBackwards(u8, "abc|def||ghi", "|");
+    try testing.expectEqualSlices(u8, it.rest(), "abc|def||ghi");
+    try testing.expectEqualSlices(u8, it.next().?, "ghi");
+
+    try testing.expectEqualSlices(u8, it.rest(), "abc|def|");
+    try testing.expectEqualSlices(u8, it.next().?, "");
+
+    try testing.expectEqualSlices(u8, it.rest(), "abc|def");
+    try testing.expectEqualSlices(u8, it.next().?, "def");
+
+    try testing.expectEqualSlices(u8, it.rest(), "abc");
+    try testing.expectEqualSlices(u8, it.next().?, "abc");
+
+    try testing.expectEqualSlices(u8, it.rest(), "");
+    try testing.expect(it.next() == null);
+
+    it = splitBackwards(u8, "", "|");
+    try testing.expectEqualSlices(u8, it.next().?, "");
+    try testing.expect(it.next() == null);
+
+    it = splitBackwards(u8, "|", "|");
+    try testing.expectEqualSlices(u8, it.next().?, "");
+    try testing.expectEqualSlices(u8, it.next().?, "");
+    try testing.expect(it.next() == null);
+
+    it = splitBackwards(u8, "hello", " ");
+    try testing.expectEqualSlices(u8, it.next().?, "hello");
+    try testing.expect(it.next() == null);
+
+    var it16 = splitBackwards(
+        u16,
+        std.unicode.utf8ToUtf16LeStringLiteral("hello"),
+        std.unicode.utf8ToUtf16LeStringLiteral(" "),
+    );
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("hello"));
+    try testing.expect(it16.next() == null);
+}
+
+test "splitBackwards (multibyte)" {
+    var it = splitBackwards(u8, "a, b ,, c, d, e", ", ");
+    try testing.expectEqualSlices(u8, it.rest(), "a, b ,, c, d, e");
+    try testing.expectEqualSlices(u8, it.next().?, "e");
+
+    try testing.expectEqualSlices(u8, it.rest(), "a, b ,, c, d");
+    try testing.expectEqualSlices(u8, it.next().?, "d");
+
+    try testing.expectEqualSlices(u8, it.rest(), "a, b ,, c");
+    try testing.expectEqualSlices(u8, it.next().?, "c");
+
+    try testing.expectEqualSlices(u8, it.rest(), "a, b ,");
+    try testing.expectEqualSlices(u8, it.next().?, "b ,");
+
+    try testing.expectEqualSlices(u8, it.rest(), "a");
+    try testing.expectEqualSlices(u8, it.next().?, "a");
+
+    try testing.expectEqualSlices(u8, it.rest(), "");
+    try testing.expect(it.next() == null);
+
+    var it16 = splitBackwards(
+        u16,
+        std.unicode.utf8ToUtf16LeStringLiteral("a, b ,, c, d, e"),
+        std.unicode.utf8ToUtf16LeStringLiteral(", "),
+    );
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("e"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("d"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("c"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("b ,"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("a"));
     try testing.expect(it16.next() == null);
 }
 
@@ -1854,6 +1942,35 @@ pub fn SplitIterator(comptime T: type) type {
             const end = self.buffer.len;
             const start = self.index orelse end;
             return self.buffer[start..end];
+        }
+    };
+}
+
+pub fn SplitBackwardsIterator(comptime T: type) type {
+    return struct {
+        buffer: []const T,
+        index: ?usize,
+        delimiter: []const T,
+
+        const Self = @This();
+
+        /// Returns a slice of the next field, or null if splitting is complete.
+        pub fn next(self: *Self) ?[]const T {
+            const end = self.index orelse return null;
+            const start = if (lastIndexOf(T, self.buffer[0..end], self.delimiter)) |delim_start| blk: {
+                self.index = delim_start;
+                break :blk delim_start + self.delimiter.len;
+            } else blk: {
+                self.index = null;
+                break :blk 0;
+            };
+            return self.buffer[start..end];
+        }
+
+        /// Returns a slice of the remaining bytes. Does not affect iterator state.
+        pub fn rest(self: Self) []const T {
+            const end = self.index orelse 0;
+            return self.buffer[0..end];
         }
     };
 }
