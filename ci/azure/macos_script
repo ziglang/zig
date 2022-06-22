@@ -76,6 +76,7 @@ release/bin/zig build test-run-translated-c -Denable-macos-sdk
 release/bin/zig build docs                  -Denable-macos-sdk
 release/bin/zig build test-fmt              -Denable-macos-sdk
 release/bin/zig build test-cases            -Denable-macos-sdk -Dsingle-threaded
+release/bin/zig build test-link             -Denable-macos-sdk
 
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
   mv ../LICENSE release/
