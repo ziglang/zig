@@ -488,10 +488,12 @@ const usage_build_generic =
     \\  -fno-build-id                  (default) Saves a bit of time linking
     \\  --eh-frame-hdr                 Enable C++ exception handling by passing --eh-frame-hdr to linker
     \\  --emit-relocs                  Enable output of relocation sections for post build tools
+    \\  --no-undefined                 Alias of -z defs
     \\  -z [arg]                       Set linker extension flags
     \\    nodelete                     Indicate that the object cannot be deleted from a process
     \\    notext                       Permit read-only relocations in read-only segments
     \\    defs                         Force a fatal error if any undefined symbols remain
+    \\    undefs                       Reverse of -z defs
     \\    origin                       Indicate that the object must have its origin processed
     \\    nocopyreloc                  Disable the creation of copy relocations
     \\    now                          (default) Force all relocations to be processed on load
@@ -1333,6 +1335,8 @@ fn buildOutputType(
                             linker_z_notext = true;
                         } else if (mem.eql(u8, z_arg, "defs")) {
                             linker_z_defs = true;
+                        } else if (mem.eql(u8, z_arg, "undefs")) {
+                            linker_z_defs = false;
                         } else if (mem.eql(u8, z_arg, "origin")) {
                             linker_z_origin = true;
                         } else if (mem.eql(u8, z_arg, "nocopyreloc")) {
@@ -1879,6 +1883,8 @@ fn buildOutputType(
                     linker_gc_sections = true;
                 } else if (mem.eql(u8, arg, "-dead_strip_dylibs")) {
                     dead_strip_dylibs = true;
+                } else if (mem.eql(u8, arg, "--no-undefined")) {
+                    linker_z_defs = true;
                 } else if (mem.eql(u8, arg, "--gc-sections")) {
                     linker_gc_sections = true;
                 } else if (mem.eql(u8, arg, "--no-gc-sections")) {
@@ -1944,6 +1950,8 @@ fn buildOutputType(
                         linker_z_notext = true;
                     } else if (mem.eql(u8, z_arg, "defs")) {
                         linker_z_defs = true;
+                    } else if (mem.eql(u8, z_arg, "undefs")) {
+                        linker_z_defs = false;
                     } else if (mem.eql(u8, z_arg, "origin")) {
                         linker_z_origin = true;
                     } else if (mem.eql(u8, z_arg, "nocopyreloc")) {
