@@ -21,6 +21,7 @@ const assemble_and_link = @import("assemble_and_link.zig");
 const translate_c = @import("translate_c.zig");
 const run_translated_c = @import("run_translated_c.zig");
 const gen_h = @import("gen_h.zig");
+const link = @import("link.zig");
 
 // Implementations
 pub const TranslateCContext = @import("src/translate_c.zig").TranslateCContext;
@@ -476,6 +477,27 @@ pub fn addStandaloneTests(
 
     standalone.addCases(cases);
 
+    return cases.step;
+}
+
+pub fn addLinkTests(
+    b: *build.Builder,
+    test_filter: ?[]const u8,
+    modes: []const Mode,
+    enable_macos_sdk: bool,
+) *build.Step {
+    const cases = b.allocator.create(StandaloneContext) catch unreachable;
+    cases.* = StandaloneContext{
+        .b = b,
+        .step = b.step("test-link", "Run the linker tests"),
+        .test_index = 0,
+        .test_filter = test_filter,
+        .modes = modes,
+        .skip_non_native = true,
+        .enable_macos_sdk = enable_macos_sdk,
+        .target = .{},
+    };
+    link.addCases(cases);
     return cases.step;
 }
 
@@ -973,7 +995,8 @@ pub const StandaloneContext = struct {
         }
 
         if (features.cross_targets and !self.target.isNative()) {
-            const target_arg = fmt.allocPrint(b.allocator, "-Dtarget={s}", .{self.target.zigTriple(b.allocator) catch unreachable}) catch unreachable;
+            const target_triple = self.target.zigTriple(b.allocator) catch unreachable;
+            const target_arg = fmt.allocPrint(b.allocator, "-Dtarget={s}", .{target_triple}) catch unreachable;
             zig_args.append(target_arg) catch unreachable;
         }
 

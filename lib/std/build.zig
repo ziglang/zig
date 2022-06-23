@@ -24,6 +24,7 @@ pub const TranslateCStep = @import("build/TranslateCStep.zig");
 pub const WriteFileStep = @import("build/WriteFileStep.zig");
 pub const RunStep = @import("build/RunStep.zig");
 pub const CheckFileStep = @import("build/CheckFileStep.zig");
+pub const CheckObjectStep = @import("build/CheckObjectStep.zig");
 pub const InstallRawStep = @import("build/InstallRawStep.zig");
 pub const OptionsStep = @import("build/OptionsStep.zig");
 
@@ -1582,6 +1583,9 @@ pub const LibExeObjStep = struct {
     /// (Darwin) Path to entitlements file
     entitlements: ?[]const u8 = null,
 
+    /// (Darwin) Size of the pagezero segment.
+    pagezero_size: ?u64 = null,
+
     /// Position Independent Code
     force_pic: ?bool = null,
 
@@ -1859,6 +1863,10 @@ pub const LibExeObjStep = struct {
         }
 
         return run_step;
+    }
+
+    pub fn checkObject(self: *LibExeObjStep, obj_format: std.Target.ObjectFormat) *CheckObjectStep {
+        return CheckObjectStep.create(self.builder, self.getOutputSource(), obj_format);
     }
 
     pub fn setLinkerScriptPath(self: *LibExeObjStep, source: FileSource) void {
@@ -2637,6 +2645,10 @@ pub const LibExeObjStep = struct {
 
         if (self.entitlements) |entitlements| {
             try zig_args.appendSlice(&[_][]const u8{ "--entitlements", entitlements });
+        }
+        if (self.pagezero_size) |pagezero_size| {
+            const size = try std.fmt.allocPrint(builder.allocator, "{x}", .{pagezero_size});
+            try zig_args.appendSlice(&[_][]const u8{ "-pagezero_size", size });
         }
 
         if (self.bundle_compiler_rt) |x| {
@@ -3443,6 +3455,7 @@ pub const Step = struct {
         write_file,
         run,
         check_file,
+        check_object,
         install_raw,
         options,
         custom,

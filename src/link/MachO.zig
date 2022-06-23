@@ -934,6 +934,11 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
                     try argv.append(try std.fmt.allocPrint(arena, "0x{x}", .{pagezero_size}));
                 }
 
+                if (self.base.options.entry) |entry| {
+                    try argv.append("-e");
+                    try argv.append(entry);
+                }
+
                 try argv.appendSlice(positionals.items);
 
                 try argv.append("-o");
@@ -3371,13 +3376,12 @@ fn addCodeSignatureLC(self: *MachO) !void {
 fn setEntryPoint(self: *MachO) !void {
     if (self.base.options.output_mode != .Exe) return;
 
-    // TODO we should respect the -entry flag passed in by the user to set a custom
-    // entrypoint. For now, assume default of `_main`.
     const seg = self.load_commands.items[self.text_segment_cmd_index.?].segment;
-    const n_strx = self.strtab_dir.getKeyAdapted(@as([]const u8, "_main"), StringIndexAdapter{
+    const entry_name = self.base.options.entry orelse "_main";
+    const n_strx = self.strtab_dir.getKeyAdapted(entry_name, StringIndexAdapter{
         .bytes = &self.strtab,
     }) orelse {
-        log.err("'_main' export not found", .{});
+        log.err("entrypoint '{s}' not found", .{entry_name});
         return error.MissingMainEntrypoint;
     };
     const resolv = self.symbol_resolver.get(n_strx) orelse unreachable;
@@ -5711,28 +5715,46 @@ fn writeDyldInfoData(self: *MachO) !void {
 
     const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].segment;
     const dyld_info = &self.load_commands.items[self.dyld_info_cmd_index.?].dyld_info_only;
+
+    const rebase_off = mem.alignForwardGeneric(u64, seg.inner.fileoff, @alignOf(u64));
     const rebase_size = try bind.rebaseInfoSize(rebase_pointers.items);
+    dyld_info.rebase_off = @intCast(u32, rebase_off);
+    dyld_info.rebase_size = @intCast(u32, rebase_size);
+    log.debug("writing rebase info from 0x{x} to 0x{x}", .{
+        dyld_info.rebase_off,
+        dyld_info.rebase_off + dyld_info.rebase_size,
+    });
+
+    const bind_off = mem.alignForwardGeneric(u64, dyld_info.rebase_off + dyld_info.rebase_size, @alignOf(u64));
     const bind_size = try bind.bindInfoSize(bind_pointers.items);
+    dyld_info.bind_off = @intCast(u32, bind_off);
+    dyld_info.bind_size = @intCast(u32, bind_size);
+    log.debug("writing bind info from 0x{x} to 0x{x}", .{
+        dyld_info.bind_off,
+        dyld_info.bind_off + dyld_info.bind_size,
+    });
+
+    const lazy_bind_off = mem.alignForwardGeneric(u64, dyld_info.bind_off + dyld_info.bind_size, @alignOf(u64));
     const lazy_bind_size = try bind.lazyBindInfoSize(lazy_bind_pointers.items);
+    dyld_info.lazy_bind_off = @intCast(u32, lazy_bind_off);
+    dyld_info.lazy_bind_size = @intCast(u32, lazy_bind_size);
+    log.debug("writing lazy bind info from 0x{x} to 0x{x}", .{
+        dyld_info.lazy_bind_off,
+        dyld_info.lazy_bind_off + dyld_info.lazy_bind_size,
+    });
+
+    const export_off = mem.alignForwardGeneric(u64, dyld_info.lazy_bind_off + dyld_info.lazy_bind_size, @alignOf(u64));
     const export_size = trie.size;
+    dyld_info.export_off = @intCast(u32, export_off);
+    dyld_info.export_size = @intCast(u32, export_size);
+    log.debug("writing export trie from 0x{x} to 0x{x}", .{
+        dyld_info.export_off,
+        dyld_info.export_off + dyld_info.export_size,
+    });
 
-    dyld_info.rebase_off = @intCast(u32, seg.inner.fileoff);
-    dyld_info.rebase_size = @intCast(u32, mem.alignForwardGeneric(u64, rebase_size, @alignOf(u64)));
-    seg.inner.filesize += dyld_info.rebase_size;
+    seg.inner.filesize = dyld_info.export_off + dyld_info.export_size - seg.inner.fileoff;
 
-    dyld_info.bind_off = dyld_info.rebase_off + dyld_info.rebase_size;
-    dyld_info.bind_size = @intCast(u32, mem.alignForwardGeneric(u64, bind_size, @alignOf(u64)));
-    seg.inner.filesize += dyld_info.bind_size;
-
-    dyld_info.lazy_bind_off = dyld_info.bind_off + dyld_info.bind_size;
-    dyld_info.lazy_bind_size = @intCast(u32, mem.alignForwardGeneric(u64, lazy_bind_size, @alignOf(u64)));
-    seg.inner.filesize += dyld_info.lazy_bind_size;
-
-    dyld_info.export_off = dyld_info.lazy_bind_off + dyld_info.lazy_bind_size;
-    dyld_info.export_size = @intCast(u32, mem.alignForwardGeneric(u64, export_size, @alignOf(u64)));
-    seg.inner.filesize += dyld_info.export_size;
-
-    const needed_size = dyld_info.rebase_size + dyld_info.bind_size + dyld_info.lazy_bind_size + dyld_info.export_size;
+    const needed_size = dyld_info.export_off + dyld_info.export_size - dyld_info.rebase_off;
     var buffer = try self.base.allocator.alloc(u8, needed_size);
     defer self.base.allocator.free(buffer);
     mem.set(u8, buffer, 0);
@@ -5740,14 +5762,15 @@ fn writeDyldInfoData(self: *MachO) !void {
     var stream = std.io.fixedBufferStream(buffer);
     const writer = stream.writer();
 
+    const base_off = dyld_info.rebase_off;
     try bind.writeRebaseInfo(rebase_pointers.items, writer);
-    try stream.seekBy(@intCast(i64, dyld_info.rebase_size) - @intCast(i64, rebase_size));
+    try stream.seekTo(dyld_info.bind_off - base_off);
 
     try bind.writeBindInfo(bind_pointers.items, writer);
-    try stream.seekBy(@intCast(i64, dyld_info.bind_size) - @intCast(i64, bind_size));
+    try stream.seekTo(dyld_info.lazy_bind_off - base_off);
 
     try bind.writeLazyBindInfo(lazy_bind_pointers.items, writer);
-    try stream.seekBy(@intCast(i64, dyld_info.lazy_bind_size) - @intCast(i64, lazy_bind_size));
+    try stream.seekTo(dyld_info.export_off - base_off);
 
     _ = try trie.write(writer);
 
@@ -5758,7 +5781,7 @@ fn writeDyldInfoData(self: *MachO) !void {
 
     try self.base.file.?.pwriteAll(buffer, dyld_info.rebase_off);
     try self.populateLazyBindOffsetsInStubHelper(
-        buffer[dyld_info.rebase_size + dyld_info.bind_size ..][0..dyld_info.lazy_bind_size],
+        buffer[dyld_info.lazy_bind_off - base_off ..][0..dyld_info.lazy_bind_size],
     );
     self.load_commands_dirty = true;
 }
@@ -5928,32 +5951,31 @@ fn writeFunctionStarts(self: *MachO) !void {
         } else break;
     }
 
-    const max_size = @intCast(usize, offsets.items.len * @sizeOf(u64));
-    var buffer = try self.base.allocator.alloc(u8, max_size);
-    defer self.base.allocator.free(buffer);
-    mem.set(u8, buffer, 0);
+    var buffer = std.ArrayList(u8).init(self.base.allocator);
+    defer buffer.deinit();
 
-    var stream = std.io.fixedBufferStream(buffer);
-    const writer = stream.writer();
+    const max_size = @intCast(usize, offsets.items.len * @sizeOf(u64));
+    try buffer.ensureTotalCapacity(max_size);
 
     for (offsets.items) |offset| {
-        try std.leb.writeULEB128(writer, offset);
+        try std.leb.writeULEB128(buffer.writer(), offset);
     }
 
-    const needed_size = @intCast(u32, mem.alignForwardGeneric(u64, stream.pos, @sizeOf(u64)));
     const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].segment;
     const fn_cmd = &self.load_commands.items[self.function_starts_cmd_index.?].linkedit_data;
 
-    fn_cmd.dataoff = @intCast(u32, seg.inner.fileoff + seg.inner.filesize);
-    fn_cmd.datasize = needed_size;
-    seg.inner.filesize += needed_size;
+    const dataoff = mem.alignForwardGeneric(u64, seg.inner.fileoff + seg.inner.filesize, @alignOf(u64));
+    const datasize = buffer.items.len;
+    fn_cmd.dataoff = @intCast(u32, dataoff);
+    fn_cmd.datasize = @intCast(u32, datasize);
+    seg.inner.filesize = fn_cmd.dataoff + fn_cmd.datasize - seg.inner.fileoff;
 
     log.debug("writing function starts info from 0x{x} to 0x{x}", .{
         fn_cmd.dataoff,
         fn_cmd.dataoff + fn_cmd.datasize,
     });
 
-    try self.base.file.?.pwriteAll(buffer[0..needed_size], fn_cmd.dataoff);
+    try self.base.file.?.pwriteAll(buffer.items, fn_cmd.dataoff);
     self.load_commands_dirty = true;
 }
 
@@ -6001,11 +6023,12 @@ fn writeDices(self: *MachO) !void {
 
     const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].segment;
     const dice_cmd = &self.load_commands.items[self.data_in_code_cmd_index.?].linkedit_data;
-    const needed_size = @intCast(u32, buf.items.len);
 
-    dice_cmd.dataoff = @intCast(u32, seg.inner.fileoff + seg.inner.filesize);
-    dice_cmd.datasize = needed_size;
-    seg.inner.filesize += needed_size;
+    const dataoff = mem.alignForwardGeneric(u64, seg.inner.fileoff + seg.inner.filesize, @alignOf(u64));
+    const datasize = buf.items.len;
+    dice_cmd.dataoff = @intCast(u32, dataoff);
+    dice_cmd.datasize = @intCast(u32, datasize);
+    seg.inner.filesize = dice_cmd.dataoff + dice_cmd.datasize - seg.inner.fileoff;
 
     log.debug("writing data-in-code from 0x{x} to 0x{x}", .{
         dice_cmd.dataoff,
@@ -6022,7 +6045,8 @@ fn writeSymbolTable(self: *MachO) !void {
 
     const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].segment;
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].symtab;
-    symtab.symoff = @intCast(u32, seg.inner.fileoff + seg.inner.filesize);
+    const symoff = mem.alignForwardGeneric(u64, seg.inner.fileoff + seg.inner.filesize, @alignOf(macho.nlist_64));
+    symtab.symoff = @intCast(u32, symoff);
 
     var locals = std.ArrayList(macho.nlist_64).init(self.base.allocator);
     defer locals.deinit();
@@ -6122,7 +6146,7 @@ fn writeSymbolTable(self: *MachO) !void {
     try self.base.file.?.pwriteAll(mem.sliceAsBytes(undefs.items), undefs_off);
 
     symtab.nsyms = @intCast(u32, nlocals + nexports + nundefs);
-    seg.inner.filesize += locals_size + exports_size + undefs_size;
+    seg.inner.filesize = symtab.symoff + symtab.nsyms * @sizeOf(macho.nlist_64) - seg.inner.fileoff;
 
     // Update dynamic symbol table.
     const dysymtab = &self.load_commands.items[self.dysymtab_cmd_index.?].dysymtab;
@@ -6142,22 +6166,21 @@ fn writeSymbolTable(self: *MachO) !void {
     const nstubs = @intCast(u32, self.stubs_table.keys().len);
     const ngot_entries = @intCast(u32, self.got_entries_table.keys().len);
 
-    dysymtab.indirectsymoff = @intCast(u32, seg.inner.fileoff + seg.inner.filesize);
+    const indirectsymoff = mem.alignForwardGeneric(u64, seg.inner.fileoff + seg.inner.filesize, @alignOf(u64));
+    dysymtab.indirectsymoff = @intCast(u32, indirectsymoff);
     dysymtab.nindirectsyms = nstubs * 2 + ngot_entries;
 
-    const needed_size = dysymtab.nindirectsyms * @sizeOf(u32);
-    seg.inner.filesize += needed_size;
+    seg.inner.filesize = dysymtab.indirectsymoff + dysymtab.nindirectsyms * @sizeOf(u32) - seg.inner.fileoff;
 
     log.debug("writing indirect symbol table from 0x{x} to 0x{x}", .{
         dysymtab.indirectsymoff,
-        dysymtab.indirectsymoff + needed_size,
+        dysymtab.indirectsymoff + dysymtab.nindirectsyms * @sizeOf(u32),
     });
 
-    var buf = try self.base.allocator.alloc(u8, needed_size);
-    defer self.base.allocator.free(buf);
-
-    var stream = std.io.fixedBufferStream(buf);
-    var writer = stream.writer();
+    var buf = std.ArrayList(u8).init(self.base.allocator);
+    defer buf.deinit();
+    try buf.ensureTotalCapacity(dysymtab.nindirectsyms * @sizeOf(u32));
+    const writer = buf.writer();
 
     stubs.reserved1 = 0;
     for (self.stubs_table.keys()) |key| {
@@ -6191,7 +6214,9 @@ fn writeSymbolTable(self: *MachO) !void {
         }
     }
 
-    try self.base.file.?.pwriteAll(buf, dysymtab.indirectsymoff);
+    assert(buf.items.len == dysymtab.nindirectsyms * @sizeOf(u32));
+
+    try self.base.file.?.pwriteAll(buf.items, dysymtab.indirectsymoff);
     self.load_commands_dirty = true;
 }
 
@@ -6201,18 +6226,16 @@ fn writeStringTable(self: *MachO) !void {
 
     const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].segment;
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].symtab;
-    symtab.stroff = @intCast(u32, seg.inner.fileoff + seg.inner.filesize);
-    symtab.strsize = @intCast(u32, mem.alignForwardGeneric(u64, self.strtab.items.len, @alignOf(u64)));
-    seg.inner.filesize += symtab.strsize;
+    const stroff = mem.alignForwardGeneric(u64, seg.inner.fileoff + seg.inner.filesize, @alignOf(u64));
+    const strsize = self.strtab.items.len;
+    symtab.stroff = @intCast(u32, stroff);
+    symtab.strsize = @intCast(u32, strsize);
+    seg.inner.filesize = symtab.stroff + symtab.strsize - seg.inner.fileoff;
 
     log.debug("writing string table from 0x{x} to 0x{x}", .{ symtab.stroff, symtab.stroff + symtab.strsize });
 
     try self.base.file.?.pwriteAll(self.strtab.items, symtab.stroff);
 
-    if (symtab.strsize > self.strtab.items.len) {
-        // This is potentially the last section, so we need to pad it out.
-        try self.base.file.?.pwriteAll(&[_]u8{0}, seg.inner.fileoff + seg.inner.filesize - 1);
-    }
     self.load_commands_dirty = true;
 }
 
@@ -6236,25 +6259,22 @@ fn writeCodeSignaturePadding(self: *MachO, code_sig: *CodeSignature) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const linkedit_segment = &self.load_commands.items[self.linkedit_segment_cmd_index.?].segment;
-    const code_sig_cmd = &self.load_commands.items[self.code_signature_cmd_index.?].linkedit_data;
+    const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].segment;
+    const cs_cmd = &self.load_commands.items[self.code_signature_cmd_index.?].linkedit_data;
     // Code signature data has to be 16-bytes aligned for Apple tools to recognize the file
     // https://github.com/opensource-apple/cctools/blob/fdb4825f303fd5c0751be524babd32958181b3ed/libstuff/checkout.c#L271
-    const fileoff = mem.alignForwardGeneric(u64, linkedit_segment.inner.fileoff + linkedit_segment.inner.filesize, 16);
-    const padding = fileoff - (linkedit_segment.inner.fileoff + linkedit_segment.inner.filesize);
-    const needed_size = code_sig.estimateSize(fileoff);
-    code_sig_cmd.dataoff = @intCast(u32, fileoff);
-    code_sig_cmd.datasize = needed_size;
+    const dataoff = mem.alignForwardGeneric(u64, seg.inner.fileoff + seg.inner.filesize, 16);
+    const datasize = code_sig.estimateSize(dataoff);
+    cs_cmd.dataoff = @intCast(u32, dataoff);
+    cs_cmd.datasize = @intCast(u32, code_sig.estimateSize(dataoff));
 
     // Advance size of __LINKEDIT segment
-    linkedit_segment.inner.filesize += needed_size + padding;
-    if (linkedit_segment.inner.vmsize < linkedit_segment.inner.filesize) {
-        linkedit_segment.inner.vmsize = mem.alignForwardGeneric(u64, linkedit_segment.inner.filesize, self.page_size);
-    }
-    log.debug("writing code signature padding from 0x{x} to 0x{x}", .{ fileoff, fileoff + needed_size });
+    seg.inner.filesize = cs_cmd.dataoff + cs_cmd.datasize - seg.inner.fileoff;
+    seg.inner.vmsize = mem.alignForwardGeneric(u64, seg.inner.filesize, self.page_size);
+    log.debug("writing code signature padding from 0x{x} to 0x{x}", .{ dataoff, dataoff + datasize });
     // Pad out the space. We need to do this to calculate valid hashes for everything in the file
     // except for code signature data.
-    try self.base.file.?.pwriteAll(&[_]u8{0}, fileoff + needed_size - 1);
+    try self.base.file.?.pwriteAll(&[_]u8{0}, dataoff + datasize - 1);
     self.load_commands_dirty = true;
 }
 
