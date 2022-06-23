@@ -1921,8 +1921,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         // and make sure the compiler-rt symbols are emitted.
         const capable_of_building_compiler_rt = build_options.have_llvm;
 
-        const capable_of_building_zig_libc = comp.bin_file.options.use_stage1 or
-            comp.bin_file.options.use_llvm;
+        const capable_of_building_zig_libc = build_options.have_llvm;
         const capable_of_building_ssp = comp.bin_file.options.use_stage1;
 
         if (comp.bin_file.options.include_compiler_rt and capable_of_building_compiler_rt) {

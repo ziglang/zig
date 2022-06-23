@@ -5366,7 +5366,7 @@ fn addAtomToSection(self: *MachO, atom: *Atom, match: MatchingSection) !void {
     }
 }
 
-pub fn addExternFn(self: *MachO, name: []const u8) !u32 {
+pub fn getGlobalSymbol(self: *MachO, name: []const u8) !u32 {
     const sym_name = try std.fmt.allocPrint(self.base.allocator, "_{s}", .{name});
     defer self.base.allocator.free(sym_name);
     const n_strx = try self.makeString(sym_name);
