@@ -864,7 +864,8 @@ pub fn lowerUnnamedConst(self: *Wasm, tv: TypedValue, decl_index: Module.Decl.In
     return atom.sym_index;
 }
 
-/// Returns the symbol index from the name of an intrinsic.
+/// Returns the symbol index from a symbol of which its flag is set global,
+/// such as an exported or imported symbol.
 /// If the symbol does not yet exist, creates a new one symbol instead
 /// and then returns the index to it.
 pub fn getGlobalSymbol(self: *Wasm, name: []const u8) !u32 {
