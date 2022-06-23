@@ -15,10 +15,10 @@ pub fn build(b: *Builder) void {
 
     const check_exe = exe.checkObject(.macho);
 
-    check_exe.check("segname __TEXT");
+    check_exe.checkStart("segname __TEXT");
     check_exe.checkNext("vmaddr {vmaddr}");
 
-    check_exe.check("cmd MAIN");
+    check_exe.checkStart("cmd MAIN");
     check_exe.checkNext("entryoff {entryoff}");
 
     check_exe.checkInSymtab();
