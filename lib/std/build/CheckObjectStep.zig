@@ -303,10 +303,8 @@ const MachODumper = struct {
         if (symtab_cmd) |cmd| {
             try writer.writeAll("symtab\n");
             const strtab = bytes[cmd.stroff..][0..cmd.strsize];
-            const symtab = @ptrCast(
-                [*]const macho.nlist_64,
-                @alignCast(@alignOf(macho.nlist_64), bytes.ptr + cmd.symoff),
-            )[0..cmd.nsyms];
+            const raw_symtab = bytes[cmd.symoff..][0 .. cmd.nsyms * @sizeOf(macho.nlist_64)];
+            const symtab = mem.bytesAsSlice(macho.nlist_64, raw_symtab);
 
             for (symtab) |sym| {
                 if (sym.stab()) continue;
