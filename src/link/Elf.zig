@@ -1298,10 +1298,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 6);
+        comptime assert(Compilation.link_hash_implementation_version == 7);
 
         try man.addOptionalFile(self.base.options.linker_script);
         try man.addOptionalFile(self.base.options.version_script);
+        try man.addOptionalFile(self.base.options.dynamic_list);
         for (self.base.options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
             man.hash.add(obj.must_link);
@@ -1610,6 +1611,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
                     try argv.append(dynamic_linker);
                 }
             }
+        }
+
+        if (self.base.options.dynamic_list) |dynamic_list| {
+            try argv.append(try std.fmt.allocPrint(arena, "--dynamic-list={s}", .{dynamic_list}));
         }
 
         if (is_dyn_lib) {

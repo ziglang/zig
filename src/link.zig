@@ -157,6 +157,7 @@ pub const Options = struct {
     subsystem: ?std.Target.SubSystem,
     linker_script: ?[]const u8,
     version_script: ?[]const u8,
+    dynamic_list: ?[]const u8,
     soname: ?[]const u8,
     llvm_cpu_features: ?[*:0]const u8,
 
