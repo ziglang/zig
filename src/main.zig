@@ -509,6 +509,7 @@ const usage_build_generic =
     \\      zlib                       Compression with deflate/inflate
     \\  --gc-sections                  Force removal of functions and data that are unreachable by the entry point or exported symbols
     \\  --no-gc-sections               Don't force removal of unreachable functions and data
+    \\  --sort-section=[value]         Sort wildcard section patterns by 'name' or 'alignment'
     \\  --subsystem [subsystem]        (Windows) /SUBSYSTEM:<subsystem> to the linker
     \\  --stack [size]                 Override default stack size
     \\  --image-base [addr]            Set base address for executable image
@@ -731,6 +732,7 @@ fn buildOutputType(
     var linker_script: ?[]const u8 = null;
     var version_script: ?[]const u8 = null;
     var disable_c_depfile = false;
+    var linker_sort_section: ?link.SortSection = null;
     var linker_gc_sections: ?bool = null;
     var linker_compress_debug_sections: ?link.CompressDebugSections = null;
     var linker_allow_shlib_undefined: ?bool = null;
@@ -1894,6 +1896,15 @@ fn buildOutputType(
                     linker_print_icf_sections = true;
                 } else if (mem.eql(u8, arg, "--print-map")) {
                     linker_print_map = true;
+                } else if (mem.eql(u8, arg, "--sort-section")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    const arg1 = linker_args.items[i];
+                    linker_sort_section = std.meta.stringToEnum(link.SortSection, arg1) orelse {
+                        fatal("expected [name|alignment] after --sort-section, found '{s}'", .{arg1});
+                    };
                 } else if (mem.eql(u8, arg, "--allow-shlib-undefined") or
                     mem.eql(u8, arg, "-allow-shlib-undefined"))
                 {
@@ -3070,6 +3081,7 @@ fn buildOutputType(
         .version_script = version_script,
         .disable_c_depfile = disable_c_depfile,
         .soname = resolved_soname,
+        .linker_sort_section = linker_sort_section,
         .linker_gc_sections = linker_gc_sections,
         .linker_allow_shlib_undefined = linker_allow_shlib_undefined,
         .linker_bind_global_refs_locally = linker_bind_global_refs_locally,

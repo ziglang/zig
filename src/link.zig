@@ -25,6 +25,8 @@ pub const SystemLib = struct {
     weak: bool = false,
 };
 
+pub const SortSection = enum { name, alignment };
+
 pub const CacheMode = enum { incremental, whole };
 
 pub fn hashAddSystemLibs(
@@ -159,6 +161,7 @@ pub const Options = struct {
     disable_lld_caching: bool,
     is_test: bool,
     hash_style: HashStyle,
+    sort_section: ?SortSection,
     major_subsystem_version: ?u32,
     minor_subsystem_version: ?u32,
     gc_sections: ?bool = null,
