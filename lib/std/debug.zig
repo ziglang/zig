@@ -1999,7 +1999,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
 
             const tty_config = detectTTYConfig();
             const stderr = io.getStdErr().writer();
-            const end = @maximum(t.index, size);
+            const end = @minimum(t.index, size);
             const debug_info = getSelfDebugInfo() catch |err| {
                 stderr.print(
                     "Unable to dump stack trace: Unable to open debug info: {s}\n",
