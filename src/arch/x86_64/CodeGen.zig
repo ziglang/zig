@@ -3996,7 +3996,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                         lib_name,
                     });
                 }
-                const n_strx = try macho_file.addExternFn(mem.sliceTo(decl_name, 0));
+                const n_strx = try macho_file.getGlobalSymbol(mem.sliceTo(decl_name, 0));
                 _ = try self.addInst(.{
                     .tag = .call_extern,
                     .ops = undefined,
