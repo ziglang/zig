@@ -1475,6 +1475,8 @@ fn buildOutputType(
                                 mem.eql(u8, linker_arg, "-static"))
                             {
                                 force_static_libs = true;
+                            } else if (mem.eql(u8, linker_arg, "-search_paths_first")) {
+                                // ignore, since it's the default behavior in both ld64 and zld
                             } else {
                                 try linker_args.append(linker_arg);
                             }
