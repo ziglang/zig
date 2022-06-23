@@ -14,7 +14,7 @@ pub fn build(b: *Builder) void {
     exe.stack_size = 0x100000000;
 
     const check_exe = exe.checkObject(.macho);
-    check_exe.check("cmd MAIN");
+    check_exe.checkStart("cmd MAIN");
     check_exe.checkNext("stacksize 100000000");
 
     test_step.dependOn(&check_exe.step);

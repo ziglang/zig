@@ -83,6 +83,7 @@ const MatchAction = struct {
                 if (closing_brace != needle_tok.len - 1) return error.ClosingBraceNotLast;
 
                 const name = needle_tok[1..closing_brace];
+                if (name.len == 0) return error.MissingBraceValue;
                 const value = try std.fmt.parseInt(u64, hay_tok, 16);
                 try global_vars.putNoClobber(name, value);
             } else {
@@ -135,13 +136,13 @@ const Check = struct {
 };
 
 /// Creates a new sequence of actions with `phrase` as the first anchor searched phrase.
-pub fn check(self: *CheckObjectStep, phrase: []const u8) void {
+pub fn checkStart(self: *CheckObjectStep, phrase: []const u8) void {
     var new_check = Check.create(self.builder);
     new_check.match(phrase);
     self.checks.append(new_check) catch unreachable;
 }
 
-/// Adds another searched phrase to the latest created Check with `CheckObjectStep.check(...)`.
+/// Adds another searched phrase to the latest created Check with `CheckObjectStep.checkStart(...)`.
 /// Asserts at least one check already exists.
 pub fn checkNext(self: *CheckObjectStep, phrase: []const u8) void {
     assert(self.checks.items.len > 0);
@@ -154,7 +155,11 @@ pub fn checkNext(self: *CheckObjectStep, phrase: []const u8) void {
 /// Issuing this check will force parsing and dumping of the symbol table.
 pub fn checkInSymtab(self: *CheckObjectStep) void {
     self.dump_symtab = true;
-    self.check("symtab");
+    const symtab_label = switch (self.obj_format) {
+        .macho => MachODumper.symtab_label,
+        else => @panic("TODO other parsers"),
+    };
+    self.checkStart(symtab_label);
 }
 
 /// Creates a new standalone, singular check which allows running simple binary operations
@@ -274,6 +279,8 @@ const Opts = struct {
 };
 
 const MachODumper = struct {
+    const symtab_label = "symtab";
+
     fn parseAndDump(bytes: []const u8, opts: Opts) ![]const u8 {
         const gpa = opts.gpa orelse unreachable; // MachO dumper requires an allocator
         var stream = std.io.fixedBufferStream(bytes);
@@ -301,7 +308,7 @@ const MachODumper = struct {
         }
 
         if (symtab_cmd) |cmd| {
-            try writer.writeAll("symtab\n");
+            try writer.writeAll(symtab_label ++ "\n");
             const strtab = bytes[cmd.stroff..][0..cmd.strsize];
             const raw_symtab = bytes[cmd.symoff..][0 .. cmd.nsyms * @sizeOf(macho.nlist_64)];
             const symtab = mem.bytesAsSlice(macho.nlist_64, raw_symtab);
