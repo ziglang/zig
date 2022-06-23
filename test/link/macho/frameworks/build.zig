@@ -14,12 +14,12 @@ pub fn build(b: *Builder) void {
     exe.linkFramework("Cocoa");
 
     const check = exe.checkObject(.macho);
-    check.check("cmd LOAD_DYLIB");
+    check.checkStart("cmd LOAD_DYLIB");
     check.checkNext("name {*}Cocoa");
 
     switch (mode) {
         .Debug, .ReleaseSafe => {
-            check.check("cmd LOAD_DYLIB");
+            check.checkStart("cmd LOAD_DYLIB");
             check.checkNext("name {*}libobjc{*}.dylib");
         },
         else => {},
