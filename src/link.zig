@@ -119,6 +119,7 @@ pub const Options = struct {
     nxcompat: bool,
     dynamicbase: bool,
     linker_optimization: u8,
+    exclude_libs: ?[]const u8,
     bind_global_refs_locally: bool,
     import_memory: bool,
     import_table: bool,

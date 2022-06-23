@@ -859,6 +859,7 @@ pub const InitOptions = struct {
     linker_nxcompat: bool = false,
     linker_dynamicbase: bool = false,
     linker_optimization: ?u8 = null,
+    linker_exclude_libs: ?[]const u8 = null,
     major_subsystem_version: ?u32 = null,
     minor_subsystem_version: ?u32 = null,
     clang_passthrough_mode: bool = false,
@@ -1705,6 +1706,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .nxcompat = options.linker_nxcompat,
             .dynamicbase = options.linker_dynamicbase,
             .linker_optimization = linker_optimization,
+            .exclude_libs = options.linker_exclude_libs,
             .major_subsystem_version = options.major_subsystem_version,
             .minor_subsystem_version = options.minor_subsystem_version,
             .entry = options.entry,
@@ -2369,7 +2371,7 @@ fn prepareWholeEmitSubPath(arena: Allocator, opt_emit: ?EmitLoc) error{OutOfMemo
 /// to remind the programmer to update multiple related pieces of code that
 /// are in different locations. Bump this number when adding or deleting
 /// anything from the link cache manifest.
-pub const link_hash_implementation_version = 6;
+pub const link_hash_implementation_version = 7;
 
 fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifest) !void {
     const gpa = comp.gpa;
@@ -2379,7 +2381,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    comptime assert(link_hash_implementation_version == 6);
+    comptime assert(link_hash_implementation_version == 7);
 
     if (comp.bin_file.options.module) |mod| {
         const main_zig_file = try mod.main_pkg.root_src_directory.join(arena, &[_][]const u8{
@@ -2472,6 +2474,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.add(comp.bin_file.options.tsan);
     man.hash.addOptionalBytes(comp.bin_file.options.sysroot);
     man.hash.add(comp.bin_file.options.linker_optimization);
+    man.hash.addOptionalBytes(comp.bin_file.options.exclude_libs);
 
     // WASM specific stuff
     man.hash.add(comp.bin_file.options.import_memory);

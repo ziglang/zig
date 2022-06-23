@@ -411,6 +411,7 @@ const usage_build_generic =
     \\  --sysroot [path]               Set the system root directory (usually /)
     \\  --version [ver]                Dynamic library semver
     \\  --entry [name]                 Set the entrypoint symbol name
+    \\  --exclude-libs=value           Exclude static libraries from automatic export
     \\  -fsoname[=name]                Override the default SONAME value
     \\  -fno-soname                    Disable emitting a SONAME
     \\  -fLLD                          Force using LLD as the linker
@@ -652,6 +653,7 @@ fn buildOutputType(
     var linker_import_memory: ?bool = null;
     var linker_import_table: bool = false;
     var linker_export_table: bool = false;
+    var linker_exclude_libs: ?[]const u8 = null;
     var linker_initial_memory: ?u64 = null;
     var linker_max_memory: ?u64 = null;
     var linker_shared_memory: bool = false;
@@ -1680,6 +1682,12 @@ fn buildOutputType(
                     linker_optimization = std.fmt.parseUnsigned(u8, arg["-O".len..], 10) catch |err| {
                         fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
                     };
+                } else if (mem.eql(u8, arg, "--exclude-libs")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    linker_exclude_libs = linker_args.items[i];
                 } else if (mem.eql(u8, arg, "-pagezero_size")) {
                     i += 1;
                     if (i >= linker_args.items.len) {
@@ -2777,6 +2785,7 @@ fn buildOutputType(
         .linker_nxcompat = linker_nxcompat,
         .linker_dynamicbase = linker_dynamicbase,
         .linker_optimization = linker_optimization,
+        .linker_exclude_libs = linker_exclude_libs,
         .major_subsystem_version = major_subsystem_version,
         .minor_subsystem_version = minor_subsystem_version,
         .link_eh_frame_hdr = link_eh_frame_hdr,

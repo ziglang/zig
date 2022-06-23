@@ -1298,7 +1298,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 6);
+        comptime assert(Compilation.link_hash_implementation_version == 7);
 
         try man.addOptionalFile(self.base.options.linker_script);
         try man.addOptionalFile(self.base.options.version_script);
@@ -1354,6 +1354,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         man.hash.add(self.base.options.tsan);
         man.hash.addOptionalBytes(self.base.options.sysroot);
         man.hash.add(self.base.options.linker_optimization);
+        man.hash.addOptionalBytes(self.base.options.exclude_libs);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
         _ = try man.hit();
@@ -1441,6 +1442,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         try argv.append(try std.fmt.allocPrint(arena, "-O{d}", .{
             self.base.options.linker_optimization,
         }));
+
+        if (self.base.options.exclude_libs) |value| {
+            try argv.append(try std.fmt.allocPrint(arena, "--exclude-libs={s}", .{value}));
+        }
 
         if (self.base.options.entry) |entry| {
             try argv.append("--entry");

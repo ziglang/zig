@@ -541,7 +541,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 6);
+        comptime assert(Compilation.link_hash_implementation_version == 7);
 
         for (self.base.options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
