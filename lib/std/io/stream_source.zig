@@ -18,21 +18,43 @@ pub const StreamSource = union(enum) {
 
     /// The stream access is redirected to this file.
     /// On freestanding, this must never be initialized!
-    file: if (has_file) std.fs.File else void,
+    readable_file: if (has_file) io.BufferedReader(4096, std.fs.File.Reader) else void,
+    writeable_file: if (has_file) io.BufferedWriter(4096, std.fs.File.Writer) else void,
 
+    const ReadSeekError = if (has_file) io.BufferedReader(4096, std.fs.File.Reader).SeekError else error {};
+    const WriteSeekError = if (has_file) io.BufferedWriter(4096, std.fs.File.Writer).SeekError else error {};
     pub const ReadError = io.FixedBufferStream([]u8).ReadError || (if (has_file) std.fs.File.ReadError else error{});
     pub const WriteError = error{AccessDenied} || io.FixedBufferStream([]u8).WriteError || (if (has_file) std.fs.File.WriteError else error{});
-    pub const SeekError = io.FixedBufferStream([]u8).SeekError || (if (has_file) std.fs.File.SeekError else error{});
+    pub const SeekError = io.FixedBufferStream([]u8).SeekError || (if (has_file) ReadSeekError || WriteSeekError else error{});
     pub const GetSeekPosError = io.FixedBufferStream([]u8).GetSeekPosError || (if (has_file) std.fs.File.GetSeekPosError else error{});
 
     pub const Reader = io.SeekableReader(*StreamSource, ReadError, SeekError, GetSeekPosError, read);
     pub const Writer = io.SeekableWriter(*StreamSource, WriteError, SeekError, GetSeekPosError, write);
 
+    pub fn fromBuffer(buffer: []u8) StreamSource {
+        return .{ .buffer = io.fixedBufferStream(buffer) };
+    }
+
+    pub fn fromConstBuffer(buffer: []const u8) StreamSource {
+        return .{ .const_buffer = io.fixedBufferStream(buffer) };
+    }
+    
+    pub usingnamespace if (has_file) struct {
+        pub fn fromFileReader(file_reader: std.fs.File.Reader) StreamSource {
+            return .{ .readable_file = io.bufferedReader(file_reader) };
+        }
+        
+        pub fn fromFileWriter(file_writer: std.fs.File.Writer) StreamSource {
+            return .{ .writeable_file = io.bufferedWriter(file_writer) };
+        }
+    } else struct {};
+
     pub fn read(self: *StreamSource, dest: []u8) ReadError!usize {
         switch (self.*) {
             .buffer => |*x| return x.read(dest),
             .const_buffer => |*x| return x.read(dest),
-            .file => |x| if (!has_file) unreachable else return x.read(dest),
+            .readable_file => |*x| if (!has_file) unreachable else return x.read(dest),
+            .writeable_file => if (!has_file) unreachable else return error.NotOpenForReading,
         }
     }
 
@@ -40,7 +62,8 @@ pub const StreamSource = union(enum) {
         switch (self.*) {
             .buffer => |*x| return x.write(bytes),
             .const_buffer => return error.AccessDenied,
-            .file => |x| if (!has_file) unreachable else return x.write(bytes),
+            .writeable_file => |*x| if (!has_file) unreachable else return x.write(bytes),
+            .readable_file => if (!has_file) unreachable else return error.NotOpenForWriting,
         }
     }
 
@@ -48,7 +71,8 @@ pub const StreamSource = union(enum) {
         switch (self.*) {
             .buffer => |*x| return x.seekTo(pos),
             .const_buffer => |*x| return x.seekTo(pos),
-            .file => |x| if (!has_file) unreachable else return x.seekTo(pos),
+            .readable_file => |*x| if (!has_file) unreachable else return x.seekTo(pos),
+            .writeable_file => |*x| if (!has_file) unreachable else return x.seekTo(pos),
         }
     }
 
@@ -56,7 +80,8 @@ pub const StreamSource = union(enum) {
         switch (self.*) {
             .buffer => |*x| return x.seekBy(amt),
             .const_buffer => |*x| return x.seekBy(amt),
-            .file => |x| if (!has_file) unreachable else return x.seekBy(amt),
+            .readable_file => |*x| if (!has_file) unreachable else return x.seekBy(amt),
+            .writeable_file => |*x| if (!has_file) unreachable else return x.seekBy(amt),
         }
     }
 
@@ -64,7 +89,8 @@ pub const StreamSource = union(enum) {
         switch (self.*) {
             .buffer => |*x| return x.getEndPos(),
             .const_buffer => |*x| return x.getEndPos(),
-            .file => |x| if (!has_file) unreachable else return x.getEndPos(),
+            .readable_file => |*x| if (!has_file) unreachable else return x.getEndPos(),
+            .writeable_file => |*x| if (!has_file) unreachable else return x.getEndPos(),
         }
     }
 
@@ -72,7 +98,8 @@ pub const StreamSource = union(enum) {
         switch (self.*) {
             .buffer => |*x| return x.getPos(),
             .const_buffer => |*x| return x.getPos(),
-            .file => |x| if (!has_file) unreachable else return x.getPos(),
+            .readable_file => |*x| if (!has_file) unreachable else return x.getPos(),
+            .writeable_file => |*x| if (!has_file) unreachable else return x.getPos(),
         }
     }
 
@@ -91,7 +118,7 @@ test "StreamSource (refs)" {
 
 test "StreamSource (mutable buffer)" {
     var buffer: [64]u8 = undefined;
-    var source = StreamSource{ .buffer = std.io.fixedBufferStream(&buffer) };
+    var source = StreamSource.fromBuffer(&buffer);
 
     var writer = source.writer();
 
@@ -102,7 +129,7 @@ test "StreamSource (mutable buffer)" {
 
 test "StreamSource (const buffer)" {
     const buffer: [64]u8 = "Hello, World!".* ++ ([1]u8{0xAA} ** 51);
-    var source = StreamSource{ .const_buffer = std.io.fixedBufferStream(&buffer) };
+    var source = StreamSource.fromConstBuffer(&buffer);
 
     var reader = source.reader();
 
