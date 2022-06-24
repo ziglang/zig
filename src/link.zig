@@ -190,6 +190,9 @@ pub const Options = struct {
     /// (Darwin) size of the __PAGEZERO segment
     pagezero_size: ?u64 = null,
 
+    /// (Darwin) search strategy for system libraries
+    search_strategy: ?File.MachO.SearchStrategy = null,
+
     pub fn effectiveOutputMode(options: Options) std.builtin.OutputMode {
         return if (options.use_lld) .Obj else options.output_mode;
     }
