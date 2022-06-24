@@ -56,13 +56,15 @@ pub const FailingAllocator = struct {
         return_address: usize,
     ) error{OutOfMemory}![]u8 {
         if (self.index == self.fail_index) {
-            mem.set(usize, &self.stack_addresses, 0);
-            var stack_trace = std.builtin.StackTrace{
-                .instruction_addresses = &self.stack_addresses,
-                .index = 0,
-            };
-            std.debug.captureStackTrace(return_address, &stack_trace);
-            self.has_induced_failure = true;
+            if (!self.has_induced_failure) {
+                mem.set(usize, &self.stack_addresses, 0);
+                var stack_trace = std.builtin.StackTrace{
+                    .instruction_addresses = &self.stack_addresses,
+                    .index = 0,
+                };
+                std.debug.captureStackTrace(return_address, &stack_trace);
+                self.has_induced_failure = true;
+            }
             return error.OutOfMemory;
         }
         const result = try self.internal_allocator.rawAlloc(len, ptr_align, len_align, return_address);
