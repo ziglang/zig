@@ -1273,6 +1273,14 @@ pub const Instruction = union(enum) {
         };
     }
 
+    pub fn movr(comptime s2: type, cond: RCondition, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3e(0b10, 0b10_1111, cond, rs1, rs2, rd),
+            i10 => format3f(0b10, 0b10_1111, cond, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
     pub fn mulx(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
         return switch (s2) {
             Register => format3a(0b10, 0b00_1001, rs1, rs2, rd),
