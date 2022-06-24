@@ -125,14 +125,15 @@ pub const Segment = struct {
     /// Bitfield containing flags for a segment
     flags: u32,
 
+    /// Returns the name as how it will be output into the final object
+    /// file or binary. When `merge_segments` is true, this will return the
+    /// short name. i.e. ".rodata". When false, it returns the entire name instead.
     pub fn outputName(self: Segment, merge_segments: bool) []const u8 {
         if (!merge_segments) return self.name;
         if (std.mem.startsWith(u8, self.name, ".rodata.")) {
             return ".rodata";
         } else if (std.mem.startsWith(u8, self.name, ".text.")) {
             return ".text";
-        } else if (std.mem.startsWith(u8, self.name, ".rodata.")) {
-            return ".rodata";
         } else if (std.mem.startsWith(u8, self.name, ".data.")) {
             return ".data";
         } else if (std.mem.startsWith(u8, self.name, ".bss.")) {
