@@ -906,6 +906,8 @@ pub const InitOptions = struct {
     entitlements: ?[]const u8 = null,
     /// (Darwin) size of the __PAGEZERO segment
     pagezero_size: ?u64 = null,
+    /// (Darwin) search strategy for system libraries
+    search_strategy: ?link.File.MachO.SearchStrategy = null,
 };
 
 fn addPackageTableToCacheHash(
@@ -1746,6 +1748,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .install_name = options.install_name,
             .entitlements = options.entitlements,
             .pagezero_size = options.pagezero_size,
+            .search_strategy = options.search_strategy,
         });
         errdefer bin_file.destroy();
         comp.* = .{

@@ -448,6 +448,8 @@ const usage_build_generic =
     \\  -install_name=[value]          (Darwin) add dylib's install name
     \\  --entitlements [path]          (Darwin) add path to entitlements file for embedding in code signature
     \\  -pagezero_size [value]         (Darwin) size of the __PAGEZERO segment in hexadecimal notation
+    \\  -search_paths_first            (Darwin) search each dir in library search paths for `libx.dylib` then `libx.a`
+    \\  -search_dylibs_first           (Darwin) search `libx.dylib` in each dir in library search paths, then `libx.a`
     \\  --import-memory                (WebAssembly) import memory from the environment
     \\  --import-table                 (WebAssembly) import function table from the host environment
     \\  --export-table                 (WebAssembly) export function table to the host environment
@@ -696,6 +698,7 @@ fn buildOutputType(
     var hash_style: link.HashStyle = .both;
     var entitlements: ?[]const u8 = null;
     var pagezero_size: ?u64 = null;
+    var search_strategy: ?link.File.MachO.SearchStrategy = null;
 
     // e.g. -m3dnow or -mno-outline-atomics. They correspond to std.Target llvm cpu feature names.
     // This array is populated by zig cc frontend and then has to be converted to zig-style
@@ -917,6 +920,10 @@ fn buildOutputType(
                         pagezero_size = std.fmt.parseUnsigned(u64, eatIntPrefix(next_arg, 16), 16) catch |err| {
                             fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
                         };
+                    } else if (mem.eql(u8, arg, "-search_paths_first")) {
+                        search_strategy = .paths_first;
+                    } else if (mem.eql(u8, arg, "-search_dylibs_first")) {
+                        search_strategy = .dylibs_first;
                     } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
                         linker_script = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
@@ -1476,7 +1483,9 @@ fn buildOutputType(
                             {
                                 force_static_libs = true;
                             } else if (mem.eql(u8, linker_arg, "-search_paths_first")) {
-                                // ignore, since it's the default behavior in both ld64 and zld
+                                search_strategy = .paths_first;
+                            } else if (mem.eql(u8, linker_arg, "-search_dylibs_first")) {
+                                search_strategy = .dylibs_first;
                             } else {
                                 try linker_args.append(linker_arg);
                             }
@@ -2784,6 +2793,7 @@ fn buildOutputType(
         .install_name = install_name,
         .entitlements = entitlements,
         .pagezero_size = pagezero_size,
+        .search_strategy = search_strategy,
     }) catch |err| switch (err) {
         error.LibCUnavailable => {
             const target = target_info.target;

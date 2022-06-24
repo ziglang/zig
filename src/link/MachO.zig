@@ -47,6 +47,11 @@ pub const DebugSymbols = @import("MachO/DebugSymbols.zig");
 
 pub const base_tag: File.Tag = File.Tag.macho;
 
+pub const SearchStrategy = enum {
+    paths_first,
+    dylibs_first,
+};
+
 base: File,
 
 /// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
@@ -784,18 +789,43 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
             }
 
             var libs = std.ArrayList([]const u8).init(arena);
-            for (search_lib_names.items) |lib_name| {
-                // Assume ld64 default: -search_paths_first
-                // Look in each directory for a dylib (stub first), and then for archive
-                // TODO implement alternative: -search_dylibs_first
-                for (&[_][]const u8{ ".tbd", ".dylib", ".a" }) |ext| {
-                    if (try resolveLib(arena, lib_dirs.items, lib_name, ext)) |full_path| {
-                        try libs.append(full_path);
-                        break;
-                    }
-                } else {
-                    log.warn("library not found for '-l{s}'", .{lib_name});
-                    lib_not_found = true;
+
+            // Assume ld64 default -search_paths_first if no strategy specified.
+            const search_strategy = self.base.options.search_strategy orelse .paths_first;
+            outer: for (search_lib_names.items) |lib_name| {
+                switch (search_strategy) {
+                    .paths_first => {
+                        // Look in each directory for a dylib (stub first), and then for archive
+                        for (lib_dirs.items) |dir| {
+                            for (&[_][]const u8{ ".tbd", ".dylib", ".a" }) |ext| {
+                                if (try resolveLib(arena, dir, lib_name, ext)) |full_path| {
+                                    try libs.append(full_path);
+                                    continue :outer;
+                                }
+                            }
+                        } else {
+                            log.warn("library not found for '-l{s}'", .{lib_name});
+                            lib_not_found = true;
+                        }
+                    },
+                    .dylibs_first => {
+                        // First, look for a dylib in each search dir
+                        for (lib_dirs.items) |dir| {
+                            for (&[_][]const u8{ ".tbd", ".dylib" }) |ext| {
+                                if (try resolveLib(arena, dir, lib_name, ext)) |full_path| {
+                                    try libs.append(full_path);
+                                    continue :outer;
+                                }
+                            }
+                        } else for (lib_dirs.items) |dir| {
+                            if (try resolveLib(arena, dir, lib_name, ".a")) |full_path| {
+                                try libs.append(full_path);
+                            } else {
+                                log.warn("library not found for '-l{s}'", .{lib_name});
+                                lib_not_found = true;
+                            }
+                        }
+                    },
                 }
             }
 
@@ -811,19 +841,23 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
             if (self.base.options.sysroot != null) blk: {
                 // Try stub file first. If we hit it, then we're done as the stub file
                 // re-exports every single symbol definition.
-                if (try resolveLib(arena, lib_dirs.items, "System", ".tbd")) |full_path| {
-                    try libs.append(full_path);
-                    libsystem_available = true;
-                    break :blk;
+                for (lib_dirs.items) |dir| {
+                    if (try resolveLib(arena, dir, "System", ".tbd")) |full_path| {
+                        try libs.append(full_path);
+                        libsystem_available = true;
+                        break :blk;
+                    }
                 }
                 // If we didn't hit the stub file, try .dylib next. However, libSystem.dylib
                 // doesn't export libc.dylib which we'll need to resolve subsequently also.
-                if (try resolveLib(arena, lib_dirs.items, "System", ".dylib")) |libsystem_path| {
-                    if (try resolveLib(arena, lib_dirs.items, "c", ".dylib")) |libc_path| {
-                        try libs.append(libsystem_path);
-                        try libs.append(libc_path);
-                        libsystem_available = true;
-                        break :blk;
+                for (lib_dirs.items) |dir| {
+                    if (try resolveLib(arena, dir, "System", ".dylib")) |libsystem_path| {
+                        if (try resolveLib(arena, dir, "c", ".dylib")) |libc_path| {
+                            try libs.append(libsystem_path);
+                            try libs.append(libc_path);
+                            libsystem_available = true;
+                            break :blk;
+                        }
                     }
                 }
             }
@@ -847,11 +881,13 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
                 }
             }
 
-            for (self.base.options.frameworks) |framework| {
-                for (&[_][]const u8{ ".tbd", ".dylib", "" }) |ext| {
-                    if (try resolveFramework(arena, framework_dirs.items, framework, ext)) |full_path| {
-                        try libs.append(full_path);
-                        break;
+            outer: for (self.base.options.frameworks) |framework| {
+                for (framework_dirs.items) |dir| {
+                    for (&[_][]const u8{ ".tbd", ".dylib", "" }) |ext| {
+                        if (try resolveFramework(arena, dir, framework, ext)) |full_path| {
+                            try libs.append(full_path);
+                            continue :outer;
+                        }
                     }
                 } else {
                     log.warn("framework not found for '-framework {s}'", .{framework});
@@ -933,6 +969,11 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
                     try argv.append("-pagezero_size");
                     try argv.append(try std.fmt.allocPrint(arena, "0x{x}", .{pagezero_size}));
                 }
+
+                if (self.base.options.search_strategy) |strat| switch (strat) {
+                    .paths_first => try argv.append("-search_paths_first"),
+                    .dylibs_first => try argv.append("-search_dylibs_first"),
+                };
 
                 if (self.base.options.entry) |entry| {
                     try argv.append("-e");
@@ -1183,51 +1224,41 @@ fn resolveSearchDir(
 
 fn resolveLib(
     arena: Allocator,
-    search_dirs: []const []const u8,
+    search_dir: []const u8,
     name: []const u8,
     ext: []const u8,
 ) !?[]const u8 {
     const search_name = try std.fmt.allocPrint(arena, "lib{s}{s}", .{ name, ext });
+    const full_path = try fs.path.join(arena, &[_][]const u8{ search_dir, search_name });
 
-    for (search_dirs) |dir| {
-        const full_path = try fs.path.join(arena, &[_][]const u8{ dir, search_name });
+    // Check if the file exists.
+    const tmp = fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => |e| return e,
+    };
+    defer tmp.close();
 
-        // Check if the file exists.
-        const tmp = fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {
-            error.FileNotFound => continue,
-            else => |e| return e,
-        };
-        defer tmp.close();
-
-        return full_path;
-    }
-
-    return null;
+    return full_path;
 }
 
 fn resolveFramework(
     arena: Allocator,
-    search_dirs: []const []const u8,
+    search_dir: []const u8,
     name: []const u8,
     ext: []const u8,
 ) !?[]const u8 {
     const search_name = try std.fmt.allocPrint(arena, "{s}{s}", .{ name, ext });
     const prefix_path = try std.fmt.allocPrint(arena, "{s}.framework", .{name});
+    const full_path = try fs.path.join(arena, &[_][]const u8{ search_dir, prefix_path, search_name });
 
-    for (search_dirs) |dir| {
-        const full_path = try fs.path.join(arena, &[_][]const u8{ dir, prefix_path, search_name });
+    // Check if the file exists.
+    const tmp = fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => |e| return e,
+    };
+    defer tmp.close();
 
-        // Check if the file exists.
-        const tmp = fs.cwd().openFile(full_path, .{}) catch |err| switch (err) {
-            error.FileNotFound => continue,
-            else => |e| return e,
-        };
-        defer tmp.close();
-
-        return full_path;
-    }
-
-    return null;
+    return full_path;
 }
 
 fn parseObject(self: *MachO, path: []const u8) !bool {
