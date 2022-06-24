@@ -980,7 +980,26 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
                     try argv.append(entry);
                 }
 
-                try argv.appendSlice(positionals.items);
+                for (self.base.options.objects) |obj| {
+                    try argv.append(obj.path);
+                }
+
+                for (comp.c_object_table.keys()) |key| {
+                    try argv.append(key.status.success.object_path);
+                }
+
+                if (module_obj_path) |p| {
+                    try argv.append(p);
+                }
+
+                if (comp.compiler_rt_lib) |lib| {
+                    try argv.append(lib.full_object_path);
+                }
+
+                if (self.base.options.link_libcpp) {
+                    try argv.append(comp.libcxxabi_static_lib.?.full_object_path);
+                    try argv.append(comp.libcxx_static_lib.?.full_object_path);
+                }
 
                 try argv.append("-o");
                 try argv.append(full_out_path);
@@ -988,7 +1007,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
                 try argv.append("-lSystem");
                 try argv.append("-lc");
 
-                for (search_lib_names.items) |l_name| {
+                for (self.base.options.system_libs.keys()) |l_name| {
                     try argv.append(try std.fmt.allocPrint(arena, "-l{s}", .{l_name}));
                 }
 
