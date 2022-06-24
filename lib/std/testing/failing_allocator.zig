@@ -19,6 +19,8 @@ pub const FailingAllocator = struct {
     freed_bytes: usize,
     allocations: usize,
     deallocations: usize,
+    stack_addresses: [16]usize,
+    has_induced_failure: bool,
 
     /// `fail_index` is the number of successful allocations you can
     /// expect from this allocator. The next allocation will fail.
@@ -37,6 +39,8 @@ pub const FailingAllocator = struct {
             .freed_bytes = 0,
             .allocations = 0,
             .deallocations = 0,
+            .stack_addresses = undefined,
+            .has_induced_failure = false,
         };
     }
 
@@ -52,6 +56,13 @@ pub const FailingAllocator = struct {
         return_address: usize,
     ) error{OutOfMemory}![]u8 {
         if (self.index == self.fail_index) {
+            mem.set(usize, &self.stack_addresses, 0);
+            var stack_trace = std.builtin.StackTrace{
+                .instruction_addresses = &self.stack_addresses,
+                .index = 0,
+            };
+            std.debug.captureStackTrace(return_address, &stack_trace);
+            self.has_induced_failure = true;
             return error.OutOfMemory;
         }
         const result = try self.internal_allocator.rawAlloc(len, ptr_align, len_align, return_address);
@@ -87,5 +98,18 @@ pub const FailingAllocator = struct {
         self.internal_allocator.rawFree(old_mem, old_align, ra);
         self.deallocations += 1;
         self.freed_bytes += old_mem.len;
+    }
+
+    /// Only valid once `has_induced_failure == true`
+    pub fn getStackTrace(self: *FailingAllocator) std.builtin.StackTrace {
+        std.debug.assert(self.has_induced_failure);
+        var len: usize = 0;
+        while (len < self.stack_addresses.len and self.stack_addresses[len] != 0) {
+            len += 1;
+        }
+        return .{
+            .instruction_addresses = &self.stack_addresses,
+            .index = len,
+        };
     }
 };
