@@ -69,10 +69,8 @@ page_size: u16,
 /// and potentially stage2 release builds in the future.
 needs_prealloc: bool = true,
 
-/// We commit 0x1000 = 4096 bytes of space to the header and
-/// the table of load commands. This should be plenty for any
-/// potential future extensions.
-header_pad: u16 = 0x1000,
+/// Size of the padding between the end of load commands and start of the '__TEXT,__text' section.
+headerpad_size: u64,
 
 /// The absolute address of the entry point.
 entry_addr: ?u64 = null,
@@ -295,6 +293,11 @@ pub const min_text_capacity = padToIdeal(minimum_text_block_size);
 /// start of __TEXT segment.
 const default_pagezero_vmsize: u64 = 0x100000000;
 
+/// We commit 0x1000 = 4096 bytes of space to the header and
+/// the table of load commands. This should be plenty for any
+/// potential future extensions.
+const default_headerpad_size: u64 = 0x1000;
+
 pub const Export = struct {
     sym_index: ?u32 = null,
 };
@@ -400,6 +403,12 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
     const use_llvm = build_options.have_llvm and options.use_llvm;
     const use_stage1 = build_options.is_stage1 and options.use_stage1;
     const needs_prealloc = !(use_stage1 or use_llvm or options.cache_mode == .whole);
+    // TODO handle `headerpad_max_install_names` in incremental context
+    const explicit_headerpad_size = options.headerpad_size orelse 0;
+    const headerpad_size = if (needs_prealloc)
+        @maximum(explicit_headerpad_size, default_headerpad_size)
+    else
+        explicit_headerpad_size;
 
     const self = try gpa.create(MachO);
     errdefer gpa.destroy(self);
@@ -412,6 +421,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
             .file = null,
         },
         .page_size = page_size,
+        .headerpad_size = headerpad_size,
         .code_signature = if (requires_adhoc_codesig) CodeSignature.init(page_size) else null,
         .needs_prealloc = needs_prealloc,
     };
@@ -975,6 +985,15 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
                     .paths_first => try argv.append("-search_paths_first"),
                     .dylibs_first => try argv.append("-search_dylibs_first"),
                 };
+
+                if (self.base.options.headerpad_size) |headerpad_size| {
+                    try argv.append("-headerpad_size");
+                    try argv.append(try std.fmt.allocPrint(arena, "0x{x}", .{headerpad_size}));
+                }
+
+                if (self.base.options.headerpad_max_install_names) {
+                    try argv.append("-headerpad_max_install_names");
+                }
 
                 if (self.base.options.entry) |entry| {
                     try argv.append("-e");
@@ -4453,7 +4472,7 @@ fn populateMissingMetadata(self: *MachO) !void {
         const needed_size = if (self.needs_prealloc) blk: {
             const program_code_size_hint = self.base.options.program_code_size_hint;
             const got_size_hint = @sizeOf(u64) * self.base.options.symbol_count_hint;
-            const ideal_size = self.header_pad + program_code_size_hint + got_size_hint;
+            const ideal_size = self.headerpad_size + program_code_size_hint + got_size_hint;
             const needed_size = mem.alignForwardGeneric(u64, padToIdeal(ideal_size), self.page_size);
             log.debug("found __TEXT segment free space 0x{x} to 0x{x}", .{ 0, needed_size });
             break :blk needed_size;
@@ -4961,7 +4980,9 @@ fn allocateTextSegment(self: *MachO) !void {
         sizeofcmds += lc.cmdsize();
     }
 
-    try self.allocateSegment(self.text_segment_cmd_index.?, @sizeOf(macho.mach_header_64) + sizeofcmds);
+    // TODO verify if `headerpad_max_install_names` leads to larger padding size
+    const offset = @sizeOf(macho.mach_header_64) + sizeofcmds + self.headerpad_size;
+    try self.allocateSegment(self.text_segment_cmd_index.?, offset);
 
     // Shift all sections to the back to minimize jump size between __TEXT and __DATA segments.
     var min_alignment: u32 = 0;
@@ -5088,7 +5109,7 @@ fn initSection(
 
     if (self.needs_prealloc) {
         const alignment_pow_2 = try math.powi(u32, 2, alignment);
-        const padding: ?u64 = if (segment_id == self.text_segment_cmd_index.?) self.header_pad else null;
+        const padding: ?u64 = if (segment_id == self.text_segment_cmd_index.?) self.headerpad_size else null;
         const off = self.findFreeSpace(segment_id, alignment_pow_2, padding);
         log.debug("allocating {s},{s} section from 0x{x} to 0x{x}", .{
             sect.segName(),
