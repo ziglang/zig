@@ -102,7 +102,7 @@ pub fn emitMir(
 
             .movcc => try emit.mirConditionalMove(inst),
 
-            .movr => @panic("TODO implement sparc64 movr"),
+            .movr => try emit.mirConditionalMove(inst),
 
             .mulx => try emit.mirArithmetic3Op(inst),
             .sdivx => try emit.mirArithmetic3Op(inst),
@@ -341,6 +341,26 @@ fn mirConditionalMove(emit: *Emit, inst: Mir.Inst.Index) !void {
                     Register,
                     data.cond,
                     data.ccr,
+                    data.rs2_or_imm.rs2,
+                    data.rd,
+                ));
+            }
+        },
+        .movr => {
+            const data = emit.mir.instructions.items(.data)[inst].conditional_move_reg;
+            if (data.is_imm) {
+                try emit.writeInstruction(Instruction.movr(
+                    i10,
+                    data.cond,
+                    data.rs1,
+                    data.rs2_or_imm.imm,
+                    data.rd,
+                ));
+            } else {
+                try emit.writeInstruction(Instruction.movr(
+                    Register,
+                    data.cond,
+                    data.rs1,
                     data.rs2_or_imm.rs2,
                     data.rd,
                 ));
