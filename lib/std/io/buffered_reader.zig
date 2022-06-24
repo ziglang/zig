@@ -53,7 +53,7 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) ty
             }
 
             pub fn getPos(self: *Self) GetSeekPosError!u64 {
-                return self.unbuffered_reader.getPos();
+                return (try self.unbuffered_reader.getPos()) - (self.end - self.start);
             }
 
             pub fn reader(self: *Self) Reader {
@@ -148,18 +148,26 @@ test "io.SeekableBufferedReader" {
     const reader = buf_reader.reader();
 
     var buffer: [str.len]u8 = undefined;
+    try testing.expectEqual(@as(usize, 0), try reader.getPos());
     var res = try reader.readAll(buffer[0..]);
+    try testing.expectEqual(str.len, try reader.getPos());
     try testing.expectEqual(@as(usize, str.len), res);
     try testing.expectEqualSlices(u8, str, buffer[0..]);
     try reader.seekTo(0);
+    try testing.expectEqual(@as(usize, 0), try reader.getPos());
     std.mem.set(u8, buffer[0..], 0);
     res = try reader.readAll(buffer[0..4]);
+    try testing.expectEqual(@as(usize, 4), try reader.getPos());
     try testing.expectEqual(@as(usize, 4), res);
     try reader.seekBy(3);
+    try testing.expectEqual(@as(usize, 7), try reader.getPos());
     res = try reader.readAll(buffer[4..]);
+    try testing.expectEqual(@as(usize, 14), try reader.getPos());
     try testing.expectEqual(@as(usize, 7), res);
     try reader.seekBy(-10);
+    try testing.expectEqual(@as(usize, 4), try reader.getPos());
     res = try reader.readAll(buffer[11..]);
+    try testing.expectEqual(@as(usize, 7), try reader.getPos());
     try testing.expectEqual(@as(usize, 3), res);
     try testing.expectEqualSlices(u8, "This a test is", buffer[0..]);
 }
