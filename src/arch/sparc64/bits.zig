@@ -475,6 +475,21 @@ pub const Instruction = union(enum) {
         ne_zero,
         gt_zero,
         ge_zero,
+
+        /// Returns the condition which is true iff the given condition is
+        /// false (if such a condition exists).
+        pub fn negate(cond: RCondition) RCondition {
+            return switch (cond) {
+                .eq_zero => .ne_zero,
+                .ne_zero => .eq_zero,
+                .lt_zero => .ge_zero,
+                .ge_zero => .lt_zero,
+                .le_zero => .gt_zero,
+                .gt_zero => .le_zero,
+                .reserved1 => unreachable,
+                .reserved2 => unreachable,
+            };
+        }
     };
 
     pub const ASI = enum(u8) {
@@ -673,10 +688,27 @@ pub const Instruction = union(enum) {
         }
     };
 
-    pub const Condition = packed union {
+    pub const ConditionTag = enum { fcond, icond };
+    pub const Condition = union(ConditionTag) {
         fcond: FCondition,
         icond: ICondition,
-        encoded: u4,
+
+        /// Encodes the condition into the instruction bit pattern.
+        pub fn enc(cond: Condition) u4 {
+            return switch (cond) {
+                .icond => |c| @enumToInt(c),
+                .fcond => |c| @enumToInt(c),
+            };
+        }
+
+        /// Returns the condition which is true iff the given condition is
+        /// false (if such a condition exists).
+        pub fn negate(cond: Condition) Condition {
+            return switch (cond) {
+                .icond => |c| .{ .icond = c.negate() },
+                .fcond => |c| .{ .fcond = c.negate() },
+            };
+        }
     };
 
     pub fn toU32(self: Instruction) u32 {
@@ -755,7 +787,7 @@ pub const Instruction = union(enum) {
         return Instruction{
             .format_2b = .{
                 .a = @boolToInt(annul),
-                .cond = cond.encoded,
+                .cond = cond.enc(),
                 .op2 = op2,
                 .disp22 = udisp_truncated,
             },
@@ -776,7 +808,7 @@ pub const Instruction = union(enum) {
         return Instruction{
             .format_2c = .{
                 .a = @boolToInt(annul),
-                .cond = cond.encoded,
+                .cond = cond.enc(),
                 .op2 = op2,
                 .cc1 = ccr_cc1,
                 .cc0 = ccr_cc0,
@@ -1057,7 +1089,7 @@ pub const Instruction = union(enum) {
                 .rd = rd.enc(),
                 .op3 = op3,
                 .cc2 = ccr_cc2,
-                .cond = cond.encoded,
+                .cond = cond.enc(),
                 .cc1 = ccr_cc1,
                 .cc0 = ccr_cc0,
                 .rs2 = rs2.enc(),
@@ -1074,7 +1106,7 @@ pub const Instruction = union(enum) {
                 .rd = rd.enc(),
                 .op3 = op3,
                 .cc2 = ccr_cc2,
-                .cond = cond.encoded,
+                .cond = cond.enc(),
                 .cc1 = ccr_cc1,
                 .cc0 = ccr_cc0,
                 .simm11 = @bitCast(u11, imm),
@@ -1122,7 +1154,7 @@ pub const Instruction = union(enum) {
             .format_4g = .{
                 .rd = rd.enc(),
                 .op3 = op3,
-                .cond = cond.encoded,
+                .cond = cond.enc(),
                 .opf_cc = opf_cc,
                 .opf_low = opf_low,
                 .rs2 = rs2.enc(),
@@ -1197,6 +1229,14 @@ pub const Instruction = union(enum) {
         };
     }
 
+    pub fn @"and"(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3a(0b10, 0b00_0001, rs1, rs2, rd),
+            i13 => format3b(0b10, 0b00_0001, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
     pub fn @"or"(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
         return switch (s2) {
             Register => format3a(0b10, 0b00_0010, rs1, rs2, rd),
@@ -1221,6 +1261,10 @@ pub const Instruction = union(enum) {
         };
     }
 
+    pub fn membar(cmask: MemCompletionConstraint, mmask: MemOrderingConstraint) Instruction {
+        return format3h(cmask, mmask);
+    }
+
     pub fn movcc(comptime s2: type, cond: Condition, ccr: CCR, rs2: s2, rd: Register) Instruction {
         return switch (s2) {
             Register => format4c(0b10_1100, cond, ccr, rs2, rd),
@@ -1229,10 +1273,34 @@ pub const Instruction = union(enum) {
         };
     }
 
+    pub fn movr(comptime s2: type, cond: RCondition, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3e(0b10, 0b10_1111, cond, rs1, rs2, rd),
+            i10 => format3f(0b10, 0b10_1111, cond, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
     pub fn mulx(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
         return switch (s2) {
             Register => format3a(0b10, 0b00_1001, rs1, rs2, rd),
             i13 => format3b(0b10, 0b00_1001, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
+    pub fn sdivx(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3a(0b10, 0b10_1101, rs1, rs2, rd),
+            i13 => format3b(0b10, 0b10_1101, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
+    pub fn udivx(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3a(0b10, 0b00_1101, rs1, rs2, rd),
+            i13 => format3b(0b10, 0b00_1101, rs1, rs2, rd),
             else => unreachable,
         };
     }
@@ -1267,6 +1335,54 @@ pub const Instruction = union(enum) {
 
     pub fn sethi(imm: u22, rd: Register) Instruction {
         return format2a(0b100, imm, rd);
+    }
+
+    pub fn sll(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3k(0b11, 0b10_0101, .shift32, rs1, rs2, rd),
+            u5 => format3l(0b11, 0b10_0101, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
+    pub fn srl(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3k(0b11, 0b10_0110, .shift32, rs1, rs2, rd),
+            u5 => format3l(0b11, 0b10_0110, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
+    pub fn sra(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3k(0b11, 0b10_0111, .shift32, rs1, rs2, rd),
+            u5 => format3l(0b11, 0b10_0111, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
+    pub fn sllx(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3k(0b11, 0b10_0101, .shift64, rs1, rs2, rd),
+            u6 => format3m(0b11, 0b10_0101, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
+    pub fn srlx(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3k(0b11, 0b10_0110, .shift64, rs1, rs2, rd),
+            u6 => format3m(0b11, 0b10_0110, rs1, rs2, rd),
+            else => unreachable,
+        };
+    }
+
+    pub fn srax(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
+        return switch (s2) {
+            Register => format3k(0b11, 0b10_0111, .shift64, rs1, rs2, rd),
+            u6 => format3m(0b11, 0b10_0111, rs1, rs2, rd),
+            else => unreachable,
+        };
     }
 
     pub fn stb(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {

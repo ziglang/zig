@@ -93,13 +93,20 @@ pub fn emitMir(
             .lduw => try emit.mirArithmetic3Op(inst),
             .ldx => try emit.mirArithmetic3Op(inst),
 
+            .@"and" => try emit.mirArithmetic3Op(inst),
             .@"or" => try emit.mirArithmetic3Op(inst),
             .xor => try emit.mirArithmetic3Op(inst),
             .xnor => try emit.mirArithmetic3Op(inst),
 
+            .membar => try emit.mirMembar(inst),
+
             .movcc => try emit.mirConditionalMove(inst),
 
+            .movr => try emit.mirConditionalMove(inst),
+
             .mulx => try emit.mirArithmetic3Op(inst),
+            .sdivx => try emit.mirArithmetic3Op(inst),
+            .udivx => try emit.mirArithmetic3Op(inst),
 
             .nop => try emit.mirNop(),
 
@@ -110,12 +117,12 @@ pub fn emitMir(
 
             .sethi => try emit.mirSethi(inst),
 
-            .sll => @panic("TODO implement sparc64 sll"),
-            .srl => @panic("TODO implement sparc64 srl"),
-            .sra => @panic("TODO implement sparc64 sra"),
-            .sllx => @panic("TODO implement sparc64 sllx"),
-            .srlx => @panic("TODO implement sparc64 srlx"),
-            .srax => @panic("TODO implement sparc64 srax"),
+            .sll => try emit.mirShift(inst),
+            .srl => try emit.mirShift(inst),
+            .sra => try emit.mirShift(inst),
+            .sllx => try emit.mirShift(inst),
+            .srlx => try emit.mirShift(inst),
+            .srax => try emit.mirShift(inst),
 
             .stb => try emit.mirArithmetic3Op(inst),
             .sth => try emit.mirArithmetic3Op(inst),
@@ -201,7 +208,7 @@ fn mirArithmetic2Op(emit: *Emit, inst: Mir.Inst.Index) !void {
             .@"return" => try emit.writeInstruction(Instruction.@"return"(Register, rs1, rs2)),
             .cmp => try emit.writeInstruction(Instruction.subcc(Register, rs1, rs2, .g0)),
             .mov => try emit.writeInstruction(Instruction.@"or"(Register, .g0, rs2, rs1)),
-            .not => try emit.writeInstruction(Instruction.xnor(Register, .g0, rs2, rs1)),
+            .not => try emit.writeInstruction(Instruction.xnor(Register, rs2, .g0, rs1)),
             else => unreachable,
         }
     }
@@ -224,10 +231,13 @@ fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
             .lduh => try emit.writeInstruction(Instruction.lduh(i13, rs1, imm, rd)),
             .lduw => try emit.writeInstruction(Instruction.lduw(i13, rs1, imm, rd)),
             .ldx => try emit.writeInstruction(Instruction.ldx(i13, rs1, imm, rd)),
+            .@"and" => try emit.writeInstruction(Instruction.@"and"(i13, rs1, imm, rd)),
             .@"or" => try emit.writeInstruction(Instruction.@"or"(i13, rs1, imm, rd)),
             .xor => try emit.writeInstruction(Instruction.xor(i13, rs1, imm, rd)),
             .xnor => try emit.writeInstruction(Instruction.xnor(i13, rs1, imm, rd)),
             .mulx => try emit.writeInstruction(Instruction.mulx(i13, rs1, imm, rd)),
+            .sdivx => try emit.writeInstruction(Instruction.sdivx(i13, rs1, imm, rd)),
+            .udivx => try emit.writeInstruction(Instruction.udivx(i13, rs1, imm, rd)),
             .save => try emit.writeInstruction(Instruction.save(i13, rs1, imm, rd)),
             .restore => try emit.writeInstruction(Instruction.restore(i13, rs1, imm, rd)),
             .stb => try emit.writeInstruction(Instruction.stb(i13, rs1, imm, rd)),
@@ -248,10 +258,13 @@ fn mirArithmetic3Op(emit: *Emit, inst: Mir.Inst.Index) !void {
             .lduh => try emit.writeInstruction(Instruction.lduh(Register, rs1, rs2, rd)),
             .lduw => try emit.writeInstruction(Instruction.lduw(Register, rs1, rs2, rd)),
             .ldx => try emit.writeInstruction(Instruction.ldx(Register, rs1, rs2, rd)),
+            .@"and" => try emit.writeInstruction(Instruction.@"and"(Register, rs1, rs2, rd)),
             .@"or" => try emit.writeInstruction(Instruction.@"or"(Register, rs1, rs2, rd)),
             .xor => try emit.writeInstruction(Instruction.xor(Register, rs1, rs2, rd)),
             .xnor => try emit.writeInstruction(Instruction.xnor(Register, rs1, rs2, rd)),
             .mulx => try emit.writeInstruction(Instruction.mulx(Register, rs1, rs2, rd)),
+            .sdivx => try emit.writeInstruction(Instruction.sdivx(Register, rs1, rs2, rd)),
+            .udivx => try emit.writeInstruction(Instruction.udivx(Register, rs1, rs2, rd)),
             .save => try emit.writeInstruction(Instruction.save(Register, rs1, rs2, rd)),
             .restore => try emit.writeInstruction(Instruction.restore(Register, rs1, rs2, rd)),
             .stb => try emit.writeInstruction(Instruction.stb(Register, rs1, rs2, rd)),
@@ -314,7 +327,7 @@ fn mirConditionalMove(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     switch (tag) {
         .movcc => {
-            const data = emit.mir.instructions.items(.data)[inst].conditional_move;
+            const data = emit.mir.instructions.items(.data)[inst].conditional_move_int;
             if (data.is_imm) {
                 try emit.writeInstruction(Instruction.movcc(
                     i11,
@@ -333,8 +346,39 @@ fn mirConditionalMove(emit: *Emit, inst: Mir.Inst.Index) !void {
                 ));
             }
         },
+        .movr => {
+            const data = emit.mir.instructions.items(.data)[inst].conditional_move_reg;
+            if (data.is_imm) {
+                try emit.writeInstruction(Instruction.movr(
+                    i10,
+                    data.cond,
+                    data.rs1,
+                    data.rs2_or_imm.imm,
+                    data.rd,
+                ));
+            } else {
+                try emit.writeInstruction(Instruction.movr(
+                    Register,
+                    data.cond,
+                    data.rs1,
+                    data.rs2_or_imm.rs2,
+                    data.rd,
+                ));
+            }
+        },
         else => unreachable,
     }
+}
+
+fn mirMembar(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const mask = emit.mir.instructions.items(.data)[inst].membar_mask;
+    assert(tag == .membar);
+
+    try emit.writeInstruction(Instruction.membar(
+        mask.cmask,
+        mask.mmask,
+    ));
 }
 
 fn mirNop(emit: *Emit) !void {
@@ -350,6 +394,38 @@ fn mirSethi(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     assert(tag == .sethi);
     try emit.writeInstruction(Instruction.sethi(imm, rd));
+}
+
+fn mirShift(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const data = emit.mir.instructions.items(.data)[inst].shift;
+
+    const rd = data.rd;
+    const rs1 = data.rs1;
+
+    if (data.is_imm) {
+        const imm = data.rs2_or_imm.imm;
+        switch (tag) {
+            .sll => try emit.writeInstruction(Instruction.sll(u5, rs1, @truncate(u5, imm), rd)),
+            .srl => try emit.writeInstruction(Instruction.srl(u5, rs1, @truncate(u5, imm), rd)),
+            .sra => try emit.writeInstruction(Instruction.sra(u5, rs1, @truncate(u5, imm), rd)),
+            .sllx => try emit.writeInstruction(Instruction.sllx(u6, rs1, imm, rd)),
+            .srlx => try emit.writeInstruction(Instruction.srlx(u6, rs1, imm, rd)),
+            .srax => try emit.writeInstruction(Instruction.srax(u6, rs1, imm, rd)),
+            else => unreachable,
+        }
+    } else {
+        const rs2 = data.rs2_or_imm.rs2;
+        switch (tag) {
+            .sll => try emit.writeInstruction(Instruction.sll(Register, rs1, rs2, rd)),
+            .srl => try emit.writeInstruction(Instruction.srl(Register, rs1, rs2, rd)),
+            .sra => try emit.writeInstruction(Instruction.sra(Register, rs1, rs2, rd)),
+            .sllx => try emit.writeInstruction(Instruction.sllx(Register, rs1, rs2, rd)),
+            .srlx => try emit.writeInstruction(Instruction.srlx(Register, rs1, rs2, rd)),
+            .srax => try emit.writeInstruction(Instruction.srax(Register, rs1, rs2, rd)),
+            else => unreachable,
+        }
+    }
 }
 
 fn mirTrap(emit: *Emit, inst: Mir.Inst.Index) !void {
