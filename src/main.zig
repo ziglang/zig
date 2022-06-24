@@ -2152,6 +2152,7 @@ fn buildOutputType(
             }
 
             for (lib_dirs.items) |lib_dir_path| {
+                if (cross_target.isDarwin()) break; // Targeting Darwin we let the linker resolve the libraries in the correct order
                 test_path.clearRetainingCapacity();
                 try test_path.writer().print("{s}" ++ sep ++ "{s}{s}{s}", .{
                     lib_dir_path,
