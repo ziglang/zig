@@ -650,7 +650,7 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
             error.OutOfMemory => {
                 if (failing_allocator_inst.allocated_bytes != failing_allocator_inst.freed_bytes) {
                     print(
-                        "\nfail_index: {d}/{d}\nallocated bytes: {d}\nfreed bytes: {d}\nallocations: {d}\ndeallocations: {d}\n",
+                        "\nfail_index: {d}/{d}\nallocated bytes: {d}\nfreed bytes: {d}\nallocations: {d}\ndeallocations: {d}\nallocation that was made to fail: {s}",
                         .{
                             fail_index,
                             needed_alloc_count,
@@ -658,6 +658,7 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
                             failing_allocator_inst.freed_bytes,
                             failing_allocator_inst.allocations,
                             failing_allocator_inst.deallocations,
+                            failing_allocator_inst.getStackTrace(),
                         },
                     );
                     return error.MemoryLeakDetected;
