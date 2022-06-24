@@ -1608,6 +1608,7 @@ pub fn tokenize(comptime T: type, buffer: []const T, delimiter_bytes: []const T)
 test "tokenize" {
     var it = tokenize(u8, "   abc def   ghi  ", " ");
     try testing.expect(eql(u8, it.next().?, "abc"));
+    try testing.expect(eql(u8, it.peek().?, "def"));
     try testing.expect(eql(u8, it.next().?, "def"));
     try testing.expect(eql(u8, it.next().?, "ghi"));
     try testing.expect(it.next() == null);
@@ -1626,9 +1627,11 @@ test "tokenize" {
 
     it = tokenize(u8, "|", "|");
     try testing.expect(it.next() == null);
+    try testing.expect(it.peek() == null);
 
     it = tokenize(u8, "", "|");
     try testing.expect(it.next() == null);
+    try testing.expect(it.peek() == null);
 
     it = tokenize(u8, "hello", "");
     try testing.expect(eql(u8, it.next().?, "hello"));
@@ -1650,11 +1653,13 @@ test "tokenize" {
 test "tokenize (multibyte)" {
     var it = tokenize(u8, "a|b,c/d e", " /,|");
     try testing.expect(eql(u8, it.next().?, "a"));
+    try testing.expect(eql(u8, it.peek().?, "b"));
     try testing.expect(eql(u8, it.next().?, "b"));
     try testing.expect(eql(u8, it.next().?, "c"));
     try testing.expect(eql(u8, it.next().?, "d"));
     try testing.expect(eql(u8, it.next().?, "e"));
     try testing.expect(it.next() == null);
+    try testing.expect(it.peek() == null);
 
     var it16 = tokenize(
         u16,
@@ -1778,8 +1783,17 @@ pub fn TokenIterator(comptime T: type) type {
 
         const Self = @This();
 
-        /// Returns a slice of the next token, or null if tokenization is complete.
+        /// Returns a slice of the current token, or null if tokenization is
+        /// complete, and advances to the next token.
         pub fn next(self: *Self) ?[]const T {
+            const result = self.peek() orelse return null;
+            self.index += result.len;
+            return result;
+        }
+
+        /// Returns a slice of the current token, or null if tokenization is
+        /// complete. Does not advance to the next token.
+        pub fn peek(self: *Self) ?[]const T {
             // move to beginning of token
             while (self.index < self.buffer.len and self.isSplitByte(self.buffer[self.index])) : (self.index += 1) {}
             const start = self.index;
@@ -1788,8 +1802,8 @@ pub fn TokenIterator(comptime T: type) type {
             }
 
             // move to end of token
-            while (self.index < self.buffer.len and !self.isSplitByte(self.buffer[self.index])) : (self.index += 1) {}
-            const end = self.index;
+            var end = start;
+            while (end < self.buffer.len and !self.isSplitByte(self.buffer[end])) : (end += 1) {}
 
             return self.buffer[start..end];
         }
