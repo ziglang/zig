@@ -194,7 +194,7 @@ pub const Options = struct {
     search_strategy: ?File.MachO.SearchStrategy = null,
 
     /// (Darwin) set minimum space for future expansion of the load commands
-    headerpad_size: ?u64 = null,
+    headerpad_size: ?u32 = null,
 
     /// (Darwin) set enough space as if all paths were MATPATHLEN
     headerpad_max_install_names: bool = false,

@@ -1595,7 +1595,7 @@ pub const LibExeObjStep = struct {
 
     /// (Darwin) Set size of the padding between the end of load commands
     /// and start of `__TEXT,__text` section.
-    headerpad_size: ?u64 = null,
+    headerpad_size: ?u32 = null,
 
     /// (Darwin) Automatically Set size of the padding between the end of load commands
     /// and start of `__TEXT,__text` section to a value fitting all paths expanded to MAXPATHLEN.
@@ -2671,7 +2671,7 @@ pub const LibExeObjStep = struct {
         };
         if (self.headerpad_size) |headerpad_size| {
             const size = try std.fmt.allocPrint(builder.allocator, "{x}", .{headerpad_size});
-            try zig_args.appendSlice(&[_][]const u8{ "-headerpad_size", size });
+            try zig_args.appendSlice(&[_][]const u8{ "-headerpad", size });
         }
         if (self.headerpad_max_install_names) {
             try zig_args.append("-headerpad_max_install_names");
