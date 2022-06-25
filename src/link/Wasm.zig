@@ -1255,6 +1255,9 @@ fn parseAtom(self: *Wasm, atom: *Atom, kind: Kind) !void {
 }
 
 fn allocateAtoms(self: *Wasm) !void {
+    // first sort the data segments
+    try sortDataSegments(self);
+
     var it = self.atoms.iterator();
     while (it.next()) |entry| {
         const segment = &self.segments.items[entry.key_ptr.*];
@@ -1276,6 +1279,36 @@ fn allocateAtoms(self: *Wasm) !void {
         }
         segment.size = std.mem.alignForwardGeneric(u32, offset, segment.alignment);
     }
+}
+
+fn sortDataSegments(self: *Wasm) !void {
+    var new_mapping: std.StringArrayHashMapUnmanaged(u32) = .{};
+    try new_mapping.ensureUnusedCapacity(self.base.allocator, self.data_segments.count());
+    errdefer new_mapping.deinit(self.base.allocator);
+
+    const keys = try self.base.allocator.dupe([]const u8, self.data_segments.keys());
+    defer self.base.allocator.free(keys);
+
+    const SortContext = struct {
+        fn sort(_: void, lhs: []const u8, rhs: []const u8) bool {
+            return order(lhs) <= order(rhs);
+        }
+
+        fn order(name: []const u8) u8 {
+            if (mem.startsWith(u8, name, ".rodata")) return 0;
+            if (mem.startsWith(u8, name, ".data")) return 1;
+            if (mem.startsWith(u8, name, ".text")) return 2;
+            return 3;
+        }
+    };
+
+    std.sort.sort([]const u8, keys, {}, SortContext.sort);
+    for (keys) |key| {
+        const segment_index = self.data_segments.get(key).?;
+        new_mapping.putAssumeCapacity(key, segment_index);
+    }
+    self.data_segments.deinit(self.base.allocator);
+    self.data_segments = new_mapping;
 }
 
 fn setupImports(self: *Wasm) !void {
@@ -2337,8 +2370,13 @@ fn emitNameSection(self: *Wasm, file: fs.File, arena: Allocator) !void {
         }
     }
     // data segments are already 'ordered'
-    for (self.data_segments.keys()) |key, index| {
-        segments.appendAssumeCapacity(.{ .index = @intCast(u32, index), .name = key });
+    var data_segment_index: u32 = 0;
+    for (self.data_segments.keys()) |key| {
+        // bss section is not emitted when this condition holds true, so we also
+        // do not output a name for it.
+        if (!self.base.options.import_memory and std.mem.eql(u8, key, ".bss")) continue;
+        segments.appendAssumeCapacity(.{ .index = data_segment_index, .name = key });
+        data_segment_index += 1;
     }
 
     std.sort.sort(Name, funcs.values(), {}, Name.lessThan);
