@@ -1134,3 +1134,25 @@ test "isError" {
     try std.testing.expect(isError(math.absInt(@as(i8, -128))));
     try std.testing.expect(!isError(math.absInt(@as(i8, -127))));
 }
+
+/// Return the ErrorType that the given function can return
+pub fn getReturnErrorType(comptime function: anytype) type {
+    var func_type_info = @typeInfo(@TypeOf(function));
+    if (func_type_info == .Type) func_type_info = @typeInfo(function);
+    switch (func_type_info) {
+        .Fn, .BoundFn => |func| {
+            if (func.return_type) |ret_type| {
+                switch (@typeInfo(ret_type)) {
+                    .ErrorUnion => |ret| return ret.error_set,
+                    else => return @TypeOf(error{}),
+                }
+            } else return @TypeOf(error{});
+        },
+        else => @compileError("Expected a function type"),
+    }
+}
+
+test "getReturnErrorType" {
+    try std.testing.expectEqual(std.json.StreamingParser.Error, getReturnErrorType(std.json.StreamingParser.feed));
+    try std.testing.expectEqual(@TypeOf(error{}), getReturnErrorType(std.json.StreamingParser.init));
+}
