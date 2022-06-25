@@ -1,5 +1,6 @@
 const std = @import("std");
 const Builder = std.build.Builder;
+const LibExeObjectStep = std.build.LibExeObjStep;
 
 pub fn build(b: *Builder) void {
     const mode = b.standardReleaseOptions();
@@ -7,6 +8,36 @@ pub fn build(b: *Builder) void {
     const test_step = b.step("test", "Test");
     test_step.dependOn(b.getInstallStep());
 
+    {
+        // -search_dylibs_first
+        const exe = createScenario(b, mode);
+        exe.search_strategy = .dylibs_first;
+
+        const check = exe.checkObject(.macho);
+        check.checkStart("cmd LOAD_DYLIB");
+        check.checkNext("name @rpath/liba.dylib");
+
+        test_step.dependOn(&check.step);
+
+        const run = exe.run();
+        run.cwd = b.pathFromRoot(".");
+        run.expectStdOutEqual("Hello world");
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        // -search_paths_first
+        const exe = createScenario(b, mode);
+        exe.search_strategy = .paths_first;
+
+        const run = exe.run();
+        run.cwd = b.pathFromRoot(".");
+        run.expectStdOutEqual("Hello world");
+        test_step.dependOn(&run.step);
+    }
+}
+
+fn createScenario(b: *Builder, mode: std.builtin.Mode) *LibExeObjectStep {
     const static = b.addStaticLibrary("a", null);
     static.setBuildMode(mode);
     static.addCSourceFile("a.c", &.{});
@@ -32,10 +63,6 @@ pub fn build(b: *Builder) void {
     exe.linkLibC();
     exe.addLibraryPath(b.pathFromRoot("zig-out/static"));
     exe.addLibraryPath(b.pathFromRoot("zig-out/dynamic"));
-    exe.search_strategy = .paths_first;
-
-    const run = exe.run();
-    run.cwd = b.pathFromRoot(".");
-    run.expectStdOutEqual("Hello world");
-    test_step.dependOn(&run.step);
+    exe.addRPath(b.pathFromRoot("zig-out/dynamic"));
+    return exe;
 }
