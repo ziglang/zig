@@ -61,11 +61,7 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
             .build_modes = true,
         });
 
-        cases.addBuildFile("test/link/macho/search_paths_first/build.zig", .{
-            .build_modes = true,
-        });
-
-        cases.addBuildFile("test/link/macho/search_dylibs_first/build.zig", .{
+        cases.addBuildFile("test/link/macho/search_strategy/build.zig", .{
             .build_modes = true,
         });
     }
