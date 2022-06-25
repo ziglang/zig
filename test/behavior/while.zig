@@ -256,7 +256,6 @@ fn returnWithImplicitCastFromWhileLoopTest() anyerror!void {
 }
 
 test "while on error union with else result follow else prong" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const result = while (returnError()) |value| {
@@ -266,7 +265,6 @@ test "while on error union with else result follow else prong" {
 }
 
 test "while on error union with else result follow break prong" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const result = while (returnSuccess(10)) |value| {
