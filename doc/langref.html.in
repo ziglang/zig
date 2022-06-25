@@ -9655,7 +9655,7 @@ test "integer truncation" {
       {#header_close#}
 
       {#header_open|@Type#}
-      <pre>{#syntax#}@Type(comptime info: std.builtin.TypeInfo) type{#endsyntax#}</pre>
+      <pre>{#syntax#}@Type(comptime info: std.builtin.Type) type{#endsyntax#}</pre>
       <p>
       This function is the inverse of {#link|@typeInfo#}. It reifies type information
       into a {#syntax#}type{#endsyntax#}.
@@ -9697,7 +9697,7 @@ test "integer truncation" {
       </ul>
       {#header_close#}
       {#header_open|@typeInfo#}
-      <pre>{#syntax#}@typeInfo(comptime T: type) std.builtin.TypeInfo{#endsyntax#}</pre>
+      <pre>{#syntax#}@typeInfo(comptime T: type) std.builtin.Type{#endsyntax#}</pre>
       <p>
       Provides type reflection.
       </p>
