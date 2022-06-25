@@ -541,7 +541,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 4);
+        comptime assert(Compilation.link_hash_implementation_version == 5);
 
         for (self.base.options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -555,6 +555,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         // installation sources because they are always a product of the compiler version + target information.
         man.hash.add(stack_size);
         man.hash.addOptional(self.base.options.pagezero_size);
+        man.hash.addOptional(self.base.options.search_strategy);
         man.hash.addListOfBytes(self.base.options.lib_dirs);
         man.hash.addListOfBytes(self.base.options.framework_dirs);
         man.hash.addListOfBytes(self.base.options.frameworks);
