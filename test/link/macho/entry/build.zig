@@ -24,7 +24,7 @@ pub fn build(b: *Builder) void {
     check_exe.checkInSymtab();
     check_exe.checkNext("_non_main {n_value}");
 
-    check_exe.checkComputeEq("vmaddr entryoff +", "n_value");
+    check_exe.checkComputeCompare("vmaddr entryoff +", .{ .op = .eq, .value = .{ .variable = "n_value" } });
 
     test_step.dependOn(&check_exe.step);
 

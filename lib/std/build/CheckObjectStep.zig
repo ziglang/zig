@@ -3,6 +3,7 @@ const assert = std.debug.assert;
 const build = std.build;
 const fs = std.fs;
 const macho = std.macho;
+const math = std.math;
 const mem = std.mem;
 const testing = std.testing;
 
@@ -36,20 +37,24 @@ pub fn create(builder: *Builder, source: build.FileSource, obj_format: std.Targe
     return self;
 }
 
-const Action = union(enum) {
-    match: MatchAction,
-    compute_eq: ComputeEqAction,
-};
-
-/// MatchAction is the main building block of standard matchers with optional eat-all token `{*}`
+/// There two types of actions currently suported:
+/// * `.match` - is the main building block of standard matchers with optional eat-all token `{*}`
 /// and extractors by name such as `{n_value}`. Please note this action is very simplistic in nature
 /// i.e., it won't really handle edge cases/nontrivial examples. But given that we do want to use
 /// it mainly to test the output of our object format parser-dumpers when testing the linkers, etc.
 /// it should be plenty useful in its current form.
-const MatchAction = struct {
-    needle: []const u8,
+/// * `.compute_cmp` - can be used to perform an operation on the extracted global variables
+/// using the MatchAction. It currently only supports an addition. The operation is required
+/// to be specified in Reverse Polish Notation to ease in operator-precedence parsing (well,
+/// to avoid any parsing really).
+/// For example, if the two extracted values were saved as `vmaddr` and `entryoff` respectively
+/// they could then be added with this simple program `vmaddr entryoff +`.
+const Action = struct {
+    tag: enum { match, compute_cmp },
+    phrase: []const u8,
+    expected: ?ComputeCompareExpected = null,
 
-    /// Will return true if the `needle` was found in the `haystack`.
+    /// Will return true if the `phrase` was found in the `haystack`.
     /// Some examples include:
     ///
     /// LC 0                     => will match in its entirety
@@ -57,9 +62,11 @@ const MatchAction = struct {
     ///                             and save under `vmaddr` global name (see `global_vars` param)
     /// name {*}libobjc{*}.dylib => will match `name` followed by a token which contains `libobjc` and `.dylib`
     ///                             in that order with other letters in between
-    fn match(act: MatchAction, haystack: []const u8, global_vars: anytype) !bool {
+    fn match(act: Action, haystack: []const u8, global_vars: anytype) !bool {
+        assert(act.tag == .match);
+
         var hay_it = mem.tokenize(u8, mem.trim(u8, haystack, " "), " ");
-        var needle_it = mem.tokenize(u8, mem.trim(u8, act.needle, " "), " ");
+        var needle_it = mem.tokenize(u8, mem.trim(u8, act.phrase, " "), " ");
 
         while (needle_it.next()) |needle_tok| {
             const hay_tok = hay_it.next() orelse return false;
@@ -93,22 +100,80 @@ const MatchAction = struct {
 
         return true;
     }
+
+    /// Will return true if the `phrase` is correctly parsed into an RPN program and
+    /// its reduced, computed value compares using `op` with the expected value, either
+    /// a literal or another extracted variable.
+    fn computeCmp(act: Action, gpa: Allocator, global_vars: anytype) !bool {
+        var op_stack = std.ArrayList(enum { add }).init(gpa);
+        var values = std.ArrayList(u64).init(gpa);
+
+        var it = mem.tokenize(u8, act.phrase, " ");
+        while (it.next()) |next| {
+            if (mem.eql(u8, next, "+")) {
+                try op_stack.append(.add);
+            } else {
+                const val = global_vars.get(next) orelse {
+                    std.debug.print(
+                        \\
+                        \\========= Variable was not extracted: ===========
+                        \\{s}
+                        \\
+                    , .{next});
+                    return error.UnknownVariable;
+                };
+                try values.append(val);
+            }
+        }
+
+        var op_i: usize = 1;
+        var reduced: u64 = values.items[0];
+        for (op_stack.items) |op| {
+            const other = values.items[op_i];
+            switch (op) {
+                .add => {
+                    reduced += other;
+                },
+            }
+        }
+
+        const exp_value = switch (act.expected.?.value) {
+            .variable => |name| global_vars.get(name) orelse {
+                std.debug.print(
+                    \\
+                    \\========= Variable was not extracted: ===========
+                    \\{s}
+                    \\
+                , .{name});
+                return error.UnknownVariable;
+            },
+            .literal => |x| x,
+        };
+        return math.compare(reduced, act.expected.?.op, exp_value);
+    }
 };
 
-/// ComputeEqAction can be used to perform an operation on the extracted global variables
-/// using the MatchAction. It currently only supports an addition. The operation is required
-/// to be specified in Reverse Polish Notation to ease in operator-precedence parsing (well,
-/// to avoid any parsing really).
-/// For example, if the two extracted values were saved as `vmaddr` and `entryoff` respectively
-/// they could then be added with this simple program `vmaddr entryoff +`.
-const ComputeEqAction = struct {
-    expected: []const u8,
-    var_stack: std.ArrayList([]const u8),
-    op_stack: std.ArrayList(Op),
+const ComputeCompareExpected = struct {
+    op: math.CompareOperator,
+    value: union(enum) {
+        variable: []const u8,
+        literal: u64,
+    },
 
-    const Op = enum {
-        add,
-    };
+    pub fn format(
+        value: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+        try writer.print("{s} ", .{@tagName(value.op)});
+        switch (value.value) {
+            .variable => |name| try writer.writeAll(name),
+            .literal => |x| try writer.print("{x}", .{x}),
+        }
+    }
 };
 
 const Check = struct {
@@ -122,15 +187,18 @@ const Check = struct {
         };
     }
 
-    fn match(self: *Check, needle: []const u8) void {
+    fn match(self: *Check, phrase: []const u8) void {
         self.actions.append(.{
-            .match = .{ .needle = self.builder.dupe(needle) },
+            .tag = .match,
+            .phrase = self.builder.dupe(phrase),
         }) catch unreachable;
     }
 
-    fn computeEq(self: *Check, act: ComputeEqAction) void {
+    fn computeCmp(self: *Check, phrase: []const u8, expected: ComputeCompareExpected) void {
         self.actions.append(.{
-            .compute_eq = act,
+            .tag = .compute_cmp,
+            .phrase = self.builder.dupe(phrase),
+            .expected = expected,
         }) catch unreachable;
     }
 };
@@ -165,25 +233,13 @@ pub fn checkInSymtab(self: *CheckObjectStep) void {
 /// Creates a new standalone, singular check which allows running simple binary operations
 /// on the extracted variables. It will then compare the reduced program with the value of
 /// the expected variable.
-pub fn checkComputeEq(self: *CheckObjectStep, program: []const u8, expected: []const u8) void {
-    const gpa = self.builder.allocator;
-    var ca = ComputeEqAction{
-        .expected = expected,
-        .var_stack = std.ArrayList([]const u8).init(gpa),
-        .op_stack = std.ArrayList(ComputeEqAction.Op).init(gpa),
-    };
-
-    var it = mem.tokenize(u8, program, " ");
-    while (it.next()) |next| {
-        if (mem.eql(u8, next, "+")) {
-            ca.op_stack.append(.add) catch unreachable;
-        } else {
-            ca.var_stack.append(self.builder.dupe(next)) catch unreachable;
-        }
-    }
-
+pub fn checkComputeCompare(
+    self: *CheckObjectStep,
+    program: []const u8,
+    expected: ComputeCompareExpected,
+) void {
     var new_check = Check.create(self.builder);
-    new_check.computeEq(ca);
+    new_check.computeCmp(program, expected);
     self.checks.append(new_check) catch unreachable;
 }
 
@@ -210,10 +266,10 @@ fn make(step: *Step) !void {
     for (self.checks.items) |chk| {
         var it = mem.tokenize(u8, output, "\r\n");
         for (chk.actions.items) |act| {
-            switch (act) {
-                .match => |match_act| {
+            switch (act.tag) {
+                .match => {
                     while (it.next()) |line| {
-                        if (try match_act.match(line, &vars)) break;
+                        if (try act.match(line, &vars)) break;
                     } else {
                         std.debug.print(
                             \\
@@ -222,51 +278,33 @@ fn make(step: *Step) !void {
                             \\========= But parsed file does not contain it: =======
                             \\{s}
                             \\
-                        , .{ match_act.needle, output });
+                        , .{ act.phrase, output });
                         return error.TestFailed;
                     }
                 },
-                .compute_eq => |c_eq| {
-                    var values = std.ArrayList(u64).init(gpa);
-                    try values.ensureTotalCapacity(c_eq.var_stack.items.len);
-                    for (c_eq.var_stack.items) |vv| {
-                        const val = vars.get(vv) orelse {
+                .compute_cmp => {
+                    const res = act.computeCmp(gpa, vars) catch |err| switch (err) {
+                        error.UnknownVariable => {
                             std.debug.print(
-                                \\
-                                \\========= Variable was not extracted: ===========
-                                \\{s}
                                 \\========= From parsed file: =====================
                                 \\{s}
                                 \\
-                            , .{ vv, output });
+                            , .{output});
                             return error.TestFailed;
-                        };
-                        values.appendAssumeCapacity(val);
-                    }
-
-                    var op_i: usize = 1;
-                    var reduced: u64 = values.items[0];
-                    for (c_eq.op_stack.items) |op| {
-                        const other = values.items[op_i];
-                        switch (op) {
-                            .add => {
-                                reduced += other;
-                            },
-                        }
-                    }
-
-                    const expected = vars.get(c_eq.expected) orelse {
+                        },
+                        else => |e| return e,
+                    };
+                    if (!res) {
                         std.debug.print(
                             \\
-                            \\========= Variable was not extracted: ===========
-                            \\{s}
-                            \\========= From parsed file: =====================
+                            \\========= Comparison failed for action: ===========
+                            \\{s} {s}
+                            \\========= From parsed file: =======================
                             \\{s}
                             \\
-                        , .{ c_eq.expected, output });
+                        , .{ act.phrase, act.expected.?, output });
                         return error.TestFailed;
-                    };
-                    try testing.expectEqual(reduced, expected);
+                    }
                 },
             }
         }
@@ -349,6 +387,23 @@ const MachODumper = struct {
                     seg.fileoff,
                     seg.filesize,
                 });
+
+                for (lc.segment.sections.items) |sect| {
+                    try writer.writeByte('\n');
+                    try writer.print(
+                        \\sectname {s}
+                        \\addr {x}
+                        \\size {x}
+                        \\offset {x}
+                        \\align {x}
+                    , .{
+                        sect.sectName(),
+                        sect.addr,
+                        sect.size,
+                        sect.offset,
+                        sect.@"align",
+                    });
+                }
             },
 
             .ID_DYLIB,

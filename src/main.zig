@@ -450,6 +450,8 @@ const usage_build_generic =
     \\  -pagezero_size [value]         (Darwin) size of the __PAGEZERO segment in hexadecimal notation
     \\  -search_paths_first            (Darwin) search each dir in library search paths for `libx.dylib` then `libx.a`
     \\  -search_dylibs_first           (Darwin) search `libx.dylib` in each dir in library search paths, then `libx.a`
+    \\  -headerpad [value]             (Darwin) set minimum space for future expansion of the load commands in hexadecimal notation
+    \\  -headerpad_max_install_names   (Darwin) set enough space as if all paths were MAXPATHLEN
     \\  --import-memory                (WebAssembly) import memory from the environment
     \\  --import-table                 (WebAssembly) import function table from the host environment
     \\  --export-table                 (WebAssembly) export function table to the host environment
@@ -699,6 +701,8 @@ fn buildOutputType(
     var entitlements: ?[]const u8 = null;
     var pagezero_size: ?u64 = null;
     var search_strategy: ?link.File.MachO.SearchStrategy = null;
+    var headerpad_size: ?u32 = null;
+    var headerpad_max_install_names: bool = false;
 
     // e.g. -m3dnow or -mno-outline-atomics. They correspond to std.Target llvm cpu feature names.
     // This array is populated by zig cc frontend and then has to be converted to zig-style
@@ -924,6 +928,15 @@ fn buildOutputType(
                         search_strategy = .paths_first;
                     } else if (mem.eql(u8, arg, "-search_dylibs_first")) {
                         search_strategy = .dylibs_first;
+                    } else if (mem.eql(u8, arg, "-headerpad")) {
+                        const next_arg = args_iter.next() orelse {
+                            fatal("expected parameter after {s}", .{arg});
+                        };
+                        headerpad_size = std.fmt.parseUnsigned(u32, eatIntPrefix(next_arg, 16), 16) catch |err| {
+                            fatal("unable to parser '{s}': {s}", .{ arg, @errorName(err) });
+                        };
+                    } else if (mem.eql(u8, arg, "-headerpad_max_install_names")) {
+                        headerpad_max_install_names = true;
                     } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
                         linker_script = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
@@ -1676,6 +1689,17 @@ fn buildOutputType(
                     pagezero_size = std.fmt.parseUnsigned(u64, eatIntPrefix(next_arg, 16), 16) catch |err| {
                         fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
                     };
+                } else if (mem.eql(u8, arg, "-headerpad")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    const next_arg = linker_args.items[i];
+                    headerpad_size = std.fmt.parseUnsigned(u32, eatIntPrefix(next_arg, 16), 16) catch |err| {
+                        fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
+                    };
+                } else if (mem.eql(u8, arg, "-headerpad_max_install_names")) {
+                    headerpad_max_install_names = true;
                 } else if (mem.eql(u8, arg, "--gc-sections")) {
                     linker_gc_sections = true;
                 } else if (mem.eql(u8, arg, "--no-gc-sections")) {
@@ -2795,6 +2819,8 @@ fn buildOutputType(
         .entitlements = entitlements,
         .pagezero_size = pagezero_size,
         .search_strategy = search_strategy,
+        .headerpad_size = headerpad_size,
+        .headerpad_max_install_names = headerpad_max_install_names,
     }) catch |err| switch (err) {
         error.LibCUnavailable => {
             const target = target_info.target;
