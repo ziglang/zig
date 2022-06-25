@@ -969,7 +969,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) !
         man = comp.cache_parent.obtain();
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 5);
+        comptime assert(Compilation.link_hash_implementation_version == 6);
 
         for (self.base.options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
