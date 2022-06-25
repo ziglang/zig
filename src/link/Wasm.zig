@@ -1143,9 +1143,29 @@ pub fn addOrUpdateImport(
     } else @panic("TODO: Implement undefined symbols for non-function declarations");
 }
 
+/// Kind represents the type of an Atom, which is only
+/// used to parse a decl into an Atom to define in which section
+/// or segment it should be placed.
 const Kind = union(enum) {
-    data: void,
+    /// Represents the segment the data symbol should
+    /// be inserted into.
+    /// TODO: Add TLS segments
+    data: enum {
+        read_only,
+        uninitialized,
+        initialized,
+    },
     function: FnData,
+
+    /// Returns the segment name the data kind represents.
+    /// Asserts `kind` has its active tag set to `data`.
+    fn segmentName(kind: Kind) []const u8 {
+        switch (kind.data) {
+            .read_only => return ".rodata.",
+            .uninitialized => return ".bss.",
+            .initialized => return ".data.",
+        }
+    }
 };
 
 /// Parses an Atom and inserts its metadata into the corresponding sections.
@@ -1174,9 +1194,8 @@ fn parseAtom(self: *Wasm, atom: *Atom, kind: Kind) !void {
             break :result self.code_section_index.?;
         },
         .data => result: {
-            // TODO: Add mutables global decls to .bss section instead
             const segment_name = try std.mem.concat(self.base.allocator, u8, &.{
-                ".rodata.",
+                kind.segmentName(),
                 self.string_table.get(symbol.name),
             });
             errdefer self.base.allocator.free(segment_name);
@@ -1236,6 +1255,9 @@ fn parseAtom(self: *Wasm, atom: *Atom, kind: Kind) !void {
 }
 
 fn allocateAtoms(self: *Wasm) !void {
+    // first sort the data segments
+    try sortDataSegments(self);
+
     var it = self.atoms.iterator();
     while (it.next()) |entry| {
         const segment = &self.segments.items[entry.key_ptr.*];
@@ -1257,6 +1279,36 @@ fn allocateAtoms(self: *Wasm) !void {
         }
         segment.size = std.mem.alignForwardGeneric(u32, offset, segment.alignment);
     }
+}
+
+fn sortDataSegments(self: *Wasm) !void {
+    var new_mapping: std.StringArrayHashMapUnmanaged(u32) = .{};
+    try new_mapping.ensureUnusedCapacity(self.base.allocator, self.data_segments.count());
+    errdefer new_mapping.deinit(self.base.allocator);
+
+    const keys = try self.base.allocator.dupe([]const u8, self.data_segments.keys());
+    defer self.base.allocator.free(keys);
+
+    const SortContext = struct {
+        fn sort(_: void, lhs: []const u8, rhs: []const u8) bool {
+            return order(lhs) <= order(rhs);
+        }
+
+        fn order(name: []const u8) u8 {
+            if (mem.startsWith(u8, name, ".rodata")) return 0;
+            if (mem.startsWith(u8, name, ".data")) return 1;
+            if (mem.startsWith(u8, name, ".text")) return 2;
+            return 3;
+        }
+    };
+
+    std.sort.sort([]const u8, keys, {}, SortContext.sort);
+    for (keys) |key| {
+        const segment_index = self.data_segments.get(key).?;
+        new_mapping.putAssumeCapacity(key, segment_index);
+    }
+    self.data_segments.deinit(self.base.allocator);
+    self.data_segments = new_mapping;
 }
 
 fn setupImports(self: *Wasm) !void {
@@ -1722,8 +1774,8 @@ fn populateErrorNameTable(self: *Wasm) !void {
 
     // link the atoms with the rest of the binary so they can be allocated
     // and relocations will be performed.
-    try self.parseAtom(atom, .data);
-    try self.parseAtom(names_atom, .data);
+    try self.parseAtom(atom, .{ .data = .read_only });
+    try self.parseAtom(names_atom, .{ .data = .read_only });
 }
 
 pub fn getDebugInfoIndex(self: *Wasm) !u32 {
@@ -1866,13 +1918,21 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         const atom = &decl.*.link.wasm;
         if (decl.ty.zigTypeTag() == .Fn) {
             try self.parseAtom(atom, .{ .function = decl.fn_link.wasm });
+        } else if (decl.getVariable()) |variable| {
+            if (!variable.is_mutable) {
+                try self.parseAtom(atom, .{ .data = .read_only });
+            } else if (variable.init.isUndefDeep()) {
+                try self.parseAtom(atom, .{ .data = .uninitialized });
+            } else {
+                try self.parseAtom(atom, .{ .data = .initialized });
+            }
         } else {
-            try self.parseAtom(atom, .data);
+            try self.parseAtom(atom, .{ .data = .read_only });
         }
 
         // also parse atoms for a decl's locals
         for (atom.locals.items) |*local_atom| {
-            try self.parseAtom(local_atom, .data);
+            try self.parseAtom(local_atom, .{ .data = .read_only });
         }
     }
 
@@ -2167,7 +2227,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         while (it.next()) |entry| {
             // do not output 'bss' section unless we import memory and therefore
             // want to guarantee the data is zero initialized
-            if (std.mem.eql(u8, entry.key_ptr.*, ".bss") and !import_memory) continue;
+            if (!import_memory and std.mem.eql(u8, entry.key_ptr.*, ".bss")) continue;
             segment_count += 1;
             const atom_index = entry.value_ptr.*;
             var atom: *Atom = self.atoms.getPtr(atom_index).?.*.getFirst();
@@ -2310,8 +2370,13 @@ fn emitNameSection(self: *Wasm, file: fs.File, arena: Allocator) !void {
         }
     }
     // data segments are already 'ordered'
-    for (self.data_segments.keys()) |key, index| {
-        segments.appendAssumeCapacity(.{ .index = @intCast(u32, index), .name = key });
+    var data_segment_index: u32 = 0;
+    for (self.data_segments.keys()) |key| {
+        // bss section is not emitted when this condition holds true, so we also
+        // do not output a name for it.
+        if (!self.base.options.import_memory and std.mem.eql(u8, key, ".bss")) continue;
+        segments.appendAssumeCapacity(.{ .index = data_segment_index, .name = key });
+        data_segment_index += 1;
     }
 
     std.sort.sort(Name, funcs.values(), {}, Name.lessThan);
