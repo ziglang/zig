@@ -5,7 +5,6 @@ const ptr_size = @sizeOf(usize);
 
 test "type pun signed and unsigned as single pointer" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     comptime {
         var x: u32 = 0;

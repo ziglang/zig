@@ -84,7 +84,6 @@ test "assigning integer to C pointer" {
 
 test "C pointer comparison and arithmetic" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -430,7 +429,6 @@ test "indexing array with sentinel returns correct type" {
 
 test "element pointer to slice" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -452,7 +450,6 @@ test "element pointer to slice" {
 
 test "element pointer arithmetic to slice" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -476,8 +473,6 @@ test "element pointer arithmetic to slice" {
 }
 
 test "array slicing to slice" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-
     const S = struct {
         fn doTheTest() !void {
             var str: [5]i32 = [_]i32{ 1, 2, 3, 4, 5 };

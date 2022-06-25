@@ -197,7 +197,6 @@ fn addPointCoords(pt: Point) i32 {
 }
 
 test "pass by non-copying value through var arg" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     try expect((try addPointCoordsVar(Point{ .x = 1, .y = 2 })) == 3);

@@ -204,7 +204,6 @@ test "opaque types" {
     }
 
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     try expect(*OpaqueA != *OpaqueB);
 
@@ -365,7 +364,6 @@ fn testMemcpyMemset() !void {
 }
 
 test "variable is allowed to be a pointer to an opaque type" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     var x: i32 = 1234;
@@ -457,7 +455,6 @@ fn testArray2DConstDoublePtr(ptr: *const f32) !void {
 
 test "double implicit cast in same expression" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     var x = @as(i32, @as(u16, nine()));
     try expect(x == 9);
@@ -616,8 +613,6 @@ test "self reference through fn ptr field" {
 }
 
 test "global variable initialized to global variable array element" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     try expect(global_ptr == &gdt[0]);
 }
 const GDTEntry = struct {
@@ -681,7 +676,6 @@ test "explicit cast optional pointers" {
 }
 
 test "pointer comparison" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const a = @as([]const u8, "a");
@@ -787,7 +781,6 @@ test "pointer to thread local array" {
 threadlocal var buffer: [11]u8 = undefined;
 
 test "auto created variables have correct alignment" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -889,7 +882,6 @@ test "labeled block implicitly ends in a break" {
 test "catch in block has correct result location" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const S = struct {
         fn open() error{A}!@This() {
@@ -920,7 +912,6 @@ test "labeled block with runtime branch forwards its result location type to bre
 
 test "try in labeled block doesn't cast to wrong type" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const S = struct {
         a: u32,

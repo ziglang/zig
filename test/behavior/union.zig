@@ -36,7 +36,6 @@ test "init union with runtime value - floats" {
 }
 
 test "basic unions" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var foo = Foo{ .int = 1 };
@@ -91,7 +90,6 @@ const FooExtern = extern union {
 };
 
 test "basic extern unions" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var foo = FooExtern{ .int = 1 };
@@ -398,7 +396,6 @@ test "tagged union with no payloads" {
 }
 
 test "union with only 1 field casted to its enum type" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const Literal = union(enum) {
@@ -487,7 +484,6 @@ test "union initializer generates padding only if needed" {
 }
 
 test "runtime tag name with single field" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const U = union(enum) {
@@ -540,7 +536,6 @@ const Baz = enum { A, B, C, D };
 
 test "tagged union type" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const foo1 = TaggedFoo{ .One = 13 };
@@ -670,7 +665,6 @@ const PartialInstWithPayload = union(enum) {
 };
 
 test "union with only 1 field casted to its enum type which has enum value specified" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const Literal = union(enum) {
@@ -1110,7 +1104,6 @@ test "union enum type gets a separate scope" {
 
 test "global variable struct contains union initialized to non-most-aligned field" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const T = struct {
         const U = union(enum) {

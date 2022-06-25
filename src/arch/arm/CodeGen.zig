@@ -1002,18 +1002,35 @@ fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
     if (self.liveness.isUnused(inst))
         return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
 
-    const operand_ty = self.air.typeOf(ty_op.operand);
     const operand = try self.resolveInst(ty_op.operand);
+    const operand_ty = self.air.typeOf(ty_op.operand);
+    const dest_ty = self.air.typeOfIndex(inst);
+
+    const operand_abi_size = operand_ty.abiSize(self.target.*);
+    const dest_abi_size = dest_ty.abiSize(self.target.*);
     const info_a = operand_ty.intInfo(self.target.*);
-    const info_b = self.air.typeOfIndex(inst).intInfo(self.target.*);
-    if (info_a.signedness != info_b.signedness)
-        return self.fail("TODO gen intcast sign safety in semantic analysis", .{});
+    const info_b = dest_ty.intInfo(self.target.*);
 
-    if (info_a.bits == info_b.bits)
-        return self.finishAir(inst, operand, .{ ty_op.operand, .none, .none });
+    const dst_mcv: MCValue = blk: {
+        if (info_a.bits == info_b.bits) {
+            break :blk operand;
+        }
+        if (operand_abi_size > 4 or dest_abi_size > 4) {
+            return self.fail("TODO implement intCast for abi sizes larger than 4", .{});
+        }
 
-    return self.fail("TODO implement intCast for {}", .{self.target.cpu.arch});
-    // return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+        const operand_lock: ?RegisterLock = switch (operand) {
+            .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+            else => null,
+        };
+        defer if (operand_lock) |lock| self.register_manager.unlockReg(lock);
+
+        const reg = try self.register_manager.allocReg(inst, gp);
+        try self.genSetReg(dest_ty, reg, operand);
+        break :blk MCValue{ .register = reg };
+    };
+
+    return self.finishAir(inst, dst_mcv, .{ ty_op.operand, .none, .none });
 }
 
 fn truncRegister(
@@ -1880,7 +1897,22 @@ fn airSetErrReturnTrace(self: *Self, inst: Air.Inst.Index) !void {
 /// T to E!T
 fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement wrap errunion payload for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const error_union_ty = self.air.getRefType(ty_op.ty);
+        const payload_ty = error_union_ty.errorUnionPayload();
+        const operand = try self.resolveInst(ty_op.operand);
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime()) break :result operand;
+
+        const abi_size = @intCast(u32, error_union_ty.abiSize(self.target.*));
+        const abi_align = error_union_ty.abiAlignment(self.target.*);
+        const stack_offset = @intCast(u32, try self.allocMem(inst, abi_size, abi_align));
+        const payload_off = errUnionPayloadOffset(payload_ty, self.target.*);
+        const err_off = errUnionErrorOffset(payload_ty, self.target.*);
+        try self.genSetStack(payload_ty, stack_offset - @intCast(u32, payload_off), operand);
+        try self.genSetStack(Type.anyerror, stack_offset - @intCast(u32, err_off), .{ .immediate = 0 });
+
+        break :result MCValue{ .stack_offset = stack_offset };
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -1890,10 +1922,18 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const error_union_ty = self.air.getRefType(ty_op.ty);
         const payload_ty = error_union_ty.errorUnionPayload();
-        const mcv = try self.resolveInst(ty_op.operand);
-        if (!payload_ty.hasRuntimeBits()) break :result mcv;
+        const operand = try self.resolveInst(ty_op.operand);
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime()) break :result operand;
 
-        return self.fail("TODO implement wrap errunion error for non-empty payloads", .{});
+        const abi_size = @intCast(u32, error_union_ty.abiSize(self.target.*));
+        const abi_align = error_union_ty.abiAlignment(self.target.*);
+        const stack_offset = @intCast(u32, try self.allocMem(inst, abi_size, abi_align));
+        const payload_off = errUnionPayloadOffset(payload_ty, self.target.*);
+        const err_off = errUnionErrorOffset(payload_ty, self.target.*);
+        try self.genSetStack(Type.anyerror, stack_offset - @intCast(u32, err_off), operand);
+        try self.genSetStack(payload_ty, stack_offset - @intCast(u32, payload_off), .undef);
+
+        break :result MCValue{ .stack_offset = stack_offset };
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
@@ -4273,7 +4313,7 @@ fn br(self: *Self, block: Air.Inst.Index, operand: Air.Inst.Ref) !void {
             block_data.mcv = switch (operand_mcv) {
                 .none, .dead, .unreach => unreachable,
                 .register, .stack_offset, .memory => operand_mcv,
-                .immediate, .stack_argument_offset => blk: {
+                .immediate, .stack_argument_offset, .cpsr_flags => blk: {
                     const new_mcv = try self.allocRegOrMem(block, true);
                     try self.setRegOrMem(self.air.typeOfIndex(block), new_mcv, operand_mcv);
                     break :blk new_mcv;
