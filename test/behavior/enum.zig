@@ -24,7 +24,6 @@ fn testIntToEnumEval(x: i32) !void {
 const IntToEnumNumber = enum { Zero, One, Two, Three, Four };
 
 test "int to enum" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     try testIntToEnumEval(3);

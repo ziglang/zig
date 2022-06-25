@@ -4,7 +4,6 @@ const testing = std.testing;
 
 test {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const g: error{Test}!void = error.Test;
 
