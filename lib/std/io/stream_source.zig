@@ -28,8 +28,8 @@ pub const StreamSource = union(enum) {
     pub const SeekError = io.FixedBufferStream([]u8).SeekError || (if (has_file) ReadSeekError || WriteSeekError else error{});
     pub const GetSeekPosError = io.FixedBufferStream([]u8).GetSeekPosError || (if (has_file) std.fs.File.GetSeekPosError else error{});
 
-    pub const Reader = io.SeekableReader(*StreamSource, ReadError, SeekError, GetSeekPosError, read);
-    pub const Writer = io.SeekableWriter(*StreamSource, WriteError, SeekError, GetSeekPosError, write);
+    pub const Reader = io.SeekableReader(*StreamSource, ReadError, read);
+    pub const Writer = io.SeekableWriter(*StreamSource, WriteError, write);
 
     pub fn fromBuffer(buffer: []u8) StreamSource {
         return .{ .buffer = io.fixedBufferStream(buffer) };

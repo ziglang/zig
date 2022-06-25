@@ -17,7 +17,7 @@ pub fn BufferedWriter(comptime buffer_size: usize, comptime WriterType: type) ty
         pub usingnamespace if (@hasDecl(WriterType, "seek_interface_id")) struct {
             pub const SeekError = WriterType.SeekError || Error;
             pub const GetSeekPosError = WriterType.GetSeekPosError;
-            pub const Writer = io.SeekableWriter(*Self, Error, SeekError, GetSeekPosError, write);
+            pub const Writer = io.SeekableWriter(*Self, Error, write);
 
             pub fn seekTo(self: *Self, pos: u64) SeekError!void {
                 try self.flush();

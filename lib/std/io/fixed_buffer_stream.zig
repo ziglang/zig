@@ -17,8 +17,8 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
         pub const SeekError = error{};
         pub const GetSeekPosError = error{};
 
-        pub const Reader = io.SeekableReader(*Self, ReadError, SeekError, GetSeekPosError, read);
-        pub const Writer = io.SeekableWriter(*Self, WriteError, SeekError, GetSeekPosError, write);
+        pub const Reader = io.SeekableReader(*Self, ReadError, read);
+        pub const Writer = io.SeekableWriter(*Self, WriteError, write);
 
         const Self = @This();
 

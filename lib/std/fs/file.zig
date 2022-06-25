@@ -1359,13 +1359,13 @@ pub const File = struct {
         }
     }
 
-    pub const Reader = io.SeekableReader(File, ReadError, SeekError, GetSeekPosError, read);
+    pub const Reader = io.SeekableReader(File, ReadError, read);
 
     pub fn reader(file: File) Reader {
         return .{ .context = file };
     }
 
-    pub const Writer = io.SeekableWriter(File, WriteError, SeekError, GetSeekPosError, write);
+    pub const Writer = io.SeekableWriter(File, WriteError, write);
 
     pub fn writer(file: File) Writer {
         return .{ .context = file };

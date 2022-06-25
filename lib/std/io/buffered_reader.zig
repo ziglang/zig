@@ -15,7 +15,7 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) ty
         pub usingnamespace if (@hasDecl(ReaderType, "seek_interface_id")) struct {
             pub const SeekError = ReaderType.SeekError;
             pub const GetSeekPosError = ReaderType.GetSeekPosError;
-            pub const Reader = io.SeekableReader(*Self, Error, SeekError, GetSeekPosError, read);
+            pub const Reader = io.SeekableReader(*Self, Error, read);
 
             pub fn seekTo(self: *Self, pos: u64) SeekError!void {
                 // We discard the buffer cause we can't know if we will end up within it

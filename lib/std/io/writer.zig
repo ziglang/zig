@@ -20,8 +20,6 @@ pub fn Writer(
 pub fn SeekableWriter(
     comptime Context: type,
     comptime WriteError: type,
-    comptime SeekErrorType: type,
-    comptime GetSeekPosErrorType: type,
     /// Returns the number of bytes read. It may be less than buffer.len.
     /// If the number of bytes read is 0, it means end of stream.
     /// End of stream is not an error condition.
@@ -34,7 +32,7 @@ pub fn SeekableWriter(
 
         pub usingnamespace WriterMethods(Self, Context, WriteError, writeFn);
 
-        pub usingnamespace SeekMethods(Self, SeekErrorType, GetSeekPosErrorType);
+        pub usingnamespace SeekMethods(Self, Context);
     };
 }
 
