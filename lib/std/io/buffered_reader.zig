@@ -89,7 +89,7 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) ty
 
             self.end = try self.unbuffered_reader.read(self.buffer[0..]);
             if (remaining_size > self.end) remaining_size = self.end;
-            std.mem.copy(u8, dest[available..available + remaining_size], self.buffer[0..remaining_size]);
+            std.mem.copy(u8, dest[available .. available + remaining_size], self.buffer[0..remaining_size]);
             self.start = remaining_size;
             return available + remaining_size;
         }

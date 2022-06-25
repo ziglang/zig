@@ -112,10 +112,10 @@ test "io.SeekableBufferedWriter" {
     try testing.expectEqualSlices(u8, "z" ** 20, dest[0..]);
     try writer.seekBy(-5); // Seeking bellow the buffer will do a flush
     try testing.expectEqual(@as(usize, 0), try writer.getPos());
-    try testing.expectEqualSlices(u8, "zzzzz" ++ str, dest[0..str.len + 5]);
+    try testing.expectEqualSlices(u8, "zzzzz" ++ str, dest[0 .. str.len + 5]);
     try writer.writeAll(str[0..5]);
     try testing.expectEqual(@as(usize, 5), try writer.getPos());
-    try testing.expectEqualSlices(u8, "zzzzz" ++ str, dest[0..str.len + 5]);
+    try testing.expectEqualSlices(u8, "zzzzz" ++ str, dest[0 .. str.len + 5]);
     try buf_writer.flush();
-    try testing.expectEqualSlices(u8, "This " ++ str, dest[0..str.len + 5]);
+    try testing.expectEqualSlices(u8, "This " ++ str, dest[0 .. str.len + 5]);
 }

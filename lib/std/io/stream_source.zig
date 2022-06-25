@@ -21,8 +21,8 @@ pub const StreamSource = union(enum) {
     readable_file: if (has_file) io.BufferedReader(4096, std.fs.File.Reader) else void,
     writeable_file: if (has_file) io.BufferedWriter(4096, std.fs.File.Writer) else void,
 
-    const ReadSeekError = if (has_file) io.BufferedReader(4096, std.fs.File.Reader).SeekError else error {};
-    const WriteSeekError = if (has_file) io.BufferedWriter(4096, std.fs.File.Writer).SeekError else error {};
+    const ReadSeekError = if (has_file) io.BufferedReader(4096, std.fs.File.Reader).SeekError else error{};
+    const WriteSeekError = if (has_file) io.BufferedWriter(4096, std.fs.File.Writer).SeekError else error{};
     pub const ReadError = io.FixedBufferStream([]u8).ReadError || (if (has_file) std.fs.File.ReadError else error{});
     pub const WriteError = error{AccessDenied} || io.FixedBufferStream([]u8).WriteError || (if (has_file) std.fs.File.WriteError else error{});
     pub const SeekError = io.FixedBufferStream([]u8).SeekError || (if (has_file) ReadSeekError || WriteSeekError else error{});
@@ -38,12 +38,12 @@ pub const StreamSource = union(enum) {
     pub fn fromConstBuffer(buffer: []const u8) StreamSource {
         return .{ .const_buffer = io.fixedBufferStream(buffer) };
     }
-    
+
     pub usingnamespace if (has_file) struct {
         pub fn fromFileReader(file_reader: std.fs.File.Reader) StreamSource {
             return .{ .readable_file = io.bufferedReader(file_reader) };
         }
-        
+
         pub fn fromFileWriter(file_writer: std.fs.File.Writer) StreamSource {
             return .{ .writeable_file = io.bufferedWriter(file_writer) };
         }
