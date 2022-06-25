@@ -39,7 +39,6 @@ fn addSomeStuff(args: anytype) i32 {
 }
 
 test "runtime parameter before var args" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try expect((try extraFn(10, .{})) == 0);
