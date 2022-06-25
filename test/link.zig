@@ -60,5 +60,9 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
         cases.addBuildFile("test/link/macho/stack_size/build.zig", .{
             .build_modes = true,
         });
+
+        cases.addBuildFile("test/link/macho/search_strategy/build.zig", .{
+            .build_modes = true,
+        });
     }
 }

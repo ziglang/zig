@@ -905,6 +905,8 @@ pub const InitOptions = struct {
     entitlements: ?[]const u8 = null,
     /// (Darwin) size of the __PAGEZERO segment
     pagezero_size: ?u64 = null,
+    /// (Darwin) search strategy for system libraries
+    search_strategy: ?link.File.MachO.SearchStrategy = null,
 };
 
 fn addPackageTableToCacheHash(
@@ -1745,6 +1747,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .install_name = options.install_name,
             .entitlements = options.entitlements,
             .pagezero_size = options.pagezero_size,
+            .search_strategy = options.search_strategy,
         });
         errdefer bin_file.destroy();
         comp.* = .{
@@ -2360,7 +2363,7 @@ fn prepareWholeEmitSubPath(arena: Allocator, opt_emit: ?EmitLoc) error{OutOfMemo
 /// to remind the programmer to update multiple related pieces of code that
 /// are in different locations. Bump this number when adding or deleting
 /// anything from the link cache manifest.
-pub const link_hash_implementation_version = 4;
+pub const link_hash_implementation_version = 5;
 
 fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifest) !void {
     const gpa = comp.gpa;
@@ -2370,7 +2373,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    comptime assert(link_hash_implementation_version == 4);
+    comptime assert(link_hash_implementation_version == 5);
 
     if (comp.bin_file.options.module) |mod| {
         const main_zig_file = try mod.main_pkg.root_src_directory.join(arena, &[_][]const u8{
@@ -2476,6 +2479,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.addListOfBytes(comp.bin_file.options.frameworks);
     try man.addOptionalFile(comp.bin_file.options.entitlements);
     man.hash.addOptional(comp.bin_file.options.pagezero_size);
+    man.hash.addOptional(comp.bin_file.options.search_strategy);
 
     // COFF specific stuff
     man.hash.addOptional(comp.bin_file.options.subsystem);
