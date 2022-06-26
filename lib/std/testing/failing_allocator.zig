@@ -19,8 +19,10 @@ pub const FailingAllocator = struct {
     freed_bytes: usize,
     allocations: usize,
     deallocations: usize,
-    stack_addresses: [16]usize,
+    stack_addresses: [num_stack_frames]usize,
     has_induced_failure: bool,
+
+    const num_stack_frames = if (std.debug.sys_can_stack_trace) 16 else 0;
 
     /// `fail_index` is the number of successful allocations you can
     /// expect from this allocator. The next allocation will fail.

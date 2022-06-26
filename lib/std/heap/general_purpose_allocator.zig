@@ -105,28 +105,8 @@ const StackTrace = std.builtin.StackTrace;
 /// Integer type for pointing to slots in a small allocation
 const SlotIndex = std.meta.Int(.unsigned, math.log2(page_size) + 1);
 
-const sys_can_stack_trace = switch (builtin.cpu.arch) {
-    // Observed to go into an infinite loop.
-    // TODO: Make this work.
-    .mips,
-    .mipsel,
-    => false,
-
-    // `@returnAddress()` in LLVM 10 gives
-    // "Non-Emscripten WebAssembly hasn't implemented __builtin_return_address".
-    .wasm32,
-    .wasm64,
-    => builtin.os.tag == .emscripten,
-
-    // `@returnAddress()` is unsupported in LLVM 13.
-    .bpfel,
-    .bpfeb,
-    => false,
-
-    else => true,
-};
 const default_test_stack_trace_frames: usize = if (builtin.is_test) 8 else 4;
-const default_sys_stack_trace_frames: usize = if (sys_can_stack_trace) default_test_stack_trace_frames else 0;
+const default_sys_stack_trace_frames: usize = if (std.debug.sys_can_stack_trace) default_test_stack_trace_frames else 0;
 const default_stack_trace_frames: usize = switch (builtin.mode) {
     .Debug => default_sys_stack_trace_frames,
     else => 0,
