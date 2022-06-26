@@ -97,7 +97,7 @@ test "io.SeekableBufferedWriter" {
 
     try testing.expectEqual(@as(u64, 0), try writer.getPos());
     try writer.writeAll(str);
-    try testing.expectEqual(str.len, try writer.getPos());
+    try testing.expectEqual(@as(u64, str.len), try writer.getPos());
     try testing.expectEqualSlices(u8, "z" ** 20, dest[0..]);
     try writer.seekTo(0); // This should now flush the buffer also
     try testing.expectEqualSlices(u8, str, dest[0..str.len]);
@@ -105,7 +105,7 @@ test "io.SeekableBufferedWriter" {
     std.mem.set(u8, dest[0..], 'z');
     try writer.seekBy(5);
     try writer.writeAll(str);
-    try testing.expectEqual(5 + str.len, try writer.getPos());
+    try testing.expectEqual(@as(u64, 5 + str.len), try writer.getPos());
     try testing.expectEqualSlices(u8, "z" ** 20, dest[0..]);
     try writer.seekBy(-@as(i64, str.len)); // This is all that is in the buffer
     try testing.expectEqual(@as(u64, 5), try writer.getPos());

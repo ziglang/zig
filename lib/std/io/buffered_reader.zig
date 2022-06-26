@@ -150,7 +150,7 @@ test "io.SeekableBufferedReader" {
     var buffer: [str.len]u8 = undefined;
     try testing.expectEqual(@as(u64, 0), try reader.getPos());
     var res = try reader.readAll(buffer[0..]);
-    try testing.expectEqual(str.len, try reader.getPos());
+    try testing.expectEqual(@as(u64, str.len), try reader.getPos());
     try testing.expectEqual(str.len, res);
     try testing.expectEqualSlices(u8, str, buffer[0..]);
     try reader.seekTo(0);
