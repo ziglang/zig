@@ -95,26 +95,26 @@ test "io.SeekableBufferedWriter" {
     var buf_writer = bufferedWriter(stream.writer());
     const writer = buf_writer.writer();
 
-    try testing.expectEqual(@as(usize, 0), try writer.getPos());
+    try testing.expectEqual(@as(u64, 0), try writer.getPos());
     try writer.writeAll(str);
     try testing.expectEqual(str.len, try writer.getPos());
     try testing.expectEqualSlices(u8, "z" ** 20, dest[0..]);
     try writer.seekTo(0); // This should now flush the buffer also
     try testing.expectEqualSlices(u8, str, dest[0..str.len]);
-    try testing.expectEqual(@as(usize, 0), try writer.getPos());
+    try testing.expectEqual(@as(u64, 0), try writer.getPos());
     std.mem.set(u8, dest[0..], 'z');
     try writer.seekBy(5);
     try writer.writeAll(str);
-    try testing.expectEqual(@as(usize, 5 + str.len), try writer.getPos());
+    try testing.expectEqual(5 + str.len, try writer.getPos());
     try testing.expectEqualSlices(u8, "z" ** 20, dest[0..]);
     try writer.seekBy(-@as(i64, str.len)); // This is all that is in the buffer
-    try testing.expectEqual(@as(usize, 5), try writer.getPos());
+    try testing.expectEqual(@as(u64, 5), try writer.getPos());
     try testing.expectEqualSlices(u8, "z" ** 20, dest[0..]);
     try writer.seekBy(-5); // Seeking bellow the buffer will do a flush
-    try testing.expectEqual(@as(usize, 0), try writer.getPos());
+    try testing.expectEqual(@as(u64, 0), try writer.getPos());
     try testing.expectEqualSlices(u8, "zzzzz" ++ str, dest[0 .. str.len + 5]);
     try writer.writeAll(str[0..5]);
-    try testing.expectEqual(@as(usize, 5), try writer.getPos());
+    try testing.expectEqual(@as(u64, 5), try writer.getPos());
     try testing.expectEqualSlices(u8, "zzzzz" ++ str, dest[0 .. str.len + 5]);
     try buf_writer.flush();
     try testing.expectEqualSlices(u8, "This " ++ str, dest[0 .. str.len + 5]);
