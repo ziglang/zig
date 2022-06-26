@@ -26,6 +26,27 @@ pub const runtime_safety = switch (builtin.mode) {
     .ReleaseFast, .ReleaseSmall => false,
 };
 
+pub const sys_can_stack_trace = switch (builtin.cpu.arch) {
+    // Observed to go into an infinite loop.
+    // TODO: Make this work.
+    .mips,
+    .mipsel,
+    => false,
+
+    // `@returnAddress()` in LLVM 10 gives
+    // "Non-Emscripten WebAssembly hasn't implemented __builtin_return_address".
+    .wasm32,
+    .wasm64,
+    => builtin.os.tag == .emscripten,
+
+    // `@returnAddress()` is unsupported in LLVM 13.
+    .bpfel,
+    .bpfeb,
+    => false,
+
+    else => true,
+};
+
 pub const LineInfo = struct {
     line: u64,
     column: u64,
