@@ -452,6 +452,7 @@ const usage_build_generic =
     \\  -search_dylibs_first           (Darwin) search `libx.dylib` in each dir in library search paths, then `libx.a`
     \\  -headerpad [value]             (Darwin) set minimum space for future expansion of the load commands in hexadecimal notation
     \\  -headerpad_max_install_names   (Darwin) set enough space as if all paths were MAXPATHLEN
+    \\  -dead_strip_dylibs             (Darwin) remove dylibs that are unreachable by the entry point or exported symbols
     \\  --import-memory                (WebAssembly) import memory from the environment
     \\  --import-table                 (WebAssembly) import function table from the host environment
     \\  --export-table                 (WebAssembly) export function table to the host environment
@@ -703,6 +704,7 @@ fn buildOutputType(
     var search_strategy: ?link.File.MachO.SearchStrategy = null;
     var headerpad_size: ?u32 = null;
     var headerpad_max_install_names: bool = false;
+    var dead_strip_dylibs: bool = false;
 
     // e.g. -m3dnow or -mno-outline-atomics. They correspond to std.Target llvm cpu feature names.
     // This array is populated by zig cc frontend and then has to be converted to zig-style
@@ -937,6 +939,8 @@ fn buildOutputType(
                         };
                     } else if (mem.eql(u8, arg, "-headerpad_max_install_names")) {
                         headerpad_max_install_names = true;
+                    } else if (mem.eql(u8, arg, "-dead_strip_dylibs")) {
+                        dead_strip_dylibs = true;
                     } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
                         linker_script = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
@@ -1700,6 +1704,8 @@ fn buildOutputType(
                     };
                 } else if (mem.eql(u8, arg, "-headerpad_max_install_names")) {
                     headerpad_max_install_names = true;
+                } else if (mem.eql(u8, arg, "-dead_strip_dylibs")) {
+                    dead_strip_dylibs = true;
                 } else if (mem.eql(u8, arg, "--gc-sections")) {
                     linker_gc_sections = true;
                 } else if (mem.eql(u8, arg, "--no-gc-sections")) {
@@ -2821,6 +2827,7 @@ fn buildOutputType(
         .search_strategy = search_strategy,
         .headerpad_size = headerpad_size,
         .headerpad_max_install_names = headerpad_max_install_names,
+        .dead_strip_dylibs = dead_strip_dylibs,
     }) catch |err| switch (err) {
         error.LibCUnavailable => {
             const target = target_info.target;
