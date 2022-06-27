@@ -265,7 +265,10 @@ fn make(step: *Step) !void {
         }),
         .elf => @panic("TODO elf parser"),
         .coff => @panic("TODO coff parser"),
-        .wasm => @panic("TODO wasm parser"),
+        .wasm => try WasmDumper.parseAndDump(contents, .{
+            .gpa = gpa,
+            .dump_symtab = self.dump_symtab,
+        }),
         else => unreachable,
     };
 
@@ -520,5 +523,121 @@ const MachODumper = struct {
 
             else => {},
         }
+    }
+};
+
+const WasmDumper = struct {
+    const symtab_label = "names";
+
+    fn parseAndDump(bytes: []const u8, opts: Opts) ![]const u8 {
+        const gpa = opts.gpa orelse unreachable; // Wasm dumper requires an allocator
+        var stream = std.io.fixedBufferStream(bytes);
+        const reader = stream.reader();
+
+        const buf = try reader.readBytesNoEof(8);
+        if (!mem.eql(u8, buf[0..4], &std.wasm.magic)) {
+            return error.InvalidMagicByte;
+        }
+        if (mem.readIntLittle(u32, buf[4..8]) != 1) {
+            return error.UnsupportedWasmVersion;
+        }
+
+        var output = std.ArrayList(u8).init(gpa);
+        errdefer output.deinit();
+        const writer = output.writer();
+
+        while (reader.readByte()) |current_byte| {
+            const section = std.meta.intToEnum(std.wasm.Section, current_byte) catch |err| {
+                std.debug.print("Found invalid section id '{d}'\n", .{current_byte});
+                return err;
+            };
+            const section_length = try std.leb.readULEB128(u32, reader);
+            try parseAndDumpSection(section, bytes[reader.context.pos..][0..section_length], writer);
+        } else |_| {} // reached end of stream
+
+        return output.toOwnedSlice();
+    }
+
+    fn parseAndDumpSection(section: std.wasm.Section, data: []const u8, writer: anytype) !void {
+        var fbs = std.io.fixedBufferStream(data);
+        const reader = fbs.reader();
+
+        try writer.print(
+            \\Section {s}
+            \\size {d}
+        , .{ @tagName(section), data.len });
+
+        switch (section) {
+            .type,
+            .import,
+            .function,
+            .table,
+            .memory,
+            .global,
+            .@"export",
+            .element,
+            .code,
+            .data,
+            => {
+                const entries = try std.leb.readULEB128(u32, reader);
+                try writer.print("\nentries {d}\n", .{entries});
+                try dumpSection(section, data[fbs.pos..], entries, writer);
+            },
+            .custom => {
+                const name_length = try std.leb.readULEB128(u32, reader);
+                const name = data[fbs.pos..];
+                fbs.pos += name_length;
+                try writer.print("\nname {s}\n", .{name});
+            },
+            .start => {
+                const start = try std.leb.readULEB128(u32, reader);
+                try writer.print("\nstart {d}\n", .{start});
+            },
+            else => {}, // skip unknown sections
+        }
+    }
+
+    fn dumpSection(section: std.wasm.Section, data: []const u8, entries: u32, writer: anytype) !void {
+        var fbs = std.io.fixedBufferStream(data);
+        const reader = fbs.reader();
+
+        try writer.writeByte('\n');
+        switch (section) {
+            .type => {
+                var i: u32 = 0;
+                while (i < entries) : (i += 1) {
+                    const params = try std.leb.readULEB128(u32, reader);
+                    try writer.print("params {d}\n", .{params});
+                    var index: u32 = 0;
+                    while (index < params) : (index += 1) {
+                        try parseDumpType(reader, writer);
+                    } else index = 0;
+                    const returns = try std.leb.readULEB128(u32, reader);
+                    try writer.print("returns {d}\n", .{returns});
+                    while (index < returns) : (index += 1) {
+                        try parseDumpType(reader, writer);
+                    }
+                }
+            },
+            .import => {},
+            .function => {},
+            .table => {},
+            .memory => {},
+            .global => {},
+            .@"export" => {},
+            .element => {},
+            .code => {},
+            .data => {},
+            else => unreachable,
+        }
+    }
+
+    fn parseDumpType(reader: anytype, writer: anytype) !void {
+        const param_byte = try reader.readByte();
+        const param_type = std.meta.intToEnum(std.wasm.Valtype, param_byte) catch |err| {
+            std.debug.print("Invalid wasm valtype '{d}'\n", .{param_byte});
+            return err;
+        };
+        try writer.print("param_type {s}\n", .{@tagName(param_type)});
     }
 };
