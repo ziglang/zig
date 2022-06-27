@@ -162,7 +162,7 @@ pub const Options = struct {
 
     objects: []Compilation.LinkObject,
     framework_dirs: []const []const u8,
-    frameworks: []const []const u8,
+    frameworks: std.StringArrayHashMapUnmanaged(SystemLib),
     system_libs: std.StringArrayHashMapUnmanaged(SystemLib),
     wasi_emulated_libs: []const wasi_libc.CRTFile,
     lib_dirs: []const []const u8,
