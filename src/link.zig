@@ -21,6 +21,7 @@ const TypedValue = @import("TypedValue.zig");
 
 pub const SystemLib = struct {
     needed: bool = false,
+    weak: bool = false,
 };
 
 pub const CacheMode = enum { incremental, whole };
