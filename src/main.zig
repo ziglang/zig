@@ -444,6 +444,8 @@ const usage_build_generic =
     \\  --stack [size]                 Override default stack size
     \\  --image-base [addr]            Set base address for executable image
     \\  -framework [name]              (Darwin) link against framework
+    \\  -needed_framework [name]       (Darwin) link against framework (even if unused)
+    \\  -needed_library [lib]          (Darwin) link against system library (even if unused)
     \\  -F[dir]                        (Darwin) add search path for frameworks
     \\  -install_name=[value]          (Darwin) add dylib's install name
     \\  --entitlements [path]          (Darwin) add path to entitlements file for embedding in code signature
@@ -750,8 +752,7 @@ fn buildOutputType(
     var framework_dirs = std.ArrayList([]const u8).init(gpa);
     defer framework_dirs.deinit();
 
-    var frameworks = std.ArrayList([]const u8).init(gpa);
-    defer frameworks.deinit();
+    var frameworks: std.StringArrayHashMapUnmanaged(Compilation.SystemLib) = .{};
 
     // null means replace with the test executable binary
     var test_exec_args = std.ArrayList(?[]const u8).init(gpa);
@@ -912,9 +913,15 @@ fn buildOutputType(
                             fatal("expected parameter after {s}", .{arg});
                         });
                     } else if (mem.eql(u8, arg, "-framework")) {
-                        try frameworks.append(args_iter.next() orelse {
+                        const path = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
-                        });
+                        };
+                        try frameworks.put(gpa, path, .{ .needed = false });
+                    } else if (mem.eql(u8, arg, "-needed_framework")) {
+                        const path = args_iter.next() orelse {
+                            fatal("expected parameter after {s}", .{arg});
+                        };
+                        try frameworks.put(gpa, path, .{ .needed = true });
                     } else if (mem.eql(u8, arg, "-install_name")) {
                         install_name = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
@@ -956,7 +963,10 @@ fn buildOutputType(
                         // We don't know whether this library is part of libc or libc++ until
                         // we resolve the target, so we simply append to the list for now.
                         try system_libs.put(next_arg, .{ .needed = false });
-                    } else if (mem.eql(u8, arg, "--needed-library") or mem.eql(u8, arg, "-needed-l")) {
+                    } else if (mem.eql(u8, arg, "--needed-library") or
+                        mem.eql(u8, arg, "-needed-l") or
+                        mem.eql(u8, arg, "--needed_library"))
+                    {
                         const next_arg = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
@@ -1586,7 +1596,7 @@ fn buildOutputType(
                         try clang_argv.appendSlice(it.other_args);
                     },
                     .framework_dir => try framework_dirs.append(it.only_arg),
-                    .framework => try frameworks.append(it.only_arg),
+                    .framework => try frameworks.put(gpa, it.only_arg, .{ .needed = false }),
                     .nostdlibinc => want_native_include_dirs = false,
                     .strip => strip = true,
                     .exec_model => {
@@ -1874,7 +1884,19 @@ fn buildOutputType(
                     if (i >= linker_args.items.len) {
                         fatal("expected linker arg after '{s}'", .{arg});
                     }
-                    try frameworks.append(linker_args.items[i]);
+                    try frameworks.put(gpa, linker_args.items[i], .{ .needed = false });
+                } else if (mem.eql(u8, arg, "-needed_framework")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    try frameworks.put(gpa, linker_args.items[i], .{ .needed = true });
+                } else if (mem.eql(u8, arg, "-needed_library")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    try system_libs.put(linker_args.items[i], .{ .needed = true });
                 } else if (mem.eql(u8, arg, "-compatibility_version")) {
                     i += 1;
                     if (i >= linker_args.items.len) {
@@ -2244,7 +2266,7 @@ fn buildOutputType(
 
     if (comptime builtin.target.isDarwin()) {
         // If we want to link against frameworks, we need system headers.
-        if (framework_dirs.items.len > 0 or frameworks.items.len > 0)
+        if (framework_dirs.items.len > 0 or frameworks.count() > 0)
             want_native_include_dirs = true;
     }
 
@@ -2734,7 +2756,7 @@ fn buildOutputType(
         .c_source_files = c_source_files.items,
         .link_objects = link_objects.items,
         .framework_dirs = framework_dirs.items,
-        .frameworks = frameworks.items,
+        .frameworks = frameworks,
         .system_lib_names = system_libs.keys(),
         .system_lib_infos = system_libs.values(),
         .wasi_emulated_libs = wasi_emulated_libs.items,
