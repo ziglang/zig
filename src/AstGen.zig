@@ -4464,6 +4464,7 @@ fn containerDecl(
                 var total_fields: usize = 0;
                 var decls: usize = 0;
                 var nonexhaustive_node: Ast.Node.Index = 0;
+                var nonfinal_nonexhaustive = false;
                 for (container_decl.ast.members) |member_node| {
                     const member = switch (node_tags[member_node]) {
                         .container_field_init => tree.containerFieldInit(member_node),
@@ -4515,6 +4516,8 @@ fn containerDecl(
                             return astgen.failNode(member.ast.value_expr, "'_' is used to mark an enum as non-exhaustive and cannot be assigned a value", .{});
                         }
                         continue;
+                    } else if (nonexhaustive_node != 0) {
+                        nonfinal_nonexhaustive = true;
                     }
                     total_fields += 1;
                     if (member.ast.value_expr != 0) {
@@ -4523,6 +4526,9 @@ fn containerDecl(
                         }
                         values += 1;
                     }
+                }
+                if (nonfinal_nonexhaustive) {
+                    return astgen.failNode(nonexhaustive_node, "'_' field of non-exhaustive enum must be last", .{});
                 }
                 break :blk .{
                     .total_fields = total_fields,

@@ -409,11 +409,11 @@ pub fn print(
             }
             return writer.writeAll(" }");
         },
-        .float_16 => return writer.print("{}", .{val.castTag(.float_16).?.data}),
-        .float_32 => return writer.print("{}", .{val.castTag(.float_32).?.data}),
-        .float_64 => return writer.print("{}", .{val.castTag(.float_64).?.data}),
-        .float_80 => return writer.print("{}", .{val.castTag(.float_80).?.data}),
-        .float_128 => return writer.print("{}", .{val.castTag(.float_128).?.data}),
+        .float_16 => return writer.print("{d}", .{val.castTag(.float_16).?.data}),
+        .float_32 => return writer.print("{d}", .{val.castTag(.float_32).?.data}),
+        .float_64 => return writer.print("{d}", .{val.castTag(.float_64).?.data}),
+        .float_80 => return writer.print("{d}", .{@floatCast(f64, val.castTag(.float_80).?.data)}),
+        .float_128 => return writer.print("{d}", .{@floatCast(f64, val.castTag(.float_128).?.data)}),
         .@"error" => return writer.print("error.{s}", .{val.castTag(.@"error").?.data.name}),
         .eu_payload => {
             val = val.castTag(.eu_payload).?.data;
