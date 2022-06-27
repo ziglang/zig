@@ -2482,7 +2482,10 @@ fn renderDocComments(ais: *Ais, tree: Ast, end_token: Ast.TokenIndex) Error!void
     }
     const first_tok = tok;
     if (first_tok == end_token) return;
-    try renderExtraNewlineToken(ais, tree, first_tok);
+
+    if (tok != 0 and token_tags[first_tok - 1] != .l_brace) {
+        try renderExtraNewlineToken(ais, tree, first_tok);
+    }
 
     while (token_tags[tok] == .doc_comment) : (tok += 1) {
         try renderToken(ais, tree, tok, .newline);
