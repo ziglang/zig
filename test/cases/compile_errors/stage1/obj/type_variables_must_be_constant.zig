@@ -7,4 +7,4 @@ export fn entry() foo {
 // backend=stage1
 // target=native
 //
-// tmp.zig:1:1: error: variable of type 'type' must be constant
+// :1:1: error: variable of type 'type' must be constant

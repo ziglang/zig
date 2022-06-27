@@ -19,6 +19,6 @@ fn func() void {}
 // backend=stage1
 // target=native
 //
-// tmp.zig:3:28: error: expected type 'anyframe->i32', found 'anyframe'
-// tmp.zig:8:28: error: expected type 'anyframe->i32', found 'i32'
+// :3:28: error: expected type 'anyframe->i32', found 'anyframe'
+// :8:28: error: expected type 'anyframe->i32', found 'i32'
 // tmp.zig:13:29: error: expected type 'anyframe->i32', found '*@Frame(func)'
