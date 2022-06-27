@@ -541,7 +541,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 6);
+        comptime assert(Compilation.link_hash_implementation_version == 7);
 
         for (self.base.options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -558,6 +558,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         man.hash.addOptional(self.base.options.search_strategy);
         man.hash.addOptional(self.base.options.headerpad_size);
         man.hash.add(self.base.options.headerpad_max_install_names);
+        man.hash.add(self.base.options.dead_strip_dylibs);
         man.hash.addListOfBytes(self.base.options.lib_dirs);
         man.hash.addListOfBytes(self.base.options.framework_dirs);
         man.hash.addListOfBytes(self.base.options.frameworks);
@@ -985,6 +986,10 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
                 if (self.base.options.headerpad_max_install_names) {
                     try argv.append("-headerpad_max_install_names");
+                }
+
+                if (self.base.options.dead_strip_dylibs) {
+                    try argv.append("-dead_strip_dylibs");
                 }
 
                 if (self.base.options.entry) |entry| {
@@ -1425,7 +1430,12 @@ pub fn parseDylib(self: *MachO, path: []const u8, opts: DylibCreateOpts) ParseDy
     try self.dylibs.append(self.base.allocator, dylib);
     try self.dylibs_map.putNoClobber(self.base.allocator, dylib.id.?.name, dylib_id);
 
-    if (!(opts.is_dependent or self.referenced_dylibs.contains(dylib_id))) {
+    const should_link_dylib_even_if_unreachable = blk: {
+        if (self.base.options.dead_strip_dylibs) break :blk false;
+        break :blk !(opts.is_dependent or self.referenced_dylibs.contains(dylib_id));
+    };
+
+    if (should_link_dylib_even_if_unreachable) {
         try self.addLoadDylibLC(dylib_id);
         try self.referenced_dylibs.putNoClobber(self.base.allocator, dylib_id, {});
     }

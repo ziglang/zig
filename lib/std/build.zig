@@ -1601,6 +1601,9 @@ pub const LibExeObjStep = struct {
     /// and start of `__TEXT,__text` section to a value fitting all paths expanded to MAXPATHLEN.
     headerpad_max_install_names: bool = false,
 
+    /// (Darwin) Remove dylibs that are unreachable by the entry point or exported symbols.
+    dead_strip_dylibs: bool = false,
+
     /// Position Independent Code
     force_pic: ?bool = null,
 
@@ -2675,6 +2678,9 @@ pub const LibExeObjStep = struct {
         }
         if (self.headerpad_max_install_names) {
             try zig_args.append("-headerpad_max_install_names");
+        }
+        if (self.dead_strip_dylibs) {
+            try zig_args.append("-dead_strip_dylibs");
         }
 
         if (self.bundle_compiler_rt) |x| {
