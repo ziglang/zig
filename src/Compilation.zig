@@ -791,7 +791,7 @@ pub const InitOptions = struct {
     c_source_files: []const CSourceFile = &[0]CSourceFile{},
     link_objects: []LinkObject = &[0]LinkObject{},
     framework_dirs: []const []const u8 = &[0][]const u8{},
-    frameworks: []const []const u8 = &[0][]const u8{},
+    frameworks: std.StringArrayHashMapUnmanaged(SystemLib) = .{},
     system_lib_names: []const []const u8 = &.{},
     system_lib_infos: []const SystemLib = &.{},
     /// These correspond to the WASI libc emulated subcomponents including:
@@ -1097,7 +1097,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             // Our linker can't handle objects or most advanced options yet.
             if (options.link_objects.len != 0 or
                 options.c_source_files.len != 0 or
-                options.frameworks.len != 0 or
+                options.frameworks.count() != 0 or
                 options.system_lib_names.len != 0 or
                 options.link_libc or options.link_libcpp or
                 link_eh_frame_hdr or
@@ -1215,7 +1215,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             options.target,
             options.is_native_abi,
             link_libc,
-            options.system_lib_names.len != 0 or options.frameworks.len != 0,
+            options.system_lib_names.len != 0 or options.frameworks.count() != 0,
             options.libc_installation,
             options.native_darwin_sdk != null,
         );
@@ -2485,7 +2485,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
 
     // Mach-O specific stuff
     man.hash.addListOfBytes(comp.bin_file.options.framework_dirs);
-    man.hash.addListOfBytes(comp.bin_file.options.frameworks);
+    link.hashAddSystemLibs(&man.hash, comp.bin_file.options.frameworks);
     try man.addOptionalFile(comp.bin_file.options.entitlements);
     man.hash.addOptional(comp.bin_file.options.pagezero_size);
     man.hash.addOptional(comp.bin_file.options.search_strategy);

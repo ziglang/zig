@@ -45,6 +45,15 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
             .requires_macos_sdk = true,
         });
 
+        cases.addBuildFile("test/link/macho/needed_l/build.zig", .{
+            .build_modes = true,
+        });
+
+        cases.addBuildFile("test/link/macho/needed_framework/build.zig", .{
+            .build_modes = true,
+            .requires_macos_sdk = true,
+        });
+
         // Try to build and run an Objective-C executable.
         cases.addBuildFile("test/link/macho/objc/build.zig", .{
             .build_modes = true,
