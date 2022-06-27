@@ -443,9 +443,12 @@ const usage_build_generic =
     \\  --subsystem [subsystem]        (Windows) /SUBSYSTEM:<subsystem> to the linker
     \\  --stack [size]                 Override default stack size
     \\  --image-base [addr]            Set base address for executable image
+    \\  -weak-l[lib]                   (Darwin) link against system library and mark it and all referenced symbols as weak
+    \\    -weak_library [lib]
     \\  -framework [name]              (Darwin) link against framework
     \\  -needed_framework [name]       (Darwin) link against framework (even if unused)
     \\  -needed_library [lib]          (Darwin) link against system library (even if unused)
+    \\  -weak_framework [name]         (Darwin) link against framework and mark it and all referenced symbols as weak
     \\  -F[dir]                        (Darwin) add search path for frameworks
     \\  -install_name=[value]          (Darwin) add dylib's install name
     \\  --entitlements [path]          (Darwin) add path to entitlements file for embedding in code signature
@@ -916,7 +919,12 @@ fn buildOutputType(
                         const path = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
-                        try frameworks.put(gpa, path, .{ .needed = false });
+                        try frameworks.put(gpa, path, .{});
+                    } else if (mem.eql(u8, arg, "-weak_framework")) {
+                        const path = args_iter.next() orelse {
+                            fatal("expected parameter after {s}", .{arg});
+                        };
+                        try frameworks.put(gpa, path, .{ .weak = true });
                     } else if (mem.eql(u8, arg, "-needed_framework")) {
                         const path = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
@@ -962,7 +970,7 @@ fn buildOutputType(
                         };
                         // We don't know whether this library is part of libc or libc++ until
                         // we resolve the target, so we simply append to the list for now.
-                        try system_libs.put(next_arg, .{ .needed = false });
+                        try system_libs.put(next_arg, .{});
                     } else if (mem.eql(u8, arg, "--needed-library") or
                         mem.eql(u8, arg, "-needed-l") or
                         mem.eql(u8, arg, "-needed_library"))
@@ -971,6 +979,11 @@ fn buildOutputType(
                             fatal("expected parameter after {s}", .{arg});
                         };
                         try system_libs.put(next_arg, .{ .needed = true });
+                    } else if (mem.eql(u8, arg, "-weak_library") or mem.eql(u8, arg, "-weak-l")) {
+                        const next_arg = args_iter.next() orelse {
+                            fatal("expected parameter after {s}", .{arg});
+                        };
+                        try system_libs.put(next_arg, .{ .weak = true });
                     } else if (mem.eql(u8, arg, "-D") or
                         mem.eql(u8, arg, "-isystem") or
                         mem.eql(u8, arg, "-I") or
@@ -1300,9 +1313,11 @@ fn buildOutputType(
                     } else if (mem.startsWith(u8, arg, "-l")) {
                         // We don't know whether this library is part of libc or libc++ until
                         // we resolve the target, so we simply append to the list for now.
-                        try system_libs.put(arg["-l".len..], .{ .needed = false });
+                        try system_libs.put(arg["-l".len..], .{});
                     } else if (mem.startsWith(u8, arg, "-needed-l")) {
                         try system_libs.put(arg["-needed-l".len..], .{ .needed = true });
+                    } else if (mem.startsWith(u8, arg, "-weak-l")) {
+                        try system_libs.put(arg["-weak-l".len..], .{ .weak = true });
                     } else if (mem.startsWith(u8, arg, "-D") or
                         mem.startsWith(u8, arg, "-I"))
                     {
@@ -1596,7 +1611,7 @@ fn buildOutputType(
                         try clang_argv.appendSlice(it.other_args);
                     },
                     .framework_dir => try framework_dirs.append(it.only_arg),
-                    .framework => try frameworks.put(gpa, it.only_arg, .{ .needed = false }),
+                    .framework => try frameworks.put(gpa, it.only_arg, .{}),
                     .nostdlibinc => want_native_include_dirs = false,
                     .strip => strip = true,
                     .exec_model => {
@@ -1879,12 +1894,18 @@ fn buildOutputType(
                     ) catch |err| {
                         fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
                     };
-                } else if (mem.eql(u8, arg, "-framework") or mem.eql(u8, arg, "-weak_framework")) {
+                } else if (mem.eql(u8, arg, "-framework")) {
                     i += 1;
                     if (i >= linker_args.items.len) {
                         fatal("expected linker arg after '{s}'", .{arg});
                     }
-                    try frameworks.put(gpa, linker_args.items[i], .{ .needed = false });
+                    try frameworks.put(gpa, linker_args.items[i], .{});
+                } else if (mem.eql(u8, arg, "-weak_framework")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    try frameworks.put(gpa, linker_args.items[i], .{ .weak = true });
                 } else if (mem.eql(u8, arg, "-needed_framework")) {
                     i += 1;
                     if (i >= linker_args.items.len) {
@@ -1897,6 +1918,14 @@ fn buildOutputType(
                         fatal("expected linker arg after '{s}'", .{arg});
                     }
                     try system_libs.put(linker_args.items[i], .{ .needed = true });
+                } else if (mem.startsWith(u8, arg, "-weak-l")) {
+                    try system_libs.put(arg["-weak-l".len..], .{ .weak = true });
+                } else if (mem.eql(u8, arg, "-weak_library")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    try system_libs.put(linker_args.items[i], .{ .weak = true });
                 } else if (mem.eql(u8, arg, "-compatibility_version")) {
                     i += 1;
                     if (i >= linker_args.items.len) {

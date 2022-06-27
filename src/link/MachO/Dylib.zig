@@ -30,6 +30,7 @@ dysymtab_cmd_index: ?u16 = null,
 id_cmd_index: ?u16 = null,
 
 id: ?Id = null,
+weak: bool = false,
 
 /// Parsed symbol table represented as hash map of symbols'
 /// names. We can and should defer creating *Symbols until
@@ -141,7 +142,13 @@ pub fn deinit(self: *Dylib, allocator: Allocator) void {
     }
 }
 
-pub fn parse(self: *Dylib, allocator: Allocator, target: std.Target, dependent_libs: anytype) !void {
+pub fn parse(
+    self: *Dylib,
+    allocator: Allocator,
+    target: std.Target,
+    dylib_id: u16,
+    dependent_libs: anytype,
+) !void {
     log.debug("parsing shared library '{s}'", .{self.name});
 
     self.library_offset = try fat.getLibraryOffset(self.file.reader(), target);
@@ -163,12 +170,18 @@ pub fn parse(self: *Dylib, allocator: Allocator, target: std.Target, dependent_l
         return error.MismatchedCpuArchitecture;
     }
 
-    try self.readLoadCommands(allocator, reader, dependent_libs);
+    try self.readLoadCommands(allocator, reader, dylib_id, dependent_libs);
     try self.parseId(allocator);
     try self.parseSymbols(allocator);
 }
 
-fn readLoadCommands(self: *Dylib, allocator: Allocator, reader: anytype, dependent_libs: anytype) !void {
+fn readLoadCommands(
+    self: *Dylib,
+    allocator: Allocator,
+    reader: anytype,
+    dylib_id: u16,
+    dependent_libs: anytype,
+) !void {
     const should_lookup_reexports = self.header.?.flags & macho.MH_NO_REEXPORTED_DYLIBS == 0;
 
     try self.load_commands.ensureUnusedCapacity(allocator, self.header.?.ncmds);
@@ -190,7 +203,7 @@ fn readLoadCommands(self: *Dylib, allocator: Allocator, reader: anytype, depende
                 if (should_lookup_reexports) {
                     // Parse install_name to dependent dylib.
                     var id = try Id.fromLoadCommand(allocator, cmd.dylib);
-                    try dependent_libs.writeItem(id);
+                    try dependent_libs.writeItem(.{ .id = id, .parent = dylib_id });
                 }
             },
             else => {
@@ -338,6 +351,7 @@ pub fn parseFromStub(
     allocator: Allocator,
     target: std.Target,
     lib_stub: LibStub,
+    dylib_id: u16,
     dependent_libs: anytype,
 ) !void {
     if (lib_stub.inner.len == 0) return error.EmptyStubFile;
@@ -417,7 +431,7 @@ pub fn parseFromStub(
                                 log.debug("  (found re-export '{s}')", .{lib});
 
                                 var dep_id = try Id.default(allocator, lib);
-                                try dependent_libs.writeItem(dep_id);
+                                try dependent_libs.writeItem(.{ .id = dep_id, .parent = dylib_id });
                             }
                         }
                     }
@@ -522,7 +536,7 @@ pub fn parseFromStub(
                     log.debug("  (found re-export '{s}')", .{lib});
 
                     var dep_id = try Id.default(allocator, lib);
-                    try dependent_libs.writeItem(dep_id);
+                    try dependent_libs.writeItem(.{ .id = dep_id, .parent = dylib_id });
                 }
             }
         }

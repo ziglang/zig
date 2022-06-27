@@ -2085,11 +2085,13 @@ pub fn GenericCommandWithData(comptime Cmd: type) type {
 
 pub fn createLoadDylibCommand(
     allocator: Allocator,
+    cmd_id: LC,
     name: []const u8,
     timestamp: u32,
     current_version: u32,
     compatibility_version: u32,
 ) !GenericCommandWithData(dylib_command) {
+    assert(cmd_id == .LOAD_DYLIB or cmd_id == .LOAD_WEAK_DYLIB or cmd_id == .REEXPORT_DYLIB or cmd_id == .ID_DYLIB);
     const cmdsize = @intCast(u32, mem.alignForwardGeneric(
         u64,
         @sizeOf(dylib_command) + name.len + 1, // +1 for nul
@@ -2097,7 +2099,7 @@ pub fn createLoadDylibCommand(
     ));
 
     var dylib_cmd = emptyGenericCommandWithData(dylib_command{
-        .cmd = .LOAD_DYLIB,
+        .cmd = cmd_id,
         .cmdsize = cmdsize,
         .dylib = .{
             .name = @sizeOf(dylib_command),
