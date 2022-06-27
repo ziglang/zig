@@ -2483,8 +2483,15 @@ fn renderDocComments(ais: *Ais, tree: Ast, end_token: Ast.TokenIndex) Error!void
     const first_tok = tok;
     if (first_tok == end_token) return;
 
-    if (tok != 0 and token_tags[first_tok - 1] != .l_brace) {
-        try renderExtraNewlineToken(ais, tree, first_tok);
+    if (tok != 0) {
+        const prev_token_tag = token_tags[first_tok - 1];
+
+        // Prevent accidental use of `renderDocComments` for a function argument doc comment
+        assert(prev_token_tag != .l_paren);
+
+        if (prev_token_tag != .l_brace) {
+            try renderExtraNewlineToken(ais, tree, first_tok);
+        }
     }
 
     while (token_tags[tok] == .doc_comment) : (tok += 1) {
