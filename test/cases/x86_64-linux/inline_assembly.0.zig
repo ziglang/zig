@@ -13,4 +13,4 @@ pub fn main() void {
 // output_mode=Exe
 // target=x86_64-linux
 //
-// :4:27: error: expected type, found comptime_int
+// :4:27: error: expected type 'type', found 'comptime_int'
