@@ -24,11 +24,10 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
-// is_test=1
 //
-// tmp.zig:5:19: error: RHS of shift is too large for LHS type
-// tmp.zig:9:19: error: RHS of shift is too large for LHS type
-// tmp.zig:13:17: error: RHS of shift is too large for LHS type
-// tmp.zig:17:17: error: RHS of shift is too large for LHS type
+// :5:22: error: shift amount '24' is too large for operand type 'u24'
+// :9:22: error: shift amount '24' is too large for operand type 'u24'
+// :13:30: error: shift amount '24' is too large for operand type 'u24'
+// :17:30: error: shift amount '24' is too large for operand type 'u24'
