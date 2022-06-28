@@ -235,9 +235,9 @@ const TestManifest = struct {
             inner: std.mem.SplitIterator(u8),
             parse_fn: ParseFn(T),
 
-            fn next(self: *@This()) ?T {
+            fn next(self: *@This()) !?T {
                 const next_raw = self.inner.next() orelse return null;
-                return self.parse_fn(next_raw);
+                return try self.parse_fn(next_raw);
             }
         };
     }
@@ -339,20 +339,20 @@ const TestManifest = struct {
         allocator: Allocator,
         key: []const u8,
         comptime T: type,
-    ) error{OutOfMemory}![]const T {
+    ) ![]const T {
         var out = std.ArrayList(T).init(allocator);
         defer out.deinit();
         var it = self.getConfigForKey(key, T);
-        while (it.next()) |item| {
+        while (try it.next()) |item| {
             try out.append(item);
         }
         return out.toOwnedSlice();
     }
 
-    fn getConfigForKeyAssertSingle(self: TestManifest, key: []const u8, comptime T: type) T {
+    fn getConfigForKeyAssertSingle(self: TestManifest, key: []const u8, comptime T: type) !T {
         var it = self.getConfigForKey(key, T);
-        const res = it.next().?;
-        assert(it.next() == null);
+        const res = (try it.next()) orelse unreachable;
+        assert((try it.next()) == null);
         return res;
     }
 
@@ -373,33 +373,36 @@ const TestManifest = struct {
     }
 
     fn ParseFn(comptime T: type) type {
-        return fn ([]const u8) ?T;
+        return fn ([]const u8) anyerror!T;
     }
 
     fn getDefaultParser(comptime T: type) ParseFn(T) {
         switch (@typeInfo(T)) {
             .Int => return struct {
-                fn parse(str: []const u8) ?T {
-                    return std.fmt.parseInt(T, str, 0) catch null;
+                fn parse(str: []const u8) anyerror!T {
+                    return try std.fmt.parseInt(T, str, 0);
                 }
             }.parse,
             .Bool => return struct {
-                fn parse(str: []const u8) ?T {
-                    const as_int = std.fmt.parseInt(u1, str, 0) catch return null;
+                fn parse(str: []const u8) anyerror!T {
+                    const as_int = try std.fmt.parseInt(u1, str, 0);
                     return as_int > 0;
                 }
             }.parse,
             .Enum => return struct {
-                fn parse(str: []const u8) ?T {
-                    return std.meta.stringToEnum(T, str);
+                fn parse(str: []const u8) anyerror!T {
+                    return std.meta.stringToEnum(T, str) orelse {
+                        std.log.err("unknown enum variant for {s}: {s}", .{ @typeName(T), str });
+                        return error.UnknownEnumVariant;
+                    };
                 }
             }.parse,
             .Struct => if (comptime std.mem.eql(u8, @typeName(T), "CrossTarget")) return struct {
-                fn parse(str: []const u8) ?T {
+                fn parse(str: []const u8) anyerror!T {
                     var opts = CrossTarget.ParseOptions{
                         .arch_os_abi = str,
                     };
-                    return CrossTarget.parse(opts) catch null;
+                    return try CrossTarget.parse(opts);
                 }
             }.parse else @compileError("no default parser for " ++ @typeName(T)),
             else => @compileError("no default parser for " ++ @typeName(T)),
@@ -1128,8 +1131,8 @@ pub const TestContext = struct {
                 if (cases.items.len == 0) {
                     const backends = try manifest.getConfigForKeyAlloc(ctx.arena, "backend", Backend);
                     const targets = try manifest.getConfigForKeyAlloc(ctx.arena, "target", CrossTarget);
-                    const is_test = manifest.getConfigForKeyAssertSingle("is_test", bool);
-                    const output_mode = manifest.getConfigForKeyAssertSingle("output_mode", std.builtin.OutputMode);
+                    const is_test = try manifest.getConfigForKeyAssertSingle("is_test", bool);
+                    const output_mode = try manifest.getConfigForKeyAssertSingle("output_mode", std.builtin.OutputMode);
 
                     const name_prefix = blk: {
                         const ext_index = std.mem.lastIndexOfScalar(u8, current_file.*, '.') orelse
