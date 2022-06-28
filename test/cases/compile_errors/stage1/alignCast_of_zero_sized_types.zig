@@ -20,7 +20,6 @@ export fn qux() void {
 // error
 // backend=stage1
 // target=native
-// is_test=1
 //
 // tmp.zig:3:23: error: cannot adjust alignment of zero sized type '*void'
 // tmp.zig:7:23: error: cannot adjust alignment of zero sized type '?*void'

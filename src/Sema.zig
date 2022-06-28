@@ -5231,6 +5231,10 @@ fn analyzeCall(
         .async_kw => return sema.fail(block, call_src, "TODO implement async call", .{}),
     };
 
+    if (modifier == .never_inline and func_ty_info.cc == .Inline) {
+        return sema.fail(block, call_src, "no-inline call of inline function", .{});
+    }
+
     const gpa = sema.gpa;
 
     var is_generic_call = func_ty_info.is_generic;
@@ -5268,6 +5272,10 @@ fn analyzeCall(
             },
             else => |e| return e,
         }
+    }
+
+    if (is_comptime_call and modifier == .never_inline) {
+        return sema.fail(block, call_src, "unable to perform 'never_inline' call at compile-time", .{});
     }
 
     const result: Air.Inst.Ref = if (is_inline_call) res: {
@@ -11614,8 +11622,13 @@ fn analyzeCmpUnionTag(
 ) CompileError!Air.Inst.Ref {
     const union_ty = try sema.resolveTypeFields(block, un_src, sema.typeOf(un));
     const union_tag_ty = union_ty.unionTagType() orelse {
-        // TODO note at declaration site that says "union foo is not tagged"
-        return sema.fail(block, un_src, "comparison of union and enum literal is only valid for tagged union types", .{});
+        const msg = msg: {
+            const msg = try sema.errMsg(block, un_src, "comparison of union and enum literal is only valid for tagged union types", .{});
+            errdefer msg.destroy(sema.gpa);
+            try sema.mod.errNoteNonLazy(union_ty.declSrcLoc(sema.mod), msg, "union '{}' is not a tagged union", .{union_ty.fmt(sema.mod)});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(block, msg);
     };
     // Coerce both the union and the tag to the union's tag type, and then execute the
     // enum comparison codepath.
@@ -16880,10 +16893,15 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         break :modifier modifier_val.toEnum(std.builtin.CallOptions.Modifier);
     };
 
+    const is_comptime = extra.flags.is_comptime or block.is_comptime;
+
     const modifier: std.builtin.CallOptions.Modifier = switch (wanted_modifier) {
         // These can be upgraded to comptime or nosuspend calls.
         .auto, .never_tail, .no_async => m: {
-            if (extra.flags.is_comptime) {
+            if (is_comptime) {
+                if (wanted_modifier == .never_tail) {
+                    return sema.fail(block, options_src, "unable to perform 'never_tail' call at compile-time", .{});
+                }
                 break :m .compile_time;
             }
             if (extra.flags.is_nosuspend) {
@@ -16893,7 +16911,11 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         },
         // These can be upgraded to comptime. nosuspend bit can be safely ignored.
         .always_tail, .always_inline, .compile_time => m: {
-            if (extra.flags.is_comptime) {
+            _ = (try sema.resolveDefinedValue(block, func_src, func)) orelse {
+                return sema.fail(block, func_src, "modifier '{s}' requires a comptime-known function", .{@tagName(wanted_modifier)});
+            };
+
+            if (is_comptime) {
                 break :m .compile_time;
             }
             break :m wanted_modifier;
@@ -16902,14 +16924,14 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             if (extra.flags.is_nosuspend) {
                 return sema.fail(block, options_src, "modifier 'async_kw' cannot be used inside nosuspend block", .{});
             }
-            if (extra.flags.is_comptime) {
+            if (is_comptime) {
                 return sema.fail(block, options_src, "modifier 'async_kw' cannot be used in combination with comptime function call", .{});
             }
             break :m wanted_modifier;
         },
         .never_inline => m: {
-            if (extra.flags.is_comptime) {
-                return sema.fail(block, options_src, "modifier 'never_inline' cannot be used in combination with comptime function call", .{});
+            if (is_comptime) {
+                return sema.fail(block, options_src, "unable to perform 'never_inline' call at compile-time", .{});
             }
             break :m wanted_modifier;
         },
