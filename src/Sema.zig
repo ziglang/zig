@@ -4478,6 +4478,7 @@ fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErro
         .label = &label,
         .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
+        .want_safety = parent_block.want_safety,
     };
 
     defer child_block.instructions.deinit(gpa);
