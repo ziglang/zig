@@ -4607,6 +4607,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
         DeclAdapter{ .mod = mod },
         Namespace.DeclContext{ .module = mod },
     );
+    const comp = mod.comp;
     if (!gop.found_existing) {
         const new_decl_index = try mod.allocateNewDecl(namespace, decl_node, iter.parent_decl.src_scope);
         const new_decl = mod.declPtr(new_decl_index);
@@ -4625,7 +4626,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
             1 => blk: {
                 // test decl with no name. Skip the part where we check against
                 // the test name filter.
-                if (!mod.comp.bin_file.options.is_test) break :blk false;
+                if (!comp.bin_file.options.is_test) break :blk false;
                 if (decl_pkg != mod.main_pkg) {
                     if (!mod.main_pkg_in_std) break :blk false;
                     const std_pkg = mod.main_pkg.table.get("std").?;
@@ -4636,19 +4637,23 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
             },
             else => blk: {
                 if (!is_named_test) break :blk false;
-                if (!mod.comp.bin_file.options.is_test) break :blk false;
+                if (!comp.bin_file.options.is_test) break :blk false;
                 if (decl_pkg != mod.main_pkg) {
                     if (!mod.main_pkg_in_std) break :blk false;
                     const std_pkg = mod.main_pkg.table.get("std").?;
                     if (std_pkg != decl_pkg) break :blk false;
                 }
-                // TODO check the name against --test-filter
+                if (comp.test_filter) |test_filter| {
+                    if (mem.indexOf(u8, decl_name, test_filter) == null) {
+                        break :blk false;
+                    }
+                }
                 try mod.test_functions.put(gpa, new_decl_index, {});
                 break :blk true;
             },
         };
         if (want_analysis) {
-            mod.comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl_index });
+            comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl_index });
         }
         new_decl.is_pub = is_pub;
         new_decl.is_exported = is_exported;
@@ -4675,24 +4680,24 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!voi
     decl.has_linksection_or_addrspace = has_linksection_or_addrspace;
     decl.zir_decl_index = @intCast(u32, decl_sub_index);
     if (decl.getFunction()) |_| {
-        switch (mod.comp.bin_file.tag) {
+        switch (comp.bin_file.tag) {
             .coff => {
                 // TODO Implement for COFF
             },
             .elf => if (decl.fn_link.elf.len != 0) {
                 // TODO Look into detecting when this would be unnecessary by storing enough state
                 // in `Decl` to notice that the line number did not change.
-                mod.comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl_index });
+                comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl_index });
             },
             .macho => if (decl.fn_link.macho.len != 0) {
                 // TODO Look into detecting when this would be unnecessary by storing enough state
                 // in `Decl` to notice that the line number did not change.
-                mod.comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl_index });
+                comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl_index });
             },
             .plan9 => {
                 // TODO Look into detecting when this would be unnecessary by storing enough state
                 // in `Decl` to notice that the line number did not change.
-                mod.comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl_index });
+                comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl_index });
             },
             .c, .wasm, .spirv, .nvptx => {},
         }

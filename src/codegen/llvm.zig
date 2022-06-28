@@ -4197,7 +4197,7 @@ pub const FuncGen = struct {
         }
 
         var it = iterateParamTypes(self.dg, fn_info);
-        while (it.next()) |lowering| switch (lowering) {
+        while (it.nextCall(self, args)) |lowering| switch (lowering) {
             .no_bits => continue,
             .byval => {
                 const arg = args[it.zig_index - 1];
@@ -7212,11 +7212,17 @@ pub const FuncGen = struct {
     fn airRetAddr(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         if (self.liveness.isUnused(inst)) return null;
 
+        const llvm_usize = try self.dg.lowerType(Type.usize);
+        const target = self.dg.module.getTarget();
+        if (!target_util.supportsReturnAddress(target)) {
+            // https://github.com/ziglang/zig/issues/11946
+            return llvm_usize.constNull();
+        }
+
         const llvm_i32 = self.context.intType(32);
         const llvm_fn = self.getIntrinsic("llvm.returnaddress", &.{});
         const params = [_]*const llvm.Value{llvm_i32.constNull()};
         const ptr_val = self.builder.buildCall(llvm_fn, &params, params.len, .Fast, .Auto, "");
-        const llvm_usize = try self.dg.lowerType(Type.usize);
         return self.builder.buildPtrToInt(ptr_val, llvm_usize, "");
     }
 
@@ -8021,7 +8027,6 @@ pub const FuncGen = struct {
         assert(union_obj.haveFieldTypes());
         const field = union_obj.fields.values()[extra.field_index];
         const field_llvm_ty = try self.dg.lowerType(field.ty);
-        const tag_llvm_ty = try self.dg.lowerType(union_obj.tag_ty);
         const field_size = field.ty.abiSize(target);
         const field_align = field.normalAlignment(target);
 
@@ -8044,6 +8049,7 @@ pub const FuncGen = struct {
                 const fields: [1]*const llvm.Type = .{payload};
                 break :t self.context.structType(&fields, fields.len, .False);
             }
+            const tag_llvm_ty = try self.dg.lowerType(union_obj.tag_ty);
             var fields: [3]*const llvm.Type = undefined;
             var fields_len: c_uint = 2;
             if (layout.tag_align >= layout.payload_align) {
@@ -8100,6 +8106,7 @@ pub const FuncGen = struct {
                 index_type.constInt(@boolToInt(layout.tag_align < layout.payload_align), .False),
             };
             const field_ptr = self.builder.buildInBoundsGEP(casted_ptr, &indices, indices.len, "");
+            const tag_llvm_ty = try self.dg.lowerType(union_obj.tag_ty);
             const llvm_tag = tag_llvm_ty.constInt(extra.field_index, .False);
             const store_inst = self.builder.buildStore(llvm_tag, field_ptr);
             store_inst.setAlignment(union_obj.tag_ty.abiAlignment(target));
@@ -9004,10 +9011,26 @@ const ParamTypeIterator = struct {
         slice,
     };
 
-    fn next(it: *ParamTypeIterator) ?Lowering {
+    pub fn next(it: *ParamTypeIterator) ?Lowering {
         if (it.zig_index >= it.fn_info.param_types.len) return null;
-
         const ty = it.fn_info.param_types[it.zig_index];
+        return nextInner(it, ty);
+    }
+
+    /// `airCall` uses this instead of `next` so that it can take into account variadic functions.
+    pub fn nextCall(it: *ParamTypeIterator, fg: *FuncGen, args: []const Air.Inst.Ref) ?Lowering {
+        if (it.zig_index >= it.fn_info.param_types.len) {
+            if (it.zig_index >= args.len) {
+                return null;
+            } else {
+                return nextInner(it, fg.air.typeOf(args[it.zig_index]));
+            }
+        } else {
+            return nextInner(it, it.fn_info.param_types[it.zig_index]);
+        }
+    }
+
+    fn nextInner(it: *ParamTypeIterator, ty: Type) ?Lowering {
         if (!ty.hasRuntimeBitsIgnoreComptime()) {
             it.zig_index += 1;
             return .no_bits;
