@@ -4073,7 +4073,10 @@ pub fn addCCArgs(
                 .Debug => {
                     // windows c runtime requires -D_DEBUG if using debug libraries
                     try argv.append("-D_DEBUG");
-                    try argv.append("-Og");
+                    // Clang has -Og for compatibility with GCC, but currently it is just equivalent
+                    // to -O1. Besides potentially impairing debugging, -O1/-Og significantly
+                    // increases compile times.
+                    try argv.append("-O0");
 
                     if (comp.bin_file.options.link_libc and target.os.tag != .wasi) {
                         try argv.append("-fstack-protector-strong");
