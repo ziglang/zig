@@ -8,7 +8,7 @@ export fn entry2() void {
 }
 
 // error
-// backend=stage2
+// backend=llvm
 // target=native
 //
 // :2:15: error: primitive integer type 'u65536' exceeds maximum bit width of 65535

@@ -8,7 +8,7 @@ fn inner(comptime n: usize) void {
 }
 
 // error
-// backend=stage2
+// backend=llvm
 // target=native
 //
 // :7:39: error: found compile log statement

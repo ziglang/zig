@@ -9,7 +9,7 @@ fn foo() void {
 }
 
 // error
-// backend=stage2
+// backend=llvm
 // target=native
 //
 // :6:9: error: cannot suspend inside suspend block

@@ -4,7 +4,7 @@ comptime {
 }
 
 // error
-// backend=stage2
+// backend=llvm
 // target=native
 //
 // :3:21: error: exported symbol name cannot be empty
