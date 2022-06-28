@@ -22,7 +22,7 @@ pub fn build(b: *Builder) void {
     check_exe.checkNext("entryoff {entryoff}");
 
     check_exe.checkInSymtab();
-    check_exe.checkNext("_non_main {n_value}");
+    check_exe.checkNext("{n_value} (__TEXT,__text) external _non_main");
 
     check_exe.checkComputeCompare("vmaddr entryoff +", .{ .op = .eq, .value = .{ .variable = "n_value" } });
 
