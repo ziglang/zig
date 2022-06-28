@@ -341,7 +341,7 @@ pub const Fe = struct {
     }
 
     /// Square a field element `n` times
-    inline fn sqn(a: Fe, comptime n: comptime_int) Fe {
+    fn sqn(a: Fe, n: usize) Fe {
         var i: usize = 0;
         var fe = a;
         while (i < n) : (i += 1) {
@@ -390,13 +390,12 @@ pub const Fe = struct {
         const _11 = a.mul(a.sq());
         const _1111 = _11.mul(_11.sq().sq());
         const _11111111 = _1111.mul(_1111.sq().sq().sq().sq());
-        var t = _11111111.sqn(2).mul(_11);
-        const u = t;
-        t = t.sqn(10).mul(u).sqn(10).mul(u);
-        t = t.sqn(30).mul(t);
-        t = t.sqn(60).mul(t);
-        t = t.sqn(120).mul(t).sqn(10).mul(u).sqn(3).mul(_11).sq();
-        return @bitCast(bool, @truncate(u1, ~(t.toBytes()[1] & 1)));
+        const u = _11111111.sqn(2).mul(_11);
+        const t = u.sqn(10).mul(u).sqn(10).mul(u);
+        const t2 = t.sqn(30).mul(t);
+        const t3 = t2.sqn(60).mul(t2);
+        const t4 = t3.sqn(120).mul(t3).sqn(10).mul(u).sqn(3).mul(_11).sq();
+        return @bitCast(bool, @truncate(u1, ~(t4.toBytes()[1] & 1)));
     }
 
     fn uncheckedSqrt(x2: Fe) Fe {
