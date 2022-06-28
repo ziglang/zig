@@ -144,7 +144,6 @@ const Writer = struct {
         switch (tag) {
             .array_type,
             .as,
-            .coerce_result_ptr,
             .elem_ptr,
             .elem_val,
             .store,
@@ -355,6 +354,7 @@ const Writer = struct {
             .minimum,
             .elem_ptr_node,
             .elem_val_node,
+            .coerce_result_ptr,
             => try self.writePlNodeBin(stream, inst),
 
             .elem_ptr_imm => try self.writeElemPtrImm(stream, inst),

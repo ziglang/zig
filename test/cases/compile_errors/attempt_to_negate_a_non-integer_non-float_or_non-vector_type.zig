@@ -8,7 +8,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:6:15: error: negation of type 'anyerror!u32'
+// :6:15: error: negation of type 'anyerror!u32'

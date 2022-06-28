@@ -1913,10 +1913,11 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     const tracy = trace(@src());
     defer tracy.end();
 
-    const src: LazySrcLoc = sema.src;
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
-    const pointee_ty = try sema.resolveType(block, src, bin_inst.lhs);
-    const ptr = try sema.resolveInst(bin_inst.rhs);
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const pointee_ty = try sema.resolveType(block, src, extra.lhs);
+    const ptr = try sema.resolveInst(extra.rhs);
     const target = sema.mod.getTarget();
     const addr_space = target_util.defaultAddressSpace(target, .local);
 
@@ -10143,7 +10144,10 @@ fn zirNegate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const rhs_ty = sema.typeOf(rhs);
     const rhs_scalar_ty = rhs_ty.scalarType();
 
-    if (rhs_scalar_ty.isUnsignedInt()) {
+    if (rhs_scalar_ty.isUnsignedInt() or switch (rhs_scalar_ty.zigTypeTag()) {
+        .Int, .ComptimeInt, .Float, .ComptimeFloat => false,
+        else => true,
+    }) {
         return sema.fail(block, src, "negation of type '{}'", .{rhs_ty.fmt(sema.mod)});
     }
 
@@ -10174,6 +10178,12 @@ fn zirNegateWrap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
 
     const rhs = try sema.resolveInst(inst_data.operand);
     const rhs_ty = sema.typeOf(rhs);
+    const rhs_scalar_ty = rhs_ty.scalarType();
+
+    switch (rhs_scalar_ty.zigTypeTag()) {
+        .Int, .ComptimeInt, .Float, .ComptimeFloat => {},
+        else => return sema.fail(block, src, "negation of type '{}'", .{rhs_ty.fmt(sema.mod)}),
+    }
 
     const lhs = if (rhs_ty.zigTypeTag() == .Vector)
         try sema.addConstant(rhs_ty, try Value.Tag.repeated.create(sema.arena, Value.zero))
@@ -17888,7 +17898,8 @@ fn validateRunTimeType(
         .Pointer => {
             const elem_ty = ty.childType();
             switch (elem_ty.zigTypeTag()) {
-                .Opaque, .Fn => return true,
+                .Opaque => return true,
+                .Fn => return elem_ty.isFnOrHasRuntimeBits(),
                 else => ty = elem_ty,
             }
         },
@@ -17952,7 +17963,25 @@ fn explainWhyTypeIsComptime(
         .Optional,
         => return,
 
-        .Pointer, .Array, .Vector => {
+        .Array, .Vector => {
+            try sema.explainWhyTypeIsComptime(block, src, msg, src_loc, ty.elemType());
+        },
+        .Pointer => {
+            const elem_ty = ty.elemType2();
+            if (elem_ty.zigTypeTag() == .Fn) {
+                const fn_info = elem_ty.fnInfo();
+                if (fn_info.is_generic) {
+                    try mod.errNoteNonLazy(src_loc, msg, "function is generic", .{});
+                }
+                switch (fn_info.cc) {
+                    .Inline => try mod.errNoteNonLazy(src_loc, msg, "function has inline calling convention", .{}),
+                    else => {},
+                }
+                if (fn_info.return_type.comptimeOnly()) {
+                    try mod.errNoteNonLazy(src_loc, msg, "function has a comptime-only return type", .{});
+                }
+                return;
+            }
             try sema.explainWhyTypeIsComptime(block, src, msg, src_loc, ty.elemType());
         },
 

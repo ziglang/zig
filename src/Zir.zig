@@ -308,7 +308,7 @@ pub const Inst = struct {
         cmp_neq,
         /// Coerces a result location pointer to a new element type. It is evaluated "backwards"-
         /// as type coercion from the new element type to the old element type.
-        /// Uses the `bin` union field.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
         /// LHS is destination element type, RHS is result pointer.
         coerce_result_ptr,
         /// Conditional branch. Splits control flow based on a boolean condition value.
@@ -1603,7 +1603,7 @@ pub const Inst = struct {
                 .cmp_gte = .pl_node,
                 .cmp_gt = .pl_node,
                 .cmp_neq = .pl_node,
-                .coerce_result_ptr = .bin,
+                .coerce_result_ptr = .pl_node,
                 .condbr = .pl_node,
                 .condbr_inline = .pl_node,
                 .@"try" = .pl_node,
