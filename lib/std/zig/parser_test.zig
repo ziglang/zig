@@ -4154,6 +4154,41 @@ test "zig fmt: container doc comments" {
     );
 }
 
+test "zig fmt: remove newlines surrounding doc comment" {
+    try testTransform(
+        \\
+        \\
+        \\
+        \\/// doc comment
+        \\
+        \\fn foo() void {}
+        \\
+    ,
+        \\/// doc comment
+        \\fn foo() void {}
+        \\
+    );
+}
+
+test "zig fmt: remove newlines surrounding doc comment within container decl" {
+    try testTransform(
+        \\const Foo = struct {
+        \\
+        \\
+        \\    /// doc comment
+        \\
+        \\    fn foo() void {}
+        \\};
+        \\
+    ,
+        \\const Foo = struct {
+        \\    /// doc comment
+        \\    fn foo() void {}
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: anytype struct field" {
     try testError(
         \\pub const Pointer = struct {
