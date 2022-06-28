@@ -444,6 +444,8 @@ const usage_build_generic =
     \\  --stack [size]                 Override default stack size
     \\  --image-base [addr]            Set base address for executable image
     \\  -framework [name]              (Darwin) link against framework
+    \\  -needed_framework [name]       (Darwin) link against framework (even if unused)
+    \\  -needed_library [lib]          (Darwin) link against system library (even if unused)
     \\  -F[dir]                        (Darwin) add search path for frameworks
     \\  -install_name=[value]          (Darwin) add dylib's install name
     \\  --entitlements [path]          (Darwin) add path to entitlements file for embedding in code signature
@@ -452,6 +454,7 @@ const usage_build_generic =
     \\  -search_dylibs_first           (Darwin) search `libx.dylib` in each dir in library search paths, then `libx.a`
     \\  -headerpad [value]             (Darwin) set minimum space for future expansion of the load commands in hexadecimal notation
     \\  -headerpad_max_install_names   (Darwin) set enough space as if all paths were MAXPATHLEN
+    \\  -dead_strip_dylibs             (Darwin) remove dylibs that are unreachable by the entry point or exported symbols
     \\  --import-memory                (WebAssembly) import memory from the environment
     \\  --import-table                 (WebAssembly) import function table from the host environment
     \\  --export-table                 (WebAssembly) export function table to the host environment
@@ -703,6 +706,7 @@ fn buildOutputType(
     var search_strategy: ?link.File.MachO.SearchStrategy = null;
     var headerpad_size: ?u32 = null;
     var headerpad_max_install_names: bool = false;
+    var dead_strip_dylibs: bool = false;
 
     // e.g. -m3dnow or -mno-outline-atomics. They correspond to std.Target llvm cpu feature names.
     // This array is populated by zig cc frontend and then has to be converted to zig-style
@@ -748,8 +752,7 @@ fn buildOutputType(
     var framework_dirs = std.ArrayList([]const u8).init(gpa);
     defer framework_dirs.deinit();
 
-    var frameworks = std.ArrayList([]const u8).init(gpa);
-    defer frameworks.deinit();
+    var frameworks: std.StringArrayHashMapUnmanaged(Compilation.SystemLib) = .{};
 
     // null means replace with the test executable binary
     var test_exec_args = std.ArrayList(?[]const u8).init(gpa);
@@ -910,9 +913,15 @@ fn buildOutputType(
                             fatal("expected parameter after {s}", .{arg});
                         });
                     } else if (mem.eql(u8, arg, "-framework")) {
-                        try frameworks.append(args_iter.next() orelse {
+                        const path = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
-                        });
+                        };
+                        try frameworks.put(gpa, path, .{ .needed = false });
+                    } else if (mem.eql(u8, arg, "-needed_framework")) {
+                        const path = args_iter.next() orelse {
+                            fatal("expected parameter after {s}", .{arg});
+                        };
+                        try frameworks.put(gpa, path, .{ .needed = true });
                     } else if (mem.eql(u8, arg, "-install_name")) {
                         install_name = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
@@ -937,6 +946,8 @@ fn buildOutputType(
                         };
                     } else if (mem.eql(u8, arg, "-headerpad_max_install_names")) {
                         headerpad_max_install_names = true;
+                    } else if (mem.eql(u8, arg, "-dead_strip_dylibs")) {
+                        dead_strip_dylibs = true;
                     } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
                         linker_script = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
@@ -952,7 +963,10 @@ fn buildOutputType(
                         // We don't know whether this library is part of libc or libc++ until
                         // we resolve the target, so we simply append to the list for now.
                         try system_libs.put(next_arg, .{ .needed = false });
-                    } else if (mem.eql(u8, arg, "--needed-library") or mem.eql(u8, arg, "-needed-l")) {
+                    } else if (mem.eql(u8, arg, "--needed-library") or
+                        mem.eql(u8, arg, "-needed-l") or
+                        mem.eql(u8, arg, "--needed_library"))
+                    {
                         const next_arg = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
@@ -1582,7 +1596,7 @@ fn buildOutputType(
                         try clang_argv.appendSlice(it.other_args);
                     },
                     .framework_dir => try framework_dirs.append(it.only_arg),
-                    .framework => try frameworks.append(it.only_arg),
+                    .framework => try frameworks.put(gpa, it.only_arg, .{ .needed = false }),
                     .nostdlibinc => want_native_include_dirs = false,
                     .strip => strip = true,
                     .exec_model => {
@@ -1700,6 +1714,8 @@ fn buildOutputType(
                     };
                 } else if (mem.eql(u8, arg, "-headerpad_max_install_names")) {
                     headerpad_max_install_names = true;
+                } else if (mem.eql(u8, arg, "-dead_strip_dylibs")) {
+                    dead_strip_dylibs = true;
                 } else if (mem.eql(u8, arg, "--gc-sections")) {
                     linker_gc_sections = true;
                 } else if (mem.eql(u8, arg, "--no-gc-sections")) {
@@ -1868,7 +1884,19 @@ fn buildOutputType(
                     if (i >= linker_args.items.len) {
                         fatal("expected linker arg after '{s}'", .{arg});
                     }
-                    try frameworks.append(linker_args.items[i]);
+                    try frameworks.put(gpa, linker_args.items[i], .{ .needed = false });
+                } else if (mem.eql(u8, arg, "-needed_framework")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    try frameworks.put(gpa, linker_args.items[i], .{ .needed = true });
+                } else if (mem.eql(u8, arg, "-needed_library")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    try system_libs.put(linker_args.items[i], .{ .needed = true });
                 } else if (mem.eql(u8, arg, "-compatibility_version")) {
                     i += 1;
                     if (i >= linker_args.items.len) {
@@ -2238,7 +2266,7 @@ fn buildOutputType(
 
     if (comptime builtin.target.isDarwin()) {
         // If we want to link against frameworks, we need system headers.
-        if (framework_dirs.items.len > 0 or frameworks.items.len > 0)
+        if (framework_dirs.items.len > 0 or frameworks.count() > 0)
             want_native_include_dirs = true;
     }
 
@@ -2728,7 +2756,7 @@ fn buildOutputType(
         .c_source_files = c_source_files.items,
         .link_objects = link_objects.items,
         .framework_dirs = framework_dirs.items,
-        .frameworks = frameworks.items,
+        .frameworks = frameworks,
         .system_lib_names = system_libs.keys(),
         .system_lib_infos = system_libs.values(),
         .wasi_emulated_libs = wasi_emulated_libs.items,
@@ -2821,6 +2849,7 @@ fn buildOutputType(
         .search_strategy = search_strategy,
         .headerpad_size = headerpad_size,
         .headerpad_max_install_names = headerpad_max_install_names,
+        .dead_strip_dylibs = dead_strip_dylibs,
     }) catch |err| switch (err) {
         error.LibCUnavailable => {
             const target = target_info.target;

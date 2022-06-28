@@ -11,7 +11,6 @@ const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const Allocator = mem.Allocator;
 const process = std.process;
-const BufSet = std.BufSet;
 const EnvMap = std.process.EnvMap;
 const fmt_lib = std.fmt;
 const File = std.fs.File;
@@ -1484,7 +1483,7 @@ pub const LibExeObjStep = struct {
     lib_paths: ArrayList([]const u8),
     rpaths: ArrayList([]const u8),
     framework_dirs: ArrayList([]const u8),
-    frameworks: BufSet,
+    frameworks: StringHashMap(bool),
     verbose_link: bool,
     verbose_cc: bool,
     emit_analysis: EmitOption = .default,
@@ -1601,6 +1600,9 @@ pub const LibExeObjStep = struct {
     /// and start of `__TEXT,__text` section to a value fitting all paths expanded to MAXPATHLEN.
     headerpad_max_install_names: bool = false,
 
+    /// (Darwin) Remove dylibs that are unreachable by the entry point or exported symbols.
+    dead_strip_dylibs: bool = false,
+
     /// Position Independent Code
     force_pic: ?bool = null,
 
@@ -1640,6 +1642,7 @@ pub const LibExeObjStep = struct {
 
     pub const SystemLib = struct {
         name: []const u8,
+        needed: bool,
         use_pkg_config: enum {
             /// Don't use pkg-config, just pass -lfoo where foo is name.
             no,
@@ -1741,7 +1744,7 @@ pub const LibExeObjStep = struct {
             .kind = kind,
             .root_src = root_src,
             .name = name,
-            .frameworks = BufSet.init(builder.allocator),
+            .frameworks = StringHashMap(bool).init(builder.allocator),
             .step = Step.init(base_id, name, builder.allocator, make),
             .version = ver,
             .out_filename = undefined,
@@ -1890,8 +1893,11 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn linkFramework(self: *LibExeObjStep, framework_name: []const u8) void {
-        // Note: No need to dupe because frameworks dupes internally.
-        self.frameworks.insert(framework_name) catch unreachable;
+        self.frameworks.put(self.builder.dupe(framework_name), false) catch unreachable;
+    }
+
+    pub fn linkFrameworkNeeded(self: *LibExeObjStep, framework_name: []const u8) void {
+        self.frameworks.put(self.builder.dupe(framework_name), true) catch unreachable;
     }
 
     /// Returns whether the library, executable, or object depends on a particular system library.
@@ -1932,6 +1938,7 @@ pub const LibExeObjStep = struct {
             self.link_objects.append(.{
                 .system_lib = .{
                     .name = "c",
+                    .needed = false,
                     .use_pkg_config = .no,
                 },
             }) catch unreachable;
@@ -1944,6 +1951,7 @@ pub const LibExeObjStep = struct {
             self.link_objects.append(.{
                 .system_lib = .{
                     .name = "c++",
+                    .needed = false,
                     .use_pkg_config = .no,
                 },
             }) catch unreachable;
@@ -1968,6 +1976,19 @@ pub const LibExeObjStep = struct {
         self.link_objects.append(.{
             .system_lib = .{
                 .name = self.builder.dupe(name),
+                .needed = false,
+                .use_pkg_config = .no,
+            },
+        }) catch unreachable;
+    }
+
+    /// This one has no integration with anything, it just puts -needed-lname on the command line.
+    /// Prefer to use `linkSystemLibraryNeeded` instead.
+    pub fn linkSystemLibraryNeededName(self: *LibExeObjStep, name: []const u8) void {
+        self.link_objects.append(.{
+            .system_lib = .{
+                .name = self.builder.dupe(name),
+                .needed = true,
                 .use_pkg_config = .no,
             },
         }) catch unreachable;
@@ -1979,6 +2000,19 @@ pub const LibExeObjStep = struct {
         self.link_objects.append(.{
             .system_lib = .{
                 .name = self.builder.dupe(lib_name),
+                .needed = false,
+                .use_pkg_config = .force,
+            },
+        }) catch unreachable;
+    }
+
+    /// This links against a system library, exclusively using pkg-config to find the library.
+    /// Prefer to use `linkSystemLibraryNeeded` instead.
+    pub fn linkSystemLibraryNeededPkgConfigOnly(self: *LibExeObjStep, lib_name: []const u8) void {
+        self.link_objects.append(.{
+            .system_lib = .{
+                .name = self.builder.dupe(lib_name),
+                .needed = true,
                 .use_pkg_config = .force,
             },
         }) catch unreachable;
@@ -2081,6 +2115,14 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn linkSystemLibrary(self: *LibExeObjStep, name: []const u8) void {
+        self.linkSystemLibraryInner(name, false);
+    }
+
+    pub fn linkSystemLibraryNeeded(self: *LibExeObjStep, name: []const u8) void {
+        self.linkSystemLibraryInner(name, true);
+    }
+
+    fn linkSystemLibraryInner(self: *LibExeObjStep, name: []const u8, needed: bool) void {
         if (isLibCLibrary(name)) {
             self.linkLibC();
             return;
@@ -2093,6 +2135,7 @@ pub const LibExeObjStep = struct {
         self.link_objects.append(.{
             .system_lib = .{
                 .name = self.builder.dupe(name),
+                .needed = needed,
                 .use_pkg_config = .yes,
             },
         }) catch unreachable;
@@ -2434,7 +2477,7 @@ pub const LibExeObjStep = struct {
                         if (!other.isDynamicLibrary()) {
                             var it = other.frameworks.iterator();
                             while (it.next()) |framework| {
-                                self.frameworks.insert(framework.*) catch unreachable;
+                                self.frameworks.put(framework.key_ptr.*, framework.value_ptr.*) catch unreachable;
                             }
                         }
                     },
@@ -2470,8 +2513,9 @@ pub const LibExeObjStep = struct {
                 },
 
                 .system_lib => |system_lib| {
+                    const prefix: []const u8 = if (system_lib.needed) "-needed-l" else "-l";
                     switch (system_lib.use_pkg_config) {
-                        .no => try zig_args.append(builder.fmt("-l{s}", .{system_lib.name})),
+                        .no => try zig_args.append(builder.fmt("{s}{s}", .{ prefix, system_lib.name })),
                         .yes, .force => {
                             if (self.runPkgConfig(system_lib.name)) |args| {
                                 try zig_args.appendSlice(args);
@@ -2485,7 +2529,10 @@ pub const LibExeObjStep = struct {
                                     .yes => {
                                         // pkg-config failed, so fall back to linking the library
                                         // by name directly.
-                                        try zig_args.append(builder.fmt("-l{s}", .{system_lib.name}));
+                                        try zig_args.append(builder.fmt("{s}{s}", .{
+                                            prefix,
+                                            system_lib.name,
+                                        }));
                                     },
                                     .force => {
                                         panic("pkg-config failed for library {s}", .{system_lib.name});
@@ -2675,6 +2722,9 @@ pub const LibExeObjStep = struct {
         }
         if (self.headerpad_max_install_names) {
             try zig_args.append("-headerpad_max_install_names");
+        }
+        if (self.dead_strip_dylibs) {
+            try zig_args.append("-dead_strip_dylibs");
         }
 
         if (self.bundle_compiler_rt) |x| {
@@ -2966,9 +3016,15 @@ pub const LibExeObjStep = struct {
             }
 
             var it = self.frameworks.iterator();
-            while (it.next()) |framework| {
-                zig_args.append("-framework") catch unreachable;
-                zig_args.append(framework.*) catch unreachable;
+            while (it.next()) |entry| {
+                const name = entry.key_ptr.*;
+                const needed = entry.value_ptr.*;
+                if (needed) {
+                    zig_args.append("-needed_framework") catch unreachable;
+                } else {
+                    zig_args.append("-framework") catch unreachable;
+                }
+                zig_args.append(name) catch unreachable;
             }
         } else {
             if (self.framework_dirs.items.len > 0) {
