@@ -2483,7 +2483,7 @@ fn renderDocComments(ais: *Ais, tree: Ast, end_token: Ast.TokenIndex) Error!void
     const first_tok = tok;
     if (first_tok == end_token) return;
 
-    if (tok != 0) {
+    if (first_tok != 0) {
         const prev_token_tag = token_tags[first_tok - 1];
 
         // Prevent accidental use of `renderDocComments` for a function argument doc comment
