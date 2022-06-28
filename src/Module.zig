@@ -503,6 +503,8 @@ pub const Decl = struct {
     alive: bool,
     /// Whether the Decl is a `usingnamespace` declaration.
     is_usingnamespace: bool,
+    /// If true `name` is already fully qualified.
+    name_fully_qualified: bool = false,
 
     /// Represents the position of the code in the output file.
     /// This is populated regardless of semantic analysis and code generation.
@@ -686,6 +688,9 @@ pub const Decl = struct {
 
     pub fn renderFullyQualifiedName(decl: Decl, mod: *Module, writer: anytype) !void {
         const unqualified_name = mem.sliceTo(decl.name, 0);
+        if (decl.name_fully_qualified) {
+            return writer.writeAll(unqualified_name);
+        }
         return decl.src_namespace.renderFullyQualifiedName(mod, unqualified_name, writer);
     }
 
