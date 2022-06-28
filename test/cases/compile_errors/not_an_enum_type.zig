@@ -13,8 +13,7 @@ const InvalidToken = struct {};
 const ExpectedVarDeclOrFn = struct {};
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
-// is_test=1
 //
-// tmp.zig:4:9: error: expected type '@typeInfo(Error).Union.tag_type.?', found 'type'
+// :4:9: error: expected type '@typeInfo(tmp.Error).Union.tag_type.?', found 'type'
