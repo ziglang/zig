@@ -7,6 +7,5 @@ export fn entry() void {
 // error
 // backend=stage1
 // target=native
-// is_test=1
 //
 // tmp.zig:3:23: error: pointer to size 0 type has no address
