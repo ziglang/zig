@@ -14885,7 +14885,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             union_obj.tag_ty = if (tag_type_val.optionalValue()) |payload_val| blk: {
                 var buffer: Value.ToTypeBuffer = undefined;
                 break :blk try payload_val.toType(&buffer).copy(new_decl_arena_allocator);
-            } else try sema.generateUnionTagTypeSimple(block, fields_len);
+            } else try sema.generateUnionTagTypeSimple(block, fields_len, null);
 
             // Fields
             if (fields_len > 0) {
@@ -24239,7 +24239,7 @@ fn semaUnionFields(block: *Block, mod: *Module, union_obj: *Module.Union) Compil
         if (small.auto_enum_tag) {
             // The provided type is an integer type and we must construct the enum tag type here.
             int_tag_ty = provided_ty;
-            union_obj.tag_ty = try sema.generateUnionTagTypeNumbered(&block_scope, fields_len, provided_ty);
+            union_obj.tag_ty = try sema.generateUnionTagTypeNumbered(&block_scope, fields_len, provided_ty, union_obj);
             const enum_obj = union_obj.tag_ty.castTag(.enum_numbered).?.data;
             enum_field_names = &enum_obj.fields;
             enum_value_map = &enum_obj.values;
@@ -24255,7 +24255,7 @@ fn semaUnionFields(block: *Block, mod: *Module, union_obj: *Module.Union) Compil
         // If auto_enum_tag is false, this is an untagged union. However, for semantic analysis
         // purposes, we still auto-generate an enum tag type the same way. That the union is
         // untagged is represented by the Type tag (union vs union_tagged).
-        union_obj.tag_ty = try sema.generateUnionTagTypeSimple(&block_scope, fields_len);
+        union_obj.tag_ty = try sema.generateUnionTagTypeSimple(&block_scope, fields_len, union_obj);
         enum_field_names = &union_obj.tag_ty.castTag(.enum_simple).?.data.fields;
     }
 
@@ -24424,6 +24424,7 @@ fn generateUnionTagTypeNumbered(
     block: *Block,
     fields_len: u32,
     int_ty: Type,
+    union_obj: *Module.Union,
 ) !Type {
     const mod = sema.mod;
 
@@ -24439,13 +24440,24 @@ fn generateUnionTagTypeNumbered(
     };
     const enum_ty = Type.initPayload(&enum_ty_payload.base);
     const enum_val = try Value.Tag.ty.create(new_decl_arena_allocator, enum_ty);
-    // TODO better type name
-    const new_decl_index = try mod.createAnonymousDecl(block, .{
+
+    const src_decl = mod.declPtr(block.src_decl);
+    const new_decl_index = try mod.allocateNewDecl(block.namespace, src_decl.src_node, block.wip_capture_scope);
+    errdefer mod.destroyDecl(new_decl_index);
+    const name = name: {
+        const fqn = try union_obj.getFullyQualifiedName(mod);
+        defer sema.gpa.free(fqn);
+        break :name try std.fmt.allocPrintZ(mod.gpa, "@typeInfo({s}).Union.tag_type.?", .{fqn});
+    };
+    try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, block.namespace, .{
         .ty = Type.type,
         .val = enum_val,
-    });
+    }, name);
+    sema.mod.declPtr(new_decl_index).name_fully_qualified = true;
+
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
+    new_decl.name_fully_qualified = true;
     errdefer mod.abortAnonDecl(new_decl_index);
 
     enum_obj.* = .{
@@ -24465,7 +24477,7 @@ fn generateUnionTagTypeNumbered(
     return enum_ty;
 }
 
-fn generateUnionTagTypeSimple(sema: *Sema, block: *Block, fields_len: usize) !Type {
+fn generateUnionTagTypeSimple(sema: *Sema, block: *Block, fields_len: usize, maybe_union_obj: ?*Module.Union) !Type {
     const mod = sema.mod;
 
     var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
@@ -24480,11 +24492,30 @@ fn generateUnionTagTypeSimple(sema: *Sema, block: *Block, fields_len: usize) !Ty
     };
     const enum_ty = Type.initPayload(&enum_ty_payload.base);
     const enum_val = try Value.Tag.ty.create(new_decl_arena_allocator, enum_ty);
-    // TODO better type name
-    const new_decl_index = try mod.createAnonymousDecl(block, .{
-        .ty = Type.type,
-        .val = enum_val,
-    });
+
+    const new_decl_index = new_decl_index: {
+        const union_obj = maybe_union_obj orelse {
+            break :new_decl_index try mod.createAnonymousDecl(block, .{
+                .ty = Type.type,
+                .val = enum_val,
+            });
+        };
+        const src_decl = mod.declPtr(block.src_decl);
+        const new_decl_index = try mod.allocateNewDecl(block.namespace, src_decl.src_node, block.wip_capture_scope);
+        errdefer mod.destroyDecl(new_decl_index);
+        const name = name: {
+            const fqn = try union_obj.getFullyQualifiedName(mod);
+            defer sema.gpa.free(fqn);
+            break :name try std.fmt.allocPrintZ(mod.gpa, "@typeInfo({s}).Union.tag_type.?", .{fqn});
+        };
+        try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, block.namespace, .{
+            .ty = Type.type,
+            .val = enum_val,
+        }, name);
+        sema.mod.declPtr(new_decl_index).name_fully_qualified = true;
+        break :new_decl_index new_decl_index;
+    };
+
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
