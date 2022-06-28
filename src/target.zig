@@ -283,6 +283,14 @@ pub fn supportsStackProbing(target: std.Target) bool {
         (target.cpu.arch == .i386 or target.cpu.arch == .x86_64);
 }
 
+pub fn supportsReturnAddress(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .wasm32, .wasm64 => target.os.tag == .emscripten,
+        .bpfel, .bpfeb => false,
+        else => true,
+    };
+}
+
 pub fn osToLLVM(os_tag: std.Target.Os.Tag) llvm.OSType {
     return switch (os_tag) {
         .freestanding, .other, .opencl, .glsl450, .vulkan, .plan9 => .UnknownOS,
