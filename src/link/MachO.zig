@@ -3117,6 +3117,10 @@ fn resolveSymbolsInDylibs(self: *MachO) !void {
             undef.n_type |= macho.N_EXT;
             undef.n_desc = @intCast(u16, ordinal + 1) * macho.N_SYMBOL_RESOLVER;
 
+            if (dylib.weak) {
+                undef.n_desc |= macho.N_WEAK_REF;
+            }
+
             if (self.unresolved.fetchSwapRemove(resolv.where_index)) |entry| outer_blk: {
                 switch (entry.value) {
                     .none => {},
@@ -5806,11 +5810,16 @@ fn writeDyldInfoData(self: *MachO) !void {
                         },
                         .undef => {
                             const bind_sym = self.undefs.items[resolv.where_index];
+                            var flags: u4 = 0;
+                            if (bind_sym.weakRef()) {
+                                flags |= @truncate(u4, macho.BIND_SYMBOL_FLAGS_WEAK_IMPORT);
+                            }
                             try bind_pointers.append(.{
                                 .offset = binding.offset + base_offset,
                                 .segment_id = match.seg,
-                                .dylib_ordinal = @divExact(@bitCast(i16, bind_sym.n_desc), macho.N_SYMBOL_RESOLVER),
+                                .dylib_ordinal = @divTrunc(@bitCast(i16, bind_sym.n_desc), macho.N_SYMBOL_RESOLVER),
                                 .name = self.getString(bind_sym.n_strx),
+                                .bind_flags = flags,
                             });
                         },
                     }
@@ -5828,11 +5837,16 @@ fn writeDyldInfoData(self: *MachO) !void {
                         },
                         .undef => {
                             const bind_sym = self.undefs.items[resolv.where_index];
+                            var flags: u4 = 0;
+                            if (bind_sym.weakRef()) {
+                                flags |= @truncate(u4, macho.BIND_SYMBOL_FLAGS_WEAK_IMPORT);
+                            }
                             try lazy_bind_pointers.append(.{
                                 .offset = binding.offset + base_offset,
                                 .segment_id = match.seg,
-                                .dylib_ordinal = @divExact(@bitCast(i16, bind_sym.n_desc), macho.N_SYMBOL_RESOLVER),
+                                .dylib_ordinal = @divTrunc(@bitCast(i16, bind_sym.n_desc), macho.N_SYMBOL_RESOLVER),
                                 .name = self.getString(bind_sym.n_strx),
+                                .bind_flags = flags,
                             });
                         },
                     }
