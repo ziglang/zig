@@ -6,8 +6,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
-// is_test=1
 //
-// tmp.zig:2:15: error: cannot assign to constant
+// :2:15: error: cannot assign to constant
