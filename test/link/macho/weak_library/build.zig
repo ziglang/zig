@@ -25,6 +25,11 @@ pub fn build(b: *Builder) void {
     const check = exe.checkObject(.macho);
     check.checkStart("cmd LOAD_WEAK_DYLIB");
     check.checkNext("name @rpath/liba.dylib");
+
+    check.checkInSymtab();
+    check.checkNext("(undefined) weak external _a (from liba)");
+    check.checkNext("(undefined) weak external _asStr (from liba)");
+
     test_step.dependOn(&check.step);
 
     const run_cmd = exe.run();
