@@ -4683,7 +4683,6 @@ pub const prctl_mm_map = extern struct {
 };
 
 pub const NETLINK = struct {
-
     /// Routing/device hook
     pub const ROUTE = 0;
 
