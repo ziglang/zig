@@ -408,6 +408,8 @@ const MachODumper = struct {
 
             .ID_DYLIB,
             .LOAD_DYLIB,
+            .LOAD_WEAK_DYLIB,
+            .REEXPORT_DYLIB,
             => {
                 const dylib = lc.dylib.inner.dylib;
                 try writer.writeByte('\n');
