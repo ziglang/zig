@@ -1,5 +1,6 @@
 const std = @import("std");
 const crypto = std.crypto;
+const math = std.math;
 const mem = std.mem;
 const meta = std.meta;
 
@@ -33,6 +34,58 @@ pub const Secp256k1 = struct {
     pub const identityElement = Secp256k1{ .x = Fe.zero, .y = Fe.one, .z = Fe.zero };
 
     pub const B = Fe.fromInt(7) catch unreachable;
+
+    pub const Endormorphism = struct {
+        const lambda: u256 = 37718080363155996902926221483475020450927657555482586988616620542887997980018;
+        const beta: u256 = 55594575648329892869085402983802832744385952214688224221778511981742606582254;
+
+        const lambda_s = s: {
+            var buf: [32]u8 = undefined;
+            mem.writeIntLittle(u256, &buf, Endormorphism.lambda);
+            break :s buf;
+        };
+
+        pub const SplitScalar = struct {
+            r1: [32]u8,
+            r2: [32]u8,
+        };
+
+        /// Compute r1 and r2 so that k = r1 + r2*lambda (mod L).
+        pub fn splitScalar(s: [32]u8, endian: std.builtin.Endian) SplitScalar {
+            const b1_neg_s = comptime s: {
+                var buf: [32]u8 = undefined;
+                mem.writeIntLittle(u256, &buf, 303414439467246543595250775667605759171);
+                break :s buf;
+            };
+            const b2_neg_s = comptime s: {
+                var buf: [32]u8 = undefined;
+                mem.writeIntLittle(u256, &buf, scalar.field_order - 64502973549206556628585045361533709077);
+                break :s buf;
+            };
+            const k = mem.readInt(u256, &s, endian);
+
+            const t1 = math.mulWide(u256, k, 21949224512762693861512883645436906316123769664773102907882521278123970637873);
+            const t2 = math.mulWide(u256, k, 103246583619904461035481197785446227098457807945486720222659797044629401272177);
+
+            const c1 = @truncate(u128, t1 >> 384) + @truncate(u1, t1 >> 383);
+            const c2 = @truncate(u128, t2 >> 384) + @truncate(u1, t2 >> 383);
+
+            var buf: [32]u8 = undefined;
+
+            mem.writeIntLittle(u256, &buf, c1);
+            const c1x = scalar.mul(buf, b1_neg_s, .Little) catch unreachable;
+
+            mem.writeIntLittle(u256, &buf, c2);
+            const c2x = scalar.mul(buf, b2_neg_s, .Little) catch unreachable;
+
+            const r2 = scalar.add(c1x, c2x, .Little) catch unreachable;
+
+            var r1 = scalar.mul(r2, lambda_s, .Little) catch unreachable;
+            r1 = scalar.sub(s, r1, .Little) catch unreachable;
+
+            return SplitScalar{ .r1 = r1, .r2 = r2 };
+        }
+    };
 
     /// Reject the neutral element.
     pub fn rejectIdentity(p: Secp256k1) IdentityElementError!void {
@@ -384,12 +437,62 @@ pub const Secp256k1 = struct {
     /// This can be used for signature verification.
     pub fn mulPublic(p: Secp256k1, s_: [32]u8, endian: std.builtin.Endian) IdentityElementError!Secp256k1 {
         const s = if (endian == .Little) s_ else Fe.orderSwap(s_);
-        if (p.is_base) {
-            return pcMul16(&basePointPc, s, true);
+        const zero = comptime scalar.Scalar.zero.toBytes(.Little);
+        if (mem.eql(u8, &zero, &s)) {
+            return error.IdentityElement;
         }
-        try p.rejectIdentity();
         const pc = precompute(p, 8);
-        return pcMul(&pc, s, true);
+        var lambda_p = try pcMul(&pc, Endormorphism.lambda_s, true);
+        var split_scalar = Endormorphism.splitScalar(s, .Little);
+        var px = p;
+
+        // If a key is negative, flip the sign to keep it half-sized,
+        // and flip the sign of the Y point coordinate to compensate.
+        if (split_scalar.r1[split_scalar.r1.len / 2] != 0) {
+            split_scalar.r1 = scalar.neg(split_scalar.r1, .Little) catch zero;
+            px = px.neg();
+        }
+        if (split_scalar.r2[split_scalar.r2.len / 2] != 0) {
+            split_scalar.r2 = scalar.neg(split_scalar.r2, .Little) catch zero;
+            lambda_p = lambda_p.neg();
+        }
+        return mulDoubleBasePublicEndo(px, split_scalar.r1, lambda_p, split_scalar.r2);
+    }
+
+    // Half-size double-base public multiplication when using the curve endomorphism.
+    // Scalars must be in little-endian.
+    // The second point is unlikely to be the generator, so don't even try to use the comptime table for it.
+    fn mulDoubleBasePublicEndo(p1: Secp256k1, s1: [32]u8, p2: Secp256k1, s2: [32]u8) IdentityElementError!Secp256k1 {
+        var pc1_array: [9]Secp256k1 = undefined;
+        const pc1 = if (p1.is_base) basePointPc[0..9] else pc: {
+            pc1_array = precompute(p1, 8);
+            break :pc &pc1_array;
+        };
+        const pc2 = precompute(p2, 8);
+        std.debug.assert(s1[s1.len / 2] == 0);
+        std.debug.assert(s2[s2.len / 2] == 0);
+        const e1 = slide(s1);
+        const e2 = slide(s2);
+        var q = Secp256k1.identityElement;
+        var pos: usize = 2 * 32 / 2; // second half is all zero
+        while (true) : (pos -= 1) {
+            const slot1 = e1[pos];
+            if (slot1 > 0) {
+                q = q.add(pc1[@intCast(usize, slot1)]);
+            } else if (slot1 < 0) {
+                q = q.sub(pc1[@intCast(usize, -slot1)]);
+            }
+            const slot2 = e2[pos];
+            if (slot2 > 0) {
+                q = q.add(pc2[@intCast(usize, slot2)]);
+            } else if (slot2 < 0) {
+                q = q.sub(pc2[@intCast(usize, -slot2)]);
+            }
+            if (pos == 0) break;
+            q = q.dbl().dbl().dbl().dbl();
+        }
+        try q.rejectIdentity();
+        return q;
     }
 
     /// Double-base multiplication of public parameters - Compute (p1*s1)+(p2*s2) *IN VARIABLE TIME*
@@ -412,7 +515,7 @@ pub const Secp256k1 = struct {
         const e1 = slide(s1);
         const e2 = slide(s2);
         var q = Secp256k1.identityElement;
-        var pos: usize = 2 * 32 - 1;
+        var pos: usize = 2 * 32;
         while (true) : (pos -= 1) {
             const slot1 = e1[pos];
             if (slot1 > 0) {

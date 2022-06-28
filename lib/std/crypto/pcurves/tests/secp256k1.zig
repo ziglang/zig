@@ -14,6 +14,16 @@ test "secp256k1 ECDH key exchange" {
     try testing.expect(shareda.equivalent(sharedb));
 }
 
+test "secp256k1 ECDH key exchange including public multiplication" {
+    const dha = Secp256k1.scalar.random(.Little);
+    const dhb = Secp256k1.scalar.random(.Little);
+    const dhA = try Secp256k1.basePoint.mul(dha, .Little);
+    const dhB = try Secp256k1.basePoint.mulPublic(dhb, .Little);
+    const shareda = try dhA.mul(dhb, .Little);
+    const sharedb = try dhB.mulPublic(dha, .Little);
+    try testing.expect(shareda.equivalent(sharedb));
+}
+
 test "secp256k1 point from affine coordinates" {
     const xh = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
     const yh = "483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8";
