@@ -18,4 +18,4 @@ export fn g() void {
 // :4:7: error: no field named 'foo' in struct 'tmp.A'
 // :1:11: note: struct declared here
 // :10:17: error: no field named 'bar' in struct 'tmp.A'
-// :1:11: note: struct declared here
+

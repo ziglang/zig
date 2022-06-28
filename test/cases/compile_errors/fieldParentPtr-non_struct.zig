@@ -4,7 +4,7 @@ export fn foo(a: *i32) *Foo {
 }
 
 // error
-// backend=stage2
+// backend=llvm
 // target=native
 //
 // :3:28: error: expected struct type, found 'i32'
