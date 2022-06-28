@@ -1483,7 +1483,7 @@ pub const LibExeObjStep = struct {
     lib_paths: ArrayList([]const u8),
     rpaths: ArrayList([]const u8),
     framework_dirs: ArrayList([]const u8),
-    frameworks: StringHashMap(bool),
+    frameworks: StringHashMap(FrameworkLinkInfo),
     verbose_link: bool,
     verbose_cc: bool,
     emit_analysis: EmitOption = .default,
@@ -1643,6 +1643,7 @@ pub const LibExeObjStep = struct {
     pub const SystemLib = struct {
         name: []const u8,
         needed: bool,
+        weak: bool,
         use_pkg_config: enum {
             /// Don't use pkg-config, just pass -lfoo where foo is name.
             no,
@@ -1653,6 +1654,11 @@ pub const LibExeObjStep = struct {
             /// If that fails, error out.
             force,
         },
+    };
+
+    const FrameworkLinkInfo = struct {
+        needed: bool = false,
+        weak: bool = false,
     };
 
     pub const IncludeDir = union(enum) {
@@ -1744,7 +1750,7 @@ pub const LibExeObjStep = struct {
             .kind = kind,
             .root_src = root_src,
             .name = name,
-            .frameworks = StringHashMap(bool).init(builder.allocator),
+            .frameworks = StringHashMap(FrameworkLinkInfo).init(builder.allocator),
             .step = Step.init(base_id, name, builder.allocator, make),
             .version = ver,
             .out_filename = undefined,
@@ -1893,11 +1899,19 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn linkFramework(self: *LibExeObjStep, framework_name: []const u8) void {
-        self.frameworks.put(self.builder.dupe(framework_name), false) catch unreachable;
+        self.frameworks.put(self.builder.dupe(framework_name), .{}) catch unreachable;
     }
 
     pub fn linkFrameworkNeeded(self: *LibExeObjStep, framework_name: []const u8) void {
-        self.frameworks.put(self.builder.dupe(framework_name), true) catch unreachable;
+        self.frameworks.put(self.builder.dupe(framework_name), .{
+            .needed = true,
+        }) catch unreachable;
+    }
+
+    pub fn linkFrameworkWeak(self: *LibExeObjStep, framework_name: []const u8) void {
+        self.frameworks.put(self.builder.dupe(framework_name), .{
+            .weak = true,
+        }) catch unreachable;
     }
 
     /// Returns whether the library, executable, or object depends on a particular system library.
@@ -1939,6 +1953,7 @@ pub const LibExeObjStep = struct {
                 .system_lib = .{
                     .name = "c",
                     .needed = false,
+                    .weak = false,
                     .use_pkg_config = .no,
                 },
             }) catch unreachable;
@@ -1952,6 +1967,7 @@ pub const LibExeObjStep = struct {
                 .system_lib = .{
                     .name = "c++",
                     .needed = false,
+                    .weak = false,
                     .use_pkg_config = .no,
                 },
             }) catch unreachable;
@@ -1977,6 +1993,7 @@ pub const LibExeObjStep = struct {
             .system_lib = .{
                 .name = self.builder.dupe(name),
                 .needed = false,
+                .weak = false,
                 .use_pkg_config = .no,
             },
         }) catch unreachable;
@@ -1989,6 +2006,20 @@ pub const LibExeObjStep = struct {
             .system_lib = .{
                 .name = self.builder.dupe(name),
                 .needed = true,
+                .weak = false,
+                .use_pkg_config = .no,
+            },
+        }) catch unreachable;
+    }
+
+    /// Darwin-only. This one has no integration with anything, it just puts -weak-lname on the
+    /// command line. Prefer to use `linkSystemLibraryWeak` instead.
+    pub fn linkSystemLibraryWeakName(self: *LibExeObjStep, name: []const u8) void {
+        self.link_objects.append(.{
+            .system_lib = .{
+                .name = self.builder.dupe(name),
+                .needed = false,
+                .weak = true,
                 .use_pkg_config = .no,
             },
         }) catch unreachable;
@@ -2001,6 +2032,7 @@ pub const LibExeObjStep = struct {
             .system_lib = .{
                 .name = self.builder.dupe(lib_name),
                 .needed = false,
+                .weak = false,
                 .use_pkg_config = .force,
             },
         }) catch unreachable;
@@ -2013,6 +2045,7 @@ pub const LibExeObjStep = struct {
             .system_lib = .{
                 .name = self.builder.dupe(lib_name),
                 .needed = true,
+                .weak = false,
                 .use_pkg_config = .force,
             },
         }) catch unreachable;
@@ -2115,14 +2148,21 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn linkSystemLibrary(self: *LibExeObjStep, name: []const u8) void {
-        self.linkSystemLibraryInner(name, false);
+        self.linkSystemLibraryInner(name, .{});
     }
 
     pub fn linkSystemLibraryNeeded(self: *LibExeObjStep, name: []const u8) void {
-        self.linkSystemLibraryInner(name, true);
+        self.linkSystemLibraryInner(name, .{ .needed = true });
     }
 
-    fn linkSystemLibraryInner(self: *LibExeObjStep, name: []const u8, needed: bool) void {
+    pub fn linkSystemLibraryWeak(self: *LibExeObjStep, name: []const u8) void {
+        self.linkSystemLibraryInner(name, .{ .weak = true });
+    }
+
+    fn linkSystemLibraryInner(self: *LibExeObjStep, name: []const u8, opts: struct {
+        needed: bool = false,
+        weak: bool = false,
+    }) void {
         if (isLibCLibrary(name)) {
             self.linkLibC();
             return;
@@ -2135,7 +2175,8 @@ pub const LibExeObjStep = struct {
         self.link_objects.append(.{
             .system_lib = .{
                 .name = self.builder.dupe(name),
-                .needed = needed,
+                .needed = opts.needed,
+                .weak = opts.weak,
                 .use_pkg_config = .yes,
             },
         }) catch unreachable;
@@ -2513,7 +2554,14 @@ pub const LibExeObjStep = struct {
                 },
 
                 .system_lib => |system_lib| {
-                    const prefix: []const u8 = if (system_lib.needed) "-needed-l" else "-l";
+                    const prefix: []const u8 = prefix: {
+                        if (system_lib.needed) break :prefix "-needed-l";
+                        if (system_lib.weak) {
+                            if (self.target.isDarwin()) break :prefix "-weak-l";
+                            warn("Weak library import used for a non-darwin target, this will be converted to normally library import `-lname`\n", .{});
+                        }
+                        break :prefix "-l";
+                    };
                     switch (system_lib.use_pkg_config) {
                         .no => try zig_args.append(builder.fmt("{s}{s}", .{ prefix, system_lib.name })),
                         .yes, .force => {
@@ -3018,9 +3066,11 @@ pub const LibExeObjStep = struct {
             var it = self.frameworks.iterator();
             while (it.next()) |entry| {
                 const name = entry.key_ptr.*;
-                const needed = entry.value_ptr.*;
-                if (needed) {
+                const info = entry.value_ptr.*;
+                if (info.needed) {
                     zig_args.append("-needed_framework") catch unreachable;
+                } else if (info.weak) {
+                    zig_args.append("-weak_framework") catch unreachable;
                 } else {
                     zig_args.append("-framework") catch unreachable;
                 }
