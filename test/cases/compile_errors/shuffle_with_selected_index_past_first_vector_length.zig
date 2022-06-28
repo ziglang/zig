@@ -6,10 +6,9 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
-// is_test=1
 //
-// tmp.zig:4:39: error: mask index '4' has out-of-bounds selection
-// tmp.zig:4:27: note: selected index '7' out of bounds of @Vector(4, u32)
-// tmp.zig:4:30: note: selections from the second vector are specified with negative numbers
+// :4:39: error: mask index '4' has out-of-bounds selection
+// :4:27: note: selected index '7' out of bounds of '@Vector(4, u32)'
+// :4:30: note: selections from the second vector are specified with negative numbers

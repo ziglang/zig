@@ -6,9 +6,8 @@ comptime {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
-// is_test=1
 //
-// tmp.zig:4:15: error: operation caused overflow
-// tmp.zig:4:15: note: when computing vector element at index 2
+// :4:15: error: overflow of vector type '@Vector(4, u8)' with value '.{ 6, 8, 256, 12 }'
+// :4:15: note: when computing vector element at index '2'

@@ -139,6 +139,7 @@ pub const Block = struct {
 
     is_comptime: bool,
     is_typeof: bool = false,
+    is_coerce_result_ptr: bool = false,
 
     /// when null, it is determined by build mode, changed by @setRuntimeSafety
     want_safety: ?bool = null,
@@ -1734,9 +1735,20 @@ fn failWithErrorSetCodeMissing(
     });
 }
 
-fn failWithIntegerOverflow(sema: *Sema, block: *Block, src: LazySrcLoc, int_ty: Type, val: Value) CompileError {
+fn failWithIntegerOverflow(sema: *Sema, block: *Block, src: LazySrcLoc, int_ty: Type, val: Value, vector_index: usize) CompileError {
+    if (int_ty.zigTypeTag() == .Vector) {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, src, "overflow of vector type '{}' with value '{}'", .{
+                int_ty.fmt(sema.mod), val.fmtValue(int_ty, sema.mod),
+            });
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, src, msg, "when computing vector element at index '{d}'", .{vector_index});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(block, msg);
+    }
     return sema.fail(block, src, "overflow of integer type '{}' with value '{}'", .{
-        int_ty.fmt(sema.mod), val.fmtValue(Type.@"comptime_int", sema.mod),
+        int_ty.fmt(sema.mod), val.fmtValue(int_ty, sema.mod),
     });
 }
 
@@ -1971,6 +1983,7 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     // kind of transformations to make on the result pointer.
     var trash_block = block.makeSubBlock();
     trash_block.is_comptime = false;
+    trash_block.is_coerce_result_ptr = true;
     defer trash_block.instructions.deinit(sema.gpa);
 
     const dummy_ptr = try trash_block.addTy(.alloc, sema.typeOf(ptr));
@@ -10453,8 +10466,9 @@ fn analyzeArithmetic(
                     if (maybe_rhs_val) |rhs_val| {
                         if (is_int) {
                             const sum = try sema.intAdd(block, src, lhs_val, rhs_val, resolved_type);
-                            if (!(try sema.intFitsInType(block, src, sum, resolved_type))) {
-                                return sema.failWithIntegerOverflow(block, src, resolved_type, sum);
+                            var vector_index: usize = undefined;
+                            if (!(try sema.intFitsInType(block, src, sum, resolved_type, &vector_index))) {
+                                return sema.failWithIntegerOverflow(block, src, resolved_type, sum, vector_index);
                             }
                             return sema.addConstant(resolved_type, sum);
                         } else {
@@ -10547,8 +10561,9 @@ fn analyzeArithmetic(
                     if (maybe_rhs_val) |rhs_val| {
                         if (is_int) {
                             const diff = try sema.intSub(block, src, lhs_val, rhs_val, resolved_type);
-                            if (!(try sema.intFitsInType(block, src, diff, resolved_type))) {
-                                return sema.failWithIntegerOverflow(block, src, resolved_type, diff);
+                            var vector_index: usize = undefined;
+                            if (!(try sema.intFitsInType(block, src, diff, resolved_type, &vector_index))) {
+                                return sema.failWithIntegerOverflow(block, src, resolved_type, diff, vector_index);
                             }
                             return sema.addConstant(resolved_type, diff);
                         } else {
@@ -10921,8 +10936,9 @@ fn analyzeArithmetic(
                         }
                         if (is_int) {
                             const product = try lhs_val.intMul(rhs_val, resolved_type, sema.arena, target);
-                            if (!(try sema.intFitsInType(block, src, product, resolved_type))) {
-                                return sema.failWithIntegerOverflow(block, src, resolved_type, product);
+                            var vector_index: usize = undefined;
+                            if (!(try sema.intFitsInType(block, src, product, resolved_type, &vector_index))) {
+                                return sema.failWithIntegerOverflow(block, src, resolved_type, product, vector_index);
                             }
                             return sema.addConstant(resolved_type, product);
                         } else {
@@ -16456,15 +16472,15 @@ fn analyzeShuffle(
         }
         if (unsigned >= operand_info[chosen][0]) {
             const msg = msg: {
-                const msg = try sema.errMsg(block, mask_src, "mask index {d} has out-of-bounds selection", .{i});
+                const msg = try sema.errMsg(block, mask_src, "mask index '{d}' has out-of-bounds selection", .{i});
                 errdefer msg.destroy(sema.gpa);
 
-                try sema.errNote(block, operand_info[chosen][1], msg, "selected index {d} out of bounds of '{}'", .{
+                try sema.errNote(block, operand_info[chosen][1], msg, "selected index '{d}' out of bounds of '{}'", .{
                     unsigned,
                     operand_info[chosen][2].fmt(sema.mod),
                 });
 
-                if (chosen == 1) {
+                if (chosen == 0) {
                     try sema.errNote(block, b_src, msg, "selections from the second vector are specified with negative numbers", .{});
                 }
 
@@ -17750,7 +17766,7 @@ fn zirBuiltinExtern(
 }
 
 fn requireFunctionBlock(sema: *Sema, block: *Block, src: LazySrcLoc) !void {
-    if (sema.func == null and !block.is_typeof) {
+    if (sema.func == null and !block.is_typeof and !block.is_coerce_result_ptr) {
         return sema.fail(block, src, "instruction illegal outside function body", .{});
     }
 }
@@ -19881,7 +19897,7 @@ fn coerce(
             .Int, .ComptimeInt => {
                 if (try sema.resolveDefinedValue(block, inst_src, inst)) |val| {
                     // comptime known integer to other number
-                    if (!(try sema.intFitsInType(block, inst_src, val, dest_ty))) {
+                    if (!(try sema.intFitsInType(block, inst_src, val, dest_ty, null))) {
                         return sema.fail(block, inst_src, "type '{}' cannot represent integer value '{}'", .{ dest_ty.fmt(sema.mod), val.fmtValue(inst_ty, sema.mod) });
                     }
                     return try sema.addConstant(dest_ty, val);
@@ -25829,7 +25845,7 @@ fn floatToIntScalar(
     else
         try Value.Tag.int_big_positive.create(sema.arena, result_limbs);
 
-    if (!(try sema.intFitsInType(block, src, result, int_ty))) {
+    if (!(try sema.intFitsInType(block, src, result, int_ty, null))) {
         return sema.fail(block, src, "float value '{}' cannot be stored in integer type '{}'", .{
             val.fmtValue(float_ty, sema.mod), int_ty.fmt(sema.mod),
         });
@@ -25845,6 +25861,7 @@ fn intFitsInType(
     src: LazySrcLoc,
     self: Value,
     ty: Type,
+    vector_index: ?*usize,
 ) CompileError!bool {
     const target = sema.mod.getTarget();
     switch (self.tag()) {
@@ -25954,8 +25971,9 @@ fn intFitsInType(
 
         .aggregate => {
             assert(ty.zigTypeTag() == .Vector);
-            for (self.castTag(.aggregate).?.data) |elem| {
-                if (!(try sema.intFitsInType(block, src, elem, ty.scalarType()))) {
+            for (self.castTag(.aggregate).?.data) |elem, i| {
+                if (!(try sema.intFitsInType(block, src, elem, ty.scalarType(), null))) {
+                    if (vector_index) |some| some.* = i;
                     return false;
                 }
             }
@@ -25993,7 +26011,7 @@ fn enumHasInt(
     int: Value,
 ) CompileError!bool {
     switch (ty.tag()) {
-        .enum_nonexhaustive => return sema.intFitsInType(block, src, int, ty),
+        .enum_nonexhaustive => return sema.intFitsInType(block, src, int, ty, null),
         .enum_full => {
             const enum_full = ty.castTag(.enum_full).?.data;
             const tag_ty = enum_full.tag_ty;
