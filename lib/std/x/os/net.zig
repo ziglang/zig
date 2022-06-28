@@ -433,7 +433,7 @@ pub const IPv6 = extern struct {
                 '0'...'9' => fmt.parseInt(u32, scope_id_slice, 10),
                 else => resolveScopeId(scope_id_slice) catch |err| switch (err) {
                     error.InterfaceNotFound => return error.InterfaceNotFound,
-                    else => err,
+                    else => |e| return e,
                 },
             } catch return error.UnknownScopeId;
 
