@@ -965,7 +965,7 @@ fn buildOutputType(
                         try system_libs.put(next_arg, .{ .needed = false });
                     } else if (mem.eql(u8, arg, "--needed-library") or
                         mem.eql(u8, arg, "-needed-l") or
-                        mem.eql(u8, arg, "--needed_library"))
+                        mem.eql(u8, arg, "-needed_library"))
                     {
                         const next_arg = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
