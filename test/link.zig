@@ -45,11 +45,20 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
             .requires_macos_sdk = true,
         });
 
-        cases.addBuildFile("test/link/macho/needed_l/build.zig", .{
+        cases.addBuildFile("test/link/macho/needed_library/build.zig", .{
+            .build_modes = true,
+        });
+
+        cases.addBuildFile("test/link/macho/weak_library/build.zig", .{
             .build_modes = true,
         });
 
         cases.addBuildFile("test/link/macho/needed_framework/build.zig", .{
+            .build_modes = true,
+            .requires_macos_sdk = true,
+        });
+
+        cases.addBuildFile("test/link/macho/weak_framework/build.zig", .{
             .build_modes = true,
             .requires_macos_sdk = true,
         });
