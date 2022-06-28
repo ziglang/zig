@@ -9027,6 +9027,10 @@ fn validateSwitchRange(
 ) CompileError!void {
     const first_val = (try sema.resolveSwitchItemVal(block, first_ref, src_node_offset, switch_prong_src, .first)).val;
     const last_val = (try sema.resolveSwitchItemVal(block, last_ref, src_node_offset, switch_prong_src, .last)).val;
+    if (first_val.compare(.gt, last_val, operand_ty, sema.mod)) {
+        const src = switch_prong_src.resolve(sema.gpa, sema.mod.declPtr(block.src_decl), src_node_offset, .first);
+        return sema.fail(block, src, "range start value is greater than the end value", .{});
+    }
     const maybe_prev_src = try range_set.add(first_val, last_val, operand_ty, switch_prong_src);
     return sema.validateSwitchDupe(block, maybe_prev_src, switch_prong_src, src_node_offset);
 }
@@ -9374,8 +9378,33 @@ fn zirShl(
         if (rhs_val.isUndef()) {
             return sema.addConstUndef(sema.typeOf(lhs));
         }
+        // If rhs is 0, return lhs without doing any calculations.
         if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
             return lhs;
+        }
+        if (scalar_ty.zigTypeTag() != .ComptimeInt and air_tag != .shl_sat) {
+            var bits_payload = Value.Payload.U64{
+                .base = .{ .tag = .int_u64 },
+                .data = scalar_ty.intInfo(target).bits,
+            };
+            const bit_value = Value.initPayload(&bits_payload.base);
+            if (rhs_ty.zigTypeTag() == .Vector) {
+                var i: usize = 0;
+                while (i < rhs_ty.vectorLen()) : (i += 1) {
+                    if (rhs_val.indexVectorlike(i).compareHetero(.gte, bit_value, target)) {
+                        return sema.fail(block, rhs_src, "shift amount '{}' at index '{d}' is too large for operand type '{}'", .{
+                            rhs_val.indexVectorlike(i).fmtValue(scalar_ty, sema.mod),
+                            i,
+                            scalar_ty.fmt(sema.mod),
+                        });
+                    }
+                }
+            } else if (rhs_val.compareHetero(.gte, bit_value, target)) {
+                return sema.fail(block, rhs_src, "shift amount '{}' is too large for operand type '{}'", .{
+                    rhs_val.fmtValue(scalar_ty, sema.mod),
+                    scalar_ty.fmt(sema.mod),
+                });
+            }
         }
     }
 
@@ -9488,15 +9517,43 @@ fn zirShr(
     const rhs_ty = sema.typeOf(rhs);
     try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
     const target = sema.mod.getTarget();
+    const scalar_ty = lhs_ty.scalarType();
 
     const runtime_src = if (try sema.resolveMaybeUndefVal(block, rhs_src, rhs)) |rhs_val| rs: {
-        if (try sema.resolveMaybeUndefVal(block, lhs_src, lhs)) |lhs_val| {
-            if (lhs_val.isUndef() or rhs_val.isUndef()) {
-                return sema.addConstUndef(lhs_ty);
+        if (rhs_val.isUndef()) {
+            return sema.addConstUndef(lhs_ty);
+        }
+        // If rhs is 0, return lhs without doing any calculations.
+        if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
+            return lhs;
+        }
+        if (scalar_ty.zigTypeTag() != .ComptimeInt) {
+            var bits_payload = Value.Payload.U64{
+                .base = .{ .tag = .int_u64 },
+                .data = scalar_ty.intInfo(target).bits,
+            };
+            const bit_value = Value.initPayload(&bits_payload.base);
+            if (rhs_ty.zigTypeTag() == .Vector) {
+                var i: usize = 0;
+                while (i < rhs_ty.vectorLen()) : (i += 1) {
+                    if (rhs_val.indexVectorlike(i).compareHetero(.gte, bit_value, target)) {
+                        return sema.fail(block, rhs_src, "shift amount '{}' at index '{d}' is too large for operand type '{}'", .{
+                            rhs_val.indexVectorlike(i).fmtValue(scalar_ty, sema.mod),
+                            i,
+                            scalar_ty.fmt(sema.mod),
+                        });
+                    }
+                }
+            } else if (rhs_val.compareHetero(.gte, bit_value, target)) {
+                return sema.fail(block, rhs_src, "shift amount '{}' is too large for operand type '{}'", .{
+                    rhs_val.fmtValue(scalar_ty, sema.mod),
+                    scalar_ty.fmt(sema.mod),
+                });
             }
-            // If rhs is 0, return lhs without doing any calculations.
-            if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                return sema.addConstant(lhs_ty, lhs_val);
+        }
+        if (try sema.resolveMaybeUndefVal(block, lhs_src, lhs)) |lhs_val| {
+            if (lhs_val.isUndef()) {
+                return sema.addConstUndef(lhs_ty);
             }
             if (air_tag == .shr_exact) {
                 // Detect if any ones would be shifted out.
@@ -9508,12 +9565,6 @@ fn zirShr(
             const val = try lhs_val.shr(rhs_val, lhs_ty, sema.arena, target);
             return sema.addConstant(lhs_ty, val);
         } else {
-            // Even if lhs is not comptime known, we can still deduce certain things based
-            // on rhs.
-            // If rhs is 0, return lhs without doing any calculations.
-            if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                return lhs;
-            }
             break :rs lhs_src;
         }
     } else rhs_src;
