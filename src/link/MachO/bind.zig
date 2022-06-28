@@ -7,6 +7,7 @@ pub const Pointer = struct {
     segment_id: u16,
     dylib_ordinal: ?i64 = null,
     name: ?[]const u8 = null,
+    bind_flags: u4 = 0,
 };
 
 pub fn rebaseInfoSize(pointers: []const Pointer) !u64 {
@@ -73,7 +74,7 @@ pub fn writeBindInfo(pointers: []const Pointer, writer: anytype) !void {
         }
         try writer.writeByte(macho.BIND_OPCODE_SET_TYPE_IMM | @truncate(u4, macho.BIND_TYPE_POINTER));
 
-        try writer.writeByte(macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM); // TODO Sometimes we might want to add flags.
+        try writer.writeByte(macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM | pointer.bind_flags);
         try writer.writeAll(pointer.name.?);
         try writer.writeByte(0);
 
@@ -127,7 +128,7 @@ pub fn writeLazyBindInfo(pointers: []const Pointer, writer: anytype) !void {
             try writer.writeByte(macho.BIND_OPCODE_SET_DYLIB_SPECIAL_IMM | @truncate(u4, @bitCast(u64, pointer.dylib_ordinal.?)));
         }
 
-        try writer.writeByte(macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM); // TODO Sometimes we might want to add flags.
+        try writer.writeByte(macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM | pointer.bind_flags);
         try writer.writeAll(pointer.name.?);
         try writer.writeByte(0);
 
