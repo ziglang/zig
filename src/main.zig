@@ -1627,6 +1627,7 @@ fn buildOutputType(
                     },
                     .weak_library => try system_libs.put(it.only_arg, .{ .weak = true }),
                     .weak_framework => try frameworks.put(gpa, it.only_arg, .{ .weak = true }),
+                    .headerpad_max_install_names => headerpad_max_install_names = true,
                 }
             }
             // Parse linker args.
@@ -4581,6 +4582,7 @@ pub const ClangArgIterator = struct {
         entry,
         weak_library,
         weak_framework,
+        headerpad_max_install_names,
     };
 
     const Args = struct {
