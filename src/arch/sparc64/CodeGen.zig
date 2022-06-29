@@ -591,8 +591,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .struct_field_ptr=> @panic("TODO try self.airStructFieldPtr(inst)"),
             .struct_field_val=> try self.airStructFieldVal(inst),
             .array_to_slice  => try self.airArrayToSlice(inst),
-            .int_to_float    => @panic("TODO try self.airIntToFloat(inst)"),
-            .float_to_int    => @panic("TODO try self.airFloatToInt(inst)"),
+            .int_to_float    => try self.airIntToFloat(inst),
+            .float_to_int    => try self.airFloatToInt(inst),
             .cmpxchg_strong  => @panic("TODO try self.airCmpxchg(inst)"),
             .cmpxchg_weak    => @panic("TODO try self.airCmpxchg(inst)"),
             .atomic_rmw      => @panic("TODO try self.airAtomicRmw(inst)"),
@@ -1519,6 +1519,14 @@ fn airFence(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, .dead, .{ .none, .none, .none });
 }
 
+fn airFloatToInt(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airFloatToInt for {}", .{
+        self.target.cpu.arch,
+    });
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
 fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     if (self.liveness.isUnused(inst))
@@ -1535,6 +1543,14 @@ fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
         return self.finishAir(inst, operand, .{ ty_op.operand, .none, .none });
 
     return self.fail("TODO implement intCast for {}", .{self.target.cpu.arch});
+}
+
+fn airIntToFloat(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airIntToFloat for {}", .{
+        self.target.cpu.arch,
+    });
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airIsErr(self: *Self, inst: Air.Inst.Index) !void {
