@@ -444,6 +444,10 @@ const known_options = [_]KnownOpt{
         .name = "weak_framework",
         .ident = "weak_framework",
     },
+    .{
+        .name = "headerpad_max_install_names",
+        .ident = "headerpad_max_install_names",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};
