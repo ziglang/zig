@@ -5109,6 +5109,28 @@ const PatternList = struct {
         [2][]const u8{ "Ull_SUFFIX(X) (X ## Ull)", "ULL_SUFFIX" },
         [2][]const u8{ "ULL_SUFFIX(X) (X ## ULL)", "ULL_SUFFIX" },
 
+        [2][]const u8{ "f_SUFFIX(X) X ## f", "F_SUFFIX" },
+        [2][]const u8{ "F_SUFFIX(X) X ## F", "F_SUFFIX" },
+
+        [2][]const u8{ "u_SUFFIX(X) X ## u", "U_SUFFIX" },
+        [2][]const u8{ "U_SUFFIX(X) X ## U", "U_SUFFIX" },
+
+        [2][]const u8{ "l_SUFFIX(X) X ## l", "L_SUFFIX" },
+        [2][]const u8{ "L_SUFFIX(X) X ## L", "L_SUFFIX" },
+
+        [2][]const u8{ "ul_SUFFIX(X) X ## ul", "UL_SUFFIX" },
+        [2][]const u8{ "uL_SUFFIX(X) X ## uL", "UL_SUFFIX" },
+        [2][]const u8{ "Ul_SUFFIX(X) X ## Ul", "UL_SUFFIX" },
+        [2][]const u8{ "UL_SUFFIX(X) X ## UL", "UL_SUFFIX" },
+
+        [2][]const u8{ "ll_SUFFIX(X) X ## ll", "LL_SUFFIX" },
+        [2][]const u8{ "LL_SUFFIX(X) X ## LL", "LL_SUFFIX" },
+
+        [2][]const u8{ "ull_SUFFIX(X) X ## ull", "ULL_SUFFIX" },
+        [2][]const u8{ "uLL_SUFFIX(X) X ## uLL", "ULL_SUFFIX" },
+        [2][]const u8{ "Ull_SUFFIX(X) X ## Ull", "ULL_SUFFIX" },
+        [2][]const u8{ "ULL_SUFFIX(X) X ## ULL", "ULL_SUFFIX" },
+
         [2][]const u8{ "CAST_OR_CALL(X, Y) (X)(Y)", "CAST_OR_CALL" },
         [2][]const u8{ "CAST_OR_CALL(X, Y) ((X)(Y))", "CAST_OR_CALL" },
 
