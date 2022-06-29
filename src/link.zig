@@ -19,6 +19,7 @@ const Package = @import("Package.zig");
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
 
+/// When adding a new field, remember to update `hashAddSystemLibs`.
 pub const SystemLib = struct {
     needed: bool = false,
     weak: bool = false,
@@ -35,6 +36,7 @@ pub fn hashAddSystemLibs(
     hh.addListOfBytes(keys);
     for (hm.values()) |value| {
         hh.add(value.needed);
+        hh.add(value.weak);
     }
 }
 

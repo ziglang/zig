@@ -432,6 +432,18 @@ const known_options = [_]KnownOpt{
         .name = "e",
         .ident = "entry",
     },
+    .{
+        .name = "weak-l",
+        .ident = "weak_library",
+    },
+    .{
+        .name = "weak_library",
+        .ident = "weak_library",
+    },
+    .{
+        .name = "weak_framework",
+        .ident = "weak_framework",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};

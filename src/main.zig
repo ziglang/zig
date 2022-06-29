@@ -1625,6 +1625,8 @@ fn buildOutputType(
                     .entry => {
                         entry = it.only_arg;
                     },
+                    .weak_library => try system_libs.put(it.only_arg, .{ .weak = true }),
+                    .weak_framework => try frameworks.put(gpa, it.only_arg, .{ .weak = true }),
                 }
             }
             // Parse linker args.
@@ -4577,6 +4579,8 @@ pub const ClangArgIterator = struct {
         emit_llvm,
         sysroot,
         entry,
+        weak_library,
+        weak_framework,
     };
 
     const Args = struct {
