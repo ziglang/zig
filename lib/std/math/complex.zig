@@ -24,6 +24,15 @@ pub const tanh = @import("complex/tanh.zig").tanh;
 pub const tan = @import("complex/tan.zig").tan;
 
 /// A complex number consisting of a real an imaginary part. T must be a floating-point value.
+/// The present struct is compatible with C ABI. Prefer `Complex` if C interaction is not needed.
+pub fn c_Complex(comptime T: type) type {
+    return extern struct {
+        re: T,
+        im: T,
+    };
+}
+
+/// A complex number consisting of a real an imaginary part. T must be a floating-point value.
 pub fn Complex(comptime T: type) type {
     return struct {
         const Self = @This();
@@ -117,6 +126,14 @@ pub fn Complex(comptime T: type) type {
         pub fn magnitude(self: Self) T {
             return @sqrt(self.re * self.re + self.im * self.im);
         }
+        
+        /// Return a C ABI compatible struct complex number.
+        pub fn asExtern(self: Self) c_Complex(T) {
+            return c_Complex(T){
+                .re = self.re,
+                .im = self.im,
+            };
+        }
     };
 }
 
@@ -189,6 +206,12 @@ test "complex.magnitude" {
     const c = a.magnitude();
 
     try testing.expect(math.approxEqAbs(f32, c, 5.83095, epsilon));
+}
+
+test "complex.asExtern" {
+    const x: Complex(f64) = .{ .re = 1, .im = 0 };
+    const y = x.asExtern();
+    try testing.expect(@TypeOf(y) == c_Complex(f64) and x.re == y.re and x.im == y.im);
 }
 
 test "complex.cmath" {
