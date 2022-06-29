@@ -1321,7 +1321,6 @@ pub const Value = union(enum) {
                         try out_stream.writeByte(',');
                     }
                     if (child_options.whitespace) |child_whitespace| {
-                        try out_stream.writeByte('\n');
                         try child_whitespace.outputIndent(out_stream);
                     }
 
@@ -1336,7 +1335,6 @@ pub const Value = union(enum) {
                 }
                 if (field_output) {
                     if (options.whitespace) |whitespace| {
-                        try out_stream.writeByte('\n');
                         try whitespace.outputIndent(out_stream);
                     }
                 }
@@ -2943,6 +2941,7 @@ pub const StringifyOptions = struct {
         indent: union(enum) {
             Space: u8,
             Tab: void,
+            None: void,
         } = .{ .Space = 4 },
 
         /// After a colon, should whitespace be inserted?
@@ -2963,7 +2962,9 @@ pub const StringifyOptions = struct {
                     char = '\t';
                     n_chars = 1;
                 },
+                .None => return,
             }
+            try out_stream.writeByte('\n');
             n_chars *= whitespace.indent_level;
             try out_stream.writeByteNTimes(char, n_chars);
         }
@@ -3139,7 +3140,6 @@ pub fn stringify(
                         try out_stream.writeByte(',');
                     }
                     if (child_options.whitespace) |child_whitespace| {
-                        try out_stream.writeByte('\n');
                         try child_whitespace.outputIndent(out_stream);
                     }
                     try outputJsonString(Field.name, options, out_stream);
@@ -3154,7 +3154,6 @@ pub fn stringify(
             }
             if (field_output) {
                 if (options.whitespace) |whitespace| {
-                    try out_stream.writeByte('\n');
                     try whitespace.outputIndent(out_stream);
                 }
             }
@@ -3190,14 +3189,12 @@ pub fn stringify(
                         try out_stream.writeByte(',');
                     }
                     if (child_options.whitespace) |child_whitespace| {
-                        try out_stream.writeByte('\n');
                         try child_whitespace.outputIndent(out_stream);
                     }
                     try stringify(x, child_options, out_stream);
                 }
                 if (value.len != 0) {
                     if (options.whitespace) |whitespace| {
-                        try out_stream.writeByte('\n');
                         try whitespace.outputIndent(out_stream);
                     }
                 }
@@ -3364,6 +3361,23 @@ test "stringify struct with indentation" {
         StringifyOptions{
             .whitespace = .{
                 .indent = .Tab,
+                .separator = false,
+            },
+        },
+    );
+    try teststringify(
+        \\{"foo":42,"bar":[1,2,3]}
+    ,
+        struct {
+            foo: u32,
+            bar: [3]u32,
+        }{
+            .foo = 42,
+            .bar = .{ 1, 2, 3 },
+        },
+        StringifyOptions{
+            .whitespace = .{
+                .indent = .None,
                 .separator = false,
             },
         },
