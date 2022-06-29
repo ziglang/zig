@@ -22706,9 +22706,9 @@ fn cmpNumeric(
                     else => {},
                 }
                 if (lhs_is_signed) {
-                    try bigint.addScalar(bigint.toConst(), -1);
+                    try bigint.addScalar(&bigint, -1);
                 } else {
-                    try bigint.addScalar(bigint.toConst(), 1);
+                    try bigint.addScalar(&bigint, 1);
                 }
             }
             lhs_bits = bigint.toConst().bitCountTwosComp();
@@ -22752,9 +22752,9 @@ fn cmpNumeric(
                     else => {},
                 }
                 if (rhs_is_signed) {
-                    try bigint.addScalar(bigint.toConst(), -1);
+                    try bigint.addScalar(&bigint, -1);
                 } else {
-                    try bigint.addScalar(bigint.toConst(), 1);
+                    try bigint.addScalar(&bigint, 1);
                 }
             }
             rhs_bits = bigint.toConst().bitCountTwosComp();
