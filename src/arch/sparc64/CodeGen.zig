@@ -584,7 +584,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .load            => try self.airLoad(inst),
             .loop            => try self.airLoop(inst),
             .not             => try self.airNot(inst),
-            .ptrtoint        => @panic("TODO try self.airPtrToInt(inst)"),
+            .ptrtoint        => try self.airPtrToInt(inst),
             .ret             => try self.airRet(inst),
             .ret_load        => try self.airRetLoad(inst),
             .store           => try self.airStore(inst),
@@ -1892,6 +1892,12 @@ fn airPtrElemPtr(self: *Self, inst: Air.Inst.Index) !void {
     const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement ptr_elem_ptr for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
+}
+
+fn airPtrToInt(self: *Self, inst: Air.Inst.Index) !void {
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const result = try self.resolveInst(un_op);
+    return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
 fn airRem(self: *Self, inst: Air.Inst.Index) !void {
