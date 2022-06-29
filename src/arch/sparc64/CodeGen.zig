@@ -546,7 +546,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .cmp_gt  => try self.airCmp(inst, .gt),
             .cmp_neq => try self.airCmp(inst, .neq),
             .cmp_vector => @panic("TODO try self.airCmpVector(inst)"),
-            .cmp_lt_errors_len => @panic("TODO try self.airCmpLtErrorsLen(inst)"),
+            .cmp_lt_errors_len => try self.airCmpLtErrorsLen(inst),
 
             .bool_and        => @panic("TODO try self.airBoolOp(inst)"),
             .bool_or         => @panic("TODO try self.airBoolOp(inst)"),
@@ -1297,6 +1297,14 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
         }
     };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
+fn airCmpLtErrorsLen(self: *Self, inst: Air.Inst.Index) !void {
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const operand = try self.resolveInst(un_op);
+    _ = operand;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airCmpLtErrorsLen for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
 fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
