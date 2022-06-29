@@ -250,7 +250,8 @@ pub fn addEntitlements(self: *CodeSignature, allocator: Allocator, path: []const
 
 pub const WriteOpts = struct {
     file: fs.File,
-    text_segment: macho.segment_command_64,
+    exec_seg_base: u64,
+    exec_seg_limit: u64,
     code_sig_cmd: macho.linkedit_data_command,
     output_mode: std.builtin.OutputMode,
 };
@@ -270,8 +271,8 @@ pub fn writeAdhocSignature(
     var blobs = std.ArrayList(Blob).init(allocator);
     defer blobs.deinit();
 
-    self.code_directory.inner.execSegBase = opts.text_segment.fileoff;
-    self.code_directory.inner.execSegLimit = opts.text_segment.filesize;
+    self.code_directory.inner.execSegBase = opts.exec_seg_base;
+    self.code_directory.inner.execSegLimit = opts.exec_seg_limit;
     self.code_directory.inner.execSegFlags = if (opts.output_mode == .Exe) macho.CS_EXECSEG_MAIN_BINARY else 0;
     const file_size = opts.code_sig_cmd.dataoff;
     self.code_directory.inner.codeLimit = file_size;
