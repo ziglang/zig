@@ -709,7 +709,7 @@ test "simple else prong allowed even when all errors handled" {
         }
     };
     var value = S.foo() catch |err| switch (err) {
-        error.Foo => 255,
+        error.Foo => @as(u8, 255),
         else => |e| return e,
     };
     try expect(value == 255);

@@ -427,15 +427,63 @@ pub fn print(
         },
         .eu_payload_ptr => {
             try writer.writeAll("&");
-            val = val.castTag(.eu_payload_ptr).?.data.container_ptr;
-            ty = ty.elemType2().errorUnionPayload();
+
+            const data = val.castTag(.eu_payload_ptr).?.data;
+
+            var ty_val: Value.Payload.Ty = .{
+                .base = .{ .tag = .ty },
+                .data = ty,
+            };
+
+            try writer.writeAll("@as(");
+            try print(.{
+                .ty = Type.type,
+                .val = Value.initPayload(&ty_val.base),
+            }, writer, level - 1, mod);
+
+            try writer.writeAll(", &(payload of ");
+
+            var ptr_ty: Type.Payload.ElemType = .{
+                .base = .{ .tag = .single_mut_pointer },
+                .data = data.container_ty,
+            };
+
+            try print(.{
+                .ty = Type.initPayload(&ptr_ty.base),
+                .val = data.container_ptr,
+            }, writer, level - 1, mod);
+
+            try writer.writeAll("))");
+            return;
         },
         .opt_payload_ptr => {
-            try writer.writeAll("&");
-            val = val.castTag(.opt_payload).?.data;
-            var buf: Type.Payload.ElemType = undefined;
-            ty = ty.elemType2().optionalChild(&buf);
-            return print(.{ .ty = ty, .val = val }, writer, level, mod);
+            const data = val.castTag(.opt_payload_ptr).?.data;
+
+            var ty_val: Value.Payload.Ty = .{
+                .base = .{ .tag = .ty },
+                .data = ty,
+            };
+
+            try writer.writeAll("@as(");
+            try print(.{
+                .ty = Type.type,
+                .val = Value.initPayload(&ty_val.base),
+            }, writer, level - 1, mod);
+
+            try writer.writeAll(", &(payload of ");
+
+            var ptr_ty: Type.Payload.ElemType = .{
+                .base = .{ .tag = .single_mut_pointer },
+                .data = data.container_ty,
+            };
+
+            try print(.{
+                .ty = Type.initPayload(&ptr_ty.base),
+                .val = data.container_ptr,
+            }, writer, level - 1, mod);
+
+            try writer.writeAll("))");
+            return;
         },
 
         // TODO these should not appear in this function
