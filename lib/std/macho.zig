@@ -912,6 +912,9 @@ pub const relocation_info = packed struct {
 pub const LC_REQ_DYLD = 0x80000000;
 
 pub const LC = enum(u32) {
+    /// No load command - invalid
+    NONE = 0x0,
+
     /// segment of this file to be mapped
     SEGMENT = 0x1,
 
