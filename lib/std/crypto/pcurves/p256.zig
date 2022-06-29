@@ -437,7 +437,7 @@ pub const P256 = struct {
         const e1 = slide(s1);
         const e2 = slide(s2);
         var q = P256.identityElement;
-        var pos: usize = 2 * 32 - 1;
+        var pos: usize = 2 * 32;
         while (true) : (pos -= 1) {
             const slot1 = e1[pos];
             if (slot1 > 0) {
