@@ -7634,33 +7634,31 @@ pub const FuncGen = struct {
     fn airTagName(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         if (self.liveness.isUnused(inst)) return null;
 
-        var arena_allocator = std.heap.ArenaAllocator.init(self.gpa);
-        defer arena_allocator.deinit();
-        const arena = arena_allocator.allocator();
-
         const un_op = self.air.instructions.items(.data)[inst].un_op;
         const operand = try self.resolveInst(un_op);
         const enum_ty = self.air.typeOf(un_op);
 
-        const mod = self.dg.module;
-        const llvm_fn_name = try std.fmt.allocPrintZ(arena, "__zig_tag_name_{s}", .{
-            try mod.declPtr(enum_ty.getOwnerDecl()).getFullyQualifiedName(mod),
-        });
-
-        const llvm_fn = try self.getEnumTagNameFunction(enum_ty, llvm_fn_name);
+        const llvm_fn = try self.getEnumTagNameFunction(enum_ty);
         const params = [_]*const llvm.Value{operand};
         return self.builder.buildCall(llvm_fn, &params, params.len, .Fast, .Auto, "");
     }
 
-    fn getEnumTagNameFunction(
-        self: *FuncGen,
-        enum_ty: Type,
-        llvm_fn_name: [:0]const u8,
-    ) !*const llvm.Value {
+    fn getEnumTagNameFunction(self: *FuncGen, enum_ty: Type) !*const llvm.Value {
+        const enum_decl = enum_ty.getOwnerDecl();
+
         // TODO: detect when the type changes and re-emit this function.
-        if (self.dg.object.llvm_module.getNamedFunction(llvm_fn_name)) |llvm_fn| {
-            return llvm_fn;
-        }
+        const gop = try self.dg.object.decl_map.getOrPut(self.dg.gpa, enum_decl);
+        if (gop.found_existing) return gop.value_ptr.*;
+        errdefer assert(self.dg.object.decl_map.remove(enum_decl));
+
+        var arena_allocator = std.heap.ArenaAllocator.init(self.gpa);
+        defer arena_allocator.deinit();
+        const arena = arena_allocator.allocator();
+
+        const mod = self.dg.module;
+        const llvm_fn_name = try std.fmt.allocPrintZ(arena, "__zig_tag_name_{s}", .{
+            try mod.declPtr(enum_decl).getFullyQualifiedName(mod),
+        });
 
         const slice_ty = Type.initTag(.const_slice_u8_sentinel_0);
         const llvm_ret_ty = try self.dg.lowerType(slice_ty);
@@ -7677,6 +7675,7 @@ pub const FuncGen = struct {
         fn_val.setLinkage(.Internal);
         fn_val.setFunctionCallConv(.Fast);
         self.dg.addCommonFnAttributes(fn_val);
+        gop.value_ptr.* = fn_val;
 
         const prev_block = self.builder.getInsertBlock();
         const prev_debug_location = self.builder.getCurrentDebugLocation2();
