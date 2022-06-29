@@ -218,7 +218,7 @@ pub const Inst = struct {
         /// Used by e.g. call
         branch_link: struct {
             inst: Index,
-            link: Register = .o7,
+            // link is always %o7
         },
 
         /// Branch with prediction, checking the integer status code
