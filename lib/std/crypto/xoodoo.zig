@@ -4,7 +4,7 @@
 //! microcontrollers, 8-bit AVR microcontrollers, FPGAs, ASICs without
 //! side-channel protection, and ASICs with side-channel protection.
 //!
-//! Xoodoo is the core function of Xoodyak, a finalists of the NIST lightweight cryptography competition.
+//! Xoodoo is the core function of Xoodyak, a finalist of the NIST lightweight cryptography competition.
 //! https://csrc.nist.gov/CSRC/media/Projects/Lightweight-Cryptography/documents/round-1/spec-doc/Xoodyak-spec.pdf
 //!
 //! It is not meant to be used directly, but as a building block for symmetric cryptography.
