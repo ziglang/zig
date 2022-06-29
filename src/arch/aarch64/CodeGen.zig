@@ -362,6 +362,13 @@ fn addInst(self: *Self, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
     return result_index;
 }
 
+fn addNop(self: *Self) error{OutOfMemory}!Mir.Inst.Index {
+    return try self.addInst(.{
+        .tag = .nop,
+        .data = .{ .nop = {} },
+    });
+}
+
 pub fn addExtra(self: *Self, extra: anytype) Allocator.Error!u32 {
     const fields = std.meta.fields(@TypeOf(extra));
     try self.mir_extra.ensureUnusedCapacity(self.gpa, fields.len);
@@ -396,10 +403,7 @@ fn gen(self: *Self) !void {
         });
 
         // <store other registers>
-        const backpatch_save_registers = try self.addInst(.{
-            .tag = .nop,
-            .data = .{ .nop = {} },
-        });
+        const backpatch_save_registers = try self.addNop();
 
         // mov fp, sp
         _ = try self.addInst(.{
@@ -408,10 +412,7 @@ fn gen(self: *Self) !void {
         });
 
         // sub sp, sp, #reloc
-        const backpatch_reloc = try self.addInst(.{
-            .tag = .nop,
-            .data = .{ .nop = {} },
-        });
+        const backpatch_reloc = try self.addNop();
 
         _ = try self.addInst(.{
             .tag = .dbg_prologue_end,
@@ -3261,37 +3262,58 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
     return bt.finishAir(result);
 }
 
-fn ret(self: *Self, mcv: MCValue) !void {
-    const ret_ty = self.fn_type.fnReturnType();
-    switch (self.ret_mcv) {
-        .immediate => {
-            assert(ret_ty.isError());
-        },
-        else => {
-            try self.setRegOrMem(ret_ty, self.ret_mcv, mcv);
-        },
-    }
-    // Just add space for an instruction, patch this later
-    const index = try self.addInst(.{
-        .tag = .nop,
-        .data = .{ .nop = {} },
-    });
-    try self.exitlude_jump_relocs.append(self.gpa, index);
-}
-
 fn airRet(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const operand = try self.resolveInst(un_op);
-    try self.ret(operand);
+    const ret_ty = self.fn_type.fnReturnType();
+
+    switch (self.ret_mcv) {
+        .none => {},
+        .immediate => {
+            assert(ret_ty.isError());
+        },
+        .register => |reg| {
+            // Return result by value
+            try self.genSetReg(ret_ty, reg, operand);
+        },
+        .stack_offset => {
+            // Return result by reference
+            // TODO
+            return self.fail("TODO implement airRet for {}", .{self.ret_mcv});
+        },
+        else => unreachable,
+    }
+
+    // Just add space for an instruction, patch this later
+    try self.exitlude_jump_relocs.append(self.gpa, try self.addNop());
+
     return self.finishAir(inst, .dead, .{ un_op, .none, .none });
 }
 
 fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const ptr = try self.resolveInst(un_op);
-    _ = ptr;
-    return self.fail("TODO implement airRetLoad for {}", .{self.target.cpu.arch});
-    //return self.finishAir(inst, .dead, .{ un_op, .none, .none });
+    const ptr_ty = self.air.typeOf(un_op);
+    const ret_ty = self.fn_type.fnReturnType();
+    _ = ret_ty;
+
+    switch (self.ret_mcv) {
+        .none => {},
+        .register => {
+            // Return result by value
+            try self.load(self.ret_mcv, ptr, ptr_ty);
+        },
+        .stack_offset => {
+            // Return result by reference
+            // TODO
+            return self.fail("TODO implement airRetLoad for {}", .{self.ret_mcv});
+        },
+        else => unreachable,
+    }
+
+    try self.exitlude_jump_relocs.append(self.gpa, try self.addNop());
+
+    return self.finishAir(inst, .dead, .{ un_op, .none, .none });
 }
 
 fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
