@@ -24,6 +24,9 @@ const Fe = Field(.{
     .encoded_length = encoded_length,
 });
 
+/// The scalar field order.
+pub const field_order = Fe.field_order;
+
 /// Reject a scalar whose encoding is not canonical.
 pub fn rejectNonCanonical(s: CompressedScalar, endian: std.builtin.Endian) NonCanonicalError!void {
     return Fe.rejectNonCanonical(s, endian);
@@ -56,7 +59,7 @@ pub fn neg(s: CompressedScalar, endian: std.builtin.Endian) NonCanonicalError!Co
 
 /// Return (a-b) (mod L)
 pub fn sub(a: CompressedScalar, b: CompressedScalar, endian: std.builtin.Endian) NonCanonicalError!CompressedScalar {
-    return (try Scalar.fromBytes(a, endian)).sub(try Scalar.fromBytes(b.endian)).toBytes(endian);
+    return (try Scalar.fromBytes(a, endian)).sub(try Scalar.fromBytes(b, endian)).toBytes(endian);
 }
 
 /// Return a random scalar
