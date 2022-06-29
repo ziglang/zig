@@ -437,7 +437,7 @@ pub const P384 = struct {
         const e1 = slide(s1);
         const e2 = slide(s2);
         var q = P384.identityElement;
-        var pos: usize = 2 * 48 - 1;
+        var pos: usize = 2 * 48;
         while (true) : (pos -= 1) {
             const slot1 = e1[pos];
             if (slot1 > 0) {
