@@ -96,13 +96,13 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = @intToError(0);
             \\    return 0;
             \\}
-        , &.{":2:21: error: integer value 0 represents no error"});
+        , &.{":2:21: error: integer value '0' represents no error"});
         case.addError(
             \\pub export fn main() c_int {
             \\    _ = @intToError(3);
             \\    return 0;
             \\}
-        , &.{":2:21: error: integer value 3 represents no error"});
+        , &.{":2:21: error: integer value '3' represents no error"});
     }
 
     {
@@ -739,7 +739,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = @enumToInt(a);
             \\}
         , &.{
-            ":3:20: error: expected enum or tagged union, found bool",
+            ":3:20: error: expected enum or tagged union, found 'bool'",
         });
 
         case.addError(
@@ -748,7 +748,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = @intToEnum(bool, a);
             \\}
         , &.{
-            ":3:20: error: expected enum, found bool",
+            ":3:20: error: expected enum, found 'bool'",
         });
 
         case.addError(
@@ -757,7 +757,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = @intToEnum(E, 3);
             \\}
         , &.{
-            ":3:9: error: enum 'tmp.E' has no tag with value 3",
+            ":3:9: error: enum 'tmp.E' has no tag with value '3'",
             ":1:11: note: enum declared here",
         });
 

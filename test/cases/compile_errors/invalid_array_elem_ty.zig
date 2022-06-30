@@ -9,4 +9,4 @@ pub export fn entry() void {
 // target=native
 // backend=stage2
 //
-// :4:1: error: expected type, found fn() type
+// :4:1: error: expected type 'type', found 'fn() type'
