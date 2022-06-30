@@ -189,7 +189,7 @@ pub const Type = extern union {
             .Frame,
             => false,
 
-            .Pointer => is_equality_cmp or ty.isCPtr(),
+            .Pointer => !ty.isSlice() and (is_equality_cmp or ty.isCPtr()),
             .Optional => {
                 if (!is_equality_cmp) return false;
                 var buf: Payload.ElemType = undefined;

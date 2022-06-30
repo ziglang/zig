@@ -11,7 +11,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:9:22: error: expected type 'u2', found 'Small'
+// :9:22: error: expected type 'u2', found 'tmp.Small'

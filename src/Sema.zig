@@ -2738,6 +2738,7 @@ fn ensureResultUsed(
     const operand_ty = sema.typeOf(operand);
     switch (operand_ty.zigTypeTag()) {
         .Void, .NoReturn => return,
+        .ErrorSet, .ErrorUnion => return sema.fail(block, src, "error is ignored. consider using `try`, `catch`, or `if`", .{}),
         else => return sema.fail(block, src, "expression value is ignored", .{}),
     }
 }
@@ -2751,7 +2752,7 @@ fn zirEnsureResultNonError(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
     const src = inst_data.src();
     const operand_ty = sema.typeOf(operand);
     switch (operand_ty.zigTypeTag()) {
-        .ErrorSet, .ErrorUnion => return sema.fail(block, src, "error is discardederror is discarded. consider using `try`, `catch`, or `if`", .{}),
+        .ErrorSet, .ErrorUnion => return sema.fail(block, src, "error is discarded. consider using `try`, `catch`, or `if`", .{}),
         else => return,
     }
 }
@@ -7092,7 +7093,7 @@ fn funcCommon(
         const param_types = try sema.arena.alloc(Type, block.params.items.len);
         const comptime_params = try sema.arena.alloc(bool, block.params.items.len);
         for (block.params.items) |param, i| {
-            const param_src = LazySrcLoc.nodeOffset(src_node_offset); // TODO better src
+            const param_src = LazySrcLoc.nodeOffset(src_node_offset); // TODO better soruce location
             param_types[i] = param.ty;
             comptime_params[i] = param.is_comptime or
                 try sema.typeRequiresComptime(block, param_src, param.ty);
@@ -7798,12 +7799,12 @@ fn zirElemVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const tracy = trace(@src());
     defer tracy.end();
 
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
-    const src = sema.src; // TODO better source location
-    const elem_index_src = sema.src; // TODO better source location
-    const array = try sema.resolveInst(bin_inst.lhs);
-    const elem_index = try sema.resolveInst(bin_inst.rhs);
-    return sema.elemVal(block, src, array, elem_index, elem_index_src);
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const array = try sema.resolveInst(extra.lhs);
+    const elem_index = try sema.resolveInst(extra.rhs);
+    return sema.elemVal(block, src, array, elem_index, src);
 }
 
 fn zirElemValNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -7823,10 +7824,12 @@ fn zirElemPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const tracy = trace(@src());
     defer tracy.end();
 
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
-    const array_ptr = try sema.resolveInst(bin_inst.lhs);
-    const elem_index = try sema.resolveInst(bin_inst.rhs);
-    return sema.elemPtr(block, sema.src, array_ptr, elem_index, sema.src, false);
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const array_ptr = try sema.resolveInst(extra.lhs);
+    const elem_index = try sema.resolveInst(extra.rhs);
+    return sema.elemPtr(block, src, array_ptr, elem_index, src, false);
 }
 
 fn zirElemPtrNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -19454,7 +19457,7 @@ fn tupleFieldPtr(
     const tuple_fields = tuple_ty.tupleFields();
 
     if (tuple_fields.types.len == 0) {
-        return sema.fail(block, field_index_src, "indexing into empty tuple", .{});
+        return sema.fail(block, tuple_ptr_src, "indexing into empty tuple is not allowed", .{});
     }
 
     if (field_index >= tuple_fields.types.len) {
@@ -19497,7 +19500,7 @@ fn tupleField(
     const tuple_fields = tuple_ty.tupleFields();
 
     if (tuple_fields.types.len == 0) {
-        return sema.fail(block, field_index_src, "indexing into empty tuple", .{});
+        return sema.fail(block, tuple_src, "indexing into empty tuple is not allowed", .{});
     }
 
     if (field_index >= tuple_fields.types.len) {
@@ -19538,7 +19541,7 @@ fn elemValArray(
     const elem_ty = array_ty.childType();
 
     if (array_len_s == 0) {
-        return sema.fail(block, elem_index_src, "indexing into empty array", .{});
+        return sema.fail(block, array_src, "indexing into empty array is not allowed", .{});
     }
 
     const maybe_undef_array_val = try sema.resolveMaybeUndefVal(block, array_src, array);
@@ -19618,7 +19621,7 @@ fn elemPtrArray(
     const array_len_s = array_len + @boolToInt(array_sent);
 
     if (array_len_s == 0) {
-        return sema.fail(block, elem_index_src, "indexing into empty array", .{});
+        return sema.fail(block, array_ptr_src, "indexing into empty array is not allowed", .{});
     }
 
     const maybe_undef_array_ptr_val = try sema.resolveMaybeUndefVal(block, array_ptr_src, array_ptr);
@@ -19700,7 +19703,7 @@ fn elemValSlice(
         const slice_len = slice_val.sliceLen(sema.mod);
         const slice_len_s = slice_len + @boolToInt(slice_sent);
         if (slice_len_s == 0) {
-            return sema.fail(block, elem_index_src, "indexing into empty slice", .{});
+            return sema.fail(block, slice_src, "indexing into empty slice is not allowed", .{});
         }
         if (maybe_index_val) |index_val| {
             const index = @intCast(usize, index_val.toUnsignedInt(target));
@@ -19757,7 +19760,7 @@ fn elemPtrSlice(
         const slice_len = slice_val.sliceLen(sema.mod);
         const slice_len_s = slice_len + @boolToInt(slice_sent);
         if (slice_len_s == 0) {
-            return sema.fail(block, elem_index_src, "indexing into empty slice", .{});
+            return sema.fail(block, slice_src, "indexing into empty slice is not allowed", .{});
         }
         if (offset) |index| {
             if (index >= slice_len_s) {
