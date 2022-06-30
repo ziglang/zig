@@ -2189,12 +2189,25 @@ pub const Value = extern union {
                 return ty.isTupleOrAnonStruct() and ty.structFieldCount() != 0;
             },
             .Float => {
-                const a_nan = a.isNan();
-                const b_nan = b.isNan();
-                if (a_nan or b_nan) {
-                    return a_nan and b_nan;
+                switch (ty.floatBits(target)) {
+                    16 => return @bitCast(u16, a.toFloat(f16)) == @bitCast(u16, b.toFloat(f16)),
+                    32 => return @bitCast(u32, a.toFloat(f32)) == @bitCast(u32, b.toFloat(f32)),
+                    64 => return @bitCast(u64, a.toFloat(f64)) == @bitCast(u64, b.toFloat(f64)),
+                    80 => return @bitCast(u80, a.toFloat(f80)) == @bitCast(u80, b.toFloat(f80)),
+                    128 => return @bitCast(u128, a.toFloat(f128)) == @bitCast(u128, b.toFloat(f128)),
+                    else => unreachable,
                 }
-                return order(a, b, target).compare(.eq);
+            },
+            .ComptimeFloat => {
+                const a_float = a.toFloat(f128);
+                const b_float = b.toFloat(f128);
+
+                const a_nan = std.math.isNan(a_float);
+                const b_nan = std.math.isNan(b_float);
+                if (a_nan != b_nan) return false;
+                if (std.math.signbit(a_float) != std.math.signbit(b_float)) return false;
+                if (a_nan) return true;
+                return a_float == b_float;
             },
             .Optional => {
                 if (a.tag() != .opt_payload and b.tag() == .opt_payload) {
@@ -2231,18 +2244,25 @@ pub const Value = extern union {
                 var buf: ToTypeBuffer = undefined;
                 return val.toType(&buf).hashWithHasher(hasher, mod);
             },
-            .Float, .ComptimeFloat => {
-                // Normalize the float here because this hash must match eql semantics.
-                // These functions are used for hash maps so we want NaN to equal itself,
-                // and -0.0 to equal +0.0.
+            .Float => {
+                // For hash/eql purposes, we treat floats as their IEEE integer representation.
+                switch (ty.floatBits(mod.getTarget())) {
+                    16 => std.hash.autoHash(hasher, @bitCast(u16, val.toFloat(f16))),
+                    32 => std.hash.autoHash(hasher, @bitCast(u32, val.toFloat(f32))),
+                    64 => std.hash.autoHash(hasher, @bitCast(u64, val.toFloat(f64))),
+                    80 => std.hash.autoHash(hasher, @bitCast(u80, val.toFloat(f80))),
+                    128 => std.hash.autoHash(hasher, @bitCast(u128, val.toFloat(f128))),
+                    else => unreachable,
+                }
+            },
+            .ComptimeFloat => {
                 const float = val.toFloat(f128);
-                if (std.math.isNan(float)) {
-                    std.hash.autoHash(hasher, std.math.nan_u128);
-                } else if (float == 0.0) {
-                    var normalized_zero: f128 = 0.0;
-                    std.hash.autoHash(hasher, @bitCast(u128, normalized_zero));
-                } else {
+                const is_nan = std.math.isNan(float);
+                std.hash.autoHash(hasher, is_nan);
+                if (!is_nan) {
                     std.hash.autoHash(hasher, @bitCast(u128, float));
+                } else {
+                    std.hash.autoHash(hasher, std.math.signbit(float));
                 }
             },
             .Bool, .Int, .ComptimeInt, .Pointer => switch (val.tag()) {
