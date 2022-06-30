@@ -8,7 +8,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:2:5: error: found compile log statement
+// :2:5: error: found compile log statement
