@@ -4272,7 +4272,8 @@ fn zirCompileLog(
     }
     try writer.print("\n", .{});
 
-    const gop = try sema.mod.compile_log_decls.getOrPut(sema.gpa, sema.owner_decl_index);
+    const decl_index = if (sema.func) |some| some.owner_decl else sema.owner_decl_index;
+    const gop = try sema.mod.compile_log_decls.getOrPut(sema.gpa, decl_index);
     if (!gop.found_existing) {
         gop.value_ptr.* = src_node;
     }

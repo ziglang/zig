@@ -6,7 +6,7 @@ comptime {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:4:17: error: division by zero
+// :4:19: error: division by zero here causes undefined behavior
