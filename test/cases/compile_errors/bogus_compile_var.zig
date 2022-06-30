@@ -2,7 +2,7 @@ const x = @import("builtin").bogus;
 export fn entry() usize { return @sizeOf(@TypeOf(x)); }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:1:29: error: container 'builtin' has no member called 'bogus'
+// :1:29: error: struct 'builtin.builtin' has no member named 'bogus'
