@@ -768,7 +768,11 @@ pub const Object = struct {
                             if (ptr_info.@"align" != 0) {
                                 dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", ptr_info.@"align");
                             } else {
-                                dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", ptr_info.pointee_type.abiAlignment(target));
+                                const elem_align = @maximum(
+                                    ptr_info.pointee_type.abiAlignment(target),
+                                    1,
+                                );
+                                dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", elem_align);
                             }
                         }
                     }
@@ -840,7 +844,8 @@ pub const Object = struct {
                     if (ptr_info.@"align" != 0) {
                         dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", ptr_info.@"align");
                     } else {
-                        dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", ptr_info.pointee_type.abiAlignment(target));
+                        const elem_align = @maximum(ptr_info.pointee_type.abiAlignment(target), 1);
+                        dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", elem_align);
                     }
                     const ptr_param = llvm_func.getParam(llvm_arg_i);
                     llvm_arg_i += 1;
