@@ -12,7 +12,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:10:31: error: expected integer type, found 'f32'
+// :10:31: error: expected integer type, found 'f32'

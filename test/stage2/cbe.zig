@@ -729,8 +729,8 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = E1.a;
             \\}
         , &.{
-            ":1:28: error: duplicate enum tag",
-            ":1:22: note: other tag here",
+            ":1:28: error: duplicate enum field 'b'",
+            ":1:22: note: other field here",
         });
 
         case.addError(
