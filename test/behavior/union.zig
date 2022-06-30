@@ -1194,3 +1194,22 @@ test "union tag is set when initiated as a temporary value at runtime" {
     var b: u32 = 1;
     try (U{ .b = b }).doTheTest();
 }
+
+test "extern union most-aligned field is smaller" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const U = extern union {
+        in6: extern struct {
+            family: u16,
+            port: u16,
+            flowinfo: u32,
+            addr: [20]u8,
+        },
+        un: [110]u8,
+    };
+    var a: ?U = .{ .un = [_]u8{0} ** 110 };
+    try expect(a != null);
+}

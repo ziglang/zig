@@ -2708,7 +2708,10 @@ pub const DeclGen = struct {
                     if (layout.most_aligned_field_size == layout.payload_size) {
                         break :t llvm_aligned_field_ty;
                     }
-                    const padding_len = @intCast(c_uint, layout.payload_size - layout.most_aligned_field_size);
+                    const padding_len = if (layout.tag_size == 0)
+                        @intCast(c_uint, layout.abi_size - layout.most_aligned_field_size)
+                    else
+                        @intCast(c_uint, layout.payload_size - layout.most_aligned_field_size);
                     const fields: [2]*const llvm.Type = .{
                         llvm_aligned_field_ty,
                         dg.context.intType(8).arrayType(padding_len),
@@ -5756,7 +5759,7 @@ pub const FuncGen = struct {
             // First set the non-null bit.
             const indices: [2]*const llvm.Value = .{
                 index_type.constNull(), // dereference the pointer
-                index_type.constInt(1, .False), // second field is the payload
+                index_type.constInt(1, .False), // second field is the non-null bit
             };
             const non_null_ptr = self.builder.buildInBoundsGEP(operand, &indices, indices.len, "");
             _ = self.builder.buildStore(non_null_bit, non_null_ptr);
