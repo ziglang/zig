@@ -168,6 +168,7 @@ const Writer = struct {
             .ceil,
             .round,
             .trunc_float,
+            .neg,
             .cmp_lt_errors_len,
             .set_err_return_trace,
             => try w.writeUnOp(s, inst),

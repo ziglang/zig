@@ -1755,6 +1755,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .mul_sat => try airSatOp(f, inst, "muls_"),
             .shl_sat => try airSatOp(f, inst, "shls_"),
 
+            .neg => try airNeg(f, inst),
+
             .sqrt,
             .sin,
             .cos,
@@ -4095,6 +4097,20 @@ fn airWasmMemoryGrow(f: *Function, inst: Air.Inst.Index) !CValue {
     try writer.print("zig_wasm_memory_grow({d}, ", .{pl_op.payload});
     try f.writeCValue(writer, operand);
     try writer.writeAll(");\n");
+    return local;
+}
+
+fn airNeg(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
+    const un_op = f.air.instructions.items(.data)[inst].un_op;
+    const writer = f.object.writer();
+    const inst_ty = f.air.typeOfIndex(inst);
+    const operand = try f.resolveInst(un_op);
+    const local = try f.allocLocal(inst_ty, .Const);
+    try writer.writeAll("-");
+    try f.writeCValue(writer, operand);
+    try writer.writeAll(";\n");
     return local;
 }
 

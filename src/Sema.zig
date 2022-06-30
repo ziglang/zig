@@ -10070,12 +10070,14 @@ fn zirNegate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     }
 
     if (rhs_scalar_ty.isAnyFloat()) {
-        // We handle comptime negation here to ensure negative zero is represented in the bits.
+        // We handle float negation here to ensure negative zero is represented in the bits.
         if (try sema.resolveMaybeUndefVal(block, rhs_src, rhs)) |rhs_val| {
             if (rhs_val.isUndef()) return sema.addConstUndef(rhs_ty);
             const target = sema.mod.getTarget();
             return sema.addConstant(rhs_ty, try rhs_val.floatNeg(rhs_ty, sema.arena, target));
         }
+        try sema.requireRuntimeBlock(block, rhs_src);
+        return block.addUnOp(.neg, rhs);
     }
 
     const lhs = if (rhs_ty.zigTypeTag() == .Vector)

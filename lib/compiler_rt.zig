@@ -4,12 +4,13 @@ comptime {
     _ = @import("compiler_rt/atomics.zig");
 
     _ = @import("compiler_rt/addf3.zig");
-    _ = @import("compiler_rt/adddf3.zig");
     _ = @import("compiler_rt/addsf3.zig");
+    _ = @import("compiler_rt/adddf3.zig");
     _ = @import("compiler_rt/addtf3.zig");
     _ = @import("compiler_rt/addxf3.zig");
-    _ = @import("compiler_rt/subdf3.zig");
+
     _ = @import("compiler_rt/subsf3.zig");
+    _ = @import("compiler_rt/subdf3.zig");
     _ = @import("compiler_rt/subtf3.zig");
     _ = @import("compiler_rt/subxf3.zig");
 
@@ -18,6 +19,11 @@ comptime {
     _ = @import("compiler_rt/mulsf3.zig");
     _ = @import("compiler_rt/multf3.zig");
     _ = @import("compiler_rt/mulxf3.zig");
+
+    _ = @import("compiler_rt/negsf2.zig");
+    _ = @import("compiler_rt/negdf2.zig");
+    _ = @import("compiler_rt/negtf2.zig");
+    _ = @import("compiler_rt/negxf2.zig");
 
     _ = @import("compiler_rt/comparef.zig");
     _ = @import("compiler_rt/cmpsf2.zig");
@@ -171,8 +177,6 @@ comptime {
     _ = @import("compiler_rt/subo.zig");
     _ = @import("compiler_rt/mulo.zig");
     _ = @import("compiler_rt/cmp.zig");
-
-    _ = @import("compiler_rt/negXf2.zig");
 
     _ = @import("compiler_rt/os_version_check.zig");
     _ = @import("compiler_rt/emutls.zig");
