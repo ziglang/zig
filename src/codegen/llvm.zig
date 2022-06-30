@@ -6598,10 +6598,16 @@ pub const FuncGen = struct {
         } else b: {
             const float_bits = scalar_ty.floatBits(target);
             break :b switch (op) {
-                .neg => FloatOpStrat{
-                    .libc = std.fmt.bufPrintZ(&fn_name_buf, "__neg{s}f2", .{
-                        compilerRtFloatAbbrev(float_bits),
-                    }) catch unreachable,
+                .neg => {
+                    // In this case we can generate a softfloat negation by XORing the
+                    // bits with a constant.
+                    const int_llvm_ty = self.dg.context.intType(float_bits);
+                    const one = int_llvm_ty.constInt(1, .False);
+                    const shift_amt = int_llvm_ty.constInt(float_bits - 1, .False);
+                    const sign_mask = one.constShl(shift_amt);
+                    const bitcasted_operand = self.builder.buildBitCast(params[0], int_llvm_ty, "");
+                    const result = self.builder.buildXor(bitcasted_operand, sign_mask, "");
+                    return self.builder.buildBitCast(result, llvm_ty, "");
                 },
                 .add, .sub, .div, .mul => FloatOpStrat{
                     .libc = std.fmt.bufPrintZ(&fn_name_buf, "__{s}{s}f3", .{
