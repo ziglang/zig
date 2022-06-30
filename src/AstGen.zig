@@ -812,6 +812,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
 
         .deref => {
             const lhs = try expr(gz, scope, .none, node_datas[node].lhs);
+            _ = try gz.addUnTok(.validate_deref, lhs, main_tokens[node]);
             switch (rl) {
                 .ref => return lhs,
                 else => {
@@ -2500,6 +2501,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .memset,
             .validate_array_init_ty,
             .validate_struct_init_ty,
+            .validate_deref,
             => break :b true,
         }
     } else switch (maybe_unused_result) {

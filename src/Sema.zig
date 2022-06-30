@@ -1080,6 +1080,11 @@ fn analyzeBodyInner(
                 i += 1;
                 continue;
             },
+            .validate_deref => {
+                try sema.zirValidateDeref(block, inst);
+                i += 1;
+                continue;
+            },
             .@"export" => {
                 try sema.zirExport(block, inst);
                 i += 1;
@@ -3846,6 +3851,28 @@ fn zirValidateArrayInit(
         const array_val = try Value.Tag.aggregate.create(sema.arena, element_vals);
         const array_init = try sema.addConstant(array_ty, array_val);
         try sema.storePtr2(block, init_src, array_ptr, init_src, array_init, init_src, .store);
+    }
+}
+
+fn zirValidateDeref(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
+    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
+    const src = inst_data.src();
+    const operand_src: LazySrcLoc = .{ .token_offset = inst_data.src_tok + 1 };
+    const operand = try sema.resolveInst(inst_data.operand);
+    const operand_ty = sema.typeOf(operand);
+
+    if (operand_ty.zigTypeTag() != .Pointer) {
+        return sema.fail(block, src, "cannot dereference non-pointer type '{}'", .{operand_ty.fmt(sema.mod)});
+    } else switch (operand_ty.ptrSize()) {
+        .One, .C => {},
+        .Many => return sema.fail(block, src, "index syntax required for unknown-length pointer type '{}'", .{operand_ty.fmt(sema.mod)}),
+        .Slice => return sema.fail(block, src, "index syntax required for slice type '{}'", .{operand_ty.fmt(sema.mod)}),
+    }
+
+    if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
+        if (val.isUndef()) {
+            return sema.fail(block, src, "cannot dereference undefined value", .{});
+        }
     }
 }
 

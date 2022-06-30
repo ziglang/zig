@@ -1868,7 +1868,7 @@ pub fn getenv(key: []const u8) ?[]const u8 {
         }
         // Search the entire `environ` because we don't have a null terminated pointer.
         var ptr = std.c.environ;
-        while (ptr.*) |line| : (ptr += 1) {
+        while (ptr[0]) |line| : (ptr += 1) {
             var line_i: usize = 0;
             while (line[line_i] != 0 and line[line_i] != '=') : (line_i += 1) {}
             const this_key = line[0..line_i];
