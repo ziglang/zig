@@ -12,8 +12,8 @@ pub const Box = struct {
 };
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:3:8: error: attempt to dereference non-pointer type 'Box'
-// tmp.zig:8:13: error: attempt to dereference non-pointer type 'Box'
+// :3:8: error: cannot dereference non-pointer type 'tmp.Box'
+// :8:13: error: cannot dereference non-pointer type 'tmp.Box'

@@ -5,10 +5,10 @@ pub fn pass(in: []u8) []u8 {
     return out.*[0..1];
 }
 
-export fn entry() usize { return @sizeOf(@TypeOf(pass)); }
+export fn entry() usize { return @sizeOf(@TypeOf(&pass)); }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:4:10: error: attempt to dereference non-pointer type '[10]u8'
+// :4:10: error: cannot dereference non-pointer type '[10]u8'

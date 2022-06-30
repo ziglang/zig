@@ -11,7 +11,7 @@ const Tile = enum {
 };
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:3:17: error: attempt to dereference non-pointer type 'Tile'
+// :3:17: error: cannot dereference non-pointer type 'tmp.Tile'
