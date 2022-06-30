@@ -549,6 +549,9 @@ pub const Builder = opaque {
     pub const buildFSub = LLVMBuildFSub;
     extern fn LLVMBuildFSub(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 
+    pub const buildFNeg = LLVMBuildFNeg;
+    extern fn LLVMBuildFNeg(*const Builder, V: *const Value, Name: [*:0]const u8) *const Value;
+
     pub const buildSub = LLVMBuildSub;
     extern fn LLVMBuildSub(*const Builder, LHS: *const Value, RHS: *const Value, Name: [*:0]const u8) *const Value;
 

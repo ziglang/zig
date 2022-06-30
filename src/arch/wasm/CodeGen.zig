@@ -1607,6 +1607,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .log10,
         .fabs,
         .round,
+        .neg,
 
         .cmpxchg_weak,
         .cmpxchg_strong,

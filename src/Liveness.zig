@@ -287,6 +287,7 @@ pub fn categorizeOperand(
         .ceil,
         .round,
         .trunc_float,
+        .neg,
         .cmp_lt_errors_len,
         => {
             const o = air_datas[inst].un_op;
@@ -834,6 +835,7 @@ fn analyzeInst(
         .ceil,
         .round,
         .trunc_float,
+        .neg,
         .cmp_lt_errors_len,
         .set_err_return_trace,
         => {
