@@ -6,7 +6,7 @@ fn foo() !void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:2:12: error: error is discarded. consider using `try`, `catch`, or `if`
+// :2:12: error: error is discarded. consider using `try`, `catch`, or `if`

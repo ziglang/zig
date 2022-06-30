@@ -15,8 +15,8 @@ fn foo(x: i32) !void {
 }
 
 // error
-// backend=stage1
+// backend=llvm
 // target=native
 //
-// tmp.zig:5:14: error: duplicate switch value: '@typeInfo(@typeInfo(@TypeOf(foo)).Fn.return_type.?).ErrorUnion.error_set.Foo'
-// tmp.zig:3:14: note: other value here
+// :5:9: error: duplicate switch value
+// :3:9: note: other value here
