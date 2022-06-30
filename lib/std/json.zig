@@ -2163,45 +2163,51 @@ fn outputUnicodeEscape(
     }
 }
 
-fn outputJsonString(value: []const u8, options: StringifyOptions, out_stream: anytype) !void {
-    try out_stream.writeByte('\"');
+/// Write `string` to `writer` as a JSON encoded string.
+pub fn encodeJsonString(string: []const u8, options: StringifyOptions, writer: anytype) !void {
+    try writer.writeByte('\"');
+    try encodeJsonStringChars(string, options, writer);
+    try writer.writeByte('\"');
+}
+
+/// Write `chars` to `writer` as JSON encoded string characters.
+pub fn encodeJsonStringChars(chars: []const u8, options: StringifyOptions, writer: anytype) !void {
     var i: usize = 0;
-    while (i < value.len) : (i += 1) {
-        switch (value[i]) {
+    while (i < chars.len) : (i += 1) {
+        switch (chars[i]) {
             // normal ascii character
-            0x20...0x21, 0x23...0x2E, 0x30...0x5B, 0x5D...0x7F => |c| try out_stream.writeByte(c),
+            0x20...0x21, 0x23...0x2E, 0x30...0x5B, 0x5D...0x7F => |c| try writer.writeByte(c),
             // only 2 characters that *must* be escaped
-            '\\' => try out_stream.writeAll("\\\\"),
-            '\"' => try out_stream.writeAll("\\\""),
+            '\\' => try writer.writeAll("\\\\"),
+            '\"' => try writer.writeAll("\\\""),
             // solidus is optional to escape
             '/' => {
                 if (options.string.String.escape_solidus) {
-                    try out_stream.writeAll("\\/");
+                    try writer.writeAll("\\/");
                 } else {
-                    try out_stream.writeByte('/');
+                    try writer.writeByte('/');
                 }
             },
             // control characters with short escapes
             // TODO: option to switch between unicode and 'short' forms?
-            0x8 => try out_stream.writeAll("\\b"),
-            0xC => try out_stream.writeAll("\\f"),
-            '\n' => try out_stream.writeAll("\\n"),
-            '\r' => try out_stream.writeAll("\\r"),
-            '\t' => try out_stream.writeAll("\\t"),
+            0x8 => try writer.writeAll("\\b"),
+            0xC => try writer.writeAll("\\f"),
+            '\n' => try writer.writeAll("\\n"),
+            '\r' => try writer.writeAll("\\r"),
+            '\t' => try writer.writeAll("\\t"),
             else => {
-                const ulen = std.unicode.utf8ByteSequenceLength(value[i]) catch unreachable;
+                const ulen = std.unicode.utf8ByteSequenceLength(chars[i]) catch unreachable;
                 // control characters (only things left with 1 byte length) should always be printed as unicode escapes
                 if (ulen == 1 or options.string.String.escape_unicode) {
-                    const codepoint = std.unicode.utf8Decode(value[i .. i + ulen]) catch unreachable;
-                    try outputUnicodeEscape(codepoint, out_stream);
+                    const codepoint = std.unicode.utf8Decode(chars[i .. i + ulen]) catch unreachable;
+                    try outputUnicodeEscape(codepoint, writer);
                 } else {
-                    try out_stream.writeAll(value[i .. i + ulen]);
+                    try writer.writeAll(chars[i .. i + ulen]);
                 }
                 i += ulen - 1;
             },
         }
     }
-    try out_stream.writeByte('\"');
 }
 
 pub fn stringify(
@@ -2288,7 +2294,7 @@ pub fn stringify(
                     if (child_options.whitespace) |child_whitespace| {
                         try child_whitespace.outputIndent(out_stream);
                     }
-                    try outputJsonString(Field.name, options, out_stream);
+                    try encodeJsonString(Field.name, options, out_stream);
                     try out_stream.writeByte(':');
                     if (child_options.whitespace) |child_whitespace| {
                         if (child_whitespace.separator) {
@@ -2321,7 +2327,7 @@ pub fn stringify(
             // TODO: .Many when there is a sentinel (waiting for https://github.com/ziglang/zig/pull/3972)
             .Slice => {
                 if (ptr_info.child == u8 and options.string == .String and std.unicode.utf8ValidateSlice(value)) {
-                    try outputJsonString(value, options, out_stream);
+                    try encodeJsonString(value, options, out_stream);
                     return;
                 }
 
