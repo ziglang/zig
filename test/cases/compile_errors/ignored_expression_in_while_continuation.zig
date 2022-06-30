@@ -14,9 +14,9 @@ fn bad() anyerror!void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:2:24: error: error is ignored. consider using `try`, `catch`, or `if`
-// tmp.zig:6:25: error: error is ignored. consider using `try`, `catch`, or `if`
-// tmp.zig:10:25: error: error is ignored. consider using `try`, `catch`, or `if`
+// :2:24: error: error is ignored. consider using `try`, `catch`, or `if`
+// :6:25: error: error is ignored. consider using `try`, `catch`, or `if`
+// :10:25: error: error is ignored. consider using `try`, `catch`, or `if`

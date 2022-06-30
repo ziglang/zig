@@ -11,7 +11,7 @@ fn foo(x: usize) void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:9:10: error: expected type 'usize', found 'E'
+// :9:10: error: expected type 'usize', found 'tmp.E'

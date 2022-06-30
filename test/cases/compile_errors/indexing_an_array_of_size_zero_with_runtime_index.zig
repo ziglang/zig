@@ -6,7 +6,7 @@ export fn foo() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:4:27: error: accessing a zero length array is not allowed
+// :4:27: error: indexing into empty array is not allowed
