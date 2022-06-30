@@ -2225,7 +2225,6 @@ test "float.scientific.precision" {
 }
 
 test "float.special" {
-    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     try expectFmt("f64: nan", "f64: {}", .{math.nan_f64});
     // negative nan is not defined by IEE 754,
     // and ARM thus normalizes it to positive nan
@@ -2237,7 +2236,6 @@ test "float.special" {
 }
 
 test "float.hexadecimal.special" {
-    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest; // TODO
     try expectFmt("f64: nan", "f64: {x}", .{math.nan_f64});
     // negative nan is not defined by IEE 754,
     // and ARM thus normalizes it to positive nan

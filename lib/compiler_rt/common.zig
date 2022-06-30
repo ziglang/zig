@@ -188,3 +188,15 @@ pub fn normalize(comptime T: type, significand: *std.meta.Int(.unsigned, @typeIn
     significand.* <<= @intCast(std.math.Log2Int(Z), shift);
     return @as(i32, 1) - shift;
 }
+
+pub inline fn fneg(a: anytype) @TypeOf(a) {
+    const F = @TypeOf(a);
+    const bits = @typeInfo(F).Float.bits;
+    const U = @Type(.{ .Int = .{
+        .signedness = .unsigned,
+        .bits = bits,
+    } });
+    const sign_bit_mask = @as(U, 1) << (bits - 1);
+    const negated = @bitCast(U, a) ^ sign_bit_mask;
+    return @bitCast(F, negated);
+}
