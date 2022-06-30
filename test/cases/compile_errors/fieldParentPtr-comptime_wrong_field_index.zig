@@ -10,7 +10,8 @@ comptime {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:8:29: error: field 'b' has index 1 but pointer value is index 0 of struct 'Foo'
+// :8:29: error: field 'b' has index '1' but pointer value is index '0' of struct 'tmp.Foo'
+// :1:13: note: struct declared here

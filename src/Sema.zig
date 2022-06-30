@@ -8378,19 +8378,15 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                             block,
                             src,
                             msg,
-                            "unhandled error value: error.{s}",
+                            "unhandled error value: 'error.{s}'",
                             .{error_name},
                         );
                     }
                 }
 
                 if (maybe_msg) |msg| {
-                    try sema.mod.errNoteNonLazy(
-                        operand_ty.declSrcLoc(sema.mod),
-                        msg,
-                        "error set '{}' declared here",
-                        .{operand_ty.fmt(sema.mod)},
-                    );
+                    maybe_msg = null;
+                    try sema.addDeclaredHereNote(msg, operand_ty);
                     return sema.failWithOwnedErrorMsg(block, msg);
                 }
 
@@ -17143,9 +17139,7 @@ fn zirFieldParentPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
     const field_index = struct_obj.fields.getIndex(field_name) orelse
         return sema.failWithBadStructFieldAccess(block, struct_obj, name_src, field_name);
 
-    if (field_ptr_ty.zigTypeTag() != .Pointer) {
-        return sema.fail(block, ty_src, "expected pointer type, found '{}'", .{field_ptr_ty.fmt(sema.mod)});
-    }
+    try sema.checkPtrOperand(block, ptr_src, field_ptr_ty);
     const field = struct_obj.fields.values()[field_index];
     const field_ptr_ty_info = field_ptr_ty.ptrInfo().data;
 
@@ -17168,8 +17162,29 @@ fn zirFieldParentPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
     const result_ptr = try Type.ptr(sema.arena, sema.mod, ptr_ty_data);
 
     if (try sema.resolveDefinedValue(block, src, casted_field_ptr)) |field_ptr_val| {
-        const payload = field_ptr_val.castTag(.field_ptr).?.data;
-        return sema.addConstant(result_ptr, payload.container_ptr);
+        const payload = field_ptr_val.castTag(.field_ptr) orelse {
+            return sema.fail(block, ptr_src, "pointer value not based on parent struct", .{});
+        };
+        if (payload.data.field_index != field_index) {
+            const msg = msg: {
+                const msg = try sema.errMsg(
+                    block,
+                    src,
+                    "field '{s}' has index '{d}' but pointer value is index '{d}' of struct '{}'",
+                    .{
+                        field_name,
+                        field_index,
+                        payload.data.field_index,
+                        struct_ty.fmt(sema.mod),
+                    },
+                );
+                errdefer msg.destroy(sema.gpa);
+                try sema.addDeclaredHereNote(msg, struct_ty);
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(block, msg);
+        }
+        return sema.addConstant(result_ptr, payload.data.container_ptr);
     }
 
     try sema.requireRuntimeBlock(block, src);
@@ -18515,7 +18530,16 @@ fn fieldVal(
                         kw_name, child_type.fmt(sema.mod), field_name,
                     });
                 },
-                else => return sema.fail(block, src, "type '{}' has no members", .{child_type.fmt(sema.mod)}),
+                else => {
+                    const msg = msg: {
+                        const msg = try sema.errMsg(block, src, "type '{}' has no members", .{child_type.fmt(sema.mod)});
+                        errdefer msg.destroy(sema.gpa);
+                        if (child_type.isSlice()) try sema.errNote(block, src, msg, "slice values have 'len' and 'ptr' members", .{});
+                        if (child_type.zigTypeTag() == .Array) try sema.errNote(block, src, msg, "array values have 'len' member", .{});
+                        break :msg msg;
+                    };
+                    return sema.failWithOwnedErrorMsg(block, msg);
+                },
             }
         },
         .Struct => if (is_pointer_to) {
@@ -18739,7 +18763,7 @@ fn fieldPtr(
         },
         else => {},
     }
-    return sema.fail(block, src, "type '{}' does not support field access (fieldPtr, {}.{s})", .{ object_ty.fmt(sema.mod), object_ptr_ty.fmt(sema.mod), field_name });
+    return sema.fail(block, src, "type '{}' does not support field access", .{object_ty.fmt(sema.mod)});
 }
 
 fn fieldCallBind(

@@ -11,7 +11,7 @@ comptime {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:9:55: error: pointer value not based on parent struct
+// :9:55: error: pointer value not based on parent struct
