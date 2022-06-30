@@ -15,7 +15,7 @@
  }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:8:16: error: expected type 'A', found 'B'
+// :8:16: error: expected type 'tmp.A', found 'tmp.B'
