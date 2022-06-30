@@ -7,7 +7,7 @@ export fn entry(foo: [*]Foo) void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:6:8: error: type '[*]Foo' does not support field access
+// :6:8: error: type '[*]tmp.Foo' does not support field access

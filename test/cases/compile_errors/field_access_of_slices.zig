@@ -5,7 +5,8 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:3:32: error: type 'type' does not support field access
+// :3:32: error: type '[]i32' has no members
+// :3:32: note: slice values have 'len' and 'ptr' members

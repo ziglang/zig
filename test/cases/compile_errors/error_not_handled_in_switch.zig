@@ -13,8 +13,9 @@ fn foo(x: i32) !void {
 }
 
 // error
-// backend=stage1
+// backend=llvm
 // target=native
 //
-// tmp.zig:2:26: error: error.Baz not handled in switch
-// tmp.zig:2:26: error: error.Bar not handled in switch
+// :2:26: error: switch must handle all possibilities
+// :2:26: note: unhandled error value: 'error.Bar'
+// :2:26: note: unhandled error value: 'error.Baz'
