@@ -1025,10 +1025,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             if (options.use_llvm) |explicit|
                 break :blk explicit;
 
-            // If we are outputting .c code we must use Zig backend.
-            if (ofmt == .c)
-                break :blk false;
-
             // If emitting to LLVM bitcode object format, must use LLVM backend.
             if (options.emit_llvm_ir != null or options.emit_llvm_bc != null)
                 break :blk true;
@@ -1043,7 +1039,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 break :blk true;
 
             // If LLVM does not support the target, then we can't use it.
-            if (!target_util.hasLlvmSupport(options.target))
+            if (!target_util.hasLlvmSupport(options.target, ofmt))
                 break :blk false;
 
             // Prefer LLVM for release builds.

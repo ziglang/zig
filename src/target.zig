@@ -204,7 +204,24 @@ pub fn hasValgrindSupport(target: std.Target) bool {
 /// The set of targets that LLVM has non-experimental support for.
 /// Used to select between LLVM backend and self-hosted backend when compiling in
 /// release modes.
-pub fn hasLlvmSupport(target: std.Target) bool {
+pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
+    switch (ofmt) {
+        // LLVM does not support these object formats:
+        .c,
+        .plan9,
+        => return false,
+
+        .coff,
+        .elf,
+        .macho,
+        .wasm,
+        .spirv,
+        .hex,
+        .raw,
+        .nvptx,
+        => {},
+    }
+
     return switch (target.cpu.arch) {
         .arm,
         .armeb,
