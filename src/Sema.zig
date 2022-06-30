@@ -7007,6 +7007,7 @@ fn funcCommon(
     noalias_bits: u32,
 ) CompileError!Air.Inst.Ref {
     const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = src_node_offset };
+    const cc_src: LazySrcLoc = .{ .node_offset_fn_type_cc = src_node_offset };
 
     var is_generic = bare_return_type.tag() == .generic_poison or
         alignment == null or
@@ -7108,6 +7109,45 @@ fn funcCommon(
         // Related proposal: https://github.com/ziglang/zig/issues/11834
         const cc_workaround = cc orelse .Unspecified;
         const align_workaround = alignment orelse 0;
+
+        const arch = sema.mod.getTarget().cpu.arch;
+        if (switch (cc_workaround) {
+            .Unspecified, .C, .Naked, .Async, .Inline => null,
+            .Interrupt => switch (arch) {
+                .i386, .x86_64, .avr, .msp430 => null,
+                else => @as([]const u8, "i386, x86_64, AVR, and MSP430"),
+            },
+            .Signal => switch (arch) {
+                .avr => null,
+                else => @as([]const u8, "AVR"),
+            },
+            .Stdcall, .Fastcall, .Thiscall => switch (arch) {
+                .i386 => null,
+                else => @as([]const u8, "i386"),
+            },
+            .Vectorcall => switch (arch) {
+                .i386, .aarch64, .aarch64_be, .aarch64_32 => null,
+                else => @as([]const u8, "i386 and AArch64"),
+            },
+            .APCS, .AAPCS, .AAPCSVFP => switch (arch) {
+                .arm, .armeb, .aarch64, .aarch64_be, .aarch64_32 => null,
+                else => @as([]const u8, "ARM"),
+            },
+            .SysV, .Win64 => switch (arch) {
+                .x86_64 => null,
+                else => @as([]const u8, "x86_64"),
+            },
+            .PtxKernel => switch (arch) {
+                .nvptx, .nvptx64 => null,
+                else => @as([]const u8, "nvptx and nvptx64"),
+            },
+        }) |allowed_platform| {
+            return sema.fail(block, cc_src, "callconv '{s}' is only available on {s}, not {s}", .{
+                @tagName(cc_workaround),
+                allowed_platform,
+                @tagName(arch),
+            });
+        }
 
         break :fn_ty try Type.Tag.function.create(sema.arena, .{
             .param_types = param_types,
