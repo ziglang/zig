@@ -6,7 +6,8 @@ fn foo(x: u32) u32 {
 export fn entry() usize { return @sizeOf(@TypeOf(y)); }
 
 // error
-// backend=stage1
+// backend=llvm
 // target=native
 //
-// tmp.zig:3:14: error: division by zero
+// :3:16: error: division by zero here causes undefined behavior
+// :1:14: note: called from here
