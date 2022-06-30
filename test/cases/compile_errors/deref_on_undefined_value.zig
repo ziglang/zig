@@ -4,7 +4,7 @@ comptime {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:3:9: error: attempt to dereference undefined value
+// :3:10: error: cannot dereference undefined value

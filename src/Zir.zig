@@ -729,6 +729,9 @@ pub const Inst = struct {
         /// Same as `validate_array_init` but additionally communicates that the
         /// resulting array initialization value is within a comptime scope.
         validate_array_init_comptime,
+        /// Check that operand type supports the dereference operand (.*).
+        /// Uses the `un_tok` field.
+        validate_deref,
         /// A struct literal with a specified type, with no fields.
         /// Uses the `un_node` field.
         struct_init_empty,
@@ -1156,6 +1159,7 @@ pub const Inst = struct {
                 .validate_struct_init_comptime,
                 .validate_array_init,
                 .validate_array_init_comptime,
+                .validate_deref,
                 .struct_init_empty,
                 .struct_init,
                 .struct_init_ref,
@@ -1309,6 +1313,7 @@ pub const Inst = struct {
                 .validate_struct_init_comptime,
                 .validate_array_init,
                 .validate_array_init_comptime,
+                .validate_deref,
                 .@"export",
                 .export_value,
                 .set_cold,
@@ -1709,6 +1714,7 @@ pub const Inst = struct {
                 .validate_struct_init_comptime = .pl_node,
                 .validate_array_init = .pl_node,
                 .validate_array_init_comptime = .pl_node,
+                .validate_deref = .un_tok,
                 .struct_init_empty = .un_node,
                 .field_type = .pl_node,
                 .field_type_ref = .pl_node,

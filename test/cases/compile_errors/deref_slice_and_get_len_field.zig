@@ -4,7 +4,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:3:10: error: attempt to dereference non-pointer type '[]u8'
+// :3:10: error: index syntax required for slice type '[]u8'

@@ -242,6 +242,7 @@ const Writer = struct {
             .ret_tok,
             .ensure_err_payload_void,
             .closure_capture,
+            .validate_deref,
             => try self.writeUnTok(stream, inst),
 
             .bool_br_and,
