@@ -10,7 +10,7 @@ fn bar(x: *MyType) bool {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:9:13: error: no member named 'blah' in opaque type 'MyType'
+// :9:13: error: type '*tmp.MyType' does not support field access

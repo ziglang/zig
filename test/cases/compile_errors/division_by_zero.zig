@@ -6,13 +6,12 @@ const float_x = @as(f32, 1.0) / @as(f32, 0.0);
 export fn entry1() usize { return @sizeOf(@TypeOf(lit_int_x)); }
 export fn entry2() usize { return @sizeOf(@TypeOf(lit_float_x)); }
 export fn entry3() usize { return @sizeOf(@TypeOf(int_x)); }
-export fn entry4() usize { return @sizeOf(@TypeOf(float_x)); }
+export fn entry4() usize { return @sizeOf(@TypeOf(float_x)); } // no error on purpose
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:1:21: error: division by zero
-// tmp.zig:2:25: error: division by zero
-// tmp.zig:3:27: error: division by zero
-// tmp.zig:4:31: error: division by zero
+// :1:23: error: division by zero here causes undefined behavior
+// :2:27: error: division by zero here causes undefined behavior
+// :3:29: error: division by zero here causes undefined behavior

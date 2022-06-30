@@ -6,7 +6,7 @@ export fn foo(a: i32) *Foo {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:5:38: error: expected pointer, found 'i32'
+// :5:38: error: expected pointer type, found 'i32'
