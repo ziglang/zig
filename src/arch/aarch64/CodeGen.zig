@@ -582,7 +582,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .floor,
             .ceil,
             .round,
-            .trunc_float
+            .trunc_float,
+            .neg,
             => try self.airUnaryMath(inst),
 
             .add_with_overflow => try self.airOverflow(inst),

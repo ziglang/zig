@@ -574,6 +574,7 @@ test "negation f32" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -593,6 +594,8 @@ test "negation f64" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -706,4 +709,104 @@ test "comptime_float zero divided by zero produces zero" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
 
     try expect((0.0 / 0.0) == 0.0);
+}
+
+test "nan negation f16" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
+    const nan_comptime = comptime math.nan(f16);
+    const neg_nan_comptime = -nan_comptime;
+
+    var nan_runtime = math.nan(f16);
+    const neg_nan_runtime = -nan_runtime;
+
+    try expect(!math.signbit(nan_runtime));
+    try expect(math.signbit(neg_nan_runtime));
+
+    try expect(!math.signbit(nan_comptime));
+    try expect(math.signbit(neg_nan_comptime));
+}
+
+test "nan negation f32" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
+    const nan_comptime = comptime math.nan(f32);
+    const neg_nan_comptime = -nan_comptime;
+
+    var nan_runtime = math.nan(f32);
+    const neg_nan_runtime = -nan_runtime;
+
+    try expect(!math.signbit(nan_runtime));
+    try expect(math.signbit(neg_nan_runtime));
+
+    try expect(!math.signbit(nan_comptime));
+    try expect(math.signbit(neg_nan_comptime));
+}
+
+test "nan negation f64" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
+    const nan_comptime = comptime math.nan(f64);
+    const neg_nan_comptime = -nan_comptime;
+
+    var nan_runtime = math.nan(f64);
+    const neg_nan_runtime = -nan_runtime;
+
+    try expect(!math.signbit(nan_runtime));
+    try expect(math.signbit(neg_nan_runtime));
+
+    try expect(!math.signbit(nan_comptime));
+    try expect(math.signbit(neg_nan_comptime));
+}
+
+test "nan negation f128" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
+    const nan_comptime = comptime math.nan(f128);
+    const neg_nan_comptime = -nan_comptime;
+
+    var nan_runtime = math.nan(f128);
+    const neg_nan_runtime = -nan_runtime;
+
+    try expect(!math.signbit(nan_runtime));
+    try expect(math.signbit(neg_nan_runtime));
+
+    try expect(!math.signbit(nan_comptime));
+    try expect(math.signbit(neg_nan_comptime));
+}
+
+test "nan negation f80" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
+    const nan_comptime = comptime math.nan(f80);
+    const neg_nan_comptime = -nan_comptime;
+
+    var nan_runtime = math.nan(f80);
+    const neg_nan_runtime = -nan_runtime;
+
+    try expect(!math.signbit(nan_runtime));
+    try expect(math.signbit(neg_nan_runtime));
+
+    try expect(!math.signbit(nan_comptime));
+    try expect(math.signbit(neg_nan_comptime));
 }

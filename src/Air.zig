@@ -288,6 +288,11 @@ pub const Inst = struct {
         /// Rounds a floating pointer number to the nearest integer towards zero.
         /// Uses the `un_op` field.
         trunc_float,
+        /// Float negation. This affects the sign of zero, inf, and NaN, which is impossible
+        /// to do with sub. Integers are not allowed and must be represented with sub with
+        /// LHS of zero.
+        /// Uses the `un_op` field.
+        neg,
 
         /// `<`. Result type is always bool.
         /// Uses the `bin_op` field.
@@ -970,6 +975,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .ceil,
         .round,
         .trunc_float,
+        .neg,
         => return air.typeOf(datas[inst].un_op),
 
         .cmp_lt,
