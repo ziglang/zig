@@ -19494,6 +19494,34 @@ fn elemVal(
     }
 }
 
+fn validateRuntimeElemAccess(
+    sema: *Sema,
+    block: *Block,
+    elem_index_src: LazySrcLoc,
+    elem_ty: Type,
+    parent_ty: Type,
+    parent_src: LazySrcLoc,
+) CompileError!void {
+    const valid_rt = try sema.validateRunTimeType(block, elem_index_src, elem_ty, false);
+    if (!valid_rt) {
+        const msg = msg: {
+            const msg = try sema.errMsg(
+                block,
+                elem_index_src,
+                "values of type '{}' must be comptime known, but index value is runtime known",
+                .{parent_ty.fmt(sema.mod)},
+            );
+            errdefer msg.destroy(sema.gpa);
+
+            const src_decl = sema.mod.declPtr(block.src_decl);
+            try sema.explainWhyTypeIsComptime(block, elem_index_src, msg, parent_src.toSrcLoc(src_decl), parent_ty);
+
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(block, msg);
+    }
+}
+
 fn tupleFieldPtr(
     sema: *Sema,
     block: *Block,
@@ -19534,6 +19562,8 @@ fn tupleFieldPtr(
         );
     }
 
+    try sema.validateRuntimeElemAccess(block, field_index_src, field_ty, tuple_ty, tuple_ptr_src);
+
     try sema.requireRuntimeBlock(block, tuple_ptr_src);
     return block.addStructFieldPtr(tuple_ptr, field_index, ptr_field_ty);
 }
@@ -19571,6 +19601,8 @@ fn tupleField(
         const field_values = tuple_val.castTag(.aggregate).?.data;
         return sema.addConstant(field_ty, field_values[field_index]);
     }
+
+    try sema.validateRuntimeElemAccess(block, field_index_src, field_ty, tuple_ty, tuple_src);
 
     try sema.requireRuntimeBlock(block, tuple_src);
     return block.addStructFieldVal(tuple, field_index, field_ty);
@@ -19622,24 +19654,7 @@ fn elemValArray(
         }
     }
 
-    const valid_rt = try sema.validateRunTimeType(block, elem_index_src, elem_ty, false);
-    if (!valid_rt) {
-        const msg = msg: {
-            const msg = try sema.errMsg(
-                block,
-                elem_index_src,
-                "values of type '{}' must be comptime known, but index value is runtime known",
-                .{array_ty.fmt(sema.mod)},
-            );
-            errdefer msg.destroy(sema.gpa);
-
-            const src_decl = sema.mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsComptime(block, elem_index_src, msg, array_src.toSrcLoc(src_decl), array_ty);
-
-            break :msg msg;
-        };
-        return sema.failWithOwnedErrorMsg(block, msg);
-    }
+    try sema.validateRuntimeElemAccess(block, elem_index_src, elem_ty, array_ty, array_src);
 
     const runtime_src = if (maybe_undef_array_val != null) elem_index_src else array_src;
     try sema.requireRuntimeBlock(block, runtime_src);
@@ -19697,23 +19712,8 @@ fn elemPtrArray(
         }
     }
 
-    const valid_rt = try sema.validateRunTimeType(block, elem_index_src, array_ty.elemType2(), false);
-    if (!valid_rt and !init) {
-        const msg = msg: {
-            const msg = try sema.errMsg(
-                block,
-                elem_index_src,
-                "values of type '{}' must be comptime known, but index value is runtime known",
-                .{array_ty.fmt(sema.mod)},
-            );
-            errdefer msg.destroy(sema.gpa);
-
-            const src_decl = sema.mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsComptime(block, elem_index_src, msg, array_ptr_src.toSrcLoc(src_decl), array_ty);
-
-            break :msg msg;
-        };
-        return sema.failWithOwnedErrorMsg(block, msg);
+    if (!init) {
+        try sema.validateRuntimeElemAccess(block, elem_index_src, array_ty.elemType2(), array_ty, array_ptr_src);
     }
 
     const runtime_src = if (maybe_undef_array_ptr_val != null) elem_index_src else array_ptr_src;
@@ -19769,6 +19769,8 @@ fn elemValSlice(
         }
     }
 
+    try sema.validateRuntimeElemAccess(block, elem_index_src, elem_ty, slice_ty, slice_src);
+
     try sema.requireRuntimeBlock(block, runtime_src);
     if (block.wantSafety()) {
         const len_inst = if (maybe_slice_val) |slice_val|
@@ -19821,6 +19823,8 @@ fn elemPtrSlice(
             return sema.addConstant(elem_ptr_ty, elem_ptr_val);
         }
     }
+
+    try sema.validateRuntimeElemAccess(block, elem_index_src, elem_ptr_ty, slice_ty, slice_src);
 
     const runtime_src = if (maybe_undef_slice_val != null) elem_index_src else slice_src;
     try sema.requireRuntimeBlock(block, runtime_src);
@@ -22426,7 +22430,7 @@ fn analyzeLoad(
     }
 
     if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| {
-        if (try sema.pointerDeref(block, ptr_src, ptr_val, ptr_ty)) |elem_val| {
+        if (try sema.pointerDeref(block, src, ptr_val, ptr_ty)) |elem_val| {
             return sema.addConstant(elem_ty, elem_val);
         }
         if (block.is_typeof) {
