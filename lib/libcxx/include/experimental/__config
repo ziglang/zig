@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===--------------------------- __config ---------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -44,6 +44,10 @@
 
 #define _LIBCPP_END_NAMESPACE_EXPERIMENTAL_FILESYSTEM \
     } } _LIBCPP_END_NAMESPACE_EXPERIMENTAL
+
+#if !defined(__cpp_coroutines) || __cpp_coroutines < 201703L
+#define _LIBCPP_HAS_NO_EXPERIMENTAL_COROUTINES
+#endif
 
 #define _LIBCPP_BEGIN_NAMESPACE_EXPERIMENTAL_COROUTINES \
   _LIBCPP_BEGIN_NAMESPACE_EXPERIMENTAL inline namespace coroutines_v1 {

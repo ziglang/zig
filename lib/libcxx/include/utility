@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===-------------------------- utility -----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -79,7 +79,7 @@ struct pair
     pair(pair&&) = default;
     explicit(see-below) constexpr pair();
     explicit(see-below) pair(const T1& x, const T2& y);                          // constexpr in C++14
-    template <class U, class V> explicit(see-below) pair(U&& x, V&& y);          // constexpr in C++14
+    template <class U = T1, class V = T2> explicit(see-below) pair(U&&, V&&);    // constexpr in C++14
     template <class U, class V> explicit(see-below) pair(const pair<U, V>& p);   // constexpr in C++14
     template <class U, class V> explicit(see-below) pair(pair<U, V>&& p);        // constexpr in C++14
     template <class... Args1, class... Args2>
@@ -95,12 +95,18 @@ struct pair
                                 is_nothrow_swappable_v<T2>);                     // constexpr in C++20
 };
 
+template<class T1, class T2> pair(T1, T2) -> pair<T1, T2>;
+
 template <class T1, class T2> bool operator==(const pair<T1,T2>&, const pair<T1,T2>&); // constexpr in C++14
-template <class T1, class T2> bool operator!=(const pair<T1,T2>&, const pair<T1,T2>&); // constexpr in C++14
-template <class T1, class T2> bool operator< (const pair<T1,T2>&, const pair<T1,T2>&); // constexpr in C++14
-template <class T1, class T2> bool operator> (const pair<T1,T2>&, const pair<T1,T2>&); // constexpr in C++14
-template <class T1, class T2> bool operator>=(const pair<T1,T2>&, const pair<T1,T2>&); // constexpr in C++14
-template <class T1, class T2> bool operator<=(const pair<T1,T2>&, const pair<T1,T2>&); // constexpr in C++14
+template <class T1, class T2> bool operator!=(const pair<T1,T2>&, const pair<T1,T2>&); // constexpr in C++14, removed in C++20
+template <class T1, class T2> bool operator< (const pair<T1,T2>&, const pair<T1,T2>&); // constexpr in C++14, removed in C++20
+template <class T1, class T2> bool operator> (const pair<T1,T2>&, const pair<T1,T2>&); // constexpr in C++14, removed in C++20
+template <class T1, class T2> bool operator>=(const pair<T1,T2>&, const pair<T1,T2>&); // constexpr in C++14, removed in C++20
+template <class T1, class T2> bool operator<=(const pair<T1,T2>&, const pair<T1,T2>&); // constexpr in C++14, removed in C++20
+template <class T1, class T2>
+  constexpr common_comparison_type_t<synth-three-way-result<T1>,
+                                     synth-three-way-result<T2>>
+    operator<=>(const pair<T1,T2>&, const pair<T1,T2>&);                               // C++20
 
 template <class T1, class T2> pair<V1, V2> make_pair(T1&&, T2&&);                // constexpr in C++14
 template <class T1, class T2>
@@ -179,7 +185,8 @@ template<class... T>
   using index_sequence_for = make_index_sequence<sizeof...(T)>;
 
 template<class T, class U=T>
-    T exchange(T& obj, U&& new_value);
+    constexpr T exchange(T& obj, U&& new_value)
+      noexcept(is_nothrow_move_constructible<T>::value && is_nothrow_assignable<T&, U>::value); // constexpr in C++17, noexcept in C++23
 
 // 20.2.7, in-place construction // C++17
 struct in_place_t {
@@ -211,6 +218,7 @@ template <class T>
 #include <__debug>
 #include <__tuple>
 #include <__utility/as_const.h>
+#include <__utility/auto_cast.h>
 #include <__utility/cmp.h>
 #include <__utility/declval.h>
 #include <__utility/exchange.h>
@@ -220,11 +228,17 @@ template <class T>
 #include <__utility/move.h>
 #include <__utility/pair.h>
 #include <__utility/piecewise_construct.h>
+#include <__utility/priority_tag.h>
 #include <__utility/rel_ops.h>
 #include <__utility/swap.h>
 #include <__utility/to_underlying.h>
+#include <__utility/transaction.h>
 #include <compare>
 #include <initializer_list>
 #include <version>
+
+#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#pragma GCC system_header
+#endif
 
 #endif // _LIBCPP_UTILITY

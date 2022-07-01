@@ -129,6 +129,10 @@
     // This controls the availability of std::to_chars.
 #   define _LIBCPP_AVAILABILITY_TO_CHARS
 
+    // This controls the availability of floating-point std::to_chars functions.
+    // These overloads were added later than the integer overloads.
+#   define _LIBCPP_AVAILABILITY_TO_CHARS_FLOATING_POINT
+
     // This controls the availability of the C++20 synchronization library,
     // which requires shared library support for various operations
     // (see libcxx/src/atomic.cpp).
@@ -139,9 +143,9 @@
 // #   define _LIBCPP_AVAILABILITY_DISABLE_FTM___cpp_lib_semaphore
 
     // This controls the availability of the C++20 format library.
-    // The library is in development and not ABI stable yet. Currently
-    // P2216 is aiming to be retroactively accepted in C++20. This paper
-    // contains ABI breaking changes.
+    // The library is in development and not ABI stable yet. P2216 is
+    // retroactively accepted in C++20. This paper contains ABI breaking
+    // changes.
 #   define _LIBCPP_AVAILABILITY_FORMAT
 // #   define _LIBCPP_AVAILABILITY_DISABLE_FTM___cpp_lib_format
 
@@ -222,6 +226,9 @@
 #   define _LIBCPP_AVAILABILITY_TO_CHARS                                        \
         _LIBCPP_AVAILABILITY_FILESYSTEM
 
+#   define _LIBCPP_AVAILABILITY_TO_CHARS_FLOATING_POINT                         \
+        __attribute__((unavailable))
+
 #   define _LIBCPP_AVAILABILITY_SYNC                                            \
         __attribute__((availability(macosx,strict,introduced=11.0)))            \
         __attribute__((availability(ios,strict,introduced=14.0)))               \
@@ -238,9 +245,9 @@
 #   endif
 
     // This controls the availability of the C++20 format library.
-    // The library is in development and not ABI stable yet. Currently
-    // P2216 is aiming to be retroactively accepted in C++20. This paper
-    // contains ABI breaking changes.
+    // The library is in development and not ABI stable yet. P2216 is
+    // retroactively accepted in C++20. This paper contains ABI breaking
+    // changes.
 #   define _LIBCPP_AVAILABILITY_FORMAT                                          \
         __attribute__((unavailable))
 #   define _LIBCPP_AVAILABILITY_DISABLE_FTM___cpp_lib_format

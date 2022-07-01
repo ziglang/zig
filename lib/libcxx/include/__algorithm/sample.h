@@ -9,8 +9,9 @@
 #ifndef _LIBCPP___ALGORITHM_SAMPLE_H
 #define _LIBCPP___ALGORITHM_SAMPLE_H
 
-#include <__config>
 #include <__algorithm/min.h>
+#include <__config>
+#include <__debug>
 #include <__random/uniform_int_distribution.h>
 #include <iterator>
 

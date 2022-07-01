@@ -10,6 +10,8 @@
 #ifndef _LIBCPP___ITERATOR_REVERSE_ITERATOR_H
 #define _LIBCPP___ITERATOR_REVERSE_ITERATOR_H
 
+#include <__compare/compare_three_way_result.h>
+#include <__compare/three_way_comparable.h>
 #include <__config>
 #include <__iterator/iterator.h>
 #include <__iterator/iterator_traits.h>
@@ -20,17 +22,7 @@
 #pragma GCC system_header
 #endif
 
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
-
 _LIBCPP_BEGIN_NAMESPACE_STD
-
-template <class _Tp, class = void>
-struct __is_stashing_iterator : false_type {};
-
-template <class _Tp>
-struct __is_stashing_iterator<_Tp, typename __void_t<typename _Tp::__stashing_iterator_tag>::type>
-  : true_type {};
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <class _Iter>
@@ -48,10 +40,6 @@ private:
 #ifndef _LIBCPP_ABI_NO_ITERATOR_BASES
     _Iter __t; // no longer used as of LWG #2360, not removed due to ABI break
 #endif
-
-    static_assert(!__is_stashing_iterator<_Iter>::value,
-      "The specified iterator type cannot be used with reverse_iterator; "
-      "Using stashing iterators with reverse_iterator causes undefined behavior");
 
 protected:
     _Iter current;
@@ -78,7 +66,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
     explicit reverse_iterator(_Iter __x) : __t(__x), current(__x) {}
 
-    template <class _Up, class = _EnableIf<
+    template <class _Up, class = __enable_if_t<
         !is_same<_Up, _Iter>::value && is_convertible<_Up const&, _Iter>::value
     > >
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
@@ -86,10 +74,10 @@ public:
         : __t(__u.base()), current(__u.base())
     { }
 
-    template <class _Up, class = _EnableIf<
+    template <class _Up, class = __enable_if_t<
         !is_same<_Up, _Iter>::value &&
         is_convertible<_Up const&, _Iter>::value &&
-        is_assignable<_Up const&, _Iter>::value
+        is_assignable<_Iter&, _Up const&>::value
     > >
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
     reverse_iterator& operator=(const reverse_iterator<_Up>& __u) {
@@ -103,7 +91,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
     explicit reverse_iterator(_Iter __x) : current(__x) {}
 
-    template <class _Up, class = _EnableIf<
+    template <class _Up, class = __enable_if_t<
         !is_same<_Up, _Iter>::value && is_convertible<_Up const&, _Iter>::value
     > >
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
@@ -111,10 +99,10 @@ public:
         : current(__u.base())
     { }
 
-    template <class _Up, class = _EnableIf<
+    template <class _Up, class = __enable_if_t<
         !is_same<_Up, _Iter>::value &&
         is_convertible<_Up const&, _Iter>::value &&
-        is_assignable<_Up const&, _Iter>::value
+        is_assignable<_Iter&, _Up const&>::value
     > >
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
     reverse_iterator& operator=(const reverse_iterator<_Up>& __u) {
@@ -196,6 +184,16 @@ operator<=(const reverse_iterator<_Iter1>& __x, const reverse_iterator<_Iter2>& 
     return __x.base() >= __y.base();
 }
 
+#if !defined(_LIBCPP_HAS_NO_CONCEPTS)
+template <class _Iter1, three_way_comparable_with<_Iter1> _Iter2>
+_LIBCPP_HIDE_FROM_ABI constexpr
+compare_three_way_result_t<_Iter1, _Iter2>
+operator<=>(const reverse_iterator<_Iter1>& __x, const reverse_iterator<_Iter2>& __y)
+{
+    return __y.base() <=> __x.base();
+}
+#endif
+
 #ifndef _LIBCPP_CXX03_LANG
 template <class _Iter1, class _Iter2>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
@@ -233,7 +231,5 @@ reverse_iterator<_Iter> make_reverse_iterator(_Iter __i)
 #endif
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ITERATOR_REVERSE_ITERATOR_H

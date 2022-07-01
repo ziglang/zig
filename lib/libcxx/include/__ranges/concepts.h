@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===--------------------- __ranges/concepts.h ----------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -9,6 +9,9 @@
 #ifndef _LIBCPP___RANGES_CONCEPTS_H
 #define _LIBCPP___RANGES_CONCEPTS_H
 
+#include <__concepts/constructible.h>
+#include <__concepts/movable.h>
+#include <__concepts/same_as.h>
 #include <__config>
 #include <__iterator/concepts.h>
 #include <__iterator/incrementable_traits.h>
@@ -16,33 +19,33 @@
 #include <__iterator/iterator_traits.h>
 #include <__iterator/readable_traits.h>
 #include <__ranges/access.h>
-#include <__ranges/enable_borrowed_range.h>
 #include <__ranges/data.h>
+#include <__ranges/enable_borrowed_range.h>
 #include <__ranges/enable_view.h>
 #include <__ranges/size.h>
-#include <concepts>
+#include <initializer_list>
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
 #endif
 
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
-
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-// clang-format off
-
-#if !defined(_LIBCPP_HAS_NO_RANGES)
+#if !defined(_LIBCPP_HAS_NO_CONCEPTS)
 
 namespace ranges {
+
   // [range.range]
+
   template <class _Tp>
   concept range = requires(_Tp& __t) {
     ranges::begin(__t); // sometimes equality-preserving
     ranges::end(__t);
   };
+
+  template <class _Tp>
+  concept input_range = range<_Tp> && input_iterator<iterator_t<_Tp>>;
 
   template<class _Range>
   concept borrowed_range = range<_Range> &&
@@ -85,18 +88,15 @@ namespace ranges {
     movable<_Tp> &&
     enable_view<_Tp>;
 
-  template<class _Range>
+  template <class _Range>
   concept __simple_view =
     view<_Range> && range<const _Range> &&
     same_as<iterator_t<_Range>, iterator_t<const _Range>> &&
-    same_as<sentinel_t<_Range>, iterator_t<const _Range>>;
+    same_as<sentinel_t<_Range>, sentinel_t<const _Range>>;
 
   // [range.refinements], other range refinements
   template <class _Rp, class _Tp>
   concept output_range = range<_Rp> && output_iterator<iterator_t<_Rp>, _Tp>;
-
-  template <class _Tp>
-  concept input_range = range<_Tp> && input_iterator<iterator_t<_Tp>>;
 
   template <class _Tp>
   concept forward_range = input_range<_Tp> && forward_iterator<iterator_t<_Tp>>;
@@ -119,20 +119,24 @@ namespace ranges {
   template <class _Tp>
   concept common_range = range<_Tp> && same_as<iterator_t<_Tp>, sentinel_t<_Tp>>;
 
-  template<class _Tp>
+  template <class _Tp>
+  inline constexpr bool __is_std_initializer_list = false;
+
+  template <class _Ep>
+  inline constexpr bool __is_std_initializer_list<initializer_list<_Ep>> = true;
+
+  template <class _Tp>
   concept viewable_range =
-    range<_Tp> && (
-      (view<remove_cvref_t<_Tp>> && constructible_from<remove_cvref_t<_Tp>, _Tp>) ||
-      (!view<remove_cvref_t<_Tp>> && borrowed_range<_Tp>)
-    );
+    range<_Tp> &&
+    ((view<remove_cvref_t<_Tp>> && constructible_from<remove_cvref_t<_Tp>, _Tp>) ||
+     (!view<remove_cvref_t<_Tp>> &&
+      (is_lvalue_reference_v<_Tp> ||
+       (movable<remove_reference_t<_Tp>> && !__is_std_initializer_list<remove_cvref_t<_Tp>>))));
+
 } // namespace ranges
 
-#endif // !defined(_LIBCPP_HAS_NO_RANGES)
-
-// clang-format on
+#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS)
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___RANGES_CONCEPTS_H

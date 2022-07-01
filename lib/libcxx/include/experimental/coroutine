@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===----------------------------- coroutine -----------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -45,19 +45,19 @@ template <class P> struct hash<coroutine_handle<P>>;
 
  */
 
+#include <__debug>
+#include <cstddef>
 #include <experimental/__config>
-#include <new>
-#include <type_traits>
 #include <functional>
 #include <memory> // for hash<T*>
-#include <cstddef>
-#include <__debug>
+#include <new>
+#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
 #endif
 
-#ifdef _LIBCPP_HAS_NO_COROUTINES
+#ifdef _LIBCPP_HAS_NO_EXPERIMENTAL_COROUTINES
 # if defined(_LIBCPP_WARNING)
     _LIBCPP_WARNING("<experimental/coroutine> cannot be used with this compiler")
 # else
@@ -65,7 +65,7 @@ template <class P> struct hash<coroutine_handle<P>>;
 # endif
 #endif
 
-#ifndef _LIBCPP_HAS_NO_COROUTINES
+#ifndef _LIBCPP_HAS_NO_EXPERIMENTAL_COROUTINES
 
 _LIBCPP_BEGIN_NAMESPACE_EXPERIMENTAL_COROUTINES
 
@@ -329,6 +329,6 @@ struct hash<_VSTD_CORO::coroutine_handle<_Tp> > {
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // !defined(_LIBCPP_HAS_NO_COROUTINES)
+#endif // !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_COROUTINES)
 
 #endif /* _LIBCPP_EXPERIMENTAL_COROUTINE */

@@ -22,12 +22,9 @@
 #pragma GCC system_header
 #endif
 
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
-
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if !defined(_LIBCPP_HAS_NO_RANGES)
+#if !defined(_LIBCPP_HAS_NO_CONCEPTS) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 // __copyable_box allows turning a type that is copy-constructible (but maybe not copy-assignable) into
 // a type that is both copy-constructible and copy-assignable. It does that by introducing an empty state
@@ -91,6 +88,10 @@ namespace ranges {
 
     _LIBCPP_HIDE_FROM_ABI constexpr _Tp const& operator*() const noexcept { return *__val_; }
     _LIBCPP_HIDE_FROM_ABI constexpr _Tp& operator*() noexcept { return *__val_; }
+
+    _LIBCPP_HIDE_FROM_ABI constexpr const _Tp *operator->() const noexcept { return __val_.operator->(); }
+    _LIBCPP_HIDE_FROM_ABI constexpr _Tp *operator->() noexcept { return __val_.operator->(); }
+
     _LIBCPP_HIDE_FROM_ABI constexpr bool __has_value() const noexcept { return __val_.has_value(); }
   };
 
@@ -162,14 +163,16 @@ namespace ranges {
 
     _LIBCPP_HIDE_FROM_ABI constexpr _Tp const& operator*() const noexcept { return __val_; }
     _LIBCPP_HIDE_FROM_ABI constexpr _Tp& operator*() noexcept { return __val_; }
+
+    _LIBCPP_HIDE_FROM_ABI constexpr const _Tp *operator->() const noexcept { return _VSTD::addressof(__val_); }
+    _LIBCPP_HIDE_FROM_ABI constexpr _Tp *operator->() noexcept { return _VSTD::addressof(__val_); }
+
     _LIBCPP_HIDE_FROM_ABI constexpr bool __has_value() const noexcept { return true; }
   };
 } // namespace ranges
 
-#endif // !defined(_LIBCPP_HAS_NO_RANGES)
+#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___RANGES_COPYABLE_BOX_H

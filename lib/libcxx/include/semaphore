@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===--------------------------- semaphore --------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -47,8 +47,10 @@ using binary_semaphore = counting_semaphore<1>;
 
 #include <__availability>
 #include <__config>
+#include <__thread/timed_backoff_policy.h>
 #include <__threading_support>
 #include <atomic>
+#include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -67,10 +69,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 /*
 
-__atomic_semaphore_base is the general-case implementation, to be used for
-user-requested least-max values that exceed the OS implementation support
-(incl. when the OS has no support of its own) and for binary semaphores.
-
+__atomic_semaphore_base is the general-case implementation.
 It is a typical Dijkstra semaphore algorithm over atomics, wait and notify
 functions. It avoids contention against users' own use of those facilities.
 
@@ -82,7 +81,7 @@ class __atomic_semaphore_base
 
 public:
     _LIBCPP_INLINE_VISIBILITY
-    __atomic_semaphore_base(ptrdiff_t __count) : __a(__count)
+    constexpr explicit __atomic_semaphore_base(ptrdiff_t __count) : __a(__count)
     {
     }
     _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
@@ -108,81 +107,30 @@ public:
     _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     bool try_acquire_for(chrono::duration<Rep, Period> const& __rel_time)
     {
-        auto const __test_fn = [this]() -> bool {
-            auto __old = __a.load(memory_order_acquire);
-            while(1) {
-                if (__old == 0)
-                    return false;
-                if(__a.compare_exchange_strong(__old, __old - 1, memory_order_acquire, memory_order_relaxed))
-                    return true;
-            }
-        };
+        if (__rel_time == chrono::duration<Rep, Period>::zero())
+            return try_acquire();
+        auto const __test_fn = [this]() { return try_acquire(); };
         return __libcpp_thread_poll_with_backoff(__test_fn, __libcpp_timed_backoff_policy(), __rel_time);
     }
-};
-
-#ifndef _LIBCPP_NO_NATIVE_SEMAPHORES
-
-/*
-
-__platform_semaphore_base a simple wrapper for the OS semaphore type. That
-is, every call is routed to the OS in the most direct manner possible.
-
-*/
-
-class __platform_semaphore_base
-{
-    __libcpp_semaphore_t __semaphore;
-
-public:
-    _LIBCPP_INLINE_VISIBILITY
-    __platform_semaphore_base(ptrdiff_t __count) :
-        __semaphore()
+    _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
+    bool try_acquire()
     {
-        __libcpp_semaphore_init(&__semaphore, __count);
-    }
-    _LIBCPP_INLINE_VISIBILITY
-    ~__platform_semaphore_base() {
-        __libcpp_semaphore_destroy(&__semaphore);
-    }
-    _LIBCPP_INLINE_VISIBILITY
-    void release(ptrdiff_t __update)
-    {
-        for(; __update; --__update)
-            __libcpp_semaphore_post(&__semaphore);
-    }
-    _LIBCPP_INLINE_VISIBILITY
-    void acquire()
-    {
-        __libcpp_semaphore_wait(&__semaphore);
-    }
-    _LIBCPP_INLINE_VISIBILITY
-    bool try_acquire_for(chrono::nanoseconds __rel_time)
-    {
-        return __libcpp_semaphore_wait_timed(&__semaphore, __rel_time);
+        auto __old = __a.load(memory_order_acquire);
+        while (true) {
+            if (__old == 0)
+                return false;
+            if (__a.compare_exchange_strong(__old, __old - 1, memory_order_acquire, memory_order_relaxed))
+                return true;
+        }
     }
 };
-
-template<ptrdiff_t __least_max_value>
-using __semaphore_base =
-    typename conditional<(__least_max_value > 1 && __least_max_value <= _LIBCPP_SEMAPHORE_MAX),
-                         __platform_semaphore_base,
-                         __atomic_semaphore_base>::type;
-
-#else
-
-template<ptrdiff_t __least_max_value>
-using __semaphore_base =
-    __atomic_semaphore_base;
 
 #define _LIBCPP_SEMAPHORE_MAX (numeric_limits<ptrdiff_t>::max())
-
-#endif //_LIBCPP_NO_NATIVE_SEMAPHORES
 
 template<ptrdiff_t __least_max_value = _LIBCPP_SEMAPHORE_MAX>
 class counting_semaphore
 {
-    __semaphore_base<__least_max_value> __semaphore;
+    __atomic_semaphore_base __semaphore;
 
 public:
     static constexpr ptrdiff_t max() noexcept {
@@ -190,7 +138,7 @@ public:
     }
 
     _LIBCPP_INLINE_VISIBILITY
-    counting_semaphore(ptrdiff_t __count = 0) : __semaphore(__count) { }
+    constexpr explicit counting_semaphore(ptrdiff_t __count) : __semaphore(__count) { }
     ~counting_semaphore() = default;
 
     counting_semaphore(const counting_semaphore&) = delete;
@@ -215,14 +163,14 @@ public:
     _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     bool try_acquire()
     {
-        return try_acquire_for(chrono::nanoseconds::zero());
+        return __semaphore.try_acquire();
     }
     template <class Clock, class Duration>
     _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     bool try_acquire_until(chrono::time_point<Clock, Duration> const& __abs_time)
     {
         auto const current = Clock::now();
-        if(current >= __abs_time)
+        if (current >= __abs_time)
             return try_acquire();
         else
             return try_acquire_for(__abs_time - current);

@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===--------------------------- __debug ----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -12,6 +12,7 @@
 
 #include <__config>
 #include <iosfwd>
+#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -22,9 +23,9 @@
 #endif
 
 #if _LIBCPP_DEBUG_LEVEL >= 1 || defined(_LIBCPP_BUILDING_LIBRARY)
-#   include <cstdlib>
-#   include <cstdio>
 #   include <cstddef>
+#   include <cstdio>
+#   include <cstdlib>
 #endif
 
 #if _LIBCPP_DEBUG_LEVEL == 0
@@ -34,7 +35,7 @@
 #   define _LIBCPP_DEBUG_ASSERT(x, m) ((void)0)
 #   define _LIBCPP_ASSERT_IMPL(x, m) ((x) ? (void)0 : _VSTD::__libcpp_debug_function(_VSTD::__libcpp_debug_info(__FILE__, __LINE__, #x, m)))
 #elif _LIBCPP_DEBUG_LEVEL == 2
-#   define _LIBCPP_DEBUG_ASSERT(x, m) _LIBCPP_ASSERT(x, m)
+#   define _LIBCPP_DEBUG_ASSERT(x, m) _LIBCPP_ASSERT(__libcpp_is_constant_evaluated() || (x), m)
 #   define _LIBCPP_ASSERT_IMPL(x, m) ((x) ? (void)0 : _VSTD::__libcpp_debug_function(_VSTD::__libcpp_debug_info(__FILE__, __LINE__, #x, m)))
 #else
 #   error _LIBCPP_DEBUG_LEVEL must be one of 0, 1, 2
@@ -267,6 +268,26 @@ _LIBCPP_FUNC_VIS const __libcpp_db* __get_const_db();
 
 
 #endif // _LIBCPP_DEBUG_LEVEL == 2 || defined(_LIBCPP_BUILDING_LIBRARY)
+
+template <class _Tp>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11 inline void __debug_db_insert_c(_Tp* __c) {
+#if _LIBCPP_DEBUG_LEVEL == 2
+    if (!__libcpp_is_constant_evaluated())
+        __get_db()->__insert_c(__c);
+#else
+    (void)(__c);
+#endif
+}
+
+template <class _Tp>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11 inline void __debug_db_insert_i(_Tp* __i) {
+#if _LIBCPP_DEBUG_LEVEL == 2
+    if (!__libcpp_is_constant_evaluated())
+        __get_db()->__insert_i(__i);
+#else
+    (void)(__i);
+#endif
+}
 
 _LIBCPP_END_NAMESPACE_STD
 

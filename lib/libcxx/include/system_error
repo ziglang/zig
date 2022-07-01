@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===---------------------------- system_error ----------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -46,10 +46,10 @@ template <class T> struct is_error_condition_enum
     : public false_type {};
 
 template <class _Tp>
-inline constexpr size_t is_error_condition_enum_v = is_error_condition_enum<_Tp>::value; // C++17
+inline constexpr bool is_error_condition_enum_v = is_error_condition_enum<_Tp>::value; // C++17
 
 template <class _Tp>
-inline constexpr size_t is_error_code_enum_v = is_error_code_enum<_Tp>::value; // C++17
+inline constexpr bool is_error_code_enum_v = is_error_code_enum<_Tp>::value; // C++17
 
 class error_code
 {
@@ -150,6 +150,7 @@ template <> struct hash<std::error_condition>;
 #include <stdexcept>
 #include <string>
 #include <type_traits>
+#include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -165,7 +166,7 @@ struct _LIBCPP_TEMPLATE_VIS is_error_code_enum
 
 #if _LIBCPP_STD_VER > 14
 template <class _Tp>
-_LIBCPP_INLINE_VAR constexpr size_t is_error_code_enum_v = is_error_code_enum<_Tp>::value;
+inline constexpr bool is_error_code_enum_v = is_error_code_enum<_Tp>::value;
 #endif
 
 // is_error_condition_enum
@@ -176,7 +177,7 @@ struct _LIBCPP_TEMPLATE_VIS is_error_condition_enum
 
 #if _LIBCPP_STD_VER > 14
 template <class _Tp>
-_LIBCPP_INLINE_VAR constexpr size_t is_error_condition_enum_v = is_error_condition_enum<_Tp>::value;
+inline constexpr bool is_error_condition_enum_v = is_error_condition_enum<_Tp>::value;
 #endif
 
 template <>
@@ -206,13 +207,11 @@ public:
     error_category() _NOEXCEPT;
 #else
     _LIBCPP_INLINE_VISIBILITY
-    _LIBCPP_CONSTEXPR_AFTER_CXX11 error_category() _NOEXCEPT _LIBCPP_DEFAULT
+    _LIBCPP_CONSTEXPR_AFTER_CXX11 error_category() _NOEXCEPT = default;
 #endif
-private:
-    error_category(const error_category&);// = delete;
-    error_category& operator=(const error_category&);// = delete;
+    error_category(const error_category&) = delete;
+    error_category& operator=(const error_category&) = delete;
 
-public:
     virtual const char* name() const _NOEXCEPT = 0;
     virtual error_condition default_error_condition(int __ev) const _NOEXCEPT;
     virtual bool equivalent(int __code, const error_condition& __condition) const _NOEXCEPT;

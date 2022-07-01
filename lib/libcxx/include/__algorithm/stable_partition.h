@@ -9,8 +9,8 @@
 #ifndef _LIBCPP___ALGORITHM_STABLE_PARTITION_H
 #define _LIBCPP___ALGORITHM_STABLE_PARTITION_H
 
-#include <__config>
 #include <__algorithm/rotate.h>
+#include <__config>
 #include <__iterator/iterator_traits.h>
 #include <__utility/swap.h>
 #include <memory>
@@ -18,9 +18,6 @@
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
 #endif
-
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -85,8 +82,7 @@ __stable_partition(_ForwardIterator __first, _ForwardIterator __last, _Predicate
     // recurse on [__first, __m), *__first know to be false
     // F?????????????????
     // f       m         l
-    typedef typename add_lvalue_reference<_Predicate>::type _PredRef;
-    _ForwardIterator __first_false = _VSTD::__stable_partition<_PredRef>(__first, __m, __pred, __len2, __p, __fit);
+    _ForwardIterator __first_false = _VSTD::__stable_partition<_Predicate&>(__first, __m, __pred, __len2, __p, __fit);
     // TTTFFFFF??????????
     // f  ff   m         l
     // recurse on [__m, __last], except increase __m until *(__m) is false, *__last know to be true
@@ -101,7 +97,7 @@ __stable_partition(_ForwardIterator __first, _ForwardIterator __last, _Predicate
     }
     // TTTFFFFFTTTF??????
     // f  ff   m  m1     l
-    __second_false = _VSTD::__stable_partition<_PredRef>(__m1, __last, __pred, __len_half, __p, __fit);
+    __second_false = _VSTD::__stable_partition<_Predicate&>(__m1, __last, __pred, __len_half, __p, __fit);
 __second_half_done:
     // TTTFFFFFTTTTTFFFFF
     // f  ff   m    sf   l
@@ -137,8 +133,7 @@ __stable_partition(_ForwardIterator __first, _ForwardIterator __last, _Predicate
         __p = _VSTD::get_temporary_buffer<value_type>(__len);
         __h.reset(__p.first);
     }
-    return _VSTD::__stable_partition<typename add_lvalue_reference<_Predicate>::type>
-                             (__first, __last, __pred, __len, __p, forward_iterator_tag());
+    return _VSTD::__stable_partition<_Predicate&>(__first, __last, __pred, __len, __p, forward_iterator_tag());
 }
 
 template <class _Predicate, class _BidirectionalIterator, class _Distance, class _Pair>
@@ -222,8 +217,7 @@ __stable_partition(_BidirectionalIterator __first, _BidirectionalIterator __last
     }
     // F???TFFF?????????T
     // f   m1  m        l
-    typedef typename add_lvalue_reference<_Predicate>::type _PredRef;
-    __first_false = _VSTD::__stable_partition<_PredRef>(__first, __m1, __pred, __len_half, __p, __bit);
+    __first_false = _VSTD::__stable_partition<_Predicate&>(__first, __m1, __pred, __len_half, __p, __bit);
 __first_half_done:
     // TTTFFFFF?????????T
     // f  ff   m        l
@@ -240,7 +234,7 @@ __first_half_done:
     }
     // TTTFFFFFTTTF?????T
     // f  ff   m  m1    l
-    __second_false = _VSTD::__stable_partition<_PredRef>(__m1, __last, __pred, __len_half, __p, __bit);
+    __second_false = _VSTD::__stable_partition<_Predicate&>(__m1, __last, __pred, __len_half, __p, __bit);
 __second_half_done:
     // TTTFFFFFTTTTTFFFFF
     // f  ff   m    sf  l
@@ -285,8 +279,7 @@ __stable_partition(_BidirectionalIterator __first, _BidirectionalIterator __last
         __p = _VSTD::get_temporary_buffer<value_type>(__len);
         __h.reset(__p.first);
     }
-    return _VSTD::__stable_partition<typename add_lvalue_reference<_Predicate>::type>
-                             (__first, __last, __pred, __len, __p, bidirectional_iterator_tag());
+    return _VSTD::__stable_partition<_Predicate&>(__first, __last, __pred, __len, __p, bidirectional_iterator_tag());
 }
 
 template <class _ForwardIterator, class _Predicate>
@@ -294,12 +287,9 @@ inline _LIBCPP_INLINE_VISIBILITY
 _ForwardIterator
 stable_partition(_ForwardIterator __first, _ForwardIterator __last, _Predicate __pred)
 {
-    return _VSTD::__stable_partition<typename add_lvalue_reference<_Predicate>::type>
-                             (__first, __last, __pred, typename iterator_traits<_ForwardIterator>::iterator_category());
+    return _VSTD::__stable_partition<_Predicate&>(__first, __last, __pred, typename iterator_traits<_ForwardIterator>::iterator_category());
 }
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_STABLE_PARTITION_H

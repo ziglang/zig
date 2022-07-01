@@ -9,18 +9,14 @@
 #ifndef _LIBCPP___ALGORITHM_MINMAX_H
 #define _LIBCPP___ALGORITHM_MINMAX_H
 
-#include <__config>
 #include <__algorithm/comp.h>
+#include <__config>
 #include <initializer_list>
 #include <utility>
-
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
 #endif
-
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -95,7 +91,5 @@ minmax(initializer_list<_Tp> __t)
 #endif // _LIBCPP_CXX03_LANG
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_MINMAX_H
