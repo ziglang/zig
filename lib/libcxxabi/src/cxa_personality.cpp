@@ -1,4 +1,4 @@
-//===------------------------- cxa_exception.cpp --------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -1004,9 +1004,14 @@ extern "C" _Unwind_Reason_Code __gnu_unwind_frame(_Unwind_Exception*,
 static _Unwind_Reason_Code continue_unwind(_Unwind_Exception* unwind_exception,
                                            _Unwind_Context* context)
 {
-    if (__gnu_unwind_frame(unwind_exception, context) != _URC_OK)
-        return _URC_FAILURE;
+  switch (__gnu_unwind_frame(unwind_exception, context)) {
+  case _URC_OK:
     return _URC_CONTINUE_UNWIND;
+  case _URC_END_OF_STACK:
+    return _URC_END_OF_STACK;
+  default:
+    return _URC_FAILURE;
+  }
 }
 
 // ARM register names
@@ -1109,7 +1114,14 @@ __gxx_personality_v0(_Unwind_State state,
         // Either we didn't do a phase 1 search (due to forced unwinding), or
         //  phase 1 reported no catching-handlers.
         // Search for a (non-catching) cleanup
-        scan_eh_tab(results, _UA_CLEANUP_PHASE, native_exception, unwind_exception, context);
+        if (is_force_unwinding)
+          scan_eh_tab(
+              results,
+              static_cast<_Unwind_Action>(_UA_CLEANUP_PHASE | _UA_FORCE_UNWIND),
+              native_exception, unwind_exception, context);
+        else
+          scan_eh_tab(results, _UA_CLEANUP_PHASE, native_exception,
+                      unwind_exception, context);
         if (results.reason == _URC_HANDLER_FOUND)
         {
             // Found a non-catching handler
