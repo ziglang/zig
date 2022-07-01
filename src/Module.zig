@@ -4697,7 +4697,7 @@ pub fn importFile(
     if (!mem.startsWith(u8, resolved_path, resolved_root_path) or
         // This prevents this check from triggering when the name of the
         // imported file starts with the root path's directory name.
-        std.fs.path.isSep(resolved_path[resolved_root_path.len]))
+        !std.fs.path.isSep(resolved_path[resolved_root_path.len]))
     {
         return error.ImportOutsidePkgPath;
     }
