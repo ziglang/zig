@@ -6,6 +6,7 @@ const std = @import("std");
 const Mir = @import("Mir.zig");
 const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
+const codegen = @import("../../codegen.zig");
 const leb128 = std.leb;
 
 /// Contains our list of instructions
@@ -21,6 +22,16 @@ code: *std.ArrayList(u8),
 locals: []const u8,
 /// The declaration that code is being generated for.
 decl: *Module.Decl,
+
+// Debug information
+/// Holds the debug information for this emission
+dbg_output: codegen.DebugInfoOutput,
+/// Previous debug info line
+prev_di_line: u32,
+/// Previous debug info column
+prev_di_column: u32,
+/// Previous offset relative to code section
+prev_di_offset: u32,
 
 const InnerError = error{
     OutOfMemory,
@@ -39,6 +50,10 @@ pub fn emitMir(emit: *Emit) InnerError!void {
             // block instructions
             .block => try emit.emitBlock(tag, inst),
             .loop => try emit.emitBlock(tag, inst),
+
+            .dbg_line => try emit.emitDbgLine(inst),
+            .dbg_epilogue_begin => try emit.emitDbgEpilogueBegin(),
+            .dbg_prologue_end => try emit.emitDbgPrologueEnd(),
 
             // branch instructions
             .br_if => try emit.emitLabel(tag, inst),
@@ -89,12 +104,14 @@ pub fn emitMir(emit: *Emit) InnerError!void {
             .local_set => try emit.emitLabel(tag, inst),
             .local_tee => try emit.emitLabel(tag, inst),
             .memory_grow => try emit.emitLabel(tag, inst),
+            .memory_size => try emit.emitLabel(tag, inst),
 
             // no-ops
             .end => try emit.emitTag(tag),
-            .memory_size => try emit.emitTag(tag),
             .@"return" => try emit.emitTag(tag),
             .@"unreachable" => try emit.emitTag(tag),
+
+            .select => try emit.emitTag(tag),
 
             // arithmetic
             .i32_eqz => try emit.emitTag(tag),
@@ -153,6 +170,34 @@ pub fn emitMir(emit: *Emit) InnerError!void {
             .i64_shl => try emit.emitTag(tag),
             .i64_shr_s => try emit.emitTag(tag),
             .i64_shr_u => try emit.emitTag(tag),
+            .f32_abs => try emit.emitTag(tag),
+            .f32_neg => try emit.emitTag(tag),
+            .f32_ceil => try emit.emitTag(tag),
+            .f32_floor => try emit.emitTag(tag),
+            .f32_trunc => try emit.emitTag(tag),
+            .f32_nearest => try emit.emitTag(tag),
+            .f32_sqrt => try emit.emitTag(tag),
+            .f32_add => try emit.emitTag(tag),
+            .f32_sub => try emit.emitTag(tag),
+            .f32_mul => try emit.emitTag(tag),
+            .f32_div => try emit.emitTag(tag),
+            .f32_min => try emit.emitTag(tag),
+            .f32_max => try emit.emitTag(tag),
+            .f32_copysign => try emit.emitTag(tag),
+            .f64_abs => try emit.emitTag(tag),
+            .f64_neg => try emit.emitTag(tag),
+            .f64_ceil => try emit.emitTag(tag),
+            .f64_floor => try emit.emitTag(tag),
+            .f64_trunc => try emit.emitTag(tag),
+            .f64_nearest => try emit.emitTag(tag),
+            .f64_sqrt => try emit.emitTag(tag),
+            .f64_add => try emit.emitTag(tag),
+            .f64_sub => try emit.emitTag(tag),
+            .f64_mul => try emit.emitTag(tag),
+            .f64_div => try emit.emitTag(tag),
+            .f64_min => try emit.emitTag(tag),
+            .f64_max => try emit.emitTag(tag),
+            .f64_copysign => try emit.emitTag(tag),
             .i32_wrap_i64 => try emit.emitTag(tag),
             .i64_extend_i32_s => try emit.emitTag(tag),
             .i64_extend_i32_u => try emit.emitTag(tag),
@@ -161,6 +206,8 @@ pub fn emitMir(emit: *Emit) InnerError!void {
             .i64_extend8_s => try emit.emitTag(tag),
             .i64_extend16_s => try emit.emitTag(tag),
             .i64_extend32_s => try emit.emitTag(tag),
+            .f32_demote_f64 => try emit.emitTag(tag),
+            .f64_promote_f32 => try emit.emitTag(tag),
             .i32_reinterpret_f32 => try emit.emitTag(tag),
             .i64_reinterpret_f64 => try emit.emitTag(tag),
             .f32_reinterpret_i32 => try emit.emitTag(tag),
@@ -173,10 +220,24 @@ pub fn emitMir(emit: *Emit) InnerError!void {
             .i64_trunc_f32_u => try emit.emitTag(tag),
             .i64_trunc_f64_s => try emit.emitTag(tag),
             .i64_trunc_f64_u => try emit.emitTag(tag),
+            .f32_convert_i32_s => try emit.emitTag(tag),
+            .f32_convert_i32_u => try emit.emitTag(tag),
+            .f32_convert_i64_s => try emit.emitTag(tag),
+            .f32_convert_i64_u => try emit.emitTag(tag),
+            .f64_convert_i32_s => try emit.emitTag(tag),
+            .f64_convert_i32_u => try emit.emitTag(tag),
+            .f64_convert_i64_s => try emit.emitTag(tag),
+            .f64_convert_i64_u => try emit.emitTag(tag),
             .i32_rem_s => try emit.emitTag(tag),
             .i32_rem_u => try emit.emitTag(tag),
             .i64_rem_s => try emit.emitTag(tag),
             .i64_rem_u => try emit.emitTag(tag),
+            .i32_popcnt => try emit.emitTag(tag),
+            .i64_popcnt => try emit.emitTag(tag),
+            .i32_clz => try emit.emitTag(tag),
+            .i32_ctz => try emit.emitTag(tag),
+            .i64_clz => try emit.emitTag(tag),
+            .i64_ctz => try emit.emitTag(tag),
 
             .extended => try emit.emitExtended(inst),
         }
@@ -242,6 +303,7 @@ fn emitGlobal(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
     const global_offset = emit.offset();
     try emit.code.appendSlice(&buf);
 
+    // globals can have index 0 as it represents the stack pointer
     try emit.decl.link.wasm.relocs.append(emit.bin_file.allocator, .{
         .index = label,
         .offset = global_offset,
@@ -294,11 +356,13 @@ fn emitCall(emit: *Emit, inst: Mir.Inst.Index) !void {
     leb128.writeUnsignedFixed(5, &buf, label);
     try emit.code.appendSlice(&buf);
 
-    try emit.decl.link.wasm.relocs.append(emit.bin_file.allocator, .{
-        .offset = call_offset,
-        .index = label,
-        .relocation_type = .R_WASM_FUNCTION_INDEX_LEB,
-    });
+    if (label != 0) {
+        try emit.decl.link.wasm.relocs.append(emit.bin_file.allocator, .{
+            .offset = call_offset,
+            .index = label,
+            .relocation_type = .R_WASM_FUNCTION_INDEX_LEB,
+        });
+    }
 }
 
 fn emitCallIndirect(emit: *Emit, inst: Mir.Inst.Index) !void {
@@ -318,34 +382,40 @@ fn emitFunctionIndex(emit: *Emit, inst: Mir.Inst.Index) !void {
     leb128.writeUnsignedFixed(5, &buf, symbol_index);
     try emit.code.appendSlice(&buf);
 
-    try emit.decl.link.wasm.relocs.append(emit.bin_file.allocator, .{
-        .offset = index_offset,
-        .index = symbol_index,
-        .relocation_type = .R_WASM_TABLE_INDEX_SLEB,
-    });
+    if (symbol_index != 0) {
+        try emit.decl.link.wasm.relocs.append(emit.bin_file.allocator, .{
+            .offset = index_offset,
+            .index = symbol_index,
+            .relocation_type = .R_WASM_TABLE_INDEX_SLEB,
+        });
+    }
 }
 
 fn emitMemAddress(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const symbol_index = emit.mir.instructions.items(.data)[inst].label;
+    const extra_index = emit.mir.instructions.items(.data)[inst].payload;
+    const mem = emit.mir.extraData(Mir.Memory, extra_index).data;
     const mem_offset = emit.offset() + 1;
     const is_wasm32 = emit.bin_file.options.target.cpu.arch == .wasm32;
     if (is_wasm32) {
         try emit.code.append(std.wasm.opcode(.i32_const));
         var buf: [5]u8 = undefined;
-        leb128.writeUnsignedFixed(5, &buf, symbol_index);
+        leb128.writeUnsignedFixed(5, &buf, mem.pointer);
         try emit.code.appendSlice(&buf);
     } else {
         try emit.code.append(std.wasm.opcode(.i64_const));
         var buf: [10]u8 = undefined;
-        leb128.writeUnsignedFixed(10, &buf, symbol_index);
+        leb128.writeUnsignedFixed(10, &buf, mem.pointer);
         try emit.code.appendSlice(&buf);
     }
 
-    try emit.decl.link.wasm.relocs.append(emit.bin_file.allocator, .{
-        .offset = mem_offset,
-        .index = symbol_index,
-        .relocation_type = if (is_wasm32) .R_WASM_MEMORY_ADDR_LEB else .R_WASM_MEMORY_ADDR_LEB64,
-    });
+    if (mem.pointer != 0) {
+        try emit.decl.link.wasm.relocs.append(emit.bin_file.allocator, .{
+            .offset = mem_offset,
+            .index = mem.pointer,
+            .relocation_type = if (is_wasm32) .R_WASM_MEMORY_ADDR_LEB else .R_WASM_MEMORY_ADDR_LEB64,
+            .addend = mem.offset,
+        });
+    }
 }
 
 fn emitExtended(emit: *Emit, inst: Mir.Inst.Index) !void {
@@ -363,4 +433,44 @@ fn emitMemFill(emit: *Emit) !void {
     // can emit a different memory index here.
     // For now we will always emit index 0.
     try leb128.writeULEB128(emit.code.writer(), @as(u32, 0));
+}
+
+fn emitDbgLine(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const extra_index = emit.mir.instructions.items(.data)[inst].payload;
+    const dbg_line = emit.mir.extraData(Mir.DbgLineColumn, extra_index).data;
+    try emit.dbgAdvancePCAndLine(dbg_line.line, dbg_line.column);
+}
+
+fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) !void {
+    if (emit.dbg_output != .dwarf) return;
+
+    const dbg_line = &emit.dbg_output.dwarf.dbg_line;
+    try dbg_line.ensureUnusedCapacity(11);
+    dbg_line.appendAssumeCapacity(std.dwarf.LNS.advance_pc);
+    // TODO: This must emit a relocation to calculate the offset relative
+    // to the code section start.
+    leb128.writeULEB128(dbg_line.writer(), emit.offset() - emit.prev_di_offset) catch unreachable;
+    const delta_line = @intCast(i32, line) - @intCast(i32, emit.prev_di_line);
+    if (delta_line != 0) {
+        dbg_line.appendAssumeCapacity(std.dwarf.LNS.advance_line);
+        leb128.writeILEB128(dbg_line.writer(), delta_line) catch unreachable;
+    }
+    dbg_line.appendAssumeCapacity(std.dwarf.LNS.copy);
+    emit.prev_di_line = line;
+    emit.prev_di_column = column;
+    emit.prev_di_offset = emit.offset();
+}
+
+fn emitDbgPrologueEnd(emit: *Emit) !void {
+    if (emit.dbg_output != .dwarf) return;
+
+    try emit.dbg_output.dwarf.dbg_line.append(std.dwarf.LNS.set_prologue_end);
+    try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
+}
+
+fn emitDbgEpilogueBegin(emit: *Emit) !void {
+    if (emit.dbg_output != .dwarf) return;
+
+    try emit.dbg_output.dwarf.dbg_line.append(std.dwarf.LNS.set_epilogue_begin);
+    try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
 }

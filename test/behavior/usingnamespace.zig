@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const expect = std.testing.expect;
 
 const A = struct {
@@ -36,6 +37,8 @@ test "usingnamespace does not redeclare an imported variable" {
 
 usingnamespace @import("usingnamespace/foo.zig");
 test "usingnamespace omits mixing in private functions" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     try expect(@This().privateFunction());
     try expect(!@This().printText());
 }
@@ -49,5 +52,27 @@ test {
 
 usingnamespace @import("usingnamespace/a.zig");
 test "two files usingnamespace import each other" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     try expect(@This().ok());
+}
+
+test {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const AA = struct {
+        x: i32,
+        fn b(x: i32) @This() {
+            return .{ .x = x };
+        }
+        fn c() type {
+            return if (true) struct {
+                const expected: i32 = 42;
+            } else struct {};
+        }
+        usingnamespace c();
+    };
+    const a = AA.b(42);
+    try expect(a.x == AA.c().expected);
 }

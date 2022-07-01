@@ -991,6 +991,8 @@ const char *calling_convention_name(CallingConvention cc) {
         case CallingConventionAAPCSVFP: return "AAPCSVFP";
         case CallingConventionInline: return "Inline";
         case CallingConventionSysV: return "SysV";
+        case CallingConventionWin64: return "Win64";
+        case CallingConventionPtxKernel: return "PtxKernel";
     }
     zig_unreachable();
 }
@@ -1000,6 +1002,7 @@ bool calling_convention_allows_zig_types(CallingConvention cc) {
         case CallingConventionUnspecified:
         case CallingConventionAsync:
         case CallingConventionInline:
+        case CallingConventionPtxKernel:
             return true;
         case CallingConventionC:
         case CallingConventionNaked:
@@ -1013,6 +1016,7 @@ bool calling_convention_allows_zig_types(CallingConvention cc) {
         case CallingConventionAAPCS:
         case CallingConventionAAPCSVFP:
         case CallingConventionSysV:
+        case CallingConventionWin64:
             return false;
     }
     zig_unreachable();
@@ -2004,8 +2008,18 @@ Error emit_error_unless_callconv_allowed_for_target(CodeGen *g, AstNode *source_
                 allowed_platforms = "ARM";
             break;
         case CallingConventionSysV:
+        case CallingConventionWin64:
             if (g->zig_target->arch != ZigLLVM_x86_64)
                 allowed_platforms = "x86_64";
+            break;
+      case CallingConventionPtxKernel:
+            if (g->zig_target->arch != ZigLLVM_nvptx
+                && g->zig_target->arch != ZigLLVM_nvptx64)
+            {
+                allowed_platforms = "nvptx and nvptx64";
+            }
+            break;
+
     }
     if (allowed_platforms != nullptr) {
         add_node_error(g, source_node, buf_sprintf(
@@ -2393,6 +2407,8 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
     size_t size_in_bits = 0;
     size_t abi_align = struct_type->abi_align;
 
+    TypeStructField *last_packed_field = nullptr;
+
     // Calculate offsets
     for (size_t i = 0; i < field_count; i += 1) {
         TypeStructField *field = struct_type->data.structure.fields[i];
@@ -2417,6 +2433,7 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
                 return err;
             }
 
+            last_packed_field = field;
             size_t field_size_in_bits = type_size_bits(g, field_type);
             size_t next_packed_bits_offset = packed_bits_offset + field_size_in_bits;
 
@@ -2476,8 +2493,13 @@ static Error resolve_struct_type(CodeGen *g, ZigType *struct_type) {
     }
     if (first_packed_bits_offset_misalign != SIZE_MAX) {
         size_t full_bit_count = packed_bits_offset - first_packed_bits_offset_misalign;
-        size_t full_abi_size = get_abi_size_bytes(full_bit_count, g->pointer_size_bytes);
+        size_t full_abi_size = get_abi_size_bytes(full_bit_count, 1);
         next_offset = next_field_offset(next_offset, abi_align, full_abi_size, abi_align);
+        ZigType* last_field_type = last_packed_field->type_entry;
+        // If only last field is misaligned and it is of int type save it so we can generate proper code for it later
+        if (last_field_type->size_in_bits == full_bit_count && (last_field_type->id == ZigTypeIdInt || last_field_type->id == ZigTypeIdEnum)) {
+            struct_type->data.structure.misaligned_field = last_packed_field;
+        }
         host_int_bytes[gen_field_index] = full_abi_size;
         gen_field_index += 1;
     }
@@ -3827,6 +3849,8 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
                 case CallingConventionAAPCS:
                 case CallingConventionAAPCSVFP:
                 case CallingConventionSysV:
+                case CallingConventionWin64:
+                case CallingConventionPtxKernel:
                     add_fn_export(g, fn_table_entry, buf_ptr(&fn_table_entry->symbol_name),
                                   GlobalLinkageIdStrong, fn_cc);
                     break;
@@ -7666,6 +7690,7 @@ ZigType *make_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
             // However for some targets, LLVM incorrectly reports this as 8.
             // See: https://github.com/ziglang/zig/issues/2987
             entry->abi_align = 16;
+            entry->abi_size = align_forward(entry->abi_size, entry->abi_align);
         }
     }
 
@@ -8267,23 +8292,53 @@ Error file_fetch(CodeGen *g, Buf *resolved_path, Buf *contents_buf) {
 
 static X64CABIClass type_windows_abi_x86_64_class(CodeGen *g, ZigType *ty, size_t ty_size) {
     // https://docs.microsoft.com/en-gb/cpp/build/x64-calling-convention?view=vs-2017
+    switch (ty_size) {
+        case 1:
+        case 2:
+        case 4:
+        case 8:
+            break;
+        case 16:
+            return (ty->id == ZigTypeIdVector) ? X64CABIClass_SSE : X64CABIClass_MEMORY;
+        default:
+            return X64CABIClass_MEMORY;
+    }
     switch (ty->id) {
-        case ZigTypeIdEnum:
+        case ZigTypeIdInvalid:
+        case ZigTypeIdMetaType:
+        case ZigTypeIdComptimeFloat:
+        case ZigTypeIdComptimeInt:
+        case ZigTypeIdNull:
+        case ZigTypeIdUndefined:
+        case ZigTypeIdBoundFn:
+        case ZigTypeIdOpaque:
+        case ZigTypeIdEnumLiteral:
+            zig_unreachable();
+
+        case ZigTypeIdFn:
+        case ZigTypeIdPointer:
         case ZigTypeIdInt:
         case ZigTypeIdBool:
+        case ZigTypeIdEnum:
+        case ZigTypeIdVoid:
+        case ZigTypeIdUnreachable:
+        case ZigTypeIdErrorSet:
+        case ZigTypeIdErrorUnion:
+        case ZigTypeIdStruct:
+        case ZigTypeIdUnion:
+        case ZigTypeIdOptional:
+        case ZigTypeIdFnFrame:
+        case ZigTypeIdAnyFrame:
             return X64CABIClass_INTEGER;
+
         case ZigTypeIdFloat:
         case ZigTypeIdVector:
             return X64CABIClass_SSE;
-        case ZigTypeIdStruct:
-        case ZigTypeIdUnion: {
-            if (ty_size <= 8)
-                return X64CABIClass_INTEGER;
-            return X64CABIClass_MEMORY;
-        }
-        default:
+
+        case ZigTypeIdArray:
             return X64CABIClass_Unknown;
     }
+    zig_unreachable();
 }
 
 static X64CABIClass type_system_V_abi_x86_64_class(CodeGen *g, ZigType *ty, size_t ty_size) {
@@ -8362,17 +8417,19 @@ static X64CABIClass type_system_V_abi_x86_64_class(CodeGen *g, ZigType *ty, size
 
 X64CABIClass type_c_abi_x86_64_class(CodeGen *g, ZigType *ty) {
     Error err;
-
     const size_t ty_size = type_size(g, ty);
+
+    if (g->zig_target->os == OsWindows || g->zig_target->os == OsUefi) {
+        return type_windows_abi_x86_64_class(g, ty, ty_size);
+    }
+
     ZigType *ptr_type;
     if ((err = get_codegen_ptr_type(g, ty, &ptr_type))) return X64CABIClass_Unknown;
     if (ptr_type != nullptr)
         return X64CABIClass_INTEGER;
 
-    if (g->zig_target->os == OsWindows || g->zig_target->os == OsUefi) {
-        return type_windows_abi_x86_64_class(g, ty, ty_size);
-    } else if (g->zig_target->arch == ZigLLVM_aarch64 ||
-            g->zig_target->arch == ZigLLVM_aarch64_be)
+    if (g->zig_target->arch == ZigLLVM_aarch64 ||
+        g->zig_target->arch == ZigLLVM_aarch64_be)
     {
         X64CABIClass result = type_system_V_abi_x86_64_class(g, ty, ty_size);
         return (result == X64CABIClass_MEMORY) ? X64CABIClass_MEMORY_nobyval : result;
@@ -8672,14 +8729,23 @@ static Error resolve_llvm_c_abi_type(CodeGen *g, ZigType *ty) {
                 if (ty->data.structure.fields[i]->offset >= 8) {
                     eightbyte_index = 1;
                 }
-                X64CABIClass field_class = type_c_abi_x86_64_class(g, ty->data.structure.fields[i]->type_entry);
+                ZigType *field_ty = ty->data.structure.fields[i]->type_entry;
+                X64CABIClass field_class = type_c_abi_x86_64_class(g, field_ty);
 
                 if (field_class == X64CABIClass_INTEGER) {
                     type_classes[eightbyte_index] = X64CABIClass_INTEGER;
                 } else if (type_classes[eightbyte_index] == X64CABIClass_Unknown) {
                     type_classes[eightbyte_index] = field_class;
                 }
-                type_sizes[eightbyte_index] += ty->data.structure.fields[i]->type_entry->abi_size;
+                if (field_ty->abi_size > 8) {
+                    assert(eightbyte_index == 0);
+                    type_sizes[0] = 8;
+                    type_sizes[1] = field_ty->abi_size - 8;
+                    type_classes[1] = type_classes[0];
+                    eightbyte_index = 1;
+                } else {
+                    type_sizes[eightbyte_index] += field_ty->abi_size;
+                }
             }
 
             LLVMTypeRef return_elem_types[] = {
@@ -8786,6 +8852,8 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
         llvm_struct_abi_align = max(llvm_struct_abi_align, llvm_field_abi_align);
     }
 
+    ZigType* last_packed_field_type = nullptr;
+
     for (size_t i = 0; i < field_count; i += 1) {
         TypeStructField *field = struct_type->data.structure.fields[i];
         ZigType *field_type = field->type_entry;
@@ -8796,6 +8864,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
         }
 
         if (packed) {
+            last_packed_field_type = field_type;
             size_t field_size_in_bits = type_size_bits(g, field_type);
             size_t next_packed_bits_offset = packed_bits_offset + field_size_in_bits;
 
@@ -8864,7 +8933,7 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
 
             assert(next_offset >= llvm_next_offset);
             if (next_offset > llvm_next_offset) {
-                size_t pad_bytes = next_offset - (field->offset + LLVMStoreSizeOfType(g->target_data_ref, llvm_type));
+                size_t pad_bytes = next_offset - (field->offset + LLVMABISizeOfType(g->target_data_ref, llvm_type));
                 if (pad_bytes != 0) {
                     LLVMTypeRef pad_llvm_type = LLVMArrayType(LLVMInt8Type(), pad_bytes);
                     element_types[gen_field_index] = pad_llvm_type;
@@ -8880,8 +8949,15 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
 
     if (first_packed_bits_offset_misalign != SIZE_MAX) {
         size_t full_bit_count = packed_bits_offset - first_packed_bits_offset_misalign;
-        size_t full_abi_size = get_abi_size_bytes(full_bit_count, g->pointer_size_bytes);
-        element_types[gen_field_index] = get_llvm_type_of_n_bytes(full_abi_size);
+        size_t full_abi_size = get_abi_size_bytes(full_bit_count, 1);
+        if (last_packed_field_type->size_in_bits == full_bit_count && last_packed_field_type->id != ZigTypeIdInt && last_packed_field_type->id != ZigTypeIdEnum) {
+            // If there is only one field that is misaligned and it is a custom type just use it
+            element_types[gen_field_index] = get_llvm_type(g, last_packed_field_type);
+            assert(full_abi_size == LLVMStoreSizeOfType(g->target_data_ref, element_types[gen_field_index]));
+        } else {
+            // Otherwise represent it as array of proper number of bytes in LLVM
+            element_types[gen_field_index] = get_llvm_type_of_n_bytes(full_abi_size);
+        }
         gen_field_index += 1;
     }
 
@@ -8968,8 +9044,12 @@ static void resolve_llvm_types_struct(CodeGen *g, ZigType *struct_type, ResolveS
         struct_type->data.structure.llvm_full_type_queue_index = SIZE_MAX;
     }
 
-    if (struct_type->abi_size <= 16 && (struct_type->data.structure.layout == ContainerLayoutExtern || struct_type->data.structure.layout == ContainerLayoutPacked))
+    if (struct_type->abi_size <= 16 &&
+        (struct_type->data.structure.layout == ContainerLayoutExtern ||
+            struct_type->data.structure.layout == ContainerLayoutPacked))
+    {
         resolve_llvm_c_abi_type(g, struct_type);
+    }
 }
 
 // This is to be used instead of void for debug info types, to avoid tripping
@@ -9016,8 +9096,7 @@ static void resolve_llvm_types_enum(CodeGen *g, ZigType *enum_type, ResolveStatu
     for (uint32_t i = 0; i < field_count; i += 1) {
         TypeEnumField *enum_field = &enum_type->data.enumeration.fields[i];
 
-        // TODO send patch to LLVM to support APInt in createEnumerator instead of int64_t
-        // http://lists.llvm.org/pipermail/llvm-dev/2017-December/119456.html
+        // https://github.com/ziglang/zig/issues/645
         di_enumerators[i] = ZigLLVMCreateDebugEnumerator(g->dbuilder, buf_ptr(enum_field->name),
                 bigint_as_signed(&enum_field->value));
     }
@@ -10301,7 +10380,7 @@ void ZigValue::dump() {
 
 // float ops that take a single argument
 //TODO Powi, Pow, minnum, maxnum, maximum, minimum, copysign, lround, llround, lrint, llrint
-const char *float_op_to_name(BuiltinFnId op) {
+const char *float_un_op_to_name(BuiltinFnId op) {
     switch (op) {
     case BuiltinFnIdSqrt:
         return "sqrt";
@@ -10309,6 +10388,8 @@ const char *float_op_to_name(BuiltinFnId op) {
         return "sin";
     case BuiltinFnIdCos:
         return "cos";
+    case BuiltinFnIdTan:
+        return "tan";
     case BuiltinFnIdExp:
         return "exp";
     case BuiltinFnIdExp2:
@@ -10331,6 +10412,8 @@ const char *float_op_to_name(BuiltinFnId op) {
         return "nearbyint";
     case BuiltinFnIdRound:
         return "round";
+    case BuiltinFnIdMulAdd:
+        return "fma";
     default:
         zig_unreachable();
     }

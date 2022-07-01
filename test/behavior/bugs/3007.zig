@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const Foo = struct {
     free: bool,
@@ -18,6 +19,11 @@ fn get_foo() Foo.FooError!*Foo {
 }
 
 test "fixed" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
     default_foo = get_foo() catch null; // This Line
     try std.testing.expect(!default_foo.?.free);
 }

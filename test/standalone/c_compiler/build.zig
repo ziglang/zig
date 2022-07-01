@@ -29,7 +29,7 @@ pub fn build(b: *Builder) void {
     exe_cpp.addCSourceFile("test.cpp", &[0][]const u8{});
     exe_cpp.setBuildMode(mode);
     exe_cpp.setTarget(target);
-    exe_cpp.linkSystemLibrary("c++");
+    exe_cpp.linkLibCpp();
 
     switch (target.getOsTag()) {
         .windows => {

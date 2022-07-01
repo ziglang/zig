@@ -38,6 +38,7 @@ dwarf_debug_info_index: ?u16 = null,
 dwarf_debug_abbrev_index: ?u16 = null,
 dwarf_debug_str_index: ?u16 = null,
 dwarf_debug_line_index: ?u16 = null,
+dwarf_debug_line_str_index: ?u16 = null,
 dwarf_debug_ranges_index: ?u16 = null,
 
 symtab: std.ArrayListUnmanaged(macho.nlist_64) = .{},
@@ -68,6 +69,7 @@ const DebugInfo = struct {
     debug_abbrev: []u8,
     debug_str: []u8,
     debug_line: []u8,
+    debug_line_str: []u8,
     debug_ranges: []u8,
 
     pub fn parseFromObject(allocator: Allocator, object: *const Object) !?DebugInfo {
@@ -87,6 +89,12 @@ const DebugInfo = struct {
             const index = object.dwarf_debug_line_index orelse return null;
             break :blk try object.readSection(allocator, index);
         };
+        var debug_line_str = blk: {
+            if (object.dwarf_debug_line_str_index) |ind| {
+                break :blk try object.readSection(allocator, ind);
+            }
+            break :blk try allocator.alloc(u8, 0);
+        };
         var debug_ranges = blk: {
             if (object.dwarf_debug_ranges_index) |ind| {
                 break :blk try object.readSection(allocator, ind);
@@ -100,6 +108,7 @@ const DebugInfo = struct {
             .debug_abbrev = debug_abbrev,
             .debug_str = debug_str,
             .debug_line = debug_line,
+            .debug_line_str = debug_line_str,
             .debug_ranges = debug_ranges,
         };
         try dwarf.openDwarfDebugInfo(&inner, allocator);
@@ -110,6 +119,7 @@ const DebugInfo = struct {
             .debug_abbrev = debug_abbrev,
             .debug_str = debug_str,
             .debug_line = debug_line,
+            .debug_line_str = debug_line_str,
             .debug_ranges = debug_ranges,
         };
     }
@@ -119,10 +129,9 @@ const DebugInfo = struct {
         allocator.free(self.debug_abbrev);
         allocator.free(self.debug_str);
         allocator.free(self.debug_line);
+        allocator.free(self.debug_line_str);
         allocator.free(self.debug_ranges);
-        self.inner.abbrev_table_list.deinit();
-        self.inner.compile_unit_list.deinit();
-        self.inner.func_list.deinit();
+        self.inner.deinit(allocator);
     }
 };
 
@@ -285,6 +294,8 @@ pub fn readLoadCommands(self: *Object, allocator: Allocator, reader: anytype) !v
                             self.dwarf_debug_str_index = index;
                         } else if (mem.eql(u8, sectname, "__debug_line")) {
                             self.dwarf_debug_line_index = index;
+                        } else if (mem.eql(u8, sectname, "__debug_line_str")) {
+                            self.dwarf_debug_line_str_index = index;
                         } else if (mem.eql(u8, sectname, "__debug_ranges")) {
                             self.dwarf_debug_ranges_index = index;
                         }
@@ -479,7 +490,8 @@ pub fn parseIntoAtoms(self: *Object, allocator: Allocator, macho_file: *MachO) !
             mem.copy(u8, atom.code.items, code);
         }
 
-        try atom.parseRelocs(relocs, .{
+        // TODO stage2 bug: @alignCast shouldn't be needed
+        try atom.parseRelocs(@alignCast(@alignOf(macho.relocation_info), relocs), .{
             .base_addr = sect.addr,
             .allocator = allocator,
             .object = self,
@@ -492,7 +504,7 @@ pub fn parseIntoAtoms(self: *Object, allocator: Allocator, macho_file: *MachO) !
 
             for (dices) |dice| {
                 atom.dices.appendAssumeCapacity(.{
-                    .offset = dice.offset - try math.cast(u32, sect.addr),
+                    .offset = dice.offset - (math.cast(u32, sect.addr) orelse return error.Overflow),
                     .length = dice.length,
                     .kind = dice.kind,
                 });
@@ -612,7 +624,6 @@ pub fn parseDataInCode(self: *Object, allocator: Allocator) !void {
     while (true) {
         const dice = reader.readStruct(macho.data_in_code_entry) catch |err| switch (err) {
             error.EndOfStream => break,
-            else => |e| return e,
         };
         try self.data_in_code_entries.append(allocator, dice);
     }

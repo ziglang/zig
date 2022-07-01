@@ -12,7 +12,6 @@ const log = std.log.scoped(.liveness);
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Air = @import("Air.zig");
-const Zir = @import("Zir.zig");
 const Log2Int = std.math.Log2Int;
 
 /// This array is split into sets of 4 bits per AIR instruction.
@@ -26,7 +25,7 @@ tomb_bits: []usize,
 /// array. The meaning of the data depends on the AIR tag.
 ///  * `cond_br` - points to a `CondBr` in `extra` at this index.
 ///  * `switch_br` - points to a `SwitchBr` in `extra` at this index.
-///  * `asm`, `call`, `vector_init` - the value is a set of bits which are the extra tomb
+///  * `asm`, `call`, `aggregate_init` - the value is a set of bits which are the extra tomb
 ///    bits of operands.
 ///    The main tomb bits are still used and the extra ones are starting with the lsb of the
 ///    value here.
@@ -52,7 +51,7 @@ pub const SwitchBr = struct {
     else_death_count: u32,
 };
 
-pub fn analyze(gpa: Allocator, air: Air, zir: Zir) Allocator.Error!Liveness {
+pub fn analyze(gpa: Allocator, air: Air) Allocator.Error!Liveness {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -66,7 +65,6 @@ pub fn analyze(gpa: Allocator, air: Air, zir: Zir) Allocator.Error!Liveness {
         ),
         .extra = .{},
         .special = .{},
-        .zir = &zir,
     };
     errdefer gpa.free(a.tomb_bits);
     errdefer a.special.deinit(gpa);
@@ -114,6 +112,409 @@ pub fn clearOperandDeath(l: Liveness, inst: Air.Inst.Index, operand: OperandInt)
     l.tomb_bits[usize_index] &= ~mask;
 }
 
+const OperandCategory = enum {
+    /// The operand lives on, but this instruction cannot possibly mutate memory.
+    none,
+    /// The operand lives on and this instruction can mutate memory.
+    write,
+    /// The operand dies at this instruction.
+    tomb,
+    /// The operand lives on, and this instruction is noreturn.
+    noret,
+    /// This instruction is too complicated for analysis, no information is available.
+    complex,
+};
+
+/// Given an instruction that we are examining, and an operand that we are looking for,
+/// returns a classification.
+pub fn categorizeOperand(
+    l: Liveness,
+    air: Air,
+    inst: Air.Inst.Index,
+    operand: Air.Inst.Index,
+) OperandCategory {
+    const air_tags = air.instructions.items(.tag);
+    const air_datas = air.instructions.items(.data);
+    const operand_ref = Air.indexToRef(operand);
+    switch (air_tags[inst]) {
+        .add,
+        .addwrap,
+        .add_sat,
+        .sub,
+        .subwrap,
+        .sub_sat,
+        .mul,
+        .mulwrap,
+        .mul_sat,
+        .div_float,
+        .div_trunc,
+        .div_floor,
+        .div_exact,
+        .rem,
+        .mod,
+        .bit_and,
+        .bit_or,
+        .xor,
+        .cmp_lt,
+        .cmp_lte,
+        .cmp_eq,
+        .cmp_gte,
+        .cmp_gt,
+        .cmp_neq,
+        .bool_and,
+        .bool_or,
+        .array_elem_val,
+        .slice_elem_val,
+        .ptr_elem_val,
+        .shl,
+        .shl_exact,
+        .shl_sat,
+        .shr,
+        .shr_exact,
+        .min,
+        .max,
+        => {
+            const o = air_datas[inst].bin_op;
+            if (o.lhs == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
+            if (o.rhs == operand_ref) return matchOperandSmallIndex(l, inst, 1, .none);
+            return .none;
+        },
+
+        .store,
+        .atomic_store_unordered,
+        .atomic_store_monotonic,
+        .atomic_store_release,
+        .atomic_store_seq_cst,
+        .set_union_tag,
+        => {
+            const o = air_datas[inst].bin_op;
+            if (o.lhs == operand_ref) return matchOperandSmallIndex(l, inst, 0, .write);
+            if (o.rhs == operand_ref) return matchOperandSmallIndex(l, inst, 1, .write);
+            return .write;
+        },
+
+        .arg,
+        .alloc,
+        .ret_ptr,
+        .constant,
+        .const_ty,
+        .breakpoint,
+        .dbg_stmt,
+        .dbg_inline_begin,
+        .dbg_inline_end,
+        .dbg_block_begin,
+        .dbg_block_end,
+        .unreach,
+        .ret_addr,
+        .frame_addr,
+        .wasm_memory_size,
+        .err_return_trace,
+        => return .none,
+
+        .fence => return .write,
+
+        .not,
+        .bitcast,
+        .load,
+        .fpext,
+        .fptrunc,
+        .intcast,
+        .trunc,
+        .optional_payload,
+        .optional_payload_ptr,
+        .wrap_optional,
+        .unwrap_errunion_payload,
+        .unwrap_errunion_err,
+        .unwrap_errunion_payload_ptr,
+        .unwrap_errunion_err_ptr,
+        .wrap_errunion_payload,
+        .wrap_errunion_err,
+        .slice_ptr,
+        .slice_len,
+        .ptr_slice_len_ptr,
+        .ptr_slice_ptr_ptr,
+        .struct_field_ptr_index_0,
+        .struct_field_ptr_index_1,
+        .struct_field_ptr_index_2,
+        .struct_field_ptr_index_3,
+        .array_to_slice,
+        .float_to_int,
+        .int_to_float,
+        .get_union_tag,
+        .clz,
+        .ctz,
+        .popcount,
+        .byte_swap,
+        .bit_reverse,
+        .splat,
+        => {
+            const o = air_datas[inst].ty_op;
+            if (o.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
+            return .none;
+        },
+
+        .optional_payload_ptr_set,
+        .errunion_payload_ptr_set,
+        => {
+            const o = air_datas[inst].ty_op;
+            if (o.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .write);
+            return .write;
+        },
+
+        .is_null,
+        .is_non_null,
+        .is_null_ptr,
+        .is_non_null_ptr,
+        .is_err,
+        .is_non_err,
+        .is_err_ptr,
+        .is_non_err_ptr,
+        .ptrtoint,
+        .bool_to_int,
+        .tag_name,
+        .error_name,
+        .sqrt,
+        .sin,
+        .cos,
+        .tan,
+        .exp,
+        .exp2,
+        .log,
+        .log2,
+        .log10,
+        .fabs,
+        .floor,
+        .ceil,
+        .round,
+        .trunc_float,
+        .neg,
+        .cmp_lt_errors_len,
+        => {
+            const o = air_datas[inst].un_op;
+            if (o == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
+            return .none;
+        },
+
+        .ret,
+        .ret_load,
+        => {
+            const o = air_datas[inst].un_op;
+            if (o == operand_ref) return matchOperandSmallIndex(l, inst, 0, .noret);
+            return .noret;
+        },
+
+        .set_err_return_trace => {
+            const o = air_datas[inst].un_op;
+            if (o == operand_ref) return matchOperandSmallIndex(l, inst, 0, .write);
+            return .write;
+        },
+
+        .add_with_overflow,
+        .sub_with_overflow,
+        .mul_with_overflow,
+        .shl_with_overflow,
+        .ptr_add,
+        .ptr_sub,
+        .ptr_elem_ptr,
+        .slice_elem_ptr,
+        .slice,
+        => {
+            const ty_pl = air_datas[inst].ty_pl;
+            const extra = air.extraData(Air.Bin, ty_pl.payload).data;
+            if (extra.lhs == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
+            if (extra.rhs == operand_ref) return matchOperandSmallIndex(l, inst, 1, .none);
+            return .none;
+        },
+
+        .dbg_var_ptr,
+        .dbg_var_val,
+        => {
+            const o = air_datas[inst].pl_op.operand;
+            if (o == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
+            return .none;
+        },
+
+        .prefetch => {
+            const prefetch = air_datas[inst].prefetch;
+            if (prefetch.ptr == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
+            return .none;
+        },
+
+        .call, .call_always_tail, .call_never_tail, .call_never_inline => {
+            const inst_data = air_datas[inst].pl_op;
+            const callee = inst_data.operand;
+            const extra = air.extraData(Air.Call, inst_data.payload);
+            const args = @ptrCast([]const Air.Inst.Ref, air.extra[extra.end..][0..extra.data.args_len]);
+            if (args.len + 1 <= bpi - 1) {
+                if (callee == operand_ref) return matchOperandSmallIndex(l, inst, 0, .write);
+                for (args) |arg, i| {
+                    if (arg == operand_ref) return matchOperandSmallIndex(l, inst, @intCast(OperandInt, i + 1), .write);
+                }
+                return .write;
+            }
+            var bt = l.iterateBigTomb(inst);
+            if (bt.feed()) {
+                if (callee == operand_ref) return .tomb;
+            } else {
+                if (callee == operand_ref) return .write;
+            }
+            for (args) |arg| {
+                if (bt.feed()) {
+                    if (arg == operand_ref) return .tomb;
+                } else {
+                    if (arg == operand_ref) return .write;
+                }
+            }
+            return .write;
+        },
+        .select => {
+            const pl_op = air_datas[inst].pl_op;
+            const extra = air.extraData(Air.Bin, pl_op.payload).data;
+            if (pl_op.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
+            if (extra.lhs == operand_ref) return matchOperandSmallIndex(l, inst, 1, .none);
+            if (extra.rhs == operand_ref) return matchOperandSmallIndex(l, inst, 2, .none);
+            return .none;
+        },
+        .shuffle => {
+            const extra = air.extraData(Air.Shuffle, air_datas[inst].ty_pl.payload).data;
+            if (extra.a == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
+            if (extra.b == operand_ref) return matchOperandSmallIndex(l, inst, 1, .none);
+            return .none;
+        },
+        .reduce => {
+            const reduce = air_datas[inst].reduce;
+            if (reduce.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
+            return .none;
+        },
+        .cmp_vector => {
+            const extra = air.extraData(Air.VectorCmp, air_datas[inst].ty_pl.payload).data;
+            if (extra.lhs == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
+            if (extra.rhs == operand_ref) return matchOperandSmallIndex(l, inst, 1, .none);
+            return .none;
+        },
+        .aggregate_init => {
+            const ty_pl = air_datas[inst].ty_pl;
+            const aggregate_ty = air.getRefType(ty_pl.ty);
+            const len = @intCast(usize, aggregate_ty.arrayLen());
+            const elements = @ptrCast([]const Air.Inst.Ref, air.extra[ty_pl.payload..][0..len]);
+
+            if (elements.len <= bpi - 1) {
+                for (elements) |elem, i| {
+                    if (elem == operand_ref) return matchOperandSmallIndex(l, inst, @intCast(OperandInt, i), .none);
+                }
+                return .none;
+            }
+
+            var bt = l.iterateBigTomb(inst);
+            for (elements) |elem| {
+                if (bt.feed()) {
+                    if (elem == operand_ref) return .tomb;
+                } else {
+                    if (elem == operand_ref) return .write;
+                }
+            }
+            return .write;
+        },
+        .union_init => {
+            const extra = air.extraData(Air.UnionInit, air_datas[inst].ty_pl.payload).data;
+            if (extra.init == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
+            return .none;
+        },
+        .struct_field_ptr, .struct_field_val => {
+            const extra = air.extraData(Air.StructField, air_datas[inst].ty_pl.payload).data;
+            if (extra.struct_operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
+            return .none;
+        },
+        .field_parent_ptr => {
+            const extra = air.extraData(Air.FieldParentPtr, air_datas[inst].ty_pl.payload).data;
+            if (extra.field_ptr == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
+            return .none;
+        },
+        .cmpxchg_strong, .cmpxchg_weak => {
+            const extra = air.extraData(Air.Cmpxchg, air_datas[inst].ty_pl.payload).data;
+            if (extra.ptr == operand_ref) return matchOperandSmallIndex(l, inst, 0, .write);
+            if (extra.expected_value == operand_ref) return matchOperandSmallIndex(l, inst, 1, .write);
+            if (extra.new_value == operand_ref) return matchOperandSmallIndex(l, inst, 2, .write);
+            return .write;
+        },
+        .mul_add => {
+            const pl_op = air_datas[inst].pl_op;
+            const extra = air.extraData(Air.Bin, pl_op.payload).data;
+            if (extra.lhs == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
+            if (extra.rhs == operand_ref) return matchOperandSmallIndex(l, inst, 1, .none);
+            if (pl_op.operand == operand_ref) return matchOperandSmallIndex(l, inst, 2, .none);
+            return .none;
+        },
+        .atomic_load => {
+            const ptr = air_datas[inst].atomic_load.ptr;
+            if (ptr == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
+            return .none;
+        },
+        .atomic_rmw => {
+            const pl_op = air_datas[inst].pl_op;
+            const extra = air.extraData(Air.AtomicRmw, pl_op.payload).data;
+            if (pl_op.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .write);
+            if (extra.operand == operand_ref) return matchOperandSmallIndex(l, inst, 1, .write);
+            return .write;
+        },
+        .memset,
+        .memcpy,
+        => {
+            const pl_op = air_datas[inst].pl_op;
+            const extra = air.extraData(Air.Bin, pl_op.payload).data;
+            if (pl_op.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .write);
+            if (extra.lhs == operand_ref) return matchOperandSmallIndex(l, inst, 1, .write);
+            if (extra.rhs == operand_ref) return matchOperandSmallIndex(l, inst, 2, .write);
+            return .write;
+        },
+
+        .br => {
+            const br = air_datas[inst].br;
+            if (br.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .noret);
+            return .noret;
+        },
+        .assembly => {
+            return .complex;
+        },
+        .block => {
+            return .complex;
+        },
+        .@"try" => {
+            return .complex;
+        },
+        .try_ptr => {
+            return .complex;
+        },
+        .loop => {
+            return .complex;
+        },
+        .cond_br => {
+            return .complex;
+        },
+        .switch_br => {
+            return .complex;
+        },
+        .wasm_memory_grow => {
+            const pl_op = air_datas[inst].pl_op;
+            if (pl_op.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
+            return .none;
+        },
+    }
+}
+
+fn matchOperandSmallIndex(
+    l: Liveness,
+    inst: Air.Inst.Index,
+    operand: OperandInt,
+    default: OperandCategory,
+) OperandCategory {
+    if (operandDies(l, inst, operand)) {
+        return .tomb;
+    } else {
+        return default;
+    }
+}
+
 /// Higher level API.
 pub const CondBrSlices = struct {
     then_deaths: []const Air.Inst.Index,
@@ -137,6 +538,42 @@ pub fn getCondBr(l: Liveness, inst: Air.Inst.Index) CondBrSlices {
     };
 }
 
+/// Indexed by case number as they appear in AIR.
+/// Else is the last element.
+pub const SwitchBrTable = struct {
+    deaths: []const []const Air.Inst.Index,
+};
+
+/// Caller owns the memory.
+pub fn getSwitchBr(l: Liveness, gpa: Allocator, inst: Air.Inst.Index, cases_len: u32) Allocator.Error!SwitchBrTable {
+    var index: usize = l.special.get(inst) orelse return SwitchBrTable{
+        .deaths = &.{},
+    };
+    const else_death_count = l.extra[index];
+    index += 1;
+
+    var deaths = std.ArrayList([]const Air.Inst.Index).init(gpa);
+    defer deaths.deinit();
+    try deaths.ensureTotalCapacity(cases_len + 1);
+
+    var case_i: u32 = 0;
+    while (case_i < cases_len - 1) : (case_i += 1) {
+        const case_death_count: u32 = l.extra[index];
+        index += 1;
+        const case_deaths = l.extra[index..][0..case_death_count];
+        index += case_death_count;
+        deaths.appendAssumeCapacity(case_deaths);
+    }
+    {
+        // Else
+        const else_deaths = l.extra[index..][0..else_death_count];
+        deaths.appendAssumeCapacity(else_deaths);
+    }
+    return SwitchBrTable{
+        .deaths = deaths.toOwnedSlice(),
+    };
+}
+
 pub fn deinit(l: *Liveness, gpa: Allocator) void {
     gpa.free(l.tomb_bits);
     gpa.free(l.extra);
@@ -144,10 +581,49 @@ pub fn deinit(l: *Liveness, gpa: Allocator) void {
     l.* = undefined;
 }
 
+pub fn iterateBigTomb(l: Liveness, inst: Air.Inst.Index) BigTomb {
+    return .{
+        .tomb_bits = l.getTombBits(inst),
+        .extra_start = l.special.get(inst) orelse 0,
+        .extra_offset = 0,
+        .extra = l.extra,
+        .bit_index = 0,
+    };
+}
+
 /// How many tomb bits per AIR instruction.
 pub const bpi = 4;
 pub const Bpi = std.meta.Int(.unsigned, bpi);
 pub const OperandInt = std.math.Log2Int(Bpi);
+
+/// Useful for decoders of Liveness information.
+pub const BigTomb = struct {
+    tomb_bits: Liveness.Bpi,
+    bit_index: u32,
+    extra_start: u32,
+    extra_offset: u32,
+    extra: []const u32,
+
+    /// Returns whether the next operand dies.
+    pub fn feed(bt: *BigTomb) bool {
+        const this_bit_index = bt.bit_index;
+        bt.bit_index += 1;
+
+        const small_tombs = Liveness.bpi - 1;
+        if (this_bit_index < small_tombs) {
+            const dies = @truncate(u1, bt.tomb_bits >> @intCast(Liveness.OperandInt, this_bit_index)) != 0;
+            return dies;
+        }
+
+        const big_bit_index = this_bit_index - small_tombs;
+        while (big_bit_index - bt.extra_offset * 31 >= 31) {
+            bt.extra_offset += 1;
+        }
+        const dies = @truncate(u1, bt.extra[bt.extra_start + bt.extra_offset] >>
+            @intCast(u5, big_bit_index - bt.extra_offset * 31)) != 0;
+        return dies;
+    }
+};
 
 /// In-progress data; on successful analysis converted into `Liveness`.
 const Analysis = struct {
@@ -157,7 +633,6 @@ const Analysis = struct {
     tomb_bits: []usize,
     special: std.AutoHashMapUnmanaged(Air.Inst.Index, u32),
     extra: std.ArrayListUnmanaged(u32),
-    zir: *const Zir,
 
     fn storeTombBits(a: *Analysis, inst: Air.Inst.Index, tomb_bits: Bpi) void {
         const usize_index = (inst * bpi) / @bitSizeOf(usize);
@@ -240,8 +715,6 @@ fn analyzeInst(
         .div_exact,
         .rem,
         .mod,
-        .ptr_add,
-        .ptr_sub,
         .bit_and,
         .bit_or,
         .xor,
@@ -281,9 +754,16 @@ fn analyzeInst(
         .const_ty,
         .breakpoint,
         .dbg_stmt,
+        .dbg_inline_begin,
+        .dbg_inline_end,
+        .dbg_block_begin,
+        .dbg_block_end,
         .unreach,
         .fence,
         .ret_addr,
+        .frame_addr,
+        .wasm_memory_size,
+        .err_return_trace,
         => return trackOperands(a, new_set, inst, main_tomb, .{ .none, .none, .none }),
 
         .not,
@@ -296,6 +776,7 @@ fn analyzeInst(
         .optional_payload,
         .optional_payload_ptr,
         .optional_payload_ptr_set,
+        .errunion_payload_ptr_set,
         .wrap_optional,
         .unwrap_errunion_payload,
         .unwrap_errunion_err,
@@ -318,6 +799,8 @@ fn analyzeInst(
         .clz,
         .ctz,
         .popcount,
+        .byte_swap,
+        .bit_reverse,
         .splat,
         => {
             const o = inst_datas[inst].ty_op;
@@ -338,8 +821,47 @@ fn analyzeInst(
         .ret_load,
         .tag_name,
         .error_name,
+        .sqrt,
+        .sin,
+        .cos,
+        .tan,
+        .exp,
+        .exp2,
+        .log,
+        .log2,
+        .log10,
+        .fabs,
+        .floor,
+        .ceil,
+        .round,
+        .trunc_float,
+        .neg,
+        .cmp_lt_errors_len,
+        .set_err_return_trace,
         => {
             const operand = inst_datas[inst].un_op;
+            return trackOperands(a, new_set, inst, main_tomb, .{ operand, .none, .none });
+        },
+
+        .add_with_overflow,
+        .sub_with_overflow,
+        .mul_with_overflow,
+        .shl_with_overflow,
+        .ptr_add,
+        .ptr_sub,
+        .ptr_elem_ptr,
+        .slice_elem_ptr,
+        .slice,
+        => {
+            const ty_pl = inst_datas[inst].ty_pl;
+            const extra = a.air.extraData(Air.Bin, ty_pl.payload).data;
+            return trackOperands(a, new_set, inst, main_tomb, .{ extra.lhs, extra.rhs, .none });
+        },
+
+        .dbg_var_ptr,
+        .dbg_var_val,
+        => {
+            const operand = inst_datas[inst].pl_op.operand;
             return trackOperands(a, new_set, inst, main_tomb, .{ operand, .none, .none });
         },
 
@@ -348,11 +870,11 @@ fn analyzeInst(
             return trackOperands(a, new_set, inst, main_tomb, .{ prefetch.ptr, .none, .none });
         },
 
-        .call => {
+        .call, .call_always_tail, .call_never_tail, .call_never_inline => {
             const inst_data = inst_datas[inst].pl_op;
             const callee = inst_data.operand;
             const extra = a.air.extraData(Air.Call, inst_data.payload);
-            const args = @bitCast([]const Air.Inst.Ref, a.air.extra[extra.end..][0..extra.data.args_len]);
+            const args = @ptrCast([]const Air.Inst.Ref, a.air.extra[extra.end..][0..extra.data.args_len]);
             if (args.len + 1 <= bpi - 1) {
                 var buf = [1]Air.Inst.Ref{.none} ** (bpi - 1);
                 buf[0] = callee;
@@ -365,17 +887,35 @@ fn analyzeInst(
                 .inst = inst,
                 .main_tomb = main_tomb,
             };
+            defer extra_tombs.deinit();
             try extra_tombs.feed(callee);
             for (args) |arg| {
                 try extra_tombs.feed(arg);
             }
             return extra_tombs.finish();
         },
-        .vector_init => {
+        .select => {
+            const pl_op = inst_datas[inst].pl_op;
+            const extra = a.air.extraData(Air.Bin, pl_op.payload).data;
+            return trackOperands(a, new_set, inst, main_tomb, .{ pl_op.operand, extra.lhs, extra.rhs });
+        },
+        .shuffle => {
+            const extra = a.air.extraData(Air.Shuffle, inst_datas[inst].ty_pl.payload).data;
+            return trackOperands(a, new_set, inst, main_tomb, .{ extra.a, extra.b, .none });
+        },
+        .reduce => {
+            const reduce = inst_datas[inst].reduce;
+            return trackOperands(a, new_set, inst, main_tomb, .{ reduce.operand, .none, .none });
+        },
+        .cmp_vector => {
+            const extra = a.air.extraData(Air.VectorCmp, inst_datas[inst].ty_pl.payload).data;
+            return trackOperands(a, new_set, inst, main_tomb, .{ extra.lhs, extra.rhs, .none });
+        },
+        .aggregate_init => {
             const ty_pl = inst_datas[inst].ty_pl;
-            const vector_ty = a.air.getRefType(ty_pl.ty);
-            const len = @intCast(usize, vector_ty.arrayLen());
-            const elements = @bitCast([]const Air.Inst.Ref, a.air.extra[ty_pl.payload..][0..len]);
+            const aggregate_ty = a.air.getRefType(ty_pl.ty);
+            const len = @intCast(usize, aggregate_ty.arrayLen());
+            const elements = @ptrCast([]const Air.Inst.Ref, a.air.extra[ty_pl.payload..][0..len]);
 
             if (elements.len <= bpi - 1) {
                 var buf = [1]Air.Inst.Ref{.none} ** (bpi - 1);
@@ -388,22 +928,32 @@ fn analyzeInst(
                 .inst = inst,
                 .main_tomb = main_tomb,
             };
+            defer extra_tombs.deinit();
             for (elements) |elem| {
                 try extra_tombs.feed(elem);
             }
             return extra_tombs.finish();
         },
+        .union_init => {
+            const extra = a.air.extraData(Air.UnionInit, inst_datas[inst].ty_pl.payload).data;
+            return trackOperands(a, new_set, inst, main_tomb, .{ extra.init, .none, .none });
+        },
         .struct_field_ptr, .struct_field_val => {
             const extra = a.air.extraData(Air.StructField, inst_datas[inst].ty_pl.payload).data;
             return trackOperands(a, new_set, inst, main_tomb, .{ extra.struct_operand, .none, .none });
         },
-        .ptr_elem_ptr, .slice_elem_ptr, .slice => {
-            const extra = a.air.extraData(Air.Bin, inst_datas[inst].ty_pl.payload).data;
-            return trackOperands(a, new_set, inst, main_tomb, .{ extra.lhs, extra.rhs, .none });
+        .field_parent_ptr => {
+            const extra = a.air.extraData(Air.FieldParentPtr, inst_datas[inst].ty_pl.payload).data;
+            return trackOperands(a, new_set, inst, main_tomb, .{ extra.field_ptr, .none, .none });
         },
         .cmpxchg_strong, .cmpxchg_weak => {
             const extra = a.air.extraData(Air.Cmpxchg, inst_datas[inst].ty_pl.payload).data;
             return trackOperands(a, new_set, inst, main_tomb, .{ extra.ptr, extra.expected_value, extra.new_value });
+        },
+        .mul_add => {
+            const pl_op = inst_datas[inst].pl_op;
+            const extra = a.air.extraData(Air.Bin, pl_op.payload).data;
+            return trackOperands(a, new_set, inst, main_tomb, .{ extra.lhs, extra.rhs, pl_op.operand });
         },
         .atomic_load => {
             const ptr = inst_datas[inst].atomic_load.ptr;
@@ -416,30 +966,36 @@ fn analyzeInst(
         },
         .memset,
         .memcpy,
-        .add_with_overflow,
-        .sub_with_overflow,
-        .mul_with_overflow,
-        .shl_with_overflow,
         => {
             const pl_op = inst_datas[inst].pl_op;
             const extra = a.air.extraData(Air.Bin, pl_op.payload).data;
             return trackOperands(a, new_set, inst, main_tomb, .{ pl_op.operand, extra.lhs, extra.rhs });
         },
+
         .br => {
             const br = inst_datas[inst].br;
             return trackOperands(a, new_set, inst, main_tomb, .{ br.operand, .none, .none });
         },
         .assembly => {
             const extra = a.air.extraData(Air.Asm, inst_datas[inst].ty_pl.payload);
-            const extended = a.zir.instructions.items(.data)[extra.data.zir_index].extended;
-            const outputs_len = @truncate(u5, extended.small);
-            const inputs_len = @truncate(u5, extended.small >> 5);
-            const outputs = @bitCast([]const Air.Inst.Ref, a.air.extra[extra.end..][0..outputs_len]);
-            const args = @bitCast([]const Air.Inst.Ref, a.air.extra[extra.end + outputs.len ..][0..inputs_len]);
-            if (outputs.len + args.len <= bpi - 1) {
+            var extra_i: usize = extra.end;
+            const outputs = @ptrCast([]const Air.Inst.Ref, a.air.extra[extra_i..][0..extra.data.outputs_len]);
+            extra_i += outputs.len;
+            const inputs = @ptrCast([]const Air.Inst.Ref, a.air.extra[extra_i..][0..extra.data.inputs_len]);
+            extra_i += inputs.len;
+
+            simple: {
                 var buf = [1]Air.Inst.Ref{.none} ** (bpi - 1);
-                std.mem.copy(Air.Inst.Ref, &buf, outputs);
-                std.mem.copy(Air.Inst.Ref, buf[outputs.len..], args);
+                var buf_index: usize = 0;
+                for (outputs) |output| {
+                    if (output != .none) {
+                        if (buf_index >= buf.len) break :simple;
+                        buf[buf_index] = output;
+                        buf_index += 1;
+                    }
+                }
+                if (buf_index + inputs.len > buf.len) break :simple;
+                std.mem.copy(Air.Inst.Ref, buf[buf_index..], inputs);
                 return trackOperands(a, new_set, inst, main_tomb, buf);
             }
             var extra_tombs: ExtraTombs = .{
@@ -448,11 +1004,14 @@ fn analyzeInst(
                 .inst = inst,
                 .main_tomb = main_tomb,
             };
+            defer extra_tombs.deinit();
             for (outputs) |output| {
-                try extra_tombs.feed(output);
+                if (output != .none) {
+                    try extra_tombs.feed(output);
+                }
             }
-            for (args) |arg| {
-                try extra_tombs.feed(arg);
+            for (inputs) |input| {
+                try extra_tombs.feed(input);
             }
             return extra_tombs.finish();
         },
@@ -467,6 +1026,19 @@ fn analyzeInst(
             const body = a.air.extra[extra.end..][0..extra.data.body_len];
             try analyzeWithContext(a, new_set, body);
             return; // Loop has no operands and it is always unreferenced.
+        },
+        .@"try" => {
+            const pl_op = inst_datas[inst].pl_op;
+            const extra = a.air.extraData(Air.Try, pl_op.payload);
+            const body = a.air.extra[extra.end..][0..extra.data.body_len];
+            try analyzeWithContext(a, new_set, body);
+            return trackOperands(a, new_set, inst, main_tomb, .{ pl_op.operand, .none, .none });
+        },
+        .try_ptr => {
+            const extra = a.air.extraData(Air.TryPtr, inst_datas[inst].ty_pl.payload);
+            const body = a.air.extra[extra.end..][0..extra.data.body_len];
+            try analyzeWithContext(a, new_set, body);
+            return trackOperands(a, new_set, inst, main_tomb, .{ extra.data.ptr, .none, .none });
         },
         .cond_br => {
             // Each death that occurs inside one branch, but not the other, needs
@@ -637,6 +1209,10 @@ fn analyzeInst(
 
             return trackOperands(a, new_set, inst, main_tomb, .{ condition, .none, .none });
         },
+        .wasm_memory_grow => {
+            const pl_op = inst_datas[inst].pl_op;
+            return trackOperands(a, new_set, inst, main_tomb, .{ pl_op.operand, .none, .none });
+        },
     }
 }
 
@@ -677,31 +1253,48 @@ const ExtraTombs = struct {
     bit_index: usize = 0,
     tomb_bits: Bpi = 0,
     big_tomb_bits: u32 = 0,
+    big_tomb_bits_extra: std.ArrayListUnmanaged(u32) = .{},
 
     fn feed(et: *ExtraTombs, op_ref: Air.Inst.Ref) !void {
         const this_bit_index = et.bit_index;
-        assert(this_bit_index < 32); // TODO mechanism for when there are greater than 32 operands
         et.bit_index += 1;
         const gpa = et.analysis.gpa;
-        const op_int = @enumToInt(op_ref);
-        if (op_int < Air.Inst.Ref.typed_value_map.len) return;
-        const op_index: Air.Inst.Index = op_int - @intCast(u32, Air.Inst.Ref.typed_value_map.len);
+        const op_index = Air.refToIndex(op_ref) orelse return;
         const prev = try et.analysis.table.fetchPut(gpa, op_index, {});
         if (prev == null) {
             // Death.
             if (et.new_set) |ns| try ns.putNoClobber(gpa, op_index, {});
-            if (this_bit_index < bpi - 1) {
+            const available_tomb_bits = bpi - 1;
+            if (this_bit_index < available_tomb_bits) {
                 et.tomb_bits |= @as(Bpi, 1) << @intCast(OperandInt, this_bit_index);
             } else {
-                const big_bit_index = this_bit_index - (bpi - 1);
-                et.big_tomb_bits |= @as(u32, 1) << @intCast(u5, big_bit_index);
+                const big_bit_index = this_bit_index - available_tomb_bits;
+                while (big_bit_index >= (et.big_tomb_bits_extra.items.len + 1) * 31) {
+                    // We need another element in the extra array.
+                    try et.big_tomb_bits_extra.append(gpa, et.big_tomb_bits);
+                    et.big_tomb_bits = 0;
+                } else {
+                    const final_bit_index = big_bit_index - et.big_tomb_bits_extra.items.len * 31;
+                    et.big_tomb_bits |= @as(u32, 1) << @intCast(u5, final_bit_index);
+                }
             }
         }
     }
 
     fn finish(et: *ExtraTombs) !void {
         et.tomb_bits |= @as(Bpi, @boolToInt(et.main_tomb)) << (bpi - 1);
+        // Signal the terminal big_tomb_bits element.
+        et.big_tomb_bits |= @as(u32, 1) << 31;
+
         et.analysis.storeTombBits(et.inst, et.tomb_bits);
-        try et.analysis.special.put(et.analysis.gpa, et.inst, et.big_tomb_bits);
+        const extra_index = @intCast(u32, et.analysis.extra.items.len);
+        try et.analysis.extra.ensureUnusedCapacity(et.analysis.gpa, et.big_tomb_bits_extra.items.len + 1);
+        try et.analysis.special.put(et.analysis.gpa, et.inst, extra_index);
+        et.analysis.extra.appendSliceAssumeCapacity(et.big_tomb_bits_extra.items);
+        et.analysis.extra.appendAssumeCapacity(et.big_tomb_bits);
+    }
+
+    fn deinit(et: *ExtraTombs) void {
+        et.big_tomb_bits_extra.deinit(et.analysis.gpa);
     }
 };

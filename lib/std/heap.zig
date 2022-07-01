@@ -282,7 +282,7 @@ const PageAllocator = struct {
                 return @ptrCast([*]u8, addr)[0..alignPageAllocLen(aligned_len, n, len_align)];
             }
 
-            // If it wasn't, actually do an explicitely aligned allocation.
+            // If it wasn't, actually do an explicitly aligned allocation.
             w.VirtualFree(addr, 0, w.MEM_RELEASE);
             const alloc_size = n + alignment - mem.page_size;
 
@@ -345,7 +345,7 @@ const PageAllocator = struct {
         // Unmap extra pages
         const aligned_buffer_len = alloc_len - drop_len;
         if (aligned_buffer_len > aligned_len) {
-            os.munmap(result_ptr[aligned_len..aligned_buffer_len]);
+            os.munmap(@alignCast(mem.page_size, result_ptr[aligned_len..aligned_buffer_len]));
         }
 
         const new_hint = @alignCast(mem.page_size, result_ptr + aligned_len);
@@ -1181,7 +1181,7 @@ pub fn testAllocatorLargeAlignment(base_allocator: mem.Allocator) !void {
     //  very near usize?
     if (mem.page_size << 2 > maxInt(usize)) return;
 
-    const USizeShift = std.meta.Int(.unsigned, std.math.log2(std.meta.bitCount(usize)));
+    const USizeShift = std.meta.Int(.unsigned, std.math.log2(@bitSizeOf(usize)));
     const large_align = @as(u29, mem.page_size << 2);
 
     var align_mask: usize = undefined;
@@ -1210,7 +1210,8 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
     const allocator = validationAllocator.allocator();
 
     var debug_buffer: [1000]u8 = undefined;
-    const debug_allocator = FixedBufferAllocator.init(&debug_buffer).allocator();
+    var fib = FixedBufferAllocator.init(&debug_buffer);
+    const debug_allocator = fib.allocator();
 
     const alloc_size = mem.page_size * 2 + 50;
     var slice = try allocator.alignedAlloc(u8, 16, alloc_size);

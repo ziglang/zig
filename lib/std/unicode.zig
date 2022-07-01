@@ -3,6 +3,11 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const mem = std.mem;
 
+/// Use this to replace an unknown, unrecognized, or unrepresentable character.
+///
+/// See also: https://en.wikipedia.org/wiki/Specials_(Unicode_block)#Replacement_character
+pub const replacement_character: u21 = 0xFFFD;
+
 /// Returns how many bytes the UTF-8 representation would require
 /// for the given codepoint.
 pub fn utf8CodepointSequenceLength(c: u21) !u3 {
@@ -269,14 +274,7 @@ pub const Utf8Iterator = struct {
 
     pub fn nextCodepoint(it: *Utf8Iterator) ?u21 {
         const slice = it.nextCodepointSlice() orelse return null;
-
-        switch (slice.len) {
-            1 => return @as(u21, slice[0]),
-            2 => return utf8Decode2(slice) catch unreachable,
-            3 => return utf8Decode3(slice) catch unreachable,
-            4 => return utf8Decode4(slice) catch unreachable,
-            else => unreachable,
-        }
+        return utf8Decode(slice) catch unreachable;
     }
 
     /// Look ahead at the next n codepoints without advancing the iterator.
@@ -784,15 +782,14 @@ fn formatUtf16le(
     options: std.fmt.FormatOptions,
     writer: anytype,
 ) !void {
-    const unknown_codepoint = 0xfffd;
     _ = fmt;
     _ = options;
     var buf: [300]u8 = undefined; // just a random size I chose
     var it = Utf16LeIterator.init(utf16le);
     var u8len: usize = 0;
-    while (it.nextCodepoint() catch unknown_codepoint) |codepoint| {
+    while (it.nextCodepoint() catch replacement_character) |codepoint| {
         u8len += utf8Encode(codepoint, buf[u8len..]) catch
-            utf8Encode(unknown_codepoint, buf[u8len..]) catch unreachable;
+            utf8Encode(replacement_character, buf[u8len..]) catch unreachable;
         if (u8len + 3 >= buf.len) {
             try writer.writeAll(buf[0..u8len]);
             u8len = 0;

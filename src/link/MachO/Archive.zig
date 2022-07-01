@@ -171,7 +171,6 @@ fn parseTableOfContents(self: *Archive, allocator: Allocator, reader: anytype) !
     while (true) {
         const n_strx = symtab_reader.readIntLittle(u32) catch |err| switch (err) {
             error.EndOfStream => break,
-            else => |e| return e,
         };
         const object_offset = try symtab_reader.readIntLittle(u32);
 

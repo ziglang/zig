@@ -11,14 +11,24 @@ static void assert_or_panic(bool ok) {
     }
 }
 
+struct i128 {
+    __int128 value;
+};
+
+struct u128 {
+    unsigned __int128 value;
+};
+
 void zig_u8(uint8_t);
 void zig_u16(uint16_t);
 void zig_u32(uint32_t);
 void zig_u64(uint64_t);
+void zig_struct_u128(struct u128);
 void zig_i8(int8_t);
 void zig_i16(int16_t);
 void zig_i32(int32_t);
 void zig_i64(int64_t);
+void zig_struct_i128(struct i128);
 void zig_five_integers(int32_t, int32_t, int32_t, int32_t, int32_t);
 
 void zig_f32(float);
@@ -130,11 +140,19 @@ void run_c_tests(void) {
     zig_u16(0xfffe);
     zig_u32(0xfffffffd);
     zig_u64(0xfffffffffffffffc);
+    {
+        struct u128 s = {0xfffffffffffffffc};
+        zig_struct_u128(s);
+    }
 
     zig_i8(-1);
     zig_i16(-2);
     zig_i32(-3);
     zig_i64(-4);
+    {
+        struct i128 s = {-6};
+        zig_struct_i128(s);
+    }
     zig_five_integers(12, 34, 56, 78, 90);
 
     zig_f32(12.34f);
@@ -221,6 +239,10 @@ void c_u64(uint64_t x) {
     assert_or_panic(x == 0xfffffffffffffffcULL);
 }
 
+void c_struct_u128(struct u128 x) {
+    assert_or_panic(x.value == 0xfffffffffffffffcULL);
+}
+
 void c_i8(int8_t x) {
     assert_or_panic(x == -1);
 }
@@ -235,6 +257,10 @@ void c_i32(int32_t x) {
 
 void c_i64(int64_t x) {
     assert_or_panic(x == -4);
+}
+
+void c_struct_i128(struct i128 x) {
+    assert_or_panic(x.value == -6);
 }
 
 void c_f32(float x) {

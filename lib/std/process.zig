@@ -2,7 +2,6 @@ const std = @import("std.zig");
 const builtin = @import("builtin");
 const os = std.os;
 const fs = std.fs;
-const BufMap = std.BufMap;
 const mem = std.mem;
 const math = std.math;
 const Allocator = mem.Allocator;
@@ -53,9 +52,205 @@ test "getCwdAlloc" {
     testing.allocator.free(cwd);
 }
 
-/// Caller owns resulting `BufMap`.
-pub fn getEnvMap(allocator: Allocator) !BufMap {
-    var result = BufMap.init(allocator);
+pub const EnvMap = struct {
+    hash_map: HashMap,
+
+    const HashMap = std.HashMap(
+        []const u8,
+        []const u8,
+        EnvNameHashContext,
+        std.hash_map.default_max_load_percentage,
+    );
+
+    pub const Size = HashMap.Size;
+
+    pub const EnvNameHashContext = struct {
+        fn upcase(c: u21) u21 {
+            if (c <= std.math.maxInt(u16))
+                return std.os.windows.ntdll.RtlUpcaseUnicodeChar(@intCast(u16, c));
+            return c;
+        }
+
+        pub fn hash(self: @This(), s: []const u8) u64 {
+            _ = self;
+            if (builtin.os.tag == .windows) {
+                var h = std.hash.Wyhash.init(0);
+                var it = std.unicode.Utf8View.initUnchecked(s).iterator();
+                while (it.nextCodepoint()) |cp| {
+                    const cp_upper = upcase(cp);
+                    h.update(&[_]u8{
+                        @intCast(u8, (cp_upper >> 16) & 0xff),
+                        @intCast(u8, (cp_upper >> 8) & 0xff),
+                        @intCast(u8, (cp_upper >> 0) & 0xff),
+                    });
+                }
+                return h.final();
+            }
+            return std.hash_map.hashString(s);
+        }
+
+        pub fn eql(self: @This(), a: []const u8, b: []const u8) bool {
+            _ = self;
+            if (builtin.os.tag == .windows) {
+                var it_a = std.unicode.Utf8View.initUnchecked(a).iterator();
+                var it_b = std.unicode.Utf8View.initUnchecked(b).iterator();
+                while (true) {
+                    const c_a = it_a.nextCodepoint() orelse break;
+                    const c_b = it_b.nextCodepoint() orelse return false;
+                    if (upcase(c_a) != upcase(c_b))
+                        return false;
+                }
+                return if (it_b.nextCodepoint()) |_| false else true;
+            }
+            return std.hash_map.eqlString(a, b);
+        }
+    };
+
+    /// Create a EnvMap backed by a specific allocator.
+    /// That allocator will be used for both backing allocations
+    /// and string deduplication.
+    pub fn init(allocator: Allocator) EnvMap {
+        return EnvMap{ .hash_map = HashMap.init(allocator) };
+    }
+
+    /// Free the backing storage of the map, as well as all
+    /// of the stored keys and values.
+    pub fn deinit(self: *EnvMap) void {
+        var it = self.hash_map.iterator();
+        while (it.next()) |entry| {
+            self.free(entry.key_ptr.*);
+            self.free(entry.value_ptr.*);
+        }
+
+        self.hash_map.deinit();
+    }
+
+    /// Same as `put` but the key and value become owned by the EnvMap rather
+    /// than being copied.
+    /// If `putMove` fails, the ownership of key and value does not transfer.
+    /// On Windows `key` must be a valid UTF-8 string.
+    pub fn putMove(self: *EnvMap, key: []u8, value: []u8) !void {
+        const get_or_put = try self.hash_map.getOrPut(key);
+        if (get_or_put.found_existing) {
+            self.free(get_or_put.key_ptr.*);
+            self.free(get_or_put.value_ptr.*);
+            get_or_put.key_ptr.* = key;
+        }
+        get_or_put.value_ptr.* = value;
+    }
+
+    /// `key` and `value` are copied into the EnvMap.
+    /// On Windows `key` must be a valid UTF-8 string.
+    pub fn put(self: *EnvMap, key: []const u8, value: []const u8) !void {
+        const value_copy = try self.copy(value);
+        errdefer self.free(value_copy);
+        const get_or_put = try self.hash_map.getOrPut(key);
+        if (get_or_put.found_existing) {
+            self.free(get_or_put.value_ptr.*);
+        } else {
+            get_or_put.key_ptr.* = self.copy(key) catch |err| {
+                _ = self.hash_map.remove(key);
+                return err;
+            };
+        }
+        get_or_put.value_ptr.* = value_copy;
+    }
+
+    /// Find the address of the value associated with a key.
+    /// The returned pointer is invalidated if the map resizes.
+    /// On Windows `key` must be a valid UTF-8 string.
+    pub fn getPtr(self: EnvMap, key: []const u8) ?*[]const u8 {
+        return self.hash_map.getPtr(key);
+    }
+
+    /// Return the map's copy of the value associated with
+    /// a key.  The returned string is invalidated if this
+    /// key is removed from the map.
+    /// On Windows `key` must be a valid UTF-8 string.
+    pub fn get(self: EnvMap, key: []const u8) ?[]const u8 {
+        return self.hash_map.get(key);
+    }
+
+    /// Removes the item from the map and frees its value.
+    /// This invalidates the value returned by get() for this key.
+    /// On Windows `key` must be a valid UTF-8 string.
+    pub fn remove(self: *EnvMap, key: []const u8) void {
+        const kv = self.hash_map.fetchRemove(key) orelse return;
+        self.free(kv.key);
+        self.free(kv.value);
+    }
+
+    /// Returns the number of KV pairs stored in the map.
+    pub fn count(self: EnvMap) HashMap.Size {
+        return self.hash_map.count();
+    }
+
+    /// Returns an iterator over entries in the map.
+    pub fn iterator(self: *const EnvMap) HashMap.Iterator {
+        return self.hash_map.iterator();
+    }
+
+    fn free(self: EnvMap, value: []const u8) void {
+        self.hash_map.allocator.free(value);
+    }
+
+    fn copy(self: EnvMap, value: []const u8) ![]u8 {
+        return self.hash_map.allocator.dupe(u8, value);
+    }
+};
+
+test "EnvMap" {
+    var env = EnvMap.init(testing.allocator);
+    defer env.deinit();
+
+    try env.put("SOMETHING_NEW", "hello");
+    try testing.expectEqualStrings("hello", env.get("SOMETHING_NEW").?);
+    try testing.expectEqual(@as(EnvMap.Size, 1), env.count());
+
+    // overwrite
+    try env.put("SOMETHING_NEW", "something");
+    try testing.expectEqualStrings("something", env.get("SOMETHING_NEW").?);
+    try testing.expectEqual(@as(EnvMap.Size, 1), env.count());
+
+    // a new longer name to test the Windows-specific conversion buffer
+    try env.put("SOMETHING_NEW_AND_LONGER", "1");
+    try testing.expectEqualStrings("1", env.get("SOMETHING_NEW_AND_LONGER").?);
+    try testing.expectEqual(@as(EnvMap.Size, 2), env.count());
+
+    // case insensitivity on Windows only
+    if (builtin.os.tag == .windows) {
+        try testing.expectEqualStrings("1", env.get("something_New_aNd_LONGER").?);
+    } else {
+        try testing.expect(null == env.get("something_New_aNd_LONGER"));
+    }
+
+    var it = env.iterator();
+    var count: EnvMap.Size = 0;
+    while (it.next()) |entry| {
+        const is_an_expected_name = std.mem.eql(u8, "SOMETHING_NEW", entry.key_ptr.*) or std.mem.eql(u8, "SOMETHING_NEW_AND_LONGER", entry.key_ptr.*);
+        try testing.expect(is_an_expected_name);
+        count += 1;
+    }
+    try testing.expectEqual(@as(EnvMap.Size, 2), count);
+
+    env.remove("SOMETHING_NEW");
+    try testing.expect(env.get("SOMETHING_NEW") == null);
+
+    try testing.expectEqual(@as(EnvMap.Size, 1), env.count());
+
+    // test Unicode case-insensitivity on Windows
+    if (builtin.os.tag == .windows) {
+        try env.put("КИРиллИЦА", "something else");
+        try testing.expectEqualStrings("something else", env.get("кириллица").?);
+    }
+}
+
+/// Returns a snapshot of the environment variables of the current process.
+/// Any modifications to the resulting EnvMap will not be not reflected in the environment, and
+/// likewise, any future modifications to the environment will not be reflected in the EnvMap.
+/// Caller owns resulting `EnvMap` and should call its `deinit` fn when done.
+pub fn getEnvMap(allocator: Allocator) !EnvMap {
+    var result = EnvMap.init(allocator);
     errdefer result.deinit();
 
     if (builtin.os.tag == .windows) {
@@ -64,6 +259,12 @@ pub fn getEnvMap(allocator: Allocator) !BufMap {
         var i: usize = 0;
         while (ptr[i] != 0) {
             const key_start = i;
+
+            // There are some special environment variables that start with =,
+            // so we need a special case to not treat = as a key/value separator
+            // if it's the first character.
+            // https://devblogs.microsoft.com/oldnewthing/20100506-00/?p=14133
+            if (ptr[key_start] == '=') i += 1;
 
             while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
             const key_w = ptr[key_start..i];
@@ -112,7 +313,7 @@ pub fn getEnvMap(allocator: Allocator) !BufMap {
         return result;
     } else if (builtin.link_libc) {
         var ptr = std.c.environ;
-        while (ptr.*) |line| : (ptr += 1) {
+        while (ptr[0]) |line| : (ptr += 1) {
             var line_i: usize = 0;
             while (line[line_i] != 0 and line[line_i] != '=') : (line_i += 1) {}
             const key = line[0..line_i];
@@ -140,8 +341,8 @@ pub fn getEnvMap(allocator: Allocator) !BufMap {
     }
 }
 
-test "os.getEnvMap" {
-    var env = try getEnvMap(std.testing.allocator);
+test "getEnvMap" {
+    var env = try getEnvMap(testing.allocator);
     defer env.deinit();
 }
 
@@ -303,7 +504,8 @@ pub const ArgIteratorWasi = struct {
 
 /// Optional parameters for `ArgIteratorGeneral`
 pub const ArgIteratorGeneralOptions = struct {
-    comments_supported: bool = false,
+    comments: bool = false,
+    single_quotes: bool = false,
 };
 
 /// A general Iterator to parse a string into a set of arguments
@@ -387,7 +589,7 @@ pub fn ArgIteratorGeneral(comptime options: ArgIteratorGeneralOptions) type {
                     0 => return false,
                     ' ', '\t', '\r', '\n' => continue,
                     '#' => {
-                        if (options.comments_supported) {
+                        if (options.comments) {
                             while (true) : (self.index += 1) {
                                 switch (self.cmd_line[self.index]) {
                                     '\n' => break,
@@ -417,7 +619,11 @@ pub fn ArgIteratorGeneral(comptime options: ArgIteratorGeneralOptions) type {
                 const character = if (self.index != self.cmd_line.len) self.cmd_line[self.index] else 0;
                 switch (character) {
                     0 => return true,
-                    '"' => {
+                    '"', '\'' => {
+                        if (!options.single_quotes and character == '\'') {
+                            backslash_count = 0;
+                            continue;
+                        }
                         const quote_is_real = backslash_count % 2 == 0;
                         if (quote_is_real) {
                             in_quote = !in_quote;
@@ -460,7 +666,13 @@ pub fn ArgIteratorGeneral(comptime options: ArgIteratorGeneralOptions) type {
                         self.start = self.end;
                         return token;
                     },
-                    '"' => {
+                    '"', '\'' => {
+                        if (!options.single_quotes and character == '\'') {
+                            self.emitBackslashes(backslash_count);
+                            backslash_count = 0;
+                            self.emitCharacter(character);
+                            continue;
+                        }
                         const quote_is_real = backslash_count % 2 == 0;
                         self.emitBackslashes(backslash_count / 2);
                         backslash_count = 0;
@@ -522,7 +734,7 @@ pub fn ArgIteratorGeneral(comptime options: ArgIteratorGeneralOptions) type {
 /// Cross-platform command line argument iterator.
 pub const ArgIterator = struct {
     const InnerType = switch (builtin.os.tag) {
-        .windows => ArgIteratorGeneral(.{ .comments_supported = false }),
+        .windows => ArgIteratorGeneral(.{}),
         .wasi => if (builtin.link_libc) ArgIteratorPosix else ArgIteratorWasi,
         else => ArgIteratorPosix,
     };
@@ -664,27 +876,30 @@ pub fn argsFree(allocator: mem.Allocator, args_alloc: []const [:0]u8) void {
 }
 
 test "general arg parsing" {
-    try testGeneralCmdLine("a   b\tc d", &[_][]const u8{ "a", "b", "c", "d" });
-    try testGeneralCmdLine("\"abc\" d e", &[_][]const u8{ "abc", "d", "e" });
-    try testGeneralCmdLine("a\\\\\\b d\"e f\"g h", &[_][]const u8{ "a\\\\\\b", "de fg", "h" });
-    try testGeneralCmdLine("a\\\\\\\"b c d", &[_][]const u8{ "a\\\"b", "c", "d" });
-    try testGeneralCmdLine("a\\\\\\\\\"b c\" d e", &[_][]const u8{ "a\\\\b c", "d", "e" });
-    try testGeneralCmdLine("a   b\tc \"d f", &[_][]const u8{ "a", "b", "c", "d f" });
-    try testGeneralCmdLine("j k l\\", &[_][]const u8{ "j", "k", "l\\" });
-    try testGeneralCmdLine("\"\" x y z\\\\", &[_][]const u8{ "", "x", "y", "z\\\\" });
+    try testGeneralCmdLine("a   b\tc d", &.{ "a", "b", "c", "d" });
+    try testGeneralCmdLine("\"abc\" d e", &.{ "abc", "d", "e" });
+    try testGeneralCmdLine("a\\\\\\b d\"e f\"g h", &.{ "a\\\\\\b", "de fg", "h" });
+    try testGeneralCmdLine("a\\\\\\\"b c d", &.{ "a\\\"b", "c", "d" });
+    try testGeneralCmdLine("a\\\\\\\\\"b c\" d e", &.{ "a\\\\b c", "d", "e" });
+    try testGeneralCmdLine("a   b\tc \"d f", &.{ "a", "b", "c", "d f" });
+    try testGeneralCmdLine("j k l\\", &.{ "j", "k", "l\\" });
+    try testGeneralCmdLine("\"\" x y z\\\\", &.{ "", "x", "y", "z\\\\" });
 
-    try testGeneralCmdLine("\".\\..\\zig-cache\\build\" \"bin\\zig.exe\" \".\\..\" \".\\..\\zig-cache\" \"--help\"", &[_][]const u8{
+    try testGeneralCmdLine("\".\\..\\zig-cache\\build\" \"bin\\zig.exe\" \".\\..\" \".\\..\\zig-cache\" \"--help\"", &.{
         ".\\..\\zig-cache\\build",
         "bin\\zig.exe",
         ".\\..",
         ".\\..\\zig-cache",
         "--help",
     });
+
+    try testGeneralCmdLine(
+        \\ 'foo' "bar"
+    , &.{ "'foo'", "bar" });
 }
 
 fn testGeneralCmdLine(input_cmd_line: []const u8, expected_args: []const []const u8) !void {
-    var it = try ArgIteratorGeneral(.{ .comments_supported = false })
-        .init(std.testing.allocator, input_cmd_line);
+    var it = try ArgIteratorGeneral(.{}).init(std.testing.allocator, input_cmd_line);
     defer it.deinit();
     for (expected_args) |expected_arg| {
         const arg = it.next().?;
@@ -697,30 +912,34 @@ test "response file arg parsing" {
     try testResponseFileCmdLine(
         \\a b
         \\c d\
-    , &[_][]const u8{ "a", "b", "c", "d\\" });
-    try testResponseFileCmdLine("a b c d\\", &[_][]const u8{ "a", "b", "c", "d\\" });
+    , &.{ "a", "b", "c", "d\\" });
+    try testResponseFileCmdLine("a b c d\\", &.{ "a", "b", "c", "d\\" });
 
     try testResponseFileCmdLine(
         \\j
         \\ k l # this is a comment \\ \\\ \\\\ "none" "\\" "\\\"
         \\ "m" #another comment
         \\
-    , &[_][]const u8{ "j", "k", "l", "m" });
+    , &.{ "j", "k", "l", "m" });
 
     try testResponseFileCmdLine(
         \\ "" q ""
         \\ "r s # t" "u\" v" #another comment
         \\
-    , &[_][]const u8{ "", "q", "", "r s # t", "u\" v" });
+    , &.{ "", "q", "", "r s # t", "u\" v" });
 
     try testResponseFileCmdLine(
         \\ -l"advapi32" a# b#c d#
         \\e\\\
-    , &[_][]const u8{ "-ladvapi32", "a#", "b#c", "d#", "e\\\\\\" });
+    , &.{ "-ladvapi32", "a#", "b#c", "d#", "e\\\\\\" });
+
+    try testResponseFileCmdLine(
+        \\ 'foo' "bar"
+    , &.{ "foo", "bar" });
 }
 
 fn testResponseFileCmdLine(input_cmd_line: []const u8, expected_args: []const []const u8) !void {
-    var it = try ArgIteratorGeneral(.{ .comments_supported = true })
+    var it = try ArgIteratorGeneral(.{ .comments = true, .single_quotes = true })
         .init(std.testing.allocator, input_cmd_line);
     defer it.deinit();
     for (expected_args) |expected_arg| {
@@ -932,7 +1151,13 @@ pub fn getSelfExeSharedLibPaths(allocator: Allocator) error{OutOfMemory}![][:0]u
 
 /// Tells whether calling the `execv` or `execve` functions will be a compile error.
 pub const can_execv = switch (builtin.os.tag) {
-    .windows, .haiku => false,
+    .windows, .haiku, .wasi => false,
+    else => true,
+};
+
+/// Tells whether spawning child processes is supported (e.g. via ChildProcess)
+pub const can_spawn = switch (builtin.os.tag) {
+    .wasi => false,
     else => true,
 };
 
@@ -961,7 +1186,7 @@ pub fn execv(allocator: mem.Allocator, argv: []const []const u8) ExecvError {
 pub fn execve(
     allocator: mem.Allocator,
     argv: []const []const u8,
-    env_map: ?*const std.BufMap,
+    env_map: ?*const EnvMap,
 ) ExecvError {
     if (!can_execv) @compileError("The target OS does not support execv");
 

@@ -11,7 +11,7 @@ const __SIZEOF_PTHREAD_MUTEX_T = switch (builtin.abi) {
     .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => switch (builtin.cpu.arch) {
         .aarch64 => 48,
         .x86_64 => if (builtin.abi == .gnux32) 40 else 32,
-        .mips64, .powerpc64, .powerpc64le, .sparcv9 => 40,
+        .mips64, .powerpc64, .powerpc64le, .sparc64 => 40,
         else => if (@sizeOf(usize) == 8) 40 else 24,
     },
     else => unreachable,

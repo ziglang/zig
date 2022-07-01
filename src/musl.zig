@@ -4,7 +4,6 @@ const mem = std.mem;
 const path = std.fs.path;
 const assert = std.debug.assert;
 
-const target_util = @import("target.zig");
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 
@@ -118,7 +117,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 try addSrcFile(arena, &source_table, src_file);
             }
 
-            const time32_compat_arch_list = [_][]const u8{ "arm", "i386", "mips", "powerpc" };
+            const time32_compat_arch_list = [_][]const u8{ "arm", "i386", "mips", "powerpc", "m68k" };
             for (time32_compat_arch_list) |time32_compat_arch| {
                 if (mem.eql(u8, arch_name, time32_compat_arch)) {
                     for (compat_time32_files) |compat_time32_file| {
@@ -766,6 +765,7 @@ const src_files = [_][]const u8{
     "musl/src/locale/setlocale.c",
     "musl/src/locale/strcoll.c",
     "musl/src/locale/strfmon.c",
+    "musl/src/locale/strtod_l.c",
     "musl/src/locale/strxfrm.c",
     "musl/src/locale/textdomain.c",
     "musl/src/locale/uselocale.c",
@@ -1780,6 +1780,7 @@ const src_files = [_][]const u8{
     "musl/src/stdlib/llabs.c",
     "musl/src/stdlib/lldiv.c",
     "musl/src/stdlib/qsort.c",
+    "musl/src/stdlib/qsort_nr.c",
     "musl/src/stdlib/strtod.c",
     "musl/src/stdlib/strtol.c",
     "musl/src/stdlib/wcstod.c",
@@ -1990,6 +1991,7 @@ const src_files = [_][]const u8{
     "musl/src/thread/pthread_getattr_np.c",
     "musl/src/thread/pthread_getconcurrency.c",
     "musl/src/thread/pthread_getcpuclockid.c",
+    "musl/src/thread/pthread_getname_np.c",
     "musl/src/thread/pthread_getschedparam.c",
     "musl/src/thread/pthread_getspecific.c",
     "musl/src/thread/pthread_join.c",
@@ -2208,6 +2210,7 @@ const src_files = [_][]const u8{
     "musl/src/unistd/writev.c",
     "musl/src/unistd/x32/lseek.c",
 };
+
 const compat_time32_files = [_][]const u8{
     "musl/compat/time32/__xstat.c",
     "musl/compat/time32/adjtime32.c",

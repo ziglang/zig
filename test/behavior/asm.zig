@@ -5,7 +5,10 @@ const expect = std.testing.expect;
 const is_x86_64_linux = builtin.cpu.arch == .x86_64 and builtin.os.tag == .linux;
 
 comptime {
-    if (is_x86_64_linux) {
+    if (builtin.zig_backend != .stage2_arm and
+        builtin.zig_backend != .stage2_aarch64 and
+        is_x86_64_linux)
+    {
         asm (
             \\.globl this_is_my_alias;
             \\.type this_is_my_alias, @function;
@@ -15,12 +18,24 @@ comptime {
 }
 
 test "module level assembly" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
     if (is_x86_64_linux) {
         try expect(this_is_my_alias() == 1234);
     }
 }
 
 test "output constraint modifiers" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
     // This is only testing compilation.
     var a: u32 = 3;
     asm volatile (""
@@ -36,6 +51,12 @@ test "output constraint modifiers" {
 }
 
 test "alternative constraints" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
     // Make sure we allow commas as a separator for alternative constraints.
     var a: u32 = 3;
     asm volatile (""
@@ -46,6 +67,11 @@ test "alternative constraints" {
 }
 
 test "sized integer/float in asm input" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
     asm volatile (""
         :
         : [_] "m" (@as(usize, 3)),
@@ -89,6 +115,12 @@ test "sized integer/float in asm input" {
 }
 
 test "struct/array/union types as input values" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
     asm volatile (""
         :
         : [_] "m" (@as([1]u32, undefined)),

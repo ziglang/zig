@@ -6,7 +6,7 @@ const fatal = @import("main.zig").fatal;
 
 pub fn cmdEnv(gpa: Allocator, args: []const []const u8, stdout: std.fs.File.Writer) !void {
     _ = args;
-    const self_exe_path = try std.fs.selfExePathAlloc(gpa);
+    const self_exe_path = try introspect.findZigExePath(gpa);
     defer gpa.free(self_exe_path);
 
     var zig_lib_directory = introspect.findZigLibDirFromSelfExe(gpa, self_exe_path) catch |err| {

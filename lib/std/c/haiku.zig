@@ -159,11 +159,11 @@ pub const dl_phdr_info = extern struct {
 };
 
 pub const Flock = extern struct {
-    l_type: c_short,
-    l_whence: c_short,
-    l_start: off_t,
-    l_len: off_t,
-    l_pid: pid_t,
+    type: c_short,
+    whence: c_short,
+    start: off_t,
+    len: off_t,
+    pid: pid_t,
 };
 
 pub const msghdr = extern struct {
@@ -226,7 +226,7 @@ pub const Stat = extern struct {
     pub fn ctime(self: @This()) timespec {
         return self.ctim;
     }
-    pub fn crtime(self: @This()) timespec {
+    pub fn birthtime(self: @This()) timespec {
         return self.crtim;
     }
 };
@@ -408,6 +408,12 @@ pub const MAP = struct {
     pub const ANON = ANONYMOUS;
     /// don't commit memory
     pub const NORESERVE = 0x10;
+};
+
+pub const MSF = struct {
+    pub const ASYNC = 1;
+    pub const INVALIDATE = 2;
+    pub const SYNC = 4;
 };
 
 pub const W = struct {

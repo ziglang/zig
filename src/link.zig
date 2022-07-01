@@ -1,25 +1,28 @@
 const std = @import("std");
+const build_options = @import("build_options");
 const builtin = @import("builtin");
-const mem = std.mem;
-const Allocator = std.mem.Allocator;
-const fs = std.fs;
-const log = std.log.scoped(.link);
 const assert = std.debug.assert;
-
-const Compilation = @import("Compilation.zig");
-const Module = @import("Module.zig");
+const fs = std.fs;
+const mem = std.mem;
+const log = std.log.scoped(.link);
 const trace = @import("tracy.zig").trace;
+const wasi_libc = @import("wasi_libc.zig");
+
+const Air = @import("Air.zig");
+const Allocator = std.mem.Allocator;
+const Cache = @import("Cache.zig");
+const Compilation = @import("Compilation.zig");
+const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
+const Liveness = @import("Liveness.zig");
+const Module = @import("Module.zig");
 const Package = @import("Package.zig");
 const Type = @import("type.zig").Type;
-const Cache = @import("Cache.zig");
-const build_options = @import("build_options");
-const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
-const wasi_libc = @import("wasi_libc.zig");
-const Air = @import("Air.zig");
-const Liveness = @import("Liveness.zig");
+const TypedValue = @import("TypedValue.zig");
 
+/// When adding a new field, remember to update `hashAddSystemLibs`.
 pub const SystemLib = struct {
     needed: bool = false,
+    weak: bool = false,
 };
 
 pub const CacheMode = enum { incremental, whole };
@@ -33,6 +36,7 @@ pub fn hashAddSystemLibs(
     hh.addListOfBytes(keys);
     for (hm.values()) |value| {
         hh.add(value.needed);
+        hh.add(value.weak);
     }
 }
 
@@ -71,7 +75,7 @@ pub const Options = struct {
     object_format: std.Target.ObjectFormat,
     optimize_mode: std.builtin.Mode,
     machine_code_model: std.builtin.CodeModel,
-    root_name: []const u8,
+    root_name: [:0]const u8,
     /// Not every Compilation compiles .zig code! For example you could do `zig build-exe foo.o`.
     module: ?*Module,
     dynamic_linker: ?[]const u8,
@@ -111,7 +115,7 @@ pub const Options = struct {
     z_notext: bool,
     z_defs: bool,
     z_origin: bool,
-    z_noexecstack: bool,
+    z_nocopyreloc: bool,
     z_now: bool,
     z_relro: bool,
     tsaware: bool,
@@ -124,6 +128,7 @@ pub const Options = struct {
     export_table: bool,
     initial_memory: ?u64,
     max_memory: ?u64,
+    shared_memory: bool,
     export_symbol_names: []const []const u8,
     global_base: ?u64,
     is_native_os: bool,
@@ -143,6 +148,7 @@ pub const Options = struct {
     skip_linker_dependencies: bool,
     parent_compilation_link_libc: bool,
     each_lib_rpath: bool,
+    build_id: bool,
     disable_lld_caching: bool,
     is_test: bool,
     use_stage1: bool,
@@ -159,7 +165,7 @@ pub const Options = struct {
 
     objects: []Compilation.LinkObject,
     framework_dirs: []const []const u8,
-    frameworks: []const []const u8,
+    frameworks: std.StringArrayHashMapUnmanaged(SystemLib),
     system_libs: std.StringArrayHashMapUnmanaged(SystemLib),
     wasi_emulated_libs: []const wasi_libc.CRTFile,
     lib_dirs: []const []const u8,
@@ -180,6 +186,24 @@ pub const Options = struct {
 
     /// (Darwin) Install name for the dylib
     install_name: ?[]const u8 = null,
+
+    /// (Darwin) Path to entitlements file
+    entitlements: ?[]const u8 = null,
+
+    /// (Darwin) size of the __PAGEZERO segment
+    pagezero_size: ?u64 = null,
+
+    /// (Darwin) search strategy for system libraries
+    search_strategy: ?File.MachO.SearchStrategy = null,
+
+    /// (Darwin) set minimum space for future expansion of the load commands
+    headerpad_size: ?u32 = null,
+
+    /// (Darwin) set enough space as if all paths were MATPATHLEN
+    headerpad_max_install_names: bool = false,
+
+    /// (Darwin) remove dylibs that are unreachable by the entry point or exported symbols
+    dead_strip_dylibs: bool = false,
 
     pub fn effectiveOutputMode(options: Options) std.builtin.OutputMode {
         return if (options.use_lld) .Obj else options.output_mode;
@@ -215,16 +239,18 @@ pub const File = struct {
         c: void,
         wasm: Wasm.DeclBlock,
         spirv: void,
+        nvptx: void,
     };
 
     pub const LinkFn = union {
-        elf: Elf.SrcFn,
+        elf: Dwarf.SrcFn,
         coff: Coff.SrcFn,
-        macho: MachO.SrcFn,
+        macho: Dwarf.SrcFn,
         plan9: void,
         c: void,
         wasm: Wasm.FnData,
         spirv: SpirV.FnData,
+        nvptx: void,
     };
 
     pub const Export = union {
@@ -233,26 +259,9 @@ pub const File = struct {
         macho: MachO.Export,
         plan9: Plan9.Export,
         c: void,
-        wasm: void,
+        wasm: Wasm.Export,
         spirv: void,
-    };
-
-    /// For DWARF .debug_info.
-    pub const DbgInfoTypeRelocsTable = std.ArrayHashMapUnmanaged(
-        Type,
-        DbgInfoTypeReloc,
-        Type.HashContext32,
-        true,
-    );
-
-    /// For DWARF .debug_info.
-    pub const DbgInfoTypeReloc = struct {
-        /// Offset from `TextBlock.dbg_info_off` (the buffer that is local to a Decl).
-        /// This is where the .debug_info tag for the type is.
-        off: u32,
-        /// Offset from `TextBlock.dbg_info_off` (the buffer that is local to a Decl).
-        /// List of DW.AT.type / DW.FORM.ref4 that points to the type.
-        relocs: std.ArrayListUnmanaged(u32),
+        nvptx: void,
     };
 
     /// Attempts incremental linking, if the file already exists. If
@@ -274,6 +283,7 @@ pub const File = struct {
                 .plan9 => return &(try Plan9.createEmpty(allocator, options)).base,
                 .c => unreachable, // Reported error earlier.
                 .spirv => &(try SpirV.createEmpty(allocator, options)).base,
+                .nvptx => &(try NvPtx.createEmpty(allocator, options)).base,
                 .hex => return error.HexObjectFormatUnimplemented,
                 .raw => return error.RawObjectFormatUnimplemented,
             };
@@ -292,6 +302,7 @@ pub const File = struct {
                     .wasm => &(try Wasm.createEmpty(allocator, options)).base,
                     .c => unreachable, // Reported error earlier.
                     .spirv => &(try SpirV.createEmpty(allocator, options)).base,
+                    .nvptx => &(try NvPtx.createEmpty(allocator, options)).base,
                     .hex => return error.HexObjectFormatUnimplemented,
                     .raw => return error.RawObjectFormatUnimplemented,
                 };
@@ -312,6 +323,7 @@ pub const File = struct {
             .wasm => &(try Wasm.openPath(allocator, sub_path, options)).base,
             .c => &(try C.openPath(allocator, sub_path, options)).base,
             .spirv => &(try SpirV.openPath(allocator, sub_path, options)).base,
+            .nvptx => &(try NvPtx.openPath(allocator, sub_path, options)).base,
             .hex => return error.HexObjectFormatUnimplemented,
             .raw => return error.RawObjectFormatUnimplemented,
         };
@@ -344,7 +356,7 @@ pub const File = struct {
                     .mode = determineMode(base.options),
                 });
             },
-            .c, .wasm, .spirv => {},
+            .c, .wasm, .spirv, .nvptx => {},
         }
     }
 
@@ -359,26 +371,24 @@ pub const File = struct {
         }
         switch (base.tag) {
             .macho => if (base.file) |f| {
-                if (base.intermediary_basename != null) {
-                    // The file we have open is not the final file that we want to
-                    // make executable, so we don't have to close it.
-                    return;
-                }
                 if (comptime builtin.target.isDarwin() and builtin.target.cpu.arch == .aarch64) {
-                    if (base.options.target.cpu.arch != .aarch64) return; // If we're not targeting aarch64, nothing to do.
-                    // XNU starting with Big Sur running on arm64 is caching inodes of running binaries.
-                    // Any change to the binary will effectively invalidate the kernel's cache
-                    // resulting in a SIGKILL on each subsequent run. Since when doing incremental
-                    // linking we're modifying a binary in-place, this will end up with the kernel
-                    // killing it on every subsequent run. To circumvent it, we will copy the file
-                    // into a new inode, remove the original file, and rename the copy to match
-                    // the original file. This is super messy, but there doesn't seem any other
-                    // way to please the XNU.
-                    const emit = base.options.emit orelse return;
-                    try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, emit.sub_path, .{});
+                    if (base.options.target.cpu.arch == .aarch64) {
+                        // XNU starting with Big Sur running on arm64 is caching inodes of running binaries.
+                        // Any change to the binary will effectively invalidate the kernel's cache
+                        // resulting in a SIGKILL on each subsequent run. Since when doing incremental
+                        // linking we're modifying a binary in-place, this will end up with the kernel
+                        // killing it on every subsequent run. To circumvent it, we will copy the file
+                        // into a new inode, remove the original file, and rename the copy to match
+                        // the original file. This is super messy, but there doesn't seem any other
+                        // way to please the XNU.
+                        const emit = base.options.emit orelse return;
+                        try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, emit.sub_path, .{});
+                    }
                 }
-                f.close();
-                base.file = null;
+                if (base.intermediary_basename == null) {
+                    f.close();
+                    base.file = null;
+                }
             },
             .coff, .elf, .plan9 => if (base.file) |f| {
                 if (base.intermediary_basename != null) {
@@ -389,7 +399,7 @@ pub const File = struct {
                 f.close();
                 base.file = null;
             },
-            .c, .wasm, .spirv => {},
+            .c, .wasm, .spirv, .nvptx => {},
         }
     }
 
@@ -423,20 +433,61 @@ pub const File = struct {
         CurrentWorkingDirectoryUnlinked,
     };
 
+    /// Called from within the CodeGen to lower a local variable instantion as an unnamed
+    /// constant. Returns the symbol index of the lowered constant in the read-only section
+    /// of the final binary.
+    pub fn lowerUnnamedConst(base: *File, tv: TypedValue, decl_index: Module.Decl.Index) UpdateDeclError!u32 {
+        const decl = base.options.module.?.declPtr(decl_index);
+        log.debug("lowerUnnamedConst {*} ({s})", .{ decl, decl.name });
+        switch (base.tag) {
+            // zig fmt: off
+            .coff  => return @fieldParentPtr(Coff,  "base", base).lowerUnnamedConst(tv, decl_index),
+            .elf   => return @fieldParentPtr(Elf,   "base", base).lowerUnnamedConst(tv, decl_index),
+            .macho => return @fieldParentPtr(MachO, "base", base).lowerUnnamedConst(tv, decl_index),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).lowerUnnamedConst(tv, decl_index),
+            .spirv => unreachable,
+            .c     => unreachable,
+            .wasm  => return @fieldParentPtr(Wasm,  "base", base).lowerUnnamedConst(tv, decl_index),
+            .nvptx => unreachable,
+            // zig fmt: on
+        }
+    }
+
+    /// Called from within CodeGen to retrieve the symbol index of a global symbol.
+    /// If no symbol exists yet with this name, a new undefined global symbol will
+    /// be created. This symbol may get resolved once all relocatables are (re-)linked.
+    pub fn getGlobalSymbol(base: *File, name: []const u8) UpdateDeclError!u32 {
+        log.debug("getGlobalSymbol '{s}'", .{name});
+        switch (base.tag) {
+            // zig fmt: off
+            .coff  => unreachable,
+            .elf   => unreachable,
+            .macho => return @fieldParentPtr(MachO, "base", base).getGlobalSymbol(name),
+            .plan9 => unreachable,
+            .spirv => unreachable,
+            .c     => unreachable,
+            .wasm  => return @fieldParentPtr(Wasm,  "base", base).getGlobalSymbol(name),
+            .nvptx => unreachable,
+            // zig fmt: on
+        }
+    }
+
     /// May be called before or after updateDeclExports but must be called
     /// after allocateDeclIndexes for any given Decl.
-    pub fn updateDecl(base: *File, module: *Module, decl: *Module.Decl) UpdateDeclError!void {
-        log.debug("updateDecl {*} ({s}), type={}", .{ decl, decl.name, decl.ty });
+    pub fn updateDecl(base: *File, module: *Module, decl_index: Module.Decl.Index) UpdateDeclError!void {
+        const decl = module.declPtr(decl_index);
+        log.debug("updateDecl {*} ({s}), type={}", .{ decl, decl.name, decl.ty.fmtDebug() });
         assert(decl.has_tv);
         switch (base.tag) {
             // zig fmt: off
-            .coff  => return @fieldParentPtr(Coff,  "base", base).updateDecl(module, decl),
-            .elf   => return @fieldParentPtr(Elf,   "base", base).updateDecl(module, decl),
-            .macho => return @fieldParentPtr(MachO, "base", base).updateDecl(module, decl),
-            .c     => return @fieldParentPtr(C,     "base", base).updateDecl(module, decl),
-            .wasm  => return @fieldParentPtr(Wasm,  "base", base).updateDecl(module, decl),
-            .spirv => return @fieldParentPtr(SpirV, "base", base).updateDecl(module, decl),
-            .plan9 => return @fieldParentPtr(Plan9, "base", base).updateDecl(module, decl),
+            .coff  => return @fieldParentPtr(Coff,  "base", base).updateDecl(module, decl_index),
+            .elf   => return @fieldParentPtr(Elf,   "base", base).updateDecl(module, decl_index),
+            .macho => return @fieldParentPtr(MachO, "base", base).updateDecl(module, decl_index),
+            .c     => return @fieldParentPtr(C,     "base", base).updateDecl(module, decl_index),
+            .wasm  => return @fieldParentPtr(Wasm,  "base", base).updateDecl(module, decl_index),
+            .spirv => return @fieldParentPtr(SpirV, "base", base).updateDecl(module, decl_index),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).updateDecl(module, decl_index),
+            .nvptx => return @fieldParentPtr(NvPtx, "base", base).updateDecl(module, decl_index),
             // zig fmt: on
         }
     }
@@ -444,8 +495,9 @@ pub const File = struct {
     /// May be called before or after updateDeclExports but must be called
     /// after allocateDeclIndexes for any given Decl.
     pub fn updateFunc(base: *File, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) UpdateDeclError!void {
+        const owner_decl = module.declPtr(func.owner_decl);
         log.debug("updateFunc {*} ({s}), type={}", .{
-            func.owner_decl, func.owner_decl.name, func.owner_decl.ty,
+            owner_decl, owner_decl.name, owner_decl.ty.fmtDebug(),
         });
         switch (base.tag) {
             // zig fmt: off
@@ -456,6 +508,7 @@ pub const File = struct {
             .wasm  => return @fieldParentPtr(Wasm,  "base", base).updateFunc(module, func, air, liveness),
             .spirv => return @fieldParentPtr(SpirV, "base", base).updateFunc(module, func, air, liveness),
             .plan9 => return @fieldParentPtr(Plan9, "base", base).updateFunc(module, func, air, liveness),
+            .nvptx => return @fieldParentPtr(NvPtx, "base", base).updateFunc(module, func, air, liveness),
             // zig fmt: on
         }
     }
@@ -470,8 +523,9 @@ pub const File = struct {
             .elf => return @fieldParentPtr(Elf, "base", base).updateDeclLineNumber(module, decl),
             .macho => return @fieldParentPtr(MachO, "base", base).updateDeclLineNumber(module, decl),
             .c => return @fieldParentPtr(C, "base", base).updateDeclLineNumber(module, decl),
+            .wasm => return @fieldParentPtr(Wasm, "base", base).updateDeclLineNumber(module, decl),
             .plan9 => @panic("TODO: implement updateDeclLineNumber for plan9"),
-            .wasm, .spirv => {},
+            .spirv, .nvptx => {},
         }
     }
 
@@ -480,20 +534,21 @@ pub const File = struct {
     /// TODO we're transitioning to deleting this function and instead having
     /// each linker backend notice the first time updateDecl or updateFunc is called, or
     /// a callee referenced from AIR.
-    pub fn allocateDeclIndexes(base: *File, decl: *Module.Decl) error{OutOfMemory}!void {
+    pub fn allocateDeclIndexes(base: *File, decl_index: Module.Decl.Index) error{OutOfMemory}!void {
+        const decl = base.options.module.?.declPtr(decl_index);
         log.debug("allocateDeclIndexes {*} ({s})", .{ decl, decl.name });
         switch (base.tag) {
-            .coff => return @fieldParentPtr(Coff, "base", base).allocateDeclIndexes(decl),
-            .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl),
-            .macho => return @fieldParentPtr(MachO, "base", base).allocateDeclIndexes(decl) catch |err| switch (err) {
+            .coff => return @fieldParentPtr(Coff, "base", base).allocateDeclIndexes(decl_index),
+            .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl_index),
+            .macho => return @fieldParentPtr(MachO, "base", base).allocateDeclIndexes(decl_index) catch |err| switch (err) {
                 // remap this error code because we are transitioning away from
                 // `allocateDeclIndexes`.
                 error.Overflow => return error.OutOfMemory,
                 error.OutOfMemory => return error.OutOfMemory,
             },
-            .wasm => return @fieldParentPtr(Wasm, "base", base).allocateDeclIndexes(decl),
-            .plan9 => return @fieldParentPtr(Plan9, "base", base).allocateDeclIndexes(decl),
-            .c, .spirv => {},
+            .wasm => return @fieldParentPtr(Wasm, "base", base).allocateDeclIndexes(decl_index),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).allocateDeclIndexes(decl_index),
+            .c, .spirv, .nvptx => {},
         }
     }
 
@@ -551,12 +606,17 @@ pub const File = struct {
                 parent.deinit();
                 base.allocator.destroy(parent);
             },
+            .nvptx => {
+                const parent = @fieldParentPtr(NvPtx, "base", base);
+                parent.deinit();
+                base.allocator.destroy(parent);
+            },
         }
     }
 
     /// Commit pending changes and write headers. Takes into account final output mode
     /// and `use_lld`, not only `effectiveOutputMode`.
-    pub fn flush(base: *File, comp: *Compilation) !void {
+    pub fn flush(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) !void {
         if (comp.clang_preprocessor_mode == .yes) {
             const emit = base.options.emit orelse return; // -fno-emit-bin
             // TODO: avoid extra link step when it's just 1 object file (the `zig cc -c` case)
@@ -574,44 +634,46 @@ pub const File = struct {
 
         const use_lld = build_options.have_llvm and base.options.use_lld;
         if (use_lld and base.options.output_mode == .Lib and base.options.link_mode == .Static) {
-            return base.linkAsArchive(comp);
+            return base.linkAsArchive(comp, prog_node);
         }
         switch (base.tag) {
-            .coff => return @fieldParentPtr(Coff, "base", base).flush(comp),
-            .elf => return @fieldParentPtr(Elf, "base", base).flush(comp),
-            .macho => return @fieldParentPtr(MachO, "base", base).flush(comp),
-            .c => return @fieldParentPtr(C, "base", base).flush(comp),
-            .wasm => return @fieldParentPtr(Wasm, "base", base).flush(comp),
-            .spirv => return @fieldParentPtr(SpirV, "base", base).flush(comp),
-            .plan9 => return @fieldParentPtr(Plan9, "base", base).flush(comp),
+            .coff => return @fieldParentPtr(Coff, "base", base).flush(comp, prog_node),
+            .elf => return @fieldParentPtr(Elf, "base", base).flush(comp, prog_node),
+            .macho => return @fieldParentPtr(MachO, "base", base).flush(comp, prog_node),
+            .c => return @fieldParentPtr(C, "base", base).flush(comp, prog_node),
+            .wasm => return @fieldParentPtr(Wasm, "base", base).flush(comp, prog_node),
+            .spirv => return @fieldParentPtr(SpirV, "base", base).flush(comp, prog_node),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).flush(comp, prog_node),
+            .nvptx => return @fieldParentPtr(NvPtx, "base", base).flush(comp, prog_node),
         }
     }
 
     /// Commit pending changes and write headers. Works based on `effectiveOutputMode`
     /// rather than final output mode.
-    pub fn flushModule(base: *File, comp: *Compilation) !void {
+    pub fn flushModule(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) !void {
         switch (base.tag) {
-            .coff => return @fieldParentPtr(Coff, "base", base).flushModule(comp),
-            .elf => return @fieldParentPtr(Elf, "base", base).flushModule(comp),
-            .macho => return @fieldParentPtr(MachO, "base", base).flushModule(comp),
-            .c => return @fieldParentPtr(C, "base", base).flushModule(comp),
-            .wasm => return @fieldParentPtr(Wasm, "base", base).flushModule(comp),
-            .spirv => return @fieldParentPtr(SpirV, "base", base).flushModule(comp),
-            .plan9 => return @fieldParentPtr(Plan9, "base", base).flushModule(comp),
+            .coff => return @fieldParentPtr(Coff, "base", base).flushModule(comp, prog_node),
+            .elf => return @fieldParentPtr(Elf, "base", base).flushModule(comp, prog_node),
+            .macho => return @fieldParentPtr(MachO, "base", base).flushModule(comp, prog_node),
+            .c => return @fieldParentPtr(C, "base", base).flushModule(comp, prog_node),
+            .wasm => return @fieldParentPtr(Wasm, "base", base).flushModule(comp, prog_node),
+            .spirv => return @fieldParentPtr(SpirV, "base", base).flushModule(comp, prog_node),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).flushModule(comp, prog_node),
+            .nvptx => return @fieldParentPtr(NvPtx, "base", base).flushModule(comp, prog_node),
         }
     }
 
     /// Called when a Decl is deleted from the Module.
-    pub fn freeDecl(base: *File, decl: *Module.Decl) void {
-        log.debug("freeDecl {*} ({s})", .{ decl, decl.name });
+    pub fn freeDecl(base: *File, decl_index: Module.Decl.Index) void {
         switch (base.tag) {
-            .coff => @fieldParentPtr(Coff, "base", base).freeDecl(decl),
-            .elf => @fieldParentPtr(Elf, "base", base).freeDecl(decl),
-            .macho => @fieldParentPtr(MachO, "base", base).freeDecl(decl),
-            .c => @fieldParentPtr(C, "base", base).freeDecl(decl),
-            .wasm => @fieldParentPtr(Wasm, "base", base).freeDecl(decl),
-            .spirv => @fieldParentPtr(SpirV, "base", base).freeDecl(decl),
-            .plan9 => @fieldParentPtr(Plan9, "base", base).freeDecl(decl),
+            .coff => @fieldParentPtr(Coff, "base", base).freeDecl(decl_index),
+            .elf => @fieldParentPtr(Elf, "base", base).freeDecl(decl_index),
+            .macho => @fieldParentPtr(MachO, "base", base).freeDecl(decl_index),
+            .c => @fieldParentPtr(C, "base", base).freeDecl(decl_index),
+            .wasm => @fieldParentPtr(Wasm, "base", base).freeDecl(decl_index),
+            .spirv => @fieldParentPtr(SpirV, "base", base).freeDecl(decl_index),
+            .plan9 => @fieldParentPtr(Plan9, "base", base).freeDecl(decl_index),
+            .nvptx => @fieldParentPtr(NvPtx, "base", base).freeDecl(decl_index),
         }
     }
 
@@ -622,40 +684,58 @@ pub const File = struct {
             .macho => return @fieldParentPtr(MachO, "base", base).error_flags,
             .plan9 => return @fieldParentPtr(Plan9, "base", base).error_flags,
             .c => return .{ .no_entry_point_found = false },
-            .wasm, .spirv => return ErrorFlags{},
+            .wasm, .spirv, .nvptx => return ErrorFlags{},
         }
     }
+
+    pub const UpdateDeclExportsError = error{
+        OutOfMemory,
+        AnalysisFail,
+    };
 
     /// May be called before or after updateDecl, but must be called after
     /// allocateDeclIndexes for any given Decl.
     pub fn updateDeclExports(
         base: *File,
         module: *Module,
-        decl: *Module.Decl,
+        decl_index: Module.Decl.Index,
         exports: []const *Module.Export,
-    ) !void {
+    ) UpdateDeclExportsError!void {
+        const decl = module.declPtr(decl_index);
         log.debug("updateDeclExports {*} ({s})", .{ decl, decl.name });
         assert(decl.has_tv);
         switch (base.tag) {
-            .coff => return @fieldParentPtr(Coff, "base", base).updateDeclExports(module, decl, exports),
-            .elf => return @fieldParentPtr(Elf, "base", base).updateDeclExports(module, decl, exports),
-            .macho => return @fieldParentPtr(MachO, "base", base).updateDeclExports(module, decl, exports),
-            .c => return @fieldParentPtr(C, "base", base).updateDeclExports(module, decl, exports),
-            .wasm => return @fieldParentPtr(Wasm, "base", base).updateDeclExports(module, decl, exports),
-            .spirv => return @fieldParentPtr(SpirV, "base", base).updateDeclExports(module, decl, exports),
-            .plan9 => return @fieldParentPtr(Plan9, "base", base).updateDeclExports(module, decl, exports),
+            .coff => return @fieldParentPtr(Coff, "base", base).updateDeclExports(module, decl_index, exports),
+            .elf => return @fieldParentPtr(Elf, "base", base).updateDeclExports(module, decl_index, exports),
+            .macho => return @fieldParentPtr(MachO, "base", base).updateDeclExports(module, decl_index, exports),
+            .c => return @fieldParentPtr(C, "base", base).updateDeclExports(module, decl_index, exports),
+            .wasm => return @fieldParentPtr(Wasm, "base", base).updateDeclExports(module, decl_index, exports),
+            .spirv => return @fieldParentPtr(SpirV, "base", base).updateDeclExports(module, decl_index, exports),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).updateDeclExports(module, decl_index, exports),
+            .nvptx => return @fieldParentPtr(NvPtx, "base", base).updateDeclExports(module, decl_index, exports),
         }
     }
 
-    pub fn getDeclVAddr(base: *File, decl: *const Module.Decl) u64 {
+    pub const RelocInfo = struct {
+        parent_atom_index: u32,
+        offset: u64,
+        addend: u32,
+    };
+
+    /// Get allocated `Decl`'s address in virtual memory.
+    /// The linker is passed information about the containing atom, `parent_atom_index`, and offset within it's
+    /// memory buffer, `offset`, so that it can make a note of potential relocation sites, should the
+    /// `Decl`'s address was not yet resolved, or the containing atom gets moved in virtual memory.
+    pub fn getDeclVAddr(base: *File, decl_index: Module.Decl.Index, reloc_info: RelocInfo) !u64 {
         switch (base.tag) {
-            .coff => return @fieldParentPtr(Coff, "base", base).getDeclVAddr(decl),
-            .elf => return @fieldParentPtr(Elf, "base", base).getDeclVAddr(decl),
-            .macho => return @fieldParentPtr(MachO, "base", base).getDeclVAddr(decl),
-            .plan9 => return @fieldParentPtr(Plan9, "base", base).getDeclVAddr(decl),
+            .coff => return @fieldParentPtr(Coff, "base", base).getDeclVAddr(decl_index, reloc_info),
+            .elf => return @fieldParentPtr(Elf, "base", base).getDeclVAddr(decl_index, reloc_info),
+            .macho => return @fieldParentPtr(MachO, "base", base).getDeclVAddr(decl_index, reloc_info),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).getDeclVAddr(decl_index, reloc_info),
             .c => unreachable,
-            .wasm => unreachable,
+            .wasm => return @fieldParentPtr(Wasm, "base", base).getDeclVAddr(decl_index, reloc_info),
             .spirv => unreachable,
+            .nvptx => unreachable,
         }
     }
 
@@ -682,23 +762,42 @@ pub const File = struct {
         // directly, and remove this function from link.zig.
         _ = base;
         while (true) {
-            std.fs.rename(
-                cache_directory.handle,
-                tmp_dir_sub_path,
-                cache_directory.handle,
-                o_sub_path,
-            ) catch |err| switch (err) {
-                error.PathAlreadyExists => {
+            if (builtin.os.tag == .windows) {
+                // workaround windows `renameW` can't fail with `PathAlreadyExists`
+                // See https://github.com/ziglang/zig/issues/8362
+                if (cache_directory.handle.access(o_sub_path, .{})) |_| {
                     try cache_directory.handle.deleteTree(o_sub_path);
                     continue;
-                },
-                else => |e| return e,
-            };
-            break;
+                } else |err| switch (err) {
+                    error.FileNotFound => {},
+                    else => |e| return e,
+                }
+                try std.fs.rename(
+                    cache_directory.handle,
+                    tmp_dir_sub_path,
+                    cache_directory.handle,
+                    o_sub_path,
+                );
+                break;
+            } else {
+                std.fs.rename(
+                    cache_directory.handle,
+                    tmp_dir_sub_path,
+                    cache_directory.handle,
+                    o_sub_path,
+                ) catch |err| switch (err) {
+                    error.PathAlreadyExists => {
+                        try cache_directory.handle.deleteTree(o_sub_path);
+                        continue;
+                    },
+                    else => |e| return e,
+                };
+                break;
+            }
         }
     }
 
-    pub fn linkAsArchive(base: *File, comp: *Compilation) !void {
+    pub fn linkAsArchive(base: *File, comp: *Compilation, prog_node: *std.Progress.Node) !void {
         const tracy = trace(@src());
         defer tracy.end();
 
@@ -730,14 +829,10 @@ pub const File = struct {
                     }),
                 }
             }
-            if (base.options.object_format == .macho) {
-                try base.cast(MachO).?.flushObject(comp);
-            } else {
-                try base.flushModule(comp);
-            }
-            break :blk try fs.path.join(arena, &.{
-                fs.path.dirname(full_out_path_z).?, base.intermediary_basename.?,
-            });
+            try base.flushModule(comp, prog_node);
+
+            const dirname = fs.path.dirname(full_out_path_z) orelse ".";
+            break :blk try fs.path.join(arena, &.{ dirname, base.intermediary_basename.? });
         } else null;
 
         log.debug("module_obj_path={s}", .{if (module_obj_path) |s| s else "(null)"});
@@ -851,6 +946,7 @@ pub const File = struct {
         wasm,
         spirv,
         plan9,
+        nvptx,
     };
 
     pub const ErrorFlags = struct {
@@ -864,6 +960,8 @@ pub const File = struct {
     pub const MachO = @import("link/MachO.zig");
     pub const SpirV = @import("link/SpirV.zig");
     pub const Wasm = @import("link/Wasm.zig");
+    pub const NvPtx = @import("link/NvPtx.zig");
+    pub const Dwarf = @import("link/Dwarf.zig");
 };
 
 pub fn determineMode(options: Options) fs.File.Mode {

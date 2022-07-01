@@ -36,6 +36,9 @@ pub const sem_t = ?*opaque {};
 pub extern "c" fn pthread_setname_np(thread: std.c.pthread_t, name: [*:0]const u8) E;
 pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) E;
 
+pub extern "c" fn umtx_sleep(ptr: *const volatile c_int, value: c_int, timeout: c_int) c_int;
+pub extern "c" fn umtx_wakeup(ptr: *const volatile c_int, count: c_int) c_int;
+
 // See:
 // - https://gitweb.dragonflybsd.org/dragonfly.git/blob/HEAD:/include/unistd.h
 // - https://gitweb.dragonflybsd.org/dragonfly.git/blob/HEAD:/sys/sys/types.h
@@ -183,6 +186,12 @@ pub const MAP = struct {
     pub const TRYFIXED = 65536;
     pub const NOCORE = 131072;
     pub const SIZEALIGN = 262144;
+};
+
+pub const MSF = struct {
+    pub const ASYNC = 1;
+    pub const INVALIDATE = 2;
+    pub const SYNC = 4;
 };
 
 pub const W = struct {
@@ -923,11 +932,11 @@ pub const LOCK = struct {
 };
 
 pub const Flock = extern struct {
-    l_start: off_t,
-    l_len: off_t,
-    l_pid: pid_t,
-    l_type: c_short,
-    l_whence: c_short,
+    start: off_t,
+    len: off_t,
+    pid: pid_t,
+    type: c_short,
+    whence: c_short,
 };
 
 pub const addrinfo = extern struct {

@@ -12,6 +12,7 @@ find_path(LLVM_INCLUDE_DIRS NAMES llvm/IR/IRBuilder.h
     /usr/lib/llvm/14/include
     /usr/lib/llvm-14/include
     /usr/lib/llvm-14.0/include
+    /usr/lib/llvm14/include
     /usr/local/llvm14/include
     /usr/local/llvm140/include
     /usr/local/opt/llvm@14/include
@@ -31,6 +32,7 @@ if(ZIG_PREFER_CLANG_CPP_DYLIB)
       /usr/lib/llvm/14/lib
       /usr/lib/llvm/14/lib64
       /usr/lib/llvm-14/lib
+      /usr/lib/llvm14/lib
       /usr/local/llvm14/lib
       /usr/local/llvm140/lib
       /usr/local/opt/llvm@14/lib
@@ -181,19 +183,7 @@ else()
 
   macro(FIND_AND_ADD_LLVM_LIB _libname_)
     string(TOUPPER ${_libname_} _prettylibname_)
-    find_library(LLVM_${_prettylibname_}_LIB NAMES ${_libname_}
-      PATHS
-      ${LLVM_LIBDIRS}
-      /usr/lib/llvm/14/lib
-      /usr/lib/llvm-14/lib
-      /usr/lib/llvm-14.0/lib
-      /usr/local/llvm140/lib
-      /usr/local/llvm14/lib
-      /usr/local/opt/llvm@14/lib
-      /opt/homebrew/opt/llvm@14/lib
-      /mingw64/lib
-      /c/msys64/mingw64/lib
-      c:\\msys64\\mingw64\\lib)
+    find_library(LLVM_${_prettylibname_}_LIB NAMES ${_libname_} PATHS ${LLVM_LIBDIRS})
     set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_${_prettylibname_}_LIB})
   endmacro(FIND_AND_ADD_LLVM_LIB)
 

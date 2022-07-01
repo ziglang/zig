@@ -73,7 +73,10 @@ test "binarySearch" {
     );
 }
 
-/// Stable in-place sort. O(n) best case, O(pow(n, 2)) worst case. O(1) memory (no allocator required).
+/// Stable in-place sort. O(n) best case, O(pow(n, 2)) worst case.
+/// O(1) memory (no allocator required).
+/// This can be expressed in terms of `insertionSortContext` but the glue
+/// code is slightly longer than the direct implementation.
 pub fn insertionSort(
     comptime T: type,
     items: []T,
@@ -88,6 +91,18 @@ pub fn insertionSort(
             items[j] = items[j - 1];
         }
         items[j] = x;
+    }
+}
+
+/// Stable in-place sort. O(n) best case, O(pow(n, 2)) worst case.
+/// O(1) memory (no allocator required).
+pub fn insertionSortContext(len: usize, context: anytype) void {
+    var i: usize = 1;
+    while (i < len) : (i += 1) {
+        var j: usize = i;
+        while (j > 0 and context.lessThan(j, j - 1)) : (j -= 1) {
+            context.swap(j, j - 1);
+        }
     }
 }
 
@@ -178,7 +193,8 @@ const Pull = struct {
     range: Range,
 };
 
-/// Stable in-place sort. O(n) best case, O(n*log(n)) worst case and average case. O(1) memory (no allocator required).
+/// Stable in-place sort. O(n) best case, O(n*log(n)) worst case and average case.
+/// O(1) memory (no allocator required).
 /// Currently implemented as block sort.
 pub fn sort(
     comptime T: type,
@@ -186,6 +202,7 @@ pub fn sort(
     context: anytype,
     comptime lessThan: fn (context: @TypeOf(context), lhs: T, rhs: T) bool,
 ) void {
+
     // Implementation ported from https://github.com/BonzaiThePenguin/WikiSort/blob/master/WikiSort.c
     var cache: [512]T = undefined;
 
@@ -291,10 +308,13 @@ pub fn sort(
 
     // then merge sort the higher levels, which can be 8-15, 16-31, 32-63, 64-127, etc.
     while (true) {
-        // if every A and B block will fit into the cache, use a special branch specifically for merging with the cache
-        // (we use < rather than <= since the block size might be one more than iterator.length())
+        // if every A and B block will fit into the cache, use a special branch
+        // specifically for merging with the cache
+        // (we use < rather than <= since the block size might be one more than
+        // iterator.length())
         if (iterator.length() < cache.len) {
-            // if four subarrays fit into the cache, it's faster to merge both pairs of subarrays into the cache,
+            // if four subarrays fit into the cache, it's faster to merge both
+            // pairs of subarrays into the cache,
             // then merge the two merged subarrays from the cache back into the original array
             if ((iterator.length() + 1) * 4 <= cache.len and iterator.length() * 4 <= items.len) {
                 iterator.begin();
@@ -767,11 +787,15 @@ pub fn sort(
                 }
             }
 
-            // when we're finished with this merge step we should have the one or two internal buffers left over, where the second buffer is all jumbled up
-            // insertion sort the second buffer, then redistribute the buffers back into the items using the opposite process used for creating the buffer
+            // when we're finished with this merge step we should have the one
+            // or two internal buffers left over, where the second buffer is all jumbled up
+            // insertion sort the second buffer, then redistribute the buffers
+            // back into the items using the opposite process used for creating the buffer
 
-            // while an unstable sort like quicksort could be applied here, in benchmarks it was consistently slightly slower than a simple insertion sort,
-            // even for tens of millions of items. this may be because insertion sort is quite fast when the data is already somewhat sorted, like it is here
+            // while an unstable sort like quicksort could be applied here, in benchmarks
+            // it was consistently slightly slower than a simple insertion sort,
+            // even for tens of millions of items. this may be because insertion
+            // sort is quite fast when the data is already somewhat sorted, like it is here
             insertionSort(T, items[buffer2.start..buffer2.end], context, lessThan);
 
             pull_index = 0;
@@ -806,6 +830,12 @@ pub fn sort(
         // double the size of each A and B subarray that will be merged in the next level
         if (!iterator.nextLevel()) break;
     }
+}
+
+/// TODO currently this just calls `insertionSortContext`. The block sort implementation
+/// in this file needs to be adapted to use the sort context.
+pub fn sortContext(len: usize, context: anytype) void {
+    return insertionSortContext(len, context);
 }
 
 // merge operation without a buffer

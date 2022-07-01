@@ -73,7 +73,7 @@ fn atan32(x_: f32) f32 {
         }
         id = null;
     } else {
-        x = math.fabs(x);
+        x = @fabs(x);
         // |x| < 1.1875
         if (ix < 0x3F980000) {
             // 7/16 <= |x| < 11/16
@@ -171,7 +171,7 @@ fn atan64(x_: f64) f64 {
         }
         id = null;
     } else {
-        x = math.fabs(x);
+        x = @fabs(x);
         // |x| < 1.1875
         if (ix < 0x3FF30000) {
             // 7/16 <= |x| < 11/16

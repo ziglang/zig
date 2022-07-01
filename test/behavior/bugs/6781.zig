@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const assert = std.debug.assert;
 
@@ -61,7 +62,13 @@ pub const JournalHeader = packed struct {
 };
 
 test "fixed" {
-    var buffer = [_]u8{0} ** 65536;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    var buffer align(@alignOf(JournalHeader)) = [_]u8{0} ** 65536;
     var entry = std.mem.bytesAsValue(JournalHeader, buffer[0..@sizeOf(JournalHeader)]);
     entry.* = .{
         .prev_hash_chain_root = 0,

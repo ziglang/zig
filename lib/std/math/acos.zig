@@ -64,14 +64,14 @@ fn acos32(x: f32) f32 {
     // x < -0.5
     if (hx >> 31 != 0) {
         const z = (1 + x) * 0.5;
-        const s = math.sqrt(z);
+        const s = @sqrt(z);
         const w = r32(z) * s - pio2_lo;
         return 2 * (pio2_hi - (s + w));
     }
 
     // x > 0.5
     const z = (1.0 - x) * 0.5;
-    const s = math.sqrt(z);
+    const s = @sqrt(z);
     const jx = @bitCast(u32, s);
     const df = @bitCast(f32, jx & 0xFFFFF000);
     const c = (z - df * df) / (s + df);
@@ -133,14 +133,14 @@ fn acos64(x: f64) f64 {
     // x < -0.5
     if (hx >> 31 != 0) {
         const z = (1.0 + x) * 0.5;
-        const s = math.sqrt(z);
+        const s = @sqrt(z);
         const w = r64(z) * s - pio2_lo;
         return 2 * (pio2_hi - (s + w));
     }
 
     // x > 0.5
     const z = (1.0 - x) * 0.5;
-    const s = math.sqrt(z);
+    const s = @sqrt(z);
     const jx = @bitCast(u64, s);
     const df = @bitCast(f64, jx & 0xFFFFFFFF00000000);
     const c = (z - df * df) / (s + df);

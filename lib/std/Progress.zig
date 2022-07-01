@@ -35,7 +35,7 @@ root: Node = undefined,
 
 /// Keeps track of how much time has passed since the beginning.
 /// Used to compare with `initial_delay_ms` and `refresh_rate_ms`.
-timer: std.time.Timer = undefined,
+timer: ?std.time.Timer = null,
 
 /// When the previous refresh was written to the terminal.
 /// Used to compare with `refresh_rate_ms`.
@@ -93,7 +93,9 @@ pub const Node = struct {
 
     /// This is the same as calling `start` and then `end` on the returned `Node`. Thread-safe.
     pub fn completeOne(self: *Node) void {
-        self.activate();
+        if (self.parent) |parent| {
+            @atomicStore(?*Node, &parent.recently_updated_child, self, .Release);
+        }
         _ = @atomicRmw(usize, &self.unprotected_completed_items, .Add, 1, .Monotonic);
         self.context.maybeRefresh();
     }
@@ -120,6 +122,7 @@ pub const Node = struct {
     pub fn activate(self: *Node) void {
         if (self.parent) |parent| {
             @atomicStore(?*Node, &parent.recently_updated_child, self, .Release);
+            self.context.maybeRefresh();
         }
     }
 
@@ -139,7 +142,7 @@ pub const Node = struct {
 /// TODO solve https://github.com/ziglang/zig/issues/2765 and then change this
 /// API to return Progress rather than accept it as a parameter.
 /// `estimated_total_items` value of 0 means unknown.
-pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) !*Node {
+pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *Node {
     const stderr = std.io.getStdErr();
     self.terminal = null;
     if (stderr.supportsAnsiEscapeCodes()) {
@@ -161,22 +164,24 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) !*
     };
     self.columns_written = 0;
     self.prev_refresh_timestamp = 0;
-    self.timer = try std.time.Timer.start();
+    self.timer = std.time.Timer.start() catch null;
     self.done = false;
     return &self.root;
 }
 
 /// Updates the terminal if enough time has passed since last update. Thread-safe.
 pub fn maybeRefresh(self: *Progress) void {
-    const now = self.timer.read();
-    if (now < self.initial_delay_ns) return;
-    if (!self.update_mutex.tryLock()) return;
-    defer self.update_mutex.unlock();
-    // TODO I have observed this to happen sometimes. I think we need to follow Rust's
-    // lead and guarantee monotonically increasing times in the std lib itself.
-    if (now < self.prev_refresh_timestamp) return;
-    if (now - self.prev_refresh_timestamp < self.refresh_rate_ns) return;
-    return self.refreshWithHeldLock();
+    if (self.timer) |*timer| {
+        const now = timer.read();
+        if (now < self.initial_delay_ns) return;
+        if (!self.update_mutex.tryLock()) return;
+        defer self.update_mutex.unlock();
+        // TODO I have observed this to happen sometimes. I think we need to follow Rust's
+        // lead and guarantee monotonically increasing times in the std lib itself.
+        if (now < self.prev_refresh_timestamp) return;
+        if (now - self.prev_refresh_timestamp < self.refresh_rate_ns) return;
+        return self.refreshWithHeldLock();
+    }
 }
 
 /// Updates the terminal and resets `self.next_refresh_timestamp`. Thread-safe.
@@ -259,6 +264,7 @@ fn refreshWithHeldLock(self: *Progress) void {
             need_ellipse = false;
             const eti = @atomicLoad(usize, &node.unprotected_estimated_total_items, .Monotonic);
             const completed_items = @atomicLoad(usize, &node.unprotected_completed_items, .Monotonic);
+            const current_item = completed_items + 1;
             if (node.name.len != 0 or eti > 0) {
                 if (node.name.len != 0) {
                     self.bufWrite(&end, "{s}", .{node.name});
@@ -266,11 +272,11 @@ fn refreshWithHeldLock(self: *Progress) void {
                 }
                 if (eti > 0) {
                     if (need_ellipse) self.bufWrite(&end, " ", .{});
-                    self.bufWrite(&end, "[{d}/{d}] ", .{ completed_items, eti });
+                    self.bufWrite(&end, "[{d}/{d}] ", .{ current_item, eti });
                     need_ellipse = false;
                 } else if (completed_items != 0) {
                     if (need_ellipse) self.bufWrite(&end, " ", .{});
-                    self.bufWrite(&end, "[{d}] ", .{completed_items});
+                    self.bufWrite(&end, "[{d}] ", .{current_item});
                     need_ellipse = false;
                 }
             }
@@ -285,11 +291,16 @@ fn refreshWithHeldLock(self: *Progress) void {
         // Stop trying to write to this file once it errors.
         self.terminal = null;
     };
-    self.prev_refresh_timestamp = self.timer.read();
+    if (self.timer) |*timer| {
+        self.prev_refresh_timestamp = timer.read();
+    }
 }
 
 pub fn log(self: *Progress, comptime format: []const u8, args: anytype) void {
-    const file = self.terminal orelse return;
+    const file = self.terminal orelse {
+        std.debug.print(format, args);
+        return;
+    };
     self.refresh();
     file.writer().print(format, args) catch {
         self.terminal = null;
@@ -307,15 +318,9 @@ fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: any
         error.NoSpaceLeft => {
             self.columns_written += self.output_buffer.len - end.*;
             end.* = self.output_buffer.len;
+            const suffix = "... ";
+            std.mem.copy(u8, self.output_buffer[self.output_buffer.len - suffix.len ..], suffix);
         },
-    }
-    const bytes_needed_for_esc_codes_at_end: u8 = if (self.is_windows_terminal) 0 else 11;
-    const max_end = self.output_buffer.len - bytes_needed_for_esc_codes_at_end;
-    if (end.* > max_end) {
-        const suffix = "... ";
-        self.columns_written = self.columns_written - (end.* - max_end) + suffix.len;
-        std.mem.copy(u8, self.output_buffer[max_end..], suffix);
-        end.* = max_end + suffix.len;
     }
 }
 
@@ -327,8 +332,10 @@ test "basic functionality" {
         return error.SkipZigTest;
     }
     var progress = Progress{};
-    const root_node = try progress.start("", 100);
+    const root_node = progress.start("", 100);
     defer root_node.end();
+
+    const speed_factor = std.time.ns_per_ms;
 
     const sub_task_names = [_][]const u8{
         "reticulating splines",
@@ -345,24 +352,24 @@ test "basic functionality" {
         next_sub_task = (next_sub_task + 1) % sub_task_names.len;
 
         node.completeOne();
-        std.time.sleep(5 * std.time.ns_per_ms);
+        std.time.sleep(5 * speed_factor);
         node.completeOne();
         node.completeOne();
-        std.time.sleep(5 * std.time.ns_per_ms);
+        std.time.sleep(5 * speed_factor);
         node.completeOne();
         node.completeOne();
-        std.time.sleep(5 * std.time.ns_per_ms);
+        std.time.sleep(5 * speed_factor);
 
         node.end();
 
-        std.time.sleep(5 * std.time.ns_per_ms);
+        std.time.sleep(5 * speed_factor);
     }
     {
         var node = root_node.start("this is a really long name designed to activate the truncation code. let's find out if it works", 0);
         node.activate();
-        std.time.sleep(10 * std.time.ns_per_ms);
+        std.time.sleep(10 * speed_factor);
         progress.refresh();
-        std.time.sleep(10 * std.time.ns_per_ms);
+        std.time.sleep(10 * speed_factor);
         node.end();
     }
 }

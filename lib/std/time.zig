@@ -4,22 +4,23 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const os = std.os;
 const math = std.math;
-const is_windows = builtin.os.tag == .windows;
 
 pub const epoch = @import("time/epoch.zig");
 
 /// Spurious wakeups are possible and no precision of timing is guaranteed.
 pub fn sleep(nanoseconds: u64) void {
     // TODO: opting out of async sleeping?
-    if (std.io.is_async)
+    if (std.io.is_async) {
         return std.event.Loop.instance.?.sleep(nanoseconds);
+    }
 
-    if (is_windows) {
+    if (builtin.os.tag == .windows) {
         const big_ms_from_ns = nanoseconds / ns_per_ms;
-        const ms = math.cast(os.windows.DWORD, big_ms_from_ns) catch math.maxInt(os.windows.DWORD);
+        const ms = math.cast(os.windows.DWORD, big_ms_from_ns) orelse math.maxInt(os.windows.DWORD);
         os.windows.kernel32.Sleep(ms);
         return;
     }
+
     if (builtin.os.tag == .wasi) {
         const w = std.os.wasi;
         const userdata: w.userdata_t = 0x0123_45678;
@@ -50,6 +51,10 @@ pub fn sleep(nanoseconds: u64) void {
     std.os.nanosleep(s, ns);
 }
 
+test "sleep" {
+    sleep(1);
+}
+
 /// Get a calendar timestamp, in seconds, relative to UTC 1970-01-01.
 /// Precision of timing depends on the hardware and operating system.
 /// The return value is signed because it is possible to have a date that is
@@ -75,7 +80,7 @@ pub fn milliTimestamp() i64 {
 /// before the epoch.
 /// See `std.os.clock_gettime` for a POSIX timestamp.
 pub fn nanoTimestamp() i128 {
-    if (is_windows) {
+    if (builtin.os.tag == .windows) {
         // FileTime has a granularity of 100 nanoseconds and uses the NTFS/Windows epoch,
         // which is 1601-01-01.
         const epoch_adj = epoch.windows * (ns_per_s / 100);
@@ -84,17 +89,31 @@ pub fn nanoTimestamp() i128 {
         const ft64 = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
         return @as(i128, @bitCast(i64, ft64) + epoch_adj) * 100;
     }
+
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var ns: os.wasi.timestamp_t = undefined;
         const err = os.wasi.clock_time_get(os.wasi.CLOCK.REALTIME, 1, &ns);
         assert(err == .SUCCESS);
         return ns;
     }
+
     var ts: os.timespec = undefined;
     os.clock_gettime(os.CLOCK.REALTIME, &ts) catch |err| switch (err) {
         error.UnsupportedClock, error.Unexpected => return 0, // "Precision of timing depends on hardware and OS".
     };
     return (@as(i128, ts.tv_sec) * ns_per_s) + ts.tv_nsec;
+}
+
+test "timestamp" {
+    const margin = ns_per_ms * 50;
+
+    const time_0 = milliTimestamp();
+    sleep(ns_per_ms);
+    const time_1 = milliTimestamp();
+    const interval = time_1 - time_0;
+    try testing.expect(interval > 0);
+    // Tests should not depend on timings: skip test if outside margin.
+    if (!(interval < margin)) return error.SkipZigTest;
 }
 
 // Divisions of a nanosecond.
@@ -127,149 +146,162 @@ pub const s_per_hour = s_per_min * 60;
 pub const s_per_day = s_per_hour * 24;
 pub const s_per_week = s_per_day * 7;
 
-/// A monotonic high-performance timer.
-/// Timer.start() must be called to initialize the struct, which captures
-/// the counter frequency on windows and darwin, records the resolution,
-/// and gives the user an opportunity to check for the existnece of
-/// monotonic clocks without forcing them to check for error on each read.
-/// .resolution is in nanoseconds on all platforms but .start_time's meaning
-/// depends on the OS. On Windows and Darwin it is a hardware counter
-/// value that requires calculation to convert to a meaninful unit.
+/// An Instant represents a timestamp with respect to the currently
+/// executing program that ticks during suspend and can be used to
+/// record elapsed time unlike `nanoTimestamp`.
+///
+/// It tries to sample the system's fastest and most precise timer available.
+/// It also tries to be monotonic, but this is not a guarantee due to OS/hardware bugs.
+/// If you need monotonic readings for elapsed time, consider `Timer` instead.
+pub const Instant = struct {
+    timestamp: if (is_posix) os.timespec else u64,
+
+    // true if we should use clock_gettime()
+    const is_posix = switch (builtin.os.tag) {
+        .wasi => builtin.link_libc,
+        .windows => false,
+        else => true,
+    };
+
+    /// Queries the system for the current moment of time as an Instant.
+    /// This is not guaranteed to be monotonic or steadily increasing, but for most implementations it is.
+    /// Returns `error.Unsupported` when a suitable clock is not detected.
+    pub fn now() error{Unsupported}!Instant {
+        // QPC on windows doesn't fail on >= XP/2000 and includes time suspended.
+        if (builtin.os.tag == .windows) {
+            return Instant{ .timestamp = os.windows.QueryPerformanceCounter() };
+        }
+
+        // On WASI without libc, use clock_time_get directly.
+        if (builtin.os.tag == .wasi and !builtin.link_libc) {
+            var ns: os.wasi.timestamp_t = undefined;
+            const rc = os.wasi.clock_time_get(os.wasi.CLOCK.MONOTONIC, 1, &ns);
+            if (rc != .SUCCESS) return error.Unsupported;
+            return Instant{ .timestamp = ns };
+        }
+
+        // On darwin, use UPTIME_RAW instead of MONOTONIC as it ticks while suspended.
+        // On linux, use BOOTTIME instead of MONOTONIC as it ticks while suspended.
+        // On freebsd derivatives, use MONOTONIC_FAST as currently there's no precision tradeoff.
+        // On other posix systems, MONOTONIC is generally the fastest and ticks while suspended.
+        const clock_id = switch (builtin.os.tag) {
+            .macos, .ios, .tvos, .watchos => os.CLOCK.UPTIME_RAW,
+            .freebsd, .dragonfly => os.CLOCK.MONOTONIC_FAST,
+            .linux => os.CLOCK.BOOTTIME,
+            else => os.CLOCK.MONOTONIC,
+        };
+
+        var ts: os.timespec = undefined;
+        os.clock_gettime(clock_id, &ts) catch return error.Unsupported;
+        return Instant{ .timestamp = ts };
+    }
+
+    /// Quickly compares two instances between each other.
+    pub fn order(self: Instant, other: Instant) std.math.Order {
+        // windows and wasi timestamps are in u64 which is easily comparible
+        if (!is_posix) {
+            return std.math.order(self.timestamp, other.timestamp);
+        }
+
+        var ord = std.math.order(self.timestamp.tv_sec, other.timestamp.tv_sec);
+        if (ord == .eq) {
+            ord = std.math.order(self.timestamp.tv_nsec, other.timestamp.tv_nsec);
+        }
+        return ord;
+    }
+
+    /// Returns elapsed time in nanoseconds since the `earlier` Instant.
+    /// This assumes that the `earlier` Instant represents a moment in time before or equal to `self`.
+    /// This also assumes that the time that has passed between both Instants fits inside a u64 (~585 yrs).
+    pub fn since(self: Instant, earlier: Instant) u64 {
+        if (builtin.os.tag == .windows) {
+            // We don't need to cache QPF as it's internally just a memory read to KUSER_SHARED_DATA
+            // (a read-only page of info updated and mapped by the kernel to all processes):
+            // https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddk/ns-ntddk-kuser_shared_data
+            // https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntexapi_x/kuser_shared_data/index.htm
+            const qpc = self.timestamp - earlier.timestamp;
+            const qpf = os.windows.QueryPerformanceFrequency();
+
+            // 10Mhz (1 qpc tick every 100ns) is a common enough QPF value that we can optimize on it.
+            // https://github.com/microsoft/STL/blob/785143a0c73f030238ef618890fd4d6ae2b3a3a0/stl/inc/chrono#L694-L701
+            const common_qpf = 10_000_000;
+            if (qpf == common_qpf) {
+                return qpc * (ns_per_s / common_qpf);
+            }
+
+            // Convert to ns using fixed point.
+            const scale = @as(u64, std.time.ns_per_s << 32) / @intCast(u32, qpf);
+            const result = (@as(u96, qpc) * scale) >> 32;
+            return @truncate(u64, result);
+        }
+
+        // WASI timestamps are directly in nanoseconds
+        if (builtin.os.tag == .wasi and !builtin.link_libc) {
+            return self.timestamp - earlier.timestamp;
+        }
+
+        // Convert timespec diff to ns
+        const seconds = @intCast(u64, self.timestamp.tv_sec - earlier.timestamp.tv_sec);
+        const elapsed = (seconds * ns_per_s) + @intCast(u32, self.timestamp.tv_nsec);
+        return elapsed - @intCast(u32, earlier.timestamp.tv_nsec);
+    }
+};
+
+/// A monotonic, high performance timer.
+///
+/// Timer.start() is used to initalize the timer
+/// and gives the caller an opportunity to check for the existence of a supported clock.
+/// Once a supported clock is discovered,
+/// it is assumed that it will be available for the duration of the Timer's use.
+///
+/// Monotonicity is ensured by saturating on the most previous sample.
+/// This means that while timings reported are monotonic,
+/// they're not guaranteed to tick at a steady rate as this is up to the underlying system.
 pub const Timer = struct {
-    ///if we used resolution's value when performing the
-    ///  performance counter calc on windows/darwin, it would
-    ///  be less precise
-    frequency: switch (builtin.os.tag) {
-        .windows => u64,
-        .macos, .ios, .tvos, .watchos => os.darwin.mach_timebase_info_data,
-        else => void,
-    },
-    resolution: u64,
-    start_time: u64,
+    started: Instant,
+    previous: Instant,
 
     pub const Error = error{TimerUnsupported};
 
-    /// At some point we may change our minds on RAW, but for now we're
-    /// sticking with posix standard MONOTONIC. For more information, see:
-    /// https://github.com/ziglang/zig/pull/933
-    const monotonic_clock_id = os.CLOCK.MONOTONIC;
-
-    /// Initialize the timer structure.
-    /// Can only fail when running in a hostile environment that intentionally injects
-    /// error values into syscalls, such as using seccomp on Linux to intercept
-    /// `clock_gettime`.
+    /// Initialize the timer by querying for a supported clock.
+    /// Returns `error.TimerUnsupported` when such a clock is unavailable.
+    /// This should only fail in hostile environments such as linux seccomp misuse.
     pub fn start() Error!Timer {
-        // This gives us an opportunity to grab the counter frequency in windows.
-        // On Windows: QueryPerformanceCounter will succeed on anything >= XP/2000.
-        // On Posix: CLOCK.MONOTONIC will only fail if the monotonic counter is not
-        // supported, or if the timespec pointer is out of bounds, which should be
-        // impossible here barring cosmic rays or other such occurrences of
-        // incredibly bad luck.
-        // On Darwin: This cannot fail, as far as I am able to tell.
-        if (is_windows) {
-            const freq = os.windows.QueryPerformanceFrequency();
-            return Timer{
-                .frequency = freq,
-                .resolution = @divFloor(ns_per_s, freq),
-                .start_time = os.windows.QueryPerformanceCounter(),
-            };
-        } else if (comptime builtin.target.isDarwin()) {
-            var freq: os.darwin.mach_timebase_info_data = undefined;
-            os.darwin.mach_timebase_info(&freq);
-
-            return Timer{
-                .frequency = freq,
-                .resolution = @divFloor(freq.numer, freq.denom),
-                .start_time = os.darwin.mach_absolute_time(),
-            };
-        } else {
-            // On Linux, seccomp can do arbitrary things to our ability to call
-            // syscalls, including return any errno value it wants and
-            // inconsistently throwing errors. Since we can't account for
-            // abuses of seccomp in a reasonable way, we'll assume that if
-            // seccomp is going to block us it will at least do so consistently
-            var res: os.timespec = undefined;
-            os.clock_getres(monotonic_clock_id, &res) catch return error.TimerUnsupported;
-
-            var ts: os.timespec = undefined;
-            os.clock_gettime(monotonic_clock_id, &ts) catch return error.TimerUnsupported;
-
-            return Timer{
-                .resolution = @intCast(u64, res.tv_sec) * ns_per_s + @intCast(u64, res.tv_nsec),
-                .start_time = @intCast(u64, ts.tv_sec) * ns_per_s + @intCast(u64, ts.tv_nsec),
-                .frequency = {},
-            };
-        }
+        const current = Instant.now() catch return error.TimerUnsupported;
+        return Timer{ .started = current, .previous = current };
     }
 
-    /// Reads the timer value since start or the last reset in nanoseconds
-    pub fn read(self: Timer) u64 {
-        var clock = clockNative() - self.start_time;
-        return self.nativeDurationToNanos(clock);
+    /// Reads the timer value since start or the last reset in nanoseconds.
+    pub fn read(self: *Timer) u64 {
+        const current = self.sample();
+        return current.since(self.started);
     }
 
     /// Resets the timer value to 0/now.
     pub fn reset(self: *Timer) void {
-        self.start_time = clockNative();
+        const current = self.sample();
+        self.started = current;
     }
 
-    /// Returns the current value of the timer in nanoseconds, then resets it
+    /// Returns the current value of the timer in nanoseconds, then resets it.
     pub fn lap(self: *Timer) u64 {
-        var now = clockNative();
-        var lap_time = self.nativeDurationToNanos(now - self.start_time);
-        self.start_time = now;
-        return lap_time;
+        const current = self.sample();
+        defer self.started = current;
+        return current.since(self.started);
     }
 
-    fn clockNative() u64 {
-        if (is_windows) {
-            return os.windows.QueryPerformanceCounter();
+    /// Returns an Instant sampled at the callsite that is
+    /// guaranteed to be monotonic with respect to the timer's starting point.
+    fn sample(self: *Timer) Instant {
+        const current = Instant.now() catch unreachable;
+        if (current.order(self.previous) == .gt) {
+            self.previous = current;
         }
-        if (comptime builtin.target.isDarwin()) {
-            return os.darwin.mach_absolute_time();
-        }
-        var ts: os.timespec = undefined;
-        os.clock_gettime(monotonic_clock_id, &ts) catch unreachable;
-        return @intCast(u64, ts.tv_sec) * @as(u64, ns_per_s) + @intCast(u64, ts.tv_nsec);
-    }
-
-    fn nativeDurationToNanos(self: Timer, duration: u64) u64 {
-        if (is_windows) {
-            return safeMulDiv(duration, ns_per_s, self.frequency);
-        }
-        if (comptime builtin.target.isDarwin()) {
-            return safeMulDiv(duration, self.frequency.numer, self.frequency.denom);
-        }
-        return duration;
+        return self.previous;
     }
 };
 
-// Calculate (a * b) / c without risk of overflowing too early because of the
-// multiplication.
-fn safeMulDiv(a: u64, b: u64, c: u64) u64 {
-    const q = a / c;
-    const r = a % c;
-    // (a * b) / c == (a / c) * b + ((a % c) * b) / c
-    return (q * b) + (r * b) / c;
-}
-
-test "sleep" {
-    sleep(1);
-}
-
-test "timestamp" {
-    const margin = ns_per_ms * 50;
-
-    const time_0 = milliTimestamp();
-    sleep(ns_per_ms);
-    const time_1 = milliTimestamp();
-    const interval = time_1 - time_0;
-    try testing.expect(interval > 0);
-    // Tests should not depend on timings: skip test if outside margin.
-    if (!(interval < margin)) return error.SkipZigTest;
-}
-
-test "Timer" {
+test "Timer + Instant" {
     const margin = ns_per_ms * 150;
 
     var timer = try Timer.start();

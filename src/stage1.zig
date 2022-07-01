@@ -305,10 +305,7 @@ export fn stage2_progress_start_root(
     name_len: usize,
     estimated_total_items: usize,
 ) *std.Progress.Node {
-    return progress.start(
-        name_ptr[0..name_len],
-        estimated_total_items,
-    ) catch @panic("timer unsupported");
+    return progress.start(name_ptr[0..name_len], estimated_total_items);
 }
 
 // ABI warning

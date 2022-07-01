@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const Target = std.Target;
 const fs = std.fs;
 const Allocator = std.mem.Allocator;
-const Batch = std.event.Batch;
 const build_options = @import("build_options");
 
 const is_darwin = builtin.target.isDarwin();
@@ -195,40 +194,30 @@ pub const LibCInstallation = struct {
                 .None => {
                     defer sdk.free();
 
-                    var batch = Batch(FindError!void, 5, .auto_async).init();
-                    batch.add(&async self.findNativeMsvcIncludeDir(args, sdk));
-                    batch.add(&async self.findNativeMsvcLibDir(args, sdk));
-                    batch.add(&async self.findNativeKernel32LibDir(args, sdk));
-                    batch.add(&async self.findNativeIncludeDirWindows(args, sdk));
-                    batch.add(&async self.findNativeCrtDirWindows(args, sdk));
-                    try batch.wait();
+                    try self.findNativeMsvcIncludeDir(args, sdk);
+                    try self.findNativeMsvcLibDir(args, sdk);
+                    try self.findNativeKernel32LibDir(args, sdk);
+                    try self.findNativeIncludeDirWindows(args, sdk);
+                    try self.findNativeCrtDirWindows(args, sdk);
                 },
                 .OutOfMemory => return error.OutOfMemory,
                 .NotFound => return error.WindowsSdkNotFound,
                 .PathTooLong => return error.WindowsSdkNotFound,
             }
         } else if (is_haiku) {
-            try blk: {
-                var batch = Batch(FindError!void, 2, .auto_async).init();
-                errdefer batch.wait() catch {};
-                batch.add(&async self.findNativeIncludeDirPosix(args));
-                batch.add(&async self.findNativeCrtBeginDirHaiku(args));
-                self.crt_dir = try args.allocator.dupeZ(u8, "/system/develop/lib");
-                break :blk batch.wait();
-            };
+            try self.findNativeIncludeDirPosix(args);
+            try self.findNativeCrtBeginDirHaiku(args);
+            self.crt_dir = try args.allocator.dupeZ(u8, "/system/develop/lib");
+        } else if (std.process.can_spawn) {
+            try self.findNativeIncludeDirPosix(args);
+            switch (builtin.target.os.tag) {
+                .freebsd, .netbsd, .openbsd, .dragonfly => self.crt_dir = try args.allocator.dupeZ(u8, "/usr/lib"),
+                .solaris => self.crt_dir = try args.allocator.dupeZ(u8, "/usr/lib/64"),
+                .linux => try self.findNativeCrtDirPosix(args),
+                else => {},
+            }
         } else {
-            try blk: {
-                var batch = Batch(FindError!void, 2, .auto_async).init();
-                errdefer batch.wait() catch {};
-                batch.add(&async self.findNativeIncludeDirPosix(args));
-                switch (builtin.target.os.tag) {
-                    .freebsd, .netbsd, .openbsd, .dragonfly => self.crt_dir = try args.allocator.dupeZ(u8, "/usr/lib"),
-                    .solaris => self.crt_dir = try args.allocator.dupeZ(u8, "/usr/lib/64"),
-                    .linux => batch.add(&async self.findNativeCrtDirPosix(args)),
-                    else => {},
-                }
-                break :blk batch.wait();
-            };
+            return error.LibCRuntimeNotFound;
         }
         return self;
     }

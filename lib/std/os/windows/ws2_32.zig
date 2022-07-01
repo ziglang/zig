@@ -1143,7 +1143,7 @@ pub const msghdr_const = WSAMSG_const;
 pub const WSAMSG_const = extern struct {
     name: *const sockaddr,
     namelen: INT,
-    lpBuffers: [*]WSABUF,
+    lpBuffers: [*]const WSABUF,
     dwBufferCount: DWORD,
     Control: WSABUF,
     dwFlags: DWORD,

@@ -7,6 +7,7 @@ const Limb = std.math.big.Limb;
 const SignedLimb = std.math.big.SignedLimb;
 const DoubleLimb = std.math.big.DoubleLimb;
 const SignedDoubleLimb = std.math.big.SignedDoubleLimb;
+const calcTwosCompLimbCount = std.math.big.int.calcTwosCompLimbCount;
 const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
 
@@ -165,7 +166,7 @@ test "big.int bitcount + sizeInBaseUpperBound" {
     try testing.expect(a.sizeInBaseUpperBound(2) >= 32);
     try testing.expect(a.sizeInBaseUpperBound(10) >= 10);
 
-    try a.shiftLeft(a, 5000);
+    try a.shiftLeft(&a, 5000);
     try testing.expect(a.bitCountAbs() == 5032);
     try testing.expect(a.sizeInBaseUpperBound(2) >= 5032);
     a.setSign(false);
@@ -485,7 +486,7 @@ test "big.int add single-single" {
 
     var c = try Managed.init(testing.allocator);
     defer c.deinit();
-    try c.add(a.toConst(), b.toConst());
+    try c.add(&a, &b);
 
     try testing.expect((try c.to(u32)) == 55);
 }
@@ -499,10 +500,10 @@ test "big.int add multi-single" {
     var c = try Managed.init(testing.allocator);
     defer c.deinit();
 
-    try c.add(a.toConst(), b.toConst());
+    try c.add(&a, &b);
     try testing.expect((try c.to(DoubleLimb)) == maxInt(Limb) + 2);
 
-    try c.add(b.toConst(), a.toConst());
+    try c.add(&b, &a);
     try testing.expect((try c.to(DoubleLimb)) == maxInt(Limb) + 2);
 }
 
@@ -516,7 +517,7 @@ test "big.int add multi-multi" {
 
     var c = try Managed.init(testing.allocator);
     defer c.deinit();
-    try c.add(a.toConst(), b.toConst());
+    try c.add(&a, &b);
 
     try testing.expect((try c.to(u128)) == op1 + op2);
 }
@@ -529,7 +530,7 @@ test "big.int add zero-zero" {
 
     var c = try Managed.init(testing.allocator);
     defer c.deinit();
-    try c.add(a.toConst(), b.toConst());
+    try c.add(&a, &b);
 
     try testing.expect((try c.to(u32)) == 0);
 }
@@ -541,7 +542,7 @@ test "big.int add alias multi-limb nonzero-zero" {
     var b = try Managed.initSet(testing.allocator, 0);
     defer b.deinit();
 
-    try a.add(a.toConst(), b.toConst());
+    try a.add(&a, &b);
 
     try testing.expect((try a.to(u128)) == op1);
 }
@@ -559,16 +560,16 @@ test "big.int add sign" {
     var neg_two = try Managed.initSet(testing.allocator, -2);
     defer neg_two.deinit();
 
-    try a.add(one.toConst(), two.toConst());
+    try a.add(&one, &two);
     try testing.expect((try a.to(i32)) == 3);
 
-    try a.add(neg_one.toConst(), two.toConst());
+    try a.add(&neg_one, &two);
     try testing.expect((try a.to(i32)) == 1);
 
-    try a.add(one.toConst(), neg_two.toConst());
+    try a.add(&one, &neg_two);
     try testing.expect((try a.to(i32)) == -1);
 
-    try a.add(neg_one.toConst(), neg_two.toConst());
+    try a.add(&neg_one, &neg_two);
     try testing.expect((try a.to(i32)) == -3);
 }
 
@@ -578,7 +579,7 @@ test "big.int add scalar" {
 
     var b = try Managed.init(testing.allocator);
     defer b.deinit();
-    try b.addScalar(a.toConst(), 5);
+    try b.addScalar(&a, 5);
 
     try testing.expect((try b.to(u32)) == 55);
 }
@@ -590,7 +591,7 @@ test "big.int addWrap single-single, unsigned" {
     var b = try Managed.initSet(testing.allocator, 10);
     defer b.deinit();
 
-    const wrapped = try a.addWrap(a.toConst(), b.toConst(), .unsigned, 17);
+    const wrapped = try a.addWrap(&a, &b, .unsigned, 17);
 
     try testing.expect(wrapped);
     try testing.expect((try a.to(u17)) == 9);
@@ -603,7 +604,7 @@ test "big.int subWrap single-single, unsigned" {
     var b = try Managed.initSet(testing.allocator, maxInt(u17));
     defer b.deinit();
 
-    const wrapped = try a.subWrap(a.toConst(), b.toConst(), .unsigned, 17);
+    const wrapped = try a.subWrap(&a, &b, .unsigned, 17);
 
     try testing.expect(wrapped);
     try testing.expect((try a.to(u17)) == 1);
@@ -616,7 +617,7 @@ test "big.int addWrap multi-multi, unsigned, limb aligned" {
     var b = try Managed.initSet(testing.allocator, maxInt(DoubleLimb));
     defer b.deinit();
 
-    const wrapped = try a.addWrap(a.toConst(), b.toConst(), .unsigned, @bitSizeOf(DoubleLimb));
+    const wrapped = try a.addWrap(&a, &b, .unsigned, @bitSizeOf(DoubleLimb));
 
     try testing.expect(wrapped);
     try testing.expect((try a.to(DoubleLimb)) == maxInt(DoubleLimb) - 1);
@@ -629,7 +630,7 @@ test "big.int subWrap single-multi, unsigned, limb aligned" {
     var b = try Managed.initSet(testing.allocator, maxInt(DoubleLimb) + 100);
     defer b.deinit();
 
-    const wrapped = try a.subWrap(a.toConst(), b.toConst(), .unsigned, @bitSizeOf(DoubleLimb));
+    const wrapped = try a.subWrap(&a, &b, .unsigned, @bitSizeOf(DoubleLimb));
 
     try testing.expect(wrapped);
     try testing.expect((try a.to(DoubleLimb)) == maxInt(DoubleLimb) - 88);
@@ -642,7 +643,7 @@ test "big.int addWrap single-single, signed" {
     var b = try Managed.initSet(testing.allocator, 1 + 1 + maxInt(u21));
     defer b.deinit();
 
-    const wrapped = try a.addWrap(a.toConst(), b.toConst(), .signed, @bitSizeOf(i21));
+    const wrapped = try a.addWrap(&a, &b, .signed, @bitSizeOf(i21));
 
     try testing.expect(wrapped);
     try testing.expect((try a.to(i21)) == minInt(i21));
@@ -655,7 +656,7 @@ test "big.int subWrap single-single, signed" {
     var b = try Managed.initSet(testing.allocator, 1);
     defer b.deinit();
 
-    const wrapped = try a.subWrap(a.toConst(), b.toConst(), .signed, @bitSizeOf(i21));
+    const wrapped = try a.subWrap(&a, &b, .signed, @bitSizeOf(i21));
 
     try testing.expect(wrapped);
     try testing.expect((try a.to(i21)) == maxInt(i21));
@@ -668,7 +669,7 @@ test "big.int addWrap multi-multi, signed, limb aligned" {
     var b = try Managed.initSet(testing.allocator, maxInt(SignedDoubleLimb));
     defer b.deinit();
 
-    const wrapped = try a.addWrap(a.toConst(), b.toConst(), .signed, @bitSizeOf(SignedDoubleLimb));
+    const wrapped = try a.addWrap(&a, &b, .signed, @bitSizeOf(SignedDoubleLimb));
 
     try testing.expect(wrapped);
     try testing.expect((try a.to(SignedDoubleLimb)) == -2);
@@ -681,7 +682,7 @@ test "big.int subWrap single-multi, signed, limb aligned" {
     var b = try Managed.initSet(testing.allocator, 1);
     defer b.deinit();
 
-    const wrapped = try a.subWrap(a.toConst(), b.toConst(), .signed, @bitSizeOf(SignedDoubleLimb));
+    const wrapped = try a.subWrap(&a, &b, .signed, @bitSizeOf(SignedDoubleLimb));
 
     try testing.expect(wrapped);
     try testing.expect((try a.to(SignedDoubleLimb)) == maxInt(SignedDoubleLimb));
@@ -694,7 +695,7 @@ test "big.int addSat single-single, unsigned" {
     var b = try Managed.initSet(testing.allocator, 10);
     defer b.deinit();
 
-    try a.addSat(a.toConst(), b.toConst(), .unsigned, 17);
+    try a.addSat(&a, &b, .unsigned, 17);
 
     try testing.expect((try a.to(u17)) == maxInt(u17));
 }
@@ -706,7 +707,7 @@ test "big.int subSat single-single, unsigned" {
     var b = try Managed.initSet(testing.allocator, 4000);
     defer b.deinit();
 
-    try a.subSat(a.toConst(), b.toConst(), .unsigned, 17);
+    try a.subSat(&a, &b, .unsigned, 17);
 
     try testing.expect((try a.to(u17)) == 0);
 }
@@ -718,7 +719,7 @@ test "big.int addSat multi-multi, unsigned, limb aligned" {
     var b = try Managed.initSet(testing.allocator, maxInt(DoubleLimb));
     defer b.deinit();
 
-    try a.addSat(a.toConst(), b.toConst(), .unsigned, @bitSizeOf(DoubleLimb));
+    try a.addSat(&a, &b, .unsigned, @bitSizeOf(DoubleLimb));
 
     try testing.expect((try a.to(DoubleLimb)) == maxInt(DoubleLimb));
 }
@@ -730,7 +731,7 @@ test "big.int subSat single-multi, unsigned, limb aligned" {
     var b = try Managed.initSet(testing.allocator, maxInt(DoubleLimb) + 100);
     defer b.deinit();
 
-    try a.subSat(a.toConst(), b.toConst(), .unsigned, @bitSizeOf(DoubleLimb));
+    try a.subSat(&a, &b, .unsigned, @bitSizeOf(DoubleLimb));
 
     try testing.expect((try a.to(DoubleLimb)) == 0);
 }
@@ -742,7 +743,7 @@ test "big.int addSat single-single, signed" {
     var b = try Managed.initSet(testing.allocator, 1);
     defer b.deinit();
 
-    try a.addSat(a.toConst(), b.toConst(), .signed, @bitSizeOf(i14));
+    try a.addSat(&a, &b, .signed, @bitSizeOf(i14));
 
     try testing.expect((try a.to(i14)) == maxInt(i14));
 }
@@ -754,7 +755,7 @@ test "big.int subSat single-single, signed" {
     var b = try Managed.initSet(testing.allocator, 1);
     defer b.deinit();
 
-    try a.subSat(a.toConst(), b.toConst(), .signed, @bitSizeOf(i21));
+    try a.subSat(&a, &b, .signed, @bitSizeOf(i21));
 
     try testing.expect((try a.to(i21)) == minInt(i21));
 }
@@ -766,7 +767,7 @@ test "big.int addSat multi-multi, signed, limb aligned" {
     var b = try Managed.initSet(testing.allocator, maxInt(SignedDoubleLimb));
     defer b.deinit();
 
-    try a.addSat(a.toConst(), b.toConst(), .signed, @bitSizeOf(SignedDoubleLimb));
+    try a.addSat(&a, &b, .signed, @bitSizeOf(SignedDoubleLimb));
 
     try testing.expect((try a.to(SignedDoubleLimb)) == maxInt(SignedDoubleLimb));
 }
@@ -778,7 +779,7 @@ test "big.int subSat single-multi, signed, limb aligned" {
     var b = try Managed.initSet(testing.allocator, 1);
     defer b.deinit();
 
-    try a.subSat(a.toConst(), b.toConst(), .signed, @bitSizeOf(SignedDoubleLimb));
+    try a.subSat(&a, &b, .signed, @bitSizeOf(SignedDoubleLimb));
 
     try testing.expect((try a.to(SignedDoubleLimb)) == minInt(SignedDoubleLimb));
 }
@@ -791,7 +792,7 @@ test "big.int sub single-single" {
 
     var c = try Managed.init(testing.allocator);
     defer c.deinit();
-    try c.sub(a.toConst(), b.toConst());
+    try c.sub(&a, &b);
 
     try testing.expect((try c.to(u32)) == 45);
 }
@@ -804,7 +805,7 @@ test "big.int sub multi-single" {
 
     var c = try Managed.init(testing.allocator);
     defer c.deinit();
-    try c.sub(a.toConst(), b.toConst());
+    try c.sub(&a, &b);
 
     try testing.expect((try c.to(Limb)) == maxInt(Limb));
 }
@@ -820,7 +821,7 @@ test "big.int sub multi-multi" {
 
     var c = try Managed.init(testing.allocator);
     defer c.deinit();
-    try c.sub(a.toConst(), b.toConst());
+    try c.sub(&a, &b);
 
     try testing.expect((try c.to(u128)) == op1 - op2);
 }
@@ -833,7 +834,7 @@ test "big.int sub equal" {
 
     var c = try Managed.init(testing.allocator);
     defer c.deinit();
-    try c.sub(a.toConst(), b.toConst());
+    try c.sub(&a, &b);
 
     try testing.expect((try c.to(u32)) == 0);
 }
@@ -851,19 +852,19 @@ test "big.int sub sign" {
     var neg_two = try Managed.initSet(testing.allocator, -2);
     defer neg_two.deinit();
 
-    try a.sub(one.toConst(), two.toConst());
+    try a.sub(&one, &two);
     try testing.expect((try a.to(i32)) == -1);
 
-    try a.sub(neg_one.toConst(), two.toConst());
+    try a.sub(&neg_one, &two);
     try testing.expect((try a.to(i32)) == -3);
 
-    try a.sub(one.toConst(), neg_two.toConst());
+    try a.sub(&one, &neg_two);
     try testing.expect((try a.to(i32)) == 3);
 
-    try a.sub(neg_one.toConst(), neg_two.toConst());
+    try a.sub(&neg_one, &neg_two);
     try testing.expect((try a.to(i32)) == 1);
 
-    try a.sub(neg_two.toConst(), neg_one.toConst());
+    try a.sub(&neg_two, &neg_one);
     try testing.expect((try a.to(i32)) == -1);
 }
 
@@ -875,7 +876,7 @@ test "big.int mul single-single" {
 
     var c = try Managed.init(testing.allocator);
     defer c.deinit();
-    try c.mul(a.toConst(), b.toConst());
+    try c.mul(&a, &b);
 
     try testing.expect((try c.to(u64)) == 250);
 }
@@ -888,7 +889,7 @@ test "big.int mul multi-single" {
 
     var c = try Managed.init(testing.allocator);
     defer c.deinit();
-    try c.mul(a.toConst(), b.toConst());
+    try c.mul(&a, &b);
 
     try testing.expect((try c.to(DoubleLimb)) == 2 * maxInt(Limb));
 }
@@ -903,7 +904,7 @@ test "big.int mul multi-multi" {
 
     var c = try Managed.init(testing.allocator);
     defer c.deinit();
-    try c.mul(a.toConst(), b.toConst());
+    try c.mul(&a, &b);
 
     try testing.expect((try c.to(u256)) == op1 * op2);
 }
@@ -914,7 +915,7 @@ test "big.int mul alias r with a" {
     var b = try Managed.initSet(testing.allocator, 2);
     defer b.deinit();
 
-    try a.mul(a.toConst(), b.toConst());
+    try a.mul(&a, &b);
 
     try testing.expect((try a.to(DoubleLimb)) == 2 * maxInt(Limb));
 }
@@ -925,7 +926,7 @@ test "big.int mul alias r with b" {
     var b = try Managed.initSet(testing.allocator, 2);
     defer b.deinit();
 
-    try a.mul(b.toConst(), a.toConst());
+    try a.mul(&b, &a);
 
     try testing.expect((try a.to(DoubleLimb)) == 2 * maxInt(Limb));
 }
@@ -934,7 +935,7 @@ test "big.int mul alias r with a and b" {
     var a = try Managed.initSet(testing.allocator, maxInt(Limb));
     defer a.deinit();
 
-    try a.mul(a.toConst(), a.toConst());
+    try a.mul(&a, &a);
 
     try testing.expect((try a.to(DoubleLimb)) == maxInt(Limb) * maxInt(Limb));
 }
@@ -947,7 +948,7 @@ test "big.int mul a*0" {
 
     var c = try Managed.init(testing.allocator);
     defer c.deinit();
-    try c.mul(a.toConst(), b.toConst());
+    try c.mul(&a, &b);
 
     try testing.expect((try c.to(u32)) == 0);
 }
@@ -960,7 +961,7 @@ test "big.int mul 0*0" {
 
     var c = try Managed.init(testing.allocator);
     defer c.deinit();
-    try c.mul(a.toConst(), b.toConst());
+    try c.mul(&a, &b);
 
     try testing.expect((try c.to(u32)) == 0);
 }
@@ -980,8 +981,8 @@ test "big.int mul large" {
     }
     a.setMetadata(true, 50);
 
-    try b.mul(a.toConst(), a.toConst());
-    try c.sqr(a.toConst());
+    try b.mul(&a, &a);
+    try c.sqr(&a);
 
     try testing.expect(b.eq(c));
 }
@@ -994,7 +995,7 @@ test "big.int mulWrap single-single unsigned" {
 
     var c = try Managed.init(testing.allocator);
     defer c.deinit();
-    try c.mulWrap(a.toConst(), b.toConst(), .unsigned, 17);
+    try c.mulWrap(&a, &b, .unsigned, 17);
 
     try testing.expect((try c.to(u17)) == 59836);
 }
@@ -1007,7 +1008,7 @@ test "big.int mulWrap single-single signed" {
 
     var c = try Managed.init(testing.allocator);
     defer c.deinit();
-    try c.mulWrap(a.toConst(), b.toConst(), .signed, 17);
+    try c.mulWrap(&a, &b, .signed, 17);
 
     try testing.expect((try c.to(i17)) == -59836);
 }
@@ -1022,7 +1023,7 @@ test "big.int mulWrap multi-multi unsigned" {
 
     var c = try Managed.init(testing.allocator);
     defer c.deinit();
-    try c.mulWrap(a.toConst(), b.toConst(), .unsigned, 65);
+    try c.mulWrap(&a, &b, .unsigned, 65);
 
     try testing.expect((try c.to(u128)) == (op1 * op2) & ((1 << 65) - 1));
 }
@@ -1035,7 +1036,7 @@ test "big.int mulWrap multi-multi signed" {
 
     var c = try Managed.init(testing.allocator);
     defer c.deinit();
-    try c.mulWrap(a.toConst(), b.toConst(), .signed, @bitSizeOf(SignedDoubleLimb));
+    try c.mulWrap(&a, &b, .signed, @bitSizeOf(SignedDoubleLimb));
 
     try testing.expect((try c.to(SignedDoubleLimb)) == minInt(SignedDoubleLimb) + 2);
 }
@@ -1057,14 +1058,14 @@ test "big.int mulWrap large" {
 
     const testbits = @bitSizeOf(Limb) * 64 + 45;
 
-    try b.mulWrap(a.toConst(), a.toConst(), .signed, testbits);
-    try c.sqr(a.toConst());
-    try c.truncate(c.toConst(), .signed, testbits);
+    try b.mulWrap(&a, &a, .signed, testbits);
+    try c.sqr(&a);
+    try c.truncate(&c, .signed, testbits);
 
     try testing.expect(b.eq(c));
 }
 
-test "big.int div single-single no rem" {
+test "big.int div single-half no rem" {
     var a = try Managed.initSet(testing.allocator, 50);
     defer a.deinit();
     var b = try Managed.initSet(testing.allocator, 5);
@@ -1074,13 +1075,13 @@ test "big.int div single-single no rem" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divTrunc(&q, &r, a.toConst(), b.toConst());
+    try Managed.divTrunc(&q, &r, &a, &b);
 
     try testing.expect((try q.to(u32)) == 10);
     try testing.expect((try r.to(u32)) == 0);
 }
 
-test "big.int div single-single with rem" {
+test "big.int div single-half with rem" {
     var a = try Managed.initSet(testing.allocator, 49);
     defer a.deinit();
     var b = try Managed.initSet(testing.allocator, 5);
@@ -1090,10 +1091,43 @@ test "big.int div single-single with rem" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divTrunc(&q, &r, a.toConst(), b.toConst());
+    try Managed.divTrunc(&q, &r, &a, &b);
 
     try testing.expect((try q.to(u32)) == 9);
     try testing.expect((try r.to(u32)) == 4);
+}
+
+test "big.int div single-single no rem" {
+    // assumes usize is <= 64 bits.
+    var a = try Managed.initSet(testing.allocator, 1 << 52);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, 1 << 35);
+    defer b.deinit();
+
+    var q = try Managed.init(testing.allocator);
+    defer q.deinit();
+    var r = try Managed.init(testing.allocator);
+    defer r.deinit();
+    try Managed.divTrunc(&q, &r, &a, &b);
+
+    try testing.expect((try q.to(u32)) == 131072);
+    try testing.expect((try r.to(u32)) == 0);
+}
+
+test "big.int div single-single with rem" {
+    var a = try Managed.initSet(testing.allocator, (1 << 52) | (1 << 33));
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, (1 << 35));
+    defer b.deinit();
+
+    var q = try Managed.init(testing.allocator);
+    defer q.deinit();
+    var r = try Managed.init(testing.allocator);
+    defer r.deinit();
+    try Managed.divTrunc(&q, &r, &a, &b);
+
+    try testing.expect((try q.to(u64)) == 131072);
+    try testing.expect((try r.to(u64)) == 8589934592);
 }
 
 test "big.int div multi-single no rem" {
@@ -1109,7 +1143,7 @@ test "big.int div multi-single no rem" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divTrunc(&q, &r, a.toConst(), b.toConst());
+    try Managed.divTrunc(&q, &r, &a, &b);
 
     try testing.expect((try q.to(u64)) == op1 / op2);
     try testing.expect((try r.to(u64)) == 0);
@@ -1128,7 +1162,7 @@ test "big.int div multi-single with rem" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divTrunc(&q, &r, a.toConst(), b.toConst());
+    try Managed.divTrunc(&q, &r, &a, &b);
 
     try testing.expect((try q.to(u64)) == op1 / op2);
     try testing.expect((try r.to(u64)) == 3);
@@ -1147,7 +1181,7 @@ test "big.int div multi>2-single" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divTrunc(&q, &r, a.toConst(), b.toConst());
+    try Managed.divTrunc(&q, &r, &a, &b);
 
     try testing.expect((try q.to(u128)) == op1 / op2);
     try testing.expect((try r.to(u32)) == 0x3e4e);
@@ -1163,7 +1197,7 @@ test "big.int div single-single q < r" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divTrunc(&q, &r, a.toConst(), b.toConst());
+    try Managed.divTrunc(&q, &r, &a, &b);
 
     try testing.expect((try q.to(u64)) == 0);
     try testing.expect((try r.to(u64)) == 0x0078f432);
@@ -1179,7 +1213,7 @@ test "big.int div single-single q == r" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divTrunc(&q, &r, a.toConst(), b.toConst());
+    try Managed.divTrunc(&q, &r, &a, &b);
 
     try testing.expect((try q.to(u64)) == 1);
     try testing.expect((try r.to(u64)) == 0);
@@ -1191,7 +1225,7 @@ test "big.int div q=0 alias" {
     var b = try Managed.initSet(testing.allocator, 10);
     defer b.deinit();
 
-    try Managed.divTrunc(&a, &b, a.toConst(), b.toConst());
+    try Managed.divTrunc(&a, &b, &a, &b);
 
     try testing.expect((try a.to(u64)) == 0);
     try testing.expect((try b.to(u64)) == 3);
@@ -1209,7 +1243,7 @@ test "big.int div multi-multi q < r" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divTrunc(&q, &r, a.toConst(), b.toConst());
+    try Managed.divTrunc(&q, &r, &a, &b);
 
     try testing.expect((try q.to(u128)) == 0);
     try testing.expect((try r.to(u128)) == op1);
@@ -1228,7 +1262,7 @@ test "big.int div trunc single-single +/+" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divTrunc(&q, &r, a.toConst(), b.toConst());
+    try Managed.divTrunc(&q, &r, &a, &b);
 
     // n = q * d + r
     // 5 = 1 * 3 + 2
@@ -1252,7 +1286,7 @@ test "big.int div trunc single-single -/+" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divTrunc(&q, &r, a.toConst(), b.toConst());
+    try Managed.divTrunc(&q, &r, &a, &b);
 
     //  n = q *  d + r
     // -5 = 1 * -3 - 2
@@ -1276,7 +1310,7 @@ test "big.int div trunc single-single +/-" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divTrunc(&q, &r, a.toConst(), b.toConst());
+    try Managed.divTrunc(&q, &r, &a, &b);
 
     // n =  q *  d + r
     // 5 = -1 * -3 + 2
@@ -1300,7 +1334,7 @@ test "big.int div trunc single-single -/-" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divTrunc(&q, &r, a.toConst(), b.toConst());
+    try Managed.divTrunc(&q, &r, &a, &b);
 
     //  n = q *  d + r
     // -5 = 1 * -3 - 2
@@ -1309,6 +1343,95 @@ test "big.int div trunc single-single -/-" {
 
     try testing.expect((try q.to(i32)) == eq);
     try testing.expect((try r.to(i32)) == er);
+}
+
+test "big.int divFloor #10932" {
+    var a = try Managed.init(testing.allocator);
+    defer a.deinit();
+
+    var b = try Managed.init(testing.allocator);
+    defer b.deinit();
+
+    var res = try Managed.init(testing.allocator);
+    defer res.deinit();
+
+    try a.setString(10, "40000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000");
+    try b.setString(10, "8000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000");
+
+    var mod = try Managed.init(testing.allocator);
+    defer mod.deinit();
+
+    try res.divFloor(&mod, &a, &b);
+
+    const ress = try res.toString(testing.allocator, 16, .lower);
+    defer testing.allocator.free(ress);
+    try testing.expect(std.mem.eql(u8, ress, "194bd136316c046d070b763396297bf8869a605030216b52597015902a172b2a752f62af1568dcd431602f03725bfa62b0be71ae86616210972c0126e173503011ca48c5747ff066d159c95e46b69cbb14c8fc0bd2bf0919f921be96463200000000000000000000000000000000000000000000000000000000000000000000000000000000"));
+    try testing.expect((try mod.to(i32)) == 0);
+}
+
+test "big.int divFloor #11166" {
+    var a = try Managed.init(testing.allocator);
+    defer a.deinit();
+
+    var b = try Managed.init(testing.allocator);
+    defer b.deinit();
+
+    var res = try Managed.init(testing.allocator);
+    defer res.deinit();
+
+    try a.setString(10, "10000007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000870000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000");
+    try b.setString(10, "10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000");
+
+    var mod = try Managed.init(testing.allocator);
+    defer mod.deinit();
+
+    try res.divFloor(&mod, &a, &b);
+
+    const ress = try res.toString(testing.allocator, 10, .lower);
+    defer testing.allocator.free(ress);
+    try testing.expect(std.mem.eql(u8, ress, "1000000700000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"));
+
+    const mods = try mod.toString(testing.allocator, 10, .lower);
+    defer testing.allocator.free(mods);
+    try testing.expect(std.mem.eql(u8, mods, "870000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"));
+}
+
+test "big.int gcd #10932" {
+    var a = try Managed.init(testing.allocator);
+    defer a.deinit();
+
+    var b = try Managed.init(testing.allocator);
+    defer b.deinit();
+
+    var res = try Managed.init(testing.allocator);
+    defer res.deinit();
+
+    try a.setString(10, "3000000000000000000000000000000000000000000000000000000000000000000000001461501637330902918203684832716283019655932542975000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000");
+    try b.setString(10, "10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200001001500000000000000000100000000040000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000003000000000000000000000000000000000000000000000000000058715661000000000000000000000000000000000000023553252000000000180000000000000000000000000000000000000000000000000250000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001005000002000000000000000000000000000000000000000021000000001000000000000000000000000100000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000200000000000000000000004000000000000000000000000000000000000000000000301000000000000000000000000000500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000");
+
+    try res.gcd(&a, &b);
+
+    const ress = try res.toString(testing.allocator, 16, .lower);
+    defer testing.allocator.free(ress);
+    try testing.expect(std.mem.eql(u8, ress, "1a974a5c9734476ff5a3604bcc678a756beacfc21b4427d1f2c1f56f5d4e411a162c56136e20000000000000000000000000000000"));
+}
+
+test "big.int bitAnd #10932" {
+    var a = try Managed.init(testing.allocator);
+    defer a.deinit();
+
+    var b = try Managed.init(testing.allocator);
+    defer b.deinit();
+
+    var res = try Managed.init(testing.allocator);
+    defer res.deinit();
+
+    try a.setString(10, "154954885951624787839743960731760616696");
+    try b.setString(10, "55000000000915215865915724129619485917228346934191537590366734850266784978214506142389798064826139649163838075568111457203909393174933092857416500785632012953993352521899237655507306575657169267399324107627651067352600878339870446048204062696260567762088867991835386857942106708741836433444432529637331429212430394179472179237695833247299409249810963487516399177133175950185719220422442438098353430605822151595560743492661038899294517012784306863064670126197566982968906306814338148792888550378533207318063660581924736840687332023636827401670268933229183389040490792300121030647791095178823932734160000000000000000000000000000000000000555555550000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000");
+
+    try res.bitAnd(&a, &b);
+
+    try testing.expect((try res.to(i32)) == 0);
 }
 
 test "big.int div floor single-single +/+" {
@@ -1324,7 +1447,7 @@ test "big.int div floor single-single +/+" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divFloor(&q, &r, a.toConst(), b.toConst());
+    try Managed.divFloor(&q, &r, &a, &b);
 
     //  n =  q *  d + r
     //  5 =  1 *  3 + 2
@@ -1348,7 +1471,7 @@ test "big.int div floor single-single -/+" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divFloor(&q, &r, a.toConst(), b.toConst());
+    try Managed.divFloor(&q, &r, &a, &b);
 
     //  n =  q *  d + r
     // -5 = -2 *  3 + 1
@@ -1372,7 +1495,7 @@ test "big.int div floor single-single +/-" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divFloor(&q, &r, a.toConst(), b.toConst());
+    try Managed.divFloor(&q, &r, &a, &b);
 
     //  n =  q *  d + r
     //  5 = -2 * -3 - 1
@@ -1396,7 +1519,7 @@ test "big.int div floor single-single -/-" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divFloor(&q, &r, a.toConst(), b.toConst());
+    try Managed.divFloor(&q, &r, &a, &b);
 
     //  n =  q *  d + r
     // -5 =  2 * -3 + 1
@@ -1420,7 +1543,7 @@ test "big.int div floor no remainder negative quotient" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divFloor(&q, &r, a.toConst(), b.toConst());
+    try Managed.divFloor(&q, &r, &a, &b);
 
     try testing.expect((try q.to(i32)) == -0x80000000);
     try testing.expect((try r.to(i32)) == 0);
@@ -1439,7 +1562,7 @@ test "big.int div floor negative close to zero" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divFloor(&q, &r, a.toConst(), b.toConst());
+    try Managed.divFloor(&q, &r, &a, &b);
 
     try testing.expect((try q.to(i32)) == -1);
     try testing.expect((try r.to(i32)) == 10);
@@ -1458,7 +1581,7 @@ test "big.int div floor positive close to zero" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divFloor(&q, &r, a.toConst(), b.toConst());
+    try Managed.divFloor(&q, &r, &a, &b);
 
     try testing.expect((try q.to(i32)) == 0);
     try testing.expect((try r.to(i32)) == 10);
@@ -1474,7 +1597,7 @@ test "big.int div multi-multi with rem" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divTrunc(&q, &r, a.toConst(), b.toConst());
+    try Managed.divTrunc(&q, &r, &a, &b);
 
     try testing.expect((try q.to(u128)) == 0xe38f38e39161aaabd03f0f1b);
     try testing.expect((try r.to(u128)) == 0x28de0acacd806823638);
@@ -1490,7 +1613,7 @@ test "big.int div multi-multi no rem" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divTrunc(&q, &r, a.toConst(), b.toConst());
+    try Managed.divTrunc(&q, &r, &a, &b);
 
     try testing.expect((try q.to(u128)) == 0xe38f38e39161aaabd03f0f1b);
     try testing.expect((try r.to(u128)) == 0);
@@ -1506,7 +1629,7 @@ test "big.int div multi-multi (2 branch)" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divTrunc(&q, &r, a.toConst(), b.toConst());
+    try Managed.divTrunc(&q, &r, &a, &b);
 
     try testing.expect((try q.to(u128)) == 0x10000000000000000);
     try testing.expect((try r.to(u128)) == 0x44444443444444431111111111111111);
@@ -1522,7 +1645,7 @@ test "big.int div multi-multi (3.1/3.3 branch)" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divTrunc(&q, &r, a.toConst(), b.toConst());
+    try Managed.divTrunc(&q, &r, &a, &b);
 
     try testing.expect((try q.to(u128)) == 0xfffffffffffffffffff);
     try testing.expect((try r.to(u256)) == 0x1111111111111111111110b12222222222222222282);
@@ -1538,7 +1661,7 @@ test "big.int div multi-single zero-limb trailing" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divTrunc(&q, &r, a.toConst(), b.toConst());
+    try Managed.divTrunc(&q, &r, &a, &b);
 
     var expected = try Managed.initSet(testing.allocator, 0x6000000000000000000000000000000000000000000000000);
     defer expected.deinit();
@@ -1556,7 +1679,7 @@ test "big.int div multi-multi zero-limb trailing (with rem)" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divTrunc(&q, &r, a.toConst(), b.toConst());
+    try Managed.divTrunc(&q, &r, &a, &b);
 
     try testing.expect((try q.to(u128)) == 0x10000000000000000);
 
@@ -1575,7 +1698,7 @@ test "big.int div multi-multi zero-limb trailing (with rem) and dividend zero-li
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divTrunc(&q, &r, a.toConst(), b.toConst());
+    try Managed.divTrunc(&q, &r, &a, &b);
 
     try testing.expect((try q.to(u128)) == 0x1);
 
@@ -1594,7 +1717,7 @@ test "big.int div multi-multi zero-limb trailing (with rem) and dividend zero-li
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divTrunc(&q, &r, a.toConst(), b.toConst());
+    try Managed.divTrunc(&q, &r, &a, &b);
 
     const qs = try q.toString(testing.allocator, 16, .lower);
     defer testing.allocator.free(qs);
@@ -1618,7 +1741,7 @@ test "big.int div multi-multi fuzz case #1" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divTrunc(&q, &r, a.toConst(), b.toConst());
+    try Managed.divTrunc(&q, &r, &a, &b);
 
     const qs = try q.toString(testing.allocator, 16, .lower);
     defer testing.allocator.free(qs);
@@ -1642,7 +1765,7 @@ test "big.int div multi-multi fuzz case #2" {
     defer q.deinit();
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
-    try Managed.divTrunc(&q, &r, a.toConst(), b.toConst());
+    try Managed.divTrunc(&q, &r, &a, &b);
 
     const qs = try q.toString(testing.allocator, 16, .lower);
     defer testing.allocator.free(qs);
@@ -1657,7 +1780,7 @@ test "big.int truncate single unsigned" {
     var a = try Managed.initSet(testing.allocator, maxInt(u47));
     defer a.deinit();
 
-    try a.truncate(a.toConst(), .unsigned, 17);
+    try a.truncate(&a, .unsigned, 17);
 
     try testing.expect((try a.to(u17)) == maxInt(u17));
 }
@@ -1666,7 +1789,7 @@ test "big.int truncate single signed" {
     var a = try Managed.initSet(testing.allocator, 0x1_0000);
     defer a.deinit();
 
-    try a.truncate(a.toConst(), .signed, 17);
+    try a.truncate(&a, .signed, 17);
 
     try testing.expect((try a.to(i17)) == minInt(i17));
 }
@@ -1675,7 +1798,7 @@ test "big.int truncate multi to single unsigned" {
     var a = try Managed.initSet(testing.allocator, (maxInt(Limb) + 1) | 0x1234_5678_9ABC_DEF0);
     defer a.deinit();
 
-    try a.truncate(a.toConst(), .unsigned, 27);
+    try a.truncate(&a, .unsigned, 27);
 
     try testing.expect((try a.to(u27)) == 0x2BC_DEF0);
 }
@@ -1684,7 +1807,7 @@ test "big.int truncate multi to single signed" {
     var a = try Managed.initSet(testing.allocator, maxInt(Limb) << 10);
     defer a.deinit();
 
-    try a.truncate(a.toConst(), .signed, @bitSizeOf(i11));
+    try a.truncate(&a, .signed, @bitSizeOf(i11));
 
     try testing.expect((try a.to(i11)) == minInt(i11));
 }
@@ -1696,7 +1819,7 @@ test "big.int truncate multi to multi unsigned" {
     var a = try Managed.initSet(testing.allocator, maxInt(SignedDoubleLimb));
     defer a.deinit();
 
-    try a.truncate(a.toConst(), .unsigned, bits - 1);
+    try a.truncate(&a, .unsigned, bits - 1);
 
     try testing.expect((try a.to(Int)) == maxInt(Int));
 }
@@ -1705,7 +1828,7 @@ test "big.int truncate multi to multi signed" {
     var a = try Managed.initSet(testing.allocator, 3 << @bitSizeOf(Limb));
     defer a.deinit();
 
-    try a.truncate(a.toConst(), .signed, @bitSizeOf(Limb) + 1);
+    try a.truncate(&a, .signed, @bitSizeOf(Limb) + 1);
 
     try testing.expect((try a.to(std.meta.Int(.signed, @bitSizeOf(Limb) + 1))) == -1 << @bitSizeOf(Limb));
 }
@@ -1714,7 +1837,7 @@ test "big.int truncate negative multi to single" {
     var a = try Managed.initSet(testing.allocator, -@as(SignedDoubleLimb, maxInt(Limb) + 1));
     defer a.deinit();
 
-    try a.truncate(a.toConst(), .signed, @bitSizeOf(i17));
+    try a.truncate(&a, .signed, @bitSizeOf(i17));
 
     try testing.expect((try a.to(i17)) == 0);
 }
@@ -1722,11 +1845,11 @@ test "big.int truncate negative multi to single" {
 test "big.int truncate multi unsigned many" {
     var a = try Managed.initSet(testing.allocator, 1);
     defer a.deinit();
-    try a.shiftLeft(a, 1023);
+    try a.shiftLeft(&a, 1023);
 
     var b = try Managed.init(testing.allocator);
     defer b.deinit();
-    try b.truncate(a.toConst(), .signed, @bitSizeOf(i1));
+    try b.truncate(&a, .signed, @bitSizeOf(i1));
 
     try testing.expect((try b.to(i1)) == 0);
 }
@@ -1735,7 +1858,7 @@ test "big.int saturate single signed positive" {
     var a = try Managed.initSet(testing.allocator, 0xBBBB_BBBB);
     defer a.deinit();
 
-    try a.saturate(a.toConst(), .signed, 17);
+    try a.saturate(&a, .signed, 17);
 
     try testing.expect((try a.to(i17)) == maxInt(i17));
 }
@@ -1744,7 +1867,7 @@ test "big.int saturate single signed negative" {
     var a = try Managed.initSet(testing.allocator, -1_234_567);
     defer a.deinit();
 
-    try a.saturate(a.toConst(), .signed, 17);
+    try a.saturate(&a, .signed, 17);
 
     try testing.expect((try a.to(i17)) == minInt(i17));
 }
@@ -1753,7 +1876,7 @@ test "big.int saturate single signed" {
     var a = try Managed.initSet(testing.allocator, maxInt(i17) - 1);
     defer a.deinit();
 
-    try a.saturate(a.toConst(), .signed, 17);
+    try a.saturate(&a, .signed, 17);
 
     try testing.expect((try a.to(i17)) == maxInt(i17) - 1);
 }
@@ -1762,7 +1885,7 @@ test "big.int saturate multi signed" {
     var a = try Managed.initSet(testing.allocator, maxInt(Limb) << @bitSizeOf(SignedDoubleLimb));
     defer a.deinit();
 
-    try a.saturate(a.toConst(), .signed, @bitSizeOf(SignedDoubleLimb));
+    try a.saturate(&a, .signed, @bitSizeOf(SignedDoubleLimb));
 
     try testing.expect((try a.to(SignedDoubleLimb)) == maxInt(SignedDoubleLimb));
 }
@@ -1771,7 +1894,7 @@ test "big.int saturate single unsigned" {
     var a = try Managed.initSet(testing.allocator, 0xFEFE_FEFE);
     defer a.deinit();
 
-    try a.saturate(a.toConst(), .unsigned, 23);
+    try a.saturate(&a, .unsigned, 23);
 
     try testing.expect((try a.to(u23)) == maxInt(u23));
 }
@@ -1780,7 +1903,7 @@ test "big.int saturate multi unsigned zero" {
     var a = try Managed.initSet(testing.allocator, -1);
     defer a.deinit();
 
-    try a.saturate(a.toConst(), .unsigned, @bitSizeOf(DoubleLimb));
+    try a.saturate(&a, .unsigned, @bitSizeOf(DoubleLimb));
 
     try testing.expect(a.eqZero());
 }
@@ -1789,7 +1912,7 @@ test "big.int saturate multi unsigned" {
     var a = try Managed.initSet(testing.allocator, maxInt(Limb) << @bitSizeOf(DoubleLimb));
     defer a.deinit();
 
-    try a.saturate(a.toConst(), .unsigned, @bitSizeOf(DoubleLimb));
+    try a.saturate(&a, .unsigned, @bitSizeOf(DoubleLimb));
 
     try testing.expect((try a.to(DoubleLimb)) == maxInt(DoubleLimb));
 }
@@ -1797,7 +1920,7 @@ test "big.int saturate multi unsigned" {
 test "big.int shift-right single" {
     var a = try Managed.initSet(testing.allocator, 0xffff0000);
     defer a.deinit();
-    try a.shiftRight(a, 16);
+    try a.shiftRight(&a, 16);
 
     try testing.expect((try a.to(u32)) == 0xffff);
 }
@@ -1805,21 +1928,21 @@ test "big.int shift-right single" {
 test "big.int shift-right multi" {
     var a = try Managed.initSet(testing.allocator, 0xffff0000eeee1111dddd2222cccc3333);
     defer a.deinit();
-    try a.shiftRight(a, 67);
+    try a.shiftRight(&a, 67);
 
     try testing.expect((try a.to(u64)) == 0x1fffe0001dddc222);
 
     try a.set(0xffff0000eeee1111dddd2222cccc3333);
-    try a.shiftRight(a, 63);
-    try a.shiftRight(a, 63);
-    try a.shiftRight(a, 2);
+    try a.shiftRight(&a, 63);
+    try a.shiftRight(&a, 63);
+    try a.shiftRight(&a, 2);
     try testing.expect(a.eqZero());
 }
 
 test "big.int shift-left single" {
     var a = try Managed.initSet(testing.allocator, 0xffff);
     defer a.deinit();
-    try a.shiftLeft(a, 16);
+    try a.shiftLeft(&a, 16);
 
     try testing.expect((try a.to(u64)) == 0xffff0000);
 }
@@ -1827,7 +1950,7 @@ test "big.int shift-left single" {
 test "big.int shift-left multi" {
     var a = try Managed.initSet(testing.allocator, 0x1fffe0001dddc222);
     defer a.deinit();
-    try a.shiftLeft(a, 67);
+    try a.shiftLeft(&a, 67);
 
     try testing.expect((try a.to(u128)) == 0xffff0000eeee11100000000000000000);
 }
@@ -1838,12 +1961,12 @@ test "big.int shift-right negative" {
 
     var arg = try Managed.initSet(testing.allocator, -20);
     defer arg.deinit();
-    try a.shiftRight(arg, 2);
+    try a.shiftRight(&arg, 2);
     try testing.expect((try a.to(i32)) == -20 >> 2);
 
     var arg2 = try Managed.initSet(testing.allocator, -5);
     defer arg2.deinit();
-    try a.shiftRight(arg2, 10);
+    try a.shiftRight(&arg2, 10);
     try testing.expect((try a.to(i32)) == -5 >> 10);
 }
 
@@ -1853,14 +1976,14 @@ test "big.int shift-left negative" {
 
     var arg = try Managed.initSet(testing.allocator, -10);
     defer arg.deinit();
-    try a.shiftRight(arg, 1232);
+    try a.shiftRight(&arg, 1232);
     try testing.expect((try a.to(i32)) == -10 >> 1232);
 }
 
 test "big.int sat shift-left simple unsigned" {
     var a = try Managed.initSet(testing.allocator, 0xffff);
     defer a.deinit();
-    try a.shiftLeftSat(a, 16, .unsigned, 21);
+    try a.shiftLeftSat(&a, 16, .unsigned, 21);
 
     try testing.expect((try a.to(u64)) == 0x1fffff);
 }
@@ -1868,7 +1991,7 @@ test "big.int sat shift-left simple unsigned" {
 test "big.int sat shift-left simple unsigned no sat" {
     var a = try Managed.initSet(testing.allocator, 1);
     defer a.deinit();
-    try a.shiftLeftSat(a, 16, .unsigned, 21);
+    try a.shiftLeftSat(&a, 16, .unsigned, 21);
 
     try testing.expect((try a.to(u64)) == 0x10000);
 }
@@ -1876,7 +1999,7 @@ test "big.int sat shift-left simple unsigned no sat" {
 test "big.int sat shift-left multi unsigned" {
     var a = try Managed.initSet(testing.allocator, 16);
     defer a.deinit();
-    try a.shiftLeftSat(a, @bitSizeOf(DoubleLimb) - 3, .unsigned, @bitSizeOf(DoubleLimb) - 1);
+    try a.shiftLeftSat(&a, @bitSizeOf(DoubleLimb) - 3, .unsigned, @bitSizeOf(DoubleLimb) - 1);
 
     try testing.expect((try a.to(DoubleLimb)) == maxInt(DoubleLimb) >> 1);
 }
@@ -1884,7 +2007,7 @@ test "big.int sat shift-left multi unsigned" {
 test "big.int sat shift-left unsigned shift > bitcount" {
     var a = try Managed.initSet(testing.allocator, 1);
     defer a.deinit();
-    try a.shiftLeftSat(a, 10, .unsigned, 10);
+    try a.shiftLeftSat(&a, 10, .unsigned, 10);
 
     try testing.expect((try a.to(u10)) == maxInt(u10));
 }
@@ -1892,7 +2015,7 @@ test "big.int sat shift-left unsigned shift > bitcount" {
 test "big.int sat shift-left unsigned zero" {
     var a = try Managed.initSet(testing.allocator, 0);
     defer a.deinit();
-    try a.shiftLeftSat(a, 1, .unsigned, 0);
+    try a.shiftLeftSat(&a, 1, .unsigned, 0);
 
     try testing.expect((try a.to(u64)) == 0);
 }
@@ -1900,7 +2023,7 @@ test "big.int sat shift-left unsigned zero" {
 test "big.int sat shift-left unsigned negative" {
     var a = try Managed.initSet(testing.allocator, -100);
     defer a.deinit();
-    try a.shiftLeftSat(a, 0, .unsigned, 0);
+    try a.shiftLeftSat(&a, 0, .unsigned, 0);
 
     try testing.expect((try a.to(u64)) == 0);
 }
@@ -1908,7 +2031,7 @@ test "big.int sat shift-left unsigned negative" {
 test "big.int sat shift-left signed simple negative" {
     var a = try Managed.initSet(testing.allocator, -100);
     defer a.deinit();
-    try a.shiftLeftSat(a, 3, .signed, 10);
+    try a.shiftLeftSat(&a, 3, .signed, 10);
 
     try testing.expect((try a.to(i10)) == minInt(i10));
 }
@@ -1916,7 +2039,7 @@ test "big.int sat shift-left signed simple negative" {
 test "big.int sat shift-left signed simple positive" {
     var a = try Managed.initSet(testing.allocator, 100);
     defer a.deinit();
-    try a.shiftLeftSat(a, 3, .signed, 10);
+    try a.shiftLeftSat(&a, 3, .signed, 10);
 
     try testing.expect((try a.to(i10)) == maxInt(i10));
 }
@@ -1927,7 +2050,7 @@ test "big.int sat shift-left signed multi positive" {
 
     var a = try Managed.initSet(testing.allocator, x);
     defer a.deinit();
-    try a.shiftLeftSat(a, shift, .signed, @bitSizeOf(SignedDoubleLimb));
+    try a.shiftLeftSat(&a, shift, .signed, @bitSizeOf(SignedDoubleLimb));
 
     try testing.expect((try a.to(SignedDoubleLimb)) == @as(SignedDoubleLimb, x) <<| shift);
 }
@@ -1938,7 +2061,7 @@ test "big.int sat shift-left signed multi negative" {
 
     var a = try Managed.initSet(testing.allocator, x);
     defer a.deinit();
-    try a.shiftLeftSat(a, shift, .signed, @bitSizeOf(SignedDoubleLimb));
+    try a.shiftLeftSat(&a, shift, .signed, @bitSizeOf(SignedDoubleLimb));
 
     try testing.expect((try a.to(SignedDoubleLimb)) == @as(SignedDoubleLimb, x) <<| shift);
 }
@@ -1947,7 +2070,7 @@ test "big.int bitNotWrap unsigned simple" {
     var a = try Managed.initSet(testing.allocator, 123);
     defer a.deinit();
 
-    try a.bitNotWrap(a, .unsigned, 10);
+    try a.bitNotWrap(&a, .unsigned, 10);
 
     try testing.expect((try a.to(u10)) == ~@as(u10, 123));
 }
@@ -1956,7 +2079,7 @@ test "big.int bitNotWrap unsigned multi" {
     var a = try Managed.initSet(testing.allocator, 0);
     defer a.deinit();
 
-    try a.bitNotWrap(a, .unsigned, @bitSizeOf(DoubleLimb));
+    try a.bitNotWrap(&a, .unsigned, @bitSizeOf(DoubleLimb));
 
     try testing.expect((try a.to(DoubleLimb)) == maxInt(DoubleLimb));
 }
@@ -1965,7 +2088,7 @@ test "big.int bitNotWrap signed simple" {
     var a = try Managed.initSet(testing.allocator, -456);
     defer a.deinit();
 
-    try a.bitNotWrap(a, .signed, 11);
+    try a.bitNotWrap(&a, .signed, 11);
 
     try testing.expect((try a.to(i11)) == ~@as(i11, -456));
 }
@@ -1974,7 +2097,7 @@ test "big.int bitNotWrap signed multi" {
     var a = try Managed.initSet(testing.allocator, 0);
     defer a.deinit();
 
-    try a.bitNotWrap(a, .signed, @bitSizeOf(SignedDoubleLimb));
+    try a.bitNotWrap(&a, .signed, @bitSizeOf(SignedDoubleLimb));
 
     try testing.expect((try a.to(SignedDoubleLimb)) == -1);
 }
@@ -1985,7 +2108,7 @@ test "big.int bitwise and simple" {
     var b = try Managed.initSet(testing.allocator, 0xeeeeeeee22222222);
     defer b.deinit();
 
-    try a.bitAnd(a, b);
+    try a.bitAnd(&a, &b);
 
     try testing.expect((try a.to(u64)) == 0xeeeeeeee00000000);
 }
@@ -1996,7 +2119,7 @@ test "big.int bitwise and multi-limb" {
     var b = try Managed.initSet(testing.allocator, maxInt(Limb));
     defer b.deinit();
 
-    try a.bitAnd(a, b);
+    try a.bitAnd(&a, &b);
 
     try testing.expect((try a.to(u128)) == 0);
 }
@@ -2007,7 +2130,7 @@ test "big.int bitwise and negative-positive simple" {
     var b = try Managed.initSet(testing.allocator, 0xeeeeeeee22222222);
     defer b.deinit();
 
-    try a.bitAnd(a, b);
+    try a.bitAnd(&a, &b);
 
     try testing.expect((try a.to(u64)) == 0x22222222);
 }
@@ -2018,7 +2141,7 @@ test "big.int bitwise and negative-positive multi-limb" {
     var b = try Managed.initSet(testing.allocator, maxInt(Limb));
     defer b.deinit();
 
-    try a.bitAnd(a, b);
+    try a.bitAnd(&a, &b);
 
     try testing.expect(a.eqZero());
 }
@@ -2029,7 +2152,7 @@ test "big.int bitwise and positive-negative simple" {
     var b = try Managed.initSet(testing.allocator, -0xeeeeeeee22222222);
     defer b.deinit();
 
-    try a.bitAnd(a, b);
+    try a.bitAnd(&a, &b);
 
     try testing.expect((try a.to(u64)) == 0x1111111111111110);
 }
@@ -2040,7 +2163,7 @@ test "big.int bitwise and positive-negative multi-limb" {
     var b = try Managed.initSet(testing.allocator, -maxInt(Limb) - 1);
     defer b.deinit();
 
-    try a.bitAnd(a, b);
+    try a.bitAnd(&a, &b);
 
     try testing.expect(a.eqZero());
 }
@@ -2051,7 +2174,7 @@ test "big.int bitwise and negative-negative simple" {
     var b = try Managed.initSet(testing.allocator, -0xeeeeeeee22222222);
     defer b.deinit();
 
-    try a.bitAnd(a, b);
+    try a.bitAnd(&a, &b);
 
     try testing.expect((try a.to(i128)) == -0xffffffff33333332);
 }
@@ -2062,7 +2185,7 @@ test "big.int bitwise and negative-negative multi-limb" {
     var b = try Managed.initSet(testing.allocator, -maxInt(Limb) - 2);
     defer b.deinit();
 
-    try a.bitAnd(a, b);
+    try a.bitAnd(&a, &b);
 
     try testing.expect((try a.to(i128)) == -maxInt(Limb) * 2 - 2);
 }
@@ -2073,7 +2196,7 @@ test "big.int bitwise and negative overflow" {
     var b = try Managed.initSet(testing.allocator, -2);
     defer b.deinit();
 
-    try a.bitAnd(a, b);
+    try a.bitAnd(&a, &b);
 
     try testing.expect((try a.to(SignedDoubleLimb)) == -maxInt(Limb) - 1);
 }
@@ -2084,7 +2207,7 @@ test "big.int bitwise xor simple" {
     var b = try Managed.initSet(testing.allocator, 0xeeeeeeee22222222);
     defer b.deinit();
 
-    try a.bitXor(a, b);
+    try a.bitXor(&a, &b);
 
     try testing.expect((try a.to(u64)) == 0x1111111133333333);
 }
@@ -2095,7 +2218,7 @@ test "big.int bitwise xor multi-limb" {
     var b = try Managed.initSet(testing.allocator, maxInt(Limb));
     defer b.deinit();
 
-    try a.bitXor(a, b);
+    try a.bitXor(&a, &b);
 
     try testing.expect((try a.to(DoubleLimb)) == (maxInt(Limb) + 1) ^ maxInt(Limb));
 }
@@ -2106,7 +2229,7 @@ test "big.int bitwise xor single negative simple" {
     var b = try Managed.initSet(testing.allocator, -0x45fd3acef9191fad);
     defer b.deinit();
 
-    try a.bitXor(a, b);
+    try a.bitXor(&a, &b);
 
     try testing.expect((try a.to(i64)) == -0x2efed94fcb932ef9);
 }
@@ -2117,7 +2240,7 @@ test "big.int bitwise xor single negative zero" {
     var b = try Managed.initSet(testing.allocator, -0);
     defer b.deinit();
 
-    try a.bitXor(a, b);
+    try a.bitXor(&a, &b);
 
     try testing.expect(a.eqZero());
 }
@@ -2128,7 +2251,7 @@ test "big.int bitwise xor single negative multi-limb" {
     var b = try Managed.initSet(testing.allocator, 0xf2194e7d1c855272a997fcde16f6d5a8);
     defer b.deinit();
 
-    try a.bitXor(a, b);
+    try a.bitXor(&a, &b);
 
     try testing.expect((try a.to(i128)) == -0x6a50889abd8834a24db1f19650d3999a);
 }
@@ -2139,7 +2262,7 @@ test "big.int bitwise xor single negative overflow" {
     var b = try Managed.initSet(testing.allocator, -1);
     defer b.deinit();
 
-    try a.bitXor(a, b);
+    try a.bitXor(&a, &b);
 
     try testing.expect((try a.to(SignedDoubleLimb)) == -(maxInt(Limb) + 1));
 }
@@ -2150,7 +2273,7 @@ test "big.int bitwise xor double negative simple" {
     var b = try Managed.initSet(testing.allocator, -0x4dd4fa576f3046ac);
     defer b.deinit();
 
-    try a.bitXor(a, b);
+    try a.bitXor(&a, &b);
 
     try testing.expect((try a.to(u64)) == 0xc39c47081a6eb759);
 }
@@ -2161,7 +2284,7 @@ test "big.int bitwise xor double negative multi-limb" {
     var b = try Managed.initSet(testing.allocator, -0xcb07736a7b62289c78d967c3985eebeb);
     defer b.deinit();
 
-    try a.bitXor(a, b);
+    try a.bitXor(&a, &b);
 
     try testing.expect((try a.to(u128)) == 0xa3492ec28e62c410dff92bf0549bf771);
 }
@@ -2172,7 +2295,7 @@ test "big.int bitwise or simple" {
     var b = try Managed.initSet(testing.allocator, 0xeeeeeeee22222222);
     defer b.deinit();
 
-    try a.bitOr(a, b);
+    try a.bitOr(&a, &b);
 
     try testing.expect((try a.to(u64)) == 0xffffffff33333333);
 }
@@ -2183,7 +2306,7 @@ test "big.int bitwise or multi-limb" {
     var b = try Managed.initSet(testing.allocator, maxInt(Limb));
     defer b.deinit();
 
-    try a.bitOr(a, b);
+    try a.bitOr(&a, &b);
 
     // TODO: big.int.cpp or is wrong on multi-limb.
     try testing.expect((try a.to(DoubleLimb)) == (maxInt(Limb) + 1) + maxInt(Limb));
@@ -2195,7 +2318,7 @@ test "big.int bitwise or negative-positive simple" {
     var b = try Managed.initSet(testing.allocator, 0xeeeeeeee22222222);
     defer b.deinit();
 
-    try a.bitOr(a, b);
+    try a.bitOr(&a, &b);
 
     try testing.expect((try a.to(i64)) == -0x1111111111111111);
 }
@@ -2206,7 +2329,7 @@ test "big.int bitwise or negative-positive multi-limb" {
     var b = try Managed.initSet(testing.allocator, 1);
     defer b.deinit();
 
-    try a.bitOr(a, b);
+    try a.bitOr(&a, &b);
 
     try testing.expect((try a.to(SignedDoubleLimb)) == -maxInt(Limb));
 }
@@ -2217,7 +2340,7 @@ test "big.int bitwise or positive-negative simple" {
     var b = try Managed.initSet(testing.allocator, -0xeeeeeeee22222222);
     defer b.deinit();
 
-    try a.bitOr(a, b);
+    try a.bitOr(&a, &b);
 
     try testing.expect((try a.to(i64)) == -0x22222221);
 }
@@ -2228,7 +2351,7 @@ test "big.int bitwise or positive-negative multi-limb" {
     var b = try Managed.initSet(testing.allocator, -1);
     defer b.deinit();
 
-    try a.bitOr(a, b);
+    try a.bitOr(&a, &b);
 
     try testing.expect((try a.to(SignedDoubleLimb)) == -1);
 }
@@ -2239,7 +2362,7 @@ test "big.int bitwise or negative-negative simple" {
     var b = try Managed.initSet(testing.allocator, -0xeeeeeeee22222222);
     defer b.deinit();
 
-    try a.bitOr(a, b);
+    try a.bitOr(&a, &b);
 
     try testing.expect((try a.to(i128)) == -0xeeeeeeee00000001);
 }
@@ -2250,7 +2373,7 @@ test "big.int bitwise or negative-negative multi-limb" {
     var b = try Managed.initSet(testing.allocator, -maxInt(Limb));
     defer b.deinit();
 
-    try a.bitOr(a, b);
+    try a.bitOr(&a, &b);
 
     try testing.expect((try a.to(SignedDoubleLimb)) == -maxInt(Limb));
 }
@@ -2261,7 +2384,7 @@ test "big.int var args" {
 
     var b = try Managed.initSet(testing.allocator, 6);
     defer b.deinit();
-    try a.add(a.toConst(), b.toConst());
+    try a.add(&a, &b);
     try testing.expect((try a.to(u64)) == 11);
 
     var c = try Managed.initSet(testing.allocator, 11);
@@ -2281,7 +2404,7 @@ test "big.int gcd non-one small" {
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
 
-    try r.gcd(a, b);
+    try r.gcd(&a, &b);
 
     try testing.expect((try r.to(u32)) == 1);
 }
@@ -2294,7 +2417,7 @@ test "big.int gcd non-one small" {
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
 
-    try r.gcd(a, b);
+    try r.gcd(&a, &b);
 
     try testing.expect((try r.to(u32)) == 38);
 }
@@ -2307,7 +2430,7 @@ test "big.int gcd non-one large" {
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
 
-    try r.gcd(a, b);
+    try r.gcd(&a, &b);
 
     try testing.expect((try r.to(u32)) == 4369);
 }
@@ -2320,7 +2443,7 @@ test "big.int gcd large multi-limb result" {
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
 
-    try r.gcd(a, b);
+    try r.gcd(&a, &b);
 
     const answer = (try r.to(u256));
     try testing.expect(answer == 0xf000000ff00000fff0000ffff000fffff00ffffff1);
@@ -2334,7 +2457,7 @@ test "big.int gcd one large" {
     var r = try Managed.init(testing.allocator);
     defer r.deinit();
 
-    try r.gcd(a, b);
+    try r.gcd(&a, &b);
 
     try testing.expect((try r.to(u64)) == 1);
 }
@@ -2365,10 +2488,10 @@ test "big.int pow" {
         var a = try Managed.initSet(testing.allocator, -3);
         defer a.deinit();
 
-        try a.pow(a.toConst(), 3);
+        try a.pow(&a, 3);
         try testing.expectEqual(@as(i32, -27), try a.to(i32));
 
-        try a.pow(a.toConst(), 4);
+        try a.pow(&a, 4);
         try testing.expectEqual(@as(i32, 531441), try a.to(i32));
     }
     {
@@ -2379,9 +2502,9 @@ test "big.int pow" {
         defer y.deinit();
 
         // y and a are not aliased
-        try y.pow(a.toConst(), 123);
+        try y.pow(&a, 123);
         // y and a are aliased
-        try a.pow(a.toConst(), 123);
+        try a.pow(&a, 123);
 
         try testing.expect(a.eq(y));
 
@@ -2399,18 +2522,18 @@ test "big.int pow" {
         var a = try Managed.initSet(testing.allocator, 0);
         defer a.deinit();
 
-        try a.pow(a.toConst(), 100);
+        try a.pow(&a, 100);
         try testing.expectEqual(@as(i32, 0), try a.to(i32));
 
         try a.set(1);
-        try a.pow(a.toConst(), 0);
+        try a.pow(&a, 0);
         try testing.expectEqual(@as(i32, 1), try a.to(i32));
-        try a.pow(a.toConst(), 100);
+        try a.pow(&a, 100);
         try testing.expectEqual(@as(i32, 1), try a.to(i32));
         try a.set(-1);
-        try a.pow(a.toConst(), 15);
+        try a.pow(&a, 15);
         try testing.expectEqual(@as(i32, -1), try a.to(i32));
-        try a.pow(a.toConst(), 16);
+        try a.pow(&a, 16);
         try testing.expectEqual(@as(i32, 1), try a.to(i32));
     }
 }
@@ -2424,7 +2547,7 @@ test "big.int regression test for 1 limb overflow with alias" {
     defer b.deinit();
 
     try a.ensureAddCapacity(a.toConst(), b.toConst());
-    try a.add(a.toConst(), b.toConst());
+    try a.add(&a, &b);
 
     try testing.expect(a.toConst().orderAgainstScalar(19740274219868223167) == .eq);
 }
@@ -2438,7 +2561,7 @@ test "big.int regression test for realloc with alias" {
     defer b.deinit();
 
     try a.ensureAddCapacity(a.toConst(), b.toConst());
-    try a.add(a.toConst(), b.toConst());
+    try a.add(&a, &b);
 
     try testing.expect(a.toConst().orderAgainstScalar(14691098406862188148944207245954912110548093601382197697835) == .eq);
 }
@@ -2449,7 +2572,314 @@ test "big int popcount" {
     var b = try Managed.initSet(testing.allocator, -1);
     defer b.deinit();
 
-    try a.popCount(b.toConst(), 16);
+    try a.popCount(&b, 16);
 
     try testing.expect(a.toConst().orderAgainstScalar(16) == .eq);
+}
+
+test "big int conversion read/write twos complement" {
+    var a = try Managed.initSet(testing.allocator, (1 << 493) - 1);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, (1 << 493) - 1);
+    defer b.deinit();
+    var m = b.toMutable();
+
+    var buffer1 = try testing.allocator.alloc(u8, 64);
+    defer testing.allocator.free(buffer1);
+
+    const endians = [_]std.builtin.Endian{ .Little, .Big };
+    const abi_size = 64;
+
+    for (endians) |endian| {
+        // Writing to buffer and back should not change anything
+        a.toConst().writeTwosComplement(buffer1, 493, abi_size, endian);
+        m.readTwosComplement(buffer1, 493, abi_size, endian, .unsigned);
+        try testing.expect(m.toConst().order(a.toConst()) == .eq);
+
+        // Equivalent to @bitCast(i493, @as(u493, intMax(u493))
+        a.toConst().writeTwosComplement(buffer1, 493, abi_size, endian);
+        m.readTwosComplement(buffer1, 493, abi_size, endian, .signed);
+        try testing.expect(m.toConst().orderAgainstScalar(-1) == .eq);
+    }
+}
+
+test "big int conversion read twos complement with padding" {
+    var a = try Managed.initSet(testing.allocator, 0x01_02030405_06070809_0a0b0c0d);
+    defer a.deinit();
+
+    var buffer1 = try testing.allocator.alloc(u8, 16);
+    defer testing.allocator.free(buffer1);
+    @memset(buffer1.ptr, 0xaa, buffer1.len);
+
+    // writeTwosComplement:
+    // (1) should not write beyond buffer[0..abi_size]
+    // (2) should correctly order bytes based on the provided endianness
+    // (3) should sign-extend any bits from bit_count to 8 * abi_size
+
+    var bit_count: usize = 12 * 8 + 1;
+    a.toConst().writeTwosComplement(buffer1, bit_count, 13, .Little);
+    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xd, 0xc, 0xb, 0xa, 0x9, 0x8, 0x7, 0x6, 0x5, 0x4, 0x3, 0x2, 0x1, 0xaa, 0xaa, 0xaa }));
+    a.toConst().writeTwosComplement(buffer1, bit_count, 13, .Big);
+    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd, 0xaa, 0xaa, 0xaa }));
+    a.toConst().writeTwosComplement(buffer1, bit_count, 16, .Little);
+    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xd, 0xc, 0xb, 0xa, 0x9, 0x8, 0x7, 0x6, 0x5, 0x4, 0x3, 0x2, 0x1, 0x0, 0x0, 0x0 }));
+    a.toConst().writeTwosComplement(buffer1, bit_count, 16, .Big);
+    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0x0, 0x0, 0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd }));
+
+    @memset(buffer1.ptr, 0xaa, buffer1.len);
+    try a.set(-0x01_02030405_06070809_0a0b0c0d);
+    bit_count = 12 * 8 + 2;
+
+    a.toConst().writeTwosComplement(buffer1, bit_count, 13, .Little);
+    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xf3, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xaa, 0xaa, 0xaa }));
+    a.toConst().writeTwosComplement(buffer1, bit_count, 13, .Big);
+    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xfe, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 0xf6, 0xf5, 0xf4, 0xf3, 0xf3, 0xaa, 0xaa, 0xaa }));
+    a.toConst().writeTwosComplement(buffer1, bit_count, 16, .Little);
+    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xf3, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff, 0xff, 0xff }));
+    a.toConst().writeTwosComplement(buffer1, bit_count, 16, .Big);
+    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xff, 0xff, 0xff, 0xfe, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 0xf6, 0xf5, 0xf4, 0xf3, 0xf3 }));
+}
+
+test "big int write twos complement +/- zero" {
+    var a = try Managed.initSet(testing.allocator, 0x0);
+    defer a.deinit();
+    var m = a.toMutable();
+
+    var buffer1 = try testing.allocator.alloc(u8, 16);
+    defer testing.allocator.free(buffer1);
+    @memset(buffer1.ptr, 0xaa, buffer1.len);
+
+    var bit_count: usize = 0;
+
+    // Test zero
+
+    m.toConst().writeTwosComplement(buffer1, bit_count, 13, .Little);
+    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3))));
+    m.toConst().writeTwosComplement(buffer1, bit_count, 13, .Big);
+    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3))));
+    m.toConst().writeTwosComplement(buffer1, bit_count, 16, .Little);
+    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 16))));
+    m.toConst().writeTwosComplement(buffer1, bit_count, 16, .Big);
+    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 16))));
+
+    @memset(buffer1.ptr, 0xaa, buffer1.len);
+    m.positive = false;
+
+    // Test negative zero
+
+    m.toConst().writeTwosComplement(buffer1, bit_count, 13, .Little);
+    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3))));
+    m.toConst().writeTwosComplement(buffer1, bit_count, 13, .Big);
+    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3))));
+    m.toConst().writeTwosComplement(buffer1, bit_count, 16, .Little);
+    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 16))));
+    m.toConst().writeTwosComplement(buffer1, bit_count, 16, .Big);
+    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 16))));
+}
+
+test "big int conversion write twos complement with padding" {
+    var a = try Managed.initSet(testing.allocator, 0x01_ffffffff_ffffffff_ffffffff);
+    defer a.deinit();
+
+    var m = a.toMutable();
+
+    // readTwosComplement:
+    // (1) should not read beyond buffer[0..abi_size]
+    // (2) should correctly interpret bytes based on the provided endianness
+    // (3) should ignore any bits from bit_count to 8 * abi_size
+
+    var bit_count: usize = 12 * 8 + 1;
+    var buffer: []const u8 = undefined;
+
+    // Test 0x01_02030405_06070809_0a0b0c0d
+
+    buffer = &[_]u8{ 0xd, 0xc, 0xb, 0xa, 0x9, 0x8, 0x7, 0x6, 0x5, 0x4, 0x3, 0x2, 0xb };
+    m.readTwosComplement(buffer, bit_count, 13, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x01_02030405_06070809_0a0b0c0d) == .eq);
+
+    buffer = &[_]u8{ 0xb, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd };
+    m.readTwosComplement(buffer, bit_count, 13, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x01_02030405_06070809_0a0b0c0d) == .eq);
+
+    buffer = &[_]u8{ 0xd, 0xc, 0xb, 0xa, 0x9, 0x8, 0x7, 0x6, 0x5, 0x4, 0x3, 0x2, 0xab, 0xaa, 0xaa, 0xaa };
+    m.readTwosComplement(buffer, bit_count, 16, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x01_02030405_06070809_0a0b0c0d) == .eq);
+
+    buffer = &[_]u8{ 0xaa, 0xaa, 0xaa, 0xab, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd };
+    m.readTwosComplement(buffer, bit_count, 16, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x01_02030405_06070809_0a0b0c0d) == .eq);
+
+    bit_count = 12 * 8 + 2;
+
+    // Test -0x01_02030405_06070809_0a0b0c0d
+
+    buffer = &[_]u8{ 0xf3, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0x02 };
+    m.readTwosComplement(buffer, bit_count, 13, .Little, .signed);
+    try testing.expect(m.toConst().orderAgainstScalar(-0x01_02030405_06070809_0a0b0c0d) == .eq);
+
+    buffer = &[_]u8{ 0x02, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 0xf6, 0xf5, 0xf4, 0xf3, 0xf3 };
+    m.readTwosComplement(buffer, bit_count, 13, .Big, .signed);
+    try testing.expect(m.toConst().orderAgainstScalar(-0x01_02030405_06070809_0a0b0c0d) == .eq);
+
+    buffer = &[_]u8{ 0xf3, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0x02, 0xaa, 0xaa, 0xaa };
+    m.readTwosComplement(buffer, bit_count, 16, .Little, .signed);
+    try testing.expect(m.toConst().orderAgainstScalar(-0x01_02030405_06070809_0a0b0c0d) == .eq);
+
+    buffer = &[_]u8{ 0xaa, 0xaa, 0xaa, 0x02, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 0xf6, 0xf5, 0xf4, 0xf3, 0xf3 };
+    m.readTwosComplement(buffer, bit_count, 16, .Big, .signed);
+    try testing.expect(m.toConst().orderAgainstScalar(-0x01_02030405_06070809_0a0b0c0d) == .eq);
+
+    // Test 0
+
+    buffer = &([_]u8{0} ** 16);
+    m.readTwosComplement(buffer, bit_count, 13, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+    m.readTwosComplement(buffer, bit_count, 13, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+    m.readTwosComplement(buffer, bit_count, 16, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+    m.readTwosComplement(buffer, bit_count, 16, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+
+    bit_count = 0;
+    buffer = &([_]u8{0xaa} ** 16);
+    m.readTwosComplement(buffer, bit_count, 13, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+    m.readTwosComplement(buffer, bit_count, 13, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+    m.readTwosComplement(buffer, bit_count, 16, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+    m.readTwosComplement(buffer, bit_count, 16, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+}
+
+test "big int conversion write twos complement zero" {
+    var a = try Managed.initSet(testing.allocator, 0x01_ffffffff_ffffffff_ffffffff);
+    defer a.deinit();
+
+    var m = a.toMutable();
+
+    // readTwosComplement:
+    // (1) should not read beyond buffer[0..abi_size]
+    // (2) should correctly interpret bytes based on the provided endianness
+    // (3) should ignore any bits from bit_count to 8 * abi_size
+
+    var bit_count: usize = 12 * 8 + 1;
+    var buffer: []const u8 = undefined;
+
+    buffer = &([_]u8{0} ** 13);
+    m.readTwosComplement(buffer, bit_count, 13, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+    m.readTwosComplement(buffer, bit_count, 13, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+
+    buffer = &([_]u8{0} ** 16);
+    m.readTwosComplement(buffer, bit_count, 16, .Little, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+    m.readTwosComplement(buffer, bit_count, 16, .Big, .unsigned);
+    try testing.expect(m.toConst().orderAgainstScalar(0x0) == .eq);
+}
+
+fn bitReverseTest(comptime T: type, comptime input: comptime_int, comptime expected_output: comptime_int) !void {
+    const bit_count = @typeInfo(T).Int.bits;
+    const signedness = @typeInfo(T).Int.signedness;
+
+    var a = try Managed.initSet(testing.allocator, input);
+    defer a.deinit();
+
+    try a.ensureCapacity(calcTwosCompLimbCount(bit_count));
+    var m = a.toMutable();
+    m.bitReverse(a.toConst(), signedness, bit_count);
+    try testing.expect(m.toConst().orderAgainstScalar(expected_output) == .eq);
+}
+
+test "big int bit reverse" {
+    var a = try Managed.initSet(testing.allocator, 0x01_ffffffff_ffffffff_ffffffff);
+    defer a.deinit();
+
+    try bitReverseTest(u0, 0, 0);
+    try bitReverseTest(u5, 0x12, 0x09);
+    try bitReverseTest(u8, 0x12, 0x48);
+    try bitReverseTest(u16, 0x1234, 0x2c48);
+    try bitReverseTest(u24, 0x123456, 0x6a2c48);
+    try bitReverseTest(u32, 0x12345678, 0x1e6a2c48);
+    try bitReverseTest(u40, 0x123456789a, 0x591e6a2c48);
+    try bitReverseTest(u48, 0x123456789abc, 0x3d591e6a2c48);
+    try bitReverseTest(u56, 0x123456789abcde, 0x7b3d591e6a2c48);
+    try bitReverseTest(u64, 0x123456789abcdef1, 0x8f7b3d591e6a2c48);
+    try bitReverseTest(u95, 0x123456789abcdef111213141, 0x4146424447bd9eac8f351624);
+    try bitReverseTest(u96, 0x123456789abcdef111213141, 0x828c84888f7b3d591e6a2c48);
+    try bitReverseTest(u128, 0x123456789abcdef11121314151617181, 0x818e868a828c84888f7b3d591e6a2c48);
+
+    try bitReverseTest(i8, @bitCast(i8, @as(u8, 0x92)), @bitCast(i8, @as(u8, 0x49)));
+    try bitReverseTest(i16, @bitCast(i16, @as(u16, 0x1234)), @bitCast(i16, @as(u16, 0x2c48)));
+    try bitReverseTest(i24, @bitCast(i24, @as(u24, 0x123456)), @bitCast(i24, @as(u24, 0x6a2c48)));
+    try bitReverseTest(i24, @bitCast(i24, @as(u24, 0x12345f)), @bitCast(i24, @as(u24, 0xfa2c48)));
+    try bitReverseTest(i24, @bitCast(i24, @as(u24, 0xf23456)), @bitCast(i24, @as(u24, 0x6a2c4f)));
+    try bitReverseTest(i32, @bitCast(i32, @as(u32, 0x12345678)), @bitCast(i32, @as(u32, 0x1e6a2c48)));
+    try bitReverseTest(i32, @bitCast(i32, @as(u32, 0xf2345678)), @bitCast(i32, @as(u32, 0x1e6a2c4f)));
+    try bitReverseTest(i32, @bitCast(i32, @as(u32, 0x1234567f)), @bitCast(i32, @as(u32, 0xfe6a2c48)));
+    try bitReverseTest(i40, @bitCast(i40, @as(u40, 0x123456789a)), @bitCast(i40, @as(u40, 0x591e6a2c48)));
+    try bitReverseTest(i48, @bitCast(i48, @as(u48, 0x123456789abc)), @bitCast(i48, @as(u48, 0x3d591e6a2c48)));
+    try bitReverseTest(i56, @bitCast(i56, @as(u56, 0x123456789abcde)), @bitCast(i56, @as(u56, 0x7b3d591e6a2c48)));
+    try bitReverseTest(i64, @bitCast(i64, @as(u64, 0x123456789abcdef1)), @bitCast(i64, @as(u64, 0x8f7b3d591e6a2c48)));
+    try bitReverseTest(i96, @bitCast(i96, @as(u96, 0x123456789abcdef111213141)), @bitCast(i96, @as(u96, 0x828c84888f7b3d591e6a2c48)));
+    try bitReverseTest(i128, @bitCast(i128, @as(u128, 0x123456789abcdef11121314151617181)), @bitCast(i128, @as(u128, 0x818e868a828c84888f7b3d591e6a2c48)));
+}
+
+fn byteSwapTest(comptime T: type, comptime input: comptime_int, comptime expected_output: comptime_int) !void {
+    const byte_count = @typeInfo(T).Int.bits / 8;
+    const signedness = @typeInfo(T).Int.signedness;
+
+    var a = try Managed.initSet(testing.allocator, input);
+    defer a.deinit();
+
+    try a.ensureCapacity(calcTwosCompLimbCount(8 * byte_count));
+    var m = a.toMutable();
+    m.byteSwap(a.toConst(), signedness, byte_count);
+    try testing.expect(m.toConst().orderAgainstScalar(expected_output) == .eq);
+}
+
+test "big int byte swap" {
+    var a = try Managed.initSet(testing.allocator, 0x01_ffffffff_ffffffff_ffffffff);
+    defer a.deinit();
+
+    @setEvalBranchQuota(10_000);
+
+    try byteSwapTest(u0, 0, 0);
+    try byteSwapTest(u8, 0x12, 0x12);
+    try byteSwapTest(u16, 0x1234, 0x3412);
+    try byteSwapTest(u24, 0x123456, 0x563412);
+    try byteSwapTest(u32, 0x12345678, 0x78563412);
+    try byteSwapTest(u40, 0x123456789a, 0x9a78563412);
+    try byteSwapTest(u48, 0x123456789abc, 0xbc9a78563412);
+    try byteSwapTest(u56, 0x123456789abcde, 0xdebc9a78563412);
+    try byteSwapTest(u64, 0x123456789abcdef1, 0xf1debc9a78563412);
+    try byteSwapTest(u88, 0x123456789abcdef1112131, 0x312111f1debc9a78563412);
+    try byteSwapTest(u96, 0x123456789abcdef111213141, 0x41312111f1debc9a78563412);
+    try byteSwapTest(u128, 0x123456789abcdef11121314151617181, 0x8171615141312111f1debc9a78563412);
+
+    try byteSwapTest(i8, -50, -50);
+    try byteSwapTest(i16, @bitCast(i16, @as(u16, 0x1234)), @bitCast(i16, @as(u16, 0x3412)));
+    try byteSwapTest(i24, @bitCast(i24, @as(u24, 0x123456)), @bitCast(i24, @as(u24, 0x563412)));
+    try byteSwapTest(i32, @bitCast(i32, @as(u32, 0x12345678)), @bitCast(i32, @as(u32, 0x78563412)));
+    try byteSwapTest(i40, @bitCast(i40, @as(u40, 0x123456789a)), @bitCast(i40, @as(u40, 0x9a78563412)));
+    try byteSwapTest(i48, @bitCast(i48, @as(u48, 0x123456789abc)), @bitCast(i48, @as(u48, 0xbc9a78563412)));
+    try byteSwapTest(i56, @bitCast(i56, @as(u56, 0x123456789abcde)), @bitCast(i56, @as(u56, 0xdebc9a78563412)));
+    try byteSwapTest(i64, @bitCast(i64, @as(u64, 0x123456789abcdef1)), @bitCast(i64, @as(u64, 0xf1debc9a78563412)));
+    try byteSwapTest(i88, @bitCast(i88, @as(u88, 0x123456789abcdef1112131)), @bitCast(i88, @as(u88, 0x312111f1debc9a78563412)));
+    try byteSwapTest(i96, @bitCast(i96, @as(u96, 0x123456789abcdef111213141)), @bitCast(i96, @as(u96, 0x41312111f1debc9a78563412)));
+    try byteSwapTest(i128, @bitCast(i128, @as(u128, 0x123456789abcdef11121314151617181)), @bitCast(i128, @as(u128, 0x8171615141312111f1debc9a78563412)));
+
+    try byteSwapTest(u512, 0x80, 1 << 511);
+    try byteSwapTest(i512, 0x80, minInt(i512));
+    try byteSwapTest(i512, 0x40, 1 << 510);
+    try byteSwapTest(i512, -0x100, (1 << 504) - 1);
+    try byteSwapTest(i400, -0x100, (1 << 392) - 1);
+    try byteSwapTest(i400, -0x2, -(1 << 392) - 1);
+    try byteSwapTest(i24, @bitCast(i24, @as(u24, 0xf23456)), 0x5634f2);
+    try byteSwapTest(i24, 0x1234f6, @bitCast(i24, @as(u24, 0xf63412)));
+    try byteSwapTest(i32, @bitCast(i32, @as(u32, 0xf2345678)), 0x785634f2);
+    try byteSwapTest(i32, 0x123456f8, @bitCast(i32, @as(u32, 0xf8563412)));
+    try byteSwapTest(i48, 0x123456789abc, @bitCast(i48, @as(u48, 0xbc9a78563412)));
 }

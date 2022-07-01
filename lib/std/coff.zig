@@ -4,8 +4,6 @@ const mem = std.mem;
 const os = std.os;
 const File = std.fs.File;
 
-const ArrayList = std.ArrayList;
-
 // CoffHeader.machine values
 // see https://msdn.microsoft.com/en-us/library/windows/desktop/ms680313(v=vs.85).aspx
 const IMAGE_FILE_MACHINE_I386 = 0x014c;
@@ -62,6 +60,21 @@ pub const MachineType = enum(u16) {
     Thumb = 0x1c2,
     /// MIPS little-endian WCE v2
     WCEMIPSV2 = 0x169,
+
+    pub fn toTargetCpuArch(machine_type: MachineType) ?std.Target.Cpu.Arch {
+        return switch (machine_type) {
+            .ARM => .arm,
+            .POWERPC => .powerpc,
+            .RISCV32 => .riscv32,
+            .Thumb => .thumb,
+            .I386 => .i386,
+            .ARM64 => .aarch64,
+            .RISCV64 => .riscv64,
+            .X64 => .x86_64,
+            // there's cases we don't (yet) handle
+            else => null,
+        };
+    }
 };
 
 // OptionalHeader.magic values
@@ -102,7 +115,7 @@ pub const Coff = struct {
 
     coff_header: CoffHeader,
     pe_header: OptionalHeader,
-    sections: ArrayList(Section),
+    sections: std.ArrayListUnmanaged(Section) = .{},
 
     guid: [16]u8,
     age: u32,
@@ -113,10 +126,13 @@ pub const Coff = struct {
             .allocator = allocator,
             .coff_header = undefined,
             .pe_header = undefined,
-            .sections = ArrayList(Section).init(allocator),
             .guid = undefined,
             .age = undefined,
         };
+    }
+
+    pub fn deinit(self: *Coff) void {
+        self.sections.deinit(self.allocator);
     }
 
     pub fn loadHeader(self: *Coff) !void {
@@ -181,7 +197,11 @@ pub const Coff = struct {
         const opt_header_pos = try self.in_file.getPos();
 
         self.pe_header.magic = try in.readIntLittle(u16);
-        // All we care about is the image base value and PDB info
+        try self.in_file.seekTo(opt_header_pos + 16);
+        self.pe_header.entry_addr = try in.readIntLittle(u32);
+        try self.in_file.seekTo(opt_header_pos + 20);
+        self.pe_header.code_base = try in.readIntLittle(u32);
+
         // The header structure is different for 32 or 64 bit
         var num_rva_pos: u64 = undefined;
         if (self.pe_header.magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC) {
@@ -276,7 +296,7 @@ pub const Coff = struct {
         if (self.sections.items.len == self.coff_header.number_of_sections)
             return;
 
-        try self.sections.ensureTotalCapacityPrecise(self.coff_header.number_of_sections);
+        try self.sections.ensureTotalCapacityPrecise(self.allocator, self.coff_header.number_of_sections);
 
         const in = self.in_file.reader();
 
@@ -358,6 +378,8 @@ const OptionalHeader = struct {
 
     magic: u16,
     data_directory: [IMAGE_NUMBEROF_DIRECTORY_ENTRIES]DataDirectory,
+    entry_addr: u32,
+    code_base: u32,
     image_base: u64,
 };
 

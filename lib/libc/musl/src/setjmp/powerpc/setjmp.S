@@ -37,7 +37,37 @@ setjmp:
 	stw 29, 72(3)
 	stw 30, 76(3)
 	stw 31, 80(3)
-#ifndef _SOFT_FLOAT
+#if defined(_SOFT_FLOAT) || defined(__NO_FPRS__)
+	mflr 0
+	bl 1f
+	.hidden __hwcap
+	.long __hwcap-.
+1:	mflr 4
+	lwz 5, 0(4)
+	lwzx 4, 4, 5
+	andis. 4, 4, 0x80
+	beq 1f
+	.long 0x11c35b21 /* evstdd 14,88(3) */
+	.long 0x11e36321 /* ... */
+	.long 0x12036b21
+	.long 0x12237321
+	.long 0x12437b21
+	.long 0x12638321
+	.long 0x12838b21
+	.long 0x12a39321
+	.long 0x12c39b21
+	.long 0x12e3a321
+	.long 0x1303ab21
+	.long 0x1323b321
+	.long 0x1343bb21
+	.long 0x1363c321
+	.long 0x1383cb21
+	.long 0x13a3d321
+	.long 0x13c3db21
+	.long 0x13e3e321 /* evstdd 31,224(3) */
+	.long 0x11a3eb21 /* evstdd 13,232(3) */
+1:	mtlr 0
+#else
 	stfd 14,88(3)
 	stfd 15,96(3)
 	stfd 16,104(3)

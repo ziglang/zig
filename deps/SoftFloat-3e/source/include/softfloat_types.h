@@ -37,6 +37,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef softfloat_types_h
 #define softfloat_types_h 1
 
+#include "platform.h"
 #include <stdint.h>
 
 /*----------------------------------------------------------------------------

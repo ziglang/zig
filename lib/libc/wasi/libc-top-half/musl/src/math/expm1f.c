@@ -16,7 +16,6 @@
 #include "libm.h"
 
 static const float
-o_threshold = 8.8721679688e+01, /* 0x42b17180 */
 ln2_hi      = 6.9313812256e-01, /* 0x3f317180 */
 ln2_lo      = 9.0580006145e-06, /* 0x3717f7d1 */
 invln2      = 1.4426950216e+00, /* 0x3fb8aa3b */
@@ -41,7 +40,7 @@ float expm1f(float x)
 			return x;
 		if (sign)
 			return -1;
-		if (x > o_threshold) {
+		if (hx > 0x42b17217) { /* x > log(FLT_MAX) */
 			x *= 0x1p127f;
 			return x;
 		}

@@ -1,6 +1,7 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 const testing = std.testing;
+const os = std.os;
 const fs = std.fs;
 const mem = std.mem;
 const wasi = std.os.wasi;
@@ -45,7 +46,8 @@ fn testReadLink(dir: Dir, target_path: []const u8, symlink_path: []const u8) !vo
 }
 
 test "accessAbsolute" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -63,7 +65,8 @@ test "accessAbsolute" {
 }
 
 test "openDirAbsolute" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -99,7 +102,8 @@ test "openDir cwd parent .." {
 }
 
 test "readLinkAbsolute" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -430,9 +434,6 @@ test "Dir.rename files" {
 }
 
 test "Dir.rename directories" {
-    // TODO: Fix on Windows, see https://github.com/ziglang/zig/issues/6364
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
-
     var tmp_dir = tmpDir(.{});
     defer tmp_dir.cleanup();
 
@@ -457,18 +458,44 @@ test "Dir.rename directories" {
     file = try dir.openFile("test_file", .{});
     file.close();
     dir.close();
+}
 
-    // Try to rename to a non-empty directory now
-    var target_dir = try tmp_dir.dir.makeOpenPath("non_empty_target_dir", .{});
-    file = try target_dir.createFile("filler", .{ .read = true });
+test "Dir.rename directory onto empty dir" {
+    // TODO: Fix on Windows, see https://github.com/ziglang/zig/issues/6364
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    try tmp_dir.dir.makeDir("test_dir");
+    try tmp_dir.dir.makeDir("target_dir");
+    try tmp_dir.dir.rename("test_dir", "target_dir");
+
+    // Ensure the directory was renamed
+    try testing.expectError(error.FileNotFound, tmp_dir.dir.openDir("test_dir", .{}));
+    var dir = try tmp_dir.dir.openDir("target_dir", .{});
+    dir.close();
+}
+
+test "Dir.rename directory onto non-empty dir" {
+    // TODO: Fix on Windows, see https://github.com/ziglang/zig/issues/6364
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    try tmp_dir.dir.makeDir("test_dir");
+
+    var target_dir = try tmp_dir.dir.makeOpenPath("target_dir", .{});
+    var file = try target_dir.createFile("test_file", .{ .read = true });
     file.close();
+    target_dir.close();
 
-    try testing.expectError(error.PathAlreadyExists, tmp_dir.dir.rename("test_dir_renamed_again", "non_empty_target_dir"));
+    // Rename should fail with PathAlreadyExists if target_dir is non-empty
+    try testing.expectError(error.PathAlreadyExists, tmp_dir.dir.rename("test_dir", "target_dir"));
 
     // Ensure the directory was not renamed
-    dir = try tmp_dir.dir.openDir("test_dir_renamed_again", .{});
-    file = try dir.openFile("test_file", .{});
-    file.close();
+    var dir = try tmp_dir.dir.openDir("test_dir", .{});
     dir.close();
 }
 
@@ -507,7 +534,8 @@ test "rename" {
 }
 
 test "renameAbsolute" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
 
     var tmp_dir = tmpDir(.{});
     defer tmp_dir.cleanup();
@@ -580,6 +608,16 @@ test "makePath, put some files in it, deleteTree" {
     } else |err| {
         try testing.expect(err == error.FileNotFound);
     }
+}
+
+test "makePath in a directory that no longer exists" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest; // Windows returns FileBusy if attempting to remove an open dir
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.parent_dir.deleteTree(&tmp.sub_path);
+
+    try testing.expectError(error.FileNotFound, tmp.dir.makePath("sub-path"));
 }
 
 test "writev, readv" {
@@ -879,7 +917,7 @@ test "open file with exclusive and shared nonblocking lock" {
     try testing.expectError(error.WouldBlock, file2);
 }
 
-test "open file with exclusive lock twice, make sure it waits" {
+test "open file with exclusive lock twice, make sure second lock waits" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     if (std.io.is_async) {
@@ -896,30 +934,33 @@ test "open file with exclusive lock twice, make sure it waits" {
     errdefer file.close();
 
     const S = struct {
-        fn checkFn(dir: *fs.Dir, evt: *std.Thread.ResetEvent) !void {
+        fn checkFn(dir: *fs.Dir, started: *std.Thread.ResetEvent, locked: *std.Thread.ResetEvent) !void {
+            started.set();
             const file1 = try dir.createFile(filename, .{ .lock = .Exclusive });
-            defer file1.close();
-            evt.set();
+
+            locked.set();
+            file1.close();
         }
     };
 
-    var evt: std.Thread.ResetEvent = undefined;
-    try evt.init();
-    defer evt.deinit();
+    var started = std.Thread.ResetEvent{};
+    var locked = std.Thread.ResetEvent{};
 
-    const t = try std.Thread.spawn(.{}, S.checkFn, .{ &tmp.dir, &evt });
+    const t = try std.Thread.spawn(.{}, S.checkFn, .{
+        &tmp.dir,
+        &started,
+        &locked,
+    });
     defer t.join();
 
-    const SLEEP_TIMEOUT_NS = 10 * std.time.ns_per_ms;
-    // Make sure we've slept enough.
-    var timer = try std.time.Timer.start();
-    while (true) {
-        std.time.sleep(SLEEP_TIMEOUT_NS);
-        if (timer.read() >= SLEEP_TIMEOUT_NS) break;
-    }
+    // Wait for the spawned thread to start trying to acquire the exclusive file lock.
+    // Then wait a bit to make sure that can't acquire it since we currently hold the file lock.
+    started.wait();
+    try testing.expectError(error.Timeout, locked.timedWait(10 * std.time.ns_per_ms));
+
+    // Release the file lock which should unlock the thread to lock it and set the locked event.
     file.close();
-    // No timeout to avoid failures on heavily loaded systems.
-    evt.wait();
+    locked.wait();
 }
 
 test "open file with exclusive nonblocking lock twice (absolute paths)" {
@@ -941,7 +982,8 @@ test "open file with exclusive nonblocking lock twice (absolute paths)" {
 }
 
 test "walker" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
 
     var tmp = tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -991,7 +1033,8 @@ test "walker" {
 }
 
 test ". and .. in fs.Dir functions" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1019,7 +1062,8 @@ test ". and .. in fs.Dir functions" {
 }
 
 test ". and .. in absolute functions" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1100,4 +1144,80 @@ test "chown" {
     var dir = try tmp.dir.openDir("test_dir", .{ .iterate = true });
     defer dir.close();
     try dir.chown(null, null);
+}
+
+test "File.Metadata" {
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    const file = try tmp.dir.createFile("test_file", .{ .read = true });
+    defer file.close();
+
+    const metadata = try file.metadata();
+    try testing.expect(metadata.kind() == .File);
+    try testing.expect(metadata.size() == 0);
+    _ = metadata.accessed();
+    _ = metadata.modified();
+    _ = metadata.created();
+}
+
+test "File.Permissions" {
+    if (builtin.os.tag == .wasi)
+        return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    const file = try tmp.dir.createFile("test_file", .{ .read = true });
+    defer file.close();
+
+    const metadata = try file.metadata();
+    var permissions = metadata.permissions();
+
+    try testing.expect(!permissions.readOnly());
+    permissions.setReadOnly(true);
+    try testing.expect(permissions.readOnly());
+
+    try file.setPermissions(permissions);
+    const new_permissions = (try file.metadata()).permissions();
+    try testing.expect(new_permissions.readOnly());
+
+    // Must be set to non-read-only to delete
+    permissions.setReadOnly(false);
+    try file.setPermissions(permissions);
+}
+
+test "File.PermissionsUnix" {
+    if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
+        return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    const file = try tmp.dir.createFile("test_file", .{ .mode = 0o666, .read = true });
+    defer file.close();
+
+    const metadata = try file.metadata();
+    var permissions = metadata.permissions();
+
+    permissions.setReadOnly(true);
+    try testing.expect(permissions.readOnly());
+    try testing.expect(!permissions.inner.unixHas(.user, .write));
+    permissions.inner.unixSet(.user, .{ .write = true });
+    try testing.expect(!permissions.readOnly());
+    try testing.expect(permissions.inner.unixHas(.user, .write));
+    try testing.expect(permissions.inner.mode & 0o400 != 0);
+
+    permissions.setReadOnly(true);
+    try file.setPermissions(permissions);
+    permissions = (try file.metadata()).permissions();
+    try testing.expect(permissions.readOnly());
+
+    // Must be set to non-read-only to delete
+    permissions.setReadOnly(false);
+    try file.setPermissions(permissions);
+
+    const permissions_unix = File.PermissionsUnix.unixNew(0o754);
+    try testing.expect(permissions_unix.unixHas(.user, .execute));
+    try testing.expect(!permissions_unix.unixHas(.other, .execute));
 }

@@ -313,12 +313,12 @@ void bigint_write_twos_complement(const BigInt *big_int, uint8_t *buf, size_t bi
             }
 
             if (digit_index == 0) break;
-            digit_index -= 1;
             if (digit_index == last_digit_index) {
                 buf_index += bytes_in_last_digit;
             } else {
                 buf_index += 8;
             }
+            digit_index -= 1;
         }
     } else {
         size_t digit_count = (bit_count + 63) / 64;
@@ -476,9 +476,15 @@ void bigint_min(BigInt* dest, const BigInt *op1, const BigInt *op2) {
 /// signed bounds are  [-2^(bit_count-1)..2^(bit_count-1)-1]
 /// unsigned bounds are  [0..2^bit_count-1]
 void bigint_clamp_by_bitcount(BigInt* dest, uint32_t bit_count, bool is_signed) {
+    bool is_negative = dest->is_negative;
+    // unsigned and dest->is_negative => clamp to 0
+    if (is_negative && !is_signed) {
+        bigint_deinit(dest);
+        bigint_init_unsigned(dest, 0);
+        return;
+    }
     // compute the number of bits required to store the value, and use that
     // to decide whether to clamp the result
-    bool is_negative = dest->is_negative;
     // to workaround the fact this bits_needed calculation would yield 65 or more for
     // all negative numbers, set is_negative to false.  this is a cheap way to find
     // bits_needed(abs(dest)).
@@ -512,19 +518,13 @@ void bigint_clamp_by_bitcount(BigInt* dest, uint32_t bit_count, bool is_signed) 
                 *dest = bound_sub_one;
             }
         } else {
-            if(is_negative) {
-                bigint_deinit(dest);
-                bigint_init_unsigned(dest, 0);
-                return; // skips setting is_negative which would be invalid
-            } else {
-                BigInt bound;
-                bigint_shl(&bound, &one, &bit_count_big);
-                BigInt bound_sub_one;
-                bigint_sub(&bound_sub_one, &bound, &one);
-                bigint_deinit(&bound);
-                bigint_deinit(dest);
-                *dest = bound_sub_one;
-            }
+            BigInt bound;
+            bigint_shl(&bound, &one, &bit_count_big);
+            BigInt bound_sub_one;
+            bigint_sub(&bound_sub_one, &bound, &one);
+            bigint_deinit(&bound);
+            bigint_deinit(dest);
+            *dest = bound_sub_one;
         }
     }
     dest->is_negative = is_negative;

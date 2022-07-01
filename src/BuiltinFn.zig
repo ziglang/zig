@@ -89,6 +89,7 @@ pub const Tag = enum {
     sqrt,
     sin,
     cos,
+    tan,
     exp,
     exp2,
     log,
@@ -768,6 +769,13 @@ pub const list = list: {
             "@cos",
             .{
                 .tag = .cos,
+                .param_count = 1,
+            },
+        },
+        .{
+            "@tan",
+            .{
+                .tag = .tan,
                 .param_count = 1,
             },
         },

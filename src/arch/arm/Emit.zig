@@ -2,13 +2,13 @@
 //! machine code
 
 const Emit = @This();
+const builtin = @import("builtin");
 const std = @import("std");
 const math = std.math;
 const Mir = @import("Mir.zig");
 const bits = @import("bits.zig");
 const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
-const Air = @import("../../Air.zig");
 const Type = @import("../../type.zig").Type;
 const ErrorMsg = Module.ErrorMsg;
 const assert = std.debug.assert;
@@ -22,7 +22,6 @@ const CodeGen = @import("CodeGen.zig");
 
 mir: Mir,
 bin_file: *link.File,
-function: *const CodeGen,
 debug_output: DebugInfoOutput,
 target: *const std.Target,
 err_msg: ?*ErrorMsg = null,
@@ -79,6 +78,7 @@ pub fn emitMir(
         const inst = @intCast(u32, index);
         switch (tag) {
             .add => try emit.mirDataProcessing(inst),
+            .adds => try emit.mirDataProcessing(inst),
             .@"and" => try emit.mirDataProcessing(inst),
             .cmp => try emit.mirDataProcessing(inst),
             .eor => try emit.mirDataProcessing(inst),
@@ -87,6 +87,7 @@ pub fn emitMir(
             .orr => try emit.mirDataProcessing(inst),
             .rsb => try emit.mirDataProcessing(inst),
             .sub => try emit.mirDataProcessing(inst),
+            .subs => try emit.mirDataProcessing(inst),
 
             .asr => try emit.mirShift(inst),
             .lsl => try emit.mirShift(inst),
@@ -99,8 +100,6 @@ pub fn emitMir(
             .blx => try emit.mirBranchExchange(inst),
             .bx => try emit.mirBranchExchange(inst),
 
-            .dbg_arg => try emit.mirDbgArg(inst),
-
             .dbg_line => try emit.mirDbgLine(inst),
 
             .dbg_prologue_end => try emit.mirDebugPrologueEnd(),
@@ -112,17 +111,26 @@ pub fn emitMir(
             .str => try emit.mirLoadStore(inst),
             .strb => try emit.mirLoadStore(inst),
 
+            .ldr_ptr_stack_argument => try emit.mirLoadStackArgument(inst),
             .ldr_stack_argument => try emit.mirLoadStackArgument(inst),
             .ldrb_stack_argument => try emit.mirLoadStackArgument(inst),
             .ldrh_stack_argument => try emit.mirLoadStackArgument(inst),
+            .ldrsb_stack_argument => try emit.mirLoadStackArgument(inst),
+            .ldrsh_stack_argument => try emit.mirLoadStackArgument(inst),
 
             .ldrh => try emit.mirLoadStoreExtra(inst),
+            .ldrsb => try emit.mirLoadStoreExtra(inst),
+            .ldrsh => try emit.mirLoadStoreExtra(inst),
             .strh => try emit.mirLoadStoreExtra(inst),
 
             .movw => try emit.mirSpecialMove(inst),
             .movt => try emit.mirSpecialMove(inst),
 
             .mul => try emit.mirMultiply(inst),
+            .smulbb => try emit.mirMultiply(inst),
+
+            .smull => try emit.mirMultiplyLong(inst),
+            .umull => try emit.mirMultiplyLong(inst),
 
             .nop => try emit.mirNop(),
 
@@ -130,6 +138,9 @@ pub fn emitMir(
             .push => try emit.mirBlockDataTransfer(inst),
 
             .svc => try emit.mirSupervisorCall(inst),
+
+            .sbfx => try emit.mirBitFieldExtract(inst),
+            .ubfx => try emit.mirBitFieldExtract(inst),
         }
     }
 }
@@ -153,7 +164,7 @@ fn optimalBranchType(emit: *Emit, tag: Mir.Inst.Tag, offset: i64) !BranchType {
         .b => {
             if (std.math.cast(i24, @divExact(offset, 4))) |_| {
                 return BranchType.b;
-            } else |_| {
+            } else {
                 return emit.fail("TODO support larger branches", .{});
             }
         },
@@ -174,7 +185,6 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
         .dbg_line,
         .dbg_epilogue_begin,
         .dbg_prologue_end,
-        .dbg_arg,
         => return 0,
         else => return 4,
     }
@@ -320,18 +330,19 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
     const delta_line = @intCast(i32, line) - @intCast(i32, self.prev_di_line);
     const delta_pc: usize = self.code.items.len - self.prev_di_pc;
     switch (self.debug_output) {
-        .dwarf => |dbg_out| {
+        .dwarf => |dw| {
             // TODO Look into using the DWARF special opcodes to compress this data.
             // It lets you emit single-byte opcodes that add different numbers to
             // both the PC and the line number at the same time.
-            try dbg_out.dbg_line.ensureUnusedCapacity(11);
-            dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.advance_pc);
-            leb128.writeULEB128(dbg_out.dbg_line.writer(), delta_pc) catch unreachable;
+            const dbg_line = &dw.dbg_line;
+            try dbg_line.ensureUnusedCapacity(11);
+            dbg_line.appendAssumeCapacity(DW.LNS.advance_pc);
+            leb128.writeULEB128(dbg_line.writer(), delta_pc) catch unreachable;
             if (delta_line != 0) {
-                dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.advance_line);
-                leb128.writeILEB128(dbg_out.dbg_line.writer(), delta_line) catch unreachable;
+                dbg_line.appendAssumeCapacity(DW.LNS.advance_line);
+                leb128.writeILEB128(dbg_line.writer(), delta_line) catch unreachable;
             }
-            dbg_out.dbg_line.appendAssumeCapacity(DW.LNS.copy);
+            dbg_line.appendAssumeCapacity(DW.LNS.copy);
             self.prev_di_pc = self.code.items.len;
             self.prev_di_line = line;
             self.prev_di_column = column;
@@ -367,98 +378,6 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
     }
 }
 
-/// Adds a Type to the .debug_info at the current position. The bytes will be populated later,
-/// after codegen for this symbol is done.
-fn addDbgInfoTypeReloc(self: *Emit, ty: Type) !void {
-    switch (self.debug_output) {
-        .dwarf => |dbg_out| {
-            assert(ty.hasRuntimeBits());
-            const index = dbg_out.dbg_info.items.len;
-            try dbg_out.dbg_info.resize(index + 4); // DW.AT.type,  DW.FORM.ref4
-
-            const gop = try dbg_out.dbg_info_type_relocs.getOrPut(self.bin_file.allocator, ty);
-            if (!gop.found_existing) {
-                gop.value_ptr.* = .{
-                    .off = undefined,
-                    .relocs = .{},
-                };
-            }
-            try gop.value_ptr.relocs.append(self.bin_file.allocator, @intCast(u32, index));
-        },
-        .plan9 => {},
-        .none => {},
-    }
-}
-
-fn genArgDbgInfo(self: *Emit, inst: Air.Inst.Index, arg_index: u32) !void {
-    const mcv = self.function.args[arg_index];
-
-    const ty_str = self.function.air.instructions.items(.data)[inst].ty_str;
-    const zir = &self.function.mod_fn.owner_decl.getFileScope().zir;
-    const name = zir.nullTerminatedString(ty_str.str);
-    const name_with_null = name.ptr[0 .. name.len + 1];
-    const ty = self.function.air.getRefType(ty_str.ty);
-
-    switch (mcv) {
-        .register => |reg| {
-            switch (self.debug_output) {
-                .dwarf => |dbg_out| {
-                    try dbg_out.dbg_info.ensureUnusedCapacity(3);
-                    dbg_out.dbg_info.appendAssumeCapacity(link.File.Elf.abbrev_parameter);
-                    dbg_out.dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
-                        1, // ULEB128 dwarf expression length
-                        reg.dwarfLocOp(),
-                    });
-                    try dbg_out.dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-                    try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
-                    dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
-                },
-                .plan9 => {},
-                .none => {},
-            }
-        },
-        .stack_offset,
-        .stack_argument_offset,
-        => {
-            switch (self.debug_output) {
-                .dwarf => |dbg_out| {
-                    const abi_size = math.cast(u32, ty.abiSize(self.target.*)) catch {
-                        return self.fail("type '{}' too big to fit into stack frame", .{ty});
-                    };
-                    const adjusted_stack_offset = switch (mcv) {
-                        .stack_offset => |offset| math.negateCast(offset + abi_size) catch {
-                            return self.fail("Stack offset too large for arguments", .{});
-                        },
-                        .stack_argument_offset => |offset| math.cast(i32, self.prologue_stack_space - offset - abi_size) catch {
-                            return self.fail("Stack offset too large for arguments", .{});
-                        },
-                        else => unreachable,
-                    };
-
-                    try dbg_out.dbg_info.append(link.File.Elf.abbrev_parameter);
-
-                    // Get length of the LEB128 stack offset
-                    var counting_writer = std.io.countingWriter(std.io.null_writer);
-                    leb128.writeILEB128(counting_writer.writer(), adjusted_stack_offset) catch unreachable;
-
-                    // DW.AT.location, DW.FORM.exprloc
-                    // ULEB128 dwarf expression length
-                    try leb128.writeULEB128(dbg_out.dbg_info.writer(), counting_writer.bytes_written + 1);
-                    try dbg_out.dbg_info.append(DW.OP.breg11);
-                    try leb128.writeILEB128(dbg_out.dbg_info.writer(), adjusted_stack_offset);
-
-                    try dbg_out.dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-                    try self.addDbgInfoTypeReloc(ty); // DW.AT.type,  DW.FORM.ref4
-                    dbg_out.dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
-                },
-                .plan9 => {},
-                .none => {},
-            }
-        },
-        else => unreachable, // not a possible argument
-    }
-}
-
 fn mirDataProcessing(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const cond = emit.mir.instructions.items(.cond)[inst];
@@ -466,6 +385,7 @@ fn mirDataProcessing(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     switch (tag) {
         .add => try emit.writeInstruction(Instruction.add(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+        .adds => try emit.writeInstruction(Instruction.adds(cond, rr_op.rd, rr_op.rn, rr_op.op)),
         .@"and" => try emit.writeInstruction(Instruction.@"and"(cond, rr_op.rd, rr_op.rn, rr_op.op)),
         .cmp => try emit.writeInstruction(Instruction.cmp(cond, rr_op.rn, rr_op.op)),
         .eor => try emit.writeInstruction(Instruction.eor(cond, rr_op.rd, rr_op.rn, rr_op.op)),
@@ -474,6 +394,7 @@ fn mirDataProcessing(emit: *Emit, inst: Mir.Inst.Index) !void {
         .orr => try emit.writeInstruction(Instruction.orr(cond, rr_op.rd, rr_op.rn, rr_op.op)),
         .rsb => try emit.writeInstruction(Instruction.rsb(cond, rr_op.rd, rr_op.rn, rr_op.op)),
         .sub => try emit.writeInstruction(Instruction.sub(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+        .subs => try emit.writeInstruction(Instruction.subs(cond, rr_op.rd, rr_op.rn, rr_op.op)),
         else => unreachable,
     }
 }
@@ -529,16 +450,6 @@ fn mirBranchExchange(emit: *Emit, inst: Mir.Inst.Index) !void {
     }
 }
 
-fn mirDbgArg(emit: *Emit, inst: Mir.Inst.Index) !void {
-    const tag = emit.mir.instructions.items(.tag)[inst];
-    const dbg_arg_info = emit.mir.instructions.items(.data)[inst].dbg_arg_info;
-
-    switch (tag) {
-        .dbg_arg => try emit.genArgDbgInfo(dbg_arg_info.air_inst, dbg_arg_info.arg_index),
-        else => unreachable,
-    }
-}
-
 fn mirDbgLine(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const dbg_line_column = emit.mir.instructions.items(.data)[inst].dbg_line_column;
@@ -551,8 +462,8 @@ fn mirDbgLine(emit: *Emit, inst: Mir.Inst.Index) !void {
 
 fn mirDebugPrologueEnd(emit: *Emit) !void {
     switch (emit.debug_output) {
-        .dwarf => |dbg_out| {
-            try dbg_out.dbg_line.append(DW.LNS.set_prologue_end);
+        .dwarf => |dw| {
+            try dw.dbg_line.append(DW.LNS.set_prologue_end);
             try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
         .plan9 => {},
@@ -562,8 +473,8 @@ fn mirDebugPrologueEnd(emit: *Emit) !void {
 
 fn mirDebugEpilogueBegin(emit: *Emit) !void {
     switch (emit.debug_output) {
-        .dwarf => |dbg_out| {
-            try dbg_out.dbg_line.append(DW.LNS.set_epilogue_begin);
+        .dwarf => |dw| {
+            try dw.dbg_line.append(DW.LNS.set_epilogue_begin);
             try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
         .plan9 => {},
@@ -592,36 +503,58 @@ fn mirLoadStackArgument(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     const raw_offset = emit.prologue_stack_space - r_stack_offset.stack_offset;
     switch (tag) {
-        .ldr_stack_argument => {
+        .ldr_ptr_stack_argument => {
+            const operand = Instruction.Operand.fromU32(raw_offset) orelse
+                return emit.fail("TODO mirLoadStack larger offsets", .{});
+
+            try emit.writeInstruction(Instruction.add(cond, r_stack_offset.rt, .fp, operand));
+        },
+        .ldr_stack_argument,
+        .ldrb_stack_argument,
+        => {
             const offset = if (raw_offset <= math.maxInt(u12)) blk: {
                 break :blk Instruction.Offset.imm(@intCast(u12, raw_offset));
             } else return emit.fail("TODO mirLoadStack larger offsets", .{});
 
-            try emit.writeInstruction(Instruction.ldr(
+            const ldr = switch (tag) {
+                .ldr_stack_argument => &Instruction.ldr,
+                .ldrb_stack_argument => &Instruction.ldrb,
+                else => unreachable,
+            };
+
+            const ldr_workaround = switch (builtin.zig_backend) {
+                .stage1 => ldr.*,
+                else => ldr,
+            };
+
+            try emit.writeInstruction(ldr_workaround(
                 cond,
                 r_stack_offset.rt,
                 .fp,
                 .{ .offset = offset },
             ));
         },
-        .ldrb_stack_argument => {
-            const offset = if (raw_offset <= math.maxInt(u12)) blk: {
-                break :blk Instruction.Offset.imm(@intCast(u12, raw_offset));
-            } else return emit.fail("TODO mirLoadStack larger offsets", .{});
-
-            try emit.writeInstruction(Instruction.ldrb(
-                cond,
-                r_stack_offset.rt,
-                .fp,
-                .{ .offset = offset },
-            ));
-        },
-        .ldrh_stack_argument => {
+        .ldrh_stack_argument,
+        .ldrsb_stack_argument,
+        .ldrsh_stack_argument,
+        => {
             const offset = if (raw_offset <= math.maxInt(u8)) blk: {
                 break :blk Instruction.ExtraLoadStoreOffset.imm(@intCast(u8, raw_offset));
             } else return emit.fail("TODO mirLoadStack larger offsets", .{});
 
-            try emit.writeInstruction(Instruction.ldrh(
+            const ldr = switch (tag) {
+                .ldrh_stack_argument => &Instruction.ldrh,
+                .ldrsb_stack_argument => &Instruction.ldrsb,
+                .ldrsh_stack_argument => &Instruction.ldrsh,
+                else => unreachable,
+            };
+
+            const ldr_workaround = switch (builtin.zig_backend) {
+                .stage1 => ldr.*,
+                else => ldr,
+            };
+
+            try emit.writeInstruction(ldr_workaround(
                 cond,
                 r_stack_offset.rt,
                 .fp,
@@ -639,6 +572,8 @@ fn mirLoadStoreExtra(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     switch (tag) {
         .ldrh => try emit.writeInstruction(Instruction.ldrh(cond, rr_extra_offset.rt, rr_extra_offset.rn, rr_extra_offset.offset)),
+        .ldrsb => try emit.writeInstruction(Instruction.ldrsb(cond, rr_extra_offset.rt, rr_extra_offset.rn, rr_extra_offset.offset)),
+        .ldrsh => try emit.writeInstruction(Instruction.ldrsh(cond, rr_extra_offset.rt, rr_extra_offset.rn, rr_extra_offset.offset)),
         .strh => try emit.writeInstruction(Instruction.strh(cond, rr_extra_offset.rt, rr_extra_offset.rn, rr_extra_offset.offset)),
         else => unreachable,
     }
@@ -663,6 +598,19 @@ fn mirMultiply(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     switch (tag) {
         .mul => try emit.writeInstruction(Instruction.mul(cond, rrr.rd, rrr.rn, rrr.rm)),
+        .smulbb => try emit.writeInstruction(Instruction.smulbb(cond, rrr.rd, rrr.rn, rrr.rm)),
+        else => unreachable,
+    }
+}
+
+fn mirMultiplyLong(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const cond = emit.mir.instructions.items(.cond)[inst];
+    const rrrr = emit.mir.instructions.items(.data)[inst].rrrr;
+
+    switch (tag) {
+        .smull => try emit.writeInstruction(Instruction.smull(cond, rrrr.rdlo, rrrr.rdhi, rrrr.rn, rrrr.rm)),
+        .umull => try emit.writeInstruction(Instruction.umull(cond, rrrr.rdlo, rrrr.rdhi, rrrr.rn, rrrr.rm)),
         else => unreachable,
     }
 }
@@ -690,6 +638,22 @@ fn mirSupervisorCall(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     switch (tag) {
         .svc => try emit.writeInstruction(Instruction.svc(cond, imm24)),
+        else => unreachable,
+    }
+}
+
+fn mirBitFieldExtract(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const cond = emit.mir.instructions.items(.cond)[inst];
+    const rr_lsb_width = emit.mir.instructions.items(.data)[inst].rr_lsb_width;
+    const rd = rr_lsb_width.rd;
+    const rn = rr_lsb_width.rn;
+    const lsb = rr_lsb_width.lsb;
+    const width = rr_lsb_width.width;
+
+    switch (tag) {
+        .sbfx => try emit.writeInstruction(Instruction.sbfx(cond, rd, rn, lsb, width)),
+        .ubfx => try emit.writeInstruction(Instruction.ubfx(cond, rd, rn, lsb, width)),
         else => unreachable,
     }
 }

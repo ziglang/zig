@@ -19,7 +19,7 @@ pub fn build(b: *Builder) !void {
     const single_threaded = b.option(bool, "single-threaded", "Build artifacts that run in single threaded mode");
     const use_zig_libcxx = b.option(bool, "use-zig-libcxx", "If libc++ is needed, use zig's bundled version, don't try to integrate with the system") orelse false;
 
-    var docgen_exe = b.addExecutable("docgen", "doc/docgen.zig");
+    const docgen_exe = b.addExecutable("docgen", "doc/docgen.zig");
     docgen_exe.single_threaded = single_threaded;
 
     const rel_zig_exe = try fs.path.relative(b.allocator, b.build_root, b.zig_exe);
@@ -27,7 +27,7 @@ pub fn build(b: *Builder) !void {
         b.allocator,
         &[_][]const u8{ b.cache_root, "langref.html" },
     ) catch unreachable;
-    var docgen_cmd = docgen_exe.run();
+    const docgen_cmd = docgen_exe.run();
     docgen_cmd.addArgs(&[_][]const u8{
         rel_zig_exe,
         "doc" ++ fs.path.sep_str ++ "langref.html.in",
@@ -40,10 +40,10 @@ pub fn build(b: *Builder) !void {
 
     const toolchain_step = b.step("test-toolchain", "Run the tests for the toolchain");
 
-    var test_stage2 = b.addTest("src/test.zig");
-    test_stage2.setBuildMode(mode);
-    test_stage2.addPackagePath("test_cases", "test/cases.zig");
-    test_stage2.single_threaded = single_threaded;
+    var test_cases = b.addTest("src/test.zig");
+    test_cases.setBuildMode(mode);
+    test_cases.addPackagePath("test_cases", "test/cases.zig");
+    test_cases.single_threaded = single_threaded;
 
     const fmt_build_zig = b.addFmt(&[_][]const u8{"build.zig"});
 
@@ -54,12 +54,14 @@ pub fn build(b: *Builder) !void {
     const skip_release_safe = b.option(bool, "skip-release-safe", "Main test suite skips release-safe builds") orelse skip_release;
     const skip_non_native = b.option(bool, "skip-non-native", "Main test suite skips non-native builds") orelse false;
     const skip_libc = b.option(bool, "skip-libc", "Main test suite skips tests that link libc") orelse false;
-    const skip_compile_errors = b.option(bool, "skip-compile-errors", "Main test suite skips compile error tests") orelse false;
+    const skip_single_threaded = b.option(bool, "skip-single-threaded", "Main test suite skips tests that are single-threaded") orelse false;
+    const skip_stage1 = b.option(bool, "skip-stage1", "Main test suite skips stage1 compile error tests") orelse false;
     const skip_run_translated_c = b.option(bool, "skip-run-translated-c", "Main test suite skips run-translated-c tests") orelse false;
     const skip_stage2_tests = b.option(bool, "skip-stage2-tests", "Main test suite skips self-hosted compiler tests") orelse false;
     const skip_install_lib_files = b.option(bool, "skip-install-lib-files", "Do not copy lib/ files to installation prefix") orelse false;
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
+
     const is_stage1 = b.option(bool, "stage1", "Build the stage1 compiler, put stage2 behind a feature flag") orelse false;
     const omit_stage2 = b.option(bool, "omit-stage2", "Do not include stage2 behind a feature flag inside stage1") orelse false;
     const static_llvm = b.option(bool, "static-llvm", "Disable integration with system-installed LLVM, Clang, LLD, and libc++") orelse false;
@@ -128,6 +130,8 @@ pub fn build(b: *Builder) !void {
     const force_gpa = b.option(bool, "force-gpa", "Force the compiler to use GeneralPurposeAllocator") orelse false;
     const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse enable_llvm;
     const strip = b.option(bool, "strip", "Omit debug information") orelse false;
+    const use_zig0 = b.option(bool, "zig0", "Bootstrap using zig0") orelse false;
+    const value_tracing = b.option(bool, "value-tracing", "Enable extra state tracking to help troubleshoot bugs in the compiler (using the std.debug.Trace API)") orelse false;
 
     const mem_leak_frames: u32 = b.option(u32, "mem-leak-frames", "How many stack frames to print when a memory leak occurs. Tests get 2x this amount.") orelse blk: {
         if (strip) break :blk @as(u32, 0);
@@ -135,23 +139,29 @@ pub fn build(b: *Builder) !void {
         break :blk 4;
     };
 
-    const main_file = if (is_stage1) "src/stage1.zig" else "src/main.zig";
+    const main_file: ?[]const u8 = mf: {
+        if (!is_stage1) break :mf "src/main.zig";
+        if (use_zig0) break :mf null;
+        break :mf "src/stage1.zig";
+    };
 
-    var exe = b.addExecutable("zig", main_file);
+    const exe = b.addExecutable("zig", main_file);
     exe.strip = strip;
+    exe.build_id = b.option(bool, "build-id", "Include a build id note") orelse false;
     exe.install();
     exe.setBuildMode(mode);
     exe.setTarget(target);
     if (!skip_stage2_tests) {
         toolchain_step.dependOn(&exe.step);
     }
+
     b.default_step.dependOn(&exe.step);
     exe.single_threaded = single_threaded;
 
     if (target.isWindows() and target.getAbi() == .gnu) {
         // LTO is currently broken on mingw, this can be removed when it's fixed.
         exe.want_lto = false;
-        test_stage2.want_lto = false;
+        test_cases.want_lto = false;
     }
 
     const exe_options = b.addOptions();
@@ -166,59 +176,9 @@ pub fn build(b: *Builder) !void {
     exe_options.addOption(bool, "llvm_has_arc", llvm_has_arc);
     exe_options.addOption(bool, "force_gpa", force_gpa);
 
-    if (enable_llvm) {
-        const cmake_cfg = if (static_llvm) null else findAndParseConfigH(b, config_h_path_option);
-
-        if (is_stage1) {
-            exe.addIncludePath("src");
-            exe.addIncludePath("deps/SoftFloat-3e/source/include");
-
-            test_stage2.addIncludePath("src");
-            test_stage2.addIncludePath("deps/SoftFloat-3e/source/include");
-            // This is intentionally a dummy path. stage1.zig tries to @import("compiler_rt") in case
-            // of being built by cmake. But when built by zig it's gonna get a compiler_rt so that
-            // is pointless.
-            exe.addPackagePath("compiler_rt", "src/empty.zig");
-            exe.defineCMacro("ZIG_LINK_MODE", "Static");
-            test_stage2.defineCMacro("ZIG_LINK_MODE", "Static");
-
-            const softfloat = b.addStaticLibrary("softfloat", null);
-            softfloat.setBuildMode(.ReleaseFast);
-            softfloat.setTarget(target);
-            softfloat.addIncludePath("deps/SoftFloat-3e-prebuilt");
-            softfloat.addIncludePath("deps/SoftFloat-3e/source/8086");
-            softfloat.addIncludePath("deps/SoftFloat-3e/source/include");
-            softfloat.addCSourceFiles(&softfloat_sources, &[_][]const u8{ "-std=c99", "-O3" });
-            softfloat.single_threaded = single_threaded;
-
-            exe.linkLibrary(softfloat);
-            test_stage2.linkLibrary(softfloat);
-
-            exe.addCSourceFiles(&stage1_sources, &exe_cflags);
-            exe.addCSourceFiles(&optimized_c_sources, &[_][]const u8{ "-std=c99", "-O3" });
-
-            test_stage2.addCSourceFiles(&stage1_sources, &exe_cflags);
-            test_stage2.addCSourceFiles(&optimized_c_sources, &[_][]const u8{ "-std=c99", "-O3" });
-        }
-        if (cmake_cfg) |cfg| {
-            // Inside this code path, we have to coordinate with system packaged LLVM, Clang, and LLD.
-            // That means we also have to rely on stage1 compiled c++ files. We parse config.h to find
-            // the information passed on to us from cmake.
-            if (cfg.cmake_prefix_path.len > 0) {
-                b.addSearchPrefix(cfg.cmake_prefix_path);
-            }
-
-            try addCmakeCfgOptionsToExe(b, cfg, exe, use_zig_libcxx);
-            try addCmakeCfgOptionsToExe(b, cfg, test_stage2, use_zig_libcxx);
-        } else {
-            // Here we are -Denable-llvm but no cmake integration.
-            try addStaticLlvmOptionsToExe(exe);
-            try addStaticLlvmOptionsToExe(test_stage2);
-        }
-    }
     if (link_libc) {
         exe.linkLibC();
-        test_stage2.linkLibC();
+        test_cases.linkLibC();
     }
 
     const is_debug = mode == .Debug;
@@ -227,6 +187,10 @@ pub fn build(b: *Builder) !void {
 
     const opt_version_string = b.option([]const u8, "version-string", "Override Zig version string. Default is to find out with git.");
     const version = if (opt_version_string) |version| version else v: {
+        if (!std.process.can_spawn) {
+            std.debug.print("error: version info cannot be retrieved from git. Zig version must be provided using -Dversion-string\n", .{});
+            std.process.exit(1);
+        }
         const version_string = b.fmt("{d}.{d}.{d}", .{ zig_version.major, zig_version.minor, zig_version.patch });
 
         var code: u8 = undefined;
@@ -276,6 +240,112 @@ pub fn build(b: *Builder) !void {
     };
     exe_options.addOption([:0]const u8, "version", try b.allocator.dupeZ(u8, version));
 
+    if (enable_llvm) {
+        const cmake_cfg = if (static_llvm) null else findAndParseConfigH(b, config_h_path_option);
+
+        if (is_stage1) {
+            const softfloat = b.addStaticLibrary("softfloat", null);
+            softfloat.setBuildMode(.ReleaseFast);
+            softfloat.setTarget(target);
+            softfloat.addIncludePath("deps/SoftFloat-3e-prebuilt");
+            softfloat.addIncludePath("deps/SoftFloat-3e/source/8086");
+            softfloat.addIncludePath("deps/SoftFloat-3e/source/include");
+            softfloat.addCSourceFiles(&softfloat_sources, &[_][]const u8{ "-std=c99", "-O3" });
+            softfloat.single_threaded = single_threaded;
+
+            const zig0 = b.addExecutable("zig0", null);
+            zig0.addCSourceFiles(&.{"src/stage1/zig0.cpp"}, &exe_cflags);
+            zig0.addIncludePath("zig-cache/tmp"); // for config.h
+            zig0.defineCMacro("ZIG_VERSION_MAJOR", b.fmt("{d}", .{zig_version.major}));
+            zig0.defineCMacro("ZIG_VERSION_MINOR", b.fmt("{d}", .{zig_version.minor}));
+            zig0.defineCMacro("ZIG_VERSION_PATCH", b.fmt("{d}", .{zig_version.patch}));
+            zig0.defineCMacro("ZIG_VERSION_STRING", b.fmt("\"{s}\"", .{version}));
+
+            for ([_]*std.build.LibExeObjStep{ zig0, exe, test_cases }) |artifact| {
+                artifact.addIncludePath("src");
+                artifact.addIncludePath("deps/SoftFloat-3e/source/include");
+                artifact.addIncludePath("deps/SoftFloat-3e-prebuilt");
+
+                artifact.defineCMacro("ZIG_LINK_MODE", "Static");
+
+                artifact.addCSourceFiles(&stage1_sources, &exe_cflags);
+                artifact.addCSourceFiles(&optimized_c_sources, &[_][]const u8{ "-std=c99", "-O3" });
+
+                artifact.linkLibrary(softfloat);
+                artifact.linkLibCpp();
+            }
+
+            try addStaticLlvmOptionsToExe(zig0);
+
+            const zig1_obj_ext = target.getObjectFormat().fileExt(target.getCpuArch());
+            const zig1_obj_path = b.pathJoin(&.{ "zig-cache", "tmp", b.fmt("zig1{s}", .{zig1_obj_ext}) });
+            const zig1_compiler_rt_path = b.pathJoin(&.{ b.pathFromRoot("lib"), "std", "special", "compiler_rt.zig" });
+
+            const zig1_obj = zig0.run();
+            zig1_obj.addArgs(&.{
+                "src/stage1.zig",
+                "-target",
+                try target.zigTriple(b.allocator),
+                "-mcpu=baseline",
+                "--name",
+                "zig1",
+                "--zig-lib-dir",
+                b.pathFromRoot("lib"),
+                b.fmt("-femit-bin={s}", .{b.pathFromRoot(zig1_obj_path)}),
+                "-fcompiler-rt",
+                "-lc",
+            });
+            {
+                zig1_obj.addArgs(&.{ "--pkg-begin", "build_options" });
+                zig1_obj.addFileSourceArg(exe_options.getSource());
+                zig1_obj.addArgs(&.{ "--pkg-end", "--pkg-begin", "compiler_rt", zig1_compiler_rt_path, "--pkg-end" });
+            }
+            switch (mode) {
+                .Debug => {},
+                .ReleaseFast => {
+                    zig1_obj.addArg("-OReleaseFast");
+                    zig1_obj.addArg("--strip");
+                },
+                .ReleaseSafe => {
+                    zig1_obj.addArg("-OReleaseSafe");
+                    zig1_obj.addArg("--strip");
+                },
+                .ReleaseSmall => {
+                    zig1_obj.addArg("-OReleaseSmall");
+                    zig1_obj.addArg("--strip");
+                },
+            }
+            if (single_threaded orelse false) {
+                zig1_obj.addArg("-fsingle-threaded");
+            }
+
+            if (use_zig0) {
+                exe.step.dependOn(&zig1_obj.step);
+                exe.addObjectFile(zig1_obj_path);
+            }
+
+            // This is intentionally a dummy path. stage1.zig tries to @import("compiler_rt") in case
+            // of being built by cmake. But when built by zig it's gonna get a compiler_rt so that
+            // is pointless.
+            exe.addPackagePath("compiler_rt", "src/empty.zig");
+        }
+        if (cmake_cfg) |cfg| {
+            // Inside this code path, we have to coordinate with system packaged LLVM, Clang, and LLD.
+            // That means we also have to rely on stage1 compiled c++ files. We parse config.h to find
+            // the information passed on to us from cmake.
+            if (cfg.cmake_prefix_path.len > 0) {
+                b.addSearchPrefix(cfg.cmake_prefix_path);
+            }
+
+            try addCmakeCfgOptionsToExe(b, cfg, exe, use_zig_libcxx);
+            try addCmakeCfgOptionsToExe(b, cfg, test_cases, use_zig_libcxx);
+        } else {
+            // Here we are -Denable-llvm but no cmake integration.
+            try addStaticLlvmOptionsToExe(exe);
+            try addStaticLlvmOptionsToExe(test_cases);
+        }
+    }
+
     const semver = try std.SemanticVersion.parse(version);
     exe_options.addOption(std.SemanticVersion, "semver", semver);
 
@@ -284,6 +354,7 @@ pub fn build(b: *Builder) !void {
     exe_options.addOption(bool, "enable_tracy", tracy != null);
     exe_options.addOption(bool, "enable_tracy_callstack", tracy_callstack);
     exe_options.addOption(bool, "enable_tracy_allocation", tracy_allocation);
+    exe_options.addOption(bool, "value_tracing", value_tracing);
     exe_options.addOption(bool, "is_stage1", is_stage1);
     exe_options.addOption(bool, "omit_stage2", omit_stage2);
     if (tracy) |tracy_path| {
@@ -313,34 +384,37 @@ pub fn build(b: *Builder) !void {
 
     const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
 
-    const test_stage2_options = b.addOptions();
-    test_stage2.addOptions("build_options", test_stage2_options);
+    const test_cases_options = b.addOptions();
+    test_cases.addOptions("build_options", test_cases_options);
 
-    test_stage2_options.addOption(bool, "enable_logging", enable_logging);
-    test_stage2_options.addOption(bool, "enable_link_snapshots", enable_link_snapshots);
-    test_stage2_options.addOption(bool, "skip_non_native", skip_non_native);
-    test_stage2_options.addOption(bool, "skip_compile_errors", skip_compile_errors);
-    test_stage2_options.addOption(bool, "is_stage1", is_stage1);
-    test_stage2_options.addOption(bool, "omit_stage2", omit_stage2);
-    test_stage2_options.addOption(bool, "have_llvm", enable_llvm);
-    test_stage2_options.addOption(bool, "llvm_has_m68k", llvm_has_m68k);
-    test_stage2_options.addOption(bool, "llvm_has_csky", llvm_has_csky);
-    test_stage2_options.addOption(bool, "llvm_has_ve", llvm_has_ve);
-    test_stage2_options.addOption(bool, "llvm_has_arc", llvm_has_arc);
-    test_stage2_options.addOption(bool, "enable_qemu", b.enable_qemu);
-    test_stage2_options.addOption(bool, "enable_wine", b.enable_wine);
-    test_stage2_options.addOption(bool, "enable_wasmtime", b.enable_wasmtime);
-    test_stage2_options.addOption(bool, "enable_rosetta", b.enable_rosetta);
-    test_stage2_options.addOption(bool, "enable_darling", b.enable_darling);
-    test_stage2_options.addOption(u32, "mem_leak_frames", mem_leak_frames * 2);
-    test_stage2_options.addOption(?[]const u8, "glibc_runtimes_dir", b.glibc_runtimes_dir);
-    test_stage2_options.addOption([:0]const u8, "version", try b.allocator.dupeZ(u8, version));
-    test_stage2_options.addOption(std.SemanticVersion, "semver", semver);
+    test_cases_options.addOption(bool, "enable_logging", enable_logging);
+    test_cases_options.addOption(bool, "enable_link_snapshots", enable_link_snapshots);
+    test_cases_options.addOption(bool, "skip_non_native", skip_non_native);
+    test_cases_options.addOption(bool, "skip_stage1", skip_stage1);
+    test_cases_options.addOption(bool, "is_stage1", is_stage1);
+    test_cases_options.addOption(bool, "omit_stage2", omit_stage2);
+    test_cases_options.addOption(bool, "have_llvm", enable_llvm);
+    test_cases_options.addOption(bool, "llvm_has_m68k", llvm_has_m68k);
+    test_cases_options.addOption(bool, "llvm_has_csky", llvm_has_csky);
+    test_cases_options.addOption(bool, "llvm_has_ve", llvm_has_ve);
+    test_cases_options.addOption(bool, "llvm_has_arc", llvm_has_arc);
+    test_cases_options.addOption(bool, "force_gpa", force_gpa);
+    test_cases_options.addOption(bool, "enable_qemu", b.enable_qemu);
+    test_cases_options.addOption(bool, "enable_wine", b.enable_wine);
+    test_cases_options.addOption(bool, "enable_wasmtime", b.enable_wasmtime);
+    test_cases_options.addOption(bool, "enable_rosetta", b.enable_rosetta);
+    test_cases_options.addOption(bool, "enable_darling", b.enable_darling);
+    test_cases_options.addOption(u32, "mem_leak_frames", mem_leak_frames * 2);
+    test_cases_options.addOption(bool, "value_tracing", value_tracing);
+    test_cases_options.addOption(?[]const u8, "glibc_runtimes_dir", b.glibc_runtimes_dir);
+    test_cases_options.addOption([:0]const u8, "version", try b.allocator.dupeZ(u8, version));
+    test_cases_options.addOption(std.SemanticVersion, "semver", semver);
+    test_cases_options.addOption(?[]const u8, "test_filter", test_filter);
 
-    const test_stage2_step = b.step("test-stage2", "Run the stage2 compiler tests");
-    test_stage2_step.dependOn(&test_stage2.step);
+    const test_cases_step = b.step("test-cases", "Run the main compiler test cases");
+    test_cases_step.dependOn(&test_cases.step);
     if (!skip_stage2_tests) {
-        toolchain_step.dependOn(test_stage2_step);
+        toolchain_step.dependOn(test_cases_step);
     }
 
     var chosen_modes: [4]builtin.Mode = undefined;
@@ -375,41 +449,50 @@ pub fn build(b: *Builder) !void {
         "behavior",
         "Run the behavior tests",
         modes,
-        false, // skip_single_threaded
+        skip_single_threaded,
         skip_non_native,
         skip_libc,
+        skip_stage1,
+        omit_stage2,
+        is_stage1,
     ));
 
     toolchain_step.dependOn(tests.addPkgTests(
         b,
         test_filter,
-        "lib/std/special/compiler_rt.zig",
+        "lib/compiler_rt.zig",
         "compiler-rt",
         "Run the compiler_rt tests",
         modes,
         true, // skip_single_threaded
         skip_non_native,
         true, // skip_libc
+        skip_stage1,
+        omit_stage2 or true, // TODO get these all passing
+        is_stage1,
     ));
 
     toolchain_step.dependOn(tests.addPkgTests(
         b,
         test_filter,
-        "lib/std/special/c.zig",
-        "minilibc",
-        "Run the mini libc tests",
+        "lib/c.zig",
+        "universal-libc",
+        "Run the universal libc tests",
         modes,
         true, // skip_single_threaded
         skip_non_native,
         true, // skip_libc
+        skip_stage1,
+        omit_stage2 or true, // TODO get these all passing
+        is_stage1,
     ));
 
     toolchain_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
     toolchain_step.dependOn(tests.addStandaloneTests(b, test_filter, modes, skip_non_native, enable_macos_sdk, target));
+    toolchain_step.dependOn(tests.addLinkTests(b, test_filter, modes, enable_macos_sdk));
     toolchain_step.dependOn(tests.addStackTraceTests(b, test_filter, modes));
     toolchain_step.dependOn(tests.addCliTests(b, test_filter, modes));
     toolchain_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));
-    toolchain_step.dependOn(tests.addRuntimeSafetyTests(b, test_filter, modes));
     toolchain_step.dependOn(tests.addTranslateCTests(b, test_filter));
     if (!skip_run_translated_c) {
         toolchain_step.dependOn(tests.addRunTranslatedCTests(b, test_filter, target));
@@ -424,9 +507,12 @@ pub fn build(b: *Builder) !void {
         "std",
         "Run the standard library tests",
         modes,
-        false,
+        skip_single_threaded,
         skip_non_native,
         skip_libc,
+        skip_stage1,
+        omit_stage2 or true, // TODO get these all passing
+        is_stage1,
     );
 
     const test_step = b.step("test", "Run all the tests");
@@ -499,9 +585,7 @@ fn addCmakeCfgOptionsToExe(
     }
 }
 
-fn addStaticLlvmOptionsToExe(
-    exe: *std.build.LibExeObjStep,
-) !void {
+fn addStaticLlvmOptionsToExe(exe: *std.build.LibExeObjStep) !void {
     // Adds the Zig C++ sources which both stage1 and stage2 need.
     //
     // We need this because otherwise zig_clang_cc1_main.cpp ends up pulling
@@ -542,11 +626,14 @@ fn addCxxKnownPath(
     errtxt: ?[]const u8,
     need_cpp_includes: bool,
 ) !void {
+    if (!std.process.can_spawn)
+        return error.RequiredLibraryNotFound;
     const path_padded = try b.exec(&[_][]const u8{
         ctx.cxx_compiler,
         b.fmt("-print-file-name={s}", .{objname}),
     });
-    const path_unpadded = mem.tokenize(u8, path_padded, "\r\n").next().?;
+    var tokenizer = mem.tokenize(u8, path_padded, "\r\n");
+    const path_unpadded = tokenizer.next().?;
     if (mem.eql(u8, path_unpadded, objname)) {
         if (errtxt) |msg| {
             std.debug.print("{s}", .{msg});
@@ -688,15 +775,19 @@ fn toNativePathSep(b: *Builder, s: []const u8) []u8 {
 
 const softfloat_sources = [_][]const u8{
     "deps/SoftFloat-3e/source/8086/f128M_isSignalingNaN.c",
+    "deps/SoftFloat-3e/source/8086/extF80M_isSignalingNaN.c",
     "deps/SoftFloat-3e/source/8086/s_commonNaNToF128M.c",
+    "deps/SoftFloat-3e/source/8086/s_commonNaNToExtF80M.c",
     "deps/SoftFloat-3e/source/8086/s_commonNaNToF16UI.c",
     "deps/SoftFloat-3e/source/8086/s_commonNaNToF32UI.c",
     "deps/SoftFloat-3e/source/8086/s_commonNaNToF64UI.c",
     "deps/SoftFloat-3e/source/8086/s_f128MToCommonNaN.c",
+    "deps/SoftFloat-3e/source/8086/s_extF80MToCommonNaN.c",
     "deps/SoftFloat-3e/source/8086/s_f16UIToCommonNaN.c",
     "deps/SoftFloat-3e/source/8086/s_f32UIToCommonNaN.c",
     "deps/SoftFloat-3e/source/8086/s_f64UIToCommonNaN.c",
     "deps/SoftFloat-3e/source/8086/s_propagateNaNF128M.c",
+    "deps/SoftFloat-3e/source/8086/s_propagateNaNExtF80M.c",
     "deps/SoftFloat-3e/source/8086/s_propagateNaNF16UI.c",
     "deps/SoftFloat-3e/source/8086/softfloat_raiseFlags.c",
     "deps/SoftFloat-3e/source/f128M_add.c",
@@ -716,6 +807,7 @@ const softfloat_sources = [_][]const u8{
     "deps/SoftFloat-3e/source/f128M_to_f16.c",
     "deps/SoftFloat-3e/source/f128M_to_f32.c",
     "deps/SoftFloat-3e/source/f128M_to_f64.c",
+    "deps/SoftFloat-3e/source/f128M_to_extF80M.c",
     "deps/SoftFloat-3e/source/f128M_to_i32.c",
     "deps/SoftFloat-3e/source/f128M_to_i32_r_minMag.c",
     "deps/SoftFloat-3e/source/f128M_to_i64.c",
@@ -724,6 +816,20 @@ const softfloat_sources = [_][]const u8{
     "deps/SoftFloat-3e/source/f128M_to_ui32_r_minMag.c",
     "deps/SoftFloat-3e/source/f128M_to_ui64.c",
     "deps/SoftFloat-3e/source/f128M_to_ui64_r_minMag.c",
+    "deps/SoftFloat-3e/source/extF80M_add.c",
+    "deps/SoftFloat-3e/source/extF80M_div.c",
+    "deps/SoftFloat-3e/source/extF80M_eq.c",
+    "deps/SoftFloat-3e/source/extF80M_le.c",
+    "deps/SoftFloat-3e/source/extF80M_lt.c",
+    "deps/SoftFloat-3e/source/extF80M_mul.c",
+    "deps/SoftFloat-3e/source/extF80M_rem.c",
+    "deps/SoftFloat-3e/source/extF80M_roundToInt.c",
+    "deps/SoftFloat-3e/source/extF80M_sqrt.c",
+    "deps/SoftFloat-3e/source/extF80M_sub.c",
+    "deps/SoftFloat-3e/source/extF80M_to_f16.c",
+    "deps/SoftFloat-3e/source/extF80M_to_f32.c",
+    "deps/SoftFloat-3e/source/extF80M_to_f64.c",
+    "deps/SoftFloat-3e/source/extF80M_to_f128M.c",
     "deps/SoftFloat-3e/source/f16_add.c",
     "deps/SoftFloat-3e/source/f16_div.c",
     "deps/SoftFloat-3e/source/f16_eq.c",
@@ -735,9 +841,12 @@ const softfloat_sources = [_][]const u8{
     "deps/SoftFloat-3e/source/f16_roundToInt.c",
     "deps/SoftFloat-3e/source/f16_sqrt.c",
     "deps/SoftFloat-3e/source/f16_sub.c",
+    "deps/SoftFloat-3e/source/f16_to_extF80M.c",
     "deps/SoftFloat-3e/source/f16_to_f128M.c",
     "deps/SoftFloat-3e/source/f16_to_f64.c",
+    "deps/SoftFloat-3e/source/f32_to_extF80M.c",
     "deps/SoftFloat-3e/source/f32_to_f128M.c",
+    "deps/SoftFloat-3e/source/f64_to_extF80M.c",
     "deps/SoftFloat-3e/source/f64_to_f128M.c",
     "deps/SoftFloat-3e/source/f64_to_f16.c",
     "deps/SoftFloat-3e/source/i32_to_f128M.c",
@@ -745,6 +854,7 @@ const softfloat_sources = [_][]const u8{
     "deps/SoftFloat-3e/source/s_addCarryM.c",
     "deps/SoftFloat-3e/source/s_addComplCarryM.c",
     "deps/SoftFloat-3e/source/s_addF128M.c",
+    "deps/SoftFloat-3e/source/s_addExtF80M.c",
     "deps/SoftFloat-3e/source/s_addM.c",
     "deps/SoftFloat-3e/source/s_addMagsF16.c",
     "deps/SoftFloat-3e/source/s_addMagsF32.c",
@@ -755,12 +865,14 @@ const softfloat_sources = [_][]const u8{
     "deps/SoftFloat-3e/source/s_approxRecip_1Ks.c",
     "deps/SoftFloat-3e/source/s_compare128M.c",
     "deps/SoftFloat-3e/source/s_compare96M.c",
+    "deps/SoftFloat-3e/source/s_compareNonnormExtF80M.c",
     "deps/SoftFloat-3e/source/s_countLeadingZeros16.c",
     "deps/SoftFloat-3e/source/s_countLeadingZeros32.c",
     "deps/SoftFloat-3e/source/s_countLeadingZeros64.c",
     "deps/SoftFloat-3e/source/s_countLeadingZeros8.c",
     "deps/SoftFloat-3e/source/s_eq128.c",
     "deps/SoftFloat-3e/source/s_invalidF128M.c",
+    "deps/SoftFloat-3e/source/s_invalidExtF80M.c",
     "deps/SoftFloat-3e/source/s_isNaNF128M.c",
     "deps/SoftFloat-3e/source/s_le128.c",
     "deps/SoftFloat-3e/source/s_lt128.c",
@@ -771,7 +883,9 @@ const softfloat_sources = [_][]const u8{
     "deps/SoftFloat-3e/source/s_mulAddF32.c",
     "deps/SoftFloat-3e/source/s_mulAddF64.c",
     "deps/SoftFloat-3e/source/s_negXM.c",
+    "deps/SoftFloat-3e/source/s_normExtF80SigM.c",
     "deps/SoftFloat-3e/source/s_normRoundPackMToF128M.c",
+    "deps/SoftFloat-3e/source/s_normRoundPackMToExtF80M.c",
     "deps/SoftFloat-3e/source/s_normRoundPackToF16.c",
     "deps/SoftFloat-3e/source/s_normRoundPackToF32.c",
     "deps/SoftFloat-3e/source/s_normRoundPackToF64.c",
@@ -782,6 +896,7 @@ const softfloat_sources = [_][]const u8{
     "deps/SoftFloat-3e/source/s_remStepMBy32.c",
     "deps/SoftFloat-3e/source/s_roundMToI64.c",
     "deps/SoftFloat-3e/source/s_roundMToUI64.c",
+    "deps/SoftFloat-3e/source/s_roundPackMToExtF80M.c",
     "deps/SoftFloat-3e/source/s_roundPackMToF128M.c",
     "deps/SoftFloat-3e/source/s_roundPackToF16.c",
     "deps/SoftFloat-3e/source/s_roundPackToF32.c",
@@ -810,9 +925,12 @@ const softfloat_sources = [_][]const u8{
     "deps/SoftFloat-3e/source/s_subMagsF32.c",
     "deps/SoftFloat-3e/source/s_subMagsF64.c",
     "deps/SoftFloat-3e/source/s_tryPropagateNaNF128M.c",
+    "deps/SoftFloat-3e/source/s_tryPropagateNaNExtF80M.c",
     "deps/SoftFloat-3e/source/softfloat_state.c",
     "deps/SoftFloat-3e/source/ui32_to_f128M.c",
     "deps/SoftFloat-3e/source/ui64_to_f128M.c",
+    "deps/SoftFloat-3e/source/ui32_to_extF80M.c",
+    "deps/SoftFloat-3e/source/ui64_to_extF80M.c",
 };
 
 const stage1_sources = [_][]const u8{

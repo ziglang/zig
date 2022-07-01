@@ -23,7 +23,5 @@ fn agent_callback(_vm: [*]VM, options: [*]u8) callconv(.C) i32 {
 }
 
 test "fixed" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     try expect(agent_callback(undefined, undefined) == 11);
 }

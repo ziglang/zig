@@ -39,15 +39,15 @@ fn asinh32(x: f32) f32 {
 
     // |x| >= 0x1p12 or inf or nan
     if (i >= 0x3F800000 + (12 << 23)) {
-        rx = math.ln(rx) + 0.69314718055994530941723212145817656;
+        rx = @log(rx) + 0.69314718055994530941723212145817656;
     }
     // |x| >= 2
     else if (i >= 0x3F800000 + (1 << 23)) {
-        rx = math.ln(2 * x + 1 / (math.sqrt(x * x + 1) + x));
+        rx = @log(2 * x + 1 / (@sqrt(x * x + 1) + x));
     }
     // |x| >= 0x1p-12, up to 1.6ulp error
     else if (i >= 0x3F800000 - (12 << 23)) {
-        rx = math.log1p(x + x * x / (math.sqrt(x * x + 1) + 1));
+        rx = math.log1p(x + x * x / (@sqrt(x * x + 1) + 1));
     }
     // |x| < 0x1p-12, inexact if x != 0
     else {
@@ -70,15 +70,15 @@ fn asinh64(x: f64) f64 {
 
     // |x| >= 0x1p26 or inf or nan
     if (e >= 0x3FF + 26) {
-        rx = math.ln(rx) + 0.693147180559945309417232121458176568;
+        rx = @log(rx) + 0.693147180559945309417232121458176568;
     }
     // |x| >= 2
     else if (e >= 0x3FF + 1) {
-        rx = math.ln(2 * x + 1 / (math.sqrt(x * x + 1) + x));
+        rx = @log(2 * x + 1 / (@sqrt(x * x + 1) + x));
     }
     // |x| >= 0x1p-12, up to 1.6ulp error
     else if (e >= 0x3FF - 26) {
-        rx = math.log1p(x + x * x / (math.sqrt(x * x + 1) + 1));
+        rx = math.log1p(x + x * x / (@sqrt(x * x + 1) + 1));
     }
     // |x| < 0x1p-12, inexact if x != 0
     else {

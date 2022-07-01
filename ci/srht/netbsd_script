@@ -57,7 +57,7 @@ unset CXX
 #release/bin/zig test ../test/behavior.zig -fno-stage1 -fLLVM -I ../test
 
 # Here we skip some tests to save time.
-release/bin/zig build test -Dskip-compile-errors -Dskip-non-native
+release/bin/zig build test -Dskip-stage1 -Dskip-non-native
 
 if [ -f ~/.s3cfg ]; then
   mv ../LICENSE release/

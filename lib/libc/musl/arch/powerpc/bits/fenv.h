@@ -1,4 +1,4 @@
-#ifdef _SOFT_FLOAT
+#if defined(_SOFT_FLOAT) || defined(__NO_FPRS__)
 #define FE_ALL_EXCEPT 0
 #define FE_TONEAREST  0
 #else

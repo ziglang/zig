@@ -20,9 +20,12 @@ const Fe = Field(.{
     .fiat = @import("p256_scalar_64.zig"),
     .field_order = 115792089210356248762697446949407573529996955224135760342422259061068512044369,
     .field_bits = 256,
-    .saturated_bits = 255,
+    .saturated_bits = 256,
     .encoded_length = encoded_length,
 });
+
+/// The scalar field order.
+pub const field_order = Fe.field_order;
 
 /// Reject a scalar whose encoding is not canonical.
 pub fn rejectNonCanonical(s: CompressedScalar, endian: std.builtin.Endian) NonCanonicalError!void {
@@ -61,7 +64,7 @@ pub fn neg(s: CompressedScalar, endian: std.builtin.Endian) NonCanonicalError!Co
 
 /// Return (a-b) (mod L)
 pub fn sub(a: CompressedScalar, b: CompressedScalar, endian: std.builtin.Endian) NonCanonicalError!CompressedScalar {
-    return (try Scalar.fromBytes(a, endian)).sub(try Scalar.fromBytes(b.endian)).toBytes(endian);
+    return (try Scalar.fromBytes(a, endian)).sub(try Scalar.fromBytes(b, endian)).toBytes(endian);
 }
 
 /// Return a random scalar

@@ -202,7 +202,6 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
 
         fn indent(self: *Self) !void {
             assert(self.state_index >= 1);
-            try self.stream.writeByte('\n');
             try self.whitespace.outputIndent(self.stream);
         }
 

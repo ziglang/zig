@@ -184,7 +184,7 @@ pub const DeclGen = struct {
 
     fn fail(self: *DeclGen, comptime format: []const u8, args: anytype) Error {
         @setCold(true);
-        const src: LazySrcLoc = .{ .node_offset = 0 };
+        const src = LazySrcLoc.nodeOffset(0);
         const src_loc = src.toSrcLoc(self.decl);
         assert(self.error_msg == null);
         self.error_msg = try Module.ErrorMsg.create(self.module.gpa, src_loc, format, args);
@@ -193,7 +193,7 @@ pub const DeclGen = struct {
 
     fn todo(self: *DeclGen, comptime format: []const u8, args: anytype) Error {
         @setCold(true);
-        const src: LazySrcLoc = .{ .node_offset = 0 };
+        const src = LazySrcLoc.nodeOffset(0);
         const src_loc = src.toSrcLoc(self.decl);
         assert(self.error_msg == null);
         self.error_msg = try Module.ErrorMsg.create(self.module.gpa, src_loc, "TODO (SPIR-V): " ++ format, args);
@@ -313,7 +313,7 @@ pub const DeclGen = struct {
             // As of yet, there is no vector support in the self-hosted compiler.
             .Vector => self.todo("implement arithmeticTypeInfo for Vector", .{}),
             // TODO: For which types is this the case?
-            else => self.todo("implement arithmeticTypeInfo for {}", .{ty}),
+            else => self.todo("implement arithmeticTypeInfo for {}", .{ty.fmtDebug()}),
         };
     }
 
@@ -335,17 +335,17 @@ pub const DeclGen = struct {
                 const int_info = ty.intInfo(target);
                 const backing_bits = self.backingIntBits(int_info.bits) orelse {
                     // Integers too big for any native type are represented as "composite integers": An array of largestSupportedIntBits.
-                    return self.todo("implement composite int constants for {}", .{ty});
+                    return self.todo("implement composite int constants for {}", .{ty.fmtDebug()});
                 };
 
                 // We can just use toSignedInt/toUnsignedInt here as it returns u64 - a type large enough to hold any
                 // SPIR-V native type (up to i/u64 with Int64). If SPIR-V ever supports native ints of a larger size, this
                 // might need to be updated.
-                assert(self.largestSupportedIntBits() <= std.meta.bitCount(u64));
+                assert(self.largestSupportedIntBits() <= @bitSizeOf(u64));
 
                 // Note, value is required to be sign-extended, so we don't need to mask off the upper bits.
                 // See https://www.khronos.org/registry/SPIR-V/specs/unified1/SPIRV.html#Literal
-                var int_bits = if (ty.isSignedInt()) @bitCast(u64, val.toSignedInt()) else val.toUnsignedInt();
+                var int_bits = if (ty.isSignedInt()) @bitCast(u64, val.toSignedInt()) else val.toUnsignedInt(target);
 
                 const value: spec.LiteralContextDependentNumber = switch (backing_bits) {
                     1...32 => .{ .uint32 = @truncate(u32, int_bits) },
@@ -388,7 +388,7 @@ pub const DeclGen = struct {
                 });
             },
             .Void => unreachable,
-            else => return self.todo("constant generation of type {}", .{ty}),
+            else => return self.todo("constant generation of type {}", .{ty.fmtDebug()}),
         }
 
         return result_id.toRef();
@@ -414,7 +414,7 @@ pub const DeclGen = struct {
                 const backing_bits = self.backingIntBits(int_info.bits) orelse {
                     // TODO: Integers too big for any native type are represented as "composite integers":
                     // An array of largestSupportedIntBits.
-                    return self.todo("Implement composite int type {}", .{ty});
+                    return self.todo("Implement composite int type {}", .{ty.fmtDebug()});
                 };
 
                 const payload = try self.spv.arena.create(SpvType.Payload.Int);
@@ -633,7 +633,13 @@ pub const DeclGen = struct {
         return result_id.toRef();
     }
 
-    fn airArithOp(self: *DeclGen, inst: Air.Inst.Index, comptime fop: Opcode, comptime sop: Opcode, comptime uop: Opcode) !IdRef {
+    fn airArithOp(
+        self: *DeclGen,
+        inst: Air.Inst.Index,
+        comptime fop: Opcode,
+        comptime sop: Opcode,
+        comptime uop: Opcode,
+    ) !IdRef {
         // LHS and RHS are guaranteed to have the same type, and AIR guarantees
         // the result to be the same as the LHS and RHS, which matches SPIR-V.
         const ty = self.air.typeOfIndex(inst);
@@ -644,8 +650,8 @@ pub const DeclGen = struct {
         const result_id = self.spv.allocId();
         const result_type_id = try self.resolveTypeId(ty);
 
-        assert(self.air.typeOf(bin_op.lhs).eql(ty));
-        assert(self.air.typeOf(bin_op.rhs).eql(ty));
+        assert(self.air.typeOf(bin_op.lhs).eql(ty, self.module));
+        assert(self.air.typeOf(bin_op.rhs).eql(ty, self.module));
 
         // Binary operations are generally applicable to both scalar and vector operations
         // in SPIR-V, but int and float versions of operations require different opcodes.
@@ -692,7 +698,7 @@ pub const DeclGen = struct {
         const result_id = self.spv.allocId();
         const result_type_id = try self.resolveTypeId(Type.initTag(.bool));
         const op_ty = self.air.typeOf(bin_op.lhs);
-        assert(op_ty.eql(self.air.typeOf(bin_op.rhs)));
+        assert(op_ty.eql(self.air.typeOf(bin_op.rhs), self.module));
 
         // Comparisons are generally applicable to both scalar and vector operations in SPIR-V,
         // but int and float versions of operations require different opcodes.

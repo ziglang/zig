@@ -78,9 +78,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
 
     var result: HANDLE = undefined;
 
-    const path_len_bytes = math.cast(u16, sub_path_w.len * 2) catch |err| switch (err) {
-        error.Overflow => return error.NameTooLong,
-    };
+    const path_len_bytes = math.cast(u16, sub_path_w.len * 2) orelse return error.NameTooLong;
     var nt_name = UNICODE_STRING{
         .Length = path_len_bytes,
         .MaximumLength = path_len_bytes,
@@ -551,7 +549,7 @@ pub fn WriteFile(
         };
         loop.beginOneEvent();
         suspend {
-            const adjusted_len = math.cast(DWORD, bytes.len) catch maxInt(DWORD);
+            const adjusted_len = math.cast(DWORD, bytes.len) orelse maxInt(DWORD);
             _ = kernel32.WriteFile(handle, bytes.ptr, adjusted_len, null, &resume_node.base.overlapped);
         }
         var bytes_transferred: DWORD = undefined;
@@ -589,7 +587,7 @@ pub fn WriteFile(
             };
             break :blk &overlapped_data;
         } else null;
-        const adjusted_len = math.cast(u32, bytes.len) catch maxInt(u32);
+        const adjusted_len = math.cast(u32, bytes.len) orelse maxInt(u32);
         if (kernel32.WriteFile(handle, bytes.ptr, adjusted_len, &bytes_written, overlapped) == 0) {
             switch (kernel32.GetLastError()) {
                 .INVALID_USER_BUFFER => return error.SystemResources,
@@ -618,9 +616,7 @@ pub const SetCurrentDirectoryError = error{
 };
 
 pub fn SetCurrentDirectory(path_name: []const u16) SetCurrentDirectoryError!void {
-    const path_len_bytes = math.cast(u16, path_name.len * 2) catch |err| switch (err) {
-        error.Overflow => return error.NameTooLong,
-    };
+    const path_len_bytes = math.cast(u16, path_name.len * 2) orelse return error.NameTooLong;
 
     var nt_name = UNICODE_STRING{
         .Length = path_len_bytes,
@@ -753,9 +749,7 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
     // With the latter, we'd need to call `NtCreateFile` twice, once for file symlink, and if that
     // failed, again for dir symlink. Omitting any mention of file/dir flags makes it possible
     // to open the symlink there and then.
-    const path_len_bytes = math.cast(u16, sub_path_w.len * 2) catch |err| switch (err) {
-        error.Overflow => return error.NameTooLong,
-    };
+    const path_len_bytes = math.cast(u16, sub_path_w.len * 2) orelse return error.NameTooLong;
     var nt_name = UNICODE_STRING{
         .Length = path_len_bytes,
         .MaximumLength = path_len_bytes,
@@ -1013,9 +1007,7 @@ pub fn QueryObjectName(
 
     const info = @ptrCast(*OBJECT_NAME_INFORMATION, out_buffer_aligned);
     //buffer size is specified in bytes
-    const out_buffer_len = std.math.cast(ULONG, out_buffer_aligned.len * 2) catch |e| switch (e) {
-        error.Overflow => std.math.maxInt(ULONG),
-    };
+    const out_buffer_len = std.math.cast(ULONG, out_buffer_aligned.len * 2) orelse std.math.maxInt(ULONG);
     //last argument would return the length required for full_buffer, not exposed here
     const rc = ntdll.NtQueryObject(handle, .ObjectNameInformation, info, out_buffer_len, null);
     switch (rc) {
@@ -1221,7 +1213,7 @@ pub fn QueryInformationFile(
     out_buffer: []u8,
 ) QueryInformationFileError!void {
     var io: IO_STATUS_BLOCK = undefined;
-    const len_bytes = std.math.cast(u32, out_buffer.len) catch unreachable;
+    const len_bytes = std.math.cast(u32, out_buffer.len) orelse unreachable;
     const rc = ntdll.NtQueryInformationFile(handle, &io, out_buffer.ptr, len_bytes, info_class);
     switch (rc) {
         .SUCCESS => {},
@@ -1493,6 +1485,19 @@ pub fn VirtualAlloc(addr: ?LPVOID, size: usize, alloc_type: DWORD, flProtect: DW
 
 pub fn VirtualFree(lpAddress: ?LPVOID, dwSize: usize, dwFreeType: DWORD) void {
     assert(kernel32.VirtualFree(lpAddress, dwSize, dwFreeType) != 0);
+}
+
+pub const VirtualQuerryError = error{Unexpected};
+
+pub fn VirtualQuery(lpAddress: ?LPVOID, lpBuffer: PMEMORY_BASIC_INFORMATION, dwLength: SIZE_T) VirtualQuerryError!SIZE_T {
+    const rc = kernel32.VirtualQuery(lpAddress, lpBuffer, dwLength);
+    if (rc == 0) {
+        switch (kernel32.GetLastError()) {
+            else => |err| return unexpectedError(err),
+        }
+    }
+
+    return rc;
 }
 
 pub const SetConsoleTextAttributeError = error{Unexpected};
@@ -2027,21 +2032,6 @@ pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
         std.debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
-}
-
-pub fn SetThreadDescription(hThread: HANDLE, lpThreadDescription: LPCWSTR) !void {
-    if (kernel32.SetThreadDescription(hThread, lpThreadDescription) == 0) {
-        switch (kernel32.GetLastError()) {
-            else => |err| return unexpectedError(err),
-        }
-    }
-}
-pub fn GetThreadDescription(hThread: HANDLE, ppszThreadDescription: *LPWSTR) !void {
-    if (kernel32.GetThreadDescription(hThread, ppszThreadDescription) == 0) {
-        switch (kernel32.GetLastError()) {
-            else => |err| return unexpectedError(err),
-        }
-    }
 }
 
 pub const Win32Error = @import("windows/win32error.zig").Win32Error;
@@ -2586,6 +2576,11 @@ pub const CREATE_EVENT_MANUAL_RESET = 0x00000001;
 pub const EVENT_ALL_ACCESS = 0x1F0003;
 pub const EVENT_MODIFY_STATE = 0x0002;
 
+// MEMORY_BASIC_INFORMATION.Type flags for VirtualQuery
+pub const MEM_IMAGE = 0x1000000;
+pub const MEM_MAPPED = 0x40000;
+pub const MEM_PRIVATE = 0x20000;
+
 pub const PROCESS_INFORMATION = extern struct {
     hProcess: HANDLE,
     hThread: HANDLE,
@@ -2661,6 +2656,7 @@ pub const HEAP_NO_SERIALIZE = 0x00000001;
 // AllocationType values
 pub const MEM_COMMIT = 0x1000;
 pub const MEM_RESERVE = 0x2000;
+pub const MEM_FREE = 0x10000;
 pub const MEM_RESET = 0x80000;
 pub const MEM_RESET_UNDO = 0x1000000;
 pub const MEM_LARGE_PAGES = 0x20000000;
@@ -2689,7 +2685,10 @@ pub const MEM_RESERVE_PLACEHOLDERS = 0x2;
 pub const MEM_DECOMMIT = 0x4000;
 pub const MEM_RELEASE = 0x8000;
 
-pub const PTHREAD_START_ROUTINE = fn (LPVOID) callconv(.C) DWORD;
+pub const PTHREAD_START_ROUTINE = switch (builtin.zig_backend) {
+    .stage1 => fn (LPVOID) callconv(.C) DWORD,
+    else => *const fn (LPVOID) callconv(.C) DWORD,
+};
 pub const LPTHREAD_START_ROUTINE = PTHREAD_START_ROUTINE;
 
 pub const WIN32_FIND_DATAW = extern struct {
@@ -2862,7 +2861,10 @@ pub const IMAGE_TLS_DIRECTORY = extern struct {
 pub const IMAGE_TLS_DIRECTORY64 = IMAGE_TLS_DIRECTORY;
 pub const IMAGE_TLS_DIRECTORY32 = IMAGE_TLS_DIRECTORY;
 
-pub const PIMAGE_TLS_CALLBACK = ?fn (PVOID, DWORD, PVOID) callconv(.C) void;
+pub const PIMAGE_TLS_CALLBACK = switch (builtin.zig_backend) {
+    .stage1 => ?fn (PVOID, DWORD, PVOID) callconv(.C) void,
+    else => ?*const fn (PVOID, DWORD, PVOID) callconv(.C) void,
+};
 
 pub const PROV_RSA_FULL = 1;
 
@@ -2888,7 +2890,10 @@ pub const FILE_ACTION_MODIFIED = 0x00000003;
 pub const FILE_ACTION_RENAMED_OLD_NAME = 0x00000004;
 pub const FILE_ACTION_RENAMED_NEW_NAME = 0x00000005;
 
-pub const LPOVERLAPPED_COMPLETION_ROUTINE = ?fn (DWORD, DWORD, *OVERLAPPED) callconv(.C) void;
+pub const LPOVERLAPPED_COMPLETION_ROUTINE = switch (builtin.zig_backend) {
+    .stage1 => ?fn (DWORD, DWORD, *OVERLAPPED) callconv(.C) void,
+    else => ?*const fn (DWORD, DWORD, *OVERLAPPED) callconv(.C) void,
+};
 
 pub const FILE_NOTIFY_CHANGE_CREATION = 64;
 pub const FILE_NOTIFY_CHANGE_SIZE = 8;
@@ -2941,7 +2946,10 @@ pub const RTL_CRITICAL_SECTION = extern struct {
 pub const CRITICAL_SECTION = RTL_CRITICAL_SECTION;
 pub const INIT_ONCE = RTL_RUN_ONCE;
 pub const INIT_ONCE_STATIC_INIT = RTL_RUN_ONCE_INIT;
-pub const INIT_ONCE_FN = fn (InitOnce: *INIT_ONCE, Parameter: ?*anyopaque, Context: ?*anyopaque) callconv(.C) BOOL;
+pub const INIT_ONCE_FN = switch (builtin.zig_backend) {
+    .stage1 => fn (InitOnce: *INIT_ONCE, Parameter: ?*anyopaque, Context: ?*anyopaque) callconv(.C) BOOL,
+    else => *const fn (InitOnce: *INIT_ONCE, Parameter: ?*anyopaque, Context: ?*anyopaque) callconv(.C) BOOL,
+};
 
 pub const RTL_RUN_ONCE = extern struct {
     Ptr: ?*anyopaque,
@@ -2959,6 +2967,19 @@ pub const COINIT = enum(c_int) {
     COINIT_DISABLE_OLE1DDE = 4,
     COINIT_SPEED_OVER_MEMORY = 8,
 };
+
+pub const MEMORY_BASIC_INFORMATION = extern struct {
+    BaseAddress: PVOID,
+    AllocationBase: PVOID,
+    AllocationProtect: DWORD,
+    PartitionId: WORD,
+    RegionSize: SIZE_T,
+    State: DWORD,
+    Protect: DWORD,
+    Type: DWORD,
+};
+
+pub const PMEMORY_BASIC_INFORMATION = *MEMORY_BASIC_INFORMATION;
 
 /// > The maximum path of 32,767 characters is approximate, because the "\\?\"
 /// > prefix may be expanded to a longer string by the system at run time, and
@@ -3213,7 +3234,10 @@ pub const EXCEPTION_POINTERS = extern struct {
     ContextRecord: *std.os.windows.CONTEXT,
 };
 
-pub const VECTORED_EXCEPTION_HANDLER = fn (ExceptionInfo: *EXCEPTION_POINTERS) callconv(WINAPI) c_long;
+pub const VECTORED_EXCEPTION_HANDLER = switch (builtin.zig_backend) {
+    .stage1 => fn (ExceptionInfo: *EXCEPTION_POINTERS) callconv(WINAPI) c_long,
+    else => *const fn (ExceptionInfo: *EXCEPTION_POINTERS) callconv(WINAPI) c_long,
+};
 
 pub const OBJECT_ATTRIBUTES = extern struct {
     Length: ULONG,
@@ -3489,7 +3513,10 @@ pub const RTL_DRIVE_LETTER_CURDIR = extern struct {
     DosPath: UNICODE_STRING,
 };
 
-pub const PPS_POST_PROCESS_INIT_ROUTINE = ?fn () callconv(.C) void;
+pub const PPS_POST_PROCESS_INIT_ROUTINE = switch (builtin.zig_backend) {
+    .stage1 => ?fn () callconv(.C) void,
+    else => ?*const fn () callconv(.C) void,
+};
 
 pub const FILE_BOTH_DIR_INFORMATION = extern struct {
     NextEntryOffset: ULONG,
@@ -3509,7 +3536,10 @@ pub const FILE_BOTH_DIR_INFORMATION = extern struct {
 };
 pub const FILE_BOTH_DIRECTORY_INFORMATION = FILE_BOTH_DIR_INFORMATION;
 
-pub const IO_APC_ROUTINE = fn (PVOID, *IO_STATUS_BLOCK, ULONG) callconv(.C) void;
+pub const IO_APC_ROUTINE = switch (builtin.zig_backend) {
+    .stage1 => fn (PVOID, *IO_STATUS_BLOCK, ULONG) callconv(.C) void,
+    else => *const fn (PVOID, *IO_STATUS_BLOCK, ULONG) callconv(.C) void,
+};
 
 pub const CURDIR = extern struct {
     DosPath: UNICODE_STRING,
@@ -3581,8 +3611,14 @@ pub const ENUM_PAGE_FILE_INFORMATION = extern struct {
     PeakUsage: SIZE_T,
 };
 
-pub const PENUM_PAGE_FILE_CALLBACKW = ?fn (?LPVOID, *ENUM_PAGE_FILE_INFORMATION, LPCWSTR) callconv(.C) BOOL;
-pub const PENUM_PAGE_FILE_CALLBACKA = ?fn (?LPVOID, *ENUM_PAGE_FILE_INFORMATION, LPCSTR) callconv(.C) BOOL;
+pub const PENUM_PAGE_FILE_CALLBACKW = switch (builtin.zig_backend) {
+    .stage1 => ?fn (?LPVOID, *ENUM_PAGE_FILE_INFORMATION, LPCWSTR) callconv(.C) BOOL,
+    else => ?*const fn (?LPVOID, *ENUM_PAGE_FILE_INFORMATION, LPCWSTR) callconv(.C) BOOL,
+};
+pub const PENUM_PAGE_FILE_CALLBACKA = switch (builtin.zig_backend) {
+    .stage1 => ?fn (?LPVOID, *ENUM_PAGE_FILE_INFORMATION, LPCSTR) callconv(.C) BOOL,
+    else => ?*const fn (?LPVOID, *ENUM_PAGE_FILE_INFORMATION, LPCSTR) callconv(.C) BOOL,
+};
 
 pub const PSAPI_WS_WATCH_INFORMATION_EX = extern struct {
     BasicInfo: PSAPI_WS_WATCH_INFORMATION,
@@ -3663,10 +3699,15 @@ pub const OBJECT_NAME_INFORMATION = extern struct {
     Name: UNICODE_STRING,
 };
 
-pub const SRWLOCK = usize;
-pub const SRWLOCK_INIT: SRWLOCK = 0;
-pub const CONDITION_VARIABLE = usize;
-pub const CONDITION_VARIABLE_INIT: CONDITION_VARIABLE = 0;
+pub const SRWLOCK_INIT = SRWLOCK{};
+pub const SRWLOCK = extern struct {
+    Ptr: ?PVOID = null,
+};
+
+pub const CONDITION_VARIABLE_INIT = CONDITION_VARIABLE{};
+pub const CONDITION_VARIABLE = extern struct {
+    Ptr: ?PVOID = null,
+};
 
 pub const FILE_SKIP_COMPLETION_PORT_ON_SUCCESS = 0x1;
 pub const FILE_SKIP_SET_EVENT_ON_HANDLE = 0x2;
@@ -3677,4 +3718,7 @@ pub const CTRL_CLOSE_EVENT: DWORD = 2;
 pub const CTRL_LOGOFF_EVENT: DWORD = 5;
 pub const CTRL_SHUTDOWN_EVENT: DWORD = 6;
 
-pub const HANDLER_ROUTINE = fn (dwCtrlType: DWORD) callconv(.C) BOOL;
+pub const HANDLER_ROUTINE = switch (builtin.zig_backend) {
+    .stage1 => fn (dwCtrlType: DWORD) callconv(.C) BOOL,
+    else => *const fn (dwCtrlType: DWORD) callconv(.C) BOOL,
+};

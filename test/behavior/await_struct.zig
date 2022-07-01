@@ -10,6 +10,8 @@ var await_a_promise: anyframe = undefined;
 var await_final_result = Foo{ .x = 0 };
 
 test "coroutine await struct" {
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+
     await_seq('a');
     var p = async await_amain();
     _ = p;

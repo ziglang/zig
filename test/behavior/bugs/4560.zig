@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 test "fixed" {
     var s: S = .{

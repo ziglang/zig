@@ -99,7 +99,35 @@ pub const enum_class = 0x6d;
 pub const linkage_name = 0x6e;
 
 // DWARF 5
+pub const string_length_bit_size = 0x6f;
+pub const string_length_byte_size = 0x70;
+pub const rank = 0x71;
+pub const str_offsets_base = 0x72;
+pub const addr_base = 0x73;
+pub const rnglists_base = 0x74;
+pub const dwo_name = 0x76;
+pub const reference = 0x77;
+pub const rvalue_reference = 0x78;
+pub const macros = 0x79;
+pub const call_all_calls = 0x7a;
+pub const call_all_source_calls = 0x7b;
+pub const call_all_tail_calls = 0x7c;
+pub const call_return_pc = 0x7d;
+pub const call_value = 0x7e;
+pub const call_origin = 0x7f;
+pub const call_parameter = 0x80;
+pub const call_pc = 0x81;
+pub const call_tail_call = 0x82;
+pub const call_target = 0x83;
+pub const call_target_clobbered = 0x84;
+pub const call_data_location = 0x85;
+pub const call_data_value = 0x86;
+pub const @"noreturn" = 0x87;
 pub const alignment = 0x88;
+pub const export_symbols = 0x89;
+pub const deleted = 0x8a;
+pub const defaulted = 0x8b;
+pub const loclists_base = 0x8c;
 
 pub const lo_user = 0x2000; // Implementation-defined range start.
 pub const hi_user = 0x3fff; // Implementation-defined range end.

@@ -151,7 +151,8 @@ fn renderMember(gpa: Allocator, ais: *Ais, tree: Ast, decl: Ast.Node.Index, spac
         .test_decl => {
             const test_token = main_tokens[decl];
             try renderToken(ais, tree, test_token, .space);
-            if (token_tags[test_token + 1] == .string_literal) {
+            const test_name_tag = token_tags[test_token + 1];
+            if (test_name_tag == .string_literal or test_name_tag == .identifier) {
                 try renderToken(ais, tree, test_token + 1, .space);
             }
             try renderExpression(gpa, ais, tree, datas[decl].rhs, space);
@@ -1504,16 +1505,18 @@ fn renderSwitchCase(
     const node_tags = tree.nodes.items(.tag);
     const token_tags = tree.tokens.items(.tag);
     const trailing_comma = token_tags[switch_case.ast.arrow_token - 1] == .comma;
+    const has_comment_before_arrow = blk: {
+        if (switch_case.ast.values.len == 0) break :blk false;
+        break :blk hasComment(tree, tree.firstToken(switch_case.ast.values[0]), switch_case.ast.arrow_token);
+    };
 
     // Render everything before the arrow
     if (switch_case.ast.values.len == 0) {
         try renderToken(ais, tree, switch_case.ast.arrow_token - 1, .space); // else keyword
-    } else if (switch_case.ast.values.len == 1) {
+    } else if (switch_case.ast.values.len == 1 and !has_comment_before_arrow) {
         // render on one line and drop the trailing comma if any
         try renderExpression(gpa, ais, tree, switch_case.ast.values[0], .space);
-    } else if (trailing_comma or
-        hasComment(tree, tree.firstToken(switch_case.ast.values[0]), switch_case.ast.arrow_token))
-    {
+    } else if (trailing_comma or has_comment_before_arrow) {
         // Render each value on a new line
         try renderExpressions(gpa, ais, tree, switch_case.ast.values, .comma);
     } else {
@@ -2479,7 +2482,17 @@ fn renderDocComments(ais: *Ais, tree: Ast, end_token: Ast.TokenIndex) Error!void
     }
     const first_tok = tok;
     if (first_tok == end_token) return;
-    try renderExtraNewlineToken(ais, tree, first_tok);
+
+    if (first_tok != 0) {
+        const prev_token_tag = token_tags[first_tok - 1];
+
+        // Prevent accidental use of `renderDocComments` for a function argument doc comment
+        assert(prev_token_tag != .l_paren);
+
+        if (prev_token_tag != .l_brace) {
+            try renderExtraNewlineToken(ais, tree, first_tok);
+        }
+    }
 
     while (token_tags[tok] == .doc_comment) : (tok += 1) {
         try renderToken(ais, tree, tok, .newline);
@@ -2503,9 +2516,15 @@ fn renderContainerDocComments(ais: *Ais, tree: Ast, start_token: Ast.TokenIndex)
 
 fn tokenSliceForRender(tree: Ast, token_index: Ast.TokenIndex) []const u8 {
     var ret = tree.tokenSlice(token_index);
-    if (tree.tokens.items(.tag)[token_index] == .multiline_string_literal_line) {
-        assert(ret[ret.len - 1] == '\n');
-        ret.len -= 1;
+    switch (tree.tokens.items(.tag)[token_index]) {
+        .multiline_string_literal_line => {
+            assert(ret[ret.len - 1] == '\n');
+            ret.len -= 1;
+        },
+        .container_doc_comment, .doc_comment => {
+            ret = mem.trimRight(u8, ret, &std.ascii.spaces);
+        },
+        else => {},
     }
     return ret;
 }

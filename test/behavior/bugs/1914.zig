@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const A = struct {
     b_list_pointer: *const []B,
@@ -11,6 +12,7 @@ const b_list: []B = &[_]B{};
 const a = A{ .b_list_pointer = &b_list };
 
 test "segfault bug" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     const assert = std.debug.assert;
     const obj = B{ .a_pointer = &a };
     assert(obj.a_pointer == &a); // this makes zig crash
@@ -27,5 +29,6 @@ pub const B2 = struct {
 var b_value = B2{ .pointer_array = &[_]*A2{} };
 
 test "basic stuff" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     std.debug.assert(&b_value == &b_value);
 }

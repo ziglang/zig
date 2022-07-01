@@ -219,7 +219,7 @@ const CompressorOptions = struct {
 ///
 /// `dictionary` is optional and initializes the new `Compressor` with a preset dictionary.
 /// The returned Compressor behaves as if the dictionary had been written to it without producing
-/// any compressed output. The compressed data written to hm_bw can only be decompressed by a 
+/// any compressed output. The compressed data written to hm_bw can only be decompressed by a
 /// Decompressor initialized with the same dictionary.
 ///
 /// The compressed data will be passed to the provided `writer`, see `writer()` and `write()`.
@@ -254,7 +254,10 @@ pub fn Compressor(comptime WriterType: anytype) type {
 
         // Inner writer wrapped in a HuffmanBitWriter
         hm_bw: hm_bw.HuffmanBitWriter(WriterType) = undefined,
-        bulk_hasher: fn ([]u8, []u32) u32,
+        bulk_hasher: if (@import("builtin").zig_backend == .stage1)
+            fn ([]u8, []u32) u32
+        else
+            *const fn ([]u8, []u32) u32,
 
         sync: bool, // requesting flush
         best_speed_enc: *fast.DeflateFast, // Encoder for best_speed

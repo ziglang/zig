@@ -333,6 +333,14 @@ const known_options = [_]KnownOpt{
         .ident = "no_color_diagnostics",
     },
     .{
+        .name = "fstack-check",
+        .ident = "stack_check",
+    },
+    .{
+        .name = "fno-stack-check",
+        .ident = "no_stack_check",
+    },
+    .{
         .name = "MD",
         .ident = "dep_file",
     },
@@ -423,6 +431,22 @@ const known_options = [_]KnownOpt{
     .{
         .name = "e",
         .ident = "entry",
+    },
+    .{
+        .name = "weak-l",
+        .ident = "weak_library",
+    },
+    .{
+        .name = "weak_library",
+        .ident = "weak_library",
+    },
+    .{
+        .name = "weak_framework",
+        .ident = "weak_framework",
+    },
+    .{
+        .name = "headerpad_max_install_names",
+        .ident = "headerpad_max_install_names",
     },
 };
 

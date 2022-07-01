@@ -1,108 +1,78 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2020 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
 const std = @import("std");
 const builtin = @import("builtin");
 const ThreadPool = @This();
+const WaitGroup = @import("WaitGroup.zig");
 
 mutex: std.Thread.Mutex = .{},
+cond: std.Thread.Condition = .{},
+run_queue: RunQueue = .{},
 is_running: bool = true,
 allocator: std.mem.Allocator,
-workers: []Worker,
-run_queue: RunQueue = .{},
-idle_queue: IdleQueue = .{},
+threads: []std.Thread,
 
-const IdleQueue = std.SinglyLinkedList(std.Thread.ResetEvent);
 const RunQueue = std.SinglyLinkedList(Runnable);
 const Runnable = struct {
-    runFn: fn (*Runnable) void,
+    runFn: RunProto,
 };
 
-const Worker = struct {
-    pool: *ThreadPool,
-    thread: std.Thread,
-    /// The node is for this worker only and must have an already initialized event
-    /// when the thread is spawned.
-    idle_node: IdleQueue.Node,
-
-    fn run(worker: *Worker) void {
-        const pool = worker.pool;
-
-        while (true) {
-            pool.mutex.lock();
-
-            if (pool.run_queue.popFirst()) |run_node| {
-                pool.mutex.unlock();
-                (run_node.data.runFn)(&run_node.data);
-                continue;
-            }
-
-            if (pool.is_running) {
-                worker.idle_node.data.reset();
-
-                pool.idle_queue.prepend(&worker.idle_node);
-                pool.mutex.unlock();
-
-                worker.idle_node.data.wait();
-                continue;
-            }
-
-            pool.mutex.unlock();
-            return;
-        }
-    }
+const RunProto = switch (builtin.zig_backend) {
+    .stage1 => fn (*Runnable) void,
+    else => *const fn (*Runnable) void,
 };
 
-pub fn init(self: *ThreadPool, allocator: std.mem.Allocator) !void {
-    self.* = .{
+pub fn init(pool: *ThreadPool, allocator: std.mem.Allocator) !void {
+    pool.* = .{
         .allocator = allocator,
-        .workers = &[_]Worker{},
+        .threads = &[_]std.Thread{},
     };
-    if (builtin.single_threaded)
+
+    if (builtin.single_threaded) {
         return;
+    }
 
-    const worker_count = std.math.max(1, std.Thread.getCpuCount() catch 1);
-    self.workers = try allocator.alloc(Worker, worker_count);
-    errdefer allocator.free(self.workers);
+    const thread_count = std.math.max(1, std.Thread.getCpuCount() catch 1);
+    pool.threads = try allocator.alloc(std.Thread, thread_count);
+    errdefer allocator.free(pool.threads);
 
-    var worker_index: usize = 0;
-    errdefer self.destroyWorkers(worker_index);
-    while (worker_index < worker_count) : (worker_index += 1) {
-        const worker = &self.workers[worker_index];
-        worker.pool = self;
+    // kill and join any threads we spawned previously on error.
+    var spawned: usize = 0;
+    errdefer pool.join(spawned);
 
-        // Each worker requires its ResetEvent to be pre-initialized.
-        try worker.idle_node.data.init();
-        errdefer worker.idle_node.data.deinit();
-
-        worker.thread = try std.Thread.spawn(.{}, Worker.run, .{worker});
+    for (pool.threads) |*thread| {
+        thread.* = try std.Thread.spawn(.{}, worker, .{pool});
+        spawned += 1;
     }
 }
 
-fn destroyWorkers(self: *ThreadPool, spawned: usize) void {
-    for (self.workers[0..spawned]) |*worker| {
-        worker.thread.join();
-        worker.idle_node.data.deinit();
-    }
+pub fn deinit(pool: *ThreadPool) void {
+    pool.join(pool.threads.len); // kill and join all threads.
+    pool.* = undefined;
 }
 
-pub fn deinit(self: *ThreadPool) void {
+fn join(pool: *ThreadPool, spawned: usize) void {
+    if (builtin.single_threaded) {
+        return;
+    }
+
     {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        pool.mutex.lock();
+        defer pool.mutex.unlock();
 
-        self.is_running = false;
-        while (self.idle_queue.popFirst()) |idle_node|
-            idle_node.data.set();
+        // ensure future worker threads exit the dequeue loop
+        pool.is_running = false;
     }
 
-    self.destroyWorkers(self.workers.len);
-    self.allocator.free(self.workers);
+    // wake up any sleeping threads (this can be done outside the mutex)
+    // then wait for all the threads we know are spawned to complete.
+    pool.cond.broadcast();
+    for (pool.threads[0..spawned]) |thread| {
+        thread.join();
+    }
+
+    pool.allocator.free(pool.threads);
 }
 
-pub fn spawn(self: *ThreadPool, comptime func: anytype, args: anytype) !void {
+pub fn spawn(pool: *ThreadPool, comptime func: anytype, args: anytype) !void {
     if (builtin.single_threaded) {
         @call(.{}, func, args);
         return;
@@ -119,24 +89,67 @@ pub fn spawn(self: *ThreadPool, comptime func: anytype, args: anytype) !void {
             const closure = @fieldParentPtr(@This(), "run_node", run_node);
             @call(.{}, func, closure.arguments);
 
+            // The thread pool's allocator is protected by the mutex.
             const mutex = &closure.pool.mutex;
             mutex.lock();
             defer mutex.unlock();
+
             closure.pool.allocator.destroy(closure);
         }
     };
 
-    self.mutex.lock();
-    defer self.mutex.unlock();
+    {
+        pool.mutex.lock();
+        defer pool.mutex.unlock();
 
-    const closure = try self.allocator.create(Closure);
-    closure.* = .{
-        .arguments = args,
-        .pool = self,
-    };
+        const closure = try pool.allocator.create(Closure);
+        closure.* = .{
+            .arguments = args,
+            .pool = pool,
+        };
 
-    self.run_queue.prepend(&closure.run_node);
+        pool.run_queue.prepend(&closure.run_node);
+    }
 
-    if (self.idle_queue.popFirst()) |idle_node|
-        idle_node.data.set();
+    // Notify waiting threads outside the lock to try and keep the critical section small.
+    pool.cond.signal();
+}
+
+fn worker(pool: *ThreadPool) void {
+    pool.mutex.lock();
+    defer pool.mutex.unlock();
+
+    while (true) {
+        while (pool.run_queue.popFirst()) |run_node| {
+            // Temporarily unlock the mutex in order to execute the run_node
+            pool.mutex.unlock();
+            defer pool.mutex.lock();
+
+            const runFn = run_node.data.runFn;
+            runFn(&run_node.data);
+        }
+
+        // Stop executing instead of waiting if the thread pool is no longer running.
+        if (pool.is_running) {
+            pool.cond.wait(&pool.mutex);
+        } else {
+            break;
+        }
+    }
+}
+
+pub fn waitAndWork(pool: *ThreadPool, wait_group: *WaitGroup) void {
+    while (!wait_group.isDone()) {
+        if (blk: {
+            pool.mutex.lock();
+            defer pool.mutex.unlock();
+            break :blk pool.run_queue.popFirst();
+        }) |run_node| {
+            run_node.data.runFn(&run_node.data);
+            continue;
+        }
+
+        wait_group.wait();
+        return;
+    }
 }

@@ -2,5 +2,5 @@
 
 void free(void *p)
 {
-	return __libc_free(p);
+	__libc_free(p);
 }

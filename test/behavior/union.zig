@@ -4,56 +4,98 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const Tag = std.meta.Tag;
 
-const Foo = union {
+const FooWithFloats = union {
     float: f64,
     int: i32,
 };
 
-test "basic unions" {
-    var foo = Foo{ .int = 1 };
+test "basic unions with floats" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    var foo = FooWithFloats{ .int = 1 };
     try expect(foo.int == 1);
-    foo = Foo{ .float = 12.34 };
+    foo = FooWithFloats{ .float = 12.34 };
     try expect(foo.float == 12.34);
 }
 
-test "init union with runtime value" {
-    var foo: Foo = undefined;
+fn setFloat(foo: *FooWithFloats, x: f64) void {
+    foo.* = FooWithFloats{ .float = x };
+}
+
+test "init union with runtime value - floats" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    var foo: FooWithFloats = undefined;
 
     setFloat(&foo, 12.34);
     try expect(foo.float == 12.34);
+}
+
+test "basic unions" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    var foo = Foo{ .int = 1 };
+    try expect(foo.int == 1);
+    foo = Foo{ .str = .{ .slice = "Hello!" } };
+    try expect(std.mem.eql(u8, foo.str.slice, "Hello!"));
+}
+
+const Foo = union {
+    int: i32,
+    str: struct {
+        slice: []const u8,
+    },
+};
+
+test "init union with runtime value" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    var foo: Foo = undefined;
 
     setInt(&foo, 42);
     try expect(foo.int == 42);
-}
 
-fn setFloat(foo: *Foo, x: f64) void {
-    foo.* = Foo{ .float = x };
+    setStr(&foo, "Hello!");
+    try expect(std.mem.eql(u8, foo.str.slice, "Hello!"));
 }
 
 fn setInt(foo: *Foo, x: i32) void {
     foo.* = Foo{ .int = x };
 }
 
+fn setStr(foo: *Foo, slice: []const u8) void {
+    foo.* = Foo{ .str = .{ .slice = slice } };
+}
+
 test "comptime union field access" {
     comptime {
-        var foo = Foo{ .int = 0 };
+        var foo = FooWithFloats{ .int = 0 };
         try expect(foo.int == 0);
 
-        foo = Foo{ .float = 42.42 };
-        try expect(foo.float == 42.42);
+        foo = FooWithFloats{ .float = 12.34 };
+        try expect(foo.float == 12.34);
     }
 }
 
 const FooExtern = extern union {
-    float: f64,
     int: i32,
+    str: struct {
+        slice: []const u8,
+    },
 };
 
 test "basic extern unions" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     var foo = FooExtern{ .int = 1 };
     try expect(foo.int == 1);
-    foo.float = 12.34;
-    try expect(foo.float == 12.34);
+    foo.str.slice = "Well";
+    try expect(std.mem.eql(u8, foo.str.slice, "Well"));
 }
 
 const ExternPtrOrInt = extern union {
@@ -117,6 +159,9 @@ test "access a member of tagged union with conflicting enum tag name" {
 }
 
 test "constant tagged union with payload" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     var empty = TaggedUnionWithPayload{ .Empty = {} };
     var full = TaggedUnionWithPayload{ .Full = 13 };
     shouldBeEmpty(empty);
@@ -162,11 +207,18 @@ const Payload = union(Letter) {
 };
 
 test "union with specified enum tag" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     try doTest();
     comptime try doTest();
 }
 
-test "packed union generates correctly aligned LLVM type" {
+test "packed union generates correctly aligned type" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
 
     const U = packed union {
@@ -204,6 +256,9 @@ fn testComparison() !void {
 }
 
 test "comparison between union and enum literal" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     try testComparison();
     comptime try testComparison();
 }
@@ -215,6 +270,9 @@ const TheUnion = union(TheTag) {
     C: i32,
 };
 test "cast union to tag type of union" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     try testCastUnionToTag();
     comptime try testCastUnionToTag();
 }
@@ -231,6 +289,9 @@ test "union field access gives the enum values" {
 }
 
 test "cast tag type of union to union" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     var x: Value2 = Letter2.B;
     try expect(@as(Letter2, x) == Letter2.B);
 }
@@ -242,6 +303,9 @@ const Value2 = union(Letter2) {
 };
 
 test "implicit cast union to its tag type" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     var x: Value2 = Letter2.B;
     try expect(x == Letter2.B);
     try giveMeLetterB(x);
@@ -258,6 +322,9 @@ pub const PackThis = union(enum) {
 };
 
 test "constant packed union" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     try testConstPackedUnion(&[_]PackThis{PackThis{ .StringLiteral = 1 }});
 }
 
@@ -272,6 +339,10 @@ const MultipleChoice = union(enum(u32)) {
     D = 1000,
 };
 test "simple union(enum(u32))" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     var x = MultipleChoice.C;
     try expect(x == MultipleChoice.C);
     try expect(@enumToInt(@as(Tag(MultipleChoice), x)) == 60);
@@ -293,6 +364,10 @@ test "union with only 1 field which is void should be zero bits" {
 }
 
 test "tagged union initialization with runtime void" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     try expect(testTaggedUnionInit({}));
 }
 
@@ -309,6 +384,10 @@ fn testTaggedUnionInit(x: anytype) bool {
 pub const UnionEnumNoPayloads = union(enum) { A, B };
 
 test "tagged union with no payloads" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     const a = UnionEnumNoPayloads{ .B = {} };
     switch (a) {
         Tag(UnionEnumNoPayloads).A => @panic("wrong"),
@@ -317,6 +396,8 @@ test "tagged union with no payloads" {
 }
 
 test "union with only 1 field casted to its enum type" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     const Literal = union(enum) {
         Number: f64,
         Bool: bool,
@@ -348,6 +429,10 @@ const Foo1 = union(enum) {
 var glbl: Foo1 = undefined;
 
 test "global union with single field is correctly initialized" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     glbl = Foo1{
         .f = @typeInfo(Foo1).Union.fields[0].field_type{ .x = 123 },
     };
@@ -362,7 +447,9 @@ pub const FooUnion = union(enum) {
 var glbl_array: [2]FooUnion = undefined;
 
 test "initialize global array of union" {
-    if (@import("builtin").zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     glbl_array[1] = FooUnion{ .U1 = 2 };
     glbl_array[0] = FooUnion{ .U0 = 1 };
@@ -371,6 +458,9 @@ test "initialize global array of union" {
 }
 
 test "update the tag value for zero-sized unions" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     const S = union(enum) {
         U0: void,
         U1: void,
@@ -382,6 +472,9 @@ test "update the tag value for zero-sized unions" {
 }
 
 test "union initializer generates padding only if needed" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     const U = union(enum) {
         A: u24,
     };
@@ -391,6 +484,8 @@ test "union initializer generates padding only if needed" {
 }
 
 test "runtime tag name with single field" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     const U = union(enum) {
         A: i32,
     };
@@ -400,6 +495,9 @@ test "runtime tag name with single field" {
 }
 
 test "method call on an empty union" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     const S = struct {
         const MyUnion = union(MyUnionTag) {
             pub const MyUnionTag = enum { X1, X2 };
@@ -437,6 +535,9 @@ const FooNoVoid = union(enum) {
 const Baz = enum { A, B, C, D };
 
 test "tagged union type" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     const foo1 = TaggedFoo{ .One = 13 };
     const foo2 = TaggedFoo{
         .Two = Point{
@@ -456,6 +557,9 @@ test "tagged union type" {
 }
 
 test "tagged union as return value" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     switch (returnAnInt(13)) {
         TaggedFoo.One => |value| try expect(value == 13),
         else => unreachable,
@@ -467,6 +571,10 @@ fn returnAnInt(x: i32) TaggedFoo {
 }
 
 test "tagged union with all void fields but a meaningful tag" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     const S = struct {
         const B = union(enum) {
             c: C,
@@ -487,6 +595,621 @@ test "tagged union with all void fields but a meaningful tag" {
         }
     };
     try S.doTheTest();
-    // TODO enable the test at comptime too
-    //comptime try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "union(enum(u32)) with specified and unspecified tag values" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    comptime try expect(Tag(Tag(MultipleChoice2)) == u32);
+    try testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2{ .C = 123 });
+    comptime try testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2{ .C = 123 });
+}
+
+const MultipleChoice2 = union(enum(u32)) {
+    Unspecified1: i32,
+    A: f32 = 20,
+    Unspecified2: void,
+    B: bool = 40,
+    Unspecified3: i32,
+    C: i8 = 60,
+    Unspecified4: void,
+    D: void = 1000,
+    Unspecified5: i32,
+};
+
+fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) !void {
+    try expect(@enumToInt(@as(Tag(MultipleChoice2), x)) == 60);
+    try expect(1123 == switch (x) {
+        MultipleChoice2.A => 1,
+        MultipleChoice2.B => 2,
+        MultipleChoice2.C => |v| @as(i32, 1000) + v,
+        MultipleChoice2.D => 4,
+        MultipleChoice2.Unspecified1 => 5,
+        MultipleChoice2.Unspecified2 => 6,
+        MultipleChoice2.Unspecified3 => 7,
+        MultipleChoice2.Unspecified4 => 8,
+        MultipleChoice2.Unspecified5 => 9,
+    });
+}
+
+test "switch on union with only 1 field" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    var r: PartialInst = undefined;
+    r = PartialInst.Compiled;
+    switch (r) {
+        PartialInst.Compiled => {
+            var z: PartialInstWithPayload = undefined;
+            z = PartialInstWithPayload{ .Compiled = 1234 };
+            switch (z) {
+                PartialInstWithPayload.Compiled => |x| {
+                    try expect(x == 1234);
+                    return;
+                },
+            }
+        },
+    }
+    unreachable;
+}
+
+const PartialInst = union(enum) {
+    Compiled,
+};
+
+const PartialInstWithPayload = union(enum) {
+    Compiled: i32,
+};
+
+test "union with only 1 field casted to its enum type which has enum value specified" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    const Literal = union(enum) {
+        Number: f64,
+        Bool: bool,
+    };
+
+    const ExprTag = enum(comptime_int) {
+        Literal = 33,
+    };
+
+    const Expr = union(ExprTag) {
+        Literal: Literal,
+    };
+
+    var e = Expr{ .Literal = Literal{ .Bool = true } };
+    comptime try expect(Tag(ExprTag) == comptime_int);
+    var t = @as(ExprTag, e);
+    try expect(t == Expr.Literal);
+    try expect(@enumToInt(t) == 33);
+    comptime try expect(@enumToInt(t) == 33);
+}
+
+test "@enumToInt works on unions" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const Bar = union(enum) {
+        A: bool,
+        B: u8,
+        C,
+    };
+
+    const a = Bar{ .A = true };
+    var b = Bar{ .B = undefined };
+    var c = Bar.C;
+    try expect(@enumToInt(a) == 0);
+    try expect(@enumToInt(b) == 1);
+    try expect(@enumToInt(c) == 2);
+}
+
+test "comptime union field value equality" {
+    const a0 = Setter(Attribute{ .A = false });
+    const a1 = Setter(Attribute{ .A = true });
+    const a2 = Setter(Attribute{ .A = false });
+
+    const b0 = Setter(Attribute{ .B = 5 });
+    const b1 = Setter(Attribute{ .B = 9 });
+    const b2 = Setter(Attribute{ .B = 5 });
+
+    try expect(a0 == a0);
+    try expect(a1 == a1);
+    try expect(a0 == a2);
+
+    try expect(b0 == b0);
+    try expect(b1 == b1);
+    try expect(b0 == b2);
+
+    try expect(a0 != b0);
+    try expect(a0 != a1);
+    try expect(b0 != b1);
+}
+
+const Attribute = union(enum) {
+    A: bool,
+    B: u8,
+};
+
+fn setAttribute(attr: Attribute) void {
+    _ = attr;
+}
+
+fn Setter(attr: Attribute) type {
+    return struct {
+        fn set() void {
+            setAttribute(attr);
+        }
+    };
+}
+
+test "return union init with void payload" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    const S = struct {
+        fn entry() !void {
+            try expect(func().state == State.one);
+        }
+        const Outer = union(enum) {
+            state: State,
+        };
+        const State = union(enum) {
+            one: void,
+            two: u32,
+        };
+        fn func() Outer {
+            return Outer{ .state = State{ .one = {} } };
+        }
+    };
+    try S.entry();
+    comptime try S.entry();
+}
+
+test "@unionInit stored to a const" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const U = union(enum) {
+            boolean: bool,
+            byte: u8,
+        };
+        fn doTheTest() !void {
+            {
+                var t = true;
+                const u = @unionInit(U, "boolean", t);
+                try expect(u.boolean);
+            }
+            {
+                var byte: u8 = 69;
+                const u = @unionInit(U, "byte", byte);
+                try expect(u.byte == 69);
+            }
+        }
+    };
+
+    comptime try S.doTheTest();
+    try S.doTheTest();
+}
+
+test "@unionInit can modify a union type" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const UnionInitEnum = union(enum) {
+        Boolean: bool,
+        Byte: u8,
+    };
+
+    var value: UnionInitEnum = undefined;
+
+    value = @unionInit(UnionInitEnum, "Boolean", true);
+    try expect(value.Boolean == true);
+    value.Boolean = false;
+    try expect(value.Boolean == false);
+
+    value = @unionInit(UnionInitEnum, "Byte", 2);
+    try expect(value.Byte == 2);
+    value.Byte = 3;
+    try expect(value.Byte == 3);
+}
+
+test "@unionInit can modify a pointer value" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const UnionInitEnum = union(enum) {
+        Boolean: bool,
+        Byte: u8,
+    };
+
+    var value: UnionInitEnum = undefined;
+    var value_ptr = &value;
+
+    value_ptr.* = @unionInit(UnionInitEnum, "Boolean", true);
+    try expect(value.Boolean == true);
+
+    value_ptr.* = @unionInit(UnionInitEnum, "Byte", 2);
+    try expect(value.Byte == 2);
+}
+
+test "union no tag with struct member" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const Struct = struct {};
+    const Union = union {
+        s: Struct,
+        pub fn foo(self: *@This()) void {
+            _ = self;
+        }
+    };
+    var u = Union{ .s = Struct{} };
+    u.foo();
+}
+
+test "union with comptime_int tag" {
+    const Union = union(enum(comptime_int)) {
+        X: u32,
+        Y: u16,
+        Z: u8,
+    };
+    comptime try expect(Tag(Tag(Union)) == comptime_int);
+}
+
+test "extern union doesn't trigger field check at comptime" {
+    const U = extern union {
+        x: u32,
+        y: u8,
+    };
+
+    const x = U{ .x = 0x55AAAA55 };
+    comptime try expect(x.y == 0x55);
+}
+
+test "anonymous union literal syntax" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const Number = union {
+            int: i32,
+            float: f64,
+        };
+
+        fn doTheTest() !void {
+            var i: Number = .{ .int = 42 };
+            var f = makeNumber();
+            try expect(i.int == 42);
+            try expect(f.float == 12.34);
+        }
+
+        fn makeNumber() Number {
+            return .{ .float = 12.34 };
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "function call result coerces from tagged union to the tag" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const Arch = union(enum) {
+            One,
+            Two: usize,
+        };
+
+        const ArchTag = Tag(Arch);
+
+        fn doTheTest() !void {
+            var x: ArchTag = getArch1();
+            try expect(x == .One);
+
+            var y: ArchTag = getArch2();
+            try expect(y == .Two);
+        }
+
+        pub fn getArch1() Arch {
+            return .One;
+        }
+
+        pub fn getArch2() Arch {
+            return .{ .Two = 99 };
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "cast from anonymous struct to union" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const U = union(enum) {
+            A: u32,
+            B: []const u8,
+            C: void,
+        };
+        fn doTheTest() !void {
+            var y: u32 = 42;
+            const t0 = .{ .A = 123 };
+            const t1 = .{ .B = "foo" };
+            const t2 = .{ .C = {} };
+            const t3 = .{ .A = y };
+            const x0: U = t0;
+            var x1: U = t1;
+            const x2: U = t2;
+            var x3: U = t3;
+            try expect(x0.A == 123);
+            try expect(std.mem.eql(u8, x1.B, "foo"));
+            try expect(x2 == .C);
+            try expect(x3.A == y);
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "cast from pointer to anonymous struct to pointer to union" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const U = union(enum) {
+            A: u32,
+            B: []const u8,
+            C: void,
+        };
+        fn doTheTest() !void {
+            var y: u32 = 42;
+            const t0 = &.{ .A = 123 };
+            const t1 = &.{ .B = "foo" };
+            const t2 = &.{ .C = {} };
+            const t3 = &.{ .A = y };
+            const x0: *const U = t0;
+            var x1: *const U = t1;
+            const x2: *const U = t2;
+            var x3: *const U = t3;
+            try expect(x0.A == 123);
+            try expect(std.mem.eql(u8, x1.B, "foo"));
+            try expect(x2.* == .C);
+            try expect(x3.A == y);
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "switching on non exhaustive union" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const E = enum(u8) {
+            a,
+            b,
+            _,
+        };
+        const U = union(E) {
+            a: i32,
+            b: u32,
+        };
+        fn doTheTest() !void {
+            var a = U{ .a = 2 };
+            switch (a) {
+                .a => |val| try expect(val == 2),
+                .b => return error.Fail,
+                _ => return error.Fail,
+            }
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "containers with single-field enums" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const A = union(enum) { f1 };
+        const B = union(enum) { f1: void };
+        const C = struct { a: A };
+        const D = struct { a: B };
+
+        fn doTheTest() !void {
+            var array1 = [1]A{A{ .f1 = {} }};
+            var array2 = [1]B{B{ .f1 = {} }};
+            try expect(array1[0] == .f1);
+            try expect(array2[0] == .f1);
+
+            var struct1 = C{ .a = A{ .f1 = {} } };
+            var struct2 = D{ .a = B{ .f1 = {} } };
+            try expect(struct1.a == .f1);
+            try expect(struct2.a == .f1);
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "@unionInit on union with tag but no fields" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const Type = enum(u8) { no_op = 105 };
+
+        const Data = union(Type) {
+            no_op: void,
+
+            pub fn decode(buf: []const u8) Data {
+                _ = buf;
+                return @unionInit(Data, "no_op", {});
+            }
+        };
+
+        comptime {
+            if (builtin.zig_backend == .stage1) {
+                // stage1 gets the wrong answer here
+            } else {
+                std.debug.assert(@sizeOf(Data) == 0);
+            }
+        }
+
+        fn doTheTest() !void {
+            var data: Data = .{ .no_op = {} };
+            _ = data;
+            var o = Data.decode(&[_]u8{});
+            try expectEqual(Type.no_op, o);
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "union enum type gets a separate scope" {
+    const S = struct {
+        const U = union(enum) {
+            a: u8,
+            const foo = 1;
+        };
+
+        fn doTheTest() !void {
+            try expect(!@hasDecl(Tag(U), "foo"));
+        }
+    };
+
+    try S.doTheTest();
+}
+
+test "global variable struct contains union initialized to non-most-aligned field" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    const T = struct {
+        const U = union(enum) {
+            a: i32,
+            b: f64,
+        };
+
+        const S = struct {
+            u: U,
+        };
+
+        var s: S = .{
+            .u = .{
+                .a = 3,
+            },
+        };
+    };
+
+    T.s.u.a += 1;
+    try expect(T.s.u.a == 4);
+}
+
+test "union with no result loc initiated with a runtime value" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    const U = union {
+        a: u32,
+        b: u32,
+        fn foo(u: @This()) void {
+            _ = u;
+        }
+    };
+    var a: u32 = 1;
+    U.foo(U{ .a = a });
+}
+
+test "union with a large struct field" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        a: [8]usize,
+    };
+
+    const U = union {
+        s: S,
+        b: u32,
+        fn foo(_: @This()) void {}
+    };
+    var s: S = undefined;
+    U.foo(U{ .s = s });
+}
+
+test "comptime equality of extern unions with same tag" {
+    const S = struct {
+        const U = extern union {
+            a: i32,
+            b: f32,
+        };
+        fn foo(comptime x: U) i32 {
+            return x.a;
+        }
+    };
+    const a = S.U{ .a = 1234 };
+    const b = S.U{ .a = 1234 };
+    try expect(S.foo(a) == S.foo(b));
+}
+
+test "union tag is set when initiated as a temporary value at runtime" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const U = union(enum) {
+        a,
+        b: u32,
+        c,
+
+        fn doTheTest(u: @This()) !void {
+            try expect(u == .b);
+        }
+    };
+    var b: u32 = 1;
+    try (U{ .b = b }).doTheTest();
+}
+
+test "extern union most-aligned field is smaller" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const U = extern union {
+        in6: extern struct {
+            family: u16,
+            port: u16,
+            flowinfo: u32,
+            addr: [20]u8,
+        },
+        un: [110]u8,
+    };
+    var a: ?U = .{ .un = [_]u8{0} ** 110 };
+    try expect(a != null);
 }

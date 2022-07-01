@@ -5,10 +5,6 @@ const ptr_size = @sizeOf(usize);
 
 test "type pun signed and unsigned as single pointer" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    if (builtin.zig_backend != .stage1) {
-        // TODO https://github.com/ziglang/zig/issues/9646
-        return error.SkipZigTest;
-    }
 
     comptime {
         var x: u32 = 0;
@@ -20,10 +16,6 @@ test "type pun signed and unsigned as single pointer" {
 
 test "type pun signed and unsigned as many pointer" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    if (builtin.zig_backend != .stage1) {
-        // TODO https://github.com/ziglang/zig/issues/9646
-        return error.SkipZigTest;
-    }
 
     comptime {
         var x: u32 = 0;
@@ -35,10 +27,6 @@ test "type pun signed and unsigned as many pointer" {
 
 test "type pun signed and unsigned as array pointer" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    if (builtin.zig_backend != .stage1) {
-        // TODO https://github.com/ziglang/zig/issues/9646
-        return error.SkipZigTest;
-    }
 
     comptime {
         var x: u32 = 0;
@@ -82,10 +70,6 @@ test "type pun signed and unsigned as array pointer" {
 
 test "type pun value and struct" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    if (builtin.zig_backend != .stage1) {
-        // TODO https://github.com/ziglang/zig/issues/9646
-        return error.SkipZigTest;
-    }
 
     comptime {
         const StructOfU32 = extern struct { x: u32 };
@@ -102,10 +86,8 @@ fn bigToNativeEndian(comptime T: type, v: T) T {
 }
 test "type pun endianness" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-    if (builtin.zig_backend != .stage1) {
-        // TODO https://github.com/ziglang/zig/issues/9646
-        return error.SkipZigTest;
-    }
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     comptime {
         const StructOfBytes = extern struct { x: [4]u8 };
@@ -410,5 +392,28 @@ test "offset field ptr by enclosing array element size" {
                 try testing.expectEqual(@intCast(u8, i * 4 + j), base[0]);
             }
         }
+    }
+}
+
+test "accessing reinterpreted memory of parent object" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    const S = extern struct {
+        a: f32,
+        b: [4]u8,
+        c: f32,
+    };
+    const expected = if (endian == .Little) 102 else 38;
+
+    comptime {
+        const x = S{
+            .a = 1.5,
+            .b = [_]u8{ 1, 2, 3, 4 },
+            .c = 2.6,
+        };
+        const ptr = &x.b[0];
+        const b = @ptrCast([*c]const u8, ptr)[5];
+        try testing.expect(b == expected);
     }
 }

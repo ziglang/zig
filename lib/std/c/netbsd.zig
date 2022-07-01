@@ -99,14 +99,14 @@ const pthread_spin_t = switch (builtin.cpu.arch) {
     .powerpc, .powerpc64, .powerpc64le => i32,
     .i386, .x86_64 => u8,
     .arm, .armeb, .thumb, .thumbeb => i32,
-    .sparc, .sparcel, .sparcv9 => u8,
+    .sparc, .sparcel, .sparc64 => u8,
     .riscv32, .riscv64 => u32,
     else => @compileError("undefined pthread_spin_t for this arch"),
 };
 
 const padded_pthread_spin_t = switch (builtin.cpu.arch) {
     .i386, .x86_64 => u32,
-    .sparc, .sparcel, .sparcv9 => u32,
+    .sparc, .sparcel, .sparc64 => u32,
     else => pthread_spin_t,
 };
 
@@ -169,11 +169,11 @@ pub const dl_phdr_info = extern struct {
 };
 
 pub const Flock = extern struct {
-    l_start: off_t,
-    l_len: off_t,
-    l_pid: pid_t,
-    l_type: i16,
-    l_whence: i16,
+    start: off_t,
+    len: off_t,
+    pid: pid_t,
+    type: i16,
+    whence: i16,
 };
 
 pub const addrinfo = extern struct {
@@ -266,13 +266,13 @@ pub const msghdr_const = extern struct {
     msg_namelen: socklen_t,
 
     /// scatter/gather array
-    msg_iov: [*]iovec_const,
+    msg_iov: [*]const iovec_const,
 
     /// # elements in msg_iov
     msg_iovlen: i32,
 
     /// ancillary data
-    msg_control: ?*anyopaque,
+    msg_control: ?*const anyopaque,
 
     /// ancillary data buffer len
     msg_controllen: socklen_t,
@@ -312,6 +312,10 @@ pub const Stat = extern struct {
     pub fn ctime(self: @This()) timespec {
         return self.ctim;
     }
+
+    pub fn birthtime(self: @This()) timespec {
+        return self.birthtim;
+    }
 };
 
 pub const timespec = extern struct {
@@ -333,7 +337,7 @@ pub const dirent = extern struct {
     d_reclen: u16,
     d_namlen: u16,
     d_type: u8,
-    d_name: [MAXNAMLEN:0]u8,
+    d_name: [MAXNAMLEN + 1]u8,
 
     pub fn reclen(self: dirent) u16 {
         return self.d_reclen;
@@ -573,6 +577,12 @@ pub const MAP = struct {
     pub const ANON = 0x1000;
     pub const ANONYMOUS = ANON;
     pub const STACK = 0x2000;
+};
+
+pub const MSF = struct {
+    pub const ASYNC = 1;
+    pub const INVALIDATE = 2;
+    pub const SYNC = 4;
 };
 
 pub const W = struct {
@@ -1060,7 +1070,7 @@ pub const ucontext_t = extern struct {
             .i386 => 4,
             .mips, .mipsel, .mips64, .mips64el => 14,
             .arm, .armeb, .thumb, .thumbeb => 1,
-            .sparc, .sparcel, .sparcv9 => if (@sizeOf(usize) == 4) 43 else 8,
+            .sparc, .sparcel, .sparc64 => if (@sizeOf(usize) == 4) 43 else 8,
             else => 0,
         }
     ]u32,

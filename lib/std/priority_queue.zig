@@ -100,7 +100,19 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
             const item = self.items[index];
             self.items[index] = last;
             self.len -= 1;
-            siftDown(self, 0);
+
+            if (index == 0) {
+                siftDown(self, index);
+            } else {
+                const parent_index = ((index - 1) >> 1);
+                const parent = self.items[parent_index];
+                if (compareFn(self.context, last, parent) == .gt) {
+                    siftDown(self, index);
+                } else {
+                    siftUp(self, index);
+                }
+            }
+
             return item;
         }
 
@@ -460,22 +472,25 @@ test "std.PriorityQueue: remove at index" {
     var queue = PQlt.init(testing.allocator, {});
     defer queue.deinit();
 
-    try queue.add(3);
-    try queue.add(2);
-    try queue.add(1);
+    const items = [_]u32{ 2, 1, 8, 9, 3, 4, 5 };
+    for (items) |e| {
+        _ = try queue.add(e);
+    }
 
     var it = queue.iterator();
-    var elem = it.next();
     var idx: usize = 0;
-    const two_idx = while (elem != null) : (elem = it.next()) {
-        if (elem.? == 2)
+    const two_idx = while (it.next()) |elem| {
+        if (elem == 2)
             break idx;
         idx += 1;
     } else unreachable;
-
+    var sorted_items = [_]u32{ 1, 3, 4, 5, 8, 9 };
     try expectEqual(queue.removeIndex(two_idx), 2);
-    try expectEqual(queue.remove(), 1);
-    try expectEqual(queue.remove(), 3);
+
+    var i: usize = 0;
+    while (queue.removeOrNull()) |n| : (i += 1) {
+        try expectEqual(n, sorted_items[i]);
+    }
     try expectEqual(queue.removeOrNull(), null);
 }
 
@@ -571,6 +586,20 @@ test "std.PriorityQueue: update same max heap" {
     try expectEqual(@as(u32, 4), queue.remove());
     try expectEqual(@as(u32, 2), queue.remove());
     try expectEqual(@as(u32, 1), queue.remove());
+}
+
+test "std.PriorityQueue: siftUp in remove" {
+    var queue = PQlt.init(testing.allocator, {});
+    defer queue.deinit();
+
+    try queue.addSlice(&.{ 0, 1, 100, 2, 3, 101, 102, 4, 5, 6, 7, 103, 104, 105, 106, 8 });
+
+    _ = queue.removeIndex(std.mem.indexOfScalar(u32, queue.items[0..queue.len], 102).?);
+
+    const sorted_items = [_]u32{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 100, 101, 103, 104, 105, 106 };
+    for (sorted_items) |e| {
+        try expectEqual(e, queue.remove());
+    }
 }
 
 fn contextLessThan(context: []const u32, a: usize, b: usize) Order {

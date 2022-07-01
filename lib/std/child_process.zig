@@ -12,7 +12,7 @@ const linux = os.linux;
 const mem = std.mem;
 const math = std.math;
 const debug = std.debug;
-const BufMap = std.BufMap;
+const EnvMap = process.EnvMap;
 const Os = std.builtin.Os;
 const TailQueue = std.TailQueue;
 const maxInt = std.math.maxInt;
@@ -34,7 +34,7 @@ pub const ChildProcess = struct {
     argv: []const []const u8,
 
     /// Leave as null to use the current env map using the supplied allocator.
-    env_map: ?*const BufMap,
+    env_map: ?*const EnvMap,
 
     stdin_behavior: StdIo,
     stdout_behavior: StdIo,
@@ -53,9 +53,12 @@ pub const ChildProcess = struct {
     /// Once that is done, `cwd` will be deprecated in favor of this field.
     cwd_dir: ?fs.Dir = null,
 
-    err_pipe: if (builtin.os.tag == .windows) void else [2]os.fd_t,
+    err_pipe: ?if (builtin.os.tag == .windows) void else [2]os.fd_t,
 
     expand_arg0: Arg0Expand,
+
+    /// Darwin-only. Disable ASLR for the child process.
+    disable_aslr: bool = false,
 
     pub const Arg0Expand = os.Arg0Expand;
 
@@ -72,7 +75,13 @@ pub const ChildProcess = struct {
 
         /// Windows-only. `cwd` was provided, but the path did not exist when spawning the child process.
         CurrentWorkingDirectoryUnlinked,
-    } || os.ExecveError || os.SetIdError || os.ChangeCurDirError || windows.CreateProcessError || windows.WaitForSingleObjectError;
+    } ||
+        os.ExecveError ||
+        os.SetIdError ||
+        os.ChangeCurDirError ||
+        windows.CreateProcessError ||
+        windows.WaitForSingleObjectError ||
+        os.posix_spawn.Error;
 
     pub const Term = union(enum) {
         Exited: u8,
@@ -89,16 +98,14 @@ pub const ChildProcess = struct {
     };
 
     /// First argument in argv is the executable.
-    /// On success must call deinit.
-    pub fn init(argv: []const []const u8, allocator: mem.Allocator) !*ChildProcess {
-        const child = try allocator.create(ChildProcess);
-        child.* = ChildProcess{
+    pub fn init(argv: []const []const u8, allocator: mem.Allocator) ChildProcess {
+        return .{
             .allocator = allocator,
             .argv = argv,
             .pid = undefined,
             .handle = undefined,
             .thread_handle = undefined,
-            .err_pipe = undefined,
+            .err_pipe = null,
             .term = null,
             .env_map = null,
             .cwd = null,
@@ -112,8 +119,6 @@ pub const ChildProcess = struct {
             .stderr_behavior = StdIo.Inherit,
             .expand_arg0 = .no_expand,
         };
-        errdefer allocator.destroy(child);
-        return child;
     }
 
     pub fn setUserName(self: *ChildProcess, name: []const u8) !void {
@@ -124,6 +129,14 @@ pub const ChildProcess = struct {
 
     /// On success must call `kill` or `wait`.
     pub fn spawn(self: *ChildProcess) SpawnError!void {
+        if (!std.process.can_spawn) {
+            @compileError("the target operating system cannot spawn processes");
+        }
+
+        if (comptime builtin.target.isDarwin()) {
+            return self.spawnMacos();
+        }
+
         if (builtin.os.tag == .windows) {
             return self.spawnWindows();
         } else {
@@ -162,7 +175,7 @@ pub const ChildProcess = struct {
             return term;
         }
         try os.kill(self.pid, os.SIG.TERM);
-        self.waitUnwrapped();
+        try self.waitUnwrapped();
         return self.term.?;
     }
 
@@ -182,7 +195,7 @@ pub const ChildProcess = struct {
     };
 
     fn collectOutputPosix(
-        child: *const ChildProcess,
+        child: ChildProcess,
         stdout: *std.ArrayList(u8),
         stderr: *std.ArrayList(u8),
         max_output_bytes: usize,
@@ -252,7 +265,36 @@ pub const ChildProcess = struct {
         }
     }
 
-    fn collectOutputWindows(child: *const ChildProcess, outs: [2]*std.ArrayList(u8), max_output_bytes: usize) !void {
+    const WindowsAsyncReadResult = enum {
+        pending,
+        closed,
+        full,
+    };
+
+    fn windowsAsyncRead(
+        handle: windows.HANDLE,
+        overlapped: *windows.OVERLAPPED,
+        buf: *std.ArrayList(u8),
+        bump_amt: usize,
+        max_output_bytes: usize,
+    ) !WindowsAsyncReadResult {
+        while (true) {
+            const new_capacity = std.math.min(buf.items.len + bump_amt, max_output_bytes);
+            try buf.ensureTotalCapacity(new_capacity);
+            const next_buf = buf.unusedCapacitySlice();
+            if (next_buf.len == 0) return .full;
+            var read_bytes: u32 = undefined;
+            const read_result = windows.kernel32.ReadFile(handle, next_buf.ptr, math.cast(u32, next_buf.len) orelse maxInt(u32), &read_bytes, overlapped);
+            if (read_result == 0) return switch (windows.kernel32.GetLastError()) {
+                .IO_PENDING => .pending,
+                .BROKEN_PIPE => .closed,
+                else => |err| windows.unexpectedError(err),
+            };
+            buf.items.len += read_bytes;
+        }
+    }
+
+    fn collectOutputWindows(child: ChildProcess, outs: [2]*std.ArrayList(u8), max_output_bytes: usize) !void {
         const bump_amt = 512;
         const handles = [_]windows.HANDLE{
             child.stdout.?.handle,
@@ -274,15 +316,17 @@ pub const ChildProcess = struct {
 
         // Windows Async IO requires an initial call to ReadFile before waiting on the handle
         for ([_]u1{ 0, 1 }) |i| {
-            const new_capacity = std.math.min(outs[i].items.len + bump_amt, max_output_bytes);
-            try outs[i].ensureTotalCapacity(new_capacity);
-            const buf = outs[i].unusedCapacitySlice();
-            _ = windows.kernel32.ReadFile(handles[i], buf.ptr, math.cast(u32, buf.len) catch maxInt(u32), null, &overlapped[i]);
-            wait_objects[wait_object_count] = handles[i];
-            wait_object_count += 1;
+            switch (try windowsAsyncRead(handles[i], &overlapped[i], outs[i], bump_amt, max_output_bytes)) {
+                .pending => {
+                    wait_objects[wait_object_count] = handles[i];
+                    wait_object_count += 1;
+                },
+                .closed => {}, // don't add to the wait_objects list
+                .full => return if (i == 0) error.StdoutStreamTooLong else error.StderrStreamTooLong,
+            }
         }
 
-        while (true) {
+        while (wait_object_count > 0) {
             const status = windows.kernel32.WaitForMultipleObjects(wait_object_count, &wait_objects, 0, windows.INFINITE);
             if (status == windows.WAIT_FAILED) {
                 switch (windows.kernel32.GetLastError()) {
@@ -306,23 +350,21 @@ pub const ChildProcess = struct {
             var read_bytes: u32 = undefined;
             if (windows.kernel32.GetOverlappedResult(handles[i], &overlapped[i], &read_bytes, 0) == 0) {
                 switch (windows.kernel32.GetLastError()) {
-                    .BROKEN_PIPE => {
-                        if (wait_object_count == 0)
-                            break;
-                        continue;
-                    },
+                    .BROKEN_PIPE => continue,
                     else => |err| return windows.unexpectedError(err),
                 }
             }
 
             outs[i].items.len += read_bytes;
-            const new_capacity = std.math.min(outs[i].items.len + bump_amt, max_output_bytes);
-            try outs[i].ensureTotalCapacity(new_capacity);
-            const buf = outs[i].unusedCapacitySlice();
-            if (buf.len == 0) return if (i == 0) error.StdoutStreamTooLong else error.StderrStreamTooLong;
-            _ = windows.kernel32.ReadFile(handles[i], buf.ptr, math.cast(u32, buf.len) catch maxInt(u32), null, &overlapped[i]);
-            wait_objects[wait_object_count] = handles[i];
-            wait_object_count += 1;
+
+            switch (try windowsAsyncRead(handles[i], &overlapped[i], outs[i], bump_amt, max_output_bytes)) {
+                .pending => {
+                    wait_objects[wait_object_count] = handles[i];
+                    wait_object_count += 1;
+                },
+                .closed => {}, // don't add to the wait_objects list
+                .full => return if (i == 0) error.StdoutStreamTooLong else error.StderrStreamTooLong,
+            }
         }
     }
 
@@ -333,13 +375,11 @@ pub const ChildProcess = struct {
         argv: []const []const u8,
         cwd: ?[]const u8 = null,
         cwd_dir: ?fs.Dir = null,
-        env_map: ?*const BufMap = null,
+        env_map: ?*const EnvMap = null,
         max_output_bytes: usize = 50 * 1024,
         expand_arg0: Arg0Expand = .no_expand,
     }) !ExecResult {
-        const child = try ChildProcess.init(args.argv, args.allocator);
-        defer child.deinit();
-
+        var child = ChildProcess.init(args.argv, args.allocator);
         child.stdin_behavior = .Ignore;
         child.stdout_behavior = .Pipe;
         child.stderr_behavior = .Pipe;
@@ -350,8 +390,6 @@ pub const ChildProcess = struct {
 
         try child.spawn();
 
-        // TODO collect output in a deadlock-avoiding way on Windows.
-        // https://github.com/ziglang/zig/issues/6343
         if (builtin.os.tag == .haiku) {
             const stdout_in = child.stdout.?.reader();
             const stderr_in = child.stderr.?.reader();
@@ -404,12 +442,8 @@ pub const ChildProcess = struct {
             return term;
         }
 
-        self.waitUnwrapped();
+        try self.waitUnwrapped();
         return self.term.?;
-    }
-
-    pub fn deinit(self: *ChildProcess) void {
-        self.allocator.destroy(self);
     }
 
     fn waitUnwrappedWindows(self: *ChildProcess) !void {
@@ -430,8 +464,12 @@ pub const ChildProcess = struct {
         return result;
     }
 
-    fn waitUnwrapped(self: *ChildProcess) void {
-        const status = os.waitpid(self.pid, 0).status;
+    fn waitUnwrapped(self: *ChildProcess) !void {
+        const res: os.WaitPidResult = if (comptime builtin.target.isDarwin())
+            try os.posix_spawn.waitpid(self.pid, 0)
+        else
+            os.waitpid(self.pid, 0);
+        const status = res.status;
         self.cleanupStreams();
         self.handleWaitResult(status);
     }
@@ -456,37 +494,39 @@ pub const ChildProcess = struct {
     }
 
     fn cleanupAfterWait(self: *ChildProcess, status: u32) !Term {
-        defer destroyPipe(self.err_pipe);
+        if (self.err_pipe) |err_pipe| {
+            defer destroyPipe(err_pipe);
 
-        if (builtin.os.tag == .linux) {
-            var fd = [1]std.os.pollfd{std.os.pollfd{
-                .fd = self.err_pipe[0],
-                .events = std.os.POLL.IN,
-                .revents = undefined,
-            }};
+            if (builtin.os.tag == .linux) {
+                var fd = [1]std.os.pollfd{std.os.pollfd{
+                    .fd = err_pipe[0],
+                    .events = std.os.POLL.IN,
+                    .revents = undefined,
+                }};
 
-            // Check if the eventfd buffer stores a non-zero value by polling
-            // it, that's the error code returned by the child process.
-            _ = std.os.poll(&fd, 0) catch unreachable;
+                // Check if the eventfd buffer stores a non-zero value by polling
+                // it, that's the error code returned by the child process.
+                _ = std.os.poll(&fd, 0) catch unreachable;
 
-            // According to eventfd(2) the descriptro is readable if the counter
-            // has a value greater than 0
-            if ((fd[0].revents & std.os.POLL.IN) != 0) {
-                const err_int = try readIntFd(self.err_pipe[0]);
-                return @errSetCast(SpawnError, @intToError(err_int));
-            }
-        } else {
-            // Write maxInt(ErrInt) to the write end of the err_pipe. This is after
-            // waitpid, so this write is guaranteed to be after the child
-            // pid potentially wrote an error. This way we can do a blocking
-            // read on the error pipe and either get maxInt(ErrInt) (no error) or
-            // an error code.
-            try writeIntFd(self.err_pipe[1], maxInt(ErrInt));
-            const err_int = try readIntFd(self.err_pipe[0]);
-            // Here we potentially return the fork child's error from the parent
-            // pid.
-            if (err_int != maxInt(ErrInt)) {
-                return @errSetCast(SpawnError, @intToError(err_int));
+                // According to eventfd(2) the descriptro is readable if the counter
+                // has a value greater than 0
+                if ((fd[0].revents & std.os.POLL.IN) != 0) {
+                    const err_int = try readIntFd(err_pipe[0]);
+                    return @errSetCast(SpawnError, @intToError(err_int));
+                }
+            } else {
+                // Write maxInt(ErrInt) to the write end of the err_pipe. This is after
+                // waitpid, so this write is guaranteed to be after the child
+                // pid potentially wrote an error. This way we can do a blocking
+                // read on the error pipe and either get maxInt(ErrInt) (no error) or
+                // an error code.
+                try writeIntFd(err_pipe[1], maxInt(ErrInt));
+                const err_int = try readIntFd(err_pipe[0]);
+                // Here we potentially return the fork child's error from the parent
+                // pid.
+                if (err_int != maxInt(ErrInt)) {
+                    return @errSetCast(SpawnError, @intToError(err_int));
+                }
             }
         }
 
@@ -502,6 +542,118 @@ pub const ChildProcess = struct {
             Term{ .Stopped = os.W.STOPSIG(status) }
         else
             Term{ .Unknown = status };
+    }
+
+    fn spawnMacos(self: *ChildProcess) SpawnError!void {
+        const pipe_flags = if (io.is_async) os.O.NONBLOCK else 0;
+        const stdin_pipe = if (self.stdin_behavior == StdIo.Pipe) try os.pipe2(pipe_flags) else undefined;
+        errdefer if (self.stdin_behavior == StdIo.Pipe) destroyPipe(stdin_pipe);
+
+        const stdout_pipe = if (self.stdout_behavior == StdIo.Pipe) try os.pipe2(pipe_flags) else undefined;
+        errdefer if (self.stdout_behavior == StdIo.Pipe) destroyPipe(stdout_pipe);
+
+        const stderr_pipe = if (self.stderr_behavior == StdIo.Pipe) try os.pipe2(pipe_flags) else undefined;
+        errdefer if (self.stderr_behavior == StdIo.Pipe) destroyPipe(stderr_pipe);
+
+        const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
+        const dev_null_fd = if (any_ignore)
+            os.openZ("/dev/null", os.O.RDWR, 0) catch |err| switch (err) {
+                error.PathAlreadyExists => unreachable,
+                error.NoSpaceLeft => unreachable,
+                error.FileTooBig => unreachable,
+                error.DeviceBusy => unreachable,
+                error.FileLocksNotSupported => unreachable,
+                error.BadPathName => unreachable, // Windows-only
+                error.InvalidHandle => unreachable, // WASI-only
+                error.WouldBlock => unreachable,
+                else => |e| return e,
+            }
+        else
+            undefined;
+        defer if (any_ignore) os.close(dev_null_fd);
+
+        var attr = try os.posix_spawn.Attr.init();
+        defer attr.deinit();
+        var flags: u16 = os.darwin.POSIX_SPAWN_SETSIGDEF | os.darwin.POSIX_SPAWN_SETSIGMASK;
+        if (self.disable_aslr) {
+            flags |= os.darwin._POSIX_SPAWN_DISABLE_ASLR;
+        }
+        try attr.set(flags);
+
+        var actions = try os.posix_spawn.Actions.init();
+        defer actions.deinit();
+
+        try setUpChildIoPosixSpawn(self.stdin_behavior, &actions, stdin_pipe, os.STDIN_FILENO, dev_null_fd);
+        try setUpChildIoPosixSpawn(self.stdout_behavior, &actions, stdout_pipe, os.STDOUT_FILENO, dev_null_fd);
+        try setUpChildIoPosixSpawn(self.stderr_behavior, &actions, stderr_pipe, os.STDERR_FILENO, dev_null_fd);
+
+        if (self.cwd_dir) |cwd| {
+            try actions.fchdir(cwd.fd);
+        } else if (self.cwd) |cwd| {
+            try actions.chdir(cwd);
+        }
+
+        var arena_allocator = std.heap.ArenaAllocator.init(self.allocator);
+        defer arena_allocator.deinit();
+        const arena = arena_allocator.allocator();
+
+        const argv_buf = try arena.allocSentinel(?[*:0]u8, self.argv.len, null);
+        for (self.argv) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
+
+        const envp = if (self.env_map) |env_map| m: {
+            const envp_buf = try createNullDelimitedEnvMap(arena, env_map);
+            break :m envp_buf.ptr;
+        } else std.c.environ;
+
+        const pid = try os.posix_spawn.spawnp(self.argv[0], actions, attr, argv_buf, envp);
+
+        if (self.stdin_behavior == StdIo.Pipe) {
+            self.stdin = File{ .handle = stdin_pipe[1] };
+        } else {
+            self.stdin = null;
+        }
+        if (self.stdout_behavior == StdIo.Pipe) {
+            self.stdout = File{ .handle = stdout_pipe[0] };
+        } else {
+            self.stdout = null;
+        }
+        if (self.stderr_behavior == StdIo.Pipe) {
+            self.stderr = File{ .handle = stderr_pipe[0] };
+        } else {
+            self.stderr = null;
+        }
+
+        self.pid = pid;
+        self.term = null;
+
+        if (self.stdin_behavior == StdIo.Pipe) {
+            os.close(stdin_pipe[0]);
+        }
+        if (self.stdout_behavior == StdIo.Pipe) {
+            os.close(stdout_pipe[1]);
+        }
+        if (self.stderr_behavior == StdIo.Pipe) {
+            os.close(stderr_pipe[1]);
+        }
+    }
+
+    fn setUpChildIoPosixSpawn(
+        stdio: StdIo,
+        actions: *os.posix_spawn.Actions,
+        pipe_fd: [2]i32,
+        std_fileno: i32,
+        dev_null_fd: i32,
+    ) !void {
+        switch (stdio) {
+            .Pipe => {
+                const idx: usize = if (std_fileno == 0) 0 else 1;
+                try actions.dup2(pipe_fd[idx], std_fileno);
+                try actions.close(pipe_fd[1 - idx]);
+            },
+            .Close => try actions.close(std_fileno),
+            .Inherit => {},
+            .Ignore => try actions.dup2(dev_null_fd, std_fileno),
+        }
     }
 
     fn spawnPosix(self: *ChildProcess) SpawnError!void {
@@ -530,6 +682,7 @@ pub const ChildProcess = struct {
                 error.DeviceBusy => unreachable,
                 error.FileLocksNotSupported => unreachable,
                 error.BadPathName => unreachable, // Windows-only
+                error.InvalidHandle => unreachable, // WASI-only
                 error.WouldBlock => unreachable,
                 else => |e| return e,
             }
@@ -985,7 +1138,10 @@ var pipe_name_counter = std.atomic.Atomic(u32).init(1);
 fn windowsMakeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const windows.SECURITY_ATTRIBUTES) !void {
     var tmp_bufw: [128]u16 = undefined;
 
-    // We must make a named pipe on windows because anonymous pipes do not support async IO
+    // Anonymous pipes are built upon Named pipes.
+    // https://docs.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-createpipe
+    // Asynchronous (overlapped) read and write operations are not supported by anonymous pipes.
+    // https://docs.microsoft.com/en-us/windows/win32/ipc/anonymous-pipe-operations
     const pipe_path = blk: {
         var tmp_buf: [128]u8 = undefined;
         // Forge a random path for the pipe.
@@ -1081,7 +1237,7 @@ fn readIntFd(fd: i32) !ErrInt {
 }
 
 /// Caller must free result.
-pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const BufMap) ![]u16 {
+pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const EnvMap) ![]u16 {
     // count bytes needed
     const max_chars_needed = x: {
         var max_chars_needed: usize = 4; // 4 for the final 4 null bytes
@@ -1117,7 +1273,7 @@ pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const BufMap) !
     return allocator.shrink(result, i);
 }
 
-pub fn createNullDelimitedEnvMap(arena: mem.Allocator, env_map: *const std.BufMap) ![:null]?[*:0]u8 {
+pub fn createNullDelimitedEnvMap(arena: mem.Allocator, env_map: *const EnvMap) ![:null]?[*:0]u8 {
     const envp_count = env_map.count();
     const envp_buf = try arena.allocSentinel(?[*:0]u8, envp_count, null);
     {
@@ -1138,7 +1294,7 @@ pub fn createNullDelimitedEnvMap(arena: mem.Allocator, env_map: *const std.BufMa
 test "createNullDelimitedEnvMap" {
     const testing = std.testing;
     const allocator = testing.allocator;
-    var envmap = BufMap.init(allocator);
+    var envmap = EnvMap.init(allocator);
     defer envmap.deinit();
 
     try envmap.put("HOME", "/home/ifreund");

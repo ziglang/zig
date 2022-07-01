@@ -16,6 +16,7 @@ step: Step,
 builder: *Builder,
 source: build.FileSource,
 include_dirs: std.ArrayList([]const u8),
+c_macros: std.ArrayList([]const u8),
 output_dir: ?[]const u8,
 out_basename: []const u8,
 target: CrossTarget = CrossTarget{},
@@ -28,6 +29,7 @@ pub fn create(builder: *Builder, source: build.FileSource) *TranslateCStep {
         .builder = builder,
         .source = source,
         .include_dirs = std.ArrayList([]const u8).init(builder.allocator),
+        .c_macros = std.ArrayList([]const u8).init(builder.allocator),
         .output_dir = null,
         .out_basename = undefined,
         .output_file = build.GeneratedFile{ .step = &self.step },
@@ -53,6 +55,18 @@ pub fn addCheckFile(self: *TranslateCStep, expected_matches: []const []const u8)
     return CheckFileStep.create(self.builder, .{ .generated = &self.output_file }, self.builder.dupeStrings(expected_matches));
 }
 
+/// If the value is omitted, it is set to 1.
+/// `name` and `value` need not live longer than the function call.
+pub fn defineCMacro(self: *TranslateCStep, name: []const u8, value: ?[]const u8) void {
+    const macro = build.constructCMacro(self.builder.allocator, name, value);
+    self.c_macros.append(macro) catch unreachable;
+}
+
+/// name_and_value looks like [name]=[value]. If the value is omitted, it is set to 1.
+pub fn defineCMacroRaw(self: *TranslateCStep, name_and_value: []const u8) void {
+    self.c_macros.append(self.builder.dupe(name_and_value)) catch unreachable;
+}
+
 fn make(step: *Step) !void {
     const self = @fieldParentPtr(TranslateCStep, "step", step);
 
@@ -71,6 +85,11 @@ fn make(step: *Step) !void {
     for (self.include_dirs.items) |include_dir| {
         try argv_list.append("-I");
         try argv_list.append(include_dir);
+    }
+
+    for (self.c_macros.items) |c_macro| {
+        try argv_list.append("-D");
+        try argv_list.append(c_macro);
     }
 
     try argv_list.append(self.source.getPath(self.builder));

@@ -26,7 +26,7 @@ fn frexp_exp32(x: f32, expt: *i32) f32 {
     const k = 235; // reduction constant
     const kln2 = 162.88958740; // k * ln2
 
-    const exp_x = math.exp(x - kln2);
+    const exp_x = @exp(x - kln2);
     const hx = @bitCast(u32, exp_x);
     // TODO zig should allow this cast implicitly because it should know the value is in range
     expt.* = @intCast(i32, hx >> 23) - (0x7f + 127) + k;
@@ -45,8 +45,8 @@ fn ldexp_cexp32(z: Complex(f32), expt: i32) Complex(f32) {
     const scale2 = @bitCast(f32, (0x7f + half_expt2) << 23);
 
     return Complex(f32).init(
-        math.cos(z.im) * exp_x * scale1 * scale2,
-        math.sin(z.im) * exp_x * scale1 * scale2,
+        @cos(z.im) * exp_x * scale1 * scale2,
+        @sin(z.im) * exp_x * scale1 * scale2,
     );
 }
 
@@ -54,7 +54,7 @@ fn frexp_exp64(x: f64, expt: *i32) f64 {
     const k = 1799; // reduction constant
     const kln2 = 1246.97177782734161156; // k * ln2
 
-    const exp_x = math.exp(x - kln2);
+    const exp_x = @exp(x - kln2);
 
     const fx = @bitCast(u64, exp_x);
     const hx = @intCast(u32, fx >> 32);
@@ -78,7 +78,7 @@ fn ldexp_cexp64(z: Complex(f64), expt: i32) Complex(f64) {
     const scale2 = @bitCast(f64, (0x3ff + half_expt2) << (20 + 32));
 
     return Complex(f64).init(
-        math.cos(z.im) * exp_x * scale1 * scale2,
-        math.sin(z.im) * exp_x * scale1 * scale2,
+        @cos(z.im) * exp_x * scale1 * scale2,
+        @sin(z.im) * exp_x * scale1 * scale2,
     );
 }

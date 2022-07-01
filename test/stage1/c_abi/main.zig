@@ -16,20 +16,22 @@ extern fn c_u8(u8) void;
 extern fn c_u16(u16) void;
 extern fn c_u32(u32) void;
 extern fn c_u64(u64) void;
+extern fn c_struct_u128(U128) void;
 extern fn c_i8(i8) void;
 extern fn c_i16(i16) void;
 extern fn c_i32(i32) void;
 extern fn c_i64(i64) void;
+extern fn c_struct_i128(I128) void;
 
 // On windows x64, the first 4 are passed via registers, others on the stack.
 extern fn c_five_integers(i32, i32, i32, i32, i32) void;
 
 export fn zig_five_integers(a: i32, b: i32, c: i32, d: i32, e: i32) void {
-    expect(a == 12) catch @panic("test failure");
-    expect(b == 34) catch @panic("test failure");
-    expect(c == 56) catch @panic("test failure");
-    expect(d == 78) catch @panic("test failure");
-    expect(e == 90) catch @panic("test failure");
+    expect(a == 12) catch @panic("test failure: zig_five_integers 12");
+    expect(b == 34) catch @panic("test failure: zig_five_integers 34");
+    expect(c == 56) catch @panic("test failure: zig_five_integers 56");
+    expect(d == 78) catch @panic("test failure: zig_five_integers 78");
+    expect(e == 90) catch @panic("test failure: zig_five_integers 90");
 }
 
 test "C ABI integers" {
@@ -37,37 +39,52 @@ test "C ABI integers" {
     c_u16(0xfffe);
     c_u32(0xfffffffd);
     c_u64(0xfffffffffffffffc);
+    c_struct_u128(.{ .value = 0xfffffffffffffffc });
 
     c_i8(-1);
     c_i16(-2);
     c_i32(-3);
     c_i64(-4);
+    c_struct_i128(.{ .value = -6 });
     c_five_integers(12, 34, 56, 78, 90);
 }
 
 export fn zig_u8(x: u8) void {
-    expect(x == 0xff) catch @panic("test failure");
+    expect(x == 0xff) catch @panic("test failure: zig_u8");
 }
 export fn zig_u16(x: u16) void {
-    expect(x == 0xfffe) catch @panic("test failure");
+    expect(x == 0xfffe) catch @panic("test failure: zig_u16");
 }
 export fn zig_u32(x: u32) void {
-    expect(x == 0xfffffffd) catch @panic("test failure");
+    expect(x == 0xfffffffd) catch @panic("test failure: zig_u32");
 }
 export fn zig_u64(x: u64) void {
-    expect(x == 0xfffffffffffffffc) catch @panic("test failure");
+    expect(x == 0xfffffffffffffffc) catch @panic("test failure: zig_u64");
 }
 export fn zig_i8(x: i8) void {
-    expect(x == -1) catch @panic("test failure");
+    expect(x == -1) catch @panic("test failure: zig_i8");
 }
 export fn zig_i16(x: i16) void {
-    expect(x == -2) catch @panic("test failure");
+    expect(x == -2) catch @panic("test failure: zig_i16");
 }
 export fn zig_i32(x: i32) void {
-    expect(x == -3) catch @panic("test failure");
+    expect(x == -3) catch @panic("test failure: zig_i32");
 }
 export fn zig_i64(x: i64) void {
-    expect(x == -4) catch @panic("test failure");
+    expect(x == -4) catch @panic("test failure: zig_i64");
+}
+
+const I128 = extern struct {
+    value: i128,
+};
+const U128 = extern struct {
+    value: u128,
+};
+export fn zig_struct_i128(a: I128) void {
+    expect(a.value == -6) catch @panic("test failure: zig_struct_i128");
+}
+export fn zig_struct_u128(a: U128) void {
+    expect(a.value == 0xfffffffffffffffc) catch @panic("test failure: zig_struct_u128");
 }
 
 extern fn c_f32(f32) void;
@@ -77,11 +94,11 @@ extern fn c_f64(f64) void;
 extern fn c_five_floats(f32, f32, f32, f32, f32) void;
 
 export fn zig_five_floats(a: f32, b: f32, c: f32, d: f32, e: f32) void {
-    expect(a == 1.0) catch @panic("test failure");
-    expect(b == 2.0) catch @panic("test failure");
-    expect(c == 3.0) catch @panic("test failure");
-    expect(d == 4.0) catch @panic("test failure");
-    expect(e == 5.0) catch @panic("test failure");
+    expect(a == 1.0) catch @panic("test failure: zig_five_floats 1.0");
+    expect(b == 2.0) catch @panic("test failure: zig_five_floats 2.0");
+    expect(c == 3.0) catch @panic("test failure: zig_five_floats 3.0");
+    expect(d == 4.0) catch @panic("test failure: zig_five_floats 4.0");
+    expect(e == 5.0) catch @panic("test failure: zig_five_floats 5.0");
 }
 
 test "C ABI floats" {
@@ -91,10 +108,10 @@ test "C ABI floats" {
 }
 
 export fn zig_f32(x: f32) void {
-    expect(x == 12.34) catch @panic("test failure");
+    expect(x == 12.34) catch @panic("test failure: zig_f32");
 }
 export fn zig_f64(x: f64) void {
-    expect(x == 56.78) catch @panic("test failure");
+    expect(x == 56.78) catch @panic("test failure: zig_f64");
 }
 
 extern fn c_ptr(*anyopaque) void;
@@ -104,7 +121,7 @@ test "C ABI pointer" {
 }
 
 export fn zig_ptr(x: *anyopaque) void {
-    expect(@ptrToInt(x) == 0xdeadbeef) catch @panic("test failure");
+    expect(@ptrToInt(x) == 0xdeadbeef) catch @panic("test failure: zig_ptr");
 }
 
 extern fn c_bool(bool) void;
@@ -114,7 +131,7 @@ test "C ABI bool" {
 }
 
 export fn zig_bool(x: bool) void {
-    expect(x) catch @panic("test failure");
+    expect(x) catch @panic("test failure: zig_bool");
 }
 
 const BigStruct = extern struct {
@@ -138,11 +155,11 @@ test "C ABI big struct" {
 }
 
 export fn zig_big_struct(x: BigStruct) void {
-    expect(x.a == 1) catch @panic("test failure");
-    expect(x.b == 2) catch @panic("test failure");
-    expect(x.c == 3) catch @panic("test failure");
-    expect(x.d == 4) catch @panic("test failure");
-    expect(x.e == 5) catch @panic("test failure");
+    expect(x.a == 1) catch @panic("test failure: zig_big_struct 1");
+    expect(x.b == 2) catch @panic("test failure: zig_big_struct 2");
+    expect(x.c == 3) catch @panic("test failure: zig_big_struct 3");
+    expect(x.d == 4) catch @panic("test failure: zig_big_struct 4");
+    expect(x.e == 5) catch @panic("test failure: zig_big_struct 5");
 }
 
 const BigUnion = extern union {
@@ -164,11 +181,11 @@ test "C ABI big union" {
 }
 
 export fn zig_big_union(x: BigUnion) void {
-    expect(x.a.a == 1) catch @panic("test failure");
-    expect(x.a.b == 2) catch @panic("test failure");
-    expect(x.a.c == 3) catch @panic("test failure");
-    expect(x.a.d == 4) catch @panic("test failure");
-    expect(x.a.e == 5) catch @panic("test failure");
+    expect(x.a.a == 1) catch @panic("test failure: zig_big_union a");
+    expect(x.a.b == 2) catch @panic("test failure: zig_big_union b");
+    expect(x.a.c == 3) catch @panic("test failure: zig_big_union c");
+    expect(x.a.d == 4) catch @panic("test failure: zig_big_union d");
+    expect(x.a.e == 5) catch @panic("test failure: zig_big_union e");
 }
 
 const MedStructMixed = extern struct {

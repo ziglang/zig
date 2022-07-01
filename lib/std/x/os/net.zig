@@ -9,10 +9,25 @@ const testing = std.testing;
 const native_os = builtin.os;
 const have_ifnamesize = @hasDecl(os.system, "IFNAMESIZE");
 
+pub const ResolveScopeIdError = error{
+    NameTooLong,
+    PermissionDenied,
+    AddressFamilyNotSupported,
+    ProtocolFamilyNotAvailable,
+    ProcessFdQuotaExceeded,
+    SystemFdQuotaExceeded,
+    SystemResources,
+    ProtocolNotSupported,
+    SocketTypeNotSupported,
+    InterfaceNotFound,
+    FileSystem,
+    Unexpected,
+};
+
 /// Resolves a network interface name into a scope/zone ID. It returns
 /// an error if either resolution fails, or if the interface name is
 /// too long.
-pub fn resolveScopeId(name: []const u8) !u32 {
+pub fn resolveScopeId(name: []const u8) ResolveScopeIdError!u32 {
     if (have_ifnamesize) {
         if (name.len >= os.IFNAMESIZE) return error.NameTooLong;
 
@@ -381,7 +396,7 @@ pub const IPv6 = extern struct {
             });
         }
 
-        const zero_span = span: {
+        const zero_span: struct { from: usize, to: usize } = span: {
             var i: usize = 0;
             while (i < self.octets.len) : (i += 2) {
                 if (self.octets[i] == 0 and self.octets[i + 1] == 0) break;

@@ -1,9 +1,12 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
 const expect = testing.expect;
-const expectEqual = testing.expectEqual;
 
 test "tuple concatenation" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
     const S = struct {
         fn doTheTest() !void {
             var a: i32 = 1;
@@ -11,8 +14,8 @@ test "tuple concatenation" {
             var x = .{a};
             var y = .{b};
             var c = x ++ y;
-            try expectEqual(@as(i32, 1), c[0]);
-            try expectEqual(@as(i32, 2), c[1]);
+            try expect(@as(i32, 1) == c[0]);
+            try expect(@as(i32, 2) == c[1]);
         }
     };
     try S.doTheTest();
@@ -24,22 +27,27 @@ test "tuple multiplication" {
         fn doTheTest() !void {
             {
                 const t = .{} ** 4;
-                try expectEqual(0, @typeInfo(@TypeOf(t)).Struct.fields.len);
+                try expect(@typeInfo(@TypeOf(t)).Struct.fields.len == 0);
             }
             {
                 const t = .{'a'} ** 4;
-                try expectEqual(4, @typeInfo(@TypeOf(t)).Struct.fields.len);
-                inline for (t) |x| try expectEqual('a', x);
+                try expect(@typeInfo(@TypeOf(t)).Struct.fields.len == 4);
+                inline for (t) |x| try expect(x == 'a');
             }
             {
                 const t = .{ 1, 2, 3 } ** 4;
-                try expectEqual(12, @typeInfo(@TypeOf(t)).Struct.fields.len);
-                inline for (t) |x, i| try expectEqual(1 + i % 3, x);
+                try expect(@typeInfo(@TypeOf(t)).Struct.fields.len == 12);
+                inline for (t) |x, i| try expect(x == 1 + i % 3);
             }
         }
     };
     try S.doTheTest();
     comptime try S.doTheTest();
+}
+
+test "more tuple concatenation" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const T = struct {
         fn consume_tuple(tuple: anytype, len: usize) !void {
@@ -114,23 +122,26 @@ test "tuple initializer for var" {
 }
 
 test "array-like initializer for tuple types" {
-    const T = @Type(std.builtin.TypeInfo{
-        .Struct = std.builtin.TypeInfo.Struct{
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const T = @Type(.{
+        .Struct = .{
             .is_tuple = true,
             .layout = .Auto,
-            .decls = &[_]std.builtin.TypeInfo.Declaration{},
-            .fields = &[_]std.builtin.TypeInfo.StructField{
+            .decls = &.{},
+            .fields = &.{
                 .{
                     .name = "0",
                     .field_type = i32,
-                    .default_value = @as(?i32, null),
+                    .default_value = null,
                     .is_comptime = false,
                     .alignment = @alignOf(i32),
                 },
                 .{
                     .name = "1",
                     .field_type = u8,
-                    .default_value = @as(?i32, null),
+                    .default_value = null,
                     .is_comptime = false,
                     .alignment = @alignOf(i32),
                 },
@@ -140,11 +151,49 @@ test "array-like initializer for tuple types" {
     const S = struct {
         fn doTheTest() !void {
             var obj: T = .{ -1234, 128 };
-            try testing.expectEqual(@as(i32, -1234), obj[0]);
-            try testing.expectEqual(@as(u8, 128), obj[1]);
+            try expect(@as(i32, -1234) == obj[0]);
+            try expect(@as(u8, 128) == obj[1]);
         }
     };
 
     try S.doTheTest();
     comptime try S.doTheTest();
+}
+
+test "anon struct as the result from a labeled block" {
+    const S = struct {
+        fn doTheTest() !void {
+            const precomputed = comptime blk: {
+                var x: i32 = 1234;
+                break :blk .{
+                    .x = x,
+                };
+            };
+            try expect(precomputed.x == 1234);
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "tuple as the result from a labeled block" {
+    const S = struct {
+        fn doTheTest() !void {
+            const precomputed = comptime blk: {
+                var x: i32 = 1234;
+                break :blk .{x};
+            };
+            try expect(precomputed[0] == 1234);
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "initializing tuple with explicit type" {
+    const T = @TypeOf(.{ @as(i32, 0), @as(u32, 0) });
+    var a = T{ 0, 0 };
+    _ = a;
 }

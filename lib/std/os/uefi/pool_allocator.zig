@@ -90,7 +90,7 @@ const pool_allocator_vtable = Allocator.VTable{
     .free = UefiPoolAllocator.free,
 };
 
-/// Asserts allocations are 8 byte aligned and calls `boot_services.allocatePool`. 
+/// Asserts allocations are 8 byte aligned and calls `boot_services.allocatePool`.
 pub const raw_pool_allocator = Allocator{
     .ptr = undefined,
     .vtable = &raw_pool_allocator_table,

@@ -4497,6 +4497,7 @@ static Stage1ZirInst *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, Ast
         case BuiltinFnIdSqrt:
         case BuiltinFnIdSin:
         case BuiltinFnIdCos:
+        case BuiltinFnIdTan:
         case BuiltinFnIdExp:
         case BuiltinFnIdExp2:
         case BuiltinFnIdLog:
@@ -7680,11 +7681,14 @@ Buf *get_anon_type_name(CodeGen *codegen, Stage1Zir *exec, const char *kind_name
 
     if (!force_generic) {
         if (exec != nullptr && exec->name != nullptr) {
-            ZigType *import = get_scope_import(scope);
+            buf_resize(out_bare_name, 0);
+            if (scope->id == ScopeIdDecls) {
+                ScopeDecls *decls_scope = reinterpret_cast<ScopeDecls *>(scope);
+                append_namespace_qualification(codegen, out_bare_name, decls_scope->container_type);
+            }
+            buf_append_buf(out_bare_name, exec->name);
             Buf *namespace_name = buf_alloc();
-            append_namespace_qualification(codegen, namespace_name, import);
-            buf_append_buf(namespace_name, exec->name);
-            buf_init_from_buf(out_bare_name, exec->name);
+            buf_append_buf(namespace_name, out_bare_name);
             return namespace_name;
         }
         if (exec != nullptr && exec->name_fn != nullptr) {

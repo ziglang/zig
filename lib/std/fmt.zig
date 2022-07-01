@@ -24,9 +24,9 @@ pub const FormatOptions = struct {
     fill: u8 = ' ',
 };
 
-/// Renders fmt string with args, calling output with slices of bytes.
-/// If `output` returns an error, the error is returned from `format` and
-/// `output` is not called again.
+/// Renders fmt string with args, calling `writer` with slices of bytes.
+/// If `writer` returns an error, the error is returned from `format` and
+/// `writer` is not called again.
 ///
 /// The format string must be comptime known and may contain placeholders following
 /// this format:
@@ -77,7 +77,6 @@ pub fn format(
 ) !void {
     const ArgsType = @TypeOf(args);
     const args_type_info = @typeInfo(ArgsType);
-    // XXX: meta.trait.is(.Struct)(ArgsType) doesn't seem to work...
     if (args_type_info != .Struct) {
         @compileError("Expected tuple or struct argument, found " ++ @typeName(ArgsType));
     }
@@ -763,17 +762,14 @@ fn formatFloatValue(
     if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "e")) {
         formatFloatScientific(value, options, buf_stream.writer()) catch |err| switch (err) {
             error.NoSpaceLeft => unreachable,
-            else => |e| return e,
         };
     } else if (comptime std.mem.eql(u8, fmt, "d")) {
         formatFloatDecimal(value, options, buf_stream.writer()) catch |err| switch (err) {
             error.NoSpaceLeft => unreachable,
-            else => |e| return e,
         };
     } else if (comptime std.mem.eql(u8, fmt, "x")) {
         formatFloatHexadecimal(value, options, buf_stream.writer()) catch |err| switch (err) {
             error.NoSpaceLeft => unreachable,
-            else => |e| return e,
         };
     } else {
         @compileError("Unsupported format string '" ++ fmt ++ "' for type '" ++ @typeName(@TypeOf(value)) ++ "'");
@@ -970,10 +966,10 @@ pub fn formatUnicodeCodepoint(
     writer: anytype,
 ) !void {
     var buf: [4]u8 = undefined;
-    const len = std.unicode.utf8Encode(c, &buf) catch |err| switch (err) {
+    const len = unicode.utf8Encode(c, &buf) catch |err| switch (err) {
         error.Utf8CannotEncodeSurrogateHalf, error.CodepointTooLarge => {
-            // In case of error output the replacement char U+FFFD
-            return formatBuf(&[_]u8{ 0xef, 0xbf, 0xbd }, options, writer);
+            const len = unicode.utf8Encode(unicode.replacement_character, &buf) catch unreachable;
+            return formatBuf(buf[0..len], options, writer);
         },
     };
     return formatBuf(buf[0..len], options, writer);
@@ -1125,9 +1121,10 @@ pub fn formatFloatHexadecimal(
     }
 
     const T = @TypeOf(value);
-    const TU = std.meta.Int(.unsigned, std.meta.bitCount(T));
+    const TU = std.meta.Int(.unsigned, @bitSizeOf(T));
 
     const mantissa_bits = math.floatMantissaBits(T);
+    const fractional_bits = math.floatFractionalBits(T);
     const exponent_bits = math.floatExponentBits(T);
     const mantissa_mask = (1 << mantissa_bits) - 1;
     const exponent_mask = (1 << exponent_bits) - 1;
@@ -1159,14 +1156,14 @@ pub fn formatFloatHexadecimal(
         // Adjust the exponent for printing.
         exponent += 1;
     } else {
-        // Add the implicit 1.
-        mantissa |= 1 << mantissa_bits;
+        if (fractional_bits == mantissa_bits)
+            mantissa |= 1 << fractional_bits; // Add the implicit integer bit.
     }
 
     // Fill in zeroes to round the mantissa width to a multiple of 4.
     if (T == f16) mantissa <<= 2 else if (T == f32) mantissa <<= 1;
 
-    const mantissa_digits = (mantissa_bits + 3) / 4;
+    const mantissa_digits = (fractional_bits + 3) / 4;
 
     if (options.precision) |precision| {
         // Round if needed.
@@ -1716,14 +1713,17 @@ test "parseInt" {
     try std.testing.expect((try parseInt(i32, "1_1_1", 0)) == 111);
     try std.testing.expect((try parseInt(i32, "1_1_1", 0)) == 111);
     try std.testing.expect((try parseInt(i32, "+0b111", 0)) == 7);
+    try std.testing.expect((try parseInt(i32, "+0B111", 0)) == 7);
     try std.testing.expect((try parseInt(i32, "+0b1_11", 0)) == 7);
     try std.testing.expect((try parseInt(i32, "+0o111", 0)) == 73);
+    try std.testing.expect((try parseInt(i32, "+0O111", 0)) == 73);
     try std.testing.expect((try parseInt(i32, "+0o11_1", 0)) == 73);
     try std.testing.expect((try parseInt(i32, "+0x111", 0)) == 273);
     try std.testing.expect((try parseInt(i32, "-0b111", 0)) == -7);
     try std.testing.expect((try parseInt(i32, "-0b11_1", 0)) == -7);
     try std.testing.expect((try parseInt(i32, "-0o111", 0)) == -73);
     try std.testing.expect((try parseInt(i32, "-0x111", 0)) == -273);
+    try std.testing.expect((try parseInt(i32, "-0X111", 0)) == -273);
     try std.testing.expect((try parseInt(i32, "-0x1_11", 0)) == -273);
 
     // bare binary/octal/decimal prefix is invalid
@@ -1747,7 +1747,7 @@ fn parseWithSign(
         buf_radix = 10;
         // Detect the radix by looking at buf prefix.
         if (buf.len > 2 and buf[0] == '0') {
-            switch (buf[1]) {
+            switch (std.ascii.toLower(buf[1])) {
                 'b' => {
                     buf_radix = 2;
                     buf_start = buf[2..];
@@ -1778,8 +1778,8 @@ fn parseWithSign(
         if (c == '_') continue;
         const digit = try charToDigit(c, buf_radix);
 
-        if (x != 0) x = try math.mul(T, x, try math.cast(T, buf_radix));
-        x = try add(T, x, try math.cast(T, digit));
+        if (x != 0) x = try math.mul(T, x, math.cast(T, buf_radix) orelse return error.Overflow);
+        x = try add(T, x, math.cast(T, digit) orelse return error.Overflow);
     }
 
     return x;
@@ -1837,12 +1837,11 @@ test "parseUnsigned" {
 }
 
 pub const parseFloat = @import("fmt/parse_float.zig").parseFloat;
+pub const parseHexFloat = @compileError("deprecated; use `parseFloat`");
 pub const ParseFloatError = @import("fmt/parse_float.zig").ParseFloatError;
-pub const parseHexFloat = @import("fmt/parse_hex_float.zig").parseHexFloat;
 
 test {
     _ = parseFloat;
-    _ = parseHexFloat;
 }
 
 pub fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u8) {
@@ -1870,6 +1869,9 @@ pub const BufPrintError = error{
     /// As much as possible was written to the buffer, but it was too small to fit all the printed bytes.
     NoSpaceLeft,
 };
+
+/// print a Formatter string into `buf`. Actually just a thin wrapper around `format` and `fixedBufferStream`.
+/// returns a slice of the bytes printed to.
 pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![]u8 {
     var fbs = std.io.fixedBufferStream(buf);
     try format(fbs.writer(), fmt, args);
@@ -1891,10 +1893,7 @@ pub fn count(comptime fmt: []const u8, args: anytype) u64 {
 pub const AllocPrintError = error{OutOfMemory};
 
 pub fn allocPrint(allocator: mem.Allocator, comptime fmt: []const u8, args: anytype) AllocPrintError![]u8 {
-    const size = math.cast(usize, count(fmt, args)) catch |err| switch (err) {
-        // Output too long. Can't possibly allocate enough memory to display it.
-        error.Overflow => return error.OutOfMemory,
-    };
+    const size = math.cast(usize, count(fmt, args)) orelse return error.OutOfMemory;
     const buf = try allocator.alloc(u8, size);
     return bufPrint(buf, fmt, args) catch |err| switch (err) {
         error.NoSpaceLeft => unreachable, // we just counted the size above
@@ -2118,17 +2117,18 @@ test "escape non-printable" {
 }
 
 test "pointer" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     {
         const value = @intToPtr(*align(1) i32, 0xdeadbeef);
         try expectFmt("pointer: i32@deadbeef\n", "pointer: {}\n", .{value});
         try expectFmt("pointer: i32@deadbeef\n", "pointer: {*}\n", .{value});
     }
     {
-        const value = @intToPtr(fn () void, 0xdeadbeef);
+        const value = @intToPtr(*const fn () void, 0xdeadbeef);
         try expectFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
     }
     {
-        const value = @intToPtr(fn () void, 0xdeadbeef);
+        const value = @intToPtr(*const fn () void, 0xdeadbeef);
         try expectFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
     }
 }
@@ -2186,22 +2186,26 @@ test "enum" {
     try expectFmt("enum: Enum.Two\n", "enum: {X}\n", .{Enum.Two});
 
     // test very large enum to verify ct branch quota is large enough
-    try expectFmt("enum: Win32Error.INVALID_FUNCTION\n", "enum: {}\n", .{std.os.windows.Win32Error.INVALID_FUNCTION});
+    try expectFmt("enum: os.windows.win32error.Win32Error.INVALID_FUNCTION\n", "enum: {}\n", .{std.os.windows.Win32Error.INVALID_FUNCTION});
 }
 
 test "non-exhaustive enum" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 fails to return fully qualified namespaces.
+        return error.SkipZigTest;
+    }
     const Enum = enum(u16) {
         One = 0x000f,
         Two = 0xbeef,
         _,
     };
-    try expectFmt("enum: Enum.One\n", "enum: {}\n", .{Enum.One});
-    try expectFmt("enum: Enum.Two\n", "enum: {}\n", .{Enum.Two});
-    try expectFmt("enum: Enum(4660)\n", "enum: {}\n", .{@intToEnum(Enum, 0x1234)});
-    try expectFmt("enum: Enum.One\n", "enum: {x}\n", .{Enum.One});
-    try expectFmt("enum: Enum.Two\n", "enum: {x}\n", .{Enum.Two});
-    try expectFmt("enum: Enum.Two\n", "enum: {X}\n", .{Enum.Two});
-    try expectFmt("enum: Enum(1234)\n", "enum: {x}\n", .{@intToEnum(Enum, 0x1234)});
+    try expectFmt("enum: fmt.test.non-exhaustive enum.Enum.One\n", "enum: {}\n", .{Enum.One});
+    try expectFmt("enum: fmt.test.non-exhaustive enum.Enum.Two\n", "enum: {}\n", .{Enum.Two});
+    try expectFmt("enum: fmt.test.non-exhaustive enum.Enum(4660)\n", "enum: {}\n", .{@intToEnum(Enum, 0x1234)});
+    try expectFmt("enum: fmt.test.non-exhaustive enum.Enum.One\n", "enum: {x}\n", .{Enum.One});
+    try expectFmt("enum: fmt.test.non-exhaustive enum.Enum.Two\n", "enum: {x}\n", .{Enum.Two});
+    try expectFmt("enum: fmt.test.non-exhaustive enum.Enum.Two\n", "enum: {X}\n", .{Enum.Two});
+    try expectFmt("enum: fmt.test.non-exhaustive enum.Enum(1234)\n", "enum: {x}\n", .{@intToEnum(Enum, 0x1234)});
 }
 
 test "float.scientific" {
@@ -2227,8 +2231,8 @@ test "float.special" {
     if (builtin.target.cpu.arch != .arm) {
         try expectFmt("f64: -nan", "f64: {}", .{-math.nan_f64});
     }
-    try expectFmt("f64: inf", "f64: {}", .{math.inf_f64});
-    try expectFmt("f64: -inf", "f64: {}", .{-math.inf_f64});
+    try expectFmt("f64: inf", "f64: {}", .{math.inf(f64)});
+    try expectFmt("f64: -inf", "f64: {}", .{-math.inf(f64)});
 }
 
 test "float.hexadecimal.special" {
@@ -2238,8 +2242,8 @@ test "float.hexadecimal.special" {
     if (builtin.target.cpu.arch != .arm) {
         try expectFmt("f64: -nan", "f64: {x}", .{-math.nan_f64});
     }
-    try expectFmt("f64: inf", "f64: {x}", .{math.inf_f64});
-    try expectFmt("f64: -inf", "f64: {x}", .{-math.inf_f64});
+    try expectFmt("f64: inf", "f64: {x}", .{math.inf(f64)});
+    try expectFmt("f64: -inf", "f64: {x}", .{-math.inf(f64)});
 
     try expectFmt("f64: 0x0.0p0", "f64: {x}", .{@as(f64, 0)});
     try expectFmt("f64: -0x0.0p0", "f64: {x}", .{-@as(f64, 0)});
@@ -2251,20 +2255,20 @@ test "float.hexadecimal" {
     try expectFmt("f64: 0x1.5555555555555p-2", "f64: {x}", .{@as(f64, 1.0 / 3.0)});
     try expectFmt("f128: 0x1.5555555555555555555555555555p-2", "f128: {x}", .{@as(f128, 1.0 / 3.0)});
 
-    try expectFmt("f16: 0x1p-14", "f16: {x}", .{@as(f16, math.f16_min)});
-    try expectFmt("f32: 0x1p-126", "f32: {x}", .{@as(f32, math.f32_min)});
-    try expectFmt("f64: 0x1p-1022", "f64: {x}", .{@as(f64, math.f64_min)});
-    try expectFmt("f128: 0x1p-16382", "f128: {x}", .{@as(f128, math.f128_min)});
+    try expectFmt("f16: 0x1p-14", "f16: {x}", .{math.floatMin(f16)});
+    try expectFmt("f32: 0x1p-126", "f32: {x}", .{math.floatMin(f32)});
+    try expectFmt("f64: 0x1p-1022", "f64: {x}", .{math.floatMin(f64)});
+    try expectFmt("f128: 0x1p-16382", "f128: {x}", .{math.floatMin(f128)});
 
-    try expectFmt("f16: 0x0.004p-14", "f16: {x}", .{@as(f16, math.f16_true_min)});
-    try expectFmt("f32: 0x0.000002p-126", "f32: {x}", .{@as(f32, math.f32_true_min)});
-    try expectFmt("f64: 0x0.0000000000001p-1022", "f64: {x}", .{@as(f64, math.f64_true_min)});
-    try expectFmt("f128: 0x0.0000000000000000000000000001p-16382", "f128: {x}", .{@as(f128, math.f128_true_min)});
+    try expectFmt("f16: 0x0.004p-14", "f16: {x}", .{math.floatTrueMin(f16)});
+    try expectFmt("f32: 0x0.000002p-126", "f32: {x}", .{math.floatTrueMin(f32)});
+    try expectFmt("f64: 0x0.0000000000001p-1022", "f64: {x}", .{math.floatTrueMin(f64)});
+    try expectFmt("f128: 0x0.0000000000000000000000000001p-16382", "f128: {x}", .{math.floatTrueMin(f128)});
 
-    try expectFmt("f16: 0x1.ffcp15", "f16: {x}", .{@as(f16, math.f16_max)});
-    try expectFmt("f32: 0x1.fffffep127", "f32: {x}", .{@as(f32, math.f32_max)});
-    try expectFmt("f64: 0x1.fffffffffffffp1023", "f64: {x}", .{@as(f64, math.f64_max)});
-    try expectFmt("f128: 0x1.ffffffffffffffffffffffffffffp16383", "f128: {x}", .{@as(f128, math.f128_max)});
+    try expectFmt("f16: 0x1.ffcp15", "f16: {x}", .{math.floatMax(f16)});
+    try expectFmt("f32: 0x1.fffffep127", "f32: {x}", .{math.floatMax(f32)});
+    try expectFmt("f64: 0x1.fffffffffffffp1023", "f64: {x}", .{math.floatMax(f64)});
+    try expectFmt("f128: 0x1.ffffffffffffffffffffffffffffp16383", "f128: {x}", .{math.floatMax(f128)});
 }
 
 test "float.hexadecimal.precision" {
@@ -2298,6 +2302,8 @@ test "float.decimal" {
     try expectFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 1.40130e-45)});
     try expectFmt("f64: 0.00000", "f64: {d:.5}", .{@as(f64, 9.999960e-40)});
     try expectFmt("f64: 10000000000000.00", "f64: {d:.2}", .{@as(f64, 9999999999999.999)});
+    try expectFmt("f64: 10000000000000000000000000000000000000", "f64: {d}", .{@as(f64, 1e37)});
+    try expectFmt("f64: 100000000000000000000000000000000000000", "f64: {d}", .{@as(f64, 1e38)});
 }
 
 test "float.libc.sanity" {
@@ -2355,6 +2361,10 @@ test "custom" {
 }
 
 test "struct" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 fails to return fully qualified namespaces.
+        return error.SkipZigTest;
+    }
     const S = struct {
         a: u32,
         b: anyerror,
@@ -2365,7 +2375,7 @@ test "struct" {
         .b = error.Unused,
     };
 
-    try expectFmt("S{ .a = 456, .b = error.Unused }", "{}", .{inst});
+    try expectFmt("fmt.test.struct.S{ .a = 456, .b = error.Unused }", "{}", .{inst});
     // Tuples
     try expectFmt("{ }", "{}", .{.{}});
     try expectFmt("{ -1 }", "{}", .{.{-1}});
@@ -2373,6 +2383,10 @@ test "struct" {
 }
 
 test "union" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 fails to return fully qualified namespaces.
+        return error.SkipZigTest;
+    }
     const TU = union(enum) {
         float: f32,
         int: u32,
@@ -2392,17 +2406,21 @@ test "union" {
     const uu_inst = UU{ .int = 456 };
     const eu_inst = EU{ .float = 321.123 };
 
-    try expectFmt("TU{ .int = 123 }", "{}", .{tu_inst});
+    try expectFmt("fmt.test.union.TU{ .int = 123 }", "{}", .{tu_inst});
 
     var buf: [100]u8 = undefined;
     const uu_result = try bufPrint(buf[0..], "{}", .{uu_inst});
-    try std.testing.expect(mem.eql(u8, uu_result[0..3], "UU@"));
+    try std.testing.expect(mem.eql(u8, uu_result[0..18], "fmt.test.union.UU@"));
 
     const eu_result = try bufPrint(buf[0..], "{}", .{eu_inst});
-    try std.testing.expect(mem.eql(u8, eu_result[0..3], "EU@"));
+    try std.testing.expect(mem.eql(u8, eu_result[0..18], "fmt.test.union.EU@"));
 }
 
 test "enum" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 fails to return fully qualified namespaces.
+        return error.SkipZigTest;
+    }
     const E = enum {
         One,
         Two,
@@ -2411,10 +2429,14 @@ test "enum" {
 
     const inst = E.Two;
 
-    try expectFmt("E.Two", "{}", .{inst});
+    try expectFmt("fmt.test.enum.E.Two", "{}", .{inst});
 }
 
 test "struct.self-referential" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 fails to return fully qualified namespaces.
+        return error.SkipZigTest;
+    }
     const S = struct {
         const SelfType = @This();
         a: ?*SelfType,
@@ -2425,10 +2447,14 @@ test "struct.self-referential" {
     };
     inst.a = &inst;
 
-    try expectFmt("S{ .a = S{ .a = S{ .a = S{ ... } } } }", "{}", .{inst});
+    try expectFmt("fmt.test.struct.self-referential.S{ .a = fmt.test.struct.self-referential.S{ .a = fmt.test.struct.self-referential.S{ .a = fmt.test.struct.self-referential.S{ ... } } } }", "{}", .{inst});
 }
 
 test "struct.zero-size" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 fails to return fully qualified namespaces.
+        return error.SkipZigTest;
+    }
     const A = struct {
         fn foo() void {}
     };
@@ -2440,7 +2466,7 @@ test "struct.zero-size" {
     const a = A{};
     const b = B{ .a = a, .c = 0 };
 
-    try expectFmt("B{ .a = A{ }, .c = 0 }", "{}", .{b});
+    try expectFmt("fmt.test.struct.zero-size.B{ .a = fmt.test.struct.zero-size.A{ }, .c = 0 }", "{}", .{b});
 }
 
 test "bytes.hex" {
@@ -2506,6 +2532,10 @@ test "formatFloatValue with comptime_float" {
 }
 
 test "formatType max_depth" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 fails to return fully qualified namespaces.
+        return error.SkipZigTest;
+    }
     const Vec2 = struct {
         const SelfType = @This();
         x: f32,
@@ -2556,19 +2586,19 @@ test "formatType max_depth" {
     var buf: [1000]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
     try formatType(inst, "", FormatOptions{}, fbs.writer(), 0);
-    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "S{ ... }"));
+    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "fmt.test.formatType max_depth.S{ ... }"));
 
     fbs.reset();
     try formatType(inst, "", FormatOptions{}, fbs.writer(), 1);
-    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }"));
+    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ ... }, .tu = fmt.test.formatType max_depth.TU{ ... }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }"));
 
     fbs.reset();
     try formatType(inst, "", FormatOptions{}, fbs.writer(), 2);
-    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }"));
+    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ ... }, .tu = fmt.test.formatType max_depth.TU{ ... }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }, .tu = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ ... } }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }"));
 
     fbs.reset();
     try formatType(inst, "", FormatOptions{}, fbs.writer(), 3);
-    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "S{ .a = S{ .a = S{ .a = S{ ... }, .tu = TU{ ... }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ ... } }, .e = E.Two, .vec = (10.200,2.220) }, .tu = TU{ .ptr = TU{ .ptr = TU{ ... } } }, .e = E.Two, .vec = (10.200,2.220) }"));
+    try std.testing.expect(mem.eql(u8, fbs.getWritten(), "fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ ... }, .tu = fmt.test.formatType max_depth.TU{ ... }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }, .tu = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ ... } }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }, .tu = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ ... } } }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }"));
 }
 
 test "positional" {
@@ -2593,9 +2623,9 @@ test "vector" {
         return error.SkipZigTest;
     }
 
-    const vbool: std.meta.Vector(4, bool) = [_]bool{ true, false, true, false };
-    const vi64: std.meta.Vector(4, i64) = [_]i64{ -2, -1, 0, 1 };
-    const vu64: std.meta.Vector(4, u64) = [_]u64{ 1000, 2000, 3000, 4000 };
+    const vbool: @Vector(4, bool) = [_]bool{ true, false, true, false };
+    const vi64: @Vector(4, i64) = [_]i64{ -2, -1, 0, 1 };
+    const vu64: @Vector(4, u64) = [_]u64{ 1000, 2000, 3000, 4000 };
 
     try expectFmt("{ true, false, true, false }", "{}", .{vbool});
     try expectFmt("{ -2, -1, 0, 1 }", "{}", .{vi64});

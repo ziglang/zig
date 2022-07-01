@@ -64,6 +64,15 @@ pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8)) RenderError!void
     return @import("./render.zig").renderTree(buffer, tree);
 }
 
+/// Returns an extra offset for column and byte offset of errors that
+/// should point after the token in the error message.
+pub fn errorOffset(tree: Ast, parse_error: Error) u32 {
+    return if (parse_error.token_is_prev)
+        @intCast(u32, tree.tokenSlice(parse_error.token).len)
+    else
+        0;
+}
+
 pub fn tokenLocation(self: Ast, start_offset: ByteOffset, token_index: TokenIndex) Location {
     var loc = Location{
         .line = 0,
@@ -144,22 +153,22 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         },
         .expected_block => {
             return stream.print("expected block or field, found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
+                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_block_or_assignment => {
             return stream.print("expected block or assignment, found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
+                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_block_or_expr => {
             return stream.print("expected block or expression, found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
+                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_block_or_field => {
             return stream.print("expected block or field, found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
+                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_container_members => {
@@ -169,42 +178,42 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         },
         .expected_expr => {
             return stream.print("expected expression, found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
+                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_expr_or_assignment => {
             return stream.print("expected expression or assignment, found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
+                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_fn => {
             return stream.print("expected function, found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
+                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_inlinable => {
             return stream.print("expected 'while' or 'for', found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
+                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_labelable => {
             return stream.print("expected 'while', 'for', 'inline', 'suspend', or '{{', found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
+                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_param_list => {
             return stream.print("expected parameter list, found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
+                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_prefix_expr => {
             return stream.print("expected prefix expression, found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
+                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_primary_type_expr => {
             return stream.print("expected primary type expression, found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
+                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_pub_item => {
@@ -212,57 +221,48 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         },
         .expected_return_type => {
             return stream.print("expected return type expression, found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
+                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_semi_or_else => {
-            return stream.print("expected ';' or 'else', found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
-            });
+            return stream.writeAll("expected ';' or 'else' after statement");
         },
         .expected_semi_or_lbrace => {
-            return stream.print("expected ';' or '{{', found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
-            });
+            return stream.writeAll("expected ';' or block after function prototype");
         },
         .expected_statement => {
             return stream.print("expected statement, found '{s}'", .{
                 token_tags[parse_error.token].symbol(),
             });
         },
-        .expected_string_literal => {
-            return stream.print("expected string literal, found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
-            });
-        },
         .expected_suffix_op => {
             return stream.print("expected pointer dereference, optional unwrap, or field access, found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
+                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_type_expr => {
             return stream.print("expected type expression, found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
+                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_var_decl => {
             return stream.print("expected variable declaration, found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
+                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_var_decl_or_fn => {
             return stream.print("expected variable declaration or function, found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
+                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_loop_payload => {
             return stream.print("expected loop payload, found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
+                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
             });
         },
         .expected_container => {
             return stream.print("expected a struct, enum or union, found '{s}'", .{
-                token_tags[parse_error.token].symbol(),
+                token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)].symbol(),
             });
         },
         .extern_fn_body => {
@@ -291,11 +291,6 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         .invalid_bit_range => {
             return stream.writeAll("bit range not allowed on slices and arrays");
         },
-        .invalid_token => {
-            return stream.print("invalid token: '{s}'", .{
-                token_tags[parse_error.token].symbol(),
-            });
-        },
         .same_line_doc_comment => {
             return stream.writeAll("same line documentation comment");
         },
@@ -305,9 +300,49 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         .varargs_nonfinal => {
             return stream.writeAll("function prototype has parameter after varargs");
         },
+        .expected_continue_expr => {
+            return stream.writeAll("expected ':' before while continue expression");
+        },
+
+        .expected_semi_after_decl => {
+            return stream.writeAll("expected ';' after declaration");
+        },
+        .expected_semi_after_stmt => {
+            return stream.writeAll("expected ';' after statement");
+        },
+        .expected_comma_after_field => {
+            return stream.writeAll("expected ',' after field");
+        },
+        .expected_comma_after_arg => {
+            return stream.writeAll("expected ',' after argument");
+        },
+        .expected_comma_after_param => {
+            return stream.writeAll("expected ',' after parameter");
+        },
+        .expected_comma_after_initializer => {
+            return stream.writeAll("expected ',' after initializer");
+        },
+        .expected_comma_after_switch_prong => {
+            return stream.writeAll("expected ',' after switch prong");
+        },
+        .expected_initializer => {
+            return stream.writeAll("expected field initializer");
+        },
+        .mismatched_binary_op_whitespace => {
+            return stream.print("binary operator `{s}` has whitespace on one side, but not the other.", .{token_tags[parse_error.token].lexeme().?});
+        },
+        .invalid_ampersand_ampersand => {
+            return stream.writeAll("ambiguous use of '&&'; use 'and' for logical AND, or change whitespace to ' & &' for bitwise AND");
+        },
+        .previous_field => {
+            return stream.writeAll("field before declarations here");
+        },
+        .next_field => {
+            return stream.writeAll("field after declarations here");
+        },
 
         .expected_token => {
-            const found_tag = token_tags[parse_error.token];
+            const found_tag = token_tags[parse_error.token + @boolToInt(parse_error.token_is_prev)];
             const expected_symbol = parse_error.extra.expected_tag.symbol();
             switch (found_tag) {
                 .invalid => return stream.print("expected '{s}', found invalid bytes", .{
@@ -1931,7 +1966,7 @@ fn fullPtrType(tree: Ast, info: full.PtrType.Components) full.PtrType {
     const token_tags = tree.tokens.items(.tag);
     // TODO: looks like stage1 isn't quite smart enough to handle enum
     // literals in some places here
-    const Size = std.builtin.TypeInfo.Pointer.Size;
+    const Size = std.builtin.Type.Pointer.Size;
     const size: Size = switch (token_tags[info.main_token]) {
         .asterisk,
         .asterisk_asterisk,
@@ -2319,10 +2354,10 @@ pub const full = struct {
             }
         };
 
-        pub fn iterate(fn_proto: FnProto, tree: Ast) Iterator {
+        pub fn iterate(fn_proto: *const FnProto, tree: *const Ast) Iterator {
             return .{
-                .tree = &tree,
-                .fn_proto = &fn_proto,
+                .tree = tree,
+                .fn_proto = fn_proto,
                 .param_i = 0,
                 .tok_i = fn_proto.lparen + 1,
                 .tok_flag = true,
@@ -2362,7 +2397,7 @@ pub const full = struct {
     };
 
     pub const PtrType = struct {
-        size: std.builtin.TypeInfo.Pointer.Size,
+        size: std.builtin.Type.Pointer.Size,
         allowzero_token: ?TokenIndex,
         const_token: ?TokenIndex,
         volatile_token: ?TokenIndex,
@@ -2447,6 +2482,9 @@ pub const full = struct {
 
 pub const Error = struct {
     tag: Tag,
+    is_note: bool = false,
+    /// True if `token` points to the token before the token causing an issue.
+    token_is_prev: bool = false,
     token: TokenIndex,
     extra: union {
         none: void,
@@ -2475,7 +2513,6 @@ pub const Error = struct {
         expected_semi_or_else,
         expected_semi_or_lbrace,
         expected_statement,
-        expected_string_literal,
         expected_suffix_op,
         expected_type_expr,
         expected_var_decl,
@@ -2490,10 +2527,23 @@ pub const Error = struct {
         extra_volatile_qualifier,
         ptr_mod_on_array_child_type,
         invalid_bit_range,
-        invalid_token,
         same_line_doc_comment,
         unattached_doc_comment,
         varargs_nonfinal,
+        expected_continue_expr,
+        expected_semi_after_decl,
+        expected_semi_after_stmt,
+        expected_comma_after_field,
+        expected_comma_after_arg,
+        expected_comma_after_param,
+        expected_comma_after_initializer,
+        expected_comma_after_switch_prong,
+        expected_initializer,
+        mismatched_binary_op_whitespace,
+        invalid_ampersand_ampersand,
+
+        previous_field,
+        next_field,
 
         /// `expected_tag` is populated.
         expected_token,
@@ -2519,7 +2569,7 @@ pub const Node = struct {
         root,
         /// `usingnamespace lhs;`. rhs unused. main_token is `usingnamespace`.
         @"usingnamespace",
-        /// lhs is test name token (must be string literal), if any.
+        /// lhs is test name token (must be string literal or identifier), if any.
         /// rhs is the body node.
         test_decl,
         /// lhs is the index into extra_data.

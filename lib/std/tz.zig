@@ -11,7 +11,7 @@ pub const Timetype = struct {
     flags: u8,
     name_data: [6:0]u8,
 
-    pub fn name(self: Timetype) [:0]const u8 {
+    pub fn name(self: *const Timetype) [:0]const u8 {
         return std.mem.sliceTo(self.name_data[0..], 0);
     }
 

@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
@@ -17,6 +18,9 @@ test "@sizeOf on compile-time types" {
 }
 
 test "@TypeOf() with multiple arguments" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     {
         var var_1: u32 = undefined;
         var var_2: u8 = undefined;
@@ -73,6 +77,8 @@ const P = packed struct {
 };
 
 test "@offsetOf" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     // Packed structs have fixed memory layout
     try expect(@offsetOf(P, "a") == 0);
@@ -159,4 +165,137 @@ test "@bitOffsetOf" {
     try expect(@offsetOf(A, "e") * 8 == @bitOffsetOf(A, "e"));
     try expect(@offsetOf(A, "f") * 8 == @bitOffsetOf(A, "f"));
     try expect(@offsetOf(A, "g") * 8 == @bitOffsetOf(A, "g"));
+}
+
+test "@sizeOf(T) == 0 doesn't force resolving struct size" {
+    const S = struct {
+        const Foo = struct {
+            y: if (@sizeOf(Foo) == 0) u64 else u32,
+        };
+        const Bar = struct {
+            x: i32,
+            y: if (0 == @sizeOf(Bar)) u64 else u32,
+        };
+    };
+
+    try expect(@sizeOf(S.Foo) == 4);
+    try expect(@sizeOf(S.Bar) == 8);
+}
+
+test "@TypeOf() has no runtime side effects" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    const S = struct {
+        fn foo(comptime T: type, ptr: *T) T {
+            ptr.* += 1;
+            return ptr.*;
+        }
+    };
+    var data: i32 = 0;
+    const T = @TypeOf(S.foo(i32, &data));
+    comptime try expect(T == i32);
+    try expect(data == 0);
+}
+
+test "branching logic inside @TypeOf" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    const S = struct {
+        var data: i32 = 0;
+        fn foo() anyerror!i32 {
+            data += 1;
+            return undefined;
+        }
+    };
+    const T = @TypeOf(S.foo() catch undefined);
+    comptime try expect(T == i32);
+    try expect(S.data == 0);
+}
+
+test "@bitSizeOf" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
+    try expect(@bitSizeOf(u2) == 2);
+    try expect(@bitSizeOf(u8) == @sizeOf(u8) * 8);
+    try expect(@bitSizeOf(struct {
+        a: u2,
+    }) == 2);
+    try expect(@bitSizeOf(packed struct {
+        a: u2,
+    }) == 2);
+}
+
+test "@sizeOf comparison against zero" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 gets the wrong answer for size of pointers to zero bit types
+        return error.SkipZigTest;
+    }
+
+    const S0 = struct {
+        f: *@This(),
+    };
+    const U0 = union {
+        f: *@This(),
+    };
+    const S1 = struct {
+        fn H(comptime T: type) type {
+            return struct {
+                x: T,
+            };
+        }
+        f0: H(*@This()),
+        f1: H(**@This()),
+        f2: H(***@This()),
+    };
+    const U1 = union {
+        fn H(comptime T: type) type {
+            return struct {
+                x: T,
+            };
+        }
+        f0: H(*@This()),
+        f1: H(**@This()),
+        f2: H(***@This()),
+    };
+    const S = struct {
+        fn doTheTest(comptime T: type, comptime result: bool) !void {
+            try expect(result == (@sizeOf(T) > 0));
+        }
+    };
+    // Zero-sized type
+    try S.doTheTest(u0, false);
+    // Pointers to zero sized types still have addresses.
+    try S.doTheTest(*u0, true);
+    // Non byte-sized type
+    try S.doTheTest(u1, true);
+    try S.doTheTest(*u1, true);
+    // Regular type
+    try S.doTheTest(u8, true);
+    try S.doTheTest(*u8, true);
+    try S.doTheTest(f32, true);
+    try S.doTheTest(*f32, true);
+    // Container with ptr pointing to themselves
+    try S.doTheTest(S0, true);
+    try S.doTheTest(U0, true);
+    try S.doTheTest(S1, true);
+    try S.doTheTest(U1, true);
+}
+
+test "hardcoded address in typeof expression" {
+    const S = struct {
+        fn func() @TypeOf(@intToPtr(*[]u8, 0x10).*[0]) {
+            return 0;
+        }
+    };
+    try expect(S.func() == 0);
+    comptime try expect(S.func() == 0);
+}
+
+test "array access of generic param in typeof expression" {
+    const S = struct {
+        fn first(comptime items: anytype) @TypeOf(items[0]) {
+            return items[0];
+        }
+    };
+    try expect(S.first("a") == 'a');
+    comptime try expect(S.first("a") == 'a');
 }

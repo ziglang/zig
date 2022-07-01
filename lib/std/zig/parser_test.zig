@@ -226,6 +226,8 @@ test "zig fmt: decl between fields" {
         \\};
     , &[_]Error{
         .decl_between_fields,
+        .previous_field,
+        .next_field,
     });
 }
 
@@ -233,7 +235,7 @@ test "zig fmt: eof after missing comma" {
     try testError(
         \\foo()
     , &[_]Error{
-        .expected_token,
+        .expected_comma_after_field,
     });
 }
 
@@ -581,15 +583,6 @@ test "zig fmt: asm expression with comptime content" {
         \\        : "h", "e", "l", "l", "o"
         \\    );
         \\}
-        \\
-    );
-}
-
-test "zig fmt: anytype struct field" {
-    try testCanonical(
-        \\pub const Pointer = struct {
-        \\    sentinel: anytype,
-        \\};
         \\
     );
 }
@@ -1792,6 +1785,19 @@ test "zig fmt: switch comment before prong" {
         \\    switch (a) {
         \\        // hi
         \\        0 => {},
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: switch comment after prong" {
+    try testCanonical(
+        \\comptime {
+        \\    switch (a) {
+        \\        0,
+        \\        // hi
+        \\        => {},
         \\    }
         \\}
         \\
@@ -4148,6 +4154,52 @@ test "zig fmt: container doc comments" {
     );
 }
 
+test "zig fmt: remove newlines surrounding doc comment" {
+    try testTransform(
+        \\
+        \\
+        \\
+        \\/// doc comment
+        \\
+        \\fn foo() void {}
+        \\
+    ,
+        \\/// doc comment
+        \\fn foo() void {}
+        \\
+    );
+}
+
+test "zig fmt: remove newlines surrounding doc comment within container decl" {
+    try testTransform(
+        \\const Foo = struct {
+        \\
+        \\
+        \\    /// doc comment
+        \\
+        \\    fn foo() void {}
+        \\};
+        \\
+    ,
+        \\const Foo = struct {
+        \\    /// doc comment
+        \\    fn foo() void {}
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: anytype struct field" {
+    try testError(
+        \\pub const Pointer = struct {
+        \\    sentinel: anytype,
+        \\};
+        \\
+    , &[_]Error{
+        .expected_type_expr,
+    });
+}
+
 test "zig fmt: extern without container keyword returns error" {
     try testError(
         \\const container = extern {};
@@ -4186,7 +4238,7 @@ test "zig fmt: integer literals with underscore separators" {
         \\const
         \\ x     =
         \\ 1_234_567
-        \\ +(0b0_1-0o7_0+0xff_FF ) +  0_0;
+        \\ + (0b0_1-0o7_0+0xff_FF ) +  0_0;
     ,
         \\const x =
         \\    1_234_567 + (0b0_1 - 0o7_0 + 0xff_FF) + 0_0;
@@ -4695,6 +4747,28 @@ test "zig fmt: space after top level doc comment" {
     );
 }
 
+test "zig fmt: remove trailing whitespace after container doc comment" {
+    try testTransform(
+        \\//! top level doc comment 
+        \\
+    ,
+        \\//! top level doc comment
+        \\
+    );
+}
+
+test "zig fmt: remove trailing whitespace after doc comment" {
+    try testTransform(
+        \\/// doc comment 
+        \\a = 0,
+        \\
+    ,
+        \\/// doc comment
+        \\a = 0,
+        \\
+    );
+}
+
 test "zig fmt: for loop with ptr payload and index" {
     try testCanonical(
         \\test {
@@ -5016,6 +5090,25 @@ test "zig fmt: make single-line if no trailing comma" {
     );
 }
 
+test "zig fmt: while continue expr" {
+    try testCanonical(
+        \\test {
+        \\    while (i > 0)
+        \\        (i * 2);
+        \\}
+        \\
+    );
+    try testError(
+        \\test {
+        \\    while (i > 0) (i -= 1) {
+        \\        print("test123", .{});
+        \\    }
+        \\}
+    , &[_]Error{
+        .expected_continue_expr,
+    });
+}
+
 test "zig fmt: error for invalid bit range" {
     try testError(
         \\var x: []align(0:0:0)u8 = bar;
@@ -5055,7 +5148,9 @@ test "recovery: block statements" {
         \\    inline;
         \\}
     , &[_]Error{
-        .invalid_token,
+        .expected_expr,
+        .expected_semi_after_stmt,
+        .expected_statement,
         .expected_inlinable,
     });
 }
@@ -5067,14 +5162,14 @@ test "recovery: missing comma" {
         \\        2 => {}
         \\        3 => {}
         \\        else => {
-        \\            foo && bar +;
+        \\            foo & bar +;
         \\        }
         \\    }
         \\}
     , &[_]Error{
-        .expected_token,
-        .expected_token,
-        .invalid_token,
+        .expected_comma_after_switch_prong,
+        .expected_comma_after_switch_prong,
+        .expected_expr,
     });
 }
 
@@ -5101,7 +5196,7 @@ test "recovery: extra qualifier" {
 test "recovery: missing return type" {
     try testError(
         \\fn foo() {
-        \\    a && b;
+        \\    a & b;
         \\}
         \\test ""
     , &[_]Error{
@@ -5116,7 +5211,7 @@ test "recovery: continue after invalid decl" {
         \\    inline;
         \\}
         \\pub test "" {
-        \\    async a && b;
+        \\    async a & b;
         \\}
     , &[_]Error{
         .expected_token,
@@ -5125,7 +5220,7 @@ test "recovery: continue after invalid decl" {
     });
     try testError(
         \\threadlocal test "" {
-        \\    @a && b;
+        \\    @a & b;
         \\}
     , &[_]Error{
         .expected_var_decl,
@@ -5135,12 +5230,12 @@ test "recovery: continue after invalid decl" {
 
 test "recovery: invalid extern/inline" {
     try testError(
-        \\inline test "" { a && b; }
+        \\inline test "" { a & b; }
     , &[_]Error{
         .expected_fn,
     });
     try testError(
-        \\extern "" test "" { a && b; }
+        \\extern "" test "" { a & b; }
     , &[_]Error{
         .expected_var_decl_or_fn,
     });
@@ -5149,15 +5244,15 @@ test "recovery: invalid extern/inline" {
 test "recovery: missing semicolon" {
     try testError(
         \\test "" {
-        \\    comptime a && b
-        \\    c && d
+        \\    comptime a & b
+        \\    c & d
         \\    @foo
         \\}
     , &[_]Error{
-        .expected_token,
-        .expected_token,
+        .expected_semi_after_stmt,
+        .expected_semi_after_stmt,
         .expected_param_list,
-        .expected_token,
+        .expected_semi_after_stmt,
     });
 }
 
@@ -5168,13 +5263,13 @@ test "recovery: invalid container members" {
         \\bar@,
         \\while (a == 2) { test "" {}}
         \\test "" {
-        \\    a && b
+        \\    a & b
         \\}
     , &[_]Error{
         .expected_expr,
-        .expected_token,
+        .expected_comma_after_field,
         .expected_container_members,
-        .expected_token,
+        .expected_semi_after_stmt,
     });
 }
 
@@ -5186,7 +5281,7 @@ test "recovery: extra '}' at top level" {
     try testError(
         \\}}}
         \\test "" {
-        \\    a && b;
+        \\    a & b;
         \\}
     , &[_]Error{
         .expected_token,
@@ -5199,14 +5294,14 @@ test "recovery: mismatched bracket at top level" {
         \\    arr: 128]?G
         \\};
     , &[_]Error{
-        .expected_token,
+        .expected_comma_after_field,
     });
 }
 
 test "recovery: invalid global error set access" {
     try testError(
         \\test "" {
-        \\    error && foo;
+        \\    error & foo;
         \\}
     , &[_]Error{
         .expected_token,
@@ -5221,13 +5316,15 @@ test "recovery: invalid asterisk after pointer dereference" {
         \\}
     , &[_]Error{
         .asterisk_after_ptr_deref,
+        .mismatched_binary_op_whitespace,
     });
     try testError(
         \\test "" {
-        \\    var sequence = "repeat".** 10&&a;
+        \\    var sequence = "repeat".** 10&a;
         \\}
     , &[_]Error{
         .asterisk_after_ptr_deref,
+        .mismatched_binary_op_whitespace,
     });
 }
 
@@ -5237,7 +5334,7 @@ test "recovery: missing semicolon after if, for, while stmt" {
         \\    if (foo) bar
         \\    for (foo) |a| bar
         \\    while (foo) bar
-        \\    a && b;
+        \\    a & b;
         \\}
     , &[_]Error{
         .expected_semi_or_else,
@@ -5299,9 +5396,9 @@ test "recovery: missing comma in params" {
         \\fn bar(a: i32, b: i32 c) void { }
         \\
     , &[_]Error{
-        .expected_token,
-        .expected_token,
-        .expected_token,
+        .expected_comma_after_param,
+        .expected_comma_after_param,
+        .expected_comma_after_param,
     });
 }
 
@@ -5333,6 +5430,54 @@ test "recovery: eof in c pointer" {
     , &[_]Error{
         .expected_token,
     });
+}
+
+test "matching whitespace on minus op" {
+    try testError(
+        \\ _ = 2 -1, 
+        \\ _ = 2- 1, 
+        \\ _ = 2-
+        \\     2,
+        \\ _ = 2
+        \\     -2,
+    , &[_]Error{
+        .mismatched_binary_op_whitespace,
+        .mismatched_binary_op_whitespace,
+        .mismatched_binary_op_whitespace,
+        .mismatched_binary_op_whitespace,
+    });
+
+    try testError(
+        \\ _ = - 1,
+        \\ _ = -1,
+        \\ _ = 2 - -1,
+        \\ _ = 2 - 1,
+        \\ _ = 2-1, 
+        \\ _ = 2 -
+        \\1,
+        \\ _ = 2
+        \\     - 1,
+    , &[_]Error{});
+}
+
+test "ampersand" {
+    try testError(
+        \\ _ = bar && foo,
+        \\ _ = bar&&foo, 
+        \\ _ = bar& & foo, 
+        \\ _ = bar& &foo,
+    , &.{
+        .invalid_ampersand_ampersand,
+        .invalid_ampersand_ampersand,
+        .mismatched_binary_op_whitespace,
+        .mismatched_binary_op_whitespace,
+    });
+
+    try testError(
+        \\ _ = bar & &foo, 
+        \\ _ = bar & &&foo, 
+        \\ _ = &&foo, 
+    , &.{});
 }
 
 const std = @import("std");
@@ -5371,52 +5516,24 @@ fn testParse(source: [:0]const u8, allocator: mem.Allocator, anything_changed: *
     anything_changed.* = !mem.eql(u8, formatted, source);
     return formatted;
 }
-fn testTransform(source: [:0]const u8, expected_source: []const u8) !void {
-    const needed_alloc_count = x: {
-        // Try it once with unlimited memory, make sure it works
-        var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-        var failing_allocator = std.testing.FailingAllocator.init(fixed_allocator.allocator(), maxInt(usize));
-        const allocator = failing_allocator.allocator();
-        var anything_changed: bool = undefined;
-        const result_source = try testParse(source, allocator, &anything_changed);
-        try std.testing.expectEqualStrings(expected_source, result_source);
-        const changes_expected = source.ptr != expected_source.ptr;
-        if (anything_changed != changes_expected) {
-            print("std.zig.render returned {} instead of {}\n", .{ anything_changed, changes_expected });
-            return error.TestFailed;
-        }
-        try std.testing.expect(anything_changed == changes_expected);
-        allocator.free(result_source);
-        break :x failing_allocator.index;
-    };
-
-    var fail_index: usize = 0;
-    while (fail_index < needed_alloc_count) : (fail_index += 1) {
-        var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-        var failing_allocator = std.testing.FailingAllocator.init(fixed_allocator.allocator(), fail_index);
-        var anything_changed: bool = undefined;
-        if (testParse(source, failing_allocator.allocator(), &anything_changed)) |_| {
-            return error.NondeterministicMemoryUsage;
-        } else |err| switch (err) {
-            error.OutOfMemory => {
-                if (failing_allocator.allocated_bytes != failing_allocator.freed_bytes) {
-                    print(
-                        "\nfail_index: {d}/{d}\nallocated bytes: {d}\nfreed bytes: {d}\nallocations: {d}\ndeallocations: {d}\n",
-                        .{
-                            fail_index,
-                            needed_alloc_count,
-                            failing_allocator.allocated_bytes,
-                            failing_allocator.freed_bytes,
-                            failing_allocator.allocations,
-                            failing_allocator.deallocations,
-                        },
-                    );
-                    return error.MemoryLeakDetected;
-                }
-            },
-            else => return err,
-        }
+fn testTransformImpl(allocator: mem.Allocator, fba: *std.heap.FixedBufferAllocator, source: [:0]const u8, expected_source: []const u8) !void {
+    // reset the fixed buffer allocator each run so that it can be re-used for each
+    // iteration of the failing index
+    fba.reset();
+    var anything_changed: bool = undefined;
+    const result_source = try testParse(source, allocator, &anything_changed);
+    try std.testing.expectEqualStrings(expected_source, result_source);
+    const changes_expected = source.ptr != expected_source.ptr;
+    if (anything_changed != changes_expected) {
+        print("std.zig.render returned {} instead of {}\n", .{ anything_changed, changes_expected });
+        return error.TestFailed;
     }
+    try std.testing.expect(anything_changed == changes_expected);
+    allocator.free(result_source);
+}
+fn testTransform(source: [:0]const u8, expected_source: []const u8) !void {
+    var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
+    return std.testing.checkAllAllocationFailures(fixed_allocator.allocator(), testTransformImpl, .{ &fixed_allocator, source, expected_source });
 }
 fn testCanonical(source: [:0]const u8) !void {
     return testTransform(source, source);
@@ -5428,7 +5545,10 @@ fn testError(source: [:0]const u8, expected_errors: []const Error) !void {
     var tree = try std.zig.parse(std.testing.allocator, source);
     defer tree.deinit(std.testing.allocator);
 
-    try std.testing.expectEqual(expected_errors.len, tree.errors.len);
+    std.testing.expectEqual(expected_errors.len, tree.errors.len) catch |err| {
+        std.debug.print("errors found: {any}\n", .{tree.errors});
+        return err;
+    };
     for (expected_errors) |expected, i| {
         try std.testing.expectEqual(expected, tree.errors[i].tag);
     }

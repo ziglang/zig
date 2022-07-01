@@ -17,9 +17,9 @@ pub fn BitReader(endian: std.builtin.Endian, comptime ReaderType: type) type {
         pub const Reader = io.Reader(*Self, Error, read);
 
         const Self = @This();
-        const u8_bit_count = meta.bitCount(u8);
-        const u7_bit_count = meta.bitCount(u7);
-        const u4_bit_count = meta.bitCount(u4);
+        const u8_bit_count = @bitSizeOf(u8);
+        const u7_bit_count = @bitSizeOf(u7);
+        const u4_bit_count = @bitSizeOf(u4);
 
         pub fn init(forward_reader: ReaderType) Self {
             return Self{
@@ -47,7 +47,7 @@ pub fn BitReader(endian: std.builtin.Endian, comptime ReaderType: type) type {
 
             //by extending the buffer to a minimum of u8 we can cover a number of edge cases
             // related to shifting and casting.
-            const u_bit_count = comptime meta.bitCount(U);
+            const u_bit_count = @bitSizeOf(U);
             const buf_bit_count = bc: {
                 assert(u_bit_count >= bits);
                 break :bc if (u_bit_count <= u8_bit_count) u8_bit_count else u_bit_count;
@@ -87,13 +87,9 @@ pub fn BitReader(endian: std.builtin.Endian, comptime ReaderType: type) type {
             //copy bytes until we have enough bits, then leave the rest in bit_buffer
             while (out_bits.* < bits) {
                 const n = bits - out_bits.*;
-                const next_byte = self.forward_reader.readByte() catch |err| {
-                    if (err == error.EndOfStream) {
-                        return @intCast(U, out_buffer);
-                    }
-                    //@BUG: See #1810. Not sure if the bug is that I have to do this for some
-                    // streams, or that I don't for streams with emtpy errorsets.
-                    return @errSetCast(Error, err);
+                const next_byte = self.forward_reader.readByte() catch |err| switch (err) {
+                    error.EndOfStream => return @intCast(U, out_buffer),
+                    else => |e| return e,
                 };
 
                 switch (endian) {

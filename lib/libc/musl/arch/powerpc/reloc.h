@@ -1,4 +1,4 @@
-#ifdef _SOFT_FLOAT
+#if defined(_SOFT_FLOAT) || defined(__NO_FPRS__)
 #define FP_SUFFIX "-sf"
 #else
 #define FP_SUFFIX ""

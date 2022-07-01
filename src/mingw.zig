@@ -5,6 +5,7 @@ const path = std.fs.path;
 const assert = std.debug.assert;
 const log = std.log.scoped(.mingw);
 
+const builtin = @import("builtin");
 const target_util = @import("target.zig");
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
@@ -367,39 +368,41 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         Compilation.dump_argv(&args);
     }
 
-    const child = try std.ChildProcess.init(&args, arena);
-    defer child.deinit();
+    if (std.process.can_spawn) {
+        var child = std.ChildProcess.init(&args, arena);
+        child.stdin_behavior = .Ignore;
+        child.stdout_behavior = .Pipe;
+        child.stderr_behavior = .Pipe;
 
-    child.stdin_behavior = .Ignore;
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Pipe;
+        try child.spawn();
 
-    try child.spawn();
+        const stderr_reader = child.stderr.?.reader();
 
-    const stderr_reader = child.stderr.?.reader();
+        // TODO https://github.com/ziglang/zig/issues/6343
+        const stderr = try stderr_reader.readAllAlloc(arena, 10 * 1024 * 1024);
 
-    // TODO https://github.com/ziglang/zig/issues/6343
-    const stderr = try stderr_reader.readAllAlloc(arena, 10 * 1024 * 1024);
-
-    const term = child.wait() catch |err| {
-        // TODO surface a proper error here
-        log.err("unable to spawn {s}: {s}", .{ args[0], @errorName(err) });
-        return error.ClangPreprocessorFailed;
-    };
-
-    switch (term) {
-        .Exited => |code| {
-            if (code != 0) {
-                // TODO surface a proper error here
-                log.err("clang exited with code {d} and stderr: {s}", .{ code, stderr });
-                return error.ClangPreprocessorFailed;
-            }
-        },
-        else => {
+        const term = child.wait() catch |err| {
             // TODO surface a proper error here
-            log.err("clang terminated unexpectedly with stderr: {s}", .{stderr});
+            log.err("unable to spawn {s}: {s}", .{ args[0], @errorName(err) });
             return error.ClangPreprocessorFailed;
-        },
+        };
+        switch (term) {
+            .Exited => |code| {
+                if (code != 0) {
+                    // TODO surface a proper error here
+                    log.err("clang exited with code {d} and stderr: {s}", .{ code, stderr });
+                    return error.ClangPreprocessorFailed;
+                }
+            },
+            else => {
+                // TODO surface a proper error here
+                log.err("clang terminated unexpectedly with stderr: {s}", .{stderr});
+                return error.ClangPreprocessorFailed;
+            },
+        }
+    } else {
+        log.err("unable to spawn {s}: spawning child process not supported on {s}", .{ args[0], @tagName(builtin.os.tag) });
+        return error.ClangPreprocessorFailed;
     }
 
     const lib_final_path = try comp.global_cache_directory.join(comp.gpa, &[_][]const u8{

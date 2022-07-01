@@ -6,6 +6,20 @@ const CrossTarget = std.zig.CrossTarget;
 pub fn addCases(cases: *tests.TranslateCContext) void {
     const default_enum_type = if (builtin.abi == .msvc) "c_int" else "c_uint";
 
+    cases.add("variables check for opaque demotion",
+        \\struct A {
+        \\    _Atomic int a;
+        \\} a;
+        \\int main(void) {
+        \\    struct A a;
+        \\}
+    , &[_][]const u8{
+        \\pub const struct_A = opaque {};
+        \\pub const a = @compileError("non-extern variable has opaque type");
+        ,
+        \\pub extern fn main() c_int;
+    });
+
     cases.add("field access is grouped if necessary",
         \\unsigned long foo(unsigned long x) {
         \\    return ((union{unsigned long _x}){x})._x;
@@ -3587,7 +3601,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    struct my_struct S = {.a = 1, .b = 2};
         \\}
     , &[_][]const u8{
-        \\warning: cannot initialize opaque type
+        \\warning: local variable has opaque type
         ,
         \\warning: unable to translate function, demoted to extern
         \\pub extern fn initialize() void;
@@ -3605,6 +3619,30 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         ,
         \\warning: unable to translate function, demoted to extern
         \\pub extern fn deref(arg_s: ?*struct_my_struct) void;
+    });
+
+    cases.add("Demote function that dereference types that contain opaque type",
+        \\struct inner {
+        \\    _Atomic int a;            
+        \\};
+        \\struct outer {
+        \\    int thing;
+        \\    struct inner sub_struct;
+        \\};
+        \\void deref(struct outer *s) {
+        \\    *s;
+        \\}
+    , &[_][]const u8{
+        \\pub const struct_inner = opaque {};
+        ,
+        \\pub const struct_outer = extern struct {
+        \\    thing: c_int,
+        \\    sub_struct: struct_inner,
+        \\};
+        ,
+        \\warning: unable to translate function, demoted to extern
+        ,
+        \\pub extern fn deref(arg_s: ?*struct_outer) void;
     });
 
     cases.add("Function prototype declared within function",

@@ -1,5 +1,6 @@
 const std = @import("std");
 const expect = std.testing.expect;
+const builtin = @import("builtin");
 
 test "memory size and grow" {
     var prev = @wasmMemorySize(0);

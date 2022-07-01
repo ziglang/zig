@@ -104,6 +104,7 @@ pub const ElfDynLib = struct {
     memory: []align(mem.page_size) u8,
 
     pub const Error = error{
+        FileTooBig,
         NotElfFile,
         NotDynamicLibrary,
         MissingDynamicLinkingInformation,
@@ -118,7 +119,7 @@ pub const ElfDynLib = struct {
         defer os.close(fd);
 
         const stat = try os.fstat(fd);
-        const size = try std.math.cast(usize, stat.size);
+        const size = std.math.cast(usize, stat.size) orelse return error.FileTooBig;
 
         // This one is to read the ELF info. We do more mmapping later
         // corresponding to the actual LOAD sections.
@@ -133,7 +134,7 @@ pub const ElfDynLib = struct {
         defer os.munmap(file_bytes);
 
         const eh = @ptrCast(*elf.Ehdr, file_bytes.ptr);
-        if (!mem.eql(u8, eh.e_ident[0..4], "\x7fELF")) return error.NotElfFile;
+        if (!mem.eql(u8, eh.e_ident[0..4], elf.MAGIC)) return error.NotElfFile;
         if (eh.e_type != elf.ET.DYN) return error.NotDynamicLibrary;
 
         const elf_addr = @ptrToInt(file_bytes.ptr);

@@ -64,7 +64,9 @@ int   isascii(int);
 int   toascii(int);
 #define _tolower(a) ((a)|0x20)
 #define _toupper(a) ((a)&0x5f)
+#ifndef __cplusplus
 #define isascii(a) (0 ? isascii(a) : (unsigned)(a) < 128)
+#endif
 
 #endif
 

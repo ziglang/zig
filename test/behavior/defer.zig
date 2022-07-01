@@ -32,6 +32,8 @@ test "defer and labeled break" {
 }
 
 test "errdefer does not apply to fn inside fn" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     if (testNestedFnErrDefer()) |_| @panic("expected error") else |e| try expect(e == error.Bad);
 }
 
@@ -47,6 +49,10 @@ fn testNestedFnErrDefer() anyerror!void {
 }
 
 test "return variable while defer expression in scope to modify it" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             try expect(notNull().? == 1);
@@ -84,7 +90,8 @@ fn runSomeErrorDefers(x: bool) !bool {
 }
 
 test "mixing normal and error defers" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     try expect(runSomeErrorDefers(true) catch unreachable);
     try expect(result[0] == 'c');
@@ -101,7 +108,10 @@ test "mixing normal and error defers" {
 }
 
 test "errdefer with payload" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn foo() !i32 {

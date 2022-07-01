@@ -6,9 +6,138 @@ const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const DW = std.dwarf;
 
+/// EFLAGS condition codes
+pub const Condition = enum(u5) {
+    /// above
+    a,
+    /// above or equal
+    ae,
+    /// below
+    b,
+    /// below or equal
+    be,
+    /// carry
+    c,
+    /// equal
+    e,
+    /// greater
+    g,
+    /// greater or equal
+    ge,
+    /// less
+    l,
+    /// less or equal
+    le,
+    /// not above
+    na,
+    /// not above or equal
+    nae,
+    /// not below
+    nb,
+    /// not below or equal
+    nbe,
+    /// not carry
+    nc,
+    /// not equal
+    ne,
+    /// not greater
+    ng,
+    /// not greater or equal
+    nge,
+    /// not less
+    nl,
+    /// not less or equal
+    nle,
+    /// not overflow
+    no,
+    /// not parity
+    np,
+    /// not sign
+    ns,
+    /// not zero
+    nz,
+    /// overflow
+    o,
+    /// parity
+    p,
+    /// parity even
+    pe,
+    /// parity odd
+    po,
+    /// sign
+    s,
+    /// zero
+    z,
+
+    /// Converts a std.math.CompareOperator into a condition flag,
+    /// i.e. returns the condition that is true iff the result of the
+    /// comparison is true. Assumes signed comparison
+    pub fn fromCompareOperatorSigned(op: std.math.CompareOperator) Condition {
+        return switch (op) {
+            .gte => .ge,
+            .gt => .g,
+            .neq => .ne,
+            .lt => .l,
+            .lte => .le,
+            .eq => .e,
+        };
+    }
+
+    /// Converts a std.math.CompareOperator into a condition flag,
+    /// i.e. returns the condition that is true iff the result of the
+    /// comparison is true. Assumes unsigned comparison
+    pub fn fromCompareOperatorUnsigned(op: std.math.CompareOperator) Condition {
+        return switch (op) {
+            .gte => .ae,
+            .gt => .a,
+            .neq => .ne,
+            .lt => .b,
+            .lte => .be,
+            .eq => .e,
+        };
+    }
+
+    /// Returns the condition which is true iff the given condition is
+    /// false (if such a condition exists)
+    pub fn negate(cond: Condition) Condition {
+        return switch (cond) {
+            .a => .na,
+            .ae => .nae,
+            .b => .nb,
+            .be => .nbe,
+            .c => .nc,
+            .e => .ne,
+            .g => .ng,
+            .ge => .nge,
+            .l => .nl,
+            .le => .nle,
+            .na => .a,
+            .nae => .ae,
+            .nb => .b,
+            .nbe => .be,
+            .nc => .c,
+            .ne => .e,
+            .ng => .g,
+            .nge => .ge,
+            .nl => .l,
+            .nle => .le,
+            .no => .o,
+            .np => .p,
+            .ns => .s,
+            .nz => .z,
+            .o => .no,
+            .p => .np,
+            .pe => unreachable,
+            .po => unreachable,
+            .s => .ns,
+            .z => .nz,
+        };
+    }
+};
+
 // zig fmt: off
 
-/// Definitions of all of the x64 registers. The order is semantically meaningful.
+/// Definitions of all of the general purpose x64 registers. The order is semantically meaningful.
 /// The registers are defined such that IDs go in descending order of 64-bit,
 /// 32-bit, 16-bit, and then 8-bit, and each set contains exactly sixteen
 /// registers. This results in some useful properties:
@@ -30,30 +159,49 @@ pub const Register = enum(u7) {
 
     // 16 through 31, 32-bit registers. 24-31 are extended.
     // id is int value - 16.
-    eax, ecx, edx, ebx, esp, ebp, esi, edi, 
+    eax, ecx, edx, ebx, esp, ebp, esi, edi,
     r8d, r9d, r10d, r11d, r12d, r13d, r14d, r15d,
 
     // 32-47, 16-bit registers. 40-47 are extended.
     // id is int value - 32.
     ax, cx, dx, bx, sp, bp, si, di,
     r8w, r9w, r10w, r11w, r12w, r13w, r14w, r15w,
-    
+
     // 48-63, 8-bit registers. 56-63 are extended.
     // id is int value - 48.
     al, cl, dl, bl, ah, ch, dh, bh,
     r8b, r9b, r10b, r11b, r12b, r13b, r14b, r15b,
 
-    // Pseudo, used only for MIR to signify that the
-    // operand is not a register but an immediate, etc.
+    // 64-79, 256-bit registers.
+    // id is int value - 64.
+    ymm0, ymm1, ymm2,  ymm3,  ymm4,  ymm5,  ymm6,  ymm7,
+    ymm8, ymm9, ymm10, ymm11, ymm12, ymm13, ymm14, ymm15,
+
+    // 80-95, 128-bit registers.
+    // id is int value - 80.
+    xmm0, xmm1, xmm2,  xmm3,  xmm4,  xmm5,  xmm6,  xmm7,
+    xmm8, xmm9, xmm10, xmm11, xmm12, xmm13, xmm14, xmm15,
+
+    // Pseudo-value for MIR instructions.
     none,
 
+    pub fn id(self: Register) u7 {
+        return switch (@enumToInt(self)) {
+            0...63 => @as(u7, @truncate(u4, @enumToInt(self))),
+            64...79 => @enumToInt(self),
+            else => unreachable,
+        };
+    }
+        
     /// Returns the bit-width of the register.
-    pub fn size(self: Register) u7 {
+    pub fn size(self: Register) u9 {
         return switch (@enumToInt(self)) {
             0...15 => 64,
             16...31 => 32,
             32...47 => 16,
-            48...64 => 8,
+            48...63 => 8,
+            64...79 => 256,
+            80...95 => 128,
             else => unreachable,
         };
     }
@@ -72,47 +220,41 @@ pub const Register = enum(u7) {
     /// an instruction (@see isExtended), and requires special handling. The
     /// lower three bits are often embedded directly in instructions (such as
     /// the B8 variant of moves), or used in R/M bytes.
-    pub fn id(self: Register) u4 {
+    pub fn enc(self: Register) u4 {
         return @truncate(u4, @enumToInt(self));
     }
 
-    /// Like id, but only returns the lower 3 bits.
-    pub fn lowId(self: Register) u3 {
+    /// Like enc, but only returns the lower 3 bits.
+    pub fn lowEnc(self: Register) u3 {
         return @truncate(u3, @enumToInt(self));
     }
 
-    /// Returns the index into `callee_preserved_regs`.
-    pub fn allocIndex(self: Register) ?u4 {
-        return switch (self) {
-            .rcx, .ecx, .cx, .cl => 0,
-            .rsi, .esi, .si => 1,
-            .rdi, .edi, .di => 2,
-            .r8, .r8d, .r8w, .r8b => 3,
-            .r9, .r9d, .r9w, .r9b => 4,
-            .r10, .r10d, .r10w, .r10b => 5,
-            .r11, .r11d, .r11w, .r11b => 6,
-            else => null,
-        };
+    pub fn to256(self: Register) Register {
+        return @intToEnum(Register, @as(u8, self.enc()) + 64);
+    }
+
+    pub fn to128(self: Register) Register {
+        return @intToEnum(Register, @as(u8, self.enc()) + 80);
     }
 
     /// Convert from any register to its 64 bit alias.
     pub fn to64(self: Register) Register {
-        return @intToEnum(Register, self.id());
+        return @intToEnum(Register, self.enc());
     }
 
     /// Convert from any register to its 32 bit alias.
     pub fn to32(self: Register) Register {
-        return @intToEnum(Register, @as(u8, self.id()) + 16);
+        return @intToEnum(Register, @as(u8, self.enc()) + 16);
     }
 
     /// Convert from any register to its 16 bit alias.
     pub fn to16(self: Register) Register {
-        return @intToEnum(Register, @as(u8, self.id()) + 32);
+        return @intToEnum(Register, @as(u8, self.enc()) + 32);
     }
 
     /// Convert from any register to its 8 bit alias.
     pub fn to8(self: Register) Register {
-        return @intToEnum(Register, @as(u8, self.id()) + 48);
+        return @intToEnum(Register, @as(u8, self.enc()) + 48);
     }
 
     pub fn dwarfLocOp(self: Register) u8 {
@@ -141,13 +283,6 @@ pub const Register = enum(u7) {
 };
 
 // zig fmt: on
-
-/// TODO this set is actually a set of caller-saved registers.
-/// These registers need to be preserved (saved on the stack) and restored by the callee before getting clobbered
-/// and when the callee returns.
-pub const callee_preserved_regs = [_]Register{ .rcx, .rsi, .rdi, .r8, .r9, .r10, .r11 };
-pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
-pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };
 
 /// Encoding helper functions for x86_64 instructions
 ///
@@ -272,6 +407,115 @@ pub const Encoder = struct {
         self.code.appendAssumeCapacity(0x66);
     }
 
+    pub const Vex = struct {
+        rex_prefix: Rex = .{},
+        lead_opc: u5 = 0b0_0001,
+        register: u4 = 0b1111,
+        length: u1 = 0b0,
+        simd_prefix: u2 = 0b00,
+        wig_desc: bool = false,
+        lig_desc: bool = false,
+        lz_desc: bool = false,
+
+        pub fn rex(self: *Vex, r: Rex) void {
+            self.rex_prefix = r;
+        }
+
+        pub fn lead_opc_0f(self: *Vex) void {
+            self.lead_opc = 0b0_0001;
+        }
+
+        pub fn lead_opc_0f_38(self: *Vex) void {
+            self.lead_opc = 0b0_0010;
+        }
+
+        pub fn lead_opc_0f_3a(self: *Vex) void {
+            self.lead_opc = 0b0_0011;
+        }
+
+        pub fn reg(self: *Vex, register: u4) void {
+            self.register = ~register;
+        }
+
+        pub fn len_128(self: *Vex) void {
+            self.length = 0;
+        }
+
+        pub fn len_256(self: *Vex) void {
+            assert(!self.lz_desc);
+            self.length = 1;
+        }
+
+        pub fn simd_prefix_66(self: *Vex) void {
+            self.simd_prefix = 0b01;
+        }
+
+        pub fn simd_prefix_f3(self: *Vex) void {
+            self.simd_prefix = 0b10;
+        }
+
+        pub fn simd_prefix_f2(self: *Vex) void {
+            self.simd_prefix = 0b11;
+        }
+
+        pub fn wig(self: *Vex) void {
+            self.wig_desc = true;
+        }
+
+        pub fn lig(self: *Vex) void {
+            self.lig_desc = true;
+        }
+
+        pub fn lz(self: *Vex) void {
+            self.lz_desc = true;
+        }
+
+        pub fn write(self: Vex, writer: anytype) usize {
+            var buf: [3]u8 = .{0} ** 3;
+            const form_3byte: bool = blk: {
+                if (self.rex_prefix.w and !self.wig_desc) break :blk true;
+                if (self.rex_prefix.x or self.rex_prefix.b) break :blk true;
+                break :blk self.lead_opc != 0b0_0001;
+            };
+
+            if (self.lz_desc) {
+                assert(self.length == 0);
+            }
+
+            if (form_3byte) {
+                // First byte
+                buf[0] = 0xc4;
+                // Second byte
+                const rxb_mask: u3 = @intCast(u3, @boolToInt(!self.rex_prefix.r)) << 2 |
+                    @intCast(u2, @boolToInt(!self.rex_prefix.x)) << 1 |
+                    @boolToInt(!self.rex_prefix.b);
+                buf[1] |= @intCast(u8, rxb_mask) << 5;
+                buf[1] |= self.lead_opc;
+                // Third byte
+                buf[2] |= @intCast(u8, @boolToInt(!self.rex_prefix.w)) << 7;
+                buf[2] |= @intCast(u7, self.register) << 3;
+                buf[2] |= @intCast(u3, self.length) << 2;
+                buf[2] |= self.simd_prefix;
+            } else {
+                // First byte
+                buf[0] = 0xc5;
+                // Second byte
+                buf[1] |= @intCast(u8, @boolToInt(!self.rex_prefix.r)) << 7;
+                buf[1] |= @intCast(u7, self.register) << 3;
+                buf[1] |= @intCast(u3, self.length) << 2;
+                buf[1] |= self.simd_prefix;
+            }
+
+            const count: usize = if (form_3byte) 3 else 2;
+            _ = writer.writeAll(buf[0..count]) catch unreachable;
+            return count;
+        }
+    };
+
+    pub fn vex(self: Self, prefix: Vex) void {
+        _ = prefix.write(self.code.writer());
+    }
+
     /// From section 2.2.1.2 of the manual, REX is encoded as b0100WRXB
     pub const Rex = struct {
         /// Wide, enables 64-bit operation
@@ -323,6 +567,17 @@ pub const Encoder = struct {
     /// encoder.opcode_2byte(0x0f, 0xaf);
     pub fn opcode_2byte(self: Self, prefix: u8, opcode: u8) void {
         self.code.appendAssumeCapacity(prefix);
+        self.code.appendAssumeCapacity(opcode);
+    }
+
+    /// Encodes a 3 byte opcode
+    ///
+    /// e.g. MOVSD has the opcode 0xf2 0x0f 0x10
+    ///
+    /// encoder.opcode_3byte(0xf2, 0x0f, 0x10);
+    pub fn opcode_3byte(self: Self, prefix_1: u8, prefix_2: u8, opcode: u8) void {
+        self.code.appendAssumeCapacity(prefix_1);
+        self.code.appendAssumeCapacity(prefix_2);
         self.code.appendAssumeCapacity(opcode);
     }
 
@@ -564,7 +819,7 @@ pub const Encoder = struct {
     }
 };
 
-test "x86_64 Encoder helpers" {
+test "Encoder helpers - general purpose registers" {
     var code = ArrayList(u8).init(testing.allocator);
     defer code.deinit();
 
@@ -581,8 +836,8 @@ test "x86_64 Encoder helpers" {
         });
         encoder.opcode_2byte(0x0f, 0xaf);
         encoder.modRm_direct(
-            Register.eax.lowId(),
-            Register.edi.lowId(),
+            Register.eax.lowEnc(),
+            Register.edi.lowEnc(),
         );
 
         try testing.expectEqualSlices(u8, &[_]u8{ 0x0f, 0xaf, 0xc7 }, code.items);
@@ -601,8 +856,8 @@ test "x86_64 Encoder helpers" {
         });
         encoder.opcode_1byte(0x89);
         encoder.modRm_direct(
-            Register.edi.lowId(),
-            Register.eax.lowId(),
+            Register.edi.lowEnc(),
+            Register.eax.lowEnc(),
         );
 
         try testing.expectEqualSlices(u8, &[_]u8{ 0x89, 0xf8 }, code.items);
@@ -628,11 +883,91 @@ test "x86_64 Encoder helpers" {
         encoder.opcode_1byte(0x81);
         encoder.modRm_direct(
             0,
-            Register.rcx.lowId(),
+            Register.rcx.lowEnc(),
         );
         encoder.imm32(2147483647);
 
         try testing.expectEqualSlices(u8, &[_]u8{ 0x48, 0x81, 0xc1, 0xff, 0xff, 0xff, 0x7f }, code.items);
+    }
+}
+
+test "Encoder helpers - Vex prefix" {
+    var buf: [3]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    const writer = stream.writer();
+
+    {
+        var vex_prefix = Encoder.Vex{};
+        vex_prefix.rex(.{
+            .r = true,
+        });
+        const nwritten = vex_prefix.write(writer);
+        try testing.expectEqualSlices(u8, &[_]u8{ 0xc5, 0x78 }, buf[0..nwritten]);
+    }
+
+    {
+        stream.reset();
+        var vex_prefix = Encoder.Vex{};
+        vex_prefix.reg(Register.xmm15.enc());
+        const nwritten = vex_prefix.write(writer);
+        try testing.expectEqualSlices(u8, &[_]u8{ 0xc5, 0x80 }, buf[0..nwritten]);
+    }
+
+    {
+        stream.reset();
+        var vex_prefix = Encoder.Vex{};
+        vex_prefix.rex(.{
+            .w = true,
+            .x = true,
+        });
+        const nwritten = vex_prefix.write(writer);
+        try testing.expectEqualSlices(u8, &[_]u8{ 0xc4, 0b101_0_0001, 0b0_1111_0_00 }, buf[0..nwritten]);
+    }
+
+    {
+        stream.reset();
+        var vex_prefix = Encoder.Vex{};
+        vex_prefix.rex(.{
+            .w = true,
+            .r = true,
+        });
+        vex_prefix.len_256();
+        vex_prefix.lead_opc_0f();
+        vex_prefix.simd_prefix_66();
+        const nwritten = vex_prefix.write(writer);
+        try testing.expectEqualSlices(u8, &[_]u8{ 0xc4, 0b011_0_0001, 0b0_1111_1_01 }, buf[0..nwritten]);
+    }
+
+    var code = ArrayList(u8).init(testing.allocator);
+    defer code.deinit();
+
+    {
+        // vmovapd xmm1, xmm2
+        const encoder = try Encoder.init(&code, 4);
+        var vex = Encoder.Vex{};
+        vex.simd_prefix_66();
+        encoder.vex(vex); // use 64 bit operation
+        encoder.opcode_1byte(0x28);
+        encoder.modRm_direct(0, Register.xmm1.lowEnc());
+        try testing.expectEqualSlices(u8, &[_]u8{ 0xC5, 0xF9, 0x28, 0xC1 }, code.items);
+    }
+
+    {
+        try code.resize(0);
+
+        // vmovhpd xmm13, xmm1, qword ptr [rip]
+        const encoder = try Encoder.init(&code, 9);
+        var vex = Encoder.Vex{};
+        vex.len_128();
+        vex.simd_prefix_66();
+        vex.lead_opc_0f();
+        vex.rex(.{ .r = true });
+        vex.reg(Register.xmm1.enc());
+        encoder.vex(vex);
+        encoder.opcode_1byte(0x16);
+        encoder.modRm_RIPDisp32(Register.xmm13.lowEnc());
+        encoder.disp32(0);
+        try testing.expectEqualSlices(u8, &[_]u8{ 0xC5, 0x71, 0x16, 0x2D, 0x00, 0x00, 0x00, 0x00 }, code.items);
     }
 }
 

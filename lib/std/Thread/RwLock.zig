@@ -3,15 +3,12 @@
 //! This API requires being initialized at runtime, and initialization
 //! can fail. Once initialized, the core operations cannot fail.
 
-impl: Impl,
+impl: Impl = .{},
 
 const RwLock = @This();
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const Mutex = std.Thread.Mutex;
-const Semaphore = std.Semaphore;
-const CondVar = std.CondVar;
 
 pub const Impl = if (builtin.single_threaded)
     SingleThreadedRwLock
@@ -19,14 +16,6 @@ else if (std.Thread.use_pthreads)
     PthreadRwLock
 else
     DefaultRwLock;
-
-pub fn init(rwl: *RwLock) void {
-    return rwl.impl.init();
-}
-
-pub fn deinit(rwl: *RwLock) void {
-    return rwl.impl.deinit();
-}
 
 /// Attempts to obtain exclusive lock ownership.
 /// Returns `true` if the lock is obtained, `false` otherwise.
@@ -64,20 +53,8 @@ pub fn unlockShared(rwl: *RwLock) void {
 /// Single-threaded applications use this for deadlock checks in
 /// debug mode, and no-ops in release modes.
 pub const SingleThreadedRwLock = struct {
-    state: enum { unlocked, locked_exclusive, locked_shared },
-    shared_count: usize,
-
-    pub fn init(rwl: *SingleThreadedRwLock) void {
-        rwl.* = .{
-            .state = .unlocked,
-            .shared_count = 0,
-        };
-    }
-
-    pub fn deinit(rwl: *SingleThreadedRwLock) void {
-        assert(rwl.state == .unlocked);
-        assert(rwl.shared_count == 0);
-    }
+    state: enum { unlocked, locked_exclusive, locked_shared } = .unlocked,
+    shared_count: usize = 0,
 
     /// Attempts to obtain exclusive lock ownership.
     /// Returns `true` if the lock is obtained, `false` otherwise.
@@ -152,76 +129,48 @@ pub const SingleThreadedRwLock = struct {
 };
 
 pub const PthreadRwLock = struct {
-    rwlock: pthread_rwlock_t,
-
-    pub fn init(rwl: *PthreadRwLock) void {
-        rwl.* = .{ .rwlock = .{} };
-    }
-
-    pub fn deinit(rwl: *PthreadRwLock) void {
-        const safe_rc: std.os.E = switch (builtin.os.tag) {
-            .dragonfly, .netbsd => .AGAIN,
-            else => .SUCCESS,
-        };
-        const rc = std.c.pthread_rwlock_destroy(&rwl.rwlock);
-        assert(rc == .SUCCESS or rc == safe_rc);
-        rwl.* = undefined;
-    }
+    rwlock: std.c.pthread_rwlock_t = .{},
 
     pub fn tryLock(rwl: *PthreadRwLock) bool {
-        return pthread_rwlock_trywrlock(&rwl.rwlock) == .SUCCESS;
+        return std.c.pthread_rwlock_trywrlock(&rwl.rwlock) == .SUCCESS;
     }
 
     pub fn lock(rwl: *PthreadRwLock) void {
-        const rc = pthread_rwlock_wrlock(&rwl.rwlock);
+        const rc = std.c.pthread_rwlock_wrlock(&rwl.rwlock);
         assert(rc == .SUCCESS);
     }
 
     pub fn unlock(rwl: *PthreadRwLock) void {
-        const rc = pthread_rwlock_unlock(&rwl.rwlock);
+        const rc = std.c.pthread_rwlock_unlock(&rwl.rwlock);
         assert(rc == .SUCCESS);
     }
 
     pub fn tryLockShared(rwl: *PthreadRwLock) bool {
-        return pthread_rwlock_tryrdlock(&rwl.rwlock) == .SUCCESS;
+        return std.c.pthread_rwlock_tryrdlock(&rwl.rwlock) == .SUCCESS;
     }
 
     pub fn lockShared(rwl: *PthreadRwLock) void {
-        const rc = pthread_rwlock_rdlock(&rwl.rwlock);
+        const rc = std.c.pthread_rwlock_rdlock(&rwl.rwlock);
         assert(rc == .SUCCESS);
     }
 
     pub fn unlockShared(rwl: *PthreadRwLock) void {
-        const rc = pthread_rwlock_unlock(&rwl.rwlock);
+        const rc = std.c.pthread_rwlock_unlock(&rwl.rwlock);
         assert(rc == .SUCCESS);
     }
 };
 
 pub const DefaultRwLock = struct {
-    state: usize,
-    mutex: Mutex,
-    semaphore: Semaphore,
+    state: usize = 0,
+    mutex: std.Thread.Mutex = .{},
+    semaphore: std.Thread.Semaphore = .{},
 
     const IS_WRITING: usize = 1;
     const WRITER: usize = 1 << 1;
-    const READER: usize = 1 << (1 + std.meta.bitCount(Count));
+    const READER: usize = 1 << (1 + @bitSizeOf(Count));
     const WRITER_MASK: usize = std.math.maxInt(Count) << @ctz(usize, WRITER);
     const READER_MASK: usize = std.math.maxInt(Count) << @ctz(usize, READER);
-    const Count = std.meta.Int(.unsigned, @divFloor(std.meta.bitCount(usize) - 1, 2));
-
-    pub fn init(rwl: *DefaultRwLock) void {
-        rwl.* = .{
-            .state = 0,
-            .mutex = Mutex.init(),
-            .semaphore = Semaphore.init(0),
-        };
-    }
-
-    pub fn deinit(rwl: *DefaultRwLock) void {
-        rwl.semaphore.deinit();
-        rwl.mutex.deinit();
-        rwl.* = undefined;
-    }
+    const Count = std.meta.Int(.unsigned, @divFloor(@bitSizeOf(usize) - 1, 2));
 
     pub fn tryLock(rwl: *DefaultRwLock) bool {
         if (rwl.mutex.tryLock()) {

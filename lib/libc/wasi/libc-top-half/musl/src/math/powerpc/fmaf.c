@@ -1,6 +1,6 @@
 #include <math.h>
 
-#ifdef _SOFT_FLOAT
+#if defined(_SOFT_FLOAT) || defined(__NO_FPRS__)
 
 #include "../fmaf.c"
 

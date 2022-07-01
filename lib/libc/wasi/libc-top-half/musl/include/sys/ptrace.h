@@ -42,6 +42,7 @@ extern "C" {
 #define PTRACE_SECCOMP_GET_FILTER 0x420c
 #define PTRACE_SECCOMP_GET_METADATA 0x420d
 #define PTRACE_GET_SYSCALL_INFO 0x420e
+#define PTRACE_GET_RSEQ_CONFIGURATION	0x420f
 
 #define PT_READ_I PTRACE_PEEKTEXT
 #define PT_READ_D PTRACE_PEEKDATA
@@ -128,6 +129,14 @@ struct __ptrace_syscall_info {
 			uint32_t ret_data;
 		} seccomp;
 	};
+};
+
+struct __ptrace_rseq_configuration {
+	uint64_t rseq_abi_pointer;
+	uint32_t rseq_abi_size;
+	uint32_t signature;
+	uint32_t flags;
+	uint32_t pad;
 };
 
 long ptrace(int, ...);

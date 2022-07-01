@@ -33,8 +33,8 @@ fn tanh32(z: Complex(f32)) Complex(f32) {
             return Complex(f32).init(x, r);
         }
         const xx = @bitCast(f32, hx - 0x40000000);
-        const r = if (math.isInf(y)) y else math.sin(y) * math.cos(y);
-        return Complex(f32).init(xx, math.copysign(f32, 0, r));
+        const r = if (math.isInf(y)) y else @sin(y) * @cos(y);
+        return Complex(f32).init(xx, math.copysign(@as(f32, 0.0), r));
     }
 
     if (!math.isFinite(y)) {
@@ -44,15 +44,15 @@ fn tanh32(z: Complex(f32)) Complex(f32) {
 
     // x >= 11
     if (ix >= 0x41300000) {
-        const exp_mx = math.exp(-math.fabs(x));
-        return Complex(f32).init(math.copysign(f32, 1, x), 4 * math.sin(y) * math.cos(y) * exp_mx * exp_mx);
+        const exp_mx = @exp(-@fabs(x));
+        return Complex(f32).init(math.copysign(@as(f32, 1.0), x), 4 * @sin(y) * @cos(y) * exp_mx * exp_mx);
     }
 
     // Kahan's algorithm
-    const t = math.tan(y);
+    const t = @tan(y);
     const beta = 1.0 + t * t;
     const s = math.sinh(x);
-    const rho = math.sqrt(1 + s * s);
+    const rho = @sqrt(1 + s * s);
     const den = 1 + beta * s * s;
 
     return Complex(f32).init((beta * rho * s) / den, t / den);
@@ -76,8 +76,8 @@ fn tanh64(z: Complex(f64)) Complex(f64) {
         }
 
         const xx = @bitCast(f64, (@as(u64, hx - 0x40000000) << 32) | lx);
-        const r = if (math.isInf(y)) y else math.sin(y) * math.cos(y);
-        return Complex(f64).init(xx, math.copysign(f64, 0, r));
+        const r = if (math.isInf(y)) y else @sin(y) * @cos(y);
+        return Complex(f64).init(xx, math.copysign(@as(f64, 0.0), r));
     }
 
     if (!math.isFinite(y)) {
@@ -87,15 +87,15 @@ fn tanh64(z: Complex(f64)) Complex(f64) {
 
     // x >= 22
     if (ix >= 0x40360000) {
-        const exp_mx = math.exp(-math.fabs(x));
-        return Complex(f64).init(math.copysign(f64, 1, x), 4 * math.sin(y) * math.cos(y) * exp_mx * exp_mx);
+        const exp_mx = @exp(-@fabs(x));
+        return Complex(f64).init(math.copysign(@as(f64, 1.0), x), 4 * @sin(y) * @cos(y) * exp_mx * exp_mx);
     }
 
     // Kahan's algorithm
-    const t = math.tan(y);
+    const t = @tan(y);
     const beta = 1.0 + t * t;
     const s = math.sinh(x);
-    const rho = math.sqrt(1 + s * s);
+    const rho = @sqrt(1 + s * s);
     const den = 1 + beta * s * s;
 
     return Complex(f64).init((beta * rho * s) / den, t / den);

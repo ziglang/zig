@@ -23,7 +23,7 @@ pub var log_level = std.log.Level.warn;
 pub var zig_exe_path: []const u8 = undefined;
 
 /// This function is intended to be used only in tests. It prints diagnostics to stderr
-/// and then aborts when actual_error_union is not expected_error.
+/// and then returns a test failure error when actual_error_union is not expected_error.
 pub fn expectError(expected_error: anyerror, actual_error_union: anytype) !void {
     if (actual_error_union) |actual_payload| {
         std.debug.print("expected error.{s}, found {any}\n", .{ @errorName(expected_error), actual_payload });
@@ -41,7 +41,7 @@ pub fn expectError(expected_error: anyerror, actual_error_union: anytype) !void 
 
 /// This function is intended to be used only in tests. When the two values are not
 /// equal, prints diagnostics to stderr to show exactly how they are not equal,
-/// then aborts.
+/// then returns a test failure error.
 /// `actual` is casted to the type of `expected`.
 pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) !void {
     switch (@typeInfo(@TypeOf(actual))) {
@@ -212,7 +212,7 @@ pub fn expectFmt(expected: []const u8, comptime template: []const u8, args: anyt
 
 /// This function is intended to be used only in tests. When the actual value is
 /// not approximately equal to the expected value, prints diagnostics to stderr
-/// to show exactly how they are not equal, then aborts.
+/// to show exactly how they are not equal, then returns a test failure error.
 /// See `math.approxEqAbs` for more informations on the tolerance parameter.
 /// The types must be floating point
 pub fn expectApproxEqAbs(expected: anytype, actual: @TypeOf(expected), tolerance: @TypeOf(expected)) !void {
@@ -244,7 +244,7 @@ test "expectApproxEqAbs" {
 
 /// This function is intended to be used only in tests. When the actual value is
 /// not approximately equal to the expected value, prints diagnostics to stderr
-/// to show exactly how they are not equal, then aborts.
+/// to show exactly how they are not equal, then returns a test failure error.
 /// See `math.approxEqRel` for more informations on the tolerance parameter.
 /// The types must be floating point
 pub fn expectApproxEqRel(expected: anytype, actual: @TypeOf(expected), tolerance: @TypeOf(expected)) !void {
@@ -265,7 +265,7 @@ pub fn expectApproxEqRel(expected: anytype, actual: @TypeOf(expected), tolerance
 test "expectApproxEqRel" {
     inline for ([_]type{ f16, f32, f64, f128 }) |T| {
         const eps_value = comptime math.epsilon(T);
-        const sqrt_eps_value = comptime math.sqrt(eps_value);
+        const sqrt_eps_value = comptime @sqrt(eps_value);
 
         const pos_x: T = 12.0;
         const pos_y: T = pos_x + 2 * eps_value;
@@ -279,7 +279,7 @@ test "expectApproxEqRel" {
 
 /// This function is intended to be used only in tests. When the two slices are not
 /// equal, prints diagnostics to stderr to show exactly how they are not equal,
-/// then aborts.
+/// then returns a test failure error.
 /// If your inputs are UTF-8 encoded strings, consider calling `expectEqualStrings` instead.
 pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const T) !void {
     // TODO better printing of the difference
@@ -299,8 +299,50 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     }
 }
 
-/// This function is intended to be used only in tests. When `ok` is false, the test fails.
-/// A message is printed to stderr and then abort is called.
+/// This function is intended to be used only in tests. Checks that two slices or two arrays are equal,
+/// including that their sentinel (if any) are the same. Will error if given another type.
+pub fn expectEqualSentinel(comptime T: type, comptime sentinel: T, expected: [:sentinel]const T, actual: [:sentinel]const T) !void {
+    try expectEqualSlices(T, expected, actual);
+
+    const expected_value_sentinel = blk: {
+        switch (@typeInfo(@TypeOf(expected))) {
+            .Pointer => {
+                break :blk expected[expected.len];
+            },
+            .Array => |array_info| {
+                const indexable_outside_of_bounds = @as([]const array_info.child, &expected);
+                break :blk indexable_outside_of_bounds[indexable_outside_of_bounds.len];
+            },
+            else => {},
+        }
+    };
+
+    const actual_value_sentinel = blk: {
+        switch (@typeInfo(@TypeOf(actual))) {
+            .Pointer => {
+                break :blk actual[actual.len];
+            },
+            .Array => |array_info| {
+                const indexable_outside_of_bounds = @as([]const array_info.child, &actual);
+                break :blk indexable_outside_of_bounds[indexable_outside_of_bounds.len];
+            },
+            else => {},
+        }
+    };
+
+    if (!std.meta.eql(sentinel, expected_value_sentinel)) {
+        std.debug.print("expectEqualSentinel: 'expected' sentinel in memory is different from its type sentinel. type sentinel {}, in memory sentinel {}\n", .{ sentinel, expected_value_sentinel });
+        return error.TestExpectedEqual;
+    }
+
+    if (!std.meta.eql(sentinel, actual_value_sentinel)) {
+        std.debug.print("expectEqualSentinel: 'actual' sentinel in memory is different from its type sentinel. type sentinel {}, in memory sentinel {}\n", .{ sentinel, actual_value_sentinel });
+        return error.TestExpectedEqual;
+    }
+}
+
+/// This function is intended to be used only in tests.
+/// When `ok` is false, returns a test failure error.
 pub fn expect(ok: bool) !void {
     if (!ok) return error.TestUnexpectedResult;
 }
@@ -325,7 +367,7 @@ fn getCwdOrWasiPreopen() std.fs.Dir {
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         var preopens = std.fs.wasi.PreopenList.init(allocator);
         defer preopens.deinit();
-        preopens.populate() catch
+        preopens.populate(null) catch
             @panic("unable to make tmp dir for testing: unable to populate preopens");
         const preopen = preopens.find(std.fs.wasi.PreopenType{ .Dir = "." }) orelse
             @panic("unable to make tmp dir for testing: didn't find '.' in the preopens");
@@ -403,6 +445,26 @@ pub fn expectEqualStrings(expected: []const u8, actual: []const u8) !void {
     }
 }
 
+pub fn expectStringStartsWith(actual: []const u8, expected_starts_with: []const u8) !void {
+    if (std.mem.startsWith(u8, actual, expected_starts_with))
+        return;
+
+    const shortened_actual = if (actual.len >= expected_starts_with.len)
+        actual[0..expected_starts_with.len]
+    else
+        actual;
+
+    print("\n====== expected to start with: =========\n", .{});
+    printWithVisibleNewlines(expected_starts_with);
+    print("\n====== instead ended with: ===========\n", .{});
+    printWithVisibleNewlines(shortened_actual);
+    print("\n========= full output: ==============\n", .{});
+    printWithVisibleNewlines(actual);
+    print("\n======================================\n", .{});
+
+    return error.TestExpectedStartsWith;
+}
+
 pub fn expectStringEndsWith(actual: []const u8, expected_ends_with: []const u8) !void {
     if (std.mem.endsWith(u8, actual, expected_ends_with))
         return;
@@ -462,10 +524,168 @@ test {
     try expectEqualStrings("foo", "foo");
 }
 
+/// Exhaustively check that allocation failures within `test_fn` are handled without
+/// introducing memory leaks. If used with the `testing.allocator` as the `backing_allocator`,
+/// it will also be able to detect double frees, etc (when runtime safety is enabled).
+///
+/// The provided `test_fn` must have a `std.mem.Allocator` as its first argument,
+/// and must have a return type of `!void`. Any extra arguments of `test_fn` can
+/// be provided via the `extra_args` tuple.
+///
+/// Any relevant state shared between runs of `test_fn` *must* be reset within `test_fn`.
+///
+/// The strategy employed is to:
+/// - Run the test function once to get the total number of allocations.
+/// - Then, iterate and run the function X more times, incrementing
+///   the failing index each iteration (where X is the total number of
+///   allocations determined previously)
+///
+/// Expects that `test_fn` has a deterministic number of memory allocations:
+/// - If an allocation was made to fail during a run of `test_fn`, but `test_fn`
+///   didn't return `error.OutOfMemory`, then `error.SwallowedOutOfMemoryError`
+///   is returned from `checkAllAllocationFailures`. You may want to ignore this
+///   depending on whether or not the code you're testing includes some strategies
+///   for recovering from `error.OutOfMemory`.
+/// - If a run of `test_fn` with an expected allocation failure executes without
+///   an allocation failure being induced, then `error.NondeterministicMemoryUsage`
+///   is returned. This error means that there are allocation points that won't be
+///   tested by the strategy this function employs (that is, there are sometimes more
+///   points of allocation than the initial run of `test_fn` detects).
+///
+/// ---
+///
+/// Here's an example using a simple test case that will cause a leak when the
+/// allocation of `bar` fails (but will pass normally):
+///
+/// ```zig
+/// test {
+///     const length: usize = 10;
+///     const allocator = std.testing.allocator;
+///     var foo = try allocator.alloc(u8, length);
+///     var bar = try allocator.alloc(u8, length);
+///
+///     allocator.free(foo);
+///     allocator.free(bar);
+/// }
+/// ```
+///
+/// The test case can be converted to something that this function can use by
+/// doing:
+///
+/// ```zig
+/// fn testImpl(allocator: std.mem.Allocator, length: usize) !void {
+///     var foo = try allocator.alloc(u8, length);
+///     var bar = try allocator.alloc(u8, length);
+///
+///     allocator.free(foo);
+///     allocator.free(bar);
+/// }
+///
+/// test {
+///     const length: usize = 10;
+///     const allocator = std.testing.allocator;
+///     try std.testing.checkAllAllocationFailures(allocator, testImpl, .{length});
+/// }
+/// ```
+///
+/// Running this test will show that `foo` is leaked when the allocation of
+/// `bar` fails. The simplest fix, in this case, would be to use defer like so:
+///
+/// ```zig
+/// fn testImpl(allocator: std.mem.Allocator, length: usize) !void {
+///     var foo = try allocator.alloc(u8, length);
+///     defer allocator.free(foo);
+///     var bar = try allocator.alloc(u8, length);
+///     defer allocator.free(bar);
+/// }
+/// ```
+pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime test_fn: anytype, extra_args: anytype) !void {
+    switch (@typeInfo(@typeInfo(@TypeOf(test_fn)).Fn.return_type.?)) {
+        .ErrorUnion => |info| {
+            if (info.payload != void) {
+                @compileError("Return type must be !void");
+            }
+        },
+        else => @compileError("Return type must be !void"),
+    }
+    if (@typeInfo(@TypeOf(extra_args)) != .Struct) {
+        @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(extra_args)));
+    }
+
+    const ArgsTuple = std.meta.ArgsTuple(@TypeOf(test_fn));
+    const fn_args_fields = @typeInfo(ArgsTuple).Struct.fields;
+    if (fn_args_fields.len == 0 or fn_args_fields[0].field_type != std.mem.Allocator) {
+        @compileError("The provided function must have an " ++ @typeName(std.mem.Allocator) ++ " as its first argument");
+    }
+    const expected_args_tuple_len = fn_args_fields.len - 1;
+    if (extra_args.len != expected_args_tuple_len) {
+        @compileError("The provided function expects " ++ (comptime std.fmt.comptimePrint("{d}", .{expected_args_tuple_len})) ++ " extra arguments, but the provided tuple contains " ++ (comptime std.fmt.comptimePrint("{d}", .{extra_args.len})));
+    }
+
+    // Setup the tuple that will actually be used with @call (we'll need to insert
+    // the failing allocator in field @"0" before each @call)
+    var args: ArgsTuple = undefined;
+    inline for (@typeInfo(@TypeOf(extra_args)).Struct.fields) |field, i| {
+        const expected_type = fn_args_fields[i + 1].field_type;
+        if (expected_type != field.field_type) {
+            @compileError("Unexpected type for extra argument at index " ++ (comptime std.fmt.comptimePrint("{d}", .{i})) ++ ": expected " ++ @typeName(expected_type) ++ ", found " ++ @typeName(field.field_type));
+        }
+        const arg_i_str = comptime str: {
+            var str_buf: [100]u8 = undefined;
+            const args_i = i + 1;
+            const str_len = std.fmt.formatIntBuf(&str_buf, args_i, 10, .lower, .{});
+            break :str str_buf[0..str_len];
+        };
+        @field(args, arg_i_str) = @field(extra_args, field.name);
+    }
+
+    // Try it once with unlimited memory, make sure it works
+    const needed_alloc_count = x: {
+        var failing_allocator_inst = std.testing.FailingAllocator.init(backing_allocator, std.math.maxInt(usize));
+        args.@"0" = failing_allocator_inst.allocator();
+
+        try @call(.{}, test_fn, args);
+        break :x failing_allocator_inst.index;
+    };
+
+    var fail_index: usize = 0;
+    while (fail_index < needed_alloc_count) : (fail_index += 1) {
+        var failing_allocator_inst = std.testing.FailingAllocator.init(backing_allocator, fail_index);
+        args.@"0" = failing_allocator_inst.allocator();
+
+        if (@call(.{}, test_fn, args)) |_| {
+            if (failing_allocator_inst.has_induced_failure) {
+                return error.SwallowedOutOfMemoryError;
+            } else {
+                return error.NondeterministicMemoryUsage;
+            }
+        } else |err| switch (err) {
+            error.OutOfMemory => {
+                if (failing_allocator_inst.allocated_bytes != failing_allocator_inst.freed_bytes) {
+                    print(
+                        "\nfail_index: {d}/{d}\nallocated bytes: {d}\nfreed bytes: {d}\nallocations: {d}\ndeallocations: {d}\nallocation that was made to fail: {s}",
+                        .{
+                            fail_index,
+                            needed_alloc_count,
+                            failing_allocator_inst.allocated_bytes,
+                            failing_allocator_inst.freed_bytes,
+                            failing_allocator_inst.allocations,
+                            failing_allocator_inst.deallocations,
+                            failing_allocator_inst.getStackTrace(),
+                        },
+                    );
+                    return error.MemoryLeakDetected;
+                }
+            },
+            else => return err,
+        }
+    }
+}
+
 /// Given a type, reference all the declarations inside, so that the semantic analyzer sees them.
 pub fn refAllDecls(comptime T: type) void {
     if (!builtin.is_test) return;
     inline for (comptime std.meta.declarations(T)) |decl| {
-        _ = decl;
+        if (decl.is_pub) _ = @field(T, decl.name);
     }
 }

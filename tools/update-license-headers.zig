@@ -6,7 +6,7 @@ const new_header = "";
 
 pub fn main() !void {
     var progress = std.Progress{};
-    const root_node = try progress.start("", 0);
+    const root_node = progress.start("", 0);
     defer root_node.end();
 
     var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);

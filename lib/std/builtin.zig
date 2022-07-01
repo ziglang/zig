@@ -70,6 +70,14 @@ pub const GlobalLinkage = enum {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
+pub const SymbolVisibility = enum {
+    default,
+    hidden,
+    protected,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
 pub const AtomicOrder = enum {
     Unordered,
     Monotonic,
@@ -147,6 +155,8 @@ pub const CallingConvention = enum {
     AAPCS,
     AAPCSVFP,
     SysV,
+    Win64,
+    PtxKernel,
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -156,6 +166,12 @@ pub const AddressSpace = enum {
     gs,
     fs,
     ss,
+    // GPU address spaces
+    global,
+    constant,
+    param,
+    shared,
+    local,
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -167,12 +183,14 @@ pub const SourceLocation = struct {
     column: u32,
 };
 
-pub const TypeId = std.meta.Tag(TypeInfo);
+pub const TypeId = std.meta.Tag(Type);
+
+/// TODO deprecated, use `Type`
+pub const TypeInfo = Type;
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-/// TODO: rename to `Type` because "info" is redundant.
-pub const TypeInfo = union(enum) {
+pub const Type = union(enum) {
     Type: void,
     Void: void,
     Bool: void,
@@ -339,14 +357,8 @@ pub const TypeInfo = union(enum) {
         decls: []const Declaration,
     };
 
-    /// This data structure is used by the Zig language code generation and
-    /// therefore must be kept in sync with the compiler implementation.
-    /// TODO rename to Param and put inside `Fn`.
-    pub const FnArg = struct {
-        is_generic: bool,
-        is_noalias: bool,
-        arg_type: ?type,
-    };
+    /// TODO deprecated use Fn.Param
+    pub const FnArg = Fn.Param;
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
@@ -355,8 +367,17 @@ pub const TypeInfo = union(enum) {
         alignment: comptime_int,
         is_generic: bool,
         is_var_args: bool,
+        /// TODO change the language spec to make this not optional.
         return_type: ?type,
-        args: []const FnArg,
+        args: []const Param,
+
+        /// This data structure is used by the Zig language code generation and
+        /// therefore must be kept in sync with the compiler implementation.
+        pub const Param = struct {
+            is_generic: bool,
+            is_noalias: bool,
+            arg_type: ?type,
+        };
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -642,6 +663,7 @@ pub const ExportOptions = struct {
     name: []const u8,
     linkage: GlobalLinkage = .Strong,
     section: ?[]const u8 = null,
+    visibility: SymbolVisibility = .default,
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -704,6 +726,9 @@ pub const CompilerBackend = enum(u64) {
     /// The reference implementation self-hosted compiler of Zig, using the
     /// riscv64 backend.
     stage2_riscv64 = 9,
+    /// The reference implementation self-hosted compiler of Zig, using the
+    /// sparc64 backend.
+    stage2_sparc64 = 10,
 
     _,
 };
@@ -739,9 +764,18 @@ else
 /// therefore must be kept in sync with the compiler implementation.
 pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn {
     @setCold(true);
+
     // Until self-hosted catches up with stage1 language features, we have a simpler
     // default panic function:
-    if (builtin.zig_backend != .stage1) {
+    if (builtin.zig_backend == .stage2_c or
+        builtin.zig_backend == .stage2_wasm or
+        builtin.zig_backend == .stage2_arm or
+        builtin.zig_backend == .stage2_aarch64 or
+        builtin.zig_backend == .stage2_x86_64 or
+        builtin.zig_backend == .stage2_x86 or
+        builtin.zig_backend == .stage2_riscv64 or
+        builtin.zig_backend == .stage2_sparc64)
+    {
         while (true) {
             @breakpoint();
         }
@@ -757,7 +791,52 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn
             std.os.abort();
         },
         .uefi => {
-            // TODO look into using the debug info and logging helpful messages
+            const uefi = std.os.uefi;
+
+            const ExitData = struct {
+                pub fn create_exit_data(exit_msg: []const u8, exit_size: *usize) ![*:0]u16 {
+                    // Need boot services for pool allocation
+                    if (uefi.system_table.boot_services == null) {
+                        return error.BootServicesUnavailable;
+                    }
+
+                    // ExitData buffer must be allocated using boot_services.allocatePool
+                    var utf16: []u16 = try uefi.raw_pool_allocator.alloc(u16, 256);
+                    errdefer uefi.raw_pool_allocator.free(utf16);
+
+                    if (exit_msg.len > 255) {
+                        return error.MessageTooLong;
+                    }
+
+                    var fmt: [256]u8 = undefined;
+                    var slice = try std.fmt.bufPrint(&fmt, "\r\nerr: {s}\r\n", .{exit_msg});
+
+                    var len = try std.unicode.utf8ToUtf16Le(utf16, slice);
+
+                    utf16[len] = 0;
+
+                    exit_size.* = 256;
+
+                    return @ptrCast([*:0]u16, utf16.ptr);
+                }
+            };
+
+            var exit_size: usize = 0;
+            var exit_data = ExitData.create_exit_data(msg, &exit_size) catch null;
+
+            if (exit_data) |data| {
+                if (uefi.system_table.std_err) |out| {
+                    _ = out.setAttribute(uefi.protocols.SimpleTextOutputProtocol.red);
+                    _ = out.outputString(data);
+                    _ = out.setAttribute(uefi.protocols.SimpleTextOutputProtocol.white);
+                }
+            }
+
+            if (uefi.system_table.boot_services) |bs| {
+                _ = bs.exit(uefi.handle, .Aborted, exit_size, exit_data);
+            }
+
+            // Didn't have boot_services, just fallback to whatever.
             std.os.abort();
         },
         else => {
@@ -765,6 +844,27 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn
             std.debug.panicImpl(error_return_trace, first_trace_addr, msg);
         },
     }
+}
+
+pub fn panicUnwrapError(st: ?*StackTrace, err: anyerror) noreturn {
+    @setCold(true);
+    std.debug.panicExtra(st, "attempt to unwrap error: {s}", .{@errorName(err)});
+}
+
+pub fn panicOutOfBounds(index: usize, len: usize) noreturn {
+    @setCold(true);
+    std.debug.panic("attempt to index out of bound: index {d}, len {d}", .{ index, len });
+}
+
+pub noinline fn returnError(maybe_st: ?*StackTrace) void {
+    @setCold(true);
+    const st = maybe_st orelse return;
+    addErrRetTraceAddr(st, @returnAddress());
+}
+
+pub inline fn addErrRetTraceAddr(st: *StackTrace, addr: usize) void {
+    st.instruction_addresses[st.index & (st.instruction_addresses.len - 1)] = addr;
+    st.index +%= 1;
 }
 
 const std = @import("std.zig");

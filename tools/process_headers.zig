@@ -170,13 +170,13 @@ const glibc_targets = [_]LibCTarget{
         .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
-        .name = "sparc64-linux-gnu",
+        .name = "sparc-linux-gnu",
         .arch = MultiArch{ .specific = Arch.sparc },
         .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "sparcv9-linux-gnu",
-        .arch = MultiArch{ .specific = Arch.sparcv9 },
+        .arch = MultiArch{ .specific = Arch.sparc64 },
         .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
@@ -267,8 +267,9 @@ const DestTarget = struct {
                 (@enumToInt(a.abi) *% @as(u32, 4082223418));
         }
 
-        pub fn eql(self: @This(), a: DestTarget, b: DestTarget) bool {
+        pub fn eql(self: @This(), a: DestTarget, b: DestTarget, b_index: usize) bool {
             _ = self;
+            _ = b_index;
             return a.arch.eql(b.arch) and
                 a.os == b.os and
                 a.abi == b.abi;

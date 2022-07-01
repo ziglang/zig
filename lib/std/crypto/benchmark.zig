@@ -297,32 +297,32 @@ pub fn benchmarkAes8(comptime Aes: anytype, comptime count: comptime_int) !u64 {
 }
 
 const CryptoPwhash = struct {
-    hashFn: @compileError("anytype fields are removed from the language"),
-    params: @compileError("anytype fields are removed from the language"),
+    ty: type,
+    params: *const anyopaque,
     name: []const u8,
 };
 const bcrypt_params = crypto.pwhash.bcrypt.Params{ .rounds_log = 12 };
 const pwhashes = [_]CryptoPwhash{
-    .{ .hashFn = crypto.pwhash.bcrypt.strHash, .params = bcrypt_params, .name = "bcrypt" },
+    .{ .ty = crypto.pwhash.bcrypt, .params = &bcrypt_params, .name = "bcrypt" },
     .{
-        .hashFn = crypto.pwhash.scrypt.strHash,
-        .params = crypto.pwhash.scrypt.Params.interactive,
+        .ty = crypto.pwhash.scrypt,
+        .params = &crypto.pwhash.scrypt.Params.interactive,
         .name = "scrypt",
     },
     .{
-        .hashFn = crypto.pwhash.argon2.strHash,
-        .params = crypto.pwhash.argon2.Params.interactive_2id,
+        .ty = crypto.pwhash.argon2,
+        .params = &crypto.pwhash.argon2.Params.interactive_2id,
         .name = "argon2",
     },
 };
 
 fn benchmarkPwhash(
-    comptime hashFn: anytype,
-    comptime params: anytype,
+    comptime ty: anytype,
+    comptime params: *const anyopaque,
     comptime count: comptime_int,
 ) !f64 {
     const password = "testpass" ** 2;
-    const opts = .{ .allocator = std.testing.allocator, .params = params, .encoding = .phc };
+    const opts = .{ .allocator = std.testing.allocator, .params = @ptrCast(*const ty.Params, params).*, .encoding = .phc };
     var buf: [256]u8 = undefined;
 
     var timer = try Timer.start();
@@ -330,7 +330,7 @@ fn benchmarkPwhash(
     {
         var i: usize = 0;
         while (i < count) : (i += 1) {
-            _ = try hashFn(password, opts, &buf);
+            _ = try ty.strHash(password, opts, &buf);
             mem.doNotOptimizeAway(&buf);
         }
     }
@@ -463,8 +463,8 @@ pub fn main() !void {
 
     inline for (pwhashes) |H| {
         if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
-            const throughput = try benchmarkPwhash(H.hashFn, H.params, mode(64));
-            try stdout.print("{s:>17}: {d:.3} s/ops\n", .{ H.name, throughput });
+            const throughput = try benchmarkPwhash(H.ty, H.params, mode(64));
+            try stdout.print("{s:>17}: {d:10.3} s/ops\n", .{ H.name, throughput });
         }
     }
 }

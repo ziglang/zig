@@ -4,6 +4,7 @@ const debug = std.debug;
 const os = std.os;
 const io = std.io;
 const print_zir = @import("print_zir.zig");
+const native_os = builtin.os.tag;
 
 const Module = @import("Module.zig");
 const Sema = @import("Sema.zig");
@@ -89,9 +90,11 @@ fn dumpStatusReport() !void {
 
     const stderr = io.getStdErr().writer();
     const block: *Sema.Block = anal.block;
+    const mod = anal.sema.mod;
+    const block_src_decl = mod.declPtr(block.src_decl);
 
     try stderr.writeAll("Analyzing ");
-    try writeFullyQualifiedDeclWithFile(block.src_decl, stderr);
+    try writeFullyQualifiedDeclWithFile(mod, block_src_decl, stderr);
     try stderr.writeAll("\n");
 
     print_zir.renderInstructionContext(
@@ -99,7 +102,7 @@ fn dumpStatusReport() !void {
         anal.body,
         anal.body_index,
         block.namespace.file_scope,
-        block.src_decl.src_node,
+        block_src_decl.src_node,
         6, // indent
         stderr,
     ) catch |err| switch (err) {
@@ -114,13 +117,14 @@ fn dumpStatusReport() !void {
     while (parent) |curr| {
         fba.reset();
         try stderr.writeAll("  in ");
-        try writeFullyQualifiedDeclWithFile(curr.block.src_decl, stderr);
+        const curr_block_src_decl = mod.declPtr(curr.block.src_decl);
+        try writeFullyQualifiedDeclWithFile(mod, curr_block_src_decl, stderr);
         try stderr.writeAll("\n    > ");
         print_zir.renderSingleInstruction(
             allocator,
             curr.body[curr.body_index],
             curr.block.namespace.file_scope,
-            curr.block.src_decl.src_node,
+            curr_block_src_decl.src_node,
             6, // indent
             stderr,
         ) catch |err| switch (err) {
@@ -145,10 +149,10 @@ fn writeFilePath(file: *Module.File, stream: anytype) !void {
     try stream.writeAll(file.sub_file_path);
 }
 
-fn writeFullyQualifiedDeclWithFile(decl: *Decl, stream: anytype) !void {
+fn writeFullyQualifiedDeclWithFile(mod: *Module, decl: *Decl, stream: anytype) !void {
     try writeFilePath(decl.getFileScope(), stream);
     try stream.writeAll(": ");
-    try decl.renderFullyQualifiedDebugName(stream);
+    try decl.renderFullyQualifiedDebugName(mod, stream);
 }
 
 pub fn compilerPanic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
@@ -174,9 +178,9 @@ pub fn attachSegfaultHandler() void {
         .flags = (os.SA.SIGINFO | os.SA.RESTART | os.SA.RESETHAND),
     };
 
-    os.sigaction(os.SIG.SEGV, &act, null);
-    os.sigaction(os.SIG.ILL, &act, null);
-    os.sigaction(os.SIG.BUS, &act, null);
+    debug.updateSegfaultHandler(&act) catch {
+        @panic("unable to install segfault handler, maybe adjust have_segfault_handling_support in std/debug.zig");
+    };
 }
 
 fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const anyopaque) callconv(.C) noreturn {
@@ -233,9 +237,15 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
         },
         .aarch64 => ctx: {
             const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
-            const ip = @intCast(usize, ctx.mcontext.pc);
+            const ip = switch (native_os) {
+                .macos => @intCast(usize, ctx.mcontext.ss.pc),
+                else => @intCast(usize, ctx.mcontext.pc),
+            };
             // x29 is the ABI-designated frame pointer
-            const bp = @intCast(usize, ctx.mcontext.regs[29]);
+            const bp = switch (native_os) {
+                .macos => @intCast(usize, ctx.mcontext.ss.fp),
+                else => @intCast(usize, ctx.mcontext.regs[29]),
+            };
             break :ctx StackContext{ .exception = .{ .bp = bp, .ip = ip } };
         },
         else => .not_supported,
@@ -352,7 +362,7 @@ const PanicSwitch = struct {
     /// Updated atomically before taking the panic_mutex.
     /// In recoverable cases, the program will not abort
     /// until all panicking threads have dumped their traces.
-    var panicking: u8 = 0;
+    var panicking = std.atomic.Atomic(u8).init(0);
 
     // Locked to avoid interleaving panic messages from multiple threads.
     var panic_mutex = std.Thread.Mutex{};
@@ -420,7 +430,7 @@ const PanicSwitch = struct {
         };
         state.* = new_state;
 
-        _ = @atomicRmw(u8, &panicking, .Add, 1, .SeqCst);
+        _ = panicking.fetchAdd(1, .SeqCst);
 
         state.recover_stage = .release_ref_count;
 
@@ -502,13 +512,14 @@ const PanicSwitch = struct {
     noinline fn releaseRefCount(state: *volatile PanicState) noreturn {
         state.recover_stage = .abort;
 
-        if (@atomicRmw(u8, &panicking, .Sub, 1, .SeqCst) != 1) {
+        if (panicking.fetchSub(1, .SeqCst) != 1) {
             // Another thread is panicking, wait for the last one to finish
             // and call abort()
 
             // Sleep forever without hammering the CPU
-            var event: std.Thread.StaticResetEvent = .{};
-            event.wait();
+            var futex = std.atomic.Atomic(u32).init(0);
+            while (true) std.Thread.Futex.wait(&futex, 0);
+
             // This should be unreachable, recurse into recoverAbort.
             @panic("event.wait() returned");
         }

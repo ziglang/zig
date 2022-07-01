@@ -4,10 +4,10 @@ set -x
 set -e
 
 sudo pkg update -fq
-sudo pkg install -y cmake py38-s3cmd wget curl jq samurai
+sudo pkg install -y cmake py39-s3cmd wget curl jq samurai
 
 ZIGDIR="$(pwd)"
-CACHE_BASENAME="zig+llvm+lld+clang-x86_64-freebsd-gnu-0.9.0-dev.1243+456d7e5f5"
+CACHE_BASENAME="zig+llvm+lld+clang-x86_64-freebsd-gnu-0.9.1"
 PREFIX="$HOME/$CACHE_BASENAME"
 
 cd $HOME
@@ -44,7 +44,7 @@ samu install
 #release/bin/zig test ../test/behavior.zig -fno-stage1 -fLLVM -I ../test
 
 # Here we skip some tests to save time.
-release/bin/zig build test -Dskip-compile-errors -Dskip-non-native
+release/bin/zig build test -Dskip-stage1 -Dskip-non-native
 
 if [ -f ~/.s3cfg ]; then
   mv ../LICENSE release/

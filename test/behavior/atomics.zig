@@ -4,6 +4,13 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
 test "cmpxchg" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
     try testCmpxchg();
     comptime try testCmpxchg();
 }
@@ -26,12 +33,25 @@ fn testCmpxchg() !void {
 }
 
 test "fence" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
     var x: i32 = 1234;
     @fence(.SeqCst);
     x = 5678;
 }
 
 test "atomicrmw and atomicload" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
     var data: u8 = 200;
     try testAtomicRmw(&data);
     try expect(data == 42);
@@ -55,6 +75,13 @@ fn testAtomicLoad(ptr: *u8) !void {
 }
 
 test "cmpxchg with ptr" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
     var data1: i32 = 1234;
     var data2: i32 = 5678;
     var data3: i32 = 9101;
@@ -75,6 +102,13 @@ test "cmpxchg with ptr" {
 }
 
 test "cmpxchg with ignored result" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
     var x: i32 = 1234;
 
     _ = @cmpxchgStrong(i32, &x, 1234, 5678, .Monotonic, .Monotonic);
@@ -83,20 +117,22 @@ test "cmpxchg with ignored result" {
 }
 
 test "128-bit cmpxchg" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    if (builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+    if (comptime !std.Target.x86.featureSetHas(builtin.cpu.features, .cx16)) return error.SkipZigTest;
+
     try test_u128_cmpxchg();
     comptime try test_u128_cmpxchg();
 }
 
 fn test_u128_cmpxchg() !void {
-    if (builtin.zig_backend != .stage1) {
-        if (builtin.cpu.arch != .x86_64) return error.SkipZigTest;
-        if (!builtin.stage2_x86_cx16) return error.SkipZigTest;
-    } else {
-        if (builtin.cpu.arch != .x86_64) return error.SkipZigTest;
-        if (comptime !std.Target.x86.featureSetHas(builtin.cpu.features, .cx16)) return error.SkipZigTest;
-    }
-
-    var x: u128 = 1234;
+    var x: u128 align(16) = 1234;
     if (@cmpxchgWeak(u128, &x, 99, 5678, .SeqCst, .SeqCst)) |x1| {
         try expect(x1 == 1234);
     } else {
@@ -115,6 +151,13 @@ fn test_u128_cmpxchg() !void {
 var a_global_variable = @as(u32, 1234);
 
 test "cmpxchg on a global variable" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
     if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
         builtin.cpu.arch == .aarch64)
     {
@@ -127,6 +170,13 @@ test "cmpxchg on a global variable" {
 }
 
 test "atomic load and rmw with enum" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
     const Value = enum(u8) { a, b, c };
     var x = Value.a;
 
@@ -139,6 +189,13 @@ test "atomic load and rmw with enum" {
 }
 
 test "atomic store" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
     var x: u32 = 0;
     @atomicStore(u32, &x, 1, .SeqCst);
     try expect(@atomicLoad(u32, &x, .SeqCst) == 1);
@@ -147,6 +204,13 @@ test "atomic store" {
 }
 
 test "atomic store comptime" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
     comptime try testAtomicStore();
     try testAtomicStore();
 }
@@ -160,6 +224,13 @@ fn testAtomicStore() !void {
 }
 
 test "atomicrmw with floats" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
     if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
         builtin.cpu.arch == .aarch64)
     {
@@ -182,6 +253,13 @@ fn testAtomicRmwFloat() !void {
 }
 
 test "atomicrmw with ints" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
     try testAtomicRmwInt();
     comptime try testAtomicRmwInt();
 }
@@ -210,6 +288,13 @@ fn testAtomicRmwInt() !void {
 }
 
 test "atomics with different types" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
     try testAtomicsWithType(bool, true, false);
 
     try testAtomicsWithType(u1, 0, 1);
@@ -231,4 +316,39 @@ fn testAtomicsWithType(comptime T: type, a: T, b: T) !void {
     try expect(@cmpxchgStrong(T, &x, b, a, .SeqCst, .SeqCst) == null);
     if (@sizeOf(T) != 0)
         try expect(@cmpxchgStrong(T, &x, b, a, .SeqCst, .SeqCst).? == a);
+}
+
+test "return @atomicStore, using it as a void value" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const A = struct {
+            value: usize,
+
+            pub fn store(self: *A, value: usize) void {
+                return @atomicStore(usize, &self.value, value, .Unordered);
+            }
+
+            pub fn store2(self: *A, value: usize) void {
+                return switch (value) {
+                    else => @atomicStore(usize, &self.value, value, .Unordered),
+                };
+            }
+        };
+
+        fn doTheTest() !void {
+            var x: A = .{ .value = 5 };
+            x.store(10);
+            try expect(x.value == 10);
+            x.store(100);
+            try expect(x.value == 100);
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }

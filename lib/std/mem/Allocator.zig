@@ -50,7 +50,7 @@ pub const VTable = struct {
         else => *const resizeProto,
     },
 
-    /// Free and invalidate a buffer. `buf.len` must equal the most recent length returned by `alloc` or `resize`. 
+    /// Free and invalidate a buffer. `buf.len` must equal the most recent length returned by `alloc` or `resize`.
     /// `buf_align` must equal the same value that was passed as the `ptr_align` parameter to the original `alloc` call.
     ///
     /// `ret_addr` is optionally provided as the first return address of the allocation call stack.
@@ -144,10 +144,10 @@ pub fn NoOpFree(comptime AllocatorType: type) type {
     };
 }
 
-/// Set freeFn to `PanicFree(AllocatorType).noOpFree` if free is not a supported operation.
+/// Set freeFn to `PanicFree(AllocatorType).panicFree` if free is not a supported operation.
 pub fn PanicFree(comptime AllocatorType: type) type {
     return struct {
-        pub fn noOpFree(
+        pub fn panicFree(
             self: *AllocatorType,
             buf: []u8,
             buf_align: u29,
@@ -603,7 +603,7 @@ test "allocBytes non-zero len_align" {
 /// allocation could not be granted this function returns `error.OutOfMemory`.
 /// When the size/alignment is less than or equal to the previous allocation,
 /// this function returns `error.OutOfMemory` when the allocator decides the client
-/// would be better off keeping the extra alignment/size. 
+/// would be better off keeping the extra alignment/size.
 /// Clients will call `resizeFn` when they require the allocator to track a new alignment/size,
 /// and so this function should only return success when the allocator considers
 /// the reallocation desirable from the allocator's perspective.

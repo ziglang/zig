@@ -54,7 +54,7 @@ base: link.File,
 /// This linker backend does not try to incrementally link output SPIR-V code.
 /// Instead, it tracks all declarations in this table, and iterates over it
 /// in the flush function.
-decl_table: std.AutoArrayHashMapUnmanaged(*Module.Decl, DeclGenContext) = .{},
+decl_table: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclGenContext) = .{},
 
 const DeclGenContext = struct {
     air: Air,
@@ -104,13 +104,11 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     if (options.use_llvm) return error.LLVM_BackendIsTODO_ForSpirV; // TODO: LLVM Doesn't support SpirV at all.
     if (options.use_lld) return error.LLD_LinkingIsTODO_ForSpirV; // TODO: LLD Doesn't support SpirV at all.
 
-    // TODO: read the file and keep valid parts instead of truncating
-    const file = try options.emit.?.directory.handle.createFile(sub_path, .{ .truncate = true, .read = true });
-    errdefer file.close();
-
     const spirv = try createEmpty(allocator, options);
     errdefer spirv.base.destroy();
 
+    // TODO: read the file and keep valid parts instead of truncating
+    const file = try options.emit.?.directory.handle.createFile(sub_path, .{ .truncate = true, .read = true });
     spirv.base.file = file;
     return spirv;
 }
@@ -147,50 +145,56 @@ pub fn updateFunc(self: *SpirV, module: *Module, func: *Module.Fn, air: Air, liv
     };
 }
 
-pub fn updateDecl(self: *SpirV, module: *Module, decl: *Module.Decl) !void {
+pub fn updateDecl(self: *SpirV, module: *Module, decl_index: Module.Decl.Index) !void {
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
     _ = module;
     // Keep track of all decls so we can iterate over them on flush().
-    _ = try self.decl_table.getOrPut(self.base.allocator, decl);
+    _ = try self.decl_table.getOrPut(self.base.allocator, decl_index);
 }
 
 pub fn updateDeclExports(
     self: *SpirV,
     module: *Module,
-    decl: *const Module.Decl,
+    decl_index: Module.Decl.Index,
     exports: []const *Module.Export,
 ) !void {
     _ = self;
     _ = module;
-    _ = decl;
+    _ = decl_index;
     _ = exports;
 }
 
-pub fn freeDecl(self: *SpirV, decl: *Module.Decl) void {
-    const index = self.decl_table.getIndex(decl).?;
+pub fn freeDecl(self: *SpirV, decl_index: Module.Decl.Index) void {
+    const index = self.decl_table.getIndex(decl_index).?;
+    const module = self.base.options.module.?;
+    const decl = module.declPtr(decl_index);
     if (decl.val.tag() == .function) {
         self.decl_table.values()[index].deinit(self.base.allocator);
     }
     self.decl_table.swapRemoveAt(index);
 }
 
-pub fn flush(self: *SpirV, comp: *Compilation) !void {
+pub fn flush(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.Node) !void {
     if (build_options.have_llvm and self.base.options.use_lld) {
         return error.LLD_LinkingIsTODO_ForSpirV; // TODO: LLD Doesn't support SpirV at all.
     } else {
-        return self.flushModule(comp);
+        return self.flushModule(comp, prog_node);
     }
 }
 
-pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
+pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.Node) !void {
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
 
     const tracy = trace(@src());
     defer tracy.end();
+
+    var sub_prog_node = prog_node.start("Flush Module", 0);
+    sub_prog_node.activate();
+    defer sub_prog_node.end();
 
     const module = self.base.options.module.?;
     const target = comp.getTarget();
@@ -206,7 +210,8 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
     // TODO: We're allocating an ID unconditionally now, are there
     // declarations which don't generate a result?
     // TODO: fn_link is used here, but thats probably not the right field. It will work anyway though.
-    for (self.decl_table.keys()) |decl| {
+    for (self.decl_table.keys()) |decl_index| {
+        const decl = module.declPtr(decl_index);
         if (decl.has_tv) {
             decl.fn_link.spirv.id = spv.allocId();
         }
@@ -218,7 +223,8 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
 
     var it = self.decl_table.iterator();
     while (it.next()) |entry| {
-        const decl = entry.key_ptr.*;
+        const decl_index = entry.key_ptr.*;
+        const decl = module.declPtr(decl_index);
         if (!decl.has_tv) continue;
 
         const air = entry.value_ptr.air;
@@ -226,7 +232,7 @@ pub fn flushModule(self: *SpirV, comp: *Compilation) !void {
 
         // Note, if `decl` is not a function, air/liveness may be undefined.
         if (try decl_gen.gen(decl, air, liveness)) |msg| {
-            try module.failed_decls.put(module.gpa, decl, msg);
+            try module.failed_decls.put(module.gpa, decl_index, msg);
             return; // TODO: Attempt to generate more decls?
         }
     }

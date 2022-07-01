@@ -10,8 +10,7 @@ const S = struct {
 const expect = @import("std").testing.expect;
 const builtin = @import("builtin");
 
-test "bug 394 fixed" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+test "fixed" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     const x = S{
         .x = 3,

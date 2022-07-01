@@ -1,3 +1,5 @@
+const builtin = @import("builtin");
+
 const xxx = struct {
     pub fn bar(self: *xxx) void {
         _ = self;

@@ -59,23 +59,45 @@ pub usingnamespace switch (builtin.os.tag) {
 
 pub const whence_t = if (builtin.os.tag == .wasi) std.os.wasi.whence_t else c_int;
 
+// Unix-like systems
+pub usingnamespace switch (builtin.os.tag) {
+    .netbsd, .windows => struct {},
+    else => struct {
+        pub const DIR = opaque {};
+        pub extern "c" fn opendir(pathname: [*:0]const u8) ?*DIR;
+        pub extern "c" fn fdopendir(fd: c_int) ?*DIR;
+        pub extern "c" fn rewinddir(dp: *DIR) void;
+        pub extern "c" fn closedir(dp: *DIR) c_int;
+        pub extern "c" fn telldir(dp: *DIR) c_long;
+        pub extern "c" fn seekdir(dp: *DIR, loc: c_long) void;
+
+        pub extern "c" fn clock_gettime(clk_id: c_int, tp: *c.timespec) c_int;
+        pub extern "c" fn clock_getres(clk_id: c_int, tp: *c.timespec) c_int;
+        pub extern "c" fn gettimeofday(noalias tv: ?*c.timeval, noalias tz: ?*c.timezone) c_int;
+        pub extern "c" fn nanosleep(rqtp: *const c.timespec, rmtp: ?*c.timespec) c_int;
+
+        pub extern "c" fn getrusage(who: c_int, usage: *c.rusage) c_int;
+
+        pub extern "c" fn sched_yield() c_int;
+
+        pub extern "c" fn sigaction(sig: c_int, noalias act: ?*const c.Sigaction, noalias oact: ?*c.Sigaction) c_int;
+        pub extern "c" fn sigprocmask(how: c_int, noalias set: ?*const c.sigset_t, noalias oset: ?*c.sigset_t) c_int;
+        pub extern "c" fn sigfillset(set: ?*c.sigset_t) void;
+        pub extern "c" fn sigwait(set: ?*c.sigset_t, sig: ?*c_int) c_int;
+
+        pub extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
+
+        pub extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *c.Stat) c_int;
+
+        pub extern "c" fn alarm(seconds: c_uint) c_uint;
+    },
+};
+
 pub usingnamespace switch (builtin.os.tag) {
     .netbsd, .macos, .ios, .watchos, .tvos, .windows => struct {},
     else => struct {
-        pub extern "c" fn clock_getres(clk_id: c_int, tp: *c.timespec) c_int;
-        pub extern "c" fn clock_gettime(clk_id: c_int, tp: *c.timespec) c_int;
         pub extern "c" fn fstat(fd: c.fd_t, buf: *c.Stat) c_int;
-        pub extern "c" fn getrusage(who: c_int, usage: *c.rusage) c_int;
-        pub extern "c" fn gettimeofday(noalias tv: ?*c.timeval, noalias tz: ?*c.timezone) c_int;
-        pub extern "c" fn nanosleep(rqtp: *const c.timespec, rmtp: ?*c.timespec) c_int;
-        pub extern "c" fn sched_yield() c_int;
-        pub extern "c" fn sigaction(sig: c_int, noalias act: ?*const c.Sigaction, noalias oact: ?*c.Sigaction) c_int;
-        pub extern "c" fn sigprocmask(how: c_int, noalias set: ?*const c.sigset_t, noalias oset: ?*c.sigset_t) c_int;
-        pub extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
-        pub extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *c.Stat) c_int;
-        pub extern "c" fn sigfillset(set: ?*c.sigset_t) void;
-        pub extern "c" fn alarm(seconds: c_uint) c_uint;
-        pub extern "c" fn sigwait(set: ?*c.sigset_t, sig: ?*c_int) c_int;
+        pub extern "c" fn readdir(dp: *c.DIR) ?*c.dirent;
     },
 };
 
@@ -123,6 +145,7 @@ pub extern "c" fn write(fd: c.fd_t, buf: [*]const u8, nbyte: usize) isize;
 pub extern "c" fn pwrite(fd: c.fd_t, buf: [*]const u8, nbyte: usize, offset: c.off_t) isize;
 pub extern "c" fn mmap(addr: ?*align(page_size) anyopaque, len: usize, prot: c_uint, flags: c_uint, fd: c.fd_t, offset: c.off_t) *anyopaque;
 pub extern "c" fn munmap(addr: *align(page_size) const anyopaque, len: usize) c_int;
+pub extern "c" fn msync(addr: *align(page_size) const anyopaque, len: usize, flags: c_int) c_int;
 pub extern "c" fn mprotect(addr: *align(page_size) anyopaque, len: usize, prot: c_uint) c_int;
 pub extern "c" fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: c_int) c_int;
 pub extern "c" fn linkat(oldfd: c.fd_t, oldpath: [*:0]const u8, newfd: c.fd_t, newpath: [*:0]const u8, flags: c_int) c_int;
@@ -218,7 +241,11 @@ pub extern "c" fn utimes(path: [*:0]const u8, times: *[2]c.timeval) c_int;
 pub extern "c" fn utimensat(dirfd: c.fd_t, pathname: [*:0]const u8, times: *[2]c.timespec, flags: u32) c_int;
 pub extern "c" fn futimens(fd: c.fd_t, times: *const [2]c.timespec) c_int;
 
-pub extern "c" fn pthread_create(noalias newthread: *pthread_t, noalias attr: ?*const c.pthread_attr_t, start_routine: fn (?*anyopaque) callconv(.C) ?*anyopaque, noalias arg: ?*anyopaque) c.E;
+pub extern "c" fn pthread_create(noalias newthread: *pthread_t, noalias attr: ?*const c.pthread_attr_t, start_routine: PThreadStartFn, noalias arg: ?*anyopaque) c.E;
+const PThreadStartFn = if (builtin.zig_backend == .stage1)
+    fn (?*anyopaque) callconv(.C) ?*anyopaque
+else
+    *const fn (?*anyopaque) callconv(.C) ?*anyopaque;
 pub extern "c" fn pthread_attr_init(attr: *c.pthread_attr_t) c.E;
 pub extern "c" fn pthread_attr_setstack(attr: *c.pthread_attr_t, stackaddr: *anyopaque, stacksize: usize) c.E;
 pub extern "c" fn pthread_attr_setstacksize(attr: *c.pthread_attr_t, stacksize: usize) c.E;
@@ -228,16 +255,22 @@ pub extern "c" fn pthread_self() pthread_t;
 pub extern "c" fn pthread_join(thread: pthread_t, arg_return: ?*?*anyopaque) c.E;
 pub extern "c" fn pthread_detach(thread: pthread_t) c.E;
 pub extern "c" fn pthread_atfork(
-    prepare: ?fn () callconv(.C) void,
-    parent: ?fn () callconv(.C) void,
-    child: ?fn () callconv(.C) void,
+    prepare: ?PThreadForkFn,
+    parent: ?PThreadForkFn,
+    child: ?PThreadForkFn,
 ) c_int;
+const PThreadForkFn = if (builtin.zig_backend == .stage1)
+    fn () callconv(.C) void
+else
+    *const fn () callconv(.C) void;
 pub extern "c" fn pthread_key_create(key: *c.pthread_key_t, destructor: ?fn (value: *anyopaque) callconv(.C) void) c.E;
 pub extern "c" fn pthread_key_delete(key: c.pthread_key_t) c.E;
 pub extern "c" fn pthread_getspecific(key: c.pthread_key_t) ?*anyopaque;
 pub extern "c" fn pthread_setspecific(key: c.pthread_key_t, value: ?*anyopaque) c_int;
 pub extern "c" fn sem_init(sem: *c.sem_t, pshared: c_int, value: c_uint) c_int;
 pub extern "c" fn sem_destroy(sem: *c.sem_t) c_int;
+pub extern "c" fn sem_open(name: [*:0]const u8, flag: c_int, mode: c.mode_t, value: c_uint) *c.sem_t;
+pub extern "c" fn sem_close(sem: *c.sem_t) c_int;
 pub extern "c" fn sem_post(sem: *c.sem_t) c_int;
 pub extern "c" fn sem_wait(sem: *c.sem_t) c_int;
 pub extern "c" fn sem_trywait(sem: *c.sem_t) c_int;

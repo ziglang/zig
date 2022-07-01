@@ -116,13 +116,13 @@ pub const RTLD = struct {
 };
 
 pub const Flock = extern struct {
-    l_type: c_short,
-    l_whence: c_short,
-    l_start: off_t,
+    type: c_short,
+    whence: c_short,
+    start: off_t,
     // len == 0 means until end of file.
-    l_len: off_t,
-    l_sysid: c_int,
-    l_pid: pid_t,
+    len: off_t,
+    sysid: c_int,
+    pid: pid_t,
     __pad: [4]c_long,
 };
 
@@ -202,11 +202,11 @@ pub const msghdr_const = extern struct {
     /// size of address
     msg_namelen: socklen_t,
     /// scatter/gather array
-    msg_iov: [*]iovec_const,
+    msg_iov: [*]const iovec_const,
     /// # elements in msg_iov
     msg_iovlen: i32,
     /// ancillary data
-    msg_control: ?*anyopaque,
+    msg_control: ?*const anyopaque,
     /// ancillary data buffer len
     msg_controllen: socklen_t,
     /// flags on received message
@@ -532,6 +532,12 @@ pub const MAP = struct {
     pub const ALIGN = 0x0200;
     pub const TEXT = 0x0400;
     pub const INITDATA = 0x0800;
+};
+
+pub const MSF = struct {
+    pub const ASYNC = 1;
+    pub const INVALIDATE = 2;
+    pub const SYNC = 4;
 };
 
 pub const MADV = struct {

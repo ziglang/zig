@@ -105,28 +105,8 @@ const StackTrace = std.builtin.StackTrace;
 /// Integer type for pointing to slots in a small allocation
 const SlotIndex = std.meta.Int(.unsigned, math.log2(page_size) + 1);
 
-const sys_can_stack_trace = switch (builtin.cpu.arch) {
-    // Observed to go into an infinite loop.
-    // TODO: Make this work.
-    .mips,
-    .mipsel,
-    => false,
-
-    // `@returnAddress()` in LLVM 10 gives
-    // "Non-Emscripten WebAssembly hasn't implemented __builtin_return_address".
-    .wasm32,
-    .wasm64,
-    => builtin.os.tag == .emscripten,
-
-    // `@returnAddress()` is unsupported in LLVM 13.
-    .bpfel,
-    .bpfeb,
-    => false,
-
-    else => true,
-};
 const default_test_stack_trace_frames: usize = if (builtin.is_test) 8 else 4;
-const default_sys_stack_trace_frames: usize = if (sys_can_stack_trace) default_test_stack_trace_frames else 0;
+const default_sys_stack_trace_frames: usize = if (std.debug.sys_can_stack_trace) default_test_stack_trace_frames else 0;
 const default_stack_trace_frames: usize = switch (builtin.mode) {
     .Debug => default_sys_stack_trace_frames,
     else => 0,
@@ -151,12 +131,12 @@ pub const Config = struct {
 
     /// What type of mutex you'd like to use, for thread safety.
     /// when specfied, the mutex type must have the same shape as `std.Thread.Mutex` and
-    /// `std.Thread.Mutex.Dummy`, and have no required fields. Specifying this field causes
+    /// `DummyMutex`, and have no required fields. Specifying this field causes
     /// the `thread_safe` field to be ignored.
     ///
     /// when null (default):
     /// * the mutex type defaults to `std.Thread.Mutex` when thread_safe is enabled.
-    /// * the mutex type defaults to `std.Thread.Mutex.Dummy` otherwise.
+    /// * the mutex type defaults to `DummyMutex` otherwise.
     MutexType: ?type = null,
 
     /// This is a temporary debugging trick you can use to turn segfaults into more helpful
@@ -198,7 +178,12 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         else if (config.thread_safe)
             std.Thread.Mutex{}
         else
-            std.Thread.Mutex.Dummy{};
+            DummyMutex{};
+
+        const DummyMutex = struct {
+            fn lock(_: *DummyMutex) void {}
+            fn unlock(_: *DummyMutex) void {}
+        };
 
         const stack_n = config.stack_trace_frames;
         const one_trace_size = @sizeOf(usize) * stack_n;
@@ -372,8 +357,9 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             var it = self.large_allocations.valueIterator();
             while (it.next()) |large_alloc| {
                 if (config.retain_metadata and large_alloc.freed) continue;
+                const stack_trace = large_alloc.getStackTrace(.alloc);
                 log.err("memory address 0x{x} leaked: {s}", .{
-                    @ptrToInt(large_alloc.bytes.ptr), large_alloc.getStackTrace(.alloc),
+                    @ptrToInt(large_alloc.bytes.ptr), stack_trace,
                 });
                 leaks = true;
             }
@@ -1096,7 +1082,8 @@ test "shrink large object to large object with larger alignment" {
     const allocator = gpa.allocator();
 
     var debug_buffer: [1000]u8 = undefined;
-    const debug_allocator = std.heap.FixedBufferAllocator.init(&debug_buffer).allocator();
+    var fba = std.heap.FixedBufferAllocator.init(&debug_buffer);
+    const debug_allocator = fba.allocator();
 
     const alloc_size = page_size * 2 + 50;
     var slice = try allocator.alignedAlloc(u8, 16, alloc_size);
@@ -1167,7 +1154,8 @@ test "realloc large object to larger alignment" {
     const allocator = gpa.allocator();
 
     var debug_buffer: [1000]u8 = undefined;
-    const debug_allocator = std.heap.FixedBufferAllocator.init(&debug_buffer).allocator();
+    var fba = std.heap.FixedBufferAllocator.init(&debug_buffer);
+    const debug_allocator = fba.allocator();
 
     var slice = try allocator.alignedAlloc(u8, 16, page_size * 2 + 50);
     defer allocator.free(slice);

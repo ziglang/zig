@@ -30,6 +30,7 @@ pub const MAP = struct {
     /// Only used by libc to communicate failure.
     pub const FAILED = @intToPtr(*anyopaque, maxInt(usize));
 };
+pub const MSF = linux.MSF;
 pub const MMAP2_UNIT = linux.MMAP2_UNIT;
 pub const MSG = linux.MSG;
 pub const NAME_MAX = linux.NAME_MAX;
@@ -114,16 +115,17 @@ pub const _errno = switch (native_abi) {
 };
 
 pub const Stat = switch (native_arch) {
-    .sparcv9 => extern struct {
+    .sparc64 => extern struct {
         dev: u64,
+        __pad1: u16,
         ino: ino_t,
         mode: u32,
-        nlink: usize,
+        nlink: u32,
 
         uid: u32,
         gid: u32,
         rdev: u64,
-        __pad0: u32,
+        __pad2: u16,
 
         size: off_t,
         blksize: isize,
@@ -132,7 +134,7 @@ pub const Stat = switch (native_arch) {
         atim: timespec,
         mtim: timespec,
         ctim: timespec,
-        __unused: [2]isize,
+        __reserved: [2]usize,
 
         pub fn atime(self: @This()) timespec {
             return self.atim;
@@ -261,7 +263,11 @@ pub extern "c" fn inotify_rm_watch(fd: fd_t, wd: c_int) c_int;
 /// See std.elf for constants for this
 pub extern "c" fn getauxval(__type: c_ulong) c_ulong;
 
-pub const dl_iterate_phdr_callback = fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
+pub const dl_iterate_phdr_callback = switch (builtin.zig_backend) {
+    .stage1 => fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int,
+    else => *const fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int,
+};
+
 pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*anyopaque) c_int;
 
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
@@ -339,7 +345,7 @@ const __SIZEOF_PTHREAD_MUTEX_T = switch (native_abi) {
     .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => switch (native_arch) {
         .aarch64 => 48,
         .x86_64 => if (native_abi == .gnux32) 40 else 32,
-        .mips64, .powerpc64, .powerpc64le, .sparcv9 => 40,
+        .mips64, .powerpc64, .powerpc64le, .sparc64 => 40,
         else => if (@sizeOf(usize) == 8) 40 else 24,
     },
     .android => if (@sizeOf(usize) == 8) 40 else 4,
@@ -357,4 +363,19 @@ pub const RTLD = struct {
     pub const NODELETE = 4096;
     pub const GLOBAL = 256;
     pub const LOCAL = 0;
+};
+
+pub const dirent = struct {
+    d_ino: c_uint,
+    d_off: c_uint,
+    d_reclen: c_ushort,
+    d_type: u8,
+    d_name: [256]u8,
+};
+pub const dirent64 = struct {
+    d_ino: c_ulong,
+    d_off: c_ulong,
+    d_reclen: c_ushort,
+    d_type: u8,
+    d_name: [256]u8,
 };

@@ -7,7 +7,6 @@ const fmt = std.fmt;
 const math = std.math;
 const mem = std.mem;
 const testing = std.testing;
-const Vector = std.meta.Vector;
 
 const ChunkIterator = struct {
     slice: []u8,
@@ -59,7 +58,7 @@ const DERIVE_KEY_CONTEXT: u8 = 1 << 5;
 const DERIVE_KEY_MATERIAL: u8 = 1 << 6;
 
 const CompressVectorized = struct {
-    const Lane = Vector(4, u32);
+    const Lane = @Vector(4, u32);
     const Rows = [4]Lane;
 
     inline fn g(comptime even: bool, rows: *Rows, m: Lane) void {
@@ -132,8 +131,8 @@ const CompressVectorized = struct {
 
         rows[0] ^= rows[2];
         rows[1] ^= rows[3];
-        rows[2] ^= Vector(4, u32){ chaining_value[0], chaining_value[1], chaining_value[2], chaining_value[3] };
-        rows[3] ^= Vector(4, u32){ chaining_value[4], chaining_value[5], chaining_value[6], chaining_value[7] };
+        rows[2] ^= @Vector(4, u32){ chaining_value[0], chaining_value[1], chaining_value[2], chaining_value[3] };
+        rows[3] ^= @Vector(4, u32){ chaining_value[4], chaining_value[5], chaining_value[6], chaining_value[7] };
 
         return @bitCast([16]u32, rows);
     }
@@ -680,9 +679,12 @@ fn testBlake3(hasher: *Blake3, input_len: usize, expected_hex: [262]u8) !void {
 }
 
 test "BLAKE3 reference test cases" {
-    var hash = &Blake3.init(.{});
-    var keyed_hash = &Blake3.init(.{ .key = reference_test.key.* });
-    var derive_key = &Blake3.initKdf(reference_test.context_string, .{});
+    var hash_state = Blake3.init(.{});
+    const hash = &hash_state;
+    var keyed_hash_state = Blake3.init(.{ .key = reference_test.key.* });
+    const keyed_hash = &keyed_hash_state;
+    var derive_key_state = Blake3.initKdf(reference_test.context_string, .{});
+    const derive_key = &derive_key_state;
 
     for (reference_test.cases) |t| {
         try testBlake3(hash, t.input_len, t.hash.*);

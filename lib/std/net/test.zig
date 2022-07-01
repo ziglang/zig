@@ -104,6 +104,7 @@ test "parse and render UNIX addresses" {
 }
 
 test "resolve DNS" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest;
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     if (builtin.os.tag == .windows) {

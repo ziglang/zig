@@ -334,7 +334,10 @@ pub fn Decompressor(comptime ReaderType: type) type {
 
         // Next step in the decompression,
         // and decompression state.
-        step: fn (*Self) Error!void,
+        step: if (@import("builtin").zig_backend == .stage1)
+            fn (*Self) Error!void
+        else
+            *const fn (*Self) Error!void,
         step_state: DecompressorState,
         final: bool,
         err: ?Error,
@@ -479,7 +482,13 @@ pub fn Decompressor(comptime ReaderType: type) type {
         }
 
         pub fn close(self: *Self) ?Error {
-            if (self.err == Error.EndOfStreamWithNoError) {
+            if (@import("builtin").zig_backend == .stage1) {
+                if (self.err == Error.EndOfStreamWithNoError) {
+                    return null;
+                }
+                return self.err;
+            }
+            if (self.err == @as(?Error, error.EndOfStreamWithNoError)) {
                 return null;
             }
             return self.err;
@@ -920,7 +929,8 @@ test "truncated input" {
     };
 
     for (tests) |t| {
-        var r = io.fixedBufferStream(t.input).reader();
+        var fib = io.fixedBufferStream(t.input);
+        const r = fib.reader();
         var z = try decompressor(testing.allocator, r, null);
         defer z.deinit();
         var zr = z.reader();
@@ -959,7 +969,8 @@ test "Go non-regression test for 9842" {
     };
 
     for (tests) |t| {
-        const reader = std.io.fixedBufferStream(t.input).reader();
+        var fib = std.io.fixedBufferStream(t.input);
+        const reader = fib.reader();
         var decomp = try decompressor(testing.allocator, reader, null);
         defer decomp.deinit();
 
@@ -1017,7 +1028,8 @@ test "inflate A Tale of Two Cities (1859) intro" {
         \\
     ;
 
-    const reader = std.io.fixedBufferStream(&compressed).reader();
+    var fib = std.io.fixedBufferStream(&compressed);
+    const reader = fib.reader();
     var decomp = try decompressor(testing.allocator, reader, null);
     defer decomp.deinit();
 
@@ -1082,7 +1094,8 @@ test "fuzzing" {
 
 fn decompress(input: []const u8) !void {
     const allocator = testing.allocator;
-    const reader = std.io.fixedBufferStream(input).reader();
+    var fib = std.io.fixedBufferStream(input);
+    const reader = fib.reader();
     var decomp = try decompressor(allocator, reader, null);
     defer decomp.deinit();
     var output = try decomp.reader().readAllAlloc(allocator, math.maxInt(usize));

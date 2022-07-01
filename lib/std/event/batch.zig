@@ -109,6 +109,7 @@ pub fn Batch(
 }
 
 test "std.event.Batch" {
+    if (@import("builtin").zig_backend != .stage1) return error.SkipZigTest;
     var count: usize = 0;
     var batch = Batch(void, 2, .auto_async).init();
     batch.add(&async sleepALittle(&count));

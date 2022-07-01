@@ -45,6 +45,94 @@ pub extern "c" fn unveil(path: ?[*:0]const u8, permissions: ?[*:0]const u8) c_in
 pub extern "c" fn pthread_set_name_np(thread: std.c.pthread_t, name: [*:0]const u8) void;
 pub extern "c" fn pthread_get_name_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) void;
 
+// https://github.com/openbsd/src/blob/2207c4325726fdc5c4bcd0011af0fdf7d3dab137/sys/sys/futex.h
+pub const FUTEX_WAIT = 1;
+pub const FUTEX_WAKE = 2;
+pub const FUTEX_REQUEUE = 3;
+pub const FUTEX_PRIVATE_FLAG = 128;
+pub extern "c" fn futex(uaddr: ?*const volatile u32, op: c_int, val: c_int, timeout: ?*const timespec, uaddr2: ?*const volatile u32) c_int;
+
+pub const login_cap_t = extern struct {
+    lc_class: ?[*:0]const u8,
+    lc_cap: ?[*:0]const u8,
+    lc_style: ?[*:0]const u8,
+};
+
+pub extern "c" fn login_getclass(class: ?[*:0]const u8) ?*login_cap_t;
+pub extern "c" fn login_getstyle(lc: *login_cap_t, style: ?[*:0]const u8, atype: ?[*:0]const u8) ?[*:0]const u8;
+pub extern "c" fn login_getcapbool(lc: *login_cap_t, cap: [*:0]const u8, def: c_int) c_int;
+pub extern "c" fn login_getcapnum(lc: *login_cap_t, cap: [*:0]const u8, def: i64, err: i64) i64;
+pub extern "c" fn login_getcapsize(lc: *login_cap_t, cap: [*:0]const u8, def: i64, err: i64) i64;
+pub extern "c" fn login_getcapstr(lc: *login_cap_t, cap: [*:0]const u8, def: [*:0]const u8, err: [*:0]const u8) [*:0]const u8;
+pub extern "c" fn login_getcaptime(lc: *login_cap_t, cap: [*:0]const u8, def: i64, err: i64) i64;
+pub extern "c" fn login_close(lc: *login_cap_t) void;
+pub extern "c" fn setclasscontext(class: [*:0]const u8, flags: c_uint) c_int;
+pub extern "c" fn setusercontext(lc: *login_cap_t, pwd: *passwd, uid: uid_t, flags: c_uint) c_int;
+
+pub const auth_session_t = opaque {};
+
+pub extern "c" fn auth_userokay(name: [*:0]const u8, style: ?[*:0]const u8, arg_type: ?[*:0]const u8, password: ?[*:0]const u8) c_int;
+pub extern "c" fn auth_approval(as: ?*auth_session_t, ?*login_cap_t, name: ?[*:0]const u8, type: ?[*:0]const u8) c_int;
+pub extern "c" fn auth_userchallenge(name: [*:0]const u8, style: ?[*:0]const u8, arg_type: ?[*:0]const u8, chappengep: *?[*:0]const u8) ?*auth_session_t;
+pub extern "c" fn auth_userresponse(as: *auth_session_t, response: [*:0]const u8, more: c_int) c_int;
+pub extern "c" fn auth_usercheck(name: [*:0]const u8, style: ?[*:0]const u8, arg_type: ?[*:0]const u8, password: ?[*:0]const u8) ?*auth_session_t;
+pub extern "c" fn auth_open() ?*auth_session_t;
+pub extern "c" fn auth_close(as: *auth_session_t) c_int;
+pub extern "c" fn auth_setdata(as: *auth_session_t, ptr: *anyopaque, len: usize) c_int;
+pub extern "c" fn auth_setitem(as: *auth_session_t, item: auth_item_t, value: [*:0]const u8) c_int;
+pub extern "c" fn auth_getitem(as: *auth_session_t, item: auth_item_t) ?[*:0]const u8;
+pub extern "c" fn auth_setoption(as: *auth_session_t, n: [*:0]const u8, v: [*:0]const u8) c_int;
+pub extern "c" fn auth_setstate(as: *auth_session_t, s: c_int) void;
+pub extern "c" fn auth_getstate(as: *auth_session_t) c_int;
+pub extern "c" fn auth_clean(as: *auth_session_t) void;
+pub extern "c" fn auth_clrenv(as: *auth_session_t) void;
+pub extern "c" fn auth_clroption(as: *auth_session_t, option: [*:0]const u8) void;
+pub extern "c" fn auth_clroptions(as: *auth_session_t) void;
+pub extern "c" fn auth_setenv(as: *auth_session_t) void;
+pub extern "c" fn auth_getvalue(as: *auth_session_t, what: [*:0]const u8) ?[*:0]const u8;
+pub extern "c" fn auth_verify(as: ?*auth_session_t, style: ?[*:0]const u8, name: ?[*:0]const u8, ...) ?*auth_session_t;
+pub extern "c" fn auth_call(as: *auth_session_t, path: [*:0]const u8, ...) c_int;
+pub extern "c" fn auth_challenge(as: *auth_session_t) [*:0]const u8;
+pub extern "c" fn auth_check_expire(as: *auth_session_t) i64;
+pub extern "c" fn auth_check_change(as: *auth_session_t) i64;
+pub extern "c" fn auth_getpwd(as: *auth_session_t) ?*passwd;
+pub extern "c" fn auth_setpwd(as: *auth_session_t, pwd: *passwd) c_int;
+pub extern "c" fn auth_mkvalue(value: [*:0]const u8) ?[*:0]const u8;
+pub extern "c" fn auth_cat(file: [*:0]const u8) c_int;
+pub extern "c" fn auth_checknologin(lc: *login_cap_t) void;
+// TODO: auth_set_va_list requires zig support for va_list type (#515)
+
+pub const passwd = extern struct {
+    pw_name: ?[*:0]const u8, // user name
+    pw_passwd: ?[*:0]const u8, // encrypted password
+    pw_uid: uid_t, // user uid
+    pw_gid: gid_t, // user gid
+    pw_change: time_t, // password change time
+    pw_class: ?[*:0]const u8, // user access class
+    pw_gecos: ?[*:0]const u8, // Honeywell login info
+    pw_dir: ?[*:0]const u8, // home directory
+    pw_shell: ?[*:0]const u8, // default shell
+    pw_expire: time_t, // account expiration
+};
+
+pub extern "c" fn getpwuid(uid: uid_t) ?*passwd;
+pub extern "c" fn getpwnam(name: [*:0]const u8) ?*passwd;
+pub extern "c" fn getpwuid_shadow(uid: uid_t) ?*passwd;
+pub extern "c" fn getpwnam_shadow(name: [*:0]const u8) ?*passwd;
+pub extern "c" fn getpwnam_r(name: [*:0]const u8, pw: *passwd, buf: [*]u8, buflen: usize, pwretp: *?*passwd) c_int;
+pub extern "c" fn getpwuid_r(uid: uid_t, pw: *passwd, buf: [*]u8, buflen: usize, pwretp: *?*passwd) c_int;
+pub extern "c" fn getpwent() ?*passwd;
+pub extern "c" fn setpwent() void;
+pub extern "c" fn endpwent() void;
+pub extern "c" fn setpassent(stayopen: c_int) c_int;
+pub extern "c" fn uid_from_user(name: [*:0]const u8, uid: *uid_t) c_int;
+pub extern "c" fn user_from_uid(uid: uid_t, noname: c_int) ?[*:0]const u8;
+pub extern "c" fn bcrypt_gensalt(log_rounds: u8) [*:0]const u8;
+pub extern "c" fn bcrypt(pass: [*:0]const u8, salt: [*:0]const u8) ?[*:0]const u8;
+pub extern "c" fn bcrypt_newhash(pass: [*:0]const u8, log_rounds: c_int, hash: [*]u8, hashlen: usize) c_int;
+pub extern "c" fn bcrypt_checkpass(pass: [*:0]const u8, goodhash: [*:0]const u8) c_int;
+pub extern "c" fn pw_dup(pw: *const passwd) ?*passwd;
+
 pub const blkcnt_t = i64;
 pub const blksize_t = i32;
 pub const clock_t = i64;
@@ -94,11 +182,11 @@ pub const dl_phdr_info = extern struct {
 };
 
 pub const Flock = extern struct {
-    l_start: off_t,
-    l_len: off_t,
-    l_pid: pid_t,
-    l_type: c_short,
-    l_whence: c_short,
+    start: off_t,
+    len: off_t,
+    pid: pid_t,
+    type: c_short,
+    whence: c_short,
 };
 
 pub const addrinfo = extern struct {
@@ -191,13 +279,13 @@ pub const msghdr_const = extern struct {
     msg_namelen: socklen_t,
 
     /// scatter/gather array
-    msg_iov: [*]iovec_const,
+    msg_iov: [*]const iovec_const,
 
     /// # elements in msg_iov
     msg_iovlen: c_uint,
 
     /// ancillary data
-    msg_control: ?*anyopaque,
+    msg_control: ?*const anyopaque,
 
     /// ancillary data buffer len
     msg_controllen: socklen_t,
@@ -234,6 +322,10 @@ pub const Stat = extern struct {
 
     pub fn ctime(self: @This()) timespec {
         return self.ctim;
+    }
+
+    pub fn birthtime(self: @This()) timespec {
+        return self.birthtim;
     }
 };
 
@@ -361,6 +453,12 @@ pub const MAP = struct {
     pub const ANONYMOUS = ANON;
     pub const STACK = 0x4000;
     pub const CONCEAL = 0x8000;
+};
+
+pub const MSF = struct {
+    pub const ASYNC = 1;
+    pub const INVALIDATE = 2;
+    pub const SYNC = 4;
 };
 
 pub const W = struct {
@@ -982,7 +1080,7 @@ comptime {
         std.debug.assert(@sizeOf(siginfo_t) == 136);
 }
 
-const arch_bits = switch (builtin.cpu.arch) {
+pub usingnamespace switch (builtin.cpu.arch) {
     .x86_64 => struct {
         pub const ucontext_t = extern struct {
             sc_rdi: c_long,
@@ -1012,7 +1110,7 @@ const arch_bits = switch (builtin.cpu.arch) {
             sc_rsp: c_long,
             sc_ss: c_long,
 
-            sc_fpstate: arch_bits.fxsave64,
+            sc_fpstate: fxsave64,
             __sc_unused: c_int,
             sc_mask: c_int,
             sc_cookie: c_long,
@@ -1035,8 +1133,6 @@ const arch_bits = switch (builtin.cpu.arch) {
     },
     else => struct {},
 };
-pub const ucontext_t = arch_bits.ucontext_t;
-pub const fxsave64 = arch_bits.fxsave64;
 
 pub const sigset_t = c_uint;
 pub const empty_sigset: sigset_t = 0;
@@ -1167,7 +1263,7 @@ pub const E = enum(u16) {
 
 const _MAX_PAGE_SHIFT = switch (builtin.cpu.arch) {
     .i386 => 12,
-    .sparcv9 => 13,
+    .sparc64 => 13,
 };
 pub const MINSIGSTKSZ = 1 << _MAX_PAGE_SHIFT;
 pub const SIGSTKSZ = MINSIGSTKSZ + (1 << _MAX_PAGE_SHIFT) * 4;

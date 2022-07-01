@@ -3,6 +3,8 @@ const builtin = @import("builtin");
 const os = std.os;
 const mem = std.mem;
 const math = std.math;
+const fs = std.fs;
+const assert = std.debug.assert;
 const Allocator = mem.Allocator;
 const wasi = std.os.wasi;
 const fd_t = wasi.fd_t;
@@ -25,10 +27,37 @@ pub const PreopenType = union(PreopenTypeTag) {
     const Self = @This();
 
     pub fn eql(self: Self, other: PreopenType) bool {
-        if (!mem.eql(u8, @tagName(self), @tagName(other))) return false;
+        if (std.meta.activeTag(self) != std.meta.activeTag(other)) return false;
 
         switch (self) {
             PreopenTypeTag.Dir => |this_path| return mem.eql(u8, this_path, other.Dir),
+        }
+    }
+
+    // Checks whether `other` refers to a subdirectory of `self` and, if so,
+    // returns the relative path to `other` from `self`
+    //
+    // Expects `other` to be a canonical path, not containing "." or ".."
+    pub fn getRelativePath(self: Self, other: PreopenType) ?[]const u8 {
+        if (std.meta.activeTag(self) != std.meta.activeTag(other)) return null;
+
+        switch (self) {
+            PreopenTypeTag.Dir => |self_path| {
+                const other_path = other.Dir;
+                if (mem.indexOfDiff(u8, self_path, other_path)) |index| {
+                    if (index < self_path.len) return null;
+                }
+
+                const rel_path = other_path[self_path.len..];
+                if (rel_path.len == 0) {
+                    return rel_path;
+                } else if (rel_path[0] == '/') {
+                    return rel_path[1..];
+                } else {
+                    if (self_path[self_path.len - 1] != '/') return null;
+                    return rel_path;
+                }
+            },
         }
     }
 
@@ -60,6 +89,15 @@ pub const Preopen = struct {
             .@"type" = preopen_type,
         };
     }
+};
+
+/// WASI resource identifier struct. This is effectively a path within
+/// a WASI Preopen.
+pub const PreopenUri = struct {
+    /// WASI Preopen containing the resource.
+    base: Preopen,
+    /// Path to resource within `base`.
+    relative_path: []const u8,
 };
 
 /// Dynamically-sized array list of WASI preopens. This struct is a
@@ -105,7 +143,22 @@ pub const PreopenList = struct {
     /// the preopen list still contains all valid preopened file descriptors that are valid
     /// for use. Therefore, it is fine to call `find`, `asSlice`, or `toOwnedSlice`. Finally,
     /// `deinit` still must be called!
-    pub fn populate(self: *Self) Error!void {
+    ///
+    /// Usage of `cwd_root`:
+    ///     If provided, `cwd_root` is inserted as prefix for any Preopens that
+    ///     begin with "." and all paths are normalized as POSIX-style absolute
+    ///     paths. `cwd_root` must be an absolute path.
+    ///
+    ///     For example:
+    ///        "./foo/bar" -> "{cwd_root}/foo/bar"
+    ///        "foo/bar"   -> "/foo/bar"
+    ///        "/foo/bar"  -> "/foo/bar"
+    ///
+    ///     If `cwd_root` is not provided, all preopen directories are unmodified.
+    ///
+    pub fn populate(self: *Self, cwd_root: ?[]const u8) Error!void {
+        if (cwd_root) |root| assert(fs.path.isAbsolute(root));
+
         // Clear contents if we're being called again
         for (self.toOwnedSlice()) |preopen| {
             switch (preopen.@"type") {
@@ -115,6 +168,7 @@ pub const PreopenList = struct {
         errdefer self.deinit();
         var fd: fd_t = 3; // start fd has to be beyond stdio fds
 
+        var path_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
         while (true) {
             var buf: prestat_t = undefined;
             switch (wasi.fd_prestat_get(fd, &buf)) {
@@ -131,16 +185,68 @@ pub const PreopenList = struct {
                 else => |err| return os.unexpectedErrno(err),
             }
             const preopen_len = buf.u.dir.pr_name_len;
-            const path_buf = try self.buffer.allocator.alloc(u8, preopen_len);
-            mem.set(u8, path_buf, 0);
-            switch (wasi.fd_prestat_dir_name(fd, path_buf.ptr, preopen_len)) {
+
+            mem.set(u8, path_buf[0..preopen_len], 0);
+            switch (wasi.fd_prestat_dir_name(fd, &path_buf, preopen_len)) {
                 .SUCCESS => {},
                 else => |err| return os.unexpectedErrno(err),
             }
-            const preopen = Preopen.new(fd, PreopenType{ .Dir = path_buf });
+
+            // Unfortunately, WASI runtimes (e.g. wasmer) are not consistent about whether the
+            // NULL sentinel is included in the reported Preopen name_len
+            const raw_path = if (path_buf[preopen_len - 1] == 0) blk: {
+                break :blk path_buf[0 .. preopen_len - 1];
+            } else path_buf[0..preopen_len];
+
+            // If we were provided a CWD root to resolve against, we try to treat Preopen dirs as
+            // POSIX paths, relative to "/" or `cwd_root` depending on whether they start with "."
+            const path = if (cwd_root) |cwd| blk: {
+                const resolve_paths: [][]const u8 = if (raw_path[0] == '.') &.{ cwd, raw_path } else &.{ "/", raw_path };
+                break :blk fs.path.resolve(self.buffer.allocator, resolve_paths) catch |err| switch (err) {
+                    error.CurrentWorkingDirectoryUnlinked => unreachable, // root is absolute, so CWD not queried
+                    else => |e| return e,
+                };
+            } else blk: {
+                // If we were provided no CWD root, we preserve the preopen dir without resolving
+                break :blk try self.buffer.allocator.dupe(u8, raw_path);
+            };
+            errdefer self.buffer.allocator.free(path);
+            const preopen = Preopen.new(fd, .{ .Dir = path });
+
             try self.buffer.append(preopen);
             fd = try math.add(fd_t, fd, 1);
         }
+    }
+
+    /// Find a preopen which includes access to `preopen_type`.
+    ///
+    /// If multiple preopens match the provided resource, the most specific
+    /// match is returned. More recent preopens take priority, as well.
+    pub fn findContaining(self: Self, preopen_type: PreopenType) ?PreopenUri {
+        var best_match: ?PreopenUri = null;
+
+        for (self.buffer.items) |preopen| {
+            if (preopen.@"type".getRelativePath(preopen_type)) |rel_path| {
+                if (best_match == null or rel_path.len <= best_match.?.relative_path.len) {
+                    best_match = PreopenUri{
+                        .base = preopen,
+                        .relative_path = if (rel_path.len == 0) "." else rel_path,
+                    };
+                }
+            }
+        }
+        return best_match;
+    }
+
+    /// Find preopen by fd. If the preopen exists, return it.
+    /// Otherwise, return `null`.
+    pub fn findByFd(self: Self, fd: fd_t) ?Preopen {
+        for (self.buffer.items) |preopen| {
+            if (preopen.fd == fd) {
+                return preopen;
+            }
+        }
+        return null;
     }
 
     /// Find preopen by type. If the preopen exists, return it.
@@ -171,10 +277,20 @@ test "extracting WASI preopens" {
     var preopens = PreopenList.init(std.testing.allocator);
     defer preopens.deinit();
 
-    try preopens.populate();
+    try preopens.populate(null);
 
-    try std.testing.expectEqual(@as(usize, 1), preopens.asSlice().len);
     const preopen = preopens.find(PreopenType{ .Dir = "." }) orelse unreachable;
     try std.testing.expect(preopen.@"type".eql(PreopenType{ .Dir = "." }));
-    try std.testing.expectEqual(@as(i32, 3), preopen.fd);
+
+    const po_type1 = PreopenType{ .Dir = "/" };
+    try std.testing.expect(std.mem.eql(u8, po_type1.getRelativePath(.{ .Dir = "/" }).?, ""));
+    try std.testing.expect(std.mem.eql(u8, po_type1.getRelativePath(.{ .Dir = "/test/foobar" }).?, "test/foobar"));
+
+    const po_type2 = PreopenType{ .Dir = "/test/foo" };
+    try std.testing.expect(po_type2.getRelativePath(.{ .Dir = "/test/foobar" }) == null);
+
+    const po_type3 = PreopenType{ .Dir = "/test" };
+    try std.testing.expect(std.mem.eql(u8, po_type3.getRelativePath(.{ .Dir = "/test" }).?, ""));
+    try std.testing.expect(std.mem.eql(u8, po_type3.getRelativePath(.{ .Dir = "/test/" }).?, ""));
+    try std.testing.expect(std.mem.eql(u8, po_type3.getRelativePath(.{ .Dir = "/test/foo/bar" }).?, "foo/bar"));
 }

@@ -329,11 +329,7 @@ fn renderBitEnum(
             try writer.print("_reserved_bit_{}", .{bitpos});
         }
 
-        try writer.writeAll(": bool ");
-        if (bitpos == 0) { // Force alignment to integer boundaries
-            try writer.writeAll("align(@alignOf(u32)) ");
-        }
-        try writer.writeAll("= false,\n");
+        try writer.writeAll(": bool = false,\n");
     }
 
     try writer.writeByte('\n');

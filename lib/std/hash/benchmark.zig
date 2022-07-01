@@ -230,7 +230,7 @@ pub fn main() !void {
     inline for (hashes) |H| {
         if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
             if (!test_iterative_only or H.has_iterative_api) {
-                try stdout.print("{}\n", .{H.name});
+                try stdout.print("{s}\n", .{H.name});
 
                 // Always reseed prior to every call so we are hashing the same buffer contents.
                 // This allows easier comparison between different implementations.

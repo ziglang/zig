@@ -1,3 +1,5 @@
+const builtin = @import("builtin");
+
 const A = struct {
     B: type,
 };

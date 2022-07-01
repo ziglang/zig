@@ -78,9 +78,12 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
         pub fn update(self: *Self, b: []const u8) void {
             std.debug.assert(b.len % 8 == 0);
 
+            const inl = std.builtin.CallOptions{ .modifier = .always_inline };
+
             var off: usize = 0;
             while (off < b.len) : (off += 8) {
-                @call(.{ .modifier = .always_inline }, self.round, .{b[off..][0..8].*});
+                const blob = b[off..][0..8].*;
+                @call(inl, round, .{ self, blob });
             }
 
             self.msg_len +%= @truncate(u8, b.len);

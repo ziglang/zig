@@ -1196,7 +1196,7 @@ fn genHtml(
     do_code_tests: bool,
 ) !void {
     var progress = Progress{};
-    const root_node = try progress.start("Generating docgen examples", toc.nodes.len);
+    const root_node = progress.start("Generating docgen examples", toc.nodes.len);
     defer root_node.end();
 
     var env_map = try process.getEnvMap(allocator);
@@ -1708,7 +1708,7 @@ fn genHtml(
     }
 }
 
-fn exec(allocator: Allocator, env_map: *std.BufMap, args: []const []const u8) !ChildProcess.ExecResult {
+fn exec(allocator: Allocator, env_map: *process.EnvMap, args: []const []const u8) !ChildProcess.ExecResult {
     const result = try ChildProcess.exec(.{
         .allocator = allocator,
         .argv = args,
@@ -1732,7 +1732,7 @@ fn exec(allocator: Allocator, env_map: *std.BufMap, args: []const []const u8) !C
     return result;
 }
 
-fn getBuiltinCode(allocator: Allocator, env_map: *std.BufMap, zig_exe: []const u8) ![]const u8 {
+fn getBuiltinCode(allocator: Allocator, env_map: *process.EnvMap, zig_exe: []const u8) ![]const u8 {
     const result = try exec(allocator, env_map, &[_][]const u8{ zig_exe, "build-obj", "--show-builtin" });
     return result.stdout;
 }

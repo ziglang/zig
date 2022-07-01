@@ -368,11 +368,13 @@ pub fn translate(
     resources_path: [*:0]const u8,
     zig_is_stage1: bool,
 ) !std.zig.Ast {
+    // TODO stage2 bug
+    var tmp = errors;
     const ast_unit = clang.LoadFromCommandLine(
         args_begin,
         args_end,
-        &errors.ptr,
-        &errors.len,
+        &tmp.ptr,
+        &tmp.len,
         resources_path,
     ) orelse {
         if (errors.len == 0) return error.ASTUnitFailure;
@@ -382,16 +384,16 @@ pub fn translate(
 
     // For memory that has the same lifetime as the Ast that we return
     // from this function.
-    var arena = std.heap.ArenaAllocator.init(gpa);
-    errdefer arena.deinit();
-    const arena_allocator = arena.allocator();
+    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
+    errdefer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
 
     var context = Context{
         .gpa = gpa,
-        .arena = arena_allocator,
+        .arena = arena,
         .source_manager = ast_unit.getSourceManager(),
         .alias_list = AliasList.init(gpa),
-        .global_scope = try arena_allocator.create(Scope.Root),
+        .global_scope = try arena.create(Scope.Root),
         .clang_context = ast_unit.getASTContext(),
         .pattern_list = try PatternList.init(gpa),
         .zig_is_stage1 = zig_is_stage1,
@@ -410,9 +412,9 @@ pub fn translate(
 
     inline for (@typeInfo(std.zig.c_builtins).Struct.decls) |decl| {
         if (decl.is_pub) {
-            const builtin = try Tag.pub_var_simple.create(context.arena, .{
+            const builtin = try Tag.pub_var_simple.create(arena, .{
                 .name = decl.name,
-                .init = try Tag.import_c_builtin.create(context.arena, decl.name),
+                .init = try Tag.import_c_builtin.create(arena, decl.name),
             });
             try addTopLevelDecl(&context, decl.name, builtin);
         }
@@ -429,7 +431,7 @@ pub fn translate(
     try addMacros(&context);
     for (context.alias_list.items) |alias| {
         if (!context.global_scope.sym_table.contains(alias.alias)) {
-            const node = try Tag.alias.create(context.arena, .{ .actual = alias.alias, .mangled = alias.name });
+            const node = try Tag.alias.create(arena, .{ .actual = alias.alias, .mangled = alias.name });
             try addTopLevelDecl(&context, alias.alias, node);
         }
     }
@@ -790,6 +792,10 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
     // int foo = 2;
     var is_extern = storage_class == .Extern and !has_init;
     var is_export = !is_extern and storage_class != .Static;
+
+    if (!is_extern and qualTypeWasDemotedToOpaque(c, qual_type)) {
+        return failDecl(c, var_decl_loc, var_name, "non-extern variable has opaque type", .{});
+    }
 
     const type_node = transQualTypeMaybeInitialized(c, scope, qual_type, decl_init, var_decl_loc) catch |err| switch (err) {
         error.UnsupportedTranslation, error.UnsupportedType => {
@@ -1441,7 +1447,7 @@ fn makeShuffleMask(c: *Context, scope: *Scope, expr: *const clang.ShuffleVectorE
     assert(num_subexprs >= 3); // two source vectors + at least 1 index expression
     const mask_len = num_subexprs - 2;
 
-    const mask_type = try Tag.std_meta_vector.create(c.arena, .{
+    const mask_type = try Tag.vector.create(c.arena, .{
         .lhs = try transCreateNodeNumber(c, mask_len, .int),
         .rhs = try Tag.type.create(c.arena, "i32"),
     });
@@ -1791,14 +1797,31 @@ fn transCStyleCastExprClass(
     stmt: *const clang.CStyleCastExpr,
     result_used: ResultUsed,
 ) TransError!Node {
+    const cast_expr = @ptrCast(*const clang.CastExpr, stmt);
     const sub_expr = stmt.getSubExpr();
-    const cast_node = (try transCCast(
+    const dst_type = stmt.getType();
+    const src_type = sub_expr.getType();
+    const sub_expr_node = try transExpr(c, scope, sub_expr, .used);
+    const loc = stmt.getBeginLoc();
+
+    const cast_node = if (cast_expr.getCastKind() == .ToUnion) blk: {
+        const field_decl = cast_expr.getTargetFieldForToUnionCast(dst_type, src_type).?; // C syntax error if target field is null
+        const field_name = try c.str(@ptrCast(*const clang.NamedDecl, field_decl).getName_bytes_begin());
+
+        const union_ty = try transQualType(c, scope, dst_type, loc);
+
+        const inits = [1]ast.Payload.ContainerInit.Initializer{.{ .name = field_name, .value = sub_expr_node }};
+        break :blk try Tag.container_init.create(c.arena, .{
+            .lhs = union_ty,
+            .inits = try c.arena.dupe(ast.Payload.ContainerInit.Initializer, &inits),
+        });
+    } else (try transCCast(
         c,
         scope,
-        stmt.getBeginLoc(),
-        stmt.getType(),
-        sub_expr.getType(),
-        try transExpr(c, scope, sub_expr, .used),
+        loc,
+        dst_type,
+        src_type,
+        sub_expr_node,
     ));
     return maybeSuppressResult(c, scope, result_used, cast_node);
 }
@@ -1820,6 +1843,7 @@ fn transDeclStmtOne(
         .Var => {
             const var_decl = @ptrCast(*const clang.VarDecl, decl);
             const decl_init = var_decl.getInit();
+            const loc = decl.getLocation();
 
             const qual_type = var_decl.getTypeSourceInfo_getType();
             const name = try c.str(@ptrCast(*const clang.NamedDecl, var_decl).getName_bytes_begin());
@@ -1829,12 +1853,12 @@ fn transDeclStmtOne(
                 // This is actually a global variable, put it in the global scope and reference it.
                 // `_ = mangled_name;`
                 return visitVarDecl(c, var_decl, mangled_name);
+            } else if (qualTypeWasDemotedToOpaque(c, qual_type)) {
+                return fail(c, error.UnsupportedTranslation, loc, "local variable has opaque type", .{});
             }
 
             const is_static_local = var_decl.isStaticLocal();
             const is_const = qual_type.isConstQualified();
-
-            const loc = decl.getLocation();
             const type_node = try transQualTypeMaybeInitialized(c, scope, qual_type, decl_init, loc);
 
             var init_node = if (decl_init) |expr|
@@ -2370,7 +2394,7 @@ fn cIntTypeForEnum(enum_qt: clang.QualType) clang.QualType {
     return enum_decl.getIntegerType();
 }
 
-// when modifying this function, make sure to also update std.meta.cast
+// when modifying this function, make sure to also update std.zig.c_translation.cast
 fn transCCast(
     c: *Context,
     scope: *Scope,
@@ -3979,7 +4003,7 @@ fn transFloatingLiteral(c: *Context, scope: *Scope, expr: *const clang.FloatingL
     var dbl = expr.getValueAsApproximateDouble();
     const is_negative = dbl < 0;
     if (is_negative) dbl = -dbl;
-    const str = if (dbl == std.math.floor(dbl))
+    const str = if (dbl == @floor(dbl))
         try std.fmt.allocPrint(c.arena, "{d}.0", .{dbl})
     else
         try std.fmt.allocPrint(c.arena, "{d}", .{dbl});
@@ -4507,9 +4531,7 @@ fn transCreateNodeBoolInfixOp(
 }
 
 fn transCreateNodeAPInt(c: *Context, int: *const clang.APSInt) !Node {
-    const num_limbs = math.cast(usize, int.getNumWords()) catch |err| switch (err) {
-        error.Overflow => return error.OutOfMemory,
-    };
+    const num_limbs = math.cast(usize, int.getNumWords()) orelse return error.OutOfMemory;
     var aps_int = int;
     const is_negative = int.isSigned() and int.isNegative();
     if (is_negative) aps_int = aps_int.negate();
@@ -4783,7 +4805,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
             const vector_ty = @ptrCast(*const clang.VectorType, ty);
             const num_elements = vector_ty.getNumElements();
             const element_qt = vector_ty.getElementType();
-            return Tag.std_meta_vector.create(c.arena, .{
+            return Tag.vector.create(c.arena, .{
                 .lhs = try transCreateNodeNumber(c, num_elements, .int),
                 .rhs = try transQualType(c, scope, element_qt, source_loc),
             });
@@ -4814,7 +4836,16 @@ fn qualTypeWasDemotedToOpaque(c: *Context, qt: clang.QualType) bool {
 
             const record_decl = record_ty.getDecl();
             const canonical = @ptrToInt(record_decl.getCanonicalDecl());
-            return c.opaque_demotes.contains(canonical);
+            if (c.opaque_demotes.contains(canonical)) return true;
+
+            // check all childern for opaque types.
+            var it = record_decl.field_begin();
+            const end_it = record_decl.field_end();
+            while (it.neq(end_it)) : (it = it.next()) {
+                const field_decl = it.deref();
+                if (qualTypeWasDemotedToOpaque(c, field_decl.getType())) return true;
+            }
+            return false;
         },
         .Enum => {
             const enum_ty = @ptrCast(*const clang.EnumType, ty);
@@ -5078,7 +5109,30 @@ const PatternList = struct {
         [2][]const u8{ "Ull_SUFFIX(X) (X ## Ull)", "ULL_SUFFIX" },
         [2][]const u8{ "ULL_SUFFIX(X) (X ## ULL)", "ULL_SUFFIX" },
 
+        [2][]const u8{ "f_SUFFIX(X) X ## f", "F_SUFFIX" },
+        [2][]const u8{ "F_SUFFIX(X) X ## F", "F_SUFFIX" },
+
+        [2][]const u8{ "u_SUFFIX(X) X ## u", "U_SUFFIX" },
+        [2][]const u8{ "U_SUFFIX(X) X ## U", "U_SUFFIX" },
+
+        [2][]const u8{ "l_SUFFIX(X) X ## l", "L_SUFFIX" },
+        [2][]const u8{ "L_SUFFIX(X) X ## L", "L_SUFFIX" },
+
+        [2][]const u8{ "ul_SUFFIX(X) X ## ul", "UL_SUFFIX" },
+        [2][]const u8{ "uL_SUFFIX(X) X ## uL", "UL_SUFFIX" },
+        [2][]const u8{ "Ul_SUFFIX(X) X ## Ul", "UL_SUFFIX" },
+        [2][]const u8{ "UL_SUFFIX(X) X ## UL", "UL_SUFFIX" },
+
+        [2][]const u8{ "ll_SUFFIX(X) X ## ll", "LL_SUFFIX" },
+        [2][]const u8{ "LL_SUFFIX(X) X ## LL", "LL_SUFFIX" },
+
+        [2][]const u8{ "ull_SUFFIX(X) X ## ull", "ULL_SUFFIX" },
+        [2][]const u8{ "uLL_SUFFIX(X) X ## uLL", "ULL_SUFFIX" },
+        [2][]const u8{ "Ull_SUFFIX(X) X ## Ull", "ULL_SUFFIX" },
+        [2][]const u8{ "ULL_SUFFIX(X) X ## ULL", "ULL_SUFFIX" },
+
         [2][]const u8{ "CAST_OR_CALL(X, Y) (X)(Y)", "CAST_OR_CALL" },
+        [2][]const u8{ "CAST_OR_CALL(X, Y) ((X)(Y))", "CAST_OR_CALL" },
 
         [2][]const u8{
             \\wl_container_of(ptr, sample, member)                     \
@@ -5272,6 +5326,7 @@ test "Macro matching" {
 
     try helper.checkMacro(allocator, pattern_list, "NO_MATCH(X, Y) (X + Y)", null);
     try helper.checkMacro(allocator, pattern_list, "CAST_OR_CALL(X, Y) (X)(Y)", "CAST_OR_CALL");
+    try helper.checkMacro(allocator, pattern_list, "CAST_OR_CALL(X, Y) ((X)(Y))", "CAST_OR_CALL");
     try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) (void)(X)", "DISCARD");
     try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) ((void)(X))", "DISCARD");
     try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) (const void)(X)", "DISCARD");
@@ -5308,7 +5363,7 @@ const MacroCtx = struct {
             try self.fail(
                 c,
                 "unable to translate C expr: expected '{s}' instead got '{s}'",
-                .{ CToken.Id.symbol(expected_id), next_id.symbol() },
+                .{ CToken.Id.symbolName(expected_id), next_id.symbol() },
             );
             return error.ParseError;
         }
@@ -5546,7 +5601,7 @@ fn parseCExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
         const ignore = try Tag.discard.create(c.arena, .{ .should_skip = false, .value = last });
         try block_scope.statements.append(ignore);
 
-        last = try parseCCondExpr(c, m, scope);
+        last = try parseCCondExpr(c, m, &block_scope.base);
         if (m.next().? != .Comma) {
             m.i -= 1;
             break;
@@ -5608,12 +5663,12 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!Node {
             // make the output less noisy by skipping promoteIntLiteral where
             // it's guaranteed to not be required because of C standard type constraints
             const guaranteed_to_fit = switch (suffix) {
-                .none => !meta.isError(math.cast(i16, value)),
-                .u => !meta.isError(math.cast(u16, value)),
-                .l => !meta.isError(math.cast(i32, value)),
-                .lu => !meta.isError(math.cast(u32, value)),
-                .ll => !meta.isError(math.cast(i64, value)),
-                .llu => !meta.isError(math.cast(u64, value)),
+                .none => math.cast(i16, value) != null,
+                .u => math.cast(u16, value) != null,
+                .l => math.cast(i32, value) != null,
+                .lu => math.cast(u32, value) != null,
+                .ll => math.cast(i64, value) != null,
+                .llu => math.cast(u64, value) != null,
                 .f => unreachable,
             };
 
