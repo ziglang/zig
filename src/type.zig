@@ -2906,9 +2906,13 @@ pub const Type = extern union {
 
             .array, .array_sentinel => return ty.elemType().abiAlignmentAdvanced(target, strat),
 
-            // TODO audit this - is there any more complicated logic to determine
-            // ABI alignment of vectors?
-            .vector => return AbiAlignmentAdvanced{ .scalar = 16 },
+            .vector => {
+                const len = ty.arrayLen();
+                const bits = try bitSizeAdvanced(ty.elemType(), target, sema_kit);
+                const bytes = (bits + 7) / 8;
+                const alignment = std.math.ceilPowerOfTwoAssert(u64, bytes * len);
+                return AbiAlignmentAdvanced{ .scalar = @intCast(u32, alignment) };
+            },
 
             .i16, .u16 => return AbiAlignmentAdvanced{ .scalar = intAbiAlignment(16, target) },
             .u29 => return AbiAlignmentAdvanced{ .scalar = intAbiAlignment(29, target) },
