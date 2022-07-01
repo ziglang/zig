@@ -1,4 +1,4 @@
-//===------------------------ stdexcept.cpp -------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -12,9 +12,7 @@
 #include <cstring>
 #include <cstdint>
 #include <cstddef>
-
-// This includes an implementation file from libc++.
-#include "../../libcxx/src/include/refstring.h"
+#include "include/refstring.h" // from libc++
 
 static_assert(sizeof(std::__libcpp_refstring) == sizeof(const char *), "");
 
