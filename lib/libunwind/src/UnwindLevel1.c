@@ -1,4 +1,4 @@
-//===------------------------- UnwindLevel1.c -----------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -25,16 +25,47 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "cet_unwind.h"
 #include "config.h"
 #include "libunwind.h"
 #include "libunwind_ext.h"
 #include "unwind.h"
 
-#pragma clang diagnostic ignored "-Wdll-attribute-on-redeclaration"
-
 #if !defined(_LIBUNWIND_ARM_EHABI) && !defined(__USING_SJLJ_EXCEPTIONS__)
 
 #ifndef _LIBUNWIND_SUPPORT_SEH_UNWIND
+
+// When CET is enabled, each "call" instruction will push return address to
+// CET shadow stack, each "ret" instruction will pop current CET shadow stack
+// top and compare it with target address which program will return.
+// In exception handing, some stack frames will be skipped before jumping to
+// landing pad and we must adjust CET shadow stack accordingly.
+// _LIBUNWIND_POP_CET_SSP is used to adjust CET shadow stack pointer and we
+// directly jump to __libunwind_Registerts_x86/x86_64_jumpto instead of using
+// a regular function call to avoid pushing to CET shadow stack again.
+#if !defined(_LIBUNWIND_USE_CET)
+#define __unw_phase2_resume(cursor, fn) __unw_resume((cursor))
+#elif defined(_LIBUNWIND_TARGET_I386)
+#define __unw_phase2_resume(cursor, fn)                                        \
+  do {                                                                         \
+    _LIBUNWIND_POP_CET_SSP((fn));                                              \
+    void *cetRegContext = __libunwind_cet_get_registers((cursor));             \
+    void *cetJumpAddress = __libunwind_cet_get_jump_target();                  \
+    __asm__ volatile("push %%edi\n\t"                                          \
+                     "sub $4, %%esp\n\t"                                       \
+                     "jmp *%%edx\n\t" :: "D"(cetRegContext),                   \
+                     "d"(cetJumpAddress));                                     \
+  } while (0)
+#elif defined(_LIBUNWIND_TARGET_X86_64)
+#define __unw_phase2_resume(cursor, fn)                                        \
+  do {                                                                         \
+    _LIBUNWIND_POP_CET_SSP((fn));                                              \
+    void *cetRegContext = __libunwind_cet_get_registers((cursor));             \
+    void *cetJumpAddress = __libunwind_cet_get_jump_target();                  \
+    __asm__ volatile("jmpq *%%rdx\n\t" :: "D"(cetRegContext),                  \
+                     "d"(cetJumpAddress));                                     \
+  } while (0)
+#endif
 
 static _Unwind_Reason_Code
 unwind_phase1(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *exception_object) {
@@ -70,6 +101,7 @@ unwind_phase1(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *except
       return _URC_FATAL_PHASE1_ERROR;
     }
 
+#ifndef NDEBUG
     // When tracing, print state information.
     if (_LIBUNWIND_TRACING_UNWINDING) {
       char functionBuf[512];
@@ -87,6 +119,7 @@ unwind_phase1(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *except
           (void *)exception_object, pc, frameInfo.start_ip, functionName,
           frameInfo.lsda, frameInfo.handler);
     }
+#endif
 
     // If there is a personality routine, ask it if it will want to stop at
     // this frame.
@@ -137,6 +170,9 @@ unwind_phase2(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *except
   _LIBUNWIND_TRACE_UNWINDING("unwind_phase2(ex_ojb=%p)",
                              (void *)exception_object);
 
+  // uc is initialized by __unw_getcontext in the parent frame. The first stack
+  // frame walked is unwind_phase2.
+  unsigned framesWalked = 1;
   // Walk each frame until we reach where search phase said to stop.
   while (true) {
 
@@ -169,6 +205,7 @@ unwind_phase2(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *except
       return _URC_FATAL_PHASE2_ERROR;
     }
 
+#ifndef NDEBUG
     // When tracing, print state information.
     if (_LIBUNWIND_TRACING_UNWINDING) {
       char functionBuf[512];
@@ -185,7 +222,9 @@ unwind_phase2(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *except
                                  functionName, sp, frameInfo.lsda,
                                  frameInfo.handler);
     }
+#endif
 
+    ++framesWalked;
     // If there is a personality routine, tell it we are unwinding.
     if (frameInfo.handler != 0) {
       _Unwind_Personality_Fn p =
@@ -225,8 +264,9 @@ unwind_phase2(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *except
                                      ", sp=0x%" PRIxPTR,
                                      (void *)exception_object, pc, sp);
         }
-        __unw_resume(cursor);
-        // __unw_resume() only returns if there was an error.
+
+        __unw_phase2_resume(cursor, framesWalked);
+        // __unw_phase2_resume() only returns if there was an error.
         return _URC_FATAL_PHASE2_ERROR;
       default:
         // Personality routine returned an unknown result code.
@@ -248,6 +288,9 @@ unwind_phase2_forced(unw_context_t *uc, unw_cursor_t *cursor,
                      _Unwind_Stop_Fn stop, void *stop_parameter) {
   __unw_init_local(cursor, uc);
 
+  // uc is initialized by __unw_getcontext in the parent frame. The first stack
+  // frame walked is unwind_phase2_forced.
+  unsigned framesWalked = 1;
   // Walk each frame until we reach where search phase said to stop
   while (__unw_step(cursor) > 0) {
 
@@ -260,6 +303,7 @@ unwind_phase2_forced(unw_context_t *uc, unw_cursor_t *cursor,
       return _URC_FATAL_PHASE2_ERROR;
     }
 
+#ifndef NDEBUG
     // When tracing, print state information.
     if (_LIBUNWIND_TRACING_UNWINDING) {
       char functionBuf[512];
@@ -275,6 +319,7 @@ unwind_phase2_forced(unw_context_t *uc, unw_cursor_t *cursor,
           (void *)exception_object, frameInfo.start_ip, functionName,
           frameInfo.lsda, frameInfo.handler);
     }
+#endif
 
     // Call stop function at each frame.
     _Unwind_Action action =
@@ -292,6 +337,7 @@ unwind_phase2_forced(unw_context_t *uc, unw_cursor_t *cursor,
       return _URC_FATAL_PHASE2_ERROR;
     }
 
+    ++framesWalked;
     // If there is a personality routine, tell it we are unwinding.
     if (frameInfo.handler != 0) {
       _Unwind_Personality_Fn p =
@@ -316,7 +362,7 @@ unwind_phase2_forced(unw_context_t *uc, unw_cursor_t *cursor,
                                    "_URC_INSTALL_CONTEXT",
                                    (void *)exception_object);
         // We may get control back if landing pad calls _Unwind_Resume().
-        __unw_resume(cursor);
+        __unw_phase2_resume(cursor, framesWalked);
         break;
       default:
         // Personality routine returned an unknown result code.

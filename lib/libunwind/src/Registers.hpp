@@ -1,4 +1,4 @@
-//===----------------------------- Registers.hpp --------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -15,8 +15,9 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "libunwind.h"
+#include "cet_unwind.h"
 #include "config.h"
+#include "libunwind.h"
 
 namespace libunwind {
 
@@ -43,6 +44,13 @@ enum {
 #if defined(_LIBUNWIND_TARGET_I386)
 class _LIBUNWIND_HIDDEN Registers_x86;
 extern "C" void __libunwind_Registers_x86_jumpto(Registers_x86 *);
+
+#if defined(_LIBUNWIND_USE_CET)
+extern "C" void *__libunwind_cet_get_jump_target() {
+  return reinterpret_cast<void *>(&__libunwind_Registers_x86_jumpto);
+}
+#endif
+
 /// Registers_x86 holds the register state of a thread in a 32-bit intel
 /// process.
 class _LIBUNWIND_HIDDEN Registers_x86 {
@@ -254,6 +262,13 @@ inline void Registers_x86::setVectorRegister(int, v128) {
 /// process.
 class _LIBUNWIND_HIDDEN Registers_x86_64;
 extern "C" void __libunwind_Registers_x86_64_jumpto(Registers_x86_64 *);
+
+#if defined(_LIBUNWIND_USE_CET)
+extern "C" void *__libunwind_cet_get_jump_target() {
+  return reinterpret_cast<void *>(&__libunwind_Registers_x86_64_jumpto);
+}
+#endif
+
 class _LIBUNWIND_HIDDEN Registers_x86_64 {
 public:
   Registers_x86_64();
@@ -340,7 +355,7 @@ inline bool Registers_x86_64::validRegister(int regNum) const {
     return true;
   if (regNum < 0)
     return false;
-  if (regNum > 15)
+  if (regNum > 16)
     return false;
   return true;
 }
@@ -348,6 +363,7 @@ inline bool Registers_x86_64::validRegister(int regNum) const {
 inline uint64_t Registers_x86_64::getRegister(int regNum) const {
   switch (regNum) {
   case UNW_REG_IP:
+  case UNW_X86_64_RIP:
     return _registers.__rip;
   case UNW_REG_SP:
     return _registers.__rsp;
@@ -390,6 +406,7 @@ inline uint64_t Registers_x86_64::getRegister(int regNum) const {
 inline void Registers_x86_64::setRegister(int regNum, uint64_t value) {
   switch (regNum) {
   case UNW_REG_IP:
+  case UNW_X86_64_RIP:
     _registers.__rip = value;
     return;
   case UNW_REG_SP:
@@ -450,6 +467,7 @@ inline void Registers_x86_64::setRegister(int regNum, uint64_t value) {
 inline const char *Registers_x86_64::getRegisterName(int regNum) {
   switch (regNum) {
   case UNW_REG_IP:
+  case UNW_X86_64_RIP:
     return "rip";
   case UNW_REG_SP:
     return "rsp";
@@ -1848,7 +1866,7 @@ inline bool Registers_arm64::validRegister(int regNum) const {
     return false;
   if (regNum > 95)
     return false;
-  if (regNum == UNW_ARM64_RA_SIGN_STATE)
+  if (regNum == UNW_AARCH64_RA_SIGN_STATE)
     return true;
   if ((regNum > 32) && (regNum < 64))
     return false;
@@ -1856,15 +1874,15 @@ inline bool Registers_arm64::validRegister(int regNum) const {
 }
 
 inline uint64_t Registers_arm64::getRegister(int regNum) const {
-  if (regNum == UNW_REG_IP || regNum == UNW_ARM64_PC)
+  if (regNum == UNW_REG_IP || regNum == UNW_AARCH64_PC)
     return _registers.__pc;
-  if (regNum == UNW_REG_SP || regNum == UNW_ARM64_SP)
+  if (regNum == UNW_REG_SP || regNum == UNW_AARCH64_SP)
     return _registers.__sp;
-  if (regNum == UNW_ARM64_RA_SIGN_STATE)
+  if (regNum == UNW_AARCH64_RA_SIGN_STATE)
     return _registers.__ra_sign_state;
-  if (regNum == UNW_ARM64_FP)
+  if (regNum == UNW_AARCH64_FP)
     return _registers.__fp;
-  if (regNum == UNW_ARM64_LR)
+  if (regNum == UNW_AARCH64_LR)
     return _registers.__lr;
   if ((regNum >= 0) && (regNum < 29))
     return _registers.__x[regNum];
@@ -1872,15 +1890,15 @@ inline uint64_t Registers_arm64::getRegister(int regNum) const {
 }
 
 inline void Registers_arm64::setRegister(int regNum, uint64_t value) {
-  if (regNum == UNW_REG_IP || regNum == UNW_ARM64_PC)
+  if (regNum == UNW_REG_IP || regNum == UNW_AARCH64_PC)
     _registers.__pc = value;
-  else if (regNum == UNW_REG_SP || regNum == UNW_ARM64_SP)
+  else if (regNum == UNW_REG_SP || regNum == UNW_AARCH64_SP)
     _registers.__sp = value;
-  else if (regNum == UNW_ARM64_RA_SIGN_STATE)
+  else if (regNum == UNW_AARCH64_RA_SIGN_STATE)
     _registers.__ra_sign_state = value;
-  else if (regNum == UNW_ARM64_FP)
+  else if (regNum == UNW_AARCH64_FP)
     _registers.__fp = value;
-  else if (regNum == UNW_ARM64_LR)
+  else if (regNum == UNW_AARCH64_LR)
     _registers.__lr = value;
   else if ((regNum >= 0) && (regNum < 29))
     _registers.__x[regNum] = value;
@@ -1894,135 +1912,135 @@ inline const char *Registers_arm64::getRegisterName(int regNum) {
     return "pc";
   case UNW_REG_SP:
     return "sp";
-  case UNW_ARM64_X0:
+  case UNW_AARCH64_X0:
     return "x0";
-  case UNW_ARM64_X1:
+  case UNW_AARCH64_X1:
     return "x1";
-  case UNW_ARM64_X2:
+  case UNW_AARCH64_X2:
     return "x2";
-  case UNW_ARM64_X3:
+  case UNW_AARCH64_X3:
     return "x3";
-  case UNW_ARM64_X4:
+  case UNW_AARCH64_X4:
     return "x4";
-  case UNW_ARM64_X5:
+  case UNW_AARCH64_X5:
     return "x5";
-  case UNW_ARM64_X6:
+  case UNW_AARCH64_X6:
     return "x6";
-  case UNW_ARM64_X7:
+  case UNW_AARCH64_X7:
     return "x7";
-  case UNW_ARM64_X8:
+  case UNW_AARCH64_X8:
     return "x8";
-  case UNW_ARM64_X9:
+  case UNW_AARCH64_X9:
     return "x9";
-  case UNW_ARM64_X10:
+  case UNW_AARCH64_X10:
     return "x10";
-  case UNW_ARM64_X11:
+  case UNW_AARCH64_X11:
     return "x11";
-  case UNW_ARM64_X12:
+  case UNW_AARCH64_X12:
     return "x12";
-  case UNW_ARM64_X13:
+  case UNW_AARCH64_X13:
     return "x13";
-  case UNW_ARM64_X14:
+  case UNW_AARCH64_X14:
     return "x14";
-  case UNW_ARM64_X15:
+  case UNW_AARCH64_X15:
     return "x15";
-  case UNW_ARM64_X16:
+  case UNW_AARCH64_X16:
     return "x16";
-  case UNW_ARM64_X17:
+  case UNW_AARCH64_X17:
     return "x17";
-  case UNW_ARM64_X18:
+  case UNW_AARCH64_X18:
     return "x18";
-  case UNW_ARM64_X19:
+  case UNW_AARCH64_X19:
     return "x19";
-  case UNW_ARM64_X20:
+  case UNW_AARCH64_X20:
     return "x20";
-  case UNW_ARM64_X21:
+  case UNW_AARCH64_X21:
     return "x21";
-  case UNW_ARM64_X22:
+  case UNW_AARCH64_X22:
     return "x22";
-  case UNW_ARM64_X23:
+  case UNW_AARCH64_X23:
     return "x23";
-  case UNW_ARM64_X24:
+  case UNW_AARCH64_X24:
     return "x24";
-  case UNW_ARM64_X25:
+  case UNW_AARCH64_X25:
     return "x25";
-  case UNW_ARM64_X26:
+  case UNW_AARCH64_X26:
     return "x26";
-  case UNW_ARM64_X27:
+  case UNW_AARCH64_X27:
     return "x27";
-  case UNW_ARM64_X28:
+  case UNW_AARCH64_X28:
     return "x28";
-  case UNW_ARM64_FP:
+  case UNW_AARCH64_FP:
     return "fp";
-  case UNW_ARM64_LR:
+  case UNW_AARCH64_LR:
     return "lr";
-  case UNW_ARM64_SP:
+  case UNW_AARCH64_SP:
     return "sp";
-  case UNW_ARM64_PC:
+  case UNW_AARCH64_PC:
     return "pc";
-  case UNW_ARM64_D0:
+  case UNW_AARCH64_V0:
     return "d0";
-  case UNW_ARM64_D1:
+  case UNW_AARCH64_V1:
     return "d1";
-  case UNW_ARM64_D2:
+  case UNW_AARCH64_V2:
     return "d2";
-  case UNW_ARM64_D3:
+  case UNW_AARCH64_V3:
     return "d3";
-  case UNW_ARM64_D4:
+  case UNW_AARCH64_V4:
     return "d4";
-  case UNW_ARM64_D5:
+  case UNW_AARCH64_V5:
     return "d5";
-  case UNW_ARM64_D6:
+  case UNW_AARCH64_V6:
     return "d6";
-  case UNW_ARM64_D7:
+  case UNW_AARCH64_V7:
     return "d7";
-  case UNW_ARM64_D8:
+  case UNW_AARCH64_V8:
     return "d8";
-  case UNW_ARM64_D9:
+  case UNW_AARCH64_V9:
     return "d9";
-  case UNW_ARM64_D10:
+  case UNW_AARCH64_V10:
     return "d10";
-  case UNW_ARM64_D11:
+  case UNW_AARCH64_V11:
     return "d11";
-  case UNW_ARM64_D12:
+  case UNW_AARCH64_V12:
     return "d12";
-  case UNW_ARM64_D13:
+  case UNW_AARCH64_V13:
     return "d13";
-  case UNW_ARM64_D14:
+  case UNW_AARCH64_V14:
     return "d14";
-  case UNW_ARM64_D15:
+  case UNW_AARCH64_V15:
     return "d15";
-  case UNW_ARM64_D16:
+  case UNW_AARCH64_V16:
     return "d16";
-  case UNW_ARM64_D17:
+  case UNW_AARCH64_V17:
     return "d17";
-  case UNW_ARM64_D18:
+  case UNW_AARCH64_V18:
     return "d18";
-  case UNW_ARM64_D19:
+  case UNW_AARCH64_V19:
     return "d19";
-  case UNW_ARM64_D20:
+  case UNW_AARCH64_V20:
     return "d20";
-  case UNW_ARM64_D21:
+  case UNW_AARCH64_V21:
     return "d21";
-  case UNW_ARM64_D22:
+  case UNW_AARCH64_V22:
     return "d22";
-  case UNW_ARM64_D23:
+  case UNW_AARCH64_V23:
     return "d23";
-  case UNW_ARM64_D24:
+  case UNW_AARCH64_V24:
     return "d24";
-  case UNW_ARM64_D25:
+  case UNW_AARCH64_V25:
     return "d25";
-  case UNW_ARM64_D26:
+  case UNW_AARCH64_V26:
     return "d26";
-  case UNW_ARM64_D27:
+  case UNW_AARCH64_V27:
     return "d27";
-  case UNW_ARM64_D28:
+  case UNW_AARCH64_V28:
     return "d28";
-  case UNW_ARM64_D29:
+  case UNW_AARCH64_V29:
     return "d29";
-  case UNW_ARM64_D30:
+  case UNW_AARCH64_V30:
     return "d30";
-  case UNW_ARM64_D31:
+  case UNW_AARCH64_V31:
     return "d31";
   default:
     return "unknown register";
@@ -2030,21 +2048,21 @@ inline const char *Registers_arm64::getRegisterName(int regNum) {
 }
 
 inline bool Registers_arm64::validFloatRegister(int regNum) const {
-  if (regNum < UNW_ARM64_D0)
+  if (regNum < UNW_AARCH64_V0)
     return false;
-  if (regNum > UNW_ARM64_D31)
+  if (regNum > UNW_AARCH64_V31)
     return false;
   return true;
 }
 
 inline double Registers_arm64::getFloatRegister(int regNum) const {
   assert(validFloatRegister(regNum));
-  return _vectorHalfRegisters[regNum - UNW_ARM64_D0];
+  return _vectorHalfRegisters[regNum - UNW_AARCH64_V0];
 }
 
 inline void Registers_arm64::setFloatRegister(int regNum, double value) {
   assert(validFloatRegister(regNum));
-  _vectorHalfRegisters[regNum - UNW_ARM64_D0] = value;
+  _vectorHalfRegisters[regNum - UNW_AARCH64_V0] = value;
 }
 
 inline bool Registers_arm64::validVectorRegister(int) const {
@@ -2123,6 +2141,10 @@ private:
     uint32_t __pc;    // Program counter r15
   };
 
+  struct PseudoRegisters {
+    uint32_t __pac; // Return Authentication Code (PAC)
+  };
+
   static void saveVFPWithFSTMD(void*);
   static void saveVFPWithFSTMX(void*);
   static void saveVFPv3(void*);
@@ -2139,6 +2161,7 @@ private:
 
   // ARM registers
   GPRs _registers;
+  PseudoRegisters _pseudo_registers;
 
   // We save floating point registers lazily because we can't know ahead of
   // time which ones are used. See EHABI #4.7.
@@ -2176,6 +2199,7 @@ inline Registers_arm::Registers_arm(const void *registers)
                 "arm registers do not fit into unw_context_t");
   // See __unw_getcontext() note about data.
   memcpy(&_registers, registers, sizeof(_registers));
+  memset(&_pseudo_registers, 0, sizeof(_pseudo_registers));
   memset(&_vfp_d0_d15_pad, 0, sizeof(_vfp_d0_d15_pad));
   memset(&_vfp_d16_d31, 0, sizeof(_vfp_d16_d31));
 #if defined(__ARM_WMMX)
@@ -2191,6 +2215,7 @@ inline Registers_arm::Registers_arm()
     _saved_vfp_d0_d15(false),
     _saved_vfp_d16_d31(false) {
   memset(&_registers, 0, sizeof(_registers));
+  memset(&_pseudo_registers, 0, sizeof(_pseudo_registers));
   memset(&_vfp_d0_d15_pad, 0, sizeof(_vfp_d0_d15_pad));
   memset(&_vfp_d16_d31, 0, sizeof(_vfp_d16_d31));
 #if defined(__ARM_WMMX)
@@ -2218,6 +2243,11 @@ inline bool Registers_arm::validRegister(int regNum) const {
     return true;
 #endif
 
+#ifdef __ARM_FEATURE_PAUTH
+  if (regNum == UNW_ARM_RA_AUTH_CODE)
+    return true;
+#endif
+
   return false;
 }
 
@@ -2242,6 +2272,11 @@ inline uint32_t Registers_arm::getRegister(int regNum) const {
     }
     return _iwmmx_control[regNum - UNW_ARM_WC0];
   }
+#endif
+
+#ifdef __ARM_FEATURE_PAUTH
+  if (regNum == UNW_ARM_RA_AUTH_CODE)
+    return _pseudo_registers.__pac;
 #endif
 
   _LIBUNWIND_ABORT("unsupported arm register");
@@ -2278,6 +2313,11 @@ inline void Registers_arm::setRegister(int regNum, uint32_t value) {
     return;
   }
 #endif
+
+  if (regNum == UNW_ARM_RA_AUTH_CODE) {
+    _pseudo_registers.__pac = value;
+    return;
+  }
 
   _LIBUNWIND_ABORT("unsupported arm register");
 }
@@ -3546,7 +3586,6 @@ inline const char *Registers_sparc::getRegisterName(int regNum) {
   }
 }
 #endif // _LIBUNWIND_TARGET_SPARC
-
 
 #if defined(_LIBUNWIND_TARGET_SPARC64)
 /// Registers_sparc64 holds the register state of a thread in a 64-bit
