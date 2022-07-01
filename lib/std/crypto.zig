@@ -43,6 +43,7 @@ pub const auth = struct {
 pub const core = struct {
     pub const aes = @import("crypto/aes.zig");
     pub const Gimli = @import("crypto/gimli.zig").State;
+    pub const Xoodoo = @import("crypto/xoodoo.zig").State;
 
     /// Modes are generic compositions to construct encryption/decryption functions from block ciphers and permutations.
     ///
