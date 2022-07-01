@@ -7,7 +7,8 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:5:9: error: duplicate switch value
+// :5:10: error: duplicate switch value
+// :4:10: note: previous value here

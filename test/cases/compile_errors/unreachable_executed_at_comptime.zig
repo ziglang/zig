@@ -5,12 +5,12 @@ fn foo(comptime x: i32) i32 {
     }
 }
 export fn entry() void {
-    _ = foo(-42);
+    _ = comptime foo(-42);
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:4:9: error: reached unreachable code
-// tmp.zig:8:12: note: called from here
+// :4:9: error: reached unreachable code
+// :8:21: note: called from here
