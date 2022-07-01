@@ -768,7 +768,11 @@ pub const Object = struct {
                             if (ptr_info.@"align" != 0) {
                                 dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", ptr_info.@"align");
                             } else {
-                                dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", ptr_info.pointee_type.abiAlignment(target));
+                                const elem_align = @maximum(
+                                    ptr_info.pointee_type.abiAlignment(target),
+                                    1,
+                                );
+                                dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", elem_align);
                             }
                         }
                     }
@@ -840,7 +844,8 @@ pub const Object = struct {
                     if (ptr_info.@"align" != 0) {
                         dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", ptr_info.@"align");
                     } else {
-                        dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", ptr_info.pointee_type.abiAlignment(target));
+                        const elem_align = @maximum(ptr_info.pointee_type.abiAlignment(target), 1);
+                        dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", elem_align);
                     }
                     const ptr_param = llvm_func.getParam(llvm_arg_i);
                     llvm_arg_i += 1;
@@ -3401,6 +3406,13 @@ pub const DeclGen = struct {
                 const union_obj = tv.ty.cast(Type.Payload.Union).?.data;
                 const field_index = union_obj.tag_ty.enumTagFieldIndex(tag_and_val.tag, dg.module).?;
                 assert(union_obj.haveFieldTypes());
+
+                // Sometimes we must make an unnamed struct because LLVM does
+                // not support bitcasting our payload struct to the true union payload type.
+                // Instead we use an unnamed struct and every reference to the global
+                // must pointer cast to the expected type before accessing the union.
+                var need_unnamed: bool = layout.most_aligned_field != field_index;
+
                 const field_ty = union_obj.fields.values()[field_index].ty;
                 const payload = p: {
                     if (!field_ty.hasRuntimeBitsIgnoreComptime()) {
@@ -3408,6 +3420,7 @@ pub const DeclGen = struct {
                         break :p dg.context.intType(8).arrayType(padding_len).getUndef();
                     }
                     const field = try lowerValue(dg, .{ .ty = field_ty, .val = tag_and_val.val });
+                    need_unnamed = need_unnamed or dg.isUnnamedType(field_ty, field);
                     const field_size = field_ty.abiSize(target);
                     if (field_size == layout.payload_size) {
                         break :p field;
@@ -3418,12 +3431,6 @@ pub const DeclGen = struct {
                     };
                     break :p dg.context.constStruct(&fields, fields.len, .True);
                 };
-
-                // In this case we must make an unnamed struct because LLVM does
-                // not support bitcasting our payload struct to the true union payload type.
-                // Instead we use an unnamed struct and every reference to the global
-                // must pointer cast to the expected type before accessing the union.
-                const need_unnamed = layout.most_aligned_field != field_index;
 
                 if (layout.tag_size == 0) {
                     const fields: [1]*const llvm.Value = .{payload};
