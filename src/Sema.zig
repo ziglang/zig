@@ -903,7 +903,8 @@ fn analyzeBodyInner(
             .ret_load       => break sema.zirRetLoad(block, inst),
             .ret_err_value  => break sema.zirRetErrValue(block, inst),
             .@"unreachable" => break sema.zirUnreachable(block, inst),
-            .panic          => break sema.zirPanic(block, inst),
+            .panic          => break sema.zirPanic(block, inst, false),
+            .panic_comptime => break sema.zirPanic(block, inst, true),
             // zig fmt: on
 
             .extended => ext: {
@@ -3870,10 +3871,26 @@ fn zirValidateDeref(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
         .Slice => return sema.fail(block, src, "index syntax required for slice type '{}'", .{operand_ty.fmt(sema.mod)}),
     }
 
+    const elem_ty = operand_ty.elemType2();
     if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
         if (val.isUndef()) {
             return sema.fail(block, src, "cannot dereference undefined value", .{});
         }
+    } else if (!(try sema.validateRunTimeType(block, src, elem_ty, false))) {
+        const msg = msg: {
+            const msg = try sema.errMsg(
+                block,
+                src,
+                "values of type '{}' must be comptime known, but operand value is runtime known",
+                .{elem_ty.fmt(sema.mod)},
+            );
+            errdefer msg.destroy(sema.gpa);
+
+            const src_decl = sema.mod.declPtr(block.src_decl);
+            try sema.explainWhyTypeIsComptime(block, src, msg, src.toSrcLoc(src_decl), elem_ty);
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(block, msg);
     }
 }
 
@@ -4308,11 +4325,15 @@ fn zirCompileLog(
     return Air.Inst.Ref.void_value;
 }
 
-fn zirPanic(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Index {
+fn zirPanic(sema: *Sema, block: *Block, inst: Zir.Inst.Index, force_comptime: bool) CompileError!Zir.Inst.Index {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src: LazySrcLoc = inst_data.src();
+    const src = inst_data.src();
     const msg_inst = try sema.resolveInst(inst_data.operand);
 
+    if (block.is_comptime or force_comptime) {
+        return sema.fail(block, src, "encountered @panic at comptime", .{});
+    }
+    try sema.requireRuntimeBlock(block, src);
     return sema.panicWithMsg(block, src, msg_inst);
 }
 
@@ -8357,7 +8378,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     return sema.fail(
                         block,
                         src,
-                        "switch must handle all possibilities",
+                        "else prong required when switching on type 'anyerror'",
                         .{},
                     );
                 }
@@ -17416,7 +17437,7 @@ fn zirVarExtended(
     const extra = sema.code.extraData(Zir.Inst.ExtendedVar, extended.operand);
     const src = sema.src;
     const ty_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at type
-    const mut_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at mut token
+    const name_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at the name token
     const init_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at init expr
     const small = @bitCast(Zir.Inst.ExtendedVar.Small, extended.small);
 
@@ -17460,7 +17481,7 @@ fn zirVarExtended(
             return sema.failWithNeededComptime(block, init_src);
     } else Value.initTag(.unreachable_value);
 
-    try sema.validateVarType(block, mut_src, var_ty, small.is_extern);
+    try sema.validateVarType(block, name_src, var_ty, small.is_extern);
 
     const new_var = try sema.gpa.create(Module.Var);
     errdefer sema.gpa.destroy(new_var);
@@ -17957,6 +17978,9 @@ fn validateVarType(
 
         const src_decl = mod.declPtr(block.src_decl);
         try sema.explainWhyTypeIsComptime(block, src, msg, src.toSrcLoc(src_decl), var_ty);
+        if (var_ty.zigTypeTag() == .ComptimeInt or var_ty.zigTypeTag() == .ComptimeFloat) {
+            try sema.errNote(block, src, msg, "to modify this variable at runtime, it must be given an explicit fixed-size number type", .{});
+        }
 
         break :msg msg;
     };
@@ -20040,6 +20064,15 @@ fn coerce(
                             .len = Value.zero,
                         });
                         return sema.addConstant(dest_ty, slice_val);
+                    }
+
+                    if (inst_ty.zigTypeTag() == .Array) {
+                        return sema.fail(
+                            block,
+                            inst_src,
+                            "array literal requires address-of operator (&) to coerce to slice type '{}'",
+                            .{dest_ty.fmt(sema.mod)},
+                        );
                     }
                 },
                 .Many => p: {
@@ -24433,6 +24466,10 @@ fn semaUnionFields(block: *Block, mod: *Module, union_obj: *Module.Union) Compil
         } else {
             // The provided type is the enum tag type.
             union_obj.tag_ty = try provided_ty.copy(decl_arena_allocator);
+            if (union_obj.tag_ty.zigTypeTag() != .Enum) {
+                const tag_ty_src = src; // TODO better source location
+                return sema.fail(block, tag_ty_src, "expected enum tag type, found '{}'", .{union_obj.tag_ty.fmt(sema.mod)});
+            }
             // The fields of the union must match the enum exactly.
             // Store a copy of the enum field names so we can check for
             // missing or extraneous fields later.

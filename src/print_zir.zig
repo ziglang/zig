@@ -197,6 +197,7 @@ const Writer = struct {
             .embed_file,
             .error_name,
             .panic,
+            .panic_comptime,
             .set_cold,
             .set_runtime_safety,
             .sqrt,
