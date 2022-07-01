@@ -15,7 +15,7 @@ export fn f() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:14:5: error: expected type 'i32', found 'Foo'
+// :14:9: error: type 'tmp.Foo' has no field or member function named 'init'

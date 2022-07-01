@@ -798,6 +798,8 @@ pub const Inst = struct {
         error_name,
         /// Implement builtin `@panic`. Uses `un_node`.
         panic,
+        /// Same as `panic` but forces comptime.
+        panic_comptime,
         /// Implement builtin `@setCold`. Uses `un_node`.
         set_cold,
         /// Implement builtin `@setRuntimeSafety`. Uses `un_node`.
@@ -1260,6 +1262,7 @@ pub const Inst = struct {
                 .repeat,
                 .repeat_inline,
                 .panic,
+                .panic_comptime,
                 => true,
             };
         }
@@ -1533,6 +1536,7 @@ pub const Inst = struct {
                 .repeat,
                 .repeat_inline,
                 .panic,
+                .panic_comptime,
                 .@"try",
                 .try_ptr,
                 //.try_inline,
@@ -1726,6 +1730,7 @@ pub const Inst = struct {
                 .embed_file = .un_node,
                 .error_name = .un_node,
                 .panic = .un_node,
+                .panic_comptime = .un_node,
                 .set_cold = .un_node,
                 .set_runtime_safety = .un_node,
                 .sqrt = .un_node,

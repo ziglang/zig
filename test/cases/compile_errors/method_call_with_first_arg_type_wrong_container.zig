@@ -24,7 +24,7 @@ export fn foo() void {
 }
 
 // error
-// backend=stage1
+// backend=llvm
 // target=native
 //
-// tmp.zig:23:5: error: expected type '*Allocator', found '*List'
+// :23:6: error: type 'tmp.List' has no field or member function named 'init'

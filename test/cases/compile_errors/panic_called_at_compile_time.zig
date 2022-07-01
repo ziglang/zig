@@ -5,7 +5,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:3:9: error: encountered @panic at compile-time
+// :3:9: error: encountered @panic at comptime
