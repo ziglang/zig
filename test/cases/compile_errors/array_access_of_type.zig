@@ -4,7 +4,7 @@ export fn foo() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:2:14: error: array access of non-array type 'type'
+// :2:14: error: element access of non-indexable type 'type'

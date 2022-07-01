@@ -5,7 +5,7 @@ export fn foo() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// :3:52: error: slice '[]const u8' cannot have its bytes reinterpreted
+// :3:52: error: comptime dereference requires '[]const u8' to have a well-defined layout, but it does not.

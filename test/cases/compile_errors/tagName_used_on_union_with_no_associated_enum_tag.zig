@@ -9,8 +9,8 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:7:19: error: union has no associated enum
-// tmp.zig:1:18: note: declared here
+// :7:19: error: union 'tmp.FloatInt' is untagged
+// :1:25: note: union declared here

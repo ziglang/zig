@@ -5,7 +5,7 @@ const Payload = union {
 };
 export fn entry() void {
     const a = Payload { .A = 1234 };
-    foo(a);
+    foo(&a);
 }
 fn foo(a: *const Payload) void {
     switch (a.*) {
@@ -15,8 +15,8 @@ fn foo(a: *const Payload) void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:11:14: error: switch on union which has no attached enum
-// tmp.zig:1:17: note: consider 'union(enum)' here
+// :11:14: error: switch on union with no attached enum
+// :1:17: note: consider 'union(enum)' here
