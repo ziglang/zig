@@ -7451,6 +7451,9 @@ fn analyzeAs(
     zir_operand: Zir.Inst.Ref,
 ) CompileError!Air.Inst.Ref {
     const dest_ty = try sema.resolveType(block, src, zir_dest_type);
+    if (dest_ty.zigTypeTag() == .NoReturn) {
+        return sema.fail(block, src, "cannot cast to noreturn", .{});
+    }
     const operand = try sema.resolveInst(zir_operand);
     if (dest_ty.tag() == .var_args_param) return operand;
     return sema.coerce(block, dest_ty, operand, src);
@@ -13688,7 +13691,8 @@ fn zirPtrTypeSimple(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].ptr_type_simple;
-    const elem_type = try sema.resolveType(block, .unneeded, inst_data.elem_type);
+    const elem_ty_src = sema.src; // TODO better source location
+    const elem_type = try sema.resolveType(block, elem_ty_src, inst_data.elem_type);
     const ty = try Type.ptr(sema.arena, sema.mod, .{
         .pointee_type = elem_type,
         .@"addrspace" = .generic,
@@ -13697,6 +13701,7 @@ fn zirPtrTypeSimple(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
         .@"volatile" = inst_data.is_volatile,
         .size = inst_data.size,
     });
+    try sema.validatePtrTy(block, elem_ty_src, ty, inst_data.is_allowzero);
     return sema.addType(ty);
 }
 
@@ -13704,9 +13709,12 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const tracy = trace(@src());
     defer tracy.end();
 
-    // TODO better source location
-    const src: LazySrcLoc = sema.src;
-    const elem_ty_src: LazySrcLoc = .unneeded;
+    const src: LazySrcLoc = sema.src; // TODO better source location
+    const elem_ty_src: LazySrcLoc = sema.src; // TODO better source location
+    const sentinel_src: LazySrcLoc = sema.src; // TODO better source location
+    const addrspace_src: LazySrcLoc = sema.src; // TODO better source location
+    const bitoffset_src: LazySrcLoc = sema.src; // TODO better source location
+    const hostsize_src: LazySrcLoc = sema.src; // TODO better source location
     const inst_data = sema.code.instructions.items(.data)[inst].ptr_type;
     const extra = sema.code.extraData(Zir.Inst.PtrType, inst_data.payload_index);
     const unresolved_elem_ty = try sema.resolveType(block, elem_ty_src, extra.data.elem_type);
@@ -13717,7 +13725,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const sentinel = if (inst_data.flags.has_sentinel) blk: {
         const ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_i]);
         extra_i += 1;
-        break :blk (try sema.resolveInstConst(block, .unneeded, ref)).val;
+        break :blk (try sema.resolveInstConst(block, sentinel_src, ref)).val;
     } else null;
 
     const abi_align: u32 = if (inst_data.flags.has_align) blk: {
@@ -13739,20 +13747,20 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const address_space = if (inst_data.flags.has_addrspace) blk: {
         const ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_i]);
         extra_i += 1;
-        break :blk try sema.analyzeAddrspace(block, .unneeded, ref, .pointer);
+        break :blk try sema.analyzeAddrspace(block, addrspace_src, ref, .pointer);
     } else .generic;
 
     const bit_offset = if (inst_data.flags.has_bit_range) blk: {
         const ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_i]);
         extra_i += 1;
-        const bit_offset = try sema.resolveInt(block, .unneeded, ref, Type.u16);
+        const bit_offset = try sema.resolveInt(block, bitoffset_src, ref, Type.u16);
         break :blk @intCast(u16, bit_offset);
     } else 0;
 
     const host_size: u16 = if (inst_data.flags.has_bit_range) blk: {
         const ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_i]);
         extra_i += 1;
-        const host_size = try sema.resolveInt(block, .unneeded, ref, Type.u16);
+        const host_size = try sema.resolveInt(block, hostsize_src, ref, Type.u16);
         break :blk @intCast(u16, host_size);
     } else 0;
 
@@ -13779,7 +13787,25 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         .@"volatile" = inst_data.flags.is_volatile,
         .size = inst_data.size,
     });
+    try sema.validatePtrTy(block, elem_ty_src, ty, inst_data.flags.is_allowzero);
     return sema.addType(ty);
+}
+
+fn validatePtrTy(sema: *Sema, block: *Block, elem_src: LazySrcLoc, ty: Type, explicit_allowzer: bool) CompileError!void {
+    const ptr_info = ty.ptrInfo().data;
+    const pointee_tag = ptr_info.pointee_type.zigTypeTag();
+    if (pointee_tag == .NoReturn) {
+        return sema.fail(block, elem_src, "pointer to noreturn not allowed", .{});
+    } else if (ptr_info.size == .Many and pointee_tag == .Opaque) {
+        return sema.fail(block, elem_src, "unknown-length pointer to opaque not allowed", .{});
+    } else if (ptr_info.size == .C) {
+        // TODO check extern type
+        if (pointee_tag == .Opaque) {
+            return sema.fail(block, elem_src, "C pointers cannot point to opaque types", .{});
+        } else if (explicit_allowzer) {
+            return sema.fail(block, elem_src, "C pointers always allow address zero", .{});
+        }
+    }
 }
 
 fn zirStructInitEmpty(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
