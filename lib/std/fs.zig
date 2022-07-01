@@ -2418,7 +2418,7 @@ pub fn deleteFileAbsoluteZ(absolute_path_c: [*:0]const u8) Dir.DeleteFileError!v
 }
 
 /// Same as `deleteFileAbsolute` except the parameter is WTF-16 encoded.
-pub fn deleteFileAbsoluteW(absolute_path_w: [*:0]const u16) Dir.DeleteFileError!void {
+pub fn deleteFileAbsoluteW(absolute_path_w: []const u16) Dir.DeleteFileError!void {
     assert(path.isAbsoluteWindowsW(absolute_path_w));
     return cwd().deleteFileW(absolute_path_w);
 }
