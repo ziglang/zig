@@ -1718,9 +1718,17 @@ fn failWithExpectedOptionalType(sema: *Sema, block: *Block, src: LazySrcLoc, opt
 }
 
 fn failWithArrayInitNotSupported(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError {
-    return sema.fail(block, src, "type '{}' does not support array initialization syntax", .{
-        ty.fmt(sema.mod),
-    });
+    const msg = msg: {
+        const msg = try sema.errMsg(block, src, "type '{}' does not support array initialization syntax", .{
+            ty.fmt(sema.mod),
+        });
+        errdefer msg.destroy(sema.gpa);
+        if (ty.isSlice()) {
+            try sema.errNote(block, src, msg, "inferred array length is specified with an underscore: '[_]{}'", .{ty.elemType2().fmt(sema.mod)});
+        }
+        break :msg msg;
+    };
+    return sema.failWithOwnedErrorMsg(block, msg);
 }
 
 fn failWithStructInitNotSupported(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError {
@@ -4817,14 +4825,16 @@ fn zirSetAlignStack(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Inst
             alignment,
         });
     }
-    const func = sema.owner_func orelse
+    const func = sema.func orelse
         return sema.fail(block, src, "@setAlignStack outside function body", .{});
 
     const fn_owner_decl = sema.mod.declPtr(func.owner_decl);
     switch (fn_owner_decl.ty.fnCallingConvention()) {
         .Naked => return sema.fail(block, src, "@setAlignStack in naked function", .{}),
         .Inline => return sema.fail(block, src, "@setAlignStack in inline function", .{}),
-        else => {},
+        else => if (block.inlining != null) {
+            return sema.fail(block, src, "@setAlignStack in inline call", .{});
+        },
     }
 
     const gop = try sema.mod.align_stack_fns.getOrPut(sema.mod.gpa, func);
@@ -7451,11 +7461,11 @@ fn analyzeAs(
     zir_operand: Zir.Inst.Ref,
 ) CompileError!Air.Inst.Ref {
     const dest_ty = try sema.resolveType(block, src, zir_dest_type);
+    const operand = try sema.resolveInst(zir_operand);
+    if (dest_ty.tag() == .var_args_param) return operand;
     if (dest_ty.zigTypeTag() == .NoReturn) {
         return sema.fail(block, src, "cannot cast to noreturn", .{});
     }
-    const operand = try sema.resolveInst(zir_operand);
-    if (dest_ty.tag() == .var_args_param) return operand;
     return sema.coerce(block, dest_ty, operand, src);
 }
 
@@ -8123,9 +8133,11 @@ fn zirSwitchCond(
             const union_ty = try sema.resolveTypeFields(block, operand_src, operand_ty);
             const enum_ty = union_ty.unionTagType() orelse {
                 const msg = msg: {
-                    const msg = try sema.errMsg(block, src, "switch on untagged union", .{});
+                    const msg = try sema.errMsg(block, src, "switch on union with no attached enum", .{});
                     errdefer msg.destroy(sema.gpa);
-                    try sema.addDeclaredHereNote(msg, union_ty);
+                    if (union_ty.declSrcLocOrNull(sema.mod)) |union_src| {
+                        try sema.mod.errNoteNonLazy(union_src, msg, "consider 'union(enum)' here", .{});
+                    }
                     break :msg msg;
                 };
                 return sema.failWithOwnedErrorMsg(block, msg);
@@ -8616,7 +8628,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     if (true_count + false_count == 2) {
                         return sema.fail(
                             block,
-                            src,
+                            special_prong_src,
                             "unreachable else prong; all cases already handled",
                             .{},
                         );
@@ -11965,7 +11977,6 @@ fn runtimeBoolCmp(
 
 fn zirSizeOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const ty = try sema.resolveType(block, operand_src, inst_data.operand);
     switch (ty.zigTypeTag()) {
@@ -11975,7 +11986,7 @@ fn zirSizeOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
         .Null,
         .BoundFn,
         .Opaque,
-        => return sema.fail(block, src, "no size available for type '{}'", .{ty.fmt(sema.mod)}),
+        => return sema.fail(block, operand_src, "no size available for type '{}'", .{ty.fmt(sema.mod)}),
 
         .Type,
         .EnumLiteral,
@@ -12101,7 +12112,7 @@ fn zirBuiltinSrc(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const src = LazySrcLoc.nodeOffset(@bitCast(i32, extended.operand));
+    const src = sema.src; // TODO better source location
     const extra = sema.code.extraData(Zir.Inst.LineColumn, extended.operand).data;
     const func = sema.func orelse return sema.fail(block, src, "@src outside function", .{});
     const fn_owner_decl = sema.mod.declPtr(func.owner_decl);
@@ -14606,14 +14617,12 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         },
         .Enum => operand_ty,
         .Union => operand_ty.unionTagType() orelse {
-            const decl_index = operand_ty.getOwnerDecl();
-            const decl = mod.declPtr(decl_index);
             const msg = msg: {
-                const msg = try sema.errMsg(block, src, "union '{s}' is untagged", .{
-                    decl.name,
+                const msg = try sema.errMsg(block, src, "union '{}' is untagged", .{
+                    operand_ty.fmt(sema.mod),
                 });
                 errdefer msg.destroy(sema.gpa);
-                try mod.errNoteNonLazy(decl.srcLoc(), msg, "declared here", .{});
+                try sema.addDeclaredHereNote(msg, operand_ty);
                 break :msg msg;
             };
             return sema.failWithOwnedErrorMsg(block, msg);

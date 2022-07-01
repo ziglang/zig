@@ -3,7 +3,7 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:2:20: error: no size available for type '@Type(.Null)'
+// :2:20: error: no size available for type '@TypeOf(null)'

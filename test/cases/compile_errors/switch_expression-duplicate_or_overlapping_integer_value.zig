@@ -6,11 +6,11 @@ fn foo(x: u8) u8 {
         206 ... 255 => 3,
     };
 }
-export fn entry() usize { return @sizeOf(@TypeOf(foo)); }
+export fn entry() usize { return @sizeOf(@TypeOf(&foo)); }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:6:9: error: duplicate switch value
-// tmp.zig:5:14: note: previous value here
+// :6:13: error: duplicate switch value
+// :5:18: note: previous value here
