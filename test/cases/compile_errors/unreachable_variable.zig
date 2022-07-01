@@ -7,4 +7,4 @@ export fn f() void {
 // backend=stage2
 // target=native
 //
-// :2:25: error: expected type 'noreturn', found 'void'
+// :2:25: error: cannot cast to noreturn
