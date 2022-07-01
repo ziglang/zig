@@ -4694,7 +4694,11 @@ pub fn importFile(
     const resolved_root_path = try std.fs.path.resolve(gpa, &[_][]const u8{cur_pkg_dir_path});
     defer gpa.free(resolved_root_path);
 
-    if (!mem.startsWith(u8, resolved_path, resolved_root_path)) {
+    if (!mem.startsWith(u8, resolved_path, resolved_root_path) or
+        // This prevents this check from triggering when the name of the
+        // imported file starts with the root path's directory name.
+        mem.indexOfAny(u8, &.{resolved_path[resolved_root_path.len]}, "/\\") == null)
+    {
         return error.ImportOutsidePkgPath;
     }
     // +1 for the directory separator here.
