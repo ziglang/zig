@@ -15,6 +15,13 @@
 #ifndef UNWIND_ASSEMBLY_H
 #define UNWIND_ASSEMBLY_H
 
+#if defined(__linux__) && defined(__CET__)
+#include <cet.h>
+#define _LIBUNWIND_CET_ENDBR _CET_ENDBR
+#else
+#define _LIBUNWIND_CET_ENDBR
+#endif
+
 #if defined(__powerpc64__)
 #define SEPARATOR ;
 #define PPC64_OFFS_SRR0   0
@@ -74,7 +81,7 @@
 #define PPC64_OPD2
 #endif
 
-#if defined(__ARM_FEATURE_BTI_DEFAULT)
+#if defined(__aarch64__) && defined(__ARM_FEATURE_BTI_DEFAULT)
   .pushsection ".note.gnu.property", "a" SEPARATOR                             \
   .balign 8 SEPARATOR                                                          \
   .long 4 SEPARATOR                                                            \
@@ -90,6 +97,17 @@
 #define AARCH64_BTI  bti c
 #else
 #define AARCH64_BTI
+#endif
+
+#if !defined(__aarch64__)
+#ifdef __ARM_FEATURE_PAC_DEFAULT
+  .eabi_attribute Tag_PAC_extension, 2
+  .eabi_attribute Tag_PACRET_use, 1
+#endif
+#ifdef __ARM_FEATURE_BTI_DEFAULT
+  .eabi_attribute Tag_BTI_extension, 1
+  .eabi_attribute Tag_BTI_use, 1
+#endif
 #endif
 
 #define GLUE2(a, b) a ## b
@@ -216,7 +234,7 @@
 #endif
 #endif /* __arm__ */
 
-#if defined(__ppc__) || defined(__powerpc64__)
+#if defined(__powerpc__)
 #define PPC_LEFT_SHIFT(index) << (index)
 #endif
 

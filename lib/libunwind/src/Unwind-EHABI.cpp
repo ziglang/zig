@@ -1,4 +1,4 @@
-//===--------------------------- Unwind-EHABI.cpp -------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -187,9 +187,14 @@ static _Unwind_Reason_Code unwindOneFrame(_Unwind_State state,
   if (result != _URC_CONTINUE_UNWIND)
     return result;
 
-  if (__unw_step(reinterpret_cast<unw_cursor_t *>(context)) != UNW_STEP_SUCCESS)
+  switch (__unw_step(reinterpret_cast<unw_cursor_t *>(context))) {
+  case UNW_STEP_SUCCESS:
+    return _URC_CONTINUE_UNWIND;
+  case UNW_STEP_END:
+    return _URC_END_OF_STACK;
+  default:
     return _URC_FAILURE;
-  return _URC_CONTINUE_UNWIND;
+  }
 }
 
 // Generates mask discriminator for _Unwind_VRS_Pop, e.g. for _UVRSC_CORE /
@@ -256,6 +261,7 @@ _Unwind_VRS_Interpret(_Unwind_Context *context, const uint32_t *data,
                       size_t offset, size_t len) {
   bool wrotePC = false;
   bool finish = false;
+  bool hasReturnAddrAuthCode = false;
   while (offset < len && !finish) {
     uint8_t byte = getByte(data, offset++);
     if ((byte & 0x80) == 0) {
@@ -342,6 +348,10 @@ _Unwind_VRS_Interpret(_Unwind_Context *context, const uint32_t *data,
               break;
             }
             case 0xb4:
+              hasReturnAddrAuthCode = true;
+              _Unwind_VRS_Pop(context, _UVRSC_PSEUDO,
+                              0 /* Return Address Auth Code */, _UVRSD_UINT32);
+              break;
             case 0xb5:
             case 0xb6:
             case 0xb7:
@@ -417,6 +427,16 @@ _Unwind_VRS_Interpret(_Unwind_Context *context, const uint32_t *data,
   if (!wrotePC) {
     uint32_t lr;
     _Unwind_VRS_Get(context, _UVRSC_CORE, UNW_ARM_LR, _UVRSD_UINT32, &lr);
+#ifdef __ARM_FEATURE_PAUTH
+    if (hasReturnAddrAuthCode) {
+      uint32_t sp;
+      uint32_t pac;
+      _Unwind_VRS_Get(context, _UVRSC_CORE, UNW_ARM_SP, _UVRSD_UINT32, &sp);
+      _Unwind_VRS_Get(context, _UVRSC_PSEUDO, UNW_ARM_RA_AUTH_CODE,
+                      _UVRSD_UINT32, &pac);
+      __asm__ __volatile__("autg %0, %1, %2" : : "r"(pac), "r"(lr), "r"(sp) :);
+    }
+#endif
     _Unwind_VRS_Set(context, _UVRSC_CORE, UNW_ARM_IP, _UVRSD_UINT32, &lr);
   }
   return _URC_CONTINUE_UNWIND;
@@ -463,6 +483,7 @@ unwind_phase1(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *except
       return _URC_FATAL_PHASE1_ERROR;
     }
 
+#ifndef NDEBUG
     // When tracing, print state information.
     if (_LIBUNWIND_TRACING_UNWINDING) {
       char functionBuf[512];
@@ -481,6 +502,7 @@ unwind_phase1(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *except
           frameInfo.start_ip, functionName,
           frameInfo.lsda, frameInfo.handler);
     }
+#endif
 
     // If there is a personality routine, ask it if it will want to stop at
     // this frame.
@@ -582,6 +604,7 @@ static _Unwind_Reason_Code unwind_phase2(unw_context_t *uc, unw_cursor_t *cursor
       return _URC_FATAL_PHASE2_ERROR;
     }
 
+#ifndef NDEBUG
     // When tracing, print state information.
     if (_LIBUNWIND_TRACING_UNWINDING) {
       char functionBuf[512];
@@ -598,11 +621,12 @@ static _Unwind_Reason_Code unwind_phase2(unw_context_t *uc, unw_cursor_t *cursor
           functionName, sp, frameInfo.lsda,
           frameInfo.handler);
     }
+#endif
 
     // If there is a personality routine, tell it we are unwinding.
     if (frameInfo.handler != 0) {
       _Unwind_Personality_Fn p =
-          (_Unwind_Personality_Fn)(long)(frameInfo.handler);
+          (_Unwind_Personality_Fn)(intptr_t)(frameInfo.handler);
       struct _Unwind_Context *context = (struct _Unwind_Context *)(cursor);
       // EHABI #7.2
       exception_object->pr_cache.fnstart = frameInfo.start_ip;
@@ -670,6 +694,123 @@ static _Unwind_Reason_Code unwind_phase2(unw_context_t *uc, unw_cursor_t *cursor
   return _URC_FATAL_PHASE2_ERROR;
 }
 
+static _Unwind_Reason_Code
+unwind_phase2_forced(unw_context_t *uc, unw_cursor_t *cursor,
+                     _Unwind_Exception *exception_object, _Unwind_Stop_Fn stop,
+                     void *stop_parameter) {
+  bool endOfStack = false;
+  // See comment at the start of unwind_phase1 regarding VRS integrity.
+  __unw_init_local(cursor, uc);
+  _LIBUNWIND_TRACE_UNWINDING("unwind_phase2_force(ex_ojb=%p)",
+                             static_cast<void *>(exception_object));
+  // Walk each frame until we reach where search phase said to stop
+  while (!endOfStack) {
+    // Update info about this frame.
+    unw_proc_info_t frameInfo;
+    if (__unw_get_proc_info(cursor, &frameInfo) != UNW_ESUCCESS) {
+      _LIBUNWIND_TRACE_UNWINDING("unwind_phase2_forced(ex_ojb=%p): __unw_step "
+                                 "failed => _URC_END_OF_STACK",
+                                 (void *)exception_object);
+      return _URC_FATAL_PHASE2_ERROR;
+    }
+
+#ifndef NDEBUG
+    // When tracing, print state information.
+    if (_LIBUNWIND_TRACING_UNWINDING) {
+      char functionBuf[512];
+      const char *functionName = functionBuf;
+      unw_word_t offset;
+      if ((__unw_get_proc_name(cursor, functionBuf, sizeof(functionBuf),
+                               &offset) != UNW_ESUCCESS) ||
+          (frameInfo.start_ip + offset > frameInfo.end_ip))
+        functionName = ".anonymous.";
+      _LIBUNWIND_TRACE_UNWINDING(
+          "unwind_phase2_forced(ex_ojb=%p): start_ip=0x%" PRIxPTR
+          ", func=%s, lsda=0x%" PRIxPTR ", personality=0x%" PRIxPTR,
+          (void *)exception_object, frameInfo.start_ip, functionName,
+          frameInfo.lsda, frameInfo.handler);
+    }
+#endif
+
+    // Call stop function at each frame.
+    _Unwind_Action action =
+        (_Unwind_Action)(_UA_FORCE_UNWIND | _UA_CLEANUP_PHASE);
+    _Unwind_Reason_Code stopResult =
+        (*stop)(1, action, exception_object->exception_class, exception_object,
+                (_Unwind_Context *)(cursor), stop_parameter);
+    _LIBUNWIND_TRACE_UNWINDING(
+        "unwind_phase2_forced(ex_ojb=%p): stop function returned %d",
+        (void *)exception_object, stopResult);
+    if (stopResult != _URC_NO_REASON) {
+      _LIBUNWIND_TRACE_UNWINDING(
+          "unwind_phase2_forced(ex_ojb=%p): stopped by stop function",
+          (void *)exception_object);
+      return _URC_FATAL_PHASE2_ERROR;
+    }
+
+    // If there is a personality routine, tell it we are unwinding.
+    if (frameInfo.handler != 0) {
+      _Unwind_Personality_Fn p =
+          (_Unwind_Personality_Fn)(uintptr_t)(frameInfo.handler);
+      struct _Unwind_Context *context = (struct _Unwind_Context *)(cursor);
+      // EHABI #7.2
+      exception_object->pr_cache.fnstart = frameInfo.start_ip;
+      exception_object->pr_cache.ehtp =
+          (_Unwind_EHT_Header *)frameInfo.unwind_info;
+      exception_object->pr_cache.additional = frameInfo.flags;
+      _Unwind_Reason_Code personalityResult =
+          (*p)(_US_FORCE_UNWIND | _US_UNWIND_FRAME_STARTING, exception_object,
+               context);
+      switch (personalityResult) {
+      case _URC_CONTINUE_UNWIND:
+        _LIBUNWIND_TRACE_UNWINDING("unwind_phase2_forced(ex_ojb=%p): "
+                                   "personality returned "
+                                   "_URC_CONTINUE_UNWIND",
+                                   (void *)exception_object);
+        // Destructors called, continue unwinding
+        break;
+      case _URC_INSTALL_CONTEXT:
+        _LIBUNWIND_TRACE_UNWINDING("unwind_phase2_forced(ex_ojb=%p): "
+                                   "personality returned "
+                                   "_URC_INSTALL_CONTEXT",
+                                   (void *)exception_object);
+        // We may get control back if landing pad calls _Unwind_Resume().
+        __unw_resume(cursor);
+        break;
+      case _URC_END_OF_STACK:
+        _LIBUNWIND_TRACE_UNWINDING("unwind_phase2_forced(ex_ojb=%p): "
+                                   "personality returned "
+                                   "_URC_END_OF_STACK",
+                                   (void *)exception_object);
+        // Personalty routine did the step and it can't step forward.
+        endOfStack = true;
+        break;
+      default:
+        // Personality routine returned an unknown result code.
+        _LIBUNWIND_TRACE_UNWINDING("unwind_phase2_forced(ex_ojb=%p): "
+                                   "personality returned %d, "
+                                   "_URC_FATAL_PHASE2_ERROR",
+                                   (void *)exception_object, personalityResult);
+        return _URC_FATAL_PHASE2_ERROR;
+      }
+    }
+  }
+
+  // Call stop function one last time and tell it we've reached the end
+  // of the stack.
+  _LIBUNWIND_TRACE_UNWINDING("unwind_phase2_forced(ex_ojb=%p): calling stop "
+                             "function with _UA_END_OF_STACK",
+                             (void *)exception_object);
+  _Unwind_Action lastAction =
+      (_Unwind_Action)(_UA_FORCE_UNWIND | _UA_CLEANUP_PHASE | _UA_END_OF_STACK);
+  (*stop)(1, lastAction, exception_object->exception_class, exception_object,
+          (struct _Unwind_Context *)(cursor), stop_parameter);
+
+  // Clean up phase did not resume at the frame that the search phase said it
+  // would.
+  return _URC_FATAL_PHASE2_ERROR;
+}
+
 /// Called by __cxa_throw.  Only returns if there is a fatal error.
 _LIBUNWIND_EXPORT _Unwind_Reason_Code
 _Unwind_RaiseException(_Unwind_Exception *exception_object) {
@@ -717,10 +858,13 @@ _Unwind_Resume(_Unwind_Exception *exception_object) {
   unw_cursor_t cursor;
   __unw_getcontext(&uc);
 
-  // _Unwind_RaiseException on EHABI will always set the reserved1 field to 0,
-  // which is in the same position as private_1 below.
-  // TODO(ajwong): Who wronte the above? Why is it true?
-  unwind_phase2(&uc, &cursor, exception_object, true);
+  if (exception_object->unwinder_cache.reserved1)
+    unwind_phase2_forced(
+        &uc, &cursor, exception_object,
+        (_Unwind_Stop_Fn)exception_object->unwinder_cache.reserved1,
+        (void *)exception_object->unwinder_cache.reserved3);
+  else
+    unwind_phase2(&uc, &cursor, exception_object, true);
 
   // Clients assume _Unwind_Resume() does not return, so all we can do is abort.
   _LIBUNWIND_ABORT("_Unwind_Resume() can't return");
@@ -812,6 +956,15 @@ _Unwind_VRS_Set(_Unwind_Context *context, _Unwind_VRS_RegClass regclass,
     case _UVRSC_WMMXD:
       break;
 #endif
+    case _UVRSC_PSEUDO:
+      // There's only one pseudo-register, PAC, with regno == 0.
+      if (representation != _UVRSD_UINT32 || regno != 0)
+        return _UVRSR_FAILED;
+      return __unw_set_reg(cursor, (unw_regnum_t)(UNW_ARM_RA_AUTH_CODE),
+                           *(unw_word_t *)valuep) == UNW_ESUCCESS
+                 ? _UVRSR_OK
+                 : _UVRSR_FAILED;
+      break;
   }
   _LIBUNWIND_ABORT("unsupported register class");
 }
@@ -866,6 +1019,15 @@ _Unwind_VRS_Get_Internal(_Unwind_Context *context,
     case _UVRSC_WMMXD:
       break;
 #endif
+    case _UVRSC_PSEUDO:
+      // There's only one pseudo-register, PAC, with regno == 0.
+      if (representation != _UVRSD_UINT32 || regno != 0)
+        return _UVRSR_FAILED;
+      return __unw_get_reg(cursor, (unw_regnum_t)(UNW_ARM_RA_AUTH_CODE),
+                           (unw_word_t *)valuep) == UNW_ESUCCESS
+                 ? _UVRSR_OK
+                 : _UVRSR_FAILED;
+      break;
   }
   _LIBUNWIND_ABORT("unsupported register class");
 }
@@ -963,8 +1125,43 @@ _Unwind_VRS_Pop(_Unwind_Context *context, _Unwind_VRS_RegClass regclass,
       return _Unwind_VRS_Set(context, _UVRSC_CORE, UNW_ARM_SP, _UVRSD_UINT32,
                              &sp);
     }
+    case _UVRSC_PSEUDO: {
+      if (representation != _UVRSD_UINT32 || discriminator != 0)
+        return _UVRSR_FAILED;
+      // Return Address Authentication code (PAC) - discriminator 0
+      uint32_t *sp;
+      if (_Unwind_VRS_Get(context, _UVRSC_CORE, UNW_ARM_SP, _UVRSD_UINT32,
+                          &sp) != _UVRSR_OK) {
+        return _UVRSR_FAILED;
+      }
+      uint32_t pac = *sp++;
+      _Unwind_VRS_Set(context, _UVRSC_CORE, UNW_ARM_SP, _UVRSD_UINT32, &sp);
+      return _Unwind_VRS_Set(context, _UVRSC_CORE, UNW_ARM_RA_AUTH_CODE,
+                             _UVRSD_UINT32, &pac);
+    }
   }
   _LIBUNWIND_ABORT("unsupported register class");
+}
+
+/// Not used by C++.
+/// Unwinds stack, calling "stop" function at each frame.
+/// Could be used to implement longjmp().
+_LIBUNWIND_EXPORT _Unwind_Reason_Code
+_Unwind_ForcedUnwind(_Unwind_Exception *exception_object, _Unwind_Stop_Fn stop,
+                     void *stop_parameter) {
+  _LIBUNWIND_TRACE_API("_Unwind_ForcedUnwind(ex_obj=%p, stop=%p)",
+                       (void *)exception_object, (void *)(uintptr_t)stop);
+  unw_context_t uc;
+  unw_cursor_t cursor;
+  __unw_getcontext(&uc);
+
+  // Mark that this is a forced unwind, so _Unwind_Resume() can do
+  // the right thing.
+  exception_object->unwinder_cache.reserved1 = (uintptr_t)stop;
+  exception_object->unwinder_cache.reserved3 = (uintptr_t)stop_parameter;
+
+  return unwind_phase2_forced(&uc, &cursor, exception_object, stop,
+                              stop_parameter);
 }
 
 /// Called by personality handler during phase 2 to find the start of the
@@ -997,9 +1194,14 @@ extern "C" _LIBUNWIND_EXPORT _Unwind_Reason_Code
 __gnu_unwind_frame(_Unwind_Exception *exception_object,
                    struct _Unwind_Context *context) {
   unw_cursor_t *cursor = (unw_cursor_t *)context;
-  if (__unw_step(cursor) != UNW_STEP_SUCCESS)
+  switch (__unw_step(cursor)) {
+  case UNW_STEP_SUCCESS:
+    return _URC_OK;
+  case UNW_STEP_END:
+    return _URC_END_OF_STACK;
+  default:
     return _URC_FAILURE;
-  return _URC_OK;
+  }
 }
 
 #endif  // defined(_LIBUNWIND_ARM_EHABI)

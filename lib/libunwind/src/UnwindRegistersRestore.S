@@ -1,4 +1,4 @@
-//===-------------------- UnwindRegistersRestore.S ------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -25,6 +25,8 @@ DEFINE_LIBUNWIND_FUNCTION(__libunwind_Registers_x86_jumpto)
 #  + return address        +
 #  +-----------------------+   <-- SP
 #  +                       +
+
+  _LIBUNWIND_CET_ENDBR
   movl   4(%esp), %eax
   # set up eax and ret on new stack location
   movl  28(%eax), %edx # edx holds new stack pointer
@@ -46,7 +48,8 @@ DEFINE_LIBUNWIND_FUNCTION(__libunwind_Registers_x86_jumpto)
   # skip ss
   # skip eflags
   pop    %eax  # eax was already pushed on new stack
-  ret        # eip was already pushed on new stack
+  pop    %ecx
+  jmp    *%ecx
   # skip cs
   # skip ds
   # skip es
@@ -70,6 +73,7 @@ DEFINE_LIBUNWIND_FUNCTION(__libunwind_Registers_x86_64_jumpto)
 # On entry, thread_state pointer is in rdi
 #endif
 
+  _LIBUNWIND_CET_ENDBR
   movq  56(%rdi), %rax # rax holds new stack pointer
   subq  $16, %rax
   movq  %rax, 56(%rdi)
@@ -119,7 +123,8 @@ DEFINE_LIBUNWIND_FUNCTION(__libunwind_Registers_x86_64_jumpto)
 #endif
   movq  56(%rdi), %rsp  # cut back rsp to new location
   pop    %rdi      # rdi was saved here earlier
-  ret            # rip was saved here
+  pop    %rcx
+  jmpq   *%rcx
 
 
 #elif defined(__powerpc64__)
@@ -389,7 +394,7 @@ Lnovec:
   PPC64_LR(3)
   bctr
 
-#elif defined(__ppc__)
+#elif defined(__powerpc__)
 
 DEFINE_LIBUNWIND_FUNCTION(_ZN9libunwind13Registers_ppc6jumptoEv)
 //
@@ -655,7 +660,13 @@ DEFINE_LIBUNWIND_FUNCTION(_ZN9libunwind13Registers_arm20restoreCoreAndJumpToEv)
   ldr sp, [lr, #52]
   ldr lr, [lr, #60]  @ restore pc into lr
 #endif
+#if defined(__ARM_FEATURE_BTI_DEFAULT) && !defined(__ARM_ARCH_ISA_ARM)
+  // 'bx' is not BTI setting when used with lr, therefore r12 is used instead
+  mov r12, lr
+  JMP(r12)
+#else
   JMP(lr)
+#endif
 
 @
 @ static void libunwind::Registers_arm::restoreVFPWithFLDMD(unw_fpreg_t* values)
@@ -800,11 +811,12 @@ DEFINE_LIBUNWIND_FUNCTION(_ZN9libunwind14Registers_or1k6jumptoEv)
   l.lwz    r30,120(r3)
   l.lwz    r31,124(r3)
 
+  # load new pc into ra
+  l.lwz    r9, 128(r3)
+
   # at last, restore r3
   l.lwz    r3,  12(r3)
 
-  # load new pc into ra
-  l.lwz    r9, 128(r3)
   # jump to pc
   l.jr     r9
    l.nop

@@ -1,4 +1,4 @@
-//===--------------------------- Unwind-seh.cpp ---------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -27,8 +27,6 @@
 
 #include "libunwind_ext.h"
 #include "UnwindCursor.hpp"
-
-#pragma clang diagnostic ignored "-Wdll-attribute-on-redeclaration"
 
 using namespace libunwind;
 
@@ -171,8 +169,8 @@ _GCC_specific_handler(PEXCEPTION_RECORD ms_exc, PVOID frame, PCONTEXT ms_ctx,
     __unw_get_reg(&cursor, UNW_ARM_R1, &exc->private_[3]);
 #elif defined(__aarch64__)
     exc->private_[2] = disp->TargetPc;
-    __unw_get_reg(&cursor, UNW_ARM64_X0, &retval);
-    __unw_get_reg(&cursor, UNW_ARM64_X1, &exc->private_[3]);
+    __unw_get_reg(&cursor, UNW_AARCH64_X0, &retval);
+    __unw_get_reg(&cursor, UNW_AARCH64_X1, &exc->private_[3]);
 #endif
     __unw_get_reg(&cursor, UNW_REG_IP, &target);
     ms_exc->ExceptionCode = STATUS_GCC_UNWIND;
@@ -246,6 +244,7 @@ unwind_phase2_forced(unw_context_t *uc,
       return _URC_FATAL_PHASE2_ERROR;
     }
 
+#ifndef NDEBUG
     // When tracing, print state information.
     if (_LIBUNWIND_TRACING_UNWINDING) {
       char functionBuf[512];
@@ -261,6 +260,7 @@ unwind_phase2_forced(unw_context_t *uc,
           (void *)exception_object, frameInfo.start_ip, functionName,
           frameInfo.lsda, frameInfo.handler);
     }
+#endif
 
     // Call stop function at each frame.
     _Unwind_Action action =
