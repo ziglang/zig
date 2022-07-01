@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===---------------------------- cstdio ----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -145,30 +145,24 @@ using ::feof _LIBCPP_USING_IF_EXISTS;
 using ::ferror _LIBCPP_USING_IF_EXISTS;
 using ::perror _LIBCPP_USING_IF_EXISTS;
 
-#ifndef _LIBCPP_HAS_NO_GLOBAL_FILESYSTEM_NAMESPACE
 using ::fopen _LIBCPP_USING_IF_EXISTS;
 using ::freopen _LIBCPP_USING_IF_EXISTS;
 using ::remove _LIBCPP_USING_IF_EXISTS;
 using ::rename _LIBCPP_USING_IF_EXISTS;
 using ::tmpfile _LIBCPP_USING_IF_EXISTS;
 using ::tmpnam _LIBCPP_USING_IF_EXISTS;
-#endif
 
-#ifndef _LIBCPP_HAS_NO_STDIN
 using ::getchar _LIBCPP_USING_IF_EXISTS;
 #if _LIBCPP_STD_VER <= 11 && !defined(_LIBCPP_C_HAS_NO_GETS)
 using ::gets _LIBCPP_USING_IF_EXISTS;
 #endif
 using ::scanf _LIBCPP_USING_IF_EXISTS;
 using ::vscanf _LIBCPP_USING_IF_EXISTS;
-#endif
 
-#ifndef _LIBCPP_HAS_NO_STDOUT
 using ::printf _LIBCPP_USING_IF_EXISTS;
 using ::putchar _LIBCPP_USING_IF_EXISTS;
 using ::puts _LIBCPP_USING_IF_EXISTS;
 using ::vprintf _LIBCPP_USING_IF_EXISTS;
-#endif
 
 _LIBCPP_END_NAMESPACE_STD
 

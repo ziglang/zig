@@ -89,7 +89,7 @@ struct __weak_result_type_imp // bool is true
     : public __maybe_derive_from_unary_function<_Tp>,
       public __maybe_derive_from_binary_function<_Tp>
 {
-    typedef _LIBCPP_NODEBUG_TYPE typename _Tp::result_type result_type;
+    typedef _LIBCPP_NODEBUG typename _Tp::result_type result_type;
 };
 
 template <class _Tp>
@@ -110,19 +110,19 @@ struct __weak_result_type
 template <class _Rp>
 struct __weak_result_type<_Rp ()>
 {
-    typedef _LIBCPP_NODEBUG_TYPE  _Rp result_type;
+    typedef _LIBCPP_NODEBUG _Rp result_type;
 };
 
 template <class _Rp>
 struct __weak_result_type<_Rp (&)()>
 {
-    typedef _LIBCPP_NODEBUG_TYPE  _Rp result_type;
+    typedef _LIBCPP_NODEBUG _Rp result_type;
 };
 
 template <class _Rp>
 struct __weak_result_type<_Rp (*)()>
 {
-    typedef _LIBCPP_NODEBUG_TYPE  _Rp result_type;
+    typedef _LIBCPP_NODEBUG _Rp result_type;
 };
 
 // 1 argument case

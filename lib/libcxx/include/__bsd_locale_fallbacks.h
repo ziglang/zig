@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===---------------------- __bsd_locale_fallbacks.h ----------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -30,6 +30,7 @@ decltype(MB_CUR_MAX) __libcpp_mb_cur_max_l(locale_t __l)
     return MB_CUR_MAX;
 }
 
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 inline _LIBCPP_INLINE_VISIBILITY
 wint_t __libcpp_btowc_l(int __c, locale_t __l)
 {
@@ -88,6 +89,7 @@ size_t __libcpp_mbrlen_l(const char *__s, size_t __n, mbstate_t *__ps, locale_t 
     __libcpp_locale_guard __current(__l);
     return mbrlen(__s, __n, __ps);
 }
+#endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
 
 inline _LIBCPP_INLINE_VISIBILITY
 lconv *__libcpp_localeconv_l(locale_t __l)
@@ -96,6 +98,7 @@ lconv *__libcpp_localeconv_l(locale_t __l)
     return localeconv();
 }
 
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 inline _LIBCPP_INLINE_VISIBILITY
 size_t __libcpp_mbsrtowcs_l(wchar_t *__dest, const char **__src, size_t __len,
                      mbstate_t *__ps, locale_t __l)
@@ -103,8 +106,9 @@ size_t __libcpp_mbsrtowcs_l(wchar_t *__dest, const char **__src, size_t __len,
     __libcpp_locale_guard __current(__l);
     return mbsrtowcs(__dest, __src, __len, __ps);
 }
+#endif
 
-inline
+inline _LIBCPP_ATTRIBUTE_FORMAT(__printf__, 4, 5)
 int __libcpp_snprintf_l(char *__s, size_t __n, locale_t __l, const char *__format, ...) {
     va_list __va;
     va_start(__va, __format);
@@ -114,7 +118,7 @@ int __libcpp_snprintf_l(char *__s, size_t __n, locale_t __l, const char *__forma
     return __res;
 }
 
-inline
+inline _LIBCPP_ATTRIBUTE_FORMAT(__printf__, 3, 4)
 int __libcpp_asprintf_l(char **__s, locale_t __l, const char *__format, ...) {
     va_list __va;
     va_start(__va, __format);
@@ -124,7 +128,7 @@ int __libcpp_asprintf_l(char **__s, locale_t __l, const char *__format, ...) {
     return __res;
 }
 
-inline
+inline _LIBCPP_ATTRIBUTE_FORMAT(__scanf__, 3, 4)
 int __libcpp_sscanf_l(const char *__s, locale_t __l, const char *__format, ...) {
     va_list __va;
     va_start(__va, __format);

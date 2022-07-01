@@ -16,4 +16,24 @@
 #include <ctype.h>
 #include <cwctype>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+inline _LIBCPP_HIDE_FROM_ABI long
+strtol_l(const char *nptr, char **endptr, int base, locale_t) {
+  return ::strtol(nptr, endptr, base);
+}
+
+inline _LIBCPP_HIDE_FROM_ABI unsigned long
+strtoul_l(const char *nptr, char **endptr, int base, locale_t) {
+  return ::strtoul(nptr, endptr, base);
+}
+
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif

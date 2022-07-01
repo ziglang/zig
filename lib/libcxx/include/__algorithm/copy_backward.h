@@ -9,8 +9,8 @@
 #ifndef _LIBCPP___ALGORITHM_COPY_BACKWARD_H
 #define _LIBCPP___ALGORITHM_COPY_BACKWARD_H
 
-#include <__config>
 #include <__algorithm/unwrap_iter.h>
+#include <__config>
 #include <__iterator/iterator_traits.h>
 #include <cstring>
 #include <type_traits>
@@ -18,9 +18,6 @@
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
 #endif
-
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -78,7 +75,5 @@ copy_backward(_BidirectionalIterator1 __first, _BidirectionalIterator1 __last,
 }
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_COPY_BACKWARD_H

@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===----------------------------- regex ----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -36,9 +36,9 @@ namespace pmr {
  */
 
 #include <experimental/__config>
-#include <regex>
-#include <experimental/string>
 #include <experimental/memory_resource>
+#include <experimental/string>
+#include <regex>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -52,9 +52,11 @@ using match_results =
         polymorphic_allocator<_VSTD::sub_match<_BiDirIter>>>;
 
 typedef match_results<const char*> cmatch;
-typedef match_results<const wchar_t*> wcmatch;
 typedef match_results<_VSTD_LFTS_PMR::string::const_iterator> smatch;
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+typedef match_results<const wchar_t*> wcmatch;
 typedef match_results<_VSTD_LFTS_PMR::wstring::const_iterator> wsmatch;
+#endif
 
 _LIBCPP_END_NAMESPACE_LFTS_PMR
 

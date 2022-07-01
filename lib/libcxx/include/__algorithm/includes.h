@@ -9,17 +9,14 @@
 #ifndef _LIBCPP___ALGORITHM_INCLUDES_H
 #define _LIBCPP___ALGORITHM_INCLUDES_H
 
-#include <__config>
 #include <__algorithm/comp.h>
 #include <__algorithm/comp_ref_type.h>
+#include <__config>
 #include <__iterator/iterator_traits.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
 #endif
-
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -61,7 +58,5 @@ includes(_InputIterator1 __first1, _InputIterator1 __last1, _InputIterator2 __fi
 }
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_INCLUDES_H

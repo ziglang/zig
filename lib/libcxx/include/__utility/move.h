@@ -17,15 +17,12 @@
 #pragma GCC system_header
 #endif
 
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
-
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp>
 _LIBCPP_NODISCARD_EXT inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR typename remove_reference<_Tp>::type&&
 move(_Tp&& __t) _NOEXCEPT {
-  typedef _LIBCPP_NODEBUG_TYPE typename remove_reference<_Tp>::type _Up;
+  typedef _LIBCPP_NODEBUG typename remove_reference<_Tp>::type _Up;
   return static_cast<_Up&&>(__t);
 }
 
@@ -46,7 +43,5 @@ move_if_noexcept(_Tp& __x) _NOEXCEPT {
 }
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___UTILITY_MOVE_H

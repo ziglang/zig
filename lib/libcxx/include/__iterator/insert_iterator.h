@@ -14,6 +14,7 @@
 #include <__iterator/iterator.h>
 #include <__iterator/iterator_traits.h>
 #include <__memory/addressof.h>
+#include <__ranges/access.h>
 #include <__utility/move.h>
 #include <cstddef>
 
@@ -21,10 +22,15 @@
 #pragma GCC system_header
 #endif
 
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
-
 _LIBCPP_BEGIN_NAMESPACE_STD
+
+#if !defined(_LIBCPP_HAS_NO_CONCEPTS) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+template <class _Container>
+using __insert_iterator_iter_t = ranges::iterator_t<_Container>;
+#else
+template <class _Container>
+using __insert_iterator_iter_t = typename _Container::iterator;
+#endif
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <class _Container>
@@ -36,7 +42,7 @@ class _LIBCPP_TEMPLATE_VIS insert_iterator
 _LIBCPP_SUPPRESS_DEPRECATED_POP
 protected:
     _Container* container;
-    typename _Container::iterator iter; // FIXME: `ranges::iterator_t<Container>` in C++20 mode
+    __insert_iterator_iter_t<_Container> iter;
 public:
     typedef output_iterator_tag iterator_category;
     typedef void value_type;
@@ -49,7 +55,7 @@ public:
     typedef void reference;
     typedef _Container container_type;
 
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17 insert_iterator(_Container& __x, typename _Container::iterator __i)
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17 insert_iterator(_Container& __x, __insert_iterator_iter_t<_Container> __i)
         : container(_VSTD::addressof(__x)), iter(__i) {}
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17 insert_iterator& operator=(const typename _Container::value_type& __value_)
         {iter = container->insert(iter, __value_); ++iter; return *this;}
@@ -65,13 +71,11 @@ public:
 template <class _Container>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 insert_iterator<_Container>
-inserter(_Container& __x, typename _Container::iterator __i)
+inserter(_Container& __x, __insert_iterator_iter_t<_Container> __i)
 {
     return insert_iterator<_Container>(__x, __i);
 }
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ITERATOR_INSERT_ITERATOR_H

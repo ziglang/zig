@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===---------------------------- ios -------------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -214,6 +214,7 @@ storage-class-specifier const error_category& iostream_category() noexcept;
 #include <__locale>
 #include <iosfwd>
 #include <system_error>
+#include <version>
 
 #if !defined(_LIBCPP_HAS_NO_ATOMIC_HEADER)
 #include <atomic>     // for __xindex_
@@ -308,11 +309,9 @@ public:
     typedef void (*event_callback)(event, ios_base&, int __index);
     void register_callback(event_callback __fn, int __index);
 
-private:
-    ios_base(const ios_base&); // = delete;
-    ios_base& operator=(const ios_base&); // = delete;
+    ios_base(const ios_base&) = delete;
+    ios_base& operator=(const ios_base&) = delete;
 
-public:
     static bool sync_with_stdio(bool __sync = true);
 
     _LIBCPP_INLINE_VISIBILITY iostate rdstate() const;

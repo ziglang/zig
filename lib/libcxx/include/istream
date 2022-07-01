@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===--------------------------- istream ----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -291,15 +291,15 @@ class _LIBCPP_TEMPLATE_VIS basic_istream<_CharT, _Traits>::sentry
 {
     bool __ok_;
 
-    sentry(const sentry&); // = delete;
-    sentry& operator=(const sentry&); // = delete;
-
 public:
     explicit sentry(basic_istream<_CharT, _Traits>& __is, bool __noskipws = false);
 //    ~sentry() = default;
 
     _LIBCPP_INLINE_VISIBILITY
     explicit operator bool() const {return __ok_;}
+
+    sentry(const sentry&) = delete;
+    sentry& operator=(const sentry&) = delete;
 };
 
 template <class _CharT, class _Traits>
@@ -1628,7 +1628,9 @@ operator>>(basic_istream<_CharT, _Traits>& __is, bitset<_Size>& __x)
 }
 
 _LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_istream<char>)
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 _LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_istream<wchar_t>)
+#endif
 _LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_iostream<char>)
 
 _LIBCPP_END_NAMESPACE_STD

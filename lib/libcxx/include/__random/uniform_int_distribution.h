@@ -11,6 +11,8 @@
 
 #include <__bits>
 #include <__config>
+#include <__random/log2.h>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <iosfwd>
@@ -25,34 +27,6 @@ _LIBCPP_PUSH_MACROS
 #include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
-
-// __independent_bits_engine
-
-template <unsigned long long _Xp, size_t _Rp>
-struct __log2_imp
-{
-    static const size_t value = _Xp & ((unsigned long long)(1) << _Rp) ? _Rp
-                                           : __log2_imp<_Xp, _Rp - 1>::value;
-};
-
-template <unsigned long long _Xp>
-struct __log2_imp<_Xp, 0>
-{
-    static const size_t value = 0;
-};
-
-template <size_t _Rp>
-struct __log2_imp<0, _Rp>
-{
-    static const size_t value = _Rp + 1;
-};
-
-template <class _UIntType, _UIntType _Xp>
-struct __log2
-{
-    static const size_t value = __log2_imp<_Xp,
-                                         sizeof(_UIntType) * __CHAR_BIT__ - 1>::value;
-};
 
 template<class _Engine, class _UIntType>
 class __independent_bits_engine
@@ -181,7 +155,7 @@ __independent_bits_engine<_Engine, _UIntType>::__eval(true_type)
     return _Sp;
 }
 
-template<class _IntType = int>
+template<class _IntType = int> // __int128_t is also supported as an extension here
 class uniform_int_distribution
 {
 public:
@@ -256,8 +230,8 @@ typename uniform_int_distribution<_IntType>::result_type
 uniform_int_distribution<_IntType>::operator()(_URNG& __g, const param_type& __p)
 _LIBCPP_DISABLE_UBSAN_UNSIGNED_INTEGER_CHECK
 {
-    typedef typename conditional<sizeof(result_type) <= sizeof(uint32_t),
-                                            uint32_t, uint64_t>::type _UIntType;
+    typedef typename conditional<sizeof(result_type) <= sizeof(uint32_t), uint32_t,
+                                 typename make_unsigned<result_type>::type>::type _UIntType;
     const _UIntType _Rp = _UIntType(__p.b()) - _UIntType(__p.a()) + _UIntType(1);
     if (_Rp == 1)
         return __p.a();
@@ -265,7 +239,7 @@ _LIBCPP_DISABLE_UBSAN_UNSIGNED_INTEGER_CHECK
     typedef __independent_bits_engine<_URNG, _UIntType> _Eng;
     if (_Rp == 0)
         return static_cast<result_type>(_Eng(__g, _Dt)());
-    size_t __w = _Dt - __libcpp_clz(_Rp) - 1;
+    size_t __w = _Dt - __countl_zero(_Rp) - 1;
     if ((_Rp & (numeric_limits<_UIntType>::max() >> (_Dt - __w))) != 0)
         ++__w;
     _Eng __e(__g, __w);

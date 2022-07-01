@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===---------------------------- locale.h --------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -36,7 +36,7 @@ Functions:
 #include <__config>
 
 #if defined(_LIBCPP_HAS_NO_LOCALIZATION)
-#   error "Localization is not supported by this configuration of libc++"
+#   error "The Localization library is not supported since libc++ has been configured with LIBCXX_ENABLE_LOCALIZATION disabled"
 #endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)

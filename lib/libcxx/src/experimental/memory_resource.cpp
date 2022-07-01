@@ -1,4 +1,4 @@
-//===------------------------ memory_resource.cpp -------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -76,7 +76,9 @@ union ResourceInitHelper {
   ~ResourceInitHelper() {}
 };
 
-_LIBCPP_SAFE_STATIC ResourceInitHelper res_init _LIBCPP_INIT_PRIORITY_MAX;
+// Pretend we're inside a system header so the compiler doesn't flag the use of the init_priority
+// attribute with a value that's reserved for the implementation (we're the implementation).
+#include "memory_resource_init_helper.h"
 
 } // end namespace
 
@@ -95,8 +97,7 @@ static memory_resource *
 __default_memory_resource(bool set = false, memory_resource * new_res = nullptr) noexcept
 {
 #ifndef _LIBCPP_HAS_NO_ATOMIC_HEADER
-    _LIBCPP_SAFE_STATIC static atomic<memory_resource*> __res =
-        ATOMIC_VAR_INIT(&res_init.resources.new_delete_res);
+    _LIBCPP_SAFE_STATIC static atomic<memory_resource*> __res{&res_init.resources.new_delete_res};
     if (set) {
         new_res = new_res ? new_res : new_delete_resource();
         // TODO: Can a weaker ordering be used?

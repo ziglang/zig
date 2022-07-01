@@ -21,14 +21,13 @@ inline int nanosleep(const struct timespec* __req, struct timespec* __rem) {
     errno = EINVAL;
     return -1;
   }
-  useconds_t __micro_sec =
-      static_cast<useconds_t>((__req->tv_nsec + 999) / 1000);
+  long __micro_sec = (__req->tv_nsec + 999) / 1000;
   time_t __sec = __req->tv_sec;
   if (__micro_sec > 999999) {
     ++__sec;
     __micro_sec -= 1000000;
   }
-  __sec = sleep(static_cast<unsigned int>(__sec));
+  __sec = static_cast<time_t>(sleep(static_cast<unsigned int>(__sec)));
   if (__sec) {
     if (__rem) {
       // Updating the remaining time to sleep in case of unsuccessful call to sleep().
@@ -39,7 +38,7 @@ inline int nanosleep(const struct timespec* __req, struct timespec* __rem) {
     return -1;
   }
   if (__micro_sec) {
-    int __rt = usleep(__micro_sec);
+    int __rt = usleep(static_cast<unsigned int>(__micro_sec));
     if (__rt != 0 && __rem) {
       // The usleep() does not provide the amount of remaining time upon its failure,
       // so the time slept will be ignored.

@@ -1,4 +1,3 @@
-// -*- C++ -*-
 //===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -38,9 +37,6 @@ static_assert(alignof(__libcpp_thread_t) == alignof(HANDLE), "");
 
 static_assert(sizeof(__libcpp_tls_key) == sizeof(DWORD), "");
 static_assert(alignof(__libcpp_tls_key) == alignof(DWORD), "");
-
-static_assert(sizeof(__libcpp_semaphore_t) == sizeof(HANDLE), "");
-static_assert(alignof(__libcpp_semaphore_t) == alignof(HANDLE), "");
 
 // Mutex
 int __libcpp_recursive_mutex_init(__libcpp_recursive_mutex_t *__m)
@@ -273,39 +269,6 @@ int __libcpp_tls_set(__libcpp_tls_key __key, void *__p)
   if (!FlsSetValue(__key, __p))
     return GetLastError();
   return 0;
-}
-
-// Semaphores
-bool __libcpp_semaphore_init(__libcpp_semaphore_t* __sem, int __init)
-{
-  *(PHANDLE)__sem = CreateSemaphoreEx(nullptr, __init, _LIBCPP_SEMAPHORE_MAX,
-                                      nullptr, 0, SEMAPHORE_ALL_ACCESS);
-  return *__sem != nullptr;
-}
-
-bool __libcpp_semaphore_destroy(__libcpp_semaphore_t* __sem)
-{
-  CloseHandle(*(PHANDLE)__sem);
-  return true;
-}
-
-bool __libcpp_semaphore_post(__libcpp_semaphore_t* __sem)
-{
-  return ReleaseSemaphore(*(PHANDLE)__sem, 1, nullptr);
-}
-
-bool __libcpp_semaphore_wait(__libcpp_semaphore_t* __sem)
-{
-  return WaitForSingleObjectEx(*(PHANDLE)__sem, INFINITE, false) ==
-         WAIT_OBJECT_0;
-}
-
-bool __libcpp_semaphore_wait_timed(__libcpp_semaphore_t* __sem,
-                                   chrono::nanoseconds const& __ns)
-{
-  chrono::milliseconds __ms = chrono::ceil<chrono::milliseconds>(__ns);
-  return WaitForSingleObjectEx(*(PHANDLE)__sem, __ms.count(), false) ==
-         WAIT_OBJECT_0;
 }
 
 _LIBCPP_END_NAMESPACE_STD

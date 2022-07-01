@@ -17,9 +17,6 @@
 #pragma GCC system_header
 #endif
 
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
-
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _OutputIterator, class _Size, class _Tp>
@@ -41,7 +38,5 @@ fill_n(_OutputIterator __first, _Size __n, const _Tp& __value_)
 }
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_FILL_N_H

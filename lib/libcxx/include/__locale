@@ -12,18 +12,17 @@
 
 #include <__availability>
 #include <__config>
-#include <string>
-#include <memory>
-#include <utility>
-#include <mutex>
-#include <cstdint>
 #include <cctype>
+#include <cstdint>
 #include <locale.h>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <utility>
+
 #if defined(_LIBCPP_MSVCRT_LIKE)
 # include <cstring>
 # include <__support/win32/locale_win32.h>
-#elif defined(__NuttX__)
-# include <__support/nuttx/xlocale.h>
 #elif defined(_AIX) || defined(__MVS__)
 # include <__support/ibm/xlocale.h>
 #elif defined(__ANDROID__)
@@ -35,7 +34,7 @@
 # include <__support/newlib/xlocale.h>
 #elif defined(__OpenBSD__)
 # include <__support/openbsd/xlocale.h>
-#elif (defined(__APPLE__)      || defined(__FreeBSD__) || defined(__DragonFly__) \
+#elif (defined(__APPLE__)      || defined(__FreeBSD__) \
     || defined(__EMSCRIPTEN__) || defined(__IBMCPP__))
 # include <xlocale.h>
 #elif defined(__Fuchsia__)
@@ -210,10 +209,11 @@ class _LIBCPP_TYPE_VIS locale::id
     static int32_t __next_id;
 public:
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR id() :__id_(0) {}
+    void operator=(const id&) = delete;
+    id(const id&) = delete;
+
 private:
     void __init();
-    void operator=(const id&); // = delete;
-    id(const id&); // = delete;
 public:  // only needed for tests
     long __get();
 
@@ -340,7 +340,9 @@ collate<_CharT>::do_hash(const char_type* __lo, const char_type* __hi) const
 }
 
 _LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS collate<char>)
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 _LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS collate<wchar_t>)
+#endif
 
 // template <class CharT> class collate_byname;
 
@@ -365,6 +367,7 @@ protected:
     virtual string_type do_transform(const char_type* __lo, const char_type* __hi) const;
 };
 
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 template <>
 class _LIBCPP_TYPE_VIS collate_byname<wchar_t>
     : public collate<wchar_t>
@@ -384,6 +387,7 @@ protected:
                            const char_type* __lo2, const char_type* __hi2) const;
     virtual string_type do_transform(const char_type* __lo, const char_type* __hi) const;
 };
+#endif
 
 template <class _CharT, class _Traits, class _Allocator>
 bool
@@ -448,12 +452,12 @@ public:
     static const mask punct  = _PUNCT;
     static const mask xdigit = _HEX;
     static const mask blank  = _BLANK;
-    static const mask __regex_word = 0x80;
+    static const mask __regex_word = 0x4000; // 0x8000 and 0x0100 and 0x00ff are used
 # define _LIBCPP_CTYPE_MASK_IS_COMPOSITE_PRINT
-#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__EMSCRIPTEN__) || defined(__NetBSD__) || defined(__DragonFly__)
+#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__EMSCRIPTEN__) || defined(__NetBSD__)
 # ifdef __APPLE__
     typedef __uint32_t mask;
-# elif defined(__FreeBSD__) || defined(__DragonFly__)
+# elif defined(__FreeBSD__)
     typedef unsigned long mask;
 # elif defined(__EMSCRIPTEN__) || defined(__NetBSD__)
     typedef unsigned short mask;
@@ -507,6 +511,33 @@ public:
 # define _LIBCPP_CTYPE_MASK_IS_COMPOSITE_PRINT
 # define _LIBCPP_CTYPE_MASK_IS_COMPOSITE_ALPHA
 # define _LIBCPP_CTYPE_MASK_IS_COMPOSITE_XDIGIT
+#elif defined(__MVS__)
+# if defined(__NATIVE_ASCII_F)
+    typedef unsigned int mask;
+    static const mask space  = _ISSPACE_A;
+    static const mask print  = _ISPRINT_A;
+    static const mask cntrl  = _ISCNTRL_A;
+    static const mask upper  = _ISUPPER_A;
+    static const mask lower  = _ISLOWER_A;
+    static const mask alpha  = _ISALPHA_A;
+    static const mask digit  = _ISDIGIT_A;
+    static const mask punct  = _ISPUNCT_A;
+    static const mask xdigit = _ISXDIGIT_A;
+    static const mask blank  = _ISBLANK_A;
+# else
+    typedef unsigned short mask;
+    static const mask space  = __ISSPACE;
+    static const mask print  = __ISPRINT;
+    static const mask cntrl  = __ISCNTRL;
+    static const mask upper  = __ISUPPER;
+    static const mask lower  = __ISLOWER;
+    static const mask alpha  = __ISALPHA;
+    static const mask digit  = __ISDIGIT;
+    static const mask punct  = __ISPUNCT;
+    static const mask xdigit = __ISXDIGIT;
+    static const mask blank  = __ISBLANK;
+# endif
+    static const mask __regex_word = 0x8000;
 #else
 # error unknown rune table for this platform -- do you mean to define _LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE?
 #endif
@@ -514,10 +545,17 @@ public:
     static const mask graph  = alnum | punct;
 
     _LIBCPP_INLINE_VISIBILITY ctype_base() {}
+
+// TODO: Remove the ifndef when the assert no longer fails on AIX.
+#ifndef _AIX
+    static_assert((__regex_word & ~(space | print | cntrl | upper | lower | alpha | digit | punct | xdigit | blank)) == __regex_word,
+                  "__regex_word can't overlap other bits");
+#endif
 };
 
 template <class _CharT> class _LIBCPP_TEMPLATE_VIS ctype;
 
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 template <>
 class _LIBCPP_TYPE_VIS ctype<wchar_t>
     : public locale::facet,
@@ -619,6 +657,7 @@ protected:
     virtual char do_narrow(char_type, char __dfault) const;
     virtual const char_type* do_narrow(const char_type* __low, const char_type* __high, char __dfault, char* __dest) const;
 };
+#endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
 
 template <>
 class _LIBCPP_TYPE_VIS ctype<char>
@@ -728,6 +767,10 @@ public:
     static const short* __classic_upper_table() _NOEXCEPT;
     static const short* __classic_lower_table() _NOEXCEPT;
 #endif
+#if defined(__MVS__)
+    static const unsigned short* __classic_upper_table() _NOEXCEPT;
+    static const unsigned short* __classic_lower_table() _NOEXCEPT;
+#endif
 
 protected:
     ~ctype();
@@ -763,6 +806,7 @@ protected:
     virtual const char_type* do_tolower(char_type* __low, const char_type* __high) const;
 };
 
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 template <>
 class _LIBCPP_TYPE_VIS ctype_byname<wchar_t>
     : public ctype<wchar_t>
@@ -788,6 +832,7 @@ protected:
     virtual char do_narrow(char_type, char __dfault) const;
     virtual const char_type* do_narrow(const char_type* __low, const char_type* __high, char __dfault, char* __dest) const;
 };
+#endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
 
 template <class _CharT>
 inline _LIBCPP_INLINE_VISIBILITY
@@ -994,6 +1039,7 @@ protected:
 
 // template <> class codecvt<wchar_t, char, mbstate_t>
 
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 template <>
 class _LIBCPP_TYPE_VIS codecvt<wchar_t, char, mbstate_t>
     : public locale::facet,
@@ -1074,6 +1120,7 @@ protected:
     virtual int do_length(state_type&, const extern_type* __frm, const extern_type* __end, size_t __mx) const;
     virtual int do_max_length() const  _NOEXCEPT;
 };
+#endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
 
 // template <> class codecvt<char16_t, char, mbstate_t> // deprecated in C++20
 
@@ -1452,7 +1499,9 @@ codecvt_byname<_InternT, _ExternT, _StateT>::~codecvt_byname()
 _LIBCPP_SUPPRESS_DEPRECATED_POP
 
 _LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char, char, mbstate_t>)
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 _LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<wchar_t, char, mbstate_t>)
+#endif
 _LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_DEPRECATED_IN_CXX20 _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char16_t, char, mbstate_t>) // deprecated in C++20
 _LIBCPP_EXTERN_TEMPLATE_EVEN_IN_DEBUG_MODE(class _LIBCPP_DEPRECATED_IN_CXX20 _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char32_t, char, mbstate_t>) // deprecated in C++20
 #ifndef _LIBCPP_HAS_NO_CHAR8_T
@@ -1683,6 +1732,7 @@ protected:
     string __grouping_;
 };
 
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 template <>
 class _LIBCPP_TYPE_VIS numpunct<wchar_t>
     : public locale::facet
@@ -1713,6 +1763,7 @@ protected:
     char_type __thousands_sep_;
     string __grouping_;
 };
+#endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
 
 // template <class charT> class numpunct_byname
 
@@ -1736,6 +1787,7 @@ private:
     void __init(const char*);
 };
 
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 template <>
 class _LIBCPP_TYPE_VIS numpunct_byname<wchar_t>
 : public numpunct<wchar_t>
@@ -1753,6 +1805,7 @@ protected:
 private:
     void __init(const char*);
 };
+#endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
 
 _LIBCPP_END_NAMESPACE_STD
 

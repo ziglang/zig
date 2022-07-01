@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===--------------------------- future -----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -366,7 +366,7 @@ template <class R, class Alloc> struct uses_allocator<packaged_task<R>, Alloc>;
 #include <__debug>
 #include <__memory/allocator_arg_t.h>
 #include <__memory/uses_allocator.h>
-#include <__utility/__decay_copy.h>
+#include <__utility/auto_cast.h>
 #include <__utility/forward.h>
 #include <chrono>
 #include <exception>
@@ -374,6 +374,7 @@ template <class R, class Alloc> struct uses_allocator<packaged_task<R>, Alloc>;
 #include <mutex>
 #include <system_error>
 #include <thread>
+#include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -2207,16 +2208,16 @@ async(launch __policy, _Fp&& __f, _Args&&... __args)
     {
 #endif
         if (__does_policy_contain(__policy, launch::async))
-        return _VSTD::__make_async_assoc_state<_Rp>(_BF(_VSTD::__decay_copy(_VSTD::forward<_Fp>(__f)),
-                                                     _VSTD::__decay_copy(_VSTD::forward<_Args>(__args))...));
+        return _VSTD::__make_async_assoc_state<_Rp>(_BF(_LIBCPP_AUTO_CAST(_VSTD::forward<_Fp>(__f)),
+                                                        _LIBCPP_AUTO_CAST(_VSTD::forward<_Args>(__args))...));
 #ifndef _LIBCPP_NO_EXCEPTIONS
     }
     catch ( ... ) { if (__policy == launch::async) throw ; }
 #endif
 
     if (__does_policy_contain(__policy, launch::deferred))
-        return _VSTD::__make_deferred_assoc_state<_Rp>(_BF(_VSTD::__decay_copy(_VSTD::forward<_Fp>(__f)),
-                                                        _VSTD::__decay_copy(_VSTD::forward<_Args>(__args))...));
+        return _VSTD::__make_deferred_assoc_state<_Rp>(_BF(_LIBCPP_AUTO_CAST(_VSTD::forward<_Fp>(__f)),
+                                                           _LIBCPP_AUTO_CAST(_VSTD::forward<_Args>(__args))...));
     return future<_Rp>{};
 }
 

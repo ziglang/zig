@@ -10,17 +10,14 @@
 #ifndef _LIBCPP___ALGORITHM_MISMATCH_H
 #define _LIBCPP___ALGORITHM_MISMATCH_H
 
-#include <__config>
 #include <__algorithm/comp.h>
+#include <__config>
 #include <__iterator/iterator_traits.h>
 #include <utility>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
 #endif
-
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -66,7 +63,5 @@ _LIBCPP_NODISCARD_EXT inline _LIBCPP_INLINE_VISIBILITY
 #endif
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_MISMATCH_H

@@ -15,9 +15,6 @@
 #pragma GCC system_header
 #endif
 
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
-
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 // I'd like to replace these with _VSTD::equal_to<void>, but can't because:
@@ -91,7 +88,5 @@ struct __less<_T1, const _T1>
 };
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_COMP_H

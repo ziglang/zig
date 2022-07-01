@@ -12,7 +12,6 @@
 
 #include <__config>
 #include <__debug>
-#include <__function_like.h>
 #include <__iterator/advance.h>
 #include <__iterator/concepts.h>
 #include <__iterator/incrementable_traits.h>
@@ -22,9 +21,6 @@
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
 #endif
-
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -39,13 +35,14 @@ inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
   return __x;
 }
 
-#if !defined(_LIBCPP_HAS_NO_RANGES)
+#if !defined(_LIBCPP_HAS_NO_CONCEPTS) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+
+// [range.iter.op.next]
 
 namespace ranges {
-struct __next_fn final : private __function_like {
-  _LIBCPP_HIDE_FROM_ABI
-  constexpr explicit __next_fn(__tag __x) noexcept : __function_like(__x) {}
+namespace __next {
 
+struct __fn {
   template <input_or_output_iterator _Ip>
   _LIBCPP_HIDE_FROM_ABI
   constexpr _Ip operator()(_Ip __x) const {
@@ -75,13 +72,15 @@ struct __next_fn final : private __function_like {
   }
 };
 
-inline constexpr auto next = __next_fn(__function_like::__tag());
+} // namespace __next
+
+inline namespace __cpo {
+  inline constexpr auto next = __next::__fn{};
+} // namespace __cpo
 } // namespace ranges
 
-#endif // !defined(_LIBCPP_HAS_NO_RANGES)
+#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 _LIBCPP_END_NAMESPACE_STD
 
-_LIBCPP_POP_MACROS
-
-#endif // _LIBCPP___ITERATOR_PRIMITIVES_H
+#endif // _LIBCPP___ITERATOR_NEXT_H

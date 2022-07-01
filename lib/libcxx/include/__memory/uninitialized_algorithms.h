@@ -13,6 +13,7 @@
 #include <__config>
 #include <__memory/addressof.h>
 #include <__memory/construct_at.h>
+#include <__memory/voidify.h>
 #include <iterator>
 #include <utility>
 
@@ -20,242 +21,330 @@
 #pragma GCC system_header
 #endif
 
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
-
 _LIBCPP_BEGIN_NAMESPACE_STD
 
+// This is a simplified version of C++20 `unreachable_sentinel` that doesn't use concepts and thus can be used in any
+// language mode.
+struct __unreachable_sentinel {
+  template <class _Iter>
+  _LIBCPP_HIDE_FROM_ABI friend _LIBCPP_CONSTEXPR bool operator!=(const _Iter&, __unreachable_sentinel) _NOEXCEPT {
+    return true;
+  }
+};
+
+// uninitialized_copy
+
+template <class _ValueType, class _InputIterator, class _Sentinel1, class _ForwardIterator, class _Sentinel2>
+inline _LIBCPP_HIDE_FROM_ABI pair<_InputIterator, _ForwardIterator>
+__uninitialized_copy(_InputIterator __ifirst, _Sentinel1 __ilast,
+                     _ForwardIterator __ofirst, _Sentinel2 __olast) {
+  _ForwardIterator __idx = __ofirst;
+#ifndef _LIBCPP_NO_EXCEPTIONS
+  try {
+#endif
+    for (; __ifirst != __ilast && __idx != __olast; ++__ifirst, (void)++__idx)
+      ::new (_VSTD::__voidify(*__idx)) _ValueType(*__ifirst);
+#ifndef _LIBCPP_NO_EXCEPTIONS
+  } catch (...) {
+    _VSTD::__destroy(__ofirst, __idx);
+    throw;
+  }
+#endif
+
+  return pair<_InputIterator, _ForwardIterator>(_VSTD::move(__ifirst), _VSTD::move(__idx));
+}
+
 template <class _InputIterator, class _ForwardIterator>
-_ForwardIterator
-uninitialized_copy(_InputIterator __f, _InputIterator __l, _ForwardIterator __r)
-{
-    typedef typename iterator_traits<_ForwardIterator>::value_type value_type;
+_ForwardIterator uninitialized_copy(_InputIterator __ifirst, _InputIterator __ilast,
+                                    _ForwardIterator __ofirst) {
+  typedef typename iterator_traits<_ForwardIterator>::value_type _ValueType;
+  auto __result = _VSTD::__uninitialized_copy<_ValueType>(_VSTD::move(__ifirst), _VSTD::move(__ilast),
+                                                          _VSTD::move(__ofirst), __unreachable_sentinel());
+  return _VSTD::move(__result.second);
+}
+
+// uninitialized_copy_n
+
+template <class _ValueType, class _InputIterator, class _Size, class _ForwardIterator, class _Sentinel>
+inline _LIBCPP_HIDE_FROM_ABI pair<_InputIterator, _ForwardIterator>
+__uninitialized_copy_n(_InputIterator __ifirst, _Size __n,
+                       _ForwardIterator __ofirst, _Sentinel __olast) {
+  _ForwardIterator __idx = __ofirst;
 #ifndef _LIBCPP_NO_EXCEPTIONS
-    _ForwardIterator __s = __r;
-    try
-    {
+  try {
 #endif
-        for (; __f != __l; ++__f, (void) ++__r)
-            ::new ((void*)_VSTD::addressof(*__r)) value_type(*__f);
+    for (; __n > 0 && __idx != __olast; ++__ifirst, (void)++__idx, (void)--__n)
+      ::new (_VSTD::__voidify(*__idx)) _ValueType(*__ifirst);
 #ifndef _LIBCPP_NO_EXCEPTIONS
-    }
-    catch (...)
-    {
-        for (; __s != __r; ++__s)
-            __s->~value_type();
-        throw;
-    }
+  } catch (...) {
+    _VSTD::__destroy(__ofirst, __idx);
+    throw;
+  }
 #endif
-    return __r;
+
+  return pair<_InputIterator, _ForwardIterator>(_VSTD::move(__ifirst), _VSTD::move(__idx));
 }
 
 template <class _InputIterator, class _Size, class _ForwardIterator>
-_ForwardIterator
-uninitialized_copy_n(_InputIterator __f, _Size __n, _ForwardIterator __r)
+inline _LIBCPP_HIDE_FROM_ABI _ForwardIterator uninitialized_copy_n(_InputIterator __ifirst, _Size __n,
+                                                                   _ForwardIterator __ofirst) {
+  typedef typename iterator_traits<_ForwardIterator>::value_type _ValueType;
+  auto __result = _VSTD::__uninitialized_copy_n<_ValueType>(_VSTD::move(__ifirst), __n, _VSTD::move(__ofirst),
+                                                            __unreachable_sentinel());
+  return _VSTD::move(__result.second);
+}
+
+// uninitialized_fill
+
+template <class _ValueType, class _ForwardIterator, class _Sentinel, class _Tp>
+inline _LIBCPP_HIDE_FROM_ABI
+_ForwardIterator __uninitialized_fill(_ForwardIterator __first, _Sentinel __last, const _Tp& __x)
 {
-    typedef typename iterator_traits<_ForwardIterator>::value_type value_type;
+    _ForwardIterator __idx = __first;
 #ifndef _LIBCPP_NO_EXCEPTIONS
-    _ForwardIterator __s = __r;
     try
     {
 #endif
-        for (; __n > 0; ++__f, (void) ++__r, (void) --__n)
-            ::new ((void*)_VSTD::addressof(*__r)) value_type(*__f);
+        for (; __idx != __last; ++__idx)
+            ::new (_VSTD::__voidify(*__idx)) _ValueType(__x);
 #ifndef _LIBCPP_NO_EXCEPTIONS
     }
     catch (...)
     {
-        for (; __s != __r; ++__s)
-            __s->~value_type();
+        _VSTD::__destroy(__first, __idx);
         throw;
     }
 #endif
-    return __r;
+
+    return __idx;
 }
 
 template <class _ForwardIterator, class _Tp>
-void
-uninitialized_fill(_ForwardIterator __f, _ForwardIterator __l, const _Tp& __x)
+inline _LIBCPP_HIDE_FROM_ABI
+void uninitialized_fill(_ForwardIterator __first, _ForwardIterator __last, const _Tp& __x)
 {
-    typedef typename iterator_traits<_ForwardIterator>::value_type value_type;
+    typedef typename iterator_traits<_ForwardIterator>::value_type _ValueType;
+    (void)_VSTD::__uninitialized_fill<_ValueType>(__first, __last, __x);
+}
+
+// uninitialized_fill_n
+
+template <class _ValueType, class _ForwardIterator, class _Size, class _Tp>
+inline _LIBCPP_HIDE_FROM_ABI
+_ForwardIterator __uninitialized_fill_n(_ForwardIterator __first, _Size __n, const _Tp& __x)
+{
+    _ForwardIterator __idx = __first;
 #ifndef _LIBCPP_NO_EXCEPTIONS
-    _ForwardIterator __s = __f;
     try
     {
 #endif
-        for (; __f != __l; ++__f)
-            ::new ((void*)_VSTD::addressof(*__f)) value_type(__x);
+        for (; __n > 0; ++__idx, (void) --__n)
+            ::new (_VSTD::__voidify(*__idx)) _ValueType(__x);
 #ifndef _LIBCPP_NO_EXCEPTIONS
     }
     catch (...)
     {
-        for (; __s != __f; ++__s)
-            __s->~value_type();
+        _VSTD::__destroy(__first, __idx);
         throw;
     }
 #endif
+
+    return __idx;
 }
 
 template <class _ForwardIterator, class _Size, class _Tp>
-_ForwardIterator
-uninitialized_fill_n(_ForwardIterator __f, _Size __n, const _Tp& __x)
+inline _LIBCPP_HIDE_FROM_ABI
+_ForwardIterator uninitialized_fill_n(_ForwardIterator __first, _Size __n, const _Tp& __x)
 {
-    typedef typename iterator_traits<_ForwardIterator>::value_type value_type;
-#ifndef _LIBCPP_NO_EXCEPTIONS
-    _ForwardIterator __s = __f;
-    try
-    {
-#endif
-        for (; __n > 0; ++__f, (void) --__n)
-            ::new ((void*)_VSTD::addressof(*__f)) value_type(__x);
-#ifndef _LIBCPP_NO_EXCEPTIONS
-    }
-    catch (...)
-    {
-        for (; __s != __f; ++__s)
-            __s->~value_type();
-        throw;
-    }
-#endif
-    return __f;
+    typedef typename iterator_traits<_ForwardIterator>::value_type _ValueType;
+    return _VSTD::__uninitialized_fill_n<_ValueType>(__first, __n, __x);
 }
 
 #if _LIBCPP_STD_VER > 14
 
-template <class _ForwardIterator>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
-void destroy(_ForwardIterator __first, _ForwardIterator __last) {
-    for (; __first != __last; ++__first)
-        _VSTD::destroy_at(_VSTD::addressof(*__first));
+// uninitialized_default_construct
+
+template <class _ValueType, class _ForwardIterator, class _Sentinel>
+inline _LIBCPP_HIDE_FROM_ABI
+_ForwardIterator __uninitialized_default_construct(_ForwardIterator __first, _Sentinel __last) {
+    auto __idx = __first;
+#ifndef _LIBCPP_NO_EXCEPTIONS
+    try {
+#endif
+    for (; __idx != __last; ++__idx)
+        ::new (_VSTD::__voidify(*__idx)) _ValueType;
+#ifndef _LIBCPP_NO_EXCEPTIONS
+    } catch (...) {
+        _VSTD::__destroy(__first, __idx);
+        throw;
+    }
+#endif
+
+    return __idx;
 }
 
-template <class _ForwardIterator, class _Size>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
-_ForwardIterator destroy_n(_ForwardIterator __first, _Size __n) {
-    for (; __n > 0; (void)++__first, --__n)
-        _VSTD::destroy_at(_VSTD::addressof(*__first));
-    return __first;
-}
-
 template <class _ForwardIterator>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_HIDE_FROM_ABI
 void uninitialized_default_construct(_ForwardIterator __first, _ForwardIterator __last) {
-    using _Vt = typename iterator_traits<_ForwardIterator>::value_type;
+    using _ValueType = typename iterator_traits<_ForwardIterator>::value_type;
+    (void)_VSTD::__uninitialized_default_construct<_ValueType>(
+        _VSTD::move(__first), _VSTD::move(__last));
+}
+
+// uninitialized_default_construct_n
+
+template <class _ValueType, class _ForwardIterator, class _Size>
+inline _LIBCPP_HIDE_FROM_ABI
+_ForwardIterator __uninitialized_default_construct_n(_ForwardIterator __first, _Size __n) {
+    auto __idx = __first;
+#ifndef _LIBCPP_NO_EXCEPTIONS
+    try {
+#endif
+    for (; __n > 0; ++__idx, (void) --__n)
+        ::new (_VSTD::__voidify(*__idx)) _ValueType;
+#ifndef _LIBCPP_NO_EXCEPTIONS
+    } catch (...) {
+        _VSTD::__destroy(__first, __idx);
+        throw;
+    }
+#endif
+
+    return __idx;
+}
+
+template <class _ForwardIterator, class _Size>
+inline _LIBCPP_HIDE_FROM_ABI
+_ForwardIterator uninitialized_default_construct_n(_ForwardIterator __first, _Size __n) {
+    using _ValueType = typename iterator_traits<_ForwardIterator>::value_type;
+    return _VSTD::__uninitialized_default_construct_n<_ValueType>(_VSTD::move(__first), __n);
+}
+
+// uninitialized_value_construct
+
+template <class _ValueType, class _ForwardIterator, class _Sentinel>
+inline _LIBCPP_HIDE_FROM_ABI
+_ForwardIterator __uninitialized_value_construct(_ForwardIterator __first, _Sentinel __last) {
     auto __idx = __first;
 #ifndef _LIBCPP_NO_EXCEPTIONS
     try {
 #endif
     for (; __idx != __last; ++__idx)
-        ::new ((void*)_VSTD::addressof(*__idx)) _Vt;
+        ::new (_VSTD::__voidify(*__idx)) _ValueType();
 #ifndef _LIBCPP_NO_EXCEPTIONS
     } catch (...) {
-        _VSTD::destroy(__first, __idx);
+        _VSTD::__destroy(__first, __idx);
         throw;
     }
 #endif
-}
 
-template <class _ForwardIterator, class _Size>
-inline _LIBCPP_INLINE_VISIBILITY
-_ForwardIterator uninitialized_default_construct_n(_ForwardIterator __first, _Size __n) {
-    using _Vt = typename iterator_traits<_ForwardIterator>::value_type;
-    auto __idx = __first;
-#ifndef _LIBCPP_NO_EXCEPTIONS
-    try {
-#endif
-    for (; __n > 0; (void)++__idx, --__n)
-        ::new ((void*)_VSTD::addressof(*__idx)) _Vt;
     return __idx;
-#ifndef _LIBCPP_NO_EXCEPTIONS
-    } catch (...) {
-        _VSTD::destroy(__first, __idx);
-        throw;
-    }
-#endif
 }
-
 
 template <class _ForwardIterator>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_HIDE_FROM_ABI
 void uninitialized_value_construct(_ForwardIterator __first, _ForwardIterator __last) {
-    using _Vt = typename iterator_traits<_ForwardIterator>::value_type;
+    using _ValueType = typename iterator_traits<_ForwardIterator>::value_type;
+    (void)_VSTD::__uninitialized_value_construct<_ValueType>(
+        _VSTD::move(__first), _VSTD::move(__last));
+}
+
+// uninitialized_value_construct_n
+
+template <class _ValueType, class _ForwardIterator, class _Size>
+inline _LIBCPP_HIDE_FROM_ABI
+_ForwardIterator __uninitialized_value_construct_n(_ForwardIterator __first, _Size __n) {
     auto __idx = __first;
 #ifndef _LIBCPP_NO_EXCEPTIONS
     try {
 #endif
-    for (; __idx != __last; ++__idx)
-        ::new ((void*)_VSTD::addressof(*__idx)) _Vt();
+    for (; __n > 0; ++__idx, (void) --__n)
+        ::new (_VSTD::__voidify(*__idx)) _ValueType();
 #ifndef _LIBCPP_NO_EXCEPTIONS
     } catch (...) {
-        _VSTD::destroy(__first, __idx);
+        _VSTD::__destroy(__first, __idx);
         throw;
     }
 #endif
+
+    return __idx;
 }
 
 template <class _ForwardIterator, class _Size>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_HIDE_FROM_ABI
 _ForwardIterator uninitialized_value_construct_n(_ForwardIterator __first, _Size __n) {
-    using _Vt = typename iterator_traits<_ForwardIterator>::value_type;
-    auto __idx = __first;
-#ifndef _LIBCPP_NO_EXCEPTIONS
-    try {
-#endif
-    for (; __n > 0; (void)++__idx, --__n)
-        ::new ((void*)_VSTD::addressof(*__idx)) _Vt();
-    return __idx;
-#ifndef _LIBCPP_NO_EXCEPTIONS
-    } catch (...) {
-        _VSTD::destroy(__first, __idx);
-        throw;
-    }
-#endif
+    using _ValueType = typename iterator_traits<_ForwardIterator>::value_type;
+    return __uninitialized_value_construct_n<_ValueType>(_VSTD::move(__first), __n);
 }
 
+// uninitialized_move
 
-template <class _InputIt, class _ForwardIt>
-inline _LIBCPP_INLINE_VISIBILITY
-_ForwardIt uninitialized_move(_InputIt __first, _InputIt __last, _ForwardIt __first_res) {
-    using _Vt = typename iterator_traits<_ForwardIt>::value_type;
-    auto __idx = __first_res;
+template <class _ValueType, class _InputIterator, class _Sentinel1, class _ForwardIterator, class _Sentinel2,
+          class _IterMove>
+inline _LIBCPP_HIDE_FROM_ABI pair<_InputIterator, _ForwardIterator>
+__uninitialized_move(_InputIterator __ifirst, _Sentinel1 __ilast,
+                     _ForwardIterator __ofirst, _Sentinel2 __olast, _IterMove __iter_move) {
+  auto __idx = __ofirst;
 #ifndef _LIBCPP_NO_EXCEPTIONS
-    try {
+  try {
 #endif
-    for (; __first != __last; (void)++__idx, ++__first)
-        ::new ((void*)_VSTD::addressof(*__idx)) _Vt(_VSTD::move(*__first));
-    return __idx;
-#ifndef _LIBCPP_NO_EXCEPTIONS
-    } catch (...) {
-        _VSTD::destroy(__first_res, __idx);
-        throw;
+    for (; __ifirst != __ilast && __idx != __olast; ++__idx, (void)++__ifirst) {
+      ::new (_VSTD::__voidify(*__idx)) _ValueType(__iter_move(__ifirst));
     }
+#ifndef _LIBCPP_NO_EXCEPTIONS
+  } catch (...) {
+    _VSTD::__destroy(__ofirst, __idx);
+    throw;
+  }
 #endif
+
+  return {_VSTD::move(__ifirst), _VSTD::move(__idx)};
 }
 
-template <class _InputIt, class _Size, class _ForwardIt>
-inline _LIBCPP_INLINE_VISIBILITY
-pair<_InputIt, _ForwardIt>
-uninitialized_move_n(_InputIt __first, _Size __n, _ForwardIt __first_res) {
-    using _Vt = typename iterator_traits<_ForwardIt>::value_type;
-    auto __idx = __first_res;
+template <class _InputIterator, class _ForwardIterator>
+inline _LIBCPP_HIDE_FROM_ABI _ForwardIterator uninitialized_move(_InputIterator __ifirst, _InputIterator __ilast,
+                                                                 _ForwardIterator __ofirst) {
+  using _ValueType = typename iterator_traits<_ForwardIterator>::value_type;
+  auto __iter_move = [](auto&& __iter) -> decltype(auto) { return _VSTD::move(*__iter); };
+
+  auto __result = _VSTD::__uninitialized_move<_ValueType>(_VSTD::move(__ifirst), _VSTD::move(__ilast),
+                                                          _VSTD::move(__ofirst), __unreachable_sentinel(), __iter_move);
+  return _VSTD::move(__result.second);
+}
+
+// uninitialized_move_n
+
+template <class _ValueType, class _InputIterator, class _Size, class _ForwardIterator, class _Sentinel, class _IterMove>
+inline _LIBCPP_HIDE_FROM_ABI pair<_InputIterator, _ForwardIterator>
+__uninitialized_move_n(_InputIterator __ifirst, _Size __n,
+                       _ForwardIterator __ofirst, _Sentinel __olast, _IterMove __iter_move) {
+  auto __idx = __ofirst;
 #ifndef _LIBCPP_NO_EXCEPTIONS
-    try {
+  try {
 #endif
-    for (; __n > 0; ++__idx, (void)++__first, --__n)
-        ::new ((void*)_VSTD::addressof(*__idx)) _Vt(_VSTD::move(*__first));
-    return {__first, __idx};
+    for (; __n > 0 && __idx != __olast; ++__idx, (void)++__ifirst, --__n)
+      ::new (_VSTD::__voidify(*__idx)) _ValueType(__iter_move(__ifirst));
 #ifndef _LIBCPP_NO_EXCEPTIONS
-    } catch (...) {
-        _VSTD::destroy(__first_res, __idx);
-        throw;
-    }
+  } catch (...) {
+    _VSTD::__destroy(__ofirst, __idx);
+    throw;
+  }
 #endif
+
+  return {_VSTD::move(__ifirst), _VSTD::move(__idx)};
+}
+
+template <class _InputIterator, class _Size, class _ForwardIterator>
+inline _LIBCPP_HIDE_FROM_ABI pair<_InputIterator, _ForwardIterator>
+uninitialized_move_n(_InputIterator __ifirst, _Size __n, _ForwardIterator __ofirst) {
+  using _ValueType = typename iterator_traits<_ForwardIterator>::value_type;
+  auto __iter_move = [](auto&& __iter) -> decltype(auto) { return _VSTD::move(*__iter); };
+
+  return _VSTD::__uninitialized_move_n<_ValueType>(_VSTD::move(__ifirst), __n, _VSTD::move(__ofirst),
+                                                   __unreachable_sentinel(), __iter_move);
 }
 
 #endif // _LIBCPP_STD_VER > 14
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___MEMORY_UNINITIALIZED_ALGORITHMS_H

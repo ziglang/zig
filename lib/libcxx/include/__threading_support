@@ -12,6 +12,7 @@
 
 #include <__availability>
 #include <__config>
+#include <__thread/poll_with_backoff.h>
 #include <chrono>
 #include <errno.h>
 #include <iosfwd>
@@ -29,16 +30,9 @@
 # include <__external_threading>
 #elif !defined(_LIBCPP_HAS_NO_THREADS)
 
-#if defined(__APPLE__) || defined(__MVS__)
-# define _LIBCPP_NO_NATIVE_SEMAPHORES
-#endif
-
 #if defined(_LIBCPP_HAS_THREAD_API_PTHREAD)
 # include <pthread.h>
 # include <sched.h>
-# ifndef _LIBCPP_NO_NATIVE_SEMAPHORES
-#   include <semaphore.h>
-# endif
 #elif defined(_LIBCPP_HAS_THREAD_API_C11)
 # include <threads.h>
 #endif
@@ -60,9 +54,6 @@
 typedef ::timespec __libcpp_timespec_t;
 #endif // !defined(_LIBCPP_HAS_NO_THREADS)
 
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
-
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 #if !defined(_LIBCPP_HAS_NO_THREADS)
@@ -77,12 +68,6 @@ typedef pthread_mutex_t __libcpp_recursive_mutex_t;
 // Condition Variable
 typedef pthread_cond_t __libcpp_condvar_t;
 #define _LIBCPP_CONDVAR_INITIALIZER PTHREAD_COND_INITIALIZER
-
-#ifndef _LIBCPP_NO_NATIVE_SEMAPHORES
-// Semaphore
-typedef sem_t __libcpp_semaphore_t;
-# define _LIBCPP_SEMAPHORE_MAX SEM_VALUE_MAX
-#endif
 
 // Execute once
 typedef pthread_once_t __libcpp_exec_once_flag;
@@ -149,12 +134,6 @@ typedef void* __libcpp_recursive_mutex_t[5];
 typedef void* __libcpp_condvar_t;
 #define _LIBCPP_CONDVAR_INITIALIZER 0
 
-// Semaphore
-typedef void* __libcpp_semaphore_t;
-#if defined(_LIBCPP_HAS_THREAD_API_WIN32)
-# define _LIBCPP_SEMAPHORE_MAX (::std::numeric_limits<long>::max())
-#endif
-
 // Execute Once
 typedef void* __libcpp_exec_once_flag;
 #define _LIBCPP_EXEC_ONCE_INITIALIZER 0
@@ -219,26 +198,6 @@ int __libcpp_condvar_timedwait(__libcpp_condvar_t *__cv, __libcpp_mutex_t *__m,
 _LIBCPP_THREAD_ABI_VISIBILITY
 int __libcpp_condvar_destroy(__libcpp_condvar_t* __cv);
 
-#ifndef _LIBCPP_NO_NATIVE_SEMAPHORES
-
-// Semaphore
-_LIBCPP_THREAD_ABI_VISIBILITY
-bool __libcpp_semaphore_init(__libcpp_semaphore_t* __sem, int __init);
-
-_LIBCPP_THREAD_ABI_VISIBILITY
-bool __libcpp_semaphore_destroy(__libcpp_semaphore_t* __sem);
-
-_LIBCPP_THREAD_ABI_VISIBILITY
-bool __libcpp_semaphore_post(__libcpp_semaphore_t* __sem);
-
-_LIBCPP_THREAD_ABI_VISIBILITY
-bool __libcpp_semaphore_wait(__libcpp_semaphore_t* __sem);
-
-_LIBCPP_THREAD_ABI_VISIBILITY
-bool __libcpp_semaphore_wait_timed(__libcpp_semaphore_t* __sem, chrono::nanoseconds const& __ns);
-
-#endif // _LIBCPP_NO_NATIVE_SEMAPHORES
-
 // Execute once
 _LIBCPP_THREAD_ABI_VISIBILITY
 int __libcpp_execute_once(__libcpp_exec_once_flag *flag,
@@ -290,74 +249,8 @@ int __libcpp_tls_set(__libcpp_tls_key __key, void *__p);
 
 #endif // !defined(_LIBCPP_HAS_THREAD_API_EXTERNAL)
 
-struct __libcpp_timed_backoff_policy {
-  _LIBCPP_INLINE_VISIBILITY
-  bool operator()(chrono::nanoseconds __elapsed) const
-  {
-      if(__elapsed > chrono::milliseconds(128))
-          __libcpp_thread_sleep_for(chrono::milliseconds(8));
-      else if(__elapsed > chrono::microseconds(64))
-          __libcpp_thread_sleep_for(__elapsed / 2);
-      else if(__elapsed > chrono::microseconds(4))
-        __libcpp_thread_yield();
-      else
-        {} // poll
-      return false;
-  }
-};
-
-static _LIBCPP_CONSTEXPR const int __libcpp_polling_count = 64;
-
-template<class _Fn, class _BFn>
-_LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
-bool __libcpp_thread_poll_with_backoff(
-  _Fn && __f, _BFn && __bf, chrono::nanoseconds __max_elapsed = chrono::nanoseconds::zero())
-{
-    auto const __start = chrono::high_resolution_clock::now();
-    for(int __count = 0;;) {
-      if(__f())
-        return true; // _Fn completion means success
-      if(__count < __libcpp_polling_count) {
-        __count += 1;
-        continue;
-      }
-      chrono::nanoseconds const __elapsed = chrono::high_resolution_clock::now() - __start;
-      if(__max_elapsed != chrono::nanoseconds::zero() && __max_elapsed < __elapsed)
-          return false; // timeout failure
-      if(__bf(__elapsed))
-        return false; // _BFn completion means failure
-    }
-}
-
 #if (!defined(_LIBCPP_HAS_THREAD_LIBRARY_EXTERNAL) || \
      defined(_LIBCPP_BUILDING_THREAD_LIBRARY_EXTERNAL))
-
-
-namespace __thread_detail {
-
-inline __libcpp_timespec_t __convert_to_timespec(const chrono::nanoseconds& __ns)
-{
-  using namespace chrono;
-  seconds __s = duration_cast<seconds>(__ns);
-  __libcpp_timespec_t __ts;
-  typedef decltype(__ts.tv_sec) __ts_sec;
-  const __ts_sec __ts_sec_max = numeric_limits<__ts_sec>::max();
-
-  if (__s.count() < __ts_sec_max)
-  {
-    __ts.tv_sec = static_cast<__ts_sec>(__s.count());
-    __ts.tv_nsec = static_cast<decltype(__ts.tv_nsec)>((__ns - __s).count());
-  }
-  else
-  {
-    __ts.tv_sec = __ts_sec_max;
-    __ts.tv_nsec = 999999999; // (10^9 - 1)
-  }
-
-  return __ts;
-}
-
-}
 
 #if defined(_LIBCPP_HAS_THREAD_API_PTHREAD)
 
@@ -452,38 +345,6 @@ int __libcpp_condvar_destroy(__libcpp_condvar_t *__cv)
   return pthread_cond_destroy(__cv);
 }
 
-#ifndef _LIBCPP_NO_NATIVE_SEMAPHORES
-
-// Semaphore
-bool __libcpp_semaphore_init(__libcpp_semaphore_t* __sem, int __init)
-{
-    return sem_init(__sem, 0, __init) == 0;
-}
-
-bool __libcpp_semaphore_destroy(__libcpp_semaphore_t* __sem)
-{
-    return sem_destroy(__sem) == 0;
-}
-
-bool __libcpp_semaphore_post(__libcpp_semaphore_t* __sem)
-{
-    return sem_post(__sem) == 0;
-}
-
-bool __libcpp_semaphore_wait(__libcpp_semaphore_t* __sem)
-{
-    return sem_wait(__sem) == 0;
-}
-
-bool __libcpp_semaphore_wait_timed(__libcpp_semaphore_t* __sem, chrono::nanoseconds const& __ns)
-{
-    auto const __abs_time = chrono::system_clock::now().time_since_epoch() + __ns;
-    __libcpp_timespec_t __ts = __thread_detail::__convert_to_timespec(__abs_time);
-    return sem_timedwait(__sem, &__ts) == 0;
-}
-
-#endif //_LIBCPP_NO_NATIVE_SEMAPHORES
-
 // Execute once
 int __libcpp_execute_once(__libcpp_exec_once_flag *flag,
                           void (*init_routine)()) {
@@ -546,7 +407,7 @@ void __libcpp_thread_yield()
 
 void __libcpp_thread_sleep_for(const chrono::nanoseconds& __ns)
 {
-   __libcpp_timespec_t __ts = __thread_detail::__convert_to_timespec(__ns);
+   __libcpp_timespec_t __ts = _VSTD::__convert_to_timespec<__libcpp_timespec_t>(__ns);
    while (nanosleep(&__ts, &__ts) == -1 && errno == EINTR);
 }
 
@@ -703,7 +564,7 @@ void __libcpp_thread_yield()
 
 void __libcpp_thread_sleep_for(const chrono::nanoseconds& __ns)
 {
-   __libcpp_timespec_t __ts = __thread_detail::__convert_to_timespec(__ns);
+   __libcpp_timespec_t __ts = _VSTD::__convert_to_timespec<__libcpp_timespec_t>(__ns);
   thrd_sleep(&__ts, nullptr);
 }
 
@@ -736,7 +597,7 @@ namespace this_thread
 
 _LIBCPP_INLINE_VISIBILITY __thread_id get_id() _NOEXCEPT;
 
-}  // this_thread
+} // namespace this_thread
 
 template<> struct hash<__thread_id>;
 
@@ -806,12 +667,10 @@ get_id() _NOEXCEPT
     return __libcpp_thread_get_current_id();
 }
 
-}  // this_thread
+} // namespace this_thread
 
 #endif // !_LIBCPP_HAS_NO_THREADS
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP_THREADING_SUPPORT

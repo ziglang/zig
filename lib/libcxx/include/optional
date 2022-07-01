@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===-------------------------- optional ----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -132,6 +132,18 @@ namespace std {
     template <class U> constexpr T value_or(U &&) const &;
     template <class U> constexpr T value_or(U &&) &&;
 
+    // [optional.monadic], monadic operations
+    template<class F> constexpr auto and_then(F&& f) &;         // since C++23
+    template<class F> constexpr auto and_then(F&& f) &&;        // since C++23
+    template<class F> constexpr auto and_then(F&& f) const&;    // since C++23
+    template<class F> constexpr auto and_then(F&& f) const&&;   // since C++23
+    template<class F> constexpr auto transform(F&& f) &;        // since C++23
+    template<class F> constexpr auto transform(F&& f) &&;       // since C++23
+    template<class F> constexpr auto transform(F&& f) const&;   // since C++23
+    template<class F> constexpr auto transform(F&& f) const&&;  // since C++23
+    template<class F> constexpr optional or_else(F&& f) &&;     // since C++23
+    template<class F> constexpr optional or_else(F&& f) const&; // since C++23
+
     // 23.6.3.6, modifiers
     void reset() noexcept; // constexpr in C++20
 
@@ -147,6 +159,7 @@ template<class T>
 */
 
 #include <__availability>
+#include <__concepts/invocable.h>
 #include <__config>
 #include <__debug>
 #include <__functional_base>
@@ -163,10 +176,6 @@ template<class T>
 #pragma GCC system_header
 #endif
 
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
-
-
 namespace std  // purposefully not using versioning namespace
 {
 
@@ -179,7 +188,7 @@ public:
     virtual const char* what() const _NOEXCEPT;
 };
 
-}  // std
+} // namespace std
 
 #if _LIBCPP_STD_VER > 14
 
@@ -202,7 +211,9 @@ struct nullopt_t
     _LIBCPP_INLINE_VISIBILITY constexpr explicit nullopt_t(__secret_tag, __secret_tag) noexcept {}
 };
 
-_LIBCPP_INLINE_VAR constexpr nullopt_t nullopt{nullopt_t::__secret_tag{}, nullopt_t::__secret_tag{}};
+inline constexpr nullopt_t nullopt{nullopt_t::__secret_tag{}, nullopt_t::__secret_tag{}};
+
+struct __optional_construct_from_invoke_tag {};
 
 template <class _Tp, bool = is_trivially_destructible<_Tp>::value>
 struct __optional_destruct_base;
@@ -238,6 +249,13 @@ struct __optional_destruct_base<_Tp, false>
         :  __val_(_VSTD::forward<_Args>(__args)...),
            __engaged_(true) {}
 
+#if _LIBCPP_STD_VER > 20
+  template <class _Fp, class... _Args>
+  _LIBCPP_HIDE_FROM_ABI
+  constexpr __optional_destruct_base(__optional_construct_from_invoke_tag, _Fp&& __f, _Args&&... __args)
+      : __val_(_VSTD::invoke(_VSTD::forward<_Fp>(__f), _VSTD::forward<_Args>(__args)...)), __engaged_(true) {}
+#endif
+
     _LIBCPP_INLINE_VISIBILITY
     _LIBCPP_CONSTEXPR_AFTER_CXX17 void reset() noexcept
     {
@@ -272,6 +290,13 @@ struct __optional_destruct_base<_Tp, true>
     constexpr explicit __optional_destruct_base(in_place_t, _Args&&... __args)
         :  __val_(_VSTD::forward<_Args>(__args)...),
            __engaged_(true) {}
+
+#if _LIBCPP_STD_VER > 20
+  template <class _Fp, class... _Args>
+  _LIBCPP_HIDE_FROM_ABI
+  constexpr __optional_destruct_base(__optional_construct_from_invoke_tag, _Fp&& __f, _Args&&... __args)
+      : __val_(_VSTD::invoke(_VSTD::forward<_Fp>(__f), _VSTD::forward<_Args>(__args)...)), __engaged_(true) {}
+#endif
 
     _LIBCPP_INLINE_VISIBILITY
     _LIBCPP_CONSTEXPR_AFTER_CXX17 void reset() noexcept
@@ -586,6 +611,12 @@ using __optional_sfinae_assign_base_t = __sfinae_assign_base<
     (is_move_constructible<_Tp>::value && is_move_assignable<_Tp>::value)
 >;
 
+template<class _Tp>
+class optional;
+template <class _Tp>
+struct __is_std_optional : false_type {};
+template <class _Tp> struct __is_std_optional<optional<_Tp>> : true_type {};
+
 template <class _Tp>
 class optional
     : private __optional_move_assign_base<_Tp>
@@ -688,6 +719,7 @@ private:
       _CheckOptionalLikeConstructor<_QualUp>,
       __check_tuple_constructor_fail
     >;
+
 public:
 
     _LIBCPP_INLINE_VISIBILITY constexpr optional() noexcept {}
@@ -695,7 +727,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY constexpr optional(optional&&) = default;
     _LIBCPP_INLINE_VISIBILITY constexpr optional(nullopt_t) noexcept {}
 
-    template <class _InPlaceT, class... _Args, class = _EnableIf<
+    template <class _InPlaceT, class... _Args, class = enable_if_t<
           _And<
               _IsSame<_InPlaceT, in_place_t>,
               is_constructible<value_type, _Args...>
@@ -706,21 +738,21 @@ public:
     constexpr explicit optional(_InPlaceT, _Args&&... __args)
         : __base(in_place, _VSTD::forward<_Args>(__args)...) {}
 
-    template <class _Up, class... _Args, class = _EnableIf<
+    template <class _Up, class... _Args, class = enable_if_t<
         is_constructible_v<value_type, initializer_list<_Up>&, _Args...>>
     >
     _LIBCPP_INLINE_VISIBILITY
     constexpr explicit optional(in_place_t, initializer_list<_Up> __il, _Args&&... __args)
         : __base(in_place, __il, _VSTD::forward<_Args>(__args)...) {}
 
-    template <class _Up = value_type, _EnableIf<
+    template <class _Up = value_type, enable_if_t<
         _CheckOptionalArgsCtor<_Up>::template __enable_implicit<_Up>()
     , int> = 0>
     _LIBCPP_INLINE_VISIBILITY
     constexpr optional(_Up&& __v)
         : __base(in_place, _VSTD::forward<_Up>(__v)) {}
 
-    template <class _Up, _EnableIf<
+    template <class _Up, enable_if_t<
         _CheckOptionalArgsCtor<_Up>::template __enable_explicit<_Up>()
     , int> = 0>
     _LIBCPP_INLINE_VISIBILITY
@@ -728,7 +760,7 @@ public:
         : __base(in_place, _VSTD::forward<_Up>(__v)) {}
 
     // LWG2756: conditionally explicit conversion from const optional<_Up>&
-    template <class _Up, _EnableIf<
+    template <class _Up, enable_if_t<
         _CheckOptionalLikeCtor<_Up, _Up const&>::template __enable_implicit<_Up>()
     , int> = 0>
     _LIBCPP_INLINE_VISIBILITY
@@ -736,7 +768,7 @@ public:
     {
         this->__construct_from(__v);
     }
-    template <class _Up, _EnableIf<
+    template <class _Up, enable_if_t<
         _CheckOptionalLikeCtor<_Up, _Up const&>::template __enable_explicit<_Up>()
     , int> = 0>
     _LIBCPP_INLINE_VISIBILITY
@@ -746,7 +778,7 @@ public:
     }
 
     // LWG2756: conditionally explicit conversion from optional<_Up>&&
-    template <class _Up, _EnableIf<
+    template <class _Up, enable_if_t<
         _CheckOptionalLikeCtor<_Up, _Up &&>::template __enable_implicit<_Up>()
     , int> = 0>
     _LIBCPP_INLINE_VISIBILITY
@@ -754,7 +786,7 @@ public:
     {
         this->__construct_from(_VSTD::move(__v));
     }
-    template <class _Up, _EnableIf<
+    template <class _Up, enable_if_t<
         _CheckOptionalLikeCtor<_Up, _Up &&>::template __enable_explicit<_Up>()
     , int> = 0>
     _LIBCPP_INLINE_VISIBILITY
@@ -762,6 +794,14 @@ public:
     {
         this->__construct_from(_VSTD::move(__v));
     }
+
+#if _LIBCPP_STD_VER > 20
+  template<class _Fp, class... _Args>
+  _LIBCPP_HIDE_FROM_ABI
+  constexpr explicit optional(__optional_construct_from_invoke_tag, _Fp&& __f, _Args&&... __args)
+      : __base(__optional_construct_from_invoke_tag{}, _VSTD::forward<_Fp>(__f), _VSTD::forward<_Args>(__args)...) {
+  }
+#endif
 
     _LIBCPP_INLINE_VISIBILITY
     _LIBCPP_CONSTEXPR_AFTER_CXX17 optional& operator=(nullopt_t) noexcept
@@ -775,7 +815,7 @@ public:
 
     // LWG2756
     template <class _Up = value_type,
-              class = _EnableIf<
+              class = enable_if_t<
                       _And<
                           _IsNotSame<__uncvref_t<_Up>, optional>,
                           _Or<
@@ -798,7 +838,7 @@ public:
     }
 
     // LWG2756
-    template <class _Up, _EnableIf<
+    template <class _Up, enable_if_t<
         _CheckOptionalLikeAssign<_Up, _Up const&>::template __enable_assign<_Up>()
     , int> = 0>
     _LIBCPP_INLINE_VISIBILITY
@@ -810,7 +850,7 @@ public:
     }
 
     // LWG2756
-    template <class _Up, _EnableIf<
+    template <class _Up, enable_if_t<
         _CheckOptionalLikeCtor<_Up, _Up &&>::template __enable_assign<_Up>()
     , int> = 0>
     _LIBCPP_INLINE_VISIBILITY
@@ -822,7 +862,7 @@ public:
     }
 
     template <class... _Args,
-              class = _EnableIf
+              class = enable_if_t
                       <
                           is_constructible_v<value_type, _Args...>
                       >
@@ -837,7 +877,7 @@ public:
     }
 
     template <class _Up, class... _Args,
-              class = _EnableIf
+              class = enable_if_t
                       <
                           is_constructible_v<value_type, initializer_list<_Up>&, _Args...>
                       >
@@ -883,11 +923,7 @@ public:
     operator->() const
     {
         _LIBCPP_ASSERT(this->has_value(), "optional operator-> called on a disengaged value");
-#ifndef _LIBCPP_HAS_NO_BUILTIN_ADDRESSOF
         return _VSTD::addressof(this->__get());
-#else
-        return __operator_arrow(__has_operator_addressof<value_type>{}, this->__get());
-#endif
     }
 
     _LIBCPP_INLINE_VISIBILITY
@@ -896,11 +932,7 @@ public:
     operator->()
     {
         _LIBCPP_ASSERT(this->has_value(), "optional operator-> called on a disengaged value");
-#ifndef _LIBCPP_HAS_NO_BUILTIN_ADDRESSOF
         return _VSTD::addressof(this->__get());
-#else
-        return __operator_arrow(__has_operator_addressof<value_type>{}, this->__get());
-#endif
     }
 
     _LIBCPP_INLINE_VISIBILITY
@@ -1005,35 +1037,144 @@ public:
                                   static_cast<value_type>(_VSTD::forward<_Up>(__v));
     }
 
+#if _LIBCPP_STD_VER > 20
+  template<class _Func>
+  _LIBCPP_HIDE_FROM_ABI
+  constexpr auto and_then(_Func&& __f) & {
+    using _Up = invoke_result_t<_Func, value_type&>;
+    static_assert(__is_std_optional<remove_cvref_t<_Up>>::value,
+                  "Result of f(value()) must be a specialization of std::optional");
+    if (*this)
+      return _VSTD::invoke(_VSTD::forward<_Func>(__f), value());
+    return remove_cvref_t<_Up>();
+  }
+
+  template<class _Func>
+  _LIBCPP_HIDE_FROM_ABI
+  constexpr auto and_then(_Func&& __f) const& {
+    using _Up = invoke_result_t<_Func, const value_type&>;
+    static_assert(__is_std_optional<remove_cvref_t<_Up>>::value,
+                  "Result of f(value()) must be a specialization of std::optional");
+    if (*this)
+      return _VSTD::invoke(_VSTD::forward<_Func>(__f), value());
+    return remove_cvref_t<_Up>();
+  }
+
+  template<class _Func>
+  _LIBCPP_HIDE_FROM_ABI
+  constexpr auto and_then(_Func&& __f) && {
+    using _Up = invoke_result_t<_Func, value_type&&>;
+    static_assert(__is_std_optional<remove_cvref_t<_Up>>::value,
+                  "Result of f(std::move(value())) must be a specialization of std::optional");
+    if (*this)
+      return _VSTD::invoke(_VSTD::forward<_Func>(__f), _VSTD::move(value()));
+    return remove_cvref_t<_Up>();
+  }
+
+  template<class _Func>
+  _LIBCPP_HIDE_FROM_ABI
+  constexpr auto and_then(_Func&& __f) const&& {
+    using _Up = invoke_result_t<_Func, const value_type&&>;
+    static_assert(__is_std_optional<remove_cvref_t<_Up>>::value,
+                  "Result of f(std::move(value())) must be a specialization of std::optional");
+    if (*this)
+      return _VSTD::invoke(_VSTD::forward<_Func>(__f), _VSTD::move(value()));
+    return remove_cvref_t<_Up>();
+  }
+
+  template<class _Func>
+  _LIBCPP_HIDE_FROM_ABI
+  constexpr auto transform(_Func&& __f) & {
+    using _Up = remove_cv_t<invoke_result_t<_Func, value_type&>>;
+    static_assert(!is_array_v<_Up>, "Result of f(value()) should not be an Array");
+    static_assert(!is_same_v<_Up, in_place_t>,
+                  "Result of f(value()) should not be std::in_place_t");
+    static_assert(!is_same_v<_Up, nullopt_t>,
+                  "Result of f(value()) should not be std::nullopt_t");
+    static_assert(is_object_v<_Up>, "Result of f(value()) should be an object type");
+    if (*this)
+      return optional<_Up>(__optional_construct_from_invoke_tag{}, _VSTD::forward<_Func>(__f), value());
+    return optional<_Up>();
+  }
+
+  template<class _Func>
+  _LIBCPP_HIDE_FROM_ABI
+  constexpr auto transform(_Func&& __f) const& {
+    using _Up = remove_cv_t<invoke_result_t<_Func, const value_type&>>;
+    static_assert(!is_array_v<_Up>, "Result of f(value()) should not be an Array");
+    static_assert(!is_same_v<_Up, in_place_t>,
+                  "Result of f(value()) should not be std::in_place_t");
+    static_assert(!is_same_v<_Up, nullopt_t>,
+                  "Result of f(value()) should not be std::nullopt_t");
+    static_assert(is_object_v<_Up>, "Result of f(value()) should be an object type");
+    if (*this)
+      return optional<_Up>(__optional_construct_from_invoke_tag{}, _VSTD::forward<_Func>(__f), value());
+    return optional<_Up>();
+  }
+
+  template<class _Func>
+  _LIBCPP_HIDE_FROM_ABI
+  constexpr auto transform(_Func&& __f) && {
+    using _Up = remove_cv_t<invoke_result_t<_Func, value_type&&>>;
+    static_assert(!is_array_v<_Up>, "Result of f(std::move(value())) should not be an Array");
+    static_assert(!is_same_v<_Up, in_place_t>,
+                  "Result of f(std::move(value())) should not be std::in_place_t");
+    static_assert(!is_same_v<_Up, nullopt_t>,
+                  "Result of f(std::move(value())) should not be std::nullopt_t");
+    static_assert(is_object_v<_Up>, "Result of f(std::move(value())) should be an object type");
+    if (*this)
+      return optional<_Up>(__optional_construct_from_invoke_tag{}, _VSTD::forward<_Func>(__f), _VSTD::move(value()));
+    return optional<_Up>();
+  }
+
+  template<class _Func>
+  _LIBCPP_HIDE_FROM_ABI
+  constexpr auto transform(_Func&& __f) const&& {
+    using _Up = remove_cvref_t<invoke_result_t<_Func, const value_type&&>>;
+    static_assert(!is_array_v<_Up>, "Result of f(std::move(value())) should not be an Array");
+    static_assert(!is_same_v<_Up, in_place_t>,
+                  "Result of f(std::move(value())) should not be std::in_place_t");
+    static_assert(!is_same_v<_Up, nullopt_t>,
+                  "Result of f(std::move(value())) should not be std::nullopt_t");
+    static_assert(is_object_v<_Up>, "Result of f(std::move(value())) should be an object type");
+    if (*this)
+      return optional<_Up>(__optional_construct_from_invoke_tag{}, _VSTD::forward<_Func>(__f), _VSTD::move(value()));
+    return optional<_Up>();
+  }
+
+  template<invocable _Func>
+  _LIBCPP_HIDE_FROM_ABI
+  constexpr optional or_else(_Func&& __f) const& requires is_copy_constructible_v<value_type> {
+    static_assert(is_same_v<remove_cvref_t<invoke_result_t<_Func>>, optional>,
+                  "Result of f() should be the same type as this optional");
+    if (*this)
+      return *this;
+    return _VSTD::forward<_Func>(__f)();
+  }
+
+  template<invocable _Func>
+  _LIBCPP_HIDE_FROM_ABI
+  constexpr optional or_else(_Func&& __f) && requires is_move_constructible_v<value_type> {
+    static_assert(is_same_v<remove_cvref_t<invoke_result_t<_Func>>, optional>,
+                  "Result of f() should be the same type as this optional");
+    if (*this)
+      return _VSTD::move(*this);
+    return _VSTD::forward<_Func>(__f)();
+  }
+#endif // _LIBCPP_STD_VER > 20
+
     using __base::reset;
-
-private:
-    template <class _Up>
-    _LIBCPP_INLINE_VISIBILITY
-    static _LIBCPP_CONSTEXPR_AFTER_CXX17 _Up*
-    __operator_arrow(true_type, _Up& __x)
-    {
-        return _VSTD::addressof(__x);
-    }
-
-    template <class _Up>
-    _LIBCPP_INLINE_VISIBILITY
-    static constexpr _Up*
-    __operator_arrow(false_type, _Up& __x)
-    {
-        return &__x;
-    }
 };
 
-#ifndef _LIBCPP_HAS_NO_DEDUCTION_GUIDES
-template<class T>
-    optional(T) -> optional<T>;
+#if _LIBCPP_STD_VER >= 17
+template<class _Tp>
+    optional(_Tp) -> optional<_Tp>;
 #endif
 
 // Comparisons between optionals
 template <class _Tp, class _Up>
 _LIBCPP_INLINE_VISIBILITY constexpr
-_EnableIf<
+enable_if_t<
     is_convertible_v<decltype(declval<const _Tp&>() ==
         declval<const _Up&>()), bool>,
     bool
@@ -1049,7 +1190,7 @@ operator==(const optional<_Tp>& __x, const optional<_Up>& __y)
 
 template <class _Tp, class _Up>
 _LIBCPP_INLINE_VISIBILITY constexpr
-_EnableIf<
+enable_if_t<
     is_convertible_v<decltype(declval<const _Tp&>() !=
         declval<const _Up&>()), bool>,
     bool
@@ -1065,7 +1206,7 @@ operator!=(const optional<_Tp>& __x, const optional<_Up>& __y)
 
 template <class _Tp, class _Up>
 _LIBCPP_INLINE_VISIBILITY constexpr
-_EnableIf<
+enable_if_t<
     is_convertible_v<decltype(declval<const _Tp&>() <
         declval<const _Up&>()), bool>,
     bool
@@ -1081,7 +1222,7 @@ operator<(const optional<_Tp>& __x, const optional<_Up>& __y)
 
 template <class _Tp, class _Up>
 _LIBCPP_INLINE_VISIBILITY constexpr
-_EnableIf<
+enable_if_t<
     is_convertible_v<decltype(declval<const _Tp&>() >
         declval<const _Up&>()), bool>,
     bool
@@ -1097,7 +1238,7 @@ operator>(const optional<_Tp>& __x, const optional<_Up>& __y)
 
 template <class _Tp, class _Up>
 _LIBCPP_INLINE_VISIBILITY constexpr
-_EnableIf<
+enable_if_t<
     is_convertible_v<decltype(declval<const _Tp&>() <=
         declval<const _Up&>()), bool>,
     bool
@@ -1113,7 +1254,7 @@ operator<=(const optional<_Tp>& __x, const optional<_Up>& __y)
 
 template <class _Tp, class _Up>
 _LIBCPP_INLINE_VISIBILITY constexpr
-_EnableIf<
+enable_if_t<
     is_convertible_v<decltype(declval<const _Tp&>() >=
         declval<const _Up&>()), bool>,
     bool
@@ -1227,7 +1368,7 @@ operator>=(nullopt_t, const optional<_Tp>& __x) noexcept
 // Comparisons with T
 template <class _Tp, class _Up>
 _LIBCPP_INLINE_VISIBILITY constexpr
-_EnableIf<
+enable_if_t<
     is_convertible_v<decltype(declval<const _Tp&>() ==
         declval<const _Up&>()), bool>,
     bool
@@ -1239,7 +1380,7 @@ operator==(const optional<_Tp>& __x, const _Up& __v)
 
 template <class _Tp, class _Up>
 _LIBCPP_INLINE_VISIBILITY constexpr
-_EnableIf<
+enable_if_t<
     is_convertible_v<decltype(declval<const _Tp&>() ==
         declval<const _Up&>()), bool>,
     bool
@@ -1251,7 +1392,7 @@ operator==(const _Tp& __v, const optional<_Up>& __x)
 
 template <class _Tp, class _Up>
 _LIBCPP_INLINE_VISIBILITY constexpr
-_EnableIf<
+enable_if_t<
     is_convertible_v<decltype(declval<const _Tp&>() !=
         declval<const _Up&>()), bool>,
     bool
@@ -1263,7 +1404,7 @@ operator!=(const optional<_Tp>& __x, const _Up& __v)
 
 template <class _Tp, class _Up>
 _LIBCPP_INLINE_VISIBILITY constexpr
-_EnableIf<
+enable_if_t<
     is_convertible_v<decltype(declval<const _Tp&>() !=
         declval<const _Up&>()), bool>,
     bool
@@ -1275,7 +1416,7 @@ operator!=(const _Tp& __v, const optional<_Up>& __x)
 
 template <class _Tp, class _Up>
 _LIBCPP_INLINE_VISIBILITY constexpr
-_EnableIf<
+enable_if_t<
     is_convertible_v<decltype(declval<const _Tp&>() <
         declval<const _Up&>()), bool>,
     bool
@@ -1287,7 +1428,7 @@ operator<(const optional<_Tp>& __x, const _Up& __v)
 
 template <class _Tp, class _Up>
 _LIBCPP_INLINE_VISIBILITY constexpr
-_EnableIf<
+enable_if_t<
     is_convertible_v<decltype(declval<const _Tp&>() <
         declval<const _Up&>()), bool>,
     bool
@@ -1299,7 +1440,7 @@ operator<(const _Tp& __v, const optional<_Up>& __x)
 
 template <class _Tp, class _Up>
 _LIBCPP_INLINE_VISIBILITY constexpr
-_EnableIf<
+enable_if_t<
     is_convertible_v<decltype(declval<const _Tp&>() <=
         declval<const _Up&>()), bool>,
     bool
@@ -1311,7 +1452,7 @@ operator<=(const optional<_Tp>& __x, const _Up& __v)
 
 template <class _Tp, class _Up>
 _LIBCPP_INLINE_VISIBILITY constexpr
-_EnableIf<
+enable_if_t<
     is_convertible_v<decltype(declval<const _Tp&>() <=
         declval<const _Up&>()), bool>,
     bool
@@ -1323,7 +1464,7 @@ operator<=(const _Tp& __v, const optional<_Up>& __x)
 
 template <class _Tp, class _Up>
 _LIBCPP_INLINE_VISIBILITY constexpr
-_EnableIf<
+enable_if_t<
     is_convertible_v<decltype(declval<const _Tp&>() >
         declval<const _Up&>()), bool>,
     bool
@@ -1335,7 +1476,7 @@ operator>(const optional<_Tp>& __x, const _Up& __v)
 
 template <class _Tp, class _Up>
 _LIBCPP_INLINE_VISIBILITY constexpr
-_EnableIf<
+enable_if_t<
     is_convertible_v<decltype(declval<const _Tp&>() >
         declval<const _Up&>()), bool>,
     bool
@@ -1347,7 +1488,7 @@ operator>(const _Tp& __v, const optional<_Up>& __x)
 
 template <class _Tp, class _Up>
 _LIBCPP_INLINE_VISIBILITY constexpr
-_EnableIf<
+enable_if_t<
     is_convertible_v<decltype(declval<const _Tp&>() >=
         declval<const _Up&>()), bool>,
     bool
@@ -1359,7 +1500,7 @@ operator>=(const optional<_Tp>& __x, const _Up& __v)
 
 template <class _Tp, class _Up>
 _LIBCPP_INLINE_VISIBILITY constexpr
-_EnableIf<
+enable_if_t<
     is_convertible_v<decltype(declval<const _Tp&>() >=
         declval<const _Up&>()), bool>,
     bool
@@ -1372,7 +1513,7 @@ operator>=(const _Tp& __v, const optional<_Up>& __x)
 
 template <class _Tp>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
-_EnableIf<
+enable_if_t<
     is_move_constructible_v<_Tp> && is_swappable_v<_Tp>,
     void
 >
@@ -1422,7 +1563,5 @@ struct _LIBCPP_TEMPLATE_VIS hash<
 _LIBCPP_END_NAMESPACE_STD
 
 #endif // _LIBCPP_STD_VER > 14
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP_OPTIONAL

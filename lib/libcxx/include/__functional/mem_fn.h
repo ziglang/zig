@@ -11,9 +11,9 @@
 #define _LIBCPP___FUNCTIONAL_MEM_FN_H
 
 #include <__config>
-#include <__functional/weak_result_type.h>
 #include <__functional/binary_function.h>
 #include <__functional/invoke.h>
+#include <__functional/weak_result_type.h>
 #include <utility>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)

@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===--------------------------- cstdlib ----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -99,26 +99,18 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 using ::size_t _LIBCPP_USING_IF_EXISTS;
 using ::div_t _LIBCPP_USING_IF_EXISTS;
 using ::ldiv_t _LIBCPP_USING_IF_EXISTS;
-#ifndef _LIBCPP_HAS_NO_LONG_LONG
 using ::lldiv_t _LIBCPP_USING_IF_EXISTS;
-#endif // _LIBCPP_HAS_NO_LONG_LONG
 using ::atof _LIBCPP_USING_IF_EXISTS;
 using ::atoi _LIBCPP_USING_IF_EXISTS;
 using ::atol _LIBCPP_USING_IF_EXISTS;
-#ifndef _LIBCPP_HAS_NO_LONG_LONG
 using ::atoll _LIBCPP_USING_IF_EXISTS;
-#endif // _LIBCPP_HAS_NO_LONG_LONG
 using ::strtod _LIBCPP_USING_IF_EXISTS;
 using ::strtof _LIBCPP_USING_IF_EXISTS;
 using ::strtold _LIBCPP_USING_IF_EXISTS;
 using ::strtol _LIBCPP_USING_IF_EXISTS;
-#ifndef _LIBCPP_HAS_NO_LONG_LONG
 using ::strtoll _LIBCPP_USING_IF_EXISTS;
-#endif // _LIBCPP_HAS_NO_LONG_LONG
 using ::strtoul _LIBCPP_USING_IF_EXISTS;
-#ifndef _LIBCPP_HAS_NO_LONG_LONG
 using ::strtoull _LIBCPP_USING_IF_EXISTS;
-#endif // _LIBCPP_HAS_NO_LONG_LONG
 using ::rand _LIBCPP_USING_IF_EXISTS;
 using ::srand _LIBCPP_USING_IF_EXISTS;
 using ::calloc _LIBCPP_USING_IF_EXISTS;
@@ -137,14 +129,10 @@ using ::bsearch _LIBCPP_USING_IF_EXISTS;
 using ::qsort _LIBCPP_USING_IF_EXISTS;
 using ::abs _LIBCPP_USING_IF_EXISTS;
 using ::labs _LIBCPP_USING_IF_EXISTS;
-#ifndef _LIBCPP_HAS_NO_LONG_LONG
 using ::llabs _LIBCPP_USING_IF_EXISTS;
-#endif // _LIBCPP_HAS_NO_LONG_LONG
 using ::div _LIBCPP_USING_IF_EXISTS;
 using ::ldiv _LIBCPP_USING_IF_EXISTS;
-#ifndef _LIBCPP_HAS_NO_LONG_LONG
 using ::lldiv _LIBCPP_USING_IF_EXISTS;
-#endif // _LIBCPP_HAS_NO_LONG_LONG
 using ::mblen _LIBCPP_USING_IF_EXISTS;
 using ::mbtowc _LIBCPP_USING_IF_EXISTS;
 using ::wctomb _LIBCPP_USING_IF_EXISTS;

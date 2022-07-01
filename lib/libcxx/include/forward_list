@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===----------------------- forward_list ---------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -186,6 +186,7 @@ template <class T, class Allocator, class Predicate>
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <type_traits>
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -643,12 +644,12 @@ public:
     static_assert((is_same<typename allocator_type::value_type, value_type>::value),
                   "Allocator::value_type must be same type as value_type");
 
-    typedef value_type&                                                reference;
-    typedef const value_type&                                          const_reference;
-    typedef typename allocator_traits<allocator_type>::pointer         pointer;
-    typedef typename allocator_traits<allocator_type>::const_pointer   const_pointer;
-    typedef typename allocator_traits<allocator_type>::size_type       size_type;
-    typedef typename allocator_traits<allocator_type>::difference_type difference_type;
+    typedef value_type&                                                 reference;
+    typedef const value_type&                                           const_reference;
+    typedef typename allocator_traits<allocator_type>::pointer          pointer;
+    typedef typename allocator_traits<allocator_type>::const_pointer    const_pointer;
+    typedef typename allocator_traits<allocator_type>::size_type        size_type;
+    typedef typename allocator_traits<allocator_type>::difference_type  difference_type;
 
     typedef typename base::iterator       iterator;
     typedef typename base::const_iterator const_iterator;
@@ -669,7 +670,13 @@ public:
     explicit forward_list(size_type __n, const allocator_type& __a);
 #endif
     forward_list(size_type __n, const value_type& __v);
-    forward_list(size_type __n, const value_type& __v, const allocator_type& __a);
+
+    template <class = __enable_if_t<__is_allocator<_Alloc>::value> >
+    forward_list(size_type __n, const value_type& __v, const allocator_type& __a) : base(__a)
+    {
+        insert_after(cbefore_begin(), __n, __v);
+    }
+
     template <class _InputIterator>
         forward_list(_InputIterator __f, _InputIterator __l,
                      typename enable_if<
@@ -870,17 +877,19 @@ private:
 };
 
 
-#ifndef _LIBCPP_HAS_NO_DEDUCTION_GUIDES
+#if _LIBCPP_STD_VER >= 17
 template<class _InputIterator,
          class _Alloc = allocator<__iter_value_type<_InputIterator>>,
-         class = _EnableIf<__is_allocator<_Alloc>::value>
+         class = enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value>,
+         class = enable_if_t<__is_allocator<_Alloc>::value>
          >
 forward_list(_InputIterator, _InputIterator)
   -> forward_list<__iter_value_type<_InputIterator>, _Alloc>;
 
 template<class _InputIterator,
          class _Alloc,
-         class = _EnableIf<__is_allocator<_Alloc>::value>
+         class = enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value>,
+         class = enable_if_t<__is_allocator<_Alloc>::value>
          >
 forward_list(_InputIterator, _InputIterator, _Alloc)
   -> forward_list<__iter_value_type<_InputIterator>, _Alloc>;
@@ -942,14 +951,6 @@ forward_list<_Tp, _Alloc>::forward_list(size_type __n, const value_type& __v)
 }
 
 template <class _Tp, class _Alloc>
-forward_list<_Tp, _Alloc>::forward_list(size_type __n, const value_type& __v,
-                                        const allocator_type& __a)
-    : base(__a)
-{
-    insert_after(cbefore_begin(), __n, __v);
-}
-
-template <class _Tp, class _Alloc>
 template <class _InputIterator>
 forward_list<_Tp, _Alloc>::forward_list(_InputIterator __f, _InputIterator __l,
                                         typename enable_if<
@@ -990,7 +991,7 @@ template <class _Tp, class _Alloc>
 forward_list<_Tp, _Alloc>&
 forward_list<_Tp, _Alloc>::operator=(const forward_list& __x)
 {
-    if (this != &__x)
+    if (this != _VSTD::addressof(__x))
     {
         base::__copy_assign_alloc(__x);
         assign(__x.begin(), __x.end());
@@ -1585,7 +1586,7 @@ template <class _Compare>
 void
 forward_list<_Tp, _Alloc>::merge(forward_list& __x, _Compare __comp)
 {
-    if (this != &__x)
+    if (this != _VSTD::addressof(__x))
     {
         base::__before_begin()->__next_ = __merge(base::__before_begin()->__next_,
                                                     __x.__before_begin()->__next_,

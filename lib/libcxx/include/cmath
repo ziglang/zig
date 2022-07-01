@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===---------------------------- cmath -----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -306,8 +306,8 @@ constexpr long double lerp(long double a, long double b, long double t) noexcept
 
 #include <__config>
 #include <math.h>
-#include <version>
 #include <type_traits>
+#include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -535,7 +535,7 @@ inline _LIBCPP_INLINE_VISIBILITY long double hypot( long double x, long double y
 
 template <class _A1, class _A2, class _A3>
 inline _LIBCPP_INLINE_VISIBILITY
-typename _EnableIf
+typename enable_if_t
 <
     is_arithmetic<_A1>::value &&
     is_arithmetic<_A2>::value &&
@@ -636,37 +636,24 @@ lerp(double __a, double __b, double __t)                _NOEXCEPT { return __ler
 constexpr long double
 lerp(long double __a, long double __b, long double __t) _NOEXCEPT { return __lerp(__a, __b, __t); }
 
+template <class _A1, class _A2, class _A3>
+inline _LIBCPP_HIDE_FROM_ABI
+constexpr typename enable_if_t
+<
+    is_arithmetic<_A1>::value &&
+    is_arithmetic<_A2>::value &&
+    is_arithmetic<_A3>::value,
+    __promote<_A1, _A2, _A3>
+>::type
+lerp(_A1 __a, _A2 __b, _A3 __t) noexcept
+{
+    typedef typename __promote<_A1, _A2, _A3>::type __result_type;
+    static_assert(!(_IsSame<_A1, __result_type>::value &&
+                    _IsSame<_A2, __result_type>::value &&
+                    _IsSame<_A3, __result_type>::value));
+    return __lerp((__result_type)__a, (__result_type)__b, (__result_type)__t);
+}
 #endif // _LIBCPP_STD_VER > 17
-
-template <class _IntT, class _FloatT,
-    bool _FloatBigger = (numeric_limits<_FloatT>::digits > numeric_limits<_IntT>::digits),
-    int _Bits = (numeric_limits<_IntT>::digits - numeric_limits<_FloatT>::digits)>
-_LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR _IntT __max_representable_int_for_float() _NOEXCEPT {
-  static_assert(is_floating_point<_FloatT>::value, "must be a floating point type");
-  static_assert(is_integral<_IntT>::value, "must be an integral type");
-  static_assert(numeric_limits<_FloatT>::radix == 2, "FloatT has incorrect radix");
-  static_assert((_IsSame<_FloatT, float>::value || _IsSame<_FloatT, double>::value
-                 || _IsSame<_FloatT,long double>::value), "unsupported floating point type");
-  return _FloatBigger ? numeric_limits<_IntT>::max() :  (numeric_limits<_IntT>::max() >> _Bits << _Bits);
-}
-
-// Convert a floating point number to the specified integral type after
-// clamping to the integral types representable range.
-//
-// The behavior is undefined if `__r` is NaN.
-template <class _IntT, class _RealT>
-_LIBCPP_INLINE_VISIBILITY
-_IntT __clamp_to_integral(_RealT __r) _NOEXCEPT {
-  using _Lim = numeric_limits<_IntT>;
-  const _IntT _MaxVal = __max_representable_int_for_float<_IntT, _RealT>();
-  if (__r >= ::nextafter(static_cast<_RealT>(_MaxVal), INFINITY)) {
-    return _Lim::max();
-  } else if (__r <= _Lim::lowest()) {
-    return _Lim::min();
-  }
-  return static_cast<_IntT>(__r);
-}
 
 _LIBCPP_END_NAMESPACE_STD
 

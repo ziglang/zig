@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===-------------------------- typeindex ---------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -49,6 +49,7 @@ struct hash<type_index>
 #include <__functional_base>
 #include <compare>
 #include <typeinfo>
+#include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
