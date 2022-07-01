@@ -104,7 +104,103 @@ const build_options = @import("build_options");
 
 pub const default_branch_quota = 1000;
 
-pub const InstMap = std.AutoHashMapUnmanaged(Zir.Inst.Index, Air.Inst.Ref);
+/// Stores the mapping from `Zir.Inst.Index -> Air.Inst.Ref`, which is used by sema to resolve
+/// instructions during analysis.
+/// Instead of a hash table approach, InstMap is simply a slice that is indexed into using the
+/// zir instruction index and a start offset. An index is not pressent in the map if the value
+/// at the index is `Air.Inst.Ref.none`.
+/// `ensureSpaceForInstructions` can be called to force InstMap to have a mapped range that
+/// includes all instructions in a slice. After calling this function, `putAssumeCapacity*` can
+/// be called safely for any of the instructions passed in.
+pub const InstMap = struct {
+    items: []Air.Inst.Ref = &[_]Air.Inst.Ref{},
+    start: Zir.Inst.Index = 0,
+
+    pub fn deinit(map: InstMap, allocator: mem.Allocator) void {
+        allocator.free(map.items);
+    }
+
+    pub fn get(map: InstMap, key: Zir.Inst.Index) ?Air.Inst.Ref {
+        if (!map.contains(key)) return null;
+        return map.items[key - map.start];
+    }
+
+    pub fn putAssumeCapacity(
+        map: *InstMap,
+        key: Zir.Inst.Index,
+        ref: Air.Inst.Ref,
+    ) void {
+        map.items[key - map.start] = ref;
+    }
+
+    pub fn putAssumeCapacityNoClobber(
+        map: *InstMap,
+        key: Zir.Inst.Index,
+        ref: Air.Inst.Ref,
+    ) void {
+        assert(!map.contains(key));
+        map.putAssumeCapacity(key, ref);
+    }
+
+    pub const GetOrPutResult = struct {
+        value_ptr: *Air.Inst.Ref,
+        found_existing: bool,
+    };
+
+    pub fn getOrPutAssumeCapacity(
+        map: *InstMap,
+        key: Zir.Inst.Index,
+    ) GetOrPutResult {
+        const index = key - map.start;
+        return GetOrPutResult{
+            .value_ptr = &map.items[index],
+            .found_existing = map.items[index] != .none,
+        };
+    }
+
+    pub fn remove(map: InstMap, key: Zir.Inst.Index) bool {
+        if (!map.contains(key)) return false;
+        map.items[key - map.start] = .none;
+        return true;
+    }
+
+    pub fn contains(map: InstMap, key: Zir.Inst.Index) bool {
+        return map.items[key - map.start] != .none;
+    }
+
+    pub fn ensureSpaceForInstructions(
+        map: *InstMap,
+        allocator: mem.Allocator,
+        insts: []const Zir.Inst.Index,
+    ) !void {
+        const min_max = mem.minMax(Zir.Inst.Index, insts);
+        const start = min_max.min;
+        const end = min_max.max;
+        if (map.start <= start and end < map.items.len + map.start)
+            return;
+
+        const old_start = if (map.items.len == 0) start else map.start;
+        var better_capacity = map.items.len;
+        var better_start = old_start;
+        while (true) {
+            const extra_capacity = better_capacity / 2 + 16;
+            better_capacity += extra_capacity;
+            better_start -|= @intCast(Zir.Inst.Index, extra_capacity / 2);
+            if (better_start <= start and end < better_capacity + better_start)
+                break;
+        }
+
+        const start_diff = old_start - better_start;
+        const new_items = try allocator.alloc(Air.Inst.Ref, better_capacity);
+        mem.set(Air.Inst.Ref, new_items[0..start_diff], .none);
+        mem.copy(Air.Inst.Ref, new_items[start_diff..], map.items);
+        mem.set(Air.Inst.Ref, new_items[start_diff + map.items.len ..], .none);
+
+        allocator.free(map.items);
+        map.items = new_items;
+        map.start = @intCast(Zir.Inst.Index, better_start);
+    }
+};
 
 /// This is the context needed to semantically analyze ZIR instructions and
 /// produce AIR instructions.
@@ -647,6 +743,8 @@ fn analyzeBodyInner(
     body: []const Zir.Inst.Index,
 ) CompileError!Zir.Inst.Index {
     // No tracy calls here, to avoid interfering with the tail call mechanism.
+
+    try sema.inst_map.ensureSpaceForInstructions(sema.gpa, body);
 
     const parent_capture_scope = block.wip_capture_scope;
 
@@ -1276,7 +1374,7 @@ fn analyzeBodyInner(
                         labeled_block.destroy(gpa);
                         assert(sema.post_hoc_blocks.remove(new_block_inst));
                     }
-                    try map.put(gpa, inst, block_result);
+                    map.putAssumeCapacity(inst, block_result);
                     i += 1;
                     continue;
                 }
@@ -1425,7 +1523,7 @@ fn analyzeBodyInner(
         };
         if (sema.typeOf(air_inst).isNoReturn())
             break always_noreturn;
-        try map.put(sema.gpa, inst, air_inst);
+        map.putAssumeCapacity(inst, air_inst);
         i += 1;
     } else unreachable;
 
@@ -5363,6 +5461,8 @@ fn analyzeCall(
         // which means its parameter type expressions must be resolved in order and used
         // to successively coerce the arguments.
         const fn_info = sema.code.getFnInfo(module_fn.zir_body_inst);
+        try sema.inst_map.ensureSpaceForInstructions(gpa, fn_info.param_body);
+
         const zir_tags = sema.code.instructions.items(.tag);
         var arg_i: usize = 0;
         for (fn_info.param_body) |inst| switch (zir_tags[inst]) {
@@ -5378,7 +5478,7 @@ fn analyzeCall(
                 new_fn_info.param_types[arg_i] = param_ty;
                 const arg_src = call_src; // TODO: better source location
                 const casted_arg = try sema.coerce(&child_block, param_ty, uncasted_args[arg_i], arg_src);
-                try sema.inst_map.putNoClobber(gpa, inst, casted_arg);
+                sema.inst_map.putAssumeCapacityNoClobber(inst, casted_arg);
 
                 if (is_comptime_call) {
                     const arg_val = try sema.resolveConstMaybeUndefVal(&child_block, arg_src, casted_arg);
@@ -5409,7 +5509,7 @@ fn analyzeCall(
                 // No coercion needed.
                 const uncasted_arg = uncasted_args[arg_i];
                 new_fn_info.param_types[arg_i] = sema.typeOf(uncasted_arg);
-                try sema.inst_map.putNoClobber(gpa, inst, uncasted_arg);
+                sema.inst_map.putAssumeCapacityNoClobber(inst, uncasted_arg);
 
                 if (is_comptime_call) {
                     const arg_src = call_src; // TODO: better source location
@@ -5811,7 +5911,8 @@ fn instantiateGenericCall(
             child_block.params.deinit(gpa);
         }
 
-        try child_sema.inst_map.ensureUnusedCapacity(gpa, @intCast(u32, uncasted_args.len));
+        try child_sema.inst_map.ensureSpaceForInstructions(gpa, fn_info.param_body);
+
         var arg_i: usize = 0;
         for (fn_info.param_body) |inst| {
             var is_comptime = false;
@@ -6868,6 +6969,7 @@ fn resolveGenericBody(
             block.params.deinit(sema.gpa);
             block.params = prev_params;
         }
+
         const uncasted = sema.resolveBody(block, body, func_inst) catch |err| break :err err;
         const result = sema.coerce(block, dest_ty, uncasted, src) catch |err| break :err err;
         const val = sema.resolveConstValue(block, src, result) catch |err| break :err err;
@@ -7224,7 +7326,7 @@ fn zirParam(
                     .is_comptime = comptime_syntax,
                     .name = param_name,
                 });
-                try sema.inst_map.putNoClobber(sema.gpa, inst, .generic_poison);
+                sema.inst_map.putAssumeCapacityNoClobber(inst, .generic_poison);
                 return;
             },
             else => |e| return e,
@@ -7251,7 +7353,7 @@ fn zirParam(
             // non-anytype parameter that ended up being a one-possible-type.
             // We don't want the parameter to be part of the instantiated function type.
             const result = try sema.addConstant(param_ty, opv);
-            try sema.inst_map.put(sema.gpa, inst, result);
+            sema.inst_map.putAssumeCapacity(inst, result);
             return;
         }
     }
@@ -7262,7 +7364,7 @@ fn zirParam(
         .name = param_name,
     });
     const result = try sema.addConstant(param_ty, Value.initTag(.generic_poison));
-    try sema.inst_map.putNoClobber(sema.gpa, inst, result);
+    sema.inst_map.putAssumeCapacityNoClobber(inst, result);
 }
 
 fn zirParamAnytype(
@@ -7301,7 +7403,7 @@ fn zirParamAnytype(
         .is_comptime = comptime_syntax,
         .name = param_name,
     });
-    try sema.inst_map.put(sema.gpa, inst, .generic_poison);
+    sema.inst_map.putAssumeCapacity(inst, .generic_poison);
 }
 
 fn zirAs(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -13273,7 +13375,7 @@ fn zirTryPtr(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErr
 // break from an inline loop. In such case we must convert it to
 // a runtime break.
 fn addRuntimeBreak(sema: *Sema, child_block: *Block, break_data: BreakData) !void {
-    const gop = try sema.inst_map.getOrPut(sema.gpa, break_data.block_inst);
+    const gop = sema.inst_map.getOrPutAssumeCapacity(break_data.block_inst);
     const labeled_block = if (!gop.found_existing) blk: {
         try sema.post_hoc_blocks.ensureUnusedCapacity(sema.gpa, 1);
 

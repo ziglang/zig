@@ -3597,7 +3597,7 @@ pub fn mapOldZirToNew(
     defer new_decls.deinit();
 
     while (match_stack.popOrNull()) |match_item| {
-        try inst_map.put(gpa, match_item.old_inst, match_item.new_inst);
+        inst_map.putAssumeCapacity(match_item.old_inst, match_item.new_inst);
 
         // Maps name to extra index of decl sub item.
         var decl_map: std.StringHashMapUnmanaged(u32) = .{};
@@ -4975,7 +4975,7 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
     const runtime_params_len = @intCast(u32, fn_ty_info.param_types.len);
     try inner_block.instructions.ensureTotalCapacityPrecise(gpa, runtime_params_len);
     try sema.air_instructions.ensureUnusedCapacity(gpa, fn_info.total_params_len * 2); // * 2 for the `addType`
-    try sema.inst_map.ensureUnusedCapacity(gpa, fn_info.total_params_len);
+    try sema.inst_map.ensureSpaceForInstructions(gpa, fn_info.param_body);
 
     var runtime_param_index: usize = 0;
     var total_param_index: usize = 0;
