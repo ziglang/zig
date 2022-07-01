@@ -10,17 +10,14 @@
 #ifndef _LIBCPP___ALGORITHM_SEARCH_N_H
 #define _LIBCPP___ALGORITHM_SEARCH_N_H
 
-#include <__config>
 #include <__algorithm/comp.h>
+#include <__config>
 #include <__iterator/iterator_traits.h>
-#include <type_traits>
+#include <type_traits>  // __convert_to_integral
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
 #endif
-
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -62,12 +59,13 @@ _LIBCPP_CONSTEXPR_AFTER_CXX17 _RandomAccessIterator __search_n(_RandomAccessIter
                                                                _RandomAccessIterator __last, _Size __count,
                                                                const _Tp& __value_, _BinaryPredicate __pred,
                                                                random_access_iterator_tag) {
+  typedef typename iterator_traits<_RandomAccessIterator>::difference_type difference_type;
   if (__count <= 0)
     return __first;
   _Size __len = static_cast<_Size>(__last - __first);
   if (__len < __count)
     return __last;
-  const _RandomAccessIterator __s = __last - (__count - 1); // Start of pattern match can't go beyond here
+  const _RandomAccessIterator __s = __last - difference_type(__count - 1); // Start of pattern match can't go beyond here
   while (true) {
     // Find first element in sequence that matchs __value_, with a mininum of loop checks
     while (true) {
@@ -97,7 +95,7 @@ _LIBCPP_CONSTEXPR_AFTER_CXX17 _RandomAccessIterator __search_n(_RandomAccessIter
 template <class _ForwardIterator, class _Size, class _Tp, class _BinaryPredicate>
 _LIBCPP_NODISCARD_EXT inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17 _ForwardIterator search_n(
     _ForwardIterator __first, _ForwardIterator __last, _Size __count, const _Tp& __value_, _BinaryPredicate __pred) {
-  return _VSTD::__search_n<typename add_lvalue_reference<_BinaryPredicate>::type>(
+  return _VSTD::__search_n<_BinaryPredicate&>(
       __first, __last, _VSTD::__convert_to_integral(__count), __value_, __pred,
       typename iterator_traits<_ForwardIterator>::iterator_category());
 }
@@ -110,7 +108,5 @@ search_n(_ForwardIterator __first, _ForwardIterator __last, _Size __count, const
 }
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_SEARCH_N_H

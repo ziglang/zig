@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===--------------------------- cwchar -----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -137,13 +137,9 @@ using ::wcstod _LIBCPP_USING_IF_EXISTS;
 using ::wcstof _LIBCPP_USING_IF_EXISTS;
 using ::wcstold _LIBCPP_USING_IF_EXISTS;
 using ::wcstol _LIBCPP_USING_IF_EXISTS;
-#ifndef _LIBCPP_HAS_NO_LONG_LONG
 using ::wcstoll _LIBCPP_USING_IF_EXISTS;
-#endif // _LIBCPP_HAS_NO_LONG_LONG
 using ::wcstoul _LIBCPP_USING_IF_EXISTS;
-#ifndef _LIBCPP_HAS_NO_LONG_LONG
 using ::wcstoull _LIBCPP_USING_IF_EXISTS;
-#endif // _LIBCPP_HAS_NO_LONG_LONG
 using ::wcscpy _LIBCPP_USING_IF_EXISTS;
 using ::wcsncpy _LIBCPP_USING_IF_EXISTS;
 using ::wcscat _LIBCPP_USING_IF_EXISTS;
@@ -175,17 +171,13 @@ using ::wcrtomb _LIBCPP_USING_IF_EXISTS;
 using ::mbsrtowcs _LIBCPP_USING_IF_EXISTS;
 using ::wcsrtombs _LIBCPP_USING_IF_EXISTS;
 
-#ifndef _LIBCPP_HAS_NO_STDIN
 using ::getwchar _LIBCPP_USING_IF_EXISTS;
 using ::vwscanf _LIBCPP_USING_IF_EXISTS;
 using ::wscanf _LIBCPP_USING_IF_EXISTS;
-#endif
 
-#ifndef _LIBCPP_HAS_NO_STDOUT
 using ::putwchar _LIBCPP_USING_IF_EXISTS;
 using ::vwprintf _LIBCPP_USING_IF_EXISTS;
 using ::wprintf _LIBCPP_USING_IF_EXISTS;
-#endif
 
 _LIBCPP_END_NAMESPACE_STD
 

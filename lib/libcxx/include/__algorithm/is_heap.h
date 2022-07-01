@@ -9,17 +9,15 @@
 #ifndef _LIBCPP___ALGORITHM_IS_HEAP_H
 #define _LIBCPP___ALGORITHM_IS_HEAP_H
 
-#include <__config>
 #include <__algorithm/comp.h>
+#include <__algorithm/comp_ref_type.h>
 #include <__algorithm/is_heap_until.h>
+#include <__config>
 #include <__iterator/iterator_traits.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
 #endif
-
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -29,7 +27,8 @@ _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 bool
 is_heap(_RandomAccessIterator __first, _RandomAccessIterator __last, _Compare __comp)
 {
-    return _VSTD::is_heap_until(__first, __last, __comp) == __last;
+    typedef typename __comp_ref_type<_Compare>::type _Comp_ref;
+    return _VSTD::__is_heap_until<_Comp_ref>(__first, __last, __comp) == __last;
 }
 
 template<class _RandomAccessIterator>
@@ -42,7 +41,5 @@ is_heap(_RandomAccessIterator __first, _RandomAccessIterator __last)
 }
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_IS_HEAP_H

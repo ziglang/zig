@@ -13,6 +13,7 @@
 #include <__config>
 #include <__threading_support>
 #include <chrono>
+#include <ratio>
 #include <system_error>
 #include <time.h>
 
@@ -68,9 +69,9 @@ extern _LIBCPP_EXPORTED_FROM_ABI const adopt_lock_t  adopt_lock;
 
 #else
 
-/* _LIBCPP_INLINE_VAR */ constexpr defer_lock_t  defer_lock  = defer_lock_t();
-/* _LIBCPP_INLINE_VAR */ constexpr try_to_lock_t try_to_lock = try_to_lock_t();
-/* _LIBCPP_INLINE_VAR */ constexpr adopt_lock_t  adopt_lock  = adopt_lock_t();
+/* inline */ constexpr defer_lock_t  defer_lock  = defer_lock_t();
+/* inline */ constexpr try_to_lock_t try_to_lock = try_to_lock_t();
+/* inline */ constexpr adopt_lock_t  adopt_lock  = adopt_lock_t();
 
 #endif
 
@@ -96,8 +97,8 @@ public:
     ~lock_guard() _LIBCPP_THREAD_SAFETY_ANNOTATION(release_capability()) {__m_.unlock();}
 
 private:
-    lock_guard(lock_guard const&) _LIBCPP_EQUAL_DELETE;
-    lock_guard& operator=(lock_guard const&) _LIBCPP_EQUAL_DELETE;
+    lock_guard(lock_guard const&) = delete;
+    lock_guard& operator=(lock_guard const&) = delete;
 };
 
 template <class _Mutex>
@@ -140,11 +141,9 @@ public:
             __m_->unlock();
     }
 
-private:
-    unique_lock(unique_lock const&); // = delete;
-    unique_lock& operator=(unique_lock const&); // = delete;
+    unique_lock(unique_lock const&) = delete;
+    unique_lock& operator=(unique_lock const&) = delete;
 
-public:
     _LIBCPP_INLINE_VISIBILITY
     unique_lock(unique_lock&& __u) _NOEXCEPT
         : __m_(__u.__m_), __owns_(__u.__owns_)

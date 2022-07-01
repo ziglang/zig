@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===---------------------------- array -----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -356,9 +356,9 @@ struct _LIBCPP_TEMPLATE_VIS array<_Tp, 0>
 };
 
 
-#ifndef _LIBCPP_HAS_NO_DEDUCTION_GUIDES
+#if _LIBCPP_STD_VER >= 17
 template<class _Tp, class... _Args,
-         class = _EnableIf<__all<_IsSame<_Tp, _Args>::value...>::value>
+         class = enable_if_t<__all<_IsSame<_Tp, _Args>::value...>::value>
          >
 array(_Tp, _Args...)
   -> array<_Tp, 1 + sizeof...(_Args)>;

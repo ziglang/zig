@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===--------------------------- thread -----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -86,8 +86,9 @@ void sleep_for(const chrono::duration<Rep, Period>& rel_time);
 #include <__debug>
 #include <__functional_base>
 #include <__mutex_base>
+#include <__thread/poll_with_backoff.h>
+#include <__thread/timed_backoff_policy.h>
 #include <__threading_support>
-#include <__utility/__decay_copy.h>
 #include <__utility/forward.h>
 #include <chrono>
 #include <cstddef>
@@ -97,6 +98,7 @@ void sleep_for(const chrono::duration<Rep, Period>& rel_time);
 #include <system_error>
 #include <tuple>
 #include <type_traits>
+#include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -302,8 +304,8 @@ thread::thread(_Fp&& __f, _Args&&... __args)
     typedef tuple<_TSPtr, typename decay<_Fp>::type, typename decay<_Args>::type...> _Gp;
     unique_ptr<_Gp> __p(
             new _Gp(_VSTD::move(__tsp),
-                    _VSTD::__decay_copy(_VSTD::forward<_Fp>(__f)),
-                    _VSTD::__decay_copy(_VSTD::forward<_Args>(__args))...));
+                    _VSTD::forward<_Fp>(__f),
+                    _VSTD::forward<_Args>(__args)...));
     int __ec = _VSTD::__libcpp_thread_create(&__t_, &__thread_proxy<_Gp>, __p.get());
     if (__ec == 0)
         __p.release();
@@ -402,7 +404,7 @@ sleep_until(const chrono::time_point<chrono::steady_clock, _Duration>& __t)
 inline _LIBCPP_INLINE_VISIBILITY
 void yield() _NOEXCEPT {__libcpp_thread_yield();}
 
-}  // this_thread
+} // namespace this_thread
 
 _LIBCPP_END_NAMESPACE_STD
 

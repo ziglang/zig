@@ -24,20 +24,23 @@ _LIBCPP_PUSH_MACROS
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#if !defined(_LIBCPP_HAS_NO_CONCEPTS)
 template<class _Tp, class... _Up>
 struct _IsSameAsAny : _Or<_IsSame<_Tp, _Up>...> {};
 
 template<class _Tp>
 concept __is_safe_integral_cmp = is_integral_v<_Tp> &&
-                      !_IsSameAsAny<_Tp, bool, char,
+                      !_IsSameAsAny<_Tp, bool, char
 #ifndef _LIBCPP_HAS_NO_CHAR8_T
-                                    char8_t,
+                                    , char8_t
 #endif
 #ifndef _LIBCPP_HAS_NO_UNICODE_CHARS
-                                    char16_t, char32_t,
+                                    , char16_t, char32_t
 #endif
-                                    wchar_t>::value;
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+                                    , wchar_t
+#endif
+                                    >::value;
 
 template<__is_safe_integral_cmp _Tp, __is_safe_integral_cmp _Up>
 _LIBCPP_INLINE_VISIBILITY constexpr

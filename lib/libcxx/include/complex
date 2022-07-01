@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===--------------------------- complex ----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -1056,6 +1056,9 @@ complex<_Tp>
 exp(const complex<_Tp>& __x)
 {
     _Tp __i = __x.imag();
+    if (__i == 0) {
+        return complex<_Tp>(exp(__x.real()), copysign(_Tp(0), __x.imag()));
+    }
     if (__libcpp_isinf_or_builtin(__x.real()))
     {
         if (__x.real() < _Tp(0))
@@ -1070,8 +1073,6 @@ exp(const complex<_Tp>& __x)
             return complex<_Tp>(__x.real(), __i);
         }
     }
-    else if (__libcpp_isnan_or_builtin(__x.real()) && __x.imag() == 0)
-        return __x;
     _Tp __e = exp(__x.real());
     return complex<_Tp>(__e * cos(__i), __e * sin(__i));
 }
@@ -1269,8 +1270,8 @@ tanh(const complex<_Tp>& __x)
     if (__libcpp_isinf_or_builtin(__x.real()))
     {
         if (!__libcpp_isfinite_or_builtin(__x.imag()))
-            return complex<_Tp>(_Tp(1), _Tp(0));
-        return complex<_Tp>(_Tp(1), copysign(_Tp(0), sin(_Tp(2) * __x.imag())));
+            return complex<_Tp>(copysign(_Tp(1), __x.real()), _Tp(0));
+        return complex<_Tp>(copysign(_Tp(1), __x.real()), copysign(_Tp(0), sin(_Tp(2) * __x.imag())));
     }
     if (__libcpp_isnan_or_builtin(__x.real()) && __x.imag() == 0)
         return __x;
@@ -1484,8 +1485,8 @@ inline namespace literals
     {
         return { 0.0f, static_cast<float>(__im) };
     }
-  }
-}
+  } // namespace complex_literals
+} // namespace literals
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

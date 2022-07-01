@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===----------------------------- iterator -------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -52,14 +52,17 @@ namespace std {
 
 */
 
+#include <__memory/addressof.h>
+#include <__utility/forward.h>
+#include <__utility/move.h>
 #include <experimental/__config>
+#include <iterator>
+
+#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#pragma GCC system_header
+#endif
 
 #if _LIBCPP_STD_VER > 11
-
-#include <__memory/addressof.h>
-#include <__utility/move.h>
-#include <__utility/forward.h>
-#include <iterator>
 
 _LIBCPP_BEGIN_NAMESPACE_LFTS
 
@@ -111,6 +114,6 @@ make_ostream_joiner(basic_ostream<_CharT, _Traits>& __os, _Delim && __d)
 
 _LIBCPP_END_NAMESPACE_LFTS
 
-#endif /* _LIBCPP_STD_VER > 11 */
+#endif // _LIBCPP_STD_VER > 11
 
 #endif // _LIBCPP_EXPERIMENTAL_ITERATOR

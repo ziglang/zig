@@ -15,9 +15,6 @@
 #pragma GCC system_header
 #endif
 
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
-
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _InputIterator, class _Predicate>
@@ -37,7 +34,5 @@ is_partitioned(_InputIterator __first, _InputIterator __last, _Predicate __pred)
 }
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_IS_PARTITIONED_H

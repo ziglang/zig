@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===------------------------------ charconv ------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -27,10 +27,13 @@ namespace std {
   struct to_chars_result {
     char* ptr;
     errc ec;
+    friend bool operator==(const to_chars_result&, const to_chars_result&) = default; // since C++20
   };
 
   to_chars_result to_chars(char* first, char* last, see below value,
                            int base = 10);
+  to_chars_result to_chars(char* first, char* last, bool value,
+                           int base = 10) = delete;
 
   to_chars_result to_chars(char* first, char* last, float value);
   to_chars_result to_chars(char* first, char* last, double value);
@@ -54,6 +57,7 @@ namespace std {
   struct from_chars_result {
     const char* ptr;
     errc ec;
+    friend bool operator==(const from_chars_result&, const from_chars_result&) = default; // since C++20
   };
 
   from_chars_result from_chars(const char* first, const char* last,
@@ -74,9 +78,12 @@ namespace std {
 */
 
 #include <__availability>
+#include <__bits>
+#include <__charconv/chars_format.h>
+#include <__charconv/from_chars_result.h>
+#include <__charconv/to_chars_result.h>
 #include <__config>
 #include <__errc>
-#include <__utility/to_underlying.h>
 #include <cmath> // for log2f
 #include <cstdint>
 #include <cstdlib> // for _LIBCPP_UNREACHABLE
@@ -98,73 +105,12 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 namespace __itoa {
 _LIBCPP_AVAILABILITY_TO_CHARS _LIBCPP_FUNC_VIS char* __u64toa(uint64_t __value, char* __buffer) _NOEXCEPT;
 _LIBCPP_AVAILABILITY_TO_CHARS _LIBCPP_FUNC_VIS char* __u32toa(uint32_t __value, char* __buffer) _NOEXCEPT;
-}
+} // namespace __itoa
 
 #ifndef _LIBCPP_CXX03_LANG
 
-enum class _LIBCPP_ENUM_VIS chars_format
-{
-    scientific = 0x1,
-    fixed = 0x2,
-    hex = 0x4,
-    general = fixed | scientific
-};
-
-inline _LIBCPP_INLINE_VISIBILITY constexpr chars_format
-operator~(chars_format __x) {
-  return chars_format(~_VSTD::__to_underlying(__x));
-}
-
-inline _LIBCPP_INLINE_VISIBILITY constexpr chars_format
-operator&(chars_format __x, chars_format __y) {
-  return chars_format(_VSTD::__to_underlying(__x) &
-                      _VSTD::__to_underlying(__y));
-}
-
-inline _LIBCPP_INLINE_VISIBILITY constexpr chars_format
-operator|(chars_format __x, chars_format __y) {
-  return chars_format(_VSTD::__to_underlying(__x) |
-                      _VSTD::__to_underlying(__y));
-}
-
-inline _LIBCPP_INLINE_VISIBILITY constexpr chars_format
-operator^(chars_format __x, chars_format __y) {
-  return chars_format(_VSTD::__to_underlying(__x) ^
-                      _VSTD::__to_underlying(__y));
-}
-
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11 chars_format&
-operator&=(chars_format& __x, chars_format __y) {
-  __x = __x & __y;
-  return __x;
-}
-
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11 chars_format&
-operator|=(chars_format& __x, chars_format __y) {
-  __x = __x | __y;
-  return __x;
-}
-
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11 chars_format&
-operator^=(chars_format& __x, chars_format __y) {
-  __x = __x ^ __y;
-  return __x;
-}
-
-struct _LIBCPP_TYPE_VIS to_chars_result
-{
-    char* ptr;
-    errc ec;
-};
-
-struct _LIBCPP_TYPE_VIS from_chars_result
-{
-    const char* ptr;
-    errc ec;
-};
-
-void to_chars(char*, char*, bool, int = 10) = delete;
-void from_chars(const char*, const char*, bool, int = 10) = delete;
+to_chars_result to_chars(char*, char*, bool, int = 10) = delete;
+from_chars_result from_chars(const char*, const char*, bool, int = 10) = delete;
 
 namespace __itoa
 {
@@ -204,13 +150,11 @@ struct _LIBCPP_HIDDEN __traits_base
 {
     using type = uint64_t;
 
-#if !defined(_LIBCPP_COMPILER_MSVC)
     static _LIBCPP_INLINE_VISIBILITY int __width(_Tp __v)
     {
-        auto __t = (64 - __builtin_clzll(__v | 1)) * 1233 >> 12;
+        auto __t = (64 - _VSTD::__libcpp_clz(static_cast<type>(__v | 1))) * 1233 >> 12;
         return __t - (__v < __pow10_64[__t]) + 1;
     }
-#endif
 
     _LIBCPP_AVAILABILITY_TO_CHARS
     static _LIBCPP_INLINE_VISIBILITY char* __convert(_Tp __v, char* __p)
@@ -227,13 +171,11 @@ struct _LIBCPP_HIDDEN
 {
     using type = uint32_t;
 
-#if !defined(_LIBCPP_COMPILER_MSVC)
     static _LIBCPP_INLINE_VISIBILITY int __width(_Tp __v)
     {
-        auto __t = (32 - __builtin_clz(__v | 1)) * 1233 >> 12;
+        auto __t = (32 - _VSTD::__libcpp_clz(static_cast<type>(__v | 1))) * 1233 >> 12;
         return __t - (__v < __pow10_32[__t]) + 1;
     }
-#endif
 
     _LIBCPP_AVAILABILITY_TO_CHARS
     static _LIBCPP_INLINE_VISIBILITY char* __convert(_Tp __v, char* __p)
@@ -354,28 +296,10 @@ __to_chars_itoa(char* __first, char* __last, _Tp __value, false_type)
     using __tx = __itoa::__traits<_Tp>;
     auto __diff = __last - __first;
 
-#if !defined(_LIBCPP_COMPILER_MSVC)
     if (__tx::digits <= __diff || __tx::__width(__value) <= __diff)
         return {__tx::__convert(__value, __first), errc(0)};
     else
         return {__last, errc::value_too_large};
-#else
-    if (__tx::digits <= __diff)
-        return {__tx::__convert(__value, __first), {}};
-    else
-    {
-        char __buf[__tx::digits];
-        auto __p = __tx::__convert(__value, __buf);
-        auto __len = __p - __buf;
-        if (__len <= __diff)
-        {
-            _VSTD::memcpy(__first, __buf, __len);
-            return {__first + __len, {}};
-        }
-        else
-            return {__last, errc::value_too_large};
-    }
-#endif
 }
 
 template <typename _Tp>
@@ -674,6 +598,38 @@ from_chars(const char* __first, const char* __last, _Tp& __value, int __base)
     return __from_chars_integral(__first, __last, __value, __base);
 }
 
+// Floating-point implementation starts here.
+// Unlike the other parts of charconv this is only available in C++17 and newer.
+#if _LIBCPP_STD_VER > 14
+
+_LIBCPP_AVAILABILITY_TO_CHARS_FLOATING_POINT _LIBCPP_FUNC_VIS
+to_chars_result to_chars(char* __first, char* __last, float __value);
+
+_LIBCPP_AVAILABILITY_TO_CHARS_FLOATING_POINT _LIBCPP_FUNC_VIS
+to_chars_result to_chars(char* __first, char* __last, double __value);
+
+_LIBCPP_AVAILABILITY_TO_CHARS_FLOATING_POINT _LIBCPP_FUNC_VIS
+to_chars_result to_chars(char* __first, char* __last, long double __value);
+
+_LIBCPP_AVAILABILITY_TO_CHARS_FLOATING_POINT _LIBCPP_FUNC_VIS
+to_chars_result to_chars(char* __first, char* __last, float __value, chars_format __fmt);
+
+_LIBCPP_AVAILABILITY_TO_CHARS_FLOATING_POINT _LIBCPP_FUNC_VIS
+to_chars_result to_chars(char* __first, char* __last, double __value, chars_format __fmt);
+
+_LIBCPP_AVAILABILITY_TO_CHARS_FLOATING_POINT _LIBCPP_FUNC_VIS
+to_chars_result to_chars(char* __first, char* __last, long double __value, chars_format __fmt);
+
+_LIBCPP_AVAILABILITY_TO_CHARS_FLOATING_POINT _LIBCPP_FUNC_VIS
+to_chars_result to_chars(char* __first, char* __last, float __value, chars_format __fmt, int __precision);
+
+_LIBCPP_AVAILABILITY_TO_CHARS_FLOATING_POINT _LIBCPP_FUNC_VIS
+to_chars_result to_chars(char* __first, char* __last, double __value, chars_format __fmt, int __precision);
+
+_LIBCPP_AVAILABILITY_TO_CHARS_FLOATING_POINT _LIBCPP_FUNC_VIS
+to_chars_result to_chars(char* __first, char* __last, long double __value, chars_format __fmt, int __precision);
+
+#  endif // _LIBCPP_STD_VER > 14
 #endif // _LIBCPP_CXX03_LANG
 
 _LIBCPP_END_NAMESPACE_STD

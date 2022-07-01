@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===--------------------------- stdlib.h ---------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -96,10 +96,14 @@ void *aligned_alloc(size_t alignment, size_t size);                       // C11
 extern "C++" {
 // abs
 
-#undef abs
-#undef labs
-#ifndef _LIBCPP_HAS_NO_LONG_LONG
-#undef llabs
+#ifdef abs
+# undef abs
+#endif
+#ifdef labs
+# undef labs
+#endif
+#ifdef llabs
+# undef llabs
 #endif
 
 // MSVCRT already has the correct prototype in <stdlib.h> if __cplusplus is defined
@@ -107,11 +111,9 @@ extern "C++" {
 inline _LIBCPP_INLINE_VISIBILITY long abs(long __x) _NOEXCEPT {
   return __builtin_labs(__x);
 }
-#ifndef _LIBCPP_HAS_NO_LONG_LONG
 inline _LIBCPP_INLINE_VISIBILITY long long abs(long long __x) _NOEXCEPT {
   return __builtin_llabs(__x);
 }
-#endif // _LIBCPP_HAS_NO_LONG_LONG
 #endif // !defined(_LIBCPP_MSVCRT) && !defined(__sun__)
 
 #if !defined(__sun__)
@@ -131,10 +133,14 @@ abs(long double __lcpp_x) _NOEXCEPT {
 
 // div
 
-#undef div
-#undef ldiv
-#ifndef _LIBCPP_HAS_NO_LONG_LONG
-#undef lldiv
+#ifdef div
+# undef div
+#endif
+#ifdef ldiv
+# undef ldiv
+#endif
+#ifdef lldiv
+# undef lldiv
 #endif
 
 // MSVCRT already has the correct prototype in <stdlib.h> if __cplusplus is defined
@@ -142,12 +148,12 @@ abs(long double __lcpp_x) _NOEXCEPT {
 inline _LIBCPP_INLINE_VISIBILITY ldiv_t div(long __x, long __y) _NOEXCEPT {
   return ::ldiv(__x, __y);
 }
-#ifndef _LIBCPP_HAS_NO_LONG_LONG
+#if !(defined(__FreeBSD__) && !defined(__LONG_LONG_SUPPORTED))
 inline _LIBCPP_INLINE_VISIBILITY lldiv_t div(long long __x,
                                              long long __y) _NOEXCEPT {
   return ::lldiv(__x, __y);
 }
-#endif // _LIBCPP_HAS_NO_LONG_LONG
+#endif
 #endif // _LIBCPP_MSVCRT / __sun__
 } // extern "C++"
 #endif // __cplusplus

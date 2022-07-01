@@ -9,17 +9,14 @@
 #ifndef _LIBCPP___ALGORITHM_FILL_H
 #define _LIBCPP___ALGORITHM_FILL_H
 
-#include <__config>
 #include <__algorithm/fill_n.h>
+#include <__config>
 #include <__iterator/iterator_traits.h>
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
 #endif
-
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -49,7 +46,5 @@ fill(_ForwardIterator __first, _ForwardIterator __last, const _Tp& __value_)
 }
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_FILL_H

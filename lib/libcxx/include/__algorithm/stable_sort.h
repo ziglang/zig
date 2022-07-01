@@ -9,22 +9,19 @@
 #ifndef _LIBCPP___ALGORITHM_STABLE_SORT_H
 #define _LIBCPP___ALGORITHM_STABLE_SORT_H
 
-#include <__config>
 #include <__algorithm/comp.h>
 #include <__algorithm/comp_ref_type.h>
 #include <__algorithm/inplace_merge.h>
 #include <__algorithm/sort.h>
+#include <__config>
 #include <__iterator/iterator_traits.h>
 #include <__utility/swap.h>
 #include <memory>
-#include <type_traits> // swap
+#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
 #endif
-
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -41,14 +38,14 @@ __merge_move_construct(_InputIterator1 __first1, _InputIterator1 __last1,
     {
         if (__first1 == __last1)
         {
-            for (; __first2 != __last2; ++__first2, ++__result, (void)__d.template __incr<value_type>())
+            for (; __first2 != __last2; ++__first2, (void) ++__result, __d.template __incr<value_type>())
                 ::new ((void*)__result) value_type(_VSTD::move(*__first2));
             __h.release();
             return;
         }
         if (__first2 == __last2)
         {
-            for (; __first1 != __last1; ++__first1, ++__result, (void)__d.template __incr<value_type>())
+            for (; __first1 != __last1; ++__first1, (void) ++__result, __d.template __incr<value_type>())
                 ::new ((void*)__result) value_type(_VSTD::move(*__first1));
             __h.release();
             return;
@@ -229,7 +226,5 @@ stable_sort(_RandomAccessIterator __first, _RandomAccessIterator __last)
 }
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_STABLE_SORT_H

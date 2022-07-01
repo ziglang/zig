@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===-------------------------- iterator ----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -139,6 +139,11 @@ template<class In, class Out>
 // [alg.req.ind.swap], concept indirectly_swappable
 template<class I1, class I2 = I1>
   concept indirectly_swappable = see below;                // since C++20
+
+template<class I1, class I2, class R, class P1 = identity,
+         class P2 = identity>
+  concept indirectly_comparable =
+    indirect_binary_predicate<R, projected<I1, P1>, projected<I2, P2>>; // since C++20
 
 template<input_or_output_iterator I, sentinel_for<I> S>
   requires (!same_as<I, S> && copyable<I>)
@@ -410,6 +415,10 @@ template<input_iterator I>
   requires see below
   struct iterator_traits<counted_iterator<I>>;
 
+// [unreachable.sentinel], unreachable sentinel
+struct unreachable_sentinel_t;
+inline constexpr unreachable_sentinel_t unreachable_sentinel{};
+
 template <class T, class charT = char, class traits = char_traits<charT>, class Distance = ptrdiff_t>
 class istream_iterator
     : public iterator<input_iterator_tag, T, Distance, const T*, const T&> // until C++17
@@ -589,23 +598,25 @@ template <class E> constexpr const E* data(initializer_list<E> il) noexcept;    
 #include <__iterator/erase_if_container.h>
 #include <__iterator/front_insert_iterator.h>
 #include <__iterator/incrementable_traits.h>
+#include <__iterator/indirectly_comparable.h>
 #include <__iterator/insert_iterator.h>
-#include <__iterator/istreambuf_iterator.h>
 #include <__iterator/istream_iterator.h>
-#include <__iterator/iterator.h>
-#include <__iterator/iterator_traits.h>
+#include <__iterator/istreambuf_iterator.h>
 #include <__iterator/iter_move.h>
 #include <__iterator/iter_swap.h>
+#include <__iterator/iterator.h>
+#include <__iterator/iterator_traits.h>
 #include <__iterator/move_iterator.h>
 #include <__iterator/next.h>
-#include <__iterator/ostreambuf_iterator.h>
 #include <__iterator/ostream_iterator.h>
+#include <__iterator/ostreambuf_iterator.h>
 #include <__iterator/prev.h>
 #include <__iterator/projected.h>
 #include <__iterator/readable_traits.h>
 #include <__iterator/reverse_access.h>
 #include <__iterator/reverse_iterator.h>
 #include <__iterator/size.h>
+#include <__iterator/unreachable_sentinel.h>
 #include <__iterator/wrap_iter.h>
 #include <__memory/addressof.h>
 #include <__memory/pointer_traits.h>

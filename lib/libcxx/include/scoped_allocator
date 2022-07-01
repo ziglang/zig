@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===-------------------------- scoped_allocator --------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -90,6 +90,10 @@ public:
 
     scoped_allocator_adaptor select_on_container_copy_construction() const noexcept;
 };
+
+template<class OuterAlloc, class... InnerAllocs>
+    scoped_allocator_adaptor(OuterAlloc, InnerAllocs...)
+        -> scoped_allocator_adaptor<OuterAlloc, InnerAllocs...>;
 
 template <class OuterA1, class OuterA2, class... InnerAllocs>
     bool
@@ -648,6 +652,12 @@ private:
 
     template <class...> friend class __scoped_allocator_storage;
 };
+
+#if _LIBCPP_STD_VER > 14
+template<class _OuterAlloc, class... _InnerAllocs>
+    scoped_allocator_adaptor(_OuterAlloc, _InnerAllocs...)
+        -> scoped_allocator_adaptor<_OuterAlloc, _InnerAllocs...>;
+#endif
 
 template <class _OuterA1, class _OuterA2>
 inline _LIBCPP_INLINE_VISIBILITY

@@ -9,21 +9,17 @@
 #ifndef _LIBCPP___ALGORITHM_PARTIAL_SORT_COPY_H
 #define _LIBCPP___ALGORITHM_PARTIAL_SORT_COPY_H
 
-#include <__config>
 #include <__algorithm/comp.h>
 #include <__algorithm/comp_ref_type.h>
 #include <__algorithm/make_heap.h>
 #include <__algorithm/sift_down.h>
 #include <__algorithm/sort_heap.h>
+#include <__config>
 #include <__iterator/iterator_traits.h>
-#include <type_traits> // swap
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
 #endif
-
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -43,7 +39,7 @@ __partial_sort_copy(_InputIterator __first, _InputIterator __last,
             if (__comp(*__first, *__result_first))
             {
                 *__result_first = *__first;
-                _VSTD::__sift_down<_Compare>(__result_first, __r, __comp, __len, __result_first);
+                _VSTD::__sift_down<_Compare>(__result_first, __comp, __len, __result_first);
             }
         _VSTD::__sort_heap<_Compare>(__result_first, __r, __comp);
     }
@@ -71,7 +67,5 @@ partial_sort_copy(_InputIterator __first, _InputIterator __last,
 }
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_PARTIAL_SORT_COPY_H

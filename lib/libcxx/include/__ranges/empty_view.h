@@ -10,6 +10,7 @@
 #define _LIBCPP___RANGES_EMPTY_VIEW_H
 
 #include <__config>
+#include <__ranges/enable_borrowed_range.h>
 #include <__ranges/view_interface.h>
 #include <type_traits>
 
@@ -17,12 +18,9 @@
 #pragma GCC system_header
 #endif
 
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
-
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if !defined(_LIBCPP_HAS_NO_RANGES)
+#if !defined(_LIBCPP_HAS_NO_CONCEPTS) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 namespace ranges {
   template<class _Tp>
@@ -35,12 +33,13 @@ namespace ranges {
     _LIBCPP_HIDE_FROM_ABI static constexpr size_t size() noexcept { return 0; }
     _LIBCPP_HIDE_FROM_ABI static constexpr bool empty() noexcept { return true; }
   };
+
+  template<class _Tp>
+  inline constexpr bool enable_borrowed_range<empty_view<_Tp>> = true;
 } // namespace ranges
 
-#endif // !defined(_LIBCPP_HAS_NO_RANGES)
+#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___RANGES_EMPTY_VIEW_H

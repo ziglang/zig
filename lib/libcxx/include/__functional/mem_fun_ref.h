@@ -11,8 +11,8 @@
 #define _LIBCPP___FUNCTIONAL_MEM_FUN_REF_H
 
 #include <__config>
-#include <__functional/unary_function.h>
 #include <__functional/binary_function.h>
+#include <__functional/unary_function.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header

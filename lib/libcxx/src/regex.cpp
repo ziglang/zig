@@ -1,4 +1,4 @@
-//===-------------------------- regex.cpp ---------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -76,6 +76,125 @@ struct collationnames
     char char_;
 };
 
+#if defined(__MVS__) && !defined(__NATIVE_ASCII_F)
+// EBCDIC IBM-1047
+// Sorted via the EBCDIC collating sequence
+const collationnames collatenames[] =
+{
+    {"a", 0x81},
+    {"alert", 0x2f},
+    {"ampersand", 0x50},
+    {"apostrophe", 0x7d},
+    {"asterisk", 0x5c},
+    {"b", 0x82},
+    {"backslash", 0xe0},
+    {"backspace", 0x16},
+    {"c", 0x83},
+    {"carriage-return", 0xd},
+    {"circumflex", 0x5f},
+    {"circumflex-accent", 0x5f},
+    {"colon", 0x7a},
+    {"comma", 0x6b},
+    {"commercial-at", 0x7c},
+    {"d", 0x84},
+    {"dollar-sign", 0x5b},
+    {"e", 0x85},
+    {"eight", 0xf8},
+    {"equals-sign", 0x7e},
+    {"exclamation-mark", 0x5a},
+    {"f", 0x86},
+    {"five", 0xf5},
+    {"form-feed", 0xc},
+    {"four", 0xf4},
+    {"full-stop", 0x4b},
+    {"g", 0x87},
+    {"grave-accent", 0x79},
+    {"greater-than-sign", 0x6e},
+    {"h", 0x88},
+    {"hyphen", 0x60},
+    {"hyphen-minus", 0x60},
+    {"i", 0x89},
+    {"j", 0x91},
+    {"k", 0x92},
+    {"l", 0x93},
+    {"left-brace", 0xc0},
+    {"left-curly-bracket", 0xc0},
+    {"left-parenthesis", 0x4d},
+    {"left-square-bracket", 0xad},
+    {"less-than-sign", 0x4c},
+    {"low-line", 0x6d},
+    {"m", 0x94},
+    {"n", 0x95},
+    {"newline", 0x15},
+    {"nine", 0xf9},
+    {"number-sign", 0x7b},
+    {"o", 0x96},
+    {"one", 0xf1},
+    {"p", 0x97},
+    {"percent-sign", 0x6c},
+    {"period", 0x4b},
+    {"plus-sign", 0x4e},
+    {"q", 0x98},
+    {"question-mark", 0x6f},
+    {"quotation-mark", 0x7f},
+    {"r", 0x99},
+    {"reverse-solidus", 0xe0},
+    {"right-brace", 0xd0},
+    {"right-curly-bracket", 0xd0},
+    {"right-parenthesis", 0x5d},
+    {"right-square-bracket", 0xbd},
+    {"s", 0xa2},
+    {"semicolon", 0x5e},
+    {"seven", 0xf7},
+    {"six", 0xf6},
+    {"slash", 0x61},
+    {"solidus", 0x61},
+    {"space", 0x40},
+    {"t", 0xa3},
+    {"tab", 0x5},
+    {"three", 0xf3},
+    {"tilde", 0xa1},
+    {"two", 0xf2},
+    {"u", 0xa4},
+    {"underscore", 0x6d},
+    {"v", 0xa5},
+    {"vertical-line", 0x4f},
+    {"vertical-tab", 0xb},
+    {"w", 0xa6},
+    {"x", 0xa7},
+    {"y", 0xa8},
+    {"z", 0xa9},
+    {"zero", 0xf0},
+    {"A", 0xc1},
+    {"B", 0xc2},
+    {"C", 0xc3},
+    {"D", 0xc4},
+    {"E", 0xc5},
+    {"F", 0xc6},
+    {"G", 0xc7},
+    {"H", 0xc8},
+    {"I", 0xc9},
+    {"J", 0xd1},
+    {"K", 0xd2},
+    {"L", 0xd3},
+    {"M", 0xd4},
+    {"N", 0xd5},
+    {"NUL", 0},
+    {"O", 0xd6},
+    {"P", 0xd7},
+    {"Q", 0xd8},
+    {"R", 0xd9},
+    {"S", 0xe2},
+    {"T", 0xe3},
+    {"U", 0xe4},
+    {"V", 0xe5},
+    {"W", 0xe6},
+    {"X", 0xe7},
+    {"Y", 0xe8},
+    {"Z", 0xe9}
+};
+#else
+// ASCII
 const collationnames collatenames[] =
 {
     {"A", 0x41},
@@ -190,6 +309,7 @@ const collationnames collatenames[] =
     {"z", 0x7a},
     {"zero", 0x30}
 };
+#endif
 
 struct classnames
 {

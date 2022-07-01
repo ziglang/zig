@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===--------------------------- string ----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -38,8 +38,8 @@ namespace pmr {
  */
 
 #include <experimental/__config>
-#include <string>
 #include <experimental/memory_resource>
+#include <string>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -54,7 +54,9 @@ using basic_string =
 typedef basic_string<char> string;
 typedef basic_string<char16_t> u16string;
 typedef basic_string<char32_t> u32string;
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 typedef basic_string<wchar_t> wstring;
+#endif
 
 _LIBCPP_END_NAMESPACE_LFTS_PMR
 

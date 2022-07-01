@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===---------------------------- ctime -----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -79,12 +79,10 @@ using ::clock _LIBCPP_USING_IF_EXISTS;
 using ::difftime _LIBCPP_USING_IF_EXISTS;
 using ::mktime _LIBCPP_USING_IF_EXISTS;
 using ::time _LIBCPP_USING_IF_EXISTS;
-#ifndef _LIBCPP_HAS_NO_THREAD_UNSAFE_C_FUNCTIONS
 using ::asctime _LIBCPP_USING_IF_EXISTS;
 using ::ctime _LIBCPP_USING_IF_EXISTS;
 using ::gmtime _LIBCPP_USING_IF_EXISTS;
 using ::localtime _LIBCPP_USING_IF_EXISTS;
-#endif
 using ::strftime _LIBCPP_USING_IF_EXISTS;
 #if _LIBCPP_STD_VER > 14 && defined(_LIBCPP_HAS_TIMESPEC_GET) && !defined(_LIBCPP_HAS_TIMESPEC_GET_NOT_ACTUALLY_PROVIDED)
 using ::timespec_get _LIBCPP_USING_IF_EXISTS;
