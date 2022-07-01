@@ -313,7 +313,7 @@ pub fn getEnvMap(allocator: Allocator) !EnvMap {
         return result;
     } else if (builtin.link_libc) {
         var ptr = std.c.environ;
-        while (ptr.*) |line| : (ptr += 1) {
+        while (ptr[0]) |line| : (ptr += 1) {
             var line_i: usize = 0;
             while (line[line_i] != 0 and line[line_i] != '=') : (line_i += 1) {}
             const key = line[0..line_i];

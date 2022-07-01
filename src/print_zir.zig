@@ -144,8 +144,6 @@ const Writer = struct {
         switch (tag) {
             .array_type,
             .as,
-            .elem_ptr,
-            .elem_val,
             .store,
             .store_to_block_ptr,
             .store_to_inferred_ptr,
@@ -242,6 +240,7 @@ const Writer = struct {
             .ret_tok,
             .ensure_err_payload_void,
             .closure_capture,
+            .validate_deref,
             => try self.writeUnTok(stream, inst),
 
             .bool_br_and,
@@ -354,6 +353,8 @@ const Writer = struct {
             .minimum,
             .elem_ptr_node,
             .elem_val_node,
+            .elem_ptr,
+            .elem_val,
             .coerce_result_ptr,
             => try self.writePlNodeBin(stream, inst),
 

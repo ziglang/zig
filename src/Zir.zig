@@ -370,24 +370,23 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field. Payload is `Bin`.
         div,
         /// Given a pointer to an array, slice, or pointer, returns a pointer to the element at
-        /// the provided index. Uses the `bin` union field. Source location is implied
-        /// to be the same as the previous instruction.
-        elem_ptr,
-        /// Same as `elem_ptr` except also stores a source location node.
+        /// the provided index.
         /// Uses the `pl_node` union field. AST node is a[b] syntax. Payload is `Bin`.
         elem_ptr_node,
+        /// Same as `elem_ptr_node` but used only for for loop.
+        /// Uses the `pl_node` union field. AST node is the condition of a for loop. Payload is `Bin`.
+        elem_ptr,
         /// Same as `elem_ptr_node` except the index is stored immediately rather than
         /// as a reference to another ZIR instruction.
         /// Uses the `pl_node` union field. AST node is an element inside array initialization
         /// syntax. Payload is `ElemPtrImm`.
         elem_ptr_imm,
         /// Given an array, slice, or pointer, returns the element at the provided index.
-        /// Uses the `bin` union field. Source location is implied to be the same
-        /// as the previous instruction.
-        elem_val,
-        /// Same as `elem_val` except also stores a source location node.
         /// Uses the `pl_node` union field. AST node is a[b] syntax. Payload is `Bin`.
         elem_val_node,
+        /// Same as `elem_val_node` but used only for for loop.
+        /// Uses the `pl_node` union field. AST node is the condition of a for loop. Payload is `Bin`.
+        elem_val,
         /// Emits a compile error if the operand is not `void`.
         /// Uses the `un_node` field.
         ensure_result_used,
@@ -729,6 +728,9 @@ pub const Inst = struct {
         /// Same as `validate_array_init` but additionally communicates that the
         /// resulting array initialization value is within a comptime scope.
         validate_array_init_comptime,
+        /// Check that operand type supports the dereference operand (.*).
+        /// Uses the `un_tok` field.
+        validate_deref,
         /// A struct literal with a specified type, with no fields.
         /// Uses the `un_node` field.
         struct_init_empty,
@@ -1156,6 +1158,7 @@ pub const Inst = struct {
                 .validate_struct_init_comptime,
                 .validate_array_init,
                 .validate_array_init_comptime,
+                .validate_deref,
                 .struct_init_empty,
                 .struct_init,
                 .struct_init_ref,
@@ -1309,6 +1312,7 @@ pub const Inst = struct {
                 .validate_struct_init_comptime,
                 .validate_array_init,
                 .validate_array_init_comptime,
+                .validate_deref,
                 .@"export",
                 .export_value,
                 .set_cold,
@@ -1622,10 +1626,10 @@ pub const Inst = struct {
                 .decl_val = .str_tok,
                 .load = .un_node,
                 .div = .pl_node,
-                .elem_ptr = .bin,
+                .elem_ptr = .pl_node,
                 .elem_ptr_node = .pl_node,
                 .elem_ptr_imm = .pl_node,
-                .elem_val = .bin,
+                .elem_val = .pl_node,
                 .elem_val_node = .pl_node,
                 .ensure_result_used = .un_node,
                 .ensure_result_non_error = .un_node,
@@ -1709,6 +1713,7 @@ pub const Inst = struct {
                 .validate_struct_init_comptime = .pl_node,
                 .validate_array_init = .pl_node,
                 .validate_array_init_comptime = .pl_node,
+                .validate_deref = .un_tok,
                 .struct_init_empty = .un_node,
                 .field_type = .pl_node,
                 .field_type_ref = .pl_node,

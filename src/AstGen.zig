@@ -812,6 +812,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
 
         .deref => {
             const lhs = try expr(gz, scope, .none, node_datas[node].lhs);
+            _ = try gz.addUnTok(.validate_deref, lhs, main_tokens[node]);
             switch (rl) {
                 .ref => return lhs,
                 else => {
@@ -2500,6 +2501,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .memset,
             .validate_array_init_ty,
             .validate_struct_init_ty,
+            .validate_deref,
             => break :b true,
         }
     } else switch (maybe_unused_result) {
@@ -5152,16 +5154,14 @@ fn arrayAccess(
     const tree = astgen.tree;
     const node_datas = tree.nodes.items(.data);
     switch (rl) {
-        .ref => return gz.addBin(
-            .elem_ptr,
-            try expr(gz, scope, .ref, node_datas[node].lhs),
-            try expr(gz, scope, .{ .ty = .usize_type }, node_datas[node].rhs),
-        ),
-        else => return rvalue(gz, rl, try gz.addBin(
-            .elem_val,
-            try expr(gz, scope, .none, node_datas[node].lhs),
-            try expr(gz, scope, .{ .coerced_ty = .usize_type }, node_datas[node].rhs),
-        ), node),
+        .ref => return gz.addPlNode(.elem_ptr_node, node, Zir.Inst.Bin{
+            .lhs = try expr(gz, scope, .ref, node_datas[node].lhs),
+            .rhs = try expr(gz, scope, .{ .ty = .usize_type }, node_datas[node].rhs),
+        }),
+        else => return rvalue(gz, rl, try gz.addPlNode(.elem_val_node, node, Zir.Inst.Bin{
+            .lhs = try expr(gz, scope, .none, node_datas[node].lhs),
+            .rhs = try expr(gz, scope, .{ .ty = .usize_type }, node_datas[node].rhs),
+        }), node),
     }
 }
 
@@ -5683,7 +5683,7 @@ fn whileExpr(
         try then_scope.addDbgVar(.dbg_var_val, some, dbg_var_inst);
     }
     if (while_full.ast.cont_expr != 0) {
-        _ = try expr(&loop_scope, then_sub_scope, .{ .ty = .void_type }, while_full.ast.cont_expr);
+        _ = try unusedResultExpr(&loop_scope, then_sub_scope, while_full.ast.cont_expr);
     }
     try then_scope.addDbgBlockEnd();
     const repeat_tag: Zir.Inst.Tag = if (is_inline) .repeat_inline else .repeat;
@@ -5888,7 +5888,10 @@ fn forExpr(
         if (!mem.eql(u8, value_name, "_")) {
             const name_str_index = try astgen.identAsString(ident);
             const tag: Zir.Inst.Tag = if (is_ptr) .elem_ptr else .elem_val;
-            const payload_inst = try then_scope.addBin(tag, array_ptr, index);
+            const payload_inst = try then_scope.addPlNode(tag, for_full.ast.cond_expr, Zir.Inst.Bin{
+                .lhs = array_ptr,
+                .rhs = index,
+            });
             try astgen.detectLocalShadowing(&then_scope.base, name_str_index, ident, value_name);
             payload_val_scope = .{
                 .parent = &then_scope.base,
