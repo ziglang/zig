@@ -18,6 +18,10 @@ pub const EcdsaP256Sha3_256 = Ecdsa(crypto.ecc.P256, crypto.hash.sha3.Sha3_256);
 pub const EcdsaP384Sha384 = Ecdsa(crypto.ecc.P384, crypto.hash.sha2.Sha384);
 /// ECDSA over P-384 with SHA3-384.
 pub const EcdsaP256Sha3_384 = Ecdsa(crypto.ecc.P384, crypto.hash.sha3.Sha3_384);
+/// ECDSA over Secp256k1 with SHA-256.
+pub const EcdsaSecp256k1Sha256 = Ecdsa(crypto.ecc.Secp256k1, crypto.hash.sha2.Sha256);
+/// ECDSA over Secp256k1 with SHA-256(SHA-256()) -- The Bitcoin signature system.
+pub const EcdsaSecp256k1Sha256oSha256 = Ecdsa(crypto.ecc.Secp256k1, crypto.hash.composition.Sha256oSha256);
 
 /// Elliptic Curve Digital Signature Algorithm (ECDSA).
 pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
@@ -293,8 +297,22 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
     };
 }
 
-test "ECDSA - Basic operations" {
+test "ECDSA - Basic operations over EcdsaP384Sha384" {
     const Scheme = EcdsaP384Sha384;
+    const kp = try Scheme.KeyPair.create(null);
+    const msg = "test";
+
+    var noise: [Scheme.noise_length]u8 = undefined;
+    crypto.random.bytes(&noise);
+    const sig = try kp.sign(msg, noise);
+    try sig.verify(msg, kp.public_key);
+
+    const sig2 = try kp.sign(msg, null);
+    try sig2.verify(msg, kp.public_key);
+}
+
+test "ECDSA - Basic operations over Secp256k1" {
+    const Scheme = EcdsaSecp256k1Sha256oSha256;
     const kp = try Scheme.KeyPair.create(null);
     const msg = "test";
 
