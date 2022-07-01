@@ -5781,7 +5781,10 @@ pub fn sendmsg(
     }
 }
 
-pub const SendToError = SendMsgError;
+pub const SendToError = SendMsgError || error{
+    /// The destination address is not reachable by the bound address.
+    UnreachableAddress,
+};
 
 /// Transmit a message to another socket.
 ///
@@ -5858,7 +5861,7 @@ pub fn sendto(
                 .DESTADDRREQ => unreachable, // The socket is not connection-mode, and no peer address is set.
                 .FAULT => unreachable, // An invalid user space address was specified for an argument.
                 .INTR => continue,
-                .INVAL => unreachable, // Invalid argument passed.
+                .INVAL => return error.UnreachableAddress,
                 .ISCONN => unreachable, // connection-mode socket was connected already but a recipient was specified
                 .MSGSIZE => return error.MessageTooBig,
                 .NOBUFS => return error.SystemResources,
