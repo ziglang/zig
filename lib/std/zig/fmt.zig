@@ -32,18 +32,7 @@ pub fn isValidId(bytes: []const u8) bool {
             else => return false,
         }
     }
-    if (std.zig.Token.getKeyword(bytes) != null) return false;
-    if (bytes.len >= 2) switch (bytes[0]) {
-        'u', 'i' => {
-            for (bytes[1..]) |b| switch (b) {
-                '0'...'9' => continue,
-                else => break,
-            } else return false;
-        },
-        else => {},
-    };
-
-    return true;
+    return std.zig.Token.getKeyword(bytes) == null;
 }
 
 test "isValidId" {
