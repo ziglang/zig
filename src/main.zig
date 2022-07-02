@@ -4488,11 +4488,11 @@ pub fn lldMain(
         const llvm = @import("codegen/llvm/bindings.zig");
         const argc = @intCast(c_int, argv.len);
         if (mem.eql(u8, args[1], "ld.lld")) {
-            break :rc llvm.LinkELF(argc, argv.ptr, can_exit_early);
+            break :rc llvm.LinkELF(argc, argv.ptr, can_exit_early, false);
         } else if (mem.eql(u8, args[1], "lld-link")) {
-            break :rc llvm.LinkCOFF(argc, argv.ptr, can_exit_early);
+            break :rc llvm.LinkCOFF(argc, argv.ptr, can_exit_early, false);
         } else if (mem.eql(u8, args[1], "wasm-ld")) {
-            break :rc llvm.LinkWasm(argc, argv.ptr, can_exit_early);
+            break :rc llvm.LinkWasm(argc, argv.ptr, can_exit_early, false);
         } else {
             unreachable;
         }

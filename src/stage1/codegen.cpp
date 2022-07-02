@@ -638,7 +638,7 @@ static LLVMValueRef make_fn_llvm_value(CodeGen *g, ZigFn *fn) {
         } else if (want_first_arg_sret(g, &fn_type->data.fn.fn_type_id)) {
             // Sret pointers must not be address 0
             addLLVMArgAttr(llvm_fn, 0, "nonnull");
-            ZigLLVMAddSretAttr(llvm_fn, 0, get_llvm_type(g, return_type));
+            ZigLLVMAddSretAttr(llvm_fn, get_llvm_type(g, return_type));
             if (cc_want_sret_attr(cc)) {
                 addLLVMArgAttr(llvm_fn, 0, "noalias");
             }
@@ -912,10 +912,10 @@ static LLVMValueRef gen_store(CodeGen *g, LLVMValueRef value, LLVMValueRef ptr, 
     return gen_store_untyped(g, value, ptr, alignment, ptr_type->data.pointer.is_volatile);
 }
 
-static LLVMValueRef gen_load_untyped(CodeGen *g, LLVMTypeRef elem_type, LLVMValueRef ptr,
-        uint32_t alignment, bool is_volatile, const char *name)
+static LLVMValueRef gen_load_untyped(CodeGen *g, LLVMValueRef ptr, uint32_t alignment, bool is_volatile,
+        const char *name)
 {
-    LLVMValueRef result = LLVMBuildLoad2(g->builder, elem_type, ptr, name);
+    LLVMValueRef result = LLVMBuildLoad(g->builder, ptr, name);
     if (is_volatile) LLVMSetVolatile(result, true);
     if (alignment == 0) {
         LLVMSetAlignment(result, LLVMABIAlignmentOfType(g->target_data_ref, LLVMGetElementType(LLVMTypeOf(ptr))));
@@ -927,10 +927,8 @@ static LLVMValueRef gen_load_untyped(CodeGen *g, LLVMTypeRef elem_type, LLVMValu
 
 static LLVMValueRef gen_load(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_type, const char *name) {
     assert(ptr_type->id == ZigTypeIdPointer);
-    ZigType *elem_type = ptr_type->data.pointer.child_type;
     uint32_t alignment = get_ptr_align(g, ptr_type);
-    return gen_load_untyped(g, get_llvm_type(g, elem_type), ptr, alignment,
-            ptr_type->data.pointer.is_volatile, name);
+    return gen_load_untyped(g, ptr, alignment, ptr_type->data.pointer.is_volatile, name);
 }
 
 static LLVMValueRef get_handle_value(CodeGen *g, LLVMValueRef ptr, ZigType *type, ZigType *ptr_type) {
@@ -1278,16 +1276,15 @@ static LLVMValueRef get_add_error_return_trace_addr_fn(CodeGen *g) {
     size_t len_field_index = slice_type->data.structure.fields[slice_len_index]->gen_index;
     LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, addresses_field_ptr, (unsigned)len_field_index, "");
 
-    LLVMValueRef len_value = gen_load_untyped(g, usize_type_ref, len_field_ptr, 0, false, "");
-    LLVMValueRef index_val = gen_load_untyped(g, usize_type_ref, index_field_ptr, 0, false, "");
+    LLVMValueRef len_value = gen_load_untyped(g, len_field_ptr, 0, false, "");
+    LLVMValueRef index_val = gen_load_untyped(g, index_field_ptr, 0, false, "");
     LLVMValueRef len_val_minus_one = LLVMBuildSub(g->builder, len_value, LLVMConstInt(usize_type_ref, 1, false), "");
     LLVMValueRef masked_val = LLVMBuildAnd(g->builder, index_val, len_val_minus_one, "");
     LLVMValueRef address_indices[] = {
         masked_val,
     };
 
-    LLVMTypeRef ptr_to_usize = LLVMPointerType(usize_type_ref, 0);
-    LLVMValueRef ptr_value = gen_load_untyped(g, ptr_to_usize, ptr_field_ptr, 0, false, "");
+    LLVMValueRef ptr_value = gen_load_untyped(g, ptr_field_ptr, 0, false, "");
     LLVMValueRef address_slot = LLVMBuildInBoundsGEP(g->builder, ptr_value, address_indices, 1, "");
 
     gen_store_untyped(g, address_value, address_slot, 0, false);
@@ -5562,6 +5559,7 @@ static LLVMValueRef ir_render_asm_gen(CodeGen *g, Stage1Air *executable, Stage1A
     size_t param_index = 0;
     LLVMTypeRef *param_types = heap::c_allocator.allocate<LLVMTypeRef>(input_and_output_count);
     LLVMValueRef *param_values = heap::c_allocator.allocate<LLVMValueRef>(input_and_output_count);
+    bool *param_needs_attr = heap::c_allocator.allocate<bool>(input_and_output_count);
     for (size_t i = 0; i < asm_expr->output_list.length; i += 1, total_index += 1) {
         AsmOutput *asm_output = asm_expr->output_list.at(i);
         bool is_return = (asm_output->return_type != nullptr);
@@ -5619,6 +5617,8 @@ static LLVMValueRef ir_render_asm_gen(CodeGen *g, Stage1Air *executable, Stage1A
 
         param_types[param_index] = type_ref;
         param_values[param_index] = value_ref;
+        // In the case of indirect inputs, LLVM requires the callsite to have an elementtype(<ty>) attribute.
+        param_needs_attr[param_index] = buf_ptr(asm_input->constraint)[0] == '*';
     }
     for (size_t i = 0; i < asm_expr->clobber_list.length; i += 1, total_index += 1) {
         Buf *clobber_buf = asm_expr->clobber_list.at(i);
@@ -5658,14 +5658,25 @@ static LLVMValueRef ir_render_asm_gen(CodeGen *g, Stage1Air *executable, Stage1A
         ret_type = get_llvm_type(g, instruction->base.value->type);
     }
     LLVMTypeRef function_type = LLVMFunctionType(ret_type, param_types, (unsigned)input_and_output_count, false);
-    heap::c_allocator.deallocate(param_types, input_and_output_count);
 
     bool is_volatile = instruction->has_side_effects || (asm_expr->output_list.length == 0);
     LLVMValueRef asm_fn = LLVMGetInlineAsm(function_type, buf_ptr(&llvm_template), buf_len(&llvm_template),
             buf_ptr(&constraint_buf), buf_len(&constraint_buf), is_volatile, false, LLVMInlineAsmDialectATT, false);
 
     LLVMValueRef built_call = LLVMBuildCall(g->builder, asm_fn, param_values, (unsigned)input_and_output_count, "");
+
+    for (size_t i = 0; i < input_and_output_count; i += 1) {
+        if (param_needs_attr[i]) {
+            LLVMTypeRef elem_ty = LLVMGetElementType(param_types[i]);
+            ZigLLVMSetCallElemTypeAttr(built_call, i, elem_ty);
+        }
+    }
+
+
+
+    heap::c_allocator.deallocate(param_types, input_and_output_count);
     heap::c_allocator.deallocate(param_values, input_and_output_count);
+    heap::c_allocator.deallocate(param_needs_attr, input_and_output_count);
     return built_call;
 }
 

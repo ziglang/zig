@@ -206,7 +206,7 @@ pub const Value = opaque {
     extern fn LLVMDeleteFunction(Fn: *const Value) void;
 
     pub const addSretAttr = ZigLLVMAddSretAttr;
-    extern fn ZigLLVMAddSretAttr(fn_ref: *const Value, ArgNo: c_uint, type_val: *const Type) void;
+    extern fn ZigLLVMAddSretAttr(fn_ref: *const Value, type_val: *const Type) void;
 
     pub const setCallSret = ZigLLVMSetCallSret;
     extern fn ZigLLVMSetCallSret(Call: *const Value, return_type: *const Type) void;
@@ -520,8 +520,8 @@ pub const Builder = opaque {
     pub const buildStore = LLVMBuildStore;
     extern fn LLVMBuildStore(*const Builder, Val: *const Value, Ptr: *const Value) *const Value;
 
-    pub const buildLoad = LLVMBuildLoad2;
-    extern fn LLVMBuildLoad2(*const Builder, Ty: *const Type, PointerVal: *const Value, Name: [*:0]const u8) *const Value;
+    pub const buildLoad = LLVMBuildLoad;
+    extern fn LLVMBuildLoad(*const Builder, PointerVal: *const Value, Name: [*:0]const u8) *const Value;
 
     pub const buildNeg = LLVMBuildNeg;
     extern fn LLVMBuildNeg(*const Builder, V: *const Value, Name: [*:0]const u8) *const Value;
