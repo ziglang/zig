@@ -565,6 +565,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         man.hash.addOptional(self.base.options.search_strategy);
         man.hash.addOptional(self.base.options.headerpad_size);
         man.hash.add(self.base.options.headerpad_max_install_names);
+        man.hash.add(self.base.options.gc_sections orelse false);
         man.hash.add(self.base.options.dead_strip_dylibs);
         man.hash.addListOfBytes(self.base.options.lib_dirs);
         man.hash.addListOfBytes(self.base.options.framework_dirs);
@@ -1001,6 +1002,12 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
                 if (self.base.options.headerpad_max_install_names) {
                     try argv.append("-headerpad_max_install_names");
+                }
+
+                if (self.base.options.gc_sections) |is_set| {
+                    if (is_set) {
+                        try argv.append("-dead_strip");
+                    }
                 }
 
                 if (self.base.options.dead_strip_dylibs) {
