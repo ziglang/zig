@@ -4810,7 +4810,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
                 .rhs = try transQualType(c, scope, element_qt, source_loc),
             });
         },
-        .ExtInt, .ExtVector => {
+        .BitInt, .ExtVector => {
             const type_name = c.str(ty.getTypeClassName());
             return fail(c, error.UnsupportedType, source_loc, "TODO implement translation of type: '{s}'", .{type_name});
         },

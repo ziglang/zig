@@ -1064,12 +1064,20 @@ void ZigLLVMAddByValAttr(LLVMValueRef fn_ref, unsigned ArgNo, LLVMTypeRef type_v
     func->addParamAttrs(ArgNo + 1, attr_builder);
 }
 
-void ZigLLVMAddSretAttr(LLVMValueRef fn_ref, unsigned ArgNo, LLVMTypeRef type_val) {
+void ZigLLVMAddSretAttr(LLVMValueRef fn_ref, LLVMTypeRef type_val) {
     Function *func = unwrap<Function>(fn_ref);
     AttrBuilder attr_builder(func->getContext());
     Type *llvm_type = unwrap<Type>(type_val);
     attr_builder.addStructRetAttr(llvm_type);
-    func->addParamAttrs(ArgNo + 1, attr_builder);
+    func->addParamAttrs(AttributeList::ReturnIndex, attr_builder);
+}
+
+void ZigLLVMAddFunctionElemTypeAttr(LLVMValueRef fn_ref, size_t arg_index, LLVMTypeRef elem_ty) {
+    Function *func = unwrap<Function>(fn_ref);
+    AttrBuilder attr_builder(func->getContext());
+    Type *llvm_type = unwrap<Type>(elem_ty);
+    attr_builder.addTypeAttr(Attribute::ElementType, llvm_type);
+    func->addParamAttrs(AttributeList::FirstArgIndex + arg_index, attr_builder);
 }
 
 void ZigLLVMAddFunctionAttr(LLVMValueRef fn_ref, const char *attr_name, const char *attr_value) {
@@ -1174,7 +1182,15 @@ void ZigLLVMSetTailCall(LLVMValueRef Call) {
 void ZigLLVMSetCallSret(LLVMValueRef Call, LLVMTypeRef return_type) {
     CallInst *call_inst = unwrap<CallInst>(Call);
     Type *llvm_type = unwrap<Type>(return_type);
-    call_inst->addParamAttr(1, Attribute::getWithStructRetType(call_inst->getContext(), llvm_type));
+    call_inst->addParamAttr(AttributeList::ReturnIndex,
+            Attribute::getWithStructRetType(call_inst->getContext(), llvm_type));
+}
+
+void ZigLLVMSetCallElemTypeAttr(LLVMValueRef Call, size_t arg_index, LLVMTypeRef return_type) {
+    CallInst *call_inst = unwrap<CallInst>(Call);
+    Type *llvm_type = unwrap<Type>(return_type);
+    call_inst->addParamAttr(arg_index,
+            Attribute::get(call_inst->getContext(), Attribute::ElementType, llvm_type));
 }
 
 void ZigLLVMFunctionSetPrefixData(LLVMValueRef function, LLVMValueRef data) {
