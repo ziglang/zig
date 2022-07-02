@@ -7056,3 +7056,48 @@ pub fn timerfd_gettime(fd: i32) TimerFdGetError!linux.itimerspec {
         else => |err| return unexpectedErrno(err),
     };
 }
+
+/// Whether or not the current target support SIGPIPE
+pub const have_sigpipe_support = switch (builtin.os.tag) {
+    .linux,
+    .macos,
+    .netbsd,
+    .solaris,
+    .freebsd,
+    .openbsd,
+    => true,
+    else => false,
+};
+
+pub const keep_sigpipe: bool = if (@hasDecl(root, "keep_sigpipe"))
+    root.keep_sigpipe
+else
+    false;
+
+/// This function will tell the kernel to ignore SIGPIPE rather than terminate
+/// the process.  This function is automatically called in `start.zig` before
+/// `main`.  This behavior can be disabled by adding this to your root module:
+///
+///     pub const keep_sigpipe = true;
+///
+/// SIGPIPE is triggered when a process attempts to write to a broken pipe.
+/// By default, SIGPIPE will terminate the process without giving the program
+/// an opportunity to handle the situation.  Unlike a segfault, it doesn't
+/// trigger the panic handler so all the developer sees is that the program
+/// terminated with no indication as to why.
+///
+/// By telling the kernel to instead ignore SIGPIPE, writes to broken pipes
+/// will return the EPIPE error (error.BrokenPipe) and the program can handle
+/// it like any other error.
+pub fn maybeIgnoreSigpipe() void {
+    if (have_sigpipe_support and !keep_sigpipe) {
+        const act = Sigaction{
+            .handler = .{ .sigaction = SIG.IGN },
+            .mask = empty_sigset,
+            .flags = SA.SIGINFO,
+        };
+        sigaction(SIG.PIPE, &act, null) catch |err| std.debug.panic("ignore SIGPIPE failed with '{s}'" ++
+            ", add `pub const keep_sigpipe = true;` to your root module" ++
+            " or adjust have_sigpipe_support in std/os.zig", .{@errorName(err)});
+    }
+}
