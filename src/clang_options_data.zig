@@ -2031,7 +2031,7 @@ flagpsl("MT"),
 .{
     .name = "verbose",
     .syntax = .flag,
-    .zig_equivalent = .other,
+    .zig_equivalent = .verbose,
     .pd1 = false,
     .pd2 = true,
     .psl = false,
