@@ -7074,6 +7074,8 @@ pub const keep_sigpipe: bool = if (@hasDecl(root, "keep_sigpipe"))
 else
     false;
 
+fn noopSigHandler(_: c_int) callconv(.C) void {}
+
 /// This function will tell the kernel to ignore SIGPIPE rather than terminate
 /// the process.  This function is automatically called in `start.zig` before
 /// `main`.  This behavior can be disabled by adding this to your root module:
@@ -7092,12 +7094,13 @@ else
 pub fn maybeIgnoreSigpipe() void {
     if (have_sigpipe_support and !keep_sigpipe) {
         const act = Sigaction{
-            .handler = .{ .sigaction = SIG.IGN },
+            // We set handler to a noop function instead of SIG.IGN so we don't leak our
+            // signal disposition to a child process
+            .handler = .{ .handler = noopSigHandler },
             .mask = empty_sigset,
-            .flags = SA.SIGINFO,
+            .flags = 0,
         };
-        sigaction(SIG.PIPE, &act, null) catch |err| std.debug.panic("ignore SIGPIPE failed with '{s}'" ++
-            ", add `pub const keep_sigpipe = true;` to your root module" ++
-            " or adjust have_sigpipe_support in std/os.zig", .{@errorName(err)});
+        sigaction(SIG.PIPE, &act, null) catch |err|
+            std.debug.panic("failed to install noop SIGPIPE handler with '{s}'", .{@errorName(err)});
     }
 }
