@@ -19,6 +19,9 @@ pub const Feature = enum {
     ptx70,
     ptx71,
     ptx72,
+    ptx73,
+    ptx74,
+    ptx75,
     sm_20,
     sm_21,
     sm_30,
@@ -115,6 +118,21 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.ptx72)] = .{
         .llvm_name = "ptx72",
         .description = "Use PTX version 7.2",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.ptx73)] = .{
+        .llvm_name = "ptx73",
+        .description = "Use PTX version 7.3",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.ptx74)] = .{
+        .llvm_name = "ptx74",
+        .description = "Use PTX version 7.4",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.ptx75)] = .{
+        .llvm_name = "ptx75",
+        .description = "Use PTX version 7.5",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sm_20)] = .{
