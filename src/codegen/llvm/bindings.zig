@@ -1186,9 +1186,9 @@ pub extern fn LLVMInitializeM68kAsmParser() void;
 pub extern fn LLVMInitializeCSKYAsmParser() void;
 pub extern fn LLVMInitializeVEAsmParser() void;
 
-extern fn ZigLLDLinkCOFF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool, disable_output: bool) c_int;
-extern fn ZigLLDLinkELF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool, disable_output: bool) c_int;
-extern fn ZigLLDLinkWasm(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool, disable_output: bool) c_int;
+extern fn ZigLLDLinkCOFF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool, disable_output: bool) bool;
+extern fn ZigLLDLinkELF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool, disable_output: bool) bool;
+extern fn ZigLLDLinkWasm(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool, disable_output: bool) bool;
 
 pub const LinkCOFF = ZigLLDLinkCOFF;
 pub const LinkELF = ZigLLDLinkELF;

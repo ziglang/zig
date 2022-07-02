@@ -4481,10 +4481,11 @@ pub fn lldMain(
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    // Convert the args to the format llvm-ar expects.
+    // Convert the args to the format LLD expects.
     // We intentionally shave off the zig binary at args[0].
     const argv = try argsCopyZ(arena, args[1..]);
-    const exit_code = rc: {
+    // "If an error occurs, false will be returned."
+    const ok = rc: {
         const llvm = @import("codegen/llvm/bindings.zig");
         const argc = @intCast(c_int, argv.len);
         if (mem.eql(u8, args[1], "ld.lld")) {
@@ -4497,7 +4498,7 @@ pub fn lldMain(
             unreachable;
         }
     };
-    return @bitCast(u8, @truncate(i8, exit_code));
+    return @boolToInt(!ok);
 }
 
 const ArgIteratorResponseFile = process.ArgIteratorGeneral(.{ .comments = true, .single_quotes = true });

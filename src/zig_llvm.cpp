@@ -1335,17 +1335,17 @@ bool ZigLLVMWriteArchive(const char *archive_name, const char **file_names, size
     return false;
 }
 
-int ZigLLDLinkCOFF(int argc, const char **argv, bool can_exit_early, bool disable_output) {
+bool ZigLLDLinkCOFF(int argc, const char **argv, bool can_exit_early, bool disable_output) {
     std::vector<const char *> args(argv, argv + argc);
     return lld::coff::link(args, llvm::outs(), llvm::errs(), can_exit_early, disable_output);
 }
 
-int ZigLLDLinkELF(int argc, const char **argv, bool can_exit_early, bool disable_output) {
+bool ZigLLDLinkELF(int argc, const char **argv, bool can_exit_early, bool disable_output) {
     std::vector<const char *> args(argv, argv + argc);
     return lld::elf::link(args, llvm::outs(), llvm::errs(), can_exit_early, disable_output);
 }
 
-int ZigLLDLinkWasm(int argc, const char **argv, bool can_exit_early, bool disable_output) {
+bool ZigLLDLinkWasm(int argc, const char **argv, bool can_exit_early, bool disable_output) {
     std::vector<const char *> args(argv, argv + argc);
     return lld::wasm::link(args, llvm::outs(), llvm::errs(), can_exit_early, disable_output);
 }
