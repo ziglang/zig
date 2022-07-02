@@ -5575,6 +5575,7 @@ static LLVMValueRef ir_render_asm_gen(CodeGen *g, Stage1Air *executable, Stage1A
             buf_appendf(&constraint_buf, "=%s", buf_ptr(asm_output->constraint) + 1);
         } else {
             buf_appendf(&constraint_buf, "=*%s", buf_ptr(asm_output->constraint) + 1);
+            param_needs_attr[param_index] = true;
         }
         if (total_index + 1 < total_constraint_count) {
             buf_append_char(&constraint_buf, ',');
