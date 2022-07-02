@@ -583,6 +583,20 @@ pub const cpu = struct {
             .avr35,
         }),
     };
+    pub const ata5702m322 = CpuModel{
+        .name = "ata5702m322",
+        .llvm_name = "ata5702m322",
+        .features = featureSet(&[_]Feature{
+            .avr5,
+        }),
+    };
+    pub const ata5782 = CpuModel{
+        .name = "ata5782",
+        .llvm_name = "ata5782",
+        .features = featureSet(&[_]Feature{
+            .avr5,
+        }),
+    };
     pub const ata5790 = CpuModel{
         .name = "ata5790",
         .llvm_name = "ata5790",
@@ -590,9 +604,30 @@ pub const cpu = struct {
             .avr5,
         }),
     };
+    pub const ata5790n = CpuModel{
+        .name = "ata5790n",
+        .llvm_name = "ata5790n",
+        .features = featureSet(&[_]Feature{
+            .avr5,
+        }),
+    };
+    pub const ata5791 = CpuModel{
+        .name = "ata5791",
+        .llvm_name = "ata5791",
+        .features = featureSet(&[_]Feature{
+            .avr5,
+        }),
+    };
     pub const ata5795 = CpuModel{
         .name = "ata5795",
         .llvm_name = "ata5795",
+        .features = featureSet(&[_]Feature{
+            .avr5,
+        }),
+    };
+    pub const ata5831 = CpuModel{
+        .name = "ata5831",
+        .llvm_name = "ata5831",
         .features = featureSet(&[_]Feature{
             .avr5,
         }),
@@ -616,6 +651,55 @@ pub const cpu = struct {
         .llvm_name = "ata6289",
         .features = featureSet(&[_]Feature{
             .avr4,
+        }),
+    };
+    pub const ata6612c = CpuModel{
+        .name = "ata6612c",
+        .llvm_name = "ata6612c",
+        .features = featureSet(&[_]Feature{
+            .avr4,
+        }),
+    };
+    pub const ata6613c = CpuModel{
+        .name = "ata6613c",
+        .llvm_name = "ata6613c",
+        .features = featureSet(&[_]Feature{
+            .avr5,
+        }),
+    };
+    pub const ata6614q = CpuModel{
+        .name = "ata6614q",
+        .llvm_name = "ata6614q",
+        .features = featureSet(&[_]Feature{
+            .avr5,
+        }),
+    };
+    pub const ata6617c = CpuModel{
+        .name = "ata6617c",
+        .llvm_name = "ata6617c",
+        .features = featureSet(&[_]Feature{
+            .avr35,
+        }),
+    };
+    pub const ata664251 = CpuModel{
+        .name = "ata664251",
+        .llvm_name = "ata664251",
+        .features = featureSet(&[_]Feature{
+            .avr35,
+        }),
+    };
+    pub const ata8210 = CpuModel{
+        .name = "ata8210",
+        .llvm_name = "ata8210",
+        .features = featureSet(&[_]Feature{
+            .avr5,
+        }),
+    };
+    pub const ata8510 = CpuModel{
+        .name = "ata8510",
+        .llvm_name = "ata8510",
+        .features = featureSet(&[_]Feature{
+            .avr5,
         }),
     };
     pub const atmega103 = CpuModel{
@@ -1347,6 +1431,13 @@ pub const cpu = struct {
             .avr5,
         }),
     };
+    pub const atmega64hve2 = CpuModel{
+        .name = "atmega64hve2",
+        .llvm_name = "atmega64hve2",
+        .features = featureSet(&[_]Feature{
+            .avr5,
+        }),
+    };
     pub const atmega64m1 = CpuModel{
         .name = "atmega64m1",
         .llvm_name = "atmega64m1",
@@ -1510,6 +1601,48 @@ pub const cpu = struct {
             .avr1,
         }),
     };
+    pub const attiny1604 = CpuModel{
+        .name = "attiny1604",
+        .llvm_name = "attiny1604",
+        .features = featureSet(&[_]Feature{
+            .xmega,
+        }),
+    };
+    pub const attiny1606 = CpuModel{
+        .name = "attiny1606",
+        .llvm_name = "attiny1606",
+        .features = featureSet(&[_]Feature{
+            .xmega,
+        }),
+    };
+    pub const attiny1607 = CpuModel{
+        .name = "attiny1607",
+        .llvm_name = "attiny1607",
+        .features = featureSet(&[_]Feature{
+            .xmega,
+        }),
+    };
+    pub const attiny1614 = CpuModel{
+        .name = "attiny1614",
+        .llvm_name = "attiny1614",
+        .features = featureSet(&[_]Feature{
+            .xmega,
+        }),
+    };
+    pub const attiny1616 = CpuModel{
+        .name = "attiny1616",
+        .llvm_name = "attiny1616",
+        .features = featureSet(&[_]Feature{
+            .xmega,
+        }),
+    };
+    pub const attiny1617 = CpuModel{
+        .name = "attiny1617",
+        .llvm_name = "attiny1617",
+        .features = featureSet(&[_]Feature{
+            .xmega,
+        }),
+    };
     pub const attiny1634 = CpuModel{
         .name = "attiny1634",
         .llvm_name = "attiny1634",
@@ -1529,6 +1662,34 @@ pub const cpu = struct {
         .llvm_name = "attiny20",
         .features = featureSet(&[_]Feature{
             .avrtiny,
+        }),
+    };
+    pub const attiny202 = CpuModel{
+        .name = "attiny202",
+        .llvm_name = "attiny202",
+        .features = featureSet(&[_]Feature{
+            .xmega,
+        }),
+    };
+    pub const attiny204 = CpuModel{
+        .name = "attiny204",
+        .llvm_name = "attiny204",
+        .features = featureSet(&[_]Feature{
+            .xmega,
+        }),
+    };
+    pub const attiny212 = CpuModel{
+        .name = "attiny212",
+        .llvm_name = "attiny212",
+        .features = featureSet(&[_]Feature{
+            .xmega,
+        }),
+    };
+    pub const attiny214 = CpuModel{
+        .name = "attiny214",
+        .llvm_name = "attiny214",
+        .features = featureSet(&[_]Feature{
+            .xmega,
         }),
     };
     pub const attiny22 = CpuModel{
@@ -1602,6 +1763,20 @@ pub const cpu = struct {
             .avr1,
         }),
     };
+    pub const attiny3216 = CpuModel{
+        .name = "attiny3216",
+        .llvm_name = "attiny3216",
+        .features = featureSet(&[_]Feature{
+            .xmega,
+        }),
+    };
+    pub const attiny3217 = CpuModel{
+        .name = "attiny3217",
+        .llvm_name = "attiny3217",
+        .features = featureSet(&[_]Feature{
+            .xmega,
+        }),
+    };
     pub const attiny4 = CpuModel{
         .name = "attiny4",
         .llvm_name = "attiny4",
@@ -1614,6 +1789,55 @@ pub const cpu = struct {
         .llvm_name = "attiny40",
         .features = featureSet(&[_]Feature{
             .avrtiny,
+        }),
+    };
+    pub const attiny402 = CpuModel{
+        .name = "attiny402",
+        .llvm_name = "attiny402",
+        .features = featureSet(&[_]Feature{
+            .xmega,
+        }),
+    };
+    pub const attiny404 = CpuModel{
+        .name = "attiny404",
+        .llvm_name = "attiny404",
+        .features = featureSet(&[_]Feature{
+            .xmega,
+        }),
+    };
+    pub const attiny406 = CpuModel{
+        .name = "attiny406",
+        .llvm_name = "attiny406",
+        .features = featureSet(&[_]Feature{
+            .xmega,
+        }),
+    };
+    pub const attiny412 = CpuModel{
+        .name = "attiny412",
+        .llvm_name = "attiny412",
+        .features = featureSet(&[_]Feature{
+            .xmega,
+        }),
+    };
+    pub const attiny414 = CpuModel{
+        .name = "attiny414",
+        .llvm_name = "attiny414",
+        .features = featureSet(&[_]Feature{
+            .xmega,
+        }),
+    };
+    pub const attiny416 = CpuModel{
+        .name = "attiny416",
+        .llvm_name = "attiny416",
+        .features = featureSet(&[_]Feature{
+            .xmega,
+        }),
+    };
+    pub const attiny417 = CpuModel{
+        .name = "attiny417",
+        .llvm_name = "attiny417",
+        .features = featureSet(&[_]Feature{
+            .xmega,
         }),
     };
     pub const attiny4313 = CpuModel{
@@ -1684,6 +1908,48 @@ pub const cpu = struct {
         .llvm_name = "attiny5",
         .features = featureSet(&[_]Feature{
             .avrtiny,
+        }),
+    };
+    pub const attiny804 = CpuModel{
+        .name = "attiny804",
+        .llvm_name = "attiny804",
+        .features = featureSet(&[_]Feature{
+            .xmega,
+        }),
+    };
+    pub const attiny806 = CpuModel{
+        .name = "attiny806",
+        .llvm_name = "attiny806",
+        .features = featureSet(&[_]Feature{
+            .xmega,
+        }),
+    };
+    pub const attiny807 = CpuModel{
+        .name = "attiny807",
+        .llvm_name = "attiny807",
+        .features = featureSet(&[_]Feature{
+            .xmega,
+        }),
+    };
+    pub const attiny814 = CpuModel{
+        .name = "attiny814",
+        .llvm_name = "attiny814",
+        .features = featureSet(&[_]Feature{
+            .xmega,
+        }),
+    };
+    pub const attiny816 = CpuModel{
+        .name = "attiny816",
+        .llvm_name = "attiny816",
+        .features = featureSet(&[_]Feature{
+            .xmega,
+        }),
+    };
+    pub const attiny817 = CpuModel{
+        .name = "attiny817",
+        .llvm_name = "attiny817",
+        .features = featureSet(&[_]Feature{
+            .xmega,
         }),
     };
     pub const attiny828 = CpuModel{
@@ -1945,11 +2211,25 @@ pub const cpu = struct {
             .xmegau,
         }),
     };
+    pub const atxmega32c3 = CpuModel{
+        .name = "atxmega32c3",
+        .llvm_name = "atxmega32c3",
+        .features = featureSet(&[_]Feature{
+            .xmegau,
+        }),
+    };
     pub const atxmega32c4 = CpuModel{
         .name = "atxmega32c4",
         .llvm_name = "atxmega32c4",
         .features = featureSet(&[_]Feature{
             .xmegau,
+        }),
+    };
+    pub const atxmega32d3 = CpuModel{
+        .name = "atxmega32d3",
+        .llvm_name = "atxmega32d3",
+        .features = featureSet(&[_]Feature{
+            .xmega,
         }),
     };
     pub const atxmega32d4 = CpuModel{
