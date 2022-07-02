@@ -531,6 +531,7 @@ uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
         case ZigLLVM_renderscript32:
         case ZigLLVM_aarch64_32:
         case ZigLLVM_csky:
+        case ZigLLVM_spirv32:
             return 32;
 
         case ZigLLVM_aarch64:
@@ -554,6 +555,7 @@ uint32_t target_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
         case ZigLLVM_wasm64:
         case ZigLLVM_renderscript64:
         case ZigLLVM_ve:
+        case ZigLLVM_spirv64:
             return 64;
     }
     zig_unreachable();
@@ -598,6 +600,7 @@ uint32_t target_arch_largest_atomic_bits(ZigLLVM_ArchType arch) {
         case ZigLLVM_wasm32:
         case ZigLLVM_renderscript32:
         case ZigLLVM_csky:
+        case ZigLLVM_spirv32:
             return 32;
 
         case ZigLLVM_aarch64:
@@ -621,6 +624,7 @@ uint32_t target_arch_largest_atomic_bits(ZigLLVM_ArchType arch) {
         case ZigLLVM_wasm64:
         case ZigLLVM_renderscript64:
         case ZigLLVM_ve:
+        case ZigLLVM_spirv64:
             return 64;
 
         case ZigLLVM_x86_64:
@@ -818,6 +822,8 @@ const char *arch_stack_pointer_register_name(ZigLLVM_ArchType arch) {
 
         case ZigLLVM_wasm32:
         case ZigLLVM_wasm64:
+        case ZigLLVM_spirv32:
+        case ZigLLVM_spirv64:
             return nullptr; // known to be not available
 
         case ZigLLVM_amdgcn:
@@ -919,6 +925,8 @@ bool target_is_arm(const ZigTarget *target) {
         case ZigLLVM_ppcle:
         case ZigLLVM_ppc64:
         case ZigLLVM_ve:
+        case ZigLLVM_spirv32:
+        case ZigLLVM_spirv64:
             return false;
     }
     zig_unreachable();
