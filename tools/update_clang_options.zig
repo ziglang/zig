@@ -273,6 +273,10 @@ const known_options = [_]KnownOpt{
         .ident = "verbose",
     },
     .{
+        .name = "verbose",
+        .ident = "verbose",
+    },
+    .{
         .name = "L",
         .ident = "lib_dir",
     },
