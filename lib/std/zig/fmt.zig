@@ -32,7 +32,18 @@ pub fn isValidId(bytes: []const u8) bool {
             else => return false,
         }
     }
-    return std.zig.Token.getKeyword(bytes) == null;
+    if (std.zig.Token.getKeyword(bytes) != null) return false;
+    if (bytes.len >= 2) switch (bytes[0]) {
+        'u', 'i' => {
+            for (bytes[1..]) |b| switch (b) {
+                '0'...'9' => continue,
+                else => break,
+            } else return false;
+        },
+        else => {},
+    };
+
+    return true;
 }
 
 test "isValidId" {
@@ -41,6 +52,7 @@ test "isValidId" {
     try std.testing.expect(!isValidId("a b c"));
     try std.testing.expect(!isValidId("3d"));
     try std.testing.expect(!isValidId("enum"));
+    try std.testing.expect(!isValidId("i386"));
 }
 
 /// Print the string as escaped contents of a double quoted or single-quoted string.

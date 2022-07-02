@@ -29,14 +29,24 @@ pub const Feature = enum {
     frsqrte,
     frsqrtes,
     fsqrt,
+    fuse_add_logical,
     fuse_addi_load,
     fuse_addis_load,
+    fuse_arith_add,
+    fuse_back2back,
+    fuse_cmp,
+    fuse_logical,
+    fuse_logical_add,
+    fuse_sha3,
     fuse_store,
+    fuse_wideimm,
+    fuse_zeromove,
     fusion,
     hard_float,
     htm,
     icbt,
     invariant_function_descriptors,
+    isa_v206_instructions,
     isa_v207_instructions,
     isa_v30_instructions,
     isa_v31_instructions,
@@ -235,6 +245,13 @@ pub const all_features = blk: {
             .fpu,
         }),
     };
+    result[@enumToInt(Feature.fuse_add_logical)] = .{
+        .llvm_name = "fuse-add-logical",
+        .description = "Target supports Add with Logical Operations fusion",
+        .dependencies = featureSet(&[_]Feature{
+            .fusion,
+        }),
+    };
     result[@enumToInt(Feature.fuse_addi_load)] = .{
         .llvm_name = "fuse-addi-load",
         .description = "Power8 Addi-Load fusion",
@@ -249,9 +266,65 @@ pub const all_features = blk: {
             .fusion,
         }),
     };
+    result[@enumToInt(Feature.fuse_arith_add)] = .{
+        .llvm_name = "fuse-arith-add",
+        .description = "Target supports Arithmetic Operations with Add fusion",
+        .dependencies = featureSet(&[_]Feature{
+            .fusion,
+        }),
+    };
+    result[@enumToInt(Feature.fuse_back2back)] = .{
+        .llvm_name = "fuse-back2back",
+        .description = "Target supports general back to back fusion",
+        .dependencies = featureSet(&[_]Feature{
+            .fusion,
+        }),
+    };
+    result[@enumToInt(Feature.fuse_cmp)] = .{
+        .llvm_name = "fuse-cmp",
+        .description = "Target supports Comparison Operations fusion",
+        .dependencies = featureSet(&[_]Feature{
+            .fusion,
+        }),
+    };
+    result[@enumToInt(Feature.fuse_logical)] = .{
+        .llvm_name = "fuse-logical",
+        .description = "Target supports Logical Operations fusion",
+        .dependencies = featureSet(&[_]Feature{
+            .fusion,
+        }),
+    };
+    result[@enumToInt(Feature.fuse_logical_add)] = .{
+        .llvm_name = "fuse-logical-add",
+        .description = "Target supports Logical with Add Operations fusion",
+        .dependencies = featureSet(&[_]Feature{
+            .fusion,
+        }),
+    };
+    result[@enumToInt(Feature.fuse_sha3)] = .{
+        .llvm_name = "fuse-sha3",
+        .description = "Target supports SHA3 assist fusion",
+        .dependencies = featureSet(&[_]Feature{
+            .fusion,
+        }),
+    };
     result[@enumToInt(Feature.fuse_store)] = .{
         .llvm_name = "fuse-store",
         .description = "Target supports store clustering",
+        .dependencies = featureSet(&[_]Feature{
+            .fusion,
+        }),
+    };
+    result[@enumToInt(Feature.fuse_wideimm)] = .{
+        .llvm_name = "fuse-wideimm",
+        .description = "Target supports Wide-Immediate fusion",
+        .dependencies = featureSet(&[_]Feature{
+            .fusion,
+        }),
+    };
+    result[@enumToInt(Feature.fuse_zeromove)] = .{
+        .llvm_name = "fuse-zeromove",
+        .description = "Target supports move to SPR with branch fusion",
         .dependencies = featureSet(&[_]Feature{
             .fusion,
         }),
@@ -279,6 +352,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.invariant_function_descriptors)] = .{
         .llvm_name = "invariant-function-descriptors",
         .description = "Assume function descriptors are invariant",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.isa_v206_instructions)] = .{
+        .llvm_name = "isa-v206-instructions",
+        .description = "Enable instructions in ISA 2.06.",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.isa_v207_instructions)] = .{
@@ -707,9 +785,15 @@ pub const cpu = struct {
             .frsqrte,
             .frsqrtes,
             .fsqrt,
+            .fuse_add_logical,
+            .fuse_arith_add,
+            .fuse_logical,
+            .fuse_logical_add,
+            .fuse_sha3,
             .fuse_store,
             .htm,
             .icbt,
+            .isa_v206_instructions,
             .isel,
             .ldbrx,
             .lfiwax,
@@ -817,6 +901,7 @@ pub const cpu = struct {
             .fuse_addis_load,
             .htm,
             .icbt,
+            .isa_v206_instructions,
             .isa_v207_instructions,
             .isel,
             .ldbrx,
@@ -851,9 +936,15 @@ pub const cpu = struct {
             .frsqrte,
             .frsqrtes,
             .fsqrt,
+            .fuse_add_logical,
+            .fuse_arith_add,
+            .fuse_logical,
+            .fuse_logical_add,
+            .fuse_sha3,
             .fuse_store,
             .htm,
             .icbt,
+            .isa_v206_instructions,
             .isel,
             .ldbrx,
             .lfiwax,
@@ -985,6 +1076,7 @@ pub const cpu = struct {
             .frsqrte,
             .frsqrtes,
             .fsqrt,
+            .isa_v206_instructions,
             .isel,
             .ldbrx,
             .lfiwax,
@@ -1019,6 +1111,7 @@ pub const cpu = struct {
             .fuse_addis_load,
             .htm,
             .icbt,
+            .isa_v206_instructions,
             .isa_v207_instructions,
             .isel,
             .ldbrx,
@@ -1055,6 +1148,7 @@ pub const cpu = struct {
             .fsqrt,
             .htm,
             .icbt,
+            .isa_v206_instructions,
             .isel,
             .ldbrx,
             .lfiwax,

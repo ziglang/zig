@@ -36,6 +36,7 @@ pub const Feature = enum {
     execute_only,
     expand_fp_mlx,
     exynos,
+    fix_cmse_cve_2021_35465,
     fp16,
     fp16fml,
     fp64,
@@ -71,8 +72,13 @@ pub const Feature = enum {
     has_v8_5a,
     has_v8_6a,
     has_v8_7a,
+    has_v8_8a,
     has_v8m,
     has_v8m_main,
+    has_v9_1a,
+    has_v9_2a,
+    has_v9_3a,
+    has_v9a,
     hwdiv,
     hwdiv_arm,
     i8mm,
@@ -95,10 +101,12 @@ pub const Feature = enum {
     neon_fpmovs,
     neonfp,
     no_branch_predictor,
+    no_bti_at_return_twice,
     no_movt,
     no_neg_immediates,
     noarm,
     nonpipelined_vfp,
+    pacbti,
     perfmon,
     prefer_ishst,
     prefer_vmovsr,
@@ -157,10 +165,15 @@ pub const Feature = enum {
     v8_5a,
     v8_6a,
     v8_7a,
+    v8_8a,
     v8a,
     v8m,
     v8m_main,
     v8r,
+    v9_1a,
+    v9_2a,
+    v9_3a,
+    v9a,
     vfp2,
     vfp2sp,
     vfp3,
@@ -390,6 +403,11 @@ pub const all_features = blk: {
             .zcz,
         }),
     };
+    result[@enumToInt(Feature.fix_cmse_cve_2021_35465)] = .{
+        .llvm_name = "fix-cmse-cve-2021-35465",
+        .description = "Mitigate against the cve-2021-35465 security vulnurability",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.fp16)] = .{
         .llvm_name = "fp16",
         .description = "Enable half-precision floating point",
@@ -553,7 +571,6 @@ pub const all_features = blk: {
         .dependencies = featureSet(&[_]Feature{
             .has_v6t2,
             .has_v7clrex,
-            .perfmon,
         }),
     };
     result[@enumToInt(Feature.has_v7clrex)] = .{
@@ -567,6 +584,7 @@ pub const all_features = blk: {
         .dependencies = featureSet(&[_]Feature{
             .acquire_release,
             .has_v7,
+            .perfmon,
         }),
     };
     result[@enumToInt(Feature.has_v8_1a)] = .{
@@ -629,6 +647,13 @@ pub const all_features = blk: {
             .has_v8_6a,
         }),
     };
+    result[@enumToInt(Feature.has_v8_8a)] = .{
+        .llvm_name = "v8.8a",
+        .description = "Support ARM v8.8a instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .has_v8_7a,
+        }),
+    };
     result[@enumToInt(Feature.has_v8m)] = .{
         .llvm_name = "v8m",
         .description = "Support ARM v8M Baseline instructions",
@@ -641,6 +666,37 @@ pub const all_features = blk: {
         .description = "Support ARM v8M Mainline instructions",
         .dependencies = featureSet(&[_]Feature{
             .has_v7,
+        }),
+    };
+    result[@enumToInt(Feature.has_v9_1a)] = .{
+        .llvm_name = "v9.1a",
+        .description = "Support ARM v9.1a instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .has_v8_6a,
+            .has_v9a,
+        }),
+    };
+    result[@enumToInt(Feature.has_v9_2a)] = .{
+        .llvm_name = "v9.2a",
+        .description = "Support ARM v9.2a instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .has_v8_7a,
+            .has_v9_1a,
+        }),
+    };
+    result[@enumToInt(Feature.has_v9_3a)] = .{
+        .llvm_name = "v9.3a",
+        .description = "Support ARM v9.3a instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .has_v8_8a,
+            .has_v9_2a,
+        }),
+    };
+    result[@enumToInt(Feature.has_v9a)] = .{
+        .llvm_name = "v9a",
+        .description = "Support ARM v9a instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .has_v8_5a,
         }),
     };
     result[@enumToInt(Feature.hwdiv)] = .{
@@ -769,6 +825,11 @@ pub const all_features = blk: {
         .description = "Has no branch predictor",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.no_bti_at_return_twice)] = .{
+        .llvm_name = "no-bti-at-return-twice",
+        .description = "Don't place a BTI instruction after a return-twice",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.no_movt)] = .{
         .llvm_name = "no-movt",
         .description = "Don't use movt/movw pairs for 32-bit imms",
@@ -787,6 +848,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.nonpipelined_vfp)] = .{
         .llvm_name = "nonpipelined-vfp",
         .description = "VFP instructions are not pipelined",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.pacbti)] = .{
+        .llvm_name = "pacbti",
+        .description = "Enable Pointer Authentication and Branch Target Identification",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.perfmon)] = .{
@@ -1066,6 +1132,7 @@ pub const all_features = blk: {
             .dsp,
             .has_v7,
             .neon,
+            .perfmon,
         }),
     };
     result[@enumToInt(Feature.v7em)] = .{
@@ -1108,6 +1175,7 @@ pub const all_features = blk: {
             .dsp,
             .has_v7,
             .hwdiv,
+            .perfmon,
             .rclass,
         }),
     };
@@ -1128,6 +1196,7 @@ pub const all_features = blk: {
             .has_v7,
             .mp,
             .neon,
+            .perfmon,
             .trustzone,
             .virtualization,
         }),
@@ -1266,6 +1335,23 @@ pub const all_features = blk: {
             .virtualization,
         }),
     };
+    result[@enumToInt(Feature.v8_8a)] = .{
+        .llvm_name = "armv8.8-a",
+        .description = "ARMv88a architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .aclass,
+            .crc,
+            .crypto,
+            .db,
+            .dsp,
+            .fp_armv8,
+            .has_v8_8a,
+            .mp,
+            .ras,
+            .trustzone,
+            .virtualization,
+        }),
+    };
     result[@enumToInt(Feature.v8a)] = .{
         .llvm_name = "armv8-a",
         .description = "ARMv8a architecture",
@@ -1325,6 +1411,71 @@ pub const all_features = blk: {
             .mp,
             .neon,
             .rclass,
+            .virtualization,
+        }),
+    };
+    result[@enumToInt(Feature.v9_1a)] = .{
+        .llvm_name = "armv9.1-a",
+        .description = "ARMv91a architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .aclass,
+            .crc,
+            .db,
+            .dsp,
+            .fp_armv8,
+            .has_v9_1a,
+            .mp,
+            .ras,
+            .trustzone,
+            .virtualization,
+        }),
+    };
+    result[@enumToInt(Feature.v9_2a)] = .{
+        .llvm_name = "armv9.2-a",
+        .description = "ARMv92a architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .aclass,
+            .crc,
+            .db,
+            .dsp,
+            .fp_armv8,
+            .has_v9_2a,
+            .mp,
+            .ras,
+            .trustzone,
+            .virtualization,
+        }),
+    };
+    result[@enumToInt(Feature.v9_3a)] = .{
+        .llvm_name = "armv9.3-a",
+        .description = "ARMv93a architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .aclass,
+            .crc,
+            .crypto,
+            .db,
+            .dsp,
+            .fp_armv8,
+            .has_v9_3a,
+            .mp,
+            .ras,
+            .trustzone,
+            .virtualization,
+        }),
+    };
+    result[@enumToInt(Feature.v9a)] = .{
+        .llvm_name = "armv9-a",
+        .description = "ARMv9a architecture",
+        .dependencies = featureSet(&[_]Feature{
+            .aclass,
+            .crc,
+            .db,
+            .dsp,
+            .fp_armv8,
+            .has_v9a,
+            .mp,
+            .ras,
+            .trustzone,
             .virtualization,
         }),
     };
@@ -1781,6 +1932,16 @@ pub const cpu = struct {
             .vmlx_hazards,
         }),
     };
+    pub const cortex_a710 = CpuModel{
+        .name = "cortex_a710",
+        .llvm_name = "cortex-a710",
+        .features = featureSet(&[_]Feature{
+            .bf16,
+            .fp16fml,
+            .i8mm,
+            .v9a,
+        }),
+    };
     pub const cortex_a72 = CpuModel{
         .name = "cortex_a72",
         .llvm_name = "cortex-a72",
@@ -1933,6 +2094,7 @@ pub const cpu = struct {
         .llvm_name = "cortex-m33",
         .features = featureSet(&[_]Feature{
             .dsp,
+            .fix_cmse_cve_2021_35465,
             .fp_armv8d16sp,
             .loop_align,
             .no_branch_predictor,
@@ -1947,6 +2109,7 @@ pub const cpu = struct {
         .llvm_name = "cortex-m35p",
         .features = featureSet(&[_]Feature{
             .dsp,
+            .fix_cmse_cve_2021_35465,
             .fp_armv8d16sp,
             .loop_align,
             .no_branch_predictor,
@@ -1973,6 +2136,7 @@ pub const cpu = struct {
         .name = "cortex_m55",
         .llvm_name = "cortex-m55",
         .features = featureSet(&[_]Feature{
+            .fix_cmse_cve_2021_35465,
             .fp_armv8d16,
             .loop_align,
             .mve_fp,
@@ -2073,6 +2237,15 @@ pub const cpu = struct {
     pub const cortex_x1 = CpuModel{
         .name = "cortex_x1",
         .llvm_name = "cortex-x1",
+        .features = featureSet(&[_]Feature{
+            .dotprod,
+            .fullfp16,
+            .v8_2a,
+        }),
+    };
+    pub const cortex_x1c = CpuModel{
+        .name = "cortex_x1c",
+        .llvm_name = "cortex-x1c",
         .features = featureSet(&[_]Feature{
             .dotprod,
             .fullfp16,

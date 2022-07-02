@@ -12,6 +12,7 @@ pub const Feature = enum {
     mutable_globals,
     nontrapping_fptoint,
     reference_types,
+    relaxed_simd,
     sign_ext,
     simd128,
     tail_call,
@@ -59,6 +60,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.reference_types)] = .{
         .llvm_name = "reference-types",
         .description = "Enable reference types",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.relaxed_simd)] = .{
+        .llvm_name = "relaxed-simd",
+        .description = "Enable relaxed-simd instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.sign_ext)] = .{
