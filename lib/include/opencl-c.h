@@ -13832,6 +13832,7 @@ float __ovld atomic_fetch_max_explicit(volatile atomic_float *object,
 #endif // defined(__opencl_c_ext_fp32_global_atomic_min_max) &&                \
     defined(__opencl_c_ext_fp32_local_atomic_min_max)
 
+#if defined(cl_khr_int64_base_atomics) && defined(cl_khr_int64_extended_atomics)
 #if defined(__opencl_c_ext_fp64_global_atomic_min_max)
 double __ovld atomic_fetch_min(volatile __global atomic_double *object,
                                double operand);
@@ -13882,6 +13883,8 @@ double __ovld atomic_fetch_max_explicit(volatile atomic_double *object,
                                         memory_scope scope);
 #endif // defined(__opencl_c_ext_fp64_global_atomic_min_max) &&                \
     defined(__opencl_c_ext_fp64_local_atomic_min_max)
+#endif // defined(cl_khr_int64_base_atomics) &&                                \
+    defined(cl_khr_int64_extended_atomics)
 
 #if defined(__opencl_c_ext_fp16_global_atomic_add)
 half __ovld atomic_fetch_add(volatile __global atomic_half *object,
@@ -13985,6 +13988,7 @@ float __ovld atomic_fetch_sub_explicit(volatile atomic_float *object,
 #endif // defined(__opencl_c_ext_fp32_global_atomic_add) &&                    \
     defined(__opencl_c_ext_fp32_local_atomic_add)
 
+#if defined(cl_khr_int64_base_atomics) && defined(cl_khr_int64_extended_atomics)
 #if defined(__opencl_c_ext_fp64_global_atomic_add)
 double __ovld atomic_fetch_add(volatile __global atomic_double *object,
                                double operand);
@@ -14035,6 +14039,8 @@ double __ovld atomic_fetch_sub_explicit(volatile atomic_double *object,
                                         memory_scope scope);
 #endif // defined(__opencl_c_ext_fp64_global_atomic_add) &&                    \
     defined(__opencl_c_ext_fp64_local_atomic_add)
+#endif // defined(cl_khr_int64_base_atomics) &&                                \
+    defined(cl_khr_int64_extended_atomics)
 
 #endif // cl_ext_float_atomics
 
