@@ -3868,16 +3868,33 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, Stage1Air *executable,
             } else {
                 zig_unreachable();
             }
-        case IrBinOpShlSat:
-            if (scalar_type->id == ZigTypeIdInt) {
-                if (scalar_type->data.integral.is_signed) {
-                    return ZigLLVMBuildSShlSat(g->builder, op1_value, op2_value, "");
-                } else {
-                    return ZigLLVMBuildUShlSat(g->builder, op1_value, op2_value, "");
-                }
-            } else {
+        case IrBinOpShlSat: {
+            if (scalar_type->id != ZigTypeIdInt) {
                 zig_unreachable();
             }
+            LLVMValueRef result = scalar_type->data.integral.is_signed ?
+                ZigLLVMBuildSShlSat(g->builder, op1_value, op2_value, "") :
+                ZigLLVMBuildUShlSat(g->builder, op1_value, op2_value, "");
+            // LLVM langref says "If b is (statically or dynamically) equal to or
+            // larger than the integer bit width of the arguments, the result is a
+            // poison value."
+            // However Zig semantics says that saturating shift left can never produce
+            // undefined; instead it saturates.
+            LLVMTypeRef lhs_scalar_llvm_ty = get_llvm_type(g, scalar_type);
+            LLVMValueRef bits = LLVMConstInt(lhs_scalar_llvm_ty,
+                    scalar_type->data.integral.bit_count, false);
+            LLVMValueRef lhs_max = LLVMConstAllOnes(lhs_scalar_llvm_ty);
+            if (operand_type->id == ZigTypeIdVector) {
+                uint64_t vec_len = operand_type->data.vector.len;
+                LLVMValueRef bits_vec = LLVMBuildVectorSplat(g->builder, vec_len, bits, "");
+                LLVMValueRef lhs_max_vec = LLVMBuildVectorSplat(g->builder, vec_len, lhs_max, "");
+                LLVMValueRef in_range = LLVMBuildICmp(g->builder, LLVMIntULT, op2_value, bits_vec, "");
+                return LLVMBuildSelect(g->builder, in_range, result, lhs_max_vec, "");
+            } else {
+                LLVMValueRef in_range = LLVMBuildICmp(g->builder, LLVMIntULT, op2_value, bits, "");
+                return LLVMBuildSelect(g->builder, in_range, result, lhs_max, "");
+            }
+        }
     }
     zig_unreachable();
 }
