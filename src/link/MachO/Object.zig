@@ -16,6 +16,7 @@ const trace = @import("../../tracy.zig").trace;
 const Allocator = mem.Allocator;
 const Atom = @import("Atom.zig");
 const MachO = @import("../MachO.zig");
+const MatchingSection = MachO.MatchingSection;
 
 file: fs.File,
 name: []const u8,
@@ -421,6 +422,13 @@ pub fn parseIntoAtoms(self: *Object, allocator: Allocator, macho_file: *MachO) !
     // We only care about defined symbols, so filter every other out.
     const sorted_nlists = sorted_all_nlists.items[0..iundefsym];
 
+    const dead_strip = blk: {
+        const dead_strip = macho_file.base.options.gc_sections orelse break :blk false;
+        if (dead_strip or macho_file.base.options.optimize_mode != .Debug)
+            break :blk self.header.flags & macho.MH_SUBSECTIONS_VIA_SYMBOLS != 0;
+        break :blk false;
+    };
+
     for (seg.sections.items) |sect, id| {
         const sect_id = @intCast(u8, id);
         log.debug("putting section '{s},{s}' as an Atom", .{ sect.segName(), sect.sectName() });
@@ -459,85 +467,42 @@ pub fn parseIntoAtoms(self: *Object, allocator: Allocator, macho_file: *MachO) !
         };
         macho_file.has_stabs = macho_file.has_stabs or self.debug_info != null;
 
-        // Since there is no symbol to refer to this atom, we create
+        if (dead_strip) blk: {
+            if (filtered_nlists.len == 0) break :blk; // nothing to split
+
+            // If the first nlist does not match the start of the section,
+            // then we need to encapsulate the memory range [section start, first symbol)
+            // as a temporary symbol and insert the matching Atom.
+            const first_nlist = filtered_nlists[0].nlist;
+            if (first_nlist.n_value > sect.addr) {}
+        }
+
+        // If there is no symbol to refer to this atom, we create
         // a temp one, unless we already did that when working out the relocations
         // of other atoms.
-        const atom_local_sym_index = self.sections_as_symbols.get(sect_id) orelse blk: {
-            const atom_local_sym_index = @intCast(u32, macho_file.locals.items.len);
+        const local_sym_index = self.sections_as_symbols.get(sect_id) orelse blk: {
+            const local_sym_index = @intCast(u32, macho_file.locals.items.len);
             try macho_file.locals.append(allocator, .{
                 .n_strx = 0,
                 .n_type = macho.N_SECT,
                 .n_sect = @intCast(u8, macho_file.section_ordinals.getIndex(match).? + 1),
                 .n_desc = 0,
-                .n_value = 0,
+                .n_value = sect.addr,
             });
-            try self.sections_as_symbols.putNoClobber(allocator, sect_id, atom_local_sym_index);
-            break :blk atom_local_sym_index;
+            try self.sections_as_symbols.putNoClobber(allocator, sect_id, local_sym_index);
+            break :blk local_sym_index;
         };
-        const alignment = try math.powi(u32, 2, sect.@"align");
-        const aligned_size = mem.alignForwardGeneric(u64, sect.size, alignment);
-        const atom = try macho_file.createEmptyAtom(atom_local_sym_index, aligned_size, sect.@"align");
-
-        if (code) |cc| {
-            assert(!is_zerofill);
-            mem.copy(u8, atom.code.items, cc);
-        }
-
-        try atom.parseRelocs(relocs, .{
-            .base_addr = sect.addr,
-            .allocator = allocator,
-            .object = self,
-            .macho_file = macho_file,
-        });
-
-        if (macho_file.has_dices) {
-            const dices = filterDice(self.data_in_code_entries, sect.addr, sect.addr + sect.size);
-            try atom.dices.ensureTotalCapacity(allocator, dices.len);
-
-            for (dices) |dice| {
-                atom.dices.appendAssumeCapacity(.{
-                    .offset = dice.offset - (math.cast(u32, sect.addr) orelse return error.Overflow),
-                    .length = dice.length,
-                    .kind = dice.kind,
-                });
-            }
-        }
-
-        // Since this is atom gets a helper local temporary symbol that didn't exist
-        // in the object file which encompasses the entire section, we need traverse
-        // the filtered symbols and note which symbol is contained within so that
-        // we can properly allocate addresses down the line.
-        // While we're at it, we need to update segment,section mapping of each symbol too.
-        try atom.contained.ensureTotalCapacity(allocator, filtered_nlists.len);
-
-        for (filtered_nlists) |nlist_with_index| {
-            const nlist = nlist_with_index.nlist;
-            const local_sym_index = self.symbol_mapping.get(nlist_with_index.index) orelse unreachable;
-            const local = &macho_file.locals.items[local_sym_index];
-            local.n_sect = @intCast(u8, macho_file.section_ordinals.getIndex(match).? + 1);
-
-            const stab: ?Atom.Stab = if (self.debug_info) |di| blk: {
-                // TODO there has to be a better to handle this.
-                for (di.inner.func_list.items) |func| {
-                    if (func.pc_range) |range| {
-                        if (nlist.n_value >= range.start and nlist.n_value < range.end) {
-                            break :blk Atom.Stab{
-                                .function = range.end - range.start,
-                            };
-                        }
-                    }
-                }
-                // TODO
-                // if (zld.globals.contains(zld.getString(sym.strx))) break :blk .global;
-                break :blk .static;
-            } else null;
-
-            atom.contained.appendAssumeCapacity(.{
-                .local_sym_index = local_sym_index,
-                .offset = nlist.n_value - sect.addr,
-                .stab = stab,
-            });
-        }
+        const atom = try self.parseIntoAtom(
+            allocator,
+            local_sym_index,
+            sect.size,
+            sect.@"align",
+            code,
+            relocs,
+            filtered_nlists,
+            match,
+            macho_file,
+        );
 
         if (!self.start_atoms.contains(match)) {
             try self.start_atoms.putNoClobber(allocator, match, atom);
@@ -554,6 +519,232 @@ pub fn parseIntoAtoms(self: *Object, allocator: Allocator, macho_file: *MachO) !
     }
 }
 
+// const Context = struct {
+//     allocator: *Allocator,
+//     object: *Object,
+//     macho_file: *MachO,
+//     match: MachO.MatchingSection,
+// };
+
+// const AtomParser = struct {
+//     section: macho.section_64,
+//     code: []u8,
+//     relocs: []macho.relocation_info,
+//     nlists: []NlistWithIndex,
+//     index: u32 = 0,
+
+//     fn peek(self: AtomParser) ?NlistWithIndex {
+//         return if (self.index + 1 < self.nlists.len) self.nlists[self.index + 1] else null;
+//     }
+
+//     fn lessThanBySeniority(context: Context, lhs: NlistWithIndex, rhs: NlistWithIndex) bool {
+//         if (!MachO.symbolIsExt(rhs.nlist)) {
+//             return MachO.symbolIsTemp(lhs.nlist, context.object.getString(lhs.nlist.n_strx));
+//         } else if (MachO.symbolIsPext(rhs.nlist) or MachO.symbolIsWeakDef(rhs.nlist)) {
+//             return !MachO.symbolIsExt(lhs.nlist);
+//         } else {
+//             return false;
+//         }
+//     }
+
+//     pub fn next(self: *AtomParser, context: Context) !?*Atom {
+//         if (self.index == self.nlists.len) return null;
+
+//         const tracy = trace(@src());
+//         defer tracy.end();
+
+//         var aliases = std.ArrayList(NlistWithIndex).init(context.allocator);
+//         defer aliases.deinit();
+
+//         const next_nlist: ?NlistWithIndex = blk: while (true) {
+//             const curr_nlist = self.nlists[self.index];
+//             try aliases.append(curr_nlist);
+
+//             if (self.peek()) |next_nlist| {
+//                 if (curr_nlist.nlist.n_value == next_nlist.nlist.n_value) {
+//                     self.index += 1;
+//                     continue;
+//                 }
+//                 break :blk next_nlist;
+//             }
+//             break :blk null;
+//         } else null;
+
+//         for (aliases.items) |*nlist_with_index| {
+//             nlist_with_index.index = context.object.symbol_mapping.get(nlist_with_index.index) orelse unreachable;
+//         }
+
+//         if (aliases.items.len > 1) {
+//             // Bubble-up senior symbol as the main link to the atom.
+//             sort.sort(
+//                 NlistWithIndex,
+//                 aliases.items,
+//                 context,
+//                 AtomParser.lessThanBySeniority,
+//             );
+//         }
+
+//         const senior_nlist = aliases.pop();
+//         const senior_sym = &context.macho_file.locals.items[senior_nlist.index];
+//         senior_sym.n_sect = @intCast(u8, context.macho_file.section_ordinals.getIndex(context.match).? + 1);
+
+//         const start_addr = senior_nlist.nlist.n_value - self.section.addr;
+//         const end_addr = if (next_nlist) |n| n.nlist.n_value - self.section.addr else self.section.size;
+
+//         const code = self.code[start_addr..end_addr];
+//         const size = code.len;
+
+//         const max_align = self.section.@"align";
+//         const actual_align = if (senior_nlist.nlist.n_value > 0)
+//             math.min(@ctz(u64, senior_nlist.nlist.n_value), max_align)
+//         else
+//             max_align;
+
+//         const stab: ?Atom.Stab = if (context.object.debug_info) |di| blk: {
+//             // TODO there has to be a better to handle this.
+//             for (di.inner.func_list.items) |func| {
+//                 if (func.pc_range) |range| {
+//                     if (senior_nlist.nlist.n_value >= range.start and senior_nlist.nlist.n_value < range.end) {
+//                         break :blk Atom.Stab{
+//                             .function = range.end - range.start,
+//                         };
+//                     }
+//                 }
+//             }
+//             // TODO
+//             // if (self.macho_file.globals.contains(self.macho_file.getString(senior_sym.strx))) break :blk .global;
+//             break :blk .static;
+//         } else null;
+
+//         const atom = try context.macho_file.createEmptyAtom(senior_nlist.index, size, actual_align);
+//         atom.stab = stab;
+
+//         const is_zerofill = blk: {
+//             const section_type = commands.sectionType(self.section);
+//             break :blk section_type == macho.S_ZEROFILL or section_type == macho.S_THREAD_LOCAL_ZEROFILL;
+//         };
+//         if (!is_zerofill) {
+//             mem.copy(u8, atom.code.items, code);
+//         }
+
+//         try atom.aliases.ensureTotalCapacity(context.allocator, aliases.items.len);
+//         for (aliases.items) |alias| {
+//             atom.aliases.appendAssumeCapacity(alias.index);
+//             const sym = &context.macho_file.locals.items[alias.index];
+//             sym.n_sect = @intCast(u8, context.macho_file.section_ordinals.getIndex(context.match).? + 1);
+//         }
+
+//         try atom.parseRelocs(self.relocs, .{
+//             .base_addr = self.section.addr,
+//             .base_offset = start_addr,
+//             .allocator = context.allocator,
+//             .object = context.object,
+//             .macho_file = context.macho_file,
+//         });
+
+//         if (context.macho_file.has_dices) {
+//             const dices = filterDice(
+//                 context.object.data_in_code_entries.items,
+//                 senior_nlist.nlist.n_value,
+//                 senior_nlist.nlist.n_value + size,
+//             );
+//             try atom.dices.ensureTotalCapacity(context.allocator, dices.len);
+
+//             for (dices) |dice| {
+//                 atom.dices.appendAssumeCapacity(.{
+//                     .offset = dice.offset - try math.cast(u32, senior_nlist.nlist.n_value),
+//                     .length = dice.length,
+//                     .kind = dice.kind,
+//                 });
+//             }
+//         }
+
+//         self.index += 1;
+
+//         return atom;
+//     }
+// };
+
+fn parseIntoAtom(
+    self: *Object,
+    allocator: Allocator,
+    local_sym_index: u32,
+    size: u64,
+    alignment: u32,
+    code: ?[]const u8,
+    relocs: []const macho.relocation_info,
+    nlists: []const NlistWithIndex,
+    match: MatchingSection,
+    macho_file: *MachO,
+) !*Atom {
+    const sym = macho_file.locals.items[local_sym_index];
+    const align_pow_2 = try math.powi(u32, 2, alignment);
+    const aligned_size = mem.alignForwardGeneric(u64, size, align_pow_2);
+    const atom = try macho_file.createEmptyAtom(local_sym_index, aligned_size, alignment);
+
+    if (code) |cc| {
+        mem.copy(u8, atom.code.items, cc);
+    }
+
+    try atom.parseRelocs(relocs, .{
+        .base_addr = sym.n_value,
+        .allocator = allocator,
+        .object = self,
+        .macho_file = macho_file,
+    });
+
+    if (macho_file.has_dices) {
+        const dices = filterDice(self.data_in_code_entries, sym.n_value, sym.n_value + size);
+        try atom.dices.ensureTotalCapacity(allocator, dices.len);
+
+        for (dices) |dice| {
+            atom.dices.appendAssumeCapacity(.{
+                .offset = dice.offset - (math.cast(u32, sym.n_value) orelse return error.Overflow),
+                .length = dice.length,
+                .kind = dice.kind,
+            });
+        }
+    }
+
+    // Since this is atom gets a helper local temporary symbol that didn't exist
+    // in the object file which encompasses the entire section, we need traverse
+    // the filtered symbols and note which symbol is contained within so that
+    // we can properly allocate addresses down the line.
+    // While we're at it, we need to update segment,section mapping of each symbol too.
+    try atom.contained.ensureTotalCapacity(allocator, nlists.len);
+
+    for (nlists) |nlist_with_index| {
+        const nlist = nlist_with_index.nlist;
+        const sym_index = self.symbol_mapping.get(nlist_with_index.index) orelse unreachable;
+        const this_sym = &macho_file.locals.items[sym_index];
+        this_sym.n_sect = @intCast(u8, macho_file.section_ordinals.getIndex(match).? + 1);
+
+        const stab: ?Atom.Stab = if (self.debug_info) |di| blk: {
+            // TODO there has to be a better to handle this.
+            for (di.inner.func_list.items) |func| {
+                if (func.pc_range) |range| {
+                    if (nlist.n_value >= range.start and nlist.n_value < range.end) {
+                        break :blk Atom.Stab{
+                            .function = range.end - range.start,
+                        };
+                    }
+                }
+            }
+            // TODO
+            // if (zld.globals.contains(zld.getString(sym.strx))) break :blk .global;
+            break :blk .static;
+        } else null;
+
+        atom.contained.appendAssumeCapacity(.{
+            .local_sym_index = sym_index,
+            .offset = nlist.n_value - sym.n_value,
+            .stab = stab,
+        });
+    }
+
+    return atom;
+}
+
 fn parseSymtab(self: *Object) void {
     const index = self.symtab_cmd_index orelse return;
     const symtab = self.load_commands.items[index].symtab;
@@ -563,7 +754,7 @@ fn parseSymtab(self: *Object) void {
     self.strtab = self.contents[symtab.stroff..][0..symtab.strsize];
 }
 
-pub fn parseDebugInfo(self: *Object, allocator: Allocator) !void {
+fn parseDebugInfo(self: *Object, allocator: Allocator) !void {
     log.debug("parsing debug info in '{s}'", .{self.name});
 
     var debug_info = blk: {
@@ -595,7 +786,7 @@ pub fn parseDebugInfo(self: *Object, allocator: Allocator) !void {
     }
 }
 
-pub fn parseDataInCode(self: *Object) void {
+fn parseDataInCode(self: *Object) void {
     const index = self.data_in_code_cmd_index orelse return;
     const data_in_code = self.load_commands.items[index].linkedit_data;
     const raw_dice = self.contents[data_in_code.dataoff..][0..data_in_code.datasize];
