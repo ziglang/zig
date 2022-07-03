@@ -2895,7 +2895,7 @@ fn resolveSymbolsInObject(self: *MachO, object_id: u16) !void {
 
     log.debug("resolving symbols in '{s}'", .{object.name});
 
-    for (object.symtab.items) |sym, id| {
+    for (object.symtab) |sym, id| {
         const sym_id = @intCast(u32, id);
         const sym_name = object.getString(sym.n_strx);
 
@@ -6600,7 +6600,7 @@ pub fn symbolIsTemp(sym: macho.nlist_64, sym_name: []const u8) bool {
     return mem.startsWith(u8, sym_name, "l") or mem.startsWith(u8, sym_name, "L");
 }
 
-pub fn findFirst(comptime T: type, haystack: []T, start: usize, predicate: anytype) usize {
+pub fn findFirst(comptime T: type, haystack: []const T, start: usize, predicate: anytype) usize {
     if (!@hasDecl(@TypeOf(predicate), "predicate"))
         @compileError("Predicate is required to define fn predicate(@This(), T) bool");
 
