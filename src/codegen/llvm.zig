@@ -5291,6 +5291,7 @@ pub const FuncGen = struct {
         const llvm_params_len = inputs.len + outputs.len - return_count;
         const llvm_param_types = try arena.alloc(*const llvm.Type, llvm_params_len);
         const llvm_param_values = try arena.alloc(*const llvm.Value, llvm_params_len);
+        const llvm_param_attrs = try arena.alloc(bool, llvm_params_len);
         const target = self.dg.module.getTarget();
 
         var llvm_param_i: usize = 0;
@@ -5319,6 +5320,7 @@ pub const FuncGen = struct {
                 const output_inst = try self.resolveInst(output);
                 llvm_param_values[llvm_param_i] = output_inst;
                 llvm_param_types[llvm_param_i] = output_inst.typeOf();
+                llvm_param_attrs[llvm_param_i] = true;
                 llvm_param_i += 1;
             }
 
@@ -5388,6 +5390,11 @@ pub const FuncGen = struct {
             if (!std.mem.eql(u8, name, "_")) {
                 name_map.putAssumeCapacityNoClobber(name, {});
             }
+
+            // In the case of indirect inputs, LLVM requires the callsite to have
+            // an elementtype(<ty>) attribute.
+            llvm_param_attrs[llvm_param_i] = constraint[0] == '*';
+
             llvm_param_i += 1;
             total_i += 1;
         }
@@ -5480,7 +5487,7 @@ pub const FuncGen = struct {
             .ATT,
             .False,
         );
-        return self.builder.buildCall(
+        const call = self.builder.buildCall(
             asm_fn,
             llvm_param_values.ptr,
             @intCast(c_uint, llvm_param_values.len),
@@ -5488,6 +5495,13 @@ pub const FuncGen = struct {
             .Auto,
             "",
         );
+        for (llvm_param_attrs) |need_elem_ty, i| {
+            if (need_elem_ty) {
+                const elem_ty = llvm_param_types[i].getElementType();
+                llvm.setCallElemTypeAttr(call, i, elem_ty);
+            }
+        }
+        return call;
     }
 
     fn airIsNonNull(

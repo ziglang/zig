@@ -1320,6 +1320,9 @@ extern fn ZigLLVMWriteImportLibrary(
     kill_at: bool,
 ) bool;
 
+pub const setCallElemTypeAttr = ZigLLVMSetCallElemTypeAttr;
+extern fn ZigLLVMSetCallElemTypeAttr(Call: *const Value, arg_index: usize, return_type: *const Type) void;
+
 pub const Linkage = enum(c_uint) {
     External,
     AvailableExternally,
