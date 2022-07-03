@@ -241,7 +241,7 @@ const RelocContext = struct {
     macho_file: *MachO,
 };
 
-pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocContext) !void {
+pub fn parseRelocs(self: *Atom, relocs: []const macho.relocation_info, context: RelocContext) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -284,7 +284,7 @@ pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocC
             }
 
             assert(subtractor == null);
-            const sym = context.object.symtab.items[rel.r_symbolnum];
+            const sym = context.object.symtab[rel.r_symbolnum];
             if (sym.sect() and !sym.ext()) {
                 subtractor = context.object.symbol_mapping.get(rel.r_symbolnum).?;
             } else {
@@ -350,7 +350,7 @@ pub fn parseRelocs(self: *Atom, relocs: []macho.relocation_info, context: RelocC
                 break :target Relocation.Target{ .local = local_sym_index };
             }
 
-            const sym = context.object.symtab.items[rel.r_symbolnum];
+            const sym = context.object.symtab[rel.r_symbolnum];
             const sym_name = context.object.getString(sym.n_strx);
 
             if (sym.sect() and !sym.ext()) {
