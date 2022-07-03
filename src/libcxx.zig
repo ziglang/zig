@@ -117,6 +117,7 @@ pub fn buildLibCXX(comp: *Compilation) !void {
 
     const cxxabi_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxxabi", "include" });
     const cxx_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", "include" });
+    const cxx_src_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", "src" });
     var c_source_files = try std.ArrayList(Compilation.CSourceFile).initCapacity(arena, libcxx_files.len);
 
     for (libcxx_files) |cxx_src| {
@@ -172,6 +173,9 @@ pub fn buildLibCXX(comp: *Compilation) !void {
 
         try cflags.append("-I");
         try cflags.append(cxxabi_include_path);
+
+        try cflags.append("-I");
+        try cflags.append(cxx_src_include_path);
 
         if (target_util.supports_fpic(target)) {
             try cflags.append("-fPIC");
@@ -269,6 +273,7 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
 
     const cxxabi_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxxabi", "include" });
     const cxx_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", "include" });
+    const cxx_src_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", "src" });
     var c_source_files = try std.ArrayList(Compilation.CSourceFile).initCapacity(arena, libcxxabi_files.len);
 
     for (libcxxabi_files) |cxxabi_src| {
@@ -310,6 +315,9 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
 
         try cflags.append("-I");
         try cflags.append(cxx_include_path);
+
+        try cflags.append("-I");
+        try cflags.append(cxx_src_include_path);
 
         if (target_util.supports_fpic(target)) {
             try cflags.append("-fPIC");
