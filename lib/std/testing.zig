@@ -280,7 +280,6 @@ test "expectApproxEqRel" {
 /// This function is intended to be used only in tests. When the two slices are not
 /// equal, prints diagnostics to stderr to show exactly how they are not equal,
 /// then returns a test failure error.
-/// If your inputs are UTF-8 encoded strings, consider calling `expectEqualStrings` instead.
 pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const T) !void {
     // TODO better printing of the difference
     // If the arrays are small enough we could print the whole thing
@@ -292,10 +291,40 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     }
     var i: usize = 0;
     while (i < expected.len) : (i += 1) {
-        if (!std.meta.eql(expected[i], actual[i])) {
-            std.debug.print("index {} incorrect. expected {any}, found {any}\n", .{ i, expected[i], actual[i] });
-            return error.TestExpectedEqual;
+        if (T == []const u8) {
+            try expectEqualStrings(expected[i], actual[i]);
+        } else {
+            if (!std.meta.eql(expected[i], actual[i])) {
+                std.debug.print("index {} incorrect. expected {any}, found {any}\n", .{ i, expected[i], actual[i] });
+                return error.TestExpectedEqual;
+            }
         }
+    }
+}
+
+test "expectEqualSlices" {
+    {
+        const expected = [_]u8{ 1, 6, 9, 2 };
+        const actual = [_]u8{ 1, 6, 9, 2 };
+        try expectEqualSlices(u8, &expected, &actual);
+    }
+    {
+        const expected = [_]bool{ false, true, true, false };
+        const actual = [_]bool{ false, true, true, false };
+        try expectEqualSlices(bool, &expected, &actual);
+    }
+    {
+        const Str = []const u8;
+        const expected = [_]Str{ "foo", "bar", "baz" };
+        const actual = [_]Str{ "foo", "bar", "baz" };
+        try expectEqualSlices(Str, &expected, &actual);
+    }
+    {
+        // multibyte strings
+        const Str = []const u8;
+        const expected = [_]Str{ "foó", "bár", "bäz" };
+        const actual = [_]Str{ "foó", "bár", "bäz" };
+        try expectEqualSlices(Str, &expected, &actual);
     }
 }
 
