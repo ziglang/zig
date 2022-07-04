@@ -6,6 +6,53 @@ const CrossTarget = std.zig.CrossTarget;
 pub fn addCases(cases: *tests.TranslateCContext) void {
     const default_enum_type = if (builtin.abi == .msvc) "c_int" else "c_uint";
 
+    cases.add("do while with breaks",
+        \\void foo(int a) {
+        \\    do {
+        \\        if (a) break;
+        \\    } while (4);
+        \\    do {
+        \\        if (a) break;
+        \\    } while (0);
+        \\    do {
+        \\        if (a) break;
+        \\    } while (a);
+        \\    do {
+        \\        break;
+        \\    } while (3);
+        \\    do {
+        \\        break;
+        \\    } while (0);
+        \\    do {
+        \\        break;
+        \\    } while (a);
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo(arg_a: c_int) void {
+        \\    var a = arg_a;
+        \\    while (true) {
+        \\        if (a != 0) break;
+        \\    }
+        \\    while (true) {
+        \\        if (a != 0) break;
+        \\        if (!false) break;
+        \\    }
+        \\    while (true) {
+        \\        if (a != 0) break;
+        \\        if (!(a != 0)) break;
+        \\    }
+        \\    while (true) {
+        \\        break;
+        \\    }
+        \\    while (true) {
+        \\        break;
+        \\    }
+        \\    while (true) {
+        \\        break;
+        \\    }
+        \\}
+    });
+
     cases.add("variables check for opaque demotion",
         \\struct A {
         \\    _Atomic int a;
@@ -441,7 +488,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn foo() void {
         \\    while (false) while (false) {};
         \\    while (true) while (false) {};
-        \\    while (true) {}
+        \\    while (true) while (true) {
+        \\        if (!false) break;
+        \\    };
         \\}
     });
 
@@ -3229,7 +3278,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     , &[_][]const u8{
         \\pub fn foo() callconv(.C) void {
-        \\    if (true) {}
+        \\    if (true) while (true) {
+        \\        if (!false) break;
+        \\    };
         \\}
     });
 
