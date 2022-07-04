@@ -753,7 +753,7 @@ const WasmDumper = struct {
     }
 
     fn parseDumpLimits(reader: anytype, writer: anytype) !void {
-        const flags = try std.leb.readULEB128(u1, reader);
+        const flags = try std.leb.readULEB128(u8, reader);
         const min = try std.leb.readULEB128(u32, reader);
 
         try writer.print("min {d}\n", .{min});

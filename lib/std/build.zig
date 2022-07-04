@@ -1624,6 +1624,7 @@ pub const LibExeObjStep = struct {
     want_lto: ?bool = null,
     use_stage1: ?bool = null,
     use_llvm: ?bool = null,
+    use_lld: ?bool = null,
     ofmt: ?std.Target.ObjectFormat = null,
 
     output_path_source: GeneratedFile,
@@ -2477,6 +2478,14 @@ pub const LibExeObjStep = struct {
                 try zig_args.append("-fLLVM");
             } else {
                 try zig_args.append("-fno-LLVM");
+            }
+        }
+
+        if (self.use_lld) |use_lld| {
+            if (use_lld) {
+                try zig_args.append("-fLLD");
+            } else {
+                try zig_args.append("-fno-LLD");
             }
         }
 
