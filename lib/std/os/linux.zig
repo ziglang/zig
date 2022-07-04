@@ -3222,16 +3222,21 @@ pub const epoll_data = extern union {
     @"u64": u64,
 };
 
-// On x86_64 the structure is packed so that it matches the definition of its
-// 32bit counterpart
-pub const epoll_event = switch (native_arch) {
-    .x86_64 => packed struct {
-        events: u32,
-        data: epoll_data,
+pub const epoll_event = switch (builtin.zig_backend) {
+    // stage1 crashes with the align(4) field so we have this workaround
+    .stage1 => switch (native_arch) {
+        .x86_64 => packed struct {
+            events: u32,
+            data: epoll_data,
+        },
+        else => extern struct {
+            events: u32,
+            data: epoll_data,
+        },
     },
     else => extern struct {
         events: u32,
-        data: epoll_data,
+        data: epoll_data align(4),
     },
 };
 
