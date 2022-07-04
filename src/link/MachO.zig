@@ -57,6 +57,8 @@ const SystemLib = struct {
     weak: bool = false,
 };
 
+const N_DESC_GCED: u16 = @bitCast(u16, @as(i16, -1));
+
 base: File,
 
 /// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
@@ -255,6 +257,8 @@ unnamed_const_atoms: UnnamedConstTable = .{},
 /// memory within the atom in the incremental linker.
 /// TODO consolidate this.
 decls: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, ?MatchingSection) = .{},
+
+gc_roots: std.AutoHashMapUnmanaged(*Atom, void) = .{},
 
 const Entry = struct {
     target: Atom.Relocation.Target,
@@ -1165,6 +1169,8 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
         const use_llvm = build_options.have_llvm and self.base.options.use_llvm;
         if (use_llvm or use_stage1) {
+            self.logAtoms();
+            try self.gcAtoms();
             try self.pruneAndSortSections();
             try self.allocateSegments();
             try self.allocateLocals();
@@ -1173,9 +1179,10 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
         try self.allocateSpecialSymbols();
         try self.allocateGlobals();
 
-        if (build_options.enable_logging) {
+        if (build_options.enable_logging or true) {
             self.logSymtab();
             self.logSectionOrdinals();
+            self.logAtoms();
         }
 
         if (use_llvm or use_stage1) {
@@ -2177,6 +2184,7 @@ pub fn createEmptyAtom(self: *MachO, local_sym_index: u32, size: u64, alignment:
     try atom.code.resize(self.base.allocator, size_usize);
     mem.set(u8, atom.code.items, 0);
 
+    try self.atom_by_index_table.putNoClobber(self.base.allocator, local_sym_index, atom);
     try self.managed_atoms.append(self.base.allocator, atom);
     return atom;
 }
@@ -3298,12 +3306,7 @@ fn resolveDyldStubBinder(self: *MachO) !void {
         const vaddr = try self.allocateAtom(atom, @sizeOf(u64), 8, match);
         log.debug("allocated {s} atom at 0x{x}", .{ self.getString(sym.n_strx), vaddr });
         atom_sym.n_value = vaddr;
-    } else {
-        const seg = &self.load_commands.items[self.data_const_segment_cmd_index.?].segment;
-        const sect = &seg.sections.items[self.got_section_index.?];
-        sect.size += atom.size;
-        try self.addAtomToSection(atom, match);
-    }
+    } else try self.addAtomToSection(atom, match);
 
     atom_sym.n_sect = @intCast(u8, self.section_ordinals.getIndex(match).? + 1);
 }
@@ -3564,6 +3567,7 @@ pub fn deinit(self: *MachO) void {
     self.symbol_resolver.deinit(self.base.allocator);
     self.unresolved.deinit(self.base.allocator);
     self.tentatives.deinit(self.base.allocator);
+    self.gc_roots.deinit(self.base.allocator);
 
     for (self.objects.items) |*object| {
         object.deinit(self.base.allocator);
@@ -3916,7 +3920,6 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Modu
     const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
     const local_sym_index = try self.allocateLocalSymbol();
     const atom = try self.createEmptyAtom(local_sym_index, @sizeOf(u64), math.log2(required_alignment));
-    try self.atom_by_index_table.putNoClobber(self.base.allocator, local_sym_index, atom);
 
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .none, .{
         .parent_atom_index = local_sym_index,
@@ -5597,7 +5600,7 @@ fn pruneAndSortSectionsInSegment(self: *MachO, maybe_seg_id: *?u16, indices: []*
         const old_idx = maybe_index.* orelse continue;
         const sect = sections[old_idx];
         if (sect.size == 0) {
-            log.debug("pruning section {s},{s}", .{ sect.segName(), sect.sectName() });
+            log.warn("pruning section {s},{s}", .{ sect.segName(), sect.sectName() });
             maybe_index.* = null;
             seg.inner.cmdsize -= @sizeOf(macho.section_64);
             seg.inner.nsects -= 1;
@@ -5630,7 +5633,7 @@ fn pruneAndSortSectionsInSegment(self: *MachO, maybe_seg_id: *?u16, indices: []*
 
     if (seg.inner.nsects == 0 and !mem.eql(u8, "__TEXT", seg.inner.segName())) {
         // Segment has now become empty, so mark it as such
-        log.debug("marking segment {s} as dead", .{seg.inner.segName()});
+        log.warn("marking segment {s} as dead", .{seg.inner.segName()});
         seg.inner.cmd = @intToEnum(macho.LC, 0);
         maybe_seg_id.* = null;
     }
@@ -5712,6 +5715,189 @@ fn pruneAndSortSections(self: *MachO) !void {
     self.sections_order_dirty = false;
 }
 
+fn gcAtoms(self: *MachO) !void {
+    const dead_strip = self.base.options.gc_sections orelse false;
+    if (!dead_strip) return;
+
+    // Add all exports as GC roots
+    for (self.globals.items) |sym| {
+        if (sym.n_type == 0) continue;
+        const resolv = self.symbol_resolver.get(sym.n_strx).?;
+        assert(resolv.where == .global);
+        const gc_root = self.atom_by_index_table.get(resolv.local_sym_index) orelse {
+            log.warn("skipping {s}", .{self.getString(sym.n_strx)});
+            continue;
+        };
+        _ = try self.gc_roots.getOrPut(self.base.allocator, gc_root);
+    }
+
+    // if (self.tlv_ptrs_section_index) |sect| {
+    //     var atom = self.atoms.get(.{
+    //         .seg = self.data_segment_cmd_index.?,
+    //         .sect = sect,
+    //     }).?;
+
+    //     while (true) {
+    //         _ = try self.gc_roots.getOrPut(self.base.allocator, atom);
+
+    //         if (atom.prev) |prev| {
+    //             atom = prev;
+    //         } else break;
+    //     }
+    // }
+
+    // Add any atom targeting an import as GC root
+    var atoms_it = self.atoms.iterator();
+    while (atoms_it.next()) |entry| {
+        var atom = entry.value_ptr.*;
+
+        while (true) {
+            for (atom.relocs.items) |rel| {
+                if ((try Atom.getTargetAtom(rel, self)) == null) switch (rel.target) {
+                    .local => {},
+                    .global => |n_strx| {
+                        const resolv = self.symbol_resolver.get(n_strx).?;
+                        switch (resolv.where) {
+                            .global => {},
+                            .undef => {
+                                _ = try self.gc_roots.getOrPut(self.base.allocator, atom);
+                                break;
+                            },
+                        }
+                    },
+                };
+            }
+
+            if (atom.prev) |prev| {
+                atom = prev;
+            } else break;
+        }
+    }
+
+    var stack = std.ArrayList(*Atom).init(self.base.allocator);
+    defer stack.deinit();
+    try stack.ensureUnusedCapacity(self.gc_roots.count());
+
+    var retained = std.AutoHashMap(*Atom, void).init(self.base.allocator);
+    defer retained.deinit();
+    try retained.ensureUnusedCapacity(self.gc_roots.count());
+
+    log.warn("GC roots:", .{});
+    var gc_roots_it = self.gc_roots.keyIterator();
+    while (gc_roots_it.next()) |gc_root| {
+        self.logAtom(gc_root.*);
+
+        stack.appendAssumeCapacity(gc_root.*);
+        retained.putAssumeCapacityNoClobber(gc_root.*, {});
+    }
+
+    log.warn("walking tree...", .{});
+    while (stack.popOrNull()) |source_atom| {
+        for (source_atom.relocs.items) |rel| {
+            if (try Atom.getTargetAtom(rel, self)) |target_atom| {
+                const gop = try retained.getOrPut(target_atom);
+                if (!gop.found_existing) {
+                    log.warn("  RETAINED ATOM(%{d}) -> ATOM(%{d})", .{
+                        source_atom.local_sym_index,
+                        target_atom.local_sym_index,
+                    });
+                    try stack.append(target_atom);
+                }
+            }
+        }
+    }
+
+    atoms_it = self.atoms.iterator();
+    while (atoms_it.next()) |entry| {
+        const match = entry.key_ptr.*;
+
+        if (self.text_segment_cmd_index) |seg| {
+            if (seg == match.seg) {
+                if (self.eh_frame_section_index) |sect| {
+                    if (sect == match.sect) continue;
+                }
+            }
+        }
+
+        if (self.data_segment_cmd_index) |seg| {
+            if (seg == match.seg) {
+                if (self.rustc_section_index) |sect| {
+                    if (sect == match.sect) continue;
+                }
+            }
+        }
+
+        const seg = &self.load_commands.items[match.seg].segment;
+        const sect = &seg.sections.items[match.sect];
+        var atom = entry.value_ptr.*;
+
+        log.warn("GCing atoms in {s},{s}", .{ sect.segName(), sect.sectName() });
+
+        while (true) {
+            const orig_prev = atom.prev;
+
+            if (!retained.contains(atom)) {
+                // Dead atom; remove.
+                log.warn("  DEAD ATOM(%{d})", .{atom.local_sym_index});
+
+                const sym = &self.locals.items[atom.local_sym_index];
+                sym.n_desc = N_DESC_GCED;
+
+                if (self.symbol_resolver.getPtr(sym.n_strx)) |resolv| {
+                    if (resolv.local_sym_index == atom.local_sym_index) {
+                        const global = &self.globals.items[resolv.where_index];
+                        global.n_desc = N_DESC_GCED;
+                    }
+                }
+
+                for (self.got_entries.items) |got_entry| {
+                    if (got_entry.atom == atom) {
+                        _ = self.got_entries_table.swapRemove(got_entry.target);
+                        break;
+                    }
+                }
+
+                for (self.stubs.items) |stub, i| {
+                    if (stub == atom) {
+                        _ = self.stubs_table.swapRemove(@intCast(u32, i));
+                        break;
+                    }
+                }
+
+                for (atom.contained.items) |sym_off| {
+                    const inner = &self.locals.items[sym_off.local_sym_index];
+                    inner.n_desc = N_DESC_GCED;
+
+                    if (self.symbol_resolver.getPtr(inner.n_strx)) |resolv| {
+                        if (resolv.local_sym_index == atom.local_sym_index) {
+                            const global = &self.globals.items[resolv.where_index];
+                            global.n_desc = N_DESC_GCED;
+                        }
+                    }
+                }
+
+                log.warn("  BEFORE size = {x}", .{sect.size});
+                sect.size -= atom.size;
+                log.warn("  AFTER size = {x}", .{sect.size});
+                if (atom.prev) |prev| {
+                    prev.next = atom.next;
+                }
+                if (atom.next) |next| {
+                    next.prev = atom.prev;
+                } else {
+                    // TODO I think a null would be better here.
+                    // The section will be GCed in the next step.
+                    entry.value_ptr.* = if (atom.prev) |prev| prev else undefined;
+                }
+            }
+
+            if (orig_prev) |prev| {
+                atom = prev;
+            } else break;
+        }
+    }
+}
+
 fn updateSectionOrdinals(self: *MachO) !void {
     if (!self.sections_order_dirty) return;
 
@@ -5776,8 +5962,11 @@ fn writeDyldInfoData(self: *MachO) !void {
             }
 
             const seg = self.load_commands.items[match.seg].segment;
+            const sect = seg.sections.items[match.sect];
+            log.warn("dyld info for {s},{s}", .{ sect.segName(), sect.sectName() });
 
             while (true) {
+                log.warn("  ATOM %{d}", .{atom.local_sym_index});
                 const sym = self.locals.items[atom.local_sym_index];
                 const base_offset = sym.n_value - seg.inner.vmaddr;
 
@@ -6217,8 +6406,17 @@ fn writeSymbolTable(self: *MachO) !void {
 
     for (self.locals.items) |sym| {
         if (sym.n_strx == 0) continue;
+        if (sym.n_desc == N_DESC_GCED) continue;
         if (self.symbol_resolver.get(sym.n_strx)) |_| continue;
         try locals.append(sym);
+    }
+
+    var globals = std.ArrayList(macho.nlist_64).init(self.base.allocator);
+    defer globals.deinit();
+
+    for (self.globals.items) |sym| {
+        if (sym.n_desc == N_DESC_GCED) continue;
+        try globals.append(sym);
     }
 
     // TODO How do we handle null global symbols in incremental context?
@@ -6291,7 +6489,7 @@ fn writeSymbolTable(self: *MachO) !void {
     }
 
     const nlocals = locals.items.len;
-    const nexports = self.globals.items.len;
+    const nexports = globals.items.len;
     const nundefs = undefs.items.len;
 
     const locals_off = symtab.symoff;
@@ -6302,7 +6500,7 @@ fn writeSymbolTable(self: *MachO) !void {
     const exports_off = locals_off + locals_size;
     const exports_size = nexports * @sizeOf(macho.nlist_64);
     log.debug("writing exported symbols from 0x{x} to 0x{x}", .{ exports_off, exports_size + exports_off });
-    try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.globals.items), exports_off);
+    try self.base.file.?.pwriteAll(mem.sliceAsBytes(globals.items), exports_off);
 
     const undefs_off = exports_off + exports_size;
     const undefs_size = nundefs * @sizeOf(macho.nlist_64);
@@ -6898,55 +7096,55 @@ fn snapshotState(self: *MachO) !void {
 }
 
 fn logSymtab(self: MachO) void {
-    log.debug("locals:", .{});
+    log.warn("locals:", .{});
     for (self.locals.items) |sym, id| {
-        log.debug("  {d}: {s}: @{x} in {d}", .{ id, self.getString(sym.n_strx), sym.n_value, sym.n_sect });
+        log.warn("  {d}: {s}: @{x} in {d}", .{ id, self.getString(sym.n_strx), sym.n_value, sym.n_sect });
     }
 
-    log.debug("globals:", .{});
+    log.warn("globals:", .{});
     for (self.globals.items) |sym, id| {
-        log.debug("  {d}: {s}: @{x} in {d}", .{ id, self.getString(sym.n_strx), sym.n_value, sym.n_sect });
+        log.warn("  {d}: {s}: @{x} in {d}", .{ id, self.getString(sym.n_strx), sym.n_value, sym.n_sect });
     }
 
-    log.debug("undefs:", .{});
+    log.warn("undefs:", .{});
     for (self.undefs.items) |sym, id| {
-        log.debug("  {d}: {s}: in {d}", .{ id, self.getString(sym.n_strx), sym.n_desc });
+        log.warn("  {d}: {s}: in {d}", .{ id, self.getString(sym.n_strx), sym.n_desc });
     }
 
     {
-        log.debug("resolver:", .{});
+        log.warn("resolver:", .{});
         var it = self.symbol_resolver.iterator();
         while (it.next()) |entry| {
-            log.debug("  {s} => {}", .{ self.getString(entry.key_ptr.*), entry.value_ptr.* });
+            log.warn("  {s} => {}", .{ self.getString(entry.key_ptr.*), entry.value_ptr.* });
         }
     }
 
-    log.debug("GOT entries:", .{});
+    log.warn("GOT entries:", .{});
     for (self.got_entries_table.values()) |value| {
         const key = self.got_entries.items[value].target;
         const atom = self.got_entries.items[value].atom;
         const n_value = self.locals.items[atom.local_sym_index].n_value;
         switch (key) {
-            .local => |ndx| log.debug("  {d}: @{x}", .{ ndx, n_value }),
-            .global => |n_strx| log.debug("  {s}: @{x}", .{ self.getString(n_strx), n_value }),
+            .local => |ndx| log.warn("  {d}: @{x}", .{ ndx, n_value }),
+            .global => |n_strx| log.warn("  {s}: @{x}", .{ self.getString(n_strx), n_value }),
         }
     }
 
-    log.debug("__thread_ptrs entries:", .{});
+    log.warn("__thread_ptrs entries:", .{});
     for (self.tlv_ptr_entries_table.values()) |value| {
         const key = self.tlv_ptr_entries.items[value].target;
         const atom = self.tlv_ptr_entries.items[value].atom;
         const n_value = self.locals.items[atom.local_sym_index].n_value;
         assert(key == .global);
-        log.debug("  {s}: @{x}", .{ self.getString(key.global), n_value });
+        log.warn("  {s}: @{x}", .{ self.getString(key.global), n_value });
     }
 
-    log.debug("stubs:", .{});
+    log.warn("stubs:", .{});
     for (self.stubs_table.keys()) |key| {
         const value = self.stubs_table.get(key).?;
         const atom = self.stubs.items[value];
         const sym = self.locals.items[atom.local_sym_index];
-        log.debug("  {s}: @{x}", .{ self.getString(key), sym.n_value });
+        log.warn("  {s}: @{x}", .{ self.getString(key), sym.n_value });
     }
 }
 
@@ -6960,6 +7158,45 @@ fn logSectionOrdinals(self: MachO) void {
             match.sect,
             sect.segName(),
             sect.sectName(),
+        });
+    }
+}
+
+fn logAtoms(self: MachO) void {
+    log.warn("atoms:", .{});
+    var it = self.atoms.iterator();
+    while (it.next()) |entry| {
+        const match = entry.key_ptr.*;
+        var atom = entry.value_ptr.*;
+
+        while (atom.prev) |prev| {
+            atom = prev;
+        }
+
+        const seg = self.load_commands.items[match.seg].segment;
+        const sect = seg.sections.items[match.sect];
+        log.warn("{s},{s}", .{ sect.segName(), sect.sectName() });
+
+        while (true) {
+            self.logAtom(atom);
+
+            if (atom.next) |next| {
+                atom = next;
+            } else break;
+        }
+    }
+}
+
+fn logAtom(self: MachO, atom: *const Atom) void {
+    const sym = self.locals.items[atom.local_sym_index];
+    log.warn("  ATOM(%{d}) @ {x}", .{ atom.local_sym_index, sym.n_value });
+
+    for (atom.contained.items) |sym_off| {
+        const inner_sym = self.locals.items[sym_off.local_sym_index];
+        log.warn("    %{d} ('{s}') @ {x}", .{
+            sym_off.local_sym_index,
+            self.getString(inner_sym.n_strx),
+            inner_sym.n_value,
         });
     }
 }

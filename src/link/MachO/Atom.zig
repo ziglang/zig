@@ -236,6 +236,7 @@ pub fn freeListEligible(self: Atom, macho_file: MachO) bool {
 
 const RelocContext = struct {
     base_addr: u64 = 0,
+    base_offset: i32 = 0,
     allocator: Allocator,
     object: *Object,
     macho_file: *MachO,
@@ -366,7 +367,7 @@ pub fn parseRelocs(self: *Atom, relocs: []const macho.relocation_info, context: 
             ) orelse unreachable;
             break :target Relocation.Target{ .global = n_strx };
         };
-        const offset = @intCast(u32, rel.r_address);
+        const offset = @intCast(u32, rel.r_address - context.base_offset);
 
         switch (arch) {
             .aarch64 => {
@@ -487,7 +488,7 @@ fn addPtrBindingOrRebase(
         .global => |n_strx| {
             try self.bindings.append(context.allocator, .{
                 .n_strx = n_strx,
-                .offset = @intCast(u32, rel.r_address),
+                .offset = @intCast(u32, rel.r_address - context.base_offset),
             });
         },
         .local => {
@@ -529,7 +530,10 @@ fn addPtrBindingOrRebase(
             };
 
             if (should_rebase) {
-                try self.rebases.append(context.allocator, @intCast(u32, rel.r_address));
+                try self.rebases.append(
+                    context.allocator,
+                    @intCast(u32, rel.r_address - context.base_offset),
+                );
             }
         },
     }
@@ -648,6 +652,60 @@ fn addStub(target: Relocation.Target, context: RelocContext) !void {
         try context.object.end_atoms.putNoClobber(context.allocator, match, atom);
     }
     context.macho_file.stubs.items[stub_index] = atom;
+}
+
+pub fn getTargetAtom(rel: Relocation, macho_file: *MachO) !?*Atom {
+    const is_via_got = got: {
+        switch (macho_file.base.options.target.cpu.arch) {
+            .aarch64 => break :got switch (@intToEnum(macho.reloc_type_arm64, rel.@"type")) {
+                .ARM64_RELOC_GOT_LOAD_PAGE21,
+                .ARM64_RELOC_GOT_LOAD_PAGEOFF12,
+                .ARM64_RELOC_POINTER_TO_GOT,
+                => true,
+                else => false,
+            },
+            .x86_64 => break :got switch (@intToEnum(macho.reloc_type_x86_64, rel.@"type")) {
+                .X86_64_RELOC_GOT, .X86_64_RELOC_GOT_LOAD => true,
+                else => false,
+            },
+            else => unreachable,
+        }
+    };
+
+    if (is_via_got) {
+        const got_index = macho_file.got_entries_table.get(rel.target) orelse {
+            log.err("expected GOT entry for symbol", .{});
+            switch (rel.target) {
+                .local => |sym_index| log.err("  local @{d}", .{sym_index}),
+                .global => |n_strx| log.err("  global @'{s}'", .{macho_file.getString(n_strx)}),
+            }
+            log.err("  this is an internal linker error", .{});
+            return error.FailedToResolveRelocationTarget;
+        };
+        return macho_file.got_entries.items[got_index].atom;
+    }
+
+    switch (rel.target) {
+        .local => |sym_index| {
+            return macho_file.atom_by_index_table.get(sym_index);
+        },
+        .global => |n_strx| {
+            const resolv = macho_file.symbol_resolver.get(n_strx).?;
+            switch (resolv.where) {
+                .global => return macho_file.atom_by_index_table.get(resolv.local_sym_index),
+                .undef => {
+                    if (macho_file.stubs_table.get(n_strx)) |stub_index| {
+                        return macho_file.stubs.items[stub_index];
+                    } else {
+                        if (macho_file.tlv_ptr_entries_table.get(rel.target)) |tlv_ptr_index| {
+                            return macho_file.tlv_ptr_entries.items[tlv_ptr_index].atom;
+                        }
+                        return null;
+                    }
+                },
+            }
+        },
+    }
 }
 
 pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
