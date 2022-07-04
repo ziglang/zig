@@ -3820,3 +3820,49 @@ test "LibExeObjStep.addPackage" {
     const dupe = exe.packages.items[0];
     try std.testing.expectEqualStrings(pkg_top.name, dupe.name);
 }
+
+pub const Config = struct {
+    min_zig_version: ?std.zig.Version = null,
+};
+
+pub fn readConfig(build_dir: std.fs.Dir, basename: []const u8) !Config {
+    // right now we only support '//config min_zig_version VERSION' so 200 should be enough
+    var buf: [200]u8 = undefined;
+    var build_file = try build_dir.openFile(basename, .{});
+    defer build_file.close();
+
+    var config = Config{};
+
+    while (true) {
+        const config_prefix = "//config";
+        const line = build_file.reader().readUntilDelimiter(&buf, '\n') catch |err| switch (err) {
+            error.StreamTooLong => {
+                if (std.mem.startsWith(u8, &buf, config_prefix))
+                    return error.ConfigLineTooLong;
+                break;
+            },
+            error.EndOfStream => break,
+            else => |e| return e,
+        };
+        if (!std.mem.startsWith(u8, line, config_prefix)) break;
+        const config_str = std.mem.trimRight(u8, line[config_prefix.len..], " \r");
+        var it = std.mem.tokenize(u8, config_str, " ");
+        const name = it.next() orelse {
+            std.log.err("build.zig '//config' line is empty", .{});
+            return error.InvalidBuildConfigLine;
+        };
+        const data = blk: {
+            var data = it.next() orelse break :blk "";
+            data.len = config_str.len - (@ptrToInt(data.ptr) - @ptrToInt(config_str.ptr));
+            break :blk data;
+        };
+        if (std.mem.eql(u8, name, "min_zig_version")) {
+            config.min_zig_version = try std.zig.Version.parse(data);
+        } else {
+            std.log.err("unknown build.zig '//config {s}...'", .{name});
+            return error.UnknownConfig;
+        }
+    }
+
+    return config;
+}

@@ -3848,6 +3848,18 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         };
         child_argv.items[argv_index_build_file] = build_directory.path orelse cwd_path;
 
+        const zig_version = comptime try std.zig.Version.parse(build_options.version);
+        const build_config = try std.build.readConfig(build_directory.handle, build_zig_basename);
+        if (build_config.min_zig_version) |min_zig_version| {
+            switch (zig_version.order(min_zig_version)) {
+                .eq, .gt => {},
+                .commit_height_gt => {
+                    // NOTE: having a larger commit height means we can't verify whether or not we are new enough
+                },
+                .lt, .commit_height_eq, .commit_height_lt => fatal("zig is too old, have {} but build.zig has min_zig_version {}", .{ zig_version, min_zig_version }),
+            }
+        }
+
         var build_pkg: Package = .{
             .root_src_directory = build_directory,
             .root_src_path = build_zig_basename,

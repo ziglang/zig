@@ -41,6 +41,7 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
         // https://github.com/ziglang/zig/issues/12419
         cases.addBuildFile("test/standalone/issue_11595/build.zig", .{});
     }
+    cases.addBuildFile("test/standalone/min_zig_version/build.zig", .{});
     if (builtin.os.tag != .wasi) {
         cases.addBuildFile("test/standalone/load_dynamic_library/build.zig", .{});
     }

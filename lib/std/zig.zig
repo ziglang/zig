@@ -14,6 +14,7 @@ pub const number_literal = @import("zig/number_literal.zig");
 pub const Ast = @import("zig/Ast.zig");
 pub const system = @import("zig/system.zig");
 pub const CrossTarget = @import("zig/CrossTarget.zig");
+pub const Version = @import("zig/Version.zig");
 
 // Character literal parsing
 pub const ParsedCharLiteral = string_literal.ParsedCharLiteral;
