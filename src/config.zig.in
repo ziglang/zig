@@ -1,7 +1,6 @@
 pub const have_llvm = true;
 pub const llvm_has_m68k = false;
 pub const llvm_has_csky = false;
-pub const llvm_has_ve = false;
 pub const llvm_has_arc = false;
 pub const version: [:0]const u8 = "@ZIG_VERSION@";
 pub const semver = @import("std").SemanticVersion.parse(version) catch unreachable;
