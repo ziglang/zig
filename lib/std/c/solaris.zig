@@ -8,7 +8,10 @@ const timezone = std.c.timezone;
 extern "c" fn ___errno() *c_int;
 pub const _errno = ___errno;
 
-pub const dl_iterate_phdr_callback = fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
+pub const dl_iterate_phdr_callback = switch (builtin.zig_backend) {
+    .stage1 => fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int,
+    else => *const fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int,
+};
 pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*anyopaque) c_int;
 
 pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) usize;
@@ -952,8 +955,14 @@ pub const SIG = struct {
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const handler_fn = fn (c_int) callconv(.C) void;
-    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
+    pub const handler_fn = switch (builtin.zig_backend) {
+        .stage1 => fn (c_int) callconv(.C) void,
+        else => *const fn (c_int) callconv(.C) void,
+    };
+    pub const sigaction_fn = switch (builtin.zig_backend) {
+        .stage1 => fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void,
+        else => *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void,
+    };
 
     /// signal options
     flags: c_uint,
