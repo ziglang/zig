@@ -2674,6 +2674,36 @@ test "pointer array access" {
 }
       {#code_end#}
       <p>
+       Zig supports pointer arthemtic. It's better to assign the pointer to [*]i32 and increment that variable. For example, directly incrementing the pointer from a slice will corrupt it.
+      </p>
+      {#code_begin|test|pointer_arthemtic#}
+const expect = @import("std").testing.expect;
+
+test "pointer arithmetic with many-item pointer" {
+    const array = [_]i32{ 1, 2, 3, 4 };
+    var ptr: [*]const i32 = &array;
+
+    try expect(ptr[0] == 1);
+    ptr += 1;
+    try expect(ptr[0] == 2);
+}
+
+test "pointer arithmetic with slices" {
+    var array = [_]i32{ 1, 2, 3, 4 };
+    var length: usize = 0;
+    var slice = array[length..array.len];
+
+    try expect(slice[0] == 1);
+    try expect(slice.len == 4);
+
+    slice.ptr += 1;
+    // now the slice is in an bad state since len has not been updated
+
+    try expect(slice[0] == 2);
+    try expect(slice.len == 4);
+}
+      {#code_end#}
+      <p>
         In Zig, we generally prefer {#link|Slices#} rather than {#link|Sentinel-Terminated Pointers#}.
         You can turn an array or pointer into a slice using slice syntax.
       </p>
