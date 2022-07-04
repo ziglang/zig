@@ -2674,7 +2674,7 @@ test "pointer array access" {
 }
       {#code_end#}
       <p>
-       Zig supports pointer arthemtic. It's better to assign the pointer to [*]i32 and increment that variable. For example, directly incrementing the pointer from a slice will corrupt it.
+       Zig supports pointer arithmetic. It's better to assign the pointer to {#syntax#}[*]T{#endsyntax#} and increment that variable. For example, directly incrementing the pointer from a slice will corrupt it.
       </p>
       {#code_begin|test|pointer_arthemtic#}
 const expect = @import("std").testing.expect;
