@@ -30,6 +30,7 @@
 #define SIMD_MATRIX_TYPES_HEADER
 
 #include <simd/types.h>
+#include <simd/vector_make.h>
 #if SIMD_COMPILER_HAS_REQUIRED_FEATURES
 
 /*  Matrix types available in C, Objective-C, and C++                         */
@@ -258,6 +259,234 @@ namespace simd {
     double4x4(::simd_quatd q) : ::simd_double4x4(::simd_matrix4x4(q)) { }
 #endif
   };
+
+/*! @abstract Templated Matrix struct based on scalar type and number of columns and rows.  */
+template <typename ScalarType, size_t col, size_t row> struct Matrix {
+    //  static const size_t col
+    //  static const size_t row
+    //  typedef scalar_t
+    //  typedef type
+};
+/*! @abstract Helper type to access the simd type easily.                     */
+template <typename ScalarType, size_t col, size_t row>
+using Matrix_t = typename Matrix<ScalarType, col, row>::type;
+
+template<> struct Matrix<float, 2, 2> {
+    static const size_t col = 2;
+    static const size_t row = 2;
+    typedef float scalar_t;
+    typedef float2x2 type;
+};
+
+template<> struct Matrix<float, 3, 2> {
+    static const size_t col = 3;
+    static const size_t row = 2;
+    typedef float scalar_t;
+    typedef float3x2 type;
+};
+
+template<> struct Matrix<float, 4, 2> {
+    static const size_t col = 4;
+    static const size_t row = 2;
+    typedef float scalar_t;
+    typedef float4x2 type;
+};
+
+template<> struct Matrix<float, 2, 3> {
+    static const size_t col = 2;
+    static const size_t row = 3;
+    typedef float scalar_t;
+    typedef float2x3 type;
+};
+
+template<> struct Matrix<float, 3, 3> {
+    static const size_t col = 3;
+    static const size_t row = 3;
+    typedef float scalar_t;
+    typedef float3x3 type;
+};
+
+template<> struct Matrix<float, 4, 3> {
+    static const size_t col = 4;
+    static const size_t row = 3;
+    typedef float scalar_t;
+    typedef float4x3 type;
+};
+
+template<> struct Matrix<float, 2, 4> {
+    static const size_t col = 2;
+    static const size_t row = 4;
+    typedef float scalar_t;
+    typedef float2x4 type;
+};
+
+template<> struct Matrix<float, 3, 4> {
+    static const size_t col = 3;
+    static const size_t row = 4;
+    typedef float scalar_t;
+    typedef float3x4 type;
+};
+
+template<> struct Matrix<float, 4, 4> {
+    static const size_t col = 4;
+    static const size_t row = 4;
+    typedef float scalar_t;
+    typedef float4x4 type;
+};
+
+template<> struct Matrix<double, 2, 2> {
+    static const size_t col = 2;
+    static const size_t row = 2;
+    typedef double scalar_t;
+    typedef double2x2 type;
+};
+
+template<> struct Matrix<double, 3, 2> {
+    static const size_t col = 3;
+    static const size_t row = 2;
+    typedef double scalar_t;
+    typedef double3x2 type;
+};
+
+template<> struct Matrix<double, 4, 2> {
+    static const size_t col = 4;
+    static const size_t row = 2;
+    typedef double scalar_t;
+    typedef double4x2 type;
+};
+
+template<> struct Matrix<double, 2, 3> {
+    static const size_t col = 2;
+    static const size_t row = 3;
+    typedef double scalar_t;
+    typedef double2x3 type;
+};
+
+template<> struct Matrix<double, 3, 3> {
+    static const size_t col = 3;
+    static const size_t row = 3;
+    typedef double scalar_t;
+    typedef double3x3 type;
+};
+
+template<> struct Matrix<double, 4, 3> {
+    static const size_t col = 4;
+    static const size_t row = 3;
+    typedef double scalar_t;
+    typedef double4x3 type;
+};
+
+template<> struct Matrix<double, 2, 4> {
+    static const size_t col = 2;
+    static const size_t row = 4;
+    typedef double scalar_t;
+    typedef double2x4 type;
+};
+
+template<> struct Matrix<double, 3, 4> {
+    static const size_t col = 3;
+    static const size_t row = 4;
+    typedef double scalar_t;
+    typedef double3x4 type;
+};
+
+template<> struct Matrix<double, 4, 4> {
+    static const size_t col = 4;
+    static const size_t row = 4;
+    typedef double scalar_t;
+    typedef double4x4 type;
+};
+
+template <> struct get_traits<float2x2>
+{
+    using type = Matrix<float, 2, 2>;
+};
+
+template <> struct get_traits<float3x2>
+{
+    using type = Matrix<float, 3, 2>;
+};
+
+template <> struct get_traits<float4x2>
+{
+    using type = Matrix<float, 4, 2>;
+};
+
+template <> struct get_traits<float2x3>
+{
+    using type = Matrix<float, 2, 3>;
+};
+
+template <> struct get_traits<float3x3>
+{
+    using type = Matrix<float, 3, 3>;
+};
+
+template <> struct get_traits<float4x3>
+{
+    using type = Matrix<float, 4, 3>;
+};
+
+template <> struct get_traits<float2x4>
+{
+    using type = Matrix<float, 2, 4>;
+};
+
+template <> struct get_traits<float3x4>
+{
+    using type = Matrix<float, 3, 4>;
+};
+
+template <> struct get_traits<float4x4>
+{
+    using type = Matrix<float, 4, 4>;
+};
+
+template <> struct get_traits<double2x2>
+{
+    using type = Matrix<double, 2, 2>;
+};
+
+template <> struct get_traits<double3x2>
+{
+    using type = Matrix<double, 3, 2>;
+};
+
+template <> struct get_traits<double4x2>
+{
+    using type = Matrix<double, 4, 2>;
+};
+
+template <> struct get_traits<double2x3>
+{
+    using type = Matrix<double, 2, 3>;
+};
+
+template <> struct get_traits<double3x3>
+{
+    using type = Matrix<double, 3, 3>;
+};
+
+template <> struct get_traits<double4x3>
+{
+    using type = Matrix<double, 4, 3>;
+};
+
+template <> struct get_traits<double2x4>
+{
+    using type = Matrix<double, 2, 4>;
+};
+
+template <> struct get_traits<double3x4>
+{
+    using type = Matrix<double, 3, 4>;
+};
+
+template <> struct get_traits<double4x4>
+{
+    using type = Matrix<double, 4, 4>;
+};
+
 }
 #endif /* __cplusplus */
 #endif /* SIMD_COMPILER_HAS_REQUIRED_FEATURES */

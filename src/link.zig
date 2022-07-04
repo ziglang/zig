@@ -951,6 +951,7 @@ pub const File = struct {
 
     pub const ErrorFlags = struct {
         no_entry_point_found: bool = false,
+        missing_libc: bool = false,
     };
 
     pub const C = @import("link/C.zig");

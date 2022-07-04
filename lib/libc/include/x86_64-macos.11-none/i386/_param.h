@@ -29,6 +29,8 @@
 #ifndef _I386__PARAM_H_
 #define _I386__PARAM_H_
 
+#if defined (__i386__) || defined (__x86_64__)
+
 #include <i386/_types.h>
 
 /*
@@ -42,5 +44,6 @@
 #define      __DARWIN_ALIGNBYTES32     (sizeof(__uint32_t) - 1)
 #define       __DARWIN_ALIGN32(p)       ((__darwin_size_t)((__darwin_size_t)(p) + __DARWIN_ALIGNBYTES32) &~ __DARWIN_ALIGNBYTES32)
 
+#endif /* defined (__i386__) || defined (__x86_64__) */
 
 #endif /* _I386__PARAM_H_ */

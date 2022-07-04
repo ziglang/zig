@@ -395,11 +395,13 @@
  * types.
  */
 #define __printflike(fmtarg, firstvararg) \
-	        __attribute__((__format__ (__printf__, fmtarg, firstvararg)))
+	__attribute__((__format__ (__printf__, fmtarg, firstvararg)))
 #define __printf0like(fmtarg, firstvararg) \
-	        __attribute__((__format__ (__printf0__, fmtarg, firstvararg)))
+	__attribute__((__format__ (__printf0__, fmtarg, firstvararg)))
 #define __scanflike(fmtarg, firstvararg) \
-	        __attribute__((__format__ (__scanf__, fmtarg, firstvararg)))
+	__attribute__((__format__ (__scanf__, fmtarg, firstvararg)))
+#define __osloglike(fmtarg, firstvararg) \
+	__attribute__((__format__ (__os_log__, fmtarg, firstvararg)))
 
 #define __IDSTRING(name, string) static const char name[] __used = string
 
@@ -825,6 +827,49 @@
 #define __XNU_PRIVATE_EXTERN __attribute__((visibility("hidden")))
 #endif
 
+#if __has_include(<ptrcheck.h>)
+#include <ptrcheck.h>
+#else
+/*
+ * We intentionally define to nothing pointer attributes which do not have an
+ * impact on the ABI. __indexable and __bidi_indexable are not defined because
+ * of the ABI incompatibility that makes the diagnostic preferable.
+ */
+#define __has_ptrcheck 0
+#define __single
+#define __unsafe_indexable
+#define __counted_by(N)
+#define __sized_by(N)
+#define __ended_by(E)
+
+/*
+ * Similarly, we intentionally define to nothing the
+ * __ptrcheck_abi_assume_single and __ptrcheck_abi_assume_unsafe_indexable
+ * macros because they do not lead to an ABI incompatibility. However, we do not
+ * define the indexable and unsafe_indexable ones because the diagnostic is
+ * better than the silent ABI break.
+ */
+#define __ptrcheck_abi_assume_single()
+#define __ptrcheck_abi_assume_unsafe_indexable()
+
+/* __unsafe_forge intrinsics are defined as regular C casts. */
+#define __unsafe_forge_bidi_indexable(T, P, S) ((T)(P))
+#define __unsafe_forge_single(T, P) ((T)(P))
+
+/* decay operates normally; attribute is meaningless without pointer checks. */
+#define __array_decay_dicards_count_in_parameters
+#endif /* !__has_include(<ptrcheck.h>) */
+
+#define __ASSUME_PTR_ABI_SINGLE_BEGIN       __ptrcheck_abi_assume_single()
+#define __ASSUME_PTR_ABI_SINGLE_END         __ptrcheck_abi_assume_unsafe_indexable()
+
+#if __has_ptrcheck
+#define __header_indexable                  __indexable
+#define __header_bidi_indexable             __bidi_indexable
+#else
+#define __header_indexable
+#define __header_bidi_indexable
+#endif
 
 /*
  * Architecture validation for current SDK
@@ -881,6 +926,7 @@
 #define __options_closed_decl(_name, _type, ...) \
 	        typedef _type _name; enum __VA_ARGS__ __enum_closed __enum_options
 #endif
+
 
 
 #define __kernel_ptr_semantics
