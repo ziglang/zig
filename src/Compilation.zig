@@ -2321,7 +2321,12 @@ pub fn update(comp: *Compilation) !void {
 }
 
 fn flush(comp: *Compilation, prog_node: *std.Progress.Node) !void {
-    try comp.bin_file.flush(comp, prog_node); // This is needed before reading the error flags.
+    // This is needed before reading the error flags.
+    comp.bin_file.flush(comp, prog_node) catch |err| switch (err) {
+        error.FlushFailure => {}, // error reported through link_error_flags
+        error.LLDReportedFailure => {}, // error reported through log.err
+        else => |e| return e,
+    };
     comp.link_error_flags = comp.bin_file.errorFlags();
 
     const use_stage1 = build_options.omit_stage2 or
@@ -2593,10 +2598,11 @@ pub fn totalErrorCount(self: *Compilation) usize {
         }
     }
 
-    // The "no entry point found" error only counts if there are no other errors.
+    // The "no entry point found" error only counts if there are no semantic analysis errors.
     if (total == 0) {
         total += @boolToInt(self.link_error_flags.no_entry_point_found);
     }
+    total += @boolToInt(self.link_error_flags.missing_libc);
 
     // Compile log errors only count if there are no other errors.
     if (total == 0) {
@@ -2693,10 +2699,30 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
         }
     }
 
-    if (errors.items.len == 0 and self.link_error_flags.no_entry_point_found) {
+    if (errors.items.len == 0) {
+        if (self.link_error_flags.no_entry_point_found) {
+            try errors.append(.{
+                .plain = .{
+                    .msg = try std.fmt.allocPrint(arena_allocator, "no entry point found", .{}),
+                },
+            });
+        }
+    }
+
+    if (self.link_error_flags.missing_libc) {
+        const notes = try arena_allocator.create([2]AllErrors.Message);
+        notes.* = .{
+            .{ .plain = .{
+                .msg = try arena_allocator.dupe(u8, "run 'zig libc -h' to learn about libc installations"),
+            } },
+            .{ .plain = .{
+                .msg = try arena_allocator.dupe(u8, "run 'zig targets' to see the targets for which zig can always provide libc"),
+            } },
+        };
         try errors.append(.{
             .plain = .{
-                .msg = try std.fmt.allocPrint(arena_allocator, "no entry point found", .{}),
+                .msg = try std.fmt.allocPrint(arena_allocator, "libc not available", .{}),
+                .notes = notes,
             },
         });
     }

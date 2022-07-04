@@ -1719,6 +1719,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             }
 
             // libc dep
+            self.error_flags.missing_libc = false;
             if (self.base.options.link_libc) {
                 if (self.base.options.libc_installation != null) {
                     const needs_grouping = self.base.options.link_mode == .Static;
@@ -1739,7 +1740,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
                         .Dynamic => "libc.so",
                     }));
                 } else {
-                    unreachable; // Compiler was supposed to emit an error for not being able to provide libc.
+                    self.error_flags.missing_libc = true;
+                    return error.FlushFailure;
                 }
             }
         }
