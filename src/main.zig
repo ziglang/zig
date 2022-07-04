@@ -2757,7 +2757,7 @@ fn buildOutputType(
 
     gimmeMoreOfThoseSweetSweetFileDescriptors();
 
-    const comp = Compilation.create(gpa, .{
+    const comp = Compilation.create(gpa, Compilation.InitOptions{
         .zig_lib_directory = zig_lib_directory,
         .local_cache_directory = local_cache_directory,
         .global_cache_directory = global_cache_directory,
