@@ -127,6 +127,33 @@
 #define DISPATCH_UNAVAILABLE_MSG(msg)
 #endif
 
+#if defined(__cplusplus)
+# if __cplusplus >= 201703L
+#  define DISPATCH_FALLTHROUGH [[fallthrough]]
+# elif __cplusplus >= 201103L
+#  if defined(__clang__)
+#   define DISPATCH_FALLTHROUGH [[clang::fallthrough]]
+#  elif defined(__GNUC__) && __GNUC__ >= 7
+#   define DISPATCH_FALLTHROUGH [[gnu::fallthrough]]
+#  else
+#   define DISPATCH_FALLTHROUGH
+#  endif
+# else
+#  define DISPATCH_FALLTHROUGH
+# endif
+#elif defined(__GNUC__) && __GNUC__ >= 7
+# define DISPATCH_FALLTHROUGH __attribute__((__fallthrough__))
+#elif defined(__clang__)
+# if __has_attribute(fallthrough) && __clang_major__ >= 5
+#  define DISPATCH_FALLTHROUGH __attribute__((__fallthrough__))
+# else
+#  define DISPATCH_FALLTHROUGH
+# endif
+#else
+# define DISPATCH_FALLTHROUGH
+#endif
+
+
 #define DISPATCH_LINUX_UNAVAILABLE()
 
 #ifdef __FreeBSD__

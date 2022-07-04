@@ -400,12 +400,17 @@ struct task_vm_info {
 
 	/* added for rev5 */
 	integer_t decompressions;
+
+	/* added for rev6 */
+	int64_t ledger_swapins;
 };
 typedef struct task_vm_info     task_vm_info_data_t;
 typedef struct task_vm_info     *task_vm_info_t;
 #define TASK_VM_INFO_COUNT      ((mach_msg_type_number_t) \
 	        (sizeof (task_vm_info_data_t) / sizeof (natural_t)))
-#define TASK_VM_INFO_REV5_COUNT TASK_VM_INFO_COUNT
+#define TASK_VM_INFO_REV6_COUNT TASK_VM_INFO_COUNT
+#define TASK_VM_INFO_REV5_COUNT /* doesn't include ledger swapins */ \
+	((mach_msg_type_number_t) (TASK_VM_INFO_REV6_COUNT - 2))
 #define TASK_VM_INFO_REV4_COUNT /* doesn't include decompressions */ \
 	((mach_msg_type_number_t) (TASK_VM_INFO_REV5_COUNT - 1))
 #define TASK_VM_INFO_REV3_COUNT /* doesn't include limit bytes */ \
