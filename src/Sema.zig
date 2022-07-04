@@ -5736,6 +5736,7 @@ fn instantiateGenericCall(
                 const arg_src = call_src; // TODO better source location
                 const arg_ty = sema.typeOf(uncasted_args[i]);
                 const arg_val = try sema.resolveValue(block, arg_src, uncasted_args[i]);
+                try sema.resolveLazyValue(block, arg_src, arg_val);
                 arg_val.hash(arg_ty, &hasher, mod);
                 if (is_anytype) {
                     arg_ty.hashWithHasher(&hasher, mod);
