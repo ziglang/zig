@@ -165,6 +165,20 @@ XPC_EXPORT
 const char * const XPC_ACTIVITY_REQUIRE_SCREEN_SLEEP; // bool
 
 /*!
+ * @constant XPC_ACTIVITY_PREVENT_DEVICE_SLEEP
+ * A Boolean value indicating whether the activity should prevent system sleep while
+ * running on battery.
+ * If this property is set, the activity scheduler will take the appropriate power
+ * assertion to keep the device (but not the screen) awake while the activity is running.
+ * Only activities which perform critical system functions that do not want to be
+ * interrupted by system sleep should set this.
+ * Setting this property can impact battery life.
+ */
+__API_AVAILABLE(macos(12.0), ios(15.0), watchos(8.0))
+XPC_EXPORT
+const char * const XPC_ACTIVITY_PREVENT_DEVICE_SLEEP; // bool
+
+/*!
  * @constant XPC_ACTIVITY_REQUIRE_BATTERY_LEVEL
  * An integer percentage of minimum battery charge required to allow the
  * activity to run. A default minimum battery level is determined by the

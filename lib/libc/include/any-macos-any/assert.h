@@ -56,6 +56,12 @@
 #define	assert(e)	((void)0)
 #else
 
+#ifdef __FILE_NAME__
+#define __ASSERT_FILE_NAME __FILE_NAME__
+#else /* __FILE_NAME__ */
+#define __ASSERT_FILE_NAME __FILE__
+#endif /* __FILE_NAME__ */
+
 #ifndef __GNUC__
 
 __BEGIN_DECLS
@@ -66,7 +72,7 @@ int  printf(const char * __restrict, ...);
 __END_DECLS
 
 #define assert(e)  \
-    ((void) ((e) ? ((void)0) : __assert (#e, __FILE__, __LINE__)))
+    ((void) ((e) ? ((void)0) : __assert (#e, __ASSERT_FILE_NAME, __LINE__)))
 #define __assert(e, file, line) \
     ((void)printf ("%s:%d: failed assertion `%s'\n", file, line, e), abort())
 
@@ -90,10 +96,10 @@ __END_DECLS
 
 #if __DARWIN_UNIX03
 #define	assert(e) \
-    (__builtin_expect(!(e), 0) ? __assert_rtn(__func__, __FILE__, __LINE__, #e) : (void)0)
+    (__builtin_expect(!(e), 0) ? __assert_rtn(__func__, __ASSERT_FILE_NAME, __LINE__, #e) : (void)0)
 #else /* !__DARWIN_UNIX03 */
 #define assert(e)  \
-    (__builtin_expect(!(e), 0) ? __assert (#e, __FILE__, __LINE__) : (void)0)
+    (__builtin_expect(!(e), 0) ? __assert (#e, __ASSERT_FILE_NAME, __LINE__) : (void)0)
 #endif /* __DARWIN_UNIX03 */
 
 #endif /* __GNUC__ */

@@ -29,6 +29,8 @@
 #ifndef __ARM_MCONTEXT_H_
 #define __ARM_MCONTEXT_H_
 
+#if defined (__arm__) || defined (__arm64__)
+
 #include <sys/cdefs.h> /* __DARWIN_UNIX03 */
 #include <sys/appleapiopts.h>
 #include <mach/machine/_structs.h>
@@ -87,5 +89,7 @@ typedef _STRUCT_MCONTEXT32      *mcontext_t;
 #define _STRUCT_MCONTEXT        _STRUCT_MCONTEXT32
 #endif
 #endif /* _MCONTEXT_T */
+
+#endif /* defined (__arm__) || defined (__arm64__) */
 
 #endif /* __ARM_MCONTEXT_H_ */

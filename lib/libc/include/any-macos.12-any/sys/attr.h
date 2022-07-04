@@ -52,6 +52,7 @@
 
 #define FSOPT_ATTR_CMN_EXTENDED 0x00000020
 #define FSOPT_RETURN_REALDEV     0x00000200
+#define FSOPT_NOFOLLOW_ANY       0x00000800
 
 /* we currently aren't anywhere near this amount for a valid
  * fssearchblock.sizeofsearchparams1 or fssearchblock.sizeofsearchparams2

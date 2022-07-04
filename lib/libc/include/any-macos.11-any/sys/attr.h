@@ -83,6 +83,7 @@ struct attrlist {
 	attrgroup_t fileattr;                   /* file attribute group */
 	attrgroup_t forkattr;                   /* fork attribute group */
 };
+
 #define ATTR_BIT_MAP_COUNT 5
 
 typedef struct attribute_set {
@@ -92,6 +93,9 @@ typedef struct attribute_set {
 	attrgroup_t fileattr;                   /* file attribute group */
 	attrgroup_t forkattr;                   /* fork attribute group */
 } attribute_set_t;
+
+#define ATTRIBUTE_SET_INIT(a)               do {(a)->commonattr = (a)->volattr = (a)->dirattr = (a)->fileattr = (a)->forkattr = 0; } while(0)
+
 
 typedef struct attrreference {
 	int32_t     attr_dataoffset;
@@ -463,12 +467,13 @@ typedef struct vol_attributes_attr {
 #define ATTR_VOL_ENCODINGSUSED                  0x00010000
 #define ATTR_VOL_CAPABILITIES                   0x00020000
 #define ATTR_VOL_UUID                           0x00040000
+#define ATTR_VOL_SPACEUSED                      0x00800000
 #define ATTR_VOL_QUOTA_SIZE                     0x10000000
 #define ATTR_VOL_RESERVED_SIZE          0x20000000
 #define ATTR_VOL_ATTRIBUTES                     0x40000000
 #define ATTR_VOL_INFO                           0x80000000
 
-#define ATTR_VOL_VALIDMASK                      0xF007FFFF
+#define ATTR_VOL_VALIDMASK                      0xF087FFFF
 
 /*
  * The list of settable ATTR_VOL_* attributes include the following:
