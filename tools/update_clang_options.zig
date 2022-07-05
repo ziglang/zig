@@ -321,6 +321,14 @@ const known_options = [_]KnownOpt{
         .ident = "no_function_sections",
     },
     .{
+        .name = "fbuiltin",
+        .ident = "builtin",
+    },
+    .{
+        .name = "fno-builtin",
+        .ident = "no_builtin",
+    },
+    .{
         .name = "fcolor-diagnostics",
         .ident = "color_diagnostics",
     },
