@@ -31,6 +31,18 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
         .build_modes = true,
     });
 
+    cases.addBuildFile("test/link/wasm/segments/build.zig", .{
+        .build_modes = true,
+    });
+
+    cases.addBuildFile("test/link/wasm/stack_pointer/build.zig", .{
+        .build_modes = true,
+    });
+
+    cases.addBuildFile("test/link/wasm/bss/build.zig", .{
+        .build_modes = true,
+    });
+
     if (builtin.os.tag == .macos) {
         cases.addBuildFile("test/link/macho/entry/build.zig", .{
             .build_modes = true,

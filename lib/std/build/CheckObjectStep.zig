@@ -527,7 +527,7 @@ const MachODumper = struct {
 };
 
 const WasmDumper = struct {
-    const symtab_label = "names";
+    const symtab_label = "symbols";
 
     fn parseAndDump(bytes: []const u8, opts: Opts) ![]const u8 {
         const gpa = opts.gpa orelse unreachable; // Wasm dumper requires an allocator
@@ -594,6 +594,11 @@ const WasmDumper = struct {
                 const name = data[fbs.pos..][0..name_length];
                 fbs.pos += name_length;
                 try writer.print("\nname {s}\n", .{name});
+
+                if (mem.eql(u8, name, "name")) {
+                    try parseDumpNames(reader, writer, data);
+                }
+                // TODO: Implement parsing and dumping other custom sections (such as relocations)
             },
             .start => {
                 const start = try std.leb.readULEB128(u32, reader);
@@ -733,10 +738,12 @@ const WasmDumper = struct {
             .data => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    const flags = try std.leb.readULEB128(u32, reader);
-                    try writer.print("flags 0x{x}\n", .{flags});
-                    try parseDumpLimits(reader, writer);
-                    try writer.print("size {d}\n", .{try std.leb.readULEB128(u32, reader)});
+                    const index = try std.leb.readULEB128(u32, reader);
+                    try writer.print("memory index 0x{x}\n", .{index});
+                    try parseDumpInit(reader, writer);
+                    const size = try std.leb.readULEB128(u32, reader);
+                    try writer.print("size {d}\n", .{size});
+                    try reader.skipBytes(size, .{}); // we do not care about the content of the segments
                 }
             },
             else => unreachable,
@@ -756,9 +763,9 @@ const WasmDumper = struct {
         const flags = try std.leb.readULEB128(u8, reader);
         const min = try std.leb.readULEB128(u32, reader);
 
-        try writer.print("min {d}\n", .{min});
+        try writer.print("min {x}\n", .{min});
         if (flags != 0) {
-            try writer.print("max {d}\n", .{try std.leb.readULEB128(u32, reader)});
+            try writer.print("max {x}\n", .{try std.leb.readULEB128(u32, reader)});
         }
     }
 
@@ -769,17 +776,44 @@ const WasmDumper = struct {
             return err;
         };
         switch (opcode) {
-            .i32_const => try writer.print("i32.const {d}\n", .{try std.leb.readULEB128(u32, reader)}),
-            .i64_const => try writer.print("i64.const {d}\n", .{try std.leb.readULEB128(u64, reader)}),
-            .f32_const => try writer.print("f32.const {d}\n", .{@bitCast(f32, try reader.readIntLittle(u32))}),
-            .f64_const => try writer.print("f64.const {d}\n", .{@bitCast(f64, try reader.readIntLittle(u64))}),
-            .global_get => try writer.print("global.get {d}\n", .{try std.leb.readULEB128(u32, reader)}),
+            .i32_const => try writer.print("i32.const {x}\n", .{try std.leb.readILEB128(i32, reader)}),
+            .i64_const => try writer.print("i64.const {x}\n", .{try std.leb.readILEB128(i64, reader)}),
+            .f32_const => try writer.print("f32.const {x}\n", .{@bitCast(f32, try reader.readIntLittle(u32))}),
+            .f64_const => try writer.print("f64.const {x}\n", .{@bitCast(f64, try reader.readIntLittle(u64))}),
+            .global_get => try writer.print("global.get {x}\n", .{try std.leb.readULEB128(u32, reader)}),
             else => unreachable,
         }
         const end_opcode = try std.leb.readULEB128(u8, reader);
         if (end_opcode != std.wasm.opcode(.end)) {
             std.debug.print("expected 'end' opcode in init expression\n", .{});
             return error.MissingEndOpcode;
+        }
+    }
+
+    fn parseDumpNames(reader: anytype, writer: anytype, data: []const u8) !void {
+        while (reader.context.pos < data.len) {
+            try parseDumpType(std.wasm.NameSubsection, reader, writer);
+            const size = try std.leb.readULEB128(u32, reader);
+            const entries = try std.leb.readULEB128(u32, reader);
+            try writer.print(
+                \\size {d}
+                \\names {d}
+            , .{ size, entries });
+            try writer.writeByte('\n');
+            var i: u32 = 0;
+            while (i < entries) : (i += 1) {
+                const index = try std.leb.readULEB128(u32, reader);
+                const name_len = try std.leb.readULEB128(u32, reader);
+                const pos = reader.context.pos;
+                const name = data[pos..][0..name_len];
+                reader.context.pos += name_len;
+
+                try writer.print(
+                    \\index {d}
+                    \\name {s}
+                , .{ index, name });
+                try writer.writeByte('\n');
+            }
         }
     }
 };
