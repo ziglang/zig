@@ -35,7 +35,8 @@ pub fn a(
     _ = flag_a;
     // With this bug present, `flag_b` would actually contain the value 17.
     // Note: this bug only presents itself on debug mode.
-    try std.testing.expect(@ptrCast(*const u8, &flag_b).* == 1);
+    const flag_b_byte: u8 = @boolToInt(flag_b);
+    try std.testing.expect(flag_b_byte == 1);
 }
 
 pub fn b(x: *X) !void {
