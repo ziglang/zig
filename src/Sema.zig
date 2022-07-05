@@ -5736,6 +5736,7 @@ fn instantiateGenericCall(
                 const arg_src = call_src; // TODO better source location
                 const arg_ty = sema.typeOf(uncasted_args[i]);
                 const arg_val = try sema.resolveValue(block, arg_src, uncasted_args[i]);
+                try sema.resolveLazyValue(block, arg_src, arg_val);
                 arg_val.hash(arg_ty, &hasher, mod);
                 if (is_anytype) {
                     arg_ty.hashWithHasher(&hasher, mod);
@@ -26079,12 +26080,12 @@ fn intFitsInType(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
-    self: Value,
+    val: Value,
     ty: Type,
     vector_index: ?*usize,
 ) CompileError!bool {
     const target = sema.mod.getTarget();
-    switch (self.tag()) {
+    switch (val.tag()) {
         .zero,
         .undef,
         .bool_false,
@@ -26104,30 +26105,38 @@ fn intFitsInType(
             else => unreachable,
         },
 
-        .lazy_align => {
-            const info = ty.intInfo(target);
-            const max_needed_bits = @as(u16, 16) + @boolToInt(info.signedness == .signed);
-            // If it is u16 or bigger we know the alignment fits without resolving it.
-            if (info.bits >= max_needed_bits) return true;
-            const x = try sema.typeAbiAlignment(block, src, self.castTag(.lazy_align).?.data);
-            if (x == 0) return true;
-            const actual_needed_bits = std.math.log2(x) + 1 + @boolToInt(info.signedness == .signed);
-            return info.bits >= actual_needed_bits;
+        .lazy_align => switch (ty.zigTypeTag()) {
+            .Int => {
+                const info = ty.intInfo(target);
+                const max_needed_bits = @as(u16, 16) + @boolToInt(info.signedness == .signed);
+                // If it is u16 or bigger we know the alignment fits without resolving it.
+                if (info.bits >= max_needed_bits) return true;
+                const x = try sema.typeAbiAlignment(block, src, val.castTag(.lazy_align).?.data);
+                if (x == 0) return true;
+                const actual_needed_bits = std.math.log2(x) + 1 + @boolToInt(info.signedness == .signed);
+                return info.bits >= actual_needed_bits;
+            },
+            .ComptimeInt => return true,
+            else => unreachable,
         },
-        .lazy_size => {
-            const info = ty.intInfo(target);
-            const max_needed_bits = @as(u16, 64) + @boolToInt(info.signedness == .signed);
-            // If it is u64 or bigger we know the size fits without resolving it.
-            if (info.bits >= max_needed_bits) return true;
-            const x = try sema.typeAbiSize(block, src, self.castTag(.lazy_size).?.data);
-            if (x == 0) return true;
-            const actual_needed_bits = std.math.log2(x) + 1 + @boolToInt(info.signedness == .signed);
-            return info.bits >= actual_needed_bits;
+        .lazy_size => switch (ty.zigTypeTag()) {
+            .Int => {
+                const info = ty.intInfo(target);
+                const max_needed_bits = @as(u16, 64) + @boolToInt(info.signedness == .signed);
+                // If it is u64 or bigger we know the size fits without resolving it.
+                if (info.bits >= max_needed_bits) return true;
+                const x = try sema.typeAbiSize(block, src, val.castTag(.lazy_size).?.data);
+                if (x == 0) return true;
+                const actual_needed_bits = std.math.log2(x) + 1 + @boolToInt(info.signedness == .signed);
+                return info.bits >= actual_needed_bits;
+            },
+            .ComptimeInt => return true,
+            else => unreachable,
         },
 
         .int_u64 => switch (ty.zigTypeTag()) {
             .Int => {
-                const x = self.castTag(.int_u64).?.data;
+                const x = val.castTag(.int_u64).?.data;
                 if (x == 0) return true;
                 const info = ty.intInfo(target);
                 const needed_bits = std.math.log2(x) + 1 + @boolToInt(info.signedness == .signed);
@@ -26138,13 +26147,13 @@ fn intFitsInType(
         },
         .int_i64 => switch (ty.zigTypeTag()) {
             .Int => {
-                const x = self.castTag(.int_i64).?.data;
+                const x = val.castTag(.int_i64).?.data;
                 if (x == 0) return true;
                 const info = ty.intInfo(target);
                 if (info.signedness == .unsigned and x < 0)
                     return false;
                 var buffer: Value.BigIntSpace = undefined;
-                return (try self.toBigIntAdvanced(&buffer, target, sema.kit(block, src))).fitsInTwosComp(info.signedness, info.bits);
+                return (try val.toBigIntAdvanced(&buffer, target, sema.kit(block, src))).fitsInTwosComp(info.signedness, info.bits);
             },
             .ComptimeInt => return true,
             else => unreachable,
@@ -26152,7 +26161,7 @@ fn intFitsInType(
         .int_big_positive => switch (ty.zigTypeTag()) {
             .Int => {
                 const info = ty.intInfo(target);
-                return self.castTag(.int_big_positive).?.asBigInt().fitsInTwosComp(info.signedness, info.bits);
+                return val.castTag(.int_big_positive).?.asBigInt().fitsInTwosComp(info.signedness, info.bits);
             },
             .ComptimeInt => return true,
             else => unreachable,
@@ -26160,7 +26169,7 @@ fn intFitsInType(
         .int_big_negative => switch (ty.zigTypeTag()) {
             .Int => {
                 const info = ty.intInfo(target);
-                return self.castTag(.int_big_negative).?.asBigInt().fitsInTwosComp(info.signedness, info.bits);
+                return val.castTag(.int_big_negative).?.asBigInt().fitsInTwosComp(info.signedness, info.bits);
             },
             .ComptimeInt => return true,
             else => unreachable,
@@ -26191,7 +26200,7 @@ fn intFitsInType(
 
         .aggregate => {
             assert(ty.zigTypeTag() == .Vector);
-            for (self.castTag(.aggregate).?.data) |elem, i| {
+            for (val.castTag(.aggregate).?.data) |elem, i| {
                 if (!(try sema.intFitsInType(block, src, elem, ty.scalarType(), null))) {
                     if (vector_index) |some| some.* = i;
                     return false;

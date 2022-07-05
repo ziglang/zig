@@ -328,6 +328,8 @@ fn extendedUnionSize(comptime Operand: type, operand: Operand) usize {
 }
 
 test "SPIR-V Section emit() - no operands" {
+    if (@import("builtin").zig_backend == .stage1) return error.SkipZigTest;
+
     var section = Section{};
     defer section.deinit(std.testing.allocator);
 
@@ -337,6 +339,8 @@ test "SPIR-V Section emit() - no operands" {
 }
 
 test "SPIR-V Section emit() - simple" {
+    if (@import("builtin").zig_backend == .stage1) return error.SkipZigTest;
+
     var section = Section{};
     defer section.deinit(std.testing.allocator);
 
@@ -353,6 +357,8 @@ test "SPIR-V Section emit() - simple" {
 }
 
 test "SPIR-V Section emit() - string" {
+    if (@import("builtin").zig_backend == .stage1) return error.SkipZigTest;
+
     var section = Section{};
     defer section.deinit(std.testing.allocator);
 
@@ -378,6 +384,8 @@ test "SPIR-V Section emit() - string" {
 }
 
 test "SPIR-V Section emit()- extended mask" {
+    if (@import("builtin").zig_backend == .stage1) return error.SkipZigTest;
+
     var section = Section{};
     defer section.deinit(std.testing.allocator);
 
@@ -402,6 +410,8 @@ test "SPIR-V Section emit()- extended mask" {
 }
 
 test "SPIR-V Section emit() - extended union" {
+    if (@import("builtin").zig_backend == .stage1) return error.SkipZigTest;
+
     var section = Section{};
     defer section.deinit(std.testing.allocator);
 
