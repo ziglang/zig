@@ -62,13 +62,13 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             }
 
             /// Encode the public key using the compressed SEC-1 format.
-            pub fn toCompressedSec1(p: Curve) [compressed_sec1_encoded_length]u8 {
-                return p.toCompressedSec1();
+            pub fn toCompressedSec1(self: PublicKey) [compressed_sec1_encoded_length]u8 {
+                return self.p.toCompressedSec1();
             }
 
             /// Encoding the public key using the uncompressed SEC-1 format.
-            pub fn toUncompressedSec1(p: Curve) [uncompressed_sec1_encoded_length]u8 {
-                return p.toUncompressedSec1();
+            pub fn toUncompressedSec1(self: PublicKey) [uncompressed_sec1_encoded_length]u8 {
+                return self.p.toUncompressedSec1();
             }
         };
 
