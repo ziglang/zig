@@ -8,8 +8,8 @@ export fn entry() void {
 }
 fn foo(x: i32) !void {
     switch (x) {
-        0 ... 10 => return error.Foo,
-        11 ... 20 => return error.Bar,
+        0...10 => return error.Foo,
+        11...20 => return error.Bar,
         else => {},
     }
 }
@@ -19,4 +19,4 @@ fn foo(x: i32) !void {
 // target=native
 //
 // :5:9: error: duplicate switch value
-// :3:9: note: other value here
+// :3:9: note: previous value here
