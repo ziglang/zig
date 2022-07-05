@@ -14,4 +14,5 @@ fn doSomeAsm() void {
 // backend=llvm
 // target=native
 //
-// :6:5: error: unable to evaluate constant expression
+// :6:5: error: unable to resolve comptime value
+// :2:14: note: called from here
