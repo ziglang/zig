@@ -21614,10 +21614,10 @@ fn beginComptimePtrLoad(
                 deref.ty_without_well_defined_layout = field_ptr.container_ty;
             }
 
-            const tv = &(deref.pointee orelse {
+            const tv = deref.pointee orelse {
                 deref.pointee = null;
                 break :blk deref;
-            });
+            };
             const coerce_in_mem_ok =
                 (try sema.coerceInMemoryAllowed(block, field_ptr.container_ty, tv.ty, false, target, src, src)) == .ok or
                 (try sema.coerceInMemoryAllowed(block, tv.ty, field_ptr.container_ty, false, target, src, src)) == .ok;
