@@ -446,6 +446,8 @@ const usage_build_generic =
     \\  --compress-debug-sections=[e]  Debug section compression settings
     \\      none                       No compression
     \\      zlib                       Compression with deflate/inflate
+    \\  --gc-sections                  Force removal of functions and data that are unreachable by the entry point or exported symbols
+    \\  --no-gc-sections               Don't force removal of unreachable functions and data
     \\  --subsystem [subsystem]        (Windows) /SUBSYSTEM:<subsystem> to the linker
     \\  --stack [size]                 Override default stack size
     \\  --image-base [addr]            Set base address for executable image
@@ -463,7 +465,7 @@ const usage_build_generic =
     \\  -search_dylibs_first           (Darwin) search `libx.dylib` in each dir in library search paths, then `libx.a`
     \\  -headerpad [value]             (Darwin) set minimum space for future expansion of the load commands in hexadecimal notation
     \\  -headerpad_max_install_names   (Darwin) set enough space as if all paths were MAXPATHLEN
-    \\  -dead_strip                    (Darwin) remove function and data that are unreachable by the entry point of exported symbols
+    \\  -dead_strip                    (Darwin) remove functions and data that are unreachable by the entry point or exported symbols
     \\  -dead_strip_dylibs             (Darwin) remove dylibs that are unreachable by the entry point or exported symbols
     \\  --import-memory                (WebAssembly) import memory from the environment
     \\  --import-table                 (WebAssembly) import function table from the host environment
@@ -1314,6 +1316,10 @@ fn buildOutputType(
                         try linker_export_symbol_names.append(arg["--export=".len..]);
                     } else if (mem.eql(u8, arg, "-Bsymbolic")) {
                         linker_bind_global_refs_locally = true;
+                    } else if (mem.eql(u8, arg, "--gc-sections")) {
+                        linker_gc_sections = true;
+                    } else if (mem.eql(u8, arg, "--no-gc-sections")) {
+                        linker_gc_sections = false;
                     } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
                         debug_compile_errors = true;
                     } else if (mem.eql(u8, arg, "--verbose-link")) {
