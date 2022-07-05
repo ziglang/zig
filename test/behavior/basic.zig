@@ -796,6 +796,10 @@ test "auto created variables have correct alignment" {
 }
 
 test "extern variable with non-pointer opaque type" {
+    if (builtin.zig_backend == .stage1) {
+        // Regressed with LLVM 14
+        return error.SkipZigTest;
+    }
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
