@@ -108,6 +108,7 @@ pub const Options = struct {
     link_libcpp: bool,
     link_libunwind: bool,
     function_sections: bool,
+    no_builtin: bool,
     eh_frame_hdr: bool,
     emit_relocs: bool,
     rdynamic: bool,
