@@ -5005,6 +5005,7 @@ fn buildOutputFromZig(
         .link_mode = .Static,
         .function_sections = true,
         .no_builtin = true,
+        .use_stage1 = build_options.is_stage1 and comp.bin_file.options.use_stage1,
         .want_sanitize_c = false,
         .want_stack_check = false,
         .want_red_zone = comp.bin_file.options.red_zone,
