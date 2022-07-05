@@ -177,6 +177,15 @@ test {
     {
         _ = @import("behavior/bugs/11227.zig");
         _ = @import("behavior/export.zig");
+    }
+
+    if (builtin.zig_backend != .stage2_arm and
+        builtin.zig_backend != .stage2_x86_64 and
+        builtin.zig_backend != .stage2_aarch64 and
+        builtin.zig_backend != .stage2_wasm and
+        builtin.zig_backend != .stage2_c and
+        builtin.zig_backend != .stage1)
+    {
         _ = @import("behavior/export_self_referential_type_info.zig");
     }
 }

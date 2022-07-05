@@ -608,6 +608,14 @@ test "128-bit multiplication" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
+    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
+        builtin.cpu.arch == .wasm32)
+    {
+        // TODO This regressed with LLVM 14 due to the __muloti4 compiler-rt symbol
+        // being lowered to call itself despite having the "nobuiltin" attribute.
+        return error.SkipZigTest;
+    }
+
     var a: i128 = 3;
     var b: i128 = 2;
     var c = a * b;
