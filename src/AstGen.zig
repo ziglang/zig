@@ -812,7 +812,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
 
         .deref => {
             const lhs = try expr(gz, scope, .none, node_datas[node].lhs);
-            _ = try gz.addUnTok(.validate_deref, lhs, main_tokens[node]);
+            _ = try gz.addUnNode(.validate_deref, lhs, node);
             switch (rl) {
                 .ref => return lhs,
                 else => {

@@ -2501,6 +2501,16 @@ pub const SrcLoc = struct {
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
+            .node_offset_un_op => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_datas = tree.nodes.items(.data);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
+
+                const main_tokens = tree.nodes.items(.main_token);
+                const tok_index = main_tokens[node_datas[node].lhs];
+                const token_starts = tree.tokens.items(.start);
+                return token_starts[tok_index];
+            },
         }
     }
 
@@ -2728,6 +2738,9 @@ pub const LazySrcLoc = union(enum) {
     /// to the elem expression.
     /// The Decl is determined contextually.
     node_offset_array_type_elem: i32,
+    /// The source location points to the operand of an unary expression.
+    /// The Decl is determined contextually.
+    node_offset_un_op: i32,
 
     pub const nodeOffset = if (TracedOffset.want_tracing) nodeOffsetDebug else nodeOffsetRelease;
 
@@ -2788,6 +2801,7 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_array_type_len,
             .node_offset_array_type_sentinel,
             .node_offset_array_type_elem,
+            .node_offset_un_op,
             => .{
                 .file_scope = decl.getFileScope(),
                 .parent_decl_node = decl.src_node,
