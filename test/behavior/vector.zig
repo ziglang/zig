@@ -1074,6 +1074,55 @@ test "alignment of vectors" {
     try expect(@alignOf(@Vector(2, u1)) == 1);
     try expect(@alignOf(@Vector(1, u1)) == 1);
     try expect(@alignOf(@Vector(2, u16)) == 4);
+
+    try expect(@alignOf(@Vector(7, i8)) == 8);
+    try expect(@alignOf(@Vector(8, i8)) == 8);
+    try expect(@alignOf(@Vector(9, i8)) == 16);
+    try expect(@alignOf(@Vector(16, i8)) == 16);
+    try expect(@alignOf(@Vector(31, i8)) == 32);
+    try expect(@alignOf(@Vector(32, i8)) == 32);
+    try expect(@alignOf(@Vector(33, i8)) == 64);
+
+    try expect(@alignOf(@Vector(3, u16)) == 8);
+    try expect(@alignOf(@Vector(3, f32)) == 16);
+    try expect(@alignOf(@Vector(3, u64)) == 32);
+    try expect(@alignOf(@Vector(1, *u8)) == @sizeOf(*u8)*1);
+    try expect(@alignOf(@Vector(2, *u8)) == @sizeOf(*u8)*2);
+    try expect(@alignOf(@Vector(3, *u8)) == @sizeOf(*u8)*4);
+
+    try expect(@alignOf(@Vector(8, bool)) == 1);
+    try expect(@alignOf(@Vector(8, u1)) == 1);
+    try expect(@alignOf(@Vector(9, u1)) == 2);
+    try expect(@alignOf(@Vector(32, u1)) == 4);
+    try expect(@alignOf(@Vector(33, u1)) == 8);
+}
+
+test "size of vectors" {
+    try expect(@sizeOf(@Vector(2, u8)) == 2);
+    try expect(@sizeOf(@Vector(2, u1)) == 1);
+    try expect(@sizeOf(@Vector(1, u1)) == 1);
+    try expect(@sizeOf(@Vector(2, u16)) == 4);
+
+    try expect(@sizeOf(@Vector(7, i8)) == 8);
+    try expect(@sizeOf(@Vector(8, i8)) == 8);
+    try expect(@sizeOf(@Vector(9, i8)) == 16);
+    try expect(@sizeOf(@Vector(16, i8)) == 16);
+    try expect(@sizeOf(@Vector(31, i8)) == 32);
+    try expect(@sizeOf(@Vector(32, i8)) == 32);
+    try expect(@sizeOf(@Vector(33, i8)) == 64);
+
+    try expect(@sizeOf(@Vector(3, u16)) == 8);
+    try expect(@sizeOf(@Vector(3, f32)) == 16);
+    try expect(@sizeOf(@Vector(3, u64)) == 32);
+    try expect(@sizeOf(@Vector(1, *u8)) == @sizeOf(*u8)*1);
+    try expect(@sizeOf(@Vector(2, *u8)) == @sizeOf(*u8)*2);
+    try expect(@sizeOf(@Vector(3, *u8)) == @sizeOf(*u8)*4);
+
+    try expect(@sizeOf(@Vector(8, bool)) == 1);
+    try expect(@sizeOf(@Vector(8, u1)) == 1);
+    try expect(@sizeOf(@Vector(9, u1)) == 2);
+    try expect(@sizeOf(@Vector(32, u1)) == 4);
+    try expect(@sizeOf(@Vector(33, u1)) == 8);
 }
 
 test "loading the second vector from a slice of vectors" {
