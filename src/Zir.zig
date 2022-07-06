@@ -212,7 +212,7 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field. Payload is `Bin`.
         array_mul,
         /// `[N]T` syntax. No source location provided.
-        /// Uses the `bin` union field. lhs is length, rhs is element type.
+        /// Uses the `pl_node` union field. Payload is `Bin`. lhs is length, rhs is element type.
         array_type,
         /// `[N:S]T` syntax. Source location is the array type expression node.
         /// Uses the `pl_node` union field. Payload is `ArrayTypeSentinel`.
@@ -1571,7 +1571,7 @@ pub const Inst = struct {
                 .param_anytype_comptime = .str_tok,
                 .array_cat = .pl_node,
                 .array_mul = .pl_node,
-                .array_type = .bin,
+                .array_type = .pl_node,
                 .array_type_sentinel = .pl_node,
                 .vector_type = .pl_node,
                 .elem_type_index = .bin,

@@ -1320,7 +1320,10 @@ fn arrayInitExpr(
                 const len_inst = try gz.addInt(array_init.ast.elements.len);
                 const elem_type = try typeExpr(gz, scope, array_type.ast.elem_type);
                 if (array_type.ast.sentinel == 0) {
-                    const array_type_inst = try gz.addBin(.array_type, len_inst, elem_type);
+                    const array_type_inst = try gz.addPlNode(.array_type, array_init.ast.type_expr, Zir.Inst.Bin{
+                        .lhs = len_inst,
+                        .rhs = elem_type,
+                    });
                     break :inst .{
                         .array = array_type_inst,
                         .elem = elem_type,
@@ -1553,7 +1556,10 @@ fn structInitExpr(
             if (is_inferred_array_len) {
                 const elem_type = try typeExpr(gz, scope, array_type.ast.elem_type);
                 const array_type_inst = if (array_type.ast.sentinel == 0) blk: {
-                    break :blk try gz.addBin(.array_type, .zero_usize, elem_type);
+                    break :blk try gz.addPlNode(.array_type, struct_init.ast.type_expr, Zir.Inst.Bin{
+                        .lhs = .zero_usize,
+                        .rhs = elem_type,
+                    });
                 } else blk: {
                     const sentinel = try comptimeExpr(gz, scope, .{ .ty = elem_type }, array_type.ast.sentinel);
                     break :blk try gz.addPlNode(
@@ -3203,7 +3209,10 @@ fn arrayType(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) !Z
     const len = try expr(gz, scope, .{ .coerced_ty = .usize_type }, len_node);
     const elem_type = try typeExpr(gz, scope, node_datas[node].rhs);
 
-    const result = try gz.addBin(.array_type, len, elem_type);
+    const result = try gz.addPlNode(.array_type, node, Zir.Inst.Bin{
+        .lhs = len,
+        .rhs = elem_type,
+    });
     return rvalue(gz, rl, result, node);
 }
 

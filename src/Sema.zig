@@ -2815,7 +2815,7 @@ fn zirAllocExtended(
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.AllocExtended, extended.operand);
     const src = LazySrcLoc.nodeOffset(extra.data.src_node);
-    const ty_src = src; // TODO better source location
+    const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = extra.data.src_node };
     const align_src = src; // TODO better source location
     const small = @bitCast(Zir.Inst.AllocExtended.Small, extended.small);
 
@@ -6194,11 +6194,12 @@ fn zirArrayType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     const tracy = trace(@src());
     defer tracy.end();
 
-    const bin_inst = sema.code.instructions.items(.data)[inst].bin;
-    const len_src = sema.src; // TODO better source location
-    const elem_src = sema.src; // TODO better source location
-    const len = try sema.resolveInt(block, len_src, bin_inst.lhs, Type.usize);
-    const elem_type = try sema.resolveType(block, elem_src, bin_inst.rhs);
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const len_src: LazySrcLoc = .{ .node_offset_array_type_len = inst_data.src_node };
+    const elem_src: LazySrcLoc = .{ .node_offset_array_type_elem = inst_data.src_node };
+    const len = try sema.resolveInt(block, len_src, extra.lhs, Type.usize);
+    const elem_type = try sema.resolveType(block, elem_src, extra.rhs);
     const array_ty = try Type.array(sema.arena, len, null, elem_type, sema.mod);
 
     return sema.addType(array_ty);
@@ -10570,18 +10571,17 @@ fn analyzeArithmetic(
     if (lhs_zig_ty_tag == .Pointer) switch (lhs_ty.ptrSize()) {
         .One, .Slice => {},
         .Many, .C => {
-            const op_src = src; // TODO better source location
             const air_tag: Air.Inst.Tag = switch (zir_tag) {
                 .add => .ptr_add,
                 .sub => .ptr_sub,
                 else => return sema.fail(
                     block,
-                    op_src,
+                    src,
                     "invalid pointer arithmetic operand: '{s}''",
                     .{@tagName(zir_tag)},
                 ),
             };
-            return analyzePtrArithmetic(sema, block, op_src, lhs, rhs, air_tag, lhs_src, rhs_src);
+            return analyzePtrArithmetic(sema, block, src, lhs, rhs, air_tag, lhs_src, rhs_src);
         },
     };
 
