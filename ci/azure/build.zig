@@ -136,6 +136,7 @@ pub fn build(b: *Builder) !void {
     exe_options.addOption(bool, "force_gpa", force_gpa);
 
     if (link_libc) {
+        if (target.isGnuLibC()) exe.linkSystemLibrary("c_nonshared");
         exe.linkLibC();
     }
 
@@ -324,6 +325,7 @@ pub fn build(b: *Builder) !void {
         if (!enable_llvm) {
             exe.linkSystemLibraryName("c++");
         }
+        if (target.isGnuLibC()) exe.linkSystemLibrary("c_nonshared");
         exe.linkLibC();
 
         if (target.isWindows()) {
