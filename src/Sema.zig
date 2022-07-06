@@ -22615,9 +22615,9 @@ fn analyzeSlice(
     sentinel_opt: Air.Inst.Ref,
     sentinel_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
-    const ptr_src = src; // TODO better source location
-    const start_src = src; // TODO better source location
-    const end_src = src; // TODO better source location
+    const ptr_src: LazySrcLoc = .{ .node_offset_slice_ptr = src.node_offset.x };
+    const start_src: LazySrcLoc = .{ .node_offset_slice_start = src.node_offset.x };
+    const end_src: LazySrcLoc = .{ .node_offset_slice_end = src.node_offset.x };
     // Slice expressions can operate on a variable whose type is an array. This requires
     // the slice operand to be a pointer. In the case of a non-array, it will be a double pointer.
     const ptr_ptr_ty = sema.typeOf(ptr_ptr);
@@ -22647,7 +22647,7 @@ fn analyzeSlice(
                     array_ty = double_child_ty;
                     elem_ty = double_child_ty.childType();
                 } else {
-                    return sema.fail(block, ptr_src, "slice of single-item pointer", .{});
+                    return sema.fail(block, src, "slice of single-item pointer", .{});
                 }
             },
             .Many, .C => {
@@ -22660,7 +22660,7 @@ fn analyzeSlice(
                 if (ptr_ptr_child_ty.ptrSize() == .C) {
                     if (try sema.resolveDefinedValue(block, ptr_src, ptr_or_slice)) |ptr_val| {
                         if (ptr_val.isNull()) {
-                            return sema.fail(block, ptr_src, "slice of null pointer", .{});
+                            return sema.fail(block, src, "slice of null pointer", .{});
                         }
                     }
                 }
@@ -22673,7 +22673,7 @@ fn analyzeSlice(
                 elem_ty = ptr_ptr_child_ty.childType();
             },
         },
-        else => return sema.fail(block, ptr_src, "slice of non-array type '{}'", .{ptr_ptr_child_ty.fmt(mod)}),
+        else => return sema.fail(block, src, "slice of non-array type '{}'", .{ptr_ptr_child_ty.fmt(mod)}),
     }
 
     const ptr = if (slice_ty.isSlice())
@@ -22846,7 +22846,7 @@ fn analyzeSlice(
             return sema.addConstUndef(return_ty);
         }
 
-        return sema.fail(block, ptr_src, "non-zero length slice of undefined pointer", .{});
+        return sema.fail(block, src, "non-zero length slice of undefined pointer", .{});
     }
 
     const return_ty = try Type.ptr(sema.arena, mod, .{
