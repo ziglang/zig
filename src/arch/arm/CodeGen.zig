@@ -567,6 +567,10 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .xor             => try self.airBinOp(inst, .xor),
             .shr             => try self.airBinOp(inst, .shr),
             .shr_exact       => try self.airBinOp(inst, .shr_exact),
+            .div_float       => try self.airBinOp(inst, .div_float),
+            .div_trunc       => try self.airBinOp(inst, .div_trunc),
+            .div_floor       => try self.airBinOp(inst, .div_floor),
+            .div_exact       => try self.airBinOp(inst, .div_exact),
 
             .ptr_add => try self.airPtrArithmetic(inst, .ptr_add),
             .ptr_sub => try self.airPtrArithmetic(inst, .ptr_sub),
@@ -603,8 +607,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .sub_with_overflow => try self.airOverflow(inst),
             .mul_with_overflow => try self.airMulWithOverflow(inst),
             .shl_with_overflow => try self.airShlWithOverflow(inst),
-
-            .div_float, .div_trunc, .div_floor, .div_exact => try self.airDiv(inst),
 
             .cmp_lt  => try self.airCmp(inst, .lt),
             .cmp_lte => try self.airCmp(inst, .lte),
@@ -1727,12 +1729,6 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         }
     };
     return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
-}
-
-fn airDiv(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement div for {}", .{self.target.cpu.arch});
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airRem(self: *Self, inst: Air.Inst.Index) !void {
@@ -2875,6 +2871,55 @@ fn binOp(
                         return self.fail("TODO ARM binary operations on integers > u32/i32", .{});
                     }
                 },
+                else => unreachable,
+            }
+        },
+        .div_float => {
+            switch (lhs_ty.zigTypeTag()) {
+                .Float => return self.fail("TODO ARM binary operations on floats", .{}),
+                .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
+                else => unreachable,
+            }
+        },
+        .div_trunc, .div_floor => {
+            switch (lhs_ty.zigTypeTag()) {
+                .Float => return self.fail("TODO ARM binary operations on floats", .{}),
+                .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
+                .Int => {
+                    const mod = self.bin_file.options.module.?;
+                    assert(lhs_ty.eql(rhs_ty, mod));
+                    const int_info = lhs_ty.intInfo(self.target.*);
+                    if (int_info.bits <= 32) {
+                        switch (int_info.signedness) {
+                            .signed => {
+                                return self.fail("TODO ARM signed integer division", .{});
+                            },
+                            .unsigned => {
+                                switch (rhs) {
+                                    .immediate => |imm| {
+                                        if (std.math.isPowerOfTwo(imm)) {
+                                            const shift = MCValue{ .immediate = std.math.log2_int(u32, imm) };
+                                            return try self.binOp(.shr, lhs, shift, lhs_ty, rhs_ty, metadata);
+                                        } else {
+                                            return self.fail("TODO ARM integer division by constants", .{});
+                                        }
+                                    },
+                                    else => return self.fail("TODO ARM integer division", .{}),
+                                }
+                            },
+                        }
+                    } else {
+                        return self.fail("TODO ARM integer division for integers > u32/i32", .{});
+                    }
+                },
+                else => unreachable,
+            }
+        },
+        .div_exact => {
+            switch (lhs_ty.zigTypeTag()) {
+                .Float => return self.fail("TODO ARM binary operations on floats", .{}),
+                .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
+                .Int => return self.fail("TODO ARM div_exact", .{}),
                 else => unreachable,
             }
         },
