@@ -36,7 +36,7 @@ pub const want_ppc_abi = builtin.cpu.arch.isPPC() or builtin.cpu.arch.isPPC64();
 ///   x86_64-windows-msvc => true
 ///   any-macos-any => false
 pub const gnu_f16_abi = switch (builtin.cpu.arch) {
-    .wasm32, .wasm64 => false,
+    .wasm32, .wasm64, .riscv64, .riscv32 => false,
 
     .arm, .armeb, .thumb, .thumbeb => switch (builtin.abi) {
         .eabi, .eabihf => false,
