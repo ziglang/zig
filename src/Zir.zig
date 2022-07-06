@@ -244,7 +244,7 @@ pub const Inst = struct {
         /// Uses the pl_node field with payload `Bin`.
         bitcast,
         /// Bitwise NOT. `~`
-        /// Uses `un_node`.
+        /// Uses `un_tok`.
         bit_not,
         /// Bitwise OR. `|`
         bit_or,
@@ -260,7 +260,7 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field. Payload is `Block`.
         suspend_block,
         /// Boolean NOT. See also `bit_not`.
-        /// Uses the `un_node` field.
+        /// Uses the `un_tok` field.
         bool_not,
         /// Short-circuiting boolean `and`. `lhs` is a boolean `Ref` and the other operand
         /// is a block, which is evaluated if `lhs` is `true`.
@@ -729,7 +729,7 @@ pub const Inst = struct {
         /// resulting array initialization value is within a comptime scope.
         validate_array_init_comptime,
         /// Check that operand type supports the dereference operand (.*).
-        /// Uses the `un_tok` field.
+        /// Uses the `un_node` field.
         validate_deref,
         /// A struct literal with a specified type, with no fields.
         /// Uses the `un_node` field.
@@ -1704,7 +1704,7 @@ pub const Inst = struct {
                 .validate_struct_init_comptime = .pl_node,
                 .validate_array_init = .pl_node,
                 .validate_array_init_comptime = .pl_node,
-                .validate_deref = .un_tok,
+                .validate_deref = .un_node,
                 .struct_init_empty = .un_node,
                 .field_type = .pl_node,
                 .field_type_ref = .pl_node,
