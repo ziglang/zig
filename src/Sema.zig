@@ -13713,7 +13713,7 @@ fn zirPtrTypeSimple(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
         .@"volatile" = inst_data.is_volatile,
         .size = inst_data.size,
     });
-    try sema.validatePtrTy(block, elem_ty_src, ty, inst_data.is_allowzero);
+    try sema.validatePtrTy(block, elem_ty_src, ty);
     return sema.addType(ty);
 }
 
@@ -13799,11 +13799,11 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         .@"volatile" = inst_data.flags.is_volatile,
         .size = inst_data.size,
     });
-    try sema.validatePtrTy(block, elem_ty_src, ty, inst_data.flags.is_allowzero);
+    try sema.validatePtrTy(block, elem_ty_src, ty);
     return sema.addType(ty);
 }
 
-fn validatePtrTy(sema: *Sema, block: *Block, elem_src: LazySrcLoc, ty: Type, explicit_allowzer: bool) CompileError!void {
+fn validatePtrTy(sema: *Sema, block: *Block, elem_src: LazySrcLoc, ty: Type) CompileError!void {
     const ptr_info = ty.ptrInfo().data;
     const pointee_tag = ptr_info.pointee_type.zigTypeTag();
     if (pointee_tag == .NoReturn) {
@@ -13814,8 +13814,6 @@ fn validatePtrTy(sema: *Sema, block: *Block, elem_src: LazySrcLoc, ty: Type, exp
         // TODO check extern type
         if (pointee_tag == .Opaque) {
             return sema.fail(block, elem_src, "C pointers cannot point to opaque types", .{});
-        } else if (explicit_allowzer) {
-            return sema.fail(block, elem_src, "C pointers always allow address zero", .{});
         }
     }
 }
