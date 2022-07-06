@@ -2124,11 +2124,11 @@ test "pointer" {
         try expectFmt("pointer: i32@deadbeef\n", "pointer: {*}\n", .{value});
     }
     {
-        const value = @intToPtr(*const fn () void, 0xdeadbeef);
+        const value = @intToPtr(*align(1) const fn () void, 0xdeadbeef);
         try expectFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
     }
     {
-        const value = @intToPtr(*const fn () void, 0xdeadbeef);
+        const value = @intToPtr(*align(1) const fn () void, 0xdeadbeef);
         try expectFmt("pointer: fn() void@deadbeef\n", "pointer: {}\n", .{value});
     }
 }

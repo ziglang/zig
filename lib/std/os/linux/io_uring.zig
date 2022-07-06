@@ -1902,6 +1902,12 @@ test "openat" {
     const path = "test_io_uring_openat";
     defer std.fs.cwd().deleteFile(path) catch {};
 
+    // Workaround for LLVM bug: https://github.com/ziglang/zig/issues/12014
+    const path_addr = if (builtin.zig_backend == .stage2_llvm) p: {
+        var workaround = path;
+        break :p @ptrToInt(workaround);
+    } else @ptrToInt(path);
+
     const flags: u32 = os.O.CLOEXEC | os.O.RDWR | os.O.CREAT;
     const mode: os.mode_t = 0o666;
     const sqe_openat = try ring.openat(0x33333333, linux.AT.FDCWD, path, flags, mode);
@@ -1911,7 +1917,7 @@ test "openat" {
         .ioprio = 0,
         .fd = linux.AT.FDCWD,
         .off = 0,
-        .addr = @ptrToInt(path),
+        .addr = path_addr,
         .len = mode,
         .rw_flags = flags,
         .user_data = 0x33333333,
