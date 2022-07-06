@@ -3104,6 +3104,10 @@ fn ptrType(
     node: Ast.Node.Index,
     ptr_info: Ast.full.PtrType,
 ) InnerError!Zir.Inst.Ref {
+    if (ptr_info.size == .C and ptr_info.allowzero_token != null) {
+        return gz.astgen.failTok(ptr_info.allowzero_token.?, "C pointers always allow address zero", .{});
+    }
+
     const elem_type = try typeExpr(gz, scope, ptr_info.ast.child_type);
 
     const simple = ptr_info.ast.align_node == 0 and
