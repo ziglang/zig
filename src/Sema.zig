@@ -3867,9 +3867,9 @@ fn zirValidateArrayInit(
 }
 
 fn zirValidateDeref(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
-    const inst_data = sema.code.instructions.items(.data)[inst].un_tok;
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    const operand_src: LazySrcLoc = .{ .token_offset = inst_data.src_tok + 1 };
+    const operand_src: LazySrcLoc = .{ .node_offset_un_op = inst_data.src_node };
     const operand = try sema.resolveInst(inst_data.operand);
     const operand_ty = sema.typeOf(operand);
 
@@ -9758,7 +9758,7 @@ fn zirBitNot(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
 
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    const operand_src = src; // TODO put this on the operand, not the '~'
+    const operand_src: LazySrcLoc = .{ .node_offset_un_op = inst_data.src_node };
 
     const operand = try sema.resolveInst(inst_data.operand);
     const operand_type = sema.typeOf(operand);
@@ -10257,7 +10257,7 @@ fn zirNegate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const lhs_src = src;
-    const rhs_src = src; // TODO better source location
+    const rhs_src: LazySrcLoc = .{ .node_offset_un_op = inst_data.src_node };
 
     const rhs = try sema.resolveInst(inst_data.operand);
     const rhs_ty = sema.typeOf(rhs);
@@ -10293,7 +10293,7 @@ fn zirNegateWrap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const lhs_src = src;
-    const rhs_src = src; // TODO better source location
+    const rhs_src: LazySrcLoc = .{ .node_offset_un_op = inst_data.src_node };
 
     const rhs = try sema.resolveInst(inst_data.operand);
     const rhs_ty = sema.typeOf(rhs);
@@ -13159,7 +13159,7 @@ fn zirBoolNot(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    const operand_src = src; // TODO put this on the operand, not the `!`
+    const operand_src: LazySrcLoc = .{ .node_offset_un_op = inst_data.src_node };
     const uncasted_operand = try sema.resolveInst(inst_data.operand);
 
     const operand = try sema.coerce(block, Type.bool, uncasted_operand, operand_src);
