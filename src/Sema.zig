@@ -7161,7 +7161,7 @@ fn funcCommon(
                 else => @as([]const u8, "i386 and AArch64"),
             },
             .APCS, .AAPCS, .AAPCSVFP => switch (arch) {
-                .arm, .armeb, .aarch64, .aarch64_be, .aarch64_32 => null,
+                .arm, .armeb, .aarch64, .aarch64_be, .aarch64_32, .thumb, .thumbeb => null,
                 else => @as([]const u8, "ARM"),
             },
             .SysV, .Win64 => switch (arch) {
