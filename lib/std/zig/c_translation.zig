@@ -136,7 +136,7 @@ test "cast" {
     const FnPtr = if (@import("builtin").zig_backend == .stage1)
         ?fn (*anyopaque) void
     else
-        ?*const fn (*anyopaque) void;
+        ?*align(1) const fn (*anyopaque) void;
     try testing.expect(cast(FnPtr, 0) == @intToPtr(FnPtr, @as(usize, 0)));
     try testing.expect(cast(FnPtr, foo) == @intToPtr(FnPtr, @bitCast(usize, @as(isize, -1))));
 }
