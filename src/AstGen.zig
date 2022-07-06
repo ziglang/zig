@@ -5000,6 +5000,11 @@ fn orelseCatchExpr(
         if (mem.eql(u8, tree.tokenSlice(payload), "_")) {
             return astgen.failTok(payload, "discard of error capture; omit it instead", .{});
         }
+
+        const payload_name = try astgen.identAsString(payload);
+        const payload_str = tree.tokenSlice(payload);
+        try astgen.detectLocalShadowing(scope, payload_name, payload, payload_str);
+
         const err_name = try astgen.identAsString(payload);
         err_val_scope = .{
             .parent = &else_scope.base,
