@@ -155,12 +155,132 @@ fn make(step: *Step) !void {
             .bytes => |bytes| try argv_list.append(bytes),
             .file_source => |file| try argv_list.append(file.getPath(self.builder)),
             .artifact => |artifact| {
+                const target_info = std.zig.system.NativeTargetInfo.detect(self.builder.allocator, artifact.target) catch unreachable;
+                const need_cross_glibc = artifact.target.isGnuLibC() and artifact.is_linking_libc;
+                var ok = true; // can either run or emulate the compiled binary
+                switch (self.builder.host.getExternalExecutor(target_info, .{
+                    .qemu_fixes_dl = need_cross_glibc and self.builder.glibc_runtimes_dir != null,
+                    .link_libc = artifact.is_linking_libc,
+                })) {
+                    .bad_os_or_cpu => {
+                        const host_name = self.builder.host.target.zigTriple(self.builder.allocator) catch unreachable;
+                        const foreign_name = artifact.target.zigTriple(self.builder.allocator) catch unreachable;
+                        std.debug.print(
+                            "the host system ({s}) does not appear to be capable of executing binaries from the target ({s}).\n",
+                            .{ host_name, foreign_name },
+                        );
+                        ok = false;
+                    },
+                    .bad_dl => |foreign_dl| {
+                        const host_dl = self.builder.host.dynamic_linker.get() orelse "(none)";
+                        std.debug.print(
+                            "the host system does not appear to be capable of executing binaries from the target because the host dynamic linker is '{s}', while the target dynamic linker is '{s}'. Consider setting the dynamic linker.\n",
+                            .{ host_dl, foreign_dl },
+                        );
+                        ok = false;
+                    },
+                    .native => {},
+                    .rosetta => if (!self.builder.enable_rosetta) {
+                        const host_name = self.builder.host.target.zigTriple(self.builder.allocator) catch unreachable;
+                        const foreign_name = artifact.target.zigTriple(self.builder.allocator) catch unreachable;
+                        std.debug.print(
+                            "the host system ({s}) does not appear to be capable of executing binaries " ++
+                                "from the target ({s}). Consider enabling rosetta.\n",
+                            .{ host_name, foreign_name },
+                        );
+                        ok = false;
+                    },
+                    .wine => |bin_name| if (self.builder.enable_wine) {
+                        try argv_list.append(bin_name);
+                    } else {
+                        const host_name = self.builder.host.target.zigTriple(self.builder.allocator) catch unreachable;
+                        const foreign_name = artifact.target.zigTriple(self.builder.allocator) catch unreachable;
+                        std.debug.print(
+                            "the host system ({s}) does not appear to be capable of executing binaries " ++
+                                "from the target ({s}). Consider enabling wine.\n",
+                            .{ host_name, foreign_name },
+                        );
+                        ok = false;
+                    },
+                    .qemu => |bin_name| if (self.builder.enable_qemu) qemu: {
+                        const glibc_dir_arg = if (need_cross_glibc)
+                            self.builder.glibc_runtimes_dir orelse {
+                                const foreign_name = artifact.target.zigTriple(self.builder.allocator) catch unreachable;
+                                std.debug.print("target ({s}) requires cross compiling glibc but no glibc runtime directory provided.\n", .{foreign_name});
+                                ok = false;
+                                break :qemu;
+                            }
+                        else
+                            null;
+                        try argv_list.append(bin_name);
+                        if (glibc_dir_arg) |dir| {
+                            // TODO look into making this a call to `linuxTriple`. This
+                            // needs the directory to be called "i686" rather than
+                            // "i386" which is why we do it manually here.
+                            const fmt_str = "{s}" ++ fs.path.sep_str ++ "{s}-{s}-{s}";
+                            const cpu_arch = artifact.target.getCpuArch();
+                            const os_tag = artifact.target.getOsTag();
+                            const abi = artifact.target.getAbi();
+                            const cpu_arch_name: []const u8 = if (cpu_arch == .i386)
+                                "i686"
+                            else
+                                @tagName(cpu_arch);
+                            const full_dir = try std.fmt.allocPrint(self.builder.allocator, fmt_str, .{
+                                dir, cpu_arch_name, @tagName(os_tag), @tagName(abi),
+                            });
+
+                            try argv_list.append("-L");
+                            try argv_list.append(full_dir);
+                        }
+                    } else {
+                        const host_name = self.builder.host.target.zigTriple(self.builder.allocator) catch unreachable;
+                        const foreign_name = artifact.target.zigTriple(self.builder.allocator) catch unreachable;
+                        std.debug.print(
+                            "the host system ({s}) does not appear to be capable of executing binaries " ++
+                                "from the target ({s}). Consider enabling qemu.\n",
+                            .{ host_name, foreign_name },
+                        );
+                        ok = false;
+                    },
+                    .darling => |bin_name| if (self.builder.enable_darling) {
+                        try argv_list.append(bin_name);
+                    } else {
+                        const host_name = self.builder.host.target.zigTriple(self.builder.allocator) catch unreachable;
+                        const foreign_name = artifact.target.zigTriple(self.builder.allocator) catch unreachable;
+                        std.debug.print(
+                            "the host system ({s}) does not appear to be capable of executing binaries " ++
+                                "from the target ({s}). Consider enabling darling.\n",
+                            .{ host_name, foreign_name },
+                        );
+                        ok = false;
+                    },
+                    .wasmtime => |bin_name| if (self.builder.enable_wasmtime) {
+                        try argv_list.append(bin_name);
+                        try argv_list.append("--dir=.");
+                    } else {
+                        const host_name = self.builder.host.target.zigTriple(self.builder.allocator) catch unreachable;
+                        const foreign_name = artifact.target.zigTriple(self.builder.allocator) catch unreachable;
+                        std.debug.print(
+                            "the host system ({s}) does not appear to be capable of executing binaries " ++
+                                "from the target ({s}). Consider enabling wasmtime.\n",
+                            .{ host_name, foreign_name },
+                        );
+                        ok = false;
+                    },
+                }
                 if (artifact.target.isWindows()) {
                     // On Windows we don't have rpaths so we have to add .dll search paths to PATH
                     self.addPathForDynLibs(artifact);
                 }
+
                 const executable_path = artifact.installed_path orelse artifact.getOutputSource().getPath(self.builder);
                 try argv_list.append(executable_path);
+
+                if (!ok) {
+                    std.debug.print("the following command cannot be executed:\n", .{});
+                    printCmd(cwd, argv_list.items);
+                    return error.UnsupportedPlatform;
+                }
             },
         }
     }
