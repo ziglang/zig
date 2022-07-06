@@ -23,7 +23,7 @@ comptime {
 // error
 // target=native
 //
-// :4:26: error: end index 6 out of bounds for slice of length 4 +1 (sentinel)
-// :9:22: error: end index 6 out of bounds for array of length 4 +1 (sentinel)
-// :14:22: error: end index 5 out of bounds for array of length 4
-// :19:22: error: start index 3 is larger than end index 2
+// :4:30: error: end index 6 out of bounds for slice of length 4 +1 (sentinel)
+// :9:26: error: end index 6 out of bounds for array of length 4 +1 (sentinel)
+// :14:26: error: end index 5 out of bounds for array of length 4
+// :19:23: error: start index 3 is larger than end index 2
