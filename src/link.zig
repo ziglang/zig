@@ -544,12 +544,7 @@ pub const File = struct {
         switch (base.tag) {
             .coff => return @fieldParentPtr(Coff, "base", base).allocateDeclIndexes(decl_index),
             .elf => return @fieldParentPtr(Elf, "base", base).allocateDeclIndexes(decl_index),
-            .macho => return @fieldParentPtr(MachO, "base", base).allocateDeclIndexes(decl_index) catch |err| switch (err) {
-                // remap this error code because we are transitioning away from
-                // `allocateDeclIndexes`.
-                error.Overflow => return error.OutOfMemory,
-                error.OutOfMemory => return error.OutOfMemory,
-            },
+            .macho => return @fieldParentPtr(MachO, "base", base).allocateDeclIndexes(decl_index),
             .wasm => return @fieldParentPtr(Wasm, "base", base).allocateDeclIndexes(decl_index),
             .plan9 => return @fieldParentPtr(Plan9, "base", base).allocateDeclIndexes(decl_index),
             .c, .spirv, .nvptx => {},

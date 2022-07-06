@@ -1005,7 +1005,7 @@ fn mirLeaPie(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
         log.debug("adding reloc of type {} to local @{d}", .{ reloc_type, load_reloc.sym_index });
         try atom.relocs.append(emit.bin_file.allocator, .{
             .offset = @intCast(u32, end_offset - 4),
-            .target = .{ .local = load_reloc.sym_index },
+            .target = .{ .sym_index = load_reloc.sym_index, .file = null },
             .addend = 0,
             .subtractor = null,
             .pcrel = true,
@@ -1127,9 +1127,10 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
         // Add relocation to the decl.
         const atom = macho_file.atom_by_index_table.get(extern_fn.atom_index).?;
+        const target = macho_file.globals.values()[extern_fn.global_index];
         try atom.relocs.append(emit.bin_file.allocator, .{
             .offset = offset,
-            .target = .{ .global = extern_fn.sym_name },
+            .target = target,
             .addend = 0,
             .subtractor = null,
             .pcrel = true,

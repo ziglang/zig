@@ -2563,7 +2563,7 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
     } else if (self.bin_file.cast(link.File.MachO)) |_| {
         // TODO I'm hacking my way through here by repurposing .memory for storing
         // index to the GOT target symbol index.
-        return MCValue{ .memory = decl.link.macho.local_sym_index };
+        return MCValue{ .memory = decl.link.macho.sym_index };
     } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
         const got_addr = coff_file.offset_table_virtual_address + decl.link.coff.offset_table_index * ptr_bytes;
         return MCValue{ .memory = got_addr };

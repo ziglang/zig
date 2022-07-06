@@ -232,7 +232,7 @@ pub const Inst = struct {
             /// Index of the containing atom.
             atom_index: u32,
             /// Index into the linker's string table.
-            sym_name: u32,
+            global_index: u32,
         },
         /// A 16-bit immediate value.
         ///

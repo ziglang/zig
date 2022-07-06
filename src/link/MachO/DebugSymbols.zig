@@ -17,6 +17,7 @@ const Allocator = mem.Allocator;
 const Dwarf = @import("../Dwarf.zig");
 const MachO = @import("../MachO.zig");
 const Module = @import("../../Module.zig");
+const StringTable = @import("../strtab.zig").StringTable;
 const TextBlock = MachO.TextBlock;
 const Type = @import("../../type.zig").Type;
 
@@ -59,6 +60,8 @@ debug_aranges_section_dirty: bool = false,
 debug_info_header_dirty: bool = false,
 debug_line_header_dirty: bool = false,
 
+strtab: StringTable(.link) = .{},
+
 relocs: std.ArrayListUnmanaged(Reloc) = .{},
 
 pub const Reloc = struct {
@@ -93,6 +96,7 @@ pub fn populateMissingMetadata(self: *DebugSymbols, allocator: Allocator) !void 
                 .strsize = 0,
             },
         });
+        try self.strtab.buffer.append(allocator, 0);
         self.load_commands_dirty = true;
     }
 
@@ -269,22 +273,30 @@ pub fn flushModule(self: *DebugSymbols, allocator: Allocator, options: link.Opti
 
     for (self.relocs.items) |*reloc| {
         const sym = switch (reloc.@"type") {
-            .direct_load => self.base.locals.items[reloc.target],
+            .direct_load => self.base.getSymbol(.{ .sym_index = reloc.target, .file = null }),
             .got_load => blk: {
-                const got_index = self.base.got_entries_table.get(.{ .local = reloc.target }).?;
-                const got_entry = self.base.got_entries.items[got_index];
-                break :blk self.base.locals.items[got_entry.atom.local_sym_index];
+                const got_index = self.base.got_entries_table.get(.{ .sym_index = reloc.target, .file = null }).?;
+                const got_atom = self.base.got_entries.items[got_index].atom;
+                break :blk got_atom.getSymbol(self.base);
             },
         };
         if (sym.n_value == reloc.prev_vaddr) continue;
 
+        const sym_name = switch (reloc.@"type") {
+            .direct_load => self.base.getSymbolName(.{ .sym_index = reloc.target, .file = null }),
+            .got_load => blk: {
+                const got_index = self.base.got_entries_table.get(.{ .sym_index = reloc.target, .file = null }).?;
+                const got_atom = self.base.got_entries.items[got_index].atom;
+                break :blk got_atom.getName(self.base);
+            },
+        };
         const seg = &self.load_commands.items[self.dwarf_segment_cmd_index.?].segment;
         const sect = &seg.sections.items[self.debug_info_section_index.?];
         const file_offset = sect.offset + reloc.offset;
         log.debug("resolving relocation: {d}@{x} ('{s}') at offset {x}", .{
             reloc.target,
             sym.n_value,
-            self.base.getString(sym.n_strx),
+            sym_name,
             file_offset,
         });
         try self.file.pwriteAll(mem.asBytes(&sym.n_value), file_offset);
@@ -367,6 +379,7 @@ pub fn deinit(self: *DebugSymbols, allocator: Allocator) void {
     }
     self.load_commands.deinit(allocator);
     self.dwarf.deinit();
+    self.strtab.deinit(allocator);
     self.relocs.deinit(allocator);
 }
 
@@ -582,21 +595,39 @@ fn writeSymbolTable(self: *DebugSymbols) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const gpa = self.base.base.allocator;
     const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].segment;
     const symtab = &self.load_commands.items[self.symtab_cmd_index.?].symtab;
     symtab.symoff = @intCast(u32, seg.inner.fileoff);
 
-    var locals = std.ArrayList(macho.nlist_64).init(self.base.base.allocator);
+    var locals = std.ArrayList(macho.nlist_64).init(gpa);
     defer locals.deinit();
 
-    for (self.base.locals.items) |sym| {
-        if (sym.n_strx == 0) continue;
-        if (self.base.symbol_resolver.get(sym.n_strx)) |_| continue;
-        try locals.append(sym);
+    for (self.base.locals.items) |sym, sym_id| {
+        if (sym.n_strx == 0) continue; // no name, skip
+        if (sym.n_desc == MachO.N_DESC_GCED) continue; // GCed, skip
+        const sym_loc = MachO.SymbolWithLoc{ .sym_index = @intCast(u32, sym_id), .file = null };
+        if (self.base.symbolIsTemp(sym_loc)) continue; // local temp symbol, skip
+        if (self.base.globals.contains(self.base.getSymbolName(sym_loc))) continue; // global symbol is either an export or import, skip
+        var out_sym = sym;
+        out_sym.n_strx = try self.strtab.insert(gpa, self.base.getSymbolName(sym_loc));
+        try locals.append(out_sym);
+    }
+
+    var exports = std.ArrayList(macho.nlist_64).init(gpa);
+    defer exports.deinit();
+
+    for (self.base.globals.values()) |global| {
+        const sym = self.base.getSymbol(global);
+        if (sym.undf()) continue; // import, skip
+        if (sym.n_desc == MachO.N_DESC_GCED) continue; // GCed, skip
+        var out_sym = sym;
+        out_sym.n_strx = try self.strtab.insert(gpa, self.base.getSymbolName(global));
+        try exports.append(out_sym);
     }
 
     const nlocals = locals.items.len;
-    const nexports = self.base.globals.items.len;
+    const nexports = exports.items.len;
     const locals_off = symtab.symoff;
     const locals_size = nlocals * @sizeOf(macho.nlist_64);
     const exports_off = locals_off + locals_size;
@@ -641,7 +672,7 @@ fn writeSymbolTable(self: *DebugSymbols) !void {
     try self.file.pwriteAll(mem.sliceAsBytes(locals.items), locals_off);
 
     log.debug("writing exported symbols from 0x{x} to 0x{x}", .{ exports_off, exports_size + exports_off });
-    try self.file.pwriteAll(mem.sliceAsBytes(self.base.globals.items), exports_off);
+    try self.file.pwriteAll(mem.sliceAsBytes(exports.items), exports_off);
 
     self.load_commands_dirty = true;
 }
@@ -655,7 +686,7 @@ fn writeStringTable(self: *DebugSymbols) !void {
     const symtab_size = @intCast(u32, symtab.nsyms * @sizeOf(macho.nlist_64));
     symtab.stroff = symtab.symoff + symtab_size;
 
-    const needed_size = mem.alignForwardGeneric(u64, self.base.strtab.items.len, @alignOf(u64));
+    const needed_size = mem.alignForwardGeneric(u64, self.strtab.buffer.items.len, @alignOf(u64));
     symtab.strsize = @intCast(u32, needed_size);
 
     if (symtab_size + needed_size > seg.inner.filesize) {
@@ -692,7 +723,7 @@ fn writeStringTable(self: *DebugSymbols) !void {
 
     log.debug("writing string table from 0x{x} to 0x{x}", .{ symtab.stroff, symtab.stroff + symtab.strsize });
 
-    try self.file.pwriteAll(self.base.strtab.items, symtab.stroff);
+    try self.file.pwriteAll(self.strtab.buffer.items, symtab.stroff);
 
     self.load_commands_dirty = true;
 }
