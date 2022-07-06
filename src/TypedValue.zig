@@ -495,5 +495,6 @@ pub fn print(
         },
         .generic_poison_type => return writer.writeAll("(generic poison type)"),
         .generic_poison => return writer.writeAll("(generic poison)"),
+        .runtime_int => return writer.writeAll("[runtime value]"),
     };
 }

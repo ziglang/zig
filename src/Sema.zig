@@ -1686,7 +1686,9 @@ fn resolveMaybeUndefValAllowVariables(
     switch (air_tags[i]) {
         .constant => {
             const ty_pl = sema.air_instructions.items(.data)[i].ty_pl;
-            return sema.air_values.items[ty_pl.payload];
+            const val = sema.air_values.items[ty_pl.payload];
+            if (val.tag() == .runtime_int) return null;
+            return val;
         },
         .const_ty => {
             return try sema.air_instructions.items(.data)[i].ty.toValue(sema.arena);
@@ -12151,9 +12153,8 @@ fn zirBuiltinSrc(
     field_values[0] = file_name_val;
     // fn_name: [:0]const u8,
     field_values[1] = func_name_val;
-    // TODO these should be runtime only!
     // line: u32
-    field_values[2] = try Value.Tag.int_u64.create(sema.arena, extra.line + 1);
+    field_values[2] = try Value.Tag.runtime_int.create(sema.arena, extra.line + 1);
     // column: u32,
     field_values[3] = try Value.Tag.int_u64.create(sema.arena, extra.column + 1);
 
