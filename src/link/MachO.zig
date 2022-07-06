@@ -2230,13 +2230,6 @@ fn allocateLocals(self: *MachO) !void {
                 base_vaddr,
             });
 
-            // Update each alias (if any)
-            for (atom.aliases.items) |index| {
-                const alias_sym = &self.locals.items[index];
-                alias_sym.n_value = base_vaddr;
-                alias_sym.n_sect = n_sect;
-            }
-
             // Update each symbol contained within the atom
             for (atom.contained.items) |sym_at_off| {
                 const contained_sym = &self.locals.items[sym_at_off.local_sym_index];
@@ -2259,11 +2252,6 @@ fn shiftLocalsByOffset(self: *MachO, match: MatchingSection, offset: i64) !void 
     while (true) {
         const atom_sym = &self.locals.items[atom.local_sym_index];
         atom_sym.n_value = @intCast(u64, @intCast(i64, atom_sym.n_value) + offset);
-
-        for (atom.aliases.items) |index| {
-            const alias_sym = &self.locals.items[index];
-            alias_sym.n_value = @intCast(u64, @intCast(i64, alias_sym.n_value) + offset);
-        }
 
         for (atom.contained.items) |sym_at_off| {
             const contained_sym = &self.locals.items[sym_at_off.local_sym_index];
@@ -3462,13 +3450,6 @@ fn parseObjectsIntoAtoms(self: *MachO) !void {
                     atom.size,
                     atom.alignment,
                 });
-
-                // Update each alias (if any)
-                for (atom.aliases.items) |index| {
-                    const alias_sym = &self.locals.items[index];
-                    alias_sym.n_value = base_vaddr;
-                    alias_sym.n_sect = n_sect;
-                }
 
                 // Update each symbol contained within the atom
                 for (atom.contained.items) |sym_at_off| {
@@ -6463,17 +6444,11 @@ fn writeSymbolTable(self: *MachO) !void {
             });
 
             for (object.contained_atoms.items) |atom| {
-                if (atom.stab) |stab| {
-                    const nlists = try stab.asNlists(atom.local_sym_index, self);
+                for (atom.contained.items) |sym_at_off| {
+                    const stab = sym_at_off.stab orelse continue;
+                    const nlists = try stab.asNlists(sym_at_off.local_sym_index, self);
                     defer self.base.allocator.free(nlists);
                     try locals.appendSlice(nlists);
-                } else {
-                    for (atom.contained.items) |sym_at_off| {
-                        const stab = sym_at_off.stab orelse continue;
-                        const nlists = try stab.asNlists(sym_at_off.local_sym_index, self);
-                        defer self.base.allocator.free(nlists);
-                        try locals.appendSlice(nlists);
-                    }
                 }
             }
 
@@ -6929,8 +6904,10 @@ fn snapshotState(self: *MachO) !void {
             };
 
             var aliases = std.ArrayList([]const u8).init(arena);
-            for (atom.aliases.items) |loc| {
-                try aliases.append(self.getString(self.locals.items[loc].n_strx));
+            for (atom.contained.items) |sym_off| {
+                if (sym_off.offset == 0) {
+                    try aliases.append(self.getString(self.locals.items[sym_off.local_sym_index].n_strx));
+                }
             }
             node.payload.aliases = aliases.toOwnedSlice();
             try nodes.append(node);

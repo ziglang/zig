@@ -26,9 +26,6 @@ const StringIndexAdapter = std.hash_map.StringIndexAdapter;
 /// offset table entry.
 local_sym_index: u32,
 
-/// List of symbol aliases pointing to the same atom via different nlists
-aliases: std.ArrayListUnmanaged(u32) = .{},
-
 /// List of symbols contained within this atom
 contained: std.ArrayListUnmanaged(SymbolAtOffset) = .{},
 
@@ -61,12 +58,6 @@ lazy_bindings: std.ArrayListUnmanaged(Binding) = .{},
 
 /// List of data-in-code entries. This is currently specific to x86_64 only.
 dices: std.ArrayListUnmanaged(macho.data_in_code_entry) = .{},
-
-/// Stab entry for this atom. This is currently specific to a binary created
-/// by linking object files in a traditional sense - in incremental sense, we
-/// bypass stabs altogether to produce dSYM bundle directly with fully relocated
-/// DWARF sections.
-stab: ?Stab = null,
 
 /// Points to the previous and next neighbours
 next: ?*Atom,
@@ -192,7 +183,6 @@ pub fn deinit(self: *Atom, allocator: Allocator) void {
     self.rebases.deinit(allocator);
     self.relocs.deinit(allocator);
     self.contained.deinit(allocator);
-    self.aliases.deinit(allocator);
     self.code.deinit(allocator);
 }
 
@@ -203,7 +193,6 @@ pub fn clearRetainingCapacity(self: *Atom) void {
     self.rebases.clearRetainingCapacity();
     self.relocs.clearRetainingCapacity();
     self.contained.clearRetainingCapacity();
-    self.aliases.clearRetainingCapacity();
     self.code.clearRetainingCapacity();
 }
 
