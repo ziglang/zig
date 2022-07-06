@@ -142,7 +142,6 @@ const Writer = struct {
         const tag = tags[inst];
         try stream.print("= {s}(", .{@tagName(tags[inst])});
         switch (tag) {
-            .array_type,
             .as,
             .store,
             .store_to_block_ptr,
@@ -354,6 +353,7 @@ const Writer = struct {
             .elem_ptr,
             .elem_val,
             .coerce_result_ptr,
+            .array_type,
             => try self.writePlNodeBin(stream, inst),
 
             .elem_ptr_imm => try self.writeElemPtrImm(stream, inst),
