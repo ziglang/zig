@@ -3174,7 +3174,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                 const func = func_payload.data;
                 const fn_owner_decl = mod.declPtr(func.owner_decl);
                 try self.genSetReg(Type.initTag(.u64), .x30, .{
-                    .got_load = fn_owner_decl.link.macho.local_sym_index,
+                    .got_load = fn_owner_decl.link.macho.sym_index,
                 });
                 // blr x30
                 _ = try self.addInst(.{
@@ -3190,14 +3190,14 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                         lib_name,
                     });
                 }
-                const n_strx = try macho_file.getGlobalSymbol(mem.sliceTo(decl_name, 0));
+                const global_index = try macho_file.getGlobalSymbol(mem.sliceTo(decl_name, 0));
 
                 _ = try self.addInst(.{
                     .tag = .call_extern,
                     .data = .{
                         .extern_fn = .{
-                            .atom_index = mod.declPtr(self.mod_fn.owner_decl).link.macho.local_sym_index,
-                            .sym_name = n_strx,
+                            .atom_index = mod.declPtr(self.mod_fn.owner_decl).link.macho.sym_index,
+                            .global_index = global_index,
                         },
                     },
                 });
@@ -4157,7 +4157,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                             .data = .{
                                 .payload = try self.addExtra(Mir.LoadMemoryPie{
                                     .register = @enumToInt(src_reg),
-                                    .atom_index = mod.declPtr(self.mod_fn.owner_decl).link.macho.local_sym_index,
+                                    .atom_index = mod.declPtr(self.mod_fn.owner_decl).link.macho.sym_index,
                                     .sym_index = sym_index,
                                 }),
                             },
@@ -4270,7 +4270,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 .data = .{
                     .payload = try self.addExtra(Mir.LoadMemoryPie{
                         .register = @enumToInt(reg),
-                        .atom_index = mod.declPtr(self.mod_fn.owner_decl).link.macho.local_sym_index,
+                        .atom_index = mod.declPtr(self.mod_fn.owner_decl).link.macho.sym_index,
                         .sym_index = sym_index,
                     }),
                 },
@@ -4578,8 +4578,8 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
     } else if (self.bin_file.cast(link.File.MachO)) |_| {
         // Because MachO is PIE-always-on, we defer memory address resolution until
         // the linker has enough info to perform relocations.
-        assert(decl.link.macho.local_sym_index != 0);
-        return MCValue{ .got_load = decl.link.macho.local_sym_index };
+        assert(decl.link.macho.sym_index != 0);
+        return MCValue{ .got_load = decl.link.macho.sym_index };
     } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
         const got_addr = coff_file.offset_table_virtual_address + decl.link.coff.offset_table_index * ptr_bytes;
         return MCValue{ .memory = got_addr };

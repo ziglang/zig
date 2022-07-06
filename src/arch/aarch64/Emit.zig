@@ -660,9 +660,10 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) !void {
         };
         // Add relocation to the decl.
         const atom = macho_file.atom_by_index_table.get(extern_fn.atom_index).?;
+        const target = macho_file.globals.values()[extern_fn.global_index];
         try atom.relocs.append(emit.bin_file.allocator, .{
             .offset = offset,
-            .target = .{ .global = extern_fn.sym_name },
+            .target = target,
             .addend = 0,
             .subtractor = null,
             .pcrel = true,
@@ -864,7 +865,7 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
         // Page reloc for adrp instruction.
         try atom.relocs.append(emit.bin_file.allocator, .{
             .offset = offset,
-            .target = .{ .local = data.sym_index },
+            .target = .{ .sym_index = data.sym_index, .file = null },
             .addend = 0,
             .subtractor = null,
             .pcrel = true,
@@ -882,7 +883,7 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
         // Pageoff reloc for adrp instruction.
         try atom.relocs.append(emit.bin_file.allocator, .{
             .offset = offset + 4,
-            .target = .{ .local = data.sym_index },
+            .target = .{ .sym_index = data.sym_index, .file = null },
             .addend = 0,
             .subtractor = null,
             .pcrel = false,

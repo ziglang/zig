@@ -443,8 +443,8 @@ pub const Inst = struct {
         extern_fn: struct {
             /// Index of the containing atom.
             atom_index: u32,
-            /// Index into the linker's string table.
-            sym_name: u32,
+            /// Index into the linker's globals table.
+            global_index: u32,
         },
         /// PIE load relocation.
         load_reloc: struct {
