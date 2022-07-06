@@ -3254,7 +3254,7 @@ pub const Type = extern union {
 
             .array_u8 => return AbiSizeAdvanced{ .scalar = ty.castTag(.array_u8).?.data },
             .array_u8_sentinel_0 => return AbiSizeAdvanced{ .scalar = ty.castTag(.array_u8_sentinel_0).?.data + 1 },
-            .array, .vector => {
+            .array => {
                 const payload = ty.cast(Payload.Array).?.data;
                 switch (try payload.elem_type.abiSizeAdvanced(target, strat)) {
                     .scalar => |elem_size| return AbiSizeAdvanced{ .scalar = payload.len * elem_size },
@@ -3265,6 +3265,7 @@ pub const Type = extern union {
                     },
                 }
             },
+            .vector => return AbiSizeAdvanced{ .scalar = abiAlignment(ty, target) },
             .array_sentinel => {
                 const payload = ty.castTag(.array_sentinel).?.data;
                 switch (try payload.elem_type.abiSizeAdvanced(target, strat)) {
