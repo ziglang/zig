@@ -2171,7 +2171,11 @@ pub const SrcLoc = struct {
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
-            .node_offset_slice_sentinel => |node_off| {
+            .node_offset_slice_ptr,
+            .node_offset_slice_start,
+            .node_offset_slice_end,
+            .node_offset_slice_sentinel,
+            => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
@@ -2182,7 +2186,15 @@ pub const SrcLoc = struct {
                     else => unreachable,
                 };
                 const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[full.ast.sentinel];
+                const tok_index = main_tokens[
+                    switch (src_loc.lazy) {
+                        .node_offset_slice_ptr => full.ast.sliced,
+                        .node_offset_slice_start => full.ast.start,
+                        .node_offset_slice_end => full.ast.end,
+                        .node_offset_slice_sentinel => full.ast.sentinel,
+                        else => unreachable,
+                    }
+                ];
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
@@ -2501,6 +2513,16 @@ pub const SrcLoc = struct {
                 const token_starts = tree.tokens.items(.start);
                 return token_starts[tok_index];
             },
+            .node_offset_un_op => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_datas = tree.nodes.items(.data);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
+
+                const main_tokens = tree.nodes.items(.main_token);
+                const tok_index = main_tokens[node_datas[node].lhs];
+                const token_starts = tree.tokens.items(.start);
+                return token_starts[tok_index];
+            },
         }
     }
 
@@ -2614,6 +2636,24 @@ pub const LazySrcLoc = union(enum) {
     /// to the index expression.
     /// The Decl is determined contextually.
     node_offset_array_access_index: i32,
+    /// The source location points to the LHS of a slice expression
+    /// expression, found by taking this AST node index offset from the containing
+    /// Decl AST node, which points to a slice AST node. Next, navigate
+    /// to the sentinel expression.
+    /// The Decl is determined contextually.
+    node_offset_slice_ptr: i32,
+    /// The source location points to start expression of a slice expression
+    /// expression, found by taking this AST node index offset from the containing
+    /// Decl AST node, which points to a slice AST node. Next, navigate
+    /// to the sentinel expression.
+    /// The Decl is determined contextually.
+    node_offset_slice_start: i32,
+    /// The source location points to the end expression of a slice
+    /// expression, found by taking this AST node index offset from the containing
+    /// Decl AST node, which points to a slice AST node. Next, navigate
+    /// to the sentinel expression.
+    /// The Decl is determined contextually.
+    node_offset_slice_end: i32,
     /// The source location points to the sentinel expression of a slice
     /// expression, found by taking this AST node index offset from the containing
     /// Decl AST node, which points to a slice AST node. Next, navigate
@@ -2728,6 +2768,9 @@ pub const LazySrcLoc = union(enum) {
     /// to the elem expression.
     /// The Decl is determined contextually.
     node_offset_array_type_elem: i32,
+    /// The source location points to the operand of an unary expression.
+    /// The Decl is determined contextually.
+    node_offset_un_op: i32,
 
     pub const nodeOffset = if (TracedOffset.want_tracing) nodeOffsetDebug else nodeOffsetRelease;
 
@@ -2768,6 +2811,9 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_builtin_call_arg4,
             .node_offset_builtin_call_arg5,
             .node_offset_array_access_index,
+            .node_offset_slice_ptr,
+            .node_offset_slice_start,
+            .node_offset_slice_end,
             .node_offset_slice_sentinel,
             .node_offset_call_func,
             .node_offset_field_name,
@@ -2788,6 +2834,7 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_array_type_len,
             .node_offset_array_type_sentinel,
             .node_offset_array_type_elem,
+            .node_offset_un_op,
             => .{
                 .file_scope = decl.getFileScope(),
                 .parent_decl_node = decl.src_node,

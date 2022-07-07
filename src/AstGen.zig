@@ -812,7 +812,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
 
         .deref => {
             const lhs = try expr(gz, scope, .none, node_datas[node].lhs);
-            _ = try gz.addUnTok(.validate_deref, lhs, main_tokens[node]);
+            _ = try gz.addUnNode(.validate_deref, lhs, node);
             switch (rl) {
                 .ref => return lhs,
                 else => {
@@ -1320,7 +1320,10 @@ fn arrayInitExpr(
                 const len_inst = try gz.addInt(array_init.ast.elements.len);
                 const elem_type = try typeExpr(gz, scope, array_type.ast.elem_type);
                 if (array_type.ast.sentinel == 0) {
-                    const array_type_inst = try gz.addBin(.array_type, len_inst, elem_type);
+                    const array_type_inst = try gz.addPlNode(.array_type, array_init.ast.type_expr, Zir.Inst.Bin{
+                        .lhs = len_inst,
+                        .rhs = elem_type,
+                    });
                     break :inst .{
                         .array = array_type_inst,
                         .elem = elem_type,
@@ -1553,7 +1556,10 @@ fn structInitExpr(
             if (is_inferred_array_len) {
                 const elem_type = try typeExpr(gz, scope, array_type.ast.elem_type);
                 const array_type_inst = if (array_type.ast.sentinel == 0) blk: {
-                    break :blk try gz.addBin(.array_type, .zero_usize, elem_type);
+                    break :blk try gz.addPlNode(.array_type, struct_init.ast.type_expr, Zir.Inst.Bin{
+                        .lhs = .zero_usize,
+                        .rhs = elem_type,
+                    });
                 } else blk: {
                     const sentinel = try comptimeExpr(gz, scope, .{ .ty = elem_type }, array_type.ast.sentinel);
                     break :blk try gz.addPlNode(
@@ -2332,8 +2338,6 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .error_union_type,
             .bit_not,
             .error_value,
-            .error_to_int,
-            .int_to_error,
             .slice_start,
             .slice_end,
             .slice_sentinel,
@@ -2420,7 +2424,6 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .splat,
             .reduce,
             .shuffle,
-            .select,
             .atomic_load,
             .atomic_rmw,
             .mul_add,
@@ -2467,6 +2470,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .repeat,
             .repeat_inline,
             .panic,
+            .panic_comptime,
             => {
                 noreturn_src_node = statement;
                 break :b true;
@@ -3100,6 +3104,10 @@ fn ptrType(
     node: Ast.Node.Index,
     ptr_info: Ast.full.PtrType,
 ) InnerError!Zir.Inst.Ref {
+    if (ptr_info.size == .C and ptr_info.allowzero_token != null) {
+        return gz.astgen.failTok(ptr_info.allowzero_token.?, "C pointers always allow address zero", .{});
+    }
+
     const elem_type = try typeExpr(gz, scope, ptr_info.ast.child_type);
 
     const simple = ptr_info.ast.align_node == 0 and
@@ -3205,7 +3213,10 @@ fn arrayType(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) !Z
     const len = try expr(gz, scope, .{ .coerced_ty = .usize_type }, len_node);
     const elem_type = try typeExpr(gz, scope, node_datas[node].rhs);
 
-    const result = try gz.addBin(.array_type, len, elem_type);
+    const result = try gz.addPlNode(.array_type, node, Zir.Inst.Bin{
+        .lhs = len,
+        .rhs = elem_type,
+    });
     return rvalue(gz, rl, result, node);
 }
 
@@ -7359,15 +7370,13 @@ fn builtinCall(
         .align_of    => return simpleUnOpType(gz, scope, rl, node, params[0], .align_of),
 
         .ptr_to_int            => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .ptr_to_int),
-        .error_to_int          => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .error_to_int),
-        .int_to_error          => return simpleUnOp(gz, scope, rl, node, .{ .coerced_ty = .u16_type },        params[0], .int_to_error),
         .compile_error         => return simpleUnOp(gz, scope, rl, node, .{ .ty = .const_slice_u8_type },     params[0], .compile_error),
         .set_eval_branch_quota => return simpleUnOp(gz, scope, rl, node, .{ .coerced_ty = .u32_type },        params[0], .set_eval_branch_quota),
         .enum_to_int           => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .enum_to_int),
         .bool_to_int           => return simpleUnOp(gz, scope, rl, node, bool_rl,                             params[0], .bool_to_int),
         .embed_file            => return simpleUnOp(gz, scope, rl, node, .{ .ty = .const_slice_u8_type },     params[0], .embed_file),
         .error_name            => return simpleUnOp(gz, scope, rl, node, .{ .ty = .anyerror_type },           params[0], .error_name),
-        .panic                 => return simpleUnOp(gz, scope, rl, node, .{ .ty = .const_slice_u8_type },     params[0], .panic),
+        .panic                 => return simpleUnOp(gz, scope, rl, node, .{ .ty = .const_slice_u8_type },     params[0], if (gz.force_comptime) .panic_comptime else .panic),
         .set_cold              => return simpleUnOp(gz, scope, rl, node, bool_rl,                             params[0], .set_cold),
         .set_runtime_safety    => return simpleUnOp(gz, scope, rl, node, bool_rl,                             params[0], .set_runtime_safety),
         .sqrt                  => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .sqrt),
@@ -7400,6 +7409,22 @@ fn builtinCall(
         .truncate     => return typeCast(gz, scope, rl, node, params[0], params[1], .truncate),
         // zig fmt: on
 
+        .error_to_int => {
+            const operand = try expr(gz, scope, .none, params[0]);
+            const result = try gz.addExtendedPayload(.error_to_int, Zir.Inst.UnNode{
+                .node = gz.nodeIndexToRelative(node),
+                .operand = operand,
+            });
+            return rvalue(gz, rl, result, node);
+        },
+        .int_to_error => {
+            const operand = try expr(gz, scope, .{ .coerced_ty = .u16_type }, params[0]);
+            const result = try gz.addExtendedPayload(.int_to_error, Zir.Inst.UnNode{
+                .node = gz.nodeIndexToRelative(node),
+                .operand = operand,
+            });
+            return rvalue(gz, rl, result, node);
+        },
         .align_cast => {
             const dest_align = try comptimeExpr(gz, scope, align_rl, params[0]);
             const rhs = try expr(gz, scope, .none, params[1]);
@@ -7639,7 +7664,8 @@ fn builtinCall(
             return rvalue(gz, rl, result, node);
         },
         .select => {
-            const result = try gz.addPlNode(.select, node, Zir.Inst.Select{
+            const result = try gz.addExtendedPayload(.select, Zir.Inst.Select{
+                .node = gz.nodeIndexToRelative(node),
                 .elem_type = try typeExpr(gz, scope, params[0]),
                 .pred = try expr(gz, scope, .none, params[1]),
                 .a = try expr(gz, scope, .none, params[2]),

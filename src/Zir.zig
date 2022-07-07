@@ -212,7 +212,7 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field. Payload is `Bin`.
         array_mul,
         /// `[N]T` syntax. No source location provided.
-        /// Uses the `bin` union field. lhs is length, rhs is element type.
+        /// Uses the `pl_node` union field. Payload is `Bin`. lhs is length, rhs is element type.
         array_type,
         /// `[N:S]T` syntax. Source location is the array type expression node.
         /// Uses the `pl_node` union field. Payload is `ArrayTypeSentinel`.
@@ -244,7 +244,7 @@ pub const Inst = struct {
         /// Uses the pl_node field with payload `Bin`.
         bitcast,
         /// Bitwise NOT. `~`
-        /// Uses `un_node`.
+        /// Uses `un_tok`.
         bit_not,
         /// Bitwise OR. `|`
         bit_or,
@@ -260,7 +260,7 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field. Payload is `Block`.
         suspend_block,
         /// Boolean NOT. See also `bit_not`.
-        /// Uses the `un_node` field.
+        /// Uses the `un_tok` field.
         bool_not,
         /// Short-circuiting boolean `and`. `lhs` is a boolean `Ref` and the other operand
         /// is a block, which is evaluated if `lhs` is `true`.
@@ -729,7 +729,7 @@ pub const Inst = struct {
         /// resulting array initialization value is within a comptime scope.
         validate_array_init_comptime,
         /// Check that operand type supports the dereference operand (.*).
-        /// Uses the `un_tok` field.
+        /// Uses the `un_node` field.
         validate_deref,
         /// A struct literal with a specified type, with no fields.
         /// Uses the `un_node` field.
@@ -778,10 +778,6 @@ pub const Inst = struct {
         /// Implement builtin `@ptrToInt`. Uses `un_node`.
         /// Convert a pointer to a `usize` integer.
         ptr_to_int,
-        /// Implement builtin `@errToInt`. Uses `un_node`.
-        error_to_int,
-        /// Implement builtin `@intToError`. Uses `un_node`.
-        int_to_error,
         /// Emit an error message and fail compilation.
         /// Uses the `un_node` field.
         compile_error,
@@ -802,6 +798,8 @@ pub const Inst = struct {
         error_name,
         /// Implement builtin `@panic`. Uses `un_node`.
         panic,
+        /// Same as `panic` but forces comptime.
+        panic_comptime,
         /// Implement builtin `@setCold`. Uses `un_node`.
         set_cold,
         /// Implement builtin `@setRuntimeSafety`. Uses `un_node`.
@@ -916,9 +914,6 @@ pub const Inst = struct {
         /// Implements the `@shuffle` builtin.
         /// Uses the `pl_node` union field with payload `Shuffle`.
         shuffle,
-        /// Implements the `@select` builtin.
-        /// Uses the `pl_node` union field with payload `Select`.
-        select,
         /// Implements the `@atomicLoad` builtin.
         /// Uses the `pl_node` union field with payload `AtomicLoad`.
         atomic_load,
@@ -1125,8 +1120,6 @@ pub const Inst = struct {
                 .err_union_payload_unsafe_ptr,
                 .err_union_code,
                 .err_union_code_ptr,
-                .error_to_int,
-                .int_to_error,
                 .ptr_type,
                 .ptr_type_simple,
                 .ensure_err_payload_void,
@@ -1230,7 +1223,6 @@ pub const Inst = struct {
                 .splat,
                 .reduce,
                 .shuffle,
-                .select,
                 .atomic_load,
                 .atomic_rmw,
                 .atomic_store,
@@ -1270,6 +1262,7 @@ pub const Inst = struct {
                 .repeat,
                 .repeat_inline,
                 .panic,
+                .panic_comptime,
                 => true,
             };
         }
@@ -1423,8 +1416,6 @@ pub const Inst = struct {
                 .err_union_payload_unsafe_ptr,
                 .err_union_code,
                 .err_union_code_ptr,
-                .error_to_int,
-                .int_to_error,
                 .ptr_type,
                 .ptr_type_simple,
                 .enum_literal,
@@ -1516,7 +1507,6 @@ pub const Inst = struct {
                 .splat,
                 .reduce,
                 .shuffle,
-                .select,
                 .atomic_load,
                 .atomic_rmw,
                 .mul_add,
@@ -1546,6 +1536,7 @@ pub const Inst = struct {
                 .repeat,
                 .repeat_inline,
                 .panic,
+                .panic_comptime,
                 .@"try",
                 .try_ptr,
                 //.try_inline,
@@ -1580,7 +1571,7 @@ pub const Inst = struct {
                 .param_anytype_comptime = .str_tok,
                 .array_cat = .pl_node,
                 .array_mul = .pl_node,
-                .array_type = .bin,
+                .array_type = .pl_node,
                 .array_type_sentinel = .pl_node,
                 .vector_type = .pl_node,
                 .elem_type_index = .bin,
@@ -1713,7 +1704,7 @@ pub const Inst = struct {
                 .validate_struct_init_comptime = .pl_node,
                 .validate_array_init = .pl_node,
                 .validate_array_init_comptime = .pl_node,
-                .validate_deref = .un_tok,
+                .validate_deref = .un_node,
                 .struct_init_empty = .un_node,
                 .field_type = .pl_node,
                 .field_type_ref = .pl_node,
@@ -1731,8 +1722,6 @@ pub const Inst = struct {
                 .bit_size_of = .un_node,
 
                 .ptr_to_int = .un_node,
-                .error_to_int = .un_node,
-                .int_to_error = .un_node,
                 .compile_error = .un_node,
                 .set_eval_branch_quota = .un_node,
                 .enum_to_int = .un_node,
@@ -1741,6 +1730,7 @@ pub const Inst = struct {
                 .embed_file = .un_node,
                 .error_name = .un_node,
                 .panic = .un_node,
+                .panic_comptime = .un_node,
                 .set_cold = .un_node,
                 .set_runtime_safety = .un_node,
                 .sqrt = .un_node,
@@ -1802,7 +1792,6 @@ pub const Inst = struct {
                 .splat = .pl_node,
                 .reduce = .pl_node,
                 .shuffle = .pl_node,
-                .select = .pl_node,
                 .atomic_load = .pl_node,
                 .atomic_rmw = .pl_node,
                 .atomic_store = .pl_node,
@@ -1971,6 +1960,15 @@ pub const Inst = struct {
         await_nosuspend,
         /// `operand` is `src_node: i32`.
         breakpoint,
+        /// Implements the `@select` builtin.
+        /// operand` is payload index to `Select`.
+        select,
+        /// Implement builtin `@errToInt`.
+        /// `operand` is payload index to `UnNode`.
+        error_to_int,
+        /// Implement builtin `@intToError`.
+        /// `operand` is payload index to `UnNode`.
+        int_to_error,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -3448,6 +3446,7 @@ pub const Inst = struct {
     };
 
     pub const Select = struct {
+        node: i32,
         elem_type: Ref,
         pred: Ref,
         a: Ref,
