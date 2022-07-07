@@ -8,3 +8,4 @@ export fn entry() usize { return @sizeOf(@TypeOf(&foo)); }
 // target=native
 //
 // :3:30: error: expected type '*const i32', found '*const comptime_int'
+// :3:30: note: pointer type child 'comptime_int' cannot cast into pointer type child 'i32'

@@ -7,8 +7,8 @@ export fn entry(byte: u8) void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:4:22: error: expected type '*[1]i32', found '*const i32'
-// tmp.zig:4:22: note: cast discards const qualifier
+// :4:22: error: expected type '*[1]i32', found '*const i32'
+// :4:22: note: cast discards const qualifier

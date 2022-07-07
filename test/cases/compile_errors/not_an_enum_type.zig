@@ -17,3 +17,4 @@ const ExpectedVarDeclOrFn = struct {};
 // target=native
 //
 // :4:9: error: expected type '@typeInfo(tmp.Error).Union.tag_type.?', found 'type'
+// :8:1: note: enum declared here

@@ -10,3 +10,4 @@ export fn entry() bool {
 // target=native
 //
 // :4:31: error: expected type '*i32', found '*align(1) i32'
+// :4:31: note: pointer alignment '1' cannot cast into pointer alignment '4'
