@@ -344,6 +344,20 @@ pub const AllErrors = struct {
             /// Does not include the trailing newline.
             source_line: ?[]const u8,
             notes: []Message = &.{},
+
+            /// Splits the error message up into lines to properly indent them
+            /// to allow for long, good-looking error messages.
+            ///
+            /// This is used to split the message in `@compileError("hello\nworld")` for example.
+            fn writeMsg(src: @This(), stderr: anytype, indent: usize) !void {
+                var lines = mem.split(u8, src.msg, "\n");
+                while (lines.next()) |line| {
+                    try stderr.writeAll(line);
+                    if (lines.index == null) break;
+                    try stderr.writeByte('\n');
+                    try stderr.writeByteNTimes(' ', indent);
+                }
+            }
         },
         plain: struct {
             msg: []const u8,
@@ -379,24 +393,35 @@ pub const AllErrors = struct {
             indent: usize,
         ) anyerror!void {
             const stderr = stderr_file.writer();
+            // The length of the part before the error message; e.g. "file.zig:4:5: error: ".
+            var prefix_len: usize = 0;
             switch (msg) {
                 .src => |src| {
                     try stderr.writeByteNTimes(' ', indent);
+                    prefix_len += indent;
                     ttyconf.setColor(stderr, .Bold);
                     try stderr.print("{s}:{d}:{d}: ", .{
                         src.src_path,
                         src.line + 1,
                         src.column + 1,
                     });
+                    prefix_len += std.fmt.count("{s}:{d}:{d}: ", .{
+                        src.src_path,
+                        src.line + 1,
+                        src.column + 1,
+                    });
                     ttyconf.setColor(stderr, color);
                     try stderr.writeAll(kind);
+                    prefix_len += kind.len;
                     try stderr.writeAll(": ");
+                    prefix_len += 2;
                     ttyconf.setColor(stderr, .Reset);
                     ttyconf.setColor(stderr, .Bold);
                     if (src.count == 1) {
-                        try stderr.print("{s}\n", .{src.msg});
+                        try src.writeMsg(stderr, prefix_len);
+                        try stderr.writeByte('\n');
                     } else {
-                        try stderr.print("{s}", .{src.msg});
+                        try src.writeMsg(stderr, prefix_len);
                         ttyconf.setColor(stderr, .Dim);
                         try stderr.print(" ({d} times)\n", .{src.count});
                     }
