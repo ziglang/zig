@@ -14,6 +14,7 @@ inline fn fibonacci(n: usize) usize {
 // error
 //
 // :11:21: error: evaluation exceeded 1000 backwards branches
+// :11:21: note: use @setEvalBranchQuota() to raise the branch limit from 1000
 // :11:40: note: called from here (6 times)
 // :11:21: note: called from here (495 times)
 // :5:24: note: called from here
