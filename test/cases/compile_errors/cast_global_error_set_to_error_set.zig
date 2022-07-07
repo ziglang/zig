@@ -8,8 +8,8 @@ fn foo() anyerror {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:3:31: error: expected type 'SmallErrorSet', found 'anyerror'
-// tmp.zig:3:31: note: cannot cast global error set into smaller set
+// :3:31: error: expected type 'error{A}', found 'anyerror'
+// :3:31: note: global error set cannot cast into a smaller set

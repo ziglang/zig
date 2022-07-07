@@ -9,8 +9,8 @@ fn foo(set1: Set1) void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:7:19: error: expected type 'Set2', found 'Set1'
-// tmp.zig:1:23: note: 'error.B' not a member of destination error set
+// :7:19: error: expected type 'error{A,C}', found 'error{A,B}'
+// :7:19: note: 'error.B' not a member of destination error set

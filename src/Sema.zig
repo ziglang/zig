@@ -19931,7 +19931,7 @@ fn coerce(
                 if (inst_ty.ptrAddressSpace() != dest_info.@"addrspace") break :single_item;
                 switch (try sema.coerceInMemoryAllowed(block, array_elem_ty, ptr_elem_ty, dest_is_mut, target, dest_ty_src, inst_src)) {
                     .ok => {},
-                    .no_match => break :single_item,
+                    else => break :single_item,
                 }
                 return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
             }
@@ -19951,7 +19951,7 @@ fn coerce(
                 const dst_elem_type = dest_info.pointee_type;
                 switch (try sema.coerceInMemoryAllowed(block, dst_elem_type, array_elem_type, dest_is_mut, target, dest_ty_src, inst_src)) {
                     .ok => {},
-                    .no_match => break :src_array_ptr,
+                    else => break :src_array_ptr,
                 }
 
                 switch (dest_info.size) {
@@ -19990,7 +19990,7 @@ fn coerce(
                 const dst_elem_type = dest_info.pointee_type;
                 switch (try sema.coerceInMemoryAllowed(block, dst_elem_type, src_elem_ty, dest_is_mut, target, dest_ty_src, inst_src)) {
                     .ok => {},
-                    .no_match => break :src_c_ptr,
+                    else => break :src_c_ptr,
                 }
                 // TODO add safety check for null pointer
                 return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
@@ -20034,7 +20034,7 @@ fn coerce(
                             inst_src,
                         )) {
                             .ok => {},
-                            .no_match => break :p,
+                            else => break :p,
                         }
                         if (inst_info.size == .Slice) {
                             if (dest_info.sentinel == null or inst_info.sentinel == null or
@@ -20124,7 +20124,7 @@ fn coerce(
                         inst_src,
                     )) {
                         .ok => {},
-                        .no_match => break :p,
+                        else => break :p,
                     }
 
                     if (dest_info.sentinel == null or inst_info.sentinel == null or
@@ -20356,13 +20356,347 @@ fn coerce(
         return sema.addConstUndef(dest_ty);
     }
 
-    return sema.fail(block, inst_src, "expected type '{}', found '{}'", .{ dest_ty.fmt(sema.mod), inst_ty.fmt(sema.mod) });
+    const msg = msg: {
+        const msg = try sema.errMsg(block, inst_src, "expected type '{}', found '{}'", .{ dest_ty.fmt(sema.mod), inst_ty.fmt(sema.mod) });
+        errdefer msg.destroy(sema.gpa);
+
+        try in_memory_result.report(sema, block, inst_src, msg);
+        break :msg msg;
+    };
+    return sema.failWithOwnedErrorMsg(block, msg);
 }
 
-const InMemoryCoercionResult = enum {
+const InMemoryCoercionResult = union(enum) {
     ok,
-    no_match,
+    no_match: Pair,
+    int_mismatch: Int,
+    error_union_payload: PairAndChild,
+    array_len: IntPair,
+    array_sentinel: Sentinel,
+    array_elem: PairAndChild,
+    vector_len: IntPair,
+    vector_elem: PairAndChild,
+    optional_shape: Pair,
+    optional_child: PairAndChild,
+    from_anyerror,
+    missing_error: []const []const u8,
+    /// true if wanted is var args
+    fn_var_args: bool,
+    /// true if wanted is generic
+    fn_generic: bool,
+    fn_param_count: IntPair,
+    fn_param_noalias: IntPair,
+    fn_param_comptime: ComptimeParam,
+    fn_param: Param,
+    fn_cc: CC,
+    fn_return_type: PairAndChild,
+    ptr_child: PairAndChild,
+    ptr_addrspace: AddressSpace,
+    ptr_sentinel: Sentinel,
+    ptr_size: Size,
+    ptr_qualifiers: Qualifiers,
+    ptr_allowzero: Pair,
+    ptr_bit_range: BitRange,
+    ptr_alignment: IntPair,
+
+    const Pair = struct {
+        actual: Type,
+        wanted: Type,
+    };
+
+    const PairAndChild = struct {
+        child: *InMemoryCoercionResult,
+        actual: Type,
+        wanted: Type,
+    };
+
+    const Param = struct {
+        child: *InMemoryCoercionResult,
+        actual: Type,
+        wanted: Type,
+        index: u64,
+    };
+
+    const ComptimeParam = struct {
+        index: u64,
+        wanted: bool,
+    };
+
+    const Sentinel = struct {
+        // unreachable_value indicates no sentinel
+        actual: Value,
+        wanted: Value,
+        ty: Type,
+    };
+
+    const Int = struct {
+        actual_signedness: std.builtin.Signedness,
+        wanted_signedness: std.builtin.Signedness,
+        actual_bits: u16,
+        wanted_bits: u16,
+    };
+
+    const IntPair = struct {
+        actual: u64,
+        wanted: u64,
+    };
+
+    const Size = struct {
+        actual: std.builtin.Type.Pointer.Size,
+        wanted: std.builtin.Type.Pointer.Size,
+    };
+
+    const Qualifiers = struct {
+        actual_const: bool,
+        wanted_const: bool,
+        actual_volatile: bool,
+        wanted_volatile: bool,
+    };
+
+    const AddressSpace = struct {
+        actual: std.builtin.AddressSpace,
+        wanted: std.builtin.AddressSpace,
+    };
+
+    const CC = struct {
+        actual: std.builtin.CallingConvention,
+        wanted: std.builtin.CallingConvention,
+    };
+
+    const BitRange = struct {
+        actual_host: u16,
+        wanted_host: u16,
+        actual_offset: u16,
+        wanted_offset: u16,
+    };
+
+    fn dupe(child: *const InMemoryCoercionResult, arena: Allocator) !*InMemoryCoercionResult {
+        const res = try arena.create(InMemoryCoercionResult);
+        res.* = child.*;
+        return res;
+    }
+
+    fn report(res: *const InMemoryCoercionResult, sema: *Sema, block: *Block, src: LazySrcLoc, msg: *Module.ErrorMsg) !void {
+        var cur = res;
+        while (true) switch (cur.*) {
+            .ok => unreachable,
+            .no_match => |types| {
+                try sema.addDeclaredHereNote(msg, types.wanted);
+                try sema.addDeclaredHereNote(msg, types.actual);
+                break;
+            },
+            .int_mismatch => |int| {
+                try sema.errNote(block, src, msg, "{s} {d}-bit int cannot represent all possible {s} {d}-bit values", .{
+                    @tagName(int.wanted_signedness), int.wanted_bits, @tagName(int.actual_signedness), int.actual_bits,
+                });
+                break;
+            },
+            .error_union_payload => |pair| {
+                try sema.errNote(block, src, msg, "error union payload '{}' cannot cast into error union payload '{}'", .{
+                    pair.actual.fmt(sema.mod), pair.wanted.fmt(sema.mod),
+                });
+                cur = pair.child;
+            },
+            .array_len => |lens| {
+                try sema.errNote(block, src, msg, "array of length {d} cannot cast into an array of length {d}", .{
+                    lens.actual, lens.wanted,
+                });
+                break;
+            },
+            .array_sentinel => |sentinel| {
+                if (sentinel.actual.tag() != .unreachable_value) {
+                    try sema.errNote(block, src, msg, "array sentinel '{}' cannot cast into array sentinel '{}'", .{
+                        sentinel.actual.fmtValue(sentinel.ty, sema.mod), sentinel.wanted.fmtValue(sentinel.ty, sema.mod),
+                    });
+                } else {
+                    try sema.errNote(block, src, msg, "destination array requires '{}' sentinel", .{
+                        sentinel.wanted.fmtValue(sentinel.ty, sema.mod),
+                    });
+                }
+                break;
+            },
+            .array_elem => |pair| {
+                try sema.errNote(block, src, msg, "array element type '{}' cannot cast into array element type '{}'", .{
+                    pair.actual.fmt(sema.mod), pair.wanted.fmt(sema.mod),
+                });
+                cur = pair.child;
+            },
+            .vector_len => |lens| {
+                try sema.errNote(block, src, msg, "vector of length {d} cannot cast into a vector of length {d}", .{
+                    lens.actual, lens.wanted,
+                });
+                break;
+            },
+            .vector_elem => |pair| {
+                try sema.errNote(block, src, msg, "vector element type '{}' cannot cast into vector element type '{}'", .{
+                    pair.actual.fmt(sema.mod), pair.wanted.fmt(sema.mod),
+                });
+                cur = pair.child;
+            },
+            .optional_shape => |pair| {
+                try sema.errNote(block, src, msg, "optional type child '{}' cannot cast into optional type '{}'", .{
+                    pair.actual.fmt(sema.mod), pair.wanted.fmt(sema.mod),
+                });
+                break;
+            },
+            .optional_child => |pair| {
+                try sema.errNote(block, src, msg, "optional type child '{}' cannot cast into optional type child '{}'", .{
+                    pair.actual.fmt(sema.mod), pair.wanted.fmt(sema.mod),
+                });
+                cur = pair.child;
+            },
+            .from_anyerror => {
+                try sema.errNote(block, src, msg, "global error set cannot cast into a smaller set", .{});
+                break;
+            },
+            .missing_error => |missing_errors| {
+                for (missing_errors) |err| {
+                    try sema.errNote(block, src, msg, "'error.{s}' not a member of destination error set", .{err});
+                }
+                break;
+            },
+            .fn_var_args => |wanted_var_args| {
+                if (wanted_var_args) {
+                    try sema.errNote(block, src, msg, "non-variadic function cannot cast into a variadic function", .{});
+                } else {
+                    try sema.errNote(block, src, msg, "variadic function cannot cast into a non-variadic function", .{});
+                }
+                break;
+            },
+            .fn_generic => |wanted_generic| {
+                if (wanted_generic) {
+                    try sema.errNote(block, src, msg, "non-generic function cannot cast into a generic function", .{});
+                } else {
+                    try sema.errNote(block, src, msg, "generic function cannot cast into a non-generic function", .{});
+                }
+                break;
+            },
+            .fn_param_count => |lens| {
+                try sema.errNote(block, src, msg, "function with {d} parameters cannot cast into a function with {d} parameters", .{
+                    lens.actual, lens.wanted,
+                });
+                break;
+            },
+            .fn_param_noalias => |param| {
+                var index: u6 = 0;
+                var actual_noalias = false;
+                while (true) : (index += 1) {
+                    if (param.actual << index != param.wanted << index) {
+                        actual_noalias = (param.actual << index) == (1 << 31);
+                    }
+                }
+                if (!actual_noalias) {
+                    try sema.errNote(block, src, msg, "regular paramter {d} cannot cast into a noalias paramter", .{index});
+                } else {
+                    try sema.errNote(block, src, msg, "noalias paramter {d} cannot cast into a regular paramter", .{index});
+                }
+                break;
+            },
+            .fn_param_comptime => |param| {
+                if (param.wanted) {
+                    try sema.errNote(block, src, msg, "non-comptime paramter {d} cannot cast into a comptime paramter", .{param.index});
+                } else {
+                    try sema.errNote(block, src, msg, "comptime paramter {d} cannot cast into a non-comptime paramter", .{param.index});
+                }
+                break;
+            },
+            .fn_param => |param| {
+                try sema.errNote(block, src, msg, "parameter {d} '{}' cannot cast into '{}'", .{
+                    param.index, param.actual.fmt(sema.mod), param.wanted.fmt(sema.mod),
+                });
+                cur = param.child;
+            },
+            .fn_cc => |cc| {
+                try sema.errNote(block, src, msg, "calling convention {s} cannot cast into calling convention {s}", .{ @tagName(cc.actual), @tagName(cc.wanted) });
+                break;
+            },
+            .fn_return_type => |pair| {
+                try sema.errNote(block, src, msg, "return type '{}' cannot cast into return type '{}'", .{
+                    pair.actual.fmt(sema.mod), pair.wanted.fmt(sema.mod),
+                });
+                cur = pair.child;
+            },
+            .ptr_child => |pair| {
+                try sema.errNote(block, src, msg, "pointer type child '{}' cannot cast into pointer type child '{}'", .{
+                    pair.actual.fmt(sema.mod), pair.wanted.fmt(sema.mod),
+                });
+                cur = pair.child;
+            },
+            .ptr_addrspace => |@"addrspace"| {
+                try sema.errNote(block, src, msg, "address space '{s}' cannot cast into address space '{s}'", .{ @tagName(@"addrspace".actual), @tagName(@"addrspace".wanted) });
+                break;
+            },
+            .ptr_sentinel => |sentinel| {
+                if (sentinel.actual.tag() != .unreachable_value) {
+                    try sema.errNote(block, src, msg, "pointer sentinel '{}' cannot cast into pointer sentinel '{}'", .{
+                        sentinel.actual.fmtValue(sentinel.ty, sema.mod), sentinel.wanted.fmtValue(sentinel.ty, sema.mod),
+                    });
+                } else {
+                    try sema.errNote(block, src, msg, "destination pointer requires '{}' sentinel", .{
+                        sentinel.wanted.fmtValue(sentinel.ty, sema.mod),
+                    });
+                }
+                break;
+            },
+            .ptr_size => |size| {
+                try sema.errNote(block, src, msg, "a {s} pointer cannot cast into a {s} pointer", .{ pointerSizeString(size.actual), pointerSizeString(size.wanted) });
+                break;
+            },
+            .ptr_qualifiers => |qualifiers| {
+                const ok_const = !qualifiers.actual_const or qualifiers.wanted_const;
+                const ok_volatile = !qualifiers.actual_volatile or qualifiers.wanted_volatile;
+                if (!ok_const) {
+                    try sema.errNote(block, src, msg, "cast discards const qualifier", .{});
+                } else if (!ok_volatile) {
+                    try sema.errNote(block, src, msg, "cast discards volatile qualifier", .{});
+                }
+                break;
+            },
+            .ptr_allowzero => |pair| {
+                const wanted_allow_zero = pair.wanted.ptrAllowsZero();
+                const actual_allow_zero = pair.actual.ptrAllowsZero();
+                if (actual_allow_zero and !wanted_allow_zero) {
+                    try sema.errNote(block, src, msg, "'{}' could have null values which are illegal in type '{}'", .{
+                        pair.actual.fmt(sema.mod), pair.wanted.fmt(sema.mod),
+                    });
+                } else {
+                    try sema.errNote(block, src, msg, "mutable '{}' allows illegal null values stored to type '{}'", .{
+                        pair.actual.fmt(sema.mod), pair.wanted.fmt(sema.mod),
+                    });
+                }
+                break;
+            },
+            .ptr_bit_range => |bit_range| {
+                if (bit_range.actual_host != bit_range.wanted_host) {
+                    try sema.errNote(block, src, msg, "pointer host size '{}' cannot cast into pointer host size '{}'", .{
+                        bit_range.actual_host, bit_range.wanted_host,
+                    });
+                }
+                if (bit_range.actual_offset != bit_range.wanted_offset) {
+                    try sema.errNote(block, src, msg, "pointer bit offset '{}' cannot cast into pointer bit offset '{}'", .{
+                        bit_range.actual_offset, bit_range.wanted_offset,
+                    });
+                }
+                break;
+            },
+            .ptr_alignment => |pair| {
+                try sema.errNote(block, src, msg, "pointer alignment '{}' cannot cast into pointer alignment '{}'", .{
+                    pair.actual, pair.wanted,
+                });
+                break;
+            },
+        };
+    }
 };
+
+fn pointerSizeString(size: std.builtin.Type.Pointer.Size) []const u8 {
+    return switch (size) {
+        .One => "single",
+        .Many => "many",
+        .C => "C",
+        .Slice => unreachable,
+    };
+}
 
 /// If pointers have the same representation in runtime memory, a bitcast AIR instruction
 /// may be used for the coercion.
@@ -20373,8 +20707,6 @@ const InMemoryCoercionResult = enum {
 /// * bit offset attributes must match exactly
 /// * `*`/`[*]` must match exactly, but `[*c]` matches either one
 /// * sentinel-terminated pointers can coerce into `[*]`
-/// TODO improve this function to report recursive compile errors like it does in stage1.
-/// look at the function types_match_const_cast_only
 fn coerceInMemoryAllowed(
     sema: *Sema,
     block: *Block,
@@ -20392,11 +20724,17 @@ fn coerceInMemoryAllowed(
     if (dest_ty.zigTypeTag() == .Int and src_ty.zigTypeTag() == .Int) {
         const dest_info = dest_ty.intInfo(target);
         const src_info = src_ty.intInfo(target);
-        if (dest_info.signedness == src_info.signedness and
-            dest_info.bits == src_info.bits)
+        if (dest_info.signedness != src_info.signedness or
+            dest_info.bits != src_info.bits)
         {
-            return .ok;
+            return InMemoryCoercionResult{ .int_mismatch = .{
+                .actual_signedness = src_info.signedness,
+                .wanted_signedness = dest_info.signedness,
+                .actual_bits = src_info.bits,
+                .wanted_bits = dest_info.bits,
+            } };
         }
+        return .ok;
     }
 
     // Differently-named floats with the same number of bits.
@@ -20434,9 +20772,15 @@ fn coerceInMemoryAllowed(
 
     // Error Unions
     if (dest_tag == .ErrorUnion and src_tag == .ErrorUnion) {
-        const child = try sema.coerceInMemoryAllowed(block, dest_ty.errorUnionPayload(), src_ty.errorUnionPayload(), dest_is_mut, target, dest_src, src_src);
-        if (child == .no_match) {
-            return child;
+        const dest_payload = dest_ty.errorUnionPayload();
+        const src_payload = src_ty.errorUnionPayload();
+        const child = try sema.coerceInMemoryAllowed(block, dest_payload, src_payload, dest_is_mut, target, dest_src, src_src);
+        if (child != .ok) {
+            return InMemoryCoercionResult{ .error_union_payload = .{
+                .child = try child.dupe(sema.arena),
+                .actual = src_payload,
+                .wanted = dest_payload,
+            } };
         }
         return try sema.coerceInMemoryAllowed(block, dest_ty.errorUnionSet(), src_ty.errorUnionSet(), dest_is_mut, target, dest_src, src_src);
     }
@@ -20447,57 +20791,89 @@ fn coerceInMemoryAllowed(
     }
 
     // Arrays
-    if (dest_tag == .Array and src_tag == .Array) arrays: {
+    if (dest_tag == .Array and src_tag == .Array) {
         const dest_info = dest_ty.arrayInfo();
         const src_info = src_ty.arrayInfo();
-        if (dest_info.len != src_info.len) break :arrays;
+        if (dest_info.len != src_info.len) {
+            return InMemoryCoercionResult{ .array_len = .{
+                .actual = src_info.len,
+                .wanted = dest_info.len,
+            } };
+        }
 
         const child = try sema.coerceInMemoryAllowed(block, dest_info.elem_type, src_info.elem_type, dest_is_mut, target, dest_src, src_src);
-        if (child == .no_match) {
-            return child;
+        if (child != .ok) {
+            return InMemoryCoercionResult{ .array_elem = .{
+                .child = try child.dupe(sema.arena),
+                .actual = src_info.elem_type,
+                .wanted = dest_info.elem_type,
+            } };
         }
         const ok_sent = dest_info.sentinel == null or
             (src_info.sentinel != null and
             dest_info.sentinel.?.eql(src_info.sentinel.?, dest_info.elem_type, sema.mod));
         if (!ok_sent) {
-            return .no_match;
+            return InMemoryCoercionResult{ .array_sentinel = .{
+                .actual = src_info.sentinel orelse Value.initTag(.unreachable_value),
+                .wanted = dest_info.sentinel orelse Value.initTag(.unreachable_value),
+                .ty = dest_info.elem_type,
+            } };
         }
         return .ok;
     }
 
     // Vectors
-    if (dest_tag == .Vector and src_tag == .Vector) vectors: {
+    if (dest_tag == .Vector and src_tag == .Vector) {
         const dest_len = dest_ty.vectorLen();
         const src_len = src_ty.vectorLen();
-        if (dest_len != src_len) break :vectors;
+        if (dest_len != src_len) {
+            return InMemoryCoercionResult{ .vector_len = .{
+                .actual = src_len,
+                .wanted = dest_len,
+            } };
+        }
 
         const dest_elem_ty = dest_ty.scalarType();
         const src_elem_ty = src_ty.scalarType();
         const child = try sema.coerceInMemoryAllowed(block, dest_elem_ty, src_elem_ty, dest_is_mut, target, dest_src, src_src);
-        if (child == .no_match) break :vectors;
+        if (child != .ok) {
+            return InMemoryCoercionResult{ .vector_elem = .{
+                .child = try child.dupe(sema.arena),
+                .actual = src_elem_ty,
+                .wanted = dest_elem_ty,
+            } };
+        }
 
         return .ok;
     }
 
     // Optionals
-    if (dest_tag == .Optional and src_tag == .Optional) optionals: {
+    if (dest_tag == .Optional and src_tag == .Optional) {
         if ((maybe_dest_ptr_ty != null) != (maybe_src_ptr_ty != null)) {
-            // TODO "optional type child '{}' cannot cast into optional type '{}'"
-            return .no_match;
+            return InMemoryCoercionResult{ .optional_shape = .{
+                .actual = src_ty,
+                .wanted = dest_ty,
+            } };
         }
         const dest_child_type = dest_ty.optionalChild(&dest_buf);
         const src_child_type = src_ty.optionalChild(&src_buf);
 
         const child = try sema.coerceInMemoryAllowed(block, dest_child_type, src_child_type, dest_is_mut, target, dest_src, src_src);
-        if (child == .no_match) {
-            // TODO "optional type child '{}' cannot cast into optional type child '{}'"
-            break :optionals;
+        if (child != .ok) {
+            return InMemoryCoercionResult{ .optional_child = .{
+                .child = try child.dupe(sema.arena),
+                .actual = src_child_type,
+                .wanted = dest_child_type,
+            } };
         }
 
         return .ok;
     }
 
-    return .no_match;
+    return InMemoryCoercionResult{ .no_match = .{
+        .actual = dest_ty,
+        .wanted = src_ty,
+    } };
 }
 
 fn coerceInMemoryAllowedErrorSets(
@@ -20564,6 +20940,9 @@ fn coerceInMemoryAllowedErrorSets(
         }
     }
 
+    var missing_error_buf = std.ArrayList([]const u8).init(sema.gpa);
+    defer missing_error_buf.deinit();
+
     switch (src_ty.tag()) {
         .error_set_inferred => {
             const src_data = src_ty.castTag(.error_set_inferred).?.data;
@@ -20572,13 +20951,19 @@ fn coerceInMemoryAllowedErrorSets(
             // src anyerror status might have changed after the resolution.
             if (src_ty.isAnyError()) {
                 // dest_ty.isAnyError() == true is already checked for at this point.
-                return .no_match;
+                return .from_anyerror;
             }
 
             for (src_data.errors.keys()) |key| {
                 if (!dest_ty.errorSetHasField(key)) {
-                    return .no_match;
+                    try missing_error_buf.append(key);
                 }
+            }
+
+            if (missing_error_buf.items.len != 0) {
+                return InMemoryCoercionResult{
+                    .missing_error = try sema.arena.dupe([]const u8, missing_error_buf.items),
+                };
             }
 
             return .ok;
@@ -20588,13 +20973,22 @@ fn coerceInMemoryAllowedErrorSets(
             if (dest_ty.errorSetHasField(name)) {
                 return .ok;
             }
+            const list = try sema.arena.alloc([]const u8, 1);
+            list[0] = name;
+            return InMemoryCoercionResult{ .missing_error = list };
         },
         .error_set_merged => {
             const names = src_ty.castTag(.error_set_merged).?.data.keys();
             for (names) |name| {
                 if (!dest_ty.errorSetHasField(name)) {
-                    return .no_match;
+                    try missing_error_buf.append(name);
                 }
+            }
+
+            if (missing_error_buf.items.len != 0) {
+                return InMemoryCoercionResult{
+                    .missing_error = try sema.arena.dupe([]const u8, missing_error_buf.items),
+                };
             }
 
             return .ok;
@@ -20603,22 +20997,28 @@ fn coerceInMemoryAllowedErrorSets(
             const names = src_ty.castTag(.error_set).?.data.names.keys();
             for (names) |name| {
                 if (!dest_ty.errorSetHasField(name)) {
-                    return .no_match;
+                    try missing_error_buf.append(name);
                 }
+            }
+
+            if (missing_error_buf.items.len != 0) {
+                return InMemoryCoercionResult{
+                    .missing_error = try sema.arena.dupe([]const u8, missing_error_buf.items),
+                };
             }
 
             return .ok;
         },
         .anyerror => switch (dest_ty.tag()) {
-            .error_set_inferred => return .no_match, // Caught by dest.isAnyError() above.
-            .error_set_single, .error_set_merged, .error_set => {},
+            .error_set_inferred => unreachable, // Caught by dest_ty.isAnyError() above.
+            .error_set_single, .error_set_merged, .error_set => return .from_anyerror,
             .anyerror => unreachable, // Filtered out above.
             else => unreachable,
         },
         else => unreachable,
     }
 
-    return .no_match;
+    unreachable;
 }
 
 fn coerceInMemoryAllowedFns(
@@ -20634,42 +21034,65 @@ fn coerceInMemoryAllowedFns(
     const src_info = src_ty.fnInfo();
 
     if (dest_info.is_var_args != src_info.is_var_args) {
-        return .no_match;
+        return InMemoryCoercionResult{ .fn_var_args = dest_info.is_var_args };
     }
 
     if (dest_info.is_generic != src_info.is_generic) {
-        return .no_match;
+        return InMemoryCoercionResult{ .fn_generic = dest_info.is_generic };
+    }
+
+    if (dest_info.cc != src_info.cc) {
+        return InMemoryCoercionResult{ .fn_cc = .{
+            .actual = src_info.cc,
+            .wanted = dest_info.cc,
+        } };
     }
 
     if (!src_info.return_type.isNoReturn()) {
         const rt = try sema.coerceInMemoryAllowed(block, dest_info.return_type, src_info.return_type, false, target, dest_src, src_src);
-        if (rt == .no_match) {
-            return rt;
+        if (rt != .ok) {
+            return InMemoryCoercionResult{ .fn_return_type = .{
+                .child = try rt.dupe(sema.arena),
+                .actual = src_info.return_type,
+                .wanted = dest_info.return_type,
+            } };
         }
     }
 
     if (dest_info.param_types.len != src_info.param_types.len) {
-        return .no_match;
+        return InMemoryCoercionResult{ .fn_param_count = .{
+            .actual = dest_info.param_types.len,
+            .wanted = dest_info.param_types.len,
+        } };
+    }
+
+    if (dest_info.noalias_bits != src_info.noalias_bits) {
+        return InMemoryCoercionResult{ .fn_param_noalias = .{
+            .actual = dest_info.noalias_bits,
+            .wanted = dest_info.noalias_bits,
+        } };
     }
 
     for (dest_info.param_types) |dest_param_ty, i| {
         const src_param_ty = src_info.param_types[i];
 
         if (dest_info.comptime_params[i] != src_info.comptime_params[i]) {
-            return .no_match;
+            return InMemoryCoercionResult{ .fn_param_comptime = .{
+                .index = i,
+                .wanted = dest_info.comptime_params[i],
+            } };
         }
-
-        // TODO: noalias
 
         // Note: Cast direction is reversed here.
         const param = try sema.coerceInMemoryAllowed(block, src_param_ty, dest_param_ty, false, target, dest_src, src_src);
-        if (param == .no_match) {
-            return param;
+        if (param != .ok) {
+            return InMemoryCoercionResult{ .fn_param = .{
+                .child = try param.dupe(sema.arena),
+                .actual = src_param_ty,
+                .wanted = dest_param_ty,
+                .index = i,
+            } };
         }
-    }
-
-    if (dest_info.cc != src_info.cc) {
-        return .no_match;
     }
 
     return .ok;
@@ -20690,26 +21113,13 @@ fn coerceInMemoryAllowedPtrs(
     const dest_info = dest_ptr_ty.ptrInfo().data;
     const src_info = src_ptr_ty.ptrInfo().data;
 
-    const child = try sema.coerceInMemoryAllowed(block, dest_info.pointee_type, src_info.pointee_type, dest_info.mutable, target, dest_src, src_src);
-    if (child == .no_match) {
-        return child;
-    }
-
-    if (dest_info.@"addrspace" != src_info.@"addrspace") {
-        return .no_match;
-    }
-
-    const ok_sent = dest_info.sentinel == null or src_info.size == .C or
-        (src_info.sentinel != null and
-        dest_info.sentinel.?.eql(src_info.sentinel.?, dest_info.pointee_type, sema.mod));
-    if (!ok_sent) {
-        return .no_match;
-    }
-
     const ok_ptr_size = src_info.size == dest_info.size or
         src_info.size == .C or dest_info.size == .C;
     if (!ok_ptr_size) {
-        return .no_match;
+        return InMemoryCoercionResult{ .ptr_size = .{
+            .actual = src_info.size,
+            .wanted = dest_info.size,
+        } };
     }
 
     const ok_cv_qualifiers =
@@ -20717,7 +21127,28 @@ fn coerceInMemoryAllowedPtrs(
         (!src_info.@"volatile" or dest_info.@"volatile");
 
     if (!ok_cv_qualifiers) {
-        return .no_match;
+        return InMemoryCoercionResult{ .ptr_qualifiers = .{
+            .actual_const = !src_info.mutable,
+            .wanted_const = !dest_info.mutable,
+            .actual_volatile = src_info.@"volatile",
+            .wanted_volatile = dest_info.@"volatile",
+        } };
+    }
+
+    if (dest_info.@"addrspace" != src_info.@"addrspace") {
+        return InMemoryCoercionResult{ .ptr_addrspace = .{
+            .actual = src_info.@"addrspace",
+            .wanted = dest_info.@"addrspace",
+        } };
+    }
+
+    const child = try sema.coerceInMemoryAllowed(block, dest_info.pointee_type, src_info.pointee_type, dest_info.mutable, target, dest_src, src_src);
+    if (child != .ok) {
+        return InMemoryCoercionResult{ .ptr_child = .{
+            .child = try child.dupe(sema.arena),
+            .actual = src_info.pointee_type,
+            .wanted = dest_info.pointee_type,
+        } };
     }
 
     const dest_allow_zero = dest_ty.ptrAllowsZero();
@@ -20727,13 +21158,32 @@ fn coerceInMemoryAllowedPtrs(
         (src_allow_zero or !dest_is_mut)) or
         (!dest_allow_zero and !src_allow_zero);
     if (!ok_allows_zero) {
-        return .no_match;
+        return InMemoryCoercionResult{ .ptr_allowzero = .{
+            .actual = src_ty,
+            .wanted = dest_ty,
+        } };
     }
 
     if (src_info.host_size != dest_info.host_size or
         src_info.bit_offset != dest_info.bit_offset)
     {
-        return .no_match;
+        return InMemoryCoercionResult{ .ptr_bit_range = .{
+            .actual_host = src_info.host_size,
+            .wanted_host = dest_info.host_size,
+            .actual_offset = src_info.bit_offset,
+            .wanted_offset = dest_info.bit_offset,
+        } };
+    }
+
+    const ok_sent = dest_info.sentinel == null or src_info.size == .C or
+        (src_info.sentinel != null and
+        dest_info.sentinel.?.eql(src_info.sentinel.?, dest_info.pointee_type, sema.mod));
+    if (!ok_sent) {
+        return InMemoryCoercionResult{ .ptr_sentinel = .{
+            .actual = src_info.sentinel orelse Value.initTag(.unreachable_value),
+            .wanted = dest_info.sentinel orelse Value.initTag(.unreachable_value),
+            .ty = dest_info.pointee_type,
+        } };
     }
 
     // If both pointers have alignment 0, it means they both want ABI alignment.
@@ -20758,7 +21208,10 @@ fn coerceInMemoryAllowedPtrs(
             dest_info.pointee_type.abiAlignment(target);
 
         if (dest_align > src_align) {
-            return .no_match;
+            return InMemoryCoercionResult{ .ptr_alignment = .{
+                .actual = src_align,
+                .wanted = dest_align,
+            } };
         }
 
         break :alignment;
