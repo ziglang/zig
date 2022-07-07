@@ -138,68 +138,33 @@ pub fn print(
         .extern_options_type => return writer.writeAll("std.builtin.ExternOptions"),
         .type_info_type => return writer.writeAll("std.builtin.Type"),
 
-        .empty_struct_value => return writer.writeAll(".{}"),
-        .aggregate => {
+        .empty_struct_value, .aggregate => {
             if (level == 0) {
                 return writer.writeAll(".{ ... }");
             }
-            const vals = val.castTag(.aggregate).?.data;
-            if (ty.castTag(.anon_struct)) |anon_struct| {
-                const field_names = anon_struct.data.names;
-                const types = anon_struct.data.types;
-                const max_len = std.math.min(types.len, max_aggregate_items);
+            if (ty.zigTypeTag() == .Struct) {
+                try writer.writeAll(".{");
+                const max_len = std.math.min(ty.structFieldCount(), max_aggregate_items);
 
                 var i: u32 = 0;
                 while (i < max_len) : (i += 1) {
                     if (i != 0) try writer.writeAll(", ");
-                    try writer.print(".{s} = ", .{field_names[i]});
+                    switch (ty.tag()) {
+                        .anon_struct, .@"struct" => try writer.print(".{s} = ", .{ty.structFieldName(i)}),
+                        else => {},
+                    }
                     try print(.{
-                        .ty = types[i],
-                        .val = vals[i],
+                        .ty = ty.structFieldType(i),
+                        .val = ty.structFieldValueComptime(i) orelse b: {
+                            const vals = val.castTag(.aggregate).?.data;
+                            break :b vals[i];
+                        },
                     }, writer, level - 1, mod);
                 }
-                if (types.len > max_aggregate_items) {
+                if (ty.structFieldCount() > max_aggregate_items) {
                     try writer.writeAll(", ...");
                 }
-                return writer.writeAll(" }");
-            } else if (ty.isTuple()) {
-                const fields = ty.tupleFields();
-                const max_len = std.math.min(fields.types.len, max_aggregate_items);
-
-                var i: u32 = 0;
-                while (i < max_len) : (i += 1) {
-                    if (i != 0) try writer.writeAll(", ");
-                    try print(.{
-                        .ty = fields.types[i],
-                        .val = vals[i],
-                    }, writer, level - 1, mod);
-                }
-                if (fields.types.len > max_aggregate_items) {
-                    try writer.writeAll(", ...");
-                }
-                return writer.writeAll(" }");
-            } else if (ty.zigTypeTag() == .Struct) {
-                try writer.writeAll(".{ ");
-                const struct_fields = ty.structFields();
-                const len = struct_fields.count();
-                const max_len = std.math.min(len, max_aggregate_items);
-
-                const field_names = struct_fields.keys();
-                const fields = struct_fields.values();
-
-                var i: u32 = 0;
-                while (i < max_len) : (i += 1) {
-                    if (i != 0) try writer.writeAll(", ");
-                    try writer.print(".{s} = ", .{field_names[i]});
-                    try print(.{
-                        .ty = fields[i].ty,
-                        .val = vals[i],
-                    }, writer, level - 1, mod);
-                }
-                if (len > max_aggregate_items) {
-                    try writer.writeAll(", ...");
-                }
-                return writer.writeAll(" }");
+                return writer.writeAll("}");
             } else {
                 try writer.writeAll(".{ ");
                 const elem_ty = ty.elemType2();
@@ -211,7 +176,7 @@ pub fn print(
                     if (i != 0) try writer.writeAll(", ");
                     try print(.{
                         .ty = elem_ty,
-                        .val = vals[i],
+                        .val = val.castTag(.aggregate).?.data[i],
                     }, writer, level - 1, mod);
                 }
                 if (len > max_aggregate_items) {
@@ -335,12 +300,23 @@ pub fn print(
             }
 
             if (field_ptr.container_ty.zigTypeTag() == .Struct) {
-                const field_name = field_ptr.container_ty.structFields().keys()[field_ptr.field_index];
-                return writer.print(".{s}", .{field_name});
+                switch (field_ptr.container_ty.tag()) {
+                    .tuple => return writer.print(".@\"{d}\"", .{field_ptr.field_index}),
+                    else => {
+                        const field_name = field_ptr.container_ty.structFieldName(field_ptr.field_index);
+                        return writer.print(".{s}", .{field_name});
+                    },
+                }
             } else if (field_ptr.container_ty.zigTypeTag() == .Union) {
                 const field_name = field_ptr.container_ty.unionFields().keys()[field_ptr.field_index];
                 return writer.print(".{s}", .{field_name});
-            } else unreachable;
+            } else if (field_ptr.container_ty.isSlice()) {
+                switch (field_ptr.field_index) {
+                    Value.Payload.Slice.ptr_index => return writer.writeAll(".ptr"),
+                    Value.Payload.Slice.len_index => return writer.writeAll(".len"),
+                    else => unreachable,
+                }
+            }
         },
         .empty_array => return writer.writeAll(".{}"),
         .enum_literal => return writer.print(".{}", .{std.zig.fmtId(val.castTag(.enum_literal).?.data)}),
