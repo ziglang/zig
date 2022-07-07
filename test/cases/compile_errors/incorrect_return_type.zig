@@ -19,3 +19,5 @@
 // target=native
 //
 // :8:16: error: expected type 'tmp.A', found 'tmp.B'
+// :10:12: note: struct declared here
+// :4:12: note: struct declared here
