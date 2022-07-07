@@ -4997,15 +4997,14 @@ fn orelseCatchExpr(
     var err_val_scope: Scope.LocalVal = undefined;
     const else_sub_scope = blk: {
         const payload = payload_token orelse break :blk &else_scope.base;
-        if (mem.eql(u8, tree.tokenSlice(payload), "_")) {
+        const err_str = tree.tokenSlice(payload);
+        if (mem.eql(u8, err_str, "_")) {
             return astgen.failTok(payload, "discard of error capture; omit it instead", .{});
         }
-
-        const payload_name = try astgen.identAsString(payload);
-        const payload_str = tree.tokenSlice(payload);
-        try astgen.detectLocalShadowing(scope, payload_name, payload, payload_str);
-
         const err_name = try astgen.identAsString(payload);
+
+        try astgen.detectLocalShadowing(scope, err_name, payload, err_str);
+
         err_val_scope = .{
             .parent = &else_scope.base,
             .gen_zir = &else_scope,
