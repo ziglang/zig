@@ -189,8 +189,6 @@ const Writer = struct {
             .typeof_log2_int_type,
             .log2_int_type,
             .ptr_to_int,
-            .error_to_int,
-            .int_to_error,
             .compile_error,
             .set_eval_branch_quota,
             .enum_to_int,
@@ -284,7 +282,6 @@ const Writer = struct {
             .memcpy => try self.writeMemcpy(stream, inst),
             .memset => try self.writeMemset(stream, inst),
             .shuffle => try self.writeShuffle(stream, inst),
-            .select => try self.writeSelect(stream, inst),
             .mul_add => try self.writeMulAdd(stream, inst),
             .field_parent_ptr => try self.writeFieldParentPtr(stream, inst),
             .builtin_call => try self.writeBuiltinCall(stream, inst),
@@ -478,6 +475,8 @@ const Writer = struct {
             .compile_log => try self.writeNodeMultiOp(stream, extended),
             .typeof_peer => try self.writeTypeofPeer(stream, extended),
 
+            .select => try self.writeSelect(stream, extended),
+
             .add_with_overflow,
             .sub_with_overflow,
             .mul_with_overflow,
@@ -496,6 +495,8 @@ const Writer = struct {
             .set_float_mode,
             .set_align_stack,
             .wasm_memory_size,
+            .error_to_int,
+            .int_to_error,
             => {
                 const inst_data = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;
                 const src = LazySrcLoc.nodeOffset(inst_data.node);
@@ -772,9 +773,8 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
-    fn writeSelect(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const extra = self.code.extraData(Zir.Inst.Select, inst_data.payload_index).data;
+    fn writeSelect(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
+        const extra = self.code.extraData(Zir.Inst.Select, extended.operand).data;
         try self.writeInstRef(stream, extra.elem_type);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.pred);
@@ -783,7 +783,7 @@ const Writer = struct {
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.b);
         try stream.writeAll(") ");
-        try self.writeSrc(stream, inst_data.src());
+        try self.writeSrc(stream, LazySrcLoc.nodeOffset(extra.node));
     }
 
     fn writeMulAdd(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
