@@ -6042,12 +6042,12 @@ fn instantiateGenericCall(
                 .param_comptime, .param_anytype_comptime, .param, .param_anytype => {},
                 else => continue,
             }
+            const arg_src = call_src; // TODO: better source location
             const is_runtime = comptime_args[total_i].val.tag() == .generic_poison and
                 comptime_args[total_i].ty.hasRuntimeBits() and
-                !comptime_args[total_i].ty.comptimeOnly();
+                !(try sema.typeRequiresComptime(block, arg_src, comptime_args[total_i].ty));
             if (is_runtime) {
                 const param_ty = new_fn_info.param_types[runtime_i];
-                const arg_src = call_src; // TODO: better source location
                 const uncasted_arg = uncasted_args[total_i];
                 const casted_arg = try sema.coerce(block, param_ty, uncasted_arg, arg_src);
                 try sema.queueFullTypeResolution(param_ty);
