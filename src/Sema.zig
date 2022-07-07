@@ -18427,7 +18427,20 @@ fn safetyPanic(
 fn emitBackwardBranch(sema: *Sema, block: *Block, src: LazySrcLoc) !void {
     sema.branch_count += 1;
     if (sema.branch_count > sema.branch_quota) {
-        return sema.fail(block, src, "evaluation exceeded {d} backwards branches", .{sema.branch_quota});
+        const msg = try sema.errMsg(
+            block,
+            src,
+            "evaluation exceeded {d} backwards branches",
+            .{sema.branch_quota},
+        );
+        try sema.errNote(
+            block,
+            src,
+            msg,
+            "use @setEvalBranchQuota() to raise the branch limit from {d}",
+            .{sema.branch_quota},
+        );
+        return sema.failWithOwnedErrorMsg(block, msg);
     }
 }
 
