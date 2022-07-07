@@ -156,11 +156,11 @@ pub fn defaultLog(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    if (builtin.os.tag == .freestanding) {
-        // On freestanding one must provide a log function; we do not have
-        // any I/O configured.
-        return;
-    }
+    if (builtin.os.tag == .freestanding)
+        @compileError(
+            \\freestanding targets do not have I/O configured;
+            \\please provide at least an empty `log` function declaration
+        );
 
     const level_txt = comptime message_level.asText();
     const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";

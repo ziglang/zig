@@ -111,6 +111,7 @@ pub const Value = extern union {
         int_i64,
         int_big_positive,
         int_big_negative,
+        runtime_int,
         function,
         extern_fn,
         variable,
@@ -304,6 +305,7 @@ pub const Value = extern union {
                 .int_type => Payload.IntType,
                 .int_u64 => Payload.U64,
                 .int_i64 => Payload.I64,
+                .runtime_int => Payload.U64,
                 .function => Payload.Function,
                 .variable => Payload.Variable,
                 .decl_ref_mut => Payload.DeclRefMut,
@@ -483,6 +485,7 @@ pub const Value = extern union {
             },
             .int_type => return self.copyPayloadShallow(arena, Payload.IntType),
             .int_u64 => return self.copyPayloadShallow(arena, Payload.U64),
+            .runtime_int => return self.copyPayloadShallow(arena, Payload.U64),
             .int_i64 => return self.copyPayloadShallow(arena, Payload.I64),
             .int_big_positive, .int_big_negative => {
                 const old_payload = self.cast(Payload.BigInt).?;
@@ -762,6 +765,7 @@ pub const Value = extern union {
             .int_i64 => return std.fmt.formatIntValue(val.castTag(.int_i64).?.data, "", options, out_stream),
             .int_big_positive => return out_stream.print("{}", .{val.castTag(.int_big_positive).?.asBigInt()}),
             .int_big_negative => return out_stream.print("{}", .{val.castTag(.int_big_negative).?.asBigInt()}),
+            .runtime_int => return out_stream.writeAll("[runtime value]"),
             .function => return out_stream.print("(function decl={d})", .{val.castTag(.function).?.data.owner_decl}),
             .extern_fn => return out_stream.writeAll("(extern function)"),
             .variable => return out_stream.writeAll("(variable)"),
@@ -1077,6 +1081,8 @@ pub const Value = extern union {
             .int_big_positive => return val.castTag(.int_big_positive).?.asBigInt(),
             .int_big_negative => return val.castTag(.int_big_negative).?.asBigInt(),
 
+            .runtime_int => return BigIntMutable.init(&space.limbs, val.castTag(.runtime_int).?.data).toConst(),
+
             .undef => unreachable,
 
             .lazy_align => {
@@ -1131,6 +1137,8 @@ pub const Value = extern union {
             .int_i64 => return @intCast(u64, val.castTag(.int_i64).?.data),
             .int_big_positive => return val.castTag(.int_big_positive).?.asBigInt().to(u64) catch null,
             .int_big_negative => return val.castTag(.int_big_negative).?.asBigInt().to(u64) catch null,
+
+            .runtime_int => return val.castTag(.runtime_int).?.data,
 
             .undef => unreachable,
 
