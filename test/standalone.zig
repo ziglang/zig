@@ -62,8 +62,15 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.add("tools/process_headers.zig");
     cases.add("tools/update-license-headers.zig");
     cases.add("tools/update-linux-headers.zig");
-    cases.add("tools/update_clang_options.zig");
+
+    // Disabled due to tripping LLVM 13 assertion:
+    // https://github.com/ziglang/zig/issues/12022
+    //cases.add("tools/update_clang_options.zig");
+
     cases.add("tools/update_cpu_features.zig");
     cases.add("tools/update_glibc.zig");
-    cases.add("tools/update_spirv_features.zig");
+
+    // Disabled due to tripping LLVM 13 assertion:
+    // https://github.com/ziglang/zig/issues/12015
+    //cases.add("tools/update_spirv_features.zig");
 }
