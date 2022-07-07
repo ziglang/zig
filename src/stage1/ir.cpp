@@ -5769,8 +5769,10 @@ static bool ir_emit_backward_branch(IrAnalyze *ira, AstNode* source_node) {
 
     *bbc += 1;
     if (*bbc > *quota) {
-        ir_add_error_node(ira, source_node,
+        ErrorMsg *msg = ir_add_error_node(ira, source_node,
                 buf_sprintf("evaluation exceeded %" ZIG_PRI_usize " backwards branches", *quota));
+        add_error_note(ira->codegen, msg, source_node,
+            buf_sprintf("use @setEvalBranchQuota to raise branch limit from %" ZIG_PRI_usize, *quota));
         return false;
     }
     return true;
