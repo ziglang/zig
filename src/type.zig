@@ -5372,6 +5372,18 @@ pub const Type = extern union {
         }
     }
 
+    pub fn structFieldName(ty: Type, field_index: usize) []const u8 {
+        switch (ty.tag()) {
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                assert(struct_obj.haveFieldTypes());
+                return struct_obj.fields.keys()[field_index];
+            },
+            .anon_struct => return ty.castTag(.anon_struct).?.data.names[field_index],
+            else => unreachable,
+        }
+    }
+
     pub fn structFieldCount(ty: Type) usize {
         switch (ty.tag()) {
             .@"struct" => {
