@@ -21573,6 +21573,7 @@ done_with_return_type:
                     // handle `[N]T`
                     target_len = target->type->data.array.len;
                     target_sentinel = target->type->data.array.sentinel;
+                    expand_undef_array(ira->codegen, target);
                     target_elements = target->data.x_array.data.s_none.elements;
                     break;
                 } else if (target->type->id == ZigTypeIdPointer && target->type->data.pointer.child_type->id == ZigTypeIdArray) {
