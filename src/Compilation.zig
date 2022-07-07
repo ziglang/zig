@@ -367,7 +367,7 @@ pub const AllErrors = struct {
             std.debug.getStderrMutex().lock();
             defer std.debug.getStderrMutex().unlock();
             const stderr = std.io.getStdErr();
-            return msg.renderToStdErrInner(ttyconf, stderr, "error:", .Red, 0) catch return;
+            return msg.renderToStdErrInner(ttyconf, stderr, "error", .Red, 0) catch return;
         }
 
         fn renderToStdErrInner(
@@ -390,12 +390,13 @@ pub const AllErrors = struct {
                     });
                     ttyconf.setColor(stderr, color);
                     try stderr.writeAll(kind);
+                    try stderr.writeAll(": ");
                     ttyconf.setColor(stderr, .Reset);
                     ttyconf.setColor(stderr, .Bold);
                     if (src.count == 1) {
-                        try stderr.print(" {s}\n", .{src.msg});
+                        try stderr.print("{s}\n", .{src.msg});
                     } else {
-                        try stderr.print(" {s}", .{src.msg});
+                        try stderr.print("{s}", .{src.msg});
                         ttyconf.setColor(stderr, .Dim);
                         try stderr.print(" ({d} times)\n", .{src.count});
                     }
@@ -414,24 +415,25 @@ pub const AllErrors = struct {
                         }
                     }
                     for (src.notes) |note| {
-                        try note.renderToStdErrInner(ttyconf, stderr_file, "note:", .Cyan, indent);
+                        try note.renderToStdErrInner(ttyconf, stderr_file, "note", .Cyan, indent);
                     }
                 },
                 .plain => |plain| {
                     ttyconf.setColor(stderr, color);
                     try stderr.writeByteNTimes(' ', indent);
                     try stderr.writeAll(kind);
+                    try stderr.writeAll(": ");
                     ttyconf.setColor(stderr, .Reset);
                     if (plain.count == 1) {
-                        try stderr.print(" {s}\n", .{plain.msg});
+                        try stderr.print("{s}\n", .{plain.msg});
                     } else {
-                        try stderr.print(" {s}", .{plain.msg});
+                        try stderr.print("{s}", .{plain.msg});
                         ttyconf.setColor(stderr, .Dim);
                         try stderr.print(" ({d} times)\n", .{plain.count});
                     }
                     ttyconf.setColor(stderr, .Reset);
                     for (plain.notes) |note| {
-                        try note.renderToStdErrInner(ttyconf, stderr_file, "error:", .Red, indent + 4);
+                        try note.renderToStdErrInner(ttyconf, stderr_file, "error", .Red, indent + 4);
                     }
                 },
             }
