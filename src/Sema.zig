@@ -739,8 +739,6 @@ fn analyzeBodyInner(
             .err_union_payload_unsafe_ptr => try sema.zirErrUnionPayloadPtr(block, inst, false),
             .error_union_type             => try sema.zirErrorUnionType(block, inst),
             .error_value                  => try sema.zirErrorValue(block, inst),
-            .error_to_int                 => try sema.zirErrorToInt(block, inst),
-            .int_to_error                 => try sema.zirIntToError(block, inst),
             .field_ptr                    => try sema.zirFieldPtr(block, inst),
             .field_ptr_named              => try sema.zirFieldPtrNamed(block, inst),
             .field_val                    => try sema.zirFieldVal(block, inst),
@@ -835,7 +833,6 @@ fn analyzeBodyInner(
             .splat                        => try sema.zirSplat(block, inst),
             .reduce                       => try sema.zirReduce(block, inst),
             .shuffle                      => try sema.zirShuffle(block, inst),
-            .select                       => try sema.zirSelect(block, inst),
             .atomic_load                  => try sema.zirAtomicLoad(block, inst),
             .atomic_rmw                   => try sema.zirAtomicRmw(block, inst),
             .mul_add                      => try sema.zirMulAdd(block, inst),
@@ -942,6 +939,9 @@ fn analyzeBodyInner(
                     .field_call_bind_named => try sema.zirFieldCallBindNamed(block, extended),
                     .err_set_cast          => try sema.zirErrSetCast(        block, extended),
                     .await_nosuspend       => try sema.zirAwaitNosuspend(    block, extended),
+                    .select                => try sema.zirSelect(            block, extended),
+                    .error_to_int          => try sema.zirErrorToInt(        block, extended),
+                    .int_to_error          => try sema.zirIntToError(        block, extended),
                     // zig fmt: on
                     .fence => {
                         try sema.zirFence(block, extended);
@@ -6240,18 +6240,18 @@ fn zirErrorValue(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     );
 }
 
-fn zirErrorToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirErrorToInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const op = try sema.resolveInst(inst_data.operand);
-    const op_coerced = try sema.coerce(block, Type.anyerror, op, operand_src);
+    const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
+    const src = LazySrcLoc.nodeOffset(extra.node);
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const uncasted_operand = try sema.resolveInst(extra.operand);
+    const operand = try sema.coerce(block, Type.anyerror, uncasted_operand, operand_src);
     const result_ty = Type.u16;
 
-    if (try sema.resolveMaybeUndefVal(block, src, op_coerced)) |val| {
+    if (try sema.resolveMaybeUndefVal(block, src, operand)) |val| {
         if (val.isUndef()) {
             return sema.addConstUndef(result_ty);
         }
@@ -6273,7 +6273,7 @@ fn zirErrorToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
         }
     }
 
-    const op_ty = sema.typeOf(op);
+    const op_ty = sema.typeOf(uncasted_operand);
     try sema.resolveInferredErrorSetTy(block, src, op_ty);
     if (!op_ty.isAnyError()) {
         const names = op_ty.errorSetNames();
@@ -6285,17 +6285,17 @@ fn zirErrorToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     }
 
     try sema.requireRuntimeBlock(block, src);
-    return block.addBitCast(result_ty, op_coerced);
+    return block.addBitCast(result_ty, operand);
 }
 
-fn zirIntToError(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirIntToError(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const uncasted_operand = try sema.resolveInst(inst_data.operand);
+    const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
+    const src = LazySrcLoc.nodeOffset(extra.node);
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const uncasted_operand = try sema.resolveInst(extra.operand);
     const operand = try sema.coerce(block, Type.u16, uncasted_operand, operand_src);
     const target = sema.mod.getTarget();
 
@@ -16703,14 +16703,13 @@ fn analyzeShuffle(
     });
 }
 
-fn zirSelect(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const extra = sema.code.extraData(Zir.Inst.Select, inst_data.payload_index).data;
+fn zirSelect(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+    const extra = sema.code.extraData(Zir.Inst.Select, extended.operand).data;
 
-    const elem_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const pred_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
-    const a_src: LazySrcLoc = .{ .node_offset_builtin_call_arg2 = inst_data.src_node };
-    const b_src: LazySrcLoc = .{ .node_offset_builtin_call_arg3 = inst_data.src_node };
+    const elem_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const pred_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
+    const a_src: LazySrcLoc = .{ .node_offset_builtin_call_arg2 = extra.node };
+    const b_src: LazySrcLoc = .{ .node_offset_builtin_call_arg3 = extra.node };
 
     const elem_ty = try sema.resolveType(block, elem_ty_src, extra.elem_type);
     try sema.checkVectorElemType(block, elem_ty_src, elem_ty);
