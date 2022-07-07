@@ -393,28 +393,22 @@ pub const AllErrors = struct {
             indent: usize,
         ) anyerror!void {
             const stderr = stderr_file.writer();
-            // The length of the part before the error message; e.g. "file.zig:4:5: error: ".
-            var prefix_len: usize = 0;
+            const counting_stderr = std.io.countingWriter(stderr).writer();
             switch (msg) {
                 .src => |src| {
-                    try stderr.writeByteNTimes(' ', indent);
-                    prefix_len += indent;
+                    try counting_stderr.writeByteNTimes(' ', indent);
                     ttyconf.setColor(stderr, .Bold);
-                    try stderr.print("{s}:{d}:{d}: ", .{
-                        src.src_path,
-                        src.line + 1,
-                        src.column + 1,
-                    });
-                    prefix_len += std.fmt.count("{s}:{d}:{d}: ", .{
+                    try counting_stderr.print("{s}:{d}:{d}: ", .{
                         src.src_path,
                         src.line + 1,
                         src.column + 1,
                     });
                     ttyconf.setColor(stderr, color);
-                    try stderr.writeAll(kind);
-                    prefix_len += kind.len;
-                    try stderr.writeAll(": ");
-                    prefix_len += 2;
+                    try counting_stderr.writeAll(kind);
+                    try counting_stderr.writeAll(": ");
+                    // This is the length of the part before the error message:
+                    // e.g. "file.zig:4:5: error: "
+                    const prefix_len = counting_stderr.context.bytes_written;
                     ttyconf.setColor(stderr, .Reset);
                     ttyconf.setColor(stderr, .Bold);
                     if (src.count == 1) {
