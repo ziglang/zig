@@ -1061,7 +1061,7 @@ void ZigLLVMAddByValAttr(LLVMValueRef fn_ref, unsigned ArgNo, LLVMTypeRef type_v
     AttrBuilder attr_builder(func->getContext());
     Type *llvm_type = unwrap<Type>(type_val);
     attr_builder.addByValAttr(llvm_type);
-    func->addParamAttrs(ArgNo + 1, attr_builder);
+    func->addParamAttrs(ArgNo, attr_builder);
 }
 
 void ZigLLVMAddSretAttr(LLVMValueRef fn_ref, LLVMTypeRef type_val) {
@@ -1069,7 +1069,7 @@ void ZigLLVMAddSretAttr(LLVMValueRef fn_ref, LLVMTypeRef type_val) {
     AttrBuilder attr_builder(func->getContext());
     Type *llvm_type = unwrap<Type>(type_val);
     attr_builder.addStructRetAttr(llvm_type);
-    func->addParamAttrs(AttributeList::ReturnIndex, attr_builder);
+    func->addParamAttrs(0, attr_builder);
 }
 
 void ZigLLVMAddFunctionElemTypeAttr(LLVMValueRef fn_ref, size_t arg_index, LLVMTypeRef elem_ty) {
@@ -1077,7 +1077,7 @@ void ZigLLVMAddFunctionElemTypeAttr(LLVMValueRef fn_ref, size_t arg_index, LLVMT
     AttrBuilder attr_builder(func->getContext());
     Type *llvm_type = unwrap<Type>(elem_ty);
     attr_builder.addTypeAttr(Attribute::ElementType, llvm_type);
-    func->addParamAttrs(AttributeList::FirstArgIndex + arg_index, attr_builder);
+    func->addParamAttrs(arg_index, attr_builder);
 }
 
 void ZigLLVMAddFunctionAttr(LLVMValueRef fn_ref, const char *attr_name, const char *attr_value) {
