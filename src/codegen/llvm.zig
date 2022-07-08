@@ -858,71 +858,34 @@ pub const Object = struct {
                     try args.append(aggregate);
                 },
                 .multiple_llvm_ints => {
-                    const param_ty = fn_info.param_types[it.zig_index - 1];
                     const llvm_ints = it.llvm_types_buffer[0..it.llvm_types_len];
-                    switch (param_ty.zigTypeTag()) {
-                        .Struct => {
-                            const fields = param_ty.structFields().values();
-                            const param_llvm_ty = try dg.lowerType(param_ty);
-                            const param_alignment = param_ty.abiAlignment(target);
-                            const arg_ptr = buildAllocaInner(builder, llvm_func, false, param_llvm_ty);
-                            arg_ptr.setAlignment(param_alignment);
-
-                            var field_i: u32 = 0;
-                            var field_offset: u32 = 0;
-                            for (llvm_ints) |int_bits| {
-                                const param = llvm_func.getParam(llvm_arg_i);
-                                llvm_arg_i += 1;
-
-                                const big_int_ty = dg.context.intType(int_bits);
-                                var bits_used: u32 = 0;
-                                while (bits_used < int_bits) {
-                                    const field = fields[field_i];
-                                    const field_alignment = field.normalAlignment(target);
-                                    const prev_offset = field_offset;
-                                    field_offset = std.mem.alignForwardGeneric(u32, field_offset, field_alignment);
-                                    if (field_offset > prev_offset) {
-                                        // Padding counts as bits used.
-                                        bits_used += (field_offset - prev_offset) * 8;
-                                        if (bits_used >= int_bits) break;
-                                    }
-                                    const field_size = @intCast(u16, field.ty.abiSize(target));
-                                    const field_abi_bits = field_size * 8;
-                                    const field_int_ty = dg.context.intType(field_abi_bits);
-                                    const shifted = if (bits_used == 0) param else s: {
-                                        const shift_amt = big_int_ty.constInt(bits_used, .False);
-                                        break :s builder.buildLShr(param, shift_amt, "");
-                                    };
-                                    const field_as_int = builder.buildTrunc(shifted, field_int_ty, "");
-                                    var ty_buf: Type.Payload.Pointer = undefined;
-                                    const llvm_i = llvmFieldIndex(param_ty, field_i, target, &ty_buf).?;
-                                    const field_ptr = builder.buildStructGEP(arg_ptr, llvm_i, "");
-                                    const casted_ptr = builder.buildBitCast(field_ptr, field_int_ty.pointerType(0), "");
-                                    const store_inst = builder.buildStore(field_as_int, casted_ptr);
-                                    store_inst.setAlignment(field_alignment);
-
-                                    field_i += 1;
-                                    if (field_i >= fields.len) break;
-
-                                    bits_used += field_abi_bits;
-                                    field_offset += field_size;
-                                }
-                                if (field_i >= fields.len) break;
-                            }
-
-                            const is_by_ref = isByRef(param_ty);
-                            const loaded = if (is_by_ref) arg_ptr else l: {
-                                const load_inst = builder.buildLoad(arg_ptr, "");
-                                load_inst.setAlignment(param_alignment);
-                                break :l load_inst;
-                            };
-                            try args.append(loaded);
-                        },
-                        .Union => {
-                            @panic("TODO: LLVM backend: implement C calling convention on x86_64 with union parameter");
-                        },
-                        else => unreachable,
+                    const param_ty = fn_info.param_types[it.zig_index - 1];
+                    const param_llvm_ty = try dg.lowerType(param_ty);
+                    const param_alignment = param_ty.abiAlignment(target);
+                    const arg_ptr = buildAllocaInner(builder, llvm_func, false, param_llvm_ty);
+                    arg_ptr.setAlignment(param_alignment);
+                    var field_types_buf: [8]*const llvm.Type = undefined;
+                    const field_types = field_types_buf[0..llvm_ints.len];
+                    for (llvm_ints) |int_bits, i| {
+                        field_types[i] = dg.context.intType(int_bits);
                     }
+                    const ints_llvm_ty = dg.context.structType(field_types.ptr, @intCast(c_uint, field_types.len), .False);
+                    const casted_ptr = builder.buildBitCast(arg_ptr, ints_llvm_ty.pointerType(0), "");
+                    for (llvm_ints) |_, i_usize| {
+                        const i = @intCast(c_uint, i_usize);
+                        const param = llvm_func.getParam(i);
+                        const field_ptr = builder.buildStructGEP(casted_ptr, i, "");
+                        const store_inst = builder.buildStore(param, field_ptr);
+                        store_inst.setAlignment(target.cpu.arch.ptrBitWidth() / 8);
+                    }
+
+                    const is_by_ref = isByRef(param_ty);
+                    const loaded = if (is_by_ref) arg_ptr else l: {
+                        const load_inst = builder.buildLoad(arg_ptr, "");
+                        load_inst.setAlignment(param_alignment);
+                        break :l load_inst;
+                    };
+                    try args.append(loaded);
                 },
             };
         }
@@ -2821,65 +2784,11 @@ pub const DeclGen = struct {
                 llvm_params.appendAssumeCapacity(len_llvm_ty);
             },
             .multiple_llvm_ints => {
-                const param_ty = fn_info.param_types[it.zig_index - 1];
                 const llvm_ints = it.llvm_types_buffer[0..it.llvm_types_len];
                 try llvm_params.ensureUnusedCapacity(it.llvm_types_len);
-
-                // The reason we have all this logic instead of simply appending
-                // big_int_ty is for the special case of a pointer type;
-                // we want to use a pointer type instead of inttoptr at the callsites,
-                // which may prevent optimization.
-                switch (param_ty.zigTypeTag()) {
-                    .Struct => {
-                        const fields = param_ty.structFields().values();
-                        var field_i: u32 = 0;
-                        var field_offset: u32 = 0;
-                        llvm_arg: for (llvm_ints) |int_bits| {
-                            const big_int_ty = dg.context.intType(int_bits);
-                            var bits_used: u32 = 0;
-                            while (bits_used < int_bits) {
-                                const field = fields[field_i];
-                                const field_alignment = field.normalAlignment(target);
-                                const prev_offset = field_offset;
-                                field_offset = std.mem.alignForwardGeneric(u32, field_offset, field_alignment);
-                                if (field_offset > prev_offset) {
-                                    // Padding counts as bits used.
-                                    bits_used += (field_offset - prev_offset) * 8;
-                                    if (bits_used >= int_bits) break;
-                                }
-                                const field_size = @intCast(u16, field.ty.abiSize(target));
-                                const field_abi_bits = field_size * 8;
-
-                                // Special case for when the entire LLVM integer represents
-                                // one field; in this case keep the type information
-                                // to avoid the potentially costly ptrtoint/bitcast.
-                                if (bits_used == 0 and field_abi_bits == int_bits) {
-                                    const llvm_field_ty = try dg.lowerType(field.ty);
-                                    llvm_params.appendAssumeCapacity(llvm_field_ty);
-                                    field_i += 1;
-                                    if (field_i >= fields.len) {
-                                        break :llvm_arg;
-                                    } else {
-                                        continue :llvm_arg;
-                                    }
-                                }
-
-                                field_i += 1;
-                                if (field_i >= fields.len) break;
-
-                                bits_used += field_abi_bits;
-                                field_offset += field_size;
-                            }
-                            llvm_params.appendAssumeCapacity(big_int_ty);
-                            if (field_i >= fields.len) break;
-                        }
-                    },
-                    else => {
-                        for (llvm_ints) |int_bits| {
-                            const big_int_ty = dg.context.intType(int_bits);
-                            llvm_params.appendAssumeCapacity(big_int_ty);
-                        }
-                    },
+                for (llvm_ints) |int_bits| {
+                    const big_int_ty = dg.context.intType(int_bits);
+                    llvm_params.appendAssumeCapacity(big_int_ty);
                 }
             },
         };
@@ -4299,80 +4208,27 @@ pub const FuncGen = struct {
                 const llvm_ints = it.llvm_types_buffer[0..it.llvm_types_len];
                 const llvm_arg = try self.resolveInst(arg);
                 const is_by_ref = isByRef(param_ty);
+                const arg_ptr = if (is_by_ref) llvm_arg else p: {
+                    const p = self.buildAlloca(llvm_arg.typeOf());
+                    const store_inst = self.builder.buildStore(llvm_arg, p);
+                    store_inst.setAlignment(param_ty.abiAlignment(target));
+                    break :p p;
+                };
+
+                var field_types_buf: [8]*const llvm.Type = undefined;
+                const field_types = field_types_buf[0..llvm_ints.len];
+                for (llvm_ints) |int_bits, i| {
+                    field_types[i] = self.dg.context.intType(int_bits);
+                }
+                const ints_llvm_ty = self.dg.context.structType(field_types.ptr, @intCast(c_uint, field_types.len), .False);
+                const casted_ptr = self.builder.buildBitCast(arg_ptr, ints_llvm_ty.pointerType(0), "");
                 try llvm_args.ensureUnusedCapacity(it.llvm_types_len);
-                switch (param_ty.zigTypeTag()) {
-                    .Struct => {
-                        const fields = param_ty.structFields().values();
-                        var field_i: u32 = 0;
-                        var field_offset: u32 = 0;
-                        for (llvm_ints) |int_bits| {
-                            const big_int_ty = self.dg.context.intType(int_bits);
-                            var int_arg: *const llvm.Value = undefined;
-                            var bits_used: u32 = 0;
-                            while (bits_used < int_bits) {
-                                const field = fields[field_i];
-                                const field_alignment = field.normalAlignment(target);
-                                const prev_offset = field_offset;
-                                field_offset = std.mem.alignForwardGeneric(u32, field_offset, field_alignment);
-                                if (field_offset > prev_offset) {
-                                    // Padding counts as bits used.
-                                    bits_used += (field_offset - prev_offset) * 8;
-                                    if (bits_used >= int_bits) break;
-                                }
-                                var ty_buf: Type.Payload.Pointer = undefined;
-                                const llvm_i = llvmFieldIndex(param_ty, field_i, target, &ty_buf).?;
-                                const field_size = @intCast(u16, field.ty.abiSize(target));
-                                const field_abi_bits = field_size * 8;
-
-                                // Special case for when the entire LLVM integer represents
-                                // one field; in this case keep the type information
-                                // to avoid the potentially costly ptrtoint/bitcast.
-                                if (bits_used == 0 and field_abi_bits == int_bits) {
-                                    int_arg = if (is_by_ref) f: {
-                                        const field_ptr = self.builder.buildStructGEP(llvm_arg, llvm_i, "");
-                                        const load_inst = self.builder.buildLoad(field_ptr, "");
-                                        load_inst.setAlignment(field_alignment);
-                                        break :f load_inst;
-                                    } else self.builder.buildExtractValue(llvm_arg, llvm_i, "");
-                                    field_i += 1;
-                                    break;
-                                }
-
-                                const field_int_ty = self.dg.context.intType(field_abi_bits);
-                                const llvm_field = if (is_by_ref) f: {
-                                    const field_ptr = self.builder.buildStructGEP(llvm_arg, llvm_i, "");
-                                    const casted_ptr = self.builder.buildBitCast(field_ptr, field_int_ty.pointerType(0), "");
-                                    const load_inst = self.builder.buildLoad(casted_ptr, "");
-                                    load_inst.setAlignment(field_alignment);
-                                    break :f load_inst;
-                                } else f: {
-                                    const llvm_field = self.builder.buildExtractValue(llvm_arg, llvm_i, "");
-                                    break :f self.builder.buildBitCast(llvm_field, field_int_ty, "");
-                                };
-
-                                const extended = self.builder.buildZExt(llvm_field, big_int_ty, "");
-                                if (bits_used == 0) {
-                                    int_arg = extended;
-                                } else {
-                                    const shift_amt = big_int_ty.constInt(bits_used, .False);
-                                    const shifted = self.builder.buildShl(extended, shift_amt, "");
-                                    int_arg = self.builder.buildOr(int_arg, shifted, "");
-                                }
-
-                                field_i += 1;
-                                if (field_i >= fields.len) break;
-
-                                bits_used += field_abi_bits;
-                                field_offset += field_size;
-                            }
-                            llvm_args.appendAssumeCapacity(int_arg);
-                            if (field_i >= fields.len) break;
-                        }
-                    },
-                    .Union => {
-                        return self.todo("airCall C calling convention on x86_64 with union argument ", .{});
-                    },
-                    else => unreachable,
+                for (llvm_ints) |_, i_usize| {
+                    const i = @intCast(c_uint, i_usize);
+                    const field_ptr = self.builder.buildStructGEP(casted_ptr, i, "");
+                    const load_inst = self.builder.buildLoad(field_ptr, "");
+                    load_inst.setAlignment(target.cpu.arch.ptrBitWidth() / 8);
+                    llvm_args.appendAssumeCapacity(load_inst);
                 }
             },
         };
