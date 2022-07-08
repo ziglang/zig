@@ -548,8 +548,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .cmp_vector => @panic("TODO try self.airCmpVector(inst)"),
             .cmp_lt_errors_len => try self.airCmpLtErrorsLen(inst),
 
-            .bool_and        => @panic("TODO try self.airBoolOp(inst)"),
-            .bool_or         => @panic("TODO try self.airBoolOp(inst)"),
+            .bool_and        => try self.airBinOp(inst, .bool_and),
+            .bool_or         => try self.airBinOp(inst, .bool_or),
             .bit_and         => try self.airBinOp(inst, .bit_and),
             .bit_or          => try self.airBinOp(inst, .bit_or),
             .xor             => try self.airBinOp(inst, .xor),
@@ -2520,6 +2520,26 @@ fn binOp(
                     } else {
                         return self.fail("TODO binary operations on int with bits > 64", .{});
                     }
+                },
+                else => unreachable,
+            }
+        },
+
+        .bool_and,
+        .bool_or,
+        => {
+            switch (lhs_ty.zigTypeTag()) {
+                .Bool => {
+                    assert(lhs != .immediate); // should have been handled by Sema
+                    assert(rhs != .immediate); // should have been handled by Sema
+
+                    const mir_tag: Mir.Inst.Tag = switch (tag) {
+                        .bool_and => .@"and",
+                        .bool_or => .@"or",
+                        else => unreachable,
+                    };
+
+                    return try self.binOpRegister(mir_tag, lhs, rhs, lhs_ty, rhs_ty, metadata);
                 },
                 else => unreachable,
             }
