@@ -12,9 +12,7 @@ pub const panic = @import("common.zig").panic;
 // specified range.
 
 comptime {
-    if (builtin.zig_backend != .stage2_llvm) {
-        _ = clear_cache;
-    }
+    _ = clear_cache;
 }
 
 fn clear_cache(start: usize, end: usize) callconv(.C) void {
