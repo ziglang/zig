@@ -677,7 +677,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .err_return_trace           => @panic("TODO try self.airErrReturnTrace(inst)"),
             .set_err_return_trace       => @panic("TODO try self.airSetErrReturnTrace(inst)"),
 
-            .wrap_optional         => @panic("TODO try self.airWrapOptional(inst)"),
+            .wrap_optional         => try self.airWrapOptional(inst),
             .wrap_errunion_payload => @panic("TODO try self.airWrapErrUnionPayload(inst)"),
             .wrap_errunion_err     => try self.airWrapErrUnionErr(inst),
 
@@ -2171,6 +2171,20 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
         if (!payload_ty.hasRuntimeBits()) break :result mcv;
 
         return self.fail("TODO implement wrap errunion error for non-empty payloads", .{});
+    };
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn airWrapOptional(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const optional_ty = self.air.typeOfIndex(inst);
+
+        // Optional with a zero-bit payload type is just a boolean true
+        if (optional_ty.abiSize(self.target.*) == 1)
+            break :result MCValue{ .immediate = 1 };
+
+        return self.fail("TODO implement wrap optional for {}", .{self.target.cpu.arch});
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
