@@ -606,7 +606,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .popcount        => @panic("TODO try self.airPopcount(inst)"),
             .byte_swap       => @panic("TODO try self.airByteSwap(inst)"),
             .bit_reverse     => @panic("TODO try self.airBitReverse(inst)"),
-            .tag_name        => @panic("TODO try self.airTagName(inst)"),
+            .tag_name        => try self.airTagName(inst),
             .error_name      => @panic("TODO try self.airErrorName(inst)"),
             .splat           => @panic("TODO try self.airSplat(inst)"),
             .select          => @panic("TODO try self.airSelect(inst)"),
@@ -2116,6 +2116,16 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
 fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
     _ = inst;
     return self.fail("TODO implement switch for {}", .{self.target.cpu.arch});
+}
+
+fn airTagName(self: *Self, inst: Air.Inst.Index) !void {
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const operand = try self.resolveInst(un_op);
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else {
+        _ = operand;
+        return self.fail("TODO implement airTagName for {}", .{self.target.cpu.arch});
+    };
+    return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
 fn airTry(self: *Self, inst: Air.Inst.Index) !void {
