@@ -66,7 +66,7 @@ pub fn Reader(
             while (true) {
                 array_list.expandToCapacity();
                 const dest_slice = array_list.items[start_index..];
-                const bytes_read = try self.readAll(dest_slice);
+                const bytes_read = try self.read(dest_slice);
                 start_index += bytes_read;
 
                 if (start_index - original_len > max_append_size) {
@@ -668,4 +668,25 @@ test "Reader.readUntilDelimiterOrEof writes all bytes read to the output buffer"
     try std.testing.expectEqualStrings("0000\n", &buf);
     try std.testing.expectError(error.StreamTooLong, reader.readUntilDelimiterOrEof(&buf, '\n'));
     try std.testing.expectEqualStrings("12345", &buf);
+}
+
+test "Reader.readAllAlloc reads from network stream" {
+    const fds = try std.os.pipe();
+    const reader_side = fds[0];
+    const writer_side = fds[1];
+
+    var reader_stream = std.net.Stream{ .handle = reader_side };
+    defer reader_stream.close();
+
+    var writer_stream = std.net.Stream{ .handle = writer_side };
+    defer writer_stream.close();
+
+    const expected = "abcde";
+
+    try writer_stream.writer().writeAll(expected);
+
+    const out = try reader_stream.reader().readAllAlloc(std.testing.allocator, expected.len);
+    defer std.testing.allocator.free(out);
+
+    try std.testing.expectEqualSlices(u8, expected, out);
 }
