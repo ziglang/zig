@@ -858,6 +858,7 @@ pub fn panicOutOfBounds(index: usize, len: usize) noreturn {
 
 pub noinline fn returnError(maybe_st: ?*StackTrace) void {
     @setCold(true);
+    @setRuntimeSafety(false);
     const st = maybe_st orelse return;
     addErrRetTraceAddr(st, @returnAddress());
 }
