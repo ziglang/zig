@@ -3326,7 +3326,7 @@ fn zirValidateStructInit(
     switch (agg_ty.zigTypeTag()) {
         .Struct => return sema.validateStructInit(
             block,
-            agg_ty.castTag(.@"struct").?.data,
+            agg_ty,
             init_src,
             instrs,
             is_comptime,
@@ -3470,7 +3470,7 @@ fn validateUnionInit(
 fn validateStructInit(
     sema: *Sema,
     block: *Block,
-    struct_obj: *Module.Struct,
+    struct_ty: Type,
     init_src: LazySrcLoc,
     instrs: []const Zir.Inst.Index,
     is_comptime: bool,
@@ -3478,7 +3478,7 @@ fn validateStructInit(
     const gpa = sema.gpa;
 
     // Maps field index to field_ptr index of where it was already initialized.
-    const found_fields = try gpa.alloc(Zir.Inst.Index, struct_obj.fields.count());
+    const found_fields = try gpa.alloc(Zir.Inst.Index, struct_ty.structFieldCount());
     defer gpa.free(found_fields);
     mem.set(Zir.Inst.Index, found_fields, 0);
 
@@ -3490,8 +3490,7 @@ fn validateStructInit(
         const field_ptr_extra = sema.code.extraData(Zir.Inst.Field, field_ptr_data.payload_index).data;
         struct_ptr_zir_ref = field_ptr_extra.lhs;
         const field_name = sema.code.nullTerminatedString(field_ptr_extra.field_name_start);
-        const field_index = struct_obj.fields.getIndex(field_name) orelse
-            return sema.failWithBadStructFieldAccess(block, struct_obj, field_src, field_name);
+        const field_index = try sema.structFieldIndex(block, struct_ty, field_name, field_src);
         if (found_fields[field_index] != 0) {
             const other_field_ptr = found_fields[field_index];
             const other_field_ptr_data = sema.code.instructions.items(.data)[other_field_ptr].pl_node;
@@ -3509,10 +3508,7 @@ fn validateStructInit(
 
     var root_msg: ?*Module.ErrorMsg = null;
 
-    const fields = struct_obj.fields.values();
     const struct_ptr = try sema.resolveInst(struct_ptr_zir_ref);
-    const struct_ty = sema.typeOf(struct_ptr).childType();
-
     if ((is_comptime or block.is_comptime) and
         (try sema.resolveDefinedValue(block, init_src, struct_ptr)) != null)
     {
@@ -3522,10 +3518,9 @@ fn validateStructInit(
         for (found_fields) |field_ptr, i| {
             if (field_ptr != 0) continue;
 
-            const field = fields[i];
-            const field_name = struct_obj.fields.keys()[i];
-
-            if (field.default_val.tag() == .unreachable_value) {
+            const default_val = struct_ty.structFieldDefaultValue(i);
+            if (default_val.tag() == .unreachable_value) {
+                const field_name = struct_ty.structFieldName(i);
                 const template = "missing struct field: {s}";
                 const args = .{field_name};
                 if (root_msg) |msg| {
@@ -3536,22 +3531,25 @@ fn validateStructInit(
                 continue;
             }
 
-            const default_field_ptr = try sema.structFieldPtr(block, init_src, struct_ptr, field_name, init_src, struct_ty);
-            const init = try sema.addConstant(field.ty, field.default_val);
             const field_src = init_src; // TODO better source location
+            const default_field_ptr = try sema.structFieldPtrByIndex(block, init_src, struct_ptr, @intCast(u32, i), field_src, struct_ty);
+            const field_ty = sema.typeOf(default_field_ptr).childType();
+            const init = try sema.addConstant(field_ty, default_val);
             try sema.storePtr2(block, init_src, default_field_ptr, init_src, init, field_src, .store);
         }
 
         if (root_msg) |msg| {
-            const mod = sema.mod;
-            const fqn = try struct_obj.getFullyQualifiedName(mod);
-            defer gpa.free(fqn);
-            try mod.errNoteNonLazy(
-                struct_obj.srcLoc(mod),
-                msg,
-                "struct '{s}' declared here",
-                .{fqn},
-            );
+            if (struct_ty.castTag(.@"struct")) |struct_obj| {
+                const mod = sema.mod;
+                const fqn = try struct_obj.data.getFullyQualifiedName(mod);
+                defer gpa.free(fqn);
+                try mod.errNoteNonLazy(
+                    struct_obj.data.srcLoc(mod),
+                    msg,
+                    "struct '{s}' declared here",
+                    .{fqn},
+                );
+            }
             return sema.failWithOwnedErrorMsg(block, msg);
         }
 
@@ -3566,17 +3564,16 @@ fn validateStructInit(
 
     // We collect the comptime field values in case the struct initialization
     // ends up being comptime-known.
-    const field_values = try sema.arena.alloc(Value, fields.len);
+    const field_values = try sema.arena.alloc(Value, struct_ty.structFieldCount());
 
     field: for (found_fields) |field_ptr, i| {
-        const field = fields[i];
-
         if (field_ptr != 0) {
             const field_ptr_data = sema.code.instructions.items(.data)[field_ptr].pl_node;
             const field_src: LazySrcLoc = .{ .node_offset_back2tok = field_ptr_data.src_node };
 
             // Determine whether the value stored to this pointer is comptime-known.
-            if (try sema.typeHasOnePossibleValue(block, field_src, field.ty)) |opv| {
+            const field_ty = struct_ty.structFieldType(i);
+            if (try sema.typeHasOnePossibleValue(block, field_src, field_ty)) |opv| {
                 field_values[i] = opv;
                 continue;
             }
@@ -3648,9 +3645,9 @@ fn validateStructInit(
             continue :field;
         }
 
-        const field_name = struct_obj.fields.keys()[i];
-
-        if (field.default_val.tag() == .unreachable_value) {
+        const default_val = struct_ty.structFieldDefaultValue(i);
+        if (default_val.tag() == .unreachable_value) {
+            const field_name = struct_ty.structFieldName(i);
             const template = "missing struct field: {s}";
             const args = .{field_name};
             if (root_msg) |msg| {
@@ -3660,17 +3657,20 @@ fn validateStructInit(
             }
             continue;
         }
+        field_values[i] = default_val;
     }
 
     if (root_msg) |msg| {
-        const fqn = try struct_obj.getFullyQualifiedName(sema.mod);
-        defer gpa.free(fqn);
-        try sema.mod.errNoteNonLazy(
-            struct_obj.srcLoc(sema.mod),
-            msg,
-            "struct '{s}' declared here",
-            .{fqn},
-        );
+        if (struct_ty.castTag(.@"struct")) |struct_obj| {
+            const fqn = try struct_obj.data.getFullyQualifiedName(sema.mod);
+            defer gpa.free(fqn);
+            try sema.mod.errNoteNonLazy(
+                struct_obj.data.srcLoc(sema.mod),
+                msg,
+                "struct '{s}' declared here",
+                .{fqn},
+            );
+        }
         return sema.failWithOwnedErrorMsg(block, msg);
     }
 
@@ -3679,15 +3679,6 @@ fn validateStructInit(
         // instead a single `store` to the struct_ptr with a comptime struct value.
 
         block.instructions.shrinkRetainingCapacity(first_block_index);
-
-        // The `field_values` array has been populated for all the non-default struct
-        // fields. Here we fill in the default field values.
-        for (found_fields) |field_ptr, i| {
-            if (field_ptr != 0) continue;
-
-            field_values[i] = fields[i].default_val;
-        }
-
         const struct_val = try Value.Tag.aggregate.create(sema.arena, field_values);
         const struct_init = try sema.addConstant(struct_ty, struct_val);
         try sema.storePtr2(block, init_src, struct_ptr, init_src, struct_init, init_src, .store);
@@ -3695,16 +3686,13 @@ fn validateStructInit(
     }
 
     // Our task is to insert `store` instructions for all the default field values.
-
     for (found_fields) |field_ptr, i| {
         if (field_ptr != 0) continue;
 
-        const field = fields[i];
-        const field_name = struct_obj.fields.keys()[i];
-        const default_field_ptr = try sema.structFieldPtr(block, init_src, struct_ptr, field_name, init_src, struct_ty);
-
-        const init = try sema.addConstant(field.ty, field.default_val);
         const field_src = init_src; // TODO better source location
+        const default_field_ptr = try sema.structFieldPtrByIndex(block, init_src, struct_ptr, @intCast(u32, i), field_src, struct_ty);
+        const field_ty = sema.typeOf(default_field_ptr).childType();
+        const init = try sema.addConstant(field_ty, field_values[i]);
         try sema.storePtr2(block, init_src, default_field_ptr, init_src, init, field_src, .store);
     }
 }
@@ -13827,7 +13815,7 @@ fn zirStructInitEmpty(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     const obj_ty = try sema.resolveType(block, src, inst_data.operand);
 
     switch (obj_ty.zigTypeTag()) {
-        .Struct => return structInitEmpty(sema, block, obj_ty, src, src),
+        .Struct => return sema.structInitEmpty(block, obj_ty, src, src),
         .Array => return arrayInitEmpty(sema, obj_ty),
         .Void => return sema.addConstant(obj_ty, Value.void),
         else => return sema.failWithArrayInitNotSupported(block, src, obj_ty),
@@ -13844,29 +13832,13 @@ fn structInitEmpty(
     const gpa = sema.gpa;
     // This logic must be synchronized with that in `zirStructInit`.
     const struct_ty = try sema.resolveTypeFields(block, dest_src, obj_ty);
-    const struct_obj = struct_ty.castTag(.@"struct").?.data;
 
     // The init values to use for the struct instance.
-    const field_inits = try gpa.alloc(Air.Inst.Ref, struct_obj.fields.count());
+    const field_inits = try gpa.alloc(Air.Inst.Ref, struct_ty.structFieldCount());
     defer gpa.free(field_inits);
+    mem.set(Air.Inst.Ref, field_inits, .none);
 
-    var root_msg: ?*Module.ErrorMsg = null;
-
-    for (struct_obj.fields.values()) |field, i| {
-        if (field.default_val.tag() == .unreachable_value) {
-            const field_name = struct_obj.fields.keys()[i];
-            const template = "missing struct field: {s}";
-            const args = .{field_name};
-            if (root_msg) |msg| {
-                try sema.errNote(block, init_src, msg, template, args);
-            } else {
-                root_msg = try sema.errMsg(block, init_src, template, args);
-            }
-        } else {
-            field_inits[i] = try sema.addConstant(field.ty, field.default_val);
-        }
-    }
-    return sema.finishStructInit(block, dest_src, field_inits, root_msg, struct_obj, struct_ty, false);
+    return sema.finishStructInit(block, init_src, dest_src, field_inits, struct_ty, false);
 }
 
 fn arrayInitEmpty(sema: *Sema, obj_ty: Type) CompileError!Air.Inst.Ref {
@@ -13936,19 +13908,18 @@ fn zirStructInit(
     const unresolved_struct_type = try sema.resolveType(block, src, first_field_type_extra.container_type);
     const resolved_ty = try sema.resolveTypeFields(block, src, unresolved_struct_type);
 
-    if (resolved_ty.castTag(.@"struct")) |struct_payload| {
+    if (resolved_ty.zigTypeTag() == .Struct) {
         // This logic must be synchronized with that in `zirStructInitEmpty`.
-        const struct_obj = struct_payload.data;
 
         // Maps field index to field_type index of where it was already initialized.
         // For making sure all fields are accounted for and no fields are duplicated.
-        const found_fields = try gpa.alloc(Zir.Inst.Index, struct_obj.fields.count());
+        const found_fields = try gpa.alloc(Zir.Inst.Index, resolved_ty.structFieldCount());
         defer gpa.free(found_fields);
-        mem.set(Zir.Inst.Index, found_fields, 0);
 
         // The init values to use for the struct instance.
-        const field_inits = try gpa.alloc(Air.Inst.Ref, struct_obj.fields.count());
+        const field_inits = try gpa.alloc(Air.Inst.Ref, resolved_ty.structFieldCount());
         defer gpa.free(field_inits);
+        mem.set(Air.Inst.Ref, field_inits, .none);
 
         var field_i: u32 = 0;
         var extra_index = extra.end;
@@ -13961,9 +13932,8 @@ fn zirStructInit(
             const field_src: LazySrcLoc = .{ .node_offset_back2tok = field_type_data.src_node };
             const field_type_extra = sema.code.extraData(Zir.Inst.FieldType, field_type_data.payload_index).data;
             const field_name = sema.code.nullTerminatedString(field_type_extra.name_start);
-            const field_index = struct_obj.fields.getIndex(field_name) orelse
-                return sema.failWithBadStructFieldAccess(block, struct_obj, field_src, field_name);
-            if (found_fields[field_index] != 0) {
+            const field_index = try sema.structFieldIndex(block, resolved_ty, field_name, field_src);
+            if (field_inits[field_index] != .none) {
                 const other_field_type = found_fields[field_index];
                 const other_field_type_data = zir_datas[other_field_type].pl_node;
                 const other_field_src: LazySrcLoc = .{ .node_offset_back2tok = other_field_type_data.src_node };
@@ -13979,27 +13949,7 @@ fn zirStructInit(
             field_inits[field_index] = try sema.resolveInst(item.data.init);
         }
 
-        var root_msg: ?*Module.ErrorMsg = null;
-
-        for (found_fields) |field_type_inst, i| {
-            if (field_type_inst != 0) continue;
-
-            // Check if the field has a default init.
-            const field = struct_obj.fields.values()[i];
-            if (field.default_val.tag() == .unreachable_value) {
-                const field_name = struct_obj.fields.keys()[i];
-                const template = "missing struct field: {s}";
-                const args = .{field_name};
-                if (root_msg) |msg| {
-                    try sema.errNote(block, src, msg, template, args);
-                } else {
-                    root_msg = try sema.errMsg(block, src, template, args);
-                }
-            } else {
-                field_inits[i] = try sema.addConstant(field.ty, field.default_val);
-            }
-        }
-        return sema.finishStructInit(block, src, field_inits, root_msg, struct_obj, resolved_ty, is_ref);
+        return sema.finishStructInit(block, src, src, field_inits, resolved_ty, is_ref);
     } else if (resolved_ty.zigTypeTag() == .Union) {
         if (extra.data.fields_len != 1) {
             return sema.fail(block, src, "union initialization expects exactly one field", .{});
@@ -14051,29 +14001,69 @@ fn zirStructInit(
 fn finishStructInit(
     sema: *Sema,
     block: *Block,
-    src: LazySrcLoc,
-    field_inits: []const Air.Inst.Ref,
-    root_msg: ?*Module.ErrorMsg,
-    struct_obj: *Module.Struct,
+    init_src: LazySrcLoc,
+    dest_src: LazySrcLoc,
+    field_inits: []Air.Inst.Ref,
     struct_ty: Type,
     is_ref: bool,
-) !Air.Inst.Ref {
+) CompileError!Air.Inst.Ref {
     const gpa = sema.gpa;
 
+    var root_msg: ?*Module.ErrorMsg = null;
+    if (struct_ty.isAnonStruct()) {
+        const struct_obj = struct_ty.castTag(.anon_struct).?.data;
+        for (struct_obj.values) |default_val, i| {
+            if (field_inits[i] != .none) continue;
+
+            if (default_val.tag() == .unreachable_value) {
+                const field_name = struct_obj.names[i];
+                const template = "missing struct field: {s}";
+                const args = .{field_name};
+                if (root_msg) |msg| {
+                    try sema.errNote(block, init_src, msg, template, args);
+                } else {
+                    root_msg = try sema.errMsg(block, init_src, template, args);
+                }
+            } else {
+                field_inits[i] = try sema.addConstant(struct_obj.types[i], default_val);
+            }
+        }
+    } else {
+        const struct_obj = struct_ty.castTag(.@"struct").?.data;
+        for (struct_obj.fields.values()) |field, i| {
+            if (field_inits[i] != .none) continue;
+
+            if (field.default_val.tag() == .unreachable_value) {
+                const field_name = struct_obj.fields.keys()[i];
+                const template = "missing struct field: {s}";
+                const args = .{field_name};
+                if (root_msg) |msg| {
+                    try sema.errNote(block, init_src, msg, template, args);
+                } else {
+                    root_msg = try sema.errMsg(block, init_src, template, args);
+                }
+            } else {
+                field_inits[i] = try sema.addConstant(field.ty, field.default_val);
+            }
+        }
+    }
+
     if (root_msg) |msg| {
-        const fqn = try struct_obj.getFullyQualifiedName(sema.mod);
-        defer gpa.free(fqn);
-        try sema.mod.errNoteNonLazy(
-            struct_obj.srcLoc(sema.mod),
-            msg,
-            "struct '{s}' declared here",
-            .{fqn},
-        );
+        if (struct_ty.castTag(.@"struct")) |struct_obj| {
+            const fqn = try struct_obj.data.getFullyQualifiedName(sema.mod);
+            defer gpa.free(fqn);
+            try sema.mod.errNoteNonLazy(
+                struct_obj.data.srcLoc(sema.mod),
+                msg,
+                "struct '{s}' declared here",
+                .{fqn},
+            );
+        }
         return sema.failWithOwnedErrorMsg(block, msg);
     }
 
     const is_comptime = for (field_inits) |field_init| {
-        if (!(try sema.isComptimeKnown(block, src, field_init))) {
+        if (!(try sema.isComptimeKnown(block, dest_src, field_init))) {
             break false;
         }
     } else true;
@@ -14081,10 +14071,10 @@ fn finishStructInit(
     if (is_comptime) {
         const values = try sema.arena.alloc(Value, field_inits.len);
         for (field_inits) |field_init, i| {
-            values[i] = (sema.resolveMaybeUndefVal(block, src, field_init) catch unreachable).?;
+            values[i] = (sema.resolveMaybeUndefVal(block, dest_src, field_init) catch unreachable).?;
         }
         const struct_val = try Value.Tag.aggregate.create(sema.arena, values);
-        return sema.addConstantMaybeRef(block, src, struct_ty, struct_val, is_ref);
+        return sema.addConstantMaybeRef(block, dest_src, struct_ty, struct_val, is_ref);
     }
 
     if (is_ref) {
@@ -14096,15 +14086,15 @@ fn finishStructInit(
         const alloc = try block.addTy(.alloc, alloc_ty);
         for (field_inits) |field_init, i_usize| {
             const i = @intCast(u32, i_usize);
-            const field_src = src;
-            const field_ptr = try sema.structFieldPtrByIndex(block, src, alloc, i, struct_obj, field_src);
-            try sema.storePtr(block, src, field_ptr, field_init);
+            const field_src = dest_src;
+            const field_ptr = try sema.structFieldPtrByIndex(block, dest_src, alloc, i, field_src, struct_ty);
+            try sema.storePtr(block, dest_src, field_ptr, field_init);
         }
 
         return alloc;
     }
 
-    try sema.requireRuntimeBlock(block, src);
+    try sema.requireRuntimeBlock(block, dest_src);
     try sema.queueFullTypeResolution(struct_ty);
     return block.addAggregateInit(struct_ty, field_inits);
 }
@@ -19059,7 +19049,7 @@ fn structFieldPtr(
         return sema.failWithBadStructFieldAccess(block, struct_obj, field_name_src, field_name);
     const field_index = @intCast(u32, field_index_big);
 
-    return sema.structFieldPtrByIndex(block, src, struct_ptr, field_index, struct_obj, field_name_src);
+    return sema.structFieldPtrByIndex(block, src, struct_ptr, field_index, field_name_src, struct_ty);
 }
 
 fn structFieldPtrByIndex(
@@ -19068,9 +19058,14 @@ fn structFieldPtrByIndex(
     src: LazySrcLoc,
     struct_ptr: Air.Inst.Ref,
     field_index: u32,
-    struct_obj: *Module.Struct,
     field_src: LazySrcLoc,
+    struct_ty: Type,
 ) CompileError!Air.Inst.Ref {
+    if (struct_ty.isAnonStruct()) {
+        return sema.tupleFieldPtr(block, src, struct_ptr, field_src, field_index);
+    }
+
+    const struct_obj = struct_ty.castTag(.@"struct").?.data;
     const field = struct_obj.fields.values()[field_index];
     const struct_ptr_ty = sema.typeOf(struct_ptr);
     const struct_ptr_ty_info = struct_ptr_ty.ptrInfo().data;
@@ -20356,7 +20351,7 @@ fn coerce(
         },
         .Struct => {
             if (inst == .empty_struct) {
-                return structInitEmpty(sema, block, dest_ty, dest_ty_src, inst_src);
+                return sema.structInitEmpty(block, dest_ty, dest_ty_src, inst_src);
             }
             if (inst_ty.isTupleOrAnonStruct()) {
                 return sema.coerceTupleToStruct(block, dest_ty, dest_ty_src, inst, inst_src);
@@ -25754,10 +25749,14 @@ fn structFieldIndex(
     field_src: LazySrcLoc,
 ) !u32 {
     const struct_ty = try sema.resolveTypeFields(block, field_src, unresolved_struct_ty);
-    const struct_obj = struct_ty.castTag(.@"struct").?.data;
-    const field_index_usize = struct_obj.fields.getIndex(field_name) orelse
-        return sema.failWithBadStructFieldAccess(block, struct_obj, field_src, field_name);
-    return @intCast(u32, field_index_usize);
+    if (struct_ty.isAnonStruct()) {
+        return sema.anonStructFieldIndex(block, struct_ty, field_name, field_src);
+    } else {
+        const struct_obj = struct_ty.castTag(.@"struct").?.data;
+        const field_index_usize = struct_obj.fields.getIndex(field_name) orelse
+            return sema.failWithBadStructFieldAccess(block, struct_obj, field_src, field_name);
+        return @intCast(u32, field_index_usize);
+    }
 }
 
 fn anonStructFieldIndex(

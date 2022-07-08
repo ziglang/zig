@@ -5432,6 +5432,24 @@ pub const Type = extern union {
         }
     }
 
+    pub fn structFieldDefaultValue(ty: Type, index: usize) Value {
+        switch (ty.tag()) {
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                return struct_obj.fields.values()[index].default_val;
+            },
+            .tuple => {
+                const tuple = ty.castTag(.tuple).?.data;
+                return tuple.values[index];
+            },
+            .anon_struct => {
+                const struct_obj = ty.castTag(.anon_struct).?.data;
+                return struct_obj.values[index];
+            },
+            else => unreachable,
+        }
+    }
+
     pub fn structFieldValueComptime(ty: Type, index: usize) ?Value {
         switch (ty.tag()) {
             .@"struct" => {
