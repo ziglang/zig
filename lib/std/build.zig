@@ -6,7 +6,7 @@ const mem = std.mem;
 const debug = std.debug;
 const panic = std.debug.panic;
 const assert = debug.assert;
-const warn = std.debug.print; // TODO use the log system instead of this
+const log = std.log;
 const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const Allocator = mem.Allocator;
@@ -478,7 +478,7 @@ pub const Builder = struct {
         for (self.installed_files.items) |installed_file| {
             const full_path = self.getInstallPath(installed_file.dir, installed_file.path);
             if (self.verbose) {
-                warn("rm {s}\n", .{full_path});
+                log.info("rm {s}", .{full_path});
             }
             fs.cwd().deleteTree(full_path) catch {};
         }
@@ -488,7 +488,7 @@ pub const Builder = struct {
 
     fn makeOneStep(self: *Builder, s: *Step) anyerror!void {
         if (s.loop_flag) {
-            warn("Dependency loop detected:\n  {s}\n", .{s.name});
+            log.err("Dependency loop detected:\n  {s}", .{s.name});
             return error.DependencyLoopDetected;
         }
         s.loop_flag = true;
@@ -496,7 +496,7 @@ pub const Builder = struct {
         for (s.dependencies.items) |dep| {
             self.makeOneStep(dep) catch |err| {
                 if (err == error.DependencyLoopDetected) {
-                    warn("  {s}\n", .{s.name});
+                    log.err("  {s}", .{s.name});
                 }
                 return err;
             };
@@ -513,7 +513,7 @@ pub const Builder = struct {
                 return &top_level_step.step;
             }
         }
-        warn("Cannot run step '{s}' because it does not exist\n", .{name});
+        log.err("Cannot run step '{s}' because it does not exist", .{name});
         return error.InvalidStepName;
     }
 
@@ -553,32 +553,32 @@ pub const Builder = struct {
                     } else if (mem.eql(u8, s, "false")) {
                         return false;
                     } else {
-                        warn("Expected -D{s} to be a boolean, but received '{s}'\n\n", .{ name, s });
+                        log.err("Expected -D{s} to be a boolean, but received '{s}'\n", .{ name, s });
                         self.markInvalidUserInput();
                         return null;
                     }
                 },
                 .list => {
-                    warn("Expected -D{s} to be a boolean, but received a list.\n\n", .{name});
+                    log.err("Expected -D{s} to be a boolean, but received a list.\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
             },
             .int => switch (option_ptr.value) {
                 .flag => {
-                    warn("Expected -D{s} to be an integer, but received a boolean.\n\n", .{name});
+                    log.err("Expected -D{s} to be an integer, but received a boolean.\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
                 .scalar => |s| {
                     const n = std.fmt.parseInt(T, s, 10) catch |err| switch (err) {
                         error.Overflow => {
-                            warn("-D{s} value {s} cannot fit into type {s}.\n\n", .{ name, s, @typeName(T) });
+                            log.err("-D{s} value {s} cannot fit into type {s}.\n", .{ name, s, @typeName(T) });
                             self.markInvalidUserInput();
                             return null;
                         },
                         else => {
-                            warn("Expected -D{s} to be an integer of type {s}.\n\n", .{ name, @typeName(T) });
+                            log.err("Expected -D{s} to be an integer of type {s}.\n", .{ name, @typeName(T) });
                             self.markInvalidUserInput();
                             return null;
                         },
@@ -586,34 +586,34 @@ pub const Builder = struct {
                     return n;
                 },
                 .list => {
-                    warn("Expected -D{s} to be an integer, but received a list.\n\n", .{name});
+                    log.err("Expected -D{s} to be an integer, but received a list.\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
             },
             .float => switch (option_ptr.value) {
                 .flag => {
-                    warn("Expected -D{s} to be a float, but received a boolean.\n\n", .{name});
+                    log.err("Expected -D{s} to be a float, but received a boolean.\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
                 .scalar => |s| {
                     const n = std.fmt.parseFloat(T, s) catch {
-                        warn("Expected -D{s} to be a float of type {s}.\n\n", .{ name, @typeName(T) });
+                        log.err("Expected -D{s} to be a float of type {s}.\n", .{ name, @typeName(T) });
                         self.markInvalidUserInput();
                         return null;
                     };
                     return n;
                 },
                 .list => {
-                    warn("Expected -D{s} to be a float, but received a list.\n\n", .{name});
+                    log.err("Expected -D{s} to be a float, but received a list.\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
             },
             .@"enum" => switch (option_ptr.value) {
                 .flag => {
-                    warn("Expected -D{s} to be a string, but received a boolean.\n\n", .{name});
+                    log.err("Expected -D{s} to be a string, but received a boolean.\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
@@ -621,25 +621,25 @@ pub const Builder = struct {
                     if (std.meta.stringToEnum(T, s)) |enum_lit| {
                         return enum_lit;
                     } else {
-                        warn("Expected -D{s} to be of type {s}.\n\n", .{ name, @typeName(T) });
+                        log.err("Expected -D{s} to be of type {s}.\n", .{ name, @typeName(T) });
                         self.markInvalidUserInput();
                         return null;
                     }
                 },
                 .list => {
-                    warn("Expected -D{s} to be a string, but received a list.\n\n", .{name});
+                    log.err("Expected -D{s} to be a string, but received a list.\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
             },
             .string => switch (option_ptr.value) {
                 .flag => {
-                    warn("Expected -D{s} to be a string, but received a boolean.\n\n", .{name});
+                    log.err("Expected -D{s} to be a string, but received a boolean.\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
                 .list => {
-                    warn("Expected -D{s} to be a string, but received a list.\n\n", .{name});
+                    log.err("Expected -D{s} to be a string, but received a list.\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
@@ -647,7 +647,7 @@ pub const Builder = struct {
             },
             .list => switch (option_ptr.value) {
                 .flag => {
-                    warn("Expected -D{s} to be a list, but received a boolean.\n\n", .{name});
+                    log.err("Expected -D{s} to be a list, but received a boolean.\n", .{name});
                     self.markInvalidUserInput();
                     return null;
                 },
@@ -697,7 +697,7 @@ pub const Builder = struct {
         else if (!release_fast and !release_safe and !release_small)
             std.builtin.Mode.Debug
         else x: {
-            warn("Multiple release modes (of -Drelease-safe, -Drelease-fast and -Drelease-small)\n\n", .{});
+            log.err("Multiple release modes (of -Drelease-safe, -Drelease-fast and -Drelease-small)\n", .{});
             self.markInvalidUserInput();
             break :x std.builtin.Mode.Debug;
         };
@@ -734,19 +734,18 @@ pub const Builder = struct {
             .diagnostics = &diags,
         }) catch |err| switch (err) {
             error.UnknownCpuModel => {
-                warn("Unknown CPU: '{s}'\nAvailable CPUs for architecture '{s}':\n", .{
+                log.err("Unknown CPU: '{s}'\nAvailable CPUs for architecture '{s}':", .{
                     diags.cpu_name.?,
                     @tagName(diags.arch.?),
                 });
                 for (diags.arch.?.allCpuModels()) |cpu| {
-                    warn(" {s}\n", .{cpu.name});
+                    log.err(" {s}", .{cpu.name});
                 }
-                warn("\n", .{});
                 self.markInvalidUserInput();
                 return args.default_target;
             },
             error.UnknownCpuFeature => {
-                warn(
+                log.err(
                     \\Unknown CPU feature: '{s}'
                     \\Available CPU features for architecture '{s}':
                     \\
@@ -755,27 +754,25 @@ pub const Builder = struct {
                     @tagName(diags.arch.?),
                 });
                 for (diags.arch.?.allFeaturesList()) |feature| {
-                    warn(" {s}: {s}\n", .{ feature.name, feature.description });
+                    log.err(" {s}: {s}", .{ feature.name, feature.description });
                 }
-                warn("\n", .{});
                 self.markInvalidUserInput();
                 return args.default_target;
             },
             error.UnknownOperatingSystem => {
-                warn(
+                log.err(
                     \\Unknown OS: '{s}'
                     \\Available operating systems:
                     \\
                 , .{diags.os_name});
                 inline for (std.meta.fields(std.Target.Os.Tag)) |field| {
-                    warn(" {s}\n", .{field.name});
+                    log.err(" {s}", .{field.name});
                 }
-                warn("\n", .{});
                 self.markInvalidUserInput();
                 return args.default_target;
             },
             else => |e| {
-                warn("Unable to parse target '{s}': {s}\n\n", .{ triple, @errorName(e) });
+                log.err("Unable to parse target '{s}': {s}\n", .{ triple, @errorName(e) });
                 self.markInvalidUserInput();
                 return args.default_target;
             },
@@ -805,22 +802,21 @@ pub const Builder = struct {
                 }
             }
             if (mismatch_triple) {
-                warn("Chosen target '{s}' does not match one of the supported targets:\n", .{
+                log.err("Chosen target '{s}' does not match one of the supported targets:", .{
                     selected_canonicalized_triple,
                 });
                 for (list) |t| {
                     const t_triple = t.zigTriple(self.allocator) catch unreachable;
-                    warn(" {s}\n", .{t_triple});
+                    log.err(" {s}", .{t_triple});
                 }
-                warn("\n", .{});
             } else {
                 assert(mismatch_cpu_features);
                 const whitelist_cpu = whitelist_item.getCpu();
                 const selected_cpu = selected_target.getCpu();
-                warn("Chosen CPU model '{s}' does not match one of the supported targets:\n", .{
+                log.err("Chosen CPU model '{s}' does not match one of the supported targets:", .{
                     selected_cpu.model.name,
                 });
-                warn("  Supported feature Set: ", .{});
+                log.err("  Supported feature Set: ", .{});
                 const all_features = whitelist_cpu.arch.allFeaturesList();
                 var populated_cpu_features = whitelist_cpu.model.features;
                 populated_cpu_features.populateDependencies(all_features);
@@ -828,20 +824,18 @@ pub const Builder = struct {
                     const i = @intCast(std.Target.Cpu.Feature.Set.Index, i_usize);
                     const in_cpu_set = populated_cpu_features.isEnabled(i);
                     if (in_cpu_set) {
-                        warn("{s} ", .{feature.name});
+                        log.err("{s} ", .{feature.name});
                     }
                 }
-                warn("\n", .{});
-                warn("  Remove: ", .{});
+                log.err("  Remove: ", .{});
                 for (all_features) |feature, i_usize| {
                     const i = @intCast(std.Target.Cpu.Feature.Set.Index, i_usize);
                     const in_cpu_set = populated_cpu_features.isEnabled(i);
                     const in_actual_set = selected_cpu.features.isEnabled(i);
                     if (in_actual_set and !in_cpu_set) {
-                        warn("{s} ", .{feature.name});
+                        log.err("{s} ", .{feature.name});
                     }
                 }
-                warn("\n", .{});
             }
             self.markInvalidUserInput();
             return args.default_target;
@@ -886,7 +880,7 @@ pub const Builder = struct {
                 }) catch unreachable;
             },
             .flag => {
-                warn("Option '-D{s}={s}' conflicts with flag '-D{s}'.\n", .{ name, value, name });
+                log.warn("Option '-D{s}={s}' conflicts with flag '-D{s}'.", .{ name, value, name });
                 return true;
             },
         }
@@ -908,11 +902,11 @@ pub const Builder = struct {
         // option already exists
         switch (gop.value_ptr.value) {
             .scalar => |s| {
-                warn("Flag '-D{s}' conflicts with option '-D{s}={s}'.\n", .{ name, name, s });
+                log.err("Flag '-D{s}' conflicts with option '-D{s}={s}'.", .{ name, name, s });
                 return true;
             },
             .list => {
-                warn("Flag '-D{s}' conflicts with multiple options of the same name.\n", .{name});
+                log.err("Flag '-D{s}' conflicts with multiple options of the same name.", .{name});
                 return true;
             },
             .flag => {},
@@ -943,7 +937,7 @@ pub const Builder = struct {
         var it = self.user_input_options.iterator();
         while (it.next()) |entry| {
             if (!entry.value_ptr.used) {
-                warn("Invalid option: -D{s}\n\n", .{entry.key_ptr.*});
+                log.err("Invalid option: -D{s}\n", .{entry.key_ptr.*});
                 self.markInvalidUserInput();
             }
         }
@@ -956,11 +950,11 @@ pub const Builder = struct {
     }
 
     fn printCmd(cwd: ?[]const u8, argv: []const []const u8) void {
-        if (cwd) |yes_cwd| warn("cd {s} && ", .{yes_cwd});
+        if (cwd) |yes_cwd| std.debug.print("cd {s} && ", .{yes_cwd});
         for (argv) |arg| {
-            warn("{s} ", .{arg});
+            std.debug.print("{s} ", .{arg});
         }
-        warn("\n", .{});
+        std.debug.print("\n", .{});
     }
 
     pub fn spawnChildEnvMap(self: *Builder, cwd: ?[]const u8, env_map: *const EnvMap, argv: []const []const u8) !void {
@@ -976,20 +970,20 @@ pub const Builder = struct {
         child.env_map = env_map;
 
         const term = child.spawnAndWait() catch |err| {
-            warn("Unable to spawn {s}: {s}\n", .{ argv[0], @errorName(err) });
+            log.err("Unable to spawn {s}: {s}", .{ argv[0], @errorName(err) });
             return err;
         };
 
         switch (term) {
             .Exited => |code| {
                 if (code != 0) {
-                    warn("The following command exited with error code {}:\n", .{code});
+                    log.err("The following command exited with error code {}:", .{code});
                     printCmd(cwd, argv);
                     return error.UncleanExit;
                 }
             },
             else => {
-                warn("The following command terminated unexpectedly:\n", .{});
+                log.err("The following command terminated unexpectedly:", .{});
                 printCmd(cwd, argv);
 
                 return error.UncleanExit;
@@ -999,7 +993,7 @@ pub const Builder = struct {
 
     pub fn makePath(self: *Builder, path: []const u8) !void {
         fs.cwd().makePath(self.pathFromRoot(path)) catch |err| {
-            warn("Unable to create path {s}: {s}\n", .{ path, @errorName(err) });
+            log.err("Unable to create path {s}: {s}", .{ path, @errorName(err) });
             return err;
         };
     }
@@ -1087,19 +1081,19 @@ pub const Builder = struct {
 
     pub fn updateFile(self: *Builder, source_path: []const u8, dest_path: []const u8) !void {
         if (self.verbose) {
-            warn("cp {s} {s} ", .{ source_path, dest_path });
+            log.info("cp {s} {s} ", .{ source_path, dest_path });
         }
         const cwd = fs.cwd();
         const prev_status = try fs.Dir.updateFile(cwd, source_path, cwd, dest_path, .{});
         if (self.verbose) switch (prev_status) {
-            .stale => warn("# installed\n", .{}),
-            .fresh => warn("# up-to-date\n", .{}),
+            .stale => log.info("# installed", .{}),
+            .fresh => log.info("# up-to-date", .{}),
         };
     }
 
     pub fn truncateFile(self: *Builder, dest_path: []const u8) !void {
         if (self.verbose) {
-            warn("truncate {s}\n", .{dest_path});
+            log.info("truncate {s}", .{dest_path});
         }
         const cwd = fs.cwd();
         var src_file = cwd.createFile(dest_path, .{}) catch |err| switch (err) {
@@ -1222,8 +1216,8 @@ pub const Builder = struct {
         }
 
         if (!std.process.can_spawn) {
-            if (src_step) |s| warn("{s}...", .{s.name});
-            warn("Unable to spawn the following command: cannot spawn child process\n", .{});
+            if (src_step) |s| log.err("{s}...", .{s.name});
+            log.err("Unable to spawn the following command: cannot spawn child process", .{});
             printCmd(null, argv);
             std.os.abort();
         }
@@ -1231,31 +1225,31 @@ pub const Builder = struct {
         var code: u8 = undefined;
         return self.execAllowFail(argv, &code, .Inherit) catch |err| switch (err) {
             error.ExecNotSupported => {
-                if (src_step) |s| warn("{s}...", .{s.name});
-                warn("Unable to spawn the following command: cannot spawn child process\n", .{});
+                if (src_step) |s| log.err("{s}...", .{s.name});
+                log.err("Unable to spawn the following command: cannot spawn child process", .{});
                 printCmd(null, argv);
                 std.os.abort();
             },
             error.FileNotFound => {
-                if (src_step) |s| warn("{s}...", .{s.name});
-                warn("Unable to spawn the following command: file not found\n", .{});
+                if (src_step) |s| log.err("{s}...", .{s.name});
+                log.err("Unable to spawn the following command: file not found", .{});
                 printCmd(null, argv);
                 std.os.exit(@truncate(u8, code));
             },
             error.ExitCodeFailure => {
-                if (src_step) |s| warn("{s}...", .{s.name});
+                if (src_step) |s| log.err("{s}...", .{s.name});
                 if (self.prominent_compile_errors) {
-                    warn("The step exited with error code {d}\n", .{code});
+                    log.err("The step exited with error code {d}", .{code});
                 } else {
-                    warn("The following command exited with error code {d}:\n", .{code});
+                    log.err("The following command exited with error code {d}:", .{code});
                     printCmd(null, argv);
                 }
 
                 std.os.exit(@truncate(u8, code));
             },
             error.ProcessTerminated => {
-                if (src_step) |s| warn("{s}...", .{s.name});
-                warn("The following command terminated unexpectedly:\n", .{});
+                if (src_step) |s| log.err("{s}...", .{s.name});
+                log.err("The following command terminated unexpectedly:", .{});
                 printCmd(null, argv);
                 std.os.exit(@truncate(u8, code));
             },
@@ -2140,7 +2134,7 @@ pub const LibExeObjStep = struct {
             } else if (mem.startsWith(u8, tok, "-D")) {
                 try zig_args.append(tok);
             } else if (self.builder.verbose) {
-                warn("Ignoring pkg-config flag '{s}'\n", .{tok});
+                log.warn("Ignoring pkg-config flag '{s}'", .{tok});
             }
         }
 
@@ -2435,7 +2429,7 @@ pub const LibExeObjStep = struct {
         const builder = self.builder;
 
         if (self.root_src == null and self.link_objects.items.len == 0) {
-            warn("{s}: linker needs 1 or more objects to link\n", .{self.step.name});
+            log.err("{s}: linker needs 1 or more objects to link", .{self.step.name});
             return error.NeedAnObject;
         }
 
@@ -2558,7 +2552,7 @@ pub const LibExeObjStep = struct {
                         if (system_lib.needed) break :prefix "-needed-l";
                         if (system_lib.weak) {
                             if (self.target.isDarwin()) break :prefix "-weak-l";
-                            warn("Weak library import used for a non-darwin target, this will be converted to normally library import `-lname`\n", .{});
+                            log.warn("Weak library import used for a non-darwin target, this will be converted to normally library import `-lname`", .{});
                         }
                         break :prefix "-l";
                     };
@@ -3078,11 +3072,11 @@ pub const LibExeObjStep = struct {
             }
         } else {
             if (self.framework_dirs.items.len > 0) {
-                warn("Framework directories have been added for a non-darwin target, this will have no affect on the build\n", .{});
+                log.info("Framework directories have been added for a non-darwin target, this will have no affect on the build", .{});
             }
 
             if (self.frameworks.count() > 0) {
-                warn("Frameworks have been added for a non-darwin target, this will have no affect on the build\n", .{});
+                log.info("Frameworks have been added for a non-darwin target, this will have no affect on the build", .{});
             }
         }
 
@@ -3530,7 +3524,7 @@ pub const LogStep = struct {
 
     fn make(step: *Step) anyerror!void {
         const self = @fieldParentPtr(LogStep, "step", step);
-        warn("{s}", .{self.data});
+        log.info("{s}", .{self.data});
     }
 };
 
@@ -3554,7 +3548,7 @@ pub const RemoveDirStep = struct {
 
         const full_path = self.builder.pathFromRoot(self.dir_path);
         fs.cwd().deleteTree(full_path) catch |err| {
-            warn("Unable to remove {s}: {s}\n", .{ full_path, @errorName(err) });
+            log.err("Unable to remove {s}: {s}", .{ full_path, @errorName(err) });
             return err;
         };
     }
@@ -3639,7 +3633,7 @@ fn doAtomicSymLinks(allocator: Allocator, output_path: []const u8, filename_majo
         &[_][]const u8{ out_dir, filename_major_only },
     ) catch unreachable;
     fs.atomicSymLink(allocator, out_basename, major_only_path) catch |err| {
-        warn("Unable to symlink {s} -> {s}\n", .{ major_only_path, out_basename });
+        log.err("Unable to symlink {s} -> {s}", .{ major_only_path, out_basename });
         return err;
     };
     // sym link for libfoo.so to libfoo.so.1
@@ -3648,7 +3642,7 @@ fn doAtomicSymLinks(allocator: Allocator, output_path: []const u8, filename_majo
         &[_][]const u8{ out_dir, filename_name_only },
     ) catch unreachable;
     fs.atomicSymLink(allocator, filename_major_only, name_only_path) catch |err| {
-        warn("Unable to symlink {s} -> {s}\n", .{ name_only_path, filename_major_only });
+        log.err("Unable to symlink {s} -> {s}", .{ name_only_path, filename_major_only });
         return err;
     };
 }
