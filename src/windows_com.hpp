@@ -428,6 +428,11 @@ extern "C" {
 	EXTERN_C const IID IID_IEnumSetupInstances;
 
 #if defined(__cplusplus) && !defined(CINTERFACE)
+
+#ifdef __GNUC__
+    __CRT_UUID_DECL(IEnumSetupInstances, 0x6380BCFF, 0x41D3, 0x4B2E, 0x8B, 0x2E, 0xBF, 0x8A, 0x68, 0x10, 0xC8, 0x48);
+#endif
+
 	/// <summary>
 	/// An enumerator of installed <see cref="ISetupInstance"/> objects.
 	/// </summary>
