@@ -221,20 +221,14 @@ test "fieldParentPtr of anon struct" {
 }
 
 test "offsetOf tuple" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
-
     var x: u32 = 0;
     const T = @TypeOf(.{ x, x });
-
     _ = @offsetOf(T, "1");
 }
 
 test "offsetOf anon struct" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
-
     var x: u32 = 0;
     const T = @TypeOf(.{ .foo = x, .bar = x });
-
     _ = @offsetOf(T, "bar");
 }
 

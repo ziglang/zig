@@ -9,5 +9,5 @@ export fn foo() usize {
 // backend=stage2
 // target=native
 //
-// :5:27: error: struct 'tmp.Foo' has no field 'a'
+// :5:27: error: no field named 'a' in struct 'tmp.Foo'
 // :1:13: note: struct declared here
