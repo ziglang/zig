@@ -1096,7 +1096,7 @@ pub const TestContext = struct {
         /// that if any errors occur the caller knows it happened during this file.
         current_file: *[]const u8,
     ) !void {
-        var it = try dir.walk(ctx.arena);
+        var it = try dir.intoIterable().walk(ctx.arena);
         var filenames = std.ArrayList([]const u8).init(ctx.arena);
 
         while (try it.next()) |entry| {
