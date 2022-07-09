@@ -601,8 +601,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .memset          => try self.airMemset(inst),
             .set_union_tag   => @panic("TODO try self.airSetUnionTag(inst)"),
             .get_union_tag   => @panic("TODO try self.airGetUnionTag(inst)"),
-            .clz             => @panic("TODO try self.airClz(inst)"),
-            .ctz             => @panic("TODO try self.airCtz(inst)"),
+            .clz             => try self.airClz(inst),
+            .ctz             => try self.airCtz(inst),
             .popcount        => @panic("TODO try self.airPopcount(inst)"),
             .byte_swap       => @panic("TODO try self.airByteSwap(inst)"),
             .bit_reverse     => @panic("TODO try self.airBitReverse(inst)"),
@@ -1241,6 +1241,12 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
     return bt.finishAir(result);
 }
 
+fn airClz(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airClz for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
 fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
@@ -1452,6 +1458,12 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     // We already took care of pl_op.operand earlier, so we're going
     // to pass .none here
     return self.finishAir(inst, .unreach, .{ .none, .none, .none });
+}
+
+fn airCtz(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airCtz for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airDbgBlock(self: *Self, inst: Air.Inst.Index) !void {
