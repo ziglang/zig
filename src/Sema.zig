@@ -17173,24 +17173,30 @@ fn zirFieldParentPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
     }
     try sema.resolveTypeLayout(block, ty_src, struct_ty);
 
-    const struct_obj = struct_ty.castTag(.@"struct").?.data;
-    const field_index = struct_obj.fields.getIndex(field_name) orelse
-        return sema.failWithBadStructFieldAccess(block, struct_obj, name_src, field_name);
+    const field_index = if (struct_ty.isTuple()) b: {
+        if (std.fmt.parseUnsigned(u32, field_name, 10)) |idx| {
+            if (idx < struct_ty.structFieldCount()) break :b idx;
+        } else |_| {}
+        return sema.fail(block, name_src, "tuple '{}' has no such field '{s}'", .{
+            struct_ty.fmt(sema.mod), field_name,
+        });
+    } else try sema.structFieldIndex(block, struct_ty, field_name, name_src);
 
     try sema.checkPtrOperand(block, ptr_src, field_ptr_ty);
-    const field = struct_obj.fields.values()[field_index];
     const field_ptr_ty_info = field_ptr_ty.ptrInfo().data;
 
     var ptr_ty_data: Type.Payload.Pointer.Data = .{
-        .pointee_type = field.ty,
+        .pointee_type = struct_ty.structFieldType(field_index),
         .mutable = field_ptr_ty_info.mutable,
         .@"addrspace" = field_ptr_ty_info.@"addrspace",
     };
 
-    if (struct_obj.layout == .Packed) {
+    if (struct_ty.containerLayout() == .Packed) {
         return sema.fail(block, src, "TODO handle packed structs with @fieldParentPtr", .{});
     } else {
-        ptr_ty_data.@"align" = field.abi_align;
+        ptr_ty_data.@"align" = if (struct_ty.castTag(.@"struct")) |struct_obj| b: {
+            break :b struct_obj.data.fields.values()[field_index].abi_align;
+        } else 0;
     }
 
     const actual_field_ptr_ty = try Type.ptr(sema.arena, sema.mod, ptr_ty_data);
