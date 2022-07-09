@@ -765,7 +765,6 @@ fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                         };
 
                         try self.spillConditionFlagsIfOccupied();
-                        self.condition_flags_inst = inst;
 
                         const dest = blk: {
                             if (rhs_immediate_ok) {
@@ -1825,7 +1824,6 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                 switch (int_info.bits) {
                     1...32 => {
                         try self.spillConditionFlagsIfOccupied();
-                        self.condition_flags_inst = inst;
 
                         const dest = try self.binOp(.mul, lhs, rhs, lhs_ty, rhs_ty, null);
 
@@ -2037,7 +2035,6 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                 const int_info = lhs_ty.intInfo(self.target.*);
                 if (int_info.bits <= 64) {
                     try self.spillConditionFlagsIfOccupied();
-                    self.condition_flags_inst = inst;
 
                     const lhs_lock: ?RegisterLock = if (lhs == .register)
                         self.register_manager.lockRegAssumeUnused(lhs.register)
