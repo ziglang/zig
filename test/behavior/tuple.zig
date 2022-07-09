@@ -205,7 +205,10 @@ test "initializing anon struct with explicit type" {
 }
 
 test "fieldParentPtr of tuple" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     var x: u32 = 0;
     const tuple = .{ x, x };
@@ -213,7 +216,10 @@ test "fieldParentPtr of tuple" {
 }
 
 test "fieldParentPtr of anon struct" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     var x: u32 = 0;
     const anon_st = .{ .foo = x, .bar = x };
