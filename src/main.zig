@@ -4206,13 +4206,13 @@ fn fmtPathDir(
     parent_dir: fs.Dir,
     parent_sub_path: []const u8,
 ) FmtError!void {
-    var dir = try parent_dir.openDir(parent_sub_path, .{ .iterate = true });
-    defer dir.close();
+    var iterable_dir = try parent_dir.openIterableDir(parent_sub_path, .{});
+    defer iterable_dir.close();
 
-    const stat = try dir.stat();
+    const stat = try iterable_dir.dir.stat();
     if (try fmt.seen.fetchPut(stat.inode, {})) |_| return;
 
-    var dir_it = dir.iterate();
+    var dir_it = iterable_dir.iterate();
     while (try dir_it.next()) |entry| {
         const is_dir = entry.kind == .Directory;
 
@@ -4223,9 +4223,9 @@ fn fmtPathDir(
             defer fmt.gpa.free(full_path);
 
             if (is_dir) {
-                try fmtPathDir(fmt, full_path, check_mode, dir, entry.name);
+                try fmtPathDir(fmt, full_path, check_mode, iterable_dir.dir, entry.name);
             } else {
-                fmtPathFile(fmt, full_path, check_mode, dir, entry.name) catch |err| {
+                fmtPathFile(fmt, full_path, check_mode, iterable_dir.dir, entry.name) catch |err| {
                     warn("unable to format '{s}': {s}", .{ full_path, @errorName(err) });
                     fmt.any_error = true;
                     return;
