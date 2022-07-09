@@ -534,7 +534,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
             .add_with_overflow => try self.airAddSubWithOverflow(inst),
             .sub_with_overflow => try self.airAddSubWithOverflow(inst),
-            .mul_with_overflow => @panic("TODO try self.airMulWithOverflow(inst)"),
+            .mul_with_overflow => try self.airMulWithOverflow(inst),
             .shl_with_overflow => @panic("TODO try self.airShlWithOverflow(inst)"),
 
             .div_float, .div_trunc, .div_floor, .div_exact => try self.airDiv(inst),
@@ -1790,6 +1790,73 @@ fn airMod(self: *Self, inst: Air.Inst.Index) !void {
     });
 
     return self.finishAir(inst, .{ .register = mod_reg }, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
+fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
+    //const tag = self.air.instructions.items(.tag)[inst];
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const lhs = try self.resolveInst(extra.lhs);
+        const rhs = try self.resolveInst(extra.rhs);
+        const lhs_ty = self.air.typeOf(extra.lhs);
+        const rhs_ty = self.air.typeOf(extra.rhs);
+
+        switch (lhs_ty.zigTypeTag()) {
+            .Vector => return self.fail("TODO implement mul_with_overflow for vectors", .{}),
+            .Int => {
+                const mod = self.bin_file.options.module.?;
+                assert(lhs_ty.eql(rhs_ty, mod));
+                const int_info = lhs_ty.intInfo(self.target.*);
+                switch (int_info.bits) {
+                    1...32 => {
+                        try self.spillConditionFlagsIfOccupied();
+                        self.condition_flags_inst = inst;
+
+                        const dest = try self.binOp(.mul, lhs, rhs, lhs_ty, rhs_ty, null);
+
+                        const dest_reg = dest.register;
+                        const dest_reg_lock = self.register_manager.lockRegAssumeUnused(dest_reg);
+                        defer self.register_manager.unlockReg(dest_reg_lock);
+
+                        const truncated_reg = try self.register_manager.allocReg(null, gp);
+                        const truncated_reg_lock = self.register_manager.lockRegAssumeUnused(truncated_reg);
+                        defer self.register_manager.unlockReg(truncated_reg_lock);
+
+                        try self.truncRegister(
+                            dest_reg,
+                            truncated_reg,
+                            int_info.signedness,
+                            int_info.bits,
+                        );
+
+                        _ = try self.addInst(.{
+                            .tag = .cmp,
+                            .data = .{ .arithmetic_2op = .{
+                                .is_imm = false,
+                                .rs1 = dest_reg,
+                                .rs2_or_imm = .{ .rs2 = truncated_reg },
+                            } },
+                        });
+
+                        const cond = Instruction.ICondition.ne;
+                        const ccr = Instruction.CCR.xcc;
+
+                        break :result MCValue{ .register_with_overflow = .{
+                            .reg = truncated_reg,
+                            .flag = .{ .cond = cond, .ccr = ccr },
+                        } };
+                    },
+                    // XXX DO NOT call __multi3 directly as it'll result in us doing six multiplications,
+                    // which is far more than strictly necessary
+                    33...64 => return self.fail("TODO copy compiler-rt's mulddi3 for a 64x64->128 multiply", .{}),
+                    else => return self.fail("TODO overflow operations on other integer sizes", .{}),
+                }
+            },
+            else => unreachable,
+        }
+    };
+    return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
 }
 
 fn airNot(self: *Self, inst: Air.Inst.Index) !void {
