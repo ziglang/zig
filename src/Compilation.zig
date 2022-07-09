@@ -381,18 +381,17 @@ pub const AllErrors = struct {
             std.debug.getStderrMutex().lock();
             defer std.debug.getStderrMutex().unlock();
             const stderr = std.io.getStdErr();
-            return msg.renderToStdErrInner(ttyconf, stderr, "error", .Red, 0) catch return;
+            return msg.renderToWriter(ttyconf, stderr.writer(), "error", .Red, 0) catch return;
         }
 
-        fn renderToStdErrInner(
+        pub fn renderToWriter(
             msg: Message,
             ttyconf: std.debug.TTY.Config,
-            stderr_file: std.fs.File,
+            stderr: anytype,
             kind: []const u8,
             color: std.debug.TTY.Color,
             indent: usize,
         ) anyerror!void {
-            const stderr = stderr_file.writer();
             var counting_writer = std.io.countingWriter(stderr);
             const counting_stderr = counting_writer.writer();
             switch (msg) {
@@ -435,7 +434,7 @@ pub const AllErrors = struct {
                         }
                     }
                     for (src.notes) |note| {
-                        try note.renderToStdErrInner(ttyconf, stderr_file, "note", .Cyan, indent);
+                        try note.renderToWriter(ttyconf, stderr, "note", .Cyan, indent);
                     }
                 },
                 .plain => |plain| {
@@ -453,7 +452,7 @@ pub const AllErrors = struct {
                     }
                     ttyconf.setColor(stderr, .Reset);
                     for (plain.notes) |note| {
-                        try note.renderToStdErrInner(ttyconf, stderr_file, "error", .Red, indent + 4);
+                        try note.renderToWriter(ttyconf, stderr, "error", .Red, indent + 4);
                     }
                 },
             }
