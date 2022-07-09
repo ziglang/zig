@@ -1653,6 +1653,10 @@ test "sign" {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }
+    if ((builtin.zig_backend == .stage1) and builtin.cpu.arch == .x86_64) {
+        // https://github.com/ziglang/zig/issues/12012
+        return error.SkipZigTest;
+    }
     try testSign();
     comptime try testSign();
 }
