@@ -409,7 +409,7 @@ pub const AllErrors = struct {
                     try counting_stderr.writeAll(": ");
                     // This is the length of the part before the error message:
                     // e.g. "file.zig:4:5: error: "
-                    const prefix_len = counting_stderr.context.bytes_written;
+                    const prefix_len = @intCast(usize, counting_stderr.context.bytes_written);
                     ttyconf.setColor(stderr, .Reset);
                     ttyconf.setColor(stderr, .Bold);
                     if (src.count == 1) {
