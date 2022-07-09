@@ -544,7 +544,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .add_with_overflow => try self.airAddSubWithOverflow(inst),
             .sub_with_overflow => try self.airAddSubWithOverflow(inst),
             .mul_with_overflow => try self.airMulWithOverflow(inst),
-            .shl_with_overflow => @panic("TODO try self.airShlWithOverflow(inst)"),
+            .shl_with_overflow => try self.airShlWithOverflow(inst),
 
             .div_float, .div_trunc, .div_floor, .div_exact => try self.airDiv(inst),
 
@@ -2020,6 +2020,96 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
 fn airRetPtr(self: *Self, inst: Air.Inst.Index) !void {
     const stack_offset = try self.allocMemPtr(inst);
     return self.finishAir(inst, .{ .ptr_stack_offset = stack_offset }, .{ .none, .none, .none });
+}
+
+fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const lhs = try self.resolveInst(extra.lhs);
+        const rhs = try self.resolveInst(extra.rhs);
+        const lhs_ty = self.air.typeOf(extra.lhs);
+        const rhs_ty = self.air.typeOf(extra.rhs);
+
+        switch (lhs_ty.zigTypeTag()) {
+            .Vector => return self.fail("TODO implement mul_with_overflow for vectors", .{}),
+            .Int => {
+                const int_info = lhs_ty.intInfo(self.target.*);
+                if (int_info.bits <= 64) {
+                    try self.spillConditionFlagsIfOccupied();
+                    self.condition_flags_inst = inst;
+
+                    const lhs_lock: ?RegisterLock = if (lhs == .register)
+                        self.register_manager.lockRegAssumeUnused(lhs.register)
+                    else
+                        null;
+                    // TODO this currently crashes stage1
+                    // defer if (lhs_lock) |reg| self.register_manager.unlockReg(reg);
+
+                    // Increase shift amount (i.e, rhs) by shamt_bits - int_info.bits
+                    // e.g if shifting a i48 then use sr*x (shamt_bits == 64) but increase rhs by 16
+                    // and if shifting a i24 then use sr*  (shamt_bits == 32) but increase rhs by 8
+                    const new_rhs = switch (int_info.bits) {
+                        1...31 => if (rhs == .immediate) MCValue{
+                            .immediate = rhs.immediate + 32 - int_info.bits,
+                        } else try self.binOp(.add, rhs, .{ .immediate = 32 - int_info.bits }, rhs_ty, rhs_ty, null),
+                        33...63 => if (rhs == .immediate) MCValue{
+                            .immediate = rhs.immediate + 64 - int_info.bits,
+                        } else try self.binOp(.add, rhs, .{ .immediate = 64 - int_info.bits }, rhs_ty, rhs_ty, null),
+                        32, 64 => rhs,
+                        else => unreachable,
+                    };
+
+                    const new_rhs_lock: ?RegisterLock = if (new_rhs == .register)
+                        self.register_manager.lockRegAssumeUnused(new_rhs.register)
+                    else
+                        null;
+                    // TODO this currently crashes stage1
+                    // defer if (new_rhs_lock) |reg| self.register_manager.unlockReg(reg);
+
+                    const dest = try self.binOp(.shl, lhs, new_rhs, lhs_ty, rhs_ty, null);
+                    const dest_reg = dest.register;
+                    const dest_reg_lock = self.register_manager.lockRegAssumeUnused(dest_reg);
+                    defer self.register_manager.unlockReg(dest_reg_lock);
+
+                    const shr = try self.binOp(.shr, dest, new_rhs, lhs_ty, rhs_ty, null);
+
+                    _ = try self.addInst(.{
+                        .tag = .cmp,
+                        .data = .{ .arithmetic_2op = .{
+                            .is_imm = false,
+                            .rs1 = dest_reg,
+                            .rs2_or_imm = .{ .rs2 = shr.register },
+                        } },
+                    });
+
+                    const cond = Instruction.ICondition.ne;
+                    const ccr = switch (int_info.bits) {
+                        1...32 => Instruction.CCR.icc,
+                        33...64 => Instruction.CCR.xcc,
+                        else => unreachable,
+                    };
+
+                    // TODO Those should really be written as defers, however stage1 currently
+                    // panics when those are turned into defer statements so those are
+                    // written here at the end as ordinary statements.
+                    // Because of that, on failure, the lock on those registers wouldn't be
+                    // released.
+                    if (lhs_lock) |reg| self.register_manager.unlockReg(reg);
+                    if (new_rhs_lock) |reg| self.register_manager.unlockReg(reg);
+
+                    break :result MCValue{ .register_with_overflow = .{
+                        .reg = dest_reg,
+                        .flag = .{ .cond = cond, .ccr = ccr },
+                    } };
+                } else {
+                    return self.fail("TODO overflow operations on other integer sizes", .{});
+                }
+            },
+            else => unreachable,
+        }
+    };
+    return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
 }
 
 fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
