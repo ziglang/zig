@@ -393,7 +393,8 @@ pub const AllErrors = struct {
             indent: usize,
         ) anyerror!void {
             const stderr = stderr_file.writer();
-            const counting_stderr = std.io.countingWriter(stderr).writer();
+            var counting_writer = std.io.countingWriter(stderr);
+            const counting_stderr = counting_writer.writer();
             switch (msg) {
                 .src => |src| {
                     try counting_stderr.writeByteNTimes(' ', indent);
