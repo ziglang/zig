@@ -15872,50 +15872,40 @@ fn bitOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!u6
     const target = sema.mod.getTarget();
 
     try sema.resolveTypeLayout(block, lhs_src, ty);
-    if (ty.tag() != .@"struct") {
-        const msg = msg: {
-            const msg = try sema.errMsg(block, lhs_src, "expected struct type, found '{}'", .{ty.fmt(sema.mod)});
-            errdefer msg.destroy(sema.gpa);
-            try sema.addDeclaredHereNote(msg, ty);
-            break :msg msg;
-        };
-        return sema.failWithOwnedErrorMsg(block, msg);
+    switch (ty.tag()) {
+        .@"struct", .tuple, .anon_struct => {},
+        else => {
+            const msg = msg: {
+                const msg = try sema.errMsg(block, lhs_src, "expected struct type, found '{}'", .{ty.fmt(sema.mod)});
+                errdefer msg.destroy(sema.gpa);
+                try sema.addDeclaredHereNote(msg, ty);
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(block, msg);
+        },
     }
 
-    const fields = ty.structFields();
-    const index = fields.getIndex(field_name) orelse {
-        const msg = msg: {
-            const msg = try sema.errMsg(
-                block,
-                rhs_src,
-                "struct '{}' has no field '{s}'",
-                .{ ty.fmt(sema.mod), field_name },
-            );
-            errdefer msg.destroy(sema.gpa);
-            try sema.addDeclaredHereNote(msg, ty);
-            break :msg msg;
-        };
-        return sema.failWithOwnedErrorMsg(block, msg);
-    };
+    const field_index = if (ty.isTuple()) b: {
+        if (std.fmt.parseUnsigned(u32, field_name, 10)) |idx| {
+            if (idx < ty.structFieldCount()) break :b idx;
+        } else |_| {}
+        return sema.fail(block, rhs_src, "tuple '{}' has no such field '{s}'", .{
+            ty.fmt(sema.mod), field_name,
+        });
+    } else try sema.structFieldIndex(block, ty, field_name, rhs_src);
 
     switch (ty.containerLayout()) {
         .Packed => {
             var bit_sum: u64 = 0;
+            const fields = ty.structFields();
             for (fields.values()) |field, i| {
-                if (i == index) {
+                if (i == field_index) {
                     return bit_sum;
                 }
                 bit_sum += field.ty.bitSize(target);
             } else unreachable;
         },
-        else => {
-            var it = ty.iterateStructOffsets(target);
-            while (it.next()) |field_offset| {
-                if (field_offset.field == index) {
-                    return field_offset.offset * 8;
-                }
-            } else unreachable;
-        },
+        else => return ty.structFieldOffset(field_index, target) * 8,
     }
 }
 
