@@ -361,7 +361,6 @@ fn wWinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
     std.os.windows.kernel32.ExitProcess(@bitCast(std.os.windows.UINT, result));
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
 fn posixCallMainAndExit() noreturn {
     @setAlignStack(16);
 
