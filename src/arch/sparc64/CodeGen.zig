@@ -499,20 +499,29 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .ptr_sub => try self.airPtrArithmetic(inst, .ptr_sub),
 
             .add             => try self.airBinOp(inst, .add),
-            .addwrap         => @panic("TODO try self.airAddWrap(inst)"),
+            .addwrap         => try self.airBinOp(inst, .addwrap),
+            .sub             => try self.airBinOp(inst, .sub),
+            .subwrap         => try self.airBinOp(inst, .subwrap),
+            .mul             => try self.airBinOp(inst, .mul),
+            .mulwrap         => try self.airBinOp(inst, .mulwrap),
+            .shl             => try self.airBinOp(inst, .shl),
+            .shl_exact       => try self.airBinOp(inst, .shl_exact),
+            .shr             => try self.airBinOp(inst, .shr),
+            .shr_exact       => try self.airBinOp(inst, .shr_exact),
+            .bool_and        => try self.airBinOp(inst, .bool_and),
+            .bool_or         => try self.airBinOp(inst, .bool_or),
+            .bit_and         => try self.airBinOp(inst, .bit_and),
+            .bit_or          => try self.airBinOp(inst, .bit_or),
+            .xor             => try self.airBinOp(inst, .xor),
+
             .add_sat         => @panic("TODO try self.airAddSat(inst)"),
-            .sub             => @panic("TODO try self.airBinOp(inst)"),
-            .subwrap         => @panic("TODO try self.airSubWrap(inst)"),
             .sub_sat         => @panic("TODO try self.airSubSat(inst)"),
-            .mul             => @panic("TODO try self.airMul(inst)"),
-            .mulwrap         => @panic("TODO try self.airMulWrap(inst)"),
             .mul_sat         => @panic("TODO try self.airMulSat(inst)"),
-            .rem             => try self.airRem(inst),
-            .mod             => try self.airMod(inst),
-            .shl, .shl_exact => @panic("TODO try self.airShl(inst)"),
             .shl_sat         => @panic("TODO try self.airShlSat(inst)"),
             .min             => @panic("TODO try self.airMin(inst)"),
             .max             => @panic("TODO try self.airMax(inst)"),
+            .rem             => try self.airRem(inst),
+            .mod             => try self.airMod(inst),
             .slice           => try self.airSlice(inst),
 
             .sqrt,
@@ -547,13 +556,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .cmp_neq => try self.airCmp(inst, .neq),
             .cmp_vector => @panic("TODO try self.airCmpVector(inst)"),
             .cmp_lt_errors_len => try self.airCmpLtErrorsLen(inst),
-
-            .bool_and        => try self.airBinOp(inst, .bool_and),
-            .bool_or         => try self.airBinOp(inst, .bool_or),
-            .bit_and         => try self.airBinOp(inst, .bit_and),
-            .bit_or          => try self.airBinOp(inst, .bit_or),
-            .xor             => try self.airBinOp(inst, .xor),
-            .shr, .shr_exact => @panic("TODO try self.airShr(inst)"),
 
             .alloc           => try self.airAlloc(inst),
             .ret_ptr         => try self.airRetPtr(inst),
@@ -2397,6 +2399,10 @@ fn binOp(
     switch (tag) {
         .add,
         .sub,
+        .mul,
+        .bit_and,
+        .bit_or,
+        .xor,
         .cmp_eq,
         => {
             switch (lhs_ty.zigTypeTag()) {
@@ -2411,12 +2417,20 @@ fn binOp(
                         // operands
                         const lhs_immediate_ok = switch (tag) {
                             .add => lhs == .immediate and lhs.immediate <= std.math.maxInt(u12),
+                            .mul => lhs == .immediate and lhs.immediate <= std.math.maxInt(u12),
+                            .bit_and => lhs == .immediate and lhs.immediate <= std.math.maxInt(u12),
+                            .bit_or => lhs == .immediate and lhs.immediate <= std.math.maxInt(u12),
+                            .xor => lhs == .immediate and lhs.immediate <= std.math.maxInt(u12),
                             .sub, .cmp_eq => false,
                             else => unreachable,
                         };
                         const rhs_immediate_ok = switch (tag) {
                             .add,
                             .sub,
+                            .mul,
+                            .bit_and,
+                            .bit_or,
+                            .xor,
                             .cmp_eq,
                             => rhs == .immediate and rhs.immediate <= std.math.maxInt(u12),
                             else => unreachable,
@@ -2425,6 +2439,10 @@ fn binOp(
                         const mir_tag: Mir.Inst.Tag = switch (tag) {
                             .add => .add,
                             .sub => .sub,
+                            .mul => .mulx,
+                            .bit_and => .@"and",
+                            .bit_or => .@"or",
+                            .xor => .xor,
                             .cmp_eq => .cmp,
                             else => unreachable,
                         };
@@ -2440,6 +2458,37 @@ fn binOp(
                         }
                     } else {
                         return self.fail("TODO binary operations on int with bits > 64", .{});
+                    }
+                },
+                else => unreachable,
+            }
+        },
+
+        .addwrap,
+        .subwrap,
+        .mulwrap,
+        => {
+            const base_tag: Air.Inst.Tag = switch (tag) {
+                .addwrap => .add,
+                .subwrap => .sub,
+                .mulwrap => .mul,
+                else => unreachable,
+            };
+
+            // Generate the base operation
+            const result = try self.binOp(base_tag, lhs, rhs, lhs_ty, rhs_ty, metadata);
+
+            // Truncate if necessary
+            switch (lhs_ty.zigTypeTag()) {
+                .Vector => return self.fail("TODO binary operations on vectors", .{}),
+                .Int => {
+                    const int_info = lhs_ty.intInfo(self.target.*);
+                    if (int_info.bits <= 64) {
+                        const result_reg = result.register;
+                        try self.truncRegister(result_reg, result_reg, int_info.signedness, int_info.bits);
+                        return result;
+                    } else {
+                        return self.fail("TODO binary operations on integers > u64/i64", .{});
                     }
                 },
                 else => unreachable,
@@ -2469,49 +2518,6 @@ fn binOp(
                         if (rhs_immediate_ok) {
                             return try self.binOpImmediate(mir_tag, lhs, rhs, lhs_ty, true, metadata);
                         } else {
-                            return try self.binOpRegister(mir_tag, lhs, rhs, lhs_ty, rhs_ty, metadata);
-                        }
-                    } else {
-                        return self.fail("TODO binary operations on int with bits > 64", .{});
-                    }
-                },
-                else => unreachable,
-            }
-        },
-
-        .mul => {
-            switch (lhs_ty.zigTypeTag()) {
-                .Vector => return self.fail("TODO binary operations on vectors", .{}),
-                .Int => {
-                    assert(lhs_ty.eql(rhs_ty, mod));
-                    const int_info = lhs_ty.intInfo(self.target.*);
-                    if (int_info.bits <= 64) {
-                        // Only say yes if the operation is
-                        // commutative, i.e. we can swap both of the
-                        // operands
-                        const lhs_immediate_ok = switch (tag) {
-                            .mul => lhs == .immediate and lhs.immediate <= std.math.maxInt(u12),
-                            else => unreachable,
-                        };
-                        const rhs_immediate_ok = switch (tag) {
-                            .mul => rhs == .immediate and rhs.immediate <= std.math.maxInt(u12),
-                            else => unreachable,
-                        };
-
-                        const mir_tag: Mir.Inst.Tag = switch (tag) {
-                            .mul => .mulx,
-                            else => unreachable,
-                        };
-
-                        if (rhs_immediate_ok) {
-                            // At this point, rhs is an immediate
-                            return try self.binOpImmediate(mir_tag, lhs, rhs, lhs_ty, false, metadata);
-                        } else if (lhs_immediate_ok) {
-                            // swap lhs and rhs
-                            // At this point, lhs is an immediate
-                            return try self.binOpImmediate(mir_tag, rhs, lhs, rhs_ty, true, metadata);
-                        } else {
-                            // TODO convert large immediates to register before adding
                             return try self.binOpRegister(mir_tag, lhs, rhs, lhs_ty, rhs_ty, metadata);
                         }
                     } else {
@@ -2552,58 +2558,6 @@ fn binOp(
             }
         },
 
-        .bit_and,
-        .bit_or,
-        .xor,
-        => {
-            switch (lhs_ty.zigTypeTag()) {
-                .Vector => return self.fail("TODO binary operations on vectors", .{}),
-                .Int => {
-                    assert(lhs_ty.eql(rhs_ty, mod));
-                    const int_info = lhs_ty.intInfo(self.target.*);
-                    if (int_info.bits <= 64) {
-                        // Only say yes if the operation is
-                        // commutative, i.e. we can swap both of the
-                        // operands
-                        const lhs_immediate_ok = switch (tag) {
-                            .bit_and,
-                            .bit_or,
-                            .xor,
-                            => lhs == .immediate and lhs.immediate <= std.math.maxInt(u13),
-                            else => unreachable,
-                        };
-                        const rhs_immediate_ok = switch (tag) {
-                            .bit_and,
-                            .bit_or,
-                            .xor,
-                            => rhs == .immediate and rhs.immediate <= std.math.maxInt(u13),
-                            else => unreachable,
-                        };
-
-                        const mir_tag: Mir.Inst.Tag = switch (tag) {
-                            .bit_and => .@"and",
-                            .bit_or => .@"or",
-                            .xor => .xor,
-                            else => unreachable,
-                        };
-
-                        if (rhs_immediate_ok) {
-                            return try self.binOpImmediate(mir_tag, lhs, rhs, lhs_ty, false, metadata);
-                        } else if (lhs_immediate_ok) {
-                            // swap lhs and rhs
-                            return try self.binOpImmediate(mir_tag, rhs, lhs, rhs_ty, true, metadata);
-                        } else {
-                            // TODO convert large immediates to register before adding
-                            return try self.binOpRegister(mir_tag, lhs, rhs, lhs_ty, rhs_ty, metadata);
-                        }
-                    } else {
-                        return self.fail("TODO binary operations on int with bits > 64", .{});
-                    }
-                },
-                else => unreachable,
-            }
-        },
-
         .bool_and,
         .bool_or,
         => {
@@ -2624,36 +2578,41 @@ fn binOp(
             }
         },
 
-        .shl => {
+        .shl,
+        .shr,
+        => {
             const base_tag: Air.Inst.Tag = switch (tag) {
                 .shl => .shl_exact,
+                .shr => .shr_exact,
                 else => unreachable,
             };
 
-            // Generate a shl_exact/shr_exact
+            // Generate the base operation
             const result = try self.binOp(base_tag, lhs, rhs, lhs_ty, rhs_ty, metadata);
 
             // Truncate if necessary
-            switch (tag) {
-                .shl => switch (lhs_ty.zigTypeTag()) {
-                    .Vector => return self.fail("TODO binary operations on vectors", .{}),
-                    .Int => {
-                        const int_info = lhs_ty.intInfo(self.target.*);
-                        if (int_info.bits <= 64) {
-                            const result_reg = result.register;
-                            try self.truncRegister(result_reg, result_reg, int_info.signedness, int_info.bits);
-                            return result;
-                        } else {
-                            return self.fail("TODO binary operations on integers > u64/i64", .{});
-                        }
-                    },
-                    else => unreachable,
+            switch (lhs_ty.zigTypeTag()) {
+                .Vector => return self.fail("TODO binary operations on vectors", .{}),
+                .Int => {
+                    const int_info = lhs_ty.intInfo(self.target.*);
+                    if (int_info.bits <= 64) {
+                        // 32 and 64 bit operands doesn't need truncating
+                        if (int_info.bits == 32 or int_info.bits == 64) return result;
+
+                        const result_reg = result.register;
+                        try self.truncRegister(result_reg, result_reg, int_info.signedness, int_info.bits);
+                        return result;
+                    } else {
+                        return self.fail("TODO binary operations on integers > u64/i64", .{});
+                    }
                 },
                 else => unreachable,
             }
         },
 
-        .shl_exact => {
+        .shl_exact,
+        .shr_exact,
+        => {
             switch (lhs_ty.zigTypeTag()) {
                 .Vector => return self.fail("TODO binary operations on vectors", .{}),
                 .Int => {
@@ -2662,7 +2621,11 @@ fn binOp(
                         const rhs_immediate_ok = rhs == .immediate;
 
                         const mir_tag: Mir.Inst.Tag = switch (tag) {
-                            .shl_exact => .sllx,
+                            .shl_exact => if (int_info.bits <= 32) Mir.Inst.Tag.sll else Mir.Inst.Tag.sllx,
+                            .shr_exact => switch (int_info.signedness) {
+                                .signed => if (int_info.bits <= 32) Mir.Inst.Tag.sra else Mir.Inst.Tag.srax,
+                                .unsigned => if (int_info.bits <= 32) Mir.Inst.Tag.srl else Mir.Inst.Tag.srlx,
+                            },
                             else => unreachable,
                         };
 
@@ -2769,7 +2732,21 @@ fn binOpImmediate(
                 .rs2_or_imm = .{ .imm = @intCast(u12, rhs.immediate) },
             },
         },
-        .sllx => .{
+        .sll,
+        .srl,
+        .sra,
+        => .{
+            .shift = .{
+                .is_imm = true,
+                .rd = dest_reg,
+                .rs1 = lhs_reg,
+                .rs2_or_imm = .{ .imm = @intCast(u5, rhs.immediate) },
+            },
+        },
+        .sllx,
+        .srlx,
+        .srax,
+        => .{
             .shift = .{
                 .is_imm = true,
                 .rd = dest_reg,
@@ -2893,7 +2870,13 @@ fn binOpRegister(
                 .rs2_or_imm = .{ .rs2 = rhs_reg },
             },
         },
-        .sllx => .{
+        .sll,
+        .srl,
+        .sra,
+        .sllx,
+        .srlx,
+        .srax,
+        => .{
             .shift = .{
                 .is_imm = false,
                 .rd = dest_reg,
