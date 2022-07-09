@@ -27,7 +27,7 @@ jobs:
     vmImage: 'windows-2019'
   variables:
     TARGET: 'x86_64-windows-gnu'
-    ZIG_LLVM_CLANG_LLD_NAME: 'zig+llvm+lld+clang-${{ variables.TARGET }}-0.10.0-dev.2929+6a3a0fe7a'
+    ZIG_LLVM_CLANG_LLD_NAME: 'zig+llvm+lld+clang-${{ variables.TARGET }}-0.10.0-dev.2931+bdf3fa12f'
     ZIG_LLVM_CLANG_LLD_URL: 'https://ziglang.org/deps/${{ variables.ZIG_LLVM_CLANG_LLD_NAME }}.zip'
   steps:
   - pwsh: |

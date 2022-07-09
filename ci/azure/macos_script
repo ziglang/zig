@@ -9,7 +9,7 @@ ZIGDIR="$(pwd)"
 ARCH="x86_64"
 TARGET="$ARCH-macos-none"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.10.0-dev.2929+6a3a0fe7a"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.10.0-dev.2931+bdf3fa12f"
 PREFIX="$HOME/$CACHE_BASENAME"
 JOBS="-j2"
 
