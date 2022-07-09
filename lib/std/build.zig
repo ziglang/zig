@@ -3245,7 +3245,7 @@ pub const LibExeObjStep = struct {
         const build_output_dir = mem.trimRight(u8, output_dir_nl, "\r\n");
 
         if (self.output_dir) |output_dir| {
-            var src_dir = try std.fs.cwd().openDir(build_output_dir, .{ .iterate = true });
+            var src_dir = try std.fs.cwd().openIterableDir(build_output_dir, .{});
             defer src_dir.close();
 
             // Create the output directory if it doesn't exist.
@@ -3265,7 +3265,7 @@ pub const LibExeObjStep = struct {
                     mem.eql(u8, entry.name, "zld.id") or
                     mem.eql(u8, entry.name, "lld.id")) continue;
 
-                _ = try src_dir.updateFile(entry.name, dest_dir, entry.name, .{});
+                _ = try src_dir.dir.updateFile(entry.name, dest_dir, entry.name, .{});
             }
         } else {
             self.output_dir = build_output_dir;
@@ -3480,7 +3480,7 @@ pub const InstallDirStep = struct {
         const self = @fieldParentPtr(InstallDirStep, "step", step);
         const dest_prefix = self.builder.getInstallPath(self.options.install_dir, self.options.install_subdir);
         const full_src_dir = self.builder.pathFromRoot(self.options.source_dir);
-        var src_dir = try std.fs.cwd().openDir(full_src_dir, .{ .iterate = true });
+        var src_dir = try std.fs.cwd().openIterableDir(full_src_dir, .{});
         defer src_dir.close();
         var it = try src_dir.walk(self.builder.allocator);
         next_entry: while (try it.next()) |entry| {
