@@ -15862,7 +15862,8 @@ fn zirOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
 fn bitOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!u64 {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    sema.src = .{ .node_offset_bin_op = inst_data.src_node };
+    const src: LazySrcLoc = .{ .node_offset_bin_op = inst_data.src_node };
+    sema.src = src;
     const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
     const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
@@ -15885,13 +15886,11 @@ fn bitOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!u6
         },
     }
 
-    const field_index = if (ty.isTuple()) b: {
-        if (std.fmt.parseUnsigned(u32, field_name, 10)) |idx| {
-            if (idx < ty.structFieldCount()) break :b idx;
-        } else |_| {}
-        return sema.fail(block, rhs_src, "tuple '{}' has no such field '{s}'", .{
-            ty.fmt(sema.mod), field_name,
-        });
+    const field_index = if (ty.isTuple()) blk: {
+        if (mem.eql(u8, field_name, "len")) {
+            return sema.fail(block, src, "no offset available for 'len' field of tuple", .{});
+        }
+        break :blk try sema.tupleFieldIndex(block, ty, field_name, rhs_src);
     } else try sema.structFieldIndex(block, ty, field_name, rhs_src);
 
     switch (ty.containerLayout()) {
@@ -17173,13 +17172,11 @@ fn zirFieldParentPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
     }
     try sema.resolveTypeLayout(block, ty_src, struct_ty);
 
-    const field_index = if (struct_ty.isTuple()) b: {
-        if (std.fmt.parseUnsigned(u32, field_name, 10)) |idx| {
-            if (idx < struct_ty.structFieldCount()) break :b idx;
-        } else |_| {}
-        return sema.fail(block, name_src, "tuple '{}' has no such field '{s}'", .{
-            struct_ty.fmt(sema.mod), field_name,
-        });
+    const field_index = if (struct_ty.isTuple()) blk: {
+        if (mem.eql(u8, field_name, "len")) {
+            return sema.fail(block, src, "cannot get @fieldParentPtr of 'len' field of tuple", .{});
+        }
+        break :blk try sema.tupleFieldIndex(block, struct_ty, field_name, name_src);
     } else try sema.structFieldIndex(block, struct_ty, field_name, name_src);
 
     try sema.checkPtrOperand(block, ptr_src, field_ptr_ty);
@@ -19222,17 +19219,13 @@ fn tupleFieldIndex(
     field_name: []const u8,
     field_name_src: LazySrcLoc,
 ) CompileError!u32 {
-    const field_index = std.fmt.parseUnsigned(u32, field_name, 10) catch |err| {
-        return sema.fail(block, field_name_src, "tuple '{}' has no such field '{s}': {s}", .{
-            tuple_ty.fmt(sema.mod), field_name, @errorName(err),
-        });
-    };
-    if (field_index >= tuple_ty.structFieldCount()) {
-        return sema.fail(block, field_name_src, "tuple '{}' has no such field '{s}'", .{
-            tuple_ty.fmt(sema.mod), field_name,
-        });
-    }
-    return field_index;
+    if (std.fmt.parseUnsigned(u32, field_name, 10)) |field_index| {
+        if (field_index < tuple_ty.structFieldCount()) return field_index;
+    } else |_| {}
+
+    return sema.fail(block, field_name_src, "no field named '{s}' in tuple '{}'", .{
+        field_name, tuple_ty.fmt(sema.mod),
+    });
 }
 
 fn tupleFieldValByIndex(
@@ -25768,8 +25761,8 @@ fn anonStructFieldIndex(
             return @intCast(u32, i);
         }
     }
-    return sema.fail(block, field_src, "anonymous struct '{}' has no such field '{s}'", .{
-        struct_ty.fmt(sema.mod), field_name,
+    return sema.fail(block, field_src, "no field named '{s}' in anonymous struct '{}'", .{
+        field_name, struct_ty.fmt(sema.mod),
     });
 }
 
