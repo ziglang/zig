@@ -1168,7 +1168,7 @@ test "remainder division" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
-    if (builtin.zig_backend == .stage1 and builtin.cpu.arch == .riscv64) {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .riscv64) {
         // https://github.com/ziglang/zig/issues/12054
         return error.SkipZigTest;
     }
@@ -1204,7 +1204,7 @@ test "float remainder division using @rem" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
-    if (builtin.zig_backend == .stage1 and builtin.cpu.arch == .riscv64) {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .riscv64) {
         // https://github.com/ziglang/zig/issues/12054
         return error.SkipZigTest;
     }
@@ -1251,7 +1251,7 @@ test "float modulo division using @mod" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
-    if (builtin.zig_backend == .stage1 and builtin.cpu.arch == .riscv64) {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .riscv64) {
         // https://github.com/ziglang/zig/issues/12054
         return error.SkipZigTest;
     }
@@ -1431,7 +1431,7 @@ test "@ceil f80" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
-    if (builtin.zig_backend == .stage1 and builtin.cpu.arch == .riscv64) {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .riscv64) {
         // https://github.com/ziglang/zig/issues/12054
         return error.SkipZigTest;
     }
@@ -1447,7 +1447,7 @@ test "@ceil f128" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
-    if (builtin.zig_backend == .stage1 and builtin.cpu.arch == .riscv64) {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .riscv64) {
         // https://github.com/ziglang/zig/issues/12054
         return error.SkipZigTest;
     }
@@ -1600,7 +1600,7 @@ test "NaN comparison" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
-    if (builtin.zig_backend == .stage1 and builtin.cpu.arch == .riscv64) {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .riscv64) {
         // https://github.com/ziglang/zig/issues/12054
         return error.SkipZigTest;
     }
