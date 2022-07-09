@@ -51,11 +51,6 @@ pub fn build(b: *Builder) !void {
         "llvm-has-csky",
         "Whether LLVM has the experimental target csky enabled",
     ) orelse false;
-    const llvm_has_ve = b.option(
-        bool,
-        "llvm-has-ve",
-        "Whether LLVM has the experimental target ve enabled",
-    ) orelse false;
     const llvm_has_arc = b.option(
         bool,
         "llvm-has-arc",
@@ -131,7 +126,6 @@ pub fn build(b: *Builder) !void {
     exe_options.addOption(bool, "have_llvm", enable_llvm);
     exe_options.addOption(bool, "llvm_has_m68k", llvm_has_m68k);
     exe_options.addOption(bool, "llvm_has_csky", llvm_has_csky);
-    exe_options.addOption(bool, "llvm_has_ve", llvm_has_ve);
     exe_options.addOption(bool, "llvm_has_arc", llvm_has_arc);
     exe_options.addOption(bool, "force_gpa", force_gpa);
 
@@ -808,15 +802,11 @@ const clang_libs = [_][]const u8{
     "clangToolingCore",
 };
 const lld_libs = [_][]const u8{
-    "lldDriver",
     "lldMinGW",
     "lldELF",
     "lldCOFF",
-    "lldMachO",
     "lldWasm",
-    "lldReaderWriter",
-    "lldCore",
-    "lldYAML",
+    "lldMachO",
     "lldCommon",
 };
 // This list can be re-generated with `llvm-config --libfiles` and then
@@ -834,6 +824,7 @@ const llvm_libs = [_][]const u8{
     "LLVMXCoreCodeGen",
     "LLVMXCoreDesc",
     "LLVMXCoreInfo",
+    "LLVMX86TargetMCA",
     "LLVMX86Disassembler",
     "LLVMX86AsmParser",
     "LLVMX86CodeGen",
@@ -845,6 +836,11 @@ const llvm_libs = [_][]const u8{
     "LLVMWebAssemblyDesc",
     "LLVMWebAssemblyUtils",
     "LLVMWebAssemblyInfo",
+    "LLVMVEDisassembler",
+    "LLVMVEAsmParser",
+    "LLVMVECodeGen",
+    "LLVMVEDesc",
+    "LLVMVEInfo",
     "LLVMSystemZDisassembler",
     "LLVMSystemZAsmParser",
     "LLVMSystemZCodeGen",
@@ -904,6 +900,7 @@ const llvm_libs = [_][]const u8{
     "LLVMARMDesc",
     "LLVMARMUtils",
     "LLVMARMInfo",
+    "LLVMAMDGPUTargetMCA",
     "LLVMAMDGPUDisassembler",
     "LLVMAMDGPUAsmParser",
     "LLVMAMDGPUCodeGen",
@@ -949,7 +946,6 @@ const llvm_libs = [_][]const u8{
     "LLVMMIRParser",
     "LLVMAsmPrinter",
     "LLVMDebugInfoMSF",
-    "LLVMDebugInfoDWARF",
     "LLVMSelectionDAG",
     "LLVMCodeGen",
     "LLVMIRReader",
@@ -965,6 +961,7 @@ const llvm_libs = [_][]const u8{
     "LLVMBitWriter",
     "LLVMAnalysis",
     "LLVMProfileData",
+    "LLVMDebugInfoDWARF",
     "LLVMObject",
     "LLVMTextAPI",
     "LLVMMCParser",
