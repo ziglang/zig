@@ -18,6 +18,8 @@ const RunCompareStep = @This();
 
 pub const step_id = .run_and_compare;
 
+const max_stdout_size = 1 * 1024 * 1024; // 1 MiB
+
 step: Step,
 builder: *Builder,
 
@@ -30,14 +32,34 @@ expected_exit_code: ?u8 = 0,
 /// Override this field to modify the environment
 env_map: ?*EnvMap,
 
+/// Set this to modify the current working directory
+cwd: ?[]const u8,
+
+stdout_action: StdIoAction = .inherit,
+stderr_action: StdIoAction = .inherit,
+
+/// When set to true, hides the warning of skipping a foreign binary which cannot be run on the host
+/// or through emulation.
+hide_foreign_binaries_warning: bool,
+
+pub const StdIoAction = union(enum) {
+    inherit,
+    ignore,
+    expect_exact: []const u8,
+    expect_matches: []const []const u8,
+};
+
 pub fn create(builder: *Builder, name: []const u8, artifact: *LibExeObjStep) *RunCompareStep {
     std.debug.assert(artifact.kind == .exe or artifact.kind == .test_exe);
     const self = builder.allocator.create(RunCompareStep) catch unreachable;
+    const hide_warnings = builder.option(bool, "hide-foreign-warnings", "Hide the warning when a foreign binary which is incompatible is skipped") orelse false;
     self.* = .{
         .builder = builder,
         .step = Step.init(.run_and_compare, name, builder.allocator, make),
         .exe = artifact,
         .env_map = null,
+        .cwd = null,
+        .hide_foreign_binaries_warning = hide_warnings,
     };
     self.step.dependOn(&artifact.step);
 
@@ -47,12 +69,10 @@ pub fn create(builder: *Builder, name: []const u8, artifact: *LibExeObjStep) *Ru
 fn make(step: *Step) !void {
     const self = @fieldParentPtr(RunCompareStep, "step", step);
     const host_info = self.builder.host;
-    const cwd = self.builder.build_root;
-    _ = cwd;
-    std.debug.print("Make called!\n", .{});
+    const cwd = if (self.cwd) |cwd| self.builder.pathFromRoot(cwd) else self.builder.build_root;
 
     var argv_list = std.ArrayList([]const u8).init(self.builder.allocator);
-    _ = argv_list;
+    defer argv_list.deinit();
 
     const need_cross_glibc = self.exe.target.isGnuLibC() and self.exe.is_linking_libc;
     switch (host_info.getExternalExecutor(self.exe.target_info, .{
@@ -60,7 +80,7 @@ fn make(step: *Step) !void {
         .link_libc = self.exe.is_linking_libc,
     })) {
         .native => {},
-        .rosetta => if (!self.builder.enable_rosetta) return,
+        .rosetta => if (!self.builder.enable_rosetta) return warnAboutForeignBinaries(self),
         .wine => |bin_name| if (self.builder.enable_wine) {
             try argv_list.append(bin_name);
         } else return,
@@ -89,15 +109,15 @@ fn make(step: *Step) !void {
                 try argv_list.append("-L");
                 try argv_list.append(full_dir);
             }
-        } else return,
+        } else return warnAboutForeignBinaries(self),
         .darling => |bin_name| if (self.builder.enable_darling) {
             try argv_list.append(bin_name);
-        } else return,
+        } else return warnAboutForeignBinaries(self),
         .wasmtime => |bin_name| if (self.builder.enable_wasmtime) {
             try argv_list.append(bin_name);
             try argv_list.append("--dir=.");
-        } else return,
-        else => return, // on any failures we skip
+        } else return warnAboutForeignBinaries(self),
+        else => return warnAboutForeignBinaries(self),
     }
 
     if (self.exe.target.isWindows()) {
@@ -107,6 +127,143 @@ fn make(step: *Step) !void {
 
     const executable_path = self.exe.installed_path orelse self.exe.getOutputSource().getPath(self.builder);
     try argv_list.append(executable_path);
+
+    if (!std.process.can_spawn) {
+        const cmd = try std.mem.join(self.builder.allocator, " ", argv_list.items);
+        std.debug.print("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{ @tagName(@import("builtin").os.tag), cmd });
+        self.builder.allocator.free(cmd);
+        return error.ExecNotSupported;
+    }
+
+    var child = std.ChildProcess.init(argv_list.items, self.builder.allocator);
+    child.cwd = cwd;
+    child.env_map = self.env_map orelse self.builder.env_map;
+
+    child.stdin_behavior = .Inherit;
+    child.stdout_behavior = stdIoActionToBehavior(self.stdout_action);
+    child.stderr_behavior = stdIoActionToBehavior(self.stderr_action);
+
+    child.spawn() catch |err| {
+        std.debug.print("Unable to spawn {s}: {s}\n", .{ argv_list.items[0], @errorName(err) });
+        return err;
+    };
+
+    var stdout: ?[]const u8 = null;
+    defer if (stdout) |s| self.builder.allocator.free(s);
+
+    switch (self.stdout_action) {
+        .expect_exact, .expect_matches => {
+            stdout = child.stdout.?.reader().readAllAlloc(self.builder.allocator, max_stdout_size) catch unreachable;
+        },
+        .inherit, .ignore => {},
+    }
+
+    var stderr: ?[]const u8 = null;
+    defer if (stderr) |s| self.builder.allocator.free(s);
+
+    switch (self.stderr_action) {
+        .expect_exact, .expect_matches => {
+            stderr = child.stderr.?.reader().readAllAlloc(self.builder.allocator, max_stdout_size) catch unreachable;
+        },
+        .inherit, .ignore => {},
+    }
+
+    const term = child.wait() catch |err| {
+        std.debug.print("Unable to spawn {s}: {s}\n", .{ argv_list.items[0], @errorName(err) });
+        return err;
+    };
+
+    switch (term) {
+        .Exited => |code| blk: {
+            const expected_exit_code = self.expected_exit_code orelse break :blk;
+
+            if (code != expected_exit_code) {
+                if (self.builder.prominent_compile_errors) {
+                    std.debug.print("Run step exited with error code {} (expected {})\n", .{
+                        code,
+                        expected_exit_code,
+                    });
+                } else {
+                    std.debug.print("The following command exited with error code {} (expected {}):\n", .{
+                        code,
+                        expected_exit_code,
+                    });
+                    printCmd(cwd, argv_list.items);
+                }
+
+                return error.UnexpectedExitCode;
+            }
+        },
+        else => {
+            std.debug.print("The following command terminated unexpectedly:\n", .{});
+            printCmd(cwd, argv_list.items);
+            return error.UncleanExit;
+        },
+    }
+
+    switch (self.stderr_action) {
+        .inherit, .ignore => {},
+        .expect_exact => |expected_bytes| {
+            if (!std.mem.eql(u8, expected_bytes, stderr.?)) {
+                std.debug.print(
+                    \\
+                    \\========= Expected this stderr: =========
+                    \\{s}
+                    \\========= But found: ====================
+                    \\{s}
+                    \\
+                , .{ expected_bytes, stderr.? });
+                printCmd(cwd, argv_list.items);
+                return error.TestFailed;
+            }
+        },
+        .expect_matches => |matches| for (matches) |match| {
+            if (std.mem.indexOf(u8, stderr.?, match) == null) {
+                std.debug.print(
+                    \\
+                    \\========= Expected to find in stderr: =========
+                    \\{s}
+                    \\========= But stderr does not contain it: =====
+                    \\{s}
+                    \\
+                , .{ match, stderr.? });
+                printCmd(cwd, argv_list.items);
+                return error.TestFailed;
+            }
+        },
+    }
+
+    switch (self.stdout_action) {
+        .inherit, .ignore => {},
+        .expect_exact => |expected_bytes| {
+            if (!std.mem.eql(u8, expected_bytes, stdout.?)) {
+                std.debug.print(
+                    \\
+                    \\========= Expected this stdout: =========
+                    \\{s}
+                    \\========= But found: ====================
+                    \\{s}
+                    \\
+                , .{ expected_bytes, stdout.? });
+                printCmd(cwd, argv_list.items);
+                return error.TestFailed;
+            }
+        },
+        .expect_matches => |matches| for (matches) |match| {
+            if (std.mem.indexOf(u8, stdout.?, match) == null) {
+                std.debug.print(
+                    \\
+                    \\========= Expected to find in stdout: =========
+                    \\{s}
+                    \\========= But stdout does not contain it: =====
+                    \\{s}
+                    \\
+                , .{ match, stdout.? });
+                printCmd(cwd, argv_list.items);
+                return error.TestFailed;
+            }
+        },
+    }
 }
 
 fn addPathForDynLibs(self: *RunCompareStep, artifact: *LibExeObjStep) void {
@@ -144,4 +301,91 @@ pub fn getEnvMap(self: *RunCompareStep) *EnvMap {
         self.env_map = env_map;
         return env_map;
     };
+}
+
+pub fn expectStdErrEqual(self: *RunCompareStep, bytes: []const u8) void {
+    self.stderr_action = .{ .expect_exact = self.builder.dupe(bytes) };
+}
+
+pub fn expectStdOutEqual(self: *RunCompareStep, bytes: []const u8) void {
+    self.stdout_action = .{ .expect_exact = self.builder.dupe(bytes) };
+}
+
+fn stdIoActionToBehavior(action: StdIoAction) std.ChildProcess.StdIo {
+    return switch (action) {
+        .ignore => .Ignore,
+        .inherit => .Inherit,
+        .expect_exact, .expect_matches => .Pipe,
+    };
+}
+
+fn printCmd(cwd: ?[]const u8, argv: []const []const u8) void {
+    if (cwd) |yes_cwd| std.debug.print("cd {s} && ", .{yes_cwd});
+    for (argv) |arg| {
+        std.debug.print("{s} ", .{arg});
+    }
+    std.debug.print("\n", .{});
+}
+
+fn warnAboutForeignBinaries(step: *RunCompareStep) void {
+    if (step.hide_foreign_binaries_warning) return;
+    const builder = step.builder;
+    const artifact = step.exe;
+
+    const host_name = builder.host.target.zigTriple(builder.allocator) catch unreachable;
+    const foreign_name = artifact.target.zigTriple(builder.allocator) catch unreachable;
+    const target_info = std.zig.system.NativeTargetInfo.detect(builder.allocator, artifact.target) catch unreachable;
+    const need_cross_glibc = artifact.target.isGnuLibC() and artifact.is_linking_libc;
+    switch (builder.host.getExternalExecutor(target_info, .{
+        .qemu_fixes_dl = need_cross_glibc and builder.glibc_runtimes_dir != null,
+        .link_libc = artifact.is_linking_libc,
+    })) {
+        .native => unreachable,
+        .bad_dl => |foreign_dl| {
+            const host_dl = builder.host.dynamic_linker.get() orelse "(none)";
+            std.debug.print("the host system does not appear to be capable of executing binaries from the target because the host dynamic linker is '{s}', while the target dynamic linker is '{s}'. Consider setting the dynamic linker as '{s}'.\n", .{
+                host_dl, foreign_dl, host_dl,
+            });
+        },
+        .bad_os_or_cpu => {
+            std.debug.print("the host system ({s}) does not appear to be capable of executing binaries from the target ({s}).\n", .{
+                host_name, foreign_name,
+            });
+        },
+        .darling => if (!builder.enable_darling) {
+            std.debug.print(
+                "the host system ({s}) does not appear to be capable of executing binaries " ++
+                    "from the target ({s}). Consider enabling darling.\n",
+                .{ host_name, foreign_name },
+            );
+        },
+        .rosetta => if (!builder.enable_rosetta) {
+            std.debug.print(
+                "the host system ({s}) does not appear to be capable of executing binaries " ++
+                    "from the target ({s}). Consider enabling rosetta.\n",
+                .{ host_name, foreign_name },
+            );
+        },
+        .wine => if (!builder.enable_wine) {
+            std.debug.print(
+                "the host system ({s}) does not appear to be capable of executing binaries " ++
+                    "from the target ({s}). Consider enabling wine.\n",
+                .{ host_name, foreign_name },
+            );
+        },
+        .qemu => if (!builder.enable_qemu) {
+            std.debug.print(
+                "the host system ({s}) does not appear to be capable of executing binaries " ++
+                    "from the target ({s}). Consider enabling qemu.\n",
+                .{ host_name, foreign_name },
+            );
+        },
+        .wasmtime => {
+            std.debug.print(
+                "the host system ({s}) does not appear to be capable of executing binaries " ++
+                    "from the target ({s}). Consider enabling wasmtime.\n",
+                .{ host_name, foreign_name },
+            );
+        },
+    }
 }
