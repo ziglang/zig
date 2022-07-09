@@ -14,9 +14,9 @@ const fs = std.fs;
 const process = std.process;
 const EnvMap = process.EnvMap;
 
-const RunCompareStep = @This();
+const EmulatableRunStep = @This();
 
-pub const step_id = .run_and_compare;
+pub const step_id = .emulatable_run;
 
 const max_stdout_size = 1 * 1024 * 1024; // 1 MiB
 
@@ -49,13 +49,17 @@ pub const StdIoAction = union(enum) {
     expect_matches: []const []const u8,
 };
 
-pub fn create(builder: *Builder, name: []const u8, artifact: *LibExeObjStep) *RunCompareStep {
+/// Creates a step that will execute the given artifact. This step will allow running the
+/// binary through emulation when any of the emulation options such as `enable_rosetta` are set to true.
+/// When set to false, and the binary is foreign, running the executable is skipped.
+/// Asserts given artifact is an executable.
+pub fn create(builder: *Builder, name: []const u8, artifact: *LibExeObjStep) *EmulatableRunStep {
     std.debug.assert(artifact.kind == .exe or artifact.kind == .test_exe);
-    const self = builder.allocator.create(RunCompareStep) catch unreachable;
+    const self = builder.allocator.create(EmulatableRunStep) catch unreachable;
     const hide_warnings = builder.option(bool, "hide-foreign-warnings", "Hide the warning when a foreign binary which is incompatible is skipped") orelse false;
     self.* = .{
         .builder = builder,
-        .step = Step.init(.run_and_compare, name, builder.allocator, make),
+        .step = Step.init(.emulatable_run, name, builder.allocator, make),
         .exe = artifact,
         .env_map = null,
         .cwd = null,
@@ -67,7 +71,7 @@ pub fn create(builder: *Builder, name: []const u8, artifact: *LibExeObjStep) *Ru
 }
 
 fn make(step: *Step) !void {
-    const self = @fieldParentPtr(RunCompareStep, "step", step);
+    const self = @fieldParentPtr(EmulatableRunStep, "step", step);
     const host_info = self.builder.host;
     const cwd = if (self.cwd) |cwd| self.builder.pathFromRoot(cwd) else self.builder.build_root;
 
@@ -266,7 +270,7 @@ fn make(step: *Step) !void {
     }
 }
 
-fn addPathForDynLibs(self: *RunCompareStep, artifact: *LibExeObjStep) void {
+fn addPathForDynLibs(self: *EmulatableRunStep, artifact: *LibExeObjStep) void {
     for (artifact.link_objects.items) |link_object| {
         switch (link_object) {
             .other_step => |other| {
@@ -280,7 +284,7 @@ fn addPathForDynLibs(self: *RunCompareStep, artifact: *LibExeObjStep) void {
     }
 }
 
-pub fn addPathDir(self: *RunCompareStep, search_path: []const u8) void {
+pub fn addPathDir(self: *EmulatableRunStep, search_path: []const u8) void {
     const env_map = self.getEnvMap();
 
     const key = "PATH";
@@ -294,7 +298,7 @@ pub fn addPathDir(self: *RunCompareStep, search_path: []const u8) void {
     }
 }
 
-pub fn getEnvMap(self: *RunCompareStep) *EnvMap {
+pub fn getEnvMap(self: *EmulatableRunStep) *EnvMap {
     return self.env_map orelse {
         const env_map = self.builder.allocator.create(EnvMap) catch unreachable;
         env_map.* = process.getEnvMap(self.builder.allocator) catch unreachable;
@@ -303,11 +307,11 @@ pub fn getEnvMap(self: *RunCompareStep) *EnvMap {
     };
 }
 
-pub fn expectStdErrEqual(self: *RunCompareStep, bytes: []const u8) void {
+pub fn expectStdErrEqual(self: *EmulatableRunStep, bytes: []const u8) void {
     self.stderr_action = .{ .expect_exact = self.builder.dupe(bytes) };
 }
 
-pub fn expectStdOutEqual(self: *RunCompareStep, bytes: []const u8) void {
+pub fn expectStdOutEqual(self: *EmulatableRunStep, bytes: []const u8) void {
     self.stdout_action = .{ .expect_exact = self.builder.dupe(bytes) };
 }
 
@@ -327,7 +331,7 @@ fn printCmd(cwd: ?[]const u8, argv: []const []const u8) void {
     std.debug.print("\n", .{});
 }
 
-fn warnAboutForeignBinaries(step: *RunCompareStep) void {
+fn warnAboutForeignBinaries(step: *EmulatableRunStep) void {
     if (step.hide_foreign_binaries_warning) return;
     const builder = step.builder;
     const artifact = step.exe;

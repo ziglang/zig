@@ -26,7 +26,7 @@ pub const CheckFileStep = @import("build/CheckFileStep.zig");
 pub const CheckObjectStep = @import("build/CheckObjectStep.zig");
 pub const InstallRawStep = @import("build/InstallRawStep.zig");
 pub const OptionsStep = @import("build/OptionsStep.zig");
-pub const RunCompareStep = @import("build/RunCompareStep.zig");
+pub const EmulatableRunStep = @import("build/EmulatableRunStep.zig");
 
 pub const Builder = struct {
     install_tls: TopLevelStep,
@@ -3605,7 +3605,7 @@ pub const Step = struct {
         translate_c,
         write_file,
         run,
-        run_and_compare,
+        emulatable_run,
         check_file,
         check_object,
         install_raw,
