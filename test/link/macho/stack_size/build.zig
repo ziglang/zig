@@ -8,6 +8,7 @@ pub fn build(b: *Builder) void {
     test_step.dependOn(b.getInstallStep());
 
     const exe = b.addExecutable("main", null);
+    exe.setTarget(.{ .os_tag = .macos });
     exe.setBuildMode(mode);
     exe.addCSourceFile("main.c", &.{});
     exe.linkLibC();
@@ -17,8 +18,6 @@ pub fn build(b: *Builder) void {
     check_exe.checkStart("cmd MAIN");
     check_exe.checkNext("stacksize 100000000");
 
-    test_step.dependOn(&check_exe.step);
-
-    const run = exe.run();
+    const run = check_exe.runAndCompare();
     test_step.dependOn(&run.step);
 }

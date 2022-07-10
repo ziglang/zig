@@ -9,6 +9,7 @@ pub fn build(b: *Builder) void {
 
     {
         const exe = b.addExecutable("pagezero", null);
+        exe.setTarget(.{ .os_tag = .macos });
         exe.setBuildMode(mode);
         exe.addCSourceFile("main.c", &.{});
         exe.linkLibC();
@@ -28,6 +29,7 @@ pub fn build(b: *Builder) void {
 
     {
         const exe = b.addExecutable("no_pagezero", null);
+        exe.setTarget(.{ .os_tag = .macos });
         exe.setBuildMode(mode);
         exe.addCSourceFile("main.c", &.{});
         exe.linkLibC();

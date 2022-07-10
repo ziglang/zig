@@ -7,7 +7,6 @@ pub fn build(b: *Builder) void {
     const test_step = b.step("test", "Test the program");
 
     const exe = b.addExecutable("test", null);
-    b.default_step.dependOn(&exe.step);
     exe.addIncludePath(".");
     exe.addCSourceFile("Foo.m", &[0][]const u8{});
     exe.addCSourceFile("test.m", &[0][]const u8{});
@@ -17,6 +16,6 @@ pub fn build(b: *Builder) void {
     // populate paths to the sysroot here.
     exe.linkFramework("Foundation");
 
-    const run_cmd = exe.run();
+    const run_cmd = std.build.EmulatableRunStep.create(b, "run", exe);
     test_step.dependOn(&run_cmd.step);
 }

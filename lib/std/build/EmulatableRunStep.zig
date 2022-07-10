@@ -56,7 +56,12 @@ pub const StdIoAction = union(enum) {
 pub fn create(builder: *Builder, name: []const u8, artifact: *LibExeObjStep) *EmulatableRunStep {
     std.debug.assert(artifact.kind == .exe or artifact.kind == .test_exe);
     const self = builder.allocator.create(EmulatableRunStep) catch unreachable;
-    const hide_warnings = builder.option(bool, "hide-foreign-warnings", "Hide the warning when a foreign binary which is incompatible is skipped") orelse false;
+
+    const option_name = "hide-foreign-warnings";
+    const hide_warnings = if (builder.available_options_map.get(option_name) == null) warn: {
+        break :warn builder.option(bool, option_name, "Hide the warning when a foreign binary which is incompatible is skipped") orelse false;
+    } else false;
+
     self.* = .{
         .builder = builder,
         .step = Step.init(.emulatable_run, name, builder.allocator, make),
