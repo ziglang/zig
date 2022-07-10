@@ -1,26 +1,23 @@
 const builtin = @import("builtin");
-const arch = builtin.cpu.arch;
 const common = @import("./common.zig");
 const floatToInt = @import("./float_to_int.zig").floatToInt;
 
 pub const panic = common.panic;
 
 comptime {
-    const fixdfti_fn = if (builtin.os.tag == .windows and arch == .x86_64) b: {
-        // The "ti" functions must use Vector(2, u64) return types to adhere to the ABI
-        // that LLVM expects compiler-rt to have.
-        break :b __fixdfti_windows_x86_64;
-    } else __fixdfti;
-
-    @export(fixdfti_fn, .{ .name = "__fixdfti", .linkage = common.linkage });
+    if (common.want_windows_v2u64_abi) {
+        @export(__fixdfti_windows_x86_64, .{ .name = "__fixdfti", .linkage = common.linkage });
+    } else {
+        @export(__fixdfti, .{ .name = "__fixdfti", .linkage = common.linkage });
+    }
 }
 
 pub fn __fixdfti(a: f64) callconv(.C) i128 {
     return floatToInt(i128, a);
 }
 
-const v128 = @import("std").meta.Vector(2, u64);
+const v2u64 = @Vector(2, u64);
 
-fn __fixdfti_windows_x86_64(a: f64) callconv(.C) v128 {
-    return @bitCast(v128, floatToInt(i128, a));
+fn __fixdfti_windows_x86_64(a: f64) callconv(.C) v2u64 {
+    return @bitCast(v2u64, floatToInt(i128, a));
 }
