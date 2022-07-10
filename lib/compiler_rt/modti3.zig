@@ -5,27 +5,13 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const udivmod = @import("udivmod.zig").udivmod;
-const arch = builtin.cpu.arch;
 const common = @import("common.zig");
 
 pub const panic = common.panic;
 
 comptime {
-    if (builtin.os.tag == .windows) {
-        switch (arch) {
-            .i386 => {
-                @export(__modti3, .{ .name = "__modti3", .linkage = common.linkage });
-            },
-            .x86_64 => {
-                // The "ti" functions must use Vector(2, u64) parameter types to adhere to the ABI
-                // that LLVM expects compiler-rt to have.
-                @export(__modti3_windows_x86_64, .{ .name = "__modti3", .linkage = common.linkage });
-            },
-            else => {},
-        }
-        if (arch.isAARCH64()) {
-            @export(__modti3, .{ .name = "__modti3", .linkage = common.linkage });
-        }
+    if (common.want_windows_v2u64_abi) {
+        @export(__modti3_windows_x86_64, .{ .name = "__modti3", .linkage = common.linkage });
     } else {
         @export(__modti3, .{ .name = "__modti3", .linkage = common.linkage });
     }
@@ -35,10 +21,10 @@ pub fn __modti3(a: i128, b: i128) callconv(.C) i128 {
     return mod(a, b);
 }
 
-const v128 = @import("std").meta.Vector(2, u64);
+const v2u64 = @Vector(2, u64);
 
-fn __modti3_windows_x86_64(a: v128, b: v128) callconv(.C) v128 {
-    return @bitCast(v128, mod(@bitCast(i128, a), @bitCast(i128, b)));
+fn __modti3_windows_x86_64(a: v2u64, b: v2u64) callconv(.C) v2u64 {
+    return @bitCast(v2u64, mod(@bitCast(i128, a), @bitCast(i128, b)));
 }
 
 inline fn mod(a: i128, b: i128) i128 {

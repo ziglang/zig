@@ -4,25 +4,14 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const arch = builtin.cpu.arch;
 const native_endian = builtin.cpu.arch.endian();
 const common = @import("common.zig");
 
 pub const panic = common.panic;
 
 comptime {
-    if (builtin.os.tag == .windows) {
-        switch (arch) {
-            .i386 => {
-                @export(__multi3, .{ .name = "__multi3", .linkage = common.linkage });
-            },
-            .x86_64 => {
-                // The "ti" functions must use Vector(2, u64) parameter types to adhere to the ABI
-                // that LLVM expects compiler-rt to have.
-                @export(__multi3_windows_x86_64, .{ .name = "__multi3", .linkage = common.linkage });
-            },
-            else => {},
-        }
+    if (common.want_windows_v2u64_abi) {
+        @export(__multi3_windows_x86_64, .{ .name = "__multi3", .linkage = common.linkage });
     } else {
         @export(__multi3, .{ .name = "__multi3", .linkage = common.linkage });
     }
@@ -32,10 +21,10 @@ pub fn __multi3(a: i128, b: i128) callconv(.C) i128 {
     return mul(a, b);
 }
 
-const v128 = @Vector(2, u64);
+const v2u64 = @Vector(2, u64);
 
-fn __multi3_windows_x86_64(a: v128, b: v128) callconv(.C) v128 {
-    return @bitCast(v128, mul(@bitCast(i128, a), @bitCast(i128, b)));
+fn __multi3_windows_x86_64(a: v2u64, b: v2u64) callconv(.C) v2u64 {
+    return @bitCast(v2u64, mul(@bitCast(i128, a), @bitCast(i128, b)));
 }
 
 inline fn mul(a: i128, b: i128) i128 {
