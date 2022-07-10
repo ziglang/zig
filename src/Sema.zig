@@ -19993,6 +19993,26 @@ fn coerce(
     inst: Air.Inst.Ref,
     inst_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
+    return sema.coerceExtra(block, dest_ty_unresolved, inst, inst_src, true) catch |err| switch (err) {
+        error.NotCoercible => unreachable,
+        else => |e| return e,
+    };
+}
+
+const CoersionError = CompileError || error{
+    /// When coerce is called recursively, this error should be returned instead of using `fail`
+    /// to ensure correct types in compile errors.
+    NotCoercible,
+};
+
+fn coerceExtra(
+    sema: *Sema,
+    block: *Block,
+    dest_ty_unresolved: Type,
+    inst: Air.Inst.Ref,
+    inst_src: LazySrcLoc,
+    report_err: bool,
+) CoersionError!Air.Inst.Ref {
     switch (dest_ty_unresolved.tag()) {
         .var_args_param => return sema.coerceVarArgParam(block, inst, inst_src),
         .generic_poison => return inst,
@@ -20009,7 +20029,7 @@ fn coerce(
     const arena = sema.arena;
     const maybe_inst_val = try sema.resolveMaybeUndefVal(block, inst_src, inst);
 
-    const in_memory_result = try sema.coerceInMemoryAllowed(block, dest_ty, inst_ty, false, target, dest_ty_src, inst_src);
+    var in_memory_result = try sema.coerceInMemoryAllowed(block, dest_ty, inst_ty, false, target, dest_ty_src, inst_src);
     if (in_memory_result == .ok) {
         if (maybe_inst_val) |val| {
             // Keep the comptime Value representation; take the new type.
@@ -20022,7 +20042,7 @@ fn coerce(
     const is_undef = if (maybe_inst_val) |val| val.isUndef() else false;
 
     switch (dest_ty.zigTypeTag()) {
-        .Optional => {
+        .Optional => optional: {
             // undefined sets the optional bit also to undefined.
             if (is_undef) {
                 return sema.addConstUndef(dest_ty);
@@ -20043,10 +20063,19 @@ fn coerce(
 
             // T to ?T
             const child_type = try dest_ty.optionalChildAlloc(sema.arena);
-            const intermediate = try sema.coerce(block, child_type, inst, inst_src);
-            return sema.wrapOptional(block, dest_ty, intermediate, inst_src);
+            const intermediate = sema.coerceExtra(block, child_type, inst, inst_src, false) catch |err| switch (err) {
+                error.NotCoercible => {
+                    if (in_memory_result == .no_match) {
+                        // Try to give more useful notes
+                        in_memory_result = try sema.coerceInMemoryAllowed(block, child_type, inst_ty, false, target, dest_ty_src, inst_src);
+                    }
+                    break :optional;
+                },
+                else => |e| return e,
+            };
+            return try sema.wrapOptional(block, dest_ty, intermediate, inst_src);
         },
-        .Pointer => {
+        .Pointer => pointer: {
             const dest_info = dest_ty.ptrInfo().data;
 
             // Function body to function pointer.
@@ -20151,16 +20180,26 @@ fn coerce(
                         return sema.addConstant(dest_ty, Value.@"null");
                     },
                     .ComptimeInt => {
-                        const addr = try sema.coerce(block, Type.usize, inst, inst_src);
-                        return sema.coerceCompatiblePtrs(block, dest_ty, addr, inst_src);
+                        const addr = sema.coerceExtra(block, Type.usize, inst, inst_src, false) catch |err| switch (err) {
+                            error.NotCoercible => break :pointer,
+                            else => |e| return e,
+                        };
+                        return try sema.coerceCompatiblePtrs(block, dest_ty, addr, inst_src);
                     },
                     .Int => {
                         const ptr_size_ty = switch (inst_ty.intInfo(target).signedness) {
                             .signed => Type.isize,
                             .unsigned => Type.usize,
                         };
-                        const addr = try sema.coerce(block, ptr_size_ty, inst, inst_src);
-                        return sema.coerceCompatiblePtrs(block, dest_ty, addr, inst_src);
+                        const addr = sema.coerceExtra(block, ptr_size_ty, inst, inst_src, false) catch |err| switch (err) {
+                            error.NotCoercible => {
+                                // Try to give more useful notes
+                                in_memory_result = try sema.coerceInMemoryAllowed(block, ptr_size_ty, inst_ty, false, target, dest_ty_src, inst_src);
+                                break :pointer;
+                            },
+                            else => |e| return e,
+                        };
+                        return try sema.coerceCompatiblePtrs(block, dest_ty, addr, inst_src);
                     },
                     .Pointer => p: {
                         const inst_info = inst_ty.ptrInfo().data;
@@ -20295,6 +20334,7 @@ fn coerce(
                 if (try sema.resolveDefinedValue(block, inst_src, inst)) |val| {
                     // comptime known integer to other number
                     if (!(try sema.intFitsInType(block, inst_src, val, dest_ty, null))) {
+                        if (!report_err) return error.NotCoercible;
                         return sema.fail(block, inst_src, "type '{}' cannot represent integer value '{}'", .{ dest_ty.fmt(sema.mod), val.fmtValue(inst_ty, sema.mod) });
                     }
                     return try sema.addConstant(dest_ty, val);
@@ -20496,6 +20536,8 @@ fn coerce(
         return sema.addConstUndef(dest_ty);
     }
 
+    if (!report_err) return error.NotCoercible;
+
     const msg = msg: {
         const msg = try sema.errMsg(block, inst_src, "expected type '{}', found '{}'", .{ dest_ty.fmt(sema.mod), inst_ty.fmt(sema.mod) });
         errdefer msg.destroy(sema.gpa);
@@ -20674,8 +20716,10 @@ const InMemoryCoercionResult = union(enum) {
                 cur = pair.child;
             },
             .optional_shape => |pair| {
-                try sema.errNote(block, src, msg, "optional type child '{}' cannot cast into optional type '{}'", .{
-                    pair.actual.fmt(sema.mod), pair.wanted.fmt(sema.mod),
+                var buf_actual: Type.Payload.ElemType = undefined;
+                var buf_wanted: Type.Payload.ElemType = undefined;
+                try sema.errNote(block, src, msg, "optional type child '{}' cannot cast into optional type child '{}'", .{
+                    pair.actual.optionalChild(&buf_actual).fmt(sema.mod), pair.wanted.optionalChild(&buf_wanted).fmt(sema.mod),
                 });
                 break;
             },
