@@ -49,6 +49,10 @@ pub const Loc = struct {
     column: usize,
     /// Does not include the trailing newline.
     source_line: []const u8,
+
+    pub fn eql(a: Loc, b: Loc) bool {
+        return a.line == b.line and a.column == b.column and std.mem.eql(u8, a.source_line, b.source_line);
+    }
 };
 
 pub fn findLineColumn(source: []const u8, byte_offset: usize) Loc {
