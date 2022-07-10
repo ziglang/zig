@@ -2311,6 +2311,10 @@ test "float.decimal" {
 }
 
 test "float.libc.sanity" {
+    if (builtin.zig_backend == .stage1 and builtin.os.tag == .windows) {
+        // https://github.com/ziglang/zig/issues/12063
+        return error.SkipZigTest;
+    }
     try expectFmt("f64: 0.00001", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 916964781)))});
     try expectFmt("f64: 0.00001", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 925353389)))});
     try expectFmt("f64: 0.10000", "f64: {d:.5}", .{@as(f64, @bitCast(f32, @as(u32, 1036831278)))});

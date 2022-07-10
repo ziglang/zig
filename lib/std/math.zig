@@ -1647,13 +1647,7 @@ fn testSign() !void {
 }
 
 test "sign" {
-    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
-        builtin.cpu.arch == .aarch64)
-    {
-        // https://github.com/ziglang/zig/issues/12012
-        return error.SkipZigTest;
-    }
-    if ((builtin.zig_backend == .stage1) and builtin.cpu.arch == .x86_64) {
+    if (builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) {
         // https://github.com/ziglang/zig/issues/12012
         return error.SkipZigTest;
     }
