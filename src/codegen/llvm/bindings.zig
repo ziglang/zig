@@ -206,7 +206,7 @@ pub const Value = opaque {
     extern fn LLVMDeleteFunction(Fn: *const Value) void;
 
     pub const addSretAttr = ZigLLVMAddSretAttr;
-    extern fn ZigLLVMAddSretAttr(fn_ref: *const Value, ArgNo: c_uint, type_val: *const Type) void;
+    extern fn ZigLLVMAddSretAttr(fn_ref: *const Value, type_val: *const Type) void;
 
     pub const setCallSret = ZigLLVMSetCallSret;
     extern fn ZigLLVMSetCallSret(Call: *const Value, return_type: *const Type) void;
@@ -358,10 +358,11 @@ pub const Module = opaque {
     pub const getLastGlobalAlias = LLVMGetLastGlobalAlias;
     extern fn LLVMGetLastGlobalAlias(M: *const Module) *const Value;
 
-    pub const addAlias = LLVMAddAlias;
-    extern fn LLVMAddAlias(
+    pub const addAlias = LLVMAddAlias2;
+    extern fn LLVMAddAlias2(
         M: *const Module,
         Ty: *const Type,
+        AddrSpace: c_uint,
         Aliasee: *const Value,
         Name: [*:0]const u8,
     ) *const Value;
@@ -1185,9 +1186,9 @@ pub extern fn LLVMInitializeM68kAsmParser() void;
 pub extern fn LLVMInitializeCSKYAsmParser() void;
 pub extern fn LLVMInitializeVEAsmParser() void;
 
-extern fn ZigLLDLinkCOFF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool) c_int;
-extern fn ZigLLDLinkELF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool) c_int;
-extern fn ZigLLDLinkWasm(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool) c_int;
+extern fn ZigLLDLinkCOFF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool, disable_output: bool) bool;
+extern fn ZigLLDLinkELF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool, disable_output: bool) bool;
+extern fn ZigLLDLinkWasm(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool, disable_output: bool) bool;
 
 pub const LinkCOFF = ZigLLDLinkCOFF;
 pub const LinkELF = ZigLLDLinkELF;
@@ -1318,6 +1319,9 @@ extern fn ZigLLVMWriteImportLibrary(
     output_lib_path: [*:0]const u8,
     kill_at: bool,
 ) bool;
+
+pub const setCallElemTypeAttr = ZigLLVMSetCallElemTypeAttr;
+extern fn ZigLLVMSetCallElemTypeAttr(Call: *const Value, arg_index: usize, return_type: *const Type) void;
 
 pub const Linkage = enum(c_uint) {
     External,

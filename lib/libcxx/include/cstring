@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===--------------------------- cstring ----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -84,9 +84,7 @@ using ::strpbrk _LIBCPP_USING_IF_EXISTS;
 using ::strrchr _LIBCPP_USING_IF_EXISTS;
 using ::strspn _LIBCPP_USING_IF_EXISTS;
 using ::strstr _LIBCPP_USING_IF_EXISTS;
-#ifndef _LIBCPP_HAS_NO_THREAD_UNSAFE_C_FUNCTIONS
 using ::strtok _LIBCPP_USING_IF_EXISTS;
-#endif
 using ::memset _LIBCPP_USING_IF_EXISTS;
 using ::strerror _LIBCPP_USING_IF_EXISTS;
 using ::strlen _LIBCPP_USING_IF_EXISTS;

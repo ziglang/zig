@@ -381,6 +381,10 @@ const usage_build_generic =
     \\  -fno-stage1               Prevent using bootstrap compiler as the codegen backend
     \\  -fsingle-threaded         Code assumes there is only one thread
     \\  -fno-single-threaded      Code may not assume there is only one thread
+    \\  -fbuiltin                 Enable implicit builtin knowledge of functions
+    \\  -fno-builtin              Disable implicit builtin knowledge of functions
+    \\  -ffunction-sections       Places each function in a separate section
+    \\  -fno-function-sections    All functions go into same section
     \\  --strip                   Omit debug symbols
     \\  -ofmt=[mode]              Override target object format
     \\    elf                     Executable and Linking Format
@@ -398,7 +402,6 @@ const usage_build_generic =
     \\  -D[macro]=[value]         Define C [macro] to [value] (1 if [value] omitted)
     \\  --libc [file]             Provide a file which specifies libc paths
     \\  -cflags [flags] --        Set extra flags for the next positional C source files
-    \\  -ffunction-sections       Places each function in a separate section
     \\
     \\Link Options:
     \\  -l[lib], --library [lib]       Link against system library (only if actually used)
@@ -604,6 +607,7 @@ fn buildOutputType(
     var compatibility_version: ?std.builtin.Version = null;
     var strip = false;
     var function_sections = false;
+    var no_builtin = false;
     var watch = false;
     var debug_compile_errors = false;
     var verbose_link = std.process.hasEnvVarConstant("ZIG_VERBOSE_LINK");
@@ -1241,6 +1245,12 @@ fn buildOutputType(
                         single_threaded = false;
                     } else if (mem.eql(u8, arg, "-ffunction-sections")) {
                         function_sections = true;
+                    } else if (mem.eql(u8, arg, "-fno-function-sections")) {
+                        function_sections = false;
+                    } else if (mem.eql(u8, arg, "-fbuiltin")) {
+                        no_builtin = false;
+                    } else if (mem.eql(u8, arg, "-fno-builtin")) {
+                        no_builtin = true;
                     } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
                         link_eh_frame_hdr = true;
                     } else if (mem.eql(u8, arg, "--emit-relocs")) {
@@ -1464,6 +1474,8 @@ fn buildOutputType(
                     .no_omit_frame_pointer => omit_frame_pointer = false,
                     .function_sections => function_sections = true,
                     .no_function_sections => function_sections = false,
+                    .builtin => no_builtin = false,
+                    .no_builtin => no_builtin = true,
                     .color_diagnostics => color = .on,
                     .no_color_diagnostics => color = .off,
                     .stack_check => want_stack_check = true,
@@ -2847,6 +2859,7 @@ fn buildOutputType(
         .strip = strip,
         .single_threaded = single_threaded,
         .function_sections = function_sections,
+        .no_builtin = no_builtin,
         .self_exe_path = self_exe_path,
         .thread_pool = &thread_pool,
         .clang_passthrough_mode = clang_passthrough_mode,
@@ -4481,23 +4494,24 @@ pub fn lldMain(
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    // Convert the args to the format llvm-ar expects.
+    // Convert the args to the format LLD expects.
     // We intentionally shave off the zig binary at args[0].
     const argv = try argsCopyZ(arena, args[1..]);
-    const exit_code = rc: {
+    // "If an error occurs, false will be returned."
+    const ok = rc: {
         const llvm = @import("codegen/llvm/bindings.zig");
         const argc = @intCast(c_int, argv.len);
         if (mem.eql(u8, args[1], "ld.lld")) {
-            break :rc llvm.LinkELF(argc, argv.ptr, can_exit_early);
+            break :rc llvm.LinkELF(argc, argv.ptr, can_exit_early, false);
         } else if (mem.eql(u8, args[1], "lld-link")) {
-            break :rc llvm.LinkCOFF(argc, argv.ptr, can_exit_early);
+            break :rc llvm.LinkCOFF(argc, argv.ptr, can_exit_early, false);
         } else if (mem.eql(u8, args[1], "wasm-ld")) {
-            break :rc llvm.LinkWasm(argc, argv.ptr, can_exit_early);
+            break :rc llvm.LinkWasm(argc, argv.ptr, can_exit_early, false);
         } else {
             unreachable;
         }
     };
-    return @bitCast(u8, @truncate(i8, exit_code));
+    return @boolToInt(!ok);
 }
 
 const ArgIteratorResponseFile = process.ArgIteratorGeneral(.{ .comments = true, .single_quotes = true });
@@ -4571,6 +4585,8 @@ pub const ClangArgIterator = struct {
         no_omit_frame_pointer,
         function_sections,
         no_function_sections,
+        builtin,
+        no_builtin,
         color_diagnostics,
         no_color_diagnostics,
         stack_check,

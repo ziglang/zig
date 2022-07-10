@@ -65,7 +65,6 @@ pub const Feature = enum {
     ldsbankcount16,
     ldsbankcount32,
     load_store_opt,
-    localmemorysize0,
     localmemorysize32768,
     localmemorysize65536,
     mad_mac_f32_insts,
@@ -92,7 +91,6 @@ pub const Feature = enum {
     pk_fmac_f16_inst,
     promote_alloca,
     r128_a16,
-    register_banking,
     s_memrealtime,
     s_memtime_inst,
     scalar_atomics,
@@ -374,7 +372,6 @@ pub const all_features = blk: {
             .no_data_dep_hazard,
             .no_sdst_cmpx,
             .pk_fmac_f16_inst,
-            .register_banking,
             .s_memrealtime,
             .s_memtime_inst,
             .sdwa,
@@ -525,11 +522,6 @@ pub const all_features = blk: {
         .description = "Enable SI load/store optimizer pass",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.localmemorysize0)] = .{
-        .llvm_name = "localmemorysize0",
-        .description = "The size of local memory in bytes",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
     result[@enumToInt(Feature.localmemorysize32768)] = .{
         .llvm_name = "localmemorysize32768",
         .description = "The size of local memory in bytes",
@@ -658,11 +650,6 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.r128_a16)] = .{
         .llvm_name = "r128-a16",
         .description = "Support gfx9-style A16 for 16-bit coordinates/gradients/lod/clamp/mip image operands, where a16 is aliased with r128",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@enumToInt(Feature.register_banking)] = .{
-        .llvm_name = "register-banking",
-        .description = "Has register banking",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.s_memrealtime)] = .{

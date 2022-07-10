@@ -9,9 +9,10 @@
 #ifndef _LIBCPP___ALGORITHM_MIN_H
 #define _LIBCPP___ALGORITHM_MIN_H
 
-#include <__config>
 #include <__algorithm/comp.h>
+#include <__algorithm/comp_ref_type.h>
 #include <__algorithm/min_element.h>
+#include <__config>
 #include <initializer_list>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -49,7 +50,8 @@ _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
 _Tp
 min(initializer_list<_Tp> __t, _Compare __comp)
 {
-    return *_VSTD::min_element(__t.begin(), __t.end(), __comp);
+    typedef typename __comp_ref_type<_Compare>::type _Comp_ref;
+    return *_VSTD::__min_element<_Comp_ref>(__t.begin(), __t.end(), __comp);
 }
 
 template<class _Tp>

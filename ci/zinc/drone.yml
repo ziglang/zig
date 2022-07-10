@@ -10,7 +10,7 @@ workspace:
 
 steps:
 - name: test
-  image: ci/debian-amd64:11.1-3
+  image: ci/debian-amd64:11.1-6
   commands:
   - ./ci/zinc/linux_test.sh
 
@@ -22,7 +22,7 @@ steps:
       - master
     event:
       - push
-  image: ci/debian-amd64:11.1-3
+  image: ci/debian-amd64:11.1-6
   environment:
     AWS_ACCESS_KEY_ID:
       from_secret: AWS_ACCESS_KEY_ID

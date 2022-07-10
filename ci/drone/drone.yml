@@ -7,56 +7,56 @@ platform:
 
 steps:
 - name: build
-  image: ziglang/static-base:llvm13-aarch64-1
+  image: ziglang/static-base:llvm14-aarch64-3
   commands:
   - ./ci/drone/linux_script_build
 
 - name: test-1
   depends_on:
   - build
-  image: ziglang/static-base:llvm13-aarch64-1
+  image: ziglang/static-base:llvm14-aarch64-3
   commands:
   - ./ci/drone/linux_script_test 1
 
 - name: test-2
   depends_on:
   - build
-  image: ziglang/static-base:llvm13-aarch64-1
+  image: ziglang/static-base:llvm14-aarch64-3
   commands:
   - ./ci/drone/linux_script_test 2
 
 - name: test-3
   depends_on:
   - build
-  image: ziglang/static-base:llvm13-aarch64-1
+  image: ziglang/static-base:llvm14-aarch64-3
   commands:
   - ./ci/drone/linux_script_test 3
 
 - name: test-4
   depends_on:
   - build
-  image: ziglang/static-base:llvm13-aarch64-1
+  image: ziglang/static-base:llvm14-aarch64-3
   commands:
   - ./ci/drone/linux_script_test 4
 
 - name: test-5
   depends_on:
   - build
-  image: ziglang/static-base:llvm13-aarch64-1
+  image: ziglang/static-base:llvm14-aarch64-3
   commands:
   - ./ci/drone/linux_script_test 5
 
 - name: test-6
   depends_on:
   - build
-  image: ziglang/static-base:llvm13-aarch64-1
+  image: ziglang/static-base:llvm14-aarch64-3
   commands:
   - ./ci/drone/linux_script_test 6
 
 - name: test-7
   depends_on:
   - build
-  image: ziglang/static-base:llvm13-aarch64-1
+  image: ziglang/static-base:llvm14-aarch64-3
   commands:
   - ./ci/drone/linux_script_test 7
 
@@ -70,7 +70,7 @@ steps:
   - test-5
   - test-6
   - test-7
-  image: ziglang/static-base:llvm13-aarch64-1
+  image: ziglang/static-base:llvm14-aarch64-3
   environment:
     SRHT_OAUTH_TOKEN:
       from_secret: SRHT_OAUTH_TOKEN

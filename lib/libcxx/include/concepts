@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===-------------------------- concepts ----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -129,327 +129,33 @@ namespace std {
 
 */
 
+#include <__concepts/arithmetic.h>
+#include <__concepts/assignable.h>
+#include <__concepts/boolean_testable.h>
+#include <__concepts/class_or_enum.h>
+#include <__concepts/common_reference_with.h>
+#include <__concepts/common_with.h>
+#include <__concepts/constructible.h>
+#include <__concepts/convertible_to.h>
+#include <__concepts/copyable.h>
+#include <__concepts/derived_from.h>
+#include <__concepts/destructible.h>
+#include <__concepts/different_from.h>
+#include <__concepts/equality_comparable.h>
+#include <__concepts/invocable.h>
+#include <__concepts/movable.h>
+#include <__concepts/predicate.h>
+#include <__concepts/regular.h>
+#include <__concepts/relation.h>
+#include <__concepts/same_as.h>
+#include <__concepts/semiregular.h>
+#include <__concepts/swappable.h>
+#include <__concepts/totally_ordered.h>
 #include <__config>
-#include <__functional/invoke.h>
-#include <__functional_base>
-#include <type_traits>
-#include <utility>
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
 #endif
-
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
-
-_LIBCPP_BEGIN_NAMESPACE_STD
-
-#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_CONCEPTS)
-
-// [concept.same]
-
-template<class _Tp, class _Up>
-concept __same_as_impl = _VSTD::_IsSame<_Tp, _Up>::value;
-
-template<class _Tp, class _Up>
-concept same_as = __same_as_impl<_Tp, _Up> && __same_as_impl<_Up, _Tp>;
-
-// [concept.derived]
-template<class _Dp, class _Bp>
-concept derived_from =
-  is_base_of_v<_Bp, _Dp> &&
-  is_convertible_v<const volatile _Dp*, const volatile _Bp*>;
-
-// [concept.convertible]
-template<class _From, class _To>
-concept convertible_to =
-  is_convertible_v<_From, _To> &&
-  requires(add_rvalue_reference_t<_From> (&__f)()) {
-    static_cast<_To>(__f());
-  };
-
-// [concept.commonref]
-template<class _Tp, class _Up>
-concept common_reference_with =
-  same_as<common_reference_t<_Tp, _Up>, common_reference_t<_Up, _Tp>> &&
-  convertible_to<_Tp, common_reference_t<_Tp, _Up>> &&
-  convertible_to<_Up, common_reference_t<_Tp, _Up>>;
-
-// [concept.common]
-template<class _Tp, class _Up>
-concept common_with =
-  same_as<common_type_t<_Tp, _Up>, common_type_t<_Up, _Tp>> &&
-  requires {
-    static_cast<common_type_t<_Tp, _Up>>(declval<_Tp>());
-    static_cast<common_type_t<_Tp, _Up>>(declval<_Up>());
-  } &&
-  common_reference_with<
-    add_lvalue_reference_t<const _Tp>,
-    add_lvalue_reference_t<const _Up>> &&
-  common_reference_with<
-    add_lvalue_reference_t<common_type_t<_Tp, _Up>>,
-    common_reference_t<
-      add_lvalue_reference_t<const _Tp>,
-      add_lvalue_reference_t<const _Up>>>;
-
-// [concepts.arithmetic], arithmetic concepts
-template<class _Tp>
-concept integral = is_integral_v<_Tp>;
-
-template<class _Tp>
-concept signed_integral = integral<_Tp> && is_signed_v<_Tp>;
-
-template<class _Tp>
-concept unsigned_integral = integral<_Tp> && !signed_integral<_Tp>;
-
-template<class _Tp>
-concept floating_point = is_floating_point_v<_Tp>;
-
-// [concept.assignable]
-template<class _Lhs, class _Rhs>
-concept assignable_from =
-  is_lvalue_reference_v<_Lhs> &&
-  common_reference_with<__make_const_lvalue_ref<_Lhs>, __make_const_lvalue_ref<_Rhs>> &&
-  requires (_Lhs __lhs, _Rhs&& __rhs) {
-    { __lhs = _VSTD::forward<_Rhs>(__rhs) } -> same_as<_Lhs>;
-  };
-
-// [concept.destructible]
-
-template<class _Tp>
-concept destructible = is_nothrow_destructible_v<_Tp>;
-
-// [concept.constructible]
-template<class _Tp, class... _Args>
-concept constructible_from =
-    destructible<_Tp> && is_constructible_v<_Tp, _Args...>;
-
-// [concept.default.init]
-
-template<class _Tp>
-concept __default_initializable = requires { ::new _Tp; };
-
-template<class _Tp>
-concept default_initializable = constructible_from<_Tp> &&
-    requires { _Tp{}; } && __default_initializable<_Tp>;
-
-// [concept.moveconstructible]
-template<class _Tp>
-concept move_constructible =
-  constructible_from<_Tp, _Tp> && convertible_to<_Tp, _Tp>;
-
-// [concept.copyconstructible]
-template<class _Tp>
-concept copy_constructible =
-  move_constructible<_Tp> &&
-  constructible_from<_Tp, _Tp&> && convertible_to<_Tp&, _Tp> &&
-  constructible_from<_Tp, const _Tp&> && convertible_to<const _Tp&, _Tp> &&
-  constructible_from<_Tp, const _Tp> && convertible_to<const _Tp, _Tp>;
-
-// Whether a type is a class type or enumeration type according to the Core wording.
-template<class _Tp>
-concept __class_or_enum = is_class_v<_Tp> || is_union_v<_Tp> || is_enum_v<_Tp>;
-
-// [concept.swappable]
-namespace ranges::__swap {
-  // Deleted to inhibit ADL
-  template<class _Tp>
-  void swap(_Tp&, _Tp&) = delete;
-
-
-  // [1]
-  template<class _Tp, class _Up>
-  concept __unqualified_swappable_with =
-    (__class_or_enum<remove_cvref_t<_Tp>> || __class_or_enum<remove_cvref_t<_Up>>) &&
-    requires(_Tp&& __t, _Up&& __u) {
-      swap(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u));
-    };
-
-  struct __fn;
-
-  template<class _Tp, class _Up, size_t _Size>
-  concept __swappable_arrays =
-    !__unqualified_swappable_with<_Tp(&)[_Size], _Up(&)[_Size]> &&
-    extent_v<_Tp> == extent_v<_Up> &&
-    requires(_Tp(& __t)[_Size], _Up(& __u)[_Size], const __fn& __swap) {
-      __swap(__t[0], __u[0]);
-    };
-
-  template<class _Tp>
-  concept __exchangeable =
-    !__unqualified_swappable_with<_Tp&, _Tp&> &&
-    move_constructible<_Tp> &&
-    assignable_from<_Tp&, _Tp>;
-
-  struct __fn {
-    // 2.1   `S` is `(void)swap(E1, E2)`* if `E1` or `E2` has class or enumeration type and...
-    // *The name `swap` is used here unqualified.
-    template<class _Tp, class _Up>
-    requires __unqualified_swappable_with<_Tp, _Up>
-    constexpr void operator()(_Tp&& __t, _Up&& __u) const
-    noexcept(noexcept(swap(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u))))
-    {
-      swap(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u));
-    }
-
-    // 2.2   Otherwise, if `E1` and `E2` are lvalues of array types with equal extent and...
-    template<class _Tp, class _Up, size_t _Size>
-    requires __swappable_arrays<_Tp, _Up, _Size>
-    constexpr void operator()(_Tp(& __t)[_Size], _Up(& __u)[_Size]) const
-    noexcept(noexcept((*this)(*__t, *__u)))
-    {
-      // TODO(cjdb): replace with `ranges::swap_ranges`.
-      for (size_t __i = 0; __i < _Size; ++__i) {
-        (*this)(__t[__i], __u[__i]);
-      }
-    }
-
-    // 2.3   Otherwise, if `E1` and `E2` are lvalues of the same type `T` that models...
-    template<__exchangeable _Tp>
-    constexpr void operator()(_Tp& __x, _Tp& __y) const
-    noexcept(is_nothrow_move_constructible_v<_Tp> && is_nothrow_move_assignable_v<_Tp>)
-    {
-      __y = _VSTD::exchange(__x, _VSTD::move(__y));
-    }
-  };
-} // namespace ranges::__swap
-
-namespace ranges::inline __cpo {
-  inline constexpr auto swap = __swap::__fn{};
-} // namespace ranges::__cpo
-
-template<class _Tp>
-concept swappable = requires(_Tp& __a, _Tp& __b) { ranges::swap(__a, __b); };
-
-template<class _Tp, class _Up>
-concept swappable_with =
-  common_reference_with<_Tp, _Up> &&
-  requires(_Tp&& __t, _Up&& __u) {
-    ranges::swap(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Tp>(__t));
-    ranges::swap(_VSTD::forward<_Up>(__u), _VSTD::forward<_Up>(__u));
-    ranges::swap(_VSTD::forward<_Tp>(__t), _VSTD::forward<_Up>(__u));
-    ranges::swap(_VSTD::forward<_Up>(__u), _VSTD::forward<_Tp>(__t));
-  };
-
-// [concept.booleantestable]
-template<class _Tp>
-concept __boolean_testable_impl = convertible_to<_Tp, bool>;
-
-template<class _Tp>
-concept __boolean_testable = __boolean_testable_impl<_Tp> && requires(_Tp&& __t) {
-  { !std::forward<_Tp>(__t) } -> __boolean_testable_impl;
-};
-
-// [concept.equalitycomparable]
-template<class _Tp, class _Up>
-concept __weakly_equality_comparable_with =
-  requires(__make_const_lvalue_ref<_Tp> __t, __make_const_lvalue_ref<_Up> __u) {
-    { __t == __u } -> __boolean_testable;
-    { __t != __u } -> __boolean_testable;
-    { __u == __t } -> __boolean_testable;
-    { __u != __t } -> __boolean_testable;
-  };
-
-template<class _Tp>
-concept equality_comparable = __weakly_equality_comparable_with<_Tp, _Tp>;
-
-template<class _Tp, class _Up>
-concept equality_comparable_with =
-  equality_comparable<_Tp> && equality_comparable<_Up> &&
-  common_reference_with<__make_const_lvalue_ref<_Tp>, __make_const_lvalue_ref<_Up>> &&
-  equality_comparable<
-    common_reference_t<
-      __make_const_lvalue_ref<_Tp>,
-      __make_const_lvalue_ref<_Up>>> &&
-  __weakly_equality_comparable_with<_Tp, _Up>;
-
-// [concept.totallyordered]
-
-template<class _Tp, class _Up>
-concept __partially_ordered_with =
-  requires(__make_const_lvalue_ref<_Tp> __t, __make_const_lvalue_ref<_Up> __u) {
-    { __t <  __u } -> __boolean_testable;
-    { __t >  __u } -> __boolean_testable;
-    { __t <= __u } -> __boolean_testable;
-    { __t >= __u } -> __boolean_testable;
-    { __u <  __t } -> __boolean_testable;
-    { __u >  __t } -> __boolean_testable;
-    { __u <= __t } -> __boolean_testable;
-    { __u >= __t } -> __boolean_testable;
-  };
-
-template<class _Tp>
-concept totally_ordered = equality_comparable<_Tp> && __partially_ordered_with<_Tp, _Tp>;
-
-template<class _Tp, class _Up>
-concept totally_ordered_with =
-  totally_ordered<_Tp> && totally_ordered<_Up> &&
-  equality_comparable_with<_Tp, _Up> &&
-  totally_ordered<
-    common_reference_t<
-      __make_const_lvalue_ref<_Tp>,
-      __make_const_lvalue_ref<_Up>>> &&
-  __partially_ordered_with<_Tp, _Up>;
-
-// [concepts.object]
-template<class _Tp>
-concept movable =
-  is_object_v<_Tp> &&
-  move_constructible<_Tp> &&
-  assignable_from<_Tp&, _Tp> &&
-  swappable<_Tp>;
-
-template<class _Tp>
-concept copyable =
-  copy_constructible<_Tp> &&
-  movable<_Tp> &&
-  assignable_from<_Tp&, _Tp&> &&
-  assignable_from<_Tp&, const _Tp&> &&
-  assignable_from<_Tp&, const _Tp>;
-
-template<class _Tp>
-concept semiregular = copyable<_Tp> && default_initializable<_Tp>;
-
-template<class _Tp>
-concept regular = semiregular<_Tp> && equality_comparable<_Tp>;
-
-// [concept.invocable]
-template<class _Fn, class... _Args>
-concept invocable = requires(_Fn&& __fn, _Args&&... __args) {
-  _VSTD::invoke(_VSTD::forward<_Fn>(__fn), _VSTD::forward<_Args>(__args)...); // not required to be equality preserving
-};
-
-// [concept.regular.invocable]
-template<class _Fn, class... _Args>
-concept regular_invocable = invocable<_Fn, _Args...>;
-
-// [concept.predicate]
-template<class _Fn, class... _Args>
-concept predicate =
-  regular_invocable<_Fn, _Args...> && __boolean_testable<invoke_result_t<_Fn, _Args...>>;
-
-// [concept.relation]
-template<class _Rp, class _Tp, class _Up>
-concept relation =
-  predicate<_Rp, _Tp, _Tp> && predicate<_Rp, _Up, _Up> &&
-  predicate<_Rp, _Tp, _Up> && predicate<_Rp, _Up, _Tp>;
-
-// [concept.equiv]
-template<class _Rp, class _Tp, class _Up>
-concept equivalence_relation = relation<_Rp, _Tp, _Up>;
-
-// [concept.strictweakorder]
-template<class _Rp, class _Tp, class _Up>
-concept strict_weak_order = relation<_Rp, _Tp, _Up>;
-
-template<class _Tp, class _Up>
-concept __different_from = !same_as<remove_cvref_t<_Tp>, remove_cvref_t<_Up>>;
-
-#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_CONCEPTS)
-
-_LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP_CONCEPTS

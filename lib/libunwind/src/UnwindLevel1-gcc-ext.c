@@ -1,4 +1,4 @@
-//===--------------------- UnwindLevel1-gcc-ext.c -------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -22,36 +22,27 @@
 #include "Unwind-EHABI.h"
 #include "unwind.h"
 
-#pragma clang diagnostic ignored "-Wdll-attribute-on-redeclaration"
-
 #if defined(_LIBUNWIND_BUILD_ZERO_COST_APIS)
 
 #if defined(_LIBUNWIND_SUPPORT_SEH_UNWIND)
-#define private_1 private_[0]
+#define PRIVATE_1 private_[0]
+#elif defined(_LIBUNWIND_ARM_EHABI)
+#define PRIVATE_1 unwinder_cache.reserved1
+#else
+#define PRIVATE_1 private_1
 #endif
 
 ///  Called by __cxa_rethrow().
 _LIBUNWIND_EXPORT _Unwind_Reason_Code
 _Unwind_Resume_or_Rethrow(_Unwind_Exception *exception_object) {
-#if defined(_LIBUNWIND_ARM_EHABI)
-  _LIBUNWIND_TRACE_API("_Unwind_Resume_or_Rethrow(ex_obj=%p), private_1=%ld",
-                       (void *)exception_object,
-                       (long)exception_object->unwinder_cache.reserved1);
-#else
-  _LIBUNWIND_TRACE_API("_Unwind_Resume_or_Rethrow(ex_obj=%p), private_1=%" PRIdPTR,
-                       (void *)exception_object,
-                       (intptr_t)exception_object->private_1);
-#endif
+  _LIBUNWIND_TRACE_API(
+      "_Unwind_Resume_or_Rethrow(ex_obj=%p), private_1=%" PRIdPTR,
+      (void *)exception_object, (intptr_t)exception_object->PRIVATE_1);
 
-#if defined(_LIBUNWIND_ARM_EHABI)
-  // _Unwind_RaiseException on EHABI will always set the reserved1 field to 0,
-  // which is in the same position as private_1 below.
-  return _Unwind_RaiseException(exception_object);
-#else
   // If this is non-forced and a stopping place was found, then this is a
   // re-throw.
   // Call _Unwind_RaiseException() as if this was a new exception
-  if (exception_object->private_1 == 0) {
+  if (exception_object->PRIVATE_1 == 0) {
     return _Unwind_RaiseException(exception_object);
     // Will return if there is no catch clause, so that __cxa_rethrow can call
     // std::terminate().
@@ -62,9 +53,7 @@ _Unwind_Resume_or_Rethrow(_Unwind_Exception *exception_object) {
   _Unwind_Resume(exception_object);
   _LIBUNWIND_ABORT("_Unwind_Resume_or_Rethrow() called _Unwind_RaiseException()"
                    " which unexpectedly returned");
-#endif
 }
-
 
 /// Called by personality handler during phase 2 to get base address for data
 /// relative encodings.
@@ -120,7 +109,7 @@ _Unwind_Backtrace(_Unwind_Trace_Fn callback, void *ref) {
   // Create a mock exception object for force unwinding.
   _Unwind_Exception ex;
   memset(&ex, '\0', sizeof(ex));
-  ex.exception_class = 0x434C4E47554E5700; // CLNGUNW\0
+  strcpy((char *)&ex.exception_class, "CLNGUNW");
 #endif
 
   // walk each frame

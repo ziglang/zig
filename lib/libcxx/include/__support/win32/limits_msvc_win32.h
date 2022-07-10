@@ -14,7 +14,7 @@
 #error "This header complements the Microsoft C Runtime library, and should not be included otherwise."
 #endif
 #if defined(__clang__)
-#error "This header should only be included when using Microsofts C1XX frontend"
+#error "This header should only be included when using Microsoft's C1XX frontend"
 #endif
 
 #include <float.h> // limit constants

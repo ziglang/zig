@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===--------------------------- wchar.h ----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -108,6 +108,10 @@ size_t wcsrtombs(char* restrict dst, const wchar_t** restrict src, size_t len,
 #include <__config>
 #include <stddef.h>
 
+#if defined(_LIBCPP_HAS_NO_WIDE_CHARACTERS)
+#   error "The <wchar.h> header is not supported since libc++ has been configured with LIBCXX_ENABLE_WIDE_CHARACTERS disabled"
+#endif
+
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
 #endif
@@ -170,13 +174,13 @@ inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_PREFERRED_OVERLOAD
 }
 #endif
 
-#if defined(__cplusplus) && defined(_LIBCPP_MSVCRT_LIKE)
+#if defined(__cplusplus) && (defined(_LIBCPP_MSVCRT_LIKE) || defined(__MVS__))
 extern "C" {
 size_t mbsnrtowcs(wchar_t *__restrict dst, const char **__restrict src,
                   size_t nmc, size_t len, mbstate_t *__restrict ps);
 size_t wcsnrtombs(char *__restrict dst, const wchar_t **__restrict src,
                   size_t nwc, size_t len, mbstate_t *__restrict ps);
-}  // extern "C++"
-#endif // __cplusplus && _LIBCPP_MSVCRT
+}  // extern "C"
+#endif  // __cplusplus && (_LIBCPP_MSVCRT || __MVS__)
 
 #endif // _LIBCPP_WCHAR_H

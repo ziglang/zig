@@ -10,8 +10,8 @@
 #ifndef _LIBCPP___BIT_REFERENCE
 #define _LIBCPP___BIT_REFERENCE
 
-#include <__config>
 #include <__bits>
+#include <__config>
 #include <algorithm>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)

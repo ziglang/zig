@@ -9,17 +9,14 @@
 #ifndef _LIBCPP___ALGORITHM_REMOVE_H
 #define _LIBCPP___ALGORITHM_REMOVE_H
 
-#include <__config>
 #include <__algorithm/find.h>
 #include <__algorithm/find_if.h>
+#include <__config>
 #include <__utility/move.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
 #endif
-
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -44,7 +41,5 @@ remove(_ForwardIterator __first, _ForwardIterator __last, const _Tp& __value_)
 }
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_REMOVE_H

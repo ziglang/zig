@@ -825,6 +825,7 @@ pub const InitOptions = struct {
     rdynamic: bool = false,
     strip: bool = false,
     function_sections: bool = false,
+    no_builtin: bool = false,
     is_native_os: bool,
     is_native_abi: bool,
     time_report: bool = false,
@@ -1351,6 +1352,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(omit_frame_pointer);
         cache.hash.add(link_mode);
         cache.hash.add(options.function_sections);
+        cache.hash.add(options.no_builtin);
         cache.hash.add(strip);
         cache.hash.add(link_libc);
         cache.hash.add(link_libcpp);
@@ -1682,6 +1684,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .is_native_os = options.is_native_os,
             .is_native_abi = options.is_native_abi,
             .function_sections = options.function_sections,
+            .no_builtin = options.no_builtin,
             .allow_shlib_undefined = options.linker_allow_shlib_undefined,
             .bind_global_refs_locally = options.linker_bind_global_refs_locally orelse false,
             .import_memory = options.linker_import_memory orelse false,
@@ -3925,6 +3928,10 @@ pub fn addCCArgs(
         try argv.append("-ffunction-sections");
     }
 
+    if (comp.bin_file.options.no_builtin) {
+        try argv.append("-fno-builtin");
+    }
+
     if (comp.bin_file.options.link_libcpp) {
         const libcxx_include_path = try std.fs.path.join(arena, &[_][]const u8{
             comp.zig_lib_directory.path.?, "libcxx", "include",
@@ -4997,6 +5004,8 @@ fn buildOutputFromZig(
         .optimize_mode = comp.compilerRtOptMode(),
         .link_mode = .Static,
         .function_sections = true,
+        .no_builtin = true,
+        .use_stage1 = build_options.is_stage1 and comp.bin_file.options.use_stage1,
         .want_sanitize_c = false,
         .want_stack_check = false,
         .want_red_zone = comp.bin_file.options.red_zone,

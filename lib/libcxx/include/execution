@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===------------------------- execution ---------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -11,9 +11,14 @@
 #define _LIBCPP_EXECUTION
 
 #include <__config>
+#include <version>
 
 #if defined(_LIBCPP_HAS_PARALLEL_ALGORITHMS) && _LIBCPP_STD_VER >= 17
 #   include <__pstl_execution>
+#endif
+
+#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#pragma GCC system_header
 #endif
 
 #endif // _LIBCPP_EXECUTION

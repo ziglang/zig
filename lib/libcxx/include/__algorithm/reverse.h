@@ -9,16 +9,13 @@
 #ifndef _LIBCPP___ALGORITHM_REVERSE_H
 #define _LIBCPP___ALGORITHM_REVERSE_H
 
-#include <__config>
 #include <__algorithm/iter_swap.h>
+#include <__config>
 #include <__iterator/iterator_traits.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
 #endif
-
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -55,7 +52,5 @@ reverse(_BidirectionalIterator __first, _BidirectionalIterator __last)
 }
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_REVERSE_H

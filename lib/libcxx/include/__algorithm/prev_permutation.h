@@ -9,19 +9,16 @@
 #ifndef _LIBCPP___ALGORITHM_PREV_PERMUTATION_H
 #define _LIBCPP___ALGORITHM_PREV_PERMUTATION_H
 
-#include <__config>
 #include <__algorithm/comp.h>
 #include <__algorithm/comp_ref_type.h>
 #include <__algorithm/reverse.h>
+#include <__config>
 #include <__iterator/iterator_traits.h>
 #include <__utility/swap.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
 #endif
-
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -71,7 +68,5 @@ prev_permutation(_BidirectionalIterator __first, _BidirectionalIterator __last)
 }
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_PREV_PERMUTATION_H

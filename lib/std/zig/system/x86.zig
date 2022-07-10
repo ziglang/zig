@@ -80,11 +80,11 @@ fn detectIntelProcessor(cpu: *Target.Cpu, family: u32, model: u32, brand_id: u32
     }
     switch (family) {
         3 => {
-            cpu.model = &Target.x86.cpu._i386;
+            cpu.model = &Target.x86.cpu.i386;
             return;
         },
         4 => {
-            cpu.model = &Target.x86.cpu._i486;
+            cpu.model = &Target.x86.cpu.i486;
             return;
         },
         5 => {
@@ -229,7 +229,7 @@ fn detectAMDProcessor(cpu: *Target.Cpu, family: u32, model: u32) void {
     // This is very unscientific, and not necessarily correct.
     switch (family) {
         4 => {
-            cpu.model = &Target.x86.cpu._i486;
+            cpu.model = &Target.x86.cpu.i486;
             return;
         },
         5 => {

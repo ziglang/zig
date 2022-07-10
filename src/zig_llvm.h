@@ -311,12 +311,14 @@ ZIG_EXTERN_C LLVMValueRef ZigLLVMInsertDbgValueIntrinsicAtEnd(struct ZigLLVMDIBu
 ZIG_EXTERN_C void ZigLLVMSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state);
 ZIG_EXTERN_C void ZigLLVMSetTailCall(LLVMValueRef Call);
 ZIG_EXTERN_C void ZigLLVMSetCallSret(LLVMValueRef Call, LLVMTypeRef return_type);
+ZIG_EXTERN_C void ZigLLVMSetCallElemTypeAttr(LLVMValueRef Call, size_t arg_index, LLVMTypeRef return_type);
 ZIG_EXTERN_C void ZigLLVMFunctionSetPrefixData(LLVMValueRef fn, LLVMValueRef data);
 ZIG_EXTERN_C void ZigLLVMFunctionSetCallingConv(LLVMValueRef function, enum ZigLLVM_CallingConv cc);
 
 ZIG_EXTERN_C void ZigLLVMAddFunctionAttr(LLVMValueRef fn, const char *attr_name, const char *attr_value);
 ZIG_EXTERN_C void ZigLLVMAddByValAttr(LLVMValueRef fn_ref, unsigned ArgNo, LLVMTypeRef type_val);
-ZIG_EXTERN_C void ZigLLVMAddSretAttr(LLVMValueRef fn_ref, unsigned ArgNo, LLVMTypeRef type_val);
+ZIG_EXTERN_C void ZigLLVMAddSretAttr(LLVMValueRef fn_ref, LLVMTypeRef type_val);
+ZIG_EXTERN_C void ZigLLVMAddFunctionElemTypeAttr(LLVMValueRef fn_ref, size_t arg_index, LLVMTypeRef elem_ty);
 ZIG_EXTERN_C void ZigLLVMAddFunctionAttrCold(LLVMValueRef fn);
 
 ZIG_EXTERN_C void ZigLLVMParseCommandLineOptions(size_t argc, const char *const *argv);
@@ -373,6 +375,8 @@ enum ZigLLVM_ArchType {
     ZigLLVM_hsail64,        // AMD HSAIL with 64-bit pointers
     ZigLLVM_spir,           // SPIR: standard portable IR for OpenCL 32-bit version
     ZigLLVM_spir64,         // SPIR: standard portable IR for OpenCL 64-bit version
+    ZigLLVM_spirv32,        // SPIR-V with 32-bit pointers
+    ZigLLVM_spirv64,        // SPIR-V with 64-bit pointers
     ZigLLVM_kalimba,        // Kalimba: generic kalimba
     ZigLLVM_shave,          // SHAVE: Movidius vector VLIW processors
     ZigLLVM_lanai,          // Lanai: Lanai 32-bit
@@ -539,9 +543,9 @@ ZIG_EXTERN_C const char *ZigLLVMGetVendorTypeName(enum ZigLLVM_VendorType vendor
 ZIG_EXTERN_C const char *ZigLLVMGetOSTypeName(enum ZigLLVM_OSType os);
 ZIG_EXTERN_C const char *ZigLLVMGetEnvironmentTypeName(enum ZigLLVM_EnvironmentType abi);
 
-ZIG_EXTERN_C int ZigLLDLinkCOFF(int argc, const char **argv, bool can_exit_early);
-ZIG_EXTERN_C int ZigLLDLinkELF(int argc, const char **argv, bool can_exit_early);
-ZIG_EXTERN_C int ZigLLDLinkWasm(int argc, const char **argv, bool can_exit_early);
+ZIG_EXTERN_C bool ZigLLDLinkCOFF(int argc, const char **argv, bool can_exit_early, bool disable_output);
+ZIG_EXTERN_C bool ZigLLDLinkELF(int argc, const char **argv, bool can_exit_early, bool disable_output);
+ZIG_EXTERN_C bool ZigLLDLinkWasm(int argc, const char **argv, bool can_exit_early, bool disable_output);
 
 ZIG_EXTERN_C bool ZigLLVMWriteArchive(const char *archive_name, const char **file_names, size_t file_name_count,
         enum ZigLLVM_OSType os_type);

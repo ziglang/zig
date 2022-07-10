@@ -2909,8 +2909,8 @@ pub const Type = extern union {
             .vector => {
                 const len = ty.arrayLen();
                 const bits = try bitSizeAdvanced(ty.elemType(), target, sema_kit);
-                const bytes = (bits + 7) / 8;
-                const alignment = std.math.ceilPowerOfTwoAssert(u64, bytes * len);
+                const bytes = ((bits * len) + 7) / 8;
+                const alignment = std.math.ceilPowerOfTwoAssert(u64, bytes);
                 return AbiAlignmentAdvanced{ .scalar = @intCast(u32, alignment) };
             },
 

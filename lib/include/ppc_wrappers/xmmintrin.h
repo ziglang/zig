@@ -34,7 +34,7 @@
 #ifndef _XMMINTRIN_H_INCLUDED
 #define _XMMINTRIN_H_INCLUDED
 
-#if defined(__linux__) && defined(__ppc64__)
+#if defined(__ppc64__) && (defined(__linux__) || defined(__FreeBSD__))
 
 /* Define four value permute mask */
 #define _MM_SHUFFLE(w,x,y,z) (((w) << 6) | ((x) << 4) | ((y) << 2) | (z))
@@ -1838,6 +1838,7 @@ do {									\
 
 #else
 #include_next <xmmintrin.h>
-#endif /* defined(__linux__) && defined(__ppc64__) */
+#endif /* defined(__ppc64__) && (defined(__linux__) || defined(__FreeBSD__))   \
+        */
 
 #endif /* _XMMINTRIN_H_INCLUDED */

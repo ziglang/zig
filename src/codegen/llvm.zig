@@ -1091,6 +1091,7 @@ pub const Object = struct {
                 } else {
                     _ = self.llvm_module.addAlias(
                         llvm_global.typeOf(),
+                        0,
                         llvm_global,
                         exp_name_z,
                     );
@@ -2256,7 +2257,7 @@ pub const DeclGen = struct {
             dg.addArgAttr(llvm_fn, 0, "noalias");
 
             const raw_llvm_ret_ty = try dg.lowerType(fn_info.return_type);
-            llvm_fn.addSretAttr(0, raw_llvm_ret_ty);
+            llvm_fn.addSretAttr(raw_llvm_ret_ty);
         }
 
         const err_return_tracing = fn_info.return_type.isError() and
@@ -2311,7 +2312,9 @@ pub const DeclGen = struct {
         if (comp.unwind_tables) {
             dg.addFnAttr(llvm_fn, "uwtable");
         }
-        if (comp.bin_file.options.skip_linker_dependencies) {
+        if (comp.bin_file.options.skip_linker_dependencies or
+            comp.bin_file.options.no_builtin)
+        {
             // The intent here is for compiler-rt and libc functions to not generate
             // infinite recursion. For example, if we are compiling the memcpy function,
             // and llvm detects that the body is equivalent to memcpy, it may replace the
@@ -5290,6 +5293,7 @@ pub const FuncGen = struct {
         const llvm_params_len = inputs.len + outputs.len - return_count;
         const llvm_param_types = try arena.alloc(*const llvm.Type, llvm_params_len);
         const llvm_param_values = try arena.alloc(*const llvm.Value, llvm_params_len);
+        const llvm_param_attrs = try arena.alloc(bool, llvm_params_len);
         const target = self.dg.module.getTarget();
 
         var llvm_param_i: usize = 0;
@@ -5318,6 +5322,7 @@ pub const FuncGen = struct {
                 const output_inst = try self.resolveInst(output);
                 llvm_param_values[llvm_param_i] = output_inst;
                 llvm_param_types[llvm_param_i] = output_inst.typeOf();
+                llvm_param_attrs[llvm_param_i] = true;
                 llvm_param_i += 1;
             }
 
@@ -5387,6 +5392,11 @@ pub const FuncGen = struct {
             if (!std.mem.eql(u8, name, "_")) {
                 name_map.putAssumeCapacityNoClobber(name, {});
             }
+
+            // In the case of indirect inputs, LLVM requires the callsite to have
+            // an elementtype(<ty>) attribute.
+            llvm_param_attrs[llvm_param_i] = constraint[0] == '*';
+
             llvm_param_i += 1;
             total_i += 1;
         }
@@ -5479,7 +5489,7 @@ pub const FuncGen = struct {
             .ATT,
             .False,
         );
-        return self.builder.buildCall(
+        const call = self.builder.buildCall(
             asm_fn,
             llvm_param_values.ptr,
             @intCast(c_uint, llvm_param_values.len),
@@ -5487,6 +5497,13 @@ pub const FuncGen = struct {
             .Auto,
             "",
         );
+        for (llvm_param_attrs) |need_elem_ty, i| {
+            if (need_elem_ty) {
+                const elem_ty = llvm_param_types[i].getElementType();
+                llvm.setCallElemTypeAttr(call, i, elem_ty);
+            }
+        }
+        return call;
     }
 
     fn airIsNonNull(
@@ -6660,15 +6677,37 @@ pub const FuncGen = struct {
         const rhs_ty = self.air.typeOf(bin_op.rhs);
         const lhs_scalar_ty = lhs_ty.scalarType();
         const rhs_scalar_ty = rhs_ty.scalarType();
-
         const tg = self.dg.module.getTarget();
+        const lhs_bits = lhs_scalar_ty.bitSize(tg);
 
-        const casted_rhs = if (rhs_scalar_ty.bitSize(tg) < lhs_scalar_ty.bitSize(tg))
-            self.builder.buildZExt(rhs, try self.dg.lowerType(lhs_ty), "")
+        const casted_rhs = if (rhs_scalar_ty.bitSize(tg) < lhs_bits)
+            self.builder.buildZExt(rhs, lhs.typeOf(), "")
         else
             rhs;
-        if (lhs_scalar_ty.isSignedInt()) return self.builder.buildSShlSat(lhs, casted_rhs, "");
-        return self.builder.buildUShlSat(lhs, casted_rhs, "");
+
+        const result = if (lhs_scalar_ty.isSignedInt())
+            self.builder.buildSShlSat(lhs, casted_rhs, "")
+        else
+            self.builder.buildUShlSat(lhs, casted_rhs, "");
+
+        // LLVM langref says "If b is (statically or dynamically) equal to or
+        // larger than the integer bit width of the arguments, the result is a
+        // poison value."
+        // However Zig semantics says that saturating shift left can never produce
+        // undefined; instead it saturates.
+        const lhs_scalar_llvm_ty = try self.dg.lowerType(lhs_scalar_ty);
+        const bits = lhs_scalar_llvm_ty.constInt(lhs_bits, .False);
+        const lhs_max = lhs_scalar_llvm_ty.constAllOnes();
+        if (rhs_ty.zigTypeTag() == .Vector) {
+            const vec_len = rhs_ty.vectorLen();
+            const bits_vec = self.builder.buildVectorSplat(vec_len, bits, "");
+            const lhs_max_vec = self.builder.buildVectorSplat(vec_len, lhs_max, "");
+            const in_range = self.builder.buildICmp(.ULT, rhs, bits_vec, "");
+            return self.builder.buildSelect(in_range, result, lhs_max_vec, "");
+        } else {
+            const in_range = self.builder.buildICmp(.ULT, rhs, bits, "");
+            return self.builder.buildSelect(in_range, result, lhs_max, "");
+        }
     }
 
     fn airShr(self: *FuncGen, inst: Air.Inst.Index, is_exact: bool) !?*const llvm.Value {
@@ -8566,13 +8605,11 @@ fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             }
         },
         .ve => {
-            if (build_options.llvm_has_ve) {
-                llvm.LLVMInitializeVETarget();
-                llvm.LLVMInitializeVETargetInfo();
-                llvm.LLVMInitializeVETargetMC();
-                llvm.LLVMInitializeVEAsmPrinter();
-                llvm.LLVMInitializeVEAsmParser();
-            }
+            llvm.LLVMInitializeVETarget();
+            llvm.LLVMInitializeVETargetInfo();
+            llvm.LLVMInitializeVETargetMC();
+            llvm.LLVMInitializeVEAsmPrinter();
+            llvm.LLVMInitializeVEAsmParser();
         },
         .arc => {
             if (build_options.llvm_has_arc) {

@@ -11,8 +11,8 @@
 #define _LIBCPP___FUNCTIONAL_BIND_H
 
 #include <__config>
-#include <__functional/weak_result_type.h>
 #include <__functional/invoke.h>
+#include <__functional/weak_result_type.h>
 #include <cstddef>
 #include <tuple>
 #include <type_traits>
@@ -23,22 +23,28 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template<class _Tp> struct __is_bind_expression : public false_type {};
-template<class _Tp> struct _LIBCPP_TEMPLATE_VIS is_bind_expression
-    : public __is_bind_expression<typename remove_cv<_Tp>::type> {};
+template<class _Tp>
+struct is_bind_expression : _If<
+    _IsSame<_Tp, typename __uncvref<_Tp>::type>::value,
+    false_type,
+    is_bind_expression<typename __uncvref<_Tp>::type>
+> {};
 
 #if _LIBCPP_STD_VER > 14
 template <class _Tp>
-_LIBCPP_INLINE_VAR constexpr size_t is_bind_expression_v = is_bind_expression<_Tp>::value;
+inline constexpr size_t is_bind_expression_v = is_bind_expression<_Tp>::value;
 #endif
 
-template<class _Tp> struct __is_placeholder : public integral_constant<int, 0> {};
-template<class _Tp> struct _LIBCPP_TEMPLATE_VIS is_placeholder
-    : public __is_placeholder<typename remove_cv<_Tp>::type> {};
+template<class _Tp>
+struct is_placeholder : _If<
+    _IsSame<_Tp, typename __uncvref<_Tp>::type>::value,
+    integral_constant<int, 0>,
+    is_placeholder<typename __uncvref<_Tp>::type>
+> {};
 
 #if _LIBCPP_STD_VER > 14
 template <class _Tp>
-_LIBCPP_INLINE_VAR constexpr size_t is_placeholder_v = is_placeholder<_Tp>::value;
+inline constexpr size_t is_placeholder_v = is_placeholder<_Tp>::value;
 #endif
 
 namespace placeholders
@@ -58,22 +64,22 @@ _LIBCPP_FUNC_VIS extern const __ph<8>   _8;
 _LIBCPP_FUNC_VIS extern const __ph<9>   _9;
 _LIBCPP_FUNC_VIS extern const __ph<10> _10;
 #else
-/* _LIBCPP_INLINE_VAR */ constexpr __ph<1>   _1{};
-/* _LIBCPP_INLINE_VAR */ constexpr __ph<2>   _2{};
-/* _LIBCPP_INLINE_VAR */ constexpr __ph<3>   _3{};
-/* _LIBCPP_INLINE_VAR */ constexpr __ph<4>   _4{};
-/* _LIBCPP_INLINE_VAR */ constexpr __ph<5>   _5{};
-/* _LIBCPP_INLINE_VAR */ constexpr __ph<6>   _6{};
-/* _LIBCPP_INLINE_VAR */ constexpr __ph<7>   _7{};
-/* _LIBCPP_INLINE_VAR */ constexpr __ph<8>   _8{};
-/* _LIBCPP_INLINE_VAR */ constexpr __ph<9>   _9{};
-/* _LIBCPP_INLINE_VAR */ constexpr __ph<10> _10{};
+/* inline */ constexpr __ph<1>   _1{};
+/* inline */ constexpr __ph<2>   _2{};
+/* inline */ constexpr __ph<3>   _3{};
+/* inline */ constexpr __ph<4>   _4{};
+/* inline */ constexpr __ph<5>   _5{};
+/* inline */ constexpr __ph<6>   _6{};
+/* inline */ constexpr __ph<7>   _7{};
+/* inline */ constexpr __ph<8>   _8{};
+/* inline */ constexpr __ph<9>   _9{};
+/* inline */ constexpr __ph<10> _10{};
 #endif // defined(_LIBCPP_CXX03_LANG) || defined(_LIBCPP_BUILDING_LIBRARY)
 
-}  // placeholders
+} // namespace placeholders
 
 template<int _Np>
-struct __is_placeholder<placeholders::__ph<_Np> >
+struct is_placeholder<placeholders::__ph<_Np> >
     : public integral_constant<int, _Np> {};
 
 
@@ -97,7 +103,7 @@ __mu_expand(_Ti& __ti, tuple<_Uj...>& __uj, __tuple_indices<_Indx...>)
 
 template <class _Ti, class ..._Uj>
 inline _LIBCPP_INLINE_VISIBILITY
-typename _EnableIf
+typename __enable_if_t
 <
     is_bind_expression<_Ti>::value,
     __invoke_of<_Ti&, _Uj...>
@@ -304,7 +310,7 @@ public:
 };
 
 template<class _Fp, class ..._BoundArgs>
-struct __is_bind_expression<__bind<_Fp, _BoundArgs...> > : public true_type {};
+struct is_bind_expression<__bind<_Fp, _BoundArgs...> > : public true_type {};
 
 template<class _Rp, class _Fp, class ..._BoundArgs>
 class __bind_r
@@ -359,7 +365,7 @@ public:
 };
 
 template<class _Rp, class _Fp, class ..._BoundArgs>
-struct __is_bind_expression<__bind_r<_Rp, _Fp, _BoundArgs...> > : public true_type {};
+struct is_bind_expression<__bind_r<_Rp, _Fp, _BoundArgs...> > : public true_type {};
 
 template<class _Fp, class ..._BoundArgs>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17

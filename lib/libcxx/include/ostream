@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===-------------------------- ostream -----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -55,6 +55,7 @@ public:
     basic_ostream& operator<<(double f);
     basic_ostream& operator<<(long double f);
     basic_ostream& operator<<(const void* p);
+    basic_ostream& operator<<(const volatile void* val); // C++23
     basic_ostream& operator<<(basic_streambuf<char_type,traits>* sb);
     basic_ostream& operator<<(nullptr_t);
 
@@ -210,6 +211,14 @@ public:
     basic_ostream& operator<<(double __f);
     basic_ostream& operator<<(long double __f);
     basic_ostream& operator<<(const void* __p);
+
+#if _LIBCPP_STD_VER > 20
+    _LIBCPP_HIDE_FROM_ABI
+    basic_ostream& operator<<(const volatile void* __p) {
+        return operator<<(const_cast<const void*>(__p));
+    }
+#endif
+
     basic_ostream& operator<<(basic_streambuf<char_type, traits_type>* __sb);
 
     _LIBCPP_INLINE_VISIBILITY
@@ -240,12 +249,11 @@ class _LIBCPP_TEMPLATE_VIS basic_ostream<_CharT, _Traits>::sentry
     bool __ok_;
     basic_ostream<_CharT, _Traits>& __os_;
 
-    sentry(const sentry&); // = delete;
-    sentry& operator=(const sentry&); // = delete;
-
 public:
     explicit sentry(basic_ostream<_CharT, _Traits>& __os);
     ~sentry();
+    sentry(const sentry&) = delete;
+    sentry& operator=(const sentry&) = delete;
 
     _LIBCPP_INLINE_VISIBILITY
     explicit operator bool() const {return __ok_;}
@@ -1087,7 +1095,9 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, const bitset<_Size>& __x)
 }
 
 _LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ostream<char>)
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 _LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ostream<wchar_t>)
+#endif
 
 _LIBCPP_END_NAMESPACE_STD
 

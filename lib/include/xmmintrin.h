@@ -10,6 +10,10 @@
 #ifndef __XMMINTRIN_H
 #define __XMMINTRIN_H
 
+#if !defined(__i386__) && !defined(__x86_64__)
+#error "This header is only meant to be used on x86 and x64 architecture"
+#endif
+
 #include <mmintrin.h>
 
 typedef int __v4si __attribute__((__vector_size__(16)));
@@ -2181,7 +2185,7 @@ void _mm_sfence(void);
 ///    3: Bits [63:48] are copied to the destination.
 /// \returns A 16-bit integer containing the extracted 16 bits of packed data.
 #define _mm_extract_pi16(a, n) \
-  (int)__builtin_ia32_vec_ext_v4hi((__v4hi)a, (int)n)
+  ((int)__builtin_ia32_vec_ext_v4hi((__v4hi)a, (int)n))
 
 /// Copies data from the 64-bit vector of [4 x i16] to the destination,
 ///    and inserts the lower 16-bits of an integer operand at the 16-bit offset
@@ -2212,7 +2216,7 @@ void _mm_sfence(void);
 /// \returns A 64-bit integer vector containing the copied packed data from the
 ///    operands.
 #define _mm_insert_pi16(a, d, n) \
-  (__m64)__builtin_ia32_vec_set_v4hi((__v4hi)a, (int)d, (int)n)
+  ((__m64)__builtin_ia32_vec_set_v4hi((__v4hi)a, (int)d, (int)n))
 
 /// Compares each of the corresponding packed 16-bit integer values of
 ///    the 64-bit integer vectors, and writes the greater value to the
@@ -2359,7 +2363,7 @@ _mm_mulhi_pu16(__m64 __a, __m64 __b)
 ///    11: assigned from bits [63:48] of \a a.
 /// \returns A 64-bit integer vector containing the shuffled values.
 #define _mm_shuffle_pi16(a, n) \
-  (__m64)__builtin_ia32_pshufw((__v4hi)(__m64)(a), (n))
+  ((__m64)__builtin_ia32_pshufw((__v4hi)(__m64)(a), (n)))
 
 /// Conditionally copies the values from each 8-bit element in the first
 ///    64-bit integer vector operand to the specified memory location, as
@@ -2601,8 +2605,8 @@ void _mm_setcsr(unsigned int __i);
 ///    11: Bits [127:96] copied from the specified operand.
 /// \returns A 128-bit vector of [4 x float] containing the shuffled values.
 #define _mm_shuffle_ps(a, b, mask) \
-  (__m128)__builtin_ia32_shufps((__v4sf)(__m128)(a), (__v4sf)(__m128)(b), \
-                                (int)(mask))
+  ((__m128)__builtin_ia32_shufps((__v4sf)(__m128)(a), (__v4sf)(__m128)(b), \
+                                 (int)(mask)))
 
 /// Unpacks the high-order (index 2,3) values from two 128-bit vectors of
 ///    [4 x float] and interleaves them into a 128-bit vector of [4 x float].
