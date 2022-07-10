@@ -731,7 +731,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
         break :blk result;
     };
     const arena = result.arena.allocator();
-    errdefer result.arena.deinit();
+    errdefer result.deinit();
 
     if (builtin.target.os.tag == .windows or builtin.link_libc) {
         const name_c = try std.cstr.addNullByte(allocator, name);
