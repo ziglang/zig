@@ -526,6 +526,9 @@ pub const AllErrors = struct {
             Message.HashContext,
             std.hash_map.default_max_load_percentage,
         ).init(allocator);
+        const err_source = try module_err_msg.src_loc.file_scope.getSource(module.gpa);
+        const err_byte_offset = try module_err_msg.src_loc.byteOffset(module.gpa);
+        const err_loc = std.zig.findLineColumn(err_source.bytes, err_byte_offset);
 
         for (module_err_msg.notes) |module_note| {
             const source = try module_note.src_loc.file_scope.getSource(module.gpa);
@@ -540,7 +543,7 @@ pub const AllErrors = struct {
                     .byte_offset = byte_offset,
                     .line = @intCast(u32, loc.line),
                     .column = @intCast(u32, loc.column),
-                    .source_line = try allocator.dupe(u8, loc.source_line),
+                    .source_line = if (err_loc.eql(loc)) null else try allocator.dupe(u8, loc.source_line),
                 },
             };
             const gop = try seen_notes.getOrPut(note);
@@ -558,19 +561,16 @@ pub const AllErrors = struct {
             });
             return;
         }
-        const source = try module_err_msg.src_loc.file_scope.getSource(module.gpa);
-        const byte_offset = try module_err_msg.src_loc.byteOffset(module.gpa);
-        const loc = std.zig.findLineColumn(source.bytes, byte_offset);
         const file_path = try module_err_msg.src_loc.file_scope.fullPath(allocator);
         try errors.append(.{
             .src = .{
                 .src_path = file_path,
                 .msg = try allocator.dupe(u8, module_err_msg.msg),
-                .byte_offset = byte_offset,
-                .line = @intCast(u32, loc.line),
-                .column = @intCast(u32, loc.column),
+                .byte_offset = err_byte_offset,
+                .line = @intCast(u32, err_loc.line),
+                .column = @intCast(u32, err_loc.column),
                 .notes = notes_buf[0..note_i],
-                .source_line = try allocator.dupe(u8, loc.source_line),
+                .source_line = try allocator.dupe(u8, err_loc.source_line),
             },
         });
     }
