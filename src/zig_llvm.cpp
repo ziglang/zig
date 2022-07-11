@@ -1134,6 +1134,7 @@ void ZigLLVMAddModuleDebugInfoFlag(LLVMModuleRef module) {
 }
 
 void ZigLLVMAddModuleCodeViewFlag(LLVMModuleRef module) {
+    unwrap(module)->addModuleFlag(Module::Warning, "Debug Info Version", DEBUG_METADATA_VERSION);
     unwrap(module)->addModuleFlag(Module::Warning, "CodeView", 1);
 }
 
