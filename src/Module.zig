@@ -3335,6 +3335,15 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
                 .parent_decl_node = 0,
                 .lazy = .{ .byte_abs = token_starts[file.tree.errors[2].token] },
             }, err_msg, "field after declarations here", .{});
+        } else if (parse_err.tag == .c_style_container) {
+            const note = file.tree.errors[1];
+            try mod.errNoteNonLazy(.{
+                .file_scope = file,
+                .parent_decl_node = 0,
+                .lazy = .{ .byte_abs = token_starts[note.token] },
+            }, err_msg, "to declare a container do 'const {s} = {s}'", .{
+                file.tree.tokenSlice(note.token), note.extra.expected_tag.symbol(),
+            });
         }
 
         {
