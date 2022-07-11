@@ -43,7 +43,7 @@ prev_refresh_timestamp: u64 = undefined,
 
 /// This buffer represents the maximum number of bytes written to the terminal
 /// with each refresh.
-output_buffer: [100]u8 = undefined,
+output_buffer_slice: [100]u8 = undefined,
 
 /// How many nanoseconds between writing updates to the terminal.
 refresh_rate_ns: u64 = 50 * std.time.ns_per_ms,
@@ -204,8 +204,8 @@ fn refreshWithHeldLock(self: *Progress) void {
         // `columns_written` cells to the left, then clear the rest of the
         // line
         if (self.supports_ansi_escape_codes) {
-            end += (std.fmt.bufPrint(self.output_buffer[end..], "\x1b[{d}D", .{self.columns_written}) catch unreachable).len;
-            end += (std.fmt.bufPrint(self.output_buffer[end..], "\x1b[0K", .{}) catch unreachable).len;
+            end += (std.fmt.bufPrint(self.output_buffer_slice[end..], "\x1b[{d}D", .{self.columns_written}) catch unreachable).len;
+            end += (std.fmt.bufPrint(self.output_buffer_slice[end..], "\x1b[0K", .{}) catch unreachable).len;
         } else if (builtin.os.tag == .windows) winapi: {
             std.debug.assert(self.is_windows_terminal);
 
@@ -247,7 +247,7 @@ fn refreshWithHeldLock(self: *Progress) void {
                 unreachable;
         } else {
             // we are in a "dumb" terminal like in acme or writing to a file
-            self.output_buffer[end] = '\n';
+            self.output_buffer_slice[end] = '\n';
             end += 1;
         }
 
@@ -287,7 +287,7 @@ fn refreshWithHeldLock(self: *Progress) void {
         }
     }
 
-    _ = file.write(self.output_buffer[0..end]) catch {
+    _ = file.write(self.output_buffer_slice[0..end]) catch {
         // Stop trying to write to this file once it errors.
         self.terminal = null;
     };
@@ -310,16 +310,16 @@ pub fn log(self: *Progress, comptime format: []const u8, args: anytype) void {
 }
 
 fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: anytype) void {
-    if (std.fmt.bufPrint(self.output_buffer[end.*..], format, args)) |written| {
+    if (std.fmt.bufPrint(self.output_buffer_slice[end.*..], format, args)) |written| {
         const amt = written.len;
         end.* += amt;
         self.columns_written += amt;
     } else |err| switch (err) {
         error.NoSpaceLeft => {
-            self.columns_written += self.output_buffer.len - end.*;
-            end.* = self.output_buffer.len;
+            self.columns_written += self.output_buffer_slice.len - end.*;
+            end.* = self.output_buffer_slice.len;
             const suffix = "... ";
-            std.mem.copy(u8, self.output_buffer[self.output_buffer.len - suffix.len ..], suffix);
+            std.mem.copy(u8, self.output_buffer_slice[self.output_buffer_slice.len - suffix.len ..], suffix);
         },
     }
 }
