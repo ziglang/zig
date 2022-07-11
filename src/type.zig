@@ -3935,7 +3935,6 @@ pub const Type = extern union {
 
     /// Returns true if the type is optional and would be lowered to a single pointer
     /// address value, using 0 for null. Note that this returns true for C pointers.
-    /// See also `hasOptionalRepr`.
     pub fn isPtrLikeOptional(self: Type) bool {
         switch (self.tag()) {
             .optional_single_const_pointer,
@@ -4627,6 +4626,14 @@ pub const Type = extern union {
             .function => self.castTag(.function).?.data.cc,
 
             else => unreachable,
+        };
+    }
+
+    /// Asserts the type is a function.
+    pub fn fnCallingConventionAllowsZigTypes(self: Type) bool {
+        return switch (self.fnCallingConvention()) {
+            .Unspecified, .Async, .Inline, .PtxKernel => true,
+            else => false,
         };
     }
 
