@@ -5244,7 +5244,7 @@ pub const FuncGen = struct {
         const operand_ty = self.air.typeOf(pl_op.operand);
         const name = self.air.nullTerminatedString(pl_op.payload);
 
-        if (needDbgVarWorkaround(self.dg, operand_ty)) {
+        if (needDbgVarWorkaround(self.dg)) {
             return null;
         }
 
@@ -6988,7 +6988,7 @@ pub const FuncGen = struct {
 
         const inst_ty = self.air.typeOfIndex(inst);
         if (self.dg.object.di_builder) |dib| {
-            if (needDbgVarWorkaround(self.dg, inst_ty)) {
+            if (needDbgVarWorkaround(self.dg)) {
                 return arg_val;
             }
 
@@ -9255,13 +9255,11 @@ const AnnotatedDITypePtr = enum(usize) {
 const lt_errors_fn_name = "__zig_lt_errors_len";
 
 /// Without this workaround, LLVM crashes with "unknown codeview register H1"
-/// TODO use llvm-reduce and file upstream LLVM bug for this.
-fn needDbgVarWorkaround(dg: *DeclGen, ty: Type) bool {
-    if (ty.tag() == .f16) {
-        const target = dg.module.getTarget();
-        if (target.os.tag == .windows and target.cpu.arch == .aarch64) {
-            return true;
-        }
+/// https://github.com/llvm/llvm-project/issues/56484
+fn needDbgVarWorkaround(dg: *DeclGen) bool {
+    const target = dg.module.getTarget();
+    if (target.os.tag == .windows and target.cpu.arch == .aarch64) {
+        return true;
     }
     return false;
 }
