@@ -1688,7 +1688,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .no_builtin = options.no_builtin,
             .allow_shlib_undefined = options.linker_allow_shlib_undefined,
             .bind_global_refs_locally = options.linker_bind_global_refs_locally orelse false,
-            .compress_debug_sections = options.linker_compress_debug_sections,
+            .compress_debug_sections = options.linker_compress_debug_sections orelse .none,
             .import_memory = options.linker_import_memory orelse false,
             .import_table = options.linker_import_table,
             .export_table = options.linker_export_table,
@@ -2461,7 +2461,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.add(comp.bin_file.options.z_now);
     man.hash.add(comp.bin_file.options.z_relro);
     man.hash.add(comp.bin_file.options.hash_style);
-    man.hash.addOptional(comp.bin_file.options.compress_debug_sections);
+    man.hash.add(comp.bin_file.options.compress_debug_sections);
     man.hash.add(comp.bin_file.options.include_compiler_rt);
     if (comp.bin_file.options.link_libc) {
         man.hash.add(comp.bin_file.options.libc_installation != null);
