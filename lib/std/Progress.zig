@@ -17,6 +17,7 @@ const windows = std.os.windows;
 const testing = std.testing;
 const assert = std.debug.assert;
 const os = std.os;
+const time = std.time;
 const Progress = @This();
 
 /// `null` if the current node (and its children) should
@@ -41,7 +42,7 @@ root: Node = undefined,
 
 /// Keeps track of how much time has passed since the beginning.
 /// Used to compare with `initial_delay_ms` and `refresh_rate_ms`.
-timer: ?std.time.Timer = null,
+timer: ?time.Timer = null,
 
 /// When the previous refresh was written to the terminal.
 /// Used to compare with `refresh_rate_ms`.
@@ -59,10 +60,10 @@ output_buffer_slice: []u8 = undefined,
 max_width: ?usize = null,
 
 /// How many nanoseconds between writing updates to the terminal.
-refresh_rate_ns: u64 = 50 * std.time.ns_per_ms,
+refresh_rate_ns: u64 = 50 * time.ns_per_ms,
 
 /// How many nanoseconds to keep the output hidden.
-initial_delay_ns: u64 = 500 * std.time.ns_per_ms,
+initial_delay_ns: u64 = 500 * time.ns_per_ms,
 
 done: bool = true,
 
@@ -196,7 +197,7 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *N
     };
     self.columns_written = 0;
     self.prev_refresh_timestamp = 0;
-    self.timer = std.time.Timer.start() catch null;
+    self.timer = time.Timer.start() catch null;
     self.done = false;
     return &self.root;
 }
@@ -432,19 +433,17 @@ test "behavior on buffer overflow" {
     const long_string = "A" ** 300;
     var node = progress.start(long_string, 0);
 
-    const speed_factor = std.time.ns_per_s / 4;
+    const speed_factor = time.ns_per_s / 4;
 
-    std.time.sleep(speed_factor);
+    time.sleep(speed_factor);
     node.activate();
-    std.time.sleep(speed_factor);
+    time.sleep(speed_factor);
     node.end();
 }
 
 test "multiple tasks with long names" {
     if (skip_tests)
         return error.SkipZigTest;
-
-    const time = std.time;
 
     var progress = Progress{};
 
@@ -482,7 +481,7 @@ test "basic functionality" {
     const root_node = progress.start("", 100);
     defer root_node.end();
 
-    const speed_factor = std.time.ns_per_ms;
+    const speed_factor = time.ns_per_ms;
 
     const sub_task_names = [_][]const u8{
         "reticulating splines",
@@ -499,24 +498,24 @@ test "basic functionality" {
         next_sub_task = (next_sub_task + 1) % sub_task_names.len;
 
         node.completeOne();
-        std.time.sleep(5 * speed_factor);
+        time.sleep(5 * speed_factor);
         node.completeOne();
         node.completeOne();
-        std.time.sleep(5 * speed_factor);
+        time.sleep(5 * speed_factor);
         node.completeOne();
         node.completeOne();
-        std.time.sleep(5 * speed_factor);
+        time.sleep(5 * speed_factor);
 
         node.end();
 
-        std.time.sleep(5 * speed_factor);
+        time.sleep(5 * speed_factor);
     }
     {
         var node = root_node.start("this is a really long name designed to activate the truncation code. let's find out if it works", 0);
         node.activate();
-        std.time.sleep(10 * speed_factor);
+        time.sleep(10 * speed_factor);
         progress.refresh();
-        std.time.sleep(10 * speed_factor);
+        time.sleep(10 * speed_factor);
         node.end();
     }
 }
