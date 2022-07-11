@@ -473,6 +473,28 @@ test "multiple tasks with long names" {
     }
 }
 
+test "very short max width" {
+    if (skip_tests)
+        return error.SkipZigTest;
+
+    var progress = Progress{ .max_width = 4 };
+
+    const task = "A" ** 300;
+
+    const speed_factor = time.ns_per_s / 2;
+
+    var node = progress.start(task, 3);
+    time.sleep(speed_factor);
+    node.activate();
+
+    time.sleep(speed_factor);
+    node.completeOne();
+    time.sleep(speed_factor);
+    node.completeOne();
+
+    node.end();
+}
+
 test "basic functionality" {
     if (skip_tests)
         return error.SkipZigTest;
