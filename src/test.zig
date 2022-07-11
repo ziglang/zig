@@ -1542,6 +1542,7 @@ pub const TestContext = struct {
             .emit_h = emit_h,
             .main_pkg = &main_pkg,
             .keep_source_files_loaded = true,
+            .quiet = false,
             .is_native_os = case.target.isNativeOs(),
             .is_native_abi = case.target.isNativeAbi(),
             .dynamic_linker = target_info.dynamic_linker.get(),

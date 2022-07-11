@@ -1095,6 +1095,7 @@ fn buildSharedLib(
         .want_tsan = false,
         .emit_h = null,
         .strip = comp.compilerRtStrip(),
+        .quiet = comp.quiet,
         .is_native_os = false,
         .is_native_abi = false,
         .self_exe_path = comp.self_exe_path,

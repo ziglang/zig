@@ -326,6 +326,7 @@ const usage_build_generic =
     \\
     \\General Options:
     \\  -h, --help                Print this help and exit
+    \\  -q, --quiet               Disable progress output during compilation
     \\  --watch                   Enable compiler REPL
     \\  --color [auto|off|on]     Enable or disable colored error messages
     \\  -femit-bin[=path]         (default) Output machine code
@@ -634,6 +635,7 @@ fn buildOutputType(
     var strip: ?bool = null;
     var function_sections = false;
     var no_builtin = false;
+    var quiet = false;
     var watch = false;
     var debug_compile_errors = false;
     var verbose_link = std.process.hasEnvVarConstant("ZIG_VERBOSE_LINK");
@@ -916,6 +918,8 @@ fn buildOutputType(
                             if (mem.eql(u8, next_arg, "--")) break;
                             try extra_cflags.append(next_arg);
                         }
+                    } else if (mem.eql(u8, arg, "-q") or mem.eql(u8, arg, "--quiet")) {
+                        quiet = true;
                     } else if (mem.eql(u8, arg, "--color")) {
                         const next_arg = args_iter.next() orelse {
                             fatal("expected [auto|on|off] after --color", .{});
@@ -2928,6 +2932,7 @@ fn buildOutputType(
         .verbose_cimport = verbose_cimport,
         .verbose_llvm_cpu_features = verbose_llvm_cpu_features,
         .machine_code_model = machine_code_model,
+        .quiet = quiet,
         .color = color,
         .time_report = time_report,
         .stack_report = stack_report,
@@ -3713,6 +3718,7 @@ pub const usage_build =
 pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var prominent_compile_errors: bool = false;
     var use_stage1: ?bool = null;
+    var quiet: bool = false;
 
     // We want to release all the locks before executing the child process, so we make a nice
     // big block here to ensure the cleanup gets run when we extract out our argv.
@@ -3779,6 +3785,8 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                         try child_argv.append(arg);
                     } else if (mem.eql(u8, arg, "-fno-reference-trace")) {
                         try child_argv.append(arg);
+                    } else if (mem.eql(u8, arg, "-q") or mem.eql(u8, arg, "--quiet")) {
+                        quiet = true;
                     }
                 }
                 try child_argv.append(arg);
@@ -3907,6 +3915,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .main_pkg = &main_pkg,
             .emit_bin = emit_bin,
             .emit_h = null,
+            .quiet = quiet,
             .optimize_mode = .Debug,
             .self_exe_path = self_exe_path,
             .thread_pool = &thread_pool,

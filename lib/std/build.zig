@@ -44,6 +44,7 @@ pub const Builder = struct {
     verbose_llvm_cpu_features: bool,
     /// The purpose of executing the command is for a human to read compile errors from the terminal
     prominent_compile_errors: bool,
+    quiet: bool,
     color: enum { auto, on, off } = .auto,
     reference_trace: ?u32 = null,
     use_stage1: ?bool = null,
@@ -188,6 +189,7 @@ pub const Builder = struct {
             .verbose_cimport = false,
             .verbose_llvm_cpu_features = false,
             .prominent_compile_errors = false,
+            .quiet = false,
             .invalid_user_input = false,
             .allocator = allocator,
             .user_input_options = UserInputOptionsMap.init(allocator),
@@ -2448,6 +2450,10 @@ pub const LibExeObjStep = struct {
             .test_exe => "test",
         };
         zig_args.append(cmd) catch unreachable;
+
+        if (builder.quiet) {
+            try zig_args.append("-q");
+        }
 
         if (builder.color != .auto) {
             try zig_args.append("--color");

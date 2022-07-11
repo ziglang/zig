@@ -122,6 +122,8 @@ pub fn main() !void {
                     return usageAndErr(builder, false, stderr_stream);
                 };
                 builder.libc_file = libc_file;
+            } else if (mem.eql(u8, arg, "-q") or mem.eql(u8, arg, "--quiet")) {
+                builder.quiet = true;
             } else if (mem.eql(u8, arg, "--color")) {
                 const next_arg = nextArg(args, &arg_idx) orelse {
                     std.debug.print("expected [auto|on|off] after --color", .{});
@@ -285,6 +287,7 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void 
         \\                               Windows programs on Linux hosts. (default: no)
         \\
         \\  -h, --help                   Print this help and exit
+        \\  -q, --quiet                  Disable progress output during compilation
         \\  --verbose                    Print commands before executing them
         \\  --color [auto|off|on]        Enable or disable colored error messages
         \\  --prominent-compile-errors   Output compile errors formatted for a human to read

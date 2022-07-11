@@ -150,6 +150,8 @@ crt_files: std.StringHashMapUnmanaged(CRTFile) = .{},
 /// Keeping track of this possibly open resource so we can close it later.
 owned_link_dir: ?std.fs.Dir,
 
+quiet: bool,
+
 /// This is for stage1 and should be deleted upon completion of self-hosting.
 /// Don't use this for anything other than stage1 compatibility.
 color: Color = .auto,
@@ -987,6 +989,7 @@ pub const InitOptions = struct {
     libc_installation: ?*const LibCInstallation = null,
     machine_code_model: std.builtin.CodeModel = .default,
     clang_preprocessor_mode: ClangPreprocessorMode = .no,
+    quiet: bool,
     /// This is for stage1 and should be deleted upon completion of self-hosting.
     color: Color = .auto,
     reference_trace: ?u32 = null,
@@ -1898,6 +1901,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .verbose_llvm_cpu_features = options.verbose_llvm_cpu_features,
             .disable_c_depfile = options.disable_c_depfile,
             .owned_link_dir = owned_link_dir,
+            .quiet = options.quiet,
             .color = options.color,
             .reference_trace = options.reference_trace,
             .time_report = options.time_report,
@@ -2320,7 +2324,9 @@ pub fn update(comp: *Compilation) !void {
     var progress: std.Progress = .{ .dont_print_on_dumb = true };
     const main_progress_node = progress.start("", 0);
     defer main_progress_node.end();
-    if (comp.color == .off) progress.terminal = null;
+    if (comp.quiet)
+        // Disable progress output entirely
+        progress.terminal = null;
 
     try comp.performAllTheWork(main_progress_node);
 
@@ -5177,6 +5183,7 @@ fn buildOutputFromZig(
         .want_pie = comp.bin_file.options.pie,
         .emit_h = null,
         .strip = comp.compilerRtStrip(),
+        .quiet = comp.quiet,
         .is_native_os = comp.bin_file.options.is_native_os,
         .is_native_abi = comp.bin_file.options.is_native_abi,
         .self_exe_path = comp.self_exe_path,
@@ -5460,6 +5467,7 @@ pub fn build_crt_file(
             .Lib => comp.bin_file.options.lto,
             .Obj, .Exe => false,
         },
+        .quiet = comp.quiet,
         .emit_h = null,
         .strip = comp.compilerRtStrip(),
         .is_native_os = comp.bin_file.options.is_native_os,
