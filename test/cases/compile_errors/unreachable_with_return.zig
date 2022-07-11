@@ -5,4 +5,5 @@ export fn entry() void { a(); }
 // backend=stage2
 // target=native
 //
-// :1:18: error: expected type 'noreturn', found 'void'
+// :1:18: error: function declared 'noreturn' returns
+// :1:8: note: 'noreturn' declared here

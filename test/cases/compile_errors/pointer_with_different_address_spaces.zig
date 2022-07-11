@@ -12,3 +12,4 @@ export fn entry2() void {
 //
 // :2:12: error: expected type '*addrspace(.fs) i32', found '*addrspace(.gs) i32'
 // :2:12: note: address space 'gs' cannot cast into address space 'fs'
+// :1:34: note: function return type declared here

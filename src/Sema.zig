@@ -4135,23 +4135,24 @@ fn zirStoreNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!v
     const ptr = try sema.resolveInst(extra.lhs);
     const operand = try sema.resolveInst(extra.rhs);
 
+    const is_ret = if (Zir.refToIndex(extra.lhs)) |ptr_index|
+        zir_tags[ptr_index] == .ret_ptr
+    else
+        false;
+
     // Check for the possibility of this pattern:
     //   %a = ret_ptr
     //   %b = store(%a, %c)
     // Where %c is an error union or error set. In such case we need to add
     // to the current function's inferred error set, if any.
-    if ((sema.typeOf(operand).zigTypeTag() == .ErrorUnion or
+    if (is_ret and (sema.typeOf(operand).zigTypeTag() == .ErrorUnion or
         sema.typeOf(operand).zigTypeTag() == .ErrorSet) and
         sema.fn_ret_ty.zigTypeTag() == .ErrorUnion)
     {
-        if (Zir.refToIndex(extra.lhs)) |ptr_index| {
-            if (zir_tags[ptr_index] == .ret_ptr) {
-                try sema.addToInferredErrorSet(operand);
-            }
-        }
+        try sema.addToInferredErrorSet(operand);
     }
 
-    return sema.storePtr(block, src, ptr, operand);
+    return sema.storePtr2(block, src, ptr, src, operand, src, if (is_ret) .ret_ptr else .store);
 }
 
 fn zirParamType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -5543,7 +5544,7 @@ fn analyzeCall(
             try sema.resolveBody(&child_block, fn_info.ret_ty_body, module_fn.zir_body_inst)
         else
             try sema.resolveInst(fn_info.ret_ty_ref);
-        const ret_ty_src = func_src; // TODO better source location
+        const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = 0 };
         const bare_return_type = try sema.analyzeAsType(&child_block, ret_ty_src, ret_ty_inst);
         // Create a fresh inferred error set type for inline/comptime calls.
         const fn_ret_ty = blk: {
@@ -6885,7 +6886,7 @@ fn zirFunc(
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Func, inst_data.payload_index);
     const target = sema.mod.getTarget();
-    const ret_ty_src = inst_data.src(); // TODO better source location
+    const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = inst_data.src_node };
 
     var extra_index = extra.end;
 
@@ -7467,13 +7468,20 @@ fn analyzeAs(
     zir_dest_type: Zir.Inst.Ref,
     zir_operand: Zir.Inst.Ref,
 ) CompileError!Air.Inst.Ref {
+    const is_ret = if (Zir.refToIndex(zir_dest_type)) |ptr_index|
+        sema.code.instructions.items(.tag)[ptr_index] == .ret_type
+    else
+        false;
     const dest_ty = try sema.resolveType(block, src, zir_dest_type);
     const operand = try sema.resolveInst(zir_operand);
     if (dest_ty.tag() == .var_args_param) return operand;
     if (dest_ty.zigTypeTag() == .NoReturn) {
         return sema.fail(block, src, "cannot cast to noreturn", .{});
     }
-    return sema.coerce(block, dest_ty, operand, src);
+    return sema.coerceExtra(block, dest_ty, operand, src, true, is_ret) catch |err| switch (err) {
+        error.NotCoercible => unreachable,
+        else => |e| return e,
+    };
 }
 
 fn zirPtrToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -13656,7 +13664,10 @@ fn analyzeRet(
     if (sema.fn_ret_ty.zigTypeTag() == .ErrorUnion) {
         try sema.addToInferredErrorSet(uncasted_operand);
     }
-    const operand = try sema.coerce(block, sema.fn_ret_ty, uncasted_operand, src);
+    const operand = sema.coerceExtra(block, sema.fn_ret_ty, uncasted_operand, src, true, true) catch |err| switch (err) {
+        error.NotCoercible => unreachable,
+        else => |e| return e,
+    };
 
     if (block.inlining) |inlining| {
         if (block.is_comptime) {
@@ -19869,7 +19880,7 @@ fn coerce(
     inst: Air.Inst.Ref,
     inst_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
-    return sema.coerceExtra(block, dest_ty_unresolved, inst, inst_src, true) catch |err| switch (err) {
+    return sema.coerceExtra(block, dest_ty_unresolved, inst, inst_src, true, false) catch |err| switch (err) {
         error.NotCoercible => unreachable,
         else => |e| return e,
     };
@@ -19888,6 +19899,7 @@ fn coerceExtra(
     inst: Air.Inst.Ref,
     inst_src: LazySrcLoc,
     report_err: bool,
+    is_ret: bool,
 ) CoersionError!Air.Inst.Ref {
     switch (dest_ty_unresolved.tag()) {
         .var_args_param => return sema.coerceVarArgParam(block, inst, inst_src),
@@ -19939,7 +19951,7 @@ fn coerceExtra(
 
             // T to ?T
             const child_type = try dest_ty.optionalChildAlloc(sema.arena);
-            const intermediate = sema.coerceExtra(block, child_type, inst, inst_src, false) catch |err| switch (err) {
+            const intermediate = sema.coerceExtra(block, child_type, inst, inst_src, false, is_ret) catch |err| switch (err) {
                 error.NotCoercible => {
                     if (in_memory_result == .no_match) {
                         // Try to give more useful notes
@@ -20056,7 +20068,7 @@ fn coerceExtra(
                         return sema.addConstant(dest_ty, Value.@"null");
                     },
                     .ComptimeInt => {
-                        const addr = sema.coerceExtra(block, Type.usize, inst, inst_src, false) catch |err| switch (err) {
+                        const addr = sema.coerceExtra(block, Type.usize, inst, inst_src, false, is_ret) catch |err| switch (err) {
                             error.NotCoercible => break :pointer,
                             else => |e| return e,
                         };
@@ -20067,7 +20079,7 @@ fn coerceExtra(
                             .signed => Type.isize,
                             .unsigned => Type.usize,
                         };
-                        const addr = sema.coerceExtra(block, ptr_size_ty, inst, inst_src, false) catch |err| switch (err) {
+                        const addr = sema.coerceExtra(block, ptr_size_ty, inst, inst_src, false, is_ret) catch |err| switch (err) {
                             error.NotCoercible => {
                                 // Try to give more useful notes
                                 in_memory_result = try sema.coerceInMemoryAllowed(block, ptr_size_ty, inst_ty, false, target, dest_ty_src, inst_src);
@@ -20414,6 +20426,19 @@ fn coerceExtra(
 
     if (!report_err) return error.NotCoercible;
 
+    if (is_ret and dest_ty.zigTypeTag() == .NoReturn) {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, inst_src, "function declared 'noreturn' returns", .{});
+            errdefer msg.destroy(sema.gpa);
+
+            const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = 0 };
+            const src_decl = sema.mod.declPtr(sema.func.?.owner_decl);
+            try sema.mod.errNoteNonLazy(ret_ty_src.toSrcLoc(src_decl), msg, "'noreturn' declared here", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(block, msg);
+    }
+
     const msg = msg: {
         const msg = try sema.errMsg(block, inst_src, "expected type '{}', found '{}'", .{ dest_ty.fmt(sema.mod), inst_ty.fmt(sema.mod) });
         errdefer msg.destroy(sema.gpa);
@@ -20436,6 +20461,20 @@ fn coerceExtra(
         }
 
         try in_memory_result.report(sema, block, inst_src, msg);
+
+        // Add notes about function return type
+        if (is_ret and sema.mod.test_functions.get(sema.func.?.owner_decl) == null) {
+            const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = 0 };
+            const src_decl = sema.mod.declPtr(sema.func.?.owner_decl);
+            if (inst_ty.isError() and !dest_ty.isError()) {
+                try sema.mod.errNoteNonLazy(ret_ty_src.toSrcLoc(src_decl), msg, "function cannot return an error", .{});
+            } else {
+                try sema.mod.errNoteNonLazy(ret_ty_src.toSrcLoc(src_decl), msg, "function return type declared here", .{});
+            }
+        }
+
+        // TODO maybe add "cannot store an error in type '{}'" note
+
         break :msg msg;
     };
     return sema.failWithOwnedErrorMsg(block, msg);
@@ -21372,6 +21411,8 @@ fn storePtr2(
     // TODO do the same thing for anon structs as for tuples above.
     // However, beware of the need to handle missing/extra fields.
 
+    const is_ret = air_tag == .ret_ptr;
+
     // Detect if we are storing an array operand to a bitcasted vector pointer.
     // If so, we instead reach through the bitcasted pointer to the vector pointer,
     // bitcast the array operand to a vector, and then lower this as a store of
@@ -21380,12 +21421,18 @@ fn storePtr2(
     // https://github.com/ziglang/zig/issues/11154
     if (sema.obtainBitCastedVectorPtr(ptr)) |vector_ptr| {
         const vector_ty = sema.typeOf(vector_ptr).childType();
-        const vector = try sema.coerce(block, vector_ty, uncasted_operand, operand_src);
+        const vector = sema.coerceExtra(block, vector_ty, uncasted_operand, operand_src, true, is_ret) catch |err| switch (err) {
+            error.NotCoercible => unreachable,
+            else => |e| return e,
+        };
         try sema.storePtr2(block, src, vector_ptr, ptr_src, vector, operand_src, .store);
         return;
     }
 
-    const operand = try sema.coerce(block, elem_ty, uncasted_operand, operand_src);
+    const operand = sema.coerceExtra(block, elem_ty, uncasted_operand, operand_src, true, is_ret) catch |err| switch (err) {
+        error.NotCoercible => unreachable,
+        else => |e| return e,
+    };
     const maybe_operand_val = try sema.resolveMaybeUndefVal(block, operand_src, operand);
 
     const runtime_src = if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |ptr_val| rs: {
@@ -21415,7 +21462,11 @@ fn storePtr2(
 
     try sema.requireRuntimeBlock(block, runtime_src);
     try sema.queueFullTypeResolution(elem_ty);
-    _ = try block.addBinOp(air_tag, ptr, operand);
+    if (is_ret) {
+        _ = try block.addBinOp(.store, ptr, operand);
+    } else {
+        _ = try block.addBinOp(air_tag, ptr, operand);
+    }
 }
 
 /// Traverse an arbitrary number of bitcasted pointers and return the underyling vector
