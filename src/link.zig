@@ -123,6 +123,7 @@ pub const Options = struct {
     nxcompat: bool,
     dynamicbase: bool,
     linker_optimization: u8,
+    compress_debug_sections: CompressDebugSections,
     bind_global_refs_locally: bool,
     import_memory: bool,
     import_table: bool,
@@ -218,6 +219,8 @@ pub const Options = struct {
 };
 
 pub const HashStyle = enum { sysv, gnu, both };
+
+pub const CompressDebugSections = enum { none, zlib };
 
 pub const File = struct {
     tag: Tag,

@@ -1351,6 +1351,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         link.hashAddSystemLibs(&man.hash, self.base.options.system_libs);
         man.hash.add(allow_shlib_undefined);
         man.hash.add(self.base.options.bind_global_refs_locally);
+        man.hash.add(self.base.options.compress_debug_sections);
         man.hash.add(self.base.options.tsan);
         man.hash.addOptionalBytes(self.base.options.sysroot);
         man.hash.add(self.base.options.linker_optimization);
@@ -1752,6 +1753,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
 
         if (allow_shlib_undefined) {
             try argv.append("--allow-shlib-undefined");
+        }
+
+        switch (self.base.options.compress_debug_sections) {
+            .none => {},
+            .zlib => try argv.append("--compress-debug-sections=zlib"),
         }
 
         if (self.base.options.bind_global_refs_locally) {

@@ -443,6 +443,9 @@ const usage_build_generic =
     \\  -dynamic                       Force output to be dynamically linked
     \\  -static                        Force output to be statically linked
     \\  -Bsymbolic                     Bind global references locally
+    \\  --compress-debug-sections=[e]  Debug section compression settings
+    \\      none                       No compression
+    \\      zlib                       Compression with deflate/inflate
     \\  --subsystem [subsystem]        (Windows) /SUBSYSTEM:<subsystem> to the linker
     \\  --stack [size]                 Override default stack size
     \\  --image-base [addr]            Set base address for executable image
@@ -657,6 +660,7 @@ fn buildOutputType(
     var version_script: ?[]const u8 = null;
     var disable_c_depfile = false;
     var linker_gc_sections: ?bool = null;
+    var linker_compress_debug_sections: ?link.CompressDebugSections = null;
     var linker_allow_shlib_undefined: ?bool = null;
     var linker_bind_global_refs_locally: ?bool = null;
     var linker_import_memory: ?bool = null;
@@ -938,6 +942,13 @@ fn buildOutputType(
                         install_name = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
                         };
+                    } else if (mem.startsWith(u8, arg, "--compress-debug-sections=")) {
+                        const param = arg["--compress-debug-sections=".len..];
+                        linker_compress_debug_sections = std.meta.stringToEnum(link.CompressDebugSections, param) orelse {
+                            fatal("expected --compress-debug-sections=[none|zlib], found '{s}'", .{param});
+                        };
+                    } else if (mem.eql(u8, arg, "--compress-debug-sections")) {
+                        linker_compress_debug_sections = link.CompressDebugSections.zlib;
                     } else if (mem.eql(u8, arg, "-pagezero_size")) {
                         const next_arg = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
@@ -1640,6 +1651,15 @@ fn buildOutputType(
                     .weak_library => try system_libs.put(it.only_arg, .{ .weak = true }),
                     .weak_framework => try frameworks.put(gpa, it.only_arg, .{ .weak = true }),
                     .headerpad_max_install_names => headerpad_max_install_names = true,
+                    .compress_debug_sections => {
+                        if (it.only_arg.len == 0) {
+                            linker_compress_debug_sections = .zlib;
+                        } else {
+                            linker_compress_debug_sections = std.meta.stringToEnum(link.CompressDebugSections, it.only_arg) orelse {
+                                fatal("expected [none|zlib] after --compress-debug-sections, found '{s}'", .{it.only_arg});
+                            };
+                        }
+                    },
                 }
             }
             // Parse linker args.
@@ -1776,6 +1796,15 @@ fn buildOutputType(
                     linker_global_base = parseIntSuffix(arg, "--global-base=".len);
                 } else if (mem.startsWith(u8, arg, "--export=")) {
                     try linker_export_symbol_names.append(arg["--export=".len..]);
+                } else if (mem.eql(u8, arg, "--compress-debug-sections")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    const arg1 = linker_args.items[i];
+                    linker_compress_debug_sections = std.meta.stringToEnum(link.CompressDebugSections, arg1) orelse {
+                        fatal("expected [none|zlib] after --compress-debug-sections, found '{s}'", .{arg1});
+                    };
                 } else if (mem.eql(u8, arg, "-z")) {
                     i += 1;
                     if (i >= linker_args.items.len) {
@@ -2849,6 +2878,7 @@ fn buildOutputType(
         .linker_nxcompat = linker_nxcompat,
         .linker_dynamicbase = linker_dynamicbase,
         .linker_optimization = linker_optimization,
+        .linker_compress_debug_sections = linker_compress_debug_sections,
         .major_subsystem_version = major_subsystem_version,
         .minor_subsystem_version = minor_subsystem_version,
         .link_eh_frame_hdr = link_eh_frame_hdr,
@@ -4599,6 +4629,7 @@ pub const ClangArgIterator = struct {
         weak_library,
         weak_framework,
         headerpad_max_install_names,
+        compress_debug_sections,
     };
 
     const Args = struct {
