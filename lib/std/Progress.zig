@@ -1,10 +1,15 @@
-//! This API non-allocating, non-fallible, and thread-safe.
+//! This is a non-allocating, non-fallible, and thread-safe API for printing
+//! progress indicators to the terminal.
 //! The tradeoff is that users of this API must provide the storage
 //! for each `Progress.Node`.
+//!
+//! This library purposefully keeps its output simple and is ASCII-compatible.
 //!
 //! Initialize the struct directly, overriding these fields as desired:
 //! * `refresh_rate_ms`
 //! * `initial_delay_ms`
+//! * `dont_print_on_dumb`
+//! * `max_width`
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -18,7 +23,7 @@ const Progress = @This();
 /// not print on update()
 terminal: ?std.fs.File = undefined,
 
-/// Is this a windows API terminal (note: this is not the same as being run on windows
+/// Is this a Windows API terminal (note: this is not the same as being run on Windows
 /// because other terminals exist like MSYS/git-bash)
 is_windows_terminal: bool = false,
 
@@ -56,7 +61,7 @@ max_width: ?usize = null,
 /// How many nanoseconds between writing updates to the terminal.
 refresh_rate_ns: u64 = 50 * std.time.ns_per_ms,
 
-/// How many nanoseconds to keep the output hidden
+/// How many nanoseconds to keep the output hidden.
 initial_delay_ns: u64 = 500 * std.time.ns_per_ms,
 
 done: bool = true,
@@ -77,6 +82,7 @@ const truncation_suffix = "... ";
 pub const Node = struct {
     context: *Progress,
     parent: ?*Node,
+    /// The name that will be displayed for this node.
     name: []const u8,
     /// Must be handled atomically to be thread-safe.
     recently_updated_child: ?*Node = null,
@@ -167,6 +173,8 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *N
     }
     if (self.max_width == null) {
         if (self.terminal) |terminal| {
+            // choose an optimal width and account for progress output that could have been printed
+            // before us by another `std.Progress` instance
             const terminal_width = self.getTerminalWidth(terminal.handle) catch 100;
             const chars_already_printed = self.getTerminalCursorColumn(terminal) catch 0;
             self.max_width = terminal_width - chars_already_printed;
@@ -336,34 +344,34 @@ fn refreshWithHeldLock(self: *Progress) void {
     self.output_buffer_slice = self.output_buffer[unprintables .. unprintables + self.max_width.?];
 
     if (!self.done) {
-        var need_ellipse = false;
+        var need_ellipsis = false;
         var maybe_node: ?*Node = &self.root;
         while (maybe_node) |node| {
-            if (need_ellipse) {
+            if (need_ellipsis) {
                 self.bufWrite(&end, "... ", .{});
             }
-            need_ellipse = false;
-            const eti = @atomicLoad(usize, &node.unprotected_estimated_total_items, .Monotonic);
+            need_ellipsis = false;
+            const estimated_total_items = @atomicLoad(usize, &node.unprotected_estimated_total_items, .Monotonic);
             const completed_items = @atomicLoad(usize, &node.unprotected_completed_items, .Monotonic);
             const current_item = completed_items + 1;
-            if (node.name.len != 0 or eti > 0) {
+            if (node.name.len != 0 or estimated_total_items > 0) {
                 if (node.name.len != 0) {
                     self.bufWrite(&end, "{s}", .{node.name});
-                    need_ellipse = true;
+                    need_ellipsis = true;
                 }
-                if (eti > 0) {
-                    if (need_ellipse) self.bufWrite(&end, " ", .{});
-                    self.bufWrite(&end, "[{d}/{d}] ", .{ current_item, eti });
-                    need_ellipse = false;
+                if (estimated_total_items > 0) {
+                    if (need_ellipsis) self.bufWrite(&end, " ", .{});
+                    self.bufWrite(&end, "[{d}/{d}] ", .{ current_item, estimated_total_items });
+                    need_ellipsis = false;
                 } else if (completed_items != 0) {
-                    if (need_ellipse) self.bufWrite(&end, " ", .{});
+                    if (need_ellipsis) self.bufWrite(&end, " ", .{});
                     self.bufWrite(&end, "[{d}] ", .{current_item});
-                    need_ellipse = false;
+                    need_ellipsis = false;
                 }
             }
             maybe_node = @atomicLoad(?*Node, &node.recently_updated_child, .Acquire);
         }
-        if (need_ellipse) {
+        if (need_ellipsis) {
             self.bufWrite(&end, "... ", .{});
         }
     }
