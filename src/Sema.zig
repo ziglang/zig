@@ -18192,6 +18192,7 @@ fn explainWhyTypeIsComptime(
 const ExternPosition = enum {
     ret_ty,
     param_ty,
+    union_field,
     other,
 };
 
@@ -18206,9 +18207,9 @@ fn validateExternType(sema: *Sema, ty: Type, position: ExternPosition) CompileEr
         .ErrorUnion,
         .ErrorSet,
         .BoundFn,
-        .Void,
         .Frame,
         => return false,
+        .Void => return position == .union_field,
         .NoReturn => return position == .ret_ty,
         .Opaque,
         .Bool,
@@ -24193,13 +24194,13 @@ fn resolveUnionFully(
         for (union_obj.fields.values()) |field| {
             try sema.resolveTypeFully(block, src, field.ty);
 
-            if (union_obj.layout == .Extern and !(try sema.validateExternType(field.ty, .other))) {
+            if (union_obj.layout == .Extern and !(try sema.validateExternType(field.ty, .union_field))) {
                 const msg = msg: {
                     const msg = try sema.errMsg(block, src, "extern unions cannot contain fields of type '{}'", .{field.ty.fmt(sema.mod)});
                     errdefer msg.destroy(sema.gpa);
 
                     const src_decl = sema.mod.declPtr(block.src_decl);
-                    try sema.explainWhyTypeIsNotExtern(block, src, msg, src.toSrcLoc(src_decl), field.ty, .other);
+                    try sema.explainWhyTypeIsNotExtern(block, src, msg, src.toSrcLoc(src_decl), field.ty, .union_field);
 
                     try sema.addDeclaredHereNote(msg, field.ty);
                     break :msg msg;
