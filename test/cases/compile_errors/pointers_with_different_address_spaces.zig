@@ -12,3 +12,4 @@ pub fn main() void {
 //
 // :2:13: error: expected type '*i32', found '*addrspace(.gs) i32'
 // :2:13: note: address space 'gs' cannot cast into address space 'generic'
+// :1:35: note: function return type declared here
