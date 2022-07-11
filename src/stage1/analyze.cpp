@@ -2781,7 +2781,7 @@ static Error type_is_valid_extern_enum_tag(CodeGen *g, ZigType *ty, bool *result
 
     // According to the ANSI C standard the enumeration type should be either a
     // signed char, a signed integer or an unsigned one. But GCC/Clang allow
-    // other integral types as a compiler extension so let's accomodate them
+    // other integral types as a compiler extension so let's accommodate them
     // aswell.
     return type_allowed_in_extern(g, ty, ExternPositionOther, result);
 }
