@@ -4802,7 +4802,7 @@ pub const FuncGen = struct {
         const operand_bits = @intCast(u16, operand_scalar_ty.bitSize(target));
         const rt_int_bits = compilerRtIntBits(operand_bits);
         const rt_int_ty = self.context.intType(rt_int_bits);
-        const extended = e: {
+        var extended = e: {
             if (operand_scalar_ty.isSignedInt()) {
                 break :e self.builder.buildSExtOrBitCast(operand, rt_int_ty, "");
             } else {
@@ -4819,7 +4819,16 @@ pub const FuncGen = struct {
             compiler_rt_operand_abbrev,
             compiler_rt_dest_abbrev,
         }) catch unreachable;
-        const param_types = [1]*const llvm.Type{rt_int_ty};
+
+        var param_types = [1]*const llvm.Type{rt_int_ty};
+        if (rt_int_bits == 128 and (target.os.tag == .windows and target.cpu.arch == .x86_64)) {
+            // On Windows x86-64, "ti" functions must use Vector(2, u64) instead of the standard
+            // i128 calling convention to adhere to the ABI that LLVM expects compiler-rt to have.
+            const v2i64 = self.context.intType(64).vectorType(2);
+            extended = self.builder.buildBitCast(extended, v2i64, "");
+            param_types = [1]*const llvm.Type{v2i64};
+        }
+
         const libc_fn = self.getLibcFunction(fn_name, &param_types, dest_llvm_ty);
         const params = [1]*const llvm.Value{extended};
 
@@ -4851,7 +4860,12 @@ pub const FuncGen = struct {
         }
 
         const rt_int_bits = compilerRtIntBits(@intCast(u16, dest_scalar_ty.bitSize(target)));
-        const libc_ret_ty = self.context.intType(rt_int_bits);
+        const ret_ty = self.context.intType(rt_int_bits);
+        const libc_ret_ty = if (rt_int_bits == 128 and (target.os.tag == .windows and target.cpu.arch == .x86_64)) b: {
+            // On Windows x86-64, "ti" functions must use Vector(2, u64) instead of the standard
+            // i128 calling convention to adhere to the ABI that LLVM expects compiler-rt to have.
+            break :b self.context.intType(64).vectorType(2);
+        } else ret_ty;
 
         const operand_bits = operand_scalar_ty.floatBits(target);
         const compiler_rt_operand_abbrev = compilerRtFloatAbbrev(operand_bits);
@@ -4871,13 +4885,11 @@ pub const FuncGen = struct {
         const libc_fn = self.getLibcFunction(fn_name, &param_types, libc_ret_ty);
         const params = [1]*const llvm.Value{operand};
 
-        const result = self.builder.buildCall(libc_fn, &params, params.len, .C, .Auto, "");
+        var result = self.builder.buildCall(libc_fn, &params, params.len, .C, .Auto, "");
 
-        if (libc_ret_ty == dest_llvm_ty) {
-            return result;
-        }
-
-        return self.builder.buildTrunc(result, dest_llvm_ty, "");
+        if (libc_ret_ty != ret_ty) result = self.builder.buildBitCast(result, ret_ty, "");
+        if (ret_ty != dest_llvm_ty) result = self.builder.buildTrunc(result, dest_llvm_ty, "");
+        return result;
     }
 
     fn airSliceField(self: *FuncGen, inst: Air.Inst.Index, index: c_uint) !?*const llvm.Value {
@@ -6490,8 +6502,15 @@ pub const FuncGen = struct {
                     const one = int_llvm_ty.constInt(1, .False);
                     const shift_amt = int_llvm_ty.constInt(float_bits - 1, .False);
                     const sign_mask = one.constShl(shift_amt);
-                    const bitcasted_operand = self.builder.buildBitCast(params[0], int_llvm_ty, "");
-                    const result = self.builder.buildXor(bitcasted_operand, sign_mask, "");
+                    const result = if (ty.zigTypeTag() == .Vector) blk: {
+                        const splat_sign_mask = self.builder.buildVectorSplat(ty.vectorLen(), sign_mask, "");
+                        const cast_ty = int_llvm_ty.vectorType(ty.vectorLen());
+                        const bitcasted_operand = self.builder.buildBitCast(params[0], cast_ty, "");
+                        break :blk self.builder.buildXor(bitcasted_operand, splat_sign_mask, "");
+                    } else blk: {
+                        const bitcasted_operand = self.builder.buildBitCast(params[0], int_llvm_ty, "");
+                        break :blk self.builder.buildXor(bitcasted_operand, sign_mask, "");
+                    };
                     return self.builder.buildBitCast(result, llvm_ty, "");
                 },
                 .add, .sub, .div, .mul => FloatOpStrat{
