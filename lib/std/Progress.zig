@@ -43,7 +43,8 @@ prev_refresh_timestamp: u64 = undefined,
 
 /// This buffer represents the maximum number of bytes written to the terminal
 /// with each refresh.
-output_buffer_slice: [100]u8 = undefined,
+output_buffer: [256]u8 = undefined,
+output_buffer_slice: []u8 = undefined,
 
 /// How many nanoseconds between writing updates to the terminal.
 refresh_rate_ns: u64 = 50 * std.time.ns_per_ms,
@@ -198,6 +199,9 @@ fn refreshWithHeldLock(self: *Progress) void {
 
     const file = self.terminal orelse return;
 
+    // prepare for printing unprintable characters
+    self.output_buffer_slice = &self.output_buffer;
+
     var end: usize = 0;
     if (self.columns_written > 0) {
         // restore the cursor position by moving the cursor
@@ -254,6 +258,13 @@ fn refreshWithHeldLock(self: *Progress) void {
         self.columns_written = 0;
     }
 
+    // from here on we will print printable characters.
+    // make sure the unprintable characters we printed don't affect when we truncate the line
+    // in `bufWrite`.
+    const unprintables = end;
+    end = 0;
+    self.output_buffer_slice = self.output_buffer[unprintables .. unprintables + 100];
+
     if (!self.done) {
         var need_ellipse = false;
         var maybe_node: ?*Node = &self.root;
@@ -287,7 +298,7 @@ fn refreshWithHeldLock(self: *Progress) void {
         }
     }
 
-    _ = file.write(self.output_buffer_slice[0..end]) catch {
+    _ = file.write(self.output_buffer[0 .. end + unprintables]) catch {
         // Stop trying to write to this file once it errors.
         self.terminal = null;
     };
@@ -316,6 +327,9 @@ fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: any
         self.columns_written += amt;
     } else |err| switch (err) {
         error.NoSpaceLeft => {
+            // truncate the line with a suffix.
+            // for example if we have "hello world" (len=11) and 10 is the limit,
+            // it would become "hello w... "
             self.columns_written += self.output_buffer_slice.len - end.*;
             end.* = self.output_buffer_slice.len;
             const suffix = "... ";
