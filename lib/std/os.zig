@@ -235,6 +235,7 @@ pub const RelativePathWasi = struct {
 };
 
 pub const socket_t = if (builtin.os.tag == .windows) windows.ws2_32.SOCKET else fd_t;
+pub const INVALID_SOCKET = if (builtin.os.tag == .windows) windows.ws2_32.INVALID_SOCKET else @as(socket_t, -1);
 
 /// See also `getenv`. Populated by startup code before main().
 /// TODO this is a footgun because the value will be undefined when using `zig build-lib`.
