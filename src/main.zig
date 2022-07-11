@@ -443,8 +443,9 @@ const usage_build_generic =
     \\  -dynamic                       Force output to be dynamically linked
     \\  -static                        Force output to be statically linked
     \\  -Bsymbolic                     Bind global references locally
-    \\  --compress-debug-sections=     Compress DWARF debug sections
-    \\      none|zlib
+    \\  --compress-debug-sections=[e]  Debug section compression settings
+    \\      none                       No compression
+    \\      zlib                       Compression with deflate/inflate
     \\  --subsystem [subsystem]        (Windows) /SUBSYSTEM:<subsystem> to the linker
     \\  --stack [size]                 Override default stack size
     \\  --image-base [addr]            Set base address for executable image
@@ -946,6 +947,8 @@ fn buildOutputType(
                         linker_compress_debug_sections = std.meta.stringToEnum(link.CompressDebugSections, param) orelse {
                             fatal("expected --compress-debug-sections=[none|zlib], found '{s}'", .{param});
                         };
+                    } else if (mem.eql(u8, arg, "--compress-debug-sections")) {
+                        linker_compress_debug_sections = link.CompressDebugSections.zlib;
                     } else if (mem.eql(u8, arg, "-pagezero_size")) {
                         const next_arg = args_iter.next() orelse {
                             fatal("expected parameter after {s}", .{arg});
@@ -1648,6 +1651,15 @@ fn buildOutputType(
                     .weak_library => try system_libs.put(it.only_arg, .{ .weak = true }),
                     .weak_framework => try frameworks.put(gpa, it.only_arg, .{ .weak = true }),
                     .headerpad_max_install_names => headerpad_max_install_names = true,
+                    .compress_debug_sections => {
+                        if (it.only_arg.len == 0) {
+                            linker_compress_debug_sections = .zlib;
+                        } else {
+                            linker_compress_debug_sections = std.meta.stringToEnum(link.CompressDebugSections, it.only_arg) orelse {
+                                fatal("expected [none|zlib] after --compress-debug-sections, found '{s}'", .{it.only_arg});
+                            };
+                        }
+                    },
                 }
             }
             // Parse linker args.
@@ -4617,6 +4629,7 @@ pub const ClangArgIterator = struct {
         weak_library,
         weak_framework,
         headerpad_max_install_names,
+        compress_debug_sections,
     };
 
     const Args = struct {

@@ -123,7 +123,7 @@ pub const Options = struct {
     nxcompat: bool,
     dynamicbase: bool,
     linker_optimization: u8,
-    compress_debug_sections: ?CompressDebugSections,
+    compress_debug_sections: CompressDebugSections,
     bind_global_refs_locally: bool,
     import_memory: bool,
     import_table: bool,
