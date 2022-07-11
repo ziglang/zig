@@ -4413,6 +4413,24 @@ fn printErrsMsgToStdErr(
             };
             notes_len = 2;
             i += 2;
+        } else if (parse_error.tag == .c_style_container) {
+            const note = tree.errors[i + 1];
+
+            const prev_loc = tree.tokenLocation(0, parse_errors[i + 1].token);
+            notes_buffer[0] = .{
+                .src = .{
+                    .src_path = path,
+                    .msg = try std.fmt.allocPrint(arena, "to declare a container do 'const {s} = {s}'", .{
+                        tree.tokenSlice(note.token), note.extra.expected_tag.symbol(),
+                    }),
+                    .byte_offset = @intCast(u32, prev_loc.line_start),
+                    .line = @intCast(u32, prev_loc.line),
+                    .column = @intCast(u32, prev_loc.column),
+                    .source_line = tree.source[prev_loc.line_start..prev_loc.line_end],
+                },
+            };
+            notes_len = 1;
+            i += 1;
         }
 
         const extra_offset = tree.errorOffset(parse_error);
