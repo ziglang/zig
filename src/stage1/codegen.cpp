@@ -3371,14 +3371,12 @@ static LLVMValueRef add_icmp(CodeGen *g, LLVMValueRef val, Icmp kind) {
 }
 
 static LLVMValueRef gen_soft_int_to_float_op(CodeGen *g, LLVMValueRef value_ref, ZigType *operand_type, ZigType *result_type) {
-    uint32_t vector_len = operand_type->id == ZigTypeIdVector ? operand_type->data.vector.len : 0;
-
     // Handle integers of non-pot bitsize by widening them.
     const size_t bitsize = operand_type->data.integral.bit_count;
     const bool is_signed = operand_type->data.integral.is_signed;
     if (bitsize < 32 || !is_power_of_2(bitsize)) {
         const size_t wider_bitsize = bitsize < 32 ? 32 : round_to_next_power_of_2(bitsize);
-        ZigType *const wider_type = get_int_type(g, is_signed, wider_bitsize);
+        ZigType *wider_type = get_int_type(g, is_signed, wider_bitsize);
         value_ref = gen_widen_or_shorten(g, false, operand_type, wider_type, value_ref);
         operand_type = wider_type;
     }
@@ -3395,35 +3393,22 @@ static LLVMValueRef gen_soft_int_to_float_op(CodeGen *g, LLVMValueRef value_ref,
     }
 
     int param_count = 1;
-    LLVMValueRef func_ref = get_soft_float_fn(g, fn_name, param_count, operand_type->llvm_type, result_type->llvm_type);
-
-    LLVMValueRef result;
-    if (vector_len == 0) {
-        LLVMValueRef params[1] = {value_ref};
-        result = LLVMBuildCall(g->builder, func_ref, params, param_count, "");
+    LLVMValueRef func_ref;
+    if ((operand_type->data.integral.bit_count == 128) && (g->zig_target->os == OsWindows) && (g->zig_target->arch == ZigLLVM_x86_64)) {
+        // On Windows x86-64, "ti" functions must use Vector(2, u64) instead of the standard i128 calling
+        // convention to adhere to the ABI that LLVM expects compiler-rt to have.
+        LLVMTypeRef v2i64 = LLVMVectorType(LLVMInt64Type(), 2);
+        value_ref = LLVMBuildBitCast(g->builder, value_ref, v2i64, "");
+        func_ref = get_soft_float_fn(g, fn_name, param_count, v2i64, result_type->llvm_type);
     } else {
-        ZigType *alloca_ty = operand_type;
-        result = build_alloca(g, alloca_ty, "", 0);
-
-        LLVMTypeRef usize_ref = g->builtin_types.entry_usize->llvm_type;
-        for (uint32_t i = 0; i < vector_len; i++) {
-            LLVMValueRef index_value = LLVMConstInt(usize_ref, i, false);
-            LLVMValueRef params[1] = {
-                LLVMBuildExtractElement(g->builder, value_ref, index_value, ""),
-            };
-            LLVMValueRef call_result = LLVMBuildCall(g->builder, func_ref, params, param_count, "");
-            LLVMBuildInsertElement(g->builder, LLVMBuildLoad(g->builder, result, ""),
-                call_result, index_value, "");
-        }
-
-        result = LLVMBuildLoad(g->builder, result, "");
+        func_ref = get_soft_float_fn(g, fn_name, param_count, operand_type->llvm_type, result_type->llvm_type);
     }
-    return result;
+
+    LLVMValueRef params[1] = {value_ref};
+    return LLVMBuildCall(g->builder, func_ref, params, param_count, "");
 }
 
 static LLVMValueRef gen_soft_float_to_int_op(CodeGen *g, LLVMValueRef value_ref, ZigType *operand_type, ZigType *result_type) {
-    uint32_t vector_len = operand_type->id == ZigTypeIdVector ? operand_type->data.vector.len : 0;
-
     // Handle integers of non-pot bitsize by truncating a sufficiently wide pot integer
     const size_t bitsize = result_type->data.integral.bit_count;
     const bool is_signed = result_type->data.integral.is_signed;
@@ -3445,46 +3430,41 @@ static LLVMValueRef gen_soft_float_to_int_op(CodeGen *g, LLVMValueRef value_ref,
     }
 
     int param_count = 1;
-    LLVMValueRef func_ref = get_soft_float_fn(g, fn_name, param_count, operand_type->llvm_type, wider_type->llvm_type);
-
-    LLVMValueRef result;
-    if (vector_len == 0) {
-        LLVMValueRef params[1] = {value_ref};
-        result = LLVMBuildCall(g->builder, func_ref, params, param_count, "");
+    LLVMValueRef func_ref;
+    if ((wider_type->data.integral.bit_count == 128) && (g->zig_target->os == OsWindows) && (g->zig_target->arch == ZigLLVM_x86_64)) {
+        // On Windows x86-64, "ti" functions must use Vector(2, u64) instead of the standard i128 calling
+        // convention to adhere to the ABI that LLVM expects compiler-rt to have.
+        LLVMTypeRef v2i64 = LLVMVectorType(LLVMInt64Type(), 2);
+        func_ref = get_soft_float_fn(g, fn_name, param_count, operand_type->llvm_type, v2i64);
     } else {
-        ZigType *alloca_ty = operand_type;
-        result = build_alloca(g, alloca_ty, "", 0);
+        func_ref = get_soft_float_fn(g, fn_name, param_count, operand_type->llvm_type, wider_type->llvm_type);
+    }
 
-        LLVMTypeRef usize_ref = g->builtin_types.entry_usize->llvm_type;
-        for (uint32_t i = 0; i < vector_len; i++) {
-            LLVMValueRef index_value = LLVMConstInt(usize_ref, i, false);
-            LLVMValueRef params[1] = {
-                LLVMBuildExtractElement(g->builder, value_ref, index_value, ""),
-            };
-            LLVMValueRef call_result = LLVMBuildCall(g->builder, func_ref, params, param_count, "");
-            LLVMBuildInsertElement(g->builder, LLVMBuildLoad(g->builder, result, ""),
-                call_result, index_value, "");
-        }
+    LLVMValueRef params[1] = {value_ref};
+    LLVMValueRef result = LLVMBuildCall(g->builder, func_ref, params, param_count, "");
 
-        result = LLVMBuildLoad(g->builder, result, "");
+    if ((wider_type->data.integral.bit_count == 128) && (g->zig_target->os == OsWindows) && (g->zig_target->arch == ZigLLVM_x86_64)) {
+        result = LLVMBuildBitCast(g->builder, result, wider_type->llvm_type, "");
     }
 
     // Handle integers of non-pot bitsize by shortening them on the output
     if (result_type != wider_type) {
-        return gen_widen_or_shorten(g, false, wider_type, result_type, result);
+        result = gen_widen_or_shorten(g, false, wider_type, result_type, result); 
     }
+
     return result;
 }
 
 static LLVMValueRef gen_soft_float_bin_op(CodeGen *g, LLVMValueRef op1_value, LLVMValueRef op2_value, ZigType *operand_type, IrBinOp op_id) {
     uint32_t vector_len = operand_type->id == ZigTypeIdVector ? operand_type->data.vector.len : 0;
 
-    LLVMTypeRef return_type = operand_type->llvm_type;
     int param_count = 2;
 
-    const char *compiler_rt_type_abbrev = get_compiler_rt_type_abbrev(operand_type);
-    const char *math_float_prefix = libc_float_prefix(g, operand_type);
-    const char *math_float_suffix = libc_float_suffix(g, operand_type);
+    ZigType *operand_scalar_type = (operand_type->id == ZigTypeIdVector) ? operand_type->data.vector.elem_type : operand_type;
+    LLVMTypeRef return_scalar_type = operand_scalar_type->llvm_type;
+    const char *compiler_rt_type_abbrev = get_compiler_rt_type_abbrev(operand_scalar_type);
+    const char *math_float_prefix = libc_float_prefix(g, operand_scalar_type);
+    const char *math_float_suffix = libc_float_suffix(g, operand_scalar_type);
 
     char fn_name[64];
     Icmp res_icmp = NONE;
@@ -3511,32 +3491,32 @@ static LLVMValueRef gen_soft_float_bin_op(CodeGen *g, LLVMValueRef op1_value, LL
         case IrBinOpShlSat:
             zig_unreachable();
         case IrBinOpCmpEq:
-            return_type = g->builtin_types.entry_i32->llvm_type;
+            return_scalar_type = g->builtin_types.entry_i32->llvm_type;
             snprintf(fn_name, sizeof(fn_name), "__eq%sf2", compiler_rt_type_abbrev);
             res_icmp = EQ_ZERO;
             break;
         case IrBinOpCmpNotEq:
-            return_type = g->builtin_types.entry_i32->llvm_type;
+            return_scalar_type = g->builtin_types.entry_i32->llvm_type;
             snprintf(fn_name, sizeof(fn_name), "__ne%sf2", compiler_rt_type_abbrev);
             res_icmp = NE_ZERO;
             break;
         case IrBinOpCmpLessOrEq:
-            return_type = g->builtin_types.entry_i32->llvm_type;
+            return_scalar_type = g->builtin_types.entry_i32->llvm_type;
             snprintf(fn_name, sizeof(fn_name), "__le%sf2", compiler_rt_type_abbrev);
             res_icmp = LE_ZERO;
             break;
         case IrBinOpCmpLessThan:
-            return_type = g->builtin_types.entry_i32->llvm_type;
+            return_scalar_type = g->builtin_types.entry_i32->llvm_type;
             snprintf(fn_name, sizeof(fn_name), "__le%sf2", compiler_rt_type_abbrev);
             res_icmp = EQ_NEG;
             break;
         case IrBinOpCmpGreaterOrEq:
-            return_type = g->builtin_types.entry_i32->llvm_type;
+            return_scalar_type = g->builtin_types.entry_i32->llvm_type;
             snprintf(fn_name, sizeof(fn_name), "__ge%sf2", compiler_rt_type_abbrev);
             res_icmp = GE_ZERO;
             break;
         case IrBinOpCmpGreaterThan:
-            return_type = g->builtin_types.entry_i32->llvm_type;
+            return_scalar_type = g->builtin_types.entry_i32->llvm_type;
             snprintf(fn_name, sizeof(fn_name), "__ge%sf2", compiler_rt_type_abbrev);
             res_icmp = EQ_ONE;
             break;
@@ -3569,7 +3549,7 @@ static LLVMValueRef gen_soft_float_bin_op(CodeGen *g, LLVMValueRef op1_value, LL
             zig_unreachable();
     }
 
-    LLVMValueRef func_ref = get_soft_float_fn(g, fn_name, param_count, operand_type->llvm_type, return_type);
+    LLVMValueRef func_ref = get_soft_float_fn(g, fn_name, param_count, operand_scalar_type->llvm_type, return_scalar_type);
 
     LLVMValueRef result;
     if (vector_len == 0) {
