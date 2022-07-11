@@ -460,6 +460,14 @@ const known_options = [_]KnownOpt{
         .name = "headerpad_max_install_names",
         .ident = "headerpad_max_install_names",
     },
+    .{
+        .name = "compress-debug-sections",
+        .ident = "compress_debug_sections",
+    },
+    .{
+        .name = "compress-debug-sections=",
+        .ident = "compress_debug_sections",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};
