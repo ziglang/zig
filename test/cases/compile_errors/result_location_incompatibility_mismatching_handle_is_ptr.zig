@@ -12,7 +12,9 @@ pub const Container = struct {
 };
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:3:36: error: cannot convert optional to payload type. consider using `.?`, `orelse`, or `if`. expected type 'i32', found '?i32'
+// :3:36: error: expected type 'i32', found '?i32'
+// :3:36: note: cannot convert optional to payload type
+// :3:36: note: consider using `.?`, `orelse`, or `if`

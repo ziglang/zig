@@ -2749,7 +2749,15 @@ fn ensureResultUsed(
     const operand_ty = sema.typeOf(operand);
     switch (operand_ty.zigTypeTag()) {
         .Void, .NoReturn => return,
-        .ErrorSet, .ErrorUnion => return sema.fail(block, src, "error is ignored. consider using `try`, `catch`, or `if`", .{}),
+        .ErrorSet, .ErrorUnion => {
+            const msg = msg: {
+                const msg = try sema.errMsg(block, src, "error is ignored", .{});
+                errdefer msg.destroy(sema.gpa);
+                try sema.errNote(block, src, msg, "consider using `try`, `catch`, or `if`", .{});
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(block, msg);
+        },
         else => return sema.fail(block, src, "expression value is ignored", .{}),
     }
 }
@@ -2763,7 +2771,15 @@ fn zirEnsureResultNonError(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
     const src = inst_data.src();
     const operand_ty = sema.typeOf(operand);
     switch (operand_ty.zigTypeTag()) {
-        .ErrorSet, .ErrorUnion => return sema.fail(block, src, "error is discarded. consider using `try`, `catch`, or `if`", .{}),
+        .ErrorSet, .ErrorUnion => {
+            const msg = msg: {
+                const msg = try sema.errMsg(block, src, "error is discarded", .{});
+                errdefer msg.destroy(sema.gpa);
+                try sema.errNote(block, src, msg, "consider using `try`, `catch`, or `if`", .{});
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(block, msg);
+        },
         else => return,
     }
 }
@@ -20401,6 +20417,23 @@ fn coerceExtra(
     const msg = msg: {
         const msg = try sema.errMsg(block, inst_src, "expected type '{}', found '{}'", .{ dest_ty.fmt(sema.mod), inst_ty.fmt(sema.mod) });
         errdefer msg.destroy(sema.gpa);
+
+        // E!T to T
+        if (inst_ty.zigTypeTag() == .ErrorUnion and
+            (try sema.coerceInMemoryAllowed(block, inst_ty.errorUnionPayload(), dest_ty, false, target, dest_ty_src, inst_src)) == .ok)
+        {
+            try sema.errNote(block, inst_src, msg, "cannot convert error union to payload type", .{});
+            try sema.errNote(block, inst_src, msg, "consider using `try`, `catch`, or `if`", .{});
+        }
+
+        // ?T to T
+        var buf: Type.Payload.ElemType = undefined;
+        if (inst_ty.zigTypeTag() == .Optional and
+            (try sema.coerceInMemoryAllowed(block, inst_ty.optionalChild(&buf), dest_ty, false, target, dest_ty_src, inst_src)) == .ok)
+        {
+            try sema.errNote(block, inst_src, msg, "cannot convert optional to payload type", .{});
+            try sema.errNote(block, inst_src, msg, "consider using `.?`, `orelse`, or `if`", .{});
+        }
 
         try in_memory_result.report(sema, block, inst_src, msg);
         break :msg msg;
