@@ -32,9 +32,11 @@ pub const FormatOptions = struct {
 /// this format:
 /// `{[argument][specifier]:[fill][alignment][width].[precision]}`
 ///
-/// Each word between `[` and `]` is a parameter you have to replace with something:
+/// Above, each word including its surrounding [ and ] is a parameter which you have to replace with something:
 ///
-/// - *argument* is either the index or the name of the argument that should be inserted
+/// - *argument* is either the numeric index or the field name of the argument that should be inserted
+///   - when using a field name, you are required to enclose the field name (an identifier) in square
+///     brackets, e.g. {[score]...} as opposed to the numeric index form which can be written e.g. {2...}
 /// - *specifier* is a type-dependent formatting option that determines how a type should formatted (see below)
 /// - *fill* is a single character which is used to pad the formatted text
 /// - *alignment* is one of the three characters `<`, `^` or `>`. they define if the text is *left*, *center*, or *right* aligned
