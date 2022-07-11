@@ -594,6 +594,16 @@ pub const AllErrors = struct {
         while (item_i < items_len) : (item_i += 1) {
             const item = file.zir.extraData(Zir.Inst.CompileErrors.Item, extra_index);
             extra_index = item.end;
+            const err_byte_offset = blk: {
+                const token_starts = file.tree.tokens.items(.start);
+                if (item.data.node != 0) {
+                    const main_tokens = file.tree.nodes.items(.main_token);
+                    const main_token = main_tokens[item.data.node];
+                    break :blk token_starts[main_token];
+                }
+                break :blk token_starts[item.data.token] + item.data.byte_offset;
+            };
+            const err_loc = std.zig.findLineColumn(file.source, err_byte_offset);
 
             var notes: []Message = &[0]Message{};
             if (item.data.notes != 0) {
@@ -622,33 +632,22 @@ pub const AllErrors = struct {
                             .line = @intCast(u32, loc.line),
                             .column = @intCast(u32, loc.column),
                             .notes = &.{}, // TODO rework this function to be recursive
-                            .source_line = try arena.dupe(u8, loc.source_line),
+                            .source_line = if (loc.eql(err_loc)) null else try arena.dupe(u8, loc.source_line),
                         },
                     };
                 }
             }
 
             const msg = file.zir.nullTerminatedString(item.data.msg);
-            const byte_offset = blk: {
-                const token_starts = file.tree.tokens.items(.start);
-                if (item.data.node != 0) {
-                    const main_tokens = file.tree.nodes.items(.main_token);
-                    const main_token = main_tokens[item.data.node];
-                    break :blk token_starts[main_token];
-                }
-                break :blk token_starts[item.data.token] + item.data.byte_offset;
-            };
-            const loc = std.zig.findLineColumn(file.source, byte_offset);
-
             try errors.append(.{
                 .src = .{
                     .src_path = try file.fullPath(arena),
                     .msg = try arena.dupe(u8, msg),
-                    .byte_offset = byte_offset,
-                    .line = @intCast(u32, loc.line),
-                    .column = @intCast(u32, loc.column),
+                    .byte_offset = err_byte_offset,
+                    .line = @intCast(u32, err_loc.line),
+                    .column = @intCast(u32, err_loc.column),
                     .notes = notes,
-                    .source_line = try arena.dupe(u8, loc.source_line),
+                    .source_line = try arena.dupe(u8, err_loc.source_line),
                 },
             });
         }
