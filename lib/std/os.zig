@@ -5167,8 +5167,8 @@ pub fn realpathW(pathname: []const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPat
 
 /// Return canonical path of handle `fd`.
 /// This function is very host-specific and is not universally supported by all hosts.
-/// For example, while it generally works on Linux, macOS or Windows, it is unsupported
-/// on FreeBSD, or WASI.
+/// For example, while it generally works on Linux, macOS, FreeBSD or Windows, it is
+/// unsupported on WASI.
 pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
     switch (builtin.os.tag) {
         .windows => {
@@ -5216,6 +5216,22 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
                 else => |e| return e,
             };
             return target;
+        },
+        .freebsd => {
+            comptime if (builtin.os.version_range.semver.max.order(.{ .major = 13, .minor = 0 }) == .lt)
+                @compileError("querying for canonical path of a handle is unsupported on FreeBSD 12 and below");
+
+            var kfile: system.kinfo_file = undefined;
+            kfile.structsize = system.KINFO_FILE_SIZE;
+            switch (errno(system.fcntl(fd, system.F.KINFO, @ptrToInt(&kfile)))) {
+                .SUCCESS => {},
+                .BADF => return error.FileNotFound,
+                else => |err| return unexpectedErrno(err),
+            }
+
+            const len = mem.indexOfScalar(u8, &kfile.path, 0) orelse MAX_PATH_BYTES;
+            mem.copy(u8, out_buffer, kfile.path[0..len]);
+            return out_buffer[0..len];
         },
         else => @compileError("querying for canonical path of a handle is unsupported on this host"),
     }
