@@ -212,6 +212,27 @@ test "zig fmt: top-level fields" {
     );
 }
 
+test "zig fmt: C style containers" {
+    try testError(
+        \\struct Foo {
+        \\    a: u32,
+        \\};
+    , &[_]Error{
+        .c_style_container,
+        .zig_style_container,
+    });
+    try testError(
+        \\test {
+        \\    struct Foo {
+        \\        a: u32,
+        \\    };
+        \\}
+    , &[_]Error{
+        .c_style_container,
+        .zig_style_container,
+    });
+}
+
 test "zig fmt: decl between fields" {
     try testError(
         \\const S = struct {
