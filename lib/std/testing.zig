@@ -664,10 +664,6 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
     // the failing allocator in field @"0" before each @call)
     var args: ArgsTuple = undefined;
     inline for (@typeInfo(@TypeOf(extra_args)).Struct.fields) |field, i| {
-        const expected_type = fn_args_fields[i + 1].field_type;
-        if (expected_type != field.field_type) {
-            @compileError("Unexpected type for extra argument at index " ++ (comptime std.fmt.comptimePrint("{d}", .{i})) ++ ": expected " ++ @typeName(expected_type) ++ ", found " ++ @typeName(field.field_type));
-        }
         const arg_i_str = comptime str: {
             var str_buf: [100]u8 = undefined;
             const args_i = i + 1;
