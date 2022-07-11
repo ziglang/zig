@@ -8,3 +8,4 @@ fn something() anyerror!void { }
 // target=native
 //
 // :2:5: error: expected type 'void', found 'anyerror'
+// :1:15: note: function cannot return an error
