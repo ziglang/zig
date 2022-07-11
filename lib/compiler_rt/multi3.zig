@@ -59,12 +59,12 @@ const twords = extern union {
     s: S,
 
     const S = if (native_endian == .Little)
-        struct {
+        extern struct {
             low: u64,
             high: u64,
         }
     else
-        struct {
+        extern struct {
             high: u64,
             low: u64,
         };

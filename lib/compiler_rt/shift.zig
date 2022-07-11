@@ -31,9 +31,9 @@ fn Dwords(comptime T: type, comptime signed_half: bool) type {
 
         all: T,
         s: if (native_endian == .Little)
-            struct { low: HalfT, high: HalfT }
+            extern struct { low: HalfT, high: HalfT }
         else
-            struct { high: HalfT, low: HalfT },
+            extern struct { high: HalfT, low: HalfT },
     };
 }
 

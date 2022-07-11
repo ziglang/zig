@@ -30,8 +30,8 @@ pub extern "c" fn _kern_get_current_team() i32;
 pub const sem_t = extern struct {
     type: i32,
     u: extern union {
-        named_sem_id: ?i32,
-        unnamed_sem: ?i32,
+        named_sem_id: i32,
+        unnamed_sem: i32,
     },
     padding: [2]i32,
 };

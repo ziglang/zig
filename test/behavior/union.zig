@@ -84,18 +84,19 @@ test "comptime union field access" {
 
 const FooExtern = extern union {
     int: i32,
-    str: struct {
-        slice: []const u8,
+    str: extern struct {
+        slice: [*:0]const u8,
     },
 };
 
 test "basic extern unions" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var foo = FooExtern{ .int = 1 };
     try expect(foo.int == 1);
     foo.str.slice = "Well";
-    try expect(std.mem.eql(u8, foo.str.slice, "Well"));
+    try expect(std.mem.eql(u8, std.mem.sliceTo(foo.str.slice, 0), "Well"));
 }
 
 const ExternPtrOrInt = extern union {
