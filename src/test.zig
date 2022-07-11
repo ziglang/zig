@@ -1690,12 +1690,25 @@ pub const TestContext = struct {
                                         tmp_dir_path_plus_slash,
                                     );
 
+                                    var buf: [1024]u8 = undefined;
+                                    const rendered_msg = blk: {
+                                        var msg: Compilation.AllErrors.Message = actual_error;
+                                        msg.src.src_path = case_msg.src.src_path;
+                                        msg.src.notes = &.{};
+                                        var fib = std.io.fixedBufferStream(&buf);
+                                        try msg.renderToWriter(.no_color, fib.writer(), "error", .Red, 0);
+                                        var it = std.mem.split(u8, fib.getWritten(), "error: ");
+                                        _ = it.next();
+                                        const rendered = it.rest();
+                                        break :blk rendered[0 .. rendered.len - 1]; // trim final newline
+                                    };
+
                                     if (src_path_ok and
                                         (case_msg.src.line == std.math.maxInt(u32) or
                                         actual_msg.line == case_msg.src.line) and
                                         (case_msg.src.column == std.math.maxInt(u32) or
                                         actual_msg.column == case_msg.src.column) and
-                                        std.mem.eql(u8, expected_msg, actual_msg.msg) and
+                                        std.mem.eql(u8, expected_msg, rendered_msg) and
                                         case_msg.src.kind == .@"error" and
                                         actual_msg.count == case_msg.src.count)
                                     {

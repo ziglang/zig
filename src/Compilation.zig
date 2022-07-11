@@ -344,6 +344,20 @@ pub const AllErrors = struct {
             /// Does not include the trailing newline.
             source_line: ?[]const u8,
             notes: []Message = &.{},
+
+            /// Splits the error message up into lines to properly indent them
+            /// to allow for long, good-looking error messages.
+            ///
+            /// This is used to split the message in `@compileError("hello\nworld")` for example.
+            fn writeMsg(src: @This(), stderr: anytype, indent: usize) !void {
+                var lines = mem.split(u8, src.msg, "\n");
+                while (lines.next()) |line| {
+                    try stderr.writeAll(line);
+                    if (lines.index == null) break;
+                    try stderr.writeByte('\n');
+                    try stderr.writeByteNTimes(' ', indent);
+                }
+            }
         },
         plain: struct {
             msg: []const u8,
@@ -367,35 +381,41 @@ pub const AllErrors = struct {
             std.debug.getStderrMutex().lock();
             defer std.debug.getStderrMutex().unlock();
             const stderr = std.io.getStdErr();
-            return msg.renderToStdErrInner(ttyconf, stderr, "error:", .Red, 0) catch return;
+            return msg.renderToWriter(ttyconf, stderr.writer(), "error", .Red, 0) catch return;
         }
 
-        fn renderToStdErrInner(
+        pub fn renderToWriter(
             msg: Message,
             ttyconf: std.debug.TTY.Config,
-            stderr_file: std.fs.File,
+            stderr: anytype,
             kind: []const u8,
             color: std.debug.TTY.Color,
             indent: usize,
         ) anyerror!void {
-            const stderr = stderr_file.writer();
+            var counting_writer = std.io.countingWriter(stderr);
+            const counting_stderr = counting_writer.writer();
             switch (msg) {
                 .src => |src| {
-                    try stderr.writeByteNTimes(' ', indent);
+                    try counting_stderr.writeByteNTimes(' ', indent);
                     ttyconf.setColor(stderr, .Bold);
-                    try stderr.print("{s}:{d}:{d}: ", .{
+                    try counting_stderr.print("{s}:{d}:{d}: ", .{
                         src.src_path,
                         src.line + 1,
                         src.column + 1,
                     });
                     ttyconf.setColor(stderr, color);
-                    try stderr.writeAll(kind);
+                    try counting_stderr.writeAll(kind);
+                    try counting_stderr.writeAll(": ");
+                    // This is the length of the part before the error message:
+                    // e.g. "file.zig:4:5: error: "
+                    const prefix_len = @intCast(usize, counting_stderr.context.bytes_written);
                     ttyconf.setColor(stderr, .Reset);
                     ttyconf.setColor(stderr, .Bold);
                     if (src.count == 1) {
-                        try stderr.print(" {s}\n", .{src.msg});
+                        try src.writeMsg(stderr, prefix_len);
+                        try stderr.writeByte('\n');
                     } else {
-                        try stderr.print(" {s}", .{src.msg});
+                        try src.writeMsg(stderr, prefix_len);
                         ttyconf.setColor(stderr, .Dim);
                         try stderr.print(" ({d} times)\n", .{src.count});
                     }
@@ -414,24 +434,25 @@ pub const AllErrors = struct {
                         }
                     }
                     for (src.notes) |note| {
-                        try note.renderToStdErrInner(ttyconf, stderr_file, "note:", .Cyan, indent);
+                        try note.renderToWriter(ttyconf, stderr, "note", .Cyan, indent);
                     }
                 },
                 .plain => |plain| {
                     ttyconf.setColor(stderr, color);
                     try stderr.writeByteNTimes(' ', indent);
                     try stderr.writeAll(kind);
+                    try stderr.writeAll(": ");
                     ttyconf.setColor(stderr, .Reset);
                     if (plain.count == 1) {
-                        try stderr.print(" {s}\n", .{plain.msg});
+                        try stderr.print("{s}\n", .{plain.msg});
                     } else {
-                        try stderr.print(" {s}", .{plain.msg});
+                        try stderr.print("{s}", .{plain.msg});
                         ttyconf.setColor(stderr, .Dim);
                         try stderr.print(" ({d} times)\n", .{plain.count});
                     }
                     ttyconf.setColor(stderr, .Reset);
                     for (plain.notes) |note| {
-                        try note.renderToStdErrInner(ttyconf, stderr_file, "error:", .Red, indent + 4);
+                        try note.renderToWriter(ttyconf, stderr, "error", .Red, indent + 4);
                     }
                 },
             }
