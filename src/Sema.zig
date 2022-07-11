@@ -18098,9 +18098,11 @@ fn explainWhyTypeIsComptime(
         .NoReturn,
         .Undefined,
         .Null,
-        .Opaque,
-        .Optional,
         => return,
+
+        .Opaque => {
+            try mod.errNoteNonLazy(src_loc, msg, "opaque type '{}' has undefined size", .{ty.fmt(sema.mod)});
+        },
 
         .Array, .Vector => {
             try sema.explainWhyTypeIsComptime(block, src, msg, src_loc, ty.elemType());
@@ -18124,6 +18126,10 @@ fn explainWhyTypeIsComptime(
             try sema.explainWhyTypeIsComptime(block, src, msg, src_loc, ty.elemType());
         },
 
+        .Optional => {
+            var buf: Type.Payload.ElemType = undefined;
+            try sema.explainWhyTypeIsComptime(block, src, msg, src_loc, ty.optionalChild(&buf));
+        },
         .ErrorUnion => {
             try sema.explainWhyTypeIsComptime(block, src, msg, src_loc, ty.errorUnionPayload());
         },
