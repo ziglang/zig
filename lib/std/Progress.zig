@@ -11,6 +11,7 @@ const builtin = @import("builtin");
 const windows = std.os.windows;
 const testing = std.testing;
 const assert = std.debug.assert;
+const os = std.os;
 const Progress = @This();
 
 /// `null` if the current node (and its children) should
@@ -46,6 +47,12 @@ prev_refresh_timestamp: u64 = undefined,
 output_buffer: [256]u8 = undefined,
 output_buffer_slice: []u8 = undefined,
 
+/// This is the maximum number of bytes written to the terminal with each refresh.
+///
+/// It is recommended to leave this as `null` so that `start` can automatically decide an
+/// optimal width for the terminal.
+max_width: ?usize = null,
+
 /// How many nanoseconds between writing updates to the terminal.
 refresh_rate_ns: u64 = 50 * std.time.ns_per_ms,
 
@@ -62,6 +69,8 @@ update_mutex: std.Thread.Mutex = .{},
 /// Keeps track of how many columns in the terminal have been output, so that
 /// we can move the cursor back later.
 columns_written: usize = undefined,
+
+const truncation_suffix = "... ";
 
 /// Represents one unit of progress. Each node can have children nodes, or
 /// one can use integers with `update`.
@@ -156,6 +165,20 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *N
         // we are in a "dumb" terminal like in acme or writing to a file
         self.terminal = stderr;
     }
+    if (self.max_width == null) {
+        if (self.terminal) |terminal| {
+            const terminal_width = self.getTerminalWidth(terminal.handle) catch 100;
+            const chars_already_printed = self.getTerminalCursorColumn(terminal) catch 0;
+            self.max_width = terminal_width - chars_already_printed;
+        } else {
+            self.max_width = 100;
+        }
+    }
+    self.max_width = std.math.clamp(
+        self.max_width.?,
+        truncation_suffix.len, // make sure we can at least truncate
+        self.output_buffer.len,
+    );
     self.root = Node{
         .context = self,
         .parent = null,
@@ -168,6 +191,53 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *N
     self.timer = std.time.Timer.start() catch null;
     self.done = false;
     return &self.root;
+}
+
+fn getTerminalWidth(self: Progress, file_handle: os.fd_t) !u16 {
+    if (builtin.os.tag == .windows) {
+        std.debug.assert(self.is_windows_terminal);
+        var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+        if (windows.kernel32.GetConsoleScreenBufferInfo(file_handle, &info) != windows.TRUE)
+            unreachable;
+        return @intCast(u16, info.dwSize.X);
+    } else {
+        var winsize: os.linux.winsize = undefined;
+        switch (os.errno(os.linux.ioctl(file_handle, os.linux.T.IOCGWINSZ, @ptrToInt(&winsize)))) {
+            .SUCCESS => return winsize.ws_col,
+            else => return error.Unexpected,
+        }
+    }
+}
+
+fn getTerminalCursorColumn(self: Progress, file: std.fs.File) !u16 {
+    if (self.supports_ansi_escape_codes) {
+        // First, disable echo and enable non-canonical mode
+        // (so that no enter press required for us to read the output of the escape sequence below)
+        const original_termios = try os.tcgetattr(file.handle);
+        var new_termios = original_termios;
+        new_termios.lflag &= ~(os.linux.ECHO | os.linux.ICANON);
+        try os.tcsetattr(file.handle, .NOW, new_termios);
+        defer os.tcsetattr(file.handle, .NOW, original_termios) catch {
+            // Sorry for ruining your terminal
+        };
+
+        try file.writeAll("\x1b[6n");
+        var buf: ["\x1b[256;256R".len]u8 = undefined;
+        const output = try file.reader().readUntilDelimiter(&buf, 'R');
+        var splitter = std.mem.split(u8, output, ";");
+        _ = splitter.next().?; // skip first half
+        const column_half = splitter.next() orelse return error.UnexpectedEnd;
+        const column = try std.fmt.parseUnsigned(u16, column_half, 10);
+        return column - 1; // it's one-based
+    } else if (builtin.os.tag == .windows) {
+        std.debug.assert(self.is_windows_terminal);
+        var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+        if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != windows.TRUE)
+            unreachable;
+        return info.dwCursorPosition.X;
+    } else {
+        return error.Unsupported;
+    }
 }
 
 /// Updates the terminal if enough time has passed since last update. Thread-safe.
@@ -263,7 +333,7 @@ fn refreshWithHeldLock(self: *Progress) void {
     // in `bufWrite`.
     const unprintables = end;
     end = 0;
-    self.output_buffer_slice = self.output_buffer[unprintables .. unprintables + 100];
+    self.output_buffer_slice = self.output_buffer[unprintables .. unprintables + self.max_width.?];
 
     if (!self.done) {
         var need_ellipse = false;
@@ -332,8 +402,11 @@ fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: any
             // it would become "hello w... "
             self.columns_written += self.output_buffer_slice.len - end.*;
             end.* = self.output_buffer_slice.len;
-            const suffix = "... ";
-            std.mem.copy(u8, self.output_buffer_slice[self.output_buffer_slice.len - suffix.len ..], suffix);
+            std.mem.copy(
+                u8,
+                self.output_buffer_slice[self.output_buffer_slice.len - truncation_suffix.len ..],
+                truncation_suffix,
+            );
         },
     }
 }
