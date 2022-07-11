@@ -20411,7 +20411,7 @@ fn coerceExtra(
 const InMemoryCoercionResult = union(enum) {
     ok,
     no_match: Pair,
-    int_mismatch: Int,
+    int_not_coercible: Int,
     error_union_payload: PairAndChild,
     array_len: IntPair,
     array_sentinel: Sentinel,
@@ -20527,7 +20527,7 @@ const InMemoryCoercionResult = union(enum) {
                 try sema.addDeclaredHereNote(msg, types.actual);
                 break;
             },
-            .int_mismatch => |int| {
+            .int_not_coercible => |int| {
                 try sema.errNote(block, src, msg, "{s} {d}-bit int cannot represent all possible {s} {d}-bit values", .{
                     @tagName(int.wanted_signedness), int.wanted_bits, @tagName(int.actual_signedness), int.actual_bits,
                 });
@@ -20768,17 +20768,25 @@ fn coerceInMemoryAllowed(
     if (dest_ty.zigTypeTag() == .Int and src_ty.zigTypeTag() == .Int) {
         const dest_info = dest_ty.intInfo(target);
         const src_info = src_ty.intInfo(target);
-        if (dest_info.signedness != src_info.signedness or
-            dest_info.bits != src_info.bits)
+
+        if (dest_info.signedness == src_info.signedness and
+            dest_info.bits == src_info.bits)
         {
-            return InMemoryCoercionResult{ .int_mismatch = .{
+            return .ok;
+        }
+
+        if ((src_info.signedness == dest_info.signedness and dest_info.bits < src_info.bits) or
+            // small enough unsigned ints can get casted to large enough signed ints
+            (dest_info.signedness == .signed and (src_info.signedness == .unsigned or dest_info.bits <= src_info.bits)) or
+            (dest_info.signedness == .unsigned and src_info.signedness == .signed))
+        {
+            return InMemoryCoercionResult{ .int_not_coercible = .{
                 .actual_signedness = src_info.signedness,
                 .wanted_signedness = dest_info.signedness,
                 .actual_bits = src_info.bits,
                 .wanted_bits = dest_info.bits,
             } };
         }
-        return .ok;
     }
 
     // Differently-named floats with the same number of bits.
