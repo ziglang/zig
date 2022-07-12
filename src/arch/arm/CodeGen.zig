@@ -571,6 +571,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .div_trunc       => try self.airBinOp(inst, .div_trunc),
             .div_floor       => try self.airBinOp(inst, .div_floor),
             .div_exact       => try self.airBinOp(inst, .div_exact),
+            .rem             => try self.airBinOp(inst, .rem),
+            .mod             => try self.airBinOp(inst, .mod),
 
             .ptr_add => try self.airPtrArithmetic(inst, .ptr_add),
             .ptr_sub => try self.airPtrArithmetic(inst, .ptr_sub),
@@ -581,8 +583,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .add_sat         => try self.airAddSat(inst),
             .sub_sat         => try self.airSubSat(inst),
             .mul_sat         => try self.airMulSat(inst),
-            .rem             => try self.airRem(inst),
-            .mod             => try self.airMod(inst),
             .shl_sat         => try self.airShlSat(inst),
             .slice           => try self.airSlice(inst),
 
@@ -1729,18 +1729,6 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         }
     };
     return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
-}
-
-fn airRem(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement rem for {}", .{self.target.cpu.arch});
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
-fn airMod(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement mod for {}", .{self.target.cpu.arch});
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airShlSat(self: *Self, inst: Air.Inst.Index) !void {
@@ -2920,6 +2908,78 @@ fn binOp(
                 .Float => return self.fail("TODO ARM binary operations on floats", .{}),
                 .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
                 .Int => return self.fail("TODO ARM div_exact", .{}),
+                else => unreachable,
+            }
+        },
+        .rem => {
+            switch (lhs_ty.zigTypeTag()) {
+                .Float => return self.fail("TODO ARM binary operations on floats", .{}),
+                .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
+                .Int => {
+                    const mod = self.bin_file.options.module.?;
+                    assert(lhs_ty.eql(rhs_ty, mod));
+                    const int_info = lhs_ty.intInfo(self.target.*);
+                    if (int_info.bits <= 32) {
+                        switch (int_info.signedness) {
+                            .signed => {
+                                return self.fail("TODO ARM signed integer mod", .{});
+                            },
+                            .unsigned => {
+                                switch (rhs) {
+                                    .immediate => |imm| {
+                                        if (std.math.isPowerOfTwo(imm)) {
+                                            const log2 = std.math.log2_int(u32, imm);
+
+                                            const lhs_is_register = lhs == .register;
+
+                                            const lhs_lock: ?RegisterLock = if (lhs_is_register)
+                                                self.register_manager.lockReg(lhs.register)
+                                            else
+                                                null;
+                                            defer if (lhs_lock) |reg| self.register_manager.unlockReg(reg);
+
+                                            const lhs_reg = if (lhs_is_register) lhs.register else blk: {
+                                                const track_inst: ?Air.Inst.Index = if (metadata) |md| inst: {
+                                                    break :inst Air.refToIndex(md.lhs).?;
+                                                } else null;
+
+                                                break :blk try self.prepareNewRegForMoving(track_inst, gp, lhs);
+                                            };
+                                            const new_lhs_lock = self.register_manager.lockReg(lhs_reg);
+                                            defer if (new_lhs_lock) |reg| self.register_manager.unlockReg(reg);
+
+                                            const dest_reg = if (metadata) |md| blk: {
+                                                if (lhs_is_register and self.reuseOperand(md.inst, md.lhs, 0, lhs)) {
+                                                    break :blk lhs_reg;
+                                                } else {
+                                                    break :blk try self.register_manager.allocReg(md.inst, gp);
+                                                }
+                                            } else try self.register_manager.allocReg(null, gp);
+
+                                            if (!lhs_is_register) try self.genSetReg(lhs_ty, lhs_reg, lhs);
+
+                                            try self.truncRegister(lhs_reg, dest_reg, int_info.signedness, log2);
+                                            return MCValue{ .register = dest_reg };
+                                        } else {
+                                            return self.fail("TODO ARM integer mod by constants", .{});
+                                        }
+                                    },
+                                    else => return self.fail("TODO ARM integer mod", .{}),
+                                }
+                            },
+                        }
+                    } else {
+                        return self.fail("TODO ARM integer division for integers > u32/i32", .{});
+                    }
+                },
+                else => unreachable,
+            }
+        },
+        .mod => {
+            switch (lhs_ty.zigTypeTag()) {
+                .Float => return self.fail("TODO ARM binary operations on floats", .{}),
+                .Vector => return self.fail("TODO ARM binary operations on vectors", .{}),
+                .Int => return self.fail("TODO ARM mod", .{}),
                 else => unreachable,
             }
         },
