@@ -7,7 +7,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:5:28: error: attempt to read 8 bytes from pointer to f32 which is 4 bytes
+// :5:28: error: dereference of '*const i64' exceeds bounds of containing decl of type 'f32'
