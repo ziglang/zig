@@ -19,3 +19,5 @@ export fn entry() usize { return @sizeOf(@TypeOf(&foo)); }
 // target=native
 //
 // :8:15: error: expected type '*const u3', found '*align(0:3:1) const u3'
+// :8:15: note: pointer host size '1' cannot cast into pointer host size '0'
+// :8:15: note: pointer bit offset '3' cannot cast into pointer bit offset '0'

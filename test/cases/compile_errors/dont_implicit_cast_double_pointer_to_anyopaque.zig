@@ -11,3 +11,4 @@ export fn entry() void {
 // target=native
 //
 // :5:28: error: expected type '*anyopaque', found '**u32'
+// :5:28: note: pointer type child '*u32' cannot cast into pointer type child 'anyopaque'
