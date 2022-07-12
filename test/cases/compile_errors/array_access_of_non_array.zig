@@ -8,8 +8,8 @@ export fn g() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:3:8: error: array access of non-array type 'bool'
-// tmp.zig:7:12: error: array access of non-array type 'bool'
+// :3:8: error: element access of non-indexable type 'bool'
+// :7:12: error: element access of non-indexable type 'bool'

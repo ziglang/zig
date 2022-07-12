@@ -17713,6 +17713,10 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         break :blk lib_name;
     } else null;
 
+    if ((extra.data.bits.has_align_body or extra.data.bits.has_align_ref) and sema.mod.getTarget().cpu.arch.isWasm()) {
+        return sema.fail(block, align_src, "'align' is not allowed on functions in wasm", .{});
+    }
+
     const @"align": ?u32 = if (extra.data.bits.has_align_body) blk: {
         const body_len = sema.code.extra[extra_index];
         extra_index += 1;
