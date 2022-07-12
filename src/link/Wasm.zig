@@ -1206,6 +1206,14 @@ fn parseAtom(self: *Wasm, atom: *Atom, kind: Kind) !void {
             };
             symbol.tag = .data;
 
+            // when creating an object file, or importing memory and the data belongs in the .bss segment
+            // we set the entire region of it to zeroes.
+            // We do not have to do this when exporting the memory (the default) because the runtime
+            // will do it for us, and we do not emit the bss segment at all.
+            if ((self.base.options.output_mode == .Obj or self.base.options.import_memory) and kind.data == .uninitialized) {
+                std.mem.set(u8, atom.code.items, 0);
+            }
+
             const should_merge = self.base.options.output_mode != .Obj;
             const gop = try self.data_segments.getOrPut(self.base.allocator, segment_info.outputName(should_merge));
             if (gop.found_existing) {
@@ -2014,9 +2022,10 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         }
 
         if (import_memory) {
+            const mem_name = if (is_obj) "__linear_memory" else "memory";
             const mem_imp: types.Import = .{
                 .module_name = try self.string_table.put(self.base.allocator, self.host_name),
-                .name = try self.string_table.put(self.base.allocator, "__linear_memory"),
+                .name = try self.string_table.put(self.base.allocator, mem_name),
                 .kind = .{ .memory = self.memories.limits },
             };
             try self.emitImport(writer, mem_imp);
