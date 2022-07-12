@@ -21,5 +21,5 @@ export fn function_with_return_type_type() void {
 // backend=stage2
 // target=native
 //
-// :3:7: error: unable to resolve comptime value
+// :3:7: error: cannot load runtime value in comptime block
 // :16:19: note: called from here

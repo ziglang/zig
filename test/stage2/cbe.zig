@@ -51,8 +51,8 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
             \\var y: @import("std").builtin.CallingConvention = .C;
         , &.{
-            ":2:22: error: unable to resolve comptime value",
-            ":5:26: error: unable to resolve comptime value",
+            ":2:22: error: cannot load runtime value in comptime block",
+            ":5:26: error: cannot load runtime value in comptime block",
         });
     }
 

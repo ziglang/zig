@@ -14,5 +14,5 @@ export fn entry() usize { return @sizeOf(@TypeOf(a)); }
 // backend=stage2
 // target=native
 //
-// :6:26: error: unable to resolve comptime value
+// :6:26: error: cannot store to runtime value in comptime block
 // :4:17: note: called from here
