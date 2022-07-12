@@ -7,7 +7,7 @@ comptime {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:1:21: error: expected array type or [_], found '[*][*]const u8'
+// :1:22: error: type '[*][*]const u8' does not support array initialization syntax

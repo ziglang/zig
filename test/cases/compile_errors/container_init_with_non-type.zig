@@ -7,4 +7,4 @@ export fn entry() usize { return @sizeOf(@TypeOf(a)); }
 // backend=stage2
 // target=native
 //
-// :2:15: error: expected type 'type', found 'i32'
+// :2:11: error: expected type 'type', found 'i32'

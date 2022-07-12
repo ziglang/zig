@@ -2466,6 +2466,90 @@ pub const SrcLoc = struct {
 
                 return nodeToSpan(tree, node_datas[node].lhs);
             },
+            .node_offset_ptr_elem => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_tags = tree.nodes.items(.tag);
+                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+
+                const full: Ast.full.PtrType = switch (node_tags[parent_node]) {
+                    .ptr_type_aligned => tree.ptrTypeAligned(parent_node),
+                    .ptr_type_sentinel => tree.ptrTypeSentinel(parent_node),
+                    .ptr_type => tree.ptrType(parent_node),
+                    .ptr_type_bit_range => tree.ptrTypeBitRange(parent_node),
+                    else => unreachable,
+                };
+                return nodeToSpan(tree, full.ast.child_type);
+            },
+            .node_offset_ptr_sentinel => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_tags = tree.nodes.items(.tag);
+                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+
+                const full: Ast.full.PtrType = switch (node_tags[parent_node]) {
+                    .ptr_type_aligned => tree.ptrTypeAligned(parent_node),
+                    .ptr_type_sentinel => tree.ptrTypeSentinel(parent_node),
+                    .ptr_type => tree.ptrType(parent_node),
+                    .ptr_type_bit_range => tree.ptrTypeBitRange(parent_node),
+                    else => unreachable,
+                };
+                return nodeToSpan(tree, full.ast.sentinel);
+            },
+            .node_offset_ptr_align => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_tags = tree.nodes.items(.tag);
+                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+
+                const full: Ast.full.PtrType = switch (node_tags[parent_node]) {
+                    .ptr_type_aligned => tree.ptrTypeAligned(parent_node),
+                    .ptr_type_sentinel => tree.ptrTypeSentinel(parent_node),
+                    .ptr_type => tree.ptrType(parent_node),
+                    .ptr_type_bit_range => tree.ptrTypeBitRange(parent_node),
+                    else => unreachable,
+                };
+                return nodeToSpan(tree, full.ast.align_node);
+            },
+            .node_offset_ptr_addrspace => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_tags = tree.nodes.items(.tag);
+                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+
+                const full: Ast.full.PtrType = switch (node_tags[parent_node]) {
+                    .ptr_type_aligned => tree.ptrTypeAligned(parent_node),
+                    .ptr_type_sentinel => tree.ptrTypeSentinel(parent_node),
+                    .ptr_type => tree.ptrType(parent_node),
+                    .ptr_type_bit_range => tree.ptrTypeBitRange(parent_node),
+                    else => unreachable,
+                };
+                return nodeToSpan(tree, full.ast.addrspace_node);
+            },
+            .node_offset_ptr_bitoffset => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_tags = tree.nodes.items(.tag);
+                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+
+                const full: Ast.full.PtrType = switch (node_tags[parent_node]) {
+                    .ptr_type_aligned => tree.ptrTypeAligned(parent_node),
+                    .ptr_type_sentinel => tree.ptrTypeSentinel(parent_node),
+                    .ptr_type => tree.ptrType(parent_node),
+                    .ptr_type_bit_range => tree.ptrTypeBitRange(parent_node),
+                    else => unreachable,
+                };
+                return nodeToSpan(tree, full.ast.bit_range_start);
+            },
+            .node_offset_ptr_hostsize => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_tags = tree.nodes.items(.tag);
+                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+
+                const full: Ast.full.PtrType = switch (node_tags[parent_node]) {
+                    .ptr_type_aligned => tree.ptrTypeAligned(parent_node),
+                    .ptr_type_sentinel => tree.ptrTypeSentinel(parent_node),
+                    .ptr_type => tree.ptrType(parent_node),
+                    .ptr_type_bit_range => tree.ptrTypeBitRange(parent_node),
+                    else => unreachable,
+                };
+                return nodeToSpan(tree, full.ast.bit_range_end);
+            },
         }
     }
 
@@ -2739,6 +2823,24 @@ pub const LazySrcLoc = union(enum) {
     /// The source location points to the operand of an unary expression.
     /// The Decl is determined contextually.
     node_offset_un_op: i32,
+    /// The source location points to the elem type of a pointer.
+    /// The Decl is determined contextually.
+    node_offset_ptr_elem: i32,
+    /// The source location points to the sentinel of a pointer.
+    /// The Decl is determined contextually.
+    node_offset_ptr_sentinel: i32,
+    /// The source location points to the align expr of a pointer.
+    /// The Decl is determined contextually.
+    node_offset_ptr_align: i32,
+    /// The source location points to the addrspace expr of a pointer.
+    /// The Decl is determined contextually.
+    node_offset_ptr_addrspace: i32,
+    /// The source location points to the bit-offset of a pointer.
+    /// The Decl is determined contextually.
+    node_offset_ptr_bitoffset: i32,
+    /// The source location points to the host size of a pointer.
+    /// The Decl is determined contextually.
+    node_offset_ptr_hostsize: i32,
 
     pub const nodeOffset = if (TracedOffset.want_tracing) nodeOffsetDebug else nodeOffsetRelease;
 
@@ -2803,6 +2905,12 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_array_type_sentinel,
             .node_offset_array_type_elem,
             .node_offset_un_op,
+            .node_offset_ptr_elem,
+            .node_offset_ptr_sentinel,
+            .node_offset_ptr_align,
+            .node_offset_ptr_addrspace,
+            .node_offset_ptr_bitoffset,
+            .node_offset_ptr_hostsize,
             => .{
                 .file_scope = decl.getFileScope(),
                 .parent_decl_node = decl.src_node,

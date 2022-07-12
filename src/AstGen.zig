@@ -1347,7 +1347,7 @@ fn arrayInitExpr(
             }
         }
         const array_type_inst = try typeExpr(gz, scope, array_init.ast.type_expr);
-        _ = try gz.addUnNode(.validate_array_init_ty, array_type_inst, node);
+        _ = try gz.addUnNode(.validate_array_init_ty, array_type_inst, array_init.ast.type_expr);
         break :inst .{
             .array = array_type_inst,
             .elem = .none,
@@ -2332,7 +2332,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .err_union_code,
             .err_union_code_ptr,
             .ptr_type,
-            .ptr_type_simple,
+            .overflow_arithmetic_ptr,
             .enum_literal,
             .merge_error_sets,
             .error_union_type,
@@ -3110,24 +3110,6 @@ fn ptrType(
 
     const elem_type = try typeExpr(gz, scope, ptr_info.ast.child_type);
 
-    const simple = ptr_info.ast.align_node == 0 and
-        ptr_info.ast.addrspace_node == 0 and
-        ptr_info.ast.sentinel == 0 and
-        ptr_info.ast.bit_range_start == 0;
-
-    if (simple) {
-        const result = try gz.add(.{ .tag = .ptr_type_simple, .data = .{
-            .ptr_type_simple = .{
-                .is_allowzero = ptr_info.allowzero_token != null,
-                .is_mutable = ptr_info.const_token == null,
-                .is_volatile = ptr_info.volatile_token != null,
-                .size = ptr_info.size,
-                .elem_type = elem_type,
-            },
-        } });
-        return rvalue(gz, rl, result, node);
-    }
-
     var sentinel_ref: Zir.Inst.Ref = .none;
     var align_ref: Zir.Inst.Ref = .none;
     var addrspace_ref: Zir.Inst.Ref = .none;
@@ -3160,7 +3142,10 @@ fn ptrType(
     try gz.astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.PtrType).Struct.fields.len +
         trailing_count);
 
-    const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.PtrType{ .elem_type = elem_type });
+    const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.PtrType{
+        .elem_type = elem_type,
+        .src_node = gz.nodeIndexToRelative(node),
+    });
     if (sentinel_ref != .none) {
         gz.astgen.extra.appendAssumeCapacity(@enumToInt(sentinel_ref));
     }
@@ -7588,15 +7573,7 @@ fn builtinCall(
         .shl_with_overflow => {
             const int_type = try typeExpr(gz, scope, params[0]);
             const log2_int_type = try gz.addUnNode(.log2_int_type, int_type, params[0]);
-            const ptr_type = try gz.add(.{ .tag = .ptr_type_simple, .data = .{
-                .ptr_type_simple = .{
-                    .is_allowzero = false,
-                    .is_mutable = true,
-                    .is_volatile = false,
-                    .size = .One,
-                    .elem_type = int_type,
-                },
-            } });
+            const ptr_type = try gz.addUnNode(.overflow_arithmetic_ptr, int_type, params[0]);
             const lhs = try expr(gz, scope, .{ .ty = int_type }, params[1]);
             const rhs = try expr(gz, scope, .{ .ty = log2_int_type }, params[2]);
             const ptr = try expr(gz, scope, .{ .ty = ptr_type }, params[3]);
@@ -7987,15 +7964,7 @@ fn overflowArithmetic(
     tag: Zir.Inst.Extended,
 ) InnerError!Zir.Inst.Ref {
     const int_type = try typeExpr(gz, scope, params[0]);
-    const ptr_type = try gz.add(.{ .tag = .ptr_type_simple, .data = .{
-        .ptr_type_simple = .{
-            .is_allowzero = false,
-            .is_mutable = true,
-            .is_volatile = false,
-            .size = .One,
-            .elem_type = int_type,
-        },
-    } });
+    const ptr_type = try gz.addUnNode(.overflow_arithmetic_ptr, int_type, params[0]);
     const lhs = try expr(gz, scope, .{ .ty = int_type }, params[1]);
     const rhs = try expr(gz, scope, .{ .ty = int_type }, params[2]);
     const ptr = try expr(gz, scope, .{ .ty = ptr_type }, params[3]);

@@ -5,7 +5,7 @@ export fn a() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:3:16: error: C pointers cannot point to opaque types
+// :3:16: error: C pointers cannot point to opaque types
