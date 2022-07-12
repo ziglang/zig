@@ -916,13 +916,14 @@ pub const Struct = struct {
     /// one possible value.
     known_non_opv: bool,
     requires_comptime: PropertyBoolean = .unknown,
+    have_field_inits: bool = false,
 
     pub const Fields = std.StringArrayHashMapUnmanaged(Field);
 
     /// The `Type` and `Value` memory is owned by the arena of the Struct's owner_decl.
     pub const Field = struct {
         /// Uses `noreturn` to indicate `anytype`.
-        /// undefined until `status` is `have_field_types` or `have_layout`.
+        /// undefined until `status` is >= `have_field_types`.
         ty: Type,
         /// Uses `unreachable_value` to indicate no default.
         default_val: Value,
