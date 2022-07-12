@@ -178,7 +178,6 @@ const Parser = struct {
             .expected_block_or_assignment,
             .expected_block_or_expr,
             .expected_block_or_field,
-            .expected_container_members,
             .expected_expr,
             .expected_expr_or_assignment,
             .expected_fn,
@@ -401,10 +400,12 @@ const Parser = struct {
                                 });
                                 try p.warnMsg(.{
                                     .tag = .previous_field,
+                                    .is_note = true,
                                     .token = last_field,
                                 });
                                 try p.warnMsg(.{
                                     .tag = .next_field,
+                                    .is_note = true,
                                     .token = identifier,
                                 });
                                 // Continue parsing; error will be reported later.
@@ -985,7 +986,7 @@ const Parser = struct {
             .keyword_switch => return p.expectSwitchExpr(),
             .keyword_if => return p.expectIfStatement(),
             .keyword_enum, .keyword_struct, .keyword_union => {
-                const identifier = p.tok_i + 2;
+                const identifier = p.tok_i + 1;
                 if (try p.parseCStyleContainer()) {
                     // Return something so that `expectStatement` is happy.
                     return p.addNode(.{
