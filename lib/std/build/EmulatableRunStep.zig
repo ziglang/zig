@@ -9,6 +9,7 @@ const build = std.build;
 const Step = std.build.Step;
 const Builder = std.build.Builder;
 const LibExeObjStep = std.build.LibExeObjStep;
+const RunStep = std.build.RunStep;
 
 const fs = std.fs;
 const process = std.process;
@@ -16,7 +17,7 @@ const EnvMap = process.EnvMap;
 
 const EmulatableRunStep = @This();
 
-pub const step_id = .emulatable_run;
+pub const base_id = .emulatable_run;
 
 const max_stdout_size = 1 * 1024 * 1024; // 1 MiB
 
@@ -35,19 +36,12 @@ env_map: ?*EnvMap,
 /// Set this to modify the current working directory
 cwd: ?[]const u8,
 
-stdout_action: StdIoAction = .inherit,
-stderr_action: StdIoAction = .inherit,
+stdout_action: RunStep.StdIoAction = .inherit,
+stderr_action: RunStep.StdIoAction = .inherit,
 
 /// When set to true, hides the warning of skipping a foreign binary which cannot be run on the host
 /// or through emulation.
 hide_foreign_binaries_warning: bool,
-
-pub const StdIoAction = union(enum) {
-    inherit,
-    ignore,
-    expect_exact: []const u8,
-    expect_matches: []const []const u8,
-};
 
 /// Creates a step that will execute the given artifact. This step will allow running the
 /// binary through emulation when any of the emulation options such as `enable_rosetta` are set to true.
@@ -78,7 +72,6 @@ pub fn create(builder: *Builder, name: []const u8, artifact: *LibExeObjStep) *Em
 fn make(step: *Step) !void {
     const self = @fieldParentPtr(EmulatableRunStep, "step", step);
     const host_info = self.builder.host;
-    const cwd = if (self.cwd) |cwd| self.builder.pathFromRoot(cwd) else self.builder.build_root;
 
     var argv_list = std.ArrayList([]const u8).init(self.builder.allocator);
     defer argv_list.deinit();
@@ -131,185 +124,23 @@ fn make(step: *Step) !void {
 
     if (self.exe.target.isWindows()) {
         // On Windows we don't have rpaths so we have to add .dll search paths to PATH
-        self.addPathForDynLibs(self.exe);
+        RunStep.addPathForDynLibsInternal(&self.step, self.builder, self.exe);
     }
 
     const executable_path = self.exe.installed_path orelse self.exe.getOutputSource().getPath(self.builder);
     try argv_list.append(executable_path);
 
-    if (!std.process.can_spawn) {
-        const cmd = try std.mem.join(self.builder.allocator, " ", argv_list.items);
-        std.debug.print("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{ @tagName(@import("builtin").os.tag), cmd });
-        self.builder.allocator.free(cmd);
-        return error.ExecNotSupported;
-    }
-
-    var child = std.ChildProcess.init(argv_list.items, self.builder.allocator);
-    child.cwd = cwd;
-    child.env_map = self.env_map orelse self.builder.env_map;
-
-    child.stdin_behavior = .Inherit;
-    child.stdout_behavior = stdIoActionToBehavior(self.stdout_action);
-    child.stderr_behavior = stdIoActionToBehavior(self.stderr_action);
-
-    child.spawn() catch |err| {
-        std.debug.print("Unable to spawn {s}: {s}\n", .{ argv_list.items[0], @errorName(err) });
-        return err;
-    };
-
-    var stdout: ?[]const u8 = null;
-    defer if (stdout) |s| self.builder.allocator.free(s);
-
-    switch (self.stdout_action) {
-        .expect_exact, .expect_matches => {
-            stdout = child.stdout.?.reader().readAllAlloc(self.builder.allocator, max_stdout_size) catch unreachable;
-        },
-        .inherit, .ignore => {},
-    }
-
-    var stderr: ?[]const u8 = null;
-    defer if (stderr) |s| self.builder.allocator.free(s);
-
-    switch (self.stderr_action) {
-        .expect_exact, .expect_matches => {
-            stderr = child.stderr.?.reader().readAllAlloc(self.builder.allocator, max_stdout_size) catch unreachable;
-        },
-        .inherit, .ignore => {},
-    }
-
-    const term = child.wait() catch |err| {
-        std.debug.print("Unable to spawn {s}: {s}\n", .{ argv_list.items[0], @errorName(err) });
-        return err;
-    };
-
-    switch (term) {
-        .Exited => |code| blk: {
-            const expected_exit_code = self.expected_exit_code orelse break :blk;
-
-            if (code != expected_exit_code) {
-                if (self.builder.prominent_compile_errors) {
-                    std.debug.print("Run step exited with error code {} (expected {})\n", .{
-                        code,
-                        expected_exit_code,
-                    });
-                } else {
-                    std.debug.print("The following command exited with error code {} (expected {}):\n", .{
-                        code,
-                        expected_exit_code,
-                    });
-                    printCmd(cwd, argv_list.items);
-                }
-
-                return error.UnexpectedExitCode;
-            }
-        },
-        else => {
-            std.debug.print("The following command terminated unexpectedly:\n", .{});
-            printCmd(cwd, argv_list.items);
-            return error.UncleanExit;
-        },
-    }
-
-    switch (self.stderr_action) {
-        .inherit, .ignore => {},
-        .expect_exact => |expected_bytes| {
-            if (!std.mem.eql(u8, expected_bytes, stderr.?)) {
-                std.debug.print(
-                    \\
-                    \\========= Expected this stderr: =========
-                    \\{s}
-                    \\========= But found: ====================
-                    \\{s}
-                    \\
-                , .{ expected_bytes, stderr.? });
-                printCmd(cwd, argv_list.items);
-                return error.TestFailed;
-            }
-        },
-        .expect_matches => |matches| for (matches) |match| {
-            if (std.mem.indexOf(u8, stderr.?, match) == null) {
-                std.debug.print(
-                    \\
-                    \\========= Expected to find in stderr: =========
-                    \\{s}
-                    \\========= But stderr does not contain it: =====
-                    \\{s}
-                    \\
-                , .{ match, stderr.? });
-                printCmd(cwd, argv_list.items);
-                return error.TestFailed;
-            }
-        },
-    }
-
-    switch (self.stdout_action) {
-        .inherit, .ignore => {},
-        .expect_exact => |expected_bytes| {
-            if (!std.mem.eql(u8, expected_bytes, stdout.?)) {
-                std.debug.print(
-                    \\
-                    \\========= Expected this stdout: =========
-                    \\{s}
-                    \\========= But found: ====================
-                    \\{s}
-                    \\
-                , .{ expected_bytes, stdout.? });
-                printCmd(cwd, argv_list.items);
-                return error.TestFailed;
-            }
-        },
-        .expect_matches => |matches| for (matches) |match| {
-            if (std.mem.indexOf(u8, stdout.?, match) == null) {
-                std.debug.print(
-                    \\
-                    \\========= Expected to find in stdout: =========
-                    \\{s}
-                    \\========= But stdout does not contain it: =====
-                    \\{s}
-                    \\
-                , .{ match, stdout.? });
-                printCmd(cwd, argv_list.items);
-                return error.TestFailed;
-            }
-        },
-    }
-}
-
-fn addPathForDynLibs(self: *EmulatableRunStep, artifact: *LibExeObjStep) void {
-    for (artifact.link_objects.items) |link_object| {
-        switch (link_object) {
-            .other_step => |other| {
-                if (other.target.isWindows() and other.isDynamicLibrary()) {
-                    self.addPathDir(fs.path.dirname(other.getOutputSource().getPath(self.builder)).?);
-                    self.addPathForDynLibs(other);
-                }
-            },
-            else => {},
-        }
-    }
-}
-
-pub fn addPathDir(self: *EmulatableRunStep, search_path: []const u8) void {
-    const env_map = self.getEnvMap();
-
-    const key = "PATH";
-    var prev_path = env_map.get(key);
-
-    if (prev_path) |pp| {
-        const new_path = self.builder.fmt("{s}" ++ [1]u8{fs.path.delimiter} ++ "{s}", .{ pp, search_path });
-        env_map.put(key, new_path) catch unreachable;
-    } else {
-        env_map.put(key, self.builder.dupePath(search_path)) catch unreachable;
-    }
-}
-
-pub fn getEnvMap(self: *EmulatableRunStep) *EnvMap {
-    return self.env_map orelse {
-        const env_map = self.builder.allocator.create(EnvMap) catch unreachable;
-        env_map.* = process.getEnvMap(self.builder.allocator) catch unreachable;
-        self.env_map = env_map;
-        return env_map;
-    };
+    try RunStep.runCommand(
+        argv_list.items,
+        self.builder,
+        self.expected_exit_code,
+        self.stdout_action,
+        self.stderr_action,
+        .Inherit,
+        self.env_map,
+        self.cwd,
+        false,
+    );
 }
 
 pub fn expectStdErrEqual(self: *EmulatableRunStep, bytes: []const u8) void {
@@ -318,22 +149,6 @@ pub fn expectStdErrEqual(self: *EmulatableRunStep, bytes: []const u8) void {
 
 pub fn expectStdOutEqual(self: *EmulatableRunStep, bytes: []const u8) void {
     self.stdout_action = .{ .expect_exact = self.builder.dupe(bytes) };
-}
-
-fn stdIoActionToBehavior(action: StdIoAction) std.ChildProcess.StdIo {
-    return switch (action) {
-        .ignore => .Ignore,
-        .inherit => .Inherit,
-        .expect_exact, .expect_matches => .Pipe,
-    };
-}
-
-fn printCmd(cwd: ?[]const u8, argv: []const []const u8) void {
-    if (cwd) |yes_cwd| std.debug.print("cd {s} && ", .{yes_cwd});
-    for (argv) |arg| {
-        std.debug.print("{s} ", .{arg});
-    }
-    std.debug.print("\n", .{});
 }
 
 fn warnAboutForeignBinaries(step: *EmulatableRunStep) void {

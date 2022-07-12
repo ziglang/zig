@@ -97,24 +97,42 @@ pub fn clearEnvironment(self: *RunStep) void {
 }
 
 pub fn addPathDir(self: *RunStep, search_path: []const u8) void {
-    const env_map = self.getEnvMap();
+    addPathDirInternal(&self.step, self.builder, search_path);
+}
+
+/// For internal use only, users of `RunStep` should use `addPathDir` directly.
+fn addPathDirInternal(step: *Step, builder: *Builder, search_path: []const u8) void {
+    const env_map = getEnvMapInternal(step, builder.allocator);
 
     const key = "PATH";
     var prev_path = env_map.get(key);
 
     if (prev_path) |pp| {
-        const new_path = self.builder.fmt("{s}" ++ [1]u8{fs.path.delimiter} ++ "{s}", .{ pp, search_path });
+        const new_path = builder.fmt("{s}" ++ [1]u8{fs.path.delimiter} ++ "{s}", .{ pp, search_path });
         env_map.put(key, new_path) catch unreachable;
     } else {
-        env_map.put(key, self.builder.dupePath(search_path)) catch unreachable;
+        env_map.put(key, builder.dupePath(search_path)) catch unreachable;
     }
 }
 
 pub fn getEnvMap(self: *RunStep) *EnvMap {
-    return self.env_map orelse {
-        const env_map = self.builder.allocator.create(EnvMap) catch unreachable;
-        env_map.* = process.getEnvMap(self.builder.allocator) catch unreachable;
-        self.env_map = env_map;
+    return getEnvMapInternal(&self.step, self.builder.allocator);
+}
+
+fn getEnvMapInternal(step: *Step, allocator: Allocator) *EnvMap {
+    const maybe_env_map = switch (step.id) {
+        .run => step.cast(RunStep).?.env_map,
+        .emulatable_run => step.cast(build.EmulatableRunStep).?.env_map,
+        else => unreachable,
+    };
+    return maybe_env_map orelse {
+        const env_map = allocator.create(EnvMap) catch unreachable;
+        env_map.* = process.getEnvMap(allocator) catch unreachable;
+        switch (step.id) {
+            .run => step.cast(RunStep).?.env_map = env_map,
+            .emulatable_run => step.cast(RunStep).?.env_map = env_map,
+            else => unreachable,
+        }
         return env_map;
     };
 }
@@ -146,10 +164,7 @@ fn stdIoActionToBehavior(action: StdIoAction) std.ChildProcess.StdIo {
 fn make(step: *Step) !void {
     const self = @fieldParentPtr(RunStep, "step", step);
 
-    const cwd = if (self.cwd) |cwd| self.builder.pathFromRoot(cwd) else self.builder.build_root;
-
     var argv_list = ArrayList([]const u8).init(self.builder.allocator);
-
     for (self.argv.items) |arg| {
         switch (arg) {
             .bytes => |bytes| try argv_list.append(bytes),
@@ -165,24 +180,48 @@ fn make(step: *Step) !void {
         }
     }
 
-    const argv = argv_list.items;
+    try runCommand(
+        argv_list.items,
+        self.builder,
+        self.expected_exit_code,
+        self.stdout_action,
+        self.stderr_action,
+        self.stdin_behavior,
+        self.env_map,
+        self.cwd,
+        self.print,
+    );
+}
+
+pub fn runCommand(
+    argv: []const []const u8,
+    builder: *Builder,
+    expected_exit_code: ?u8,
+    stdout_action: StdIoAction,
+    stderr_action: StdIoAction,
+    stdin_behavior: std.ChildProcess.StdIo,
+    env_map: ?*EnvMap,
+    maybe_cwd: ?[]const u8,
+    print: bool,
+) !void {
+    const cwd = if (maybe_cwd) |cwd| builder.pathFromRoot(cwd) else builder.build_root;
 
     if (!std.process.can_spawn) {
-        const cmd = try std.mem.join(self.builder.allocator, " ", argv);
+        const cmd = try std.mem.join(builder.addInstallDirectory, " ", argv);
         std.debug.print("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{ @tagName(builtin.os.tag), cmd });
-        self.builder.allocator.free(cmd);
+        builder.allocator.free(cmd);
         return ExecError.ExecNotSupported;
     }
 
-    var child = std.ChildProcess.init(argv, self.builder.allocator);
+    var child = std.ChildProcess.init(argv, builder.allocator);
     child.cwd = cwd;
-    child.env_map = self.env_map orelse self.builder.env_map;
+    child.env_map = env_map orelse builder.env_map;
 
-    child.stdin_behavior = self.stdin_behavior;
-    child.stdout_behavior = stdIoActionToBehavior(self.stdout_action);
-    child.stderr_behavior = stdIoActionToBehavior(self.stderr_action);
+    child.stdin_behavior = stdin_behavior;
+    child.stdout_behavior = stdIoActionToBehavior(stdout_action);
+    child.stderr_behavior = stdIoActionToBehavior(stderr_action);
 
-    if (self.print)
+    if (print)
         printCmd(cwd, argv);
 
     child.spawn() catch |err| {
@@ -193,21 +232,21 @@ fn make(step: *Step) !void {
     // TODO need to poll to read these streams to prevent a deadlock (or rely on evented I/O).
 
     var stdout: ?[]const u8 = null;
-    defer if (stdout) |s| self.builder.allocator.free(s);
+    defer if (stdout) |s| builder.allocator.free(s);
 
-    switch (self.stdout_action) {
+    switch (stdout_action) {
         .expect_exact, .expect_matches => {
-            stdout = child.stdout.?.reader().readAllAlloc(self.builder.allocator, max_stdout_size) catch unreachable;
+            stdout = child.stdout.?.reader().readAllAlloc(builder.allocator, max_stdout_size) catch unreachable;
         },
         .inherit, .ignore => {},
     }
 
     var stderr: ?[]const u8 = null;
-    defer if (stderr) |s| self.builder.allocator.free(s);
+    defer if (stderr) |s| builder.allocator.free(s);
 
-    switch (self.stderr_action) {
+    switch (stderr_action) {
         .expect_exact, .expect_matches => {
-            stderr = child.stderr.?.reader().readAllAlloc(self.builder.allocator, max_stdout_size) catch unreachable;
+            stderr = child.stderr.?.reader().readAllAlloc(builder.allocator, max_stdout_size) catch unreachable;
         },
         .inherit, .ignore => {},
     }
@@ -219,18 +258,18 @@ fn make(step: *Step) !void {
 
     switch (term) {
         .Exited => |code| blk: {
-            const expected_exit_code = self.expected_exit_code orelse break :blk;
+            const expected_code = expected_exit_code orelse break :blk;
 
-            if (code != expected_exit_code) {
-                if (self.builder.prominent_compile_errors) {
+            if (code != expected_code) {
+                if (builder.prominent_compile_errors) {
                     std.debug.print("Run step exited with error code {} (expected {})\n", .{
                         code,
-                        expected_exit_code,
+                        expected_code,
                     });
                 } else {
                     std.debug.print("The following command exited with error code {} (expected {}):\n", .{
                         code,
-                        expected_exit_code,
+                        expected_code,
                     });
                     printCmd(cwd, argv);
                 }
@@ -245,7 +284,7 @@ fn make(step: *Step) !void {
         },
     }
 
-    switch (self.stderr_action) {
+    switch (stderr_action) {
         .inherit, .ignore => {},
         .expect_exact => |expected_bytes| {
             if (!mem.eql(u8, expected_bytes, stderr.?)) {
@@ -277,7 +316,7 @@ fn make(step: *Step) !void {
         },
     }
 
-    switch (self.stdout_action) {
+    switch (stdout_action) {
         .inherit, .ignore => {},
         .expect_exact => |expected_bytes| {
             if (!mem.eql(u8, expected_bytes, stdout.?)) {
@@ -319,12 +358,18 @@ fn printCmd(cwd: ?[]const u8, argv: []const []const u8) void {
 }
 
 fn addPathForDynLibs(self: *RunStep, artifact: *LibExeObjStep) void {
+    addPathForDynLibsInternal(&self.step, self.builder, artifact);
+}
+
+/// This should only be used for internal usage, this is called automatically
+/// for the user.
+pub fn addPathForDynLibsInternal(step: *Step, builder: *Builder, artifact: *LibExeObjStep) void {
     for (artifact.link_objects.items) |link_object| {
         switch (link_object) {
             .other_step => |other| {
                 if (other.target.isWindows() and other.isDynamicLibrary()) {
-                    self.addPathDir(fs.path.dirname(other.getOutputSource().getPath(self.builder)).?);
-                    self.addPathForDynLibs(other);
+                    addPathDirInternal(step, builder, fs.path.dirname(other.getOutputSource().getPath(builder)).?);
+                    addPathForDynLibsInternal(step, builder, other);
                 }
             },
             else => {},
