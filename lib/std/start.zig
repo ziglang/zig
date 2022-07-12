@@ -108,7 +108,7 @@ fn callMain2() noreturn {
     exit2(0);
 }
 
-fn wasiMain2() noreturn {
+fn wasiMain2() callconv(.C) noreturn {
     switch (@typeInfo(@typeInfo(@TypeOf(root.main)).Fn.return_type.?)) {
         .Void => {
             root.main();
