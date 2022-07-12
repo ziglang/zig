@@ -1358,3 +1358,17 @@ test "store to comptime field" {
         s.a.a = 1;
     }
 }
+
+test "struct field init value is size of the struct" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const namespace = struct {
+        const S = extern struct {
+            size: u8 = @sizeOf(S),
+            blah: u16,
+        };
+    };
+    var s: namespace.S = .{ .blah = 1234 };
+    try expect(s.size == 4);
+}

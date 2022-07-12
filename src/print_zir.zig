@@ -1227,12 +1227,6 @@ const Writer = struct {
             break :blk src_node;
         } else null;
 
-        const body_len = if (small.has_body_len) blk: {
-            const body_len = self.code.extra[extra_index];
-            extra_index += 1;
-            break :blk body_len;
-        } else 0;
-
         const fields_len = if (small.has_fields_len) blk: {
             const fields_len = self.code.extra[extra_index];
             extra_index += 1;
@@ -1262,71 +1256,114 @@ const Writer = struct {
             try stream.writeAll("}, ");
         }
 
-        const body = self.code.extra[extra_index..][0..body_len];
-        extra_index += body.len;
-
         if (fields_len == 0) {
-            assert(body.len == 0);
             try stream.writeAll("{}, {})");
         } else {
-            const prev_parent_decl_node = self.parent_decl_node;
-            if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
-            try self.writeBracedDecl(stream, body);
-            try stream.writeAll(", {\n");
-
-            self.indent += 2;
             const bits_per_field = 4;
             const fields_per_u32 = 32 / bits_per_field;
             const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
-            var bit_bag_index: usize = extra_index;
-            extra_index += bit_bags_count;
-            var cur_bit_bag: u32 = undefined;
-            var field_i: u32 = 0;
-            while (field_i < fields_len) : (field_i += 1) {
-                if (field_i % fields_per_u32 == 0) {
-                    cur_bit_bag = self.code.extra[bit_bag_index];
-                    bit_bag_index += 1;
+            const Field = struct {
+                doc_comment_index: u32,
+                type_len: u32 = 0,
+                align_len: u32 = 0,
+                init_len: u32 = 0,
+                field_type: Zir.Inst.Ref = .none,
+                name: u32,
+                is_comptime: bool,
+            };
+            const fields = try self.arena.alloc(Field, fields_len);
+            {
+                var bit_bag_index: usize = extra_index;
+                extra_index += bit_bags_count;
+                var cur_bit_bag: u32 = undefined;
+                var field_i: u32 = 0;
+                while (field_i < fields_len) : (field_i += 1) {
+                    if (field_i % fields_per_u32 == 0) {
+                        cur_bit_bag = self.code.extra[bit_bag_index];
+                        bit_bag_index += 1;
+                    }
+                    const has_align = @truncate(u1, cur_bit_bag) != 0;
+                    cur_bit_bag >>= 1;
+                    const has_default = @truncate(u1, cur_bit_bag) != 0;
+                    cur_bit_bag >>= 1;
+                    const is_comptime = @truncate(u1, cur_bit_bag) != 0;
+                    cur_bit_bag >>= 1;
+                    const has_type_body = @truncate(u1, cur_bit_bag) != 0;
+                    cur_bit_bag >>= 1;
+
+                    const field_name = self.code.extra[extra_index];
+                    extra_index += 1;
+                    const doc_comment_index = self.code.extra[extra_index];
+                    extra_index += 1;
+
+                    fields[field_i] = .{
+                        .doc_comment_index = doc_comment_index,
+                        .is_comptime = is_comptime,
+                        .name = field_name,
+                    };
+
+                    if (has_type_body) {
+                        fields[field_i].type_len = self.code.extra[extra_index];
+                    } else {
+                        fields[field_i].field_type = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
+                    }
+                    extra_index += 1;
+
+                    if (has_align) {
+                        fields[field_i].align_len = self.code.extra[extra_index];
+                        extra_index += 1;
+                    }
+
+                    if (has_default) {
+                        fields[field_i].init_len = self.code.extra[extra_index];
+                        extra_index += 1;
+                    }
                 }
-                const has_align = @truncate(u1, cur_bit_bag) != 0;
-                cur_bit_bag >>= 1;
-                const has_default = @truncate(u1, cur_bit_bag) != 0;
-                cur_bit_bag >>= 1;
-                const is_comptime = @truncate(u1, cur_bit_bag) != 0;
-                cur_bit_bag >>= 1;
-                const unused = @truncate(u1, cur_bit_bag) != 0;
-                cur_bit_bag >>= 1;
+            }
 
-                _ = unused;
+            const prev_parent_decl_node = self.parent_decl_node;
+            if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
+            try stream.writeAll("{\n");
+            self.indent += 2;
 
-                const field_name = self.code.nullTerminatedString(self.code.extra[extra_index]);
-                extra_index += 1;
-                const field_type = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
-                extra_index += 1;
-                const doc_comment_index = self.code.extra[extra_index];
-                extra_index += 1;
+            for (fields) |field| {
+                const field_name = self.code.nullTerminatedString(field.name);
 
-                try self.writeDocComment(stream, doc_comment_index);
-
+                try self.writeDocComment(stream, field.doc_comment_index);
                 try stream.writeByteNTimes(' ', self.indent);
-                try self.writeFlag(stream, "comptime ", is_comptime);
+                try self.writeFlag(stream, "comptime ", field.is_comptime);
                 try stream.print("{}: ", .{std.zig.fmtId(field_name)});
-                try self.writeInstRef(stream, field_type);
+                if (field.field_type != .none) {
+                    try self.writeInstRef(stream, field.field_type);
+                }
 
-                if (has_align) {
-                    const align_ref = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
-                    extra_index += 1;
+                if (field.type_len > 0) {
+                    const body = self.code.extra[extra_index..][0..field.type_len];
+                    extra_index += body.len;
+                    self.indent += 2;
+                    try self.writeBracedDecl(stream, body);
+                    self.indent -= 2;
+                }
 
+                if (field.align_len > 0) {
+                    const body = self.code.extra[extra_index..][0..field.align_len];
+                    extra_index += body.len;
+                    self.indent += 2;
                     try stream.writeAll(" align(");
-                    try self.writeInstRef(stream, align_ref);
+                    try self.writeBracedDecl(stream, body);
                     try stream.writeAll(")");
+                    self.indent -= 2;
                 }
-                if (has_default) {
-                    const default_ref = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
-                    extra_index += 1;
 
+                if (field.init_len > 0) {
+                    const body = self.code.extra[extra_index..][0..field.init_len];
+                    extra_index += body.len;
+                    self.indent += 2;
                     try stream.writeAll(" = ");
-                    try self.writeInstRef(stream, default_ref);
+                    try self.writeBracedDecl(stream, body);
+                    self.indent -= 2;
                 }
+
                 try stream.writeAll(",\n");
             }
 

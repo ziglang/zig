@@ -3093,16 +3093,15 @@ pub const Inst = struct {
 
     /// Trailing:
     /// 0. src_node: i32, // if has_src_node
-    /// 1. body_len: u32, // if has_body_len
-    /// 2. fields_len: u32, // if has_fields_len
-    /// 3. decls_len: u32, // if has_decls_len
-    /// 4. decl_bits: u32 // for every 8 decls
+    /// 1. fields_len: u32, // if has_fields_len
+    /// 2. decls_len: u32, // if has_decls_len
+    /// 3. decl_bits: u32 // for every 8 decls
     ///    - sets of 4 bits:
     ///      0b000X: whether corresponding decl is pub
     ///      0b00X0: whether corresponding decl is exported
     ///      0b0X00: whether corresponding decl has an align expression
     ///      0bX000: whether corresponding decl has a linksection or an address space expression
-    /// 5. decl: { // for every decls_len
+    /// 4. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
     ///        line: u32, // line number of decl, relative to parent
     ///        name: u32, // null terminated string index
@@ -3120,32 +3119,35 @@ pub const Inst = struct {
     ///            address_space: Ref,
     ///        }
     ///    }
-    /// 6. inst: Index // for every body_len
-    /// 7. flags: u32 // for every 8 fields
+    /// 5. flags: u32 // for every 8 fields
     ///    - sets of 4 bits:
     ///      0b000X: whether corresponding field has an align expression
     ///      0b00X0: whether corresponding field has a default expression
     ///      0b0X00: whether corresponding field is comptime
-    ///      0bX000: unused
-    /// 8. fields: { // for every fields_len
+    ///      0bX000: whether corresponding field has a type expression
+    /// 6. fields: { // for every fields_len
     ///        field_name: u32,
-    ///        field_type: Ref,
-    ///        - if none, means `anytype`.
     ///        doc_comment: u32, // 0 if no doc comment
-    ///        align: Ref, // if corresponding bit is set
-    ///        default_value: Ref, // if corresponding bit is set
+    ///        field_type: Ref, // if corresponding bit is not set. none means anytype.
+    ///        field_type_body_len: u32, // if corresponding bit is set
+    ///        align_body_len: u32, // if corresponding bit is set
+    ///        init_body_len: u32, // if corresponding bit is set
+    ///    }
+    /// 7. bodies: { // for every fields_len
+    ///        field_type_body_inst: Inst, // for each field_type_body_len
+    ///        align_body_inst: Inst, // for each align_body_len
+    ///        init_body_inst: Inst, // for each init_body_len
     ///    }
     pub const StructDecl = struct {
         pub const Small = packed struct {
             has_src_node: bool,
-            has_body_len: bool,
             has_fields_len: bool,
             has_decls_len: bool,
             known_non_opv: bool,
             known_comptime_only: bool,
             name_strategy: NameStrategy,
             layout: std.builtin.Type.ContainerLayout,
-            _: u6 = undefined,
+            _: u7 = undefined,
         };
     };
 
@@ -3594,7 +3596,6 @@ pub fn declIterator(zir: Zir, decl_inst: u32) DeclIterator {
                     const small = @bitCast(Inst.StructDecl.Small, extended.small);
                     var extra_index: usize = extended.operand;
                     extra_index += @boolToInt(small.has_src_node);
-                    extra_index += @boolToInt(small.has_body_len);
                     extra_index += @boolToInt(small.has_fields_len);
                     const decls_len = if (small.has_decls_len) decls_len: {
                         const decls_len = zir.extra[extra_index];
