@@ -249,7 +249,7 @@ fn getTerminalCursorColumn(self: Progress, file: std.fs.File) !u16 {
         var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
         if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != windows.TRUE)
             unreachable;
-        return info.dwCursorPosition.X;
+        return @intCast(u16, info.dwCursorPosition.X);
     } else {
         return error.Unsupported;
     }
