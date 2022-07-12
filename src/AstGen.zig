@@ -4148,7 +4148,6 @@ fn structDeclInner(
             .src_node = node,
             .layout = layout,
             .fields_len = 0,
-            .body_len = 0,
             .decls_len = 0,
             .known_non_opv = false,
             .known_comptime_only = false,
@@ -4192,6 +4191,19 @@ fn structDeclInner(
     var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, field_count, bits_per_field, max_field_size);
     defer wip_members.deinit();
 
+    // We will use the scratch buffer, starting here, for the bodies:
+    //    bodies: { // for every fields_len
+    //        field_type_body_inst: Inst, // for each field_type_body_len
+    //        align_body_inst: Inst, // for each align_body_len
+    //        init_body_inst: Inst, // for each init_body_len
+    //    }
+    // Note that the scratch buffer is simultaneously being used by WipMembers, however
+    // it will not access any elements beyond this point in the ArrayList. It also
+    // accesses via the ArrayList items field so it can handle the scratch buffer being
+    // reallocated.
+    // No defer needed here because it is handled by `wip_members.deinit()` above.
+    const bodies_start = astgen.scratch.items.len;
+
     var known_non_opv = false;
     var known_comptime_only = false;
     for (container_decl.ast.members) |member_node| {
@@ -4203,20 +4215,18 @@ fn structDeclInner(
         const field_name = try astgen.identAsString(member.ast.name_token);
         wip_members.appendToField(field_name);
 
+        const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
+        wip_members.appendToField(doc_comment_index);
+
         if (member.ast.type_expr == 0) {
             return astgen.failTok(member.ast.name_token, "struct field missing type", .{});
         }
 
         const field_type = try typeExpr(&block_scope, &namespace.base, member.ast.type_expr);
-        wip_members.appendToField(@enumToInt(field_type));
-
-        const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
-        wip_members.appendToField(doc_comment_index);
-
+        const have_type_body = !block_scope.isEmpty();
         const have_align = member.ast.align_expr != 0;
         const have_value = member.ast.value_expr != 0;
         const is_comptime = member.comptime_token != null;
-        const unused = false;
 
         if (!is_comptime) {
             known_non_opv = known_non_opv or
@@ -4224,36 +4234,59 @@ fn structDeclInner(
             known_comptime_only = known_comptime_only or
                 nodeImpliesComptimeOnly(tree, member.ast.type_expr);
         }
-        wip_members.nextField(bits_per_field, .{ have_align, have_value, is_comptime, unused });
+        wip_members.nextField(bits_per_field, .{ have_align, have_value, is_comptime, have_type_body });
+
+        if (have_type_body) {
+            if (!block_scope.endsWithNoReturn()) {
+                _ = try block_scope.addBreak(.break_inline, decl_inst, field_type);
+            }
+            const body = block_scope.instructionsSlice();
+            const old_scratch_len = astgen.scratch.items.len;
+            try astgen.scratch.ensureUnusedCapacity(gpa, countBodyLenAfterFixups(astgen, body));
+            appendBodyWithFixupsArrayList(astgen, &astgen.scratch, body);
+            wip_members.appendToField(@intCast(u32, astgen.scratch.items.len - old_scratch_len));
+            block_scope.instructions.items.len = block_scope.instructions_top;
+        } else {
+            wip_members.appendToField(@enumToInt(field_type));
+        }
 
         if (have_align) {
             if (layout == .Packed) {
                 try astgen.appendErrorNode(member.ast.align_expr, "unable to override alignment of packed struct fields", .{});
             }
-            const align_inst = try expr(&block_scope, &namespace.base, align_rl, member.ast.align_expr);
-            wip_members.appendToField(@enumToInt(align_inst));
+            const align_ref = try expr(&block_scope, &namespace.base, coerced_align_rl, member.ast.align_expr);
+            if (!block_scope.endsWithNoReturn()) {
+                _ = try block_scope.addBreak(.break_inline, decl_inst, align_ref);
+            }
+            const body = block_scope.instructionsSlice();
+            const old_scratch_len = astgen.scratch.items.len;
+            try astgen.scratch.ensureUnusedCapacity(gpa, countBodyLenAfterFixups(astgen, body));
+            appendBodyWithFixupsArrayList(astgen, &astgen.scratch, body);
+            wip_members.appendToField(@intCast(u32, astgen.scratch.items.len - old_scratch_len));
+            block_scope.instructions.items.len = block_scope.instructions_top;
         }
+
         if (have_value) {
-            const rl: ResultLoc = if (field_type == .none) .none else .{ .ty = field_type };
+            const rl: ResultLoc = if (field_type == .none) .none else .{ .coerced_ty = field_type };
 
             const default_inst = try expr(&block_scope, &namespace.base, rl, member.ast.value_expr);
-            wip_members.appendToField(@enumToInt(default_inst));
+            if (!block_scope.endsWithNoReturn()) {
+                _ = try block_scope.addBreak(.break_inline, decl_inst, default_inst);
+            }
+            const body = block_scope.instructionsSlice();
+            const old_scratch_len = astgen.scratch.items.len;
+            try astgen.scratch.ensureUnusedCapacity(gpa, countBodyLenAfterFixups(astgen, body));
+            appendBodyWithFixupsArrayList(astgen, &astgen.scratch, body);
+            wip_members.appendToField(@intCast(u32, astgen.scratch.items.len - old_scratch_len));
+            block_scope.instructions.items.len = block_scope.instructions_top;
         } else if (member.comptime_token) |comptime_token| {
             return astgen.failTok(comptime_token, "comptime field without default initialization value", .{});
         }
     }
 
-    if (!block_scope.isEmpty()) {
-        _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
-    }
-
-    const body = block_scope.instructionsSlice();
-    const body_len = astgen.countBodyLenAfterFixups(body);
-
     try gz.setStruct(decl_inst, .{
         .src_node = node,
         .layout = layout,
-        .body_len = body_len,
         .fields_len = field_count,
         .decls_len = decl_count,
         .known_non_opv = known_non_opv,
@@ -4263,10 +4296,11 @@ fn structDeclInner(
     wip_members.finishBits(bits_per_field);
     const decls_slice = wip_members.declsSlice();
     const fields_slice = wip_members.fieldsSlice();
-    try astgen.extra.ensureUnusedCapacity(gpa, decls_slice.len + body_len + fields_slice.len);
+    const bodies_slice = astgen.scratch.items[bodies_start..];
+    try astgen.extra.ensureUnusedCapacity(gpa, decls_slice.len + fields_slice.len + bodies_slice.len);
     astgen.extra.appendSliceAssumeCapacity(decls_slice);
-    astgen.appendBodyWithFixups(body);
     astgen.extra.appendSliceAssumeCapacity(fields_slice);
+    astgen.extra.appendSliceAssumeCapacity(bodies_slice);
 
     block_scope.unstack();
     try gz.addNamespaceCaptures(&namespace);
@@ -10981,7 +11015,6 @@ const GenZir = struct {
 
     fn setStruct(gz: *GenZir, inst: Zir.Inst.Index, args: struct {
         src_node: Ast.Node.Index,
-        body_len: u32,
         fields_len: u32,
         decls_len: u32,
         layout: std.builtin.Type.ContainerLayout,
@@ -10998,9 +11031,6 @@ const GenZir = struct {
             const node_offset = gz.nodeIndexToRelative(args.src_node);
             astgen.extra.appendAssumeCapacity(@bitCast(u32, node_offset));
         }
-        if (args.body_len != 0) {
-            astgen.extra.appendAssumeCapacity(args.body_len);
-        }
         if (args.fields_len != 0) {
             astgen.extra.appendAssumeCapacity(args.fields_len);
         }
@@ -11013,7 +11043,6 @@ const GenZir = struct {
                 .opcode = .struct_decl,
                 .small = @bitCast(u16, Zir.Inst.StructDecl.Small{
                     .has_src_node = args.src_node != 0,
-                    .has_body_len = args.body_len != 0,
                     .has_fields_len = args.fields_len != 0,
                     .has_decls_len = args.decls_len != 0,
                     .known_non_opv = args.known_non_opv,
