@@ -178,7 +178,6 @@ const Parser = struct {
             .expected_block_or_assignment,
             .expected_block_or_expr,
             .expected_block_or_field,
-            .expected_container_members,
             .expected_expr,
             .expected_expr_or_assignment,
             .expected_fn,
@@ -401,10 +400,12 @@ const Parser = struct {
                                 });
                                 try p.warnMsg(.{
                                     .tag = .previous_field,
+                                    .is_note = true,
                                     .token = last_field,
                                 });
                                 try p.warnMsg(.{
                                     .tag = .next_field,
+                                    .is_note = true,
                                     .token = identifier,
                                 });
                                 // Continue parsing; error will be reported later.
@@ -440,9 +441,15 @@ const Parser = struct {
                     break;
                 },
                 else => {
-                    try p.warn(.expected_container_members);
-                    // This was likely not supposed to end yet; try to find the next declaration.
-                    p.findNextContainerMember();
+                    const c_container = p.parseCStyleContainer() catch |err| switch (err) {
+                        error.OutOfMemory => return error.OutOfMemory,
+                        error.ParseError => false,
+                    };
+                    if (!c_container) {
+                        try p.warn(.expected_container_members);
+                        // This was likely not supposed to end yet; try to find the next declaration.
+                        p.findNextContainerMember();
+                    }
                 },
             }
         }
@@ -978,6 +985,20 @@ const Parser = struct {
             }),
             .keyword_switch => return p.expectSwitchExpr(),
             .keyword_if => return p.expectIfStatement(),
+            .keyword_enum, .keyword_struct, .keyword_union => {
+                const identifier = p.tok_i + 1;
+                if (try p.parseCStyleContainer()) {
+                    // Return something so that `expectStatement` is happy.
+                    return p.addNode(.{
+                        .tag = .identifier,
+                        .main_token = identifier,
+                        .data = .{
+                            .lhs = undefined,
+                            .rhs = undefined,
+                        },
+                    });
+                }
+            },
             else => {},
         }
 
@@ -3464,6 +3485,37 @@ const Parser = struct {
                 },
             });
         }
+    }
+
+    /// Give a helpful error message for those transitioning from
+    /// C's 'struct Foo {};' to Zig's 'const Foo = struct {};'.
+    fn parseCStyleContainer(p: *Parser) Error!bool {
+        const main_token = p.tok_i;
+        switch (p.token_tags[p.tok_i]) {
+            .keyword_enum, .keyword_union, .keyword_struct => {},
+            else => return false,
+        }
+        const identifier = p.tok_i + 1;
+        if (p.token_tags[identifier] != .identifier) return false;
+        p.tok_i += 2;
+
+        try p.warnMsg(.{
+            .tag = .c_style_container,
+            .token = identifier,
+            .extra = .{ .expected_tag = p.token_tags[main_token] },
+        });
+        try p.warnMsg(.{
+            .tag = .zig_style_container,
+            .is_note = true,
+            .token = identifier,
+            .extra = .{ .expected_tag = p.token_tags[main_token] },
+        });
+
+        _ = try p.expectToken(.l_brace);
+        _ = try p.parseContainerMembers();
+        _ = try p.expectToken(.r_brace);
+        try p.expectSemicolon(.expected_semi_after_decl, true);
+        return true;
     }
 
     /// Holds temporary data until we are ready to construct the full ContainerDecl AST node.

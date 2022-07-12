@@ -334,6 +334,16 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         .invalid_ampersand_ampersand => {
             return stream.writeAll("ambiguous use of '&&'; use 'and' for logical AND, or change whitespace to ' & &' for bitwise AND");
         },
+        .c_style_container => {
+            return stream.print("'{s} {s}' is invalid", .{
+                parse_error.extra.expected_tag.symbol(), tree.tokenSlice(parse_error.token),
+            });
+        },
+        .zig_style_container => {
+            return stream.print("to declare a container do 'const {s} = {s}'", .{
+                tree.tokenSlice(parse_error.token), parse_error.extra.expected_tag.symbol(),
+            });
+        },
         .previous_field => {
             return stream.writeAll("field before declarations here");
         },
@@ -2541,7 +2551,9 @@ pub const Error = struct {
         expected_initializer,
         mismatched_binary_op_whitespace,
         invalid_ampersand_ampersand,
+        c_style_container,
 
+        zig_style_container,
         previous_field,
         next_field,
 

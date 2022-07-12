@@ -3324,17 +3324,21 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
                 .parent_decl_node = 0,
                 .lazy = .{ .byte_abs = byte_abs },
             }, err_msg, "invalid byte: '{'}'", .{std.zig.fmtEscapes(source[byte_abs..][0..1])});
-        } else if (parse_err.tag == .decl_between_fields) {
-            try mod.errNoteNonLazy(.{
-                .file_scope = file,
-                .parent_decl_node = 0,
-                .lazy = .{ .byte_abs = token_starts[file.tree.errors[1].token] },
-            }, err_msg, "field before declarations here", .{});
-            try mod.errNoteNonLazy(.{
-                .file_scope = file,
-                .parent_decl_node = 0,
-                .lazy = .{ .byte_abs = token_starts[file.tree.errors[2].token] },
-            }, err_msg, "field after declarations here", .{});
+        }
+
+        for (file.tree.errors[1..]) |note| {
+            if (!note.is_note) break;
+
+            try file.tree.renderError(note, msg.writer());
+            err_msg.notes = try mod.gpa.realloc(err_msg.notes, err_msg.notes.len + 1);
+            err_msg.notes[err_msg.notes.len - 1] = .{
+                .src_loc = .{
+                    .file_scope = file,
+                    .parent_decl_node = 0,
+                    .lazy = .{ .byte_abs = token_starts[note.token] },
+                },
+                .msg = msg.toOwnedSlice(),
+            };
         }
 
         {
