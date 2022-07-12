@@ -534,9 +534,9 @@ pub const Inst = struct {
         /// Obtains the return type of the in-scope function.
         /// Uses the `node` union field.
         ret_type,
-        /// Create a pointer type that does not have a sentinel, alignment, address space, or bit range specified.
-        /// Uses the `ptr_type_simple` union field.
-        ptr_type_simple,
+        /// Create a pointer type for overflow arithmetic.
+        /// TODO remove when doing https://github.com/ziglang/zig/issues/10248
+        overflow_arithmetic_ptr,
         /// Create a pointer type which can have a sentinel, alignment, address space, and/or bit range.
         /// Uses the `ptr_type` union field.
         ptr_type,
@@ -1121,7 +1121,7 @@ pub const Inst = struct {
                 .err_union_code,
                 .err_union_code_ptr,
                 .ptr_type,
-                .ptr_type_simple,
+                .overflow_arithmetic_ptr,
                 .ensure_err_payload_void,
                 .enum_literal,
                 .merge_error_sets,
@@ -1417,7 +1417,7 @@ pub const Inst = struct {
                 .err_union_code,
                 .err_union_code_ptr,
                 .ptr_type,
-                .ptr_type_simple,
+                .overflow_arithmetic_ptr,
                 .enum_literal,
                 .merge_error_sets,
                 .error_union_type,
@@ -1659,7 +1659,7 @@ pub const Inst = struct {
                 .ret_err_value_code = .str_tok,
                 .ret_ptr = .node,
                 .ret_type = .node,
-                .ptr_type_simple = .ptr_type_simple,
+                .overflow_arithmetic_ptr = .un_node,
                 .ptr_type = .ptr_type,
                 .slice_start = .pl_node,
                 .slice_end = .pl_node,
@@ -2499,13 +2499,6 @@ pub const Inst = struct {
         node: i32,
         int: u64,
         float: f64,
-        ptr_type_simple: struct {
-            is_allowzero: bool,
-            is_mutable: bool,
-            is_volatile: bool,
-            size: std.builtin.Type.Pointer.Size,
-            elem_type: Ref,
-        },
         ptr_type: struct {
             flags: packed struct {
                 is_allowzero: bool,
@@ -2608,7 +2601,6 @@ pub const Inst = struct {
             node,
             int,
             float,
-            ptr_type_simple,
             ptr_type,
             int_type,
             bool_br,
@@ -2869,6 +2861,7 @@ pub const Inst = struct {
     /// 4. host_size: Ref // if `has_bit_range` flag is set
     pub const PtrType = struct {
         elem_type: Ref,
+        src_node: i32,
     };
 
     pub const ArrayTypeSentinel = struct {

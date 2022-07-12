@@ -768,7 +768,7 @@ fn analyzeBodyInner(
             .optional_type                => try sema.zirOptionalType(block, inst),
             .param_type                   => try sema.zirParamType(block, inst),
             .ptr_type                     => try sema.zirPtrType(block, inst),
-            .ptr_type_simple              => try sema.zirPtrTypeSimple(block, inst),
+            .overflow_arithmetic_ptr      => try sema.zirOverflowArithmeticPtr(block, inst),
             .ref                          => try sema.zirRef(block, inst),
             .ret_err_value_code           => try sema.zirRetErrValueCode(inst),
             .shr                          => try sema.zirShr(block, inst, .shr),
@@ -13835,22 +13835,21 @@ fn floatOpAllowed(tag: Zir.Inst.Tag) bool {
     };
 }
 
-fn zirPtrTypeSimple(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirOverflowArithmeticPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[inst].ptr_type_simple;
-    const elem_ty_src = sema.src; // TODO better source location
-    const elem_type = try sema.resolveType(block, elem_ty_src, inst_data.elem_type);
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const elem_ty_src = inst_data.src();
+    const elem_type = try sema.resolveType(block, elem_ty_src, inst_data.operand);
     const ty = try Type.ptr(sema.arena, sema.mod, .{
         .pointee_type = elem_type,
         .@"addrspace" = .generic,
-        .mutable = inst_data.is_mutable,
-        .@"allowzero" = inst_data.is_allowzero or inst_data.size == .C,
-        .@"volatile" = inst_data.is_volatile,
-        .size = inst_data.size,
+        .mutable = true,
+        .@"allowzero" = false,
+        .@"volatile" = false,
+        .size = .One,
     });
-    try sema.validatePtrTy(block, elem_ty_src, ty);
     return sema.addType(ty);
 }
 
@@ -13858,14 +13857,15 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const tracy = trace(@src());
     defer tracy.end();
 
-    const src: LazySrcLoc = sema.src; // TODO better source location
-    const elem_ty_src: LazySrcLoc = sema.src; // TODO better source location
-    const sentinel_src: LazySrcLoc = sema.src; // TODO better source location
-    const addrspace_src: LazySrcLoc = sema.src; // TODO better source location
-    const bitoffset_src: LazySrcLoc = sema.src; // TODO better source location
-    const hostsize_src: LazySrcLoc = sema.src; // TODO better source location
     const inst_data = sema.code.instructions.items(.data)[inst].ptr_type;
     const extra = sema.code.extraData(Zir.Inst.PtrType, inst_data.payload_index);
+    const elem_ty_src: LazySrcLoc = .{ .node_offset_ptr_elem = extra.data.src_node };
+    const sentinel_src: LazySrcLoc = .{ .node_offset_ptr_sentinel = extra.data.src_node };
+    const align_src: LazySrcLoc = .{ .node_offset_ptr_align = extra.data.src_node };
+    const addrspace_src: LazySrcLoc = .{ .node_offset_ptr_addrspace = extra.data.src_node };
+    const bitoffset_src: LazySrcLoc = .{ .node_offset_ptr_bitoffset = extra.data.src_node };
+    const hostsize_src: LazySrcLoc = .{ .node_offset_ptr_hostsize = extra.data.src_node };
+
     const unresolved_elem_ty = try sema.resolveType(block, elem_ty_src, extra.data.elem_type);
     const target = sema.mod.getTarget();
 
@@ -13880,8 +13880,8 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const abi_align: u32 = if (inst_data.flags.has_align) blk: {
         const ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_i]);
         extra_i += 1;
-        const coerced = try sema.coerce(block, Type.u32, try sema.resolveInst(ref), src);
-        const val = try sema.resolveConstValue(block, src, coerced);
+        const coerced = try sema.coerce(block, Type.u32, try sema.resolveInst(ref), align_src);
+        const val = try sema.resolveConstValue(block, align_src, coerced);
         // Check if this happens to be the lazy alignment of our element type, in
         // which case we can make this 0 without resolving it.
         if (val.castTag(.lazy_align)) |payload| {
@@ -13889,7 +13889,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
                 break :blk 0;
             }
         }
-        const abi_align = (try val.getUnsignedIntAdvanced(target, sema.kit(block, src))).?;
+        const abi_align = (try val.getUnsignedIntAdvanced(target, sema.kit(block, align_src))).?;
         break :blk @intCast(u32, abi_align);
     } else 0;
 
@@ -13914,7 +13914,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     } else 0;
 
     if (host_size != 0 and bit_offset >= host_size * 8) {
-        return sema.fail(block, src, "bit offset starts after end of host integer", .{});
+        return sema.fail(block, bitoffset_src, "bit offset starts after end of host integer", .{});
     }
 
     const elem_ty = if (abi_align == 0)
@@ -13924,6 +13924,30 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         try sema.resolveTypeLayout(block, elem_ty_src, elem_ty);
         break :t elem_ty;
     };
+
+    if (elem_ty.zigTypeTag() == .NoReturn) {
+        return sema.fail(block, elem_ty_src, "pointer to noreturn not allowed", .{});
+    } else if (inst_data.size == .Many and elem_ty.zigTypeTag() == .Opaque) {
+        return sema.fail(block, elem_ty_src, "unknown-length pointer to opaque not allowed", .{});
+    } else if (inst_data.size == .C) {
+        if (!(try sema.validateExternType(elem_ty, .other))) {
+            const msg = msg: {
+                const msg = try sema.errMsg(block, elem_ty_src, "C pointers cannot point to non-C-ABI-compatible type '{}'", .{elem_ty.fmt(sema.mod)});
+                errdefer msg.destroy(sema.gpa);
+
+                const src_decl = sema.mod.declPtr(block.src_decl);
+                try sema.explainWhyTypeIsNotExtern(block, elem_ty_src, msg, elem_ty_src.toSrcLoc(src_decl), elem_ty, .other);
+
+                try sema.addDeclaredHereNote(msg, elem_ty);
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(block, msg);
+        }
+        if (elem_ty.zigTypeTag() == .Opaque) {
+            return sema.fail(block, elem_ty_src, "C pointers cannot point to opaque types", .{});
+        }
+    }
+
     const ty = try Type.ptr(sema.arena, sema.mod, .{
         .pointee_type = elem_ty,
         .sentinel = sentinel,
@@ -13936,36 +13960,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         .@"volatile" = inst_data.flags.is_volatile,
         .size = inst_data.size,
     });
-    try sema.validatePtrTy(block, elem_ty_src, ty);
     return sema.addType(ty);
-}
-
-fn validatePtrTy(sema: *Sema, block: *Block, elem_src: LazySrcLoc, ty: Type) CompileError!void {
-    const ptr_info = ty.ptrInfo().data;
-    const pointee_tag = ptr_info.pointee_type.zigTypeTag();
-    if (pointee_tag == .NoReturn) {
-        return sema.fail(block, elem_src, "pointer to noreturn not allowed", .{});
-    } else if (ptr_info.size == .Many and pointee_tag == .Opaque) {
-        return sema.fail(block, elem_src, "unknown-length pointer to opaque not allowed", .{});
-    } else if (ptr_info.size == .C) {
-        const elem_ty = ptr_info.pointee_type;
-        if (!(try sema.validateExternType(elem_ty, .other))) {
-            const msg = msg: {
-                const msg = try sema.errMsg(block, elem_src, "C pointers cannot point to non-C-ABI-compatible type '{}'", .{elem_ty.fmt(sema.mod)});
-                errdefer msg.destroy(sema.gpa);
-
-                const src_decl = sema.mod.declPtr(block.src_decl);
-                try sema.explainWhyTypeIsNotExtern(block, elem_src, msg, elem_src.toSrcLoc(src_decl), elem_ty, .other);
-
-                try sema.addDeclaredHereNote(msg, elem_ty);
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(block, msg);
-        }
-        if (pointee_tag == .Opaque) {
-            return sema.fail(block, elem_src, "C pointers cannot point to opaque types", .{});
-        }
-    }
 }
 
 fn zirStructInitEmpty(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

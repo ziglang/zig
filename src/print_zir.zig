@@ -233,6 +233,7 @@ const Writer = struct {
             .validate_struct_init_ty,
             .make_ptr_const,
             .validate_deref,
+            .overflow_arithmetic_ptr,
             => try self.writeUnNode(stream, inst),
 
             .ref,
@@ -247,7 +248,6 @@ const Writer = struct {
 
             .array_type_sentinel => try self.writeArrayTypeSentinel(stream, inst),
             .param_type => try self.writeParamType(stream, inst),
-            .ptr_type_simple => try self.writePtrTypeSimple(stream, inst),
             .ptr_type => try self.writePtrType(stream, inst),
             .int => try self.writeInt(stream, inst),
             .int_big => try self.writeIntBig(stream, inst),
@@ -601,24 +601,6 @@ const Writer = struct {
         try stream.print(", {d})", .{inst_data.param_index});
     }
 
-    fn writePtrTypeSimple(
-        self: *Writer,
-        stream: anytype,
-        inst: Zir.Inst.Index,
-    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
-        const inst_data = self.code.instructions.items(.data)[inst].ptr_type_simple;
-        const str_allowzero = if (inst_data.is_allowzero) "allowzero, " else "";
-        const str_const = if (!inst_data.is_mutable) "const, " else "";
-        const str_volatile = if (inst_data.is_volatile) "volatile, " else "";
-        try self.writeInstRef(stream, inst_data.elem_type);
-        try stream.print(", {s}{s}{s}{s})", .{
-            str_allowzero,
-            str_const,
-            str_volatile,
-            @tagName(inst_data.size),
-        });
-    }
-
     fn writePtrType(
         self: *Writer,
         stream: anytype,
@@ -660,7 +642,8 @@ const Writer = struct {
             try self.writeInstRef(stream, @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]));
             try stream.writeAll(")");
         }
-        try stream.writeAll(")");
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, LazySrcLoc.nodeOffset(extra.data.src_node));
     }
 
     fn writeInt(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
