@@ -5513,6 +5513,7 @@ pub const PERF = struct {
         RAW,
         BREAKPOINT,
         MAX,
+        _,
     };
 
     pub const COUNT = struct {
