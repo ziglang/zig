@@ -103,6 +103,12 @@ extern "C" {
   _CRTIMP wchar_t *__cdecl _wsetlocale(int _Category,const wchar_t *_Locale);
 #endif
 
+#ifdef __CHAR_UNSIGNED__
+/* Pull in the constructor from 'charmax.c'.  */
+extern int __mingw_initcharmax;
+__MINGW_SELECTANY int* __mingw_reference_charmax = &__mingw_initcharmax;
+#endif
+
 #ifdef __cplusplus
 }
 #endif

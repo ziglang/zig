@@ -83,13 +83,21 @@ typedef struct IDirectSoundBuffer8 *LPDIRECTSOUNDBUFFER8,**LPLPDIRECTSOUNDBUFFER
 
 DEFINE_GUID(IID_IDirectSoundNotify,	0xB0210783,0x89cd,0x11d0,0xAF,0x08,0x00,0xA0,0xC9,0x25,0xCD,0x16);
 typedef struct IDirectSoundNotify *LPDIRECTSOUNDNOTIFY,**LPLPDIRECTSOUNDNOTIFY;
+#define IDirectSoundNotify8 IDirectSoundNotify
+typedef struct IDirectSoundNotify8 *LPDIRECTSOUNDNOTIFY8;
 #define	IID_IDirectSoundNotify8		IID_IDirectSoundNotify
 
 DEFINE_GUID(IID_IDirectSound3DListener,	0x279AFA84,0x4981,0x11CE,0xA5,0x21,0x00,0x20,0xAF,0x0B,0xE5,0x60);
 typedef struct IDirectSound3DListener *LPDIRECTSOUND3DLISTENER,**LPLPDIRECTSOUND3DLISTENER;
+#define IDirectSound3DListener8 IDirectSound3DListener
+typedef struct IDirectSound3DListener8 *LPDIRECTSOUND3DLISTENER8;
+#define IID_IDirectSound3DListener8 IID_IDirectSound3DListener
 
 DEFINE_GUID(IID_IDirectSound3DBuffer,	0x279AFA86,0x4981,0x11CE,0xA5,0x21,0x00,0x20,0xAF,0x0B,0xE5,0x60);
 typedef struct IDirectSound3DBuffer *LPDIRECTSOUND3DBUFFER,**LPLPDIRECTSOUND3DBUFFER;
+#define IDirectSound3DBuffer8 IDirectSound3DBuffer
+typedef struct IDirectSound3DBuffer8 *LPDIRECTSOUND3DBUFFER8;
+#define IID_IDirectSound3DBuffer8 IID_IDirectSound3DBuffer
 
 DEFINE_GUID(IID_IDirectSoundCapture,	0xB0210781,0x89CD,0x11D0,0xAF,0x08,0x00,0xA0,0xC9,0x25,0xCD,0x16);
 typedef struct IDirectSoundCapture *LPDIRECTSOUNDCAPTURE,**LPLPDIRECTSOUNDCAPTURE;
@@ -104,6 +112,8 @@ typedef struct IDirectSoundCaptureBuffer8 *LPDIRECTSOUNDCAPTUREBUFFER8,**LPLPDIR
 
 DEFINE_GUID(IID_IDirectSoundFullDuplex,	0xEDCB4C7A,0xDAAB,0x4216,0xA4,0x2E,0x6C,0x50,0x59,0x6D,0xDC,0x1D);
 typedef struct IDirectSoundFullDuplex *LPDIRECTSOUNDFULLDUPLEX,**LPLPDIRECTSOUNDFULLDUPLEX;
+#define IDirectSoundFullDuplex8 IDirectSoundFullDuplex
+typedef struct IDirectSoundFullDuplex8 *LPDIRECTSOUNDFULLDUPLEX8;
 #define	IID_IDirectSoundFullDuplex8	IID_IDirectSoundFullDuplex
 
 DEFINE_GUID(IID_IDirectSoundFXI3DL2Reverb, 0x4b166a6a, 0x0d66, 0x43f3, 0x80, 0xe3, 0xee, 0x62, 0x80, 0xde, 0xe1, 0xa4);
@@ -1153,7 +1163,6 @@ DECLARE_INTERFACE_(IDirectSound3DListener,IUnknown)
 #define IDirectSound3DListener_SetVelocity(p,a,b,c,d)          (p)->SetVelocity(a,b,c,d)
 #define IDirectSound3DListener_CommitDeferredSettings(p)       (p)->CommitDeferredSettings()
 #endif
-#define IDirectSound3DListener8 IDirectSound3DListener
 
 /*****************************************************************************
  * IDirectSound3DBuffer interface
@@ -1251,7 +1260,6 @@ DECLARE_INTERFACE_(IDirectSound3DBuffer,IUnknown)
 #define IDirectSound3DBuffer_SetPosition(p,a,b,c,d)        (p)->SetPosition(a,b,c,d)
 #define IDirectSound3DBuffer_SetVelocity(p,a,b,c,d)        (p)->SetVelocity(a,b,c,d)
 #endif
-#define IDirectSound3DBuffer8 IDirectSound3DBuffer
 
 /*****************************************************************************
  * IKsPropertySet interface

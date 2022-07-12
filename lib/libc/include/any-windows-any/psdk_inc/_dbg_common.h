@@ -192,7 +192,12 @@ extern "C" {
     DWORD64 KiUserExceptionDispatcher;
     DWORD64 StackBase;
     DWORD64 StackLimit;
-    DWORD64 Reserved[5];
+    DWORD BuildVersion;
+    DWORD RetpolineStubFunctionTableSize;
+    DWORD64 RetpolineStubFunctionTable;
+    DWORD RetpolineStubOffset;
+    DWORD RetpolineStubSize;
+    DWORD64 Reserved0[2];
   } KDHELP64,*PKDHELP64;
 
 #ifdef _IMAGEHLP64
@@ -241,6 +246,25 @@ extern "C" {
     DWORD64 Reserved[3];
     KDHELP64 KdHelp;
   } STACKFRAME64,*LPSTACKFRAME64;
+
+#define INLINE_FRAME_CONTEXT_INIT   0
+#define INLINE_FRAME_CONTEXT_IGNORE 0xFFFFFFFF
+
+  typedef struct _tagSTACKFRAME_EX {
+    ADDRESS64 AddrPC;
+    ADDRESS64 AddrReturn;
+    ADDRESS64 AddrFrame;
+    ADDRESS64 AddrStack;
+    ADDRESS64 AddrBStore;
+    PVOID FuncTableEntry;
+    DWORD64 Params[4];
+    WINBOOL Far;
+    WINBOOL Virtual;
+    DWORD64 Reserved[3];
+    KDHELP64 KdHelp;
+    DWORD StackFrameSize;
+    DWORD InlineFrameContext;
+  } STACKFRAME_EX,*LPSTACKFRAME_EX;
 
 #ifdef _IMAGEHLP64
 #define STACKFRAME STACKFRAME64
@@ -336,6 +360,18 @@ GetModuleBaseRoutine,PTRANSLATE_ADDRESS_ROUTINE TranslateAddress);
 #define SYMFLAG_VIRTUAL 0x00001000
 #define SYMFLAG_THUNK 0x00002000
 #define SYMFLAG_TLSREL 0x00004000
+#define SYMFLAG_SLOT 0x00008000
+#define SYMFLAG_ILREL 0x00010000
+#define SYMFLAG_METADATA 0x00020000
+#define SYMFLAG_CLR_TOKEN 0x00040000
+#define SYMFLAG_NULL 0x00080000
+#define SYMFLAG_FUNC_NO_RETURN 0x00100000
+#define SYMFLAG_SYNTHETIC_ZEROBASE 0x00200000
+#define SYMFLAG_PUBLIC_CODE 0x00400000
+#define SYMFLAG_REGREL_ALIASINDIR 0x00800000
+#define SYMFLAG_FIXUP_ARM64X 0x01000000
+#define SYMFLAG_GLOBAL 0x02000000
+#define SYMFLAG_RESET 0x80000000
 
   typedef enum {
     SymNone = 0,
@@ -411,7 +447,14 @@ GetModuleBaseRoutine,PTRANSLATE_ADDRESS_ROUTINE TranslateAddress);
     WINBOOL TypeInfo;
     WINBOOL SourceIndexed;
     WINBOOL Publics;
+    DWORD MachineType;
+    DWORD Reserved;
   } IMAGEHLP_MODULE64,*PIMAGEHLP_MODULE64;
+
+  typedef struct _IMAGEHLP_MODULE64_EX {
+    IMAGEHLP_MODULE64 Module;
+    DWORD RegionFlags;
+  } IMAGEHLP_MODULE64_EX,*PIMAGEHLP_MODULE64_EX;
 
   typedef struct _IMAGEHLP_MODULE64W {
     DWORD SizeOfStruct;
@@ -437,7 +480,14 @@ GetModuleBaseRoutine,PTRANSLATE_ADDRESS_ROUTINE TranslateAddress);
     WINBOOL TypeInfo;
     WINBOOL SourceIndexed;
     WINBOOL Publics;
+    DWORD MachineType;
+    DWORD Reserved;
   } IMAGEHLP_MODULEW64,*PIMAGEHLP_MODULEW64;
+
+  typedef struct _IMAGEHLP_MODULEW64_EX {
+    IMAGEHLP_MODULEW64 Module;
+    DWORD RegionFlags;
+  } IMAGEHLP_MODULEW64_EX,*PIMAGEHLP_MODULEW64_EX;
 
 #ifdef _IMAGEHLP64
 #define IMAGEHLP_MODULE IMAGEHLP_MODULE64
@@ -1137,6 +1187,11 @@ typedef struct _SYMSRV_INDEX_INFOW {
     ThreadInfoListStream = 17,
     HandleOperationListStream = 18,
     TokenStream = 19,
+    JavaScriptDataStream = 20,
+    SystemMemoryInfoStream = 21,
+    ProcessVmCountersStream = 22,
+    IptTraceStream = 23,
+    ThreadNamesStream = 24,
     ceStreamNull = 0x8000,
     ceStreamSystemInfo = 0x8001,
     ceStreamException = 0x8002,
@@ -1283,6 +1338,25 @@ typedef struct _SYMSRV_INDEX_INFOW {
     WINBOOL ClientPointers;
   } MINIDUMP_EXCEPTION_INFORMATION64,*PMINIDUMP_EXCEPTION_INFORMATION64;
 
+  typedef enum _MINIDUMP_HANDLE_OBJECT_INFORMATION_TYPE {
+    MiniHandleObjectInformationNone,
+    MiniThreadInformation1,
+    MiniMutantInformation1,
+    MiniMutantInformation2,
+    MiniProcessInformation1,
+    MiniProcessInformation2,
+    MiniEventInformation1,
+    MiniSectionInformation1,
+    MiniSemaphoreInformation1,
+    MiniHandleObjectInformationTypeMax
+  } MINIDUMP_HANDLE_OBJECT_INFORMATION_TYPE;
+
+  typedef struct _MINIDUMP_HANDLE_OBJECT_INFORMATION {
+    RVA NextInfoRva;
+    ULONG32 InfoType;
+    ULONG32 SizeOfInfo;
+  } MINIDUMP_HANDLE_OBJECT_INFORMATION;
+
   typedef struct _MINIDUMP_HANDLE_DESCRIPTOR {
     ULONG64 Handle;
     RVA TypeNameRva;
@@ -1376,12 +1450,20 @@ typedef struct _SYMSRV_INDEX_INFOW {
     IoWriteAllCallback,
     IoFinishCallback,
     ReadMemoryFailureCallback,
-    SecondaryFlagsCallback
+    SecondaryFlagsCallback,
+    IsProcessSnapshotCallback,
+    VmStartCallback,
+    VmQueryCallback,
+    VmPreReadCallback,
+    VmPostReadCallback
   } MINIDUMP_CALLBACK_TYPE;
 
   typedef struct _MINIDUMP_THREAD_CALLBACK {
     ULONG ThreadId;
     HANDLE ThreadHandle;
+#if defined(__aarch64__)
+    ULONG Pad;
+#endif
     CONTEXT Context;
     ULONG SizeOfContext;
     ULONG64 StackBase;
@@ -1391,6 +1473,9 @@ typedef struct _SYMSRV_INDEX_INFOW {
   typedef struct _MINIDUMP_THREAD_EX_CALLBACK {
     ULONG ThreadId;
     HANDLE ThreadHandle;
+#if defined(__aarch64__)
+    ULONG Pad;
+#endif
     CONTEXT Context;
     ULONG SizeOfContext;
     ULONG64 StackBase;
@@ -1531,7 +1616,13 @@ typedef struct _MINIDUMP_MEMORY_INFO_LIST {
     MiniDumpWithFullAuxiliaryState           = 0x00008000,
     MiniDumpWithPrivateWriteCopyMemory       = 0x00010000,
     MiniDumpIgnoreInaccessibleMemory         = 0x00020000,
-    MiniDumpWithTokenInformation             = 0x00040000
+    MiniDumpWithTokenInformation             = 0x00040000,
+    MiniDumpWithModuleHeaders                = 0x00080000,
+    MiniDumpFilterTriage                     = 0x00100000,
+    MiniDumpWithAvxXStateContext             = 0x00200000,
+    MiniDumpWithIptTrace                     = 0x00400000,
+    MiniDumpScanInaccessiblePartialPages     = 0x00800000,
+    MiniDumpValidTypeFlags                   = 0x00ffffff
   } MINIDUMP_TYPE;
 
 #define MINIDUMP_THREAD_INFO_ERROR_THREAD    0x00000001

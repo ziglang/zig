@@ -11,7 +11,7 @@
 #define __MINGW64_STRINGIFY(x) \
   __STRINGIFY(x)
 
-#define __MINGW64_VERSION_MAJOR 9
+#define __MINGW64_VERSION_MAJOR 10
 #define __MINGW64_VERSION_MINOR 0
 #define __MINGW64_VERSION_BUGFIX 0
 
@@ -301,6 +301,8 @@
 #  define __mingw_attribute_artificial
 #endif
 
+#define __MINGW_SELECTANY  __attribute__((__selectany__))
+
 #if _FORTIFY_SOURCE > 0 && __OPTIMIZE__ > 0 && __MINGW_GNUC_PREREQ(4, 1)
 #  if _FORTIFY_SOURCE > 1
 #    define __MINGW_FORTIFY_LEVEL 2
@@ -353,7 +355,7 @@
 
 /* Enable workaround for ABI incompatibility on affected platforms */
 #ifndef WIDL_EXPLICIT_AGGREGATE_RETURNS
-#if defined(__GNUC__) && defined(__cplusplus) && (defined(__x86_64__) || defined(__i386__))
+#if defined(__GNUC__) && defined(__cplusplus)
 #define  WIDL_EXPLICIT_AGGREGATE_RETURNS
 #endif
 #endif

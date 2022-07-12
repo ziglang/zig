@@ -2726,6 +2726,7 @@ typedef struct _MSV1_0_NTLM3_RESPONSE {
   UCHAR Buffer[1];
 } MSV1_0_NTLM3_RESPONSE, *PMSV1_0_NTLM3_RESPONSE;
 
+/* MsvAvSingleHost present in MS-NLMP specifications but not in WinSDK */
 typedef enum _MSV1_0_AVID {
   MsvAvEOL,
   MsvAvNbComputerName,
@@ -2738,6 +2739,7 @@ typedef enum _MSV1_0_AVID {
 #if (_WIN32_WINNT >= 0x0600)
   MsvAvTimestamp,
   MsvAvRestrictions,
+  MsvAvSingleHost = MsvAvRestrictions,
   MsvAvTargetName,
   MsvAvChannelBindings,
 #endif

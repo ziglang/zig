@@ -86,6 +86,16 @@ extern "C" {
 #define _ftime _ftime32
 #endif
 
+struct _timespec32 {
+  __time32_t tv_sec;
+  long tv_nsec;
+};
+
+struct _timespec64 {
+  __time64_t tv_sec;
+  long tv_nsec;
+};
+
 #ifndef _TIMESPEC_DEFINED
 #define _TIMESPEC_DEFINED
 struct timespec {

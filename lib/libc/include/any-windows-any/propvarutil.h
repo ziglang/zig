@@ -22,9 +22,13 @@
 #include <shtypes.h>
 #include <shlwapi.h>
 
-#if !defined (_NTDEF_) && !defined (_NTSTATUS_PSDK)
-#define _NTSTATUS_PSDK
-typedef LONG NTSTATUS, *PNTSTATUS;
+#ifndef WINE_NTSTATUS_DECLARED
+#define WINE_NTSTATUS_DECLARED
+typedef LONG NTSTATUS;
+#endif
+
+#ifdef __cplusplus
+extern "C" {
 #endif
 
 enum tagPROPVAR_CHANGE_FLAGS
@@ -69,26 +73,42 @@ HRESULT WINAPI PropVariantChangeType(PROPVARIANT *ppropvarDest, REFPROPVARIANT p
 HRESULT WINAPI InitPropVariantFromGUIDAsString(REFGUID guid, PROPVARIANT *ppropvar);
 HRESULT WINAPI InitVariantFromGUIDAsString(REFGUID guid, VARIANT *pvar);
 HRESULT WINAPI InitPropVariantFromBuffer(const VOID *pv, UINT cb, PROPVARIANT *ppropvar);
+HRESULT WINAPI InitPropVariantFromCLSID(REFCLSID clsid, PROPVARIANT *ppropvar);
 HRESULT WINAPI InitVariantFromBuffer(const VOID *pv, UINT cb, VARIANT *pvar);
 HRESULT WINAPI PropVariantToGUID(const PROPVARIANT *ppropvar, GUID *guid);
 HRESULT WINAPI VariantToGUID(const VARIANT *pvar, GUID *guid);
 INT WINAPI PropVariantCompareEx(REFPROPVARIANT propvar1, REFPROPVARIANT propvar2,
                                 PROPVAR_COMPARE_UNIT uint, PROPVAR_COMPARE_FLAGS flags);
+HRESULT WINAPI InitPropVariantFromFileTime(const FILETIME *pftIn, PROPVARIANT *ppropvar);
 
+HRESULT WINAPI PropVariantToDouble(REFPROPVARIANT propvarIn, double *ret);
 HRESULT WINAPI PropVariantToInt16(REFPROPVARIANT propvarIn, SHORT *ret);
 HRESULT WINAPI PropVariantToInt32(REFPROPVARIANT propvarIn, LONG *ret);
 HRESULT WINAPI PropVariantToInt64(REFPROPVARIANT propvarIn, LONGLONG *ret);
 HRESULT WINAPI PropVariantToUInt16(REFPROPVARIANT propvarIn, USHORT *ret);
 HRESULT WINAPI PropVariantToUInt32(REFPROPVARIANT propvarIn, ULONG *ret);
 HRESULT WINAPI PropVariantToUInt64(REFPROPVARIANT propvarIn, ULONGLONG *ret);
+HRESULT WINAPI PropVariantToBoolean(REFPROPVARIANT propvarIn, WINBOOL *ret);
+HRESULT WINAPI PropVariantToBuffer(REFPROPVARIANT propvarIn, void *ret, UINT cb);
+HRESULT WINAPI PropVariantToString(REFPROPVARIANT propvarIn, PWSTR ret, UINT cch);
+PCWSTR WINAPI PropVariantToStringWithDefault(REFPROPVARIANT propvarIn, LPCWSTR pszDefault);
 
 HRESULT WINAPI PropVariantToStringAlloc(REFPROPVARIANT propvarIn, WCHAR **ret);
 
 #ifdef __cplusplus
 
 HRESULT InitPropVariantFromBoolean(WINBOOL fVal, PROPVARIANT *ppropvar);
-HRESULT InitPropVariantFromString(PCWSTR psz, PROPVARIANT *ppropvar);
+HRESULT InitPropVariantFromInt16(SHORT nVal, PROPVARIANT *ppropvar);
+HRESULT InitPropVariantFromUInt16(USHORT uiVal, PROPVARIANT *ppropvar);
+HRESULT InitPropVariantFromInt32(LONG lVal, PROPVARIANT *ppropvar);
+HRESULT InitPropVariantFromUInt32(ULONG ulVal, PROPVARIANT *ppropvar);
 HRESULT InitPropVariantFromInt64(LONGLONG llVal, PROPVARIANT *ppropvar);
+HRESULT InitPropVariantFromUInt64(ULONGLONG ullVal, PROPVARIANT *ppropvar);
+HRESULT InitPropVariantFromDouble(DOUBLE dblVal, PROPVARIANT *ppropvar);
+HRESULT InitPropVariantFromString(PCWSTR psz, PROPVARIANT *ppropvar);
+HRESULT InitPropVariantFromGUIDAsBuffer(REFGUID guid, PROPVARIANT *ppropvar);
+WINBOOL IsPropVariantVector(REFPROPVARIANT propvar);
+WINBOOL IsPropVariantString(REFPROPVARIANT propvar);
 
 #ifndef NO_PROPVAR_INLINES
 
@@ -96,6 +116,55 @@ inline HRESULT InitPropVariantFromBoolean(WINBOOL fVal, PROPVARIANT *ppropvar)
 {
     ppropvar->vt = VT_BOOL;
     ppropvar->boolVal = fVal ? VARIANT_TRUE : VARIANT_FALSE;
+    return S_OK;
+}
+
+inline HRESULT InitPropVariantFromInt16(SHORT nVal, PROPVARIANT *ppropvar)
+{
+    ppropvar->vt = VT_I2;
+    ppropvar->iVal = nVal;
+    return S_OK;
+}
+
+inline HRESULT InitPropVariantFromUInt16(USHORT uiVal, PROPVARIANT *ppropvar)
+{
+    ppropvar->vt = VT_UI2;
+    ppropvar->uiVal = uiVal;
+    return S_OK;
+}
+
+inline HRESULT InitPropVariantFromInt32(LONG lVal, PROPVARIANT *ppropvar)
+{
+    ppropvar->vt = VT_I4;
+    ppropvar->lVal = lVal;
+    return S_OK;
+}
+
+inline HRESULT InitPropVariantFromUInt32(ULONG ulVal, PROPVARIANT *ppropvar)
+{
+    ppropvar->vt = VT_UI4;
+    ppropvar->ulVal = ulVal;
+    return S_OK;
+}
+
+inline HRESULT InitPropVariantFromInt64(LONGLONG llVal, PROPVARIANT *ppropvar)
+{
+    ppropvar->vt = VT_I8;
+    ppropvar->hVal.QuadPart = llVal;
+    return S_OK;
+}
+
+inline HRESULT InitPropVariantFromUInt64(ULONGLONG ullVal, PROPVARIANT *ppropvar)
+{
+    ppropvar->vt = VT_UI8;
+    ppropvar->uhVal.QuadPart = ullVal;
+    return S_OK;
+}
+
+inline HRESULT InitPropVariantFromDouble(DOUBLE dblVal, PROPVARIANT *ppropvar)
+{
+    ppropvar->vt = VT_R8;
+    ppropvar->dblVal = dblVal;
     return S_OK;
 }
 
@@ -112,14 +181,31 @@ inline HRESULT InitPropVariantFromString(PCWSTR psz, PROPVARIANT *ppropvar)
     return hres;
 }
 
-inline HRESULT InitPropVariantFromInt64(LONGLONG llVal, PROPVARIANT *ppropvar)
+inline HRESULT InitPropVariantFromGUIDAsBuffer(REFGUID guid, PROPVARIANT *ppropvar)
 {
-    ppropvar->vt = VT_I8;
-    ppropvar->hVal.QuadPart = llVal;
-    return S_OK;
+#ifdef __cplusplus
+    return InitPropVariantFromBuffer(&guid, sizeof(GUID), ppropvar);
+#else
+    return InitPropVariantFromBuffer(guid, sizeof(GUID), ppropvar);
+#endif
 }
 
-#endif
+inline WINBOOL IsPropVariantVector(REFPROPVARIANT propvar)
+{
+    return (propvar.vt & (VT_ARRAY | VT_VECTOR));
+}
+
+inline WINBOOL IsPropVariantString(REFPROPVARIANT propvar)
+{
+    return (PropVariantToStringWithDefault(propvar, NULL) != NULL);
+}
+
+#endif /* NO_PROPVAR_INLINES */
+#endif /* __cplusplus */
+
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif /* __WINE_PROPVARUTIL_H */

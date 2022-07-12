@@ -524,7 +524,81 @@ __CRT_UUID_DECL(IDCompositionVisualDebug,0xfed2b808,0x5eb4,0x43a0,0xae,0xa3,0x35
 #endif
 
 
+#undef INTERFACE
+#define INTERFACE IDCompositionFilterEffect
+DECLARE_INTERFACE_IID_(IDCompositionFilterEffect, IDCompositionEffect, "30C421D5-8CB2-4E9F-B133-37BE270D4AC2")
+{
+    STDMETHOD(SetInput)(THIS_ UINT index, IUnknown *input, UINT flags) PURE;
+};
+
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDCompositionFilterEffect,0x30c421d5,0x8cb2,0x4e9f,0xb1,0x33,0x37,0xbe,0x27,0x0d,0x4a,0xc2);
 #endif
+
+
+#undef INTERFACE
+#define INTERFACE IDCompositionSaturationEffect
+DECLARE_INTERFACE_IID_(IDCompositionSaturationEffect, IDCompositionFilterEffect, "A08DEBDA-3258-4FA4-9F16-9174D3FE93B1")
+{
+#if defined(_MSC_VER) && defined(__cplusplus)
+    STDMETHOD(SetSaturation)(THIS_ float ratio) PURE;
+    STDMETHOD(SetSaturation)(THIS_ IDCompositionAnimation* animation) PURE;
+#else
+    STDMETHOD(SetSaturation)(THIS_ IDCompositionAnimation* animation) PURE;
+    STDMETHOD(SetSaturation)(THIS_ float ratio ) PURE;
+#endif
+};
+
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDCompositionSaturationEffect,0xa08debda,0x3258,0x4fa4,0x9f,0x16,0x91,0x74,0xd3,0xfe,0x93,0xb1);
+#endif
+
+
+#undef INTERFACE
+#define INTERFACE IDCompositionGaussianBlurEffect
+DECLARE_INTERFACE_IID_(IDCompositionGaussianBlurEffect, IDCompositionFilterEffect, "45D4D0B7-1BD4-454E-8894-2BFA68443033")
+{
+
+#if defined(_MSC_VER) && defined(__cplusplus)
+    STDMETHOD(SetStandardDeviation)(THIS_ float amount) PURE;
+    STDMETHOD(SetStandardDeviation)(THIS_ IDCompositionAnimation* animation) PURE;
+#else
+    STDMETHOD(SetStandardDeviation)(THIS_ IDCompositionAnimation* animation) PURE;
+    STDMETHOD(SetStandardDeviation)(THIS_ float amount) PURE;
+#endif
+    STDMETHOD(SetBorderMode)(THIS_ D2D1_BORDER_MODE mode) PURE;
+};
+
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDCompositionGaussianBlurEffect,0x45d4d0b7,0x1bd4,0x454e,0x88,0x94,0x2b,0xfa,0x68,0x44,0x30,0x33);
+#endif
+
+
+/* WARNING: some of the arguments are replaced with void*, only what's used has been kept */
+#undef INTERFACE
+#define INTERFACE IDCompositionDevice3
+DECLARE_INTERFACE_IID_(IDCompositionDevice3, IDCompositionDevice2, "0987CB06-F916-48BF-8D35-CE7641781BD9")
+{
+    STDMETHOD(CreateGaussianBlurEffect)(THIS_ IDCompositionGaussianBlurEffect **gaussianBlurEffect) PURE;
+    STDMETHOD(CreateBrightnessEffect)(THIS_ /* TODO IDCompositionBrightnessEffect */ void **brightnessEffect) PURE;
+    STDMETHOD(CreateColorMatrixEffect)(THIS_ /* TODO IDCompositionColorMatrixEffect */ void **colorMatrixEffect) PURE;
+    STDMETHOD(CreateShadowEffect)(THIS_ /* TODO IDCompositionShadowEffect */ void **shadowEffect) PURE;
+    STDMETHOD(CreateHueRotationEffect)(THIS_ /* IDCompositionHueRotationEffect */ void **hueRotationEffect) PURE;
+    STDMETHOD(CreateSaturationEffect)(THIS_ IDCompositionSaturationEffect **saturationEffect) PURE;
+    STDMETHOD(CreateTurbulenceEffect)(THIS_ /* IDCompositionTurbulenceEffect */ void **turbulenceEffect) PURE;
+    STDMETHOD(CreateLinearTransferEffect)(THIS_ /* IDCompositionLinearTransferEffect */ void **linearTransferEffect) PURE;
+    STDMETHOD(CreateTableTransferEffect)(THIS_ /* IDCompositionTableTransferEffect */ void **tableTransferEffect) PURE;
+    STDMETHOD(CreateCompositeEffect)(THIS_ /* IDCompositionCompositeEffect */ void **compositeEffect) PURE;
+    STDMETHOD(CreateBlendEffect)(THIS_ /* TODO IDCompositionBlendEffect */ void **blendEffect) PURE;
+    STDMETHOD(CreateArithmeticCompositeEffect)(THIS_ /* IDCompositionArithmeticCompositeEffect */ void **arithmeticCompositeEffect) PURE;
+    STDMETHOD(CreateAffineTransform2DEffect)(THIS_ /* IDCompositionAffineTransform2DEffect */ void **affineTransform2dEffect) PURE;
+};
+
+#ifdef __CRT_UUID_DECL
+__CRT_UUID_DECL(IDCompositionDevice3,0x0987cb06,0xf916,0x48bf,0x8d,0x35,0xce,0x76,0x41,0x78,0x1b,0xd9);
+#endif
+
+#endif /* WINAPI_PARTITION_DESKTOP */
 
 #if (_WIN32_WINNT >= 0x0A00)
 

@@ -314,9 +314,7 @@ WINBASEAPI DWORD WINAPI GetConsoleCommandHistoryA(LPSTR Commands, DWORD CommandB
 WINBASEAPI DWORD WINAPI GetConsoleCommandHistoryW(LPWSTR Commands, DWORD CommandBufferLength, LPWSTR ExeName);
 #define GetConsoleCommandHistory __MINGW_NAME_AW(GetConsoleCommandHistory)
 
-#ifndef LF_FACESIZE
-#define LF_FACESIZE 32
-#endif
+#ifndef NOGDI
 
 typedef struct _CONSOLE_FONT_INFOEX {
   ULONG cbSize;
@@ -326,6 +324,20 @@ typedef struct _CONSOLE_FONT_INFOEX {
   UINT  FontWeight;
   WCHAR FaceName[LF_FACESIZE];
 } CONSOLE_FONT_INFOEX, *PCONSOLE_FONT_INFOEX;
+
+WINBASEAPI WINBOOL WINAPI GetCurrentConsoleFontEx(
+  HANDLE hConsoleOutput,
+  WINBOOL bMaximumWindow,
+  PCONSOLE_FONT_INFOEX lpConsoleCurrentFontEx
+);
+
+WINBASEAPI WINBOOL WINAPI SetCurrentConsoleFontEx(
+  HANDLE hConsoleOutput,
+  WINBOOL bMaximumWindow,
+  PCONSOLE_FONT_INFOEX lpConsoleCurrentFontEx
+);
+
+#endif  /* NOGDI */
 
 #define HISTORY_NO_DUP_FLAG 0x1
 
@@ -378,12 +390,6 @@ WINBASEAPI WINBOOL WINAPI GetConsoleScreenBufferInfoEx(
   PCONSOLE_SCREEN_BUFFER_INFOEX lpConsoleScreenBufferInfoEx
 );
 
-WINBASEAPI WINBOOL WINAPI GetCurrentConsoleFontEx(
-  HANDLE hConsoleOutput,
-  WINBOOL bMaximumWindow,
-  PCONSOLE_FONT_INFOEX lpConsoleCurrentFontEx
-);
-
 WINBASEAPI WINBOOL WINAPI SetConsoleHistoryInfo(
   PCONSOLE_HISTORY_INFO lpConsoleHistoryInfo
 );
@@ -391,12 +397,6 @@ WINBASEAPI WINBOOL WINAPI SetConsoleHistoryInfo(
 WINBASEAPI WINBOOL WINAPI SetConsoleScreenBufferInfoEx(
   HANDLE hConsoleOutput,
   PCONSOLE_SCREEN_BUFFER_INFOEX lpConsoleScreenBufferInfoEx
-);
-
-WINBASEAPI WINBOOL WINAPI SetCurrentConsoleFontEx(
-  HANDLE hConsoleOutput,
-  WINBOOL bMaximumWindow,
-  PCONSOLE_FONT_INFOEX lpConsoleCurrentFontEx
 );
 
 #endif /* WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_APP) */

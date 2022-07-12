@@ -281,7 +281,7 @@ extern FILE (* __MINGW_IMP_SYMBOL(_iob))[];	/* A pointer to an array of FILE */
   int __cdecl is_wctype(wint_t _C,wctype_t _Type);
 #endif /* _CRT_USE_WINAPI_FAMILY_DESKTOP_APP */
 
-#if (defined (__STDC_VERSION__) && __STDC_VERSION__ >= 199901L) || !defined (NO_OLDNAMES)
+#if (defined (__STDC_VERSION__) && __STDC_VERSION__ >= 199901L) || !defined (NO_OLDNAMES) || defined (__cplusplus)
   int __cdecl iswblank(wint_t _C);
 #endif
 

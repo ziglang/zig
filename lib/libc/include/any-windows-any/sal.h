@@ -295,6 +295,10 @@
 #define _Deref_out_range_(low, hi)
 #define _Deref_inout_range_(low, hi)
 #define _Struct_size_bytes_(size)
+#define _Deref_out_
+#define _Deref_out_opt_
+#define _Deref_opt_out_
+#define _Deref_opt_out_opt_
 
 /* Function annotations */
 #define _Called_from_function_class_(name)

@@ -221,13 +221,19 @@ limitations in handling dllimport attribute.  */
 
 #ifndef __MSVCRT_VERSION__
 /*  High byte is the major version, low byte is the minor. */
-# ifndef _UCRT
-#  define __MSVCRT_VERSION__ 0x700
-# else
+# if defined(__CRTDLL__)
+#  define __MSVCRT_VERSION__ 0x00
+# elif defined(_UCRT)
 #  define __MSVCRT_VERSION__ 0xE00
+# else
+#  define __MSVCRT_VERSION__ 0x700
 # endif
 #endif
 
+#if !defined(_UCRT) && ((__MSVCRT_VERSION__ >= 0x1400) || (__MSVCRT_VERSION__ >= 0xE00 && __MSVCRT_VERSION__ < 0x1000))
+/* Allow both 0x1400 and 0xE00 to identify UCRT */
+#define _UCRT
+#endif
 
 #ifndef _WIN32_WINNT
 #define _WIN32_WINNT 0x0603
@@ -583,7 +589,7 @@ __MINGW_INTRIN_INLINE void __cdecl __debugbreak(void)
 #if defined(__i386__) || defined(__x86_64__)
   __asm__ __volatile__("int {$}3":);
 #elif defined(__arm__)
-  __asm__ __volatile__("udf #1");
+  __asm__ __volatile__("udf #0xfe");
 #elif defined(__aarch64__)
   __asm__ __volatile__("brk #0xf000");
 #else

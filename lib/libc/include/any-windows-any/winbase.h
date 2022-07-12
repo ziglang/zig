@@ -1594,25 +1594,8 @@ extern "C" {
 #endif
 #endif
 
-#if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_APP)
-  typedef enum _PROCESS_INFORMATION_CLASS {
-    ProcessMemoryPriority,
-    ProcessMemoryExhaustionInfo,
-    ProcessAppMemoryInfo,
-    ProcessInPrivateInfo,
-    ProcessPowerThrottling,
-    ProcessReservedValue1,
-    ProcessTelemetryCoverageInfo,
-    ProcessProtectionLevelInfo,
-    ProcessLeapSecondInfo,
-    ProcessInformationClassMax
-  } PROCESS_INFORMATION_CLASS;
-#endif
-
 #if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_APP) && _WIN32_WINNT >= 0x0602
   WINBASEAPI HMODULE WINAPI LoadPackagedLibrary (LPCWSTR lpwLibFileName, DWORD Reserved);
-  WINBASEAPI WINBOOL WINAPI GetProcessInformation (HANDLE hProcess, PROCESS_INFORMATION_CLASS ProcessInformationClass, LPVOID ProcessInformation, DWORD ProcessInformationSize);
-  WINBASEAPI WINBOOL WINAPI SetProcessInformation (HANDLE hProcess, PROCESS_INFORMATION_CLASS ProcessInformationClass, LPVOID ProcessInformation, DWORD ProcessInformationSize);
 #endif
 
 #if _WIN32_WINNT >= 0x0600
