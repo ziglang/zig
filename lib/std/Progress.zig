@@ -209,17 +209,23 @@ fn getTerminalWidth(self: Progress, file_handle: os.fd_t) !u16 {
         if (windows.kernel32.GetConsoleScreenBufferInfo(file_handle, &info) != windows.TRUE)
             unreachable;
         return @intCast(u16, info.dwSize.X);
-    } else {
+    } else if (builtin.os.tag == .linux) {
+        // TODO: figure out how to get this working on FreeBSD, macOS etc. too.
+        //       they too should have capabilities to figure out the cursor column.
         var winsize: os.linux.winsize = undefined;
         switch (os.errno(os.linux.ioctl(file_handle, os.linux.T.IOCGWINSZ, @ptrToInt(&winsize)))) {
             .SUCCESS => return winsize.ws_col,
             else => return error.Unexpected,
         }
+    } else {
+        return error.Unsupported;
     }
 }
 
 fn getTerminalCursorColumn(self: Progress, file: std.fs.File) !u16 {
-    if (self.supports_ansi_escape_codes) {
+    // TODO: figure out how to get this working on FreeBSD, macOS etc. too.
+    //       they too should have termios or capabilities to figure out the terminal width.
+    if (builtin.os.tag == .linux and self.supports_ansi_escape_codes) {
         // First, disable echo and enable non-canonical mode
         // (so that no enter press required for us to read the output of the escape sequence below)
         const original_termios = try os.tcgetattr(file.handle);
