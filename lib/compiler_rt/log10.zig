@@ -18,10 +18,12 @@ comptime {
     @export(__log10h, .{ .name = "__log10h", .linkage = common.linkage });
     @export(log10f, .{ .name = "log10f", .linkage = common.linkage });
     @export(log10, .{ .name = "log10", .linkage = common.linkage });
-    @export(__log10x, .{ .name = "__log10x", .linkage = common.linkage });
-    const log10q_sym_name = if (common.want_ppc_abi) "log10f128" else "log10q";
-    @export(log10q, .{ .name = log10q_sym_name, .linkage = common.linkage });
-    @export(log10l, .{ .name = "log10l", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        @export(__log10x, .{ .name = "__log10x", .linkage = common.linkage });
+        const log10q_sym_name = if (common.want_ppc_abi) "log10f128" else "log10q";
+        @export(log10q, .{ .name = log10q_sym_name, .linkage = common.linkage });
+        @export(log10l, .{ .name = "log10l", .linkage = common.linkage });
+    }
 }
 
 pub fn __log10h(a: f16) callconv(.C) f16 {

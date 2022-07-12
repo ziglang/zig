@@ -13,10 +13,12 @@ comptime {
     @export(__sincosh, .{ .name = "__sincosh", .linkage = common.linkage });
     @export(sincosf, .{ .name = "sincosf", .linkage = common.linkage });
     @export(sincos, .{ .name = "sincos", .linkage = common.linkage });
-    @export(__sincosx, .{ .name = "__sincosx", .linkage = common.linkage });
-    const sincosq_sym_name = if (common.want_ppc_abi) "sincosf128" else "sincosq";
-    @export(sincosq, .{ .name = sincosq_sym_name, .linkage = common.linkage });
-    @export(sincosl, .{ .name = "sincosl", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        @export(__sincosx, .{ .name = "__sincosx", .linkage = common.linkage });
+        const sincosq_sym_name = if (common.want_ppc_abi) "sincosf128" else "sincosq";
+        @export(sincosq, .{ .name = sincosq_sym_name, .linkage = common.linkage });
+        @export(sincosl, .{ .name = "sincosl", .linkage = common.linkage });
+    }
 }
 
 pub fn __sincosh(x: f16, r_sin: *f16, r_cos: *f16) callconv(.C) void {

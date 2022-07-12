@@ -4,12 +4,14 @@ const intToFloat = @import("./int_to_float.zig").intToFloat;
 pub const panic = common.panic;
 
 comptime {
-    if (common.want_ppc_abi) {
-        @export(__floatundikf, .{ .name = "__floatundikf", .linkage = common.linkage });
-    } else if (common.want_sparc_abi) {
-        @export(_Qp_uxtoq, .{ .name = "_Qp_uxtoq", .linkage = common.linkage });
-    } else {
-        @export(__floatunditf, .{ .name = "__floatunditf", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        if (common.want_ppc_abi) {
+            @export(__floatundikf, .{ .name = "__floatundikf", .linkage = common.linkage });
+        } else if (common.want_sparc_abi) {
+            @export(_Qp_uxtoq, .{ .name = "_Qp_uxtoq", .linkage = common.linkage });
+        } else {
+            @export(__floatunditf, .{ .name = "__floatunditf", .linkage = common.linkage });
+        }
     }
 }
 

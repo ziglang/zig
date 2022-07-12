@@ -10,10 +10,12 @@ comptime {
     @export(__fminh, .{ .name = "__fminh", .linkage = common.linkage });
     @export(fminf, .{ .name = "fminf", .linkage = common.linkage });
     @export(fmin, .{ .name = "fmin", .linkage = common.linkage });
-    @export(__fminx, .{ .name = "__fminx", .linkage = common.linkage });
-    const fminq_sym_name = if (common.want_ppc_abi) "fminf128" else "fminq";
-    @export(fminq, .{ .name = fminq_sym_name, .linkage = common.linkage });
-    @export(fminl, .{ .name = "fminl", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        @export(__fminx, .{ .name = "__fminx", .linkage = common.linkage });
+        const fminq_sym_name = if (common.want_ppc_abi) "fminf128" else "fminq";
+        @export(fminq, .{ .name = fminq_sym_name, .linkage = common.linkage });
+        @export(fminl, .{ .name = "fminl", .linkage = common.linkage });
+    }
 }
 
 pub fn __fminh(x: f16, y: f16) callconv(.C) f16 {

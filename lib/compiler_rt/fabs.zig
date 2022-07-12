@@ -9,10 +9,12 @@ comptime {
     @export(__fabsh, .{ .name = "__fabsh", .linkage = common.linkage });
     @export(fabsf, .{ .name = "fabsf", .linkage = common.linkage });
     @export(fabs, .{ .name = "fabs", .linkage = common.linkage });
-    @export(__fabsx, .{ .name = "__fabsx", .linkage = common.linkage });
-    const fabsq_sym_name = if (common.want_ppc_abi) "fabsf128" else "fabsq";
-    @export(fabsq, .{ .name = fabsq_sym_name, .linkage = common.linkage });
-    @export(fabsl, .{ .name = "fabsl", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        @export(__fabsx, .{ .name = "__fabsx", .linkage = common.linkage });
+        const fabsq_sym_name = if (common.want_ppc_abi) "fabsf128" else "fabsq";
+        @export(fabsq, .{ .name = fabsq_sym_name, .linkage = common.linkage });
+        @export(fabsl, .{ .name = "fabsl", .linkage = common.linkage });
+    }
 }
 
 pub fn __fabsh(a: f16) callconv(.C) f16 {

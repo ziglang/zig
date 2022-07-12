@@ -4,12 +4,14 @@ const truncf = @import("./truncf.zig").truncf;
 pub const panic = common.panic;
 
 comptime {
-    if (common.want_ppc_abi) {
-        @export(__trunckfdf2, .{ .name = "__trunckfdf2", .linkage = common.linkage });
-    } else if (common.want_sparc_abi) {
-        @export(_Qp_qtod, .{ .name = "_Qp_qtod", .linkage = common.linkage });
-    } else {
-        @export(__trunctfdf2, .{ .name = "__trunctfdf2", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        if (common.want_ppc_abi) {
+            @export(__trunckfdf2, .{ .name = "__trunckfdf2", .linkage = common.linkage });
+        } else if (common.want_sparc_abi) {
+            @export(_Qp_qtod, .{ .name = "_Qp_qtod", .linkage = common.linkage });
+        } else {
+            @export(__trunctfdf2, .{ .name = "__trunctfdf2", .linkage = common.linkage });
+        }
     }
 }
 

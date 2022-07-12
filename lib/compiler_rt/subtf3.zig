@@ -3,12 +3,14 @@ const common = @import("./common.zig");
 pub const panic = common.panic;
 
 comptime {
-    if (common.want_ppc_abi) {
-        @export(__subkf3, .{ .name = "__subkf3", .linkage = common.linkage });
-    } else if (common.want_sparc_abi) {
-        @export(_Qp_sub, .{ .name = "_Qp_sub", .linkage = common.linkage });
-    } else {
-        @export(__subtf3, .{ .name = "__subtf3", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        if (common.want_ppc_abi) {
+            @export(__subkf3, .{ .name = "__subkf3", .linkage = common.linkage });
+        } else if (common.want_sparc_abi) {
+            @export(_Qp_sub, .{ .name = "_Qp_sub", .linkage = common.linkage });
+        } else {
+            @export(__subtf3, .{ .name = "__subtf3", .linkage = common.linkage });
+        }
     }
 }
 

@@ -4,7 +4,9 @@ const intToFloat = @import("./int_to_float.zig").intToFloat;
 pub const panic = common.panic;
 
 comptime {
-    @export(__floatsixf, .{ .name = "__floatsixf", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        @export(__floatsixf, .{ .name = "__floatsixf", .linkage = common.linkage });
+    }
 }
 
 fn __floatsixf(a: i32) callconv(.C) f80 {

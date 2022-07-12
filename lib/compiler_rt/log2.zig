@@ -18,10 +18,12 @@ comptime {
     @export(__log2h, .{ .name = "__log2h", .linkage = common.linkage });
     @export(log2f, .{ .name = "log2f", .linkage = common.linkage });
     @export(log2, .{ .name = "log2", .linkage = common.linkage });
-    @export(__log2x, .{ .name = "__log2x", .linkage = common.linkage });
-    const log2q_sym_name = if (common.want_ppc_abi) "log2f128" else "log2q";
-    @export(log2q, .{ .name = log2q_sym_name, .linkage = common.linkage });
-    @export(log2l, .{ .name = "log2l", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        @export(__log2x, .{ .name = "__log2x", .linkage = common.linkage });
+        const log2q_sym_name = if (common.want_ppc_abi) "log2f128" else "log2q";
+        @export(log2q, .{ .name = log2q_sym_name, .linkage = common.linkage });
+        @export(log2l, .{ .name = "log2l", .linkage = common.linkage });
+    }
 }
 
 pub fn __log2h(a: f16) callconv(.C) f16 {

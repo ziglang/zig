@@ -23,10 +23,12 @@ comptime {
     @export(__tanh, .{ .name = "__tanh", .linkage = common.linkage });
     @export(tanf, .{ .name = "tanf", .linkage = common.linkage });
     @export(tan, .{ .name = "tan", .linkage = common.linkage });
-    @export(__tanx, .{ .name = "__tanx", .linkage = common.linkage });
-    const tanq_sym_name = if (common.want_ppc_abi) "tanf128" else "tanq";
-    @export(tanq, .{ .name = tanq_sym_name, .linkage = common.linkage });
-    @export(tanl, .{ .name = "tanl", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        @export(__tanx, .{ .name = "__tanx", .linkage = common.linkage });
+        const tanq_sym_name = if (common.want_ppc_abi) "tanf128" else "tanq";
+        @export(tanq, .{ .name = tanq_sym_name, .linkage = common.linkage });
+        @export(tanl, .{ .name = "tanl", .linkage = common.linkage });
+    }
 }
 
 pub fn __tanh(x: f16) callconv(.C) f16 {

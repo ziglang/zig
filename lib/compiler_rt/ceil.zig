@@ -17,10 +17,12 @@ comptime {
     @export(__ceilh, .{ .name = "__ceilh", .linkage = common.linkage });
     @export(ceilf, .{ .name = "ceilf", .linkage = common.linkage });
     @export(ceil, .{ .name = "ceil", .linkage = common.linkage });
-    @export(__ceilx, .{ .name = "__ceilx", .linkage = common.linkage });
-    const ceilq_sym_name = if (common.want_ppc_abi) "ceilf128" else "ceilq";
-    @export(ceilq, .{ .name = ceilq_sym_name, .linkage = common.linkage });
-    @export(ceill, .{ .name = "ceill", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        @export(__ceilx, .{ .name = "__ceilx", .linkage = common.linkage });
+        const ceilq_sym_name = if (common.want_ppc_abi) "ceilf128" else "ceilq";
+        @export(ceilq, .{ .name = ceilq_sym_name, .linkage = common.linkage });
+        @export(ceill, .{ .name = "ceill", .linkage = common.linkage });
+    }
 }
 
 pub fn __ceilh(x: f16) callconv(.C) f16 {

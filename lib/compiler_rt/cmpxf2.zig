@@ -6,11 +6,13 @@ const comparef = @import("./comparef.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__eqxf2, .{ .name = "__eqxf2", .linkage = common.linkage });
-    @export(__nexf2, .{ .name = "__nexf2", .linkage = common.linkage });
-    @export(__lexf2, .{ .name = "__lexf2", .linkage = common.linkage });
-    @export(__cmpxf2, .{ .name = "__cmpxf2", .linkage = common.linkage });
-    @export(__ltxf2, .{ .name = "__ltxf2", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        @export(__eqxf2, .{ .name = "__eqxf2", .linkage = common.linkage });
+        @export(__nexf2, .{ .name = "__nexf2", .linkage = common.linkage });
+        @export(__lexf2, .{ .name = "__lexf2", .linkage = common.linkage });
+        @export(__cmpxf2, .{ .name = "__cmpxf2", .linkage = common.linkage });
+        @export(__ltxf2, .{ .name = "__ltxf2", .linkage = common.linkage });
+    }
 }
 
 /// "These functions calculate a <=> b. That is, if a is less than b, they return -1;

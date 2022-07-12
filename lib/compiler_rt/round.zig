@@ -17,10 +17,12 @@ comptime {
     @export(__roundh, .{ .name = "__roundh", .linkage = common.linkage });
     @export(roundf, .{ .name = "roundf", .linkage = common.linkage });
     @export(round, .{ .name = "round", .linkage = common.linkage });
-    @export(__roundx, .{ .name = "__roundx", .linkage = common.linkage });
-    const roundq_sym_name = if (common.want_ppc_abi) "roundf128" else "roundq";
-    @export(roundq, .{ .name = roundq_sym_name, .linkage = common.linkage });
-    @export(roundl, .{ .name = "roundl", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        @export(__roundx, .{ .name = "__roundx", .linkage = common.linkage });
+        const roundq_sym_name = if (common.want_ppc_abi) "roundf128" else "roundq";
+        @export(roundq, .{ .name = roundq_sym_name, .linkage = common.linkage });
+        @export(roundl, .{ .name = "roundl", .linkage = common.linkage });
+    }
 }
 
 pub fn __roundh(x: f16) callconv(.C) f16 {

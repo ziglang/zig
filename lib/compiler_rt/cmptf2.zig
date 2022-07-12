@@ -6,25 +6,27 @@ const comparef = @import("./comparef.zig");
 pub const panic = common.panic;
 
 comptime {
-    if (common.want_ppc_abi) {
-        @export(__eqkf2, .{ .name = "__eqkf2", .linkage = common.linkage });
-        @export(__nekf2, .{ .name = "__nekf2", .linkage = common.linkage });
-        @export(__ltkf2, .{ .name = "__ltkf2", .linkage = common.linkage });
-        @export(__lekf2, .{ .name = "__lekf2", .linkage = common.linkage });
-    } else if (common.want_sparc_abi) {
-        @export(_Qp_cmp, .{ .name = "_Qp_cmp", .linkage = common.linkage });
-        @export(_Qp_feq, .{ .name = "_Qp_feq", .linkage = common.linkage });
-        @export(_Qp_fne, .{ .name = "_Qp_fne", .linkage = common.linkage });
-        @export(_Qp_flt, .{ .name = "_Qp_flt", .linkage = common.linkage });
-        @export(_Qp_fle, .{ .name = "_Qp_fle", .linkage = common.linkage });
-        @export(_Qp_fgt, .{ .name = "_Qp_fgt", .linkage = common.linkage });
-        @export(_Qp_fge, .{ .name = "_Qp_fge", .linkage = common.linkage });
-    } else {
-        @export(__eqtf2, .{ .name = "__eqtf2", .linkage = common.linkage });
-        @export(__netf2, .{ .name = "__netf2", .linkage = common.linkage });
-        @export(__letf2, .{ .name = "__letf2", .linkage = common.linkage });
-        @export(__cmptf2, .{ .name = "__cmptf2", .linkage = common.linkage });
-        @export(__lttf2, .{ .name = "__lttf2", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        if (common.want_ppc_abi) {
+            @export(__eqkf2, .{ .name = "__eqkf2", .linkage = common.linkage });
+            @export(__nekf2, .{ .name = "__nekf2", .linkage = common.linkage });
+            @export(__ltkf2, .{ .name = "__ltkf2", .linkage = common.linkage });
+            @export(__lekf2, .{ .name = "__lekf2", .linkage = common.linkage });
+        } else if (common.want_sparc_abi) {
+            @export(_Qp_cmp, .{ .name = "_Qp_cmp", .linkage = common.linkage });
+            @export(_Qp_feq, .{ .name = "_Qp_feq", .linkage = common.linkage });
+            @export(_Qp_fne, .{ .name = "_Qp_fne", .linkage = common.linkage });
+            @export(_Qp_flt, .{ .name = "_Qp_flt", .linkage = common.linkage });
+            @export(_Qp_fle, .{ .name = "_Qp_fle", .linkage = common.linkage });
+            @export(_Qp_fgt, .{ .name = "_Qp_fgt", .linkage = common.linkage });
+            @export(_Qp_fge, .{ .name = "_Qp_fge", .linkage = common.linkage });
+        } else {
+            @export(__eqtf2, .{ .name = "__eqtf2", .linkage = common.linkage });
+            @export(__netf2, .{ .name = "__netf2", .linkage = common.linkage });
+            @export(__letf2, .{ .name = "__letf2", .linkage = common.linkage });
+            @export(__cmptf2, .{ .name = "__cmptf2", .linkage = common.linkage });
+            @export(__lttf2, .{ .name = "__lttf2", .linkage = common.linkage });
+        }
     }
 }
 

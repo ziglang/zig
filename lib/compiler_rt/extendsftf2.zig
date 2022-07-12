@@ -4,12 +4,14 @@ const extendf = @import("./extendf.zig").extendf;
 pub const panic = common.panic;
 
 comptime {
-    if (common.want_ppc_abi) {
-        @export(__extendsfkf2, .{ .name = "__extendsfkf2", .linkage = common.linkage });
-    } else if (common.want_sparc_abi) {
-        @export(_Qp_stoq, .{ .name = "_Qp_stoq", .linkage = common.linkage });
-    } else {
-        @export(__extendsftf2, .{ .name = "__extendsftf2", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        if (common.want_ppc_abi) {
+            @export(__extendsfkf2, .{ .name = "__extendsfkf2", .linkage = common.linkage });
+        } else if (common.want_sparc_abi) {
+            @export(_Qp_stoq, .{ .name = "_Qp_stoq", .linkage = common.linkage });
+        } else {
+            @export(__extendsftf2, .{ .name = "__extendsftf2", .linkage = common.linkage });
+        }
     }
 }
 

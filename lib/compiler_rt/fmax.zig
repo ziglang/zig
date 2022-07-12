@@ -10,10 +10,12 @@ comptime {
     @export(__fmaxh, .{ .name = "__fmaxh", .linkage = common.linkage });
     @export(fmaxf, .{ .name = "fmaxf", .linkage = common.linkage });
     @export(fmax, .{ .name = "fmax", .linkage = common.linkage });
-    @export(__fmaxx, .{ .name = "__fmaxx", .linkage = common.linkage });
-    const fmaxq_sym_name = if (common.want_ppc_abi) "fmaxf128" else "fmaxq";
-    @export(fmaxq, .{ .name = fmaxq_sym_name, .linkage = common.linkage });
-    @export(fmaxl, .{ .name = "fmaxl", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        @export(__fmaxx, .{ .name = "__fmaxx", .linkage = common.linkage });
+        const fmaxq_sym_name = if (common.want_ppc_abi) "fmaxf128" else "fmaxq";
+        @export(fmaxq, .{ .name = fmaxq_sym_name, .linkage = common.linkage });
+        @export(fmaxl, .{ .name = "fmaxl", .linkage = common.linkage });
+    }
 }
 
 pub fn __fmaxh(x: f16, y: f16) callconv(.C) f16 {

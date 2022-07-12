@@ -4,7 +4,9 @@ const extendf = @import("./extendf.zig").extendf;
 pub const panic = common.panic;
 
 comptime {
-    @export(__extendhftf2, .{ .name = "__extendhftf2", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        @export(__extendhftf2, .{ .name = "__extendhftf2", .linkage = common.linkage });
+    }
 }
 
 pub fn __extendhftf2(a: common.F16T) callconv(.C) f128 {

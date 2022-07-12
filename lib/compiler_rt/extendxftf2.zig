@@ -4,7 +4,9 @@ const common = @import("./common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__extendxftf2, .{ .name = "__extendxftf2", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        @export(__extendxftf2, .{ .name = "__extendxftf2", .linkage = common.linkage });
+    }
 }
 
 fn __extendxftf2(a: f80) callconv(.C) f128 {

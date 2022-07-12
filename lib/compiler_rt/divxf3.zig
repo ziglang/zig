@@ -9,7 +9,9 @@ const wideMultiply = common.wideMultiply;
 pub const panic = common.panic;
 
 comptime {
-    @export(__divxf3, .{ .name = "__divxf3", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        @export(__divxf3, .{ .name = "__divxf3", .linkage = common.linkage });
+    }
 }
 
 pub fn __divxf3(a: f80, b: f80) callconv(.C) f80 {

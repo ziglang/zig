@@ -17,10 +17,12 @@ comptime {
     @export(__floorh, .{ .name = "__floorh", .linkage = common.linkage });
     @export(floorf, .{ .name = "floorf", .linkage = common.linkage });
     @export(floor, .{ .name = "floor", .linkage = common.linkage });
-    @export(__floorx, .{ .name = "__floorx", .linkage = common.linkage });
-    const floorq_sym_name = if (common.want_ppc_abi) "floorf128" else "floorq";
-    @export(floorq, .{ .name = floorq_sym_name, .linkage = common.linkage });
-    @export(floorl, .{ .name = "floorl", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        @export(__floorx, .{ .name = "__floorx", .linkage = common.linkage });
+        const floorq_sym_name = if (common.want_ppc_abi) "floorf128" else "floorq";
+        @export(floorq, .{ .name = floorq_sym_name, .linkage = common.linkage });
+        @export(floorl, .{ .name = "floorl", .linkage = common.linkage });
+    }
 }
 
 pub fn __floorh(x: f16) callconv(.C) f16 {

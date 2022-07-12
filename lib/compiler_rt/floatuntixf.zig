@@ -5,10 +5,12 @@ const intToFloat = @import("./int_to_float.zig").intToFloat;
 pub const panic = common.panic;
 
 comptime {
-    if (common.want_windows_v2u64_abi) {
-        @export(__floatuntixf_windows_x86_64, .{ .name = "__floatuntixf", .linkage = common.linkage });
-    } else {
-        @export(__floatuntixf, .{ .name = "__floatuntixf", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        if (common.want_windows_v2u64_abi) {
+            @export(__floatuntixf_windows_x86_64, .{ .name = "__floatuntixf", .linkage = common.linkage });
+        } else {
+            @export(__floatuntixf, .{ .name = "__floatuntixf", .linkage = common.linkage });
+        }
     }
 }
 

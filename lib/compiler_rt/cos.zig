@@ -15,10 +15,12 @@ comptime {
     @export(__cosh, .{ .name = "__cosh", .linkage = common.linkage });
     @export(cosf, .{ .name = "cosf", .linkage = common.linkage });
     @export(cos, .{ .name = "cos", .linkage = common.linkage });
-    @export(__cosx, .{ .name = "__cosx", .linkage = common.linkage });
-    const cosq_sym_name = if (common.want_ppc_abi) "cosf128" else "cosq";
-    @export(cosq, .{ .name = cosq_sym_name, .linkage = common.linkage });
-    @export(cosl, .{ .name = "cosl", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        @export(__cosx, .{ .name = "__cosx", .linkage = common.linkage });
+        const cosq_sym_name = if (common.want_ppc_abi) "cosf128" else "cosq";
+        @export(cosq, .{ .name = cosq_sym_name, .linkage = common.linkage });
+        @export(cosl, .{ .name = "cosl", .linkage = common.linkage });
+    }
 }
 
 pub fn __cosh(a: f16) callconv(.C) f16 {

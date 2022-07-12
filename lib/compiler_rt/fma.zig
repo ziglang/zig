@@ -18,10 +18,12 @@ comptime {
     @export(__fmah, .{ .name = "__fmah", .linkage = common.linkage });
     @export(fmaf, .{ .name = "fmaf", .linkage = common.linkage });
     @export(fma, .{ .name = "fma", .linkage = common.linkage });
-    @export(__fmax, .{ .name = "__fmax", .linkage = common.linkage });
-    const fmaq_sym_name = if (common.want_ppc_abi) "fmaf128" else "fmaq";
-    @export(fmaq, .{ .name = fmaq_sym_name, .linkage = common.linkage });
-    @export(fmal, .{ .name = "fmal", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        @export(__fmax, .{ .name = "__fmax", .linkage = common.linkage });
+        const fmaq_sym_name = if (common.want_ppc_abi) "fmaf128" else "fmaq";
+        @export(fmaq, .{ .name = fmaq_sym_name, .linkage = common.linkage });
+        @export(fmal, .{ .name = "fmal", .linkage = common.linkage });
+    }
 }
 
 pub fn __fmah(x: f16, y: f16, z: f16) callconv(.C) f16 {

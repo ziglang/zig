@@ -21,6 +21,19 @@ pub const want_ppc_abi = builtin.cpu.arch.isPPC() or builtin.cpu.arch.isPPC64();
 // calling convention of @Vector(2, u64), rather than what's standard.
 pub const want_windows_v2u64_abi = builtin.os.tag == .windows and builtin.cpu.arch == .x86_64;
 
+/// LLVM is crashing right now when receiving LLVM IR that has f80 or f128 code in it and the target
+/// is not using the FPU (soft_float)
+/// LLVM issue: https://github.com/llvm/llvm-project/issues/56351
+/// LLVM developers adviced that instructions regarding these float types should be avoided
+pub const should_emit_f80_or_f128 = switch (builtin.zig_backend) {
+    .stage1, .stage2_llvm => switch (builtin.cpu.arch) {
+        .i386, .x86_64 => !builtin.cpu.features.isEnabled(@enumToInt(std.Target.x86.Feature.soft_float)),
+        .aarch64 => builtin.cpu.features.isEnabled(@enumToInt(std.Target.aarch64.Feature.fp_armv8)),
+        else => true, // TODO: Support soft float detection for other architectures
+    },
+    else => true,
+};
+
 /// This governs whether to use these symbol names for f16/f32 conversions
 /// rather than the standard names:
 /// * __gnu_f2h_ieee

@@ -8,12 +8,14 @@ const wideMultiply = common.wideMultiply;
 pub const panic = common.panic;
 
 comptime {
-    if (common.want_ppc_abi) {
-        @export(__divkf3, .{ .name = "__divkf3", .linkage = common.linkage });
-    } else if (common.want_sparc_abi) {
-        @export(_Qp_div, .{ .name = "_Qp_div", .linkage = common.linkage });
-    } else {
-        @export(__divtf3, .{ .name = "__divtf3", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        if (common.want_ppc_abi) {
+            @export(__divkf3, .{ .name = "__divkf3", .linkage = common.linkage });
+        } else if (common.want_sparc_abi) {
+            @export(_Qp_div, .{ .name = "_Qp_div", .linkage = common.linkage });
+        } else {
+            @export(__divtf3, .{ .name = "__divtf3", .linkage = common.linkage });
+        }
     }
 }
 

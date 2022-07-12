@@ -4,12 +4,14 @@ const mulf3 = @import("./mulf3.zig").mulf3;
 pub const panic = common.panic;
 
 comptime {
-    if (common.want_ppc_abi) {
-        @export(__mulkf3, .{ .name = "__mulkf3", .linkage = common.linkage });
-    } else if (common.want_sparc_abi) {
-        @export(_Qp_mul, .{ .name = "_Qp_mul", .linkage = common.linkage });
-    } else {
-        @export(__multf3, .{ .name = "__multf3", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        if (common.want_ppc_abi) {
+            @export(__mulkf3, .{ .name = "__mulkf3", .linkage = common.linkage });
+        } else if (common.want_sparc_abi) {
+            @export(_Qp_mul, .{ .name = "_Qp_mul", .linkage = common.linkage });
+        } else {
+            @export(__multf3, .{ .name = "__multf3", .linkage = common.linkage });
+        }
     }
 }
 

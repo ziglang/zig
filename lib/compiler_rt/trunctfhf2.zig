@@ -4,7 +4,9 @@ const truncf = @import("./truncf.zig").truncf;
 pub const panic = common.panic;
 
 comptime {
-    @export(__trunctfhf2, .{ .name = "__trunctfhf2", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        @export(__trunctfhf2, .{ .name = "__trunctfhf2", .linkage = common.linkage });
+    }
 }
 
 pub fn __trunctfhf2(a: f128) callconv(.C) common.F16T {

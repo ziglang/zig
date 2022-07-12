@@ -17,10 +17,12 @@ comptime {
     @export(__exph, .{ .name = "__exph", .linkage = common.linkage });
     @export(expf, .{ .name = "expf", .linkage = common.linkage });
     @export(exp, .{ .name = "exp", .linkage = common.linkage });
-    @export(__expx, .{ .name = "__expx", .linkage = common.linkage });
-    const expq_sym_name = if (common.want_ppc_abi) "expf128" else "expq";
-    @export(expq, .{ .name = expq_sym_name, .linkage = common.linkage });
-    @export(expl, .{ .name = "expl", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        @export(__expx, .{ .name = "__expx", .linkage = common.linkage });
+        const expq_sym_name = if (common.want_ppc_abi) "expf128" else "expq";
+        @export(expq, .{ .name = expq_sym_name, .linkage = common.linkage });
+        @export(expl, .{ .name = "expl", .linkage = common.linkage });
+    }
 }
 
 pub fn __exph(a: f16) callconv(.C) f16 {

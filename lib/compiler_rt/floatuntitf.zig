@@ -5,12 +5,14 @@ const intToFloat = @import("./int_to_float.zig").intToFloat;
 pub const panic = common.panic;
 
 comptime {
-    const symbol_name = if (common.want_ppc_abi) "__floatuntikf" else "__floatuntitf";
+    if (common.should_emit_f80_or_f128) {
+        const symbol_name = if (common.want_ppc_abi) "__floatuntikf" else "__floatuntitf";
 
-    if (common.want_windows_v2u64_abi) {
-        @export(__floatuntitf_windows_x86_64, .{ .name = symbol_name, .linkage = common.linkage });
-    } else {
-        @export(__floatuntitf, .{ .name = symbol_name, .linkage = common.linkage });
+        if (common.want_windows_v2u64_abi) {
+            @export(__floatuntitf_windows_x86_64, .{ .name = symbol_name, .linkage = common.linkage });
+        } else {
+            @export(__floatuntitf, .{ .name = symbol_name, .linkage = common.linkage });
+        }
     }
 }
 

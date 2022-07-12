@@ -4,7 +4,9 @@ const common = @import("./common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__subxf3, .{ .name = "__subxf3", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        @export(__subxf3, .{ .name = "__subxf3", .linkage = common.linkage });
+    }
 }
 
 fn __subxf3(a: f80, b: f80) callconv(.C) f80 {

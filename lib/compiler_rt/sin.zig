@@ -21,10 +21,12 @@ comptime {
     @export(__sinh, .{ .name = "__sinh", .linkage = common.linkage });
     @export(sinf, .{ .name = "sinf", .linkage = common.linkage });
     @export(sin, .{ .name = "sin", .linkage = common.linkage });
-    @export(__sinx, .{ .name = "__sinx", .linkage = common.linkage });
-    const sinq_sym_name = if (common.want_ppc_abi) "sinf128" else "sinq";
-    @export(sinq, .{ .name = sinq_sym_name, .linkage = common.linkage });
-    @export(sinl, .{ .name = "sinl", .linkage = common.linkage });
+    if (common.should_emit_f80_or_f128) {
+        @export(__sinx, .{ .name = "__sinx", .linkage = common.linkage });
+        const sinq_sym_name = if (common.want_ppc_abi) "sinf128" else "sinq";
+        @export(sinq, .{ .name = sinq_sym_name, .linkage = common.linkage });
+        @export(sinl, .{ .name = "sinl", .linkage = common.linkage });
+    }
 }
 
 pub fn __sinh(x: f16) callconv(.C) f16 {
