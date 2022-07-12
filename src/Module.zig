@@ -4065,18 +4065,6 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
         var wip_captures = try WipCaptureScope.init(gpa, new_decl_arena_allocator, null);
         defer wip_captures.deinit();
 
-        var block_scope: Sema.Block = .{
-            .parent = null,
-            .sema = &sema,
-            .src_decl = new_decl_index,
-            .namespace = &struct_obj.namespace,
-            .wip_capture_scope = wip_captures.scope,
-            .instructions = .{},
-            .inlining = null,
-            .is_comptime = true,
-        };
-        defer block_scope.instructions.deinit(gpa);
-
         if (sema.analyzeStructDecl(new_decl, main_struct_inst, struct_obj)) |_| {
             try wip_captures.finalize();
             new_decl.analysis = .complete;
@@ -4185,7 +4173,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     const result_ref = (try sema.analyzeBodyBreak(&block_scope, body)).?.operand;
     try wip_captures.finalize();
     const src = LazySrcLoc.nodeOffset(0);
-    const decl_tv = try sema.resolveInstValue(&block_scope, src, result_ref);
+    const decl_tv = try sema.resolveInstValue(&block_scope, .unneeded, result_ref, undefined);
     const decl_align: u32 = blk: {
         const align_ref = decl.zirAlignRef();
         if (align_ref == .none) break :blk 0;
@@ -4194,7 +4182,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     const decl_linksection: ?[*:0]const u8 = blk: {
         const linksection_ref = decl.zirLinksectionRef();
         if (linksection_ref == .none) break :blk null;
-        const bytes = try sema.resolveConstString(&block_scope, src, linksection_ref);
+        const bytes = try sema.resolveConstString(&block_scope, src, linksection_ref, "linksection must be comptime known");
         break :blk (try decl_arena_allocator.dupeZ(u8, bytes)).ptr;
     };
     const target = sema.mod.getTarget();

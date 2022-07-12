@@ -17,4 +17,4 @@ fn bad(ok: bool) void {
 // target=native
 // backend=stage2
 //
-// :12:18: error: unable to resolve comptime value
+// :12:18: error: cannot load runtime value in comptime block
