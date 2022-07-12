@@ -4367,7 +4367,7 @@ fn printErrsMsgToStdErr(
         defer text_buf.deinit();
         const writer = text_buf.writer();
         try tree.renderError(parse_error, writer);
-        const text = text_buf.items;
+        const text = try arena.dupe(u8, text_buf.items);
 
         var notes_buffer: [2]Compilation.AllErrors.Message = undefined;
         var notes_len: usize = 0;
@@ -4388,49 +4388,26 @@ fn printErrsMsgToStdErr(
                 },
             };
             notes_len += 1;
-        } else if (parse_error.tag == .decl_between_fields) {
-            const prev_loc = tree.tokenLocation(0, parse_errors[i + 1].token);
-            notes_buffer[0] = .{
-                .src = .{
-                    .src_path = path,
-                    .msg = "field before declarations here",
-                    .byte_offset = @intCast(u32, prev_loc.line_start),
-                    .line = @intCast(u32, prev_loc.line),
-                    .column = @intCast(u32, prev_loc.column),
-                    .source_line = tree.source[prev_loc.line_start..prev_loc.line_end],
-                },
-            };
-            const next_loc = tree.tokenLocation(0, parse_errors[i + 2].token);
-            notes_buffer[1] = .{
-                .src = .{
-                    .src_path = path,
-                    .msg = "field after declarations here",
-                    .byte_offset = @intCast(u32, next_loc.line_start),
-                    .line = @intCast(u32, next_loc.line),
-                    .column = @intCast(u32, next_loc.column),
-                    .source_line = tree.source[next_loc.line_start..next_loc.line_end],
-                },
-            };
-            notes_len = 2;
-            i += 2;
-        } else if (parse_error.tag == .c_style_container) {
-            const note = tree.errors[i + 1];
+        }
 
-            const prev_loc = tree.tokenLocation(0, parse_errors[i + 1].token);
-            notes_buffer[0] = .{
+        for (parse_errors[i + 1 ..]) |note| {
+            if (!note.is_note) break;
+
+            text_buf.items.len = 0;
+            try tree.renderError(note, writer);
+            const note_loc = tree.tokenLocation(0, note.token);
+            notes_buffer[notes_len] = .{
                 .src = .{
                     .src_path = path,
-                    .msg = try std.fmt.allocPrint(arena, "to declare a container do 'const {s} = {s}'", .{
-                        tree.tokenSlice(note.token), note.extra.expected_tag.symbol(),
-                    }),
-                    .byte_offset = @intCast(u32, prev_loc.line_start),
-                    .line = @intCast(u32, prev_loc.line),
-                    .column = @intCast(u32, prev_loc.column),
-                    .source_line = tree.source[prev_loc.line_start..prev_loc.line_end],
+                    .msg = try arena.dupe(u8, text_buf.items),
+                    .byte_offset = @intCast(u32, note_loc.line_start),
+                    .line = @intCast(u32, note_loc.line),
+                    .column = @intCast(u32, note_loc.column),
+                    .source_line = tree.source[note_loc.line_start..note_loc.line_end],
                 },
             };
-            notes_len = 1;
             i += 1;
+            notes_len += 1;
         }
 
         const extra_offset = tree.errorOffset(parse_error);
