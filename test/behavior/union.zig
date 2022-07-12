@@ -1016,7 +1016,6 @@ test "switching on non exhaustive union" {
             switch (a) {
                 .a => |val| try expect(val == 2),
                 .b => return error.Fail,
-                _ => return error.Fail,
             }
         }
     };
