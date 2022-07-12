@@ -187,7 +187,7 @@ pub const Relocation = struct {
 
         const target_sym = macho_file.getSymbol(self.target);
         if (is_via_got) {
-            const got_index = macho_file.got_entries_table.get(self.target) orelse {
+            const got_atom = macho_file.getGotAtomForSymbol(self.target) orelse {
                 log.err("expected GOT entry for symbol", .{});
                 if (target_sym.undf()) {
                     log.err("  import('{s}')", .{macho_file.getSymbolName(self.target)});
@@ -197,14 +197,12 @@ pub const Relocation = struct {
                 log.err("  this is an internal linker error", .{});
                 return error.FailedToResolveRelocationTarget;
             };
-            return macho_file.got_entries.items[got_index].atom;
+            return got_atom;
         }
 
-        if (macho_file.stubs_table.get(self.target)) |stub_index| {
-            return macho_file.stubs.items[stub_index].atom;
-        } else if (macho_file.tlv_ptr_entries_table.get(self.target)) |tlv_ptr_index| {
-            return macho_file.tlv_ptr_entries.items[tlv_ptr_index].atom;
-        } else return macho_file.getAtomForSymbol(self.target);
+        if (macho_file.getStubsAtomForSymbol(self.target)) |stubs_atom| return stubs_atom;
+        if (macho_file.getTlvPtrAtomForSymbol(self.target)) |tlv_ptr_atom| return tlv_ptr_atom;
+        return macho_file.getAtomForSymbol(self.target);
     }
 };
 
@@ -402,7 +400,7 @@ pub fn parseRelocs(self: *Atom, relocs: []const macho.relocation_info, context: 
                         .n_type = macho.N_SECT,
                         .n_sect = context.macho_file.getSectionOrdinal(match),
                         .n_desc = 0,
-                        .n_value = 0,
+                        .n_value = sect.addr,
                     });
                     try object.sections_as_symbols.putNoClobber(gpa, sect_id, sym_index);
                     break :blk sym_index;
@@ -499,8 +497,10 @@ pub fn parseRelocs(self: *Atom, relocs: []const macho.relocation_info, context: 
                             // Note for the future self: when r_extern == 0, we should subtract correction from the
                             // addend.
                             const target_sect_base_addr = object.getSection(@intCast(u16, rel.r_symbolnum - 1)).addr;
+                            // We need to add base_offset, i.e., offset of this atom wrt to the source
+                            // section. Otherwise, the addend will over-/under-shoot.
                             addend += @intCast(i64, context.base_addr + offset + 4) -
-                                @intCast(i64, target_sect_base_addr);
+                                @intCast(i64, target_sect_base_addr) + context.base_offset;
                         }
                     },
                     .X86_64_RELOC_TLV => {

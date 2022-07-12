@@ -16,7 +16,6 @@ pub fn build(b: *Builder) void {
     // TODO when we figure out how to ship framework stubs for cross-compilation,
     // populate paths to the sysroot here.
     exe.linkFramework("Foundation");
-    exe.link_gc_sections = true;
 
     const run_cmd = exe.run();
     run_cmd.expectStdOutEqual("Hello from C++ and Zig");

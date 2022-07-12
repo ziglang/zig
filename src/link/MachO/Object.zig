@@ -270,7 +270,7 @@ const SymbolAtIndex = struct {
 
     fn getSymbolName(self: SymbolAtIndex, ctx: Context) []const u8 {
         const sym = self.getSymbol(ctx);
-        if (sym.n_strx == 0) return "";
+        assert(sym.n_strx < ctx.strtab.len);
         return mem.sliceTo(@ptrCast([*:0]const u8, ctx.strtab.ptr + sym.n_strx), 0);
     }
 
@@ -359,15 +359,17 @@ fn filterDice(
     return dices[start..end];
 }
 
-/// Splits object into atoms assuming whole cache mode aka traditional linking mode.
-pub fn splitIntoAtomsWhole(self: *Object, macho_file: *MachO, object_id: u32) !void {
+/// Splits object into atoms assuming one-shot linking mode.
+pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) !void {
+    assert(macho_file.mode == .one_shot);
+
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = macho_file.base.allocator;
     const seg = self.load_commands.items[self.segment_cmd_index.?].segment;
 
-    log.debug("splitting object({d}, {s}) into atoms: whole cache mode", .{ object_id, self.name });
+    log.debug("splitting object({d}, {s}) into atoms: one-shot mode", .{ object_id, self.name });
 
     // You would expect that the symbol table is at least pre-sorted based on symbol's type:
     // local < extern defined < undefined. Unfortunately, this is not guaranteed! For instance,
@@ -416,11 +418,11 @@ pub fn splitIntoAtomsWhole(self: *Object, macho_file: *MachO, object_id: u32) !v
             log.debug("  unhandled section", .{});
             continue;
         };
-        const target_sect = macho_file.getSection(match);
+
         log.debug("  output sect({d}, '{s},{s}')", .{
             macho_file.getSectionOrdinal(match),
-            target_sect.segName(),
-            target_sect.sectName(),
+            macho_file.getSection(match).segName(),
+            macho_file.getSection(match).sectName(),
         });
 
         const is_zerofill = blk: {
@@ -585,10 +587,19 @@ fn createAtomFromSubsection(
     sect: macho.section_64,
 ) !*Atom {
     const gpa = macho_file.base.allocator;
-    const sym = &self.symtab.items[sym_index];
+    const sym = self.symtab.items[sym_index];
     const atom = try MachO.createEmptyAtom(gpa, sym_index, size, alignment);
     atom.file = object_id;
-    sym.n_sect = macho_file.getSectionOrdinal(match);
+    self.symtab.items[sym_index].n_sect = macho_file.getSectionOrdinal(match);
+
+    log.debug("creating ATOM(%{d}, '{s}') in sect({d}, '{s},{s}') in object({d})", .{
+        sym_index,
+        self.getString(sym.n_strx),
+        macho_file.getSectionOrdinal(match),
+        macho_file.getSection(match).segName(),
+        macho_file.getSection(match).sectName(),
+        object_id,
+    });
 
     try self.atom_by_index_table.putNoClobber(gpa, sym_index, atom);
     try self.managed_atoms.append(gpa, atom);
@@ -669,7 +680,6 @@ fn createAtomFromSubsection(
             // if (zld.globals.contains(zld.getString(sym.strx))) break :blk .global;
             break :blk .static;
         } else null;
-
         atom.contained.appendAssumeCapacity(.{
             .sym_index = inner_sym_index.index,
             .offset = inner_sym.n_value - sym.n_value,

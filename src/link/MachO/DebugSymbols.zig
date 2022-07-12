@@ -5,7 +5,7 @@ const build_options = @import("build_options");
 const assert = std.debug.assert;
 const fs = std.fs;
 const link = @import("../../link.zig");
-const log = std.log.scoped(.link);
+const log = std.log.scoped(.dsym);
 const macho = std.macho;
 const makeStaticString = MachO.makeStaticString;
 const math = std.math;
@@ -60,7 +60,7 @@ debug_aranges_section_dirty: bool = false,
 debug_info_header_dirty: bool = false,
 debug_line_header_dirty: bool = false,
 
-strtab: StringTable(.link) = .{},
+strtab: StringTable(.strtab) = .{},
 
 relocs: std.ArrayListUnmanaged(Reloc) = .{},
 
