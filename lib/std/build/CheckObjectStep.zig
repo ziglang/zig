@@ -265,7 +265,10 @@ fn make(step: *Step) !void {
         }),
         .elf => @panic("TODO elf parser"),
         .coff => @panic("TODO coff parser"),
-        .wasm => @panic("TODO wasm parser"),
+        .wasm => try WasmDumper.parseAndDump(contents, .{
+            .gpa = gpa,
+            .dump_symtab = self.dump_symtab,
+        }),
         else => unreachable,
     };
 
@@ -519,6 +522,298 @@ const MachODumper = struct {
             },
 
             else => {},
+        }
+    }
+};
+
+const WasmDumper = struct {
+    const symtab_label = "symbols";
+
+    fn parseAndDump(bytes: []const u8, opts: Opts) ![]const u8 {
+        const gpa = opts.gpa orelse unreachable; // Wasm dumper requires an allocator
+        if (opts.dump_symtab) {
+            @panic("TODO: Implement symbol table parsing and dumping");
+        }
+
+        var fbs = std.io.fixedBufferStream(bytes);
+        const reader = fbs.reader();
+
+        const buf = try reader.readBytesNoEof(8);
+        if (!mem.eql(u8, buf[0..4], &std.wasm.magic)) {
+            return error.InvalidMagicByte;
+        }
+        if (!mem.eql(u8, buf[4..], &std.wasm.version)) {
+            return error.UnsupportedWasmVersion;
+        }
+
+        var output = std.ArrayList(u8).init(gpa);
+        errdefer output.deinit();
+        const writer = output.writer();
+
+        while (reader.readByte()) |current_byte| {
+            const section = std.meta.intToEnum(std.wasm.Section, current_byte) catch |err| {
+                std.debug.print("Found invalid section id '{d}'\n", .{current_byte});
+                return err;
+            };
+
+            const section_length = try std.leb.readULEB128(u32, reader);
+            try parseAndDumpSection(section, bytes[fbs.pos..][0..section_length], writer);
+            fbs.pos += section_length;
+        } else |_| {} // reached end of stream
+
+        return output.toOwnedSlice();
+    }
+
+    fn parseAndDumpSection(section: std.wasm.Section, data: []const u8, writer: anytype) !void {
+        var fbs = std.io.fixedBufferStream(data);
+        const reader = fbs.reader();
+
+        try writer.print(
+            \\Section {s}
+            \\size {d}
+        , .{ @tagName(section), data.len });
+
+        switch (section) {
+            .type,
+            .import,
+            .function,
+            .table,
+            .memory,
+            .global,
+            .@"export",
+            .element,
+            .code,
+            .data,
+            => {
+                const entries = try std.leb.readULEB128(u32, reader);
+                try writer.print("\nentries {d}\n", .{entries});
+                try dumpSection(section, data[fbs.pos..], entries, writer);
+            },
+            .custom => {
+                const name_length = try std.leb.readULEB128(u32, reader);
+                const name = data[fbs.pos..][0..name_length];
+                fbs.pos += name_length;
+                try writer.print("\nname {s}\n", .{name});
+
+                if (mem.eql(u8, name, "name")) {
+                    try parseDumpNames(reader, writer, data);
+                }
+                // TODO: Implement parsing and dumping other custom sections (such as relocations)
+            },
+            .start => {
+                const start = try std.leb.readULEB128(u32, reader);
+                try writer.print("\nstart {d}\n", .{start});
+            },
+            else => {}, // skip unknown sections
+        }
+    }
+
+    fn dumpSection(section: std.wasm.Section, data: []const u8, entries: u32, writer: anytype) !void {
+        var fbs = std.io.fixedBufferStream(data);
+        const reader = fbs.reader();
+
+        switch (section) {
+            .type => {
+                var i: u32 = 0;
+                while (i < entries) : (i += 1) {
+                    const func_type = try reader.readByte();
+                    if (func_type != std.wasm.function_type) {
+                        std.debug.print("Expected function type, found byte '{d}'\n", .{func_type});
+                        return error.UnexpectedByte;
+                    }
+                    const params = try std.leb.readULEB128(u32, reader);
+                    try writer.print("params {d}\n", .{params});
+                    var index: u32 = 0;
+                    while (index < params) : (index += 1) {
+                        try parseDumpType(std.wasm.Valtype, reader, writer);
+                    } else index = 0;
+                    const returns = try std.leb.readULEB128(u32, reader);
+                    try writer.print("returns {d}\n", .{returns});
+                    while (index < returns) : (index += 1) {
+                        try parseDumpType(std.wasm.Valtype, reader, writer);
+                    }
+                }
+            },
+            .import => {
+                var i: u32 = 0;
+                while (i < entries) : (i += 1) {
+                    const module_name_len = try std.leb.readULEB128(u32, reader);
+                    const module_name = data[fbs.pos..][0..module_name_len];
+                    fbs.pos += module_name_len;
+                    const name_len = try std.leb.readULEB128(u32, reader);
+                    const name = data[fbs.pos..][0..name_len];
+                    fbs.pos += name_len;
+
+                    const kind = std.meta.intToEnum(std.wasm.ExternalKind, try reader.readByte()) catch |err| {
+                        std.debug.print("Invalid import kind\n", .{});
+                        return err;
+                    };
+
+                    try writer.print(
+                        \\module {s}
+                        \\name {s}
+                        \\kind {s}
+                    , .{ module_name, name, @tagName(kind) });
+                    try writer.writeByte('\n');
+                    switch (kind) {
+                        .function => {
+                            try writer.print("index {d}\n", .{try std.leb.readULEB128(u32, reader)});
+                        },
+                        .memory => {
+                            try parseDumpLimits(reader, writer);
+                        },
+                        .global => {
+                            try parseDumpType(std.wasm.Valtype, reader, writer);
+                            try writer.print("mutable {}\n", .{0x01 == try std.leb.readULEB128(u32, reader)});
+                        },
+                        .table => {
+                            try parseDumpType(std.wasm.RefType, reader, writer);
+                            try parseDumpLimits(reader, writer);
+                        },
+                    }
+                }
+            },
+            .function => {
+                var i: u32 = 0;
+                while (i < entries) : (i += 1) {
+                    try writer.print("index {d}\n", .{try std.leb.readULEB128(u32, reader)});
+                }
+            },
+            .table => {
+                var i: u32 = 0;
+                while (i < entries) : (i += 1) {
+                    try parseDumpType(std.wasm.RefType, reader, writer);
+                    try parseDumpLimits(reader, writer);
+                }
+            },
+            .memory => {
+                var i: u32 = 0;
+                while (i < entries) : (i += 1) {
+                    try parseDumpLimits(reader, writer);
+                }
+            },
+            .global => {
+                var i: u32 = 0;
+                while (i < entries) : (i += 1) {
+                    try parseDumpType(std.wasm.Valtype, reader, writer);
+                    try writer.print("mutable {}\n", .{0x01 == try std.leb.readULEB128(u1, reader)});
+                    try parseDumpInit(reader, writer);
+                }
+            },
+            .@"export" => {
+                var i: u32 = 0;
+                while (i < entries) : (i += 1) {
+                    const name_len = try std.leb.readULEB128(u32, reader);
+                    const name = data[fbs.pos..][0..name_len];
+                    fbs.pos += name_len;
+                    const kind_byte = try std.leb.readULEB128(u8, reader);
+                    const kind = std.meta.intToEnum(std.wasm.ExternalKind, kind_byte) catch |err| {
+                        std.debug.print("invalid export kind value '{d}'\n", .{kind_byte});
+                        return err;
+                    };
+                    const index = try std.leb.readULEB128(u32, reader);
+                    try writer.print(
+                        \\name {s}
+                        \\kind {s}
+                        \\index {d}
+                    , .{ name, @tagName(kind), index });
+                    try writer.writeByte('\n');
+                }
+            },
+            .element => {
+                var i: u32 = 0;
+                while (i < entries) : (i += 1) {
+                    try writer.print("table index {d}\n", .{try std.leb.readULEB128(u32, reader)});
+                    try parseDumpInit(reader, writer);
+
+                    const function_indexes = try std.leb.readULEB128(u32, reader);
+                    var function_index: u32 = 0;
+                    try writer.print("indexes {d}\n", .{function_indexes});
+                    while (function_index < function_indexes) : (function_index += 1) {
+                        try writer.print("index {d}\n", .{try std.leb.readULEB128(u32, reader)});
+                    }
+                }
+            },
+            .code => {}, // code section is considered opaque to linker
+            .data => {
+                var i: u32 = 0;
+                while (i < entries) : (i += 1) {
+                    const index = try std.leb.readULEB128(u32, reader);
+                    try writer.print("memory index 0x{x}\n", .{index});
+                    try parseDumpInit(reader, writer);
+                    const size = try std.leb.readULEB128(u32, reader);
+                    try writer.print("size {d}\n", .{size});
+                    try reader.skipBytes(size, .{}); // we do not care about the content of the segments
+                }
+            },
+            else => unreachable,
+        }
+    }
+
+    fn parseDumpType(comptime WasmType: type, reader: anytype, writer: anytype) !void {
+        const type_byte = try reader.readByte();
+        const valtype = std.meta.intToEnum(WasmType, type_byte) catch |err| {
+            std.debug.print("Invalid wasm type value '{d}'\n", .{type_byte});
+            return err;
+        };
+        try writer.print("type {s}\n", .{@tagName(valtype)});
+    }
+
+    fn parseDumpLimits(reader: anytype, writer: anytype) !void {
+        const flags = try std.leb.readULEB128(u8, reader);
+        const min = try std.leb.readULEB128(u32, reader);
+
+        try writer.print("min {x}\n", .{min});
+        if (flags != 0) {
+            try writer.print("max {x}\n", .{try std.leb.readULEB128(u32, reader)});
+        }
+    }
+
+    fn parseDumpInit(reader: anytype, writer: anytype) !void {
+        const byte = try std.leb.readULEB128(u8, reader);
+        const opcode = std.meta.intToEnum(std.wasm.Opcode, byte) catch |err| {
+            std.debug.print("invalid wasm opcode '{d}'\n", .{byte});
+            return err;
+        };
+        switch (opcode) {
+            .i32_const => try writer.print("i32.const {x}\n", .{try std.leb.readILEB128(i32, reader)}),
+            .i64_const => try writer.print("i64.const {x}\n", .{try std.leb.readILEB128(i64, reader)}),
+            .f32_const => try writer.print("f32.const {x}\n", .{@bitCast(f32, try reader.readIntLittle(u32))}),
+            .f64_const => try writer.print("f64.const {x}\n", .{@bitCast(f64, try reader.readIntLittle(u64))}),
+            .global_get => try writer.print("global.get {x}\n", .{try std.leb.readULEB128(u32, reader)}),
+            else => unreachable,
+        }
+        const end_opcode = try std.leb.readULEB128(u8, reader);
+        if (end_opcode != std.wasm.opcode(.end)) {
+            std.debug.print("expected 'end' opcode in init expression\n", .{});
+            return error.MissingEndOpcode;
+        }
+    }
+
+    fn parseDumpNames(reader: anytype, writer: anytype, data: []const u8) !void {
+        while (reader.context.pos < data.len) {
+            try parseDumpType(std.wasm.NameSubsection, reader, writer);
+            const size = try std.leb.readULEB128(u32, reader);
+            const entries = try std.leb.readULEB128(u32, reader);
+            try writer.print(
+                \\size {d}
+                \\names {d}
+            , .{ size, entries });
+            try writer.writeByte('\n');
+            var i: u32 = 0;
+            while (i < entries) : (i += 1) {
+                const index = try std.leb.readULEB128(u32, reader);
+                const name_len = try std.leb.readULEB128(u32, reader);
+                const pos = reader.context.pos;
+                const name = data[pos..][0..name_len];
+                reader.context.pos += name_len;
+
+                try writer.print(
+                    \\index {d}
+                    \\name {s}
+                , .{ index, name });
+                try writer.writeByte('\n');
+            }
         }
     }
 };
