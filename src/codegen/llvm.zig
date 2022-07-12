@@ -5432,6 +5432,25 @@ pub const FuncGen = struct {
                 total_i += 1;
             }
         }
+
+        // For some targets, Clang unconditionally adds some clobbers to all inline assembly.
+        // While this is probably not strictly necessary, if we don't follow Clang's lead
+        // here then we may risk tripping LLVM bugs since anything not used by Clang tends
+        // to be buggy and regress often.
+        switch (target.cpu.arch) {
+            .x86_64, .i386 => {
+                if (total_i != 0) try llvm_constraints.append(self.gpa, ',');
+                try llvm_constraints.appendSlice(self.gpa, "~{dirflag},~{fpsr},~{flags}");
+                total_i += 3;
+            },
+            .mips, .mipsel, .mips64, .mips64el => {
+                if (total_i != 0) try llvm_constraints.append(self.gpa, ',');
+                try llvm_constraints.appendSlice(self.gpa, "~{$1}");
+                total_i += 1;
+            },
+            else => {},
+        }
+
         const asm_source = std.mem.sliceAsBytes(self.air.extra[extra_i..])[0..extra.data.source_len];
 
         // hackety hacks until stage2 has proper inline asm in the frontend.
