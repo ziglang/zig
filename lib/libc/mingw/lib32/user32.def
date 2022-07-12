@@ -1,12 +1,13 @@
 LIBRARY USER32.dll
 EXPORTS
-;ord_1500@16 @1500
-;ord_1501@4 @1501
-;ord_1502@12 @1502
+GetPointerFrameArrivalTimes@12
+Wow64Transition DATA
 ActivateKeyboardLayout@8
 AddClipboardFormatListener@4
+AddVisualIdentifier@8
 AdjustWindowRect@12
 AdjustWindowRectEx@16
+AdjustWindowRectExForDpi@20
 AlignRects@16
 AllowForegroundActivation@0
 AllowSetForegroundWindow@4
@@ -14,6 +15,7 @@ AnimateWindow@12
 AnyPopup@0
 AppendMenuA@16
 AppendMenuW@16
+AreDpiAwarenessContextsEqual@8
 ArrangeIconicWindows@4
 AttachThreadInput@12
 BeginDeferWindowPos@4
@@ -46,19 +48,13 @@ ChangeDisplaySettingsW@8
 ChangeMenuA@20
 ChangeMenuW@20
 ChangeWindowMessageFilter@8
+DwmGetDxRgn@12
 ChangeWindowMessageFilterEx@16
 CharLowerA@4
 CharLowerBuffA@8
 CharLowerBuffW@8
 CharLowerW@4
 CharNextA@4
-;ord_1550@12 @1550
-;ord_1551@8 @1551
-;ord_1552@8 @1552
-;ord_1553@12 @1553
-;ord_1554@8 @1554
-;ord_1555@16 @1555
-;ord_1556@4 @1556
 CharNextExA@12
 CharNextW@4
 CharPrevA@8
@@ -73,6 +69,7 @@ CharUpperBuffA@8
 CharUpperBuffW@8
 CharUpperW@4
 CheckDesktopByThreadId@4
+CheckBannedOneCoreTransformApi@4
 CheckDBCSEnabledExt@0
 CheckDlgButton@12
 CheckMenuItem@12
@@ -123,10 +120,12 @@ CreateMDIWindowA@40
 CreateMDIWindowW@40
 CreateMenu@0
 CreatePopupMenu@0
+CreateSyntheticPointerDevice@12
 CreateSystemThreads@16 ; ReactOS has the @8 variant
 CreateWindowExA@48
 CreateWindowExW@48
 CreateWindowInBand@52
+CreateWindowInBandEx@56
 CreateWindowIndirect@4
 CreateWindowStationA@16
 CreateWindowStationW@16
@@ -185,6 +184,7 @@ DestroyDCompositionHwndTarget@8
 DestroyIcon@4
 DestroyMenu@4
 DestroyReasons@4
+DestroySyntheticPointerDevice@4
 DestroyWindow@4
 DeviceEventWorker@24 ; No documentation whatsoever, ReactOS has a stub with @20 - https://www.reactos.org/archives/public/ros-diffs/2011-February/040308.html
 DialogBoxIndirectParamA@20
@@ -231,14 +231,18 @@ DrawTextW@20
 DwmGetDxSharedSurface@24
 DwmGetRemoteSessionOcclusionEvent@0
 DwmGetRemoteSessionOcclusionState@0
+DwmKernelShutdown@0
+DwmKernelStartup@0
 DwmLockScreenUpdates@4
 DwmStartRedirection@8 ; Mentioned on http://habrahabr.ru/post/145174/ , enables GDI virtualization (for security purposes)
 DwmStopRedirection@0
 DwmValidateWindow@8
-EditWndProc@16
+EditWndProc@20
 EmptyClipboard@0
 EnableMenuItem@12
 EnableMouseInPointer@4
+EnableNonClientDpiScaling@4
+EnableOneCoreTransformMode@0
 EnableScrollBar@12
 EnableSessionForMMCSS@4
 EnableWindow@8
@@ -293,6 +297,7 @@ GetAppCompatFlags2@4
 GetAppCompatFlags@8 ; ReactOS has @4 version http://doxygen.reactos.org/d9/d71/undocuser_8h_a9b76cdc68c523a061c86a40367049ed2.html
 GetAsyncKeyState@4
 GetAutoRotationState@4
+GetAwarenessFromDpiAwarenessContext@4
 GetCIMSSM@4
 GetCapture@0
 GetCaretBlinkTime@0
@@ -326,6 +331,8 @@ GetDCEx@12
 GetDesktopID@8
 GetDesktopWindow@0
 GetDialogBaseUnits@0
+GetDialogControlDpiChangeBehavior@4
+GetDialogDpiChangeBehavior@4
 GetDisplayAutoRotationPreferences@4
 GetDisplayConfigBufferSizes@12
 GetDlgCtrlID@4
@@ -334,7 +341,12 @@ GetDlgItemInt@16
 GetDlgItemTextA@16
 GetDlgItemTextW@16
 GetDoubleClickTime@0
+GetDpiAwarenessContextForProcess@4
 GetDpiForMonitorInternal@16
+GetDpiForSystem@0
+GetDpiForWindow@4
+GetDpiFromDpiAwarenessContext@4
+GetExtendedPointerDeviceProperty@8
 GetFocus@0
 GetForegroundWindow@0
 GetGUIThreadInfo@8
@@ -365,6 +377,7 @@ GetLayeredWindowAttributes@16
 GetListBoxInfo@4
 GetMagnificationDesktopColorEffect@4
 GetMagnificationDesktopMagnification@12
+GetMagnificationDesktopSamplingMode@4
 GetMagnificationLensCtxInformation@16
 GetMenu@4
 GetMenuBarInfo@16
@@ -396,6 +409,8 @@ GetPhysicalCursorPos@4
 GetPointerCursorId@8
 GetPointerDevice@8
 GetPointerDeviceCursors@12
+GetPointerDeviceInputSpace@8
+GetPointerDeviceOrientation@8
 GetPointerDeviceProperties@12
 GetPointerDeviceRects@12
 GetPointerDevices@8
@@ -403,6 +418,7 @@ GetPointerFrameInfo@12
 GetPointerFrameInfoHistory@16
 GetPointerFramePenInfo@12
 GetPointerFramePenInfoHistory@16
+GetPointerFrameTimes@12
 GetPointerFrameTouchInfo@12
 GetPointerFrameTouchInfoHistory@16
 GetPointerInfo@8
@@ -429,22 +445,26 @@ GetRawInputDeviceList@12
 GetRawPointerDeviceData@20
 GetReasonTitleFromReasonCode@12
 GetRegisteredRawInputDevices@12
-GetQueueStatus@4
 GetScrollBarInfo@12
 GetScrollInfo@12
 GetScrollPos@8
 GetScrollRange@16
 GetSendMessageReceiver@4
+GetShellChangeNotifyWindow@0
 GetShellWindow@0
 GetSubMenu@8
 GetSysColor@4
 GetSysColorBrush@4
+GetSystemDpiForProcess@4
 GetSystemMenu@8
 GetSystemMetrics@4
+GetSystemMetricsForDpi@8
 GetTabbedTextExtentA@20
 GetTabbedTextExtentW@20
 GetTaskmanWindow@0
 GetThreadDesktop@4
+GetThreadDpiAwarenessContext@0
+GetThreadDpiHostingBehavior@0
 GetTitleBarInfo@8
 GetTopLevelWindow@4
 GetTopWindow@4
@@ -464,6 +484,8 @@ GetWindowCompositionInfo@8
 GetWindowContextHelpId@4
 GetWindowDC@4
 GetWindowDisplayAffinity@8
+GetWindowDpiAwarenessContext@4
+GetWindowDpiHostingBehavior@4
 GetWindowFeedbackSetting@20
 GetWindowInfo@8
 GetWindowLongA@8
@@ -473,6 +495,7 @@ GetWindowModuleFileName@12
 GetWindowModuleFileNameA@12
 GetWindowModuleFileNameW@12
 GetWindowPlacement@8
+GetWindowProcessHandle@8
 GetWindowRect@8
 GetWindowRgn@8
 GetWindowRgnBox@8
@@ -499,25 +522,34 @@ ImpersonateDdeClientWindow@8
 InSendMessage@0
 InSendMessageEx@4
 InflateRect@12
+InheritWindowMonitor@8
+InitDManipHook@0
+InitializeGenericHidInjection@8
+InitializeInputDeviceInjection@28
 InitializeLpkHooks@4
 InitializeWin32EntryTable@4
+InitializePointerDeviceInjection@20
+InitializePointerDeviceInjectionEx@24
 InitializeTouchInjection@8
+InjectDeviceInput@12
+InjectGenericHidInput@12
+InjectKeyboardInput@8
+InjectMouseInput@8
+InjectPointerInput@12
+InjectSyntheticPointerInput@12
 InjectTouchInput@8
+InputSpaceRegionFromPoint@20
 InsertMenuA@20
 InsertMenuItemA@16
 InsertMenuItemW@16
 InsertMenuW@20
 InternalGetWindowIcon@8
-;ord_2001@4 @2001
-;ord_2002@4 @2002
 InternalGetWindowText@12
 IntersectRect@12
-;ord_2005@4 @2005
 InvalidateRect@12
 InvalidateRgn@12
 InvertRect@8
 IsCharAlphaA@4
-;ord_2010@16 @2010
 IsCharAlphaNumericA@4
 IsCharAlphaNumericW@4
 IsCharAlphaW@4
@@ -539,16 +571,20 @@ IsInDesktopWindowBand@4
 IsMenu@4
 IsProcess16Bit@0
 IsMouseInPointerEnabled@0
+IsOneCoreTransformMode@0
 IsProcessDPIAware@0
 IsQueueAttached@0
 IsRectEmpty@4
 IsSETEnabled@0
 IsServerSideWindow@4
 IsThreadDesktopComposited@0
+IsThreadTSFEventAware@4
 IsTopLevelWindow@4
 IsTouchWindow@8
+IsValidDpiAwarenessContext@4
 IsWinEventHookInstalled@4
 IsWindow@4
+IsWindowArranged@4
 IsWindowEnabled@4
 IsWindowInDestroy@4
 IsWindowRedirectedForPrint@4
@@ -565,12 +601,8 @@ LoadBitmapW@8
 LoadCursorA@8
 LoadCursorFromFileA@4
 LoadCursorFromFileW@4
-;ord_2000@0 @2000
-;ord_2001@4 @2001
-;ord_2002@4 @2002
 LoadCursorW@8
 LoadIconA@8
-;ord_2005@4 @2005
 LoadIconW@8
 LoadImageA@24
 LoadImageW@24
@@ -596,11 +628,19 @@ LookupIconIdFromDirectoryEx@20
 MBToWCSEx@24
 MBToWCSExt@20
 MB_GetString@4
+MITGetCursorUpdateHandle@0
+MITSetForegroundRoutingInfo@8
+MITSetInputDelegationMode@8
+MITSetLastInputRecipient@4
+MITSynthesizeTouchInput@4
+MakeThreadTSFEventAware@4
 MapDialogRect@8
+MapPointsByVisualIdentifier@20
 MapVirtualKeyA@8
 MapVirtualKeyExA@12
 MapVirtualKeyExW@12
 MapVirtualKeyW@8
+MapVisualRelativePoints@28
 MapWindowPoints@16
 MenuItemFromPoint@16
 MenuWindowProcA@20
@@ -665,6 +705,28 @@ QueryBSDRWindow@0
 QueryDisplayConfig@24
 QuerySendMessage@4
 QueryUserCounters@20
+RIMAddInputObserver@32
+RIMAreSiblingDevices@12
+RIMDeviceIoControl@36
+RIMEnableMonitorMappingForDevice@12
+RIMFreeInputBuffer@8
+RIMGetDevicePreparsedData@16
+RIMGetDevicePreparsedDataLockfree@12
+RIMGetDeviceProperties@12
+RIMGetDevicePropertiesLockfree@8
+RIMGetPhysicalDeviceRect@12
+RIMGetSourceProcessId@12
+RIMObserveNextInput@4
+RIMOnPnpNotification@4
+RIMOnTimerNotification@8
+RIMQueryDevicePath@8
+RIMReadInput@28
+RIMRegisterForInput@40
+RIMRemoveInputObserver@4
+RIMSetExtendedDeviceProperty@12
+RIMSetTestModeStatus@4
+RIMUnregisterForInput@4
+RIMUpdateInputObserverRegistration@16
 RealChildWindowFromPoint@12
 RealGetWindowClass@12
 RealGetWindowClassA@12
@@ -680,17 +742,18 @@ RegisterClassExW@4
 RegisterClassW@4
 RegisterClipboardFormatA@4
 RegisterClipboardFormatW@4
+RegisterDManipHook@0
 RegisterDeviceNotificationA@12
 RegisterDeviceNotificationW@12
 RegisterErrorReportingDialog@8
 RegisterFrostWindow@8
 RegisterGhostWindow@8
 RegisterHotKey@16
-RegisterPowerSettingNotification@12
 RegisterLogonProcess@8
 RegisterMessagePumpHook@4
 RegisterPointerDeviceNotifications@8
 RegisterPointerInputTarget@8
+RegisterPointerInputTargetEx@12
 RegisterPowerSettingNotification@12
 RegisterRawInputDevices@12
 RegisterServicesProcess@4
@@ -706,10 +769,14 @@ RegisterWindowMessageA@4
 RegisterWindowMessageW@4
 ReleaseCapture@0
 ReleaseDC@8
+ReleaseDwmHitTestWaiters@0
 RemoveClipboardFormatListener@4
+RemoveInjectionDevice@4
 RemoveMenu@12
 RemovePropA@8
 RemovePropW@8
+RemoveThreadTSFEventAwareness@4
+RemoveVisualIdentifier@4
 ReplyMessage@4
 ResolveDesktopForWOW@4
 ReuseDDElParam@20
@@ -747,14 +814,19 @@ SetCursorContents@8
 SetCursorPos@8
 SetDebugErrorLevel@4
 SetDeskWallpaper@4
+SetDesktopColorTransform@4
+SetDialogControlDpiChangeBehavior@12
+SetDialogDpiChangeBehavior@12
 SetDisplayAutoRotationPreferences@4
 SetDisplayConfig@20
 SetDlgItemInt@16
 SetDlgItemTextA@12
 SetDlgItemTextW@12
 SetDoubleClickTime@4
+SetFeatureReportResponse@12
 SetFocus@4
 SetForegroundWindow@4
+SetFullscreenMagnifierOffsetsDWMUpdated@12
 SetGestureConfig@20
 SetImmersiveBackgroundWindow@4
 SetInternalWindowPos@16
@@ -764,6 +836,8 @@ SetLayeredWindowAttributes@16
 SetLogonNotifyWindow@4
 SetMagnificationDesktopColorEffect@4
 SetMagnificationDesktopMagnification@16
+SetMagnificationDesktopMagnifierOffsetsDWMUpdated@4
+SetMagnificationDesktopSamplingMode@4
 SetMagnificationLensCtxInformation@16
 SetMenu@8
 SetMenuContextHelpId@8
@@ -777,8 +851,10 @@ SetMessageQueue@4
 SetMirrorRendering@8
 SetParent@8
 SetPhysicalCursorPos@8
+SetPointerDeviceInputSpace@12
 SetProcessDPIAware@0
 SetProcessDefaultLayout@4
+SetProcessDpiAwarenessContext@4
 SetProcessDpiAwarenessInternal@4
 SetProcessRestrictionExemption@4
 SetProcessWindowStation@4
@@ -790,6 +866,7 @@ SetRectEmpty@4
 SetScrollInfo@16
 SetScrollPos@16
 SetScrollRange@20
+SetShellChangeNotifyWindow@4
 SetShellWindow@4
 SetShellWindowEx@8
 SetSysColors@12
@@ -799,6 +876,8 @@ SetSystemMenu@8
 SetSystemTimer@16
 SetTaskmanWindow@4
 SetThreadDesktop@4
+SetThreadDpiAwarenessContext@4
+SetThreadDpiHostingBehavior@4
 SetThreadInputBlocked@8
 SetTimer@16
 SetUserObjectInformationA@16
@@ -823,6 +902,7 @@ SetWindowTextW@8
 SetWindowWord@12
 SetWindowsHookA@8
 SetWindowsHookExA@16
+SetWindowsHookExAW@20
 SetWindowsHookExW@16
 SetWindowsHookW@8
 SfmDxBindSwapChain@12
@@ -854,6 +934,7 @@ SwitchDesktop@4
 SwitchDesktopWithFade@12 ; Same as SwithDesktop(), only with fade (done at log-in), only usable by winlogon - http://blog.airesoft.co.uk/2010/08/things-microsoft-can-do-that-you-cant/
 SwitchToThisWindow@8
 SystemParametersInfoA@16
+SystemParametersInfoForDpi@20
 SystemParametersInfoW@16
 TabbedTextOutA@32
 TabbedTextOutW@32
@@ -885,6 +966,7 @@ UnregisterDeviceNotification@4
 UnregisterHotKey@8
 UnregisterMessagePumpHook@0
 UnregisterPointerInputTarget@8
+UnregisterPointerInputTargetEx@8
 UnregisterPowerSettingNotification@4
 UnregisterSessionPort@0
 UnregisterSuspendResumeNotification@4
@@ -934,65 +1016,10 @@ wsprintfA
 wsprintfW
 wvsprintfA@12
 wvsprintfW@12
-;ord_2500@16 @2500
-;ord_2501@12 @2501
-;ord_2502@8 @2502
-;ord_2503@24 @2503
-;ord_2504@8 @2504
-;ord_2505@8 @2505
-;ord_2506@12 @2506
-;ord_2507@4 @2507
-;ord_2508@8 @2508
-;ord_2509@4 @2509
-;ord_2510@12 @2510
-;ord_2511@8 @2511
-;ord_2512@12 @2512
-;ord_2513@4 @2513
-;ord_2514@8 @2514
-;ord_2515@8 @2515
-;ord_2516@12 @2516
-;ord_2517@4 @2517
-;ord_2518@0 @2518
-;ord_2519@4 @2519
-;ord_2520@0 @2520
-;ord_2521@8 @2521
-;ord_2522@4 @2522
-;ord_2523@8 @2523
-;ord_2524@8 @2524
-;ord_2525@12 @2525
-;ord_2526@12 @2526
-;ord_2527@12 @2527
+DelegateInput@24
+UndelegateInput@8
+HandleDelegatedInput@8
+GetProcessUIContextInformation@8
 IsThreadMessageQueueAttached@4
-;ord_2529@4 @2529
-;ord_2530@8 @2530
-;ord_2531@16 @2531
-;ord_2532@8 @2532
-;ord_2533@4 @2533
-;ord_2534@8 @2534
-;ord_2535@0 @2535
-;ord_2536@8 @2536
-;ord_2537@16 @2537
-;ord_2538@4 @2538
-;ord_2539@4 @2539
-;ord_2540@4 @2540
-;ord_2541@0 @2541
-;ord_2544@4 @2544
-;ord_2545@8 @2545
-;ord_2546@4 @2546
-;ord_2547@4 @2547
-;ord_2548@4 @2548
-;ord_2549@4 @2549
-;ord_2550@8 @2550
-;ord_2551@20 @2551
-;ord_2552@8 @2552
-;ord_2553@32 @2553
-;ord_2554@12 @2554
-;ord_2555@16 @2555
-;ord_2556@8 @2556
-;ord_2557@12 @2557
-;ord_2558@12 @2558
-;ord_2559@16 @2559
-;ord_2560@20 @2560
-;ord_2561@0 @2561
-;ord_2562@0 @2562
-;ord_2563@0 @2563
+ReportInertia@20
+SetCoreWindow@8

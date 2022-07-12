@@ -48,7 +48,7 @@ static int __proc_attached = 0;
 
 static _onexit_table_t atexit_table;
 
-extern int mingw_app_type;
+extern int __mingw_app_type;
 
 extern WINBOOL WINAPI DllMain (HANDLE hDllHandle, DWORD dwReason, LPVOID lpreserved);
 
@@ -145,7 +145,7 @@ int __mingw_init_ehandler (void);
 WINBOOL WINAPI
 DllMainCRTStartup (HANDLE hDllHandle, DWORD dwReason, LPVOID lpreserved)
 {
-  mingw_app_type = 0;
+  __mingw_app_type = 0;
   if (dwReason == DLL_PROCESS_ATTACH)
     {
 #if defined(__x86_64__) && !defined(__SEH__)

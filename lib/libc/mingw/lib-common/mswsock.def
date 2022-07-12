@@ -22,6 +22,8 @@ MigrateWinsockConfiguration
 MigrateWinsockConfigurationEx
 NPLoadNameSpaces
 NSPStartup
+; MSDN says ProcessSocketNotifications is from ws2_32.dll, not mswsock.dll
+; ProcessSocketNotifications
 SetServiceA
 SetServiceW
 StartWsdpService

@@ -10,12 +10,7 @@
 #include <wchar.h>
 #include <stdio.h>
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wimplicit-function-declaration"
-
 int __ms_vwscanf (const wchar_t * __restrict__ format, va_list arg)
 {
   return __ms_vfwscanf(stdin, format, arg);
 }
-
-#pragma clang diagnostic pop

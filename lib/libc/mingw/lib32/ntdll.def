@@ -229,6 +229,7 @@ NtAccessCheckByTypeAndAuditAlarm@64
 NtAccessCheckByTypeResultList@44
 NtAccessCheckByTypeResultListAndAuditAlarm@64
 NtAccessCheckByTypeResultListAndAuditAlarmByHandle@68
+NtAcquireCrossVmMutant@8
 NtAcquireProcessActivityReference@12
 NtAcquireCMFViewOwnership@12
 NtAddAtom@12
@@ -284,6 +285,8 @@ NtCancelSynchronousIoFile@12
 NtCancelTimer2@8
 NtCancelTimer@8
 NtCancelWaitCompletionPacket@8
+NtChangeProcessState@24
+NtChangeThreadState@24
 NtClearEvent@4
 NtClose@4
 NtCloseObjectAuditAlarm@12
@@ -299,8 +302,10 @@ NtCompleteConnectPort@4
 NtCompressKey@4
 NtConnectPort@32
 NtContinue@8
+NtContinueEx@8
 NtConvertBetweenAuxiliaryCounterAndPerformanceCounter@16
 NtCreateCrossVmEvent@24
+NtCreateCrossVmMutant@24
 NtCreateDebugObject@16
 NtCreateDirectoryObject@12
 NtCreateDirectoryObjectEx@20
@@ -311,6 +316,7 @@ NtCreateEventPair@12
 NtCreateFile@44
 NtCreateIRTimer@12
 NtCreateIoCompletion@16
+NtCreateIoRing@20
 NtCreateJobObject@12
 NtCreateJobSet@12
 NtCreateKey@28
@@ -326,6 +332,7 @@ NtCreatePort@20
 NtCreatePrivateNamespace@16
 NtCreateProcess@32
 NtCreateProcessEx@36
+NtCreateProcessStateChange@20
 NtCreateProfile@36
 NtCreateProfileEx@40
 NtCreateRegistryTransaction@16
@@ -336,6 +343,7 @@ NtCreateSemaphore@20
 NtCreateSymbolicLinkObject@16
 NtCreateThread@32
 NtCreateThreadEx@44
+NtCreateThreadStateChange@20
 NtCreateTimer2@20
 NtCreateTimer@16
 NtCreateToken@52
@@ -362,6 +370,7 @@ NtDeleteValueKey@8
 NtDeleteWnfStateData@8
 NtDeleteWnfStateName@4
 NtDeviceIoControlFile@40
+NtDirectGraphicsCall@20
 NtDisableLastKnownGood@0
 NtDisplayString@4
 NtDrawText@4
@@ -420,6 +429,7 @@ NtListenPort@8
 NtLoadDriver@4
 NtLoadEnclaveData@36
 NtLoadKey2@12
+NtLoadKey3@32
 NtLoadKey@8
 NtLoadKeyEx@32
 NtLockFile@40
@@ -517,6 +527,7 @@ NtQueryInformationWorkerFactory@20
 NtQueryInstallUILanguage@4
 NtQueryIntervalProfile@8
 NtQueryIoCompletion@20
+NtQueryIoRingCapabilities@8
 NtQueryKey@20
 NtQueryLicenseValue@20
 NtQueryMultipleValueKey@24
@@ -546,6 +557,7 @@ NtQueryVolumeInformationFile@20
 NtQueryWnfStateData@24
 NtQueryWnfStateNameInformation@20
 NtQueueApcThread@20
+NtQueueApcThreadEx2@28
 NtQueueApcThreadEx@24
 NtRaiseException@12
 NtRaiseHardError@24
@@ -554,6 +566,7 @@ NtReadFileScatter@36
 NtReadOnlyEnlistment@8
 NtReadRequestData@24
 NtReadVirtualMemory@20
+NtReadVirtualMemoryEx@24
 NtRecoverEnlistment@8
 NtRecoverResourceManager@4
 NtRecoverTransactionManager@4
@@ -614,6 +627,7 @@ NtSetIRTimer@8
 NtSetInformationDebugObject@20
 NtSetInformationEnlistment@16
 NtSetInformationFile@20
+NtSetInformationIoRing@16
 NtSetInformationJobObject@16
 NtSetInformationKey@16
 NtSetInformationObject@16
@@ -654,6 +668,7 @@ NtSignalAndWaitForSingleObject@16
 NtSinglePhaseReject@8
 NtStartProfile@4
 NtStopProfile@4
+NtSubmitIoRing@16
 NtSubscribeWnfStateChange@16
 NtSuspendProcess@4
 NtSuspendThread@8
@@ -832,6 +847,8 @@ RtlCommitDebugInfo@8
 RtlCommitMemoryStream@8
 RtlCompactHeap@8
 RtlCompareAltitudes@8
+RtlCompareExchangePointerMapping@16
+RtlCompareExchangePropertyStore@16
 RtlCompareMemory@12
 RtlCompareMemoryUlong@12
 RtlCompareString@12
@@ -844,6 +861,7 @@ RtlComputePrivatizedDllName_U@12
 RtlConnectToSm@16
 RtlConsoleMultiByteToUnicodeN@24
 RtlConstructCrossVmEventPath@12
+RtlConstructCrossVmMutexPath@12
 RtlContractHashTable@4
 RtlConvertDeviceFamilyInfoToString@16
 RtlConvertExclusiveToShared@4
@@ -919,6 +937,7 @@ RtlDecompressBuffer@24
 RtlDecompressBufferEx@28
 RtlDecompressFragment@32
 RtlDefaultNpAcl@4
+RtlDelayExecution@8
 RtlDelete@4
 RtlDeleteAce@8
 RtlDeleteAtomFromAtomTable@8
@@ -1099,6 +1118,7 @@ RtlGetFullPathName_U@16
 RtlGetFullPathName_UEx@20
 RtlGetFullPathName_UstrEx@32
 RtlGetGroupSecurityDescriptor@12
+RtlGetImageFileMachines@8
 RtlGetIntegerAtom@8
 RtlGetInterruptTimePrecise@4
 RtlGetLastNtStatus@0
@@ -1122,6 +1142,7 @@ RtlGetPersistedStateLocation@28
 RtlGetProcessHeaps@8
 RtlGetProcessPreferredUILanguages@16
 RtlGetProductInfo@20
+RtlGetReturnAddressHijackTarget@0
 RtlGetSaclSecurityDescriptor@16
 RtlGetSearchPath@4
 RtlGetSecurityDescriptorRMControl@8
@@ -1130,7 +1151,9 @@ RtlGetSetBootStatusData@24
 RtlGetSuiteMask@0
 RtlGetSystemBootStatus@16
 RtlGetSystemBootStatusEx@12
+RtlGetSystemGlobalData@12
 RtlGetSystemPreferredUILanguages@20
+RtlGetSystemTimeAndBias@12
 RtlGetSystemTimePrecise@0
 RtlGetThreadErrorMode@0
 RtlGetThreadLangIdByIndex@16
@@ -1232,6 +1255,7 @@ RtlIpv6StringToAddressExA@16
 RtlIpv6StringToAddressExW@16
 RtlIpv6StringToAddressW@12
 RtlIsActivationContextActive@4
+RtlIsApiSetImplemented@4
 RtlIsCapabilitySid@4
 RtlIsCloudFilesPlaceholder@8
 RtlIsCriticalSectionLocked@4
@@ -1241,6 +1265,7 @@ RtlIsCurrentThread@4
 RtlIsCurrentThreadAttachExempt@0
 RtlIsDosDeviceName_U@4
 RtlIsElevatedRid@4
+RtlIsEnclaveFeaturePresent@4
 RtlIsGenericTableEmpty@4
 RtlIsGenericTableEmptyAvl@4
 RtlIsMultiSessionSku@0
@@ -1321,6 +1346,7 @@ RtlNewSecurityObjectWithMultipleInheritance@36
 RtlNormalizeProcessParams@4
 RtlNormalizeSecurityDescriptor@20
 RtlNormalizeString@20
+RtlNotifyFeatureUsage@4
 RtlNtPathNameToDosPathName@16
 RtlNtStatusToDosError@4
 RtlNtStatusToDosErrorNoTeb@4
@@ -1347,6 +1373,7 @@ RtlProtectHeap@8
 RtlPublishWnfStateData@24
 RtlPushFrame@4
 RtlQueryActivationContextApplicationSettings@28
+RtlQueryAllFeatureConfigurations@16
 RtlQueryAtomInAtomTable@24
 RtlQueryCriticalSectionOwner@4
 RtlQueryDepthSList@4
@@ -1354,6 +1381,9 @@ RtlQueryDynamicTimeZoneInformation@4
 RtlQueryElevationFlags@4
 RtlQueryEnvironmentVariable@24
 RtlQueryEnvironmentVariable_U@12
+RtlQueryFeatureConfiguration@16
+RtlQueryFeatureConfigurationChangeStamp@0
+RtlQueryFeatureUsageNotificationSubscriptions@8
 RtlQueryHeapInformation@20
 RtlQueryImageMitigationPolicy@20
 RtlQueryInformationAcl@16
@@ -1366,11 +1396,13 @@ RtlQueryPackageIdentity@24
 RtlQueryPackageIdentityEx@28
 RtlQueryPerformanceCounter@4
 RtlQueryPerformanceFrequency@4
+RtlQueryPointerMapping@8
 RtlQueryProcessBackTraceInformation@4
 RtlQueryProcessDebugInformation@12
 RtlQueryProcessHeapInformation@4
 RtlQueryProcessLockInformation@4
 RtlQueryProcessPlaceholderCompatibilityMode@0
+RtlQueryPropertyStore@8
 RtlQueryProtectedPolicy@8
 RtlQueryRegistryValueWithFallback@28
 RtlQueryRegistryValues@20
@@ -1402,6 +1434,7 @@ RtlReadOutOfProcessMemoryStream@16
 RtlReadThreadProfilingData@12
 RtlRealPredecessor@4
 RtlRealSuccessor@4
+RtlRegisterFeatureConfigurationChangeNotification@16
 RtlRegisterForWnfMetaNotification@24
 RtlRegisterSecureMemoryCacheCallback@4
 RtlRegisterThreadWithCsrss@0
@@ -1417,7 +1450,9 @@ RtlReleaseSRWLockExclusive@4
 RtlReleaseSRWLockShared@4
 RtlRemoteCall@28
 RtlRemoveEntryHashTable@12
+RtlRemovePointerMapping@8
 RtlRemovePrivileges@12
+RtlRemovePropertyStore@8
 RtlRemoveVectoredContinueHandler@4
 RtlRemoveVectoredExceptionHandler@4
 RtlReplaceSidInSd@16
@@ -1431,6 +1466,7 @@ RtlResetMemoryZone@4
 RtlResetNtUserPfn@0
 RtlResetRtlTranslations@4
 RtlRestoreBootStatusDefaults@4
+RtlRestoreContext@8
 RtlRestoreLastWin32Error@4
 RtlRestoreSystemBootStatusDefaults@0
 RtlRestoreThreadPreferredUILanguages@4
@@ -1463,6 +1499,7 @@ RtlSetEnvironmentStrings@8
 RtlSetEnvironmentVar@20
 RtlSetEnvironmentVariable@12
 RtlSetExtendedFeaturesMask@12
+RtlSetFeatureConfigurations@16
 RtlSetGroupSecurityDescriptor@12
 RtlSetHeapInformation@16
 RtlSetImageMitigationPolicy@20
@@ -1518,6 +1555,7 @@ RtlStringFromGUIDEx@12
 RtlStronglyEnumerateEntryHashTable@8
 RtlSubAuthorityCountSid@4
 RtlSubAuthoritySid@8
+RtlSubscribeForFeatureUsageNotification@8
 RtlSubscribeWnfStateChangeNotification@36
 RtlSubtreePredecessor@4
 RtlSubtreeSuccessor@4
@@ -1569,6 +1607,8 @@ RtlUnlockMemoryBlockLookaside@4
 RtlUnlockMemoryStreamRegion@24
 RtlUnlockMemoryZone@4
 RtlUnlockModuleSection@4
+RtlUnregisterFeatureConfigurationChangeNotification@4
+RtlUnsubscribeFromFeatureUsageNotifications@8
 RtlUnsubscribeWnfNotificationWaitForCompletion@4
 RtlUnsubscribeWnfNotificationWithCompletionCallback@12
 RtlUnsubscribeWnfStateChangeNotification@4
@@ -1789,6 +1829,7 @@ ZwAccessCheckByTypeAndAuditAlarm@64
 ZwAccessCheckByTypeResultList@44
 ZwAccessCheckByTypeResultListAndAuditAlarm@64
 ZwAccessCheckByTypeResultListAndAuditAlarmByHandle@68
+ZwAcquireCrossVmMutant@8
 ZwAcquireCMFViewOwnership@12
 ZwAcquireProcessActivityReference@12
 ZwAddAtom@12
@@ -1844,6 +1885,8 @@ ZwCancelSynchronousIoFile@12
 ZwCancelTimer2@8
 ZwCancelTimer@8
 ZwCancelWaitCompletionPacket@8
+ZwChangeProcessState@24
+ZwChangeThreadState@24
 ZwClearEvent@4
 ZwClose@4
 ZwCloseObjectAuditAlarm@12
@@ -1859,8 +1902,10 @@ ZwCompleteConnectPort@4
 ZwCompressKey@4
 ZwConnectPort@32
 ZwContinue@8
+ZwContinueEx@8
 ZwConvertBetweenAuxiliaryCounterAndPerformanceCounter@16
 ZwCreateCrossVmEvent@24
+ZwCreateCrossVmMutant@24
 ZwCreateDebugObject@16
 ZwCreateDirectoryObject@12
 ZwCreateDirectoryObjectEx@20
@@ -1871,6 +1916,7 @@ ZwCreateEventPair@12
 ZwCreateFile@44
 ZwCreateIRTimer@12
 ZwCreateIoCompletion@16
+ZwCreateIoRing@20
 ZwCreateJobObject@12
 ZwCreateJobSet@12
 ZwCreateKey@28
@@ -1886,6 +1932,7 @@ ZwCreatePort@20
 ZwCreatePrivateNamespace@16
 ZwCreateProcess@32
 ZwCreateProcessEx@36
+ZwCreateProcessStateChange@20
 ZwCreateProfile@36
 ZwCreateProfileEx@40
 ZwCreateRegistryTransaction@16
@@ -1896,6 +1943,7 @@ ZwCreateSemaphore@20
 ZwCreateSymbolicLinkObject@16
 ZwCreateThread@32
 ZwCreateThreadEx@44
+ZwCreateThreadStateChange@20
 ZwCreateTimer2@20
 ZwCreateTimer@16
 ZwCreateToken@52
@@ -1921,6 +1969,7 @@ ZwDeleteValueKey@8
 ZwDeleteWnfStateData@8
 ZwDeleteWnfStateName@4
 ZwDeviceIoControlFile@40
+ZwDirectGraphicsCall@20
 ZwDisableLastKnownGood@0
 ZwDisplayString@4
 ZwDrawText@4
@@ -1979,6 +2028,7 @@ ZwListenPort@8
 ZwLoadDriver@4
 ZwLoadEnclaveData@36
 ZwLoadKey2@12
+ZwLoadKey3@32
 ZwLoadKey@8
 ZwLoadKeyEx@32
 ZwLockFile@40
@@ -2076,6 +2126,7 @@ ZwQueryInformationWorkerFactory@20
 ZwQueryInstallUILanguage@4
 ZwQueryIntervalProfile@8
 ZwQueryIoCompletion@20
+ZwQueryIoRingCapabilities@8
 ZwQueryKey@20
 ZwQueryLicenseValue@20
 ZwQueryMultipleValueKey@24
@@ -2105,6 +2156,7 @@ ZwQueryVolumeInformationFile@20
 ZwQueryWnfStateData@24
 ZwQueryWnfStateNameInformation@20
 ZwQueueApcThread@20
+ZwQueueApcThreadEx2@28
 ZwQueueApcThreadEx@24
 ZwRaiseException@12
 ZwRaiseHardError@24
@@ -2113,6 +2165,7 @@ ZwReadFileScatter@36
 ZwReadOnlyEnlistment@8
 ZwReadRequestData@24
 ZwReadVirtualMemory@20
+ZwReadVirtualMemoryEx@24
 ZwRecoverEnlistment@8
 ZwRecoverResourceManager@4
 ZwRecoverTransactionManager@4
@@ -2173,6 +2226,7 @@ ZwSetIRTimer@8
 ZwSetInformationDebugObject@20
 ZwSetInformationEnlistment@16
 ZwSetInformationFile@20
+ZwSetInformationIoRing@16
 ZwSetInformationJobObject@16
 ZwSetInformationKey@16
 ZwSetInformationObject@16
@@ -2213,6 +2267,7 @@ ZwSignalAndWaitForSingleObject@16
 ZwSinglePhaseReject@8
 ZwStartProfile@4
 ZwStopProfile@4
+ZwSubmitIoRing@16
 ZwSubscribeWnfStateChange@16
 ZwSuspendProcess@4
 ZwSuspendThread@8

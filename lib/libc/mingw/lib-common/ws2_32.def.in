@@ -38,6 +38,7 @@ GetHostNameW
 GetNameInfoW
 InetNtopW
 InetPtonW
+ProcessSocketNotifications
 SetAddrInfoExA
 SetAddrInfoExW
 WPUCompleteOverlappedRequest

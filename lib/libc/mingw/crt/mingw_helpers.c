@@ -5,4 +5,4 @@
  */
 
 /* 0:console, 1:windows.  */
-int mingw_app_type = 0;
+int __mingw_app_type = 0;

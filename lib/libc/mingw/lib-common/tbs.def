@@ -11,10 +11,12 @@ GetDeviceID
 GetDeviceIDString
 GetDeviceIDWithTimeout
 Tbsi_Context_Create
+Tbsi_Create_Windows_Key
 Tbsi_FilterLog
 Tbsi_GetDeviceInfo
 Tbsi_Get_OwnerAuth
 Tbsi_Get_TCG_Log
+Tbsi_Get_TCG_Log_Ex
 Tbsi_Physical_Presence_Command
 Tbsi_Revoke_Attestation
 Tbsi_ShaHash
@@ -22,4 +24,5 @@ Tbsip_Cancel_Commands
 Tbsip_Context_Close
 Tbsip_Submit_Command
 Tbsip_Submit_Command_NonBlocking
+Tbsip_TestInterruptInformation
 Tbsip_TestMorBit

@@ -127,4 +127,18 @@ long double __cdecl
 __mingw_strtold (const char * __restrict__ src, char ** __restrict__ endptr)
   __attribute__((alias("__strtold")));
 
+long double __cdecl
+strtold (const char * __restrict__ src, char ** __restrict__ endptr)
+  __attribute__((alias("__strtold")));
+
+#elif defined(__arm__) || defined(__aarch64__) || defined(_ARM_) || defined(_ARM64_)
+/* For ARM, where long double == double, provide the long double function as
+ * an alias for __strtod. Do this in a separate object file from other
+ * functions, to avoid linker conflicts if object files import both 'strtold'
+ * from libucrt*.a and the object file providing '__strtod'. */
+long double __cdecl
+strtold (const char * __restrict__ src, char ** __restrict__ endptr)
+{
+  return __mingw_strtod(src, endptr);
+}
 #endif

@@ -19,8 +19,10 @@ wint_t btowc (int c)
     {
       unsigned char ch = c;
       wchar_t wc = WEOF;
-      MultiByteToWideChar (___lc_codepage_func(), MB_ERR_INVALID_CHARS,
-			   (char*)&ch, 1, &wc, 1);
+      if (!MultiByteToWideChar (___lc_codepage_func(), MB_ERR_INVALID_CHARS,
+                                (char*)&ch, 1, &wc, 1))
+        return WEOF;
+
       return wc;
     }
 }
