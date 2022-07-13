@@ -22571,6 +22571,48 @@ fn bitCastVal(
     const target = sema.mod.getTarget();
     if (old_ty.eql(new_ty, sema.mod)) return val;
 
+    // Some conversions have a bitwise definition that ignores in-memory layout,
+    // such as converting between f80 and u80.
+
+    if (old_ty.eql(Type.f80, sema.mod) and new_ty.isAbiInt()) {
+        const float = val.toFloat(f80);
+        switch (new_ty.intInfo(target).signedness) {
+            .signed => {
+                const int = @bitCast(i80, float);
+                const limbs = try sema.arena.alloc(std.math.big.Limb, 2);
+                const big_int = std.math.big.int.Mutable.init(limbs, int);
+                return Value.fromBigInt(sema.arena, big_int.toConst());
+            },
+            .unsigned => {
+                const int = @bitCast(u80, float);
+                const limbs = try sema.arena.alloc(std.math.big.Limb, 2);
+                const big_int = std.math.big.int.Mutable.init(limbs, int);
+                return Value.fromBigInt(sema.arena, big_int.toConst());
+            },
+        }
+    }
+
+    if (new_ty.eql(Type.f80, sema.mod) and old_ty.isAbiInt()) {
+        var bigint_space: Value.BigIntSpace = undefined;
+        var bigint = try val.toBigIntAdvanced(&bigint_space, target, sema.kit(block, src));
+        switch (old_ty.intInfo(target).signedness) {
+            .signed => {
+                // This conversion cannot fail because we already checked bit size before
+                // calling bitCastVal.
+                const int = bigint.to(i80) catch unreachable;
+                const float = @bitCast(f80, int);
+                return Value.Tag.float_80.create(sema.arena, float);
+            },
+            .unsigned => {
+                // This conversion cannot fail because we already checked bit size before
+                // calling bitCastVal.
+                const int = bigint.to(u80) catch unreachable;
+                const float = @bitCast(f80, int);
+                return Value.Tag.float_80.create(sema.arena, float);
+            },
+        }
+    }
+
     // For types with well-defined memory layouts, we serialize them a byte buffer,
     // then deserialize to the new type.
     const abi_size = try sema.usizeCast(block, src, old_ty.abiSize(target));

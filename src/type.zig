@@ -4439,6 +4439,16 @@ pub const Type = extern union {
         };
     }
 
+    /// Returns true for integers, enums, error sets, and packed structs.
+    /// If this function returns true, then intInfo() can be called on the type.
+    pub fn isAbiInt(ty: Type) bool {
+        return switch (ty.zigTypeTag()) {
+            .Int, .Enum, .ErrorSet => true,
+            .Struct => ty.containerLayout() == .Packed,
+            else => false,
+        };
+    }
+
     /// Asserts the type is an integer, enum, error set, or vector of one of them.
     pub fn intInfo(self: Type, target: Target) struct { signedness: std.builtin.Signedness, bits: u16 } {
         var ty = self;

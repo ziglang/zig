@@ -9,14 +9,14 @@ inline fn mantissaOne(comptime T: type) comptime_int {
 
 /// Creates floating point type T from an unbiased exponent and raw mantissa.
 inline fn reconstructFloat(comptime T: type, exponent: comptime_int, mantissa: comptime_int) T {
-    const TBits = std.meta.Int(.unsigned, @bitSizeOf(T));
+    const TBits = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = @bitSizeOf(T) } });
     const biased_exponent = @as(TBits, exponent + floatExponentMax(T));
     return @bitCast(T, (biased_exponent << floatMantissaBits(T)) | @as(TBits, mantissa));
 }
 
 /// Returns the number of bits in the exponent of floating point type T.
 pub inline fn floatExponentBits(comptime T: type) comptime_int {
-    assert(@typeInfo(T) == .Float);
+    comptime assert(@typeInfo(T) == .Float);
 
     return switch (@typeInfo(T).Float.bits) {
         16 => 5,
@@ -30,7 +30,7 @@ pub inline fn floatExponentBits(comptime T: type) comptime_int {
 
 /// Returns the number of bits in the mantissa of floating point type T.
 pub inline fn floatMantissaBits(comptime T: type) comptime_int {
-    assert(@typeInfo(T) == .Float);
+    comptime assert(@typeInfo(T) == .Float);
 
     return switch (@typeInfo(T).Float.bits) {
         16 => 10,
@@ -44,7 +44,7 @@ pub inline fn floatMantissaBits(comptime T: type) comptime_int {
 
 /// Returns the number of fractional bits in the mantissa of floating point type T.
 pub inline fn floatFractionalBits(comptime T: type) comptime_int {
-    assert(@typeInfo(T) == .Float);
+    comptime assert(@typeInfo(T) == .Float);
 
     // standard IEEE floats have an implicit 0.m or 1.m integer part
     // f80 is special and has an explicitly stored bit in the MSB
@@ -97,7 +97,7 @@ pub inline fn inf(comptime T: type) T {
     return reconstructFloat(T, floatExponentMax(T) + 1, mantissaOne(T));
 }
 
-test "std.math.float" {
+test "float bits" {
     inline for ([_]type{ f16, f32, f64, f80, f128, c_longdouble }) |T| {
         // (1 +) for the sign bit, since it is separate from the other bits
         const size = 1 + floatExponentBits(T) + floatMantissaBits(T);
