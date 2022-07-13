@@ -3,7 +3,7 @@ const math = std.math;
 const expect = std.testing.expect;
 
 /// Returns whether x is an infinity, ignoring sign.
-pub fn isInf(x: anytype) bool {
+pub inline fn isInf(x: anytype) bool {
     const T = @TypeOf(x);
     const TBits = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
     const remove_sign = ~@as(TBits, 0) >> 1;
@@ -11,12 +11,12 @@ pub fn isInf(x: anytype) bool {
 }
 
 /// Returns whether x is an infinity with a positive sign.
-pub fn isPositiveInf(x: anytype) bool {
+pub inline fn isPositiveInf(x: anytype) bool {
     return x == math.inf(@TypeOf(x));
 }
 
 /// Returns whether x is an infinity with a negative sign.
-pub fn isNegativeInf(x: anytype) bool {
+pub inline fn isNegativeInf(x: anytype) bool {
     return x == -math.inf(@TypeOf(x));
 }
 
