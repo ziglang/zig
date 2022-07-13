@@ -210,3 +210,17 @@ test "for on slice with allowzero ptr" {
     try S.doTheTest(&[_]u8{ 1, 2, 3, 4 });
     comptime try S.doTheTest(&[_]u8{ 1, 2, 3, 4 });
 }
+
+test "else continue outer for" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    var i: usize = 6;
+    var buf: [5]u8 = undefined;
+    while (true) {
+        i -= 1;
+        for (buf[i..5]) |_| {
+            return;
+        } else continue;
+    }
+}
