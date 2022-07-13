@@ -348,6 +348,7 @@ fn refreshWithHeldLock(self: *Progress) void {
     // in `bufWrite`.
     const unprintables = end;
     end = 0;
+    std.debug.print("PROGRESS DEBUG: {d} {d}", .{ unprintables, self.max_width.? });
     self.output_buffer_slice = self.output_buffer[unprintables .. unprintables + self.max_width.?];
 
     if (!self.done) {
