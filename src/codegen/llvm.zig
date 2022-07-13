@@ -717,6 +717,11 @@ pub const Object = struct {
         const ret_ptr = if (sret) llvm_func.getParam(0) else null;
         const gpa = dg.gpa;
 
+        if (ccAbiPromoteInt(fn_info.cc, target, fn_info.return_type)) |s| switch (s) {
+            .signed => dg.addAttr(llvm_func, 0, "signext"),
+            .unsigned => dg.addAttr(llvm_func, 0, "zeroext"),
+        };
+
         const err_return_tracing = fn_info.return_type.isError() and
             dg.module.comp.bin_file.options.error_return_tracing;
 
@@ -774,7 +779,10 @@ pub const Object = struct {
                                 );
                                 dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", elem_align);
                             }
-                        }
+                        } else if (ccAbiPromoteInt(fn_info.cc, target, param_ty)) |s| switch (s) {
+                            .signed => dg.addArgAttr(llvm_func, llvm_arg_i, "signext"),
+                            .unsigned => dg.addArgAttr(llvm_func, llvm_arg_i, "zeroext"),
+                        };
                     }
                     llvm_arg_i += 1;
                 },
@@ -886,6 +894,13 @@ pub const Object = struct {
                         break :l load_inst;
                     };
                     try args.append(loaded);
+                },
+                .as_u16 => {
+                    const param = llvm_func.getParam(llvm_arg_i);
+                    llvm_arg_i += 1;
+                    const casted = builder.buildBitCast(param, dg.context.halfType(), "");
+                    try args.ensureUnusedCapacity(1);
+                    args.appendAssumeCapacity(casted);
                 },
             };
         }
@@ -2794,6 +2809,9 @@ pub const DeclGen = struct {
                     llvm_params.appendAssumeCapacity(big_int_ty);
                 }
             },
+            .as_u16 => {
+                try llvm_params.append(dg.context.intType(16));
+            },
         };
 
         return llvm.functionType(
@@ -4233,6 +4251,12 @@ pub const FuncGen = struct {
                     load_inst.setAlignment(target.cpu.arch.ptrBitWidth() / 8);
                     llvm_args.appendAssumeCapacity(load_inst);
                 }
+            },
+            .as_u16 => {
+                const arg = args[it.zig_index - 1];
+                const llvm_arg = try self.resolveInst(arg);
+                const casted = self.builder.buildBitCast(llvm_arg, self.dg.context.intType(16), "");
+                try llvm_args.append(casted);
             },
         };
 
@@ -8965,6 +8989,7 @@ const ParamTypeIterator = struct {
         abi_sized_int,
         multiple_llvm_ints,
         slice,
+        as_u16,
     };
 
     pub fn next(it: *ParamTypeIterator) ?Lowering {
@@ -9025,6 +9050,15 @@ const ParamTypeIterator = struct {
                     else => false,
                 };
                 switch (it.target.cpu.arch) {
+                    .riscv32, .riscv64 => {
+                        it.zig_index += 1;
+                        it.llvm_index += 1;
+                        if (ty.tag() == .f16) {
+                            return .as_u16;
+                        } else {
+                            return .byval;
+                        }
+                    },
                     .mips, .mipsel => {
                         it.zig_index += 1;
                         it.llvm_index += 1;
@@ -9133,6 +9167,35 @@ fn iterateParamTypes(dg: *DeclGen, fn_info: Type.Payload.Function.Data) ParamTyp
         .llvm_types_buffer = undefined,
         .llvm_types_len = 0,
     };
+}
+
+fn ccAbiPromoteInt(
+    cc: std.builtin.CallingConvention,
+    target: std.Target,
+    ty: Type,
+) ?std.builtin.Signedness {
+    switch (cc) {
+        .Unspecified, .Inline, .Async => return null,
+        else => {},
+    }
+    const int_info = switch (ty.zigTypeTag()) {
+        .Int, .Enum, .ErrorSet => ty.intInfo(target),
+        else => return null,
+    };
+    if (int_info.bits <= 16) return int_info.signedness;
+    switch (target.cpu.arch) {
+        .sparc64,
+        .riscv64,
+        .powerpc64,
+        .powerpc64le,
+        => {
+            if (int_info.bits < 64) {
+                return int_info.signedness;
+            }
+        },
+        else => {},
+    }
+    return null;
 }
 
 fn isByRef(ty: Type) bool {

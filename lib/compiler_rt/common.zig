@@ -68,7 +68,11 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) nore
 /// need for extending them to wider fp types.
 /// TODO remove this; do this type selection in the language rather than
 /// here in compiler-rt.
-pub const F16T = if (builtin.cpu.arch.isAARCH64()) f16 else u16;
+pub const F16T = switch (builtin.cpu.arch) {
+    .aarch64, .aarch64_be, .aarch64_32 => f16,
+    .riscv64 => if (builtin.zig_backend == .stage1) u16 else f16,
+    else => u16,
+};
 
 pub fn wideMultiply(comptime Z: type, a: Z, b: Z, hi: *Z, lo: *Z) void {
     switch (Z) {
