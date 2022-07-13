@@ -31,7 +31,7 @@ set(ZIG_VERSION "" CACHE STRING "Override Zig version string. Default is to find
 
 if("${ZIG_VERSION}" STREQUAL "")
     set(ZIG_VERSION "${ZIG_VERSION_MAJOR}.${ZIG_VERSION_MINOR}.${ZIG_VERSION_PATCH}")
-    find_program(GIT_EXE NAMES git)
+    find_program(GIT_EXE NAMES git NAMES_PER_DIR)
     if(GIT_EXE)
         execute_process(
             COMMAND ${GIT_EXE} -C ${CMAKE_SOURCE_DIR} describe --match *.*.* --tags
@@ -110,13 +110,13 @@ find_package(lld 14)
 
 if(ZIG_STATIC_ZLIB)
     list(REMOVE_ITEM LLVM_LIBRARIES "-lz")
-    find_library(ZLIB NAMES libz.a libzlibstatic.a z zlib libz)
+    find_library(ZLIB NAMES libz.a libzlibstatic.a z zlib libz NAMES_PER_DIR)
     list(APPEND LLVM_LIBRARIES "${ZLIB}")
 endif()
 
 if(APPLE AND ZIG_STATIC)
     list(REMOVE_ITEM LLVM_LIBRARIES "-lcurses")
-    find_library(CURSES NAMES libcurses.a libncurses.a
+    find_library(CURSES NAMES libcurses.a libncurses.a NAMES_PER_DIR
       PATHS
         /usr/local/opt/ncurses/lib
         /opt/homebrew/opt/ncurses/lib)

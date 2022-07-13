@@ -25,6 +25,7 @@ if(ZIG_PREFER_CLANG_CPP_DYLIB)
       clang-cpp-14.0
       clang-cpp140
       clang-cpp
+    NAMES_PER_DIR
     PATHS
       ${CLANG_LIBDIRS}
       /usr/lib/llvm/14/lib
@@ -40,7 +41,7 @@ endif()
 if(NOT CLANG_LIBRARIES)
   macro(FIND_AND_ADD_CLANG_LIB _libname_)
     string(TOUPPER ${_libname_} _prettylibname_)
-    find_library(CLANG_${_prettylibname_}_LIB NAMES ${_libname_}
+    find_library(CLANG_${_prettylibname_}_LIB NAMES ${_libname_} NAMES_PER_DIR
       PATHS
         ${CLANG_LIBDIRS}
         /usr/lib/llvm/14/lib
