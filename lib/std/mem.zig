@@ -2831,6 +2831,8 @@ pub fn asBytes(ptr: anytype) AsBytesReturnType(@TypeOf(ptr)) {
 }
 
 test "asBytes" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
     const deadbeef = @as(u32, 0xDEADBEEF);
     const deadbeef_bytes = switch (native_endian) {
         .Big => "\xDE\xAD\xBE\xEF",
@@ -2857,7 +2859,14 @@ test "asBytes" {
         .c = 0xDE,
         .d = 0xA1,
     };
-    try testing.expect(eql(u8, asBytes(&inst), "\xBE\xEF\xDE\xA1"));
+    switch (native_endian) {
+        .Little => {
+            try testing.expect(eql(u8, asBytes(&inst), "\xBE\xEF\xDE\xA1"));
+        },
+        .Big => {
+            try testing.expect(eql(u8, asBytes(&inst), "\xA1\xDE\xEF\xBE"));
+        },
+    }
 
     const ZST = struct {};
     const zero = ZST{};
@@ -2917,6 +2926,8 @@ pub fn bytesAsValue(comptime T: type, bytes: anytype) BytesAsValueReturnType(T, 
 }
 
 test "bytesAsValue" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
     const deadbeef = @as(u32, 0xDEADBEEF);
     const deadbeef_bytes = switch (native_endian) {
         .Big => "\xDE\xAD\xBE\xEF",
@@ -2948,7 +2959,10 @@ test "bytesAsValue" {
         .c = 0xDE,
         .d = 0xA1,
     };
-    const inst_bytes = "\xBE\xEF\xDE\xA1";
+    const inst_bytes = switch (native_endian) {
+        .Little => "\xBE\xEF\xDE\xA1",
+        .Big => "\xA1\xDE\xEF\xBE",
+    };
     const inst2 = bytesAsValue(S, inst_bytes);
     try testing.expect(meta.eql(inst, inst2.*));
 }
@@ -3115,6 +3129,8 @@ test "sliceAsBytes with sentinel slice" {
 }
 
 test "sliceAsBytes packed struct at runtime and comptime" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
     const Foo = packed struct {
         a: u4,
         b: u4,
@@ -3124,16 +3140,8 @@ test "sliceAsBytes packed struct at runtime and comptime" {
             var foo: Foo = undefined;
             var slice = sliceAsBytes(@as(*[1]Foo, &foo)[0..1]);
             slice[0] = 0x13;
-            switch (native_endian) {
-                .Big => {
-                    try testing.expect(foo.a == 0x1);
-                    try testing.expect(foo.b == 0x3);
-                },
-                .Little => {
-                    try testing.expect(foo.a == 0x3);
-                    try testing.expect(foo.b == 0x1);
-                },
-            }
+            try testing.expect(foo.a == 0x3);
+            try testing.expect(foo.b == 0x1);
         }
     };
     try S.doTheTest();

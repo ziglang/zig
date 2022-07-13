@@ -7096,6 +7096,7 @@ fn funcCommon(
         if (param.ty.tag() == .generic_poison) is_generic = true;
     }
 
+    var destroy_fn_on_error = false;
     const new_func: *Module.Fn = new_func: {
         if (!has_body) break :new_func undefined;
         if (sema.comptime_args_fn_inst == func_inst) {
@@ -7103,9 +7104,10 @@ fn funcCommon(
             sema.preallocated_new_func = null; // take ownership
             break :new_func new_func;
         }
+        destroy_fn_on_error = true;
         break :new_func try sema.gpa.create(Module.Fn);
     };
-    errdefer if (has_body) sema.gpa.destroy(new_func);
+    errdefer if (destroy_fn_on_error) sema.gpa.destroy(new_func);
 
     var maybe_inferred_error_set_node: ?*Module.Fn.InferredErrorSetListNode = null;
     errdefer if (maybe_inferred_error_set_node) |node| sema.gpa.destroy(node);
