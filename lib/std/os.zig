@@ -3966,6 +3966,7 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
             .FAULT => unreachable, // The socket structure address is outside the user's address space.
             .INTR => continue,
             .ISCONN => unreachable, // The socket is already connected.
+            .HOSTUNREACH => return error.NetworkUnreachable,
             .NETUNREACH => return error.NetworkUnreachable,
             .NOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
             .PROTOTYPE => unreachable, // The socket type does not support the requested communications protocol.
@@ -3995,6 +3996,7 @@ pub fn getsockoptError(sockfd: fd_t) ConnectError!void {
             .CONNREFUSED => return error.ConnectionRefused,
             .FAULT => unreachable, // The socket structure address is outside the user's address space.
             .ISCONN => unreachable, // The socket is already connected.
+            .HOSTUNREACH => return error.NetworkUnreachable,
             .NETUNREACH => return error.NetworkUnreachable,
             .NOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
             .PROTOTYPE => unreachable, // The socket type does not support the requested communications protocol.
