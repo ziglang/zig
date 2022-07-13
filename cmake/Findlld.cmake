@@ -15,7 +15,7 @@ find_path(LLD_INCLUDE_DIRS NAMES lld/Common/Driver.h
         /opt/homebrew/opt/llvm@14/include
         /mingw64/include)
 
-find_library(LLD_LIBRARY NAMES lld-14.0 lld140 lld
+find_library(LLD_LIBRARY NAMES lld-14.0 lld140 lld NAMES_PER_DIR
     PATHS
         /usr/lib/llvm-14/lib
         /usr/local/llvm140/lib
@@ -28,7 +28,7 @@ if(EXISTS ${LLD_LIBRARY})
 else()
     macro(FIND_AND_ADD_LLD_LIB _libname_)
         string(TOUPPER ${_libname_} _prettylibname_)
-        find_library(LLD_${_prettylibname_}_LIB NAMES ${_libname_}
+        find_library(LLD_${_prettylibname_}_LIB NAMES ${_libname_} NAMES_PER_DIR
             PATHS
                 ${LLD_LIBDIRS}
                 /usr/lib/llvm-14/lib
