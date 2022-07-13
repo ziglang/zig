@@ -730,8 +730,9 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
         };
         break :blk result;
     };
-    const arena = result.arena.allocator();
-    errdefer result.arena.deinit();
+    const arena = result.arena;
+    errdefer arena.deinit();
+    const arena_allocator = result.arena.allocator();
 
     if (builtin.target.os.tag == .windows or builtin.link_libc) {
         const name_c = try std.cstr.addNullByte(allocator, name);
@@ -793,7 +794,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
             }
             break :blk count;
         };
-        result.addrs = try arena.alloc(Address, addr_count);
+        result.addrs = try arena_allocator.alloc(Address, addr_count);
 
         var it: ?*os.addrinfo = res;
         var i: usize = 0;
@@ -803,7 +804,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
 
             if (info.canonname) |n| {
                 if (result.canon_name == null) {
-                    result.canon_name = try arena.dupe(u8, mem.sliceTo(n, 0));
+                    result.canon_name = try arena_allocator.dupe(u8, mem.sliceTo(n, 0));
                 }
             }
             i += 1;
@@ -817,12 +818,12 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) !*A
         var lookup_addrs = std.ArrayList(LookupAddr).init(allocator);
         defer lookup_addrs.deinit();
 
-        var canon = std.ArrayList(u8).init(arena);
+        var canon = std.ArrayList(u8).init(arena_allocator);
         defer canon.deinit();
 
         try linuxLookupName(&lookup_addrs, &canon, name, family, flags, port);
 
-        result.addrs = try arena.alloc(Address, lookup_addrs.items.len);
+        result.addrs = try arena_allocator.alloc(Address, lookup_addrs.items.len);
         if (canon.items.len != 0) {
             result.canon_name = canon.toOwnedSlice();
         }
