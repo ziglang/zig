@@ -5795,6 +5795,10 @@ fn whileExpr(
                 break :s &else_scope.base;
             }
         };
+        // Remove the continue block and break block so that `continue` and `break`
+        // control flow apply to outer loops; not this one.
+        loop_scope.continue_block = 0;
+        loop_scope.break_block = 0;
         const e = try expr(&else_scope, sub_scope, loop_scope.break_result_loc, else_node);
         if (!else_scope.endsWithNoReturn()) {
             loop_scope.break_count += 1;
@@ -5994,6 +5998,10 @@ fn forExpr(
         result: Zir.Inst.Ref,
     } = if (else_node != 0) blk: {
         const sub_scope = &else_scope.base;
+        // Remove the continue block and break block so that `continue` and `break`
+        // control flow apply to outer loops; not this one.
+        loop_scope.continue_block = 0;
+        loop_scope.break_block = 0;
         const else_result = try expr(&else_scope, sub_scope, loop_scope.break_result_loc, else_node);
         if (!else_scope.endsWithNoReturn()) {
             loop_scope.break_count += 1;

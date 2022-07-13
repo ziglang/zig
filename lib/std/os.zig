@@ -6476,7 +6476,7 @@ pub fn dn_expand(
             p = msg.ptr + j;
         } else if (p[0] != 0) {
             if (dest != exp_dn.ptr) {
-                dest.* = '.';
+                dest[0] = '.';
                 dest += 1;
             }
             var j = p[0];
@@ -6486,12 +6486,12 @@ pub fn dn_expand(
             }
             while (j != 0) {
                 j -= 1;
-                dest.* = p[0];
+                dest[0] = p[0];
                 dest += 1;
                 p += 1;
             }
         } else {
-            dest.* = 0;
+            dest[0] = 0;
             if (len == std.math.maxInt(usize)) len = @ptrToInt(p) + 1 - @ptrToInt(comp_dn.ptr);
             return len;
         }
