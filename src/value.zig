@@ -1468,8 +1468,7 @@ pub const Value = extern union {
             const repr = std.math.break_f80(f);
             std.mem.writeInt(u64, buffer[0..8], repr.fraction, endian);
             std.mem.writeInt(u16, buffer[8..10], repr.exp, endian);
-            // TODO set the rest of the bytes to undefined. should we use 0xaa
-            // or is there a different way?
+            std.mem.set(u8, buffer[10..], 0);
             return;
         }
         const Int = @Type(.{ .Int = .{
@@ -1481,20 +1480,18 @@ pub const Value = extern union {
     }
 
     fn floatReadFromMemory(comptime F: type, target: Target, buffer: []const u8) F {
+        const endian = target.cpu.arch.endian();
         if (F == f80) {
-            switch (target.cpu.arch) {
-                .i386, .x86_64 => return std.math.make_f80(.{
-                    .fraction = std.mem.readIntLittle(u64, buffer[0..8]),
-                    .exp = std.mem.readIntLittle(u16, buffer[8..10]),
-                }),
-                else => {},
-            }
+            return std.math.make_f80(.{
+                .fraction = readInt(u64, buffer[0..8], endian),
+                .exp = readInt(u16, buffer[8..10], endian),
+            });
         }
         const Int = @Type(.{ .Int = .{
             .signedness = .unsigned,
             .bits = @typeInfo(F).Float.bits,
         } });
-        const int = readInt(Int, buffer[0..@sizeOf(Int)], target.cpu.arch.endian());
+        const int = readInt(Int, buffer[0..@sizeOf(Int)], endian);
         return @bitCast(F, int);
     }
 
