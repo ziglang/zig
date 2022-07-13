@@ -3,6 +3,7 @@ const debug = std.debug;
 const assert = debug.assert;
 const testing = std.testing;
 const mem = std.mem;
+const math = std.math;
 const Allocator = mem.Allocator;
 
 /// A contiguous, growable list of items in memory.
@@ -306,17 +307,17 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Invalidates pointers if additional memory is needed.
         pub fn ensureTotalCapacity(self: *Self, new_capacity: usize) Allocator.Error!void {
             if (@sizeOf(T) > 0) {
-                var better_capacity = self.capacity;
-                if (better_capacity >= new_capacity) return;
+                if (self.capacity >= new_capacity) return;
 
+                var better_capacity = self.capacity;
                 while (true) {
-                    better_capacity += better_capacity / 2 + 8;
+                    better_capacity +|= better_capacity / 2 + 8;
                     if (better_capacity >= new_capacity) break;
                 }
 
                 return self.ensureTotalCapacityPrecise(better_capacity);
             } else {
-                self.capacity = std.math.maxInt(usize);
+                self.capacity = math.maxInt(usize);
             }
         }
 
@@ -333,7 +334,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
                 self.items.ptr = new_memory.ptr;
                 self.capacity = new_memory.len;
             } else {
-                self.capacity = std.math.maxInt(usize);
+                self.capacity = math.maxInt(usize);
             }
         }
 
@@ -678,11 +679,11 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Modify the array so that it can hold at least `new_capacity` items.
         /// Invalidates pointers if additional memory is needed.
         pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, new_capacity: usize) Allocator.Error!void {
-            var better_capacity = self.capacity;
-            if (better_capacity >= new_capacity) return;
+            if (self.capacity >= new_capacity) return;
 
+            var better_capacity = self.capacity;
             while (true) {
-                better_capacity += better_capacity / 2 + 8;
+                better_capacity +|= better_capacity / 2 + 8;
                 if (better_capacity >= new_capacity) break;
             }
 
