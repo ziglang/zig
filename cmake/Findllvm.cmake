@@ -27,6 +27,7 @@ if(ZIG_PREFER_CLANG_CPP_DYLIB)
       LLVM-14
       LLVM-140
       LLVM
+    NAMES_PER_DIR
     PATHS
       ${LLVM_LIBDIRS}
       /usr/lib/llvm/14/lib
@@ -40,7 +41,7 @@ if(ZIG_PREFER_CLANG_CPP_DYLIB)
   )
 
   find_program(LLVM_CONFIG_EXE
-      NAMES llvm-config-14 llvm-config-14.0 llvm-config140 llvm-config14 llvm-config
+      NAMES llvm-config-14 llvm-config-14.0 llvm-config140 llvm-config14 llvm-config NAMES_PER_DIR
       PATHS
           "/mingw64/bin"
           "/c/msys64/mingw64/bin"
@@ -71,7 +72,7 @@ if(ZIG_PREFER_CLANG_CPP_DYLIB)
   endif()
 elseif(ZIG_USE_LLVM_CONFIG)
   find_program(LLVM_CONFIG_EXE
-      NAMES llvm-config-14 llvm-config-14.0 llvm-config140 llvm-config14 llvm-config
+      NAMES llvm-config-14 llvm-config-14.0 llvm-config140 llvm-config14 llvm-config NAMES_PER_DIR
       PATHS
           "/mingw64/bin"
           "/c/msys64/mingw64/bin"
@@ -173,7 +174,7 @@ elseif(ZIG_USE_LLVM_CONFIG)
   set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_SYSTEM_LIBS})
 
   if(NOT LLVM_LIBRARIES)
-    find_library(LLVM_LIBRARIES NAMES LLVM LLVM-14 LLVM-14.0)
+    find_library(LLVM_LIBRARIES NAMES LLVM LLVM-14 LLVM-14.0 NAMES_PER_DIR)
   endif()
 
   link_directories("${CMAKE_PREFIX_PATH}/lib")
@@ -184,7 +185,7 @@ else()
 
   macro(FIND_AND_ADD_LLVM_LIB _libname_)
     string(TOUPPER ${_libname_} _prettylibname_)
-    find_library(LLVM_${_prettylibname_}_LIB NAMES ${_libname_} PATHS ${LLVM_LIBDIRS})
+    find_library(LLVM_${_prettylibname_}_LIB NAMES ${_libname_} NAMES_PER_DIR PATHS ${LLVM_LIBDIRS})
     set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_${_prettylibname_}_LIB})
   endmacro(FIND_AND_ADD_LLVM_LIB)
 
