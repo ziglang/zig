@@ -2,7 +2,7 @@
 
 . ./ci/zinc/linux_base.sh
 
-ZIG="$DEPS_LOCAL/bin/zig"
+OLD_ZIG="$DEPS_LOCAL/bin/zig"
 TARGET="${ARCH}-linux-musl"
 MCPU="baseline"
 
@@ -10,10 +10,10 @@ MCPU="baseline"
 # This will affect the cmake command below.
 git config core.abbrev 9
 
-echo "BUILD debug zig with zig:$($ZIG version)"
+echo "building debug zig with zig version $($OLD_ZIG version)"
 
-export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
-export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
+export CC="$OLD_ZIG cc -target $TARGET -mcpu=$MCPU"
+export CXX="$OLD_ZIG c++ -target $TARGET -mcpu=$MCPU"
 
 mkdir _debug
 cd _debug
@@ -33,52 +33,44 @@ unset CXX
 
 ninja install
 
-ZIG="$DEBUG_STAGING/bin/zig"
+STAGE1_ZIG="$DEBUG_STAGING/bin/zig"
 
 # Here we rebuild zig but this time using the Zig binary we just now produced to
 # build zig1.o rather than relying on the one built with stage0. See
 # https://github.com/ziglang/zig/issues/6830 for more details.
-cmake .. -DZIG_EXECUTABLE="$ZIG"
+cmake .. -DZIG_EXECUTABLE="$STAGE1_ZIG"
 ninja install
 
 cd $WORKSPACE
 
-# Look for non-conforming code formatting.
-# Formatting errors can be fixed by running `zig fmt` on the files printed here.
-$ZIG fmt --check . --exclude test/cases/
+echo "Looking for non-conforming code formatting..."
+echo "Formatting errors can be fixed by running 'zig fmt' on the files printed here."
+$STAGE1_ZIG fmt --check . --exclude test/cases/
 
-# Build stage2 standalone so that we can test stage2 against stage2 compiler-rt.
-$ZIG           build -p stage2 -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
-
-# Ensure that stage2 can build itself.
+$STAGE1_ZIG    build -p stage2 -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
 stage2/bin/zig build -p stage3 -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
-stage2/bin/zig build # test building self-hosted without LLVM
-stage2/bin/zig build -Dtarget=arm-linux-musleabihf # test building self-hosted for 32-bit arm
+stage3/bin/zig build # test building self-hosted without LLVM
+stage3/bin/zig build -Dtarget=arm-linux-musleabihf # test building self-hosted for 32-bit arm
 
-# Here we use stage2 instead of stage3 because of two bugs remaining:
-# * https://github.com/ziglang/zig/issues/11367 (and corresponding workaround in compiler source)
-# * https://github.com/ziglang/zig/pull/11492#issuecomment-1112871321
-stage2/bin/zig build test-behavior -fqemu -fwasmtime
-stage2/bin/zig test lib/std/std.zig --zig-lib-dir lib
+stage3/bin/zig build test-compiler-rt    -fqemu -fwasmtime -Denable-llvm
+stage3/bin/zig build test-behavior       -fqemu -fwasmtime -Denable-llvm
+stage3/bin/zig build test-std            -fqemu -fwasmtime -Denable-llvm
+stage3/bin/zig build test-compare-output -fqemu -fwasmtime -Denable-llvm
+stage3/bin/zig build test-asm-link       -fqemu -fwasmtime -Denable-llvm
+stage3/bin/zig build test-fmt            -fqemu -fwasmtime -Denable-llvm
 
-$ZIG build test-behavior         -fqemu -fwasmtime -Domit-stage2
-$ZIG build test-compiler-rt      -fqemu -fwasmtime
-$ZIG build test-std              -fqemu -fwasmtime
-$ZIG build test-universal-libc   -fqemu -fwasmtime
-$ZIG build test-compare-output   -fqemu -fwasmtime
-$ZIG build test-standalone       -fqemu -fwasmtime
-$ZIG build test-stack-traces     -fqemu -fwasmtime
-$ZIG build test-cli              -fqemu -fwasmtime
-$ZIG build test-asm-link         -fqemu -fwasmtime
-$ZIG build test-translate-c      -fqemu -fwasmtime
-$ZIG build test-run-translated-c -fqemu -fwasmtime
-$ZIG build docs                  -fqemu -fwasmtime
-$ZIG build test-fmt              -fqemu -fwasmtime
-$ZIG build test-cases            -fqemu -fwasmtime
+$STAGE1_ZIG build test-universal-libc   -fqemu -fwasmtime
+$STAGE1_ZIG build test-standalone       -fqemu -fwasmtime
+$STAGE1_ZIG build test-stack-traces     -fqemu -fwasmtime
+$STAGE1_ZIG build test-cli              -fqemu -fwasmtime
+$STAGE1_ZIG build test-translate-c      -fqemu -fwasmtime
+$STAGE1_ZIG build test-run-translated-c -fqemu -fwasmtime
+$STAGE1_ZIG build docs                  -fqemu -fwasmtime
+$STAGE1_ZIG build test-cases            -fqemu -fwasmtime
 
 # Produce the experimental std lib documentation.
 mkdir -p "$RELEASE_STAGING/docs/std"
-$ZIG test lib/std/std.zig \
+$STAGE1_ZIG test lib/std/std.zig \
   --zig-lib-dir lib \
   -femit-docs=$RELEASE_STAGING/docs/std \
   -fno-emit-bin
@@ -87,7 +79,7 @@ $ZIG test lib/std/std.zig \
 tidy --drop-empty-elements no -qe zig-cache/langref.html
 
 # Build release zig.
-$ZIG build \
+$STAGE1_ZIG build \
   --prefix "$RELEASE_STAGING" \
   --search-prefix "$DEPS_LOCAL" \
   -Dstatic-llvm \
