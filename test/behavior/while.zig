@@ -334,3 +334,13 @@ test "continue inline while loop" {
     }
     comptime assert(i == 5);
 }
+
+test "else continue outer while" {
+    var i: usize = 0;
+    while (true) {
+        i += 1;
+        while (i > 5) {
+            return;
+        } else continue;
+    }
+}
