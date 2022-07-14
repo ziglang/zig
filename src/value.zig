@@ -4935,7 +4935,16 @@ pub const Value = extern union {
                 /// peer type resolution. This is stored in a separate list so that
                 /// the items are contiguous in memory and thus can be passed to
                 /// `Module.resolvePeerTypes`.
-                stored_inst_list: std.ArrayListUnmanaged(Air.Inst.Ref) = .{},
+                prongs: std.MultiArrayList(struct {
+                    /// The dummy instruction used as a peer to resolve the type.
+                    /// Although this has a redundant type with placeholder, this is
+                    /// needed in addition because it may be a constant value, which
+                    /// affects peer type resolution.
+                    stored_inst: Air.Inst.Ref,
+                    /// The bitcast instruction used as a placeholder when the
+                    /// new result pointer type is not yet known.
+                    placeholder: Air.Inst.Index,
+                }) = .{},
                 /// 0 means ABI-aligned.
                 alignment: u32,
             },
