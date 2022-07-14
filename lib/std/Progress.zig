@@ -186,7 +186,7 @@ pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *N
     self.max_width = std.math.clamp(
         self.max_width.?,
         truncation_suffix.len, // make sure we can at least truncate
-        self.output_buffer.len,
+        self.output_buffer.len - 1,
     );
     self.root = Node{
         .context = self,
@@ -348,7 +348,6 @@ fn refreshWithHeldLock(self: *Progress) void {
     // in `bufWrite`.
     const unprintables = end;
     end = 0;
-    std.debug.print("PROGRESS DEBUG: {d} {d}", .{ unprintables, self.max_width.? });
     self.output_buffer_slice = self.output_buffer[unprintables .. unprintables + self.max_width.?];
 
     if (!self.done) {
@@ -429,11 +428,14 @@ fn bufWrite(self: *Progress, end: *usize, comptime format: []const u8, args: any
 
 // By default these tests are disabled because they use time.sleep()
 // and are therefore slow. They also prints bogus progress data to stderr.
-const skip_tests = false;
+const skip_tests = true;
 
 test "behavior on buffer overflow" {
     if (skip_tests)
         return error.SkipZigTest;
+
+    // move the cursor
+    std.debug.print("{s}", .{"A" ** 300});
 
     var progress = Progress{};
 
