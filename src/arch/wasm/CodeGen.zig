@@ -1674,7 +1674,7 @@ fn airRet(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
                 try self.emitWValue(operand);
                 const opcode = buildOpcode(.{
                     .op = .load,
-                    .width = @intCast(u8, scalar_type.abiSize(self.target)),
+                    .width = @intCast(u8, scalar_type.abiSize(self.target) * 8),
                     .signedness = if (scalar_type.isSignedInt()) .signed else .unsigned,
                     .valtype1 = typeToValtype(scalar_type, self.target),
                 });
