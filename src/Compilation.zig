@@ -338,7 +338,7 @@ pub const AllErrors = struct {
             src_path: []const u8,
             line: u32,
             column: u32,
-            byte_offset: u32,
+            span: Module.SrcLoc.Span,
             /// Usually one, but incremented for redundant messages.
             count: u32 = 1,
             /// Does not include the trailing newline.
@@ -429,7 +429,10 @@ pub const AllErrors = struct {
                             try stderr.writeByte('\n');
                             try stderr.writeByteNTimes(' ', src.column);
                             ttyconf.setColor(stderr, .Green);
-                            try stderr.writeAll("^\n");
+                            try stderr.writeByte('^');
+                            // TODO basic unicode code point monospace width
+                            try stderr.writeByteNTimes('~', src.span.end - src.span.start - 1);
+                            try stderr.writeByte('\n');
                             ttyconf.setColor(stderr, .Reset);
                         }
                     }
@@ -469,7 +472,8 @@ pub const AllErrors = struct {
                         hasher.update(src.src_path);
                         std.hash.autoHash(&hasher, src.line);
                         std.hash.autoHash(&hasher, src.column);
-                        std.hash.autoHash(&hasher, src.byte_offset);
+                        std.hash.autoHash(&hasher, src.span.start);
+                        std.hash.autoHash(&hasher, src.span.end);
                     },
                     .plain => |plain| {
                         hasher.update(plain.msg);
@@ -488,7 +492,8 @@ pub const AllErrors = struct {
                                 mem.eql(u8, a_src.src_path, b_src.src_path) and
                                 a_src.line == b_src.line and
                                 a_src.column == b_src.column and
-                                a_src.byte_offset == b_src.byte_offset;
+                                a_src.span.start == b_src.span.start and
+                                a_src.span.end == b_src.span.end;
                         },
                         .plain => return false,
                     },
@@ -527,20 +532,20 @@ pub const AllErrors = struct {
             std.hash_map.default_max_load_percentage,
         ).init(allocator);
         const err_source = try module_err_msg.src_loc.file_scope.getSource(module.gpa);
-        const err_byte_offset = try module_err_msg.src_loc.byteOffset(module.gpa);
-        const err_loc = std.zig.findLineColumn(err_source.bytes, err_byte_offset);
+        const err_span = try module_err_msg.src_loc.span(module.gpa);
+        const err_loc = std.zig.findLineColumn(err_source.bytes, err_span.start);
 
         for (module_err_msg.notes) |module_note| {
             const source = try module_note.src_loc.file_scope.getSource(module.gpa);
-            const byte_offset = try module_note.src_loc.byteOffset(module.gpa);
-            const loc = std.zig.findLineColumn(source.bytes, byte_offset);
+            const span = try module_note.src_loc.span(module.gpa);
+            const loc = std.zig.findLineColumn(source.bytes, span.start);
             const file_path = try module_note.src_loc.file_scope.fullPath(allocator);
             const note = &notes_buf[note_i];
             note.* = .{
                 .src = .{
                     .src_path = file_path,
                     .msg = try allocator.dupe(u8, module_note.msg),
-                    .byte_offset = byte_offset,
+                    .span = span,
                     .line = @intCast(u32, loc.line),
                     .column = @intCast(u32, loc.column),
                     .source_line = if (err_loc.eql(loc)) null else try allocator.dupe(u8, loc.source_line),
@@ -566,7 +571,7 @@ pub const AllErrors = struct {
             .src = .{
                 .src_path = file_path,
                 .msg = try allocator.dupe(u8, module_err_msg.msg),
-                .byte_offset = err_byte_offset,
+                .span = err_span,
                 .line = @intCast(u32, err_loc.line),
                 .column = @intCast(u32, err_loc.column),
                 .notes = notes_buf[0..note_i],
@@ -593,16 +598,15 @@ pub const AllErrors = struct {
         while (item_i < items_len) : (item_i += 1) {
             const item = file.zir.extraData(Zir.Inst.CompileErrors.Item, extra_index);
             extra_index = item.end;
-            const err_byte_offset = blk: {
-                const token_starts = file.tree.tokens.items(.start);
+            const err_span = blk: {
                 if (item.data.node != 0) {
-                    const main_tokens = file.tree.nodes.items(.main_token);
-                    const main_token = main_tokens[item.data.node];
-                    break :blk token_starts[main_token];
+                    break :blk Module.SrcLoc.nodeToSpan(&file.tree, item.data.node);
                 }
-                break :blk token_starts[item.data.token] + item.data.byte_offset;
+                const token_starts = file.tree.tokens.items(.start);
+                const start = token_starts[item.data.token] + item.data.byte_offset;
+                break :blk Module.SrcLoc.Span{ .start = start, .end = start + 1 };
             };
-            const err_loc = std.zig.findLineColumn(file.source, err_byte_offset);
+            const err_loc = std.zig.findLineColumn(file.source, err_span.start);
 
             var notes: []Message = &[0]Message{};
             if (item.data.notes != 0) {
@@ -612,22 +616,21 @@ pub const AllErrors = struct {
                 for (notes) |*note, i| {
                     const note_item = file.zir.extraData(Zir.Inst.CompileErrors.Item, body[i]);
                     const msg = file.zir.nullTerminatedString(note_item.data.msg);
-                    const byte_offset = blk: {
-                        const token_starts = file.tree.tokens.items(.start);
+                    const span = blk: {
                         if (note_item.data.node != 0) {
-                            const main_tokens = file.tree.nodes.items(.main_token);
-                            const main_token = main_tokens[note_item.data.node];
-                            break :blk token_starts[main_token];
+                            break :blk Module.SrcLoc.nodeToSpan(&file.tree, note_item.data.node);
                         }
-                        break :blk token_starts[note_item.data.token] + note_item.data.byte_offset;
+                        const token_starts = file.tree.tokens.items(.start);
+                        const start = token_starts[note_item.data.token] + note_item.data.byte_offset;
+                        break :blk Module.SrcLoc.Span{ .start = start, .end = start + 1 };
                     };
-                    const loc = std.zig.findLineColumn(file.source, byte_offset);
+                    const loc = std.zig.findLineColumn(file.source, span.start);
 
                     note.* = .{
                         .src = .{
                             .src_path = try file.fullPath(arena),
                             .msg = try arena.dupe(u8, msg),
-                            .byte_offset = byte_offset,
+                            .span = span,
                             .line = @intCast(u32, loc.line),
                             .column = @intCast(u32, loc.column),
                             .notes = &.{}, // TODO rework this function to be recursive
@@ -642,7 +645,7 @@ pub const AllErrors = struct {
                 .src = .{
                     .src_path = try file.fullPath(arena),
                     .msg = try arena.dupe(u8, msg),
-                    .byte_offset = err_byte_offset,
+                    .span = err_span,
                     .line = @intCast(u32, err_loc.line),
                     .column = @intCast(u32, err_loc.column),
                     .notes = notes,
@@ -688,7 +691,7 @@ pub const AllErrors = struct {
                     .src_path = try arena.dupe(u8, src.src_path),
                     .line = src.line,
                     .column = src.column,
-                    .byte_offset = src.byte_offset,
+                    .span = src.span,
                     .source_line = if (src.source_line) |s| try arena.dupe(u8, s) else null,
                     .notes = try dupeList(src.notes, arena),
                 } },
@@ -2662,7 +2665,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
                     .msg = try std.fmt.allocPrint(arena_allocator, "unable to build C object: {s}", .{
                         err_msg.msg,
                     }),
-                    .byte_offset = 0,
+                    .span = .{ .start = 0, .end = 1 },
                     .line = err_msg.line,
                     .column = err_msg.column,
                     .source_line = null, // TODO
