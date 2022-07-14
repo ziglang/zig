@@ -77,29 +77,29 @@ const DebugInfo = struct {
     pub fn parseFromObject(allocator: Allocator, object: *const Object) !?DebugInfo {
         var debug_info = blk: {
             const index = object.dwarf_debug_info_index orelse return null;
-            break :blk object.getSectionContents(index);
+            break :blk try object.getSectionContents(index);
         };
         var debug_abbrev = blk: {
             const index = object.dwarf_debug_abbrev_index orelse return null;
-            break :blk object.getSectionContents(index);
+            break :blk try object.getSectionContents(index);
         };
         var debug_str = blk: {
             const index = object.dwarf_debug_str_index orelse return null;
-            break :blk object.getSectionContents(index);
+            break :blk try object.getSectionContents(index);
         };
         var debug_line = blk: {
             const index = object.dwarf_debug_line_index orelse return null;
-            break :blk object.getSectionContents(index);
+            break :blk try object.getSectionContents(index);
         };
         var debug_line_str = blk: {
             if (object.dwarf_debug_line_str_index) |ind| {
-                break :blk object.getSectionContents(ind);
+                break :blk try object.getSectionContents(ind);
             }
             break :blk &[0]u8{};
         };
         var debug_ranges = blk: {
             if (object.dwarf_debug_ranges_index) |ind| {
-                break :blk object.getSectionContents(ind);
+                break :blk try object.getSectionContents(ind);
             }
             break :blk &[0]u8{};
         };
@@ -429,7 +429,7 @@ pub fn splitIntoAtomsWhole(self: *Object, macho_file: *MachO, object_id: u32) !v
         };
 
         // Read section's code
-        const code: ?[]const u8 = if (!is_zerofill) self.getSectionContents(sect_id) else null;
+        const code: ?[]const u8 = if (!is_zerofill) try self.getSectionContents(sect_id) else null;
 
         // Read section's list of relocations
         const raw_relocs = self.contents[sect.reloff..][0 .. sect.nreloc * @sizeOf(macho.relocation_info)];
@@ -475,10 +475,10 @@ pub fn splitIntoAtomsWhole(self: *Object, macho_file: *MachO, object_id: u32) !v
                     break :blk sym_index;
                 };
                 const atom_size = first_sym.n_value - sect.addr;
-                const atom_code: ?[]const u8 = if (code) |cc|
-                    cc[0..atom_size]
-                else
-                    null;
+                const atom_code: ?[]const u8 = if (code) |cc| blk: {
+                    const size = math.cast(usize, atom_size) orelse return error.Overflow;
+                    break :blk cc[0..size];
+                } else null;
                 const atom = try self.createAtomFromSubsection(
                     macho_file,
                     object_id,
@@ -515,10 +515,11 @@ pub fn splitIntoAtomsWhole(self: *Object, macho_file: *MachO, object_id: u32) !v
                         sect.addr + sect.size;
                     break :blk end_addr - addr;
                 };
-                const atom_code: ?[]const u8 = if (code) |cc|
-                    cc[addr - sect.addr ..][0..atom_size]
-                else
-                    null;
+                const atom_code: ?[]const u8 = if (code) |cc| blk: {
+                    const start = math.cast(usize, addr - sect.addr) orelse return error.Overflow;
+                    const size = math.cast(usize, atom_size) orelse return error.Overflow;
+                    break :blk cc[start..][0..size];
+                } else null;
                 const atom_align = if (addr > 0)
                     math.min(@ctz(u64, addr), sect.@"align")
                 else
@@ -760,15 +761,16 @@ fn parseDataInCode(self: *Object) void {
     );
 }
 
-fn getSectionContents(self: Object, sect_id: u16) []const u8 {
+fn getSectionContents(self: Object, sect_id: u16) error{Overflow}![]const u8 {
     const sect = self.getSection(sect_id);
+    const size = math.cast(usize, sect.size) orelse return error.Overflow;
     log.debug("getting {s},{s} data at 0x{x} - 0x{x}", .{
         sect.segName(),
         sect.sectName(),
         sect.offset,
         sect.offset + sect.size,
     });
-    return self.contents[sect.offset..][0..sect.size];
+    return self.contents[sect.offset..][0..size];
 }
 
 pub fn getString(self: Object, off: u32) []const u8 {
