@@ -1974,8 +1974,6 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                     defer trash_block.instructions.deinit(sema.gpa);
                     const operand = try trash_block.addBitCast(pointee_ty, .void_value);
 
-                    try inferred_alloc.stored_inst_list.append(sema.arena, operand);
-
                     try sema.requireRuntimeBlock(block, src);
                     const ptr_ty = try Type.ptr(sema.arena, sema.mod, .{
                         .pointee_type = pointee_ty,
@@ -1983,6 +1981,12 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                         .@"addrspace" = addr_space,
                     });
                     const bitcasted_ptr = try block.addBitCast(ptr_ty, ptr);
+
+                    try inferred_alloc.prongs.append(sema.arena, .{
+                        .stored_inst = operand,
+                        .placeholder = Air.refToIndex(bitcasted_ptr).?,
+                    });
+
                     return bitcasted_ptr;
                 },
                 .inferred_alloc_comptime => {
@@ -2026,8 +2030,23 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     defer trash_block.instructions.deinit(sema.gpa);
 
     const dummy_ptr = try trash_block.addTy(.alloc, sema.typeOf(ptr));
+    return coerceResultPtr(sema, block, src, ptr, dummy_ptr, pointee_ty, &trash_block);
+}
+
+fn coerceResultPtr(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    ptr: Air.Inst.Ref,
+    dummy_ptr: Air.Inst.Ref,
+    pointee_ty: Type,
+    trash_block: *Block,
+) CompileError!Air.Inst.Ref {
+    const target = sema.mod.getTarget();
+    const addr_space = target_util.defaultAddressSpace(target, .local);
+
     const dummy_operand = try trash_block.addBitCast(pointee_ty, .void_value);
-    try sema.storePtr2(&trash_block, src, dummy_ptr, src, dummy_operand, src, .bitcast);
+    try sema.storePtr2(trash_block, src, dummy_ptr, src, dummy_operand, src, .bitcast);
 
     {
         const air_tags = sema.air_instructions.items(.tag);
@@ -2065,6 +2084,12 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                 if (Air.indexToRef(trash_inst) == dummy_operand) {
                     if (try sema.resolveDefinedValue(block, src, new_ptr)) |ptr_val| {
                         return sema.addConstant(ptr_ty, ptr_val);
+                    }
+                    if (pointee_ty.eql(Type.@"null", sema.mod)) {
+                        const opt_ty = sema.typeOf(new_ptr).childType();
+                        const null_inst = try sema.addConstant(opt_ty, Value.@"null");
+                        _ = try block.addBinOp(.store, new_ptr, null_inst);
+                        return Air.Inst.Ref.void_value;
                     }
                     return sema.bitCast(block, ptr_ty, new_ptr, src);
                 }
@@ -3141,7 +3166,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
         },
         .inferred_alloc => {
             const inferred_alloc = ptr_val.castTag(.inferred_alloc).?;
-            const peer_inst_list = inferred_alloc.data.stored_inst_list.items;
+            const peer_inst_list = inferred_alloc.data.prongs.items(.stored_inst);
             const final_elem_ty = try sema.resolvePeerTypes(block, ty_src, peer_inst_list, .none);
 
             const final_ptr_ty = try Type.ptr(sema.arena, sema.mod, .{
@@ -3250,6 +3275,71 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                 .tag = .alloc,
                 .data = .{ .ty = final_ptr_ty },
             });
+
+            // Now we need to go back over all the coerce_result_ptr instructions, which
+            // previously inserted a bitcast as a placeholder, and do the logic as if
+            // the new result ptr type was available.
+            const placeholders = inferred_alloc.data.prongs.items(.placeholder);
+            const gpa = sema.gpa;
+
+            var trash_block = block.makeSubBlock();
+            trash_block.is_comptime = false;
+            trash_block.is_coerce_result_ptr = true;
+            defer trash_block.instructions.deinit(gpa);
+
+            const mut_final_ptr_ty = try Type.ptr(sema.arena, sema.mod, .{
+                .pointee_type = final_elem_ty,
+                .mutable = true,
+                .@"align" = inferred_alloc.data.alignment,
+                .@"addrspace" = target_util.defaultAddressSpace(target, .local),
+            });
+            const dummy_ptr = try trash_block.addTy(.alloc, mut_final_ptr_ty);
+            const empty_trash_count = trash_block.instructions.items.len;
+
+            for (placeholders) |bitcast_inst, i| {
+                const sub_ptr_ty = sema.typeOf(Air.indexToRef(bitcast_inst));
+
+                if (mut_final_ptr_ty.eql(sub_ptr_ty, sema.mod)) {
+                    // New result location type is the same as the old one; nothing
+                    // to do here.
+                    continue;
+                }
+
+                var bitcast_block = block.makeSubBlock();
+                defer bitcast_block.instructions.deinit(gpa);
+
+                trash_block.instructions.shrinkRetainingCapacity(empty_trash_count);
+                const pointee_ty = sema.typeOf(peer_inst_list[i]);
+                const sub_ptr = try coerceResultPtr(sema, &bitcast_block, src, ptr, dummy_ptr, pointee_ty, &trash_block);
+
+                assert(bitcast_block.instructions.items.len > 0);
+                // If only one instruction is produced then we can replace the bitcast
+                // placeholder instruction with this instruction; no need for an entire block.
+                if (bitcast_block.instructions.items.len == 1) {
+                    const only_inst = bitcast_block.instructions.items[0];
+                    sema.air_instructions.set(bitcast_inst, sema.air_instructions.get(only_inst));
+                    continue;
+                }
+
+                // Here we replace the placeholder bitcast instruction with a block
+                // that does the coerce_result_ptr logic.
+                _ = try bitcast_block.addBr(bitcast_inst, sub_ptr);
+                const ty_inst = sema.air_instructions.items(.data)[bitcast_inst].ty_op.ty;
+                try sema.air_extra.ensureUnusedCapacity(
+                    gpa,
+                    @typeInfo(Air.Block).Struct.fields.len + bitcast_block.instructions.items.len,
+                );
+                sema.air_instructions.set(bitcast_inst, .{
+                    .tag = .block,
+                    .data = .{ .ty_pl = .{
+                        .ty = ty_inst,
+                        .payload = sema.addExtraAssumeCapacity(Air.Block{
+                            .body_len = @intCast(u32, bitcast_block.instructions.items.len),
+                        }),
+                    } },
+                });
+                sema.air_extra.appendSliceAssumeCapacity(bitcast_block.instructions.items);
+            }
         },
         else => unreachable,
     }
@@ -4086,9 +4176,6 @@ fn storeToInferredAlloc(
     inferred_alloc: *Value.Payload.InferredAlloc,
 ) CompileError!void {
     const operand_ty = sema.typeOf(operand);
-    // Add the stored instruction to the set we will use to resolve peer types
-    // for the inferred allocation.
-    try inferred_alloc.data.stored_inst_list.append(sema.arena, operand);
     // Create a runtime bitcast instruction with exactly the type the pointer wants.
     const target = sema.mod.getTarget();
     const ptr_ty = try Type.ptr(sema.arena, sema.mod, .{
@@ -4097,6 +4184,12 @@ fn storeToInferredAlloc(
         .@"addrspace" = target_util.defaultAddressSpace(target, .local),
     });
     const bitcasted_ptr = try block.addBitCast(ptr_ty, ptr);
+    // Add the stored instruction to the set we will use to resolve peer types
+    // for the inferred allocation.
+    try inferred_alloc.data.prongs.append(sema.arena, .{
+        .stored_inst = operand,
+        .placeholder = Air.refToIndex(bitcasted_ptr).?,
+    });
     return sema.storePtr(block, src, bitcasted_ptr, operand);
 }
 
