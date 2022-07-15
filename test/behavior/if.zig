@@ -128,3 +128,31 @@ test "if peer expressions inferred optional type" {
     try expect(left.? == 98);
     try expect(right.? == 99);
 }
+
+test "if-else expression with runtime condition result location is inferred optional" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
+    const A = struct { b: u64, c: u64 };
+    var d: bool = true;
+    const e = if (d) A{ .b = 15, .c = 30 } else null;
+    try expect(e != null);
+}
+
+test "result location with inferred type ends up being pointer to comptime_int" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
+    var a: ?u32 = 1234;
+    var b: u32 = 2000;
+    var c = if (a) |d| blk: {
+        if (d < b) break :blk @as(u32, 1);
+        break :blk 0;
+    } else @as(u32, 0);
+    try expect(c == 1);
+}
