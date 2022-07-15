@@ -1,7 +1,7 @@
 jobs:
 - job: BuildMacOS
   pool:
-    vmImage: 'macOS-10.15'
+    vmImage: 'macOS-11'
   timeoutInMinutes: 360
   steps:
   - task: DownloadSecureFile@1
@@ -12,7 +12,7 @@ jobs:
     displayName: 'Build and test'
 - job: BuildMacOS_arm64
   pool:
-    vmImage: 'macOS-10.15'
+    vmImage: 'macOS-11'
   timeoutInMinutes: 180
   steps:
   - task: DownloadSecureFile@1
