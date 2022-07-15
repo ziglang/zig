@@ -1796,6 +1796,12 @@ fn buildOutputType(
                     linker_global_base = parseIntSuffix(arg, "--global-base=".len);
                 } else if (mem.startsWith(u8, arg, "--export=")) {
                     try linker_export_symbol_names.append(arg["--export=".len..]);
+                } else if (mem.eql(u8, arg, "--export")) {
+                    i += 1;
+                    if (i >= linker_args.items.len) {
+                        fatal("expected linker arg after '{s}'", .{arg});
+                    }
+                    try linker_export_symbol_names.append(linker_args.items[i]);
                 } else if (mem.eql(u8, arg, "--compress-debug-sections")) {
                     i += 1;
                     if (i >= linker_args.items.len) {
