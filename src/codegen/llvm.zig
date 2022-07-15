@@ -2425,17 +2425,17 @@ pub const DeclGen = struct {
 
     fn lowerType(dg: *DeclGen, t: Type) Allocator.Error!*const llvm.Type {
         const llvm_ty = try lowerTypeInner(dg, t);
-        if (std.debug.runtime_safety) {
-            if (t.zigTypeTag() != .Opaque and t.hasRuntimeBits() and
-                !llvm_ty.isOpaqueStruct().toBool())
-            {
-                const zig_size = t.abiSize(dg.module.getTarget());
-                const llvm_size = dg.object.target_data.abiSizeOfType(llvm_ty);
-                if (llvm_size != zig_size) {
-                    log.err("when lowering {}, Zig ABI size = {d} but LLVM ABI size = {d}", .{
-                        t.fmt(dg.module), zig_size, llvm_size,
-                    });
-                }
+        if (std.debug.runtime_safety) check: {
+            if (t.zigTypeTag() == .Opaque) break :check;
+            if (!t.hasRuntimeBits()) break :check;
+            if (!llvm_ty.isSized().toBool()) break :check;
+
+            const zig_size = t.abiSize(dg.module.getTarget());
+            const llvm_size = dg.object.target_data.abiSizeOfType(llvm_ty);
+            if (llvm_size != zig_size) {
+                log.err("when lowering {}, Zig ABI size = {d} but LLVM ABI size = {d}", .{
+                    t.fmt(dg.module), zig_size, llvm_size,
+                });
             }
         }
         return llvm_ty;
@@ -2537,22 +2537,18 @@ pub const DeclGen = struct {
                     return payload_llvm_ty;
                 }
 
-                comptime assert(optional_layout_version == 1);
-                const fields: [2]*const llvm.Type = .{
-                    payload_llvm_ty,
-                    dg.context.intType(1),
+                comptime assert(optional_layout_version == 2);
+                var fields_buf: [3]*const llvm.Type = .{
+                    payload_llvm_ty, dg.context.intType(1), undefined,
                 };
-                const llvm_ty = dg.context.structType(&fields, fields.len, .False);
-                const llvm_size = dg.object.target_data.abiSizeOfType(llvm_ty);
-                const zig_size = t.abiSize(target);
-                const padding = @intCast(c_uint, zig_size - llvm_size);
-                if (padding == 0) return llvm_ty;
-                const padded_fields: [3]*const llvm.Type = .{
-                    payload_llvm_ty,
-                    dg.context.intType(1),
-                    dg.context.intType(8).arrayType(padding),
-                };
-                return dg.context.structType(&padded_fields, padded_fields.len, .False);
+                const offset = child_ty.abiSize(target) + 1;
+                const abi_size = t.abiSize(target);
+                const padding = @intCast(c_uint, abi_size - offset);
+                if (padding == 0) {
+                    return dg.context.structType(&fields_buf, 2, .False);
+                }
+                fields_buf[2] = dg.context.intType(8).arrayType(padding);
+                return dg.context.structType(&fields_buf, 3, .False);
             },
             .ErrorUnion => {
                 const payload_ty = t.errorUnionPayload();
@@ -2564,12 +2560,37 @@ pub const DeclGen = struct {
 
                 const payload_align = payload_ty.abiAlignment(target);
                 const error_align = Type.anyerror.abiAlignment(target);
+
+                const payload_size = payload_ty.abiSize(target);
+                const error_size = Type.anyerror.abiSize(target);
+
+                var fields_buf: [3]*const llvm.Type = undefined;
                 if (error_align > payload_align) {
-                    const fields: [2]*const llvm.Type = .{ llvm_error_type, llvm_payload_type };
-                    return dg.context.structType(&fields, fields.len, .False);
+                    fields_buf[0] = llvm_error_type;
+                    fields_buf[1] = llvm_payload_type;
+                    const payload_end =
+                        std.mem.alignForwardGeneric(u64, error_size, payload_align) +
+                        payload_size;
+                    const abi_size = std.mem.alignForwardGeneric(u64, payload_end, error_align);
+                    const padding = @intCast(c_uint, abi_size - payload_end);
+                    if (padding == 0) {
+                        return dg.context.structType(&fields_buf, 2, .False);
+                    }
+                    fields_buf[2] = dg.context.intType(8).arrayType(padding);
+                    return dg.context.structType(&fields_buf, 3, .False);
                 } else {
-                    const fields: [2]*const llvm.Type = .{ llvm_payload_type, llvm_error_type };
-                    return dg.context.structType(&fields, fields.len, .False);
+                    fields_buf[0] = llvm_payload_type;
+                    fields_buf[1] = llvm_error_type;
+                    const error_end =
+                        std.mem.alignForwardGeneric(u64, payload_size, error_align) +
+                        error_size;
+                    const abi_size = std.mem.alignForwardGeneric(u64, error_end, payload_align);
+                    const padding = @intCast(c_uint, abi_size - error_end);
+                    if (padding == 0) {
+                        return dg.context.structType(&fields_buf, 2, .False);
+                    }
+                    fields_buf[2] = dg.context.intType(8).arrayType(padding);
+                    return dg.context.structType(&fields_buf, 3, .False);
                 }
             },
             .ErrorSet => return dg.context.intType(16),
@@ -3113,7 +3134,7 @@ pub const DeclGen = struct {
                 else => unreachable,
             },
             .Optional => {
-                comptime assert(optional_layout_version == 1);
+                comptime assert(optional_layout_version == 2);
                 var buf: Type.Payload.ElemType = undefined;
                 const payload_ty = tv.ty.optionalChild(&buf);
                 const llvm_i1 = dg.context.intType(1);
@@ -3191,12 +3212,23 @@ pub const DeclGen = struct {
                     .ty = payload_type,
                     .val = if (tv.val.castTag(.eu_payload)) |pl| pl.data else Value.initTag(.undef),
                 });
+                var fields_buf: [3]*const llvm.Value = undefined;
+
+                const llvm_ty = try dg.lowerType(tv.ty);
+                const llvm_field_count = llvm_ty.countStructElementTypes();
+                if (llvm_field_count > 2) {
+                    assert(llvm_field_count == 3);
+                    fields_buf[2] = llvm_ty.structGetTypeAtIndex(2).getUndef();
+                }
+
                 if (error_align > payload_align) {
-                    const fields: [2]*const llvm.Value = .{ llvm_error_value, llvm_payload_value };
-                    return dg.context.constStruct(&fields, fields.len, .False);
+                    fields_buf[0] = llvm_error_value;
+                    fields_buf[1] = llvm_payload_value;
+                    return dg.context.constStruct(&fields_buf, llvm_field_count, .False);
                 } else {
-                    const fields: [2]*const llvm.Value = .{ llvm_payload_value, llvm_error_value };
-                    return dg.context.constStruct(&fields, fields.len, .False);
+                    fields_buf[0] = llvm_payload_value;
+                    fields_buf[1] = llvm_error_value;
+                    return dg.context.constStruct(&fields_buf, llvm_field_count, .False);
                 }
             },
             .Struct => {
@@ -5883,7 +5915,7 @@ pub const FuncGen = struct {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const payload_ty = self.air.typeOf(ty_op.operand);
         const non_null_bit = self.context.intType(1).constAllOnes();
-        comptime assert(optional_layout_version == 1);
+        comptime assert(optional_layout_version == 2);
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) return non_null_bit;
         const operand = try self.resolveInst(ty_op.operand);
         const optional_ty = self.air.typeOfIndex(inst);
@@ -9337,7 +9369,7 @@ fn intrinsicsAllowed(scalar_ty: Type, target: std.Target) bool {
 /// We can do this because for all types, Zig ABI alignment >= LLVM ABI
 /// alignment.
 const struct_layout_version = 2;
-const optional_layout_version = 1;
+const optional_layout_version = 2;
 
 /// We use the least significant bit of the pointer address to tell us
 /// whether the type is fully resolved. Types that are only fwd declared
