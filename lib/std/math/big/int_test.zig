@@ -2883,3 +2883,35 @@ test "big int byte swap" {
     try byteSwapTest(i32, 0x123456f8, @bitCast(i32, @as(u32, 0xf8563412)));
     try byteSwapTest(i48, 0x123456789abc, @bitCast(i48, @as(u48, 0xbc9a78563412)));
 }
+
+test "big.int mul multi-multi alias r with a and b" {
+    var a = try Managed.initSet(testing.allocator, 2 * maxInt(Limb));
+    defer a.deinit();
+
+    try a.mul(&a, &a);
+
+    var want = try Managed.initSet(testing.allocator, 4 * maxInt(Limb) * maxInt(Limb));
+    defer want.deinit();
+
+    try testing.expect(a.eq(want));
+
+    if (@typeInfo(Limb).Int.bits == 64) {
+        try testing.expectEqual(@as(usize, 5), a.limbs.len);
+    }
+}
+
+test "big.int sqr multi alias r with a" {
+    var a = try Managed.initSet(testing.allocator, 2 * maxInt(Limb));
+    defer a.deinit();
+
+    try a.sqr(&a);
+
+    var want = try Managed.initSet(testing.allocator, 4 * maxInt(Limb) * maxInt(Limb));
+    defer want.deinit();
+
+    try testing.expect(a.eq(want));
+
+    if (@typeInfo(Limb).Int.bits == 64) {
+        try testing.expectEqual(@as(usize, 5), a.limbs.len);
+    }
+}
