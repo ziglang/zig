@@ -3001,7 +3001,7 @@ test "remove_buffers" {
         try testing.expectEqual(@as(u64, 0xcccccccc), cqe.user_data);
     }
 
-    // Remove the first 3 buffers
+    // Remove 3 buffers
 
     {
         var sqe = try ring.remove_buffers(0xbababababa, 3, group_id);
@@ -3033,7 +3033,7 @@ test "remove_buffers" {
 
         try testing.expect(cqe.flags & linux.IORING_CQE_F_BUFFER == linux.IORING_CQE_F_BUFFER);
         const used_buffer_id = cqe.flags >> 16;
-        try testing.expectEqual(used_buffer_id, 0);
+        try testing.expect(used_buffer_id >= 0 and used_buffer_id < 4);
         try testing.expectEqual(@as(i32, buffer_len), cqe.res);
         try testing.expectEqual(@as(u64, 0xdfdfdfdf), cqe.user_data);
         try testing.expectEqualSlices(u8, &([_]u8{0} ** buffer_len), buffers[used_buffer_id][0..@intCast(usize, cqe.res)]);
