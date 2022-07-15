@@ -2030,7 +2030,8 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     defer trash_block.instructions.deinit(sema.gpa);
 
     const dummy_ptr = try trash_block.addTy(.alloc, sema.typeOf(ptr));
-    return coerceResultPtr(sema, block, src, ptr, dummy_ptr, pointee_ty, &trash_block);
+    const dummy_operand = try trash_block.addBitCast(pointee_ty, .void_value);
+    return coerceResultPtr(sema, block, src, ptr, dummy_ptr, dummy_operand, &trash_block);
 }
 
 fn coerceResultPtr(
@@ -2039,13 +2040,14 @@ fn coerceResultPtr(
     src: LazySrcLoc,
     ptr: Air.Inst.Ref,
     dummy_ptr: Air.Inst.Ref,
-    pointee_ty: Type,
+    dummy_operand: Air.Inst.Ref,
     trash_block: *Block,
 ) CompileError!Air.Inst.Ref {
     const target = sema.mod.getTarget();
     const addr_space = target_util.defaultAddressSpace(target, .local);
+    const pointee_ty = sema.typeOf(dummy_operand);
+    const prev_trash_len = trash_block.instructions.items.len;
 
-    const dummy_operand = try trash_block.addBitCast(pointee_ty, .void_value);
     try sema.storePtr2(trash_block, src, dummy_ptr, src, dummy_operand, src, .bitcast);
 
     {
@@ -2078,21 +2080,24 @@ fn coerceResultPtr(
     while (true) {
         const air_tags = sema.air_instructions.items(.tag);
         const air_datas = sema.air_instructions.items(.data);
+
+        if (trash_block.instructions.items.len == prev_trash_len) {
+            if (try sema.resolveDefinedValue(block, src, new_ptr)) |ptr_val| {
+                return sema.addConstant(ptr_ty, ptr_val);
+            }
+            if (pointee_ty.eql(Type.@"null", sema.mod)) {
+                const opt_ty = sema.typeOf(new_ptr).childType();
+                const null_inst = try sema.addConstant(opt_ty, Value.@"null");
+                _ = try block.addBinOp(.store, new_ptr, null_inst);
+                return Air.Inst.Ref.void_value;
+            }
+            return sema.bitCast(block, ptr_ty, new_ptr, src);
+        }
+
         const trash_inst = trash_block.instructions.pop();
+
         switch (air_tags[trash_inst]) {
             .bitcast => {
-                if (Air.indexToRef(trash_inst) == dummy_operand) {
-                    if (try sema.resolveDefinedValue(block, src, new_ptr)) |ptr_val| {
-                        return sema.addConstant(ptr_ty, ptr_val);
-                    }
-                    if (pointee_ty.eql(Type.@"null", sema.mod)) {
-                        const opt_ty = sema.typeOf(new_ptr).childType();
-                        const null_inst = try sema.addConstant(opt_ty, Value.@"null");
-                        _ = try block.addBinOp(.store, new_ptr, null_inst);
-                        return Air.Inst.Ref.void_value;
-                    }
-                    return sema.bitCast(block, ptr_ty, new_ptr, src);
-                }
                 const ty_op = air_datas[trash_inst].ty_op;
                 const operand_ty = sema.typeOf(ty_op.operand);
                 const ptr_operand_ty = try Type.ptr(sema.arena, sema.mod, .{
@@ -3309,8 +3314,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                 defer bitcast_block.instructions.deinit(gpa);
 
                 trash_block.instructions.shrinkRetainingCapacity(empty_trash_count);
-                const pointee_ty = sema.typeOf(peer_inst_list[i]);
-                const sub_ptr = try coerceResultPtr(sema, &bitcast_block, src, ptr, dummy_ptr, pointee_ty, &trash_block);
+                const sub_ptr = try coerceResultPtr(sema, &bitcast_block, src, ptr, dummy_ptr, peer_inst_list[i], &trash_block);
 
                 assert(bitcast_block.instructions.items.len > 0);
                 // If only one instruction is produced then we can replace the bitcast
@@ -4190,7 +4194,7 @@ fn storeToInferredAlloc(
         .stored_inst = operand,
         .placeholder = Air.refToIndex(bitcasted_ptr).?,
     });
-    return sema.storePtr(block, src, bitcasted_ptr, operand);
+    return sema.storePtr2(block, src, bitcasted_ptr, src, operand, src, .bitcast);
 }
 
 fn storeToInferredAllocComptime(
@@ -21706,8 +21710,6 @@ fn storePtr2(
     // to unions because we want the comptime tag to be set, even if the field type is void.
     if ((try sema.typeHasOnePossibleValue(block, src, elem_ty)) != null)
         return;
-
-    // TODO handle if the element type requires comptime
 
     if (air_tag == .bitcast) {
         // `air_tag == .bitcast` is used as a special case for `zirCoerceResultPtr`
