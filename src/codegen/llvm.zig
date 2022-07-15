@@ -2425,7 +2425,7 @@ pub const DeclGen = struct {
 
     fn lowerType(dg: *DeclGen, t: Type) Allocator.Error!*const llvm.Type {
         const llvm_ty = try lowerTypeInner(dg, t);
-        if (std.debug.runtime_safety) check: {
+        if (std.debug.runtime_safety and false) check: {
             if (t.zigTypeTag() == .Opaque) break :check;
             if (!t.hasRuntimeBits()) break :check;
             if (!llvm_ty.isSized().toBool()) break :check;
