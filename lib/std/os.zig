@@ -308,7 +308,7 @@ pub fn fchmod(fd: fd_t, mode: mode_t) FChmodError!void {
         switch (system.getErrno(res)) {
             .SUCCESS => return,
             .INTR => continue,
-            .BADF => unreachable, // Can be reached if the fd refers to a directory opened without `OpenDirOptions{ .iterate = true }`
+            .BADF => unreachable, // Can be reached if the fd refers to a non-iterable directory.
 
             .FAULT => unreachable,
             .INVAL => unreachable,
@@ -349,7 +349,7 @@ pub fn fchown(fd: fd_t, owner: ?uid_t, group: ?gid_t) FChownError!void {
         switch (system.getErrno(res)) {
             .SUCCESS => return,
             .INTR => continue,
-            .BADF => unreachable, // Can be reached if the fd refers to a directory opened without `OpenDirOptions{ .iterate = true }`
+            .BADF => unreachable, // Can be reached if the fd refers to a non-iterable directory.
 
             .FAULT => unreachable,
             .INVAL => unreachable,
