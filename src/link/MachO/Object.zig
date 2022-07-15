@@ -425,6 +425,7 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
             macho_file.getSection(match).sectName(),
         });
 
+        const arch = macho_file.base.options.target.cpu.arch;
         const is_zerofill = blk: {
             const section_type = sect.type_();
             break :blk section_type == macho.S_ZEROFILL or section_type == macho.S_THREAD_LOCAL_ZEROFILL;
@@ -538,6 +539,31 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
                     match,
                     sect,
                 );
+
+                if (arch == .x86_64 and addr == sect.addr) {
+                    // In x86_64 relocs, it can so happen that the compiler refers to the same
+                    // atom by both the actual assigned symbol and the start of the section. In this
+                    // case, we need to link the two together so add an alias.
+                    const alias = self.sections_as_symbols.get(sect_id) orelse blk: {
+                        const alias = @intCast(u32, self.symtab.items.len);
+                        try self.symtab.append(gpa, .{
+                            .n_strx = 0,
+                            .n_type = macho.N_SECT,
+                            .n_sect = macho_file.getSectionOrdinal(match),
+                            .n_desc = 0,
+                            .n_value = addr,
+                        });
+                        try self.sections_as_symbols.putNoClobber(gpa, sect_id, alias);
+                        break :blk alias;
+                    };
+                    try atom.contained.append(gpa, .{
+                        .sym_index = alias,
+                        .offset = 0,
+                        .stab = null,
+                    });
+                    try self.atom_by_index_table.put(gpa, alias, atom);
+                }
+
                 try macho_file.addAtomToSection(atom, match);
             }
         } else {

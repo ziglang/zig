@@ -659,13 +659,10 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
                 // If there is no atom for target, we still need to check for special, atom-less
                 // symbols such as `___dso_handle`.
                 const target_name = macho_file.getSymbolName(rel.target);
-                if (macho_file.globals.contains(target_name)) {
-                    const atomless_sym = macho_file.getSymbol(rel.target);
-                    log.debug("    | atomless target '{s}'", .{target_name});
-                    break :blk atomless_sym.n_value;
-                }
-                log.debug("    | undef target '{s}'", .{target_name});
-                break :blk 0;
+                assert(macho_file.globals.contains(target_name));
+                const atomless_sym = macho_file.getSymbol(rel.target);
+                log.debug("    | atomless target '{s}'", .{target_name});
+                break :blk atomless_sym.n_value;
             };
             log.debug("    | target ATOM(%{d}, '{s}') in object({d})", .{
                 target_atom.sym_index,
