@@ -54,7 +54,7 @@ test {
             std.fs.path.dirname(@src().file).?, "..", "test", "cases",
         });
 
-        var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
+        var dir = try std.fs.cwd().openIterableDir(dir_path, .{});
         defer dir.close();
 
         ctx.addTestCasesFromDir(dir);
@@ -1080,7 +1080,7 @@ pub const TestContext = struct {
     /// Each file should include a test manifest as a contiguous block of comments at
     /// the end of the file. The first line should be the test type, followed by a set of
     /// key-value config values, followed by a blank line, then the expected output.
-    pub fn addTestCasesFromDir(ctx: *TestContext, dir: std.fs.Dir) void {
+    pub fn addTestCasesFromDir(ctx: *TestContext, dir: std.fs.IterableDir) void {
         var current_file: []const u8 = "none";
         ctx.addTestCasesFromDirInner(dir, &current_file) catch |err| {
             std.debug.panic("test harness failed to process file '{s}': {s}\n", .{
@@ -1091,12 +1091,12 @@ pub const TestContext = struct {
 
     fn addTestCasesFromDirInner(
         ctx: *TestContext,
-        dir: std.fs.Dir,
+        iterable_dir: std.fs.IterableDir,
         /// This is kept up to date with the currently being processed file so
         /// that if any errors occur the caller knows it happened during this file.
         current_file: *[]const u8,
     ) !void {
-        var it = try dir.intoIterable().walk(ctx.arena);
+        var it = try iterable_dir.walk(ctx.arena);
         var filenames = std.ArrayList([]const u8).init(ctx.arena);
 
         while (try it.next()) |entry| {
@@ -1123,7 +1123,7 @@ pub const TestContext = struct {
                 current_file.* = filename;
 
                 const max_file_size = 10 * 1024 * 1024;
-                const src = try dir.readFileAllocOptions(ctx.arena, filename, max_file_size, null, 1, 0);
+                const src = try iterable_dir.dir.readFileAllocOptions(ctx.arena, filename, max_file_size, null, 1, 0);
 
                 // Parse the manifest
                 var manifest = try TestManifest.parse(ctx.arena, src);

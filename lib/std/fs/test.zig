@@ -11,6 +11,7 @@ const Dir = std.fs.Dir;
 const IterableDir = std.fs.IterableDir;
 const File = std.fs.File;
 const tmpDir = testing.tmpDir;
+const tmpIterableDir = testing.tmpIterableDir;
 
 test "Dir.readLink" {
     var tmp = tmpDir(.{});
@@ -156,14 +157,14 @@ fn testReadLinkAbsolute(target_path: []const u8, symlink_path: []const u8) !void
 }
 
 test "Dir.Iterator" {
-    var tmp_dir = tmpDir(.{ .iterate = true });
+    var tmp_dir = tmpIterableDir(.{});
     defer tmp_dir.cleanup();
 
     // First, create a couple of entries to iterate over.
-    const file = try tmp_dir.dir.createFile("some_file", .{});
+    const file = try tmp_dir.iterable_dir.dir.createFile("some_file", .{});
     file.close();
 
-    try tmp_dir.dir.makeDir("some_dir");
+    try tmp_dir.iterable_dir.dir.makeDir("some_dir");
 
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -172,7 +173,7 @@ test "Dir.Iterator" {
     var entries = std.ArrayList(IterableDir.Entry).init(allocator);
 
     // Create iterator.
-    var iter = tmp_dir.dir.intoIterable().iterate();
+    var iter = tmp_dir.iterable_dir.iterate();
     while (try iter.next()) |entry| {
         // We cannot just store `entry` as on Windows, we're re-using the name buffer
         // which means we'll actually share the `name` pointer between entries!
@@ -186,14 +187,14 @@ test "Dir.Iterator" {
 }
 
 test "Dir.Iterator twice" {
-    var tmp_dir = tmpDir(.{ .iterate = true });
+    var tmp_dir = tmpIterableDir(.{});
     defer tmp_dir.cleanup();
 
     // First, create a couple of entries to iterate over.
-    const file = try tmp_dir.dir.createFile("some_file", .{});
+    const file = try tmp_dir.iterable_dir.dir.createFile("some_file", .{});
     file.close();
 
-    try tmp_dir.dir.makeDir("some_dir");
+    try tmp_dir.iterable_dir.dir.makeDir("some_dir");
 
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -204,7 +205,7 @@ test "Dir.Iterator twice" {
         var entries = std.ArrayList(IterableDir.Entry).init(allocator);
 
         // Create iterator.
-        var iter = tmp_dir.dir.intoIterable().iterate();
+        var iter = tmp_dir.iterable_dir.iterate();
         while (try iter.next()) |entry| {
             // We cannot just store `entry` as on Windows, we're re-using the name buffer
             // which means we'll actually share the `name` pointer between entries!
@@ -986,7 +987,7 @@ test "walker" {
     if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
     if (builtin.os.tag == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
 
-    var tmp = tmpDir(.{ .iterate = true });
+    var tmp = tmpIterableDir(.{});
     defer tmp.cleanup();
 
     // iteration order of walker is undefined, so need lookup maps to check against
@@ -1012,10 +1013,10 @@ test "walker" {
     });
 
     for (expected_paths.kvs) |kv| {
-        try tmp.dir.makePath(kv.key);
+        try tmp.iterable_dir.dir.makePath(kv.key);
     }
 
-    var walker = try tmp.dir.intoIterable().walk(testing.allocator);
+    var walker = try tmp.iterable_dir.walk(testing.allocator);
     defer walker.deinit();
 
     var num_walked: usize = 0;
@@ -1126,7 +1127,7 @@ test "chmod" {
     defer iterable_dir.close();
 
     try iterable_dir.chmod(0o700);
-    try testing.expect((try iterable_dir.stat()).mode & 0o7777 == 0o700);
+    try testing.expect((try iterable_dir.dir.stat()).mode & 0o7777 == 0o700);
 }
 
 test "chown" {
@@ -1142,7 +1143,7 @@ test "chown" {
 
     try tmp.dir.makeDir("test_dir");
 
-    var iterable_dir = try tmp.dir.openDir("test_dir", .{});
+    var iterable_dir = try tmp.dir.openIterableDir("test_dir", .{});
     defer iterable_dir.close();
     try iterable_dir.chown(null, null);
 }

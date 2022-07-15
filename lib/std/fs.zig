@@ -956,14 +956,11 @@ pub const IterableDir = struct {
 
 pub const Dir = struct {
     fd: os.fd_t,
-    iterable: @TypeOf(iterable_safety) = iterable_safety,
 
-    const iterable_safety = if (builtin.mode == .Debug) false else {};
-
-    pub const iterate = @compileError("only 'IterableDir' can be iterated; 'IterableDir' can be obtained with 'openIterableDir' or by opening with 'iterate = true' and using 'intoIterable'");
-    pub const walk = @compileError("only 'IterableDir' can be walked; 'IterableDir' can be obtained with 'openIterableDir' or by opening with 'iterate = true' and using 'intoIterable'");
-    pub const chmod = @compileError("only 'IterableDir' can have its mode changed; 'IterableDir' can be obtained with 'openIterableDir' or by opening with 'iterate = true' and using 'intoIterable'");
-    pub const chown = @compileError("only 'IterableDir' can have its owner changed; 'IterableDir' can be obtained with 'openIterableDir' or by opening with 'iterate = true' and using 'intoIterable'");
+    pub const iterate = @compileError("only 'IterableDir' can be iterated; 'IterableDir' can be obtained with 'openIterableDir'");
+    pub const walk = @compileError("only 'IterableDir' can be walked; 'IterableDir' can be obtained with 'openIterableDir'");
+    pub const chmod = @compileError("only 'IterableDir' can have its mode changed; 'IterableDir' can be obtained with 'openIterableDir'");
+    pub const chown = @compileError("only 'IterableDir' can have its owner changed; 'IterableDir' can be obtained with 'openIterableDir'");
 
     pub const OpenError = error{
         FileNotFound,
@@ -1381,6 +1378,15 @@ pub const Dir = struct {
         return self.openDir(sub_path, open_dir_options);
     }
 
+    /// This function performs `makePath`, followed by `openIterableDir`.
+    /// If supported by the OS, this operation is atomic. It is not atomic on
+    /// all operating systems.
+    pub fn makeOpenPathIterable(self: Dir, sub_path: []const u8, open_dir_options: OpenDirOptions) !IterableDir {
+        // TODO improve this implementation on Windows; we can avoid 1 call to NtClose
+        try self.makePath(sub_path);
+        return self.openIterableDir(sub_path, open_dir_options);
+    }
+
     ///  This function returns the canonicalized absolute pathname of
     /// `pathname` relative to this `Dir`. If `pathname` is absolute, ignores this
     /// `Dir` handle and returns the canonicalized absolute pathname of `pathname`
@@ -1530,10 +1536,6 @@ pub const Dir = struct {
         /// such operations are Illegal Behavior.
         access_sub_paths: bool = true,
 
-        /// `true` means the opened directory can be scanned for the files and sub-directories
-        /// of the result. It means the `iterate` function can be called.
-        iterate: bool = false,
-
         /// `true` means it won't dereference the symlinks.
         no_follow: bool = false,
     };
@@ -1545,12 +1547,12 @@ pub const Dir = struct {
     pub fn openDir(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!Dir {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
-            return self.openDirW(sub_path_w.span().ptr, args);
+            return self.openDirW(sub_path_w.span().ptr, args, false);
         } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
             return self.openDirWasi(sub_path, args);
         } else {
             const sub_path_c = try os.toPosixPath(sub_path);
-            return self.openDirZ(&sub_path_c, args);
+            return self.openDirZ(&sub_path_c, args, false);
         }
     }
 
@@ -1559,19 +1561,15 @@ pub const Dir = struct {
     ///
     /// Asserts that the path parameter has no null bytes.
     pub fn openIterableDir(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!IterableDir {
-        var adjusted_args = args;
-        adjusted_args.iterate = true;
-        const new_dir = try self.openDir(sub_path, adjusted_args);
-        return IterableDir{ .dir = new_dir };
-    }
-
-    /// Convert `self` into an iterable directory.
-    /// Asserts that `self` was opened with `iterate = true`.
-    pub fn intoIterable(self: Dir) IterableDir {
-        if (builtin.mode == .Debug) {
-            assert(self.iterable);
+        if (builtin.os.tag == .windows) {
+            const sub_path_w = try os.windows.sliceToPrefixedFileW(sub_path);
+            return IterableDir{ .dir = try self.openDirW(sub_path_w.span().ptr, args, true) };
+        } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
+            return IterableDir{ .dir = try self.openDirWasi(sub_path, args) };
+        } else {
+            const sub_path_c = try os.toPosixPath(sub_path);
+            return IterableDir{ .dir = try self.openDirZ(&sub_path_c, args, true) };
         }
-        return .{ .dir = self };
     }
 
     /// Same as `openDir` except only WASI.
@@ -1619,36 +1617,33 @@ pub const Dir = struct {
             error.FileBusy => unreachable, // can't happen for directories
             else => |e| return e,
         };
-        return Dir{ .fd = fd, .iterable = if (builtin.mode == .Debug) args.iterate else {} };
+        return Dir{ .fd = fd };
     }
 
     /// Same as `openDir` except the parameter is null-terminated.
-    pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenDirOptions) OpenError!Dir {
+    pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenDirOptions, iterable: bool) OpenError!Dir {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
             return self.openDirW(sub_path_w.span().ptr, args);
         }
         const symlink_flags: u32 = if (args.no_follow) os.O.NOFOLLOW else 0x0;
-        if (!args.iterate) {
+        if (!iterable) {
             const O_PATH = if (@hasDecl(os.O, "PATH")) os.O.PATH else 0;
             return self.openDirFlagsZ(sub_path_c, os.O.DIRECTORY | os.O.RDONLY | os.O.CLOEXEC | O_PATH | symlink_flags);
         } else {
-            var dir = try self.openDirFlagsZ(sub_path_c, os.O.DIRECTORY | os.O.RDONLY | os.O.CLOEXEC | symlink_flags);
-            if (builtin.mode == .Debug) dir.iterable = true;
-            return dir;
+            return self.openDirFlagsZ(sub_path_c, os.O.DIRECTORY | os.O.RDONLY | os.O.CLOEXEC | symlink_flags);
         }
     }
 
     /// Same as `openDir` except the path parameter is WTF-16 encoded, NT-prefixed.
     /// This function asserts the target OS is Windows.
-    pub fn openDirW(self: Dir, sub_path_w: [*:0]const u16, args: OpenDirOptions) OpenError!Dir {
+    pub fn openDirW(self: Dir, sub_path_w: [*:0]const u16, args: OpenDirOptions, iterable: bool) OpenError!Dir {
         const w = os.windows;
         // TODO remove some of these flags if args.access_sub_paths is false
         const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
             w.SYNCHRONIZE | w.FILE_TRAVERSE;
-        const flags: u32 = if (args.iterate) base_flags | w.FILE_LIST_DIRECTORY else base_flags;
+        const flags: u32 = if (iterable) base_flags | w.FILE_LIST_DIRECTORY else base_flags;
         var dir = try self.openDirAccessMaskW(sub_path_w, flags, args.no_follow);
-        if (builtin.mode == .Debug) dir.iterable = args.iterate;
         return dir;
     }
 
