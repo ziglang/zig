@@ -2046,6 +2046,11 @@ test "parse" {
     try testing.expectEqual(@as([3]u8, "foo".*), try parse([3]u8, &ts, ParseOptions{}));
     ts = TokenStream.init("[]");
     try testing.expectEqual(@as([0]u8, undefined), try parse([0]u8, &ts, ParseOptions{}));
+
+    ts = TokenStream.init("\"12345678901234567890\"");
+    try testing.expectEqual(@as(u64, 12345678901234567890), try parse(u64, &ts, ParseOptions{}));
+    ts = TokenStream.init("\"123.456\"");
+    try testing.expectEqual(@as(f64, 123.456), try parse(f64, &ts, ParseOptions{}));
 }
 
 test "parse into enum" {
