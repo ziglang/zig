@@ -6504,8 +6504,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
         },
         .always => {
             // Value is always an error. Emit both error defers and regular defers.
-            const result = if (rl == .ptr) try gz.addUnNode(.load, rl.ptr, node) else operand;
-            const err_code = try gz.addUnNode(.err_union_code, result, node);
+            const err_code = if (rl == .ptr) try gz.addUnNode(.load, rl.ptr, node) else operand;
             try genDefers(gz, defer_outer, scope, .{ .both = err_code });
             try gz.addRet(rl, operand, node);
             return Zir.Inst.Ref.unreachable_value;

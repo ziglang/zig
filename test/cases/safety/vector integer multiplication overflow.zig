@@ -1,9 +1,11 @@
 const std = @import("std");
 
 pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
-    _ = message;
     _ = stack_trace;
-    std.process.exit(0);
+    if (std.mem.eql(u8, message, "integer overflow")) {
+        std.process.exit(0);
+    }
+    std.process.exit(1);
 }
 pub fn main() !void {
     var a: @Vector(4, u8) = [_]u8{ 1, 2, 200, 4 };
@@ -16,5 +18,5 @@ fn mul(a: @Vector(4, u8), b: @Vector(4, u8)) @Vector(4, u8) {
     return a * b;
 }
 // run
-// backend=stage1
+// backend=llvm
 // target=native

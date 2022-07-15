@@ -1,9 +1,11 @@
 const std = @import("std");
 
 pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
-    _ = message;
     _ = stack_trace;
-    std.process.exit(0);
+    if (std.mem.eql(u8, message, "integer cast truncated bits")) {
+        std.process.exit(0);
+    }
+    std.process.exit(1);
 }
 pub fn main() !void {
     var value: u8 = 245;
@@ -12,5 +14,5 @@ pub fn main() !void {
     return error.TestFailed;
 }
 // run
-// backend=stage1
+// backend=llvm
 // target=native

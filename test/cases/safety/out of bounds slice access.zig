@@ -1,9 +1,11 @@
 const std = @import("std");
 
 pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
-    _ = message;
     _ = stack_trace;
-    std.process.exit(0);
+    if (std.mem.eql(u8, message, "attempt to index out of bound: index 4, len 4")) {
+        std.process.exit(0);
+    }
+    std.process.exit(1);
 }
 pub fn main() !void {
     const a = [_]i32{1, 2, 3, 4};
@@ -15,5 +17,5 @@ fn bar(a: []const i32) i32 {
 }
 fn baz(_: i32) void { }
 // run
-// backend=stage1
+// backend=llvm
 // target=native
