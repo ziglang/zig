@@ -301,6 +301,9 @@ pub const Type = opaque {
 
     pub const countStructElementTypes = LLVMCountStructElementTypes;
     extern fn LLVMCountStructElementTypes(StructTy: *const Type) c_uint;
+
+    pub const isOpaqueStruct = LLVMIsOpaqueStruct;
+    extern fn LLVMIsOpaqueStruct(StructTy: *const Type) Bool;
 };
 
 pub const Module = opaque {
@@ -1032,6 +1035,9 @@ pub const TargetData = opaque {
 
     pub const abiAlignmentOfType = LLVMABIAlignmentOfType;
     extern fn LLVMABIAlignmentOfType(TD: *const TargetData, Ty: *const Type) c_uint;
+
+    pub const abiSizeOfType = LLVMABISizeOfType;
+    extern fn LLVMABISizeOfType(TD: *const TargetData, Ty: *const Type) c_ulonglong;
 };
 
 pub const CodeModel = enum(c_int) {
