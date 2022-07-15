@@ -11877,6 +11877,45 @@ fn analyzeArithmetic(
                 return sema.tupleFieldValByIndex(block, src, op_ov, 0, op_ov_tuple_ty);
             }
         }
+        switch (rs.air_tag) {
+            .div_float, .div_exact, .div_trunc, .div_floor => {
+                const ok = if (resolved_type.zigTypeTag() == .Vector) ok: {
+                    const zero_val = try Value.Tag.repeated.create(sema.arena, Value.zero);
+                    const zero = try sema.addConstant(sema.typeOf(casted_rhs), zero_val);
+                    const ok = try block.addCmpVector(casted_rhs, zero, .neq, try sema.addType(resolved_type));
+                    break :ok try block.addInst(.{
+                        .tag = .reduce,
+                        .data = .{ .reduce = .{
+                            .operand = ok,
+                            .operation = .And,
+                        } },
+                    });
+                } else ok: {
+                    const zero = try sema.addConstant(sema.typeOf(casted_rhs), Value.zero);
+                    break :ok try block.addBinOp(.cmp_neq, casted_rhs, zero);
+                };
+                try sema.addSafetyCheck(block, ok, .divide_by_zero);
+            },
+            .rem, .mod => {
+                const ok = if (resolved_type.zigTypeTag() == .Vector) ok: {
+                    const zero_val = try Value.Tag.repeated.create(sema.arena, Value.zero);
+                    const zero = try sema.addConstant(sema.typeOf(casted_rhs), zero_val);
+                    const ok = try block.addCmpVector(casted_rhs, zero, if (scalar_tag == .Int) .gt else .neq, try sema.addType(resolved_type));
+                    break :ok try block.addInst(.{
+                        .tag = .reduce,
+                        .data = .{ .reduce = .{
+                            .operand = ok,
+                            .operation = .And,
+                        } },
+                    });
+                } else ok: {
+                    const zero = try sema.addConstant(sema.typeOf(casted_rhs), Value.zero);
+                    break :ok try block.addBinOp(if (scalar_tag == .Int) .cmp_gt else .cmp_neq, casted_rhs, zero);
+                };
+                try sema.addSafetyCheck(block, ok, .remainder_division_zero_negative);
+            },
+            else => {},
+        }
     }
     return block.addBinOp(rs.air_tag, casted_lhs, casted_rhs);
 }
@@ -18813,6 +18852,8 @@ pub const PanicId = enum {
     integer_overflow,
     shl_overflow,
     shr_overflow,
+    divide_by_zero,
+    remainder_division_zero_negative,
 };
 
 fn addSafetyCheck(
@@ -19031,6 +19072,8 @@ fn safetyPanic(
         .integer_overflow => "integer overflow",
         .shl_overflow => "left shift overflowed bits",
         .shr_overflow => "right shift overflowed bits",
+        .divide_by_zero => "division by zero",
+        .remainder_division_zero_negative => "remainder division by zero or negative value",
     };
 
     const msg_inst = msg_inst: {
