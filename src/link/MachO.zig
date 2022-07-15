@@ -3279,71 +3279,77 @@ fn setEntryPoint(self: *MachO) !void {
 }
 
 pub fn deinit(self: *MachO) void {
+    const gpa = self.base.allocator;
+
     if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| llvm_object.destroy(self.base.allocator);
+        if (self.llvm_object) |llvm_object| llvm_object.destroy(gpa);
     }
 
     if (self.d_sym) |*d_sym| {
-        d_sym.deinit(self.base.allocator);
+        d_sym.deinit(gpa);
     }
 
-    self.section_ordinals.deinit(self.base.allocator);
-    self.tlv_ptr_entries.deinit(self.base.allocator);
-    self.tlv_ptr_entries_free_list.deinit(self.base.allocator);
-    self.tlv_ptr_entries_table.deinit(self.base.allocator);
-    self.got_entries.deinit(self.base.allocator);
-    self.got_entries_free_list.deinit(self.base.allocator);
-    self.got_entries_table.deinit(self.base.allocator);
-    self.stubs.deinit(self.base.allocator);
-    self.stubs_free_list.deinit(self.base.allocator);
-    self.stubs_table.deinit(self.base.allocator);
-    self.strtab.deinit(self.base.allocator);
-    self.globals.deinit(self.base.allocator);
-    self.locals.deinit(self.base.allocator);
-    self.locals_free_list.deinit(self.base.allocator);
-    self.unresolved.deinit(self.base.allocator);
+    self.section_ordinals.deinit(gpa);
+    self.tlv_ptr_entries.deinit(gpa);
+    self.tlv_ptr_entries_free_list.deinit(gpa);
+    self.tlv_ptr_entries_table.deinit(gpa);
+    self.got_entries.deinit(gpa);
+    self.got_entries_free_list.deinit(gpa);
+    self.got_entries_table.deinit(gpa);
+    self.stubs.deinit(gpa);
+    self.stubs_free_list.deinit(gpa);
+    self.stubs_table.deinit(gpa);
+    self.strtab.deinit(gpa);
+    self.locals.deinit(gpa);
+    self.locals_free_list.deinit(gpa);
+    self.unresolved.deinit(gpa);
+
+    for (self.globals.keys()) |key| {
+        gpa.free(key);
+    }
+    self.globals.deinit(gpa);
 
     for (self.objects.items) |*object| {
-        object.deinit(self.base.allocator);
+        object.deinit(gpa);
     }
-    self.objects.deinit(self.base.allocator);
+    self.objects.deinit(gpa);
 
     for (self.archives.items) |*archive| {
-        archive.deinit(self.base.allocator);
+        archive.deinit(gpa);
     }
-    self.archives.deinit(self.base.allocator);
+    self.archives.deinit(gpa);
 
     for (self.dylibs.items) |*dylib| {
-        dylib.deinit(self.base.allocator);
+        dylib.deinit(gpa);
     }
-    self.dylibs.deinit(self.base.allocator);
-    self.dylibs_map.deinit(self.base.allocator);
-    self.referenced_dylibs.deinit(self.base.allocator);
+    self.dylibs.deinit(gpa);
+    self.dylibs_map.deinit(gpa);
+    self.referenced_dylibs.deinit(gpa);
 
     for (self.load_commands.items) |*lc| {
-        lc.deinit(self.base.allocator);
+        lc.deinit(gpa);
     }
-    self.load_commands.deinit(self.base.allocator);
+    self.load_commands.deinit(gpa);
 
     for (self.managed_atoms.items) |atom| {
-        atom.deinit(self.base.allocator);
-        self.base.allocator.destroy(atom);
+        atom.deinit(gpa);
+        gpa.destroy(atom);
     }
-    self.managed_atoms.deinit(self.base.allocator);
-    self.atoms.deinit(self.base.allocator);
+    self.managed_atoms.deinit(gpa);
+    self.atoms.deinit(gpa);
     {
         var it = self.atom_free_lists.valueIterator();
         while (it.next()) |free_list| {
-            free_list.deinit(self.base.allocator);
+            free_list.deinit(gpa);
         }
-        self.atom_free_lists.deinit(self.base.allocator);
+        self.atom_free_lists.deinit(gpa);
     }
     if (self.base.options.module) |mod| {
         for (self.decls.keys()) |decl_index| {
             const decl = mod.declPtr(decl_index);
-            decl.link.macho.deinit(self.base.allocator);
+            decl.link.macho.deinit(gpa);
         }
-        self.decls.deinit(self.base.allocator);
+        self.decls.deinit(gpa);
     } else {
         assert(self.decls.count() == 0);
     }
@@ -3351,15 +3357,15 @@ pub fn deinit(self: *MachO) void {
     {
         var it = self.unnamed_const_atoms.valueIterator();
         while (it.next()) |atoms| {
-            atoms.deinit(self.base.allocator);
+            atoms.deinit(gpa);
         }
-        self.unnamed_const_atoms.deinit(self.base.allocator);
+        self.unnamed_const_atoms.deinit(gpa);
     }
 
-    self.atom_by_index_table.deinit(self.base.allocator);
+    self.atom_by_index_table.deinit(gpa);
 
     if (self.code_signature) |*csig| {
-        csig.deinit(self.base.allocator);
+        csig.deinit(gpa);
     }
 }
 
