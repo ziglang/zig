@@ -2780,7 +2780,7 @@ pub const Managed = struct {
         if (alias_count == 0) {
             m.mulNoAlias(a.toConst(), b.toConst(), rma.allocator);
         } else {
-            const limb_count = calcMulLimbsBufferLen(a.limbs.len, b.limbs.len, alias_count);
+            const limb_count = calcMulLimbsBufferLen(a.toConst().limbs.len, b.toConst().limbs.len, alias_count);
             const limbs_buffer = try rma.allocator.alloc(Limb, limb_count);
             defer rma.allocator.free(limbs_buffer);
             m.mul(a.toConst(), b.toConst(), limbs_buffer, rma.allocator);
@@ -2960,7 +2960,7 @@ pub const Managed = struct {
 
     /// r = a * a
     pub fn sqr(rma: *Managed, a: *const Managed) !void {
-        const needed_limbs = 2 * a.limbs.len + 1;
+        const needed_limbs = 2 * a.toConst().limbs.len + 1;
 
         if (rma.limbs.ptr == a.limbs.ptr) {
             var m = try Managed.initCapacity(rma.allocator, needed_limbs);
