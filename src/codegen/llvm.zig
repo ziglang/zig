@@ -2537,10 +2537,22 @@ pub const DeclGen = struct {
                     return payload_llvm_ty;
                 }
 
+                comptime assert(optional_layout_version == 1);
                 const fields: [2]*const llvm.Type = .{
-                    payload_llvm_ty, dg.context.intType(1),
+                    payload_llvm_ty,
+                    dg.context.intType(1),
                 };
-                return dg.context.structType(&fields, fields.len, .False);
+                const llvm_ty = dg.context.structType(&fields, fields.len, .False);
+                const llvm_size = dg.object.target_data.abiSizeOfType(llvm_ty);
+                const zig_size = t.abiSize(target);
+                const padding = @intCast(c_uint, zig_size - llvm_size);
+                if (padding == 0) return llvm_ty;
+                const padded_fields: [3]*const llvm.Type = .{
+                    payload_llvm_ty,
+                    dg.context.intType(1),
+                    dg.context.intType(8).arrayType(padding),
+                };
+                return dg.context.structType(&padded_fields, padded_fields.len, .False);
             },
             .ErrorUnion => {
                 const payload_ty = t.errorUnionPayload();
@@ -3101,6 +3113,7 @@ pub const DeclGen = struct {
                 else => unreachable,
             },
             .Optional => {
+                comptime assert(optional_layout_version == 1);
                 var buf: Type.Payload.ElemType = undefined;
                 const payload_ty = tv.ty.optionalChild(&buf);
                 const llvm_i1 = dg.context.intType(1);
@@ -3109,25 +3122,30 @@ pub const DeclGen = struct {
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
                     return non_null_bit;
                 }
+                const llvm_ty = try dg.lowerType(tv.ty);
                 if (tv.ty.optionalReprIsPayload()) {
                     if (tv.val.castTag(.opt_payload)) |payload| {
                         return dg.lowerValue(.{ .ty = payload_ty, .val = payload.data });
                     } else if (is_pl) {
                         return dg.lowerValue(.{ .ty = payload_ty, .val = tv.val });
                     } else {
-                        const llvm_ty = try dg.lowerType(tv.ty);
                         return llvm_ty.constNull();
                     }
                 }
                 assert(payload_ty.zigTypeTag() != .Fn);
-                const fields: [2]*const llvm.Value = .{
-                    try dg.lowerValue(.{
-                        .ty = payload_ty,
-                        .val = if (tv.val.castTag(.opt_payload)) |pl| pl.data else Value.initTag(.undef),
-                    }),
-                    non_null_bit,
-                };
-                return dg.context.constStruct(&fields, fields.len, .False);
+
+                const llvm_field_count = llvm_ty.countStructElementTypes();
+                var fields_buf: [3]*const llvm.Value = undefined;
+                fields_buf[0] = try dg.lowerValue(.{
+                    .ty = payload_ty,
+                    .val = if (tv.val.castTag(.opt_payload)) |pl| pl.data else Value.initTag(.undef),
+                });
+                fields_buf[1] = non_null_bit;
+                if (llvm_field_count > 2) {
+                    assert(llvm_field_count == 3);
+                    fields_buf[2] = llvm_ty.structGetTypeAtIndex(2).getUndef();
+                }
+                return dg.context.constStruct(&fields_buf, llvm_field_count, .False);
             },
             .Fn => {
                 const fn_decl_index = switch (tv.val.tag()) {
@@ -5865,6 +5883,7 @@ pub const FuncGen = struct {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const payload_ty = self.air.typeOf(ty_op.operand);
         const non_null_bit = self.context.intType(1).constAllOnes();
+        comptime assert(optional_layout_version == 1);
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) return non_null_bit;
         const operand = try self.resolveInst(ty_op.operand);
         const optional_ty = self.air.typeOfIndex(inst);
@@ -9318,6 +9337,7 @@ fn intrinsicsAllowed(scalar_ty: Type, target: std.Target) bool {
 /// We can do this because for all types, Zig ABI alignment >= LLVM ABI
 /// alignment.
 const struct_layout_version = 2;
+const optional_layout_version = 1;
 
 /// We use the least significant bit of the pointer address to tell us
 /// whether the type is fully resolved. Types that are only fwd declared
