@@ -3497,7 +3497,7 @@ fn validateUnionInit(
 
             for (instrs[1..]) |inst| {
                 const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-                const inst_src: LazySrcLoc = .{ .node_offset_back2tok = inst_data.src_node };
+                const inst_src: LazySrcLoc = .{ .node_offset_initializer = inst_data.src_node };
                 try sema.errNote(block, inst_src, msg, "additional initializer here", .{});
             }
             try sema.addDeclaredHereNote(msg, union_ty);
@@ -3515,7 +3515,7 @@ fn validateUnionInit(
 
     const field_ptr = instrs[0];
     const field_ptr_data = sema.code.instructions.items(.data)[field_ptr].pl_node;
-    const field_src: LazySrcLoc = .{ .node_offset_back2tok = field_ptr_data.src_node };
+    const field_src: LazySrcLoc = .{ .node_offset_initializer = field_ptr_data.src_node };
     const field_ptr_extra = sema.code.extraData(Zir.Inst.Field, field_ptr_data.payload_index).data;
     const field_name = sema.code.nullTerminatedString(field_ptr_extra.field_name_start);
     const field_index = try sema.unionFieldIndex(block, union_ty, field_name, field_src);
@@ -3617,7 +3617,7 @@ fn validateStructInit(
 
     for (instrs) |field_ptr| {
         const field_ptr_data = sema.code.instructions.items(.data)[field_ptr].pl_node;
-        const field_src: LazySrcLoc = .{ .node_offset_back2tok = field_ptr_data.src_node };
+        const field_src: LazySrcLoc = .{ .node_offset_initializer = field_ptr_data.src_node };
         const field_ptr_extra = sema.code.extraData(Zir.Inst.Field, field_ptr_data.payload_index).data;
         struct_ptr_zir_ref = field_ptr_extra.lhs;
         const field_name = sema.code.nullTerminatedString(field_ptr_extra.field_name_start);
@@ -3625,7 +3625,7 @@ fn validateStructInit(
         if (found_fields[field_index] != 0) {
             const other_field_ptr = found_fields[field_index];
             const other_field_ptr_data = sema.code.instructions.items(.data)[other_field_ptr].pl_node;
-            const other_field_src: LazySrcLoc = .{ .node_offset_back2tok = other_field_ptr_data.src_node };
+            const other_field_src: LazySrcLoc = .{ .node_offset_initializer = other_field_ptr_data.src_node };
             const msg = msg: {
                 const msg = try sema.errMsg(block, field_src, "duplicate field", .{});
                 errdefer msg.destroy(gpa);
@@ -3700,7 +3700,7 @@ fn validateStructInit(
     field: for (found_fields) |field_ptr, i| {
         if (field_ptr != 0) {
             const field_ptr_data = sema.code.instructions.items(.data)[field_ptr].pl_node;
-            const field_src: LazySrcLoc = .{ .node_offset_back2tok = field_ptr_data.src_node };
+            const field_src: LazySrcLoc = .{ .node_offset_initializer = field_ptr_data.src_node };
 
             // Determine whether the value stored to this pointer is comptime-known.
             const field_ty = struct_ty.structFieldType(i);
@@ -14096,14 +14096,14 @@ fn zirStructInit(
             extra_index = item.end;
 
             const field_type_data = zir_datas[item.data.field_type].pl_node;
-            const field_src: LazySrcLoc = .{ .node_offset_back2tok = field_type_data.src_node };
+            const field_src: LazySrcLoc = .{ .node_offset_initializer = field_type_data.src_node };
             const field_type_extra = sema.code.extraData(Zir.Inst.FieldType, field_type_data.payload_index).data;
             const field_name = sema.code.nullTerminatedString(field_type_extra.name_start);
             const field_index = try sema.structFieldIndex(block, resolved_ty, field_name, field_src);
             if (field_inits[field_index] != .none) {
                 const other_field_type = found_fields[field_index];
                 const other_field_type_data = zir_datas[other_field_type].pl_node;
-                const other_field_src: LazySrcLoc = .{ .node_offset_back2tok = other_field_type_data.src_node };
+                const other_field_src: LazySrcLoc = .{ .node_offset_initializer = other_field_type_data.src_node };
                 const msg = msg: {
                     const msg = try sema.errMsg(block, field_src, "duplicate field", .{});
                     errdefer msg.destroy(gpa);
@@ -14125,7 +14125,7 @@ fn zirStructInit(
         const item = sema.code.extraData(Zir.Inst.StructInit.Item, extra.end);
 
         const field_type_data = zir_datas[item.data.field_type].pl_node;
-        const field_src: LazySrcLoc = .{ .node_offset_back2tok = field_type_data.src_node };
+        const field_src: LazySrcLoc = .{ .node_offset_initializer = field_type_data.src_node };
         const field_type_extra = sema.code.extraData(Zir.Inst.FieldType, field_type_data.payload_index).data;
         const field_name = sema.code.nullTerminatedString(field_type_extra.name_start);
         const field_index = try sema.unionFieldIndex(block, resolved_ty, field_name, field_src);

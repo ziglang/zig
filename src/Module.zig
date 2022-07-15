@@ -2132,13 +2132,15 @@ pub const SrcLoc = struct {
                 assert(src_loc.file_scope.tree_loaded);
                 return nodeToSpan(tree, node);
             },
-            .node_offset_back2tok => |node_off| {
+            .node_offset_initializer => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                const tok_index = tree.firstToken(node) - 2;
-                const start = tree.tokens.items(.start)[tok_index];
-                const end = start + @intCast(u32, tree.tokenSlice(tok_index).len);
-                return Span{ .start = start, .end = end, .main = start };
+                return tokensToSpan(
+                    tree,
+                    tree.firstToken(node) - 3,
+                    tree.lastToken(node),
+                    tree.nodes.items(.main_token)[node] - 2,
+                );
             },
             .node_offset_var_decl_ty => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -2151,12 +2153,10 @@ pub const SrcLoc = struct {
                     .aligned_var_decl => tree.alignedVarDecl(node),
                     else => unreachable,
                 };
-                const tok_index = if (full.ast.type_node != 0) blk: {
-                    const main_tokens = tree.nodes.items(.main_token);
-                    break :blk main_tokens[full.ast.type_node];
-                } else blk: {
-                    break :blk full.ast.mut_token + 1; // the name token
-                };
+                if (full.ast.type_node != 0) {
+                    return nodeToSpan(tree, full.ast.type_node);
+                }
+                const tok_index = full.ast.mut_token + 1; // the name token
                 const start = tree.tokens.items(.start)[tok_index];
                 const end = start + @intCast(u32, tree.tokenSlice(tok_index).len);
                 return Span{ .start = start, .end = end, .main = start };
@@ -2492,26 +2492,32 @@ pub const SrcLoc = struct {
     }
 
     pub fn nodeToSpan(tree: *const Ast, node: u32) Span {
+        return tokensToSpan(
+            tree,
+            tree.firstToken(node),
+            tree.lastToken(node),
+            tree.nodes.items(.main_token)[node],
+        );
+    }
+
+    fn tokensToSpan(tree: *const Ast, start: Ast.TokenIndex, end: Ast.TokenIndex, main: Ast.TokenIndex) Span {
         const token_starts = tree.tokens.items(.start);
-        const main_token = tree.nodes.items(.main_token)[node];
-        const start = tree.firstToken(node);
-        const end = tree.lastToken(node);
         var start_tok = start;
         var end_tok = end;
 
         if (tree.tokensOnSameLine(start, end)) {
             // do nothing
-        } else if (tree.tokensOnSameLine(start, main_token)) {
-            end_tok = main_token;
-        } else if (tree.tokensOnSameLine(main_token, end)) {
-            start_tok = main_token;
+        } else if (tree.tokensOnSameLine(start, main)) {
+            end_tok = main;
+        } else if (tree.tokensOnSameLine(main, end)) {
+            start_tok = main;
         } else {
-            start_tok = main_token;
-            end_tok = main_token;
+            start_tok = main;
+            end_tok = main;
         }
         const start_off = token_starts[start_tok];
         const end_off = token_starts[end_tok] + @intCast(u32, tree.tokenSlice(end_tok).len);
-        return Span{ .start = start_off, .end = end_off, .main = token_starts[main_token] };
+        return Span{ .start = start_off, .end = end_off, .main = token_starts[main] };
     }
 };
 
@@ -2565,10 +2571,9 @@ pub const LazySrcLoc = union(enum) {
     /// from its containing Decl node AST index.
     /// The Decl is determined contextually.
     node_offset: TracedOffset,
-    /// The source location points to two tokens left of the first token of an AST node,
-    /// which is this value offset from its containing Decl node AST index.
+    /// The source location points to the beginning of a struct initializer.
     /// The Decl is determined contextually.
-    node_offset_back2tok: i32,
+    node_offset_initializer: i32,
     /// The source location points to a variable declaration type expression,
     /// found by taking this AST node index offset from the containing
     /// Decl AST node, which points to a variable declaration AST node. Next, navigate
@@ -2764,7 +2769,7 @@ pub const LazySrcLoc = union(enum) {
             .byte_offset,
             .token_offset,
             .node_offset,
-            .node_offset_back2tok,
+            .node_offset_initializer,
             .node_offset_var_decl_ty,
             .node_offset_for_cond,
             .node_offset_builtin_call_arg0,
