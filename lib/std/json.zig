@@ -1422,23 +1422,37 @@ fn parseInternal(
             };
         },
         .Float, .ComptimeFloat => {
-            const numberToken = switch (token) {
-                .Number => |n| n,
+            switch (token) {
+                .Number => |numberToken| return try std.fmt.parseFloat(T, numberToken.slice(tokens.slice, tokens.i - 1)),
+                .String => |stringToken| return try std.fmt.parseFloat(T, stringToken.slice(tokens.slice, tokens.i - 1)),
                 else => return error.UnexpectedToken,
-            };
-            return try std.fmt.parseFloat(T, numberToken.slice(tokens.slice, tokens.i - 1));
+            }
         },
         .Int, .ComptimeInt => {
-            const numberToken = switch (token) {
-                .Number => |n| n,
+            switch (token) {
+                .Number => |numberToken| {
+                    if (numberToken.is_integer)
+                        return try std.fmt.parseInt(T, numberToken.slice(tokens.slice, tokens.i - 1), 10);
+                    const float = try std.fmt.parseFloat(f128, numberToken.slice(tokens.slice, tokens.i - 1));
+                    if (@round(float) != float) return error.InvalidNumber;
+                    if (float > std.math.maxInt(T) or float < std.math.minInt(T)) return error.Overflow;
+                    return @floatToInt(T, float);
+                },
+                .String => |stringToken| {
+                    return std.fmt.parseInt(T, stringToken.slice(tokens.slice, tokens.i - 1), 10) catch |err| {
+                        switch (err) {
+                            error.Overflow => return err,
+                            error.InvalidCharacter => {
+                                const float = try std.fmt.parseFloat(f128, stringToken.slice(tokens.slice, tokens.i - 1));
+                                if (@round(float) != float) return error.InvalidNumber;
+                                if (float > std.math.maxInt(T) or float < std.math.minInt(T)) return error.Overflow;
+                                return @floatToInt(T, float);
+                            },
+                        }
+                    };
+                },
                 else => return error.UnexpectedToken,
-            };
-            if (numberToken.is_integer)
-                return try std.fmt.parseInt(T, numberToken.slice(tokens.slice, tokens.i - 1), 10);
-            const float = try std.fmt.parseFloat(f128, numberToken.slice(tokens.slice, tokens.i - 1));
-            if (@round(float) != float) return error.InvalidNumber;
-            if (float > std.math.maxInt(T) or float < std.math.minInt(T)) return error.Overflow;
-            return @floatToInt(T, float);
+            }
         },
         .Optional => |optionalInfo| {
             if (token == .Null) {
