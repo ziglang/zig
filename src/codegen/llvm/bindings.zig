@@ -304,6 +304,9 @@ pub const Type = opaque {
 
     pub const isOpaqueStruct = LLVMIsOpaqueStruct;
     extern fn LLVMIsOpaqueStruct(StructTy: *const Type) Bool;
+
+    pub const isSized = LLVMTypeIsSized;
+    extern fn LLVMTypeIsSized(Ty: *const Type) Bool;
 };
 
 pub const Module = opaque {
