@@ -4821,7 +4821,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
     );
 
     switch (target.os.getVersionRange()) {
-        .none => try buffer.appendSlice(" .none = {} }\n"),
+        .none => try buffer.appendSlice(" .none = {} },\n"),
         .semver => |semver| try buffer.writer().print(
             \\ .semver = .{{
             \\        .min = .{{
