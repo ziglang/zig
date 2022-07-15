@@ -2305,6 +2305,9 @@ pub const Type = extern union {
     /// true if and only if the type takes up space in memory at runtime.
     /// There are two reasons a type will return false:
     /// * the type is a comptime-only type. For example, the type `type` itself.
+    ///   - note, however, that a struct can have mixed fields and only the non-comptime-only
+    ///     fields will count towards the ABI size. For example, `struct {T: type, x: i32}`
+    ///     hasRuntimeBits()=true and abiSize()=4
     /// * the type has only one possible value, making its ABI size 0.
     /// When `ignore_comptime_only` is true, then types that are comptime only
     /// may return false positives.
