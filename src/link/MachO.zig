@@ -243,8 +243,6 @@ unnamed_const_atoms: UnnamedConstTable = .{},
 /// TODO consolidate this.
 decls: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, ?MatchingSection) = .{},
 
-gc_roots: std.AutoHashMapUnmanaged(*Atom, void) = .{},
-
 const Entry = struct {
     target: SymbolWithLoc,
     atom: *Atom,
@@ -631,7 +629,8 @@ fn linkOneShot(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) 
     const tracy = trace(@src());
     defer tracy.end();
 
-    var arena_allocator = std.heap.ArenaAllocator.init(self.base.allocator);
+    const gpa = self.base.allocator;
+    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
@@ -676,6 +675,7 @@ fn linkOneShot(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) 
     const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
     const stack_size = self.base.options.stack_size_override orelse 0;
+    const dead_strip = self.base.options.gc_sections orelse false;
 
     const id_symlink_basename = "zld.id";
 
@@ -707,7 +707,7 @@ fn linkOneShot(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) 
         man.hash.addOptional(self.base.options.search_strategy);
         man.hash.addOptional(self.base.options.headerpad_size);
         man.hash.add(self.base.options.headerpad_max_install_names);
-        man.hash.add(self.base.options.gc_sections orelse false);
+        man.hash.add(dead_strip);
         man.hash.add(self.base.options.dead_strip_dylibs);
         man.hash.addListOfBytes(self.base.options.lib_dirs);
         man.hash.addListOfBytes(self.base.options.framework_dirs);
@@ -790,14 +790,14 @@ fn linkOneShot(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) 
             .mode = link.determineMode(self.base.options),
         });
         // Index 0 is always a null symbol.
-        try self.locals.append(self.base.allocator, .{
+        try self.locals.append(gpa, .{
             .n_strx = 0,
             .n_type = 0,
             .n_sect = 0,
             .n_desc = 0,
             .n_value = 0,
         });
-        try self.strtab.buffer.append(self.base.allocator, 0);
+        try self.strtab.buffer.append(gpa, 0);
         try self.populateMissingMetadata();
 
         var lib_not_found = false;
@@ -964,10 +964,10 @@ fn linkOneShot(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) 
                 .cmdsize = cmdsize,
                 .path = @sizeOf(macho.rpath_command),
             });
-            rpath_cmd.data = try self.base.allocator.alloc(u8, cmdsize - rpath_cmd.inner.path);
+            rpath_cmd.data = try gpa.alloc(u8, cmdsize - rpath_cmd.inner.path);
             mem.set(u8, rpath_cmd.data, 0);
             mem.copy(u8, rpath_cmd.data, rpath);
-            try self.load_commands.append(self.base.allocator, .{ .rpath = rpath_cmd });
+            try self.load_commands.append(gpa, .{ .rpath = rpath_cmd });
             try rpath_table.putNoClobber(rpath, {});
             self.load_commands_dirty = true;
         }
@@ -975,11 +975,11 @@ fn linkOneShot(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) 
         // code signature and entitlements
         if (self.base.options.entitlements) |path| {
             if (self.code_signature) |*csig| {
-                try csig.addEntitlements(self.base.allocator, path);
+                try csig.addEntitlements(gpa, path);
                 csig.code_directory.ident = self.base.options.emit.?.sub_path;
             } else {
                 var csig = CodeSignature.init(self.page_size);
-                try csig.addEntitlements(self.base.allocator, path);
+                try csig.addEntitlements(gpa, path);
                 csig.code_directory.ident = self.base.options.emit.?.sub_path;
                 self.code_signature = csig;
             }
@@ -1033,10 +1033,8 @@ fn linkOneShot(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) 
                 try argv.append("-headerpad_max_install_names");
             }
 
-            if (self.base.options.gc_sections) |is_set| {
-                if (is_set) {
-                    try argv.append("-dead_strip");
-                }
+            if (dead_strip) {
+                try argv.append("-dead_strip");
             }
 
             if (self.base.options.dead_strip_dylibs) {
@@ -1120,7 +1118,7 @@ fn linkOneShot(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) 
         var dependent_libs = std.fifo.LinearFifo(struct {
             id: Dylib.Id,
             parent: u16,
-        }, .Dynamic).init(self.base.allocator);
+        }, .Dynamic).init(gpa);
         defer dependent_libs.deinit();
         try self.parseInputFiles(positionals.items, self.base.options.sysroot, &dependent_libs);
         try self.parseAndForceLoadStaticArchives(must_link_archives.keys());
@@ -1153,11 +1151,21 @@ fn linkOneShot(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) 
 
         try self.createTentativeDefAtoms();
 
-        for (self.objects.items) |*object, object_id| {
-            try object.splitIntoAtomsOneShot(self, @intCast(u32, object_id));
+        if (dead_strip) {
+            var gc_roots = std.AutoHashMap(*Atom, void).init(gpa);
+            defer gc_roots.deinit();
+
+            for (self.objects.items) |*object, object_id| {
+                try object.splitIntoAtomsOneShot(self, @intCast(u32, object_id), &gc_roots);
+            }
+
+            try self.gcAtoms(&gc_roots);
+        } else {
+            for (self.objects.items) |*object, object_id| {
+                try object.splitIntoAtomsOneShot(self, @intCast(u32, object_id), null);
+            }
         }
 
-        try self.gcAtoms();
         try self.pruneAndSortSections();
         try self.allocateSegments();
         try self.allocateSymbols();
@@ -1184,7 +1192,7 @@ fn linkOneShot(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) 
         try self.writeLinkeditSegment();
 
         if (self.code_signature) |*csig| {
-            csig.clear(self.base.allocator);
+            csig.clear(gpa);
             csig.code_directory.ident = self.base.options.emit.?.sub_path;
             // Preallocate space for the code signature.
             // We need to do this at this stage so that we have the load commands with proper values
@@ -3294,7 +3302,6 @@ pub fn deinit(self: *MachO) void {
     self.locals.deinit(self.base.allocator);
     self.locals_free_list.deinit(self.base.allocator);
     self.unresolved.deinit(self.base.allocator);
-    self.gc_roots.deinit(self.base.allocator);
 
     for (self.objects.items) |*object| {
         object.deinit(self.base.allocator);
@@ -5447,9 +5454,8 @@ fn pruneAndSortSections(self: *MachO) !void {
     self.sections_order_dirty = false;
 }
 
-fn gcAtoms(self: *MachO) !void {
-    const dead_strip = self.base.options.gc_sections orelse return;
-    if (!dead_strip) return;
+fn gcAtoms(self: *MachO, gc_roots: *std.AutoHashMap(*Atom, void)) !void {
+    assert(self.base.options.gc_sections.?);
 
     const gpa = self.base.allocator;
 
@@ -5461,7 +5467,7 @@ fn gcAtoms(self: *MachO) !void {
             log.debug("skipping {s}", .{self.getSymbolName(global)});
             continue;
         };
-        _ = try self.gc_roots.getOrPut(gpa, gc_root);
+        _ = try gc_roots.getOrPut(gc_root);
     }
 
     // Add any atom targeting an import as GC root
@@ -5474,7 +5480,7 @@ fn gcAtoms(self: *MachO) !void {
                 if ((try rel.getTargetAtom(self)) == null) {
                     const target_sym = self.getSymbol(rel.target);
                     if (target_sym.undf()) {
-                        _ = try self.gc_roots.getOrPut(gpa, atom);
+                        _ = try gc_roots.getOrPut(atom);
                         break;
                     }
                 }
@@ -5488,14 +5494,14 @@ fn gcAtoms(self: *MachO) !void {
 
     var stack = std.ArrayList(*Atom).init(gpa);
     defer stack.deinit();
-    try stack.ensureUnusedCapacity(self.gc_roots.count());
+    try stack.ensureUnusedCapacity(gc_roots.count());
 
     var retained = std.AutoHashMap(*Atom, void).init(gpa);
     defer retained.deinit();
-    try retained.ensureUnusedCapacity(self.gc_roots.count());
+    try retained.ensureUnusedCapacity(gc_roots.count());
 
     log.debug("GC roots:", .{});
-    var gc_roots_it = self.gc_roots.keyIterator();
+    var gc_roots_it = gc_roots.keyIterator();
     while (gc_roots_it.next()) |gc_root| {
         self.logAtom(gc_root.*);
 

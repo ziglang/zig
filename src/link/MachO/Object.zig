@@ -360,7 +360,12 @@ fn filterDice(
 }
 
 /// Splits object into atoms assuming one-shot linking mode.
-pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) !void {
+pub fn splitIntoAtomsOneShot(
+    self: *Object,
+    macho_file: *MachO,
+    object_id: u32,
+    gc_roots: ?*std.AutoHashMap(*Atom, void),
+) !void {
     assert(macho_file.mode == .one_shot);
 
     const tracy = trace(@src());
@@ -493,6 +498,7 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
                     &.{},
                     match,
                     sect,
+                    gc_roots,
                 );
                 try macho_file.addAtomToSection(atom, match);
             }
@@ -538,6 +544,7 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
                     atom_syms[1..],
                     match,
                     sect,
+                    gc_roots,
                 );
 
                 if (arch == .x86_64 and addr == sect.addr) {
@@ -593,6 +600,7 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
                 filtered_syms,
                 match,
                 sect,
+                gc_roots,
             );
             try macho_file.addAtomToSection(atom, match);
         }
@@ -611,6 +619,7 @@ fn createAtomFromSubsection(
     indexes: []const SymbolAtIndex,
     match: MatchingSection,
     sect: macho.section_64,
+    gc_roots: ?*std.AutoHashMap(*Atom, void),
 ) !*Atom {
     const gpa = macho_file.base.allocator;
     const sym = self.symtab.items[sym_index];
@@ -715,23 +724,25 @@ fn createAtomFromSubsection(
         try self.atom_by_index_table.putNoClobber(gpa, inner_sym_index.index, atom);
     }
 
-    const is_gc_root = blk: {
-        if (sect.isDontDeadStrip()) break :blk true;
-        if (sect.isDontDeadStripIfReferencesLive()) {
-            // TODO if isDontDeadStripIfReferencesLive we should analyse the edges
-            // before making it a GC root
-            break :blk true;
+    if (gc_roots) |gcr| {
+        const is_gc_root = blk: {
+            if (sect.isDontDeadStrip()) break :blk true;
+            if (sect.isDontDeadStripIfReferencesLive()) {
+                // TODO if isDontDeadStripIfReferencesLive we should analyse the edges
+                // before making it a GC root
+                break :blk true;
+            }
+            if (mem.eql(u8, "__StaticInit", sect.sectName())) break :blk true;
+            switch (sect.type_()) {
+                macho.S_MOD_INIT_FUNC_POINTERS,
+                macho.S_MOD_TERM_FUNC_POINTERS,
+                => break :blk true,
+                else => break :blk false,
+            }
+        };
+        if (is_gc_root) {
+            try gcr.putNoClobber(atom, {});
         }
-        if (mem.eql(u8, "__StaticInit", sect.sectName())) break :blk true;
-        switch (sect.type_()) {
-            macho.S_MOD_INIT_FUNC_POINTERS,
-            macho.S_MOD_TERM_FUNC_POINTERS,
-            => break :blk true,
-            else => break :blk false,
-        }
-    };
-    if (is_gc_root) {
-        try macho_file.gc_roots.putNoClobber(gpa, atom, {});
     }
 
     return atom;
