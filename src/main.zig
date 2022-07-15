@@ -4381,7 +4381,7 @@ fn printErrsMsgToStdErr(
                     .msg = try std.fmt.allocPrint(arena, "invalid byte: '{'}'", .{
                         std.zig.fmtEscapes(tree.source[byte_offset..][0..1]),
                     }),
-                    .span = .{ .start = byte_offset, .end = byte_offset + 1 },
+                    .span = .{ .start = byte_offset, .end = byte_offset + 1, .main = byte_offset },
                     .line = @intCast(u32, start_loc.line),
                     .column = @intCast(u32, start_loc.column) + bad_off,
                     .source_line = source_line,
@@ -4401,7 +4401,11 @@ fn printErrsMsgToStdErr(
                 .src = .{
                     .src_path = path,
                     .msg = try arena.dupe(u8, text_buf.items),
-                    .span = .{ .start = byte_offset, .end = byte_offset + @intCast(u32, tree.tokenSlice(note.token).len) },
+                    .span = .{
+                        .start = byte_offset,
+                        .end = byte_offset + @intCast(u32, tree.tokenSlice(note.token).len),
+                        .main = byte_offset,
+                    },
                     .line = @intCast(u32, note_loc.line),
                     .column = @intCast(u32, note_loc.column),
                     .source_line = tree.source[note_loc.line_start..note_loc.line_end],
@@ -4417,7 +4421,11 @@ fn printErrsMsgToStdErr(
             .src = .{
                 .src_path = path,
                 .msg = text,
-                .span = .{ .start = byte_offset, .end = byte_offset + @intCast(u32, tree.tokenSlice(lok_token).len) },
+                .span = .{
+                    .start = byte_offset,
+                    .end = byte_offset + @intCast(u32, tree.tokenSlice(lok_token).len),
+                    .main = byte_offset,
+                },
                 .line = @intCast(u32, start_loc.line),
                 .column = @intCast(u32, start_loc.column) + extra_offset,
                 .source_line = source_line,

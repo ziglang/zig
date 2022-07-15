@@ -2386,7 +2386,7 @@ const Writer = struct {
             const end = std.zig.findLineColumn(tree.source, src_span.end);
             try stream.print("{s}:{d}:{d} to :{d}:{d}", .{
                 @tagName(src), start.line + 1, start.column + 1,
-                end.line + 1, end.column + 1,
+                end.line + 1,  end.column + 1,
             });
         }
     }

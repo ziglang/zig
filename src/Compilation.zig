@@ -427,11 +427,15 @@ pub const AllErrors = struct {
                                 else => try stderr.writeByte(b),
                             };
                             try stderr.writeByte('\n');
-                            try stderr.writeByteNTimes(' ', src.column);
-                            ttyconf.setColor(stderr, .Green);
-                            try stderr.writeByte('^');
                             // TODO basic unicode code point monospace width
-                            try stderr.writeByteNTimes('~', src.span.end - src.span.start - 1);
+                            const before_caret = src.span.main - src.span.start;
+                            // -1 since span.main includes the caret
+                            const after_caret = src.span.end - src.span.main -| 1;
+                            try stderr.writeByteNTimes(' ', src.column - before_caret);
+                            ttyconf.setColor(stderr, .Green);
+                            try stderr.writeByteNTimes('~', before_caret);
+                            try stderr.writeByte('^');
+                            try stderr.writeByteNTimes('~', after_caret);
                             try stderr.writeByte('\n');
                             ttyconf.setColor(stderr, .Reset);
                         }
@@ -472,8 +476,7 @@ pub const AllErrors = struct {
                         hasher.update(src.src_path);
                         std.hash.autoHash(&hasher, src.line);
                         std.hash.autoHash(&hasher, src.column);
-                        std.hash.autoHash(&hasher, src.span.start);
-                        std.hash.autoHash(&hasher, src.span.end);
+                        std.hash.autoHash(&hasher, src.span.main);
                     },
                     .plain => |plain| {
                         hasher.update(plain.msg);
@@ -492,8 +495,7 @@ pub const AllErrors = struct {
                                 mem.eql(u8, a_src.src_path, b_src.src_path) and
                                 a_src.line == b_src.line and
                                 a_src.column == b_src.column and
-                                a_src.span.start == b_src.span.start and
-                                a_src.span.end == b_src.span.end;
+                                a_src.span.main == b_src.span.main;
                         },
                         .plain => return false,
                     },
@@ -533,12 +535,12 @@ pub const AllErrors = struct {
         ).init(allocator);
         const err_source = try module_err_msg.src_loc.file_scope.getSource(module.gpa);
         const err_span = try module_err_msg.src_loc.span(module.gpa);
-        const err_loc = std.zig.findLineColumn(err_source.bytes, err_span.start);
+        const err_loc = std.zig.findLineColumn(err_source.bytes, err_span.main);
 
         for (module_err_msg.notes) |module_note| {
             const source = try module_note.src_loc.file_scope.getSource(module.gpa);
             const span = try module_note.src_loc.span(module.gpa);
-            const loc = std.zig.findLineColumn(source.bytes, span.start);
+            const loc = std.zig.findLineColumn(source.bytes, span.main);
             const file_path = try module_note.src_loc.file_scope.fullPath(allocator);
             const note = &notes_buf[note_i];
             note.* = .{
@@ -604,9 +606,10 @@ pub const AllErrors = struct {
                 }
                 const token_starts = file.tree.tokens.items(.start);
                 const start = token_starts[item.data.token] + item.data.byte_offset;
-                break :blk Module.SrcLoc.Span{ .start = start, .end = start + 1 };
+                const end = start + @intCast(u32, file.tree.tokenSlice(item.data.token).len);
+                break :blk Module.SrcLoc.Span{ .start = start, .end = end, .main = start };
             };
-            const err_loc = std.zig.findLineColumn(file.source, err_span.start);
+            const err_loc = std.zig.findLineColumn(file.source, err_span.main);
 
             var notes: []Message = &[0]Message{};
             if (item.data.notes != 0) {
@@ -622,9 +625,10 @@ pub const AllErrors = struct {
                         }
                         const token_starts = file.tree.tokens.items(.start);
                         const start = token_starts[note_item.data.token] + note_item.data.byte_offset;
-                        break :blk Module.SrcLoc.Span{ .start = start, .end = start + 1 };
+                        const end = start + @intCast(u32, file.tree.tokenSlice(note_item.data.token).len);
+                        break :blk Module.SrcLoc.Span{ .start = start, .end = end, .main = start };
                     };
-                    const loc = std.zig.findLineColumn(file.source, span.start);
+                    const loc = std.zig.findLineColumn(file.source, span.main);
 
                     note.* = .{
                         .src = .{
@@ -2665,7 +2669,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !AllErrors {
                     .msg = try std.fmt.allocPrint(arena_allocator, "unable to build C object: {s}", .{
                         err_msg.msg,
                     }),
-                    .span = .{ .start = 0, .end = 1 },
+                    .span = .{ .start = 0, .end = 1, .main = 0 },
                     .line = err_msg.line,
                     .column = err_msg.column,
                     .source_line = null, // TODO
