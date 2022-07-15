@@ -2734,7 +2734,7 @@ pub const DeclGen = struct {
                         llvm_aligned_field_ty,
                         dg.context.intType(8).arrayType(padding_len),
                     };
-                    break :t dg.context.structType(&fields, fields.len, .False);
+                    break :t dg.context.structType(&fields, fields.len, .True);
                 };
 
                 if (layout.tag_size == 0) {
@@ -3050,7 +3050,7 @@ pub const DeclGen = struct {
                         return dg.context.constStruct(
                             llvm_elems.ptr,
                             @intCast(c_uint, llvm_elems.len),
-                            .False,
+                            .True,
                         );
                     } else {
                         const llvm_elem_ty = try dg.lowerType(elem_ty);
@@ -3087,7 +3087,7 @@ pub const DeclGen = struct {
                         return dg.context.constStruct(
                             llvm_elems.ptr,
                             @intCast(c_uint, llvm_elems.len),
-                            .False,
+                            .True,
                         );
                     } else {
                         const llvm_elem_ty = try dg.lowerType(elem_ty);
@@ -3104,7 +3104,7 @@ pub const DeclGen = struct {
                     const llvm_elems: [1]*const llvm.Value = .{sentinel};
                     const need_unnamed = dg.isUnnamedType(elem_ty, llvm_elems[0]);
                     if (need_unnamed) {
-                        return dg.context.constStruct(&llvm_elems, llvm_elems.len, .False);
+                        return dg.context.constStruct(&llvm_elems, llvm_elems.len, .True);
                     } else {
                         const llvm_elem_ty = try dg.lowerType(elem_ty);
                         return llvm_elem_ty.constArray(&llvm_elems, llvm_elems.len);
@@ -3397,7 +3397,7 @@ pub const DeclGen = struct {
                     const fields: [2]*const llvm.Value = .{
                         field, dg.context.intType(8).arrayType(padding_len).getUndef(),
                     };
-                    break :p dg.context.constStruct(&fields, fields.len, .False);
+                    break :p dg.context.constStruct(&fields, fields.len, .True);
                 };
 
                 if (layout.tag_size == 0) {
