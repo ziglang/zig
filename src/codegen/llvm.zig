@@ -2424,6 +2424,24 @@ pub const DeclGen = struct {
     }
 
     fn lowerType(dg: *DeclGen, t: Type) Allocator.Error!*const llvm.Type {
+        const llvm_ty = try lowerTypeInner(dg, t);
+        if (std.debug.runtime_safety) {
+            if (t.zigTypeTag() != .Opaque and t.hasRuntimeBits() and
+                !llvm_ty.isOpaqueStruct().toBool())
+            {
+                const zig_size = t.abiSize(dg.module.getTarget());
+                const llvm_size = dg.object.target_data.abiSizeOfType(llvm_ty);
+                if (llvm_size != zig_size) {
+                    log.err("when lowering {}, Zig ABI size = {d} but LLVM ABI size = {d}", .{
+                        t.fmt(dg.module), zig_size, llvm_size,
+                    });
+                }
+            }
+        }
+        return llvm_ty;
+    }
+
+    fn lowerTypeInner(dg: *DeclGen, t: Type) Allocator.Error!*const llvm.Type {
         const gpa = dg.gpa;
         const target = dg.module.getTarget();
         switch (t.zigTypeTag()) {
