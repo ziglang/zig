@@ -232,13 +232,13 @@ const Writer = struct {
             .validate_array_init_ty,
             .validate_struct_init_ty,
             .make_ptr_const,
+            .validate_deref,
             => try self.writeUnNode(stream, inst),
 
             .ref,
             .ret_tok,
             .ensure_err_payload_void,
             .closure_capture,
-            .validate_deref,
             => try self.writeUnTok(stream, inst),
 
             .bool_br_and,
