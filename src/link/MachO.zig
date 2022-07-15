@@ -244,7 +244,6 @@ unnamed_const_atoms: UnnamedConstTable = .{},
 decls: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, ?MatchingSection) = .{},
 
 gc_roots: std.AutoHashMapUnmanaged(*Atom, void) = .{},
-gc_sections: std.AutoHashMapUnmanaged(MatchingSection, void) = .{},
 
 const Entry = struct {
     target: SymbolWithLoc,
@@ -3296,7 +3295,6 @@ pub fn deinit(self: *MachO) void {
     self.locals_free_list.deinit(self.base.allocator);
     self.unresolved.deinit(self.base.allocator);
     self.gc_roots.deinit(self.base.allocator);
-    self.gc_sections.deinit(self.base.allocator);
 
     for (self.objects.items) |*object| {
         object.deinit(self.base.allocator);
@@ -5333,35 +5331,6 @@ fn pruneAndSortSectionsInSegment(self: *MachO, maybe_seg_id: *?u16, indices: []*
     for (indices) |maybe_index| {
         const old_idx = maybe_index.* orelse continue;
         const sect = &sections[old_idx];
-
-        // Recalculate section alignment and size if required.
-        const match = MatchingSection{
-            .seg = seg_id,
-            .sect = old_idx,
-        };
-        if (self.gc_sections.get(match)) |_| blk: {
-            sect.@"align" = 0;
-            sect.size = 0;
-
-            var atom = self.atoms.get(match) orelse break :blk;
-
-            while (atom.prev) |prev| {
-                atom = prev;
-            }
-
-            while (true) {
-                const atom_alignment = try math.powi(u32, 2, atom.alignment);
-                const aligned_end_addr = mem.alignForwardGeneric(u64, sect.size, atom_alignment);
-                const padding = aligned_end_addr - sect.size;
-                sect.size += padding + atom.size;
-                sect.@"align" = @maximum(sect.@"align", atom.alignment);
-
-                if (atom.next) |next| {
-                    atom = next;
-                } else break;
-            }
-        }
-
         if (sect.size == 0) {
             log.debug("pruning section {s},{s}", .{ sect.segName(), sect.sectName() });
             maybe_index.* = null;
@@ -5550,6 +5519,11 @@ fn gcAtoms(self: *MachO) !void {
         }
     }
 
+    // Any section that ends up here will be updated, that is,
+    // its size and alignment recalculated.
+    var gc_sections = std.AutoHashMap(MatchingSection, void).init(gpa);
+    defer gc_sections.deinit();
+
     atoms_it = self.atoms.iterator();
     while (atoms_it.next()) |entry| {
         const match = entry.key_ptr.*;
@@ -5602,22 +5576,54 @@ fn gcAtoms(self: *MachO) !void {
                 // account any padding that might have been left here.
                 sect.size -= atom.size;
 
+                _ = try gc_sections.put(match, {});
+
                 if (atom.prev) |prev| {
                     prev.next = atom.next;
                 }
                 if (atom.next) |next| {
                     next.prev = atom.prev;
                 } else {
-                    // TODO I think a null would be better here.
-                    // The section will be GCed in the next step.
-                    entry.value_ptr.* = if (atom.prev) |prev| prev else undefined;
+                    if (atom.prev) |prev| {
+                        entry.value_ptr.* = prev;
+                    } else {
+                        // The section will be GCed in the next step.
+                        entry.value_ptr.* = undefined;
+                        sect.size = 0;
+                    }
                 }
-
-                _ = try self.gc_sections.getOrPut(gpa, match);
             }
 
             if (orig_prev) |prev| {
                 atom = prev;
+            } else break;
+        }
+    }
+
+    var gc_sections_it = gc_sections.iterator();
+    while (gc_sections_it.next()) |entry| {
+        const match = entry.key_ptr.*;
+        const sect = self.getSectionPtr(match);
+        if (sect.size == 0) continue; // Pruning happens automatically in next step.
+
+        sect.@"align" = 0;
+        sect.size = 0;
+
+        var atom = self.atoms.get(match).?;
+
+        while (atom.prev) |prev| {
+            atom = prev;
+        }
+
+        while (true) {
+            const atom_alignment = try math.powi(u32, 2, atom.alignment);
+            const aligned_end_addr = mem.alignForwardGeneric(u64, sect.size, atom_alignment);
+            const padding = aligned_end_addr - sect.size;
+            sect.size += padding + atom.size;
+            sect.@"align" = @maximum(sect.@"align", atom.alignment);
+
+            if (atom.next) |next| {
+                atom = next;
             } else break;
         }
     }
