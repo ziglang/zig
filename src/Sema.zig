@@ -16278,8 +16278,6 @@ fn zirAlignCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     // TODO compile error if the result pointer is comptime known and would have an
     // alignment that disagrees with the Decl's alignment.
 
-    // TODO insert safety check that the alignment is correct
-
     const ptr_info = ptr_ty.ptrInfo().data;
     const dest_ty = try Type.ptr(sema.arena, sema.mod, .{
         .pointee_type = ptr_info.pointee_type,
@@ -16290,6 +16288,36 @@ fn zirAlignCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         .@"volatile" = ptr_info.@"volatile",
         .size = ptr_info.size,
     });
+
+    if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |val| {
+        if (try val.getUnsignedIntAdvanced(sema.mod.getTarget(), null)) |addr| {
+            if (addr % dest_align != 0) {
+                return sema.fail(block, ptr_src, "pointer address 0x{X} is not aligned to {d} bytes", .{ addr, dest_align });
+            }
+        }
+        return sema.addConstant(dest_ty, val);
+    }
+
+    try sema.requireRuntimeBlock(block, inst_data.src(), ptr_src);
+    if (block.wantSafety() and dest_align > 1) {
+        const val_payload = try sema.arena.create(Value.Payload.U64);
+        val_payload.* = .{
+            .base = .{ .tag = .int_u64 },
+            .data = dest_align - 1,
+        };
+        const align_minus_1 = try sema.addConstant(
+            Type.usize,
+            Value.initPayload(&val_payload.base),
+        );
+        const actual_ptr = if (ptr_ty.isSlice())
+            try sema.analyzeSlicePtr(block, ptr_src, ptr, ptr_ty)
+        else
+            ptr;
+        const ptr_int = try block.addUnOp(.ptrtoint, actual_ptr);
+        const remainder = try block.addBinOp(.bit_and, ptr_int, align_minus_1);
+        const is_aligned = try block.addBinOp(.cmp_eq, remainder, .zero_usize);
+        try sema.addSafetyCheck(block, is_aligned, .incorrect_alignment);
+    }
     return sema.coerceCompatiblePtrs(block, dest_ty, ptr, ptr_src);
 }
 
