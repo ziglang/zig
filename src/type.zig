@@ -2374,6 +2374,18 @@ pub const Type = extern union {
             .error_union,
             .error_set,
             .error_set_merged,
+            .anyframe_T,
+            .optional_single_mut_pointer,
+            .optional_single_const_pointer,
+            .single_const_pointer,
+            .single_mut_pointer,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .const_slice,
+            .mut_slice,
+            .pointer,
             => return true,
 
             // These are false because they are comptime-only types.
@@ -2398,30 +2410,6 @@ pub const Type = extern union {
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
             => return false,
-
-            // These types have more than one possible value, so the result is the same as
-            // asking whether they are comptime-only types.
-            .anyframe_T,
-            .optional_single_mut_pointer,
-            .optional_single_const_pointer,
-            .single_const_pointer,
-            .single_mut_pointer,
-            .many_const_pointer,
-            .many_mut_pointer,
-            .c_const_pointer,
-            .c_mut_pointer,
-            .const_slice,
-            .mut_slice,
-            .pointer,
-            => {
-                if (ignore_comptime_only) {
-                    return true;
-                } else if (sema_kit) |sk| {
-                    return !(try sk.sema.typeRequiresComptime(sk.block, sk.src, ty));
-                } else {
-                    return !comptimeOnly(ty);
-                }
-            },
 
             .optional => {
                 var buf: Payload.ElemType = undefined;
