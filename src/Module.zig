@@ -787,7 +787,7 @@ pub const Decl = struct {
                 const opaque_obj = ty.cast(Type.Payload.Opaque).?.data;
                 return &opaque_obj.namespace;
             },
-            .@"union", .union_tagged => {
+            .@"union", .union_safety_tagged, .union_tagged => {
                 const union_obj = ty.cast(Type.Payload.Union).?.data;
                 return &union_obj.namespace;
             },

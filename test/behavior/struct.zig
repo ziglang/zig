@@ -998,6 +998,9 @@ test "tuple element initialized with fn call" {
 }
 
 test "struct with union field" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
     const Value = struct {
         ref: u32 = 2,
         kind: union(enum) {

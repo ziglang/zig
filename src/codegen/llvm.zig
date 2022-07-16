@@ -3404,7 +3404,7 @@ pub const DeclGen = struct {
 
                 if (layout.payload_size == 0) {
                     return lowerValue(dg, .{
-                        .ty = tv.ty.unionTagType().?,
+                        .ty = tv.ty.unionTagTypeSafety().?,
                         .val = tag_and_val.tag,
                     });
                 }
@@ -3446,7 +3446,7 @@ pub const DeclGen = struct {
                     }
                 }
                 const llvm_tag_value = try lowerValue(dg, .{
-                    .ty = tv.ty.unionTagType().?,
+                    .ty = tv.ty.unionTagTypeSafety().?,
                     .val = tag_and_val.tag,
                 });
                 var fields: [3]*const llvm.Value = undefined;

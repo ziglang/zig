@@ -412,7 +412,7 @@ test "Type.Union" {
 
     const Untagged = @Type(.{
         .Union = .{
-            .layout = .Auto,
+            .layout = .Extern,
             .tag_type = null,
             .fields = &.{
                 .{ .name = "int", .field_type = i32, .alignment = @alignOf(f32) },

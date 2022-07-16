@@ -1729,7 +1729,7 @@ fn structInitExprRlPtrInner(
     for (struct_init.ast.fields) |field_init| {
         const name_token = tree.firstToken(field_init) - 2;
         const str_index = try astgen.identAsString(name_token);
-        const field_ptr = try gz.addPlNode(.field_ptr, field_init, Zir.Inst.Field{
+        const field_ptr = try gz.addPlNode(.field_ptr_init, field_init, Zir.Inst.Field{
             .lhs = result_ptr,
             .field_name_start = str_index,
         });
@@ -2287,6 +2287,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .elem_ptr_imm,
             .elem_val_node,
             .field_ptr,
+            .field_ptr_init,
             .field_val,
             .field_call_bind,
             .field_ptr_named,

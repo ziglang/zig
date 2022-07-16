@@ -1,9 +1,11 @@
 const std = @import("std");
 
 pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
-    _ = message;
     _ = stack_trace;
-    std.process.exit(0);
+    if (std.mem.eql(u8, message, "access of inactive union field")) {
+        std.process.exit(0);
+    }
+    std.process.exit(1);
 }
 
 const Foo = union {
@@ -21,5 +23,5 @@ fn bar(f: *Foo) void {
     f.float = 12.34;
 }
 // run
-// backend=stage1
+// backend=llvm
 // target=native
