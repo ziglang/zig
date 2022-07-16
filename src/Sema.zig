@@ -15938,7 +15938,16 @@ fn zirFloatToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     }
 
     try sema.requireRuntimeBlock(block, inst_data.src(), operand_src);
-    return block.addTyOp(.float_to_int, dest_ty, operand);
+    const result = try block.addTyOp(.float_to_int, dest_ty, operand);
+    if (block.wantSafety()) {
+        const back = try block.addTyOp(.int_to_float, operand_ty, result);
+        const diff = try block.addBinOp(.sub, operand, back);
+        const ok_pos = try block.addBinOp(.cmp_lt, diff, try sema.addConstant(operand_ty, Value.one));
+        const ok_neg = try block.addBinOp(.cmp_gt, diff, try sema.addConstant(operand_ty, Value.negative_one));
+        const ok = try block.addBinOp(.bool_and, ok_pos, ok_neg);
+        try sema.addSafetyCheck(block, ok, .integer_part_out_of_bounds);
+    }
+    return result;
 }
 
 fn zirIntToFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -18924,6 +18933,7 @@ pub const PanicId = enum {
     exact_division_remainder,
     /// TODO make this call `std.builtin.panicInactiveUnionField`.
     inactive_union_field,
+    integer_part_out_of_bounds,
 };
 
 fn addSafetyCheck(
@@ -19147,6 +19157,7 @@ fn safetyPanic(
         .remainder_division_zero_negative => "remainder division by zero or negative value",
         .exact_division_remainder => "exact division produced remainder",
         .inactive_union_field => "access of inactive union field",
+        .integer_part_out_of_bounds => "integer part of floating point value out of bounds",
     };
 
     const msg_inst = msg_inst: {
