@@ -935,12 +935,32 @@ pub const Struct = struct {
         /// If true then `default_val` is the comptime field value.
         is_comptime: bool,
 
-        /// Returns the field alignment, assuming the struct is not packed.
-        pub fn normalAlignment(field: Field, target: Target) u32 {
-            if (field.abi_align == 0) {
-                return field.ty.abiAlignment(target);
-            } else {
+        /// Returns the field alignment. If the struct is packed, returns 0.
+        pub fn alignment(
+            field: Field,
+            target: Target,
+            layout: std.builtin.Type.ContainerLayout,
+        ) u32 {
+            if (field.abi_align != 0) {
+                assert(layout != .Packed);
                 return field.abi_align;
+            }
+
+            switch (layout) {
+                .Packed => return 0,
+                .Auto => return field.ty.abiAlignment(target),
+                .Extern => {
+                    // This logic is duplicated in Type.abiAlignmentAdvanced.
+                    const ty_abi_align = field.ty.abiAlignment(target);
+
+                    if (field.ty.isAbiInt() and field.ty.intInfo(target).bits >= 128) {
+                        // The C ABI requires 128 bit integer fields of structs
+                        // to be 16-bytes aligned.
+                        return @maximum(ty_abi_align, 16);
+                    }
+
+                    return ty_abi_align;
+                },
             }
         }
     };

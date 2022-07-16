@@ -143,6 +143,19 @@ test "alignment and size of structs with 128-bit fields" {
         .riscv64,
         .sparc64,
         .x86_64,
+        => .{
+            .a_align = 8,
+            .a_size = 16,
+
+            .b_align = 16,
+            .b_size = 32,
+
+            .u128_align = 8,
+            .u128_size = 16,
+            .u129_align = 8,
+            .u129_size = 24,
+        },
+
         .aarch64,
         .aarch64_be,
         .aarch64_32,
@@ -166,17 +179,17 @@ test "alignment and size of structs with 128-bit fields" {
         else => return error.SkipZigTest,
     };
     comptime {
-        std.debug.assert(@alignOf(A) == expected.a_align);
-        std.debug.assert(@sizeOf(A) == expected.a_size);
+        assert(@alignOf(A) == expected.a_align);
+        assert(@sizeOf(A) == expected.a_size);
 
-        std.debug.assert(@alignOf(B) == expected.b_align);
-        std.debug.assert(@sizeOf(B) == expected.b_size);
+        assert(@alignOf(B) == expected.b_align);
+        assert(@sizeOf(B) == expected.b_size);
 
-        std.debug.assert(@alignOf(u128) == expected.u128_align);
-        std.debug.assert(@sizeOf(u128) == expected.u128_size);
+        assert(@alignOf(u128) == expected.u128_align);
+        assert(@sizeOf(u128) == expected.u128_size);
 
-        std.debug.assert(@alignOf(u129) == expected.u129_align);
-        std.debug.assert(@sizeOf(u129) == expected.u129_size);
+        assert(@alignOf(u129) == expected.u129_align);
+        assert(@sizeOf(u129) == expected.u129_size);
     }
 }
 

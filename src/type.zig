@@ -3017,6 +3017,15 @@ pub const Type = extern union {
                         },
                     };
                     big_align = @maximum(big_align, field_align);
+
+                    // This logic is duplicated in Module.Struct.Field.alignment.
+                    if (struct_obj.layout == .Extern) {
+                        if (field.ty.isAbiInt() and field.ty.intInfo(target).bits >= 128) {
+                            // The C ABI requires 128 bit integer fields of structs
+                            // to be 16-bytes aligned.
+                            big_align = @maximum(big_align, 16);
+                        }
+                    }
                 }
                 return AbiAlignmentAdvanced{ .scalar = big_align };
             },
@@ -5490,7 +5499,7 @@ pub const Type = extern union {
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
                 assert(struct_obj.layout != .Packed);
-                return struct_obj.fields.values()[index].normalAlignment(target);
+                return struct_obj.fields.values()[index].alignment(target, struct_obj.layout);
             },
             .@"union", .union_safety_tagged, .union_tagged => {
                 const union_obj = ty.cast(Payload.Union).?.data;
@@ -5597,7 +5606,7 @@ pub const Type = extern union {
             if (!field.ty.hasRuntimeBits() or field.is_comptime)
                 return FieldOffset{ .field = it.field, .offset = it.offset };
 
-            const field_align = field.normalAlignment(it.target);
+            const field_align = field.alignment(it.target, it.struct_obj.layout);
             it.big_align = @maximum(it.big_align, field_align);
             it.offset = std.mem.alignForwardGeneric(u64, it.offset, field_align);
             defer it.offset += field.ty.abiSize(it.target);

@@ -1806,9 +1806,9 @@ pub const Target = struct {
                 else => 4,
             },
 
-            // For x86_64, LLVMABIAlignmentOfType(i128) reports 8. However I think 16
-            // is a better number for two reasons:
-            // 1. Better machine code when loading into SIMD register.
+            // For these, LLVMABIAlignmentOfType(i128) reports 8. Note that 16
+            // is a relevant number in three cases:
+            // 1. Different machine code instruction when loading into SIMD register.
             // 2. The C ABI wants 16 for extern structs.
             // 3. 16-byte cmpxchg needs 16-byte alignment.
             // Same logic for riscv64, powerpc64, mips64, sparc64.
@@ -1819,6 +1819,7 @@ pub const Target = struct {
             .mips64,
             .mips64el,
             .sparc64,
+            => 8,
 
             // Even LLVMABIAlignmentOfType(i128) agrees on these targets.
             .aarch64,
