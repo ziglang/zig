@@ -478,50 +478,59 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     defer if (!self.base.options.disable_lld_caching) man.deinit();
 
     var digest: [Cache.hex_digest_len]u8 = undefined;
-    var cache_miss: bool = self.cold_start;
+    man = comp.cache_parent.obtain();
+    self.base.releaseLock();
 
-    if (!self.base.options.disable_lld_caching) {
-        man = comp.cache_parent.obtain();
-        self.base.releaseLock();
+    man.hash.addListOfBytes(libs.keys());
 
-        man.hash.addListOfBytes(libs.keys());
+    _ = try man.hit();
+    digest = man.final();
 
-        _ = try man.hit();
-        digest = man.final();
-
-        var prev_digest_buf: [digest.len]u8 = undefined;
-        const prev_digest: []u8 = Cache.readSmallFile(
-            cache_dir_handle,
-            id_symlink_basename,
-            &prev_digest_buf,
-        ) catch |err| blk: {
-            log.debug("MachO Zld new_digest={s} error: {s}", .{
-                std.fmt.fmtSliceHexLower(&digest),
-                @errorName(err),
-            });
-            // Handle this as a cache miss.
-            break :blk prev_digest_buf[0..0];
-        };
+    var prev_digest_buf: [digest.len]u8 = undefined;
+    const prev_digest: []u8 = Cache.readSmallFile(
+        cache_dir_handle,
+        id_symlink_basename,
+        &prev_digest_buf,
+    ) catch |err| blk: {
+        log.debug("MachO Zld new_digest={s} error: {s}", .{
+            std.fmt.fmtSliceHexLower(&digest),
+            @errorName(err),
+        });
+        // Handle this as a cache miss.
+        break :blk prev_digest_buf[0..0];
+    };
+    const cache_miss: bool = cache_miss: {
         if (mem.eql(u8, prev_digest, &digest)) {
-            log.debug("MachO Zld digest={s} match - skipping parsing linker line objects", .{
+            log.debug("MachO Zld digest={s} match", .{
                 std.fmt.fmtSliceHexLower(&digest),
             });
-            self.base.lock = man.toOwnedLock();
-        } else {
-            log.debug("MachO Zld prev_digest={s} new_digest={s}", .{
-                std.fmt.fmtSliceHexLower(prev_digest),
-                std.fmt.fmtSliceHexLower(&digest),
-            });
-            // We are about to change the output file to be different, so we invalidate the build hash now.
-            cache_dir_handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
-                error.FileNotFound => {},
-                else => |e| return e,
-            };
-            cache_miss = true;
+            if (!self.cold_start) {
+                log.debug("  skipping parsing linker line objects", .{});
+                break :cache_miss false;
+            } else {
+                log.debug("  TODO parse prelinked binary and continue linking where we left off", .{});
+            }
         }
-    }
+        log.debug("MachO Zld prev_digest={s} new_digest={s}", .{
+            std.fmt.fmtSliceHexLower(prev_digest),
+            std.fmt.fmtSliceHexLower(&digest),
+        });
+        // We are about to change the output file to be different, so we invalidate the build hash now.
+        cache_dir_handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
+            error.FileNotFound => {},
+            else => |e| return e,
+        };
+        break :cache_miss true;
+    };
 
     if (cache_miss) {
+        for (self.dylibs.items) |*dylib| {
+            dylib.deinit(self.base.allocator);
+        }
+        self.dylibs.clearRetainingCapacity();
+        self.dylibs_map.clearRetainingCapacity();
+        self.referenced_dylibs.clearRetainingCapacity();
+
         var dependent_libs = std.fifo.LinearFifo(struct {
             id: Dylib.Id,
             parent: u16,
@@ -607,7 +616,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
             try self.snapshotState();
     }
 
-    if (!self.base.options.disable_lld_caching and cache_miss) {
+    if (cache_miss) {
         // Update the file with the digest. If it fails we can continue; it only
         // means that the next invocation will have an unnecessary cache miss.
         Cache.writeSmallFile(cache_dir_handle, id_symlink_basename, &digest) catch |err| {
