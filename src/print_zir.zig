@@ -2381,10 +2381,12 @@ const Writer = struct {
                 .parent_decl_node = self.parent_decl_node,
                 .lazy = src,
             };
-            const abs_byte_off = src_loc.byteOffset(self.gpa) catch unreachable;
-            const delta_line = std.zig.findLineColumn(tree.source, abs_byte_off);
-            try stream.print("{s}:{d}:{d}", .{
-                @tagName(src), delta_line.line + 1, delta_line.column + 1,
+            const src_span = src_loc.span(self.gpa) catch unreachable;
+            const start = std.zig.findLineColumn(tree.source, src_span.start);
+            const end = std.zig.findLineColumn(tree.source, src_span.end);
+            try stream.print("{s}:{d}:{d} to :{d}:{d}", .{
+                @tagName(src), start.line + 1, start.column + 1,
+                end.line + 1,  end.column + 1,
             });
         }
     }

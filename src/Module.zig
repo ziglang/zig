@@ -2082,60 +2082,65 @@ pub const SrcLoc = struct {
         return @bitCast(Ast.Node.Index, offset + @bitCast(i32, src_loc.parent_decl_node));
     }
 
-    pub fn byteOffset(src_loc: SrcLoc, gpa: Allocator) !u32 {
+    pub const Span = struct {
+        start: u32,
+        end: u32,
+        main: u32,
+    };
+
+    pub fn span(src_loc: SrcLoc, gpa: Allocator) !Span {
         switch (src_loc.lazy) {
             .unneeded => unreachable,
-            .entire_file => return 0,
+            .entire_file => return Span{ .start = 0, .end = 1, .main = 0 },
 
-            .byte_abs => |byte_index| return byte_index,
+            .byte_abs => |byte_index| return Span{ .start = byte_index, .end = byte_index + 1, .main = byte_index },
 
             .token_abs => |tok_index| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
+                const start = tree.tokens.items(.start)[tok_index];
+                const end = start + @intCast(u32, tree.tokenSlice(tok_index).len);
+                return Span{ .start = start, .end = end, .main = start };
             },
             .node_abs => |node| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const token_starts = tree.tokens.items(.start);
-                const tok_index = tree.firstToken(node);
-                return token_starts[tok_index];
+                return nodeToSpan(tree, node);
             },
             .byte_offset => |byte_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[src_loc.declSrcToken()] + byte_off;
+                const tok_index = src_loc.declSrcToken();
+                const start = tree.tokens.items(.start)[tok_index] + byte_off;
+                const end = start + @intCast(u32, tree.tokenSlice(tok_index).len);
+                return Span{ .start = start, .end = end, .main = start };
             },
             .token_offset => |tok_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const tok_index = src_loc.declSrcToken() + tok_off;
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
+                const start = tree.tokens.items(.start)[tok_index];
+                const end = start + @intCast(u32, tree.tokenSlice(tok_index).len);
+                return Span{ .start = start, .end = end, .main = start };
             },
             .node_offset => |traced_off| {
                 const node_off = traced_off.x;
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 assert(src_loc.file_scope.tree_loaded);
-                const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[node];
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
+                return nodeToSpan(tree, node);
             },
             .node_offset_bin_op => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 assert(src_loc.file_scope.tree_loaded);
-                const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[node];
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
+                return nodeToSpan(tree, node);
             },
-            .node_offset_back2tok => |node_off| {
+            .node_offset_initializer => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                const tok_index = tree.firstToken(node) - 2;
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
+                return tokensToSpan(
+                    tree,
+                    tree.firstToken(node) - 3,
+                    tree.lastToken(node),
+                    tree.nodes.items(.main_token)[node] - 2,
+                );
             },
             .node_offset_var_decl_ty => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -2148,14 +2153,13 @@ pub const SrcLoc = struct {
                     .aligned_var_decl => tree.alignedVarDecl(node),
                     else => unreachable,
                 };
-                const tok_index = if (full.ast.type_node != 0) blk: {
-                    const main_tokens = tree.nodes.items(.main_token);
-                    break :blk main_tokens[full.ast.type_node];
-                } else blk: {
-                    break :blk full.ast.mut_token + 1; // the name token
-                };
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
+                if (full.ast.type_node != 0) {
+                    return nodeToSpan(tree, full.ast.type_node);
+                }
+                const tok_index = full.ast.mut_token + 1; // the name token
+                const start = tree.tokens.items(.start)[tok_index];
+                const end = start + @intCast(u32, tree.tokenSlice(tok_index).len);
+                return Span{ .start = start, .end = end, .main = start };
             },
             .node_offset_builtin_call_arg0 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 0),
             .node_offset_builtin_call_arg1 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 1),
@@ -2167,10 +2171,7 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[node_datas[node].rhs];
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
+                return nodeToSpan(tree, node_datas[node].rhs);
             },
             .node_offset_slice_ptr,
             .node_offset_slice_start,
@@ -2186,18 +2187,14 @@ pub const SrcLoc = struct {
                     .slice_sentinel => tree.sliceSentinel(node),
                     else => unreachable,
                 };
-                const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[
-                    switch (src_loc.lazy) {
-                        .node_offset_slice_ptr => full.ast.sliced,
-                        .node_offset_slice_start => full.ast.start,
-                        .node_offset_slice_end => full.ast.end,
-                        .node_offset_slice_sentinel => full.ast.sentinel,
-                        else => unreachable,
-                    }
-                ];
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
+                const part_node = switch (src_loc.lazy) {
+                    .node_offset_slice_ptr => full.ast.sliced,
+                    .node_offset_slice_start => full.ast.start,
+                    .node_offset_slice_end => full.ast.end,
+                    .node_offset_slice_sentinel => full.ast.sentinel,
+                    else => unreachable,
+                };
+                return nodeToSpan(tree, part_node);
             },
             .node_offset_call_func => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -2219,10 +2216,7 @@ pub const SrcLoc = struct {
 
                     else => unreachable,
                 };
-                const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[full.ast.fn_expr];
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
+                return nodeToSpan(tree, full.ast.fn_expr);
             },
             .node_offset_field_name => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -2233,16 +2227,14 @@ pub const SrcLoc = struct {
                     .field_access => node_datas[node].rhs,
                     else => tree.firstToken(node) - 2,
                 };
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
+                const start = tree.tokens.items(.start)[tok_index];
+                const end = start + @intCast(u32, tree.tokenSlice(tok_index).len);
+                return Span{ .start = start, .end = end, .main = start };
             },
             .node_offset_deref_ptr => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_datas = tree.nodes.items(.data);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                const tok_index = node_datas[node].lhs;
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
+                return nodeToSpan(tree, node);
             },
             .node_offset_asm_source => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -2253,10 +2245,7 @@ pub const SrcLoc = struct {
                     .@"asm" => tree.asmFull(node),
                     else => unreachable,
                 };
-                const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[full.ast.template];
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
+                return nodeToSpan(tree, full.ast.template);
             },
             .node_offset_asm_ret_ty => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -2269,11 +2258,7 @@ pub const SrcLoc = struct {
                 };
                 const asm_output = full.outputs[0];
                 const node_datas = tree.nodes.items(.data);
-                const ret_ty_node = node_datas[asm_output].lhs;
-                const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[ret_ty_node];
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
+                return nodeToSpan(tree, node_datas[asm_output].lhs);
             },
 
             .node_offset_for_cond, .node_offset_if_cond => |node_off| {
@@ -2290,41 +2275,26 @@ pub const SrcLoc = struct {
                     .@"for" => tree.forFull(node).ast.cond_expr,
                     else => unreachable,
                 };
-                const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[src_node];
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
+                return nodeToSpan(tree, src_node);
             },
             .node_offset_bin_lhs => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const node_datas = tree.nodes.items(.data);
-                const src_node = node_datas[node].lhs;
-                const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[src_node];
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
+                return nodeToSpan(tree, node_datas[node].lhs);
             },
             .node_offset_bin_rhs => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const node_datas = tree.nodes.items(.data);
-                const src_node = node_datas[node].rhs;
-                const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[src_node];
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
+                return nodeToSpan(tree, node_datas[node].rhs);
             },
 
             .node_offset_switch_operand => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const node_datas = tree.nodes.items(.data);
-                const src_node = node_datas[node].lhs;
-                const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[src_node];
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
+                return nodeToSpan(tree, node_datas[node].lhs);
             },
 
             .node_offset_switch_special_prong => |node_off| {
@@ -2347,9 +2317,7 @@ pub const SrcLoc = struct {
                         mem.eql(u8, tree.tokenSlice(main_tokens[case.ast.values[0]]), "_"));
                     if (!is_special) continue;
 
-                    const tok_index = main_tokens[case_node];
-                    const token_starts = tree.tokens.items(.start);
-                    return token_starts[tok_index];
+                    return nodeToSpan(tree, case_node);
                 } else unreachable;
             },
 
@@ -2375,9 +2343,7 @@ pub const SrcLoc = struct {
 
                     for (case.ast.values) |item_node| {
                         if (node_tags[item_node] == .switch_range) {
-                            const tok_index = main_tokens[item_node];
-                            const token_starts = tree.tokens.items(.start);
-                            return token_starts[tok_index];
+                            return nodeToSpan(tree, item_node);
                         }
                     }
                 } else unreachable;
@@ -2403,10 +2369,7 @@ pub const SrcLoc = struct {
                     },
                     else => unreachable,
                 };
-                const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[full.ast.callconv_expr];
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
+                return nodeToSpan(tree, full.ast.callconv_expr);
             },
 
             .node_offset_fn_type_ret_ty => |node_off| {
@@ -2421,21 +2384,14 @@ pub const SrcLoc = struct {
                     .fn_proto => tree.fnProto(node),
                     else => unreachable,
                 };
-                const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[full.ast.return_type];
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
+                return nodeToSpan(tree, full.ast.return_type);
             },
 
             .node_offset_anyframe_type => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
-                const node = node_datas[parent_node].rhs;
-                const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[node];
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
+                return nodeToSpan(tree, node_datas[parent_node].rhs);
             },
 
             .node_offset_lib_name => |node_off| {
@@ -2462,8 +2418,9 @@ pub const SrcLoc = struct {
                     else => unreachable,
                 };
                 const tok_index = full.lib_name.?;
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
+                const start = tree.tokens.items(.start)[tok_index];
+                const end = start + @intCast(u32, tree.tokenSlice(tok_index).len);
+                return Span{ .start = start, .end = end, .main = start };
             },
 
             .node_offset_array_type_len => |node_off| {
@@ -2476,11 +2433,7 @@ pub const SrcLoc = struct {
                     .array_type_sentinel => tree.arrayTypeSentinel(parent_node),
                     else => unreachable,
                 };
-                const node = full.ast.elem_count;
-                const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[node];
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
+                return nodeToSpan(tree, full.ast.elem_count);
             },
             .node_offset_array_type_sentinel => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -2492,11 +2445,7 @@ pub const SrcLoc = struct {
                     .array_type_sentinel => tree.arrayTypeSentinel(parent_node),
                     else => unreachable,
                 };
-                const node = full.ast.sentinel;
-                const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[node];
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
+                return nodeToSpan(tree, full.ast.sentinel);
             },
             .node_offset_array_type_elem => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -2508,21 +2457,14 @@ pub const SrcLoc = struct {
                     .array_type_sentinel => tree.arrayTypeSentinel(parent_node),
                     else => unreachable,
                 };
-                const node = full.ast.elem_type;
-                const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[node];
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
+                return nodeToSpan(tree, full.ast.elem_type);
             },
             .node_offset_un_op => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
 
-                const main_tokens = tree.nodes.items(.main_token);
-                const tok_index = main_tokens[node_datas[node].lhs];
-                const token_starts = tree.tokens.items(.start);
-                return token_starts[tok_index];
+                return nodeToSpan(tree, node_datas[node].lhs);
             },
         }
     }
@@ -2532,7 +2474,7 @@ pub const SrcLoc = struct {
         gpa: Allocator,
         node_off: i32,
         arg_index: u32,
-    ) !u32 {
+    ) !Span {
         const tree = try src_loc.file_scope.getTree(gpa);
         const node_datas = tree.nodes.items(.data);
         const node_tags = tree.nodes.items(.tag);
@@ -2546,10 +2488,36 @@ pub const SrcLoc = struct {
             .builtin_call, .builtin_call_comma => tree.extra_data[node_datas[node].lhs + arg_index],
             else => unreachable,
         };
-        const main_tokens = tree.nodes.items(.main_token);
-        const tok_index = main_tokens[param];
+        return nodeToSpan(tree, param);
+    }
+
+    pub fn nodeToSpan(tree: *const Ast, node: u32) Span {
+        return tokensToSpan(
+            tree,
+            tree.firstToken(node),
+            tree.lastToken(node),
+            tree.nodes.items(.main_token)[node],
+        );
+    }
+
+    fn tokensToSpan(tree: *const Ast, start: Ast.TokenIndex, end: Ast.TokenIndex, main: Ast.TokenIndex) Span {
         const token_starts = tree.tokens.items(.start);
-        return token_starts[tok_index];
+        var start_tok = start;
+        var end_tok = end;
+
+        if (tree.tokensOnSameLine(start, end)) {
+            // do nothing
+        } else if (tree.tokensOnSameLine(start, main)) {
+            end_tok = main;
+        } else if (tree.tokensOnSameLine(main, end)) {
+            start_tok = main;
+        } else {
+            start_tok = main;
+            end_tok = main;
+        }
+        const start_off = token_starts[start_tok];
+        const end_off = token_starts[end_tok] + @intCast(u32, tree.tokenSlice(end_tok).len);
+        return Span{ .start = start_off, .end = end_off, .main = token_starts[main] };
     }
 };
 
@@ -2603,10 +2571,9 @@ pub const LazySrcLoc = union(enum) {
     /// from its containing Decl node AST index.
     /// The Decl is determined contextually.
     node_offset: TracedOffset,
-    /// The source location points to two tokens left of the first token of an AST node,
-    /// which is this value offset from its containing Decl node AST index.
+    /// The source location points to the beginning of a struct initializer.
     /// The Decl is determined contextually.
-    node_offset_back2tok: i32,
+    node_offset_initializer: i32,
     /// The source location points to a variable declaration type expression,
     /// found by taking this AST node index offset from the containing
     /// Decl AST node, which points to a variable declaration AST node. Next, navigate
@@ -2802,7 +2769,7 @@ pub const LazySrcLoc = union(enum) {
             .byte_offset,
             .token_offset,
             .node_offset,
-            .node_offset_back2tok,
+            .node_offset_initializer,
             .node_offset_var_decl_ty,
             .node_offset_for_cond,
             .node_offset_builtin_call_arg0,
@@ -3313,7 +3280,11 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
             .src_loc = .{
                 .file_scope = file,
                 .parent_decl_node = 0,
-                .lazy = .{ .byte_abs = token_starts[parse_err.token] + extra_offset },
+                .lazy = if (extra_offset == 0) .{
+                    .token_abs = parse_err.token,
+                } else .{
+                    .byte_abs = token_starts[parse_err.token] + extra_offset,
+                },
             },
             .msg = msg.toOwnedSlice(),
         };
@@ -3336,7 +3307,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
                 .src_loc = .{
                     .file_scope = file,
                     .parent_decl_node = 0,
-                    .lazy = .{ .byte_abs = token_starts[note.token] },
+                    .lazy = .{ .token_abs = note.token },
                 },
                 .msg = msg.toOwnedSlice(),
             };
