@@ -4372,7 +4372,7 @@ pub fn mmap(
         .BADF => unreachable, // Always a race condition.
         .OVERFLOW => unreachable, // The number of pages used for length + offset would overflow.
         .NODEV => return error.MemoryMappingNotSupported,
-        .INVAL => unreachable, // Invalid parameters to mmap()
+        .INVAL => return error.OutOfMemory, // Invalid parameters to mmap()
         .NOMEM => return error.OutOfMemory,
         else => return unexpectedErrno(err),
     }

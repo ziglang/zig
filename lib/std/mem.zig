@@ -3196,7 +3196,8 @@ pub fn alignForward(addr: usize, alignment: usize) usize {
 /// Round an address up to the nearest aligned address
 /// The alignment must be a power of 2 and greater than 0.
 pub fn alignForwardGeneric(comptime T: type, addr: T, alignment: T) T {
-return alignBackwardGeneric(T, addr +| (alignment - 1), alignment);
+    // Saturating addition due to possibility of operation causing a panic otherwise.
+    return alignBackwardGeneric(T, addr +| (alignment - 1), alignment);
 }
 
 /// Force an evaluation of the expression; this tries to prevent

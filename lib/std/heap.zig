@@ -317,7 +317,6 @@ const PageAllocator = struct {
 
         const max_drop_len = alignment - @minimum(alignment, mem.page_size);
         // Saturating subtraction due to possibility of operation causing a panic otherwise.
-        // Result is clamped between 0 and std.math.maxInt(usize).
         const alloc_len = if (max_drop_len <= aligned_len -| n)
             aligned_len
         else
