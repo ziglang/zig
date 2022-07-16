@@ -8092,6 +8092,7 @@ fn intCast(
                     const is_in_range = try block.addBinOp(.cmp_lte, diff_unsigned, dest_range);
                     break :ok is_in_range;
                 };
+                // TODO negative_to_unsigned?
                 try sema.addSafetyCheck(block, ok, .cast_truncated_data);
             } else {
                 const ok = if (is_vector) ok: {
@@ -8116,7 +8117,7 @@ fn intCast(
             const ok = if (is_vector) ok: {
                 const zero_val = try Value.Tag.repeated.create(sema.arena, Value.zero);
                 const zero_inst = try sema.addConstant(operand_ty, zero_val);
-                const is_in_range = try block.addCmpVector(operand, zero_inst, .lte, try sema.addType(operand_ty));
+                const is_in_range = try block.addCmpVector(operand, zero_inst, .gte, try sema.addType(operand_ty));
                 const all_in_range = try block.addInst(.{
                     .tag = .reduce,
                     .data = .{ .reduce = .{
@@ -8130,7 +8131,7 @@ fn intCast(
                 const is_in_range = try block.addBinOp(.cmp_gte, operand, zero_inst);
                 break :ok is_in_range;
             };
-            try sema.addSafetyCheck(block, ok, .cast_truncated_data);
+            try sema.addSafetyCheck(block, ok, .negative_to_unsigned);
         }
     }
     return block.addTyOp(.intcast, dest_ty, operand);
@@ -18849,6 +18850,7 @@ pub const PanicId = enum {
     incorrect_alignment,
     invalid_error_code,
     cast_truncated_data,
+    negative_to_unsigned,
     integer_overflow,
     shl_overflow,
     shr_overflow,
@@ -19069,6 +19071,7 @@ fn safetyPanic(
         .incorrect_alignment => "incorrect alignment",
         .invalid_error_code => "invalid error code",
         .cast_truncated_data => "integer cast truncated bits",
+        .negative_to_unsigned => "attempt to cast negative value to unsigned integer",
         .integer_overflow => "integer overflow",
         .shl_overflow => "left shift overflowed bits",
         .shr_overflow => "right shift overflowed bits",
