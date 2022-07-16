@@ -2181,29 +2181,41 @@ test "timeout_remove" {
 
     try testing.expectEqual(@as(u32, 2), try ring.submit());
 
-    const cqe_timeout = try ring.copy_cqe();
-    // IORING_OP_TIMEOUT_REMOVE is not supported by this kernel version:
-    // Timeout remove operations set the fd to -1, which results in EBADF before EINVAL.
-    // We use IORING_FEAT_RW_CUR_POS as a safety check here to make sure we are at least pre-5.6.
-    // We don't want to skip this test for newer kernels.
-    if (cqe_timeout.user_data == 0x99999999 and
-        cqe_timeout.err() == .BADF and
-        (ring.features & linux.IORING_FEAT_RW_CUR_POS) == 0)
-    {
-        return error.SkipZigTest;
-    }
-    try testing.expectEqual(linux.io_uring_cqe{
-        .user_data = 0x88888888,
-        .res = -@as(i32, @enumToInt(linux.E.CANCELED)),
-        .flags = 0,
-    }, cqe_timeout);
+    // The order in which the CQE arrive is not clearly documented and it changed with kernel 5.18:
+    // * kernel 5.10 gives user data 0x88888888 first, 0x99999999 second
+    // * kernel 5.18 gives user data 0x99999999 first, 0x88888888 second
 
-    const cqe_timeout_remove = try ring.copy_cqe();
-    try testing.expectEqual(linux.io_uring_cqe{
-        .user_data = 0x99999999,
-        .res = 0,
-        .flags = 0,
-    }, cqe_timeout_remove);
+    var cqes: [2]os.linux.io_uring_cqe = undefined;
+    try testing.expectEqual(@as(u32, 2), try ring.copy_cqes(cqes[0..], 2));
+
+    for (cqes) |cqe| {
+        // IORING_OP_TIMEOUT_REMOVE is not supported by this kernel version:
+        // Timeout remove operations set the fd to -1, which results in EBADF before EINVAL.
+        // We use IORING_FEAT_RW_CUR_POS as a safety check here to make sure we are at least pre-5.6.
+        // We don't want to skip this test for newer kernels.
+        if (cqe.user_data == 0x99999999 and
+            cqe.err() == .BADF and
+            (ring.features & linux.IORING_FEAT_RW_CUR_POS) == 0)
+        {
+            return error.SkipZigTest;
+        }
+
+        try testing.expect(cqe.user_data == 0x88888888 or cqe.user_data == 0x99999999);
+
+        if (cqe.user_data == 0x88888888) {
+            try testing.expectEqual(linux.io_uring_cqe{
+                .user_data = 0x88888888,
+                .res = -@as(i32, @enumToInt(linux.E.CANCELED)),
+                .flags = 0,
+            }, cqe);
+        } else if (cqe.user_data == 0x99999999) {
+            try testing.expectEqual(linux.io_uring_cqe{
+                .user_data = 0x99999999,
+                .res = 0,
+                .flags = 0,
+            }, cqe);
+        }
+    }
 }
 
 test "accept/connect/recv/link_timeout" {
@@ -2989,7 +3001,7 @@ test "remove_buffers" {
         try testing.expectEqual(@as(u64, 0xcccccccc), cqe.user_data);
     }
 
-    // Remove the first 3 buffers
+    // Remove 3 buffers
 
     {
         var sqe = try ring.remove_buffers(0xbababababa, 3, group_id);
@@ -3021,7 +3033,7 @@ test "remove_buffers" {
 
         try testing.expect(cqe.flags & linux.IORING_CQE_F_BUFFER == linux.IORING_CQE_F_BUFFER);
         const used_buffer_id = cqe.flags >> 16;
-        try testing.expectEqual(used_buffer_id, 0);
+        try testing.expect(used_buffer_id >= 0 and used_buffer_id < 4);
         try testing.expectEqual(@as(i32, buffer_len), cqe.res);
         try testing.expectEqual(@as(u64, 0xdfdfdfdf), cqe.user_data);
         try testing.expectEqualSlices(u8, &([_]u8{0} ** buffer_len), buffers[used_buffer_id][0..@intCast(usize, cqe.res)]);
