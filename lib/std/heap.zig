@@ -316,13 +316,9 @@ const PageAllocator = struct {
         }
 
         const max_drop_len = alignment - @minimum(alignment, mem.page_size);
-        // Subtract with overflow due to possibility of operation causing a panic otherwise.
+        // Saturating subtraction due to possibility of operation causing a panic otherwise.
         // Result is clamped between 0 and std.math.maxInt(usize).
-        const sub_res = brk: {
-            var res: usize = undefined;
-            break :brk if (@subWithOverflow(usize, aligned_len, n, &res)) 0 else res;
-        };
-        const alloc_len = if (max_drop_len <= sub_res)
+        const alloc_len = if (max_drop_len <= aligned_len -| n)
             aligned_len
         else
             mem.alignForward(aligned_len + max_drop_len, mem.page_size);
