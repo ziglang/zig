@@ -21246,8 +21246,8 @@ fn coerceInMemoryAllowed(
         if (child != .ok) {
             return InMemoryCoercionResult{ .optional_child = .{
                 .child = try child.dupe(sema.arena),
-                .actual = src_child_type,
-                .wanted = dest_child_type,
+                .actual = try src_child_type.copy(sema.arena),
+                .wanted = try dest_child_type.copy(sema.arena),
             } };
         }
 
