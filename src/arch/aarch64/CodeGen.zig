@@ -3190,14 +3190,14 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                         lib_name,
                     });
                 }
-                const global_index = try macho_file.getGlobalSymbol(mem.sliceTo(decl_name, 0));
+                const sym_index = try macho_file.getGlobalSymbol(mem.sliceTo(decl_name, 0));
 
                 _ = try self.addInst(.{
                     .tag = .call_extern,
                     .data = .{
-                        .extern_fn = .{
+                        .relocation = .{
                             .atom_index = mod.declPtr(self.mod_fn.owner_decl).link.macho.sym_index,
-                            .global_index = global_index,
+                            .sym_index = sym_index,
                         },
                     },
                 });

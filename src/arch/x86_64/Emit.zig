@@ -982,7 +982,7 @@ fn mirLeaPie(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     assert(tag == .lea_pie);
     const ops = emit.mir.instructions.items(.ops)[inst].decode();
-    const load_reloc = emit.mir.instructions.items(.data)[inst].load_reloc;
+    const relocation = emit.mir.instructions.items(.data)[inst].relocation;
 
     // lea reg1, [rip + reloc]
     // RM
@@ -1001,11 +1001,11 @@ fn mirLeaPie(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             0b01 => @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_SIGNED),
             else => return emit.fail("TODO unused LEA PIE variants 0b10 and 0b11", .{}),
         };
-        const atom = macho_file.atom_by_index_table.get(load_reloc.atom_index).?;
-        log.debug("adding reloc of type {} to local @{d}", .{ reloc_type, load_reloc.sym_index });
+        const atom = macho_file.atom_by_index_table.get(relocation.atom_index).?;
+        log.debug("adding reloc of type {} to local @{d}", .{ reloc_type, relocation.sym_index });
         try atom.relocs.append(emit.bin_file.allocator, .{
             .offset = @intCast(u32, end_offset - 4),
-            .target = .{ .sym_index = load_reloc.sym_index, .file = null },
+            .target = .{ .sym_index = relocation.sym_index, .file = null },
             .addend = 0,
             .subtractor = null,
             .pcrel = true,
@@ -1116,7 +1116,7 @@ fn mirCmpFloatAvx(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
 fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     assert(tag == .call_extern);
-    const extern_fn = emit.mir.instructions.items(.data)[inst].extern_fn;
+    const relocation = emit.mir.instructions.items(.data)[inst].relocation;
 
     const offset = blk: {
         // callq
@@ -1126,11 +1126,13 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
 
     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
         // Add relocation to the decl.
-        const atom = macho_file.atom_by_index_table.get(extern_fn.atom_index).?;
-        const target = macho_file.globals.values()[extern_fn.global_index];
+        const atom = macho_file.atom_by_index_table.get(relocation.atom_index).?;
         try atom.relocs.append(emit.bin_file.allocator, .{
             .offset = offset,
-            .target = target,
+            .target = .{
+                .sym_index = relocation.sym_index,
+                .file = null,
+            },
             .addend = 0,
             .subtractor = null,
             .pcrel = true,

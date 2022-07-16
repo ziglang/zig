@@ -71,7 +71,7 @@ dbg_info_atom: Dwarf.Atom,
 dirty: bool = true,
 
 pub const Binding = struct {
-    global_index: u32,
+    target: SymbolWithLoc,
     offset: u64,
 };
 
@@ -536,10 +536,8 @@ fn addPtrBindingOrRebase(
     const gpa = context.macho_file.base.allocator;
     const sym = context.macho_file.getSymbol(target);
     if (sym.undf()) {
-        const sym_name = context.macho_file.getSymbolName(target);
-        const global_index = @intCast(u32, context.macho_file.globals.getIndex(sym_name).?);
         try self.bindings.append(gpa, .{
-            .global_index = global_index,
+            .target = target,
             .offset = @intCast(u32, rel.r_address - context.base_offset),
         });
     } else {

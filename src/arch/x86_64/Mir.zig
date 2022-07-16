@@ -181,7 +181,7 @@ pub const Inst = struct {
         ///      0b00  reg1, [rip + reloc] // via GOT emits X86_64_RELOC_GOT relocation
         ///      0b01  reg1, [rip + reloc] // direct load emits X86_64_RELOC_SIGNED relocation
         /// Notes:
-        /// * `Data` contains `load_reloc`
+        /// * `Data` contains `relocation`
         lea_pie,
 
         /// ops flags: form:
@@ -368,7 +368,7 @@ pub const Inst = struct {
         /// Pseudo-instructions
         /// call extern function
         /// Notes:
-        ///   * target of the call is stored as `extern_fn` in `Data` union.
+        ///   * target of the call is stored as `relocation` in `Data` union.
         call_extern,
 
         /// end of prologue
@@ -439,15 +439,10 @@ pub const Inst = struct {
             /// A condition code for use with EFLAGS register.
             cc: bits.Condition,
         },
-        /// An extern function.
-        extern_fn: struct {
-            /// Index of the containing atom.
-            atom_index: u32,
-            /// Index into the linker's globals table.
-            global_index: u32,
-        },
-        /// PIE load relocation.
-        load_reloc: struct {
+        /// Relocation for the linker where:
+        /// * `atom_index` is the index of the source
+        /// * `sym_index` is the index of the target
+        relocation: struct {
             /// Index of the containing atom.
             atom_index: u32,
             /// Index into the linker's symbol table.

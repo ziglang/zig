@@ -153,6 +153,13 @@ rustc_section_size: u64 = 0,
 
 locals: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 globals: std.StringArrayHashMapUnmanaged(SymbolWithLoc) = .{},
+// FIXME Jakub
+// TODO storing index into globals might be dangerous if we delete a global
+// while not having everything resolved. Actually, perhaps `unresolved`
+// should not be stored at the global scope? Is this possible?
+// Otherwise, audit if this can be a problem.
+// An alternative, which I still need to investigate for perf reasons is to
+// store all global names in an adapted with context strtab.
 unresolved: std.AutoArrayHashMapUnmanaged(u32, bool) = .{},
 
 locals_free_list: std.ArrayListUnmanaged(u32) = .{},
@@ -2449,9 +2456,9 @@ pub fn createGotAtom(self: *MachO, target: SymbolWithLoc) !*Atom {
 
     const target_sym = self.getSymbol(target);
     if (target_sym.undf()) {
-        const global_index = @intCast(u32, self.globals.getIndex(self.getSymbolName(target)).?);
+        const global = self.globals.get(self.getSymbolName(target)).?;
         try atom.bindings.append(gpa, .{
-            .global_index = global_index,
+            .target = global,
             .offset = 0,
         });
     } else {
@@ -2483,9 +2490,10 @@ pub fn createTlvPtrAtom(self: *MachO, target: SymbolWithLoc) !*Atom {
     const atom = try MachO.createEmptyAtom(gpa, sym_index, @sizeOf(u64), 3);
     const target_sym = self.getSymbol(target);
     assert(target_sym.undf());
-    const global_index = @intCast(u32, self.globals.getIndex(self.getSymbolName(target)).?);
+
+    const global = self.globals.get(self.getSymbolName(target)).?;
     try atom.bindings.append(gpa, .{
-        .global_index = global_index,
+        .target = global,
         .offset = 0,
     });
 
@@ -2739,7 +2747,6 @@ pub fn createStubHelperAtom(self: *MachO) !*Atom {
 pub fn createLazyPointerAtom(self: *MachO, stub_sym_index: u32, target: SymbolWithLoc) !*Atom {
     const gpa = self.base.allocator;
     const sym_index = @intCast(u32, self.locals.items.len);
-    const global_index = @intCast(u32, self.globals.getIndex(self.getSymbolName(target)).?);
     try self.locals.append(gpa, .{
         .n_strx = 0,
         .n_type = macho.N_SECT,
@@ -2762,8 +2769,10 @@ pub fn createLazyPointerAtom(self: *MachO, stub_sym_index: u32, target: SymbolWi
         },
     });
     try atom.rebases.append(gpa, 0);
+
+    const global = self.globals.get(self.getSymbolName(target)).?;
     try atom.lazy_bindings.append(gpa, .{
-        .global_index = global_index,
+        .target = global,
         .offset = 0,
     });
 
@@ -4149,6 +4158,7 @@ pub fn deleteExport(self: *MachO, exp: Export) void {
     const sym = self.getSymbolPtr(sym_loc);
     const sym_name = self.getSymbolName(sym_loc);
     log.debug("deleting export '{s}'", .{sym_name});
+    assert(sym.sect() and sym.ext());
     sym.* = .{
         .n_strx = 0,
         .n_type = 0,
@@ -5307,7 +5317,9 @@ pub fn getGlobalSymbol(self: *MachO, name: []const u8) !u32 {
     defer if (gop.found_existing) gpa.free(sym_name);
 
     if (gop.found_existing) {
-        return @intCast(u32, self.globals.getIndex(sym_name).?);
+        // TODO audit this: can we ever reference anything from outside the Zig module?
+        assert(gop.value_ptr.file == null);
+        return gop.value_ptr.sym_index;
     }
 
     const sym_index = @intCast(u32, self.locals.items.len);
@@ -5324,7 +5336,7 @@ pub fn getGlobalSymbol(self: *MachO, name: []const u8) !u32 {
     };
     try self.unresolved.putNoClobber(gpa, global_index, true);
 
-    return global_index;
+    return sym_index;
 }
 
 fn getSegmentAllocBase(self: MachO, indices: []const ?u16) struct { vmaddr: u64, fileoff: u64 } {
@@ -5690,6 +5702,8 @@ fn updateSectionOrdinals(self: *MachO) !void {
         }
     }
 
+    // FIXME Jakub
+    // TODO no need for duping work here; simply walk the atom graph
     for (self.locals.items) |*sym| {
         if (sym.undf()) continue;
         if (sym.n_sect == 0) continue;
@@ -5735,11 +5749,12 @@ fn writeDyldInfoData(self: *MachO) !void {
             log.debug("dyld info for {s},{s}", .{ sect.segName(), sect.sectName() });
 
             while (true) {
-                log.debug("  ATOM %{d}", .{atom.sym_index});
+                log.debug("  ATOM(%{d}, '{s}')", .{ atom.sym_index, atom.getName(self) });
                 const sym = atom.getSymbol(self);
                 const base_offset = sym.n_value - seg.inner.vmaddr;
 
                 for (atom.rebases.items) |offset| {
+                    log.debug("    | rebase at {x}", .{base_offset + offset});
                     try rebase_pointers.append(.{
                         .offset = base_offset + offset,
                         .segment_id = match.seg,
@@ -5747,33 +5762,53 @@ fn writeDyldInfoData(self: *MachO) !void {
                 }
 
                 for (atom.bindings.items) |binding| {
-                    const global = self.globals.values()[binding.global_index];
-                    const bind_sym = self.getSymbol(global);
+                    const bind_sym = self.getSymbol(binding.target);
+                    const bind_sym_name = self.getSymbolName(binding.target);
+                    const dylib_ordinal = @divTrunc(
+                        @bitCast(i16, bind_sym.n_desc),
+                        macho.N_SYMBOL_RESOLVER,
+                    );
                     var flags: u4 = 0;
+                    log.debug("    | bind at {x}, import('{s}') in dylib({d})", .{
+                        binding.offset + base_offset,
+                        bind_sym_name,
+                        dylib_ordinal,
+                    });
                     if (bind_sym.weakRef()) {
+                        log.debug("    | marking as weak ref ", .{});
                         flags |= @truncate(u4, macho.BIND_SYMBOL_FLAGS_WEAK_IMPORT);
                     }
                     try bind_pointers.append(.{
                         .offset = binding.offset + base_offset,
                         .segment_id = match.seg,
-                        .dylib_ordinal = @divTrunc(@bitCast(i16, bind_sym.n_desc), macho.N_SYMBOL_RESOLVER),
-                        .name = self.getSymbolName(global),
+                        .dylib_ordinal = dylib_ordinal,
+                        .name = bind_sym_name,
                         .bind_flags = flags,
                     });
                 }
 
                 for (atom.lazy_bindings.items) |binding| {
-                    const global = self.globals.values()[binding.global_index];
-                    const bind_sym = self.getSymbol(global);
+                    const bind_sym = self.getSymbol(binding.target);
+                    const bind_sym_name = self.getSymbolName(binding.target);
+                    const dylib_ordinal = @divTrunc(
+                        @bitCast(i16, bind_sym.n_desc),
+                        macho.N_SYMBOL_RESOLVER,
+                    );
                     var flags: u4 = 0;
+                    log.debug("    | lazy bind at {x} import('{s}') ord({d})", .{
+                        binding.offset + base_offset,
+                        bind_sym_name,
+                        dylib_ordinal,
+                    });
                     if (bind_sym.weakRef()) {
+                        log.debug("    | marking as weak ref ", .{});
                         flags |= @truncate(u4, macho.BIND_SYMBOL_FLAGS_WEAK_IMPORT);
                     }
                     try lazy_bind_pointers.append(.{
                         .offset = binding.offset + base_offset,
                         .segment_id = match.seg,
-                        .dylib_ordinal = @divTrunc(@bitCast(i16, bind_sym.n_desc), macho.N_SYMBOL_RESOLVER),
-                        .name = self.getSymbolName(global),
+                        .dylib_ordinal = dylib_ordinal,
+                        .name = bind_sym_name,
                         .bind_flags = flags,
                     });
                 }

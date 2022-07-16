@@ -649,7 +649,7 @@ fn mirDebugEpilogueBegin(self: *Emit) !void {
 
 fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) !void {
     assert(emit.mir.instructions.items(.tag)[inst] == .call_extern);
-    const extern_fn = emit.mir.instructions.items(.data)[inst].extern_fn;
+    const relocation = emit.mir.instructions.items(.data)[inst].relocation;
 
     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
         const offset = blk: {
@@ -659,11 +659,13 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) !void {
             break :blk offset;
         };
         // Add relocation to the decl.
-        const atom = macho_file.atom_by_index_table.get(extern_fn.atom_index).?;
-        const target = macho_file.globals.values()[extern_fn.global_index];
+        const atom = macho_file.atom_by_index_table.get(relocation.atom_index).?;
         try atom.relocs.append(emit.bin_file.allocator, .{
             .offset = offset,
-            .target = target,
+            .target = .{
+                .sym_index = relocation.sym_index,
+                .file = null,
+            },
             .addend = 0,
             .subtractor = null,
             .pcrel = true,
