@@ -3196,7 +3196,10 @@ pub fn alignForward(addr: usize, alignment: usize) usize {
 /// Round an address up to the nearest aligned address
 /// The alignment must be a power of 2 and greater than 0.
 pub fn alignForwardGeneric(comptime T: type, addr: T, alignment: T) T {
-    return alignBackwardGeneric(T, addr + (alignment - 1), alignment);
+    var result: T = undefined;
+    // Add with overflow due to possibility of addr + alignment - 1 being larger than std.math.maxInt(T).
+    // result is clamped between 0 and std.math.maxInt(usize).
+    return alignBackwardGeneric(T, if (@addWithOverflow(T, addr, alignment - 1, &result)) std.math.maxInt(T) else result, alignment);
 }
 
 /// Force an evaluation of the expression; this tries to prevent

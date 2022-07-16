@@ -971,6 +971,7 @@ test "large allocations" {
     const ptr3 = try allocator.alloc(u64, 62768);
     allocator.free(ptr3);
     allocator.free(ptr2);
+    try std.testing.expectError(error.OutOfMemory, allocator.alloc(u8, std.math.maxInt(usize))); // equivalent to std.testing.allocator
 }
 
 test "realloc" {
