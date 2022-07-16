@@ -7,7 +7,6 @@
 # CLANG_LIBRARIES
 # CLANG_LIBDIRS
 
-#TODO: FIXME
 find_path(CLANG_INCLUDE_DIRS NAMES clang/Frontend/ASTUnit.h
   HINTS ${LLVM_INCLUDE_DIRS}
   NO_DEFAULT_PATH # Only look for clang next to LLVM

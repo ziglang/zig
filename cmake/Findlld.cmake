@@ -8,12 +8,22 @@
 
 find_path(LLD_INCLUDE_DIRS NAMES lld/Common/Driver.h
     HINTS ${LLVM_INCLUDE_DIRS}
-    NO_DEFAULT_PATH # Only look for LLD next to LLVM
-)
+    PATHS
+        /usr/lib/llvm-14/include
+        /usr/local/llvm140/include
+        /usr/local/llvm14/include
+        /usr/local/opt/llvm@14/include
+        /opt/homebrew/opt/llvm@14/include
+        /mingw64/include)
 
 find_library(LLD_LIBRARY NAMES lld-14.0 lld140 lld NAMES_PER_DIR
     HINTS ${LLVM_LIBDIRS}
-    NO_DEFAULT_PATH # Only look for LLD next to LLVM
+    PATHS
+        /usr/lib/llvm-14/lib
+        /usr/local/llvm140/lib
+        /usr/local/llvm14/lib
+        /usr/local/opt/llvm@14/lib
+        /opt/homebrew/opt/llvm@14/lib
 )
 if(EXISTS ${LLD_LIBRARY})
     set(LLD_LIBRARIES ${LLD_LIBRARY})
@@ -22,8 +32,16 @@ else()
         string(TOUPPER ${_libname_} _prettylibname_)
         find_library(LLD_${_prettylibname_}_LIB NAMES ${_libname_} NAMES_PER_DIR
             HINTS ${LLVM_LIBDIRS}
-            NO_DEFAULT_PATH # Only look for LLD next to LLVM
-        )
+            PATHS
+                ${LLD_LIBDIRS}
+                /usr/lib/llvm-14/lib
+                /usr/local/llvm140/lib
+                /usr/local/llvm14/lib
+                /usr/local/opt/llvm@14/lib
+                /opt/homebrew/opt/llvm@14/lib
+                /mingw64/lib
+                /c/msys64/mingw64/lib
+                c:/msys64/mingw64/lib)
         if(LLD_${_prettylibname_}_LIB)
             set(LLD_LIBRARIES ${LLD_LIBRARIES} ${LLD_${_prettylibname_}_LIB})
         endif()

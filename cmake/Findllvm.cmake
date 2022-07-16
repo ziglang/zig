@@ -56,7 +56,7 @@ if(ZIG_USE_LLVM_CONFIG)
         COMMAND ${LLVM_CONFIG_EXE} --libs ${STATIC_OR_SHARED_LINK}
         OUTPUT_QUIET
         ERROR_VARIABLE LLVM_CONFIG_ERROR
-        OUTPUT_STRIP_TRAILING_WHITESPACE)
+        ERROR_STRIP_TRAILING_WHITESPACE)
 
       if (LLVM_CONFIG_ERROR) 
         # Save the error message, in case this is the last llvm-config we find
@@ -125,6 +125,12 @@ if(ZIG_USE_LLVM_CONFIG)
     string(REPLACE " " ";" LLVM_LIBDIRS "${LLVM_LIBDIRS_SPACES}")
 
     execute_process(
+        COMMAND ${LLVM_CONFIG_EXE} --system-libs ${STATIC_OR_SHARED_LINK}
+        OUTPUT_VARIABLE LLVM_SYSTEM_LIBS_SPACES
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    string(REPLACE " " ";" LLVM_SYSTEM_LIBS "${LLVM_SYSTEM_LIBS_SPACES}")
+
+    execute_process(
       COMMAND ${LLVM_CONFIG_EXE} --shared-mode ${STATIC_OR_SHARED_LINK}
       OUTPUT_VARIABLE LLVM_LINK_MODE
       OUTPUT_STRIP_TRAILING_WHITESPACE)
@@ -142,34 +148,38 @@ if(ZIG_USE_LLVM_CONFIG)
     string(REPLACE " " ";" LLVM_LIBDIRS "${LLVM_LIBDIRS_SPACES}")
 
     execute_process(
+        COMMAND ${LLVM_CONFIG_EXE} --system-libs
+        OUTPUT_VARIABLE LLVM_SYSTEM_LIBS_SPACES
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    string(REPLACE " " ";" LLVM_SYSTEM_LIBS "${LLVM_SYSTEM_LIBS_SPACES}")
+
+    execute_process(
       COMMAND ${LLVM_CONFIG_EXE} --shared-mode
       OUTPUT_VARIABLE LLVM_LINK_MODE
       OUTPUT_STRIP_TRAILING_WHITESPACE)
   endif()
 
-  # We always ask for the system libs corresponding to static linking,
-  # since we always statically link LLD which needs these libraries
-  execute_process(
-      COMMAND ${LLVM_CONFIG_EXE} --system-libs --link-static
-      OUTPUT_VARIABLE LLVM_SYSTEM_LIBS_SPACES
-      OUTPUT_STRIP_TRAILING_WHITESPACE)
-  string(REPLACE " " ";" LLVM_SYSTEM_LIBS "${LLVM_SYSTEM_LIBS_SPACES}")
+  if (${LLVM_LINK_MODE} STREQUAL "shared")
+    # We always ask for the system libs corresponding to static linking,
+    # since on some distros LLD is only available as a static library
+    # and we need these libraries to link it successfully
+    execute_process(
+        COMMAND ${LLVM_CONFIG_EXE} --system-libs --link-static
+        OUTPUT_VARIABLE LLVM_STATIC_SYSTEM_LIBS_SPACES
+        ERROR_QUIET # Some installations have no static libs, we just ignore the failure
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    string(REPLACE " " ";" LLVM_STATIC_SYSTEM_LIBS "${LLVM_STATIC_SYSTEM_LIBS_SPACES}")
 
-  set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_SYSTEM_LIBS})
+    set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_SYSTEM_LIBS} ${LLVM_STATIC_SYSTEM_LIBS})
+  else()
+    set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_SYSTEM_LIBS})
+  endif()
 
   execute_process(
       COMMAND ${LLVM_CONFIG_EXE} --includedir
       OUTPUT_VARIABLE LLVM_INCLUDE_DIRS_SPACES
       OUTPUT_STRIP_TRAILING_WHITESPACE)
   string(REPLACE " " ";" LLVM_INCLUDE_DIRS "${LLVM_INCLUDE_DIRS_SPACES}")
-
-  if(NOT LLVM_LIBRARIES)
-    find_library(LLVM_LIBRARIES
-      NAMES LLVM LLVM-14 LLVM-14.0 NAMES_PER_DIR
-      HINTS "${LLVM_CONFIG_DIR}/../lib" "${LLVM_CONFIG_DIR}/../lib64" "${LLVM_CONFIG_DIR}/../${CMAKE_LIBRARY_ARCHITECTURE}")
-
-    # TODO: Make this fallthrough work
-  endif()
 
   link_directories("${CMAKE_PREFIX_PATH}/lib")
   link_directories("${LLVM_LIBDIRS}")
