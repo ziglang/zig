@@ -225,14 +225,16 @@ pub const Inst = struct {
         ///
         /// Used by e.g. b
         inst: Index,
-        /// An extern function
+        /// Relocation for the linker where:
+        /// * `atom_index` is the index of the source
+        /// * `sym_index` is the index of the target
         ///
         /// Used by e.g. call_extern
-        extern_fn: struct {
+        relocation: struct {
             /// Index of the containing atom.
             atom_index: u32,
             /// Index into the linker's string table.
-            global_index: u32,
+            sym_index: u32,
         },
         /// A 16-bit immediate value.
         ///
