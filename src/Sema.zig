@@ -11917,6 +11917,47 @@ fn analyzeArithmetic(
             },
             else => {},
         }
+        if (rs.air_tag == .div_exact) {
+            const result = try block.addBinOp(.div_exact, casted_lhs, casted_rhs);
+            const ok = if (scalar_tag == .Float) ok: {
+                const floored = try block.addUnOp(.floor, result);
+
+                if (resolved_type.zigTypeTag() == .Vector) {
+                    const eql = try block.addCmpVector(result, floored, .eq, try sema.addType(resolved_type));
+                    break :ok try block.addInst(.{
+                        .tag = .reduce,
+                        .data = .{ .reduce = .{
+                            .operand = eql,
+                            .operation = .And,
+                        } },
+                    });
+                } else {
+                    const is_in_range = try block.addBinOp(.cmp_eq, result, floored);
+                    break :ok is_in_range;
+                }
+            } else ok: {
+                const remainder = try block.addBinOp(.rem, casted_lhs, casted_rhs);
+
+                if (resolved_type.zigTypeTag() == .Vector) {
+                    const zero_val = try Value.Tag.repeated.create(sema.arena, Value.zero);
+                    const zero = try sema.addConstant(sema.typeOf(casted_rhs), zero_val);
+                    const eql = try block.addCmpVector(remainder, zero, .eq, try sema.addType(resolved_type));
+                    break :ok try block.addInst(.{
+                        .tag = .reduce,
+                        .data = .{ .reduce = .{
+                            .operand = eql,
+                            .operation = .And,
+                        } },
+                    });
+                } else {
+                    const zero = try sema.addConstant(sema.typeOf(casted_rhs), Value.zero);
+                    const is_in_range = try block.addBinOp(.cmp_eq, remainder, zero);
+                    break :ok is_in_range;
+                }
+            };
+            try sema.addSafetyCheck(block, ok, .exact_division_remainder);
+            return result;
+        }
     }
     return block.addBinOp(rs.air_tag, casted_lhs, casted_rhs);
 }
@@ -18856,6 +18897,7 @@ pub const PanicId = enum {
     shr_overflow,
     divide_by_zero,
     remainder_division_zero_negative,
+    exact_division_remainder,
 };
 
 fn addSafetyCheck(
@@ -19077,6 +19119,7 @@ fn safetyPanic(
         .shr_overflow => "right shift overflowed bits",
         .divide_by_zero => "division by zero",
         .remainder_division_zero_negative => "remainder division by zero or negative value",
+        .exact_division_remainder => "exact division produced remainder",
     };
 
     const msg_inst = msg_inst: {
