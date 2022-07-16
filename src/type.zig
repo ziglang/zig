@@ -3260,8 +3260,8 @@ pub const Type = extern union {
 
             .array_u8 => return AbiSizeAdvanced{ .scalar = ty.castTag(.array_u8).?.data },
             .array_u8_sentinel_0 => return AbiSizeAdvanced{ .scalar = ty.castTag(.array_u8_sentinel_0).?.data + 1 },
-            .array, .vector => {
-                const payload = ty.cast(Payload.Array).?.data;
+            .array => {
+                const payload = ty.castTag(.array).?.data;
                 switch (try payload.elem_type.abiSizeAdvanced(target, strat)) {
                     .scalar => |elem_size| return AbiSizeAdvanced{ .scalar = payload.len * elem_size },
                     .val => switch (strat) {
@@ -3281,6 +3281,28 @@ pub const Type = extern union {
                         .lazy => |arena| return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) },
                     },
                 }
+            },
+
+            .vector => {
+                const payload = ty.castTag(.vector).?.data;
+                const sema_kit = switch (strat) {
+                    .sema_kit => |sk| sk,
+                    .eager => null,
+                    .lazy => |arena| return AbiSizeAdvanced{
+                        .val = try Value.Tag.lazy_size.create(arena, ty),
+                    },
+                };
+                const elem_bits = try payload.elem_type.bitSizeAdvanced(target, sema_kit);
+                const total_bits = elem_bits * payload.len;
+                const total_bytes = (total_bits + 7) / 8;
+                const alignment = switch (try ty.abiAlignmentAdvanced(target, strat)) {
+                    .scalar => |x| x,
+                    .val => return AbiSizeAdvanced{
+                        .val = try Value.Tag.lazy_size.create(strat.lazy, ty),
+                    },
+                };
+                const result = std.mem.alignForwardGeneric(u64, total_bytes, alignment);
+                return AbiSizeAdvanced{ .scalar = result };
             },
 
             .isize,
