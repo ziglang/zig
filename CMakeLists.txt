@@ -66,9 +66,9 @@ endif()
 message(STATUS "Configuring zig version ${ZIG_VERSION}")
 
 set(ZIG_STATIC off CACHE BOOL "Attempt to build a static zig executable (not compatible with glibc)")
+set(ZIG_SHARED_LLVM off CACHE BOOL "Prefer linking against shared LLVM libraries")
 set(ZIG_STATIC_LLVM off CACHE BOOL "Prefer linking against static LLVM libraries")
 set(ZIG_STATIC_ZLIB off CACHE BOOL "Prefer linking against static zlib")
-set(ZIG_PREFER_CLANG_CPP_DYLIB off CACHE BOOL "Try to link against -lclang-cpp")
 set(ZIG_USE_CCACHE off CACHE BOOL "Use ccache if available")
 
 if(CCACHE_PROGRAM AND ZIG_USE_CCACHE)
@@ -78,6 +78,10 @@ endif()
 if(ZIG_STATIC)
     set(ZIG_STATIC_LLVM ON)
     set(ZIG_STATIC_ZLIB ON)
+endif()
+
+if (ZIG_SHARED_LLVM AND ZIG_STATIC_LLVM)
+    message(SEND_ERROR "-DZIG_SHARED_LLVM and -DZIG_STATIC_LLVM cannot both be enabled simultaneously")
 endif()
 
 string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_LIBC_LIB_DIR_ESCAPED "${ZIG_LIBC_LIB_DIR}")

@@ -6,152 +6,129 @@
 # LLVM_INCLUDE_DIRS
 # LLVM_LIBRARIES
 # LLVM_LIBDIRS
+# LLVM_LINK_MODE
 
-find_path(LLVM_INCLUDE_DIRS NAMES llvm/IR/IRBuilder.h
-  PATHS
-    /usr/lib/llvm/14/include
-    /usr/lib/llvm-14/include
-    /usr/lib/llvm-14.0/include
-    /usr/lib/llvm14/include
-    /usr/local/llvm14/include
-    /usr/local/llvm140/include
-    /usr/local/opt/llvm@14/include
-    /opt/homebrew/opt/llvm@14/include
-    /mingw64/include
-)
 
-if(ZIG_PREFER_CLANG_CPP_DYLIB)
-  find_library(LLVM_LIBRARIES
-    NAMES
-      LLVM-14.0
-      LLVM-14
-      LLVM-140
-      LLVM
-    NAMES_PER_DIR
-    PATHS
-      ${LLVM_LIBDIRS}
-      /usr/lib/llvm/14/lib
-      /usr/lib/llvm/14/lib64
-      /usr/lib/llvm-14/lib
-      /usr/lib/llvm14/lib
-      /usr/local/llvm14/lib
-      /usr/local/llvm140/lib
-      /usr/local/opt/llvm@14/lib
-      /opt/homebrew/opt/llvm@14/lib
-  )
+if(ZIG_USE_LLVM_CONFIG)
+  while(1)
+    unset(LLVM_CONFIG_EXE CACHE)
+    find_program(LLVM_CONFIG_EXE
+        NAMES llvm-config-14 llvm-config-14.0 llvm-config140 llvm-config14 llvm-config NAMES_PER_DIR
+        PATHS
+            "/mingw64/bin"
+            "/c/msys64/mingw64/bin"
+            "c:/msys64/mingw64/bin"
+            "C:/Libraries/llvm-14.0.0/bin")
 
-  find_program(LLVM_CONFIG_EXE
-      NAMES llvm-config-14 llvm-config-14.0 llvm-config140 llvm-config14 llvm-config NAMES_PER_DIR
-      PATHS
-          "/mingw64/bin"
-          "/c/msys64/mingw64/bin"
-          "c:/msys64/mingw64/bin"
-          "C:/Libraries/llvm-14.0.0/bin")
+    if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
+      if (DEFINED LLVM_CONFIG_ERROR_MESSAGE)
+        message(FATAL_ERROR ${LLVM_CONFIG_ERROR_MESSAGE})
+      else()
+        message(FATAL_ERROR "unable to find llvm-config")
+      endif()
+    endif()
 
-  if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
-    message(FATAL_ERROR "unable to find llvm-config")
-  endif()
+    # Check that this LLVM is the right version
+    execute_process(
+      COMMAND ${LLVM_CONFIG_EXE} --version
+      OUTPUT_VARIABLE LLVM_CONFIG_VERSION
+      OUTPUT_STRIP_TRAILING_WHITESPACE)
 
-  if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
-    message(FATAL_ERROR "unable to find llvm-config")
-  endif()
+    get_filename_component(LLVM_CONFIG_DIR "${LLVM_CONFIG_EXE}" DIRECTORY)
+    if("${LLVM_CONFIG_VERSION}" VERSION_LESS 14 OR "${LLVM_CONFIG_VERSION}" VERSION_EQUAL 15 OR "${LLVM_CONFIG_VERSION}" VERSION_GREATER 15)
+      # Save the error message, in case this is the last llvm-config we find
+      set(LLVM_CONFIG_ERROR_MESSAGE "expected LLVM 14.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
 
-  execute_process(
-    COMMAND ${LLVM_CONFIG_EXE} --version
-    OUTPUT_VARIABLE LLVM_CONFIG_VERSION
-    OUTPUT_STRIP_TRAILING_WHITESPACE)
+      # Ignore this directory and try the search again
+      list(APPEND CMAKE_IGNORE_PATH "${LLVM_CONFIG_DIR}")
+      continue()
+    endif()
 
-  if("${LLVM_CONFIG_VERSION}" VERSION_LESS 14)
-    message(FATAL_ERROR "expected LLVM 14.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
-  endif()
-  if("${LLVM_CONFIG_VERSION}" VERSION_EQUAL 15)
-    message(FATAL_ERROR "expected LLVM 14.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
-  endif()
-  if("${LLVM_CONFIG_VERSION}" VERSION_GREATER 15)
-    message(FATAL_ERROR "expected LLVM 14.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
-  endif()
-elseif(ZIG_USE_LLVM_CONFIG)
-  find_program(LLVM_CONFIG_EXE
-      NAMES llvm-config-14 llvm-config-14.0 llvm-config140 llvm-config14 llvm-config NAMES_PER_DIR
-      PATHS
-          "/mingw64/bin"
-          "/c/msys64/mingw64/bin"
-          "c:/msys64/mingw64/bin"
-          "C:/Libraries/llvm-14.0.0/bin")
+    # Check that this LLVM supports linking as a shared/static library, if requested
+    if (ZIG_SHARED_LLVM OR ZIG_STATIC_LLVM)
+      if (ZIG_SHARED_LLVM)
+        set(STATIC_OR_SHARED_LINK "--link-shared")
+      elseif (ZIG_STATIC_LLVM)
+        set(STATIC_OR_SHARED_LINK "--link-static")
+      endif()
 
-  if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
-    message(FATAL_ERROR "unable to find llvm-config")
-  endif()
+      execute_process(
+        COMMAND ${LLVM_CONFIG_EXE} --libs ${STATIC_OR_SHARED_LINK}
+        OUTPUT_QUIET
+        ERROR_VARIABLE LLVM_CONFIG_ERROR
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
 
-  if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
-    message(FATAL_ERROR "unable to find llvm-config")
-  endif()
+      if (LLVM_CONFIG_ERROR) 
+        # Save the error message, in case this is the last llvm-config we find
+        if (ZIG_SHARED_LLVM)
+          set(LLVM_CONFIG_ERROR_MESSAGE "LLVM 14.x found at ${LLVM_CONFIG_EXE} does not support linking as a shared library")
+        else()
+          set(LLVM_CONFIG_ERROR_MESSAGE "LLVM 14.x found at ${LLVM_CONFIG_EXE} does not support linking as a static library")
+        endif()
 
-  execute_process(
-    COMMAND ${LLVM_CONFIG_EXE} --version
-    OUTPUT_VARIABLE LLVM_CONFIG_VERSION
-    OUTPUT_STRIP_TRAILING_WHITESPACE)
+        # Ignore this directory and try the search again
+        list(APPEND CMAKE_IGNORE_PATH "${LLVM_CONFIG_DIR}")
+        continue()
+      endif()
+    endif()
 
-  if("${LLVM_CONFIG_VERSION}" VERSION_LESS 14)
-    message(FATAL_ERROR "expected LLVM 14.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
-  endif()
-  if("${LLVM_CONFIG_VERSION}" VERSION_EQUAL 15)
-    message(FATAL_ERROR "expected LLVM 14.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
-  endif()
-  if("${LLVM_CONFIG_VERSION}" VERSION_GREATER 15)
-    message(FATAL_ERROR "expected LLVM 14.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
-  endif()
-
-  execute_process(
-    COMMAND ${LLVM_CONFIG_EXE} --targets-built
-      OUTPUT_VARIABLE LLVM_TARGETS_BUILT_SPACES
-    OUTPUT_STRIP_TRAILING_WHITESPACE)
-  string(REPLACE " " ";" LLVM_TARGETS_BUILT "${LLVM_TARGETS_BUILT_SPACES}")
-  function(NEED_TARGET TARGET_NAME)
+    execute_process(
+      COMMAND ${LLVM_CONFIG_EXE} --targets-built
+        OUTPUT_VARIABLE LLVM_TARGETS_BUILT_SPACES
+      OUTPUT_STRIP_TRAILING_WHITESPACE)
+    string(REPLACE " " ";" LLVM_TARGETS_BUILT "${LLVM_TARGETS_BUILT_SPACES}")
+    function(NEED_TARGET TARGET_NAME)
       list (FIND LLVM_TARGETS_BUILT "${TARGET_NAME}" _index)
       if (${_index} EQUAL -1)
-          message(FATAL_ERROR "LLVM (according to ${LLVM_CONFIG_EXE}) is missing target ${TARGET_NAME}. Zig requires LLVM to be built with all default targets enabled.")
-      endif()
-  endfunction(NEED_TARGET)
-  NEED_TARGET("AArch64")
-  NEED_TARGET("AMDGPU")
-  NEED_TARGET("ARM")
-  NEED_TARGET("AVR")
-  NEED_TARGET("BPF")
-  NEED_TARGET("Hexagon")
-  NEED_TARGET("Lanai")
-  NEED_TARGET("Mips")
-  NEED_TARGET("MSP430")
-  NEED_TARGET("NVPTX")
-  NEED_TARGET("PowerPC")
-  NEED_TARGET("RISCV")
-  NEED_TARGET("Sparc")
-  NEED_TARGET("SystemZ")
-  NEED_TARGET("VE")
-  NEED_TARGET("WebAssembly")
-  NEED_TARGET("X86")
-  NEED_TARGET("XCore")
+        # Save the error message, in case this is the last llvm-config we find
+        set(LLVM_CONFIG_ERROR_MESSAGE "LLVM (according to ${LLVM_CONFIG_EXE}) is missing target ${TARGET_NAME}. Zig requires LLVM to be built with all default targets enabled.")
 
-  if(ZIG_STATIC_LLVM)
+        # Ignore this directory and try the search again
+        list(APPEND CMAKE_IGNORE_PATH "${LLVM_CONFIG_DIR}")
+        continue()
+      endif()
+    endfunction(NEED_TARGET)
+    NEED_TARGET("AArch64")
+    NEED_TARGET("AMDGPU")
+    NEED_TARGET("ARM")
+    NEED_TARGET("AVR")
+    NEED_TARGET("BPF")
+    NEED_TARGET("Hexagon")
+    NEED_TARGET("Lanai")
+    NEED_TARGET("Mips")
+    NEED_TARGET("MSP430")
+    NEED_TARGET("NVPTX")
+    NEED_TARGET("PowerPC")
+    NEED_TARGET("RISCV")
+    NEED_TARGET("Sparc")
+    NEED_TARGET("SystemZ")
+    NEED_TARGET("VE")
+    NEED_TARGET("WebAssembly")
+    NEED_TARGET("X86")
+    NEED_TARGET("XCore")
+
+    # Got it!
+    break()
+  endwhile()
+
+  if(ZIG_SHARED_LLVM OR ZIG_STATIC_LLVM)
     execute_process(
-        COMMAND ${LLVM_CONFIG_EXE} --libfiles --link-static
+        COMMAND ${LLVM_CONFIG_EXE} --libfiles ${STATIC_OR_SHARED_LINK}
         OUTPUT_VARIABLE LLVM_LIBRARIES_SPACES
         OUTPUT_STRIP_TRAILING_WHITESPACE)
     string(REPLACE " " ";" LLVM_LIBRARIES "${LLVM_LIBRARIES_SPACES}")
 
     execute_process(
-        COMMAND ${LLVM_CONFIG_EXE} --system-libs --link-static
-        OUTPUT_VARIABLE LLVM_SYSTEM_LIBS_SPACES
-        OUTPUT_STRIP_TRAILING_WHITESPACE)
-    string(REPLACE " " ";" LLVM_SYSTEM_LIBS "${LLVM_SYSTEM_LIBS_SPACES}")
-
-    execute_process(
-        COMMAND ${LLVM_CONFIG_EXE} --libdir --link-static
+        COMMAND ${LLVM_CONFIG_EXE} --libdir ${STATIC_OR_SHARED_LINK}
         OUTPUT_VARIABLE LLVM_LIBDIRS_SPACES
         OUTPUT_STRIP_TRAILING_WHITESPACE)
     string(REPLACE " " ";" LLVM_LIBDIRS "${LLVM_LIBDIRS_SPACES}")
-  endif()
-  if(NOT LLVM_LIBRARIES)
+
+    execute_process(
+      COMMAND ${LLVM_CONFIG_EXE} --shared-mode ${STATIC_OR_SHARED_LINK}
+      OUTPUT_VARIABLE LLVM_LINK_MODE
+      OUTPUT_STRIP_TRAILING_WHITESPACE)
+  else()
     execute_process(
         COMMAND ${LLVM_CONFIG_EXE} --libs
         OUTPUT_VARIABLE LLVM_LIBRARIES_SPACES
@@ -159,22 +136,39 @@ elseif(ZIG_USE_LLVM_CONFIG)
     string(REPLACE " " ";" LLVM_LIBRARIES "${LLVM_LIBRARIES_SPACES}")
 
     execute_process(
-        COMMAND ${LLVM_CONFIG_EXE} --system-libs
-        OUTPUT_VARIABLE LLVM_SYSTEM_LIBS_SPACES
-        OUTPUT_STRIP_TRAILING_WHITESPACE)
-    string(REPLACE " " ";" LLVM_SYSTEM_LIBS "${LLVM_SYSTEM_LIBS_SPACES}")
-
-    execute_process(
         COMMAND ${LLVM_CONFIG_EXE} --libdir
         OUTPUT_VARIABLE LLVM_LIBDIRS_SPACES
         OUTPUT_STRIP_TRAILING_WHITESPACE)
     string(REPLACE " " ";" LLVM_LIBDIRS "${LLVM_LIBDIRS_SPACES}")
+
+    execute_process(
+      COMMAND ${LLVM_CONFIG_EXE} --shared-mode
+      OUTPUT_VARIABLE LLVM_LINK_MODE
+      OUTPUT_STRIP_TRAILING_WHITESPACE)
   endif()
+
+  # We always ask for the system libs corresponding to static linking,
+  # since we always statically link LLD which needs these libraries
+  execute_process(
+      COMMAND ${LLVM_CONFIG_EXE} --system-libs --link-static
+      OUTPUT_VARIABLE LLVM_SYSTEM_LIBS_SPACES
+      OUTPUT_STRIP_TRAILING_WHITESPACE)
+  string(REPLACE " " ";" LLVM_SYSTEM_LIBS "${LLVM_SYSTEM_LIBS_SPACES}")
 
   set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_SYSTEM_LIBS})
 
+  execute_process(
+      COMMAND ${LLVM_CONFIG_EXE} --includedir
+      OUTPUT_VARIABLE LLVM_INCLUDE_DIRS_SPACES
+      OUTPUT_STRIP_TRAILING_WHITESPACE)
+  string(REPLACE " " ";" LLVM_INCLUDE_DIRS "${LLVM_INCLUDE_DIRS_SPACES}")
+
   if(NOT LLVM_LIBRARIES)
-    find_library(LLVM_LIBRARIES NAMES LLVM LLVM-14 LLVM-14.0 NAMES_PER_DIR)
+    find_library(LLVM_LIBRARIES
+      NAMES LLVM LLVM-14 LLVM-14.0 NAMES_PER_DIR
+      HINTS "${LLVM_CONFIG_DIR}/../lib" "${LLVM_CONFIG_DIR}/../lib64" "${LLVM_CONFIG_DIR}/../${CMAKE_LIBRARY_ARCHITECTURE}")
+
+    # TODO: Make this fallthrough work
   endif()
 
   link_directories("${CMAKE_PREFIX_PATH}/lib")
@@ -185,9 +179,12 @@ else()
 
   macro(FIND_AND_ADD_LLVM_LIB _libname_)
     string(TOUPPER ${_libname_} _prettylibname_)
-    find_library(LLVM_${_prettylibname_}_LIB NAMES ${_libname_} NAMES_PER_DIR PATHS ${LLVM_LIBDIRS})
+    find_library(LLVM_${_prettylibname_}_LIB
+      NAMES ${_libname_} NAMES_PER_DIR)
     set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_${_prettylibname_}_LIB})
   endmacro(FIND_AND_ADD_LLVM_LIB)
+
+  set(LLVM_LINK_MODE "static")
 
   # This list can be re-generated with `llvm-config --libfiles` and then
   # reformatting using your favorite text editor. Note we do not execute
@@ -352,6 +349,9 @@ else()
   FIND_AND_ADD_LLVM_LIB(LLVMBinaryFormat)
   FIND_AND_ADD_LLVM_LIB(LLVMSupport)
   FIND_AND_ADD_LLVM_LIB(LLVMDemangle)
+
+  get_filename_component(LLVM_LIBDIRS "${LLVM_LLVMCORE_LIB}" DIRECTORY)
+  find_path(LLVM_INCLUDE_DIRS NAMES llvm/IR/IRBuilder.h)
 endif()
 
 include(FindPackageHandleStandardArgs)
