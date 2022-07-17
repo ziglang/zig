@@ -2942,7 +2942,7 @@ fn createMhExecuteHeaderSymbol(self: *MachO) !void {
         .n_strx = n_strx,
         .n_type = macho.N_SECT | macho.N_EXT,
         .n_sect = 0,
-        .n_desc = 0,
+        .n_desc = macho.REFERENCED_DYNAMICALLY,
         .n_value = 0,
     });
 
