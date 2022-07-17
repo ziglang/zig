@@ -4643,10 +4643,24 @@ pub const Type = extern union {
     }
 
     /// Asserts the type is a function.
-    pub fn fnCallingConventionAllowsZigTypes(self: Type) bool {
-        return switch (self.fnCallingConvention()) {
+    pub fn fnCallingConventionAllowsZigTypes(cc: std.builtin.CallingConvention) bool {
+        return switch (cc) {
             .Unspecified, .Async, .Inline, .PtxKernel => true,
             else => false,
+        };
+    }
+
+    pub fn isValidParamType(self: Type) bool {
+        return switch (self.zigTypeTagOrPoison() catch return true) {
+            .Undefined, .Null, .Opaque, .NoReturn => false,
+            else => true,
+        };
+    }
+
+    pub fn isValidReturnType(self: Type) bool {
+        return switch (self.zigTypeTagOrPoison() catch return true) {
+            .Undefined, .Null, .Opaque => false,
+            else => true,
         };
     }
 
@@ -5649,6 +5663,10 @@ pub const Type = extern union {
             .@"union", .union_tagged => {
                 const union_obj = ty.cast(Payload.Union).?.data;
                 return union_obj.srcLoc(mod);
+            },
+            .@"opaque" => {
+                const opaque_obj = ty.cast(Payload.Opaque).?.data;
+                return opaque_obj.srcLoc(mod);
             },
             .atomic_order,
             .atomic_rmw_op,

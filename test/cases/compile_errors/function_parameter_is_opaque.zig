@@ -20,10 +20,11 @@ export fn entry4() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:3:28: error: parameter of opaque type 'FooType' not allowed
-// tmp.zig:8:28: error: parameter of type '@Type(.Null)' not allowed
-// tmp.zig:12:11: error: parameter of opaque type 'FooType' not allowed
-// tmp.zig:17:11: error: parameter of type '@Type(.Null)' not allowed
+// :3:24: error: parameter of opaque type 'tmp.FooType' not allowed
+// :1:17: note: opaque declared here
+// :8:24: error: parameter of type '@TypeOf(null)' not allowed
+// :12:1: error: parameter of opaque type 'tmp.FooType' not allowed
+// :17:1: error: parameter of type '@TypeOf(null)' not allowed

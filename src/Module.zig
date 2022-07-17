@@ -2439,6 +2439,7 @@ pub const SrcLoc = struct {
 
             .node_offset_fn_type_ret_ty => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
+                const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 var params: [1]Ast.Node.Index = undefined;
@@ -2447,6 +2448,16 @@ pub const SrcLoc = struct {
                     .fn_proto_multi => tree.fnProtoMulti(node),
                     .fn_proto_one => tree.fnProtoOne(&params, node),
                     .fn_proto => tree.fnProto(node),
+                    .fn_decl => blk: {
+                        const fn_proto = node_datas[node].lhs;
+                        break :blk switch (node_tags[fn_proto]) {
+                            .fn_proto_simple => tree.fnProtoSimple(&params, fn_proto),
+                            .fn_proto_multi => tree.fnProtoMulti(fn_proto),
+                            .fn_proto_one => tree.fnProtoOne(&params, fn_proto),
+                            .fn_proto => tree.fnProto(fn_proto),
+                            else => unreachable,
+                        };
+                    },
                     else => unreachable,
                 };
                 return nodeToSpan(tree, full.ast.return_type);

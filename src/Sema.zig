@@ -7243,7 +7243,10 @@ fn funcCommon(
             break :new_func new_func;
         }
         destroy_fn_on_error = true;
-        break :new_func try sema.gpa.create(Module.Fn);
+        const new_func = try sema.gpa.create(Module.Fn);
+        // Set this here so that the inferred return type can be printed correctly if it appears in an error.
+        new_func.owner_decl = sema.owner_decl_index;
+        break :new_func new_func;
     };
     errdefer if (destroy_fn_on_error) sema.gpa.destroy(new_func);
 
@@ -7277,17 +7280,66 @@ fn funcCommon(
             }
         }
 
+        // These locals are pulled out from the init expression below to work around
+        // a stage1 compiler bug.
+        // In the case of generic calling convention, or generic alignment, we use
+        // default values which are only meaningful for the generic function, *not*
+        // the instantiation, which can depend on comptime parameters.
+        // Related proposal: https://github.com/ziglang/zig/issues/11834
+        const cc_workaround = cc orelse .Unspecified;
+        const align_workaround = alignment orelse 0;
+
         const param_types = try sema.arena.alloc(Type, block.params.items.len);
         const comptime_params = try sema.arena.alloc(bool, block.params.items.len);
         for (block.params.items) |param, i| {
             const param_src = LazySrcLoc.nodeOffset(src_node_offset); // TODO better soruce location
             param_types[i] = param.ty;
-            comptime_params[i] = param.is_comptime or
-                try sema.typeRequiresComptime(block, param_src, param.ty);
+            const requires_comptime = try sema.typeRequiresComptime(block, param_src, param.ty);
+            comptime_params[i] = param.is_comptime or requires_comptime;
             is_generic = is_generic or comptime_params[i] or param.ty.tag() == .generic_poison;
             if (is_extern and is_generic) {
                 // TODO add note: function is generic because of this parameter
                 return sema.fail(block, param_src, "extern function cannot be generic", .{});
+            }
+            if (!param.ty.isValidParamType()) {
+                const opaque_str = if (param.ty.zigTypeTag() == .Opaque) "opaque " else "";
+                const msg = msg: {
+                    const msg = try sema.errMsg(block, param_src, "parameter of {s}type '{}' not allowed", .{
+                        opaque_str, param.ty.fmt(sema.mod),
+                    });
+                    errdefer msg.destroy(sema.gpa);
+
+                    try sema.addDeclaredHereNote(msg, param.ty);
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(block, msg);
+            }
+            if (!Type.fnCallingConventionAllowsZigTypes(cc_workaround) and !(try sema.validateExternType(param.ty, .param_ty))) {
+                const msg = msg: {
+                    const msg = try sema.errMsg(block, param_src, "parameter of type '{}' not allowed in function with calling convention '{s}'", .{
+                        param.ty.fmt(sema.mod), @tagName(cc_workaround),
+                    });
+                    errdefer msg.destroy(sema.gpa);
+
+                    const src_decl = sema.mod.declPtr(block.src_decl);
+                    try sema.explainWhyTypeIsNotExtern(block, param_src, msg, param_src.toSrcLoc(src_decl), param.ty, .param_ty);
+
+                    try sema.addDeclaredHereNote(msg, param.ty);
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(block, msg);
+            }
+            if (requires_comptime and !param.is_comptime) {
+                const msg = msg: {
+                    const msg = try sema.errMsg(block, param_src, "parametter of type '{}' must be declared comptime", .{
+                        param.ty.fmt(sema.mod),
+                    });
+                    errdefer msg.destroy(sema.gpa);
+
+                    try sema.addDeclaredHereNote(msg, param.ty);
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(block, msg);
             }
         }
 
@@ -7318,14 +7370,34 @@ fn funcCommon(
             });
         };
 
-        // These locals are pulled out from the init expression below to work around
-        // a stage1 compiler bug.
-        // In the case of generic calling convention, or generic alignment, we use
-        // default values which are only meaningful for the generic function, *not*
-        // the instantiation, which can depend on comptime parameters.
-        // Related proposal: https://github.com/ziglang/zig/issues/11834
-        const cc_workaround = cc orelse .Unspecified;
-        const align_workaround = alignment orelse 0;
+        if (!bare_return_type.isValidReturnType()) {
+            const opaque_str = if (bare_return_type.zigTypeTag() == .Opaque) "opaque " else "";
+            const msg = msg: {
+                const msg = try sema.errMsg(block, ret_ty_src, "{s}return type '{}' not allowed", .{
+                    opaque_str, bare_return_type.fmt(sema.mod),
+                });
+                errdefer msg.destroy(sema.gpa);
+
+                try sema.addDeclaredHereNote(msg, bare_return_type);
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(block, msg);
+        }
+        if (!Type.fnCallingConventionAllowsZigTypes(cc_workaround) and !(try sema.validateExternType(return_type, .ret_ty))) {
+            const msg = msg: {
+                const msg = try sema.errMsg(block, ret_ty_src, "return type '{}' not allowed in function with calling convention '{s}'", .{
+                    return_type.fmt(sema.mod), @tagName(cc_workaround),
+                });
+                errdefer msg.destroy(sema.gpa);
+
+                const src_decl = sema.mod.declPtr(block.src_decl);
+                try sema.explainWhyTypeIsNotExtern(block, ret_ty_src, msg, ret_ty_src.toSrcLoc(src_decl), return_type, .ret_ty);
+
+                try sema.addDeclaredHereNote(msg, return_type);
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(block, msg);
+        }
 
         const arch = sema.mod.getTarget().cpu.arch;
         if (switch (cc_workaround) {
@@ -18399,7 +18471,7 @@ fn validateExternType(sema: *Sema, ty: Type, position: ExternPosition) CompileEr
         .BoundFn,
         .Frame,
         => return false,
-        .Void => return position == .union_field,
+        .Void => return position == .union_field or position == .ret_ty,
         .NoReturn => return position == .ret_ty,
         .Opaque,
         .Bool,
@@ -18411,7 +18483,7 @@ fn validateExternType(sema: *Sema, ty: Type, position: ExternPosition) CompileEr
             8, 16, 32, 64, 128 => return true,
             else => return false,
         },
-        .Fn => return !ty.fnCallingConventionAllowsZigTypes(),
+        .Fn => return !Type.fnCallingConventionAllowsZigTypes(ty.fnCallingConvention()),
         .Enum => {
             var buf: Type.Payload.Bits = undefined;
             return sema.validateExternType(ty.intTagType(&buf), position);
