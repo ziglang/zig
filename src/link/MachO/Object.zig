@@ -3,7 +3,6 @@ const Object = @This();
 const std = @import("std");
 const build_options = @import("build_options");
 const assert = std.debug.assert;
-const dwarf = std.dwarf;
 const fs = std.fs;
 const io = std.io;
 const log = std.log.scoped(.link);
@@ -17,9 +16,11 @@ const Allocator = mem.Allocator;
 const Atom = @import("Atom.zig");
 const MachO = @import("../MachO.zig");
 const MatchingSection = MachO.MatchingSection;
+const SymbolWithLoc = MachO.SymbolWithLoc;
 
 file: fs.File,
 name: []const u8,
+mtime: u64,
 
 /// Data contents of the file. Includes sections, and data of load commands.
 /// Excludes the backing memory for the header and load commands.
@@ -51,12 +52,6 @@ symtab: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 strtab: []const u8 = &.{},
 data_in_code_entries: []const macho.data_in_code_entry = &.{},
 
-// Debug info
-debug_info: ?DebugInfo = null,
-tu_name: ?[]const u8 = null,
-tu_comp_dir: ?[]const u8 = null,
-mtime: ?u64 = null,
-
 sections_as_symbols: std.AutoHashMapUnmanaged(u16, u32) = .{},
 
 /// List of atoms that map to the symbols parsed from this object file.
@@ -64,72 +59,6 @@ managed_atoms: std.ArrayListUnmanaged(*Atom) = .{},
 
 /// Table of atoms belonging to this object file indexed by the symbol index.
 atom_by_index_table: std.AutoHashMapUnmanaged(u32, *Atom) = .{},
-
-const DebugInfo = struct {
-    inner: dwarf.DwarfInfo,
-    debug_info: []const u8,
-    debug_abbrev: []const u8,
-    debug_str: []const u8,
-    debug_line: []const u8,
-    debug_line_str: []const u8,
-    debug_ranges: []const u8,
-
-    pub fn parseFromObject(allocator: Allocator, object: *const Object) !?DebugInfo {
-        var debug_info = blk: {
-            const index = object.dwarf_debug_info_index orelse return null;
-            break :blk try object.getSectionContents(index);
-        };
-        var debug_abbrev = blk: {
-            const index = object.dwarf_debug_abbrev_index orelse return null;
-            break :blk try object.getSectionContents(index);
-        };
-        var debug_str = blk: {
-            const index = object.dwarf_debug_str_index orelse return null;
-            break :blk try object.getSectionContents(index);
-        };
-        var debug_line = blk: {
-            const index = object.dwarf_debug_line_index orelse return null;
-            break :blk try object.getSectionContents(index);
-        };
-        var debug_line_str = blk: {
-            if (object.dwarf_debug_line_str_index) |ind| {
-                break :blk try object.getSectionContents(ind);
-            }
-            break :blk &[0]u8{};
-        };
-        var debug_ranges = blk: {
-            if (object.dwarf_debug_ranges_index) |ind| {
-                break :blk try object.getSectionContents(ind);
-            }
-            break :blk &[0]u8{};
-        };
-
-        var inner: dwarf.DwarfInfo = .{
-            .endian = .Little,
-            .debug_info = debug_info,
-            .debug_abbrev = debug_abbrev,
-            .debug_str = debug_str,
-            .debug_line = debug_line,
-            .debug_line_str = debug_line_str,
-            .debug_ranges = debug_ranges,
-        };
-        try dwarf.openDwarfDebugInfo(&inner, allocator);
-
-        return DebugInfo{
-            .inner = inner,
-            .debug_info = debug_info,
-            .debug_abbrev = debug_abbrev,
-            .debug_str = debug_str,
-            .debug_line = debug_line,
-            .debug_line_str = debug_line_str,
-            .debug_ranges = debug_ranges,
-        };
-    }
-
-    pub fn deinit(self: *DebugInfo, allocator: Allocator) void {
-        self.inner.deinit(allocator);
-    }
-};
 
 pub fn deinit(self: *Object, gpa: Allocator) void {
     for (self.load_commands.items) |*lc| {
@@ -147,10 +76,6 @@ pub fn deinit(self: *Object, gpa: Allocator) void {
     self.managed_atoms.deinit(gpa);
 
     gpa.free(self.name);
-
-    if (self.debug_info) |*db| {
-        db.deinit(gpa);
-    }
 }
 
 pub fn parse(self: *Object, allocator: Allocator, target: std.Target) !void {
@@ -253,7 +178,6 @@ pub fn parse(self: *Object, allocator: Allocator, target: std.Target) !void {
 
     try self.parseSymtab(allocator);
     self.parseDataInCode();
-    try self.parseDebugInfo(allocator);
 }
 
 const Context = struct {
@@ -462,7 +386,6 @@ pub fn splitIntoAtomsOneShot(
             }
             break :blk false;
         };
-        macho_file.has_stabs = macho_file.has_stabs or self.debug_info != null;
 
         if (subsections_via_symbols and filtered_syms.len > 0) {
             // If the first nlist does not match the start of the section,
@@ -566,7 +489,6 @@ pub fn splitIntoAtomsOneShot(
                     try atom.contained.append(gpa, .{
                         .sym_index = alias,
                         .offset = 0,
-                        .stab = null,
                     });
                     try self.atom_by_index_table.put(gpa, alias, atom);
                 }
@@ -671,54 +593,17 @@ fn createAtomFromSubsection(
     // we can properly allocate addresses down the line.
     // While we're at it, we need to update segment,section mapping of each symbol too.
     try atom.contained.ensureTotalCapacity(gpa, indexes.len + 1);
-
-    {
-        const stab: ?Atom.Stab = if (self.debug_info) |di| blk: {
-            // TODO there has to be a better to handle this.
-            for (di.inner.func_list.items) |func| {
-                if (func.pc_range) |range| {
-                    if (sym.n_value >= range.start and sym.n_value < range.end) {
-                        break :blk Atom.Stab{
-                            .function = range.end - range.start,
-                        };
-                    }
-                }
-            }
-            // TODO
-            // if (zld.globals.contains(zld.getString(sym.strx))) break :blk .global;
-            break :blk .static;
-        } else null;
-
-        atom.contained.appendAssumeCapacity(.{
-            .sym_index = sym_index,
-            .offset = 0,
-            .stab = stab,
-        });
-    }
+    atom.contained.appendAssumeCapacity(.{
+        .sym_index = sym_index,
+        .offset = 0,
+    });
 
     for (indexes) |inner_sym_index| {
         const inner_sym = &self.symtab.items[inner_sym_index.index];
         inner_sym.n_sect = macho_file.getSectionOrdinal(match);
-
-        const stab: ?Atom.Stab = if (self.debug_info) |di| blk: {
-            // TODO there has to be a better to handle this.
-            for (di.inner.func_list.items) |func| {
-                if (func.pc_range) |range| {
-                    if (inner_sym.n_value >= range.start and inner_sym.n_value < range.end) {
-                        break :blk Atom.Stab{
-                            .function = range.end - range.start,
-                        };
-                    }
-                }
-            }
-            // TODO
-            // if (zld.globals.contains(zld.getString(sym.strx))) break :blk .global;
-            break :blk .static;
-        } else null;
         atom.contained.appendAssumeCapacity(.{
             .sym_index = inner_sym_index.index,
             .offset = inner_sym.n_value - sym.n_value,
-            .stab = stab,
         });
 
         try self.atom_by_index_table.putNoClobber(gpa, inner_sym_index.index, atom);
@@ -755,7 +640,7 @@ fn parseSymtab(self: *Object, allocator: Allocator) !void {
     self.strtab = self.contents[symtab.stroff..][0..symtab.strsize];
 }
 
-fn getSourceSymtab(self: *Object) []const macho.nlist_64 {
+pub fn getSourceSymtab(self: Object) []const macho.nlist_64 {
     const index = self.symtab_cmd_index orelse return &[0]macho.nlist_64{};
     const symtab = self.load_commands.items[index].symtab;
     const symtab_size = @sizeOf(macho.nlist_64) * symtab.nsyms;
@@ -764,38 +649,6 @@ fn getSourceSymtab(self: *Object) []const macho.nlist_64 {
         macho.nlist_64,
         @alignCast(@alignOf(macho.nlist_64), raw_symtab),
     );
-}
-
-fn parseDebugInfo(self: *Object, allocator: Allocator) !void {
-    log.debug("parsing debug info in '{s}'", .{self.name});
-
-    var debug_info = blk: {
-        var di = try DebugInfo.parseFromObject(allocator, self);
-        break :blk di orelse return;
-    };
-
-    // We assume there is only one CU.
-    const compile_unit = debug_info.inner.findCompileUnit(0x0) catch |err| switch (err) {
-        error.MissingDebugInfo => {
-            // TODO audit cases with missing debug info and audit our dwarf.zig module.
-            log.debug("invalid or missing debug info in {s}; skipping", .{self.name});
-            return;
-        },
-        else => |e| return e,
-    };
-    const name = try compile_unit.die.getAttrString(&debug_info.inner, dwarf.AT.name);
-    const comp_dir = try compile_unit.die.getAttrString(&debug_info.inner, dwarf.AT.comp_dir);
-
-    self.debug_info = debug_info;
-    self.tu_name = name;
-    self.tu_comp_dir = comp_dir;
-
-    if (self.mtime == null) {
-        self.mtime = mtime: {
-            const stat = self.file.stat() catch break :mtime 0;
-            break :mtime @intCast(u64, @divFloor(stat.mtime, 1_000_000_000));
-        };
-    }
 }
 
 fn parseDataInCode(self: *Object) void {
@@ -808,7 +661,7 @@ fn parseDataInCode(self: *Object) void {
     );
 }
 
-fn getSectionContents(self: Object, sect_id: u16) error{Overflow}![]const u8 {
+pub fn getSectionContents(self: Object, sect_id: u16) error{Overflow}![]const u8 {
     const sect = self.getSection(sect_id);
     const size = math.cast(usize, sect.size) orelse return error.Overflow;
     log.debug("getting {s},{s} data at 0x{x} - 0x{x}", .{

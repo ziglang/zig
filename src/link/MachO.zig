@@ -4,6 +4,7 @@ const std = @import("std");
 const build_options = @import("build_options");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
+const dwarf = std.dwarf;
 const fmt = std.fmt;
 const fs = std.fs;
 const log = std.log.scoped(.link);
@@ -187,7 +188,6 @@ error_flags: File.ErrorFlags = File.ErrorFlags{},
 load_commands_dirty: bool = false,
 sections_order_dirty: bool = false,
 has_dices: bool = false,
-has_stabs: bool = false,
 
 /// A helper var to indicate if we are at the start of the incremental updates, or
 /// already somewhere further along the update-and-run chain.
@@ -725,6 +725,7 @@ fn linkOneShot(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) 
         man.hash.add(self.base.options.headerpad_max_install_names);
         man.hash.add(dead_strip);
         man.hash.add(self.base.options.dead_strip_dylibs);
+        man.hash.add(self.base.options.strip);
         man.hash.addListOfBytes(self.base.options.lib_dirs);
         man.hash.addListOfBytes(self.base.options.framework_dirs);
         link.hashAddSystemLibs(&man.hash, self.base.options.frameworks);
@@ -1388,9 +1389,15 @@ fn parseObject(self: *MachO, path: []const u8) !bool {
     const name = try self.base.allocator.dupe(u8, path);
     errdefer self.base.allocator.free(name);
 
+    const mtime: u64 = mtime: {
+        const stat = file.stat() catch break :mtime 0;
+        break :mtime @intCast(u64, @divFloor(stat.mtime, 1_000_000_000));
+    };
+
     var object = Object{
         .name = name,
         .file = file,
+        .mtime = mtime,
     };
 
     object.parse(self.base.allocator, self.base.options.target) catch |err| switch (err) {
@@ -2910,7 +2917,6 @@ fn createTentativeDefAtoms(self: *MachO) !void {
             try atom.contained.append(gpa, .{
                 .sym_index = global.sym_index,
                 .offset = 0,
-                .stab = if (object.debug_info) |_| .static else null,
             });
 
             try object.managed_atoms.append(gpa, atom);
@@ -6188,64 +6194,6 @@ fn writeSymtab(self: *MachO) !void {
     }
 
     for (self.objects.items) |object, object_id| {
-        if (self.has_stabs) {
-            if (object.debug_info) |_| {
-                // Open scope
-                try locals.ensureUnusedCapacity(3);
-                locals.appendAssumeCapacity(.{
-                    .n_strx = try self.strtab.insert(gpa, object.tu_comp_dir.?),
-                    .n_type = macho.N_SO,
-                    .n_sect = 0,
-                    .n_desc = 0,
-                    .n_value = 0,
-                });
-                locals.appendAssumeCapacity(.{
-                    .n_strx = try self.strtab.insert(gpa, object.tu_name.?),
-                    .n_type = macho.N_SO,
-                    .n_sect = 0,
-                    .n_desc = 0,
-                    .n_value = 0,
-                });
-                locals.appendAssumeCapacity(.{
-                    .n_strx = try self.strtab.insert(gpa, object.name),
-                    .n_type = macho.N_OSO,
-                    .n_sect = 0,
-                    .n_desc = 1,
-                    .n_value = object.mtime orelse 0,
-                });
-
-                for (object.managed_atoms.items) |atom| {
-                    for (atom.contained.items) |sym_at_off| {
-                        const stab = sym_at_off.stab orelse continue;
-                        const sym_loc = SymbolWithLoc{
-                            .sym_index = sym_at_off.sym_index,
-                            .file = atom.file,
-                        };
-                        const sym = self.getSymbol(sym_loc);
-                        if (sym.n_strx == 0) continue;
-                        if (sym.n_desc == N_DESC_GCED) continue;
-                        if (self.symbolIsTemp(sym_loc)) continue;
-
-                        const nlists = try stab.asNlists(.{
-                            .sym_index = sym_at_off.sym_index,
-                            .file = atom.file,
-                        }, self);
-                        defer gpa.free(nlists);
-
-                        try locals.appendSlice(nlists);
-                    }
-                }
-
-                // Close scope
-                try locals.append(.{
-                    .n_strx = 0,
-                    .n_type = macho.N_SO,
-                    .n_sect = 0,
-                    .n_desc = 0,
-                    .n_value = 0,
-                });
-            }
-        }
         for (object.symtab.items) |sym, sym_id| {
             if (sym.n_strx == 0) continue; // no name, skip
             if (sym.n_desc == N_DESC_GCED) continue; // GCed, skip
@@ -6255,6 +6203,10 @@ fn writeSymtab(self: *MachO) !void {
             var out_sym = sym;
             out_sym.n_strx = try self.strtab.insert(gpa, self.getSymbolName(sym_loc));
             try locals.append(out_sym);
+        }
+
+        if (!self.base.options.strip) {
+            try self.generateSymbolStabs(object, &locals);
         }
     }
 
@@ -6661,6 +6613,200 @@ pub fn findFirst(comptime T: type, haystack: []const T, start: usize, predicate:
         if (predicate.predicate(haystack[i])) break;
     }
     return i;
+}
+
+const DebugInfo = struct {
+    inner: dwarf.DwarfInfo,
+    debug_info: []const u8,
+    debug_abbrev: []const u8,
+    debug_str: []const u8,
+    debug_line: []const u8,
+    debug_line_str: []const u8,
+    debug_ranges: []const u8,
+
+    pub fn parse(allocator: Allocator, object: Object) !?DebugInfo {
+        var debug_info = blk: {
+            const index = object.dwarf_debug_info_index orelse return null;
+            break :blk try object.getSectionContents(index);
+        };
+        var debug_abbrev = blk: {
+            const index = object.dwarf_debug_abbrev_index orelse return null;
+            break :blk try object.getSectionContents(index);
+        };
+        var debug_str = blk: {
+            const index = object.dwarf_debug_str_index orelse return null;
+            break :blk try object.getSectionContents(index);
+        };
+        var debug_line = blk: {
+            const index = object.dwarf_debug_line_index orelse return null;
+            break :blk try object.getSectionContents(index);
+        };
+        var debug_line_str = blk: {
+            if (object.dwarf_debug_line_str_index) |ind| {
+                break :blk try object.getSectionContents(ind);
+            }
+            break :blk &[0]u8{};
+        };
+        var debug_ranges = blk: {
+            if (object.dwarf_debug_ranges_index) |ind| {
+                break :blk try object.getSectionContents(ind);
+            }
+            break :blk &[0]u8{};
+        };
+
+        var inner: dwarf.DwarfInfo = .{
+            .endian = .Little,
+            .debug_info = debug_info,
+            .debug_abbrev = debug_abbrev,
+            .debug_str = debug_str,
+            .debug_line = debug_line,
+            .debug_line_str = debug_line_str,
+            .debug_ranges = debug_ranges,
+        };
+        try dwarf.openDwarfDebugInfo(&inner, allocator);
+
+        return DebugInfo{
+            .inner = inner,
+            .debug_info = debug_info,
+            .debug_abbrev = debug_abbrev,
+            .debug_str = debug_str,
+            .debug_line = debug_line,
+            .debug_line_str = debug_line_str,
+            .debug_ranges = debug_ranges,
+        };
+    }
+
+    pub fn deinit(self: *DebugInfo, allocator: Allocator) void {
+        self.inner.deinit(allocator);
+    }
+};
+
+pub fn generateSymbolStabs(
+    self: *MachO,
+    object: Object,
+    locals: *std.ArrayList(macho.nlist_64),
+) !void {
+    assert(!self.base.options.strip);
+
+    const gpa = self.base.allocator;
+
+    log.debug("parsing debug info in '{s}'", .{object.name});
+
+    var debug_info = (try DebugInfo.parse(gpa, object)) orelse return;
+
+    // We assume there is only one CU.
+    const compile_unit = debug_info.inner.findCompileUnit(0x0) catch |err| switch (err) {
+        error.MissingDebugInfo => {
+            // TODO audit cases with missing debug info and audit our dwarf.zig module.
+            log.debug("invalid or missing debug info in {s}; skipping", .{object.name});
+            return;
+        },
+        else => |e| return e,
+    };
+    const tu_name = try compile_unit.die.getAttrString(&debug_info.inner, dwarf.AT.name);
+    const tu_comp_dir = try compile_unit.die.getAttrString(&debug_info.inner, dwarf.AT.comp_dir);
+    const source_symtab = object.getSourceSymtab();
+
+    // Open scope
+    try locals.ensureUnusedCapacity(3);
+    locals.appendAssumeCapacity(.{
+        .n_strx = try self.strtab.insert(gpa, tu_comp_dir),
+        .n_type = macho.N_SO,
+        .n_sect = 0,
+        .n_desc = 0,
+        .n_value = 0,
+    });
+    locals.appendAssumeCapacity(.{
+        .n_strx = try self.strtab.insert(gpa, tu_name),
+        .n_type = macho.N_SO,
+        .n_sect = 0,
+        .n_desc = 0,
+        .n_value = 0,
+    });
+    locals.appendAssumeCapacity(.{
+        .n_strx = try self.strtab.insert(gpa, object.name),
+        .n_type = macho.N_OSO,
+        .n_sect = 0,
+        .n_desc = 1,
+        .n_value = object.mtime,
+    });
+
+    for (object.managed_atoms.items) |atom| {
+        for (atom.contained.items) |sym_at_off| {
+            const sym_loc = SymbolWithLoc{
+                .sym_index = sym_at_off.sym_index,
+                .file = atom.file,
+            };
+            const sym = self.getSymbol(sym_loc);
+            const sym_name = self.getSymbolName(sym_loc);
+            if (sym.n_strx == 0) continue;
+            if (sym.n_desc == N_DESC_GCED) continue;
+            if (self.symbolIsTemp(sym_loc)) continue;
+            if (sym_at_off.sym_index >= source_symtab.len) continue; // synthetic, linker generated
+
+            const source_sym = source_symtab[sym_at_off.sym_index];
+            const size: ?u64 = size: {
+                if (source_sym.tentative()) break :size null;
+                for (debug_info.inner.func_list.items) |func| {
+                    if (func.pc_range) |range| {
+                        if (source_sym.n_value >= range.start and source_sym.n_value < range.end) {
+                            break :size range.end - range.start;
+                        }
+                    }
+                }
+                break :size null;
+            };
+
+            if (size) |ss| {
+                try locals.ensureUnusedCapacity(4);
+                locals.appendAssumeCapacity(.{
+                    .n_strx = 0,
+                    .n_type = macho.N_BNSYM,
+                    .n_sect = sym.n_sect,
+                    .n_desc = 0,
+                    .n_value = sym.n_value,
+                });
+                locals.appendAssumeCapacity(.{
+                    .n_strx = try self.strtab.insert(gpa, sym_name),
+                    .n_type = macho.N_FUN,
+                    .n_sect = sym.n_sect,
+                    .n_desc = 0,
+                    .n_value = sym.n_value,
+                });
+                locals.appendAssumeCapacity(.{
+                    .n_strx = 0,
+                    .n_type = macho.N_FUN,
+                    .n_sect = 0,
+                    .n_desc = 0,
+                    .n_value = ss,
+                });
+                locals.appendAssumeCapacity(.{
+                    .n_strx = 0,
+                    .n_type = macho.N_ENSYM,
+                    .n_sect = sym.n_sect,
+                    .n_desc = 0,
+                    .n_value = ss,
+                });
+            } else {
+                try locals.append(.{
+                    .n_strx = try self.strtab.insert(gpa, sym_name),
+                    .n_type = macho.N_STSYM,
+                    .n_sect = sym.n_sect,
+                    .n_desc = 0,
+                    .n_value = sym.n_value,
+                });
+            }
+        }
+    }
+
+    // Close scope
+    try locals.append(.{
+        .n_strx = 0,
+        .n_type = macho.N_SO,
+        .n_sect = 0,
+        .n_desc = 0,
+        .n_value = 0,
+    });
 }
 
 fn snapshotState(self: *MachO) !void {
