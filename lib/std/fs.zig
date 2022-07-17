@@ -2391,12 +2391,6 @@ pub fn openIterableDirAbsoluteW(absolute_path_c: [*:0]const u16, flags: Dir.Open
     return IterableDir{ .dir = try cwd().openDirW(absolute_path_c, flags, true) };
 }
 
-comptime {
-    _ = openIterableDirAbsolute;
-    _ = openIterableDirAbsoluteZ;
-    _ = openIterableDirAbsoluteW;
-}
-
 /// Opens a file for reading or writing, without attempting to create a new file, based on an absolute path.
 /// Call `File.close` to release the resource.
 /// Asserts that the path is absolute. See `Dir.openFile` for a function that
