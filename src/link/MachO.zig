@@ -3289,9 +3289,9 @@ fn setEntryPoint(self: *MachO) !void {
     if (self.base.options.output_mode != .Exe) return;
 
     const seg = self.load_commands.items[self.text_segment_cmd_index.?].segment;
-    const entry_name = self.base.options.entry orelse "_main";
-    const global = self.globals.get(entry_name) orelse {
-        log.err("entrypoint '{s}' not found", .{entry_name});
+    const global = self.getEntryPoint() orelse {
+        const name = self.base.options.entry orelse "_main";
+        log.err("entrypoint '{s}' not found", .{name});
         return error.MissingMainEntrypoint;
     };
     const sym = self.getSymbol(global);
@@ -5492,15 +5492,27 @@ fn gcAtoms(self: *MachO, gc_roots: *std.AutoHashMap(*Atom, void)) !void {
 
     const gpa = self.base.allocator;
 
-    // Add all exports as GC roots
-    for (self.globals.values()) |global| {
-        const sym = self.getSymbol(global);
-        if (!sym.sect()) continue;
-        const gc_root = self.getAtomForSymbol(global) orelse {
-            log.debug("skipping {s}", .{self.getSymbolName(global)});
-            continue;
-        };
-        _ = try gc_roots.getOrPut(gc_root);
+    if (self.base.options.output_mode == .Exe) {
+        // Add entrypoint as GC root
+        if (self.getEntryPoint()) |global| {
+            if (self.getAtomForSymbol(global)) |gc_root| {
+                _ = try gc_roots.getOrPut(gc_root);
+            } else {
+                log.debug("skipping {s}", .{self.getSymbolName(global)});
+            }
+        }
+    } else {
+        assert(self.base.options.output_mode == .Lib);
+        // Add exports as GC roots
+        for (self.globals.values()) |global| {
+            const sym = self.getSymbol(global);
+            if (!sym.sect()) continue;
+            const gc_root = self.getAtomForSymbol(global) orelse {
+                log.debug("skipping {s}", .{self.getSymbolName(global)});
+                continue;
+            };
+            _ = try gc_roots.getOrPut(gc_root);
+        }
     }
 
     // Add any atom targeting an import as GC root
@@ -5836,19 +5848,37 @@ fn writeDyldInfoData(self: *MachO) !void {
         const text_segment = self.load_commands.items[self.text_segment_cmd_index.?].segment;
         const base_address = text_segment.inner.vmaddr;
 
-        for (self.globals.values()) |global| {
-            const sym = self.getSymbol(global);
-            if (sym.undf()) continue;
-            if (!sym.ext()) continue;
-            if (sym.n_desc == N_DESC_GCED) continue;
-            const sym_name = self.getSymbolName(global);
-            log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
+        if (self.base.options.output_mode == .Exe) {
+            for (&[_]SymbolWithLoc{
+                self.getEntryPoint().?, // We would already errored out if no entrypoint was found.
+                self.globals.get("__mh_execute_header").?,
+            }) |global| {
+                const sym = self.getSymbol(global);
+                const sym_name = self.getSymbolName(global);
+                log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
+                try trie.put(gpa, .{
+                    .name = sym_name,
+                    .vmaddr_offset = sym.n_value - base_address,
+                    .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
+                });
+            }
+        } else {
+            assert(self.base.options.output_mode == .Lib);
+            for (self.globals.values()) |global| {
+                const sym = self.getSymbol(global);
 
-            try trie.put(gpa, .{
-                .name = sym_name,
-                .vmaddr_offset = sym.n_value - base_address,
-                .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
-            });
+                if (sym.undf()) continue;
+                if (!sym.ext()) continue;
+                if (sym.n_desc == N_DESC_GCED) continue;
+
+                const sym_name = self.getSymbolName(global);
+                log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
+                try trie.put(gpa, .{
+                    .name = sym_name,
+                    .vmaddr_offset = sym.n_value - base_address,
+                    .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
+                });
+            }
         }
 
         try trie.finalize(gpa);
@@ -6600,6 +6630,13 @@ pub fn getStubsAtomForSymbol(self: *MachO, sym_with_loc: SymbolWithLoc) ?*Atom {
 pub fn getTlvPtrAtomForSymbol(self: *MachO, sym_with_loc: SymbolWithLoc) ?*Atom {
     const tlv_ptr_index = self.tlv_ptr_entries_table.get(sym_with_loc) orelse return null;
     return self.tlv_ptr_entries.items[tlv_ptr_index].atom;
+}
+
+/// Returns symbol location corresponding to the set entrypoint.
+/// Asserts output mode is executable.
+pub fn getEntryPoint(self: MachO) ?SymbolWithLoc {
+    const entry_name = self.base.options.entry orelse "_main";
+    return self.globals.get(entry_name);
 }
 
 pub fn findFirst(comptime T: type, haystack: []const T, start: usize, predicate: anytype) usize {
