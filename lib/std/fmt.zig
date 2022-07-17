@@ -1,4 +1,5 @@
 const std = @import("std.zig");
+const io = std.io;
 const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
@@ -877,8 +878,11 @@ fn formatSizeImpl(comptime radix: comptime_int) type {
         ) !void {
             _ = fmt;
             if (value == 0) {
-                return writer.writeAll("0B");
+                return formatBuf("0B", options, writer);
             }
+            // The worst case in terms of space needed is 32 bytes + 3 for the suffix.
+            var buf: [35]u8 = undefined;
+            var bufstream = io.fixedBufferStream(buf[0..]);
 
             const mags_si = " kMGTPEZY";
             const mags_iec = " KMGTPEZY";
@@ -896,18 +900,20 @@ fn formatSizeImpl(comptime radix: comptime_int) type {
                 else => unreachable,
             };
 
-            try formatFloatDecimal(new_value, options, writer);
+            formatFloatDecimal(new_value, options, bufstream.writer()) catch |err| switch (err) {
+                error.NoSpaceLeft => unreachable, // 35 bytes should be enough
+            };
 
-            if (suffix == ' ') {
-                return writer.writeAll("B");
-            }
-
-            const buf = switch (radix) {
+            bufstream.writer().writeAll(if (suffix == ' ')
+                "B"
+            else switch (radix) {
                 1000 => &[_]u8{ suffix, 'B' },
                 1024 => &[_]u8{ suffix, 'i', 'B' },
                 else => unreachable,
+            }) catch |err| switch (err) {
+                error.NoSpaceLeft => unreachable,
             };
-            return writer.writeAll(buf);
+            return formatBuf(bufstream.getWritten(), options, writer);
         }
     };
 }
@@ -2155,6 +2161,10 @@ test "filesize" {
     try expectFmt("file size: 63MiB\n", "file size: {}\n", .{fmtIntSizeBin(63 * 1024 * 1024)});
     try expectFmt("file size: 66.06MB\n", "file size: {:.2}\n", .{fmtIntSizeDec(63 * 1024 * 1024)});
     try expectFmt("file size: 60.08MiB\n", "file size: {:.2}\n", .{fmtIntSizeBin(63 * 1000 * 1000)});
+    try expectFmt("file size: =66.06MB=\n", "file size: {:=^9.2}\n", .{fmtIntSizeDec(63 * 1024 * 1024)});
+    try expectFmt("file size:   66.06MB\n", "file size: {: >9.2}\n", .{fmtIntSizeDec(63 * 1024 * 1024)});
+    try expectFmt("file size: 66.06MB  \n", "file size: {: <9.2}\n", .{fmtIntSizeDec(63 * 1024 * 1024)});
+    try expectFmt("file size: 0.01844674407370955ZB\n", "file size: {}\n", .{fmtIntSizeDec(math.maxInt(u64))});
 }
 
 test "struct" {
