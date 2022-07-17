@@ -7,10 +7,6 @@ const os = std.os;
 const linux = os.linux;
 const testing = std.testing;
 
-const io_uring_params = linux.io_uring_params;
-const io_uring_sqe = linux.io_uring_sqe;
-const io_uring_cqe = linux.io_uring_cqe;
-
 pub const IO_Uring = struct {
     fd: os.fd_t = -1,
     sq: SubmissionQueue,
@@ -18,24 +14,24 @@ pub const IO_Uring = struct {
     flags: u32,
     features: u32,
 
-    /// A friendly way to setup an io_uring, with default io_uring_params.
+    /// A friendly way to setup an io_uring, with default linux.io_uring_params.
     /// `entries` must be a power of two between 1 and 4096, although the kernel will make the final
     /// call on how many entries the submission and completion queues will ultimately have,
     /// see https://github.com/torvalds/linux/blob/v5.8/fs/io_uring.c#L8027-L8050.
     /// Matches the interface of io_uring_queue_init() in liburing.
     pub fn init(entries: u13, flags: u32) !IO_Uring {
-        var params = mem.zeroInit(io_uring_params, .{
+        var params = mem.zeroInit(linux.io_uring_params, .{
             .flags = flags,
             .sq_thread_idle = 1000,
         });
         return try IO_Uring.init_params(entries, &params);
     }
 
-    /// A powerful way to setup an io_uring, if you want to tweak io_uring_params such as submission
+    /// A powerful way to setup an io_uring, if you want to tweak linux.io_uring_params such as submission
     /// queue thread cpu affinity or thread idle timeout (the kernel and our default is 1 second).
     /// `params` is passed by reference because the kernel needs to modify the parameters.
     /// Matches the interface of io_uring_queue_init_params() in liburing.
-    pub fn init_params(entries: u13, p: *io_uring_params) !IO_Uring {
+    pub fn init_params(entries: u13, p: *linux.io_uring_params) !IO_Uring {
         if (entries == 0) return error.EntriesZero;
         if (!std.math.isPowerOfTwo(entries)) return error.EntriesNotPowerOfTwo;
 
@@ -53,7 +49,7 @@ pub const IO_Uring = struct {
             .FAULT => return error.ParamsOutsideAccessibleAddressSpace,
             // The resv array contains non-zero data, p.flags contains an unsupported flag,
             // entries out of bounds, IORING_SETUP_SQ_AFF was specified without IORING_SETUP_SQPOLL,
-            // or IORING_SETUP_CQSIZE was specified but io_uring_params.cq_entries was invalid:
+            // or IORING_SETUP_CQSIZE was specified but linux.io_uring_params.cq_entries was invalid:
             .INVAL => return error.ArgumentsInvalid,
             .MFILE => return error.ProcessFdQuotaExceeded,
             .NFILE => return error.SystemFdQuotaExceeded,
@@ -135,7 +131,7 @@ pub const IO_Uring = struct {
     /// and the null return in liburing is more a C idiom than anything else, for lack of a better
     /// alternative. In Zig, we have first-class error handling... so let's use it.
     /// Matches the implementation of io_uring_get_sqe() in liburing.
-    pub fn get_sqe(self: *IO_Uring) !*io_uring_sqe {
+    pub fn get_sqe(self: *IO_Uring) !*linux.io_uring_sqe {
         const head = @atomicLoad(u32, self.sq.head, .Acquire);
         // Remember that these head and tail offsets wrap around every four billion operations.
         // We must therefore use wrapping addition and subtraction to avoid a runtime crash.
@@ -268,7 +264,7 @@ pub const IO_Uring = struct {
     /// Faster, because we can now amortize the atomic store release to `cq.head` across the batch.
     /// See https://github.com/axboe/liburing/issues/103#issuecomment-686665007.
     /// Matches the implementation of io_uring_peek_batch_cqe() in liburing, but supports waiting.
-    pub fn copy_cqes(self: *IO_Uring, cqes: []io_uring_cqe, wait_nr: u32) !u32 {
+    pub fn copy_cqes(self: *IO_Uring, cqes: []linux.io_uring_cqe, wait_nr: u32) !u32 {
         const count = self.copy_cqes_ready(cqes, wait_nr);
         if (count > 0) return count;
         if (self.cq_ring_needs_flush() or wait_nr > 0) {
@@ -278,7 +274,7 @@ pub const IO_Uring = struct {
         return 0;
     }
 
-    fn copy_cqes_ready(self: *IO_Uring, cqes: []io_uring_cqe, wait_nr: u32) u32 {
+    fn copy_cqes_ready(self: *IO_Uring, cqes: []linux.io_uring_cqe, wait_nr: u32) u32 {
         _ = wait_nr;
         const ready = self.cq_ready();
         const count = std.math.min(cqes.len, ready);
@@ -298,8 +294,8 @@ pub const IO_Uring = struct {
 
     /// Returns a copy of an I/O completion, waiting for it if necessary, and advancing the CQ ring.
     /// A convenience method for `copy_cqes()` for when you don't need to batch or peek.
-    pub fn copy_cqe(ring: *IO_Uring) !io_uring_cqe {
-        var cqes: [1]io_uring_cqe = undefined;
+    pub fn copy_cqe(ring: *IO_Uring) !linux.io_uring_cqe {
+        var cqes: [1]linux.io_uring_cqe = undefined;
         while (true) {
             const count = try ring.copy_cqes(&cqes, 1);
             if (count > 0) return cqes[0];
@@ -316,7 +312,7 @@ pub const IO_Uring = struct {
     /// Must be called exactly once after a zero-copy CQE has been processed by your application.
     /// Not idempotent, calling more than once will result in other CQEs being lost.
     /// Matches the implementation of cqe_seen() in liburing.
-    pub fn cqe_seen(self: *IO_Uring, cqe: *io_uring_cqe) void {
+    pub fn cqe_seen(self: *IO_Uring, cqe: *linux.io_uring_cqe) void {
         _ = cqe;
         self.cq_advance(1);
     }
@@ -339,7 +335,7 @@ pub const IO_Uring = struct {
     /// apply to the write, since the fsync may complete before the write is issued to the disk.
     /// You should preferably use `link_with_next_sqe()` on a write's SQE to link it with an fsync,
     /// or else insert a full write barrier using `drain_previous_sqes()` when queueing an fsync.
-    pub fn fsync(self: *IO_Uring, user_data: u64, fd: os.fd_t, flags: u32) !*io_uring_sqe {
+    pub fn fsync(self: *IO_Uring, user_data: u64, fd: os.fd_t, flags: u32) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_fsync(sqe, fd, flags);
         sqe.user_data = user_data;
@@ -351,7 +347,7 @@ pub const IO_Uring = struct {
     /// A no-op is more useful than may appear at first glance.
     /// For example, you could call `drain_previous_sqes()` on the returned SQE, to use the no-op to
     /// know when the ring is idle before acting on a kill signal.
-    pub fn nop(self: *IO_Uring, user_data: u64) !*io_uring_sqe {
+    pub fn nop(self: *IO_Uring, user_data: u64) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_nop(sqe);
         sqe.user_data = user_data;
@@ -387,7 +383,7 @@ pub const IO_Uring = struct {
         fd: os.fd_t,
         buffer: ReadBuffer,
         offset: u64,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         switch (buffer) {
             .buffer => |slice| io_uring_prep_read(sqe, fd, slice, offset),
@@ -410,7 +406,7 @@ pub const IO_Uring = struct {
         fd: os.fd_t,
         buffer: []const u8,
         offset: u64,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_write(sqe, fd, buffer, offset);
         sqe.user_data = user_data;
@@ -429,7 +425,7 @@ pub const IO_Uring = struct {
         buffer: *os.iovec,
         offset: u64,
         buffer_index: u16,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_read_fixed(sqe, fd, buffer, offset, buffer_index);
         sqe.user_data = user_data;
@@ -446,7 +442,7 @@ pub const IO_Uring = struct {
         fd: os.fd_t,
         iovecs: []const os.iovec_const,
         offset: u64,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_writev(sqe, fd, iovecs, offset);
         sqe.user_data = user_data;
@@ -465,7 +461,7 @@ pub const IO_Uring = struct {
         buffer: *os.iovec,
         offset: u64,
         buffer_index: u16,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_write_fixed(sqe, fd, buffer, offset, buffer_index);
         sqe.user_data = user_data;
@@ -481,7 +477,7 @@ pub const IO_Uring = struct {
         addr: *os.sockaddr,
         addrlen: *os.socklen_t,
         flags: u32,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_accept(sqe, fd, addr, addrlen, flags);
         sqe.user_data = user_data;
@@ -496,7 +492,7 @@ pub const IO_Uring = struct {
         fd: os.fd_t,
         addr: *const os.sockaddr,
         addrlen: os.socklen_t,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_connect(sqe, fd, addr, addrlen);
         sqe.user_data = user_data;
@@ -512,7 +508,7 @@ pub const IO_Uring = struct {
         fd: os.fd_t,
         op: u32,
         ev: ?*linux.epoll_event,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_epoll_ctl(sqe, epfd, fd, op, ev);
         sqe.user_data = user_data;
@@ -541,7 +537,7 @@ pub const IO_Uring = struct {
         fd: os.fd_t,
         buffer: RecvBuffer,
         flags: u32,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         switch (buffer) {
             .buffer => |slice| io_uring_prep_recv(sqe, fd, slice, flags),
@@ -564,7 +560,7 @@ pub const IO_Uring = struct {
         fd: os.fd_t,
         buffer: []const u8,
         flags: u32,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_send(sqe, fd, buffer, flags);
         sqe.user_data = user_data;
@@ -579,7 +575,7 @@ pub const IO_Uring = struct {
         fd: os.fd_t,
         msg: *os.msghdr,
         flags: u32,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_recvmsg(sqe, fd, msg, flags);
         sqe.user_data = user_data;
@@ -594,7 +590,7 @@ pub const IO_Uring = struct {
         fd: os.fd_t,
         msg: *const os.msghdr_const,
         flags: u32,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_sendmsg(sqe, fd, msg, flags);
         sqe.user_data = user_data;
@@ -610,7 +606,7 @@ pub const IO_Uring = struct {
         path: [*:0]const u8,
         flags: u32,
         mode: os.mode_t,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_openat(sqe, fd, path, flags, mode);
         sqe.user_data = user_data;
@@ -619,7 +615,7 @@ pub const IO_Uring = struct {
 
     /// Queues (but does not submit) an SQE to perform a `close(2)`.
     /// Returns a pointer to the SQE.
-    pub fn close(self: *IO_Uring, user_data: u64, fd: os.fd_t) !*io_uring_sqe {
+    pub fn close(self: *IO_Uring, user_data: u64, fd: os.fd_t) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_close(sqe, fd);
         sqe.user_data = user_data;
@@ -645,7 +641,7 @@ pub const IO_Uring = struct {
         ts: *const os.linux.kernel_timespec,
         count: u32,
         flags: u32,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_timeout(sqe, ts, count, flags);
         sqe.user_data = user_data;
@@ -665,7 +661,7 @@ pub const IO_Uring = struct {
         user_data: u64,
         timeout_user_data: u64,
         flags: u32,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_timeout_remove(sqe, timeout_user_data, flags);
         sqe.user_data = user_data;
@@ -693,7 +689,7 @@ pub const IO_Uring = struct {
         user_data: u64,
         ts: *const os.linux.kernel_timespec,
         flags: u32,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_link_timeout(sqe, ts, flags);
         sqe.user_data = user_data;
@@ -707,7 +703,7 @@ pub const IO_Uring = struct {
         user_data: u64,
         fd: os.fd_t,
         poll_mask: u32,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_poll_add(sqe, fd, poll_mask);
         sqe.user_data = user_data;
@@ -720,7 +716,7 @@ pub const IO_Uring = struct {
         self: *IO_Uring,
         user_data: u64,
         target_user_data: u64,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_poll_remove(sqe, target_user_data);
         sqe.user_data = user_data;
@@ -736,7 +732,7 @@ pub const IO_Uring = struct {
         new_user_data: u64,
         poll_mask: u32,
         flags: u32,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_poll_update(sqe, old_user_data, new_user_data, poll_mask, flags);
         sqe.user_data = user_data;
@@ -752,7 +748,7 @@ pub const IO_Uring = struct {
         mode: i32,
         offset: u64,
         len: u64,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_fallocate(sqe, fd, mode, offset, len);
         sqe.user_data = user_data;
@@ -769,7 +765,7 @@ pub const IO_Uring = struct {
         flags: u32,
         mask: u32,
         buf: *linux.Statx,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_statx(sqe, fd, path, flags, mask, buf);
         sqe.user_data = user_data;
@@ -789,7 +785,7 @@ pub const IO_Uring = struct {
         user_data: u64,
         cancel_user_data: u64,
         flags: u32,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_cancel(sqe, cancel_user_data, flags);
         sqe.user_data = user_data;
@@ -805,7 +801,7 @@ pub const IO_Uring = struct {
         user_data: u64,
         sockfd: os.socket_t,
         how: u32,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_shutdown(sqe, sockfd, how);
         sqe.user_data = user_data;
@@ -822,7 +818,7 @@ pub const IO_Uring = struct {
         new_dir_fd: os.fd_t,
         new_path: [*:0]const u8,
         flags: u32,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_renameat(sqe, old_dir_fd, old_path, new_dir_fd, new_path, flags);
         sqe.user_data = user_data;
@@ -837,7 +833,7 @@ pub const IO_Uring = struct {
         dir_fd: os.fd_t,
         path: [*:0]const u8,
         flags: u32,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_unlinkat(sqe, dir_fd, path, flags);
         sqe.user_data = user_data;
@@ -852,7 +848,7 @@ pub const IO_Uring = struct {
         dir_fd: os.fd_t,
         path: [*:0]const u8,
         mode: os.mode_t,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_mkdirat(sqe, dir_fd, path, mode);
         sqe.user_data = user_data;
@@ -867,7 +863,7 @@ pub const IO_Uring = struct {
         target: [*:0]const u8,
         new_dir_fd: os.fd_t,
         link_path: [*:0]const u8,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_symlinkat(sqe, target, new_dir_fd, link_path);
         sqe.user_data = user_data;
@@ -884,7 +880,7 @@ pub const IO_Uring = struct {
         new_dir_fd: os.fd_t,
         new_path: [*:0]const u8,
         flags: u32,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_linkat(sqe, old_dir_fd, old_path, new_dir_fd, new_path, flags);
         sqe.user_data = user_data;
@@ -905,7 +901,7 @@ pub const IO_Uring = struct {
         buffer_size: usize,
         group_id: usize,
         buffer_id: usize,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_provide_buffers(sqe, buffers, buffers_count, buffer_size, group_id, buffer_id);
         sqe.user_data = user_data;
@@ -919,7 +915,7 @@ pub const IO_Uring = struct {
         user_data: u64,
         buffers_count: usize,
         group_id: usize,
-    ) !*io_uring_sqe {
+    ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
         io_uring_prep_remove_buffers(sqe, buffers_count, group_id);
         sqe.user_data = user_data;
@@ -1083,7 +1079,7 @@ pub const SubmissionQueue = struct {
     flags: *u32,
     dropped: *u32,
     array: []u32,
-    sqes: []io_uring_sqe,
+    sqes: []linux.io_uring_sqe,
     mmap: []align(mem.page_size) u8,
     mmap_sqes: []align(mem.page_size) u8,
 
@@ -1094,12 +1090,12 @@ pub const SubmissionQueue = struct {
     sqe_head: u32 = 0,
     sqe_tail: u32 = 0,
 
-    pub fn init(fd: os.fd_t, p: io_uring_params) !SubmissionQueue {
+    pub fn init(fd: os.fd_t, p: linux.io_uring_params) !SubmissionQueue {
         assert(fd >= 0);
         assert((p.features & linux.IORING_FEAT_SINGLE_MMAP) != 0);
         const size = std.math.max(
             p.sq_off.array + p.sq_entries * @sizeOf(u32),
-            p.cq_off.cqes + p.cq_entries * @sizeOf(io_uring_cqe),
+            p.cq_off.cqes + p.cq_entries * @sizeOf(linux.io_uring_cqe),
         );
         const mmap = try os.mmap(
             null,
@@ -1113,8 +1109,8 @@ pub const SubmissionQueue = struct {
         assert(mmap.len == size);
 
         // The motivation for the `sqes` and `array` indirection is to make it possible for the
-        // application to preallocate static io_uring_sqe entries and then replay them when needed.
-        const size_sqes = p.sq_entries * @sizeOf(io_uring_sqe);
+        // application to preallocate static linux.io_uring_sqe entries and then replay them when needed.
+        const size_sqes = p.sq_entries * @sizeOf(linux.io_uring_sqe);
         const mmap_sqes = try os.mmap(
             null,
             size_sqes,
@@ -1127,7 +1123,7 @@ pub const SubmissionQueue = struct {
         assert(mmap_sqes.len == size_sqes);
 
         const array = @ptrCast([*]u32, @alignCast(@alignOf(u32), &mmap[p.sq_off.array]));
-        const sqes = @ptrCast([*]io_uring_sqe, @alignCast(@alignOf(io_uring_sqe), &mmap_sqes[0]));
+        const sqes = @ptrCast([*]linux.io_uring_sqe, @alignCast(@alignOf(linux.io_uring_sqe), &mmap_sqes[0]));
         // We expect the kernel copies p.sq_entries to the u32 pointed to by p.sq_off.ring_entries,
         // see https://github.com/torvalds/linux/blob/v5.8/fs/io_uring.c#L7843-L7844.
         assert(
@@ -1158,15 +1154,15 @@ pub const CompletionQueue = struct {
     tail: *u32,
     mask: u32,
     overflow: *u32,
-    cqes: []io_uring_cqe,
+    cqes: []linux.io_uring_cqe,
 
-    pub fn init(fd: os.fd_t, p: io_uring_params, sq: SubmissionQueue) !CompletionQueue {
+    pub fn init(fd: os.fd_t, p: linux.io_uring_params, sq: SubmissionQueue) !CompletionQueue {
         assert(fd >= 0);
         assert((p.features & linux.IORING_FEAT_SINGLE_MMAP) != 0);
         const mmap = sq.mmap;
         const cqes = @ptrCast(
-            [*]io_uring_cqe,
-            @alignCast(@alignOf(io_uring_cqe), &mmap[p.cq_off.cqes]),
+            [*]linux.io_uring_cqe,
+            @alignCast(@alignOf(linux.io_uring_cqe), &mmap[p.cq_off.cqes]),
         );
         assert(p.cq_entries ==
             @ptrCast(*u32, @alignCast(@alignOf(u32), &mmap[p.cq_off.ring_entries])).*);
@@ -1186,7 +1182,7 @@ pub const CompletionQueue = struct {
     }
 };
 
-pub fn io_uring_prep_nop(sqe: *io_uring_sqe) void {
+pub fn io_uring_prep_nop(sqe: *linux.io_uring_sqe) void {
     sqe.* = .{
         .opcode = .NOP,
         .flags = 0,
@@ -1204,7 +1200,7 @@ pub fn io_uring_prep_nop(sqe: *io_uring_sqe) void {
     };
 }
 
-pub fn io_uring_prep_fsync(sqe: *io_uring_sqe, fd: os.fd_t, flags: u32) void {
+pub fn io_uring_prep_fsync(sqe: *linux.io_uring_sqe, fd: os.fd_t, flags: u32) void {
     sqe.* = .{
         .opcode = .FSYNC,
         .flags = 0,
@@ -1224,7 +1220,7 @@ pub fn io_uring_prep_fsync(sqe: *io_uring_sqe, fd: os.fd_t, flags: u32) void {
 
 pub fn io_uring_prep_rw(
     op: linux.IORING_OP,
-    sqe: *io_uring_sqe,
+    sqe: *linux.io_uring_sqe,
     fd: os.fd_t,
     addr: u64,
     len: usize,
@@ -1247,16 +1243,16 @@ pub fn io_uring_prep_rw(
     };
 }
 
-pub fn io_uring_prep_read(sqe: *io_uring_sqe, fd: os.fd_t, buffer: []u8, offset: u64) void {
+pub fn io_uring_prep_read(sqe: *linux.io_uring_sqe, fd: os.fd_t, buffer: []u8, offset: u64) void {
     io_uring_prep_rw(.READ, sqe, fd, @ptrToInt(buffer.ptr), buffer.len, offset);
 }
 
-pub fn io_uring_prep_write(sqe: *io_uring_sqe, fd: os.fd_t, buffer: []const u8, offset: u64) void {
+pub fn io_uring_prep_write(sqe: *linux.io_uring_sqe, fd: os.fd_t, buffer: []const u8, offset: u64) void {
     io_uring_prep_rw(.WRITE, sqe, fd, @ptrToInt(buffer.ptr), buffer.len, offset);
 }
 
 pub fn io_uring_prep_readv(
-    sqe: *io_uring_sqe,
+    sqe: *linux.io_uring_sqe,
     fd: os.fd_t,
     iovecs: []const os.iovec,
     offset: u64,
@@ -1265,7 +1261,7 @@ pub fn io_uring_prep_readv(
 }
 
 pub fn io_uring_prep_writev(
-    sqe: *io_uring_sqe,
+    sqe: *linux.io_uring_sqe,
     fd: os.fd_t,
     iovecs: []const os.iovec_const,
     offset: u64,
@@ -1273,12 +1269,12 @@ pub fn io_uring_prep_writev(
     io_uring_prep_rw(.WRITEV, sqe, fd, @ptrToInt(iovecs.ptr), iovecs.len, offset);
 }
 
-pub fn io_uring_prep_read_fixed(sqe: *io_uring_sqe, fd: os.fd_t, buffer: *os.iovec, offset: u64, buffer_index: u16) void {
+pub fn io_uring_prep_read_fixed(sqe: *linux.io_uring_sqe, fd: os.fd_t, buffer: *os.iovec, offset: u64, buffer_index: u16) void {
     io_uring_prep_rw(.READ_FIXED, sqe, fd, @ptrToInt(buffer.iov_base), buffer.iov_len, offset);
     sqe.buf_index = buffer_index;
 }
 
-pub fn io_uring_prep_write_fixed(sqe: *io_uring_sqe, fd: os.fd_t, buffer: *os.iovec, offset: u64, buffer_index: u16) void {
+pub fn io_uring_prep_write_fixed(sqe: *linux.io_uring_sqe, fd: os.fd_t, buffer: *os.iovec, offset: u64, buffer_index: u16) void {
     io_uring_prep_rw(.WRITE_FIXED, sqe, fd, @ptrToInt(buffer.iov_base), buffer.iov_len, offset);
     sqe.buf_index = buffer_index;
 }
@@ -1294,7 +1290,7 @@ pub inline fn __io_uring_prep_poll_mask(poll_mask: u32) u32 {
 }
 
 pub fn io_uring_prep_accept(
-    sqe: *io_uring_sqe,
+    sqe: *linux.io_uring_sqe,
     fd: os.fd_t,
     addr: *os.sockaddr,
     addrlen: *os.socklen_t,
@@ -1307,7 +1303,7 @@ pub fn io_uring_prep_accept(
 }
 
 pub fn io_uring_prep_connect(
-    sqe: *io_uring_sqe,
+    sqe: *linux.io_uring_sqe,
     fd: os.fd_t,
     addr: *const os.sockaddr,
     addrlen: os.socklen_t,
@@ -1317,7 +1313,7 @@ pub fn io_uring_prep_connect(
 }
 
 pub fn io_uring_prep_epoll_ctl(
-    sqe: *io_uring_sqe,
+    sqe: *linux.io_uring_sqe,
     epfd: os.fd_t,
     fd: os.fd_t,
     op: u32,
@@ -1326,18 +1322,18 @@ pub fn io_uring_prep_epoll_ctl(
     io_uring_prep_rw(.EPOLL_CTL, sqe, epfd, @ptrToInt(ev), op, @intCast(u64, fd));
 }
 
-pub fn io_uring_prep_recv(sqe: *io_uring_sqe, fd: os.fd_t, buffer: []u8, flags: u32) void {
+pub fn io_uring_prep_recv(sqe: *linux.io_uring_sqe, fd: os.fd_t, buffer: []u8, flags: u32) void {
     io_uring_prep_rw(.RECV, sqe, fd, @ptrToInt(buffer.ptr), buffer.len, 0);
     sqe.rw_flags = flags;
 }
 
-pub fn io_uring_prep_send(sqe: *io_uring_sqe, fd: os.fd_t, buffer: []const u8, flags: u32) void {
+pub fn io_uring_prep_send(sqe: *linux.io_uring_sqe, fd: os.fd_t, buffer: []const u8, flags: u32) void {
     io_uring_prep_rw(.SEND, sqe, fd, @ptrToInt(buffer.ptr), buffer.len, 0);
     sqe.rw_flags = flags;
 }
 
 pub fn io_uring_prep_recvmsg(
-    sqe: *io_uring_sqe,
+    sqe: *linux.io_uring_sqe,
     fd: os.fd_t,
     msg: *os.msghdr,
     flags: u32,
@@ -1347,7 +1343,7 @@ pub fn io_uring_prep_recvmsg(
 }
 
 pub fn io_uring_prep_sendmsg(
-    sqe: *io_uring_sqe,
+    sqe: *linux.io_uring_sqe,
     fd: os.fd_t,
     msg: *const os.msghdr_const,
     flags: u32,
@@ -1357,7 +1353,7 @@ pub fn io_uring_prep_sendmsg(
 }
 
 pub fn io_uring_prep_openat(
-    sqe: *io_uring_sqe,
+    sqe: *linux.io_uring_sqe,
     fd: os.fd_t,
     path: [*:0]const u8,
     flags: u32,
@@ -1367,7 +1363,7 @@ pub fn io_uring_prep_openat(
     sqe.rw_flags = flags;
 }
 
-pub fn io_uring_prep_close(sqe: *io_uring_sqe, fd: os.fd_t) void {
+pub fn io_uring_prep_close(sqe: *linux.io_uring_sqe, fd: os.fd_t) void {
     sqe.* = .{
         .opcode = .CLOSE,
         .flags = 0,
@@ -1386,7 +1382,7 @@ pub fn io_uring_prep_close(sqe: *io_uring_sqe, fd: os.fd_t) void {
 }
 
 pub fn io_uring_prep_timeout(
-    sqe: *io_uring_sqe,
+    sqe: *linux.io_uring_sqe,
     ts: *const os.linux.kernel_timespec,
     count: u32,
     flags: u32,
@@ -1395,7 +1391,7 @@ pub fn io_uring_prep_timeout(
     sqe.rw_flags = flags;
 }
 
-pub fn io_uring_prep_timeout_remove(sqe: *io_uring_sqe, timeout_user_data: u64, flags: u32) void {
+pub fn io_uring_prep_timeout_remove(sqe: *linux.io_uring_sqe, timeout_user_data: u64, flags: u32) void {
     sqe.* = .{
         .opcode = .TIMEOUT_REMOVE,
         .flags = 0,
@@ -1414,7 +1410,7 @@ pub fn io_uring_prep_timeout_remove(sqe: *io_uring_sqe, timeout_user_data: u64, 
 }
 
 pub fn io_uring_prep_link_timeout(
-    sqe: *io_uring_sqe,
+    sqe: *linux.io_uring_sqe,
     ts: *const os.linux.kernel_timespec,
     flags: u32,
 ) void {
@@ -1423,7 +1419,7 @@ pub fn io_uring_prep_link_timeout(
 }
 
 pub fn io_uring_prep_poll_add(
-    sqe: *io_uring_sqe,
+    sqe: *linux.io_uring_sqe,
     fd: os.fd_t,
     poll_mask: u32,
 ) void {
@@ -1432,14 +1428,14 @@ pub fn io_uring_prep_poll_add(
 }
 
 pub fn io_uring_prep_poll_remove(
-    sqe: *io_uring_sqe,
+    sqe: *linux.io_uring_sqe,
     target_user_data: u64,
 ) void {
     io_uring_prep_rw(.POLL_REMOVE, sqe, -1, target_user_data, 0, 0);
 }
 
 pub fn io_uring_prep_poll_update(
-    sqe: *io_uring_sqe,
+    sqe: *linux.io_uring_sqe,
     old_user_data: u64,
     new_user_data: u64,
     poll_mask: u32,
@@ -1450,7 +1446,7 @@ pub fn io_uring_prep_poll_update(
 }
 
 pub fn io_uring_prep_fallocate(
-    sqe: *io_uring_sqe,
+    sqe: *linux.io_uring_sqe,
     fd: os.fd_t,
     mode: i32,
     offset: u64,
@@ -1474,7 +1470,7 @@ pub fn io_uring_prep_fallocate(
 }
 
 pub fn io_uring_prep_statx(
-    sqe: *io_uring_sqe,
+    sqe: *linux.io_uring_sqe,
     fd: os.fd_t,
     path: [*:0]const u8,
     flags: u32,
@@ -1486,7 +1482,7 @@ pub fn io_uring_prep_statx(
 }
 
 pub fn io_uring_prep_cancel(
-    sqe: *io_uring_sqe,
+    sqe: *linux.io_uring_sqe,
     cancel_user_data: u64,
     flags: u32,
 ) void {
@@ -1495,7 +1491,7 @@ pub fn io_uring_prep_cancel(
 }
 
 pub fn io_uring_prep_shutdown(
-    sqe: *io_uring_sqe,
+    sqe: *linux.io_uring_sqe,
     sockfd: os.socket_t,
     how: u32,
 ) void {
@@ -1503,7 +1499,7 @@ pub fn io_uring_prep_shutdown(
 }
 
 pub fn io_uring_prep_renameat(
-    sqe: *io_uring_sqe,
+    sqe: *linux.io_uring_sqe,
     old_dir_fd: os.fd_t,
     old_path: [*:0]const u8,
     new_dir_fd: os.fd_t,
@@ -1523,7 +1519,7 @@ pub fn io_uring_prep_renameat(
 }
 
 pub fn io_uring_prep_unlinkat(
-    sqe: *io_uring_sqe,
+    sqe: *linux.io_uring_sqe,
     dir_fd: os.fd_t,
     path: [*:0]const u8,
     flags: u32,
@@ -1533,7 +1529,7 @@ pub fn io_uring_prep_unlinkat(
 }
 
 pub fn io_uring_prep_mkdirat(
-    sqe: *io_uring_sqe,
+    sqe: *linux.io_uring_sqe,
     dir_fd: os.fd_t,
     path: [*:0]const u8,
     mode: os.mode_t,
@@ -1542,7 +1538,7 @@ pub fn io_uring_prep_mkdirat(
 }
 
 pub fn io_uring_prep_symlinkat(
-    sqe: *io_uring_sqe,
+    sqe: *linux.io_uring_sqe,
     target: [*:0]const u8,
     new_dir_fd: os.fd_t,
     link_path: [*:0]const u8,
@@ -1558,7 +1554,7 @@ pub fn io_uring_prep_symlinkat(
 }
 
 pub fn io_uring_prep_linkat(
-    sqe: *io_uring_sqe,
+    sqe: *linux.io_uring_sqe,
     old_dir_fd: os.fd_t,
     old_path: [*:0]const u8,
     new_dir_fd: os.fd_t,
@@ -1578,7 +1574,7 @@ pub fn io_uring_prep_linkat(
 }
 
 pub fn io_uring_prep_provide_buffers(
-    sqe: *io_uring_sqe,
+    sqe: *linux.io_uring_sqe,
     buffers: [*]u8,
     num: usize,
     buffer_len: usize,
@@ -1591,7 +1587,7 @@ pub fn io_uring_prep_provide_buffers(
 }
 
 pub fn io_uring_prep_remove_buffers(
-    sqe: *io_uring_sqe,
+    sqe: *linux.io_uring_sqe,
     num: usize,
     group_id: usize,
 ) void {
@@ -1602,9 +1598,9 @@ pub fn io_uring_prep_remove_buffers(
 test "structs/offsets/entries" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
-    try testing.expectEqual(@as(usize, 120), @sizeOf(io_uring_params));
-    try testing.expectEqual(@as(usize, 64), @sizeOf(io_uring_sqe));
-    try testing.expectEqual(@as(usize, 16), @sizeOf(io_uring_cqe));
+    try testing.expectEqual(@as(usize, 120), @sizeOf(linux.io_uring_params));
+    try testing.expectEqual(@as(usize, 64), @sizeOf(linux.io_uring_sqe));
+    try testing.expectEqual(@as(usize, 16), @sizeOf(linux.io_uring_cqe));
 
     try testing.expectEqual(0, linux.IORING_OFF_SQ_RING);
     try testing.expectEqual(0x8000000, linux.IORING_OFF_CQ_RING);
@@ -1628,7 +1624,7 @@ test "nop" {
     }
 
     const sqe = try ring.nop(0xaaaaaaaa);
-    try testing.expectEqual(io_uring_sqe{
+    try testing.expectEqual(linux.io_uring_sqe{
         .opcode = .NOP,
         .flags = 0,
         .ioprio = 0,
@@ -1658,7 +1654,7 @@ test "nop" {
     try testing.expectEqual(@as(u32, 0), ring.cq.head.*);
     try testing.expectEqual(@as(u32, 0), ring.sq_ready());
 
-    try testing.expectEqual(io_uring_cqe{
+    try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xaaaaaaaa,
         .res = 0,
         .flags = 0,
@@ -1669,7 +1665,7 @@ test "nop" {
     const sqe_barrier = try ring.nop(0xbbbbbbbb);
     sqe_barrier.flags |= linux.IOSQE_IO_DRAIN;
     try testing.expectEqual(@as(u32, 1), try ring.submit());
-    try testing.expectEqual(io_uring_cqe{
+    try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xbbbbbbbb,
         .res = 0,
         .flags = 0,
@@ -1906,16 +1902,22 @@ test "openat" {
     const path = "test_io_uring_openat";
     defer std.fs.cwd().deleteFile(path) catch {};
 
+    // Workaround for LLVM bug: https://github.com/ziglang/zig/issues/12014
+    const path_addr = if (builtin.zig_backend == .stage2_llvm) p: {
+        var workaround = path;
+        break :p @ptrToInt(workaround);
+    } else @ptrToInt(path);
+
     const flags: u32 = os.O.CLOEXEC | os.O.RDWR | os.O.CREAT;
     const mode: os.mode_t = 0o666;
     const sqe_openat = try ring.openat(0x33333333, linux.AT.FDCWD, path, flags, mode);
-    try testing.expectEqual(io_uring_sqe{
+    try testing.expectEqual(linux.io_uring_sqe{
         .opcode = .OPENAT,
         .flags = 0,
         .ioprio = 0,
         .fd = linux.AT.FDCWD,
         .off = 0,
-        .addr = @ptrToInt(path),
+        .addr = path_addr,
         .len = mode,
         .rw_flags = flags,
         .user_data = 0x33333333,
@@ -2033,7 +2035,7 @@ test "sendmsg/recvmsg" {
     defer os.close(client);
 
     const buffer_send = [_]u8{42} ** 128;
-    var iovecs_send = [_]os.iovec_const{
+    const iovecs_send = [_]os.iovec_const{
         os.iovec_const{ .iov_base = &buffer_send, .iov_len = buffer_send.len },
     };
     const msg_send = os.msghdr_const{
@@ -2179,29 +2181,41 @@ test "timeout_remove" {
 
     try testing.expectEqual(@as(u32, 2), try ring.submit());
 
-    const cqe_timeout = try ring.copy_cqe();
-    // IORING_OP_TIMEOUT_REMOVE is not supported by this kernel version:
-    // Timeout remove operations set the fd to -1, which results in EBADF before EINVAL.
-    // We use IORING_FEAT_RW_CUR_POS as a safety check here to make sure we are at least pre-5.6.
-    // We don't want to skip this test for newer kernels.
-    if (cqe_timeout.user_data == 0x99999999 and
-        cqe_timeout.err() == .BADF and
-        (ring.features & linux.IORING_FEAT_RW_CUR_POS) == 0)
-    {
-        return error.SkipZigTest;
-    }
-    try testing.expectEqual(linux.io_uring_cqe{
-        .user_data = 0x88888888,
-        .res = -@as(i32, @enumToInt(linux.E.CANCELED)),
-        .flags = 0,
-    }, cqe_timeout);
+    // The order in which the CQE arrive is not clearly documented and it changed with kernel 5.18:
+    // * kernel 5.10 gives user data 0x88888888 first, 0x99999999 second
+    // * kernel 5.18 gives user data 0x99999999 first, 0x88888888 second
 
-    const cqe_timeout_remove = try ring.copy_cqe();
-    try testing.expectEqual(linux.io_uring_cqe{
-        .user_data = 0x99999999,
-        .res = 0,
-        .flags = 0,
-    }, cqe_timeout_remove);
+    var cqes: [2]os.linux.io_uring_cqe = undefined;
+    try testing.expectEqual(@as(u32, 2), try ring.copy_cqes(cqes[0..], 2));
+
+    for (cqes) |cqe| {
+        // IORING_OP_TIMEOUT_REMOVE is not supported by this kernel version:
+        // Timeout remove operations set the fd to -1, which results in EBADF before EINVAL.
+        // We use IORING_FEAT_RW_CUR_POS as a safety check here to make sure we are at least pre-5.6.
+        // We don't want to skip this test for newer kernels.
+        if (cqe.user_data == 0x99999999 and
+            cqe.err() == .BADF and
+            (ring.features & linux.IORING_FEAT_RW_CUR_POS) == 0)
+        {
+            return error.SkipZigTest;
+        }
+
+        try testing.expect(cqe.user_data == 0x88888888 or cqe.user_data == 0x99999999);
+
+        if (cqe.user_data == 0x88888888) {
+            try testing.expectEqual(linux.io_uring_cqe{
+                .user_data = 0x88888888,
+                .res = -@as(i32, @enumToInt(linux.E.CANCELED)),
+                .flags = 0,
+            }, cqe);
+        } else if (cqe.user_data == 0x99999999) {
+            try testing.expectEqual(linux.io_uring_cqe{
+                .user_data = 0x99999999,
+                .res = 0,
+                .flags = 0,
+            }, cqe);
+        }
+    }
 }
 
 test "accept/connect/recv/link_timeout" {
@@ -2987,7 +3001,7 @@ test "remove_buffers" {
         try testing.expectEqual(@as(u64, 0xcccccccc), cqe.user_data);
     }
 
-    // Remove the first 3 buffers
+    // Remove 3 buffers
 
     {
         var sqe = try ring.remove_buffers(0xbababababa, 3, group_id);
@@ -3019,7 +3033,7 @@ test "remove_buffers" {
 
         try testing.expect(cqe.flags & linux.IORING_CQE_F_BUFFER == linux.IORING_CQE_F_BUFFER);
         const used_buffer_id = cqe.flags >> 16;
-        try testing.expectEqual(used_buffer_id, 0);
+        try testing.expect(used_buffer_id >= 0 and used_buffer_id < 4);
         try testing.expectEqual(@as(i32, buffer_len), cqe.res);
         try testing.expectEqual(@as(u64, 0xdfdfdfdf), cqe.user_data);
         try testing.expectEqualSlices(u8, &([_]u8{0} ** buffer_len), buffers[used_buffer_id][0..@intCast(usize, cqe.res)]);

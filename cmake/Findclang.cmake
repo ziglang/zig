@@ -9,47 +9,48 @@
 
 find_path(CLANG_INCLUDE_DIRS NAMES clang/Frontend/ASTUnit.h
   PATHS
-    /usr/lib/llvm/13/include
-    /usr/lib/llvm-13/include
-    /usr/lib/llvm-13.0/include
-    /usr/local/llvm130/include
-    /usr/local/llvm13/include
-    /usr/local/opt/llvm@13/include
-    /opt/homebrew/opt/llvm@13/include
+    /usr/lib/llvm/14/include
+    /usr/lib/llvm-14/include
+    /usr/lib/llvm-14.0/include
+    /usr/local/llvm140/include
+    /usr/local/llvm14/include
+    /usr/local/opt/llvm@14/include
+    /opt/homebrew/opt/llvm@14/include
     /mingw64/include
 )
 
 if(ZIG_PREFER_CLANG_CPP_DYLIB)
   find_library(CLANG_LIBRARIES
     NAMES
-      clang-cpp-13.0
-      clang-cpp130
+      clang-cpp-14.0
+      clang-cpp140
       clang-cpp
+    NAMES_PER_DIR
     PATHS
       ${CLANG_LIBDIRS}
-      /usr/lib/llvm/13/lib
-      /usr/lib/llvm/13/lib64
-      /usr/lib/llvm-13/lib
-      /usr/local/llvm130/lib
-      /usr/local/llvm13/lib
-      /usr/local/opt/llvm@13/lib
-      /opt/homebrew/opt/llvm@13/lib
+      /usr/lib/llvm/14/lib
+      /usr/lib/llvm/14/lib64
+      /usr/lib/llvm-14/lib
+      /usr/local/llvm140/lib
+      /usr/local/llvm14/lib
+      /usr/local/opt/llvm@14/lib
+      /opt/homebrew/opt/llvm@14/lib
   )
 endif()
 
 if(NOT CLANG_LIBRARIES)
   macro(FIND_AND_ADD_CLANG_LIB _libname_)
     string(TOUPPER ${_libname_} _prettylibname_)
-    find_library(CLANG_${_prettylibname_}_LIB NAMES ${_libname_}
+    find_library(CLANG_${_prettylibname_}_LIB NAMES ${_libname_} NAMES_PER_DIR
       PATHS
         ${CLANG_LIBDIRS}
-        /usr/lib/llvm/13/lib
-        /usr/lib/llvm-13/lib
-        /usr/lib/llvm-13.0/lib
-        /usr/local/llvm130/lib
-        /usr/local/llvm13/lib
-        /usr/local/opt/llvm@13/lib
-        /opt/homebrew/opt/llvm@13/lib
+        /usr/lib/llvm/14/lib
+        /usr/lib/llvm-14/lib
+        /usr/lib/llvm-14.0/lib
+        /usr/local/llvm140/lib
+        /usr/local/llvm14/lib
+        /usr/local/opt/llvm@14/lib
+        /opt/homebrew/opt/llvm@14/lib
         /mingw64/lib
         /c/msys64/mingw64/lib
         c:\\msys64\\mingw64\\lib

@@ -16,18 +16,15 @@
 #include <__utility/move.h>
 #include <__utility/pair.h>
 #include <__utility/swap.h>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <cstddef>
 #include <limits>
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
 #endif
-
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -564,6 +561,7 @@ _LIBCPP_SUPPRESS_DEPRECATED_POP
 
 #endif // _LIBCPP_HAS_NO_UNICODE_CHARS
 
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <>
 struct _LIBCPP_TEMPLATE_VIS hash<wchar_t>
@@ -579,6 +577,7 @@ _LIBCPP_SUPPRESS_DEPRECATED_POP
     _LIBCPP_INLINE_VISIBILITY
     size_t operator()(wchar_t __v) const _NOEXCEPT {return static_cast<size_t>(__v);}
 };
+#endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <>
@@ -839,35 +838,33 @@ _LIBCPP_SUPPRESS_DEPRECATED_POP
 
 #ifndef _LIBCPP_CXX03_LANG
 template <class _Key, class _Hash>
-using __check_hash_requirements _LIBCPP_NODEBUG_TYPE  = integral_constant<bool,
+using __check_hash_requirements _LIBCPP_NODEBUG = integral_constant<bool,
     is_copy_constructible<_Hash>::value &&
     is_move_constructible<_Hash>::value &&
     __invokable_r<size_t, _Hash, _Key const&>::value
 >;
 
 template <class _Key, class _Hash = hash<_Key> >
-using __has_enabled_hash _LIBCPP_NODEBUG_TYPE = integral_constant<bool,
+using __has_enabled_hash _LIBCPP_NODEBUG = integral_constant<bool,
     __check_hash_requirements<_Key, _Hash>::value &&
     is_default_constructible<_Hash>::value
 >;
 
 #if _LIBCPP_STD_VER > 14
 template <class _Type, class>
-using __enable_hash_helper_imp _LIBCPP_NODEBUG_TYPE  = _Type;
+using __enable_hash_helper_imp _LIBCPP_NODEBUG = _Type;
 
 template <class _Type, class ..._Keys>
-using __enable_hash_helper _LIBCPP_NODEBUG_TYPE  = __enable_hash_helper_imp<_Type,
+using __enable_hash_helper _LIBCPP_NODEBUG = __enable_hash_helper_imp<_Type,
   typename enable_if<__all<__has_enabled_hash<_Keys>::value...>::value>::type
 >;
 #else
 template <class _Type, class ...>
-using __enable_hash_helper _LIBCPP_NODEBUG_TYPE = _Type;
+using __enable_hash_helper _LIBCPP_NODEBUG = _Type;
 #endif
 
 #endif // !_LIBCPP_CXX03_LANG
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___FUNCTIONAL_HASH_H

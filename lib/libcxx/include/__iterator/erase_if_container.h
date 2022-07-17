@@ -16,9 +16,6 @@
 #pragma GCC system_header
 #endif
 
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
-
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Container, class _Predicate>
@@ -39,7 +36,5 @@ __libcpp_erase_if_container(_Container& __c, _Predicate& __pred) {
 }
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ITERATOR_ERASE_IF_CONTAINER_H

@@ -29,6 +29,7 @@ const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const Symbol = @import("Wasm/Symbol.zig");
 const Object = @import("Wasm/Object.zig");
+const Archive = @import("Wasm/Archive.zig");
 const types = @import("Wasm/types.zig");
 
 pub const base_tag = link.File.Tag.wasm;
@@ -103,8 +104,10 @@ debug_aranges: std.ArrayListUnmanaged(u8) = .{},
 // Output sections
 /// Output type section
 func_types: std.ArrayListUnmanaged(wasm.Type) = .{},
-/// Output function section
-functions: std.ArrayListUnmanaged(wasm.Func) = .{},
+/// Output function section where the key is the original
+/// function index and the value is function.
+/// This allows us to map multiple symbols to the same function.
+functions: std.AutoArrayHashMapUnmanaged(struct { file: ?u16, index: u32 }, wasm.Func) = .{},
 /// Output global section
 wasm_globals: std.ArrayListUnmanaged(wasm.Global) = .{},
 /// Memory section
@@ -123,6 +126,10 @@ function_table: std.AutoHashMapUnmanaged(SymbolLoc, u32) = .{},
 
 /// All object files and their data which are linked into the final binary
 objects: std.ArrayListUnmanaged(Object) = .{},
+/// All archive files that are lazy loaded.
+/// e.g. when an undefined symbol references a symbol from the archive.
+archives: std.ArrayListUnmanaged(Archive) = .{},
+
 /// A map of global names (read: offset into string table) to their symbol location
 globals: std.AutoHashMapUnmanaged(u32, SymbolLoc) = .{},
 /// Maps discarded symbols and their positions to the location of the symbol
@@ -131,6 +138,8 @@ discarded: std.AutoHashMapUnmanaged(SymbolLoc, SymbolLoc) = .{},
 /// List of all symbol locations which have been resolved by the linker and will be emit
 /// into the final binary.
 resolved_symbols: std.AutoArrayHashMapUnmanaged(SymbolLoc, void) = .{},
+/// Symbols that remain undefined after symbol resolution.
+undefs: std.StringArrayHashMapUnmanaged(SymbolLoc) = .{},
 /// Maps a symbol's location to an atom. This can be used to find meta
 /// data of a symbol, such as its size, or its offset to perform a relocation.
 /// Undefined (and synthetic) symbols do not have an Atom and therefore cannot be mapped.
@@ -357,6 +366,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Wasm {
 fn parseInputFiles(self: *Wasm, files: []const []const u8) !void {
     for (files) |path| {
         if (try self.parseObjectFile(path)) continue;
+        if (try self.parseArchive(path, false)) continue; // load archives lazily
         log.warn("Unexpected file format at path: '{s}'", .{path});
     }
 }
@@ -369,14 +379,61 @@ fn parseObjectFile(self: *Wasm, path: []const u8) !bool {
     errdefer file.close();
 
     var object = Object.create(self.base.allocator, file, path) catch |err| switch (err) {
-        error.InvalidMagicByte, error.NotObjectFile => {
-            log.warn("Self hosted linker does not support non-object file parsing: {s}", .{@errorName(err)});
-            return false;
-        },
+        error.InvalidMagicByte, error.NotObjectFile => return false,
         else => |e| return e,
     };
     errdefer object.deinit(self.base.allocator);
     try self.objects.append(self.base.allocator, object);
+    return true;
+}
+
+/// Parses an archive file and will then parse each object file
+/// that was found in the archive file.
+/// Returns false when the file is not an archive file.
+/// May return an error instead when parsing failed.
+///
+/// When `force_load` is `true`, it will for link all object files in the archive.
+/// When false, it will only link with object files that contain symbols that
+/// are referenced by other object files or Zig code.
+fn parseArchive(self: *Wasm, path: []const u8, force_load: bool) !bool {
+    const file = try fs.cwd().openFile(path, .{});
+    errdefer file.close();
+
+    var archive: Archive = .{
+        .file = file,
+        .name = path,
+    };
+    archive.parse(self.base.allocator) catch |err| switch (err) {
+        error.EndOfStream, error.NotArchive => {
+            archive.deinit(self.base.allocator);
+            return false;
+        },
+        else => |e| return e,
+    };
+
+    if (!force_load) {
+        errdefer archive.deinit(self.base.allocator);
+        try self.archives.append(self.base.allocator, archive);
+        return true;
+    }
+    defer archive.deinit(self.base.allocator);
+
+    // In this case we must force link all embedded object files within the archive
+    // We loop over all symbols, and then group them by offset as the offset
+    // notates where the object file starts.
+    var offsets = std.AutoArrayHashMap(u32, void).init(self.base.allocator);
+    defer offsets.deinit();
+    for (archive.toc.values()) |symbol_offsets| {
+        for (symbol_offsets.items) |sym_offset| {
+            try offsets.put(sym_offset, {});
+        }
+    }
+
+    for (offsets.keys()) |file_offset| {
+        const object = try self.objects.addOne(self.base.allocator);
+        object.* = try archive.parseObject(self.base.allocator, file_offset);
+    }
+
     return true;
 }
 
@@ -406,13 +463,16 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
             continue;
         }
 
-        // TODO: locals are allowed to have duplicate symbol names
         // TODO: Store undefined symbols so we can verify at the end if they've all been found
         // if not, emit an error (unless --allow-undefined is enabled).
         const maybe_existing = try self.globals.getOrPut(self.base.allocator, sym_name_index);
         if (!maybe_existing.found_existing) {
             maybe_existing.value_ptr.* = location;
             try self.resolved_symbols.putNoClobber(self.base.allocator, location, {});
+
+            if (symbol.isUndefined()) {
+                try self.undefs.putNoClobber(self.base.allocator, sym_name, location);
+            }
             continue;
         }
 
@@ -431,11 +491,20 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
                 return error.SymbolCollision;
             }
 
+            try self.discarded.put(self.base.allocator, location, existing_loc);
             continue; // Do not overwrite defined symbols with undefined symbols
+        }
+
+        if (symbol.tag != existing_sym.tag) {
+            log.err("symbol '{s}' mismatching type '{s}", .{ sym_name, @tagName(symbol.tag) });
+            log.err("  first definition in '{s}'", .{existing_file_path});
+            log.err("  next definition in '{s}'", .{object.name});
+            return error.SymbolMismatchingType;
         }
 
         // when both symbols are weak, we skip overwriting
         if (existing_sym.isWeak() and symbol.isWeak()) {
+            try self.discarded.put(self.base.allocator, location, existing_loc);
             continue;
         }
 
@@ -443,11 +512,46 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
         log.debug("Overwriting symbol '{s}'", .{sym_name});
         log.debug("  old definition in '{s}'", .{existing_file_path});
         log.debug("  new definition in '{s}'", .{object.name});
-        try self.discarded.putNoClobber(self.base.allocator, maybe_existing.value_ptr.*, location);
+        try self.discarded.putNoClobber(self.base.allocator, existing_loc, location);
         maybe_existing.value_ptr.* = location;
         try self.globals.put(self.base.allocator, sym_name_index, location);
         try self.resolved_symbols.put(self.base.allocator, location, {});
         assert(self.resolved_symbols.swapRemove(existing_loc));
+        if (existing_sym.isUndefined()) {
+            assert(self.undefs.swapRemove(sym_name));
+        }
+    }
+}
+
+fn resolveSymbolsInArchives(self: *Wasm) !void {
+    if (self.archives.items.len == 0) return;
+
+    log.debug("Resolving symbols in archives", .{});
+    var index: u32 = 0;
+    undef_loop: while (index < self.undefs.count()) {
+        const undef_sym_loc = self.undefs.values()[index];
+        const sym_name = undef_sym_loc.getName(self);
+
+        for (self.archives.items) |archive| {
+            const offset = archive.toc.get(sym_name) orelse {
+                // symbol does not exist in this archive
+                continue;
+            };
+
+            log.debug("Detected symbol '{s}' in archive '{s}', parsing objects..", .{ sym_name, archive.name });
+            // Symbol is found in unparsed object file within current archive.
+            // Parse object and and resolve symbols again before we check remaining
+            // undefined symbols.
+            const object_file_index = @intCast(u16, self.objects.items.len);
+            const object = try self.objects.addOne(self.base.allocator);
+            object.* = try archive.parseObject(self.base.allocator, offset.items[0]);
+            try self.resolveSymbolsInObject(object_file_index);
+
+            // continue loop for any remaining undefined symbols that still exist
+            // after resolving last object file
+            continue :undef_loop;
+        }
+        index += 1;
     }
 }
 
@@ -478,11 +582,17 @@ pub fn deinit(self: *Wasm) void {
         object.deinit(gpa);
     }
 
+    for (self.archives.items) |*archive| {
+        archive.file.close();
+        archive.deinit(gpa);
+    }
+
     self.decls.deinit(gpa);
     self.symbols.deinit(gpa);
     self.symbols_free_list.deinit(gpa);
     self.globals.deinit(gpa);
     self.resolved_symbols.deinit(gpa);
+    self.undefs.deinit(gpa);
     self.discarded.deinit(gpa);
     self.symbol_atom.deinit(gpa);
     self.export_names.deinit(gpa);
@@ -496,6 +606,7 @@ pub fn deinit(self: *Wasm) void {
     self.data_segments.deinit(gpa);
     self.segment_info.deinit(gpa);
     self.objects.deinit(gpa);
+    self.archives.deinit(gpa);
 
     // free output sections
     self.imports.deinit(gpa);
@@ -753,6 +864,39 @@ pub fn lowerUnnamedConst(self: *Wasm, tv: TypedValue, decl_index: Module.Decl.In
     return atom.sym_index;
 }
 
+/// Returns the symbol index from a symbol of which its flag is set global,
+/// such as an exported or imported symbol.
+/// If the symbol does not yet exist, creates a new one symbol instead
+/// and then returns the index to it.
+pub fn getGlobalSymbol(self: *Wasm, name: []const u8) !u32 {
+    const name_index = try self.string_table.put(self.base.allocator, name);
+    const gop = try self.globals.getOrPut(self.base.allocator, name_index);
+    if (gop.found_existing) {
+        return gop.value_ptr.*.index;
+    }
+
+    var symbol: Symbol = .{
+        .name = name_index,
+        .flags = 0,
+        .index = undefined, // index to type will be set after merging function symbols
+        .tag = .function,
+    };
+    symbol.setGlobal(true);
+    symbol.setUndefined(true);
+
+    const sym_index = if (self.symbols_free_list.popOrNull()) |index| index else blk: {
+        var index = @intCast(u32, self.symbols.items.len);
+        try self.symbols.ensureUnusedCapacity(self.base.allocator, 1);
+        self.symbols.items.len += 1;
+        break :blk index;
+    };
+    self.symbols.items[sym_index] = symbol;
+    gop.value_ptr.* = .{ .index = sym_index, .file = null };
+    try self.resolved_symbols.put(self.base.allocator, gop.value_ptr.*, {});
+    try self.undefs.putNoClobber(self.base.allocator, name, gop.value_ptr.*);
+    return sym_index;
+}
+
 /// For a given decl, find the given symbol index's atom, and create a relocation for the type.
 /// Returns the given pointer address
 pub fn getDeclVAddr(
@@ -869,7 +1013,6 @@ pub fn updateDeclExports(
         switch (exp.options.linkage) {
             .Internal => {
                 symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
-                symbol.setFlag(.WASM_SYM_BINDING_WEAK);
             },
             .Weak => {
                 symbol.setFlag(.WASM_SYM_BINDING_WEAK);
@@ -891,6 +1034,7 @@ pub fn updateDeclExports(
         }
 
         symbol.setGlobal(true);
+        symbol.setUndefined(false);
         try self.globals.put(
             self.base.allocator,
             export_name,
@@ -899,6 +1043,7 @@ pub fn updateDeclExports(
 
         // if the symbol was previously undefined, remove it as an import
         _ = self.imports.remove(sym_loc);
+        _ = self.undefs.swapRemove(exp.options.name);
         exp.link.wasm.sym_index = sym_index;
     }
 }
@@ -952,41 +1097,75 @@ fn mapFunctionTable(self: *Wasm) void {
     }
 }
 
-pub fn addOrUpdateImport(self: *Wasm, decl: *Module.Decl) !void {
+/// Either creates a new import, or updates one if existing.
+/// When `type_index` is non-null, we assume an external function.
+/// In all other cases, a data-symbol will be created instead.
+pub fn addOrUpdateImport(
+    self: *Wasm,
+    /// Name of the import
+    name: []const u8,
+    /// Symbol index that is external
+    symbol_index: u32,
+    /// Optional library name (i.e. `extern "c" fn foo() void`
+    lib_name: ?[*:0]const u8,
+    /// The index of the type that represents the function signature
+    /// when the extern is a function. When this is null, a data-symbol
+    /// is asserted instead.
+    type_index: ?u32,
+) !void {
+    assert(symbol_index != 0);
     // For the import name itself, we use the decl's name, rather than the fully qualified name
-    const decl_name_index = try self.string_table.put(self.base.allocator, mem.sliceTo(decl.name, 0));
-    const symbol_index = decl.link.wasm.sym_index;
+    const decl_name_index = try self.string_table.put(self.base.allocator, name);
     const symbol: *Symbol = &self.symbols.items[symbol_index];
     symbol.setUndefined(true);
     symbol.setGlobal(true);
+    symbol.name = decl_name_index;
     const global_gop = try self.globals.getOrPut(self.base.allocator, decl_name_index);
     if (!global_gop.found_existing) {
         const loc: SymbolLoc = .{ .file = null, .index = symbol_index };
         global_gop.value_ptr.* = loc;
         try self.resolved_symbols.put(self.base.allocator, loc, {});
+        try self.undefs.putNoClobber(self.base.allocator, name, loc);
     }
 
-    switch (decl.ty.zigTypeTag()) {
-        .Fn => {
-            const gop = try self.imports.getOrPut(self.base.allocator, .{ .index = symbol_index, .file = null });
-            const module_name = if (decl.getExternFn().?.lib_name) |lib_name| blk: {
-                break :blk mem.sliceTo(lib_name, 0);
-            } else self.host_name;
-            if (!gop.found_existing) {
-                gop.value_ptr.* = .{
-                    .module_name = try self.string_table.put(self.base.allocator, module_name),
-                    .name = decl_name_index,
-                    .kind = .{ .function = decl.fn_link.wasm.type_index },
-                };
-            }
-        },
-        else => @panic("TODO: Implement undefined symbols for non-function declarations"),
-    }
+    if (type_index) |ty_index| {
+        const gop = try self.imports.getOrPut(self.base.allocator, .{ .index = symbol_index, .file = null });
+        const module_name = if (lib_name) |l_name| blk: {
+            break :blk mem.sliceTo(l_name, 0);
+        } else self.host_name;
+        if (!gop.found_existing) {
+            gop.value_ptr.* = .{
+                .module_name = try self.string_table.put(self.base.allocator, module_name),
+                .name = decl_name_index,
+                .kind = .{ .function = ty_index },
+            };
+        }
+    } else @panic("TODO: Implement undefined symbols for non-function declarations");
 }
 
+/// Kind represents the type of an Atom, which is only
+/// used to parse a decl into an Atom to define in which section
+/// or segment it should be placed.
 const Kind = union(enum) {
-    data: void,
+    /// Represents the segment the data symbol should
+    /// be inserted into.
+    /// TODO: Add TLS segments
+    data: enum {
+        read_only,
+        uninitialized,
+        initialized,
+    },
     function: FnData,
+
+    /// Returns the segment name the data kind represents.
+    /// Asserts `kind` has its active tag set to `data`.
+    fn segmentName(kind: Kind) []const u8 {
+        switch (kind.data) {
+            .read_only => return ".rodata.",
+            .uninitialized => return ".bss.",
+            .initialized => return ".data.",
+        }
+    }
 };
 
 /// Parses an Atom and inserts its metadata into the corresponding sections.
@@ -994,8 +1173,12 @@ fn parseAtom(self: *Wasm, atom: *Atom, kind: Kind) !void {
     const symbol = (SymbolLoc{ .file = null, .index = atom.sym_index }).getSymbol(self);
     const final_index: u32 = switch (kind) {
         .function => |fn_data| result: {
-            const index = @intCast(u32, self.functions.items.len + self.imported_functions_count);
-            try self.functions.append(self.base.allocator, .{ .type_index = fn_data.type_index });
+            const index = @intCast(u32, self.functions.count() + self.imported_functions_count);
+            try self.functions.putNoClobber(
+                self.base.allocator,
+                .{ .file = null, .index = index },
+                .{ .type_index = fn_data.type_index },
+            );
             symbol.tag = .function;
             symbol.index = index;
 
@@ -1011,9 +1194,8 @@ fn parseAtom(self: *Wasm, atom: *Atom, kind: Kind) !void {
             break :result self.code_section_index.?;
         },
         .data => result: {
-            // TODO: Add mutables global decls to .bss section instead
             const segment_name = try std.mem.concat(self.base.allocator, u8, &.{
-                ".rodata.",
+                kind.segmentName(),
                 self.string_table.get(symbol.name),
             });
             errdefer self.base.allocator.free(segment_name);
@@ -1023,6 +1205,14 @@ fn parseAtom(self: *Wasm, atom: *Atom, kind: Kind) !void {
                 .flags = 0,
             };
             symbol.tag = .data;
+
+            // when creating an object file, or importing memory and the data belongs in the .bss segment
+            // we set the entire region of it to zeroes.
+            // We do not have to do this when exporting the memory (the default) because the runtime
+            // will do it for us, and we do not emit the bss segment at all.
+            if ((self.base.options.output_mode == .Obj or self.base.options.import_memory) and kind.data == .uninitialized) {
+                std.mem.set(u8, atom.code.items, 0);
+            }
 
             const should_merge = self.base.options.output_mode != .Obj;
             const gop = try self.data_segments.getOrPut(self.base.allocator, segment_info.outputName(should_merge));
@@ -1073,6 +1263,9 @@ fn parseAtom(self: *Wasm, atom: *Atom, kind: Kind) !void {
 }
 
 fn allocateAtoms(self: *Wasm) !void {
+    // first sort the data segments
+    try sortDataSegments(self);
+
     var it = self.atoms.iterator();
     while (it.next()) |entry| {
         const segment = &self.segments.items[entry.key_ptr.*];
@@ -1094,6 +1287,36 @@ fn allocateAtoms(self: *Wasm) !void {
         }
         segment.size = std.mem.alignForwardGeneric(u32, offset, segment.alignment);
     }
+}
+
+fn sortDataSegments(self: *Wasm) !void {
+    var new_mapping: std.StringArrayHashMapUnmanaged(u32) = .{};
+    try new_mapping.ensureUnusedCapacity(self.base.allocator, self.data_segments.count());
+    errdefer new_mapping.deinit(self.base.allocator);
+
+    const keys = try self.base.allocator.dupe([]const u8, self.data_segments.keys());
+    defer self.base.allocator.free(keys);
+
+    const SortContext = struct {
+        fn sort(_: void, lhs: []const u8, rhs: []const u8) bool {
+            return order(lhs) <= order(rhs);
+        }
+
+        fn order(name: []const u8) u8 {
+            if (mem.startsWith(u8, name, ".rodata")) return 0;
+            if (mem.startsWith(u8, name, ".data")) return 1;
+            if (mem.startsWith(u8, name, ".text")) return 2;
+            return 3;
+        }
+    };
+
+    std.sort.sort([]const u8, keys, {}, SortContext.sort);
+    for (keys) |key| {
+        const segment_index = self.data_segments.get(key).?;
+        new_mapping.putAssumeCapacity(key, segment_index);
+    }
+    self.data_segments.deinit(self.base.allocator);
+    self.data_segments = new_mapping;
 }
 
 fn setupImports(self: *Wasm) !void {
@@ -1208,8 +1431,14 @@ fn mergeSections(self: *Wasm) !void {
         switch (symbol.tag) {
             .function => {
                 const original_func = object.functions[index];
-                symbol.index = @intCast(u32, self.functions.items.len) + self.imported_functions_count;
-                try self.functions.append(self.base.allocator, original_func);
+                const gop = try self.functions.getOrPut(
+                    self.base.allocator,
+                    .{ .file = sym_loc.file, .index = symbol.index },
+                );
+                if (!gop.found_existing) {
+                    gop.value_ptr.* = original_func;
+                }
+                symbol.index = @intCast(u32, gop.index) + self.imported_functions_count;
             },
             .global => {
                 const original_global = object.globals[index];
@@ -1221,11 +1450,11 @@ fn mergeSections(self: *Wasm) !void {
                 symbol.index = @intCast(u32, self.tables.items.len) + self.imported_tables_count;
                 try self.tables.append(self.base.allocator, original_table);
             },
-            else => {},
+            else => unreachable,
         }
     }
 
-    log.debug("Merged ({d}) functions", .{self.functions.items.len});
+    log.debug("Merged ({d}) functions", .{self.functions.count()});
     log.debug("Merged ({d}) globals", .{self.wasm_globals.items.len});
     log.debug("Merged ({d}) tables", .{self.tables.items.len});
 }
@@ -1234,6 +1463,13 @@ fn mergeSections(self: *Wasm) !void {
 /// 'types' section, while assigning the type index to the representing
 /// section (import, export, function).
 fn mergeTypes(self: *Wasm) !void {
+    // A map to track which functions have already had their
+    // type inserted. If we do this for the same function multiple times,
+    // it will be overwritten with the incorrect type.
+    var dirty = std.AutoHashMap(u32, void).init(self.base.allocator);
+    try dirty.ensureUnusedCapacity(@intCast(u32, self.functions.count()));
+    defer dirty.deinit();
+
     for (self.resolved_symbols.keys()) |sym_loc| {
         if (sym_loc.file == null) {
             // zig code-generated symbols are already present in final type section
@@ -1251,10 +1487,11 @@ fn mergeTypes(self: *Wasm) !void {
             const import: *types.Import = self.imports.getPtr(sym_loc).?;
             const original_type = object.func_types[import.kind.function];
             import.kind.function = try self.putOrGetFuncType(original_type);
-        } else {
+        } else if (!dirty.contains(symbol.index)) {
             log.debug("Adding type from function '{s}'", .{sym_loc.getName(self)});
-            const func = &self.functions.items[symbol.index - self.imported_functions_count];
+            const func = &self.functions.values()[symbol.index - self.imported_functions_count];
             func.type_index = try self.putOrGetFuncType(object.func_types[func.type_index]);
+            dirty.putAssumeCapacityNoClobber(symbol.index, {});
         }
     }
     log.debug("Completed merging and deduplicating types. Total count: ({d})", .{self.func_types.items.len});
@@ -1545,8 +1782,8 @@ fn populateErrorNameTable(self: *Wasm) !void {
 
     // link the atoms with the rest of the binary so they can be allocated
     // and relocations will be performed.
-    try self.parseAtom(atom, .data);
-    try self.parseAtom(names_atom, .data);
+    try self.parseAtom(atom, .{ .data = .read_only });
+    try self.parseAtom(names_atom, .{ .data = .read_only });
 }
 
 pub fn getDebugInfoIndex(self: *Wasm) !u32 {
@@ -1663,13 +1900,18 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     for (comp.c_object_table.keys()) |c_object| {
         try positionals.append(c_object.status.success.object_path);
     }
-    // TODO: Also link with other objects such as compiler-rt
+
+    if (comp.compiler_rt_lib) |lib| {
+        try positionals.append(lib.full_object_path);
+    }
+
     try self.parseInputFiles(positionals.items);
 
-    var object_index: u16 = 0;
-    while (object_index < self.objects.items.len) : (object_index += 1) {
-        try self.resolveSymbolsInObject(object_index);
+    for (self.objects.items) |_, object_index| {
+        try self.resolveSymbolsInObject(@intCast(u16, object_index));
     }
+
+    try self.resolveSymbolsInArchives();
 
     // When we finish/error we reset the state of the linker
     // So we can rebuild the binary file on each incremental update
@@ -1684,19 +1926,26 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         const atom = &decl.*.link.wasm;
         if (decl.ty.zigTypeTag() == .Fn) {
             try self.parseAtom(atom, .{ .function = decl.fn_link.wasm });
+        } else if (decl.getVariable()) |variable| {
+            if (!variable.is_mutable) {
+                try self.parseAtom(atom, .{ .data = .read_only });
+            } else if (variable.init.isUndefDeep()) {
+                try self.parseAtom(atom, .{ .data = .uninitialized });
+            } else {
+                try self.parseAtom(atom, .{ .data = .initialized });
+            }
         } else {
-            try self.parseAtom(atom, .data);
+            try self.parseAtom(atom, .{ .data = .read_only });
         }
 
         // also parse atoms for a decl's locals
         for (atom.locals.items) |*local_atom| {
-            try self.parseAtom(local_atom, .data);
+            try self.parseAtom(local_atom, .{ .data = .read_only });
         }
     }
 
-    while (object_index > 0) {
-        object_index -= 1;
-        try self.objects.items[object_index].parseIntoAtoms(self.base.allocator, object_index, self);
+    for (self.objects.items) |*object, object_index| {
+        try object.parseIntoAtoms(self.base.allocator, @intCast(u16, object_index), self);
     }
 
     if (self.dwarf) |*dwarf| {
@@ -1773,9 +2022,10 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         }
 
         if (import_memory) {
+            const mem_name = if (is_obj) "__linear_memory" else "memory";
             const mem_imp: types.Import = .{
                 .module_name = try self.string_table.put(self.base.allocator, self.host_name),
-                .name = try self.string_table.put(self.base.allocator, "__linear_memory"),
+                .name = try self.string_table.put(self.base.allocator, mem_name),
                 .kind = .{ .memory = self.memories.limits },
             };
             try self.emitImport(writer, mem_imp);
@@ -1792,10 +2042,10 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     }
 
     // Function section
-    if (self.functions.items.len != 0) {
+    if (self.functions.count() != 0) {
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
-        for (self.functions.items) |function| {
+        for (self.functions.values()) |function| {
             try leb.writeULEB128(writer, function.type_index);
         }
 
@@ -1804,7 +2054,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
             header_offset,
             .function,
             @intCast(u32, (try file.getPos()) - header_offset - header_size),
-            @intCast(u32, self.functions.items.len),
+            @intCast(u32, self.functions.count()),
         );
         section_count += 1;
     }
@@ -1936,13 +2186,32 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         const header_offset = try reserveVecSectionHeader(file);
         const writer = file.writer();
         var atom: *Atom = self.atoms.get(code_index).?.getFirst();
+
+        // The code section must be sorted in line with the function order.
+        var sorted_atoms = try std.ArrayList(*Atom).initCapacity(self.base.allocator, self.functions.count());
+        defer sorted_atoms.deinit();
+
         while (true) {
             if (!is_obj) {
-                try atom.resolveRelocs(self);
+                atom.resolveRelocs(self);
             }
-            try leb.writeULEB128(writer, atom.size);
-            try writer.writeAll(atom.code.items);
+            sorted_atoms.appendAssumeCapacity(atom);
             atom = atom.next orelse break;
+        }
+
+        const atom_sort_fn = struct {
+            fn sort(ctx: *const Wasm, lhs: *const Atom, rhs: *const Atom) bool {
+                const lhs_sym = lhs.symbolLoc().getSymbol(ctx);
+                const rhs_sym = rhs.symbolLoc().getSymbol(ctx);
+                return lhs_sym.index < rhs_sym.index;
+            }
+        }.sort;
+
+        std.sort.sort(*Atom, sorted_atoms.items, self, atom_sort_fn);
+
+        for (sorted_atoms.items) |sorted_atom| {
+            try leb.writeULEB128(writer, sorted_atom.size);
+            try writer.writeAll(sorted_atom.code.items);
         }
 
         code_section_size = @intCast(u32, (try file.getPos()) - header_offset - header_size);
@@ -1951,7 +2220,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
             header_offset,
             .code,
             code_section_size,
-            @intCast(u32, self.functions.items.len),
+            @intCast(u32, self.functions.count()),
         );
         code_section_index = section_count;
         section_count += 1;
@@ -1967,7 +2236,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         while (it.next()) |entry| {
             // do not output 'bss' section unless we import memory and therefore
             // want to guarantee the data is zero initialized
-            if (std.mem.eql(u8, entry.key_ptr.*, ".bss") and !import_memory) continue;
+            if (!import_memory and std.mem.eql(u8, entry.key_ptr.*, ".bss")) continue;
             segment_count += 1;
             const atom_index = entry.value_ptr.*;
             var atom: *Atom = self.atoms.getPtr(atom_index).?.*.getFirst();
@@ -1983,7 +2252,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
             var current_offset: u32 = 0;
             while (true) {
                 if (!is_obj) {
-                    try atom.resolveRelocs(self);
+                    atom.resolveRelocs(self);
                 }
 
                 // Pad with zeroes to ensure all segments are aligned
@@ -2087,7 +2356,9 @@ fn emitNameSection(self: *Wasm, file: fs.File, arena: Allocator) !void {
         }
     };
 
-    var funcs = try std.ArrayList(Name).initCapacity(arena, self.functions.items.len + self.imported_functions_count);
+    // we must de-duplicate symbols that point to the same function
+    var funcs = std.AutoArrayHashMap(u32, Name).init(arena);
+    try funcs.ensureUnusedCapacity(self.functions.count() + self.imported_functions_count);
     var globals = try std.ArrayList(Name).initCapacity(arena, self.wasm_globals.items.len + self.imported_globals_count);
     var segments = try std.ArrayList(Name).initCapacity(arena, self.data_segments.count());
 
@@ -2097,17 +2368,27 @@ fn emitNameSection(self: *Wasm, file: fs.File, arena: Allocator) !void {
             break :blk self.string_table.get(self.imports.get(sym_loc).?.name);
         } else sym_loc.getName(self);
         switch (symbol.tag) {
-            .function => funcs.appendAssumeCapacity(.{ .index = symbol.index, .name = name }),
+            .function => {
+                const gop = funcs.getOrPutAssumeCapacity(symbol.index);
+                if (!gop.found_existing) {
+                    gop.value_ptr.* = .{ .index = symbol.index, .name = name };
+                }
+            },
             .global => globals.appendAssumeCapacity(.{ .index = symbol.index, .name = name }),
             else => {},
         }
     }
     // data segments are already 'ordered'
-    for (self.data_segments.keys()) |key, index| {
-        segments.appendAssumeCapacity(.{ .index = @intCast(u32, index), .name = key });
+    var data_segment_index: u32 = 0;
+    for (self.data_segments.keys()) |key| {
+        // bss section is not emitted when this condition holds true, so we also
+        // do not output a name for it.
+        if (!self.base.options.import_memory and std.mem.eql(u8, key, ".bss")) continue;
+        segments.appendAssumeCapacity(.{ .index = data_segment_index, .name = key });
+        data_segment_index += 1;
     }
 
-    std.sort.sort(Name, funcs.items, {}, Name.lessThan);
+    std.sort.sort(Name, funcs.values(), {}, Name.lessThan);
     std.sort.sort(Name, globals.items, {}, Name.lessThan);
 
     const header_offset = try reserveCustomSectionHeader(file);
@@ -2115,7 +2396,7 @@ fn emitNameSection(self: *Wasm, file: fs.File, arena: Allocator) !void {
     try leb.writeULEB128(writer, @intCast(u32, "name".len));
     try writer.writeAll("name");
 
-    try self.emitNameSubsection(.function, funcs.items, writer);
+    try self.emitNameSubsection(.function, funcs.values(), writer);
     try self.emitNameSubsection(.global, globals.items, writer);
     try self.emitNameSubsection(.data_segment, segments.items, writer);
 
@@ -2255,7 +2536,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
     const is_obj = self.base.options.output_mode == .Obj;
 
     const compiler_rt_path: ?[]const u8 = if (self.base.options.include_compiler_rt and !is_obj)
-        comp.compiler_rt_static_lib.?.full_object_path
+        comp.compiler_rt_lib.?.full_object_path
     else
         null;
 
@@ -2274,7 +2555,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 3);
+        comptime assert(Compilation.link_hash_implementation_version == 7);
 
         for (self.base.options.objects) |obj| {
             _ = try man.addFile(obj.path, null);

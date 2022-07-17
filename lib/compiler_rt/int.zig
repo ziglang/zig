@@ -1,22 +1,45 @@
-// Builtin functions that operate on integer types
+//! Builtin functions that operate on integer types
+
 const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
 const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
-
+const arch = builtin.cpu.arch;
+const is_test = builtin.is_test;
+const common = @import("common.zig");
 const udivmod = @import("udivmod.zig").udivmod;
 
-pub fn __divmoddi4(a: i64, b: i64, rem: *i64) callconv(.C) i64 {
-    @setRuntimeSafety(builtin.is_test);
+pub const panic = common.panic;
 
+comptime {
+    @export(__udivmoddi4, .{ .name = "__udivmoddi4", .linkage = common.linkage });
+    @export(__mulsi3, .{ .name = "__mulsi3", .linkage = common.linkage });
+    @export(__divmoddi4, .{ .name = "__divmoddi4", .linkage = common.linkage });
+    if (common.want_aeabi) {
+        @export(__aeabi_idiv, .{ .name = "__aeabi_idiv", .linkage = common.linkage });
+        @export(__aeabi_uidiv, .{ .name = "__aeabi_uidiv", .linkage = common.linkage });
+    } else {
+        @export(__divsi3, .{ .name = "__divsi3", .linkage = common.linkage });
+        @export(__udivsi3, .{ .name = "__udivsi3", .linkage = common.linkage });
+    }
+    @export(__divdi3, .{ .name = "__divdi3", .linkage = common.linkage });
+    @export(__udivdi3, .{ .name = "__udivdi3", .linkage = common.linkage });
+    @export(__modsi3, .{ .name = "__modsi3", .linkage = common.linkage });
+    @export(__moddi3, .{ .name = "__moddi3", .linkage = common.linkage });
+    @export(__umodsi3, .{ .name = "__umodsi3", .linkage = common.linkage });
+    @export(__umoddi3, .{ .name = "__umoddi3", .linkage = common.linkage });
+    @export(__divmodsi4, .{ .name = "__divmodsi4", .linkage = common.linkage });
+    @export(__udivmodsi4, .{ .name = "__udivmodsi4", .linkage = common.linkage });
+}
+
+pub fn __divmoddi4(a: i64, b: i64, rem: *i64) callconv(.C) i64 {
     const d = __divdi3(a, b);
     rem.* = a -% (d *% b);
     return d;
 }
 
 pub fn __udivmoddi4(a: u64, b: u64, maybe_rem: ?*u64) callconv(.C) u64 {
-    @setRuntimeSafety(builtin.is_test);
     return udivmod(u64, a, b, maybe_rem);
 }
 
@@ -25,8 +48,6 @@ test "test_udivmoddi4" {
 }
 
 pub fn __divdi3(a: i64, b: i64) callconv(.C) i64 {
-    @setRuntimeSafety(builtin.is_test);
-
     // Set aside the sign of the quotient.
     const sign = @bitCast(u64, (a ^ b) >> 63);
     // Take absolute value of a and b via abs(x) = (x^(x >> 63)) - (x >> 63).
@@ -64,8 +85,6 @@ fn test_one_divdi3(a: i64, b: i64, expected_q: i64) !void {
 }
 
 pub fn __moddi3(a: i64, b: i64) callconv(.C) i64 {
-    @setRuntimeSafety(builtin.is_test);
-
     // Take absolute value of a and b via abs(x) = (x^(x >> 63)) - (x >> 63).
     const abs_a = (a ^ (a >> 63)) -% (a >> 63);
     const abs_b = (b ^ (b >> 63)) -% (b >> 63);
@@ -104,13 +123,10 @@ fn test_one_moddi3(a: i64, b: i64, expected_r: i64) !void {
 }
 
 pub fn __udivdi3(a: u64, b: u64) callconv(.C) u64 {
-    @setRuntimeSafety(builtin.is_test);
     return __udivmoddi4(a, b, null);
 }
 
 pub fn __umoddi3(a: u64, b: u64) callconv(.C) u64 {
-    @setRuntimeSafety(builtin.is_test);
-
     var r: u64 = undefined;
     _ = __udivmoddi4(a, b, &r);
     return r;
@@ -130,8 +146,6 @@ fn test_one_umoddi3(a: u64, b: u64, expected_r: u64) !void {
 }
 
 pub fn __divmodsi4(a: i32, b: i32, rem: *i32) callconv(.C) i32 {
-    @setRuntimeSafety(builtin.is_test);
-
     const d = __divsi3(a, b);
     rem.* = a -% (d * b);
     return d;
@@ -166,16 +180,20 @@ fn test_one_divmodsi4(a: i32, b: i32, expected_q: i32, expected_r: i32) !void {
 }
 
 pub fn __udivmodsi4(a: u32, b: u32, rem: *u32) callconv(.C) u32 {
-    @setRuntimeSafety(builtin.is_test);
-
     const d = __udivsi3(a, b);
     rem.* = @bitCast(u32, @bitCast(i32, a) -% (@bitCast(i32, d) * @bitCast(i32, b)));
     return d;
 }
 
 pub fn __divsi3(n: i32, d: i32) callconv(.C) i32 {
-    @setRuntimeSafety(builtin.is_test);
+    return div_i32(n, d);
+}
 
+fn __aeabi_idiv(n: i32, d: i32) callconv(.AAPCS) i32 {
+    return div_i32(n, d);
+}
+
+inline fn div_i32(n: i32, d: i32) i32 {
     // Set aside the sign of the quotient.
     const sign = @bitCast(u32, (n ^ d) >> 31);
     // Take absolute value of a and b via abs(x) = (x^(x >> 31)) - (x >> 31).
@@ -213,8 +231,14 @@ fn test_one_divsi3(a: i32, b: i32, expected_q: i32) !void {
 }
 
 pub fn __udivsi3(n: u32, d: u32) callconv(.C) u32 {
-    @setRuntimeSafety(builtin.is_test);
+    return div_u32(n, d);
+}
 
+fn __aeabi_uidiv(n: u32, d: u32) callconv(.AAPCS) u32 {
+    return div_u32(n, d);
+}
+
+inline fn div_u32(n: u32, d: u32) u32 {
     const n_uword_bits: c_uint = 32;
     // special cases
     if (d == 0) return 0; // ?!
@@ -400,8 +424,6 @@ fn test_one_udivsi3(a: u32, b: u32, expected_q: u32) !void {
 }
 
 pub fn __modsi3(n: i32, d: i32) callconv(.C) i32 {
-    @setRuntimeSafety(builtin.is_test);
-
     return n -% __divsi3(n, d) *% d;
 }
 
@@ -431,8 +453,6 @@ fn test_one_modsi3(a: i32, b: i32, expected_r: i32) !void {
 }
 
 pub fn __umodsi3(n: u32, d: u32) callconv(.C) u32 {
-    @setRuntimeSafety(builtin.is_test);
-
     return n -% __udivsi3(n, d) *% d;
 }
 
@@ -583,8 +603,6 @@ fn test_one_umodsi3(a: u32, b: u32, expected_r: u32) !void {
 }
 
 pub fn __mulsi3(a: i32, b: i32) callconv(.C) i32 {
-    @setRuntimeSafety(builtin.is_test);
-
     var ua = @bitCast(u32, a);
     var ub = @bitCast(u32, b);
     var r: u32 = 0;

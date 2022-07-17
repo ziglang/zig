@@ -2929,8 +2929,14 @@ test "basic slices" {
     // Both can be accessed with the `len` field.
     var known_at_runtime_zero: usize = 0;
     const slice = array[known_at_runtime_zero..array.len];
+    try expect(@TypeOf(slice) == []i32);
     try expect(&slice[0] == &array[0]);
     try expect(slice.len == array.len);
+
+    // If you slice with comptime-known start and end positions, the result is
+    // a pointer to an array, rather than a slice.
+    const array_ptr = array[0..array.len];
+    try expect(@TypeOf(array_ptr) == *[array.len]i32);
 
     // Using the address-of operator on a slice gives a single-item pointer,
     // while using the `ptr` field gives a many-item pointer.
@@ -2974,22 +2980,26 @@ test "using slices for strings" {
 }
 
 test "slice pointer" {
+    var a: []u8 = undefined;
+    try expect(@TypeOf(a) == []u8);
     var array: [10]u8 = undefined;
     const ptr = &array;
+    try expect(@TypeOf(ptr) == *[10]u8);
 
-    // You can use slicing syntax to convert a pointer into a slice:
-    const slice = ptr[0..5];
+    // A pointer to an array can be sliced just like an array:
+    var start: usize = 0;
+    var end: usize = 5;
+    const slice = ptr[start..end];
     slice[2] = 3;
     try expect(slice[2] == 3);
     // The slice is mutable because we sliced a mutable pointer.
-    // Furthermore, it is actually a pointer to an array, since the start
-    // and end indexes were both comptime-known.
-    try expect(@TypeOf(slice) == *[5]u8);
+    try expect(@TypeOf(slice) == []u8);
 
-    // You can also slice a slice:
-    const slice2 = slice[2..3];
-    try expect(slice2.len == 1);
-    try expect(slice2[0] == 3);
+    // Again, slicing with constant indexes will produce another pointer to an array:
+    const ptr2 = slice[2..3];
+    try expect(ptr2.len == 1);
+    try expect(ptr2[0] == 3);
+    try expect(@TypeOf(ptr2) == *[1]u8);
 }
       {#code_end#}
       {#see_also|Pointers|for|Arrays#}
@@ -9383,6 +9393,12 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 test "vector @reduce" {
+    // This test regressed with LLVM 14:
+    // https://github.com/llvm/llvm-project/issues/55522
+    // We'll skip this test unless the self-hosted compiler is being used.
+    // After LLVM 15 is released we can delete this line.
+    if (@import("builtin").zig_backend == .stage1) return;
+
     const value = @Vector(4, i32){ 1, -1, 1, -1 };
     const result = value > @splat(4, @as(i32, 0));
     // result is { true, false, true, false };
@@ -9655,7 +9671,7 @@ test "integer truncation" {
       {#header_close#}
 
       {#header_open|@Type#}
-      <pre>{#syntax#}@Type(comptime info: std.builtin.TypeInfo) type{#endsyntax#}</pre>
+      <pre>{#syntax#}@Type(comptime info: std.builtin.Type) type{#endsyntax#}</pre>
       <p>
       This function is the inverse of {#link|@typeInfo#}. It reifies type information
       into a {#syntax#}type{#endsyntax#}.
@@ -9697,7 +9713,7 @@ test "integer truncation" {
       </ul>
       {#header_close#}
       {#header_open|@typeInfo#}
-      <pre>{#syntax#}@typeInfo(comptime T: type) std.builtin.TypeInfo{#endsyntax#}</pre>
+      <pre>{#syntax#}@typeInfo(comptime T: type) std.builtin.Type{#endsyntax#}</pre>
       <p>
       Provides type reflection.
       </p>

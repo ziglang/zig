@@ -11,10 +11,12 @@
 #define _LIBCPP___FUNCTIONAL_FUNCTION_H
 
 #include <__config>
+#include <__debug>
 #include <__functional/binary_function.h>
 #include <__functional/invoke.h>
 #include <__functional/unary_function.h>
 #include <__iterator/iterator_traits.h>
+#include <__memory/addressof.h>
 #include <__memory/allocator_traits.h>
 #include <__memory/compressed_pair.h>
 #include <__memory/shared_ptr.h>
@@ -34,10 +36,17 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 class _LIBCPP_EXCEPTION_ABI bad_function_call
     : public exception
 {
-#ifdef _LIBCPP_ABI_BAD_FUNCTION_CALL_KEY_FUNCTION
 public:
+// Note that when a key function is not used, every translation unit that uses
+// bad_function_call will end up containing a weak definition of the vtable and
+// typeinfo.
+#ifdef _LIBCPP_ABI_BAD_FUNCTION_CALL_KEY_FUNCTION
     virtual ~bad_function_call() _NOEXCEPT;
+#else
+    virtual ~bad_function_call() _NOEXCEPT {}
+#endif
 
+#ifdef _LIBCPP_ABI_BAD_FUNCTION_CALL_GOOD_WHAT_MESSAGE
     virtual const char* what() const _NOEXCEPT;
 #endif
 };
@@ -126,8 +135,8 @@ class __alloc_func<_Fp, _Ap, _Rp(_ArgTypes...)>
     __compressed_pair<_Fp, _Ap> __f_;
 
   public:
-    typedef _LIBCPP_NODEBUG_TYPE _Fp _Target;
-    typedef _LIBCPP_NODEBUG_TYPE _Ap _Alloc;
+    typedef _LIBCPP_NODEBUG _Fp _Target;
+    typedef _LIBCPP_NODEBUG _Ap _Alloc;
 
     _LIBCPP_INLINE_VISIBILITY
     const _Target& __target() const { return __f_.first(); }
@@ -204,7 +213,7 @@ class __default_alloc_func<_Fp, _Rp(_ArgTypes...)> {
   _Fp __f_;
 
 public:
-  typedef _LIBCPP_NODEBUG_TYPE _Fp _Target;
+  typedef _LIBCPP_NODEBUG _Fp _Target;
 
   _LIBCPP_INLINE_VISIBILITY
   const _Target& __target() const { return __f_; }
@@ -352,7 +361,7 @@ const void*
 __func<_Fp, _Alloc, _Rp(_ArgTypes...)>::target(const type_info& __ti) const _NOEXCEPT
 {
     if (__ti == typeid(_Fp))
-        return &__f_.__target();
+        return _VSTD::addressof(__f_.__target());
     return nullptr;
 }
 
@@ -938,7 +947,7 @@ public:
 
 #endif // _LIBCPP_HAS_EXTENSION_BLOCKS && !_LIBCPP_HAS_OBJC_ARC
 
-}  // __function
+} // namespace __function
 
 template<class _Rp, class ..._ArgTypes>
 class _LIBCPP_TEMPLATE_VIS function<_Rp(_ArgTypes...)>
@@ -1044,7 +1053,7 @@ public:
 #endif // _LIBCPP_NO_RTTI
 };
 
-#ifndef _LIBCPP_HAS_NO_DEDUCTION_GUIDES
+#if _LIBCPP_STD_VER >= 17
 template<class _Rp, class ..._Ap>
 function(_Rp(*)(_Ap...)) -> function<_Rp(_Ap...)>;
 
@@ -1089,7 +1098,7 @@ struct __strip_signature<_Rp (_Gp::*) (_Ap...) const volatile & noexcept> { usin
 
 template<class _Fp, class _Stripped = typename __strip_signature<decltype(&_Fp::operator())>::type>
 function(_Fp) -> function<_Stripped>;
-#endif // !_LIBCPP_HAS_NO_DEDUCTION_GUIDES
+#endif // _LIBCPP_STD_VER >= 17
 
 template<class _Rp, class ..._ArgTypes>
 function<_Rp(_ArgTypes...)>::function(const function& __f) : __f_(__f.__f_) {}
@@ -1384,7 +1393,7 @@ const void*
 __func<_Fp, _Alloc, _Rp()>::target(const type_info& __ti) const
 {
     if (__ti == typeid(_Fp))
-        return &__f_.first();
+        return _VSTD::addressof(__f_.first());
     return (const void*)0;
 }
 
@@ -1655,7 +1664,7 @@ __func<_Fp, _Alloc, _Rp(_A0, _A1, _A2)>::target_type() const
 
 #endif // _LIBCPP_NO_RTTI
 
-}  // __function
+} // namespace __function
 
 template<class _Rp>
 class _LIBCPP_TEMPLATE_VIS function<_Rp()>
@@ -1709,13 +1718,11 @@ public:
     // 20.7.16.2.3, function capacity:
     _LIBCPP_INLINE_VISIBILITY explicit operator bool() const {return __f_;}
 
-private:
-    // deleted overloads close possible hole in the type system
     template<class _R2>
-      bool operator==(const function<_R2()>&) const;// = delete;
+      bool operator==(const function<_R2()>&) const = delete;
     template<class _R2>
-      bool operator!=(const function<_R2()>&) const;// = delete;
-public:
+      bool operator!=(const function<_R2()>&) const = delete;
+
     // 20.7.16.2.4, function invocation:
     _Rp operator()() const;
 
@@ -1989,13 +1996,11 @@ public:
     // 20.7.16.2.3, function capacity:
     _LIBCPP_INLINE_VISIBILITY explicit operator bool() const {return __f_;}
 
-private:
-    // deleted overloads close possible hole in the type system
     template<class _R2, class _B0>
-      bool operator==(const function<_R2(_B0)>&) const;// = delete;
+      bool operator==(const function<_R2(_B0)>&) const = delete;
     template<class _R2, class _B0>
-      bool operator!=(const function<_R2(_B0)>&) const;// = delete;
-public:
+      bool operator!=(const function<_R2(_B0)>&) const = delete;
+
     // 20.7.16.2.4, function invocation:
     _Rp operator()(_A0) const;
 
@@ -2269,13 +2274,11 @@ public:
     // 20.7.16.2.3, function capacity:
     _LIBCPP_INLINE_VISIBILITY explicit operator bool() const {return __f_;}
 
-private:
-    // deleted overloads close possible hole in the type system
     template<class _R2, class _B0, class _B1>
-      bool operator==(const function<_R2(_B0, _B1)>&) const;// = delete;
+      bool operator==(const function<_R2(_B0, _B1)>&) const = delete;
     template<class _R2, class _B0, class _B1>
-      bool operator!=(const function<_R2(_B0, _B1)>&) const;// = delete;
-public:
+      bool operator!=(const function<_R2(_B0, _B1)>&) const = delete;
+
     // 20.7.16.2.4, function invocation:
     _Rp operator()(_A0, _A1) const;
 
@@ -2548,13 +2551,11 @@ public:
     // 20.7.16.2.3, function capacity:
     _LIBCPP_INLINE_VISIBILITY explicit operator bool() const {return __f_;}
 
-private:
-    // deleted overloads close possible hole in the type system
     template<class _R2, class _B0, class _B1, class _B2>
-      bool operator==(const function<_R2(_B0, _B1, _B2)>&) const;// = delete;
+      bool operator==(const function<_R2(_B0, _B1, _B2)>&) const = delete;
     template<class _R2, class _B0, class _B1, class _B2>
-      bool operator!=(const function<_R2(_B0, _B1, _B2)>&) const;// = delete;
-public:
+      bool operator!=(const function<_R2(_B0, _B1, _B2)>&) const = delete;
+
     // 20.7.16.2.4, function invocation:
     _Rp operator()(_A0, _A1, _A2) const;
 

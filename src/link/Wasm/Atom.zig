@@ -75,7 +75,7 @@ pub fn clear(self: *Atom) void {
 pub fn format(self: Atom, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
     _ = fmt;
     _ = options;
-    writer.print("Atom{{ .sym_index = {d}, .alignment = {d}, .size = {d}, .offset = 0x{x:0>8} }}", .{
+    try writer.print("Atom{{ .sym_index = {d}, .alignment = {d}, .size = {d}, .offset = 0x{x:0>8} }}", .{
         self.sym_index,
         self.alignment,
         self.size,
@@ -97,7 +97,7 @@ pub fn symbolLoc(self: Atom) Wasm.SymbolLoc {
 
 /// Resolves the relocations within the atom, writing the new value
 /// at the calculated offset.
-pub fn resolveRelocs(self: *Atom, wasm_bin: *const Wasm) !void {
+pub fn resolveRelocs(self: *Atom, wasm_bin: *const Wasm) void {
     if (self.relocs.items.len == 0) return;
     const symbol_name = self.symbolLoc().getName(wasm_bin);
     log.debug("Resolving relocs in atom '{s}' count({d})", .{
@@ -106,7 +106,7 @@ pub fn resolveRelocs(self: *Atom, wasm_bin: *const Wasm) !void {
     });
 
     for (self.relocs.items) |reloc| {
-        const value = try self.relocationValue(reloc, wasm_bin);
+        const value = self.relocationValue(reloc, wasm_bin);
         log.debug("Relocating '{s}' referenced in '{s}' offset=0x{x:0>8} value={d}", .{
             (Wasm.SymbolLoc{ .file = self.file, .index = reloc.index }).getName(wasm_bin),
             symbol_name,
@@ -144,7 +144,7 @@ pub fn resolveRelocs(self: *Atom, wasm_bin: *const Wasm) !void {
 /// From a given `relocation` will return the new value to be written.
 /// All values will be represented as a `u64` as all values can fit within it.
 /// The final value must be casted to the correct size.
-fn relocationValue(self: Atom, relocation: types.Relocation, wasm_bin: *const Wasm) !u64 {
+fn relocationValue(self: Atom, relocation: types.Relocation, wasm_bin: *const Wasm) u64 {
     const target_loc: Wasm.SymbolLoc = .{ .file = self.file, .index = relocation.index };
     const symbol = target_loc.getSymbol(wasm_bin).*;
     switch (relocation.relocation_type) {
@@ -155,7 +155,13 @@ fn relocationValue(self: Atom, relocation: types.Relocation, wasm_bin: *const Wa
         .R_WASM_TABLE_INDEX_SLEB,
         .R_WASM_TABLE_INDEX_SLEB64,
         => return wasm_bin.function_table.get(target_loc) orelse 0,
-        .R_WASM_TYPE_INDEX_LEB => return wasm_bin.functions.items[symbol.index].type_index,
+        .R_WASM_TYPE_INDEX_LEB => return blk: {
+            if (symbol.isUndefined()) {
+                const imp = wasm_bin.imports.get(target_loc).?;
+                break :blk imp.kind.function;
+            }
+            break :blk wasm_bin.functions.values()[symbol.index - wasm_bin.imported_functions_count].type_index;
+        },
         .R_WASM_GLOBAL_INDEX_I32,
         .R_WASM_GLOBAL_INDEX_LEB,
         => return symbol.index,
@@ -171,7 +177,10 @@ fn relocationValue(self: Atom, relocation: types.Relocation, wasm_bin: *const Wa
             }
             std.debug.assert(symbol.tag == .data);
             const merge_segment = wasm_bin.base.options.output_mode != .Obj;
-            const segment_name = wasm_bin.segment_info.items[symbol.index].outputName(merge_segment);
+            const segment_info = if (self.file) |object_index| blk: {
+                break :blk wasm_bin.objects.items[object_index].segment_info;
+            } else wasm_bin.segment_info.items;
+            const segment_name = segment_info[symbol.index].outputName(merge_segment);
             const atom_index = wasm_bin.data_segments.get(segment_name).?;
             const target_atom = wasm_bin.symbol_atom.get(target_loc).?;
             const segment = wasm_bin.segments.items[atom_index];

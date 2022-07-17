@@ -1,22 +1,26 @@
-// __emutls_get_address specific builtin
-//
-// derived work from LLVM Compiler Infrastructure - release 8.0 (MIT)
-// https://github.com/llvm-mirror/compiler-rt/blob/release_80/lib/builtins/emutls.c
-//
+//! __emutls_get_address specific builtin
+//!
+//! derived work from LLVM Compiler Infrastructure - release 8.0 (MIT)
+//! https://github.com/llvm-mirror/compiler-rt/blob/release_80/lib/builtins/emutls.c
 
 const std = @import("std");
 const builtin = @import("builtin");
+const common = @import("common.zig");
 
 const abort = std.os.abort;
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 
-// defined in C as:
-// typedef unsigned int gcc_word __attribute__((mode(word)));
+/// defined in C as:
+/// typedef unsigned int gcc_word __attribute__((mode(word)));
 const gcc_word = usize;
 
+pub const panic = common.panic;
+
 comptime {
-    assert(builtin.link_libc);
+    if (builtin.link_libc and builtin.os.tag == .openbsd) {
+        @export(__emutls_get_address, .{ .name = "__emutls_get_address", .linkage = common.linkage });
+    }
 }
 
 /// public entrypoint for generated code using EmulatedTLS
@@ -319,6 +323,8 @@ const emutls_control = extern struct {
 };
 
 test "simple_allocator" {
+    if (!builtin.link_libc or builtin.os.tag != .openbsd) return error.SkipZigTest;
+
     var data1: *[64]u8 = simple_allocator.alloc([64]u8);
     defer simple_allocator.free(data1);
     for (data1) |*c| {
@@ -333,6 +339,8 @@ test "simple_allocator" {
 }
 
 test "__emutls_get_address zeroed" {
+    if (!builtin.link_libc or builtin.os.tag != .openbsd) return error.SkipZigTest;
+
     var ctl = emutls_control.init(usize, null);
     try expect(ctl.object.index == 0);
 
@@ -352,6 +360,8 @@ test "__emutls_get_address zeroed" {
 }
 
 test "__emutls_get_address with default_value" {
+    if (!builtin.link_libc or builtin.os.tag != .openbsd) return error.SkipZigTest;
+
     var value: usize = 5678; // default value
     var ctl = emutls_control.init(usize, &value);
     try expect(ctl.object.index == 0);
@@ -370,6 +380,8 @@ test "__emutls_get_address with default_value" {
 }
 
 test "test default_value with differents sizes" {
+    if (!builtin.link_libc or builtin.os.tag != .openbsd) return error.SkipZigTest;
+
     const testType = struct {
         fn _testType(comptime T: type, value: T) !void {
             var def: T = value;

@@ -444,6 +444,7 @@ pub const Target = struct {
     pub const arm = @import("target/arm.zig");
     pub const avr = @import("target/avr.zig");
     pub const bpf = @import("target/bpf.zig");
+    pub const csky = @import("target/csky.zig");
     pub const hexagon = @import("target/hexagon.zig");
     pub const mips = @import("target/mips.zig");
     pub const msp430 = @import("target/msp430.zig");
@@ -804,6 +805,8 @@ pub const Target = struct {
             hsail64,
             spir,
             spir64,
+            spirv32,
+            spirv64,
             kalimba,
             shave,
             lanai,
@@ -815,8 +818,6 @@ pub const Target = struct {
             // Stage1 currently assumes that architectures above this comment
             // map one-to-one with the ZigLLVM_ArchType enum.
             spu_2,
-            spirv32,
-            spirv64,
 
             pub fn isX86(arch: Arch) bool {
                 return switch (arch) {
@@ -1287,7 +1288,7 @@ pub const Target = struct {
                     .sparc, .sparcel => &sparc.cpu.generic,
                     .sparc64 => &sparc.cpu.v9, // 64-bit SPARC needs v9 as the baseline
                     .s390x => &systemz.cpu.generic,
-                    .i386 => &x86.cpu._i386,
+                    .i386 => &x86.cpu.i386,
                     .x86_64 => &x86.cpu.x86_64,
                     .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
                     .ve => &ve.cpu.generic,

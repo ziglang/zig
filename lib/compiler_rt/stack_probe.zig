@@ -1,4 +1,43 @@
-const native_arch = @import("builtin").cpu.arch;
+const std = @import("std");
+const builtin = @import("builtin");
+const os_tag = builtin.os.tag;
+const arch = builtin.cpu.arch;
+const abi = builtin.abi;
+const is_test = builtin.is_test;
+
+const is_gnu = abi.isGnu();
+const is_mingw = os_tag == .windows and is_gnu;
+
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+const strong_linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Strong;
+pub const panic = @import("common.zig").panic;
+
+comptime {
+    if (builtin.os.tag == .windows) {
+        // Default stack-probe functions emitted by LLVM
+        if (is_mingw) {
+            @export(_chkstk, .{ .name = "_alloca", .linkage = strong_linkage });
+            @export(___chkstk_ms, .{ .name = "___chkstk_ms", .linkage = strong_linkage });
+        } else if (!builtin.link_libc) {
+            // This symbols are otherwise exported by MSVCRT.lib
+            @export(_chkstk, .{ .name = "_chkstk", .linkage = strong_linkage });
+            @export(__chkstk, .{ .name = "__chkstk", .linkage = strong_linkage });
+        }
+
+        if (arch.isAARCH64()) {
+            @export(__chkstk, .{ .name = "__chkstk", .linkage = strong_linkage });
+        }
+    }
+
+    switch (arch) {
+        .i386,
+        .x86_64,
+        => {
+            @export(zig_probe_stack, .{ .name = "__zig_probe_stack", .linkage = linkage });
+        },
+        else => {},
+    }
+}
 
 // Zig's own stack-probe routine (available only on x86 and x86_64)
 pub fn zig_probe_stack() callconv(.Naked) void {
@@ -8,7 +47,7 @@ pub fn zig_probe_stack() callconv(.Naked) void {
     // invalid so let's update it on the go, otherwise we'll get a segfault
     // instead of triggering the stack growth.
 
-    switch (native_arch) {
+    switch (arch) {
         .x86_64 => {
             // %rax = probe length, %rsp = stack pointer
             asm volatile (
@@ -60,7 +99,7 @@ pub fn zig_probe_stack() callconv(.Naked) void {
 fn win_probe_stack_only() void {
     @setRuntimeSafety(false);
 
-    switch (native_arch) {
+    switch (arch) {
         .x86_64 => {
             asm volatile (
                 \\         push   %%rcx
@@ -105,7 +144,7 @@ fn win_probe_stack_only() void {
         },
         else => {},
     }
-    if (comptime native_arch.isAARCH64()) {
+    if (comptime arch.isAARCH64()) {
         // NOTE: page size hardcoded to 4096 for now
         asm volatile (
             \\        lsl    x16, x15, #4
@@ -127,7 +166,7 @@ fn win_probe_stack_only() void {
 fn win_probe_stack_adjust_sp() void {
     @setRuntimeSafety(false);
 
-    switch (native_arch) {
+    switch (arch) {
         .x86_64 => {
             asm volatile (
                 \\         push   %%rcx
@@ -201,9 +240,9 @@ pub fn _chkstk() callconv(.Naked) void {
 }
 pub fn __chkstk() callconv(.Naked) void {
     @setRuntimeSafety(false);
-    if (comptime native_arch.isAARCH64()) {
+    if (comptime arch.isAARCH64()) {
         @call(.{ .modifier = .always_inline }, win_probe_stack_only, .{});
-    } else switch (native_arch) {
+    } else switch (arch) {
         .i386 => @call(.{ .modifier = .always_inline }, win_probe_stack_adjust_sp, .{}),
         .x86_64 => @call(.{ .modifier = .always_inline }, win_probe_stack_only, .{}),
         else => unreachable,

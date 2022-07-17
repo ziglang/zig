@@ -1,13 +1,24 @@
-const udivmodti4 = @import("udivmodti4.zig");
+const std = @import("std");
 const builtin = @import("builtin");
+const udivmod = @import("udivmod.zig").udivmod;
+const common = @import("common.zig");
 
-pub fn __udivti3(a: u128, b: u128) callconv(.C) u128 {
-    @setRuntimeSafety(builtin.is_test);
-    return udivmodti4.__udivmodti4(a, b, null);
+pub const panic = common.panic;
+
+comptime {
+    if (common.want_windows_v2u64_abi) {
+        @export(__udivti3_windows_x86_64, .{ .name = "__udivti3", .linkage = common.linkage });
+    } else {
+        @export(__udivti3, .{ .name = "__udivti3", .linkage = common.linkage });
+    }
 }
 
-const v128 = @import("std").meta.Vector(2, u64);
-pub fn __udivti3_windows_x86_64(a: v128, b: v128) callconv(.C) v128 {
-    @setRuntimeSafety(builtin.is_test);
-    return udivmodti4.__udivmodti4_windows_x86_64(a, b, null);
+pub fn __udivti3(a: u128, b: u128) callconv(.C) u128 {
+    return udivmod(u128, a, b, null);
+}
+
+const v2u64 = @Vector(2, u64);
+
+fn __udivti3_windows_x86_64(a: v2u64, b: v2u64) callconv(.C) v2u64 {
+    return @bitCast(v2u64, udivmod(u128, @bitCast(u128, a), @bitCast(u128, b), null));
 }

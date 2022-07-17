@@ -35,6 +35,8 @@
 #include <llvm/IR/Verifier.h>
 #include <llvm/InitializePasses.h>
 #include <llvm/MC/SubtargetFeature.h>
+#include <llvm/MC/TargetRegistry.h>
+#include <llvm/Passes/OptimizationLevel.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Passes/StandardInstrumentations.h>
 #include <llvm/Object/Archive.h>
@@ -51,7 +53,6 @@
 #include <llvm/Support/TimeProfiler.h>
 #include <llvm/Support/Timer.h>
 #include <llvm/Support/raw_ostream.h>
-#include <llvm/Support/TargetRegistry.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/CodeGenCWrappers.h>
 #include <llvm/Transforms/IPO.h>
@@ -273,7 +274,7 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     TargetMachine &target_machine = *reinterpret_cast<TargetMachine*>(targ_machine_ref);
     target_machine.setO0WantsFastISel(true);
 
-    Module &module = *unwrap(module_ref);
+    Module &llvm_module = *unwrap(module_ref);
 
     // Pipeline configurations
     PipelineTuningOptions pipeline_opts;
@@ -290,7 +291,6 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
 
     PassBuilder pass_builder(&target_machine, pipeline_opts,
                              None, &instr_callbacks);
-    using OptimizationLevel = typename PassBuilder::OptimizationLevel;
 
     LoopAnalysisManager loop_am;
     FunctionAnalysisManager function_am;
@@ -302,7 +302,7 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
       return pass_builder.buildDefaultAAPipeline();
     });
 
-    Triple target_triple(module.getTargetTriple());
+    Triple target_triple(llvm_module.getTargetTriple());
     auto tlii = std::make_unique<TargetLibraryInfoImpl>(target_triple);
     function_am.registerPass([&] { return TargetLibraryAnalysis(*tlii); });
 
@@ -339,9 +339,9 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
 
     // Thread sanitizer
     if (tsan) {
-      pass_builder.registerOptimizerLastEPCallback(
-        [](ModulePassManager &module_pm, OptimizationLevel level) {
-          module_pm.addPass(ThreadSanitizerPass());
+        pass_builder.registerOptimizerLastEPCallback([](ModulePassManager &module_pm, OptimizationLevel level) {
+            module_pm.addPass(ModuleThreadSanitizerPass());
+            module_pm.addPass(createModuleToFunctionPassAdaptor(ThreadSanitizerPass()));
         });
     }
 
@@ -383,10 +383,10 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     }
 
     // Optimization phase
-    module_pm.run(module, module_am);
+    module_pm.run(llvm_module, module_am);
 
     // Code generation phase
-    codegen_pm.run(module);
+    codegen_pm.run(llvm_module);
 
     if (llvm_ir_filename) {
         if (LLVMPrintModuleToFile(module_ref, llvm_ir_filename, error_message)) {
@@ -395,10 +395,10 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     }
 
     if (dest_bin && lto) {
-        WriteBitcodeToFile(module, *dest_bin);
+        WriteBitcodeToFile(llvm_module, *dest_bin);
     }
     if (dest_bitcode) {
-        WriteBitcodeToFile(module, *dest_bitcode);
+        WriteBitcodeToFile(llvm_module, *dest_bitcode);
     }
 
     if (time_report) {
@@ -421,7 +421,7 @@ LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *A
         unsigned NumArgs, ZigLLVM_CallingConv CC, ZigLLVM_CallAttr attr, const char *Name)
 {
     Value *V = unwrap(Fn);
-    FunctionType *FnT = cast<FunctionType>(cast<PointerType>(V->getType())->getElementType());
+    FunctionType *FnT = cast<FunctionType>(V->getType()->getNonOpaquePointerElementType());
     CallInst *call_inst = CallInst::Create(FnT, V, makeArrayRef(unwrap(Args), NumArgs), Name);
     call_inst->setCallingConv(static_cast<CallingConv::ID>(CC));
     switch (attr) {
@@ -431,13 +431,13 @@ LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *A
             call_inst->setTailCallKind(CallInst::TCK_NoTail);
             break;
         case ZigLLVM_CallAttrNeverInline:
-            call_inst->addAttribute(AttributeList::FunctionIndex, Attribute::NoInline);
+            call_inst->addFnAttr(Attribute::NoInline);
             break;
         case ZigLLVM_CallAttrAlwaysTail:
             call_inst->setTailCallKind(CallInst::TCK_MustTail);
             break;
         case ZigLLVM_CallAttrAlwaysInline:
-            call_inst->addAttribute(AttributeList::FunctionIndex, Attribute::AlwaysInline);
+            call_inst->addFnAttr(Attribute::AlwaysInline);
             break;
     }
     return wrap(unwrap(B)->Insert(call_inst));
@@ -1058,44 +1058,36 @@ void ZigLLVMSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state) {
 
 void ZigLLVMAddByValAttr(LLVMValueRef fn_ref, unsigned ArgNo, LLVMTypeRef type_val) {
     Function *func = unwrap<Function>(fn_ref);
-    const AttributeList attr_set = func->getAttributes();
-    AttrBuilder attr_builder;
+    AttrBuilder attr_builder(func->getContext());
     Type *llvm_type = unwrap<Type>(type_val);
     attr_builder.addByValAttr(llvm_type);
-    const AttributeList new_attr_set = attr_set.addAttributes(func->getContext(), ArgNo + 1, attr_builder);
-    func->setAttributes(new_attr_set);
+    func->addParamAttrs(ArgNo, attr_builder);
 }
 
-void ZigLLVMAddSretAttr(LLVMValueRef fn_ref, unsigned ArgNo, LLVMTypeRef type_val) {
+void ZigLLVMAddSretAttr(LLVMValueRef fn_ref, LLVMTypeRef type_val) {
     Function *func = unwrap<Function>(fn_ref);
-    const AttributeList attr_set = func->getAttributes();
-    AttrBuilder attr_builder;
+    AttrBuilder attr_builder(func->getContext());
     Type *llvm_type = unwrap<Type>(type_val);
     attr_builder.addStructRetAttr(llvm_type);
-    const AttributeList new_attr_set = attr_set.addAttributes(func->getContext(), ArgNo + 1, attr_builder);
-    func->setAttributes(new_attr_set);
+    func->addParamAttrs(0, attr_builder);
+}
+
+void ZigLLVMAddFunctionElemTypeAttr(LLVMValueRef fn_ref, size_t arg_index, LLVMTypeRef elem_ty) {
+    Function *func = unwrap<Function>(fn_ref);
+    AttrBuilder attr_builder(func->getContext());
+    Type *llvm_type = unwrap<Type>(elem_ty);
+    attr_builder.addTypeAttr(Attribute::ElementType, llvm_type);
+    func->addParamAttrs(arg_index, attr_builder);
 }
 
 void ZigLLVMAddFunctionAttr(LLVMValueRef fn_ref, const char *attr_name, const char *attr_value) {
     Function *func = unwrap<Function>(fn_ref);
-    const AttributeList attr_set = func->getAttributes();
-    AttrBuilder attr_builder;
-    if (attr_value) {
-        attr_builder.addAttribute(attr_name, attr_value);
-    } else {
-        attr_builder.addAttribute(attr_name);
-    }
-    const AttributeList new_attr_set = attr_set.addAttributes(func->getContext(),
-            AttributeList::FunctionIndex, attr_builder);
-    func->setAttributes(new_attr_set);
+    func->addFnAttr(attr_name, attr_value);
 }
 
 void ZigLLVMAddFunctionAttrCold(LLVMValueRef fn_ref) {
     Function *func = unwrap<Function>(fn_ref);
-    const AttributeList attr_set = func->getAttributes();
-    const AttributeList new_attr_set = attr_set.addAttribute(func->getContext(), AttributeList::FunctionIndex,
-            Attribute::Cold);
-    func->setAttributes(new_attr_set);
+    func->addFnAttr(Attribute::Cold);
 }
 
 void ZigLLVMParseCommandLineOptions(size_t argc, const char *const *argv) {
@@ -1142,6 +1134,7 @@ void ZigLLVMAddModuleDebugInfoFlag(LLVMModuleRef module) {
 }
 
 void ZigLLVMAddModuleCodeViewFlag(LLVMModuleRef module) {
+    unwrap(module)->addModuleFlag(Module::Warning, "Debug Info Version", DEBUG_METADATA_VERSION);
     unwrap(module)->addModuleFlag(Module::Warning, "CodeView", 1);
 }
 
@@ -1188,12 +1181,17 @@ void ZigLLVMSetTailCall(LLVMValueRef Call) {
 } 
 
 void ZigLLVMSetCallSret(LLVMValueRef Call, LLVMTypeRef return_type) {
-    const AttributeList attr_set = unwrap<CallInst>(Call)->getAttributes();
-    AttrBuilder attr_builder;
+    CallInst *call_inst = unwrap<CallInst>(Call);
     Type *llvm_type = unwrap<Type>(return_type);
-    attr_builder.addStructRetAttr(llvm_type);
-    const AttributeList new_attr_set = attr_set.addAttributes(unwrap<CallInst>(Call)->getContext(), 1, attr_builder);
-    unwrap<CallInst>(Call)->setAttributes(new_attr_set);
+    call_inst->addParamAttr(AttributeList::ReturnIndex,
+            Attribute::getWithStructRetType(call_inst->getContext(), llvm_type));
+}
+
+void ZigLLVMSetCallElemTypeAttr(LLVMValueRef Call, size_t arg_index, LLVMTypeRef return_type) {
+    CallInst *call_inst = unwrap<CallInst>(Call);
+    Type *llvm_type = unwrap<Type>(return_type);
+    call_inst->addParamAttr(arg_index,
+            Attribute::get(call_inst->getContext(), Attribute::ElementType, llvm_type));
 }
 
 void ZigLLVMFunctionSetPrefixData(LLVMValueRef function, LLVMValueRef data) {
@@ -1338,19 +1336,19 @@ bool ZigLLVMWriteArchive(const char *archive_name, const char **file_names, size
     return false;
 }
 
-int ZigLLDLinkCOFF(int argc, const char **argv, bool can_exit_early) {
+bool ZigLLDLinkCOFF(int argc, const char **argv, bool can_exit_early, bool disable_output) {
     std::vector<const char *> args(argv, argv + argc);
-    return lld::coff::link(args, can_exit_early, llvm::outs(), llvm::errs());
+    return lld::coff::link(args, llvm::outs(), llvm::errs(), can_exit_early, disable_output);
 }
 
-int ZigLLDLinkELF(int argc, const char **argv, bool can_exit_early) {
+bool ZigLLDLinkELF(int argc, const char **argv, bool can_exit_early, bool disable_output) {
     std::vector<const char *> args(argv, argv + argc);
-    return lld::elf::link(args, can_exit_early, llvm::outs(), llvm::errs());
+    return lld::elf::link(args, llvm::outs(), llvm::errs(), can_exit_early, disable_output);
 }
 
-int ZigLLDLinkWasm(int argc, const char **argv, bool can_exit_early) {
+bool ZigLLDLinkWasm(int argc, const char **argv, bool can_exit_early, bool disable_output) {
     std::vector<const char *> args(argv, argv + argc);
-    return lld::wasm::link(args, can_exit_early, llvm::outs(), llvm::errs());
+    return lld::wasm::link(args, llvm::outs(), llvm::errs(), can_exit_early, disable_output);
 }
 
 inline LLVMAttributeRef wrap(Attribute Attr) {
@@ -1456,6 +1454,8 @@ static_assert((Triple::ArchType)ZigLLVM_hsail == Triple::hsail, "");
 static_assert((Triple::ArchType)ZigLLVM_hsail64 == Triple::hsail64, "");
 static_assert((Triple::ArchType)ZigLLVM_spir == Triple::spir, "");
 static_assert((Triple::ArchType)ZigLLVM_spir64 == Triple::spir64, "");
+static_assert((Triple::ArchType)ZigLLVM_spirv32 == Triple::spirv32, "");
+static_assert((Triple::ArchType)ZigLLVM_spirv64 == Triple::spirv64, "");
 static_assert((Triple::ArchType)ZigLLVM_kalimba == Triple::kalimba, "");
 static_assert((Triple::ArchType)ZigLLVM_shave == Triple::shave, "");
 static_assert((Triple::ArchType)ZigLLVM_lanai == Triple::lanai, "");

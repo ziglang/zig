@@ -21,6 +21,7 @@ const assemble_and_link = @import("assemble_and_link.zig");
 const translate_c = @import("translate_c.zig");
 const run_translated_c = @import("run_translated_c.zig");
 const gen_h = @import("gen_h.zig");
+const link = @import("link.zig");
 
 // Implementations
 pub const TranslateCContext = @import("src/translate_c.zig").TranslateCContext;
@@ -461,6 +462,7 @@ pub fn addStandaloneTests(
     skip_non_native: bool,
     enable_macos_sdk: bool,
     target: std.zig.CrossTarget,
+    omit_stage2: bool,
 ) *build.Step {
     const cases = b.allocator.create(StandaloneContext) catch unreachable;
     cases.* = StandaloneContext{
@@ -472,10 +474,34 @@ pub fn addStandaloneTests(
         .skip_non_native = skip_non_native,
         .enable_macos_sdk = enable_macos_sdk,
         .target = target,
+        .omit_stage2 = omit_stage2,
     };
 
     standalone.addCases(cases);
 
+    return cases.step;
+}
+
+pub fn addLinkTests(
+    b: *build.Builder,
+    test_filter: ?[]const u8,
+    modes: []const Mode,
+    enable_macos_sdk: bool,
+    omit_stage2: bool,
+) *build.Step {
+    const cases = b.allocator.create(StandaloneContext) catch unreachable;
+    cases.* = StandaloneContext{
+        .b = b,
+        .step = b.step("test-link", "Run the linker tests"),
+        .test_index = 0,
+        .test_filter = test_filter,
+        .modes = modes,
+        .skip_non_native = true,
+        .enable_macos_sdk = enable_macos_sdk,
+        .target = .{},
+        .omit_stage2 = omit_stage2,
+    };
+    link.addCases(cases);
     return cases.step;
 }
 
@@ -935,6 +961,7 @@ pub const StandaloneContext = struct {
     skip_non_native: bool,
     enable_macos_sdk: bool,
     target: std.zig.CrossTarget,
+    omit_stage2: bool,
 
     pub fn addC(self: *StandaloneContext, root_src: []const u8) void {
         self.addAllArgs(root_src, true);
@@ -948,10 +975,12 @@ pub const StandaloneContext = struct {
         build_modes: bool = false,
         cross_targets: bool = false,
         requires_macos_sdk: bool = false,
+        requires_stage2: bool = false,
     }) void {
         const b = self.b;
 
         if (features.requires_macos_sdk and !self.enable_macos_sdk) return;
+        if (features.requires_stage2 and self.omit_stage2) return;
 
         const annotated_case_name = b.fmt("build {s}", .{build_file});
         if (self.test_filter) |filter| {
@@ -973,7 +1002,8 @@ pub const StandaloneContext = struct {
         }
 
         if (features.cross_targets and !self.target.isNative()) {
-            const target_arg = fmt.allocPrint(b.allocator, "-Dtarget={s}", .{self.target.zigTriple(b.allocator) catch unreachable}) catch unreachable;
+            const target_triple = self.target.zigTriple(b.allocator) catch unreachable;
+            const target_arg = fmt.allocPrint(b.allocator, "-Dtarget={s}", .{target_triple}) catch unreachable;
             zig_args.append(target_arg) catch unreachable;
         }
 

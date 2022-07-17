@@ -9,18 +9,15 @@
 #ifndef _LIBCPP___ALGORITHM_PUSH_HEAP_H
 #define _LIBCPP___ALGORITHM_PUSH_HEAP_H
 
-#include <__config>
 #include <__algorithm/comp.h>
 #include <__algorithm/comp_ref_type.h>
+#include <__config>
 #include <__iterator/iterator_traits.h>
 #include <__utility/move.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
 #endif
-
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -69,7 +66,5 @@ push_heap(_RandomAccessIterator __first, _RandomAccessIterator __last)
 }
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_PUSH_HEAP_H

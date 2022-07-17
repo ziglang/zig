@@ -34,4 +34,8 @@
 #ifndef _MACH_I386_PROCESSOR_INFO_H_
 #define _MACH_I386_PROCESSOR_INFO_H_
 
+#if defined (__i386__) || defined (__x86_64__)
+
+#endif /* defined (__i386__) || defined (__x86_64__) */
+
 #endif  /* _MACH_I386_PROCESSOR_INFO_H_ */

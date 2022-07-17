@@ -5,6 +5,7 @@
 
 int posix_spawn_file_actions_adddup2(posix_spawn_file_actions_t *fa, int srcfd, int fd)
 {
+	if (srcfd < 0 || fd < 0) return EBADF;
 	struct fdop *op = malloc(sizeof *op);
 	if (!op) return ENOMEM;
 	op->cmd = FDOP_DUP2;

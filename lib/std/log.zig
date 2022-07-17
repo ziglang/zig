@@ -85,12 +85,7 @@ pub const Level = enum {
     debug,
 
     /// Returns a string literal of the given level in full text form.
-    pub fn asText(comptime self: Level) switch (self) {
-        .err => @TypeOf("error"),
-        .warn => @TypeOf("warning"),
-        .info => @TypeOf("info"),
-        .debug => @TypeOf("debug"),
-    } {
+    pub fn asText(comptime self: Level) []const u8 {
         return switch (self) {
             .err => "error",
             .warn => "warning",
@@ -156,11 +151,11 @@ pub fn defaultLog(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    if (builtin.os.tag == .freestanding) {
-        // On freestanding one must provide a log function; we do not have
-        // any I/O configured.
-        return;
-    }
+    if (builtin.os.tag == .freestanding)
+        @compileError(
+            \\freestanding targets do not have I/O configured;
+            \\please provide at least an empty `log` function declaration
+        );
 
     const level_txt = comptime message_level.asText();
     const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";

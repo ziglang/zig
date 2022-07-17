@@ -1,6 +1,7 @@
 pub const parseFloat = @import("parse_float/parse_float.zig").parseFloat;
 pub const ParseFloatError = @import("parse_float/parse_float.zig").ParseFloatError;
 
+const builtin = @import("builtin");
 const std = @import("std");
 const math = std.math;
 const testing = std.testing;
@@ -14,8 +15,6 @@ const epsilon = 1e-7;
 
 test "fmt.parseFloat" {
     inline for ([_]type{ f16, f32, f64, f128 }) |T| {
-        const Z = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
-
         try testing.expectError(error.InvalidCharacter, parseFloat(T, ""));
         try testing.expectError(error.InvalidCharacter, parseFloat(T, "   1"));
         try testing.expectError(error.InvalidCharacter, parseFloat(T, "1abc"));
@@ -39,10 +38,6 @@ test "fmt.parseFloat" {
 
         try expectEqual(try parseFloat(T, "1e-5000"), 0);
         try expectEqual(try parseFloat(T, "1e+5000"), std.math.inf(T));
-
-        try expectEqual(@bitCast(Z, try parseFloat(T, "nAn")), @bitCast(Z, std.math.nan(T)));
-        try expectEqual(try parseFloat(T, "inF"), std.math.inf(T));
-        try expectEqual(try parseFloat(T, "-INF"), -std.math.inf(T));
 
         try expectEqual(try parseFloat(T, "0.4e0066999999999999999999999999999999999999999999999999999"), std.math.inf(T));
         try expect(approxEqAbs(T, try parseFloat(T, "0_1_2_3_4_5_6.7_8_9_0_0_0e0_0_1_0"), @as(T, 123456.789000e10), epsilon));
@@ -71,6 +66,23 @@ test "fmt.parseFloat" {
         try expect(approxEqAbs(T, try parseFloat(T, "-123142.1124"), @as(T, -123142.1124), epsilon));
         try expect(approxEqAbs(T, try parseFloat(T, "0.7062146892655368"), @as(T, 0.7062146892655368), epsilon));
         try expect(approxEqAbs(T, try parseFloat(T, "2.71828182845904523536"), @as(T, 2.718281828459045), epsilon));
+    }
+}
+
+test "fmt.parseFloat nan and inf" {
+    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
+        builtin.cpu.arch == .aarch64)
+    {
+        // https://github.com/ziglang/zig/issues/12027
+        return error.SkipZigTest;
+    }
+
+    inline for ([_]type{ f16, f32, f64, f128 }) |T| {
+        const Z = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
+
+        try expectEqual(@bitCast(Z, try parseFloat(T, "nAn")), @bitCast(Z, std.math.nan(T)));
+        try expectEqual(try parseFloat(T, "inF"), std.math.inf(T));
+        try expectEqual(try parseFloat(T, "-INF"), -std.math.inf(T));
     }
 }
 

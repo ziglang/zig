@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <endian.h>
 #include "syscall.h"
 
 #define alignof(t) offsetof(struct { char c; t x; }, x)
@@ -53,7 +54,7 @@ static const struct ioctl_compat_map compat_map[] = {
 	{ _IOWR('A', 0x23, char[136]), _IOWR('A', 0x23, char[132]), 0, WR, 1, 0 },
 	{ 0, 0, 4, WR, 1, 0 }, /* snd_pcm_sync_ptr (flags only) */
 	{ 0, 0, 32, WR, 1, OFFS(8,12,16,24,28) }, /* snd_pcm_mmap_status */
-	{ 0, 0, 8, WR, 1, OFFS(0,4) }, /* snd_pcm_mmap_control */
+	{ 0, 0, 4, WR, 1, 0 }, /* snd_pcm_mmap_control (each member) */
 
 	/* VIDIOC_QUERYBUF, VIDIOC_QBUF, VIDIOC_DQBUF, VIDIOC_PREPARE_BUF */
 	{ _IOWR('V',  9, new_misaligned(68)), _IOWR('V',  9, char[68]), 68, WR, 1, OFFS(20, 24) },
@@ -90,7 +91,11 @@ static void convert_ioctl_struct(const struct ioctl_compat_map *map, char *old, 
 		 * if another exception appears this needs changing. */
 		convert_ioctl_struct(map+1, old, new, dir);
 		convert_ioctl_struct(map+2, old+4, new+8, dir);
-		convert_ioctl_struct(map+3, old+68, new+72, dir);
+		/* snd_pcm_mmap_control, special-cased due to kernel
+		 * type definition having been botched. */
+		int adj = BYTE_ORDER==BIG_ENDIAN ? 4 : 0;
+		convert_ioctl_struct(map+3, old+68, new+72+adj, dir);
+		convert_ioctl_struct(map+3, old+72, new+76+3*adj, dir);
 		return;
 	}
 	for (int i=0; i < map->noffs; i++) {

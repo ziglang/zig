@@ -10,7 +10,7 @@
 #ifndef _MM_MALLOC_H_INCLUDED
 #define _MM_MALLOC_H_INCLUDED
 
-#if defined(__linux__) && defined(__ppc64__)
+#if defined(__ppc64__) && (defined(__linux__) || defined(__FreeBSD__))
 
 #include <stdlib.h>
 
@@ -19,7 +19,7 @@
 #ifndef __cplusplus
 extern int posix_memalign (void **, size_t, size_t);
 #else
-extern "C" int posix_memalign (void **, size_t, size_t) throw ();
+extern "C" int posix_memalign (void **, size_t, size_t);
 #endif
 
 static __inline void *

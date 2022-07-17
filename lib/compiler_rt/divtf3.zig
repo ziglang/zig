@@ -1,11 +1,35 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const normalize = @import("divdf3.zig").normalize;
-const wideMultiply = @import("divdf3.zig").wideMultiply;
+const common = @import("common.zig");
+const normalize = common.normalize;
+const wideMultiply = common.wideMultiply;
+
+pub const panic = common.panic;
+
+comptime {
+    if (common.want_ppc_abi) {
+        @export(__divkf3, .{ .name = "__divkf3", .linkage = common.linkage });
+    } else if (common.want_sparc_abi) {
+        @export(_Qp_div, .{ .name = "_Qp_div", .linkage = common.linkage });
+    } else {
+        @export(__divtf3, .{ .name = "__divtf3", .linkage = common.linkage });
+    }
+}
 
 pub fn __divtf3(a: f128, b: f128) callconv(.C) f128 {
-    @setRuntimeSafety(builtin.is_test);
+    return div(a, b);
+}
+
+fn __divkf3(a: f128, b: f128) callconv(.C) f128 {
+    return div(a, b);
+}
+
+fn _Qp_div(c: *f128, a: *const f128, b: *const f128) callconv(.C) void {
+    c.* = div(a.*, b.*);
+}
+
+inline fn div(a: f128, b: f128) f128 {
     const Z = std.meta.Int(.unsigned, 128);
 
     const significandBits = std.math.floatMantissaBits(f128);

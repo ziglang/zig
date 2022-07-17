@@ -1,17 +1,36 @@
+//! popcount - population count
+//! counts the number of 1 bits
+//! SWAR-Popcount: count bits of duos, aggregate to nibbles, and bytes inside
+//!   x-bit register in parallel to sum up all bytes
+//!   SWAR-Masks and factors can be defined as 2-adic fractions
+//! TAOCP: Combinational Algorithms, Bitwise Tricks And Techniques,
+//!   subsubsection "Working with the rightmost bits" and "Sideways addition".
+
 const builtin = @import("builtin");
 const std = @import("std");
+const common = @import("common.zig");
 
-// popcount - population count
-// counts the number of 1 bits
+pub const panic = common.panic;
 
-// SWAR-Popcount: count bits of duos, aggregate to nibbles, and bytes inside
-//   x-bit register in parallel to sum up all bytes
-//   SWAR-Masks and factors can be defined as 2-adic fractions
-// TAOCP: Combinational Algorithms, Bitwise Tricks And Techniques,
-//   subsubsection "Working with the rightmost bits" and "Sideways addition".
+comptime {
+    @export(__popcountsi2, .{ .name = "__popcountsi2", .linkage = common.linkage });
+    @export(__popcountdi2, .{ .name = "__popcountdi2", .linkage = common.linkage });
+    @export(__popcountti2, .{ .name = "__popcountti2", .linkage = common.linkage });
+}
+
+pub fn __popcountsi2(a: i32) callconv(.C) i32 {
+    return popcountXi2(i32, a);
+}
+
+pub fn __popcountdi2(a: i64) callconv(.C) i32 {
+    return popcountXi2(i64, a);
+}
+
+pub fn __popcountti2(a: i128) callconv(.C) i32 {
+    return popcountXi2(i128, a);
+}
 
 inline fn popcountXi2(comptime ST: type, a: ST) i32 {
-    @setRuntimeSafety(builtin.is_test);
     const UT = switch (ST) {
         i32 => u32,
         i64 => u64,
@@ -28,18 +47,6 @@ inline fn popcountXi2(comptime ST: type, a: ST) i32 {
     x *%= ~@as(UT, 0) / 255; // 0x01...01
     x >>= (@bitSizeOf(ST) - 8);
     return @intCast(i32, x);
-}
-
-pub fn __popcountsi2(a: i32) callconv(.C) i32 {
-    return popcountXi2(i32, a);
-}
-
-pub fn __popcountdi2(a: i64) callconv(.C) i32 {
-    return popcountXi2(i64, a);
-}
-
-pub fn __popcountti2(a: i128) callconv(.C) i32 {
-    return popcountXi2(i128, a);
 }
 
 test {

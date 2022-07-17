@@ -1,10 +1,25 @@
 const std = @import("std");
+const builtin = @import("builtin");
+const arch = builtin.cpu.arch;
 const math = std.math;
 const expect = std.testing.expect;
+const common = @import("common.zig");
+
+pub const panic = common.panic;
 
 const trig = @import("trig.zig");
 const rem_pio2 = @import("rem_pio2.zig").rem_pio2;
 const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;
+
+comptime {
+    @export(__cosh, .{ .name = "__cosh", .linkage = common.linkage });
+    @export(cosf, .{ .name = "cosf", .linkage = common.linkage });
+    @export(cos, .{ .name = "cos", .linkage = common.linkage });
+    @export(__cosx, .{ .name = "__cosx", .linkage = common.linkage });
+    const cosq_sym_name = if (common.want_ppc_abi) "cosf128" else "cosq";
+    @export(cosq, .{ .name = cosq_sym_name, .linkage = common.linkage });
+    @export(cosl, .{ .name = "cosl", .linkage = common.linkage });
+}
 
 pub fn __cosh(a: f16) callconv(.C) f16 {
     // TODO: more efficient implementation

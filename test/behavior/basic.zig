@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const assert = std.debug.assert;
 const mem = std.mem;
 const expect = std.testing.expect;
 const expectEqualStrings = std.testing.expectEqualStrings;
@@ -23,6 +24,8 @@ fn testTruncate(x: u32) u8 {
 }
 
 test "truncate to non-power-of-two integers" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
     try testTrunc(u32, u1, 0b10101, 0b1);
     try testTrunc(u32, u1, 0b10110, 0b0);
     try testTrunc(u32, u2, 0b10101, 0b01);
@@ -201,7 +204,6 @@ test "opaque types" {
     }
 
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     try expect(*OpaqueA != *OpaqueB);
 
@@ -362,7 +364,6 @@ fn testMemcpyMemset() !void {
 }
 
 test "variable is allowed to be a pointer to an opaque type" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     var x: i32 = 1234;
@@ -400,6 +401,7 @@ fn testPointerToVoidReturnType2() *const void {
 
 test "array 2D const double ptr" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
@@ -413,6 +415,7 @@ test "array 2D const double ptr" {
 
 test "array 2D const double ptr with offset" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
@@ -426,6 +429,7 @@ test "array 2D const double ptr with offset" {
 
 test "array 3D const double ptr with offset" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
@@ -451,7 +455,6 @@ fn testArray2DConstDoublePtr(ptr: *const f32) !void {
 
 test "double implicit cast in same expression" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     var x = @as(i32, @as(u16, nine()));
     try expect(x == 9);
@@ -610,8 +613,6 @@ test "self reference through fn ptr field" {
 }
 
 test "global variable initialized to global variable array element" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
     try expect(global_ptr == &gdt[0]);
 }
 const GDTEntry = struct {
@@ -675,7 +676,6 @@ test "explicit cast optional pointers" {
 }
 
 test "pointer comparison" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const a = @as([]const u8, "a");
@@ -781,7 +781,6 @@ test "pointer to thread local array" {
 threadlocal var buffer: [11]u8 = undefined;
 
 test "auto created variables have correct alignment" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -797,6 +796,10 @@ test "auto created variables have correct alignment" {
 }
 
 test "extern variable with non-pointer opaque type" {
+    if (builtin.zig_backend == .stage1) {
+        // Regressed with LLVM 14
+        return error.SkipZigTest;
+    }
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
@@ -883,7 +886,6 @@ test "labeled block implicitly ends in a break" {
 test "catch in block has correct result location" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const S = struct {
         fn open() error{A}!@This() {
@@ -914,7 +916,6 @@ test "labeled block with runtime branch forwards its result location type to bre
 
 test "try in labeled block doesn't cast to wrong type" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const S = struct {
         a: u32,
@@ -931,14 +932,168 @@ test "try in labeled block doesn't cast to wrong type" {
     _ = s;
 }
 
-test "comptime int in switch in catch is casted to correct inferred type" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+test "vector initialized with array init syntax has proper type" {
+    comptime {
+        const actual = -@Vector(4, i32){ 1, 2, 3, 4 };
+        try std.testing.expectEqual(@Vector(4, i32){ -1, -2, -3, -4 }, actual);
+    }
+}
 
-    var a: error{ A, B }!u64 = 0;
-    var b = a catch |err| switch (err) {
-        error.A => 0,
-        else => unreachable,
+test "weird array and tuple initializations" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const E = enum { a, b };
+    const S = struct { e: E };
+    var a = false;
+    const b = S{ .e = .a };
+
+    _ = &[_]S{
+        if (a) .{ .e = .a } else .{ .e = .b },
     };
-    _ = b;
+
+    if (true) return error.SkipZigTest;
+
+    const S2 = @TypeOf(.{ false, b });
+    _ = &S2{
+        true,
+        if (a) .{ .e = .a } else .{ .e = .b },
+    };
+    const S3 = @TypeOf(.{ .a = false, .b = b });
+    _ = &S3{
+        .a = true,
+        .b = if (a) .{ .e = .a } else .{ .e = .b },
+    };
+}
+
+test "array type comes from generic function" {
+    const S = struct {
+        fn A() type {
+            return struct { a: u8 = 0 };
+        }
+    };
+    const args = [_]S.A(){.{}};
+    _ = args;
+}
+
+test "generic function uses return type of other generic function" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn call(
+            f: anytype,
+            args: anytype,
+        ) @TypeOf(@call(.{}, f, @as(@TypeOf(args), undefined))) {
+            return @call(.{}, f, args);
+        }
+
+        fn func(arg: anytype) @TypeOf(arg) {
+            return arg;
+        }
+    };
+    try std.testing.expect(S.call(S.func, .{@as(u8, 1)}) == 1);
+}
+
+test "const alloc with comptime known initializer is made comptime known" {
+    const S = struct {
+        a: bool,
+        b: [2]u8,
+    };
+    {
+        const s: S = .{
+            .a = false,
+            .b = .{ 1, 2 },
+        };
+        if (s.a) @compileError("bad");
+    }
+    {
+        const s: S = .{
+            .a = false,
+            .b = [2]u8{ 1, 2 },
+        };
+        if (s.a) @compileError("bad");
+    }
+    {
+        const s: S = comptime .{
+            .a = false,
+            .b = .{ 1, 2 },
+        };
+        if (s.a) @compileError("bad");
+    }
+    {
+        const Const = struct {
+            limbs: []const usize,
+            positive: bool,
+        };
+        const biggest: Const = .{
+            .limbs = &([1]usize{comptime std.math.maxInt(usize)} ** 128),
+            .positive = false,
+        };
+        if (biggest.positive) @compileError("bad");
+    }
+    {
+        const U = union(enum) {
+            a: usize,
+        };
+        const u: U = .{
+            .a = comptime std.math.maxInt(usize),
+        };
+        if (u.a == 0) @compileError("bad");
+    }
+}
+
+comptime {
+    // coerce result ptr outside a function
+    const S = struct { a: comptime_int };
+    var s: S = undefined;
+    s = S{ .a = 1 };
+    assert(s.a == 1);
+}
+
+test "switch inside @as gets correct type" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    var a: u32 = 0;
+    var b: [2]u32 = undefined;
+    b[0] = @as(u32, switch (a) {
+        1 => 1,
+        else => 0,
+    });
+}
+
+test "inline call of function with a switch inside the return statement" {
+    const S = struct {
+        inline fn foo(x: anytype) @TypeOf(x) {
+            return switch (x) {
+                1 => 1,
+                else => unreachable,
+            };
+        }
+    };
+    try expect(S.foo(1) == 1);
+}
+
+test "namespace lookup ignores decl causing the lookup" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn Mixin(comptime T: type) type {
+            return struct {
+                fn foo() void {
+                    const set = std.EnumSet(T.E).init(undefined);
+                    _ = set;
+                }
+            };
+        }
+
+        const E = enum { a, b };
+        usingnamespace Mixin(@This());
+    };
+    _ = S.foo();
 }

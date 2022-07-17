@@ -138,6 +138,51 @@ pub fn addCases(ctx: *TestContext) !void {
         "tmp.zig:2:1: error: invalid character: '\\t'",
     });
 
+    {
+        const case = ctx.obj("multiline error messages", .{});
+        case.backend = .stage2;
+
+        case.addError(
+            \\comptime {
+            \\    @compileError("hello\nworld");
+            \\}
+        , &[_][]const u8{
+            \\:2:5: error: hello
+            \\             world
+        });
+
+        case.addError(
+            \\comptime {
+            \\    @compileError(
+            \\        \\
+            \\        \\hello!
+            \\        \\I'm a multiline error message.
+            \\        \\I hope to be very useful!
+            \\        \\
+            \\        \\also I will leave this trailing newline here if you don't mind
+            \\        \\
+            \\    );
+            \\}
+        , &[_][]const u8{
+            \\:2:5: error: 
+            \\             hello!
+            \\             I'm a multiline error message.
+            \\             I hope to be very useful!
+            \\             
+            \\             also I will leave this trailing newline here if you don't mind
+            \\             
+        });
+    }
+
+    {
+        const case = ctx.obj("missing semicolon at EOF", .{});
+        case.addError(
+            \\const foo = 1
+        , &[_][]const u8{
+            \\:1:14: error: expected ';' after declaration
+        });
+    }
+
     // TODO test this in stage2, but we won't even try in stage1
     //ctx.objErrStage1("inline fn calls itself indirectly",
     //    \\export fn foo() void {

@@ -1210,7 +1210,8 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
     const allocator = validationAllocator.allocator();
 
     var debug_buffer: [1000]u8 = undefined;
-    const debug_allocator = FixedBufferAllocator.init(&debug_buffer).allocator();
+    var fib = FixedBufferAllocator.init(&debug_buffer);
+    const debug_allocator = fib.allocator();
 
     const alloc_size = mem.page_size * 2 + 50;
     var slice = try allocator.alignedAlloc(u8, 16, alloc_size);

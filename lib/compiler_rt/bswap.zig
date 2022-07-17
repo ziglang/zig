@@ -1,5 +1,14 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const common = @import("common.zig");
+
+pub const panic = common.panic;
+
+comptime {
+    @export(__bswapsi2, .{ .name = "__bswapsi2", .linkage = common.linkage });
+    @export(__bswapdi2, .{ .name = "__bswapdi2", .linkage = common.linkage });
+    @export(__bswapti2, .{ .name = "__bswapti2", .linkage = common.linkage });
+}
 
 // bswap - byteswap
 // - bswapXi2 for unoptimized big and little endian
@@ -12,7 +21,6 @@ const builtin = @import("builtin");
 // 00 00 00 ff << 3*8 (rightmost byte)
 
 inline fn bswapXi2(comptime T: type, a: T) T {
-    @setRuntimeSafety(builtin.is_test);
     switch (@bitSizeOf(T)) {
         32 => {
             // zig fmt: off

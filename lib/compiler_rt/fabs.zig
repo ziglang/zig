@@ -1,4 +1,19 @@
 const std = @import("std");
+const builtin = @import("builtin");
+const arch = builtin.cpu.arch;
+const common = @import("common.zig");
+
+pub const panic = common.panic;
+
+comptime {
+    @export(__fabsh, .{ .name = "__fabsh", .linkage = common.linkage });
+    @export(fabsf, .{ .name = "fabsf", .linkage = common.linkage });
+    @export(fabs, .{ .name = "fabs", .linkage = common.linkage });
+    @export(__fabsx, .{ .name = "__fabsx", .linkage = common.linkage });
+    const fabsq_sym_name = if (common.want_ppc_abi) "fabsf128" else "fabsq";
+    @export(fabsq, .{ .name = fabsq_sym_name, .linkage = common.linkage });
+    @export(fabsl, .{ .name = "fabsl", .linkage = common.linkage });
+}
 
 pub fn __fabsh(a: f16) callconv(.C) f16 {
     return generic_fabs(a);

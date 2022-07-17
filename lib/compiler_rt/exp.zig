@@ -5,8 +5,23 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/exp.c
 
 const std = @import("std");
+const builtin = @import("builtin");
+const arch = builtin.cpu.arch;
 const math = std.math;
 const expect = std.testing.expect;
+const common = @import("common.zig");
+
+pub const panic = common.panic;
+
+comptime {
+    @export(__exph, .{ .name = "__exph", .linkage = common.linkage });
+    @export(expf, .{ .name = "expf", .linkage = common.linkage });
+    @export(exp, .{ .name = "exp", .linkage = common.linkage });
+    @export(__expx, .{ .name = "__expx", .linkage = common.linkage });
+    const expq_sym_name = if (common.want_ppc_abi) "expf128" else "expq";
+    @export(expq, .{ .name = expq_sym_name, .linkage = common.linkage });
+    @export(expl, .{ .name = "expl", .linkage = common.linkage });
+}
 
 pub fn __exph(a: f16) callconv(.C) f16 {
     // TODO: more efficient implementation

@@ -96,13 +96,13 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = @intToError(0);
             \\    return 0;
             \\}
-        , &.{":2:21: error: integer value 0 represents no error"});
+        , &.{":2:21: error: integer value '0' represents no error"});
         case.addError(
             \\pub export fn main() c_int {
             \\    _ = @intToError(3);
             \\    return 0;
             \\}
-        , &.{":2:21: error: integer value 3 represents no error"});
+        , &.{":2:21: error: integer value '3' represents no error"});
     }
 
     {
@@ -230,30 +230,6 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    var y = add(3, 0);
             \\    y -= x;
             \\    return y;
-            \\}
-        , "");
-    }
-    // This will make a pretty deep call stack, so this test can only be enabled
-    // on hosts where Zig's linking strategy can honor the 16 MiB (default) we
-    // link the self-hosted compiler with.
-    const host_supports_custom_stack_size = @import("builtin").target.os.tag == .linux;
-    if (host_supports_custom_stack_size) {
-        var case = ctx.exeFromCompiledC("@setEvalBranchQuota", .{});
-
-        // TODO when adding result location support to function calls, revisit this test
-        // case. It can go back to what it was before, with `y` being comptime known.
-        // Because the ret_ptr will passed in with the inline fn call, and there will
-        // only be 1 store to it, and it will be comptime known.
-        case.addCompareOutput(
-            \\pub export fn main() i32 {
-            \\    @setEvalBranchQuota(1001);
-            \\    const y = rec(1001);
-            \\    return y - 1;
-            \\}
-            \\
-            \\inline fn rec(n: i32) i32 {
-            \\    if (n <= 1) return n;
-            \\    return rec(n - 1);
             \\}
         , "");
     }
@@ -753,8 +729,8 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = E1.a;
             \\}
         , &.{
-            ":1:28: error: duplicate enum tag",
-            ":1:22: note: other tag here",
+            ":1:28: error: duplicate enum field 'b'",
+            ":1:22: note: other field here",
         });
 
         case.addError(
@@ -763,7 +739,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = @enumToInt(a);
             \\}
         , &.{
-            ":3:20: error: expected enum or tagged union, found bool",
+            ":3:20: error: expected enum or tagged union, found 'bool'",
         });
 
         case.addError(
@@ -772,7 +748,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = @intToEnum(bool, a);
             \\}
         , &.{
-            ":3:20: error: expected enum, found bool",
+            ":3:20: error: expected enum, found 'bool'",
         });
 
         case.addError(
@@ -781,7 +757,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = @intToEnum(E, 3);
             \\}
         , &.{
-            ":3:9: error: enum 'tmp.E' has no tag with value 3",
+            ":3:9: error: enum 'tmp.E' has no tag with value '3'",
             ":1:11: note: enum declared here",
         });
 

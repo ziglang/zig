@@ -54,6 +54,7 @@ const libcxx_files = [_][]const u8{
     "src/ios.cpp",
     "src/ios.instantiations.cpp",
     "src/iostream.cpp",
+    "src/legacy_pointer_safety.cpp",
     "src/locale.cpp",
     "src/memory.cpp",
     "src/mutex.cpp",
@@ -63,10 +64,15 @@ const libcxx_files = [_][]const u8{
     "src/random.cpp",
     "src/random_shuffle.cpp",
     "src/regex.cpp",
+    "src/ryu/d2fixed.cpp",
+    "src/ryu/d2s.cpp",
+    "src/ryu/f2s.cpp",
     "src/shared_mutex.cpp",
     "src/stdexcept.cpp",
     "src/string.cpp",
     "src/strstream.cpp",
+    "src/support/ibm/mbsnrtowcs.cpp",
+    "src/support/ibm/wcsnrtombs.cpp",
     "src/support/ibm/xlocale_zos.cpp",
     "src/support/solaris/xlocale.cpp",
     "src/support/win32/locale_win32.cpp",
@@ -111,6 +117,7 @@ pub fn buildLibCXX(comp: *Compilation) !void {
 
     const cxxabi_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxxabi", "include" });
     const cxx_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", "include" });
+    const cxx_src_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", "src" });
     var c_source_files = try std.ArrayList(Compilation.CSourceFile).initCapacity(arena, libcxx_files.len);
 
     for (libcxx_files) |cxx_src| {
@@ -166,6 +173,9 @@ pub fn buildLibCXX(comp: *Compilation) !void {
 
         try cflags.append("-I");
         try cflags.append(cxxabi_include_path);
+
+        try cflags.append("-I");
+        try cflags.append(cxx_src_include_path);
 
         if (target_util.supports_fpic(target)) {
             try cflags.append("-fPIC");
@@ -263,6 +273,7 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
 
     const cxxabi_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxxabi", "include" });
     const cxx_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", "include" });
+    const cxx_src_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", "src" });
     var c_source_files = try std.ArrayList(Compilation.CSourceFile).initCapacity(arena, libcxxabi_files.len);
 
     for (libcxxabi_files) |cxxabi_src| {
@@ -304,6 +315,9 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
 
         try cflags.append("-I");
         try cflags.append(cxx_include_path);
+
+        try cflags.append("-I");
+        try cflags.append(cxx_src_include_path);
 
         if (target_util.supports_fpic(target)) {
             try cflags.append("-fPIC");

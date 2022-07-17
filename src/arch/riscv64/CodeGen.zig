@@ -516,6 +516,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .ceil,
             .round,
             .trunc_float,
+            .neg,
             => try self.airUnaryMath(inst),
 
             .add_with_overflow => try self.airAddWithOverflow(inst),
@@ -603,6 +604,9 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .union_init      => try self.airUnionInit(inst),
             .prefetch        => try self.airPrefetch(inst),
             .mul_add         => try self.airMulAdd(inst),
+
+            .@"try"          => @panic("TODO"),
+            .try_ptr         => @panic("TODO"),
 
             .dbg_var_ptr,
             .dbg_var_val,
@@ -754,7 +758,7 @@ fn addDbgInfoTypeReloc(self: *Self, ty: Type) !void {
                 .macho => unreachable,
                 else => unreachable,
             };
-            try dw.addTypeReloc(atom, ty, @intCast(u32, index), null);
+            try dw.addTypeRelocGlobal(atom, ty, @intCast(u32, index));
         },
         .plan9 => {},
         .none => {},

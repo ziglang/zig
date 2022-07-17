@@ -5,6 +5,12 @@ const math = std.math;
 const expect = std.testing.expect;
 
 test "implicit cast vector to array - bool" {
+    if (builtin.zig_backend == .stage1) {
+        // Regressed in LLVM 14:
+        // https://github.com/llvm/llvm-project/issues/55522
+        return error.SkipZigTest;
+    }
+
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
@@ -95,18 +101,20 @@ test "vector float operators" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
-    const S = struct {
-        fn doTheTest() !void {
-            var v: @Vector(4, f32) = [4]f32{ 10, 20, 30, 40 };
-            var x: @Vector(4, f32) = [4]f32{ 1, 2, 3, 4 };
-            try expect(mem.eql(f32, &@as([4]f32, v + x), &[4]f32{ 11, 22, 33, 44 }));
-            try expect(mem.eql(f32, &@as([4]f32, v - x), &[4]f32{ 9, 18, 27, 36 }));
-            try expect(mem.eql(f32, &@as([4]f32, v * x), &[4]f32{ 10, 40, 90, 160 }));
-            try expect(mem.eql(f32, &@as([4]f32, -x), &[4]f32{ -1, -2, -3, -4 }));
-        }
-    };
-    try S.doTheTest();
-    comptime try S.doTheTest();
+    inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
+        const S = struct {
+            fn doTheTest() !void {
+                var v: @Vector(4, T) = [4]T{ 10, 20, 30, 40 };
+                var x: @Vector(4, T) = [4]T{ 1, 2, 3, 4 };
+                try expect(mem.eql(T, &@as([4]T, v + x), &[4]T{ 11, 22, 33, 44 }));
+                try expect(mem.eql(T, &@as([4]T, v - x), &[4]T{ 9, 18, 27, 36 }));
+                try expect(mem.eql(T, &@as([4]T, v * x), &[4]T{ 10, 40, 90, 160 }));
+                try expect(mem.eql(T, &@as([4]T, -x), &[4]T{ -1, -2, -3, -4 }));
+            }
+        };
+        try S.doTheTest();
+        comptime try S.doTheTest();
+    }
 }
 
 test "vector bit operators" {
@@ -161,6 +169,39 @@ test "array to vector" {
             var arr = [4]f32{ foo, 1.5, 0.0, 0.0 };
             var vec: @Vector(4, f32) = arr;
             try expect(mem.eql(f32, &@as([4]f32, vec), &arr));
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
+}
+
+test "tuple to vector" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
+        builtin.cpu.arch == .aarch64)
+    {
+        // Regressed with LLVM 14:
+        // https://github.com/ziglang/zig/issues/12012
+        return error.SkipZigTest;
+    }
+
+    const S = struct {
+        fn doTheTest() !void {
+            const Vec3 = @Vector(3, i32);
+            var v: Vec3 = .{ 1, 0, 0 };
+            for ([_]Vec3{ .{ 0, 1, 0 }, .{ 0, 0, 1 } }) |it| {
+                v += it;
+            }
+
+            try std.testing.expectEqual(v, Vec3{ 1, 1, 1 });
+            if (builtin.zig_backend != .stage1) {
+                try std.testing.expectEqual(v, .{ 1, 1, 1 });
+            }
         }
     };
     try S.doTheTest();
@@ -366,6 +407,12 @@ test "initialize vector which is a struct field" {
 }
 
 test "vector comparison operators" {
+    if (builtin.zig_backend == .stage1) {
+        // Regressed in LLVM 14:
+        // https://github.com/llvm/llvm-project/issues/55522
+        return error.SkipZigTest;
+    }
+
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
@@ -1022,4 +1069,28 @@ test "@shlWithOverflow" {
     };
     try S.doTheTest();
     comptime try S.doTheTest();
+}
+
+test "alignment of vectors" {
+    try expect(@alignOf(@Vector(2, u8)) == 2);
+    try expect(@alignOf(@Vector(2, u1)) == 1);
+    try expect(@alignOf(@Vector(1, u1)) == 1);
+    try expect(@alignOf(@Vector(2, u16)) == 4);
+}
+
+test "loading the second vector from a slice of vectors" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    @setRuntimeSafety(false);
+    var small_bases = [2]@Vector(2, u8){
+        @Vector(2, u8){ 0, 1 },
+        @Vector(2, u8){ 2, 3 },
+    };
+    var a: []const @Vector(2, u8) = &small_bases;
+    var a4 = a[1][1];
+    try expect(a4 == 3);
 }

@@ -809,6 +809,36 @@ pub fn updateDeclExports(
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
+
+    // Even in the case of LLVM, we need to notice certain exported symbols in order to
+    // detect the default subsystem.
+    for (exports) |exp| {
+        const exported_decl = module.declPtr(exp.exported_decl);
+        if (exported_decl.getFunction() == null) continue;
+        const winapi_cc = switch (self.base.options.target.cpu.arch) {
+            .i386 => std.builtin.CallingConvention.Stdcall,
+            else => std.builtin.CallingConvention.C,
+        };
+        const decl_cc = exported_decl.ty.fnCallingConvention();
+        if (decl_cc == .C and mem.eql(u8, exp.options.name, "main") and
+            self.base.options.link_libc)
+        {
+            module.stage1_flags.have_c_main = true;
+        } else if (decl_cc == winapi_cc and self.base.options.target.os.tag == .windows) {
+            if (mem.eql(u8, exp.options.name, "WinMain")) {
+                module.stage1_flags.have_winmain = true;
+            } else if (mem.eql(u8, exp.options.name, "wWinMain")) {
+                module.stage1_flags.have_wwinmain = true;
+            } else if (mem.eql(u8, exp.options.name, "WinMainCRTStartup")) {
+                module.stage1_flags.have_winmain_crt_startup = true;
+            } else if (mem.eql(u8, exp.options.name, "wWinMainCRTStartup")) {
+                module.stage1_flags.have_wwinmain_crt_startup = true;
+            } else if (mem.eql(u8, exp.options.name, "DllMainCRTStartup")) {
+                module.stage1_flags.have_dllmain_crt_startup = true;
+            }
+        }
+    }
+
     if (build_options.have_llvm) {
         if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(module, decl_index, exports);
     }
@@ -969,7 +999,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) !
         man = comp.cache_parent.obtain();
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 3);
+        comptime assert(Compilation.link_hash_implementation_version == 7);
 
         for (self.base.options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -1114,17 +1144,6 @@ fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) !
             try argv.append("-dynamicbase");
         }
 
-        const subsystem_suffix = ss: {
-            if (self.base.options.major_subsystem_version) |major| {
-                if (self.base.options.minor_subsystem_version) |minor| {
-                    break :ss try allocPrint(arena, ",{d}.{d}", .{ major, minor });
-                } else {
-                    break :ss try allocPrint(arena, ",{d}", .{major});
-                }
-            }
-            break :ss "";
-        };
-
         try argv.append(try allocPrint(arena, "-OUT:{s}", .{full_out_path}));
 
         if (self.base.options.implib_emit) |emit| {
@@ -1186,57 +1205,71 @@ fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) !
             }
             break :blk null;
         };
+
         const Mode = enum { uefi, win32 };
         const mode: Mode = mode: {
-            if (resolved_subsystem) |subsystem| switch (subsystem) {
-                .Console => {
-                    try argv.append(try allocPrint(arena, "-SUBSYSTEM:console{s}", .{
-                        subsystem_suffix,
-                    }));
-                    break :mode .win32;
-                },
-                .EfiApplication => {
-                    try argv.append(try allocPrint(arena, "-SUBSYSTEM:efi_application{s}", .{
-                        subsystem_suffix,
-                    }));
-                    break :mode .uefi;
-                },
-                .EfiBootServiceDriver => {
-                    try argv.append(try allocPrint(arena, "-SUBSYSTEM:efi_boot_service_driver{s}", .{
-                        subsystem_suffix,
-                    }));
-                    break :mode .uefi;
-                },
-                .EfiRom => {
-                    try argv.append(try allocPrint(arena, "-SUBSYSTEM:efi_rom{s}", .{
-                        subsystem_suffix,
-                    }));
-                    break :mode .uefi;
-                },
-                .EfiRuntimeDriver => {
-                    try argv.append(try allocPrint(arena, "-SUBSYSTEM:efi_runtime_driver{s}", .{
-                        subsystem_suffix,
-                    }));
-                    break :mode .uefi;
-                },
-                .Native => {
-                    try argv.append(try allocPrint(arena, "-SUBSYSTEM:native{s}", .{
-                        subsystem_suffix,
-                    }));
-                    break :mode .win32;
-                },
-                .Posix => {
-                    try argv.append(try allocPrint(arena, "-SUBSYSTEM:posix{s}", .{
-                        subsystem_suffix,
-                    }));
-                    break :mode .win32;
-                },
-                .Windows => {
-                    try argv.append(try allocPrint(arena, "-SUBSYSTEM:windows{s}", .{
-                        subsystem_suffix,
-                    }));
-                    break :mode .win32;
-                },
+            if (resolved_subsystem) |subsystem| {
+                const subsystem_suffix = ss: {
+                    if (self.base.options.major_subsystem_version) |major| {
+                        if (self.base.options.minor_subsystem_version) |minor| {
+                            break :ss try allocPrint(arena, ",{d}.{d}", .{ major, minor });
+                        } else {
+                            break :ss try allocPrint(arena, ",{d}", .{major});
+                        }
+                    }
+                    break :ss "";
+                };
+
+                switch (subsystem) {
+                    .Console => {
+                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:console{s}", .{
+                            subsystem_suffix,
+                        }));
+                        break :mode .win32;
+                    },
+                    .EfiApplication => {
+                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:efi_application{s}", .{
+                            subsystem_suffix,
+                        }));
+                        break :mode .uefi;
+                    },
+                    .EfiBootServiceDriver => {
+                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:efi_boot_service_driver{s}", .{
+                            subsystem_suffix,
+                        }));
+                        break :mode .uefi;
+                    },
+                    .EfiRom => {
+                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:efi_rom{s}", .{
+                            subsystem_suffix,
+                        }));
+                        break :mode .uefi;
+                    },
+                    .EfiRuntimeDriver => {
+                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:efi_runtime_driver{s}", .{
+                            subsystem_suffix,
+                        }));
+                        break :mode .uefi;
+                    },
+                    .Native => {
+                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:native{s}", .{
+                            subsystem_suffix,
+                        }));
+                        break :mode .win32;
+                    },
+                    .Posix => {
+                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:posix{s}", .{
+                            subsystem_suffix,
+                        }));
+                        break :mode .win32;
+                    },
+                    .Windows => {
+                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:windows{s}", .{
+                            subsystem_suffix,
+                        }));
+                        break :mode .win32;
+                    },
+                }
             } else if (target.os.tag == .uefi) {
                 break :mode .uefi;
             } else {
@@ -1354,7 +1387,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) !
             }
             // MSVC compiler_rt is missing some stuff, so we build it unconditionally but
             // and rely on weak linkage to allow MSVC compiler_rt functions to override ours.
-            if (comp.compiler_rt_static_lib) |lib| {
+            if (comp.compiler_rt_lib) |lib| {
                 try argv.append(lib.full_object_path);
             }
         }

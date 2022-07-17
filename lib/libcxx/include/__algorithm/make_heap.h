@@ -9,18 +9,15 @@
 #ifndef _LIBCPP___ALGORITHM_MAKE_HEAP_H
 #define _LIBCPP___ALGORITHM_MAKE_HEAP_H
 
-#include <__config>
 #include <__algorithm/comp.h>
 #include <__algorithm/comp_ref_type.h>
 #include <__algorithm/sift_down.h>
+#include <__config>
 #include <__iterator/iterator_traits.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
 #endif
-
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -35,7 +32,7 @@ __make_heap(_RandomAccessIterator __first, _RandomAccessIterator __last, _Compar
         // start from the first parent, there is no need to consider children
         for (difference_type __start = (__n - 2) / 2; __start >= 0; --__start)
         {
-            _VSTD::__sift_down<_Compare>(__first, __last, __comp, __n, __first + __start);
+            _VSTD::__sift_down<_Compare>(__first, __comp, __n, __first + __start);
         }
     }
 }
@@ -58,7 +55,5 @@ make_heap(_RandomAccessIterator __first, _RandomAccessIterator __last)
 }
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_MAKE_HEAP_H

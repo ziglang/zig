@@ -2,12 +2,12 @@ const std = @import("std");
 const expect = std.testing.expect;
 const builtin = @import("builtin");
 const native_arch = builtin.target.cpu.arch;
+const assert = std.debug.assert;
 
 var foo: u8 align(4) = 100;
 
 test "global variable alignment" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     comptime try expect(@typeInfo(@TypeOf(&foo)).Pointer.alignment == 4);
     comptime try expect(@TypeOf(&foo) == *align(4) u8);
@@ -222,7 +222,6 @@ fn testBytesAlign(b: u8) !void {
 test "@alignCast slices" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     var array align(4) = [_]u32{ 1, 1 };
     const slice = array[0..];
@@ -334,60 +333,78 @@ fn simple4() align(4) i32 {
     return 0x19;
 }
 
-test "generic function with align param" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+test "function align expression depends on generic parameter" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     // function alignment is a compile error on wasm32/wasm64
     if (native_arch == .wasm32 or native_arch == .wasm64) return error.SkipZigTest;
     if (native_arch == .thumb) return error.SkipZigTest;
 
-    try expect(whyWouldYouEverDoThis(1) == 0x1);
-    try expect(whyWouldYouEverDoThis(4) == 0x1);
-    try expect(whyWouldYouEverDoThis(8) == 0x1);
+    const S = struct {
+        fn doTheTest() !void {
+            try expect(foobar(1) == 2);
+            try expect(foobar(4) == 5);
+            try expect(foobar(8) == 9);
+        }
+
+        fn foobar(comptime align_bytes: u8) align(align_bytes) u8 {
+            return align_bytes + 1;
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
-fn whyWouldYouEverDoThis(comptime align_bytes: u8) align(align_bytes) u8 {
-    _ = align_bytes;
-    return 0x1;
+test "function callconv expression depends on generic parameter" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
+    const S = struct {
+        fn doTheTest() !void {
+            try expect(foobar(.C, 1) == 2);
+            try expect(foobar(.Unspecified, 2) == 3);
+        }
+
+        fn foobar(comptime cc: std.builtin.CallingConvention, arg: u8) callconv(cc) u8 {
+            return arg + 1;
+        }
+    };
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }
 
 test "runtime known array index has best alignment possible" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
     // take full advantage of over-alignment
     var array align(4) = [_]u8{ 1, 2, 3, 4 };
-    try expect(@TypeOf(&array[0]) == *align(4) u8);
-    try expect(@TypeOf(&array[1]) == *u8);
-    try expect(@TypeOf(&array[2]) == *align(2) u8);
-    try expect(@TypeOf(&array[3]) == *u8);
+    comptime assert(@TypeOf(&array[0]) == *align(4) u8);
+    comptime assert(@TypeOf(&array[1]) == *u8);
+    comptime assert(@TypeOf(&array[2]) == *align(2) u8);
+    comptime assert(@TypeOf(&array[3]) == *u8);
 
     // because align is too small but we still figure out to use 2
     var bigger align(2) = [_]u64{ 1, 2, 3, 4 };
-    try expect(@TypeOf(&bigger[0]) == *align(2) u64);
-    try expect(@TypeOf(&bigger[1]) == *align(2) u64);
-    try expect(@TypeOf(&bigger[2]) == *align(2) u64);
-    try expect(@TypeOf(&bigger[3]) == *align(2) u64);
+    comptime assert(@TypeOf(&bigger[0]) == *align(2) u64);
+    comptime assert(@TypeOf(&bigger[1]) == *align(2) u64);
+    comptime assert(@TypeOf(&bigger[2]) == *align(2) u64);
+    comptime assert(@TypeOf(&bigger[3]) == *align(2) u64);
 
     // because pointer is align 2 and u32 align % 2 == 0 we can assume align 2
     var smaller align(2) = [_]u32{ 1, 2, 3, 4 };
     var runtime_zero: usize = 0;
-    comptime try expect(@TypeOf(smaller[runtime_zero..]) == []align(2) u32);
-    comptime try expect(@TypeOf(smaller[runtime_zero..].ptr) == [*]align(2) u32);
+    comptime assert(@TypeOf(smaller[runtime_zero..]) == []align(2) u32);
+    comptime assert(@TypeOf(smaller[runtime_zero..].ptr) == [*]align(2) u32);
     try testIndex(smaller[runtime_zero..].ptr, 0, *align(2) u32);
     try testIndex(smaller[runtime_zero..].ptr, 1, *align(2) u32);
     try testIndex(smaller[runtime_zero..].ptr, 2, *align(2) u32);
     try testIndex(smaller[runtime_zero..].ptr, 3, *align(2) u32);
 
     // has to use ABI alignment because index known at runtime only
-    try testIndex2(array[runtime_zero..].ptr, 0, *u8);
-    try testIndex2(array[runtime_zero..].ptr, 1, *u8);
-    try testIndex2(array[runtime_zero..].ptr, 2, *u8);
-    try testIndex2(array[runtime_zero..].ptr, 3, *u8);
+    try testIndex2(&array, 0, *u8);
+    try testIndex2(&array, 1, *u8);
+    try testIndex2(&array, 2, *u8);
+    try testIndex2(&array, 3, *u8);
 }
 fn testIndex(smaller: [*]align(2) u32, index: usize, comptime T: type) !void {
     comptime try expect(@TypeOf(&smaller[index]) == T);
@@ -483,12 +500,10 @@ test "align(@alignOf(T)) T does not force resolution of T" {
 
 test "align(N) on functions" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     // function alignment is a compile error on wasm32/wasm64
     if (native_arch == .wasm32 or native_arch == .wasm64) return error.SkipZigTest;
@@ -512,5 +527,5 @@ test "comptime alloc alignment" {
 
     comptime var bytes2 align(256) = [_]u8{0};
     var bytes2_addr = @ptrToInt(&bytes2);
-    try std.testing.expect(bytes2_addr & 0xff == 0);
+    try expect(bytes2_addr & 0xff == 0);
 }

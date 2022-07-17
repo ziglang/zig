@@ -82,7 +82,7 @@ fn memset(dest: ?[*]u8, c: u8, len: usize) callconv(.C) ?[*]u8 {
         var d = dest.?;
         var n = len;
         while (true) {
-            d.* = c;
+            d[0] = c;
             n -= 1;
             if (n == 0) break;
             d += 1;

@@ -10,22 +10,12 @@ pub const Feature = enum {
     c,
     d,
     e,
-    experimental_b,
-    experimental_v,
-    experimental_zba,
-    experimental_zbb,
-    experimental_zbc,
     experimental_zbe,
     experimental_zbf,
     experimental_zbm,
     experimental_zbp,
-    experimental_zbproposedc,
     experimental_zbr,
-    experimental_zbs,
     experimental_zbt,
-    experimental_zfh,
-    experimental_zvamo,
-    experimental_zvlsseg,
     f,
     m,
     no_rvc_hints,
@@ -62,6 +52,46 @@ pub const Feature = enum {
     reserve_x8,
     reserve_x9,
     save_restore,
+    v,
+    zba,
+    zbb,
+    zbc,
+    zbkb,
+    zbkc,
+    zbkx,
+    zbs,
+    zdinx,
+    zfh,
+    zfhmin,
+    zfinx,
+    zhinx,
+    zhinxmin,
+    zk,
+    zkn,
+    zknd,
+    zkne,
+    zknh,
+    zkr,
+    zks,
+    zksed,
+    zksh,
+    zkt,
+    zve32f,
+    zve32x,
+    zve64d,
+    zve64f,
+    zve64x,
+    zvl1024b,
+    zvl128b,
+    zvl16384b,
+    zvl2048b,
+    zvl256b,
+    zvl32768b,
+    zvl32b,
+    zvl4096b,
+    zvl512b,
+    zvl64b,
+    zvl8192b,
 };
 
 pub const featureSet = CpuFeature.feature_set_fns(Feature).featureSet;
@@ -100,102 +130,35 @@ pub const all_features = blk: {
         .description = "Implements RV32E (provides 16 rather than 32 GPRs)",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.experimental_b)] = .{
-        .llvm_name = "experimental-b",
-        .description = "'B' (Bit Manipulation Instructions)",
-        .dependencies = featureSet(&[_]Feature{
-            .experimental_zba,
-            .experimental_zbb,
-            .experimental_zbc,
-            .experimental_zbe,
-            .experimental_zbf,
-            .experimental_zbm,
-            .experimental_zbp,
-            .experimental_zbr,
-            .experimental_zbs,
-            .experimental_zbt,
-        }),
-    };
-    result[@enumToInt(Feature.experimental_v)] = .{
-        .llvm_name = "experimental-v",
-        .description = "'V' (Vector Instructions)",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@enumToInt(Feature.experimental_zba)] = .{
-        .llvm_name = "experimental-zba",
-        .description = "'Zba' (Address calculation 'B' Instructions)",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@enumToInt(Feature.experimental_zbb)] = .{
-        .llvm_name = "experimental-zbb",
-        .description = "'Zbb' (Base 'B' Instructions)",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@enumToInt(Feature.experimental_zbc)] = .{
-        .llvm_name = "experimental-zbc",
-        .description = "'Zbc' (Carry-Less 'B' Instructions)",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
     result[@enumToInt(Feature.experimental_zbe)] = .{
         .llvm_name = "experimental-zbe",
-        .description = "'Zbe' (Extract-Deposit 'B' Instructions)",
+        .description = "'Zbe' (Extract-Deposit 'Zb' Instructions)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.experimental_zbf)] = .{
         .llvm_name = "experimental-zbf",
-        .description = "'Zbf' (Bit-Field 'B' Instructions)",
+        .description = "'Zbf' (Bit-Field 'Zb' Instructions)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.experimental_zbm)] = .{
         .llvm_name = "experimental-zbm",
-        .description = "'Zbm' (Matrix 'B' Instructions)",
+        .description = "'Zbm' (Matrix 'Zb' Instructions)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.experimental_zbp)] = .{
         .llvm_name = "experimental-zbp",
-        .description = "'Zbp' (Permutation 'B' Instructions)",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@enumToInt(Feature.experimental_zbproposedc)] = .{
-        .llvm_name = "experimental-zbproposedc",
-        .description = "'Zbproposedc' (Proposed Compressed 'B' Instructions)",
+        .description = "'Zbp' (Permutation 'Zb' Instructions)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.experimental_zbr)] = .{
         .llvm_name = "experimental-zbr",
-        .description = "'Zbr' (Polynomial Reduction 'B' Instructions)",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@enumToInt(Feature.experimental_zbs)] = .{
-        .llvm_name = "experimental-zbs",
-        .description = "'Zbs' (Single-Bit 'B' Instructions)",
+        .description = "'Zbr' (Polynomial Reduction 'Zb' Instructions)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.experimental_zbt)] = .{
         .llvm_name = "experimental-zbt",
-        .description = "'Zbt' (Ternary 'B' Instructions)",
+        .description = "'Zbt' (Ternary 'Zb' Instructions)",
         .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@enumToInt(Feature.experimental_zfh)] = .{
-        .llvm_name = "experimental-zfh",
-        .description = "'Zfh' (Half-Precision Floating-Point)",
-        .dependencies = featureSet(&[_]Feature{
-            .f,
-        }),
-    };
-    result[@enumToInt(Feature.experimental_zvamo)] = .{
-        .llvm_name = "experimental-zvamo",
-        .description = "'Zvamo' (Vector AMO Operations)",
-        .dependencies = featureSet(&[_]Feature{
-            .experimental_v,
-        }),
-    };
-    result[@enumToInt(Feature.experimental_zvlsseg)] = .{
-        .llvm_name = "experimental-zvlsseg",
-        .description = "'Zvlsseg' (Vector segment load/store instructions)",
-        .dependencies = featureSet(&[_]Feature{
-            .experimental_v,
-        }),
     };
     result[@enumToInt(Feature.f)] = .{
         .llvm_name = "f",
@@ -377,6 +340,268 @@ pub const all_features = blk: {
         .description = "Enable save/restore.",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.v)] = .{
+        .llvm_name = "v",
+        .description = "'V' (Vector Extension for Application Processors)",
+        .dependencies = featureSet(&[_]Feature{
+            .d,
+            .zvl128b,
+        }),
+    };
+    result[@enumToInt(Feature.zba)] = .{
+        .llvm_name = "zba",
+        .description = "'Zba' (Address Generation Instructions)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.zbb)] = .{
+        .llvm_name = "zbb",
+        .description = "'Zbb' (Basic Bit-Manipulation)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.zbc)] = .{
+        .llvm_name = "zbc",
+        .description = "'Zbc' (Carry-Less Multiplication)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.zbkb)] = .{
+        .llvm_name = "zbkb",
+        .description = "'Zbkb' (Bitmanip instructions for Cryptography)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.zbkc)] = .{
+        .llvm_name = "zbkc",
+        .description = "'Zbkc' (Carry-less multiply instructions for Cryptography)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.zbkx)] = .{
+        .llvm_name = "zbkx",
+        .description = "'Zbkx' (Crossbar permutation instructions)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.zbs)] = .{
+        .llvm_name = "zbs",
+        .description = "'Zbs' (Single-Bit Instructions)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.zdinx)] = .{
+        .llvm_name = "zdinx",
+        .description = "'Zdinx' (Double in Integer)",
+        .dependencies = featureSet(&[_]Feature{
+            .zfinx,
+        }),
+    };
+    result[@enumToInt(Feature.zfh)] = .{
+        .llvm_name = "zfh",
+        .description = "'Zfh' (Half-Precision Floating-Point)",
+        .dependencies = featureSet(&[_]Feature{
+            .f,
+        }),
+    };
+    result[@enumToInt(Feature.zfhmin)] = .{
+        .llvm_name = "zfhmin",
+        .description = "'Zfhmin' (Half-Precision Floating-Point Minimal)",
+        .dependencies = featureSet(&[_]Feature{
+            .f,
+        }),
+    };
+    result[@enumToInt(Feature.zfinx)] = .{
+        .llvm_name = "zfinx",
+        .description = "'Zfinx' (Float in Integer)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.zhinx)] = .{
+        .llvm_name = "zhinx",
+        .description = "'Zhinx' (Half Float in Integer)",
+        .dependencies = featureSet(&[_]Feature{
+            .zfinx,
+        }),
+    };
+    result[@enumToInt(Feature.zhinxmin)] = .{
+        .llvm_name = "zhinxmin",
+        .description = "'Zhinxmin' (Half Float in Integer Minimal)",
+        .dependencies = featureSet(&[_]Feature{
+            .zfinx,
+        }),
+    };
+    result[@enumToInt(Feature.zk)] = .{
+        .llvm_name = "zk",
+        .description = "'Zk' (Standard scalar cryptography extension)",
+        .dependencies = featureSet(&[_]Feature{
+            .zkn,
+            .zkr,
+            .zkt,
+        }),
+    };
+    result[@enumToInt(Feature.zkn)] = .{
+        .llvm_name = "zkn",
+        .description = "'Zkn' (NIST Algorithm Suite)",
+        .dependencies = featureSet(&[_]Feature{
+            .zbkb,
+            .zbkc,
+            .zbkx,
+            .zknd,
+            .zkne,
+            .zknh,
+        }),
+    };
+    result[@enumToInt(Feature.zknd)] = .{
+        .llvm_name = "zknd",
+        .description = "'Zknd' (NIST Suite: AES Decryption)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.zkne)] = .{
+        .llvm_name = "zkne",
+        .description = "'Zkne' (NIST Suite: AES Encryption)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.zknh)] = .{
+        .llvm_name = "zknh",
+        .description = "'Zknh' (NIST Suite: Hash Function Instructions)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.zkr)] = .{
+        .llvm_name = "zkr",
+        .description = "'Zkr' (Entropy Source Extension)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.zks)] = .{
+        .llvm_name = "zks",
+        .description = "'Zks' (ShangMi Algorithm Suite)",
+        .dependencies = featureSet(&[_]Feature{
+            .zbkb,
+            .zbkc,
+            .zbkx,
+            .zksed,
+            .zksh,
+        }),
+    };
+    result[@enumToInt(Feature.zksed)] = .{
+        .llvm_name = "zksed",
+        .description = "'Zksed' (ShangMi Suite: SM4 Block Cipher Instructions)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.zksh)] = .{
+        .llvm_name = "zksh",
+        .description = "'Zksh' (ShangMi Suite: SM3 Hash Function Instructions)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.zkt)] = .{
+        .llvm_name = "zkt",
+        .description = "'Zkt' (Data Independent Execution Latency)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.zve32f)] = .{
+        .llvm_name = "zve32f",
+        .description = "'Zve32f' (Vector Extensions for Embedded Processors with maximal 32 EEW and F extension)",
+        .dependencies = featureSet(&[_]Feature{
+            .zve32x,
+        }),
+    };
+    result[@enumToInt(Feature.zve32x)] = .{
+        .llvm_name = "zve32x",
+        .description = "'Zve32x' (Vector Extensions for Embedded Processors with maximal 32 EEW)",
+        .dependencies = featureSet(&[_]Feature{
+            .zvl32b,
+        }),
+    };
+    result[@enumToInt(Feature.zve64d)] = .{
+        .llvm_name = "zve64d",
+        .description = "'Zve64d' (Vector Extensions for Embedded Processors with maximal 64 EEW, F and D extension)",
+        .dependencies = featureSet(&[_]Feature{
+            .zve64f,
+        }),
+    };
+    result[@enumToInt(Feature.zve64f)] = .{
+        .llvm_name = "zve64f",
+        .description = "'Zve64f' (Vector Extensions for Embedded Processors with maximal 64 EEW and F extension)",
+        .dependencies = featureSet(&[_]Feature{
+            .zve32f,
+            .zve64x,
+        }),
+    };
+    result[@enumToInt(Feature.zve64x)] = .{
+        .llvm_name = "zve64x",
+        .description = "'Zve64x' (Vector Extensions for Embedded Processors with maximal 64 EEW)",
+        .dependencies = featureSet(&[_]Feature{
+            .zve32x,
+            .zvl64b,
+        }),
+    };
+    result[@enumToInt(Feature.zvl1024b)] = .{
+        .llvm_name = "zvl1024b",
+        .description = "'Zvl' (Minimum Vector Length) 1024",
+        .dependencies = featureSet(&[_]Feature{
+            .zvl512b,
+        }),
+    };
+    result[@enumToInt(Feature.zvl128b)] = .{
+        .llvm_name = "zvl128b",
+        .description = "'Zvl' (Minimum Vector Length) 128",
+        .dependencies = featureSet(&[_]Feature{
+            .zvl64b,
+        }),
+    };
+    result[@enumToInt(Feature.zvl16384b)] = .{
+        .llvm_name = "zvl16384b",
+        .description = "'Zvl' (Minimum Vector Length) 16384",
+        .dependencies = featureSet(&[_]Feature{
+            .zvl8192b,
+        }),
+    };
+    result[@enumToInt(Feature.zvl2048b)] = .{
+        .llvm_name = "zvl2048b",
+        .description = "'Zvl' (Minimum Vector Length) 2048",
+        .dependencies = featureSet(&[_]Feature{
+            .zvl1024b,
+        }),
+    };
+    result[@enumToInt(Feature.zvl256b)] = .{
+        .llvm_name = "zvl256b",
+        .description = "'Zvl' (Minimum Vector Length) 256",
+        .dependencies = featureSet(&[_]Feature{
+            .zvl128b,
+        }),
+    };
+    result[@enumToInt(Feature.zvl32768b)] = .{
+        .llvm_name = "zvl32768b",
+        .description = "'Zvl' (Minimum Vector Length) 32768",
+        .dependencies = featureSet(&[_]Feature{
+            .zvl16384b,
+        }),
+    };
+    result[@enumToInt(Feature.zvl32b)] = .{
+        .llvm_name = "zvl32b",
+        .description = "'Zvl' (Minimum Vector Length) 32",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.zvl4096b)] = .{
+        .llvm_name = "zvl4096b",
+        .description = "'Zvl' (Minimum Vector Length) 4096",
+        .dependencies = featureSet(&[_]Feature{
+            .zvl2048b,
+        }),
+    };
+    result[@enumToInt(Feature.zvl512b)] = .{
+        .llvm_name = "zvl512b",
+        .description = "'Zvl' (Minimum Vector Length) 512",
+        .dependencies = featureSet(&[_]Feature{
+            .zvl256b,
+        }),
+    };
+    result[@enumToInt(Feature.zvl64b)] = .{
+        .llvm_name = "zvl64b",
+        .description = "'Zvl' (Minimum Vector Length) 64",
+        .dependencies = featureSet(&[_]Feature{
+            .zvl32b,
+        }),
+    };
+    result[@enumToInt(Feature.zvl8192b)] = .{
+        .llvm_name = "zvl8192b",
+        .description = "'Zvl' (Minimum Vector Length) 8192",
+        .dependencies = featureSet(&[_]Feature{
+            .zvl4096b,
+        }),
+    };
     const ti = @typeInfo(Feature);
     for (result) |*elem, i| {
         elem.index = i;
@@ -443,12 +668,49 @@ pub const cpu = struct {
             .@"64bit",
         }),
     };
+    pub const sifive_e20 = CpuModel{
+        .name = "sifive_e20",
+        .llvm_name = "sifive-e20",
+        .features = featureSet(&[_]Feature{
+            .c,
+            .m,
+        }),
+    };
+    pub const sifive_e21 = CpuModel{
+        .name = "sifive_e21",
+        .llvm_name = "sifive-e21",
+        .features = featureSet(&[_]Feature{
+            .a,
+            .c,
+            .m,
+        }),
+    };
+    pub const sifive_e24 = CpuModel{
+        .name = "sifive_e24",
+        .llvm_name = "sifive-e24",
+        .features = featureSet(&[_]Feature{
+            .a,
+            .c,
+            .f,
+            .m,
+        }),
+    };
     pub const sifive_e31 = CpuModel{
         .name = "sifive_e31",
         .llvm_name = "sifive-e31",
         .features = featureSet(&[_]Feature{
             .a,
             .c,
+            .m,
+        }),
+    };
+    pub const sifive_e34 = CpuModel{
+        .name = "sifive_e34",
+        .llvm_name = "sifive-e34",
+        .features = featureSet(&[_]Feature{
+            .a,
+            .c,
+            .f,
             .m,
         }),
     };
@@ -459,6 +721,48 @@ pub const cpu = struct {
             .a,
             .c,
             .f,
+            .m,
+        }),
+    };
+    pub const sifive_s21 = CpuModel{
+        .name = "sifive_s21",
+        .llvm_name = "sifive-s21",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .a,
+            .c,
+            .m,
+        }),
+    };
+    pub const sifive_s51 = CpuModel{
+        .name = "sifive_s51",
+        .llvm_name = "sifive-s51",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .a,
+            .c,
+            .m,
+        }),
+    };
+    pub const sifive_s54 = CpuModel{
+        .name = "sifive_s54",
+        .llvm_name = "sifive-s54",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .a,
+            .c,
+            .d,
+            .m,
+        }),
+    };
+    pub const sifive_s76 = CpuModel{
+        .name = "sifive_s76",
+        .llvm_name = "sifive-s76",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .a,
+            .c,
+            .d,
             .m,
         }),
     };

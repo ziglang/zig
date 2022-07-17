@@ -7,7 +7,10 @@ const iovec_const = std.os.iovec_const;
 extern "c" fn __errno() *c_int;
 pub const _errno = __errno;
 
-pub const dl_iterate_phdr_callback = fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
+pub const dl_iterate_phdr_callback = switch (builtin.zig_backend) {
+    .stage1 => fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int,
+    else => *const fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int,
+};
 pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*anyopaque) c_int;
 
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
@@ -279,13 +282,13 @@ pub const msghdr_const = extern struct {
     msg_namelen: socklen_t,
 
     /// scatter/gather array
-    msg_iov: [*]iovec_const,
+    msg_iov: [*]const iovec_const,
 
     /// # elements in msg_iov
     msg_iovlen: c_uint,
 
     /// ancillary data
-    msg_control: ?*anyopaque,
+    msg_control: ?*const anyopaque,
 
     /// ancillary data buffer len
     msg_controllen: socklen_t,
@@ -1026,8 +1029,14 @@ pub const SIG = struct {
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const handler_fn = fn (c_int) callconv(.C) void;
-    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
+    pub const handler_fn = switch (builtin.zig_backend) {
+        .stage1 => fn (c_int) callconv(.C) void,
+        else => *const fn (c_int) callconv(.C) void,
+    };
+    pub const sigaction_fn = switch (builtin.zig_backend) {
+        .stage1 => fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void,
+        else => *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void,
+    };
 
     /// signal handler
     handler: extern union {

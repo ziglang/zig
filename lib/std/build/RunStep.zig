@@ -149,6 +149,7 @@ fn make(step: *Step) !void {
     const cwd = if (self.cwd) |cwd| self.builder.pathFromRoot(cwd) else self.builder.build_root;
 
     var argv_list = ArrayList([]const u8).init(self.builder.allocator);
+
     for (self.argv.items) |arg| {
         switch (arg) {
             .bytes => |bytes| try argv_list.append(bytes),

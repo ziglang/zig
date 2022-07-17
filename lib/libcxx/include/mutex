@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===--------------------------- mutex ------------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -112,7 +112,7 @@ template <class... MutexTypes>
 class scoped_lock // C++17
 {
 public:
-    using mutex_type = Mutex;  // If MutexTypes... consists of the single type Mutex
+    using mutex_type = Mutex;  // Only if sizeof...(MutexTypes) == 1
 
     explicit scoped_lock(MutexTypes&... m);
     scoped_lock(adopt_lock_t, MutexTypes&... m);
@@ -215,14 +215,12 @@ class _LIBCPP_TYPE_VIS recursive_mutex
     __libcpp_recursive_mutex_t __m_;
 
 public:
-     recursive_mutex();
-     ~recursive_mutex();
+    recursive_mutex();
+    ~recursive_mutex();
 
-private:
-    recursive_mutex(const recursive_mutex&); // = delete;
-    recursive_mutex& operator=(const recursive_mutex&); // = delete;
+    recursive_mutex(const recursive_mutex&) = delete;
+    recursive_mutex& operator=(const recursive_mutex&) = delete;
 
-public:
     void lock();
     bool try_lock() _NOEXCEPT;
     void unlock()  _NOEXCEPT;
@@ -242,9 +240,8 @@ public:
      timed_mutex();
      ~timed_mutex();
 
-private:
-    timed_mutex(const timed_mutex&); // = delete;
-    timed_mutex& operator=(const timed_mutex&); // = delete;
+    timed_mutex(const timed_mutex&) = delete;
+    timed_mutex& operator=(const timed_mutex&) = delete;
 
 public:
     void lock();
@@ -283,14 +280,12 @@ class _LIBCPP_TYPE_VIS recursive_timed_mutex
     size_t             __count_;
     __thread_id        __id_;
 public:
-     recursive_timed_mutex();
-     ~recursive_timed_mutex();
+    recursive_timed_mutex();
+    ~recursive_timed_mutex();
 
-private:
-    recursive_timed_mutex(const recursive_timed_mutex&); // = delete;
-    recursive_timed_mutex& operator=(const recursive_timed_mutex&); // = delete;
+    recursive_timed_mutex(const recursive_timed_mutex&) = delete;
+    recursive_timed_mutex& operator=(const recursive_timed_mutex&) = delete;
 
-public:
     void lock();
     bool try_lock() _NOEXCEPT;
     template <class _Rep, class _Period>
@@ -576,6 +571,8 @@ struct _LIBCPP_TEMPLATE_VIS once_flag
     _LIBCPP_INLINE_VISIBILITY
     _LIBCPP_CONSTEXPR
         once_flag() _NOEXCEPT : __state_(0) {}
+    once_flag(const once_flag&) = delete;
+    once_flag& operator=(const once_flag&) = delete;
 
 #if defined(_LIBCPP_ABI_MICROSOFT)
    typedef uintptr_t _State_type;
@@ -583,11 +580,7 @@ struct _LIBCPP_TEMPLATE_VIS once_flag
    typedef unsigned long _State_type;
 #endif
 
-
 private:
-    once_flag(const once_flag&); // = delete;
-    once_flag& operator=(const once_flag&); // = delete;
-
     _State_type __state_;
 
 #ifndef _LIBCPP_CXX03_LANG

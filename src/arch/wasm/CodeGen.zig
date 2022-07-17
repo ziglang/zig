@@ -215,8 +215,7 @@ fn buildOpcode(args: OpcodeBuildArguments) wasm.Opcode {
             16 => switch (args.valtype1.?) {
                 .i32 => if (args.signedness.? == .signed) return .i32_load16_s else return .i32_load16_u,
                 .i64 => if (args.signedness.? == .signed) return .i64_load16_s else return .i64_load16_u,
-                .f32 => return .f32_load,
-                .f64 => unreachable,
+                .f32, .f64 => unreachable,
             },
             32 => switch (args.valtype1.?) {
                 .i64 => if (args.signedness.? == .signed) return .i64_load32_s else return .i64_load32_u,
@@ -246,8 +245,7 @@ fn buildOpcode(args: OpcodeBuildArguments) wasm.Opcode {
                 16 => switch (args.valtype1.?) {
                     .i32 => return .i32_store16,
                     .i64 => return .i64_store16,
-                    .f32 => return .f32_store,
-                    .f64 => unreachable,
+                    .f32, .f64 => unreachable,
                 },
                 32 => switch (args.valtype1.?) {
                     .i64 => return .i64_store32,
@@ -419,22 +417,24 @@ fn buildOpcode(args: OpcodeBuildArguments) wasm.Opcode {
             .f64 => return .f64_neg,
         },
         .ceil => switch (args.valtype1.?) {
-            .i32, .i64 => unreachable,
+            .i64 => unreachable,
+            .i32 => return .f32_ceil, // when valtype is f16, we store it in i32.
             .f32 => return .f32_ceil,
             .f64 => return .f64_ceil,
         },
         .floor => switch (args.valtype1.?) {
-            .i32, .i64 => unreachable,
+            .i64 => unreachable,
+            .i32 => return .f32_floor, // when valtype is f16, we store it in i32.
             .f32 => return .f32_floor,
             .f64 => return .f64_floor,
         },
         .trunc => switch (args.valtype1.?) {
-            .i32 => switch (args.valtype2.?) {
+            .i32 => if (args.valtype2) |valty| switch (valty) {
                 .i32 => unreachable,
                 .i64 => unreachable,
                 .f32 => if (args.signedness.? == .signed) return .i32_trunc_f32_s else return .i32_trunc_f32_u,
                 .f64 => if (args.signedness.? == .signed) return .i32_trunc_f64_s else return .i32_trunc_f64_u,
-            },
+            } else return .f32_trunc, // when no valtype2, it's an f16 instead which is stored in an i32.
             .i64 => unreachable,
             .f32 => return .f32_trunc,
             .f64 => return .f64_trunc,
@@ -622,7 +622,7 @@ pub fn deinit(self: *Self) void {
 
 /// Sets `err_msg` on `CodeGen` and returns `error.CodegenFail` which is caught in link/Wasm.zig
 fn fail(self: *Self, comptime fmt: []const u8, args: anytype) InnerError {
-    const src: LazySrcLoc = .{ .node_offset = 0 };
+    const src = LazySrcLoc.nodeOffset(0);
     const src_loc = src.toSrcLoc(self.decl);
     self.err_msg = try Module.ErrorMsg.create(self.gpa, src_loc, fmt, args);
     return error.CodegenFail;
@@ -725,7 +725,8 @@ fn typeToValtype(ty: Type, target: std.Target) wasm.Valtype {
     return switch (ty.zigTypeTag()) {
         .Float => blk: {
             const bits = ty.floatBits(target);
-            if (bits == 16 or bits == 32) break :blk wasm.Valtype.f32;
+            if (bits == 16) return wasm.Valtype.i32; // stored/loaded as u16
+            if (bits == 32) break :blk wasm.Valtype.f32;
             if (bits == 64) break :blk wasm.Valtype.f64;
             if (bits == 128) break :blk wasm.Valtype.i64;
             return wasm.Valtype.i32; // represented as pointer to stack
@@ -789,55 +790,53 @@ fn allocLocal(self: *Self, ty: Type) InnerError!WValue {
 
 /// Generates a `wasm.Type` from a given function type.
 /// Memory is owned by the caller.
-fn genFunctype(gpa: Allocator, fn_info: Type.Payload.Function.Data, target: std.Target) !wasm.Type {
-    var params = std.ArrayList(wasm.Valtype).init(gpa);
-    defer params.deinit();
+fn genFunctype(gpa: Allocator, cc: std.builtin.CallingConvention, params: []const Type, return_type: Type, target: std.Target) !wasm.Type {
+    var temp_params = std.ArrayList(wasm.Valtype).init(gpa);
+    defer temp_params.deinit();
     var returns = std.ArrayList(wasm.Valtype).init(gpa);
     defer returns.deinit();
 
-    if (firstParamSRet(fn_info, target)) {
-        try params.append(.i32); // memory address is always a 32-bit handle
-    } else if (fn_info.return_type.hasRuntimeBitsIgnoreComptime()) {
-        if (fn_info.cc == .C) {
-            const res_classes = abi.classifyType(fn_info.return_type, target);
+    if (firstParamSRet(cc, return_type, target)) {
+        try temp_params.append(.i32); // memory address is always a 32-bit handle
+    } else if (return_type.hasRuntimeBitsIgnoreComptime()) {
+        if (cc == .C) {
+            const res_classes = abi.classifyType(return_type, target);
             assert(res_classes[0] == .direct and res_classes[1] == .none);
-            const scalar_type = abi.scalarType(fn_info.return_type, target);
+            const scalar_type = abi.scalarType(return_type, target);
             try returns.append(typeToValtype(scalar_type, target));
         } else {
-            try returns.append(typeToValtype(fn_info.return_type, target));
+            try returns.append(typeToValtype(return_type, target));
         }
-    } else if (fn_info.return_type.isError()) {
+    } else if (return_type.isError()) {
         try returns.append(.i32);
     }
 
     // param types
-    if (fn_info.param_types.len != 0) {
-        for (fn_info.param_types) |param_type| {
-            if (!param_type.hasRuntimeBitsIgnoreComptime()) continue;
+    for (params) |param_type| {
+        if (!param_type.hasRuntimeBitsIgnoreComptime()) continue;
 
-            switch (fn_info.cc) {
-                .C => {
-                    const param_classes = abi.classifyType(param_type, target);
-                    for (param_classes) |class| {
-                        if (class == .none) continue;
-                        if (class == .direct) {
-                            const scalar_type = abi.scalarType(param_type, target);
-                            try params.append(typeToValtype(scalar_type, target));
-                        } else {
-                            try params.append(typeToValtype(param_type, target));
-                        }
+        switch (cc) {
+            .C => {
+                const param_classes = abi.classifyType(param_type, target);
+                for (param_classes) |class| {
+                    if (class == .none) continue;
+                    if (class == .direct) {
+                        const scalar_type = abi.scalarType(param_type, target);
+                        try temp_params.append(typeToValtype(scalar_type, target));
+                    } else {
+                        try temp_params.append(typeToValtype(param_type, target));
                     }
-                },
-                else => if (isByRef(param_type, target))
-                    try params.append(.i32)
-                else
-                    try params.append(typeToValtype(param_type, target)),
-            }
+                }
+            },
+            else => if (isByRef(param_type, target))
+                try temp_params.append(.i32)
+            else
+                try temp_params.append(typeToValtype(param_type, target)),
         }
     }
 
     return wasm.Type{
-        .params = params.toOwnedSlice(),
+        .params = temp_params.toOwnedSlice(),
         .returns = returns.toOwnedSlice(),
     };
 }
@@ -878,7 +877,8 @@ pub fn generate(
 }
 
 fn genFunc(self: *Self) InnerError!void {
-    var func_type = try genFunctype(self.gpa, self.decl.ty.fnInfo(), self.target);
+    const fn_info = self.decl.ty.fnInfo();
+    var func_type = try genFunctype(self.gpa, fn_info.cc, fn_info.param_types, fn_info.return_type, self.target);
     defer func_type.deinit(self.gpa);
     self.decl.fn_link.wasm.type_index = try self.bin_file.putOrGetFuncType(func_type);
 
@@ -993,7 +993,8 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) InnerError!CallWValu
 
     // Check if we store the result as a pointer to the stack rather than
     // by value
-    if (firstParamSRet(fn_ty.fnInfo(), self.target)) {
+    const fn_info = fn_ty.fnInfo();
+    if (firstParamSRet(fn_info.cc, fn_info.return_type, self.target)) {
         // the sret arg will be passed as first argument, therefore we
         // set the `return_value` before allocating locals for regular args.
         result.return_value = .{ .local = self.local_index };
@@ -1027,11 +1028,11 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) InnerError!CallWValu
     return result;
 }
 
-fn firstParamSRet(fn_info: Type.Payload.Function.Data, target: std.Target) bool {
-    switch (fn_info.cc) {
-        .Unspecified, .Inline => return isByRef(fn_info.return_type, target),
+fn firstParamSRet(cc: std.builtin.CallingConvention, return_type: Type, target: std.Target) bool {
+    switch (cc) {
+        .Unspecified, .Inline => return isByRef(return_type, target),
         .C => {
-            const ty_classes = abi.classifyType(fn_info.return_type, target);
+            const ty_classes = abi.classifyType(return_type, target);
             if (ty_classes[0] == .indirect) return true;
             if (ty_classes[0] == .direct and ty_classes[1] == .direct) return true;
             return false;
@@ -1050,7 +1051,7 @@ fn addDbgInfoTypeReloc(self: *Self, ty: Type) !void {
             const index = dbg_info.items.len;
             try dbg_info.resize(index + 4);
             const atom = &self.decl.link.wasm.dbg_info_atom;
-            try dwarf.addTypeReloc(atom, ty, @intCast(u32, index), null);
+            try dwarf.addTypeRelocGlobal(atom, ty, @intCast(u32, index));
         },
         .plan9 => unreachable,
         .none => {},
@@ -1377,11 +1378,7 @@ fn isByRef(ty: Type, target: std.Target) bool {
         .Int => return ty.intInfo(target).bits > 64,
         .Float => return ty.floatBits(target) > 64,
         .ErrorUnion => {
-            const err_ty = ty.errorUnionSet();
             const pl_ty = ty.errorUnionPayload();
-            if (err_ty.errorSetCardinality() == .zero) {
-                return isByRef(pl_ty, target);
-            }
             if (!pl_ty.hasRuntimeBitsIgnoreComptime()) {
                 return false;
             }
@@ -1436,12 +1433,21 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .const_ty => unreachable,
 
         .add => self.airBinOp(inst, .add),
+        .add_sat => self.airSatBinOp(inst, .add),
         .addwrap => self.airWrapBinOp(inst, .add),
         .sub => self.airBinOp(inst, .sub),
+        .sub_sat => self.airSatBinOp(inst, .sub),
         .subwrap => self.airWrapBinOp(inst, .sub),
         .mul => self.airBinOp(inst, .mul),
         .mulwrap => self.airWrapBinOp(inst, .mul),
-        .div_trunc => self.airBinOp(inst, .div),
+        .div_float,
+        .div_exact,
+        .div_trunc,
+        => self.airDiv(inst),
+        .div_floor => self.airDivFloor(inst),
+        .ceil => self.airCeilFloorTrunc(inst, .ceil),
+        .floor => self.airCeilFloorTrunc(inst, .floor),
+        .trunc_float => self.airCeilFloorTrunc(inst, .trunc),
         .bit_and => self.airBinOp(inst, .@"and"),
         .bit_or => self.airBinOp(inst, .@"or"),
         .bool_and => self.airBinOp(inst, .@"and"),
@@ -1449,6 +1455,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .rem => self.airBinOp(inst, .rem),
         .shl => self.airWrapBinOp(inst, .shl),
         .shl_exact => self.airBinOp(inst, .shl),
+        .shl_sat => self.airShlSat(inst),
         .shr, .shr_exact => self.airBinOp(inst, .shr),
         .xor => self.airBinOp(inst, .xor),
         .max => self.airMaxMin(inst, .max),
@@ -1489,6 +1496,9 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .float_to_int => self.airFloatToInt(inst),
         .int_to_float => self.airIntToFloat(inst),
         .get_union_tag => self.airGetUnionTag(inst),
+
+        .@"try" => self.airTry(inst),
+        .try_ptr => self.airTryPtr(inst),
 
         // TODO
         .dbg_inline_begin,
@@ -1538,6 +1548,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .union_init => self.airUnionInit(inst),
         .prefetch => self.airPrefetch(inst),
         .popcount => self.airPopcount(inst),
+        .byte_swap => self.airByteSwap(inst),
 
         .slice => self.airSlice(inst),
         .slice_len => self.airSliceLen(inst),
@@ -1576,18 +1587,11 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
 
         .memcpy => self.airMemcpy(inst),
 
-        .add_sat,
-        .sub_sat,
         .mul_sat,
-        .div_float,
-        .div_floor,
-        .div_exact,
         .mod,
         .assembly,
-        .shl_sat,
         .ret_addr,
         .frame_addr,
-        .byte_swap,
         .bit_reverse,
         .is_err_ptr,
         .is_non_err_ptr,
@@ -1602,10 +1606,8 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .log2,
         .log10,
         .fabs,
-        .floor,
-        .ceil,
         .round,
-        .trunc_float,
+        .neg,
 
         .cmpxchg_weak,
         .cmpxchg_strong,
@@ -1678,7 +1680,8 @@ fn airRetPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         return self.allocStack(Type.usize); // create pointer to void
     }
 
-    if (firstParamSRet(self.decl.ty.fnInfo(), self.target)) {
+    const fn_info = self.decl.ty.fnInfo();
+    if (firstParamSRet(fn_info.cc, fn_info.return_type, self.target)) {
         return self.return_value;
     }
 
@@ -1697,7 +1700,8 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         }
     }
 
-    if (!firstParamSRet(self.decl.ty.fnInfo(), self.target)) {
+    const fn_info = self.decl.ty.fnInfo();
+    if (!firstParamSRet(fn_info.cc, fn_info.return_type, self.target)) {
         const result = try self.load(operand, ret_ty, 0);
         try self.emitWValue(result);
     }
@@ -1720,7 +1724,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
         else => unreachable,
     };
     const ret_ty = fn_ty.fnReturnType();
-    const first_param_sret = firstParamSRet(fn_ty.fnInfo(), self.target);
+    const fn_info = fn_ty.fnInfo();
+    const first_param_sret = firstParamSRet(fn_info.cc, fn_info.return_type, self.target);
 
     const callee: ?*Decl = blk: {
         const func_val = self.air.value(pl_op.operand) orelse break :blk null;
@@ -1730,10 +1735,16 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
             break :blk module.declPtr(func.data.owner_decl);
         } else if (func_val.castTag(.extern_fn)) |extern_fn| {
             const ext_decl = module.declPtr(extern_fn.data.owner_decl);
-            var func_type = try genFunctype(self.gpa, ext_decl.ty.fnInfo(), self.target);
+            const ext_info = ext_decl.ty.fnInfo();
+            var func_type = try genFunctype(self.gpa, ext_info.cc, ext_info.param_types, ext_info.return_type, self.target);
             defer func_type.deinit(self.gpa);
             ext_decl.fn_link.wasm.type_index = try self.bin_file.putOrGetFuncType(func_type);
-            try self.bin_file.addOrUpdateImport(ext_decl);
+            try self.bin_file.addOrUpdateImport(
+                mem.sliceTo(ext_decl.name, 0),
+                ext_decl.link.wasm.sym_index,
+                ext_decl.getExternFn().?.lib_name,
+                ext_decl.fn_link.wasm.type_index,
+            );
             break :blk ext_decl;
         } else if (func_val.castTag(.decl_ref)) |decl_ref| {
             break :blk module.declPtr(decl_ref.data);
@@ -1766,7 +1777,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
         const operand = try self.resolveInst(pl_op.operand);
         try self.emitWValue(operand);
 
-        var fn_type = try genFunctype(self.gpa, fn_ty.fnInfo(), self.target);
+        var fn_type = try genFunctype(self.gpa, fn_info.cc, fn_info.param_types, fn_info.return_type, self.target);
         defer fn_type.deinit(self.gpa);
 
         const fn_type_index = try self.bin_file.putOrGetFuncType(fn_type);
@@ -1813,11 +1824,7 @@ fn airStore(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerError!void {
     switch (ty.zigTypeTag()) {
         .ErrorUnion => {
-            const err_ty = ty.errorUnionSet();
             const pl_ty = ty.errorUnionPayload();
-            if (err_ty.errorSetCardinality() == .zero) {
-                return self.store(lhs, rhs, pl_ty, 0);
-            }
             if (!pl_ty.hasRuntimeBitsIgnoreComptime()) {
                 return self.store(lhs, rhs, Type.anyerror, 0);
             }
@@ -2008,6 +2015,10 @@ fn binOp(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WVa
         }
     }
 
+    if (ty.isAnyFloat() and ty.floatBits(self.target) == 16) {
+        return self.binOpFloat16(lhs, rhs, op);
+    }
+
     const opcode: wasm.Opcode = buildOpcode(.{
         .op = op,
         .valtype1 = typeToValtype(ty, self.target),
@@ -2022,6 +2033,20 @@ fn binOp(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WVa
     const bin_local = try self.allocLocal(ty);
     try self.addLabel(.local_set, bin_local.local);
     return bin_local;
+}
+
+fn binOpFloat16(self: *Self, lhs: WValue, rhs: WValue, op: Op) InnerError!WValue {
+    const ext_lhs = try self.fpext(lhs, Type.f16, Type.f32);
+    const ext_rhs = try self.fpext(rhs, Type.f16, Type.f32);
+
+    const opcode: wasm.Opcode = buildOpcode(.{ .op = op, .valtype1 = .f32, .signedness = .unsigned });
+    try self.emitWValue(ext_lhs);
+    try self.emitWValue(ext_rhs);
+    try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
+
+    // re-use temporary local
+    try self.addLabel(.local_set, ext_lhs.local);
+    return self.fptrunc(ext_lhs, Type.f32, Type.f16);
 }
 
 fn binOpBigInt(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WValue {
@@ -2262,7 +2287,7 @@ fn toTwosComplement(value: anytype, bits: u7) std.meta.Int(.unsigned, @typeInfo(
     const WantedT = std.meta.Int(.unsigned, @typeInfo(T).Int.bits);
     if (value >= 0) return @bitCast(WantedT, value);
     const max_value = @intCast(u64, (@as(u65, 1) << bits) - 1);
-    const flipped = (~-value) + 1;
+    const flipped = @intCast(T, (~-@as(i65, value)) + 1);
     const result = @bitCast(WantedT, flipped) & max_value;
     return @intCast(WantedT, result);
 }
@@ -2290,7 +2315,10 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
                         val.toSignedInt(),
                         @intCast(u6, int_info.bits),
                     )) },
-                    33...64 => return WValue{ .imm64 = @bitCast(u64, val.toSignedInt()) },
+                    33...64 => return WValue{ .imm64 = toTwosComplement(
+                        val.toSignedInt(),
+                        @intCast(u7, int_info.bits),
+                    ) },
                     else => unreachable,
                 },
                 .unsigned => switch (int_info.bits) {
@@ -2302,8 +2330,9 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
         },
         .Bool => return WValue{ .imm32 = @intCast(u32, val.toUnsignedInt(target)) },
         .Float => switch (ty.floatBits(self.target)) {
-            0...32 => return WValue{ .float32 = val.toFloat(f32) },
-            33...64 => return WValue{ .float64 = val.toFloat(f64) },
+            16 => return WValue{ .imm32 = @bitCast(u16, val.toFloat(f16)) },
+            32 => return WValue{ .float32 = val.toFloat(f32) },
+            64 => return WValue{ .float64 = val.toFloat(f64) },
             else => unreachable,
         },
         .Pointer => switch (val.tag()) {
@@ -2350,10 +2379,6 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
         },
         .ErrorUnion => {
             const error_type = ty.errorUnionSet();
-            if (error_type.errorSetCardinality() == .zero) {
-                const pl_val = if (val.castTag(.eu_payload)) |pl| pl.data else Value.initTag(.undef);
-                return self.lowerConstant(pl_val, ty.errorUnionPayload());
-            }
             const is_pl = val.errorUnionIsPayload();
             const err_val = if (!is_pl) val else Value.initTag(.zero);
             return self.lowerConstant(err_val, error_type);
@@ -2385,8 +2410,9 @@ fn emitUndefined(self: *Self, ty: Type) InnerError!WValue {
             else => unreachable,
         },
         .Float => switch (ty.floatBits(self.target)) {
-            0...32 => return WValue{ .float32 = @bitCast(f32, @as(u32, 0xaaaaaaaa)) },
-            33...64 => return WValue{ .float64 = @bitCast(f64, @as(u64, 0xaaaaaaaaaaaaaaaa)) },
+            16 => return WValue{ .imm32 = 0xaaaaaaaa },
+            32 => return WValue{ .float32 = @bitCast(f32, @as(u32, 0xaaaaaaaa)) },
+            64 => return WValue{ .float64 = @bitCast(f64, @as(u64, 0xaaaaaaaaaaaaaaaa)) },
             else => unreachable,
         },
         .Pointer => switch (self.arch()) {
@@ -2558,6 +2584,8 @@ fn cmp(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: std.math.CompareOper
         }
     } else if (isByRef(ty, self.target)) {
         return self.cmpBigInt(lhs, rhs, ty, op);
+    } else if (ty.isAnyFloat() and ty.floatBits(self.target) == 16) {
+        return self.cmpFloat16(lhs, rhs, op);
     }
 
     // ensure that when we compare pointers, we emit
@@ -2589,6 +2617,31 @@ fn cmp(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: std.math.CompareOper
     const cmp_tmp = try self.allocLocal(Type.initTag(.i32)); // bool is always i32
     try self.addLabel(.local_set, cmp_tmp.local);
     return cmp_tmp;
+}
+
+fn cmpFloat16(self: *Self, lhs: WValue, rhs: WValue, op: std.math.CompareOperator) InnerError!WValue {
+    const ext_lhs = try self.fpext(lhs, Type.f16, Type.f32);
+    const ext_rhs = try self.fpext(rhs, Type.f16, Type.f32);
+
+    const opcode: wasm.Opcode = buildOpcode(.{
+        .op = switch (op) {
+            .lt => .lt,
+            .lte => .le,
+            .eq => .eq,
+            .neq => .ne,
+            .gte => .ge,
+            .gt => .gt,
+        },
+        .valtype1 = .f32,
+        .signedness = .unsigned,
+    });
+    try self.emitWValue(ext_lhs);
+    try self.emitWValue(ext_rhs);
+    try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
+
+    const result = try self.allocLocal(Type.initTag(.i32)); // bool is always i32
+    try self.addLabel(.local_set, result.local);
+    return result;
 }
 
 fn airCmpVector(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -2922,7 +2975,7 @@ fn airIsErr(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!W
     const err_union_ty = self.air.typeOf(un_op);
     const pl_ty = err_union_ty.errorUnionPayload();
 
-    if (err_union_ty.errorUnionSet().errorSetCardinality() == .zero) {
+    if (err_union_ty.errorUnionSet().errorSetIsEmpty()) {
         switch (opcode) {
             .i32_ne => return WValue{ .imm32 = 0 },
             .i32_eq => return WValue{ .imm32 = 1 },
@@ -2955,10 +3008,6 @@ fn airUnwrapErrUnionPayload(self: *Self, inst: Air.Inst.Index, op_is_ptr: bool) 
     const err_ty = if (op_is_ptr) op_ty.childType() else op_ty;
     const payload_ty = err_ty.errorUnionPayload();
 
-    if (err_ty.errorUnionSet().errorSetCardinality() == .zero) {
-        return operand;
-    }
-
     if (!payload_ty.hasRuntimeBitsIgnoreComptime()) return WValue{ .none = {} };
 
     const pl_offset = @intCast(u32, errUnionPayloadOffset(payload_ty, self.target));
@@ -2977,7 +3026,7 @@ fn airUnwrapErrUnionError(self: *Self, inst: Air.Inst.Index, op_is_ptr: bool) In
     const err_ty = if (op_is_ptr) op_ty.childType() else op_ty;
     const payload_ty = err_ty.errorUnionPayload();
 
-    if (err_ty.errorUnionSet().errorSetCardinality() == .zero) {
+    if (err_ty.errorUnionSet().errorSetIsEmpty()) {
         return WValue{ .imm32 = 0 };
     }
 
@@ -2994,10 +3043,6 @@ fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const operand = try self.resolveInst(ty_op.operand);
     const err_ty = self.air.typeOfIndex(inst);
-
-    if (err_ty.errorUnionSet().errorSetCardinality() == .zero) {
-        return operand;
-    }
 
     const pl_ty = self.air.typeOf(ty_op.operand);
     if (!pl_ty.hasRuntimeBitsIgnoreComptime()) {
@@ -3938,19 +3983,44 @@ fn airFpext(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const dest_ty = self.air.typeOfIndex(inst);
-    const dest_bits = dest_ty.floatBits(self.target);
-    const src_bits = self.air.typeOf(ty_op.operand).floatBits(self.target);
     const operand = try self.resolveInst(ty_op.operand);
 
-    if (dest_bits == 64 and src_bits == 32) {
-        const result = try self.allocLocal(dest_ty);
+    return self.fpext(operand, self.air.typeOf(ty_op.operand), dest_ty);
+}
+
+fn fpext(self: *Self, operand: WValue, given: Type, wanted: Type) InnerError!WValue {
+    const given_bits = given.floatBits(self.target);
+    const wanted_bits = wanted.floatBits(self.target);
+
+    if (wanted_bits == 64 and given_bits == 32) {
+        const result = try self.allocLocal(wanted);
         try self.emitWValue(operand);
         try self.addTag(.f64_promote_f32);
         try self.addLabel(.local_set, result.local);
         return result;
+    } else if (given_bits == 16) {
+        // call __extendhfsf2(f16) f32
+        const f32_result = try self.callIntrinsic(
+            "__extendhfsf2",
+            &.{Type.f16},
+            Type.f32,
+            &.{operand},
+        );
+
+        if (wanted_bits == 32) {
+            return f32_result;
+        }
+        if (wanted_bits == 64) {
+            const result = try self.allocLocal(wanted);
+            try self.emitWValue(f32_result);
+            try self.addTag(.f64_promote_f32);
+            try self.addLabel(.local_set, result.local);
+            return result;
+        }
+        return self.fail("TODO: Implement 'fpext' for floats with bitsize: {d}", .{wanted_bits});
     } else {
         // TODO: Emit a call to compiler-rt to extend the float. e.g. __extendhfsf2
-        return self.fail("TODO: Implement 'fpext' for floats with bitsize: {d}", .{dest_bits});
+        return self.fail("TODO: Implement 'fpext' for floats with bitsize: {d}", .{wanted_bits});
     }
 }
 
@@ -3959,19 +4029,34 @@ fn airFptrunc(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const dest_ty = self.air.typeOfIndex(inst);
-    const dest_bits = dest_ty.floatBits(self.target);
-    const src_bits = self.air.typeOf(ty_op.operand).floatBits(self.target);
     const operand = try self.resolveInst(ty_op.operand);
+    return self.fptrunc(operand, self.air.typeOf(ty_op.operand), dest_ty);
+}
 
-    if (dest_bits == 32 and src_bits == 64) {
-        const result = try self.allocLocal(dest_ty);
+fn fptrunc(self: *Self, operand: WValue, given: Type, wanted: Type) InnerError!WValue {
+    const given_bits = given.floatBits(self.target);
+    const wanted_bits = wanted.floatBits(self.target);
+
+    if (wanted_bits == 32 and given_bits == 64) {
+        const result = try self.allocLocal(wanted);
         try self.emitWValue(operand);
         try self.addTag(.f32_demote_f64);
         try self.addLabel(.local_set, result.local);
         return result;
+    } else if (wanted_bits == 16) {
+        const op: WValue = if (given_bits == 64) blk: {
+            const tmp = try self.allocLocal(Type.f32);
+            try self.emitWValue(operand);
+            try self.addTag(.f32_demote_f64);
+            try self.addLabel(.local_set, tmp.local);
+            break :blk tmp;
+        } else operand;
+
+        // call __truncsfhf2(f32) f16
+        return self.callIntrinsic("__truncsfhf2", &.{Type.f32}, Type.f16, &.{op});
     } else {
         // TODO: Emit a call to compiler-rt to trunc the float. e.g. __truncdfhf2
-        return self.fail("TODO: Implement 'fptrunc' for floats with bitsize: {d}", .{dest_bits});
+        return self.fail("TODO: Implement 'fptrunc' for floats with bitsize: {d}", .{wanted_bits});
     }
 }
 
@@ -4155,22 +4240,14 @@ fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!W
         64 => WValue{ .imm64 = 0 },
         else => unreachable,
     };
-    const shift_amt = wasm_bits - int_info.bits;
-    const shift_val = switch (wasm_bits) {
-        32 => WValue{ .imm32 = shift_amt },
-        64 => WValue{ .imm64 = shift_amt },
-        else => unreachable,
-    };
 
     // for signed integers, we first apply signed shifts by the difference in bits
     // to get the signed value, as we store it internally as 2's complement.
     const lhs = if (wasm_bits != int_info.bits and is_signed) blk: {
-        const shl = try self.binOp(lhs_op, shift_val, lhs_ty, .shl);
-        break :blk try self.binOp(shl, shift_val, lhs_ty, .shr);
+        break :blk try self.signAbsValue(lhs_op, lhs_ty);
     } else lhs_op;
     const rhs = if (wasm_bits != int_info.bits and is_signed) blk: {
-        const shl = try self.binOp(rhs_op, shift_val, lhs_ty, .shl);
-        break :blk try self.binOp(shl, shift_val, lhs_ty, .shr);
+        break :blk try self.signAbsValue(rhs_op, lhs_ty);
     } else rhs_op;
 
     const bin_op = try self.binOp(lhs, rhs, lhs_ty, op);
@@ -4185,9 +4262,8 @@ fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!W
             const lt = try self.cmp(bin_op, lhs, lhs_ty, .lt);
             break :blk try self.binOp(cmp_zero, lt, Type.u32, .xor); // result of cmp_zero and lt is always 32bit
         }
-        const shl = try self.binOp(bin_op, shift_val, lhs_ty, .shl);
-        const shr = try self.binOp(shl, shift_val, lhs_ty, .shr);
-        break :blk try self.cmp(shr, bin_op, lhs_ty, .neq);
+        const abs = try self.signAbsValue(bin_op, lhs_ty);
+        break :blk try self.cmp(abs, bin_op, lhs_ty, .neq);
     } else if (wasm_bits == int_info.bits)
         try self.cmp(bin_op, lhs, lhs_ty, cmp_op)
     else
@@ -4282,17 +4358,9 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     } else shl;
 
     const overflow_bit = if (wasm_bits != int_info.bits and is_signed) blk: {
-        const shift_amt = wasm_bits - int_info.bits;
-        const shift_val = switch (wasm_bits) {
-            32 => WValue{ .imm32 = shift_amt },
-            64 => WValue{ .imm64 = shift_amt },
-            else => unreachable,
-        };
-
-        const secondary_shl = try self.binOp(shl, shift_val, lhs_ty, .shl);
-        const initial_shr = try self.binOp(secondary_shl, shift_val, lhs_ty, .shr);
-        const shr = try self.wrapBinOp(initial_shr, rhs, lhs_ty, .shr);
-        break :blk try self.cmp(lhs, shr, lhs_ty, .neq);
+        const abs = try self.signAbsValue(shl, lhs_ty);
+        const wrapped = try self.wrapBinOp(abs, rhs, lhs_ty, .shr);
+        break :blk try self.cmp(lhs, wrapped, lhs_ty, .neq);
     } else blk: {
         const shr = try self.binOp(result, rhs, lhs_ty, .shr);
         break :blk try self.cmp(lhs, shr, lhs_ty, .neq);
@@ -4360,21 +4428,11 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
             break :blk down_cast;
         }
     } else if (int_info.signedness == .signed) blk: {
-        const shift_imm = if (wasm_bits == 32)
-            WValue{ .imm32 = wasm_bits - int_info.bits }
-        else
-            WValue{ .imm64 = wasm_bits - int_info.bits };
-
-        const lhs_shl = try self.binOp(lhs, shift_imm, lhs_ty, .shl);
-        const lhs_shr = try self.binOp(lhs_shl, shift_imm, lhs_ty, .shr);
-        const rhs_shl = try self.binOp(rhs, shift_imm, lhs_ty, .shl);
-        const rhs_shr = try self.binOp(rhs_shl, shift_imm, lhs_ty, .shr);
-
-        const bin_op = try self.binOp(lhs_shr, rhs_shr, lhs_ty, .mul);
-        const shl = try self.binOp(bin_op, shift_imm, lhs_ty, .shl);
-        const shr = try self.binOp(shl, shift_imm, lhs_ty, .shr);
-
-        const cmp_op = try self.cmp(shr, bin_op, lhs_ty, .neq);
+        const lhs_abs = try self.signAbsValue(lhs, lhs_ty);
+        const rhs_abs = try self.signAbsValue(rhs, lhs_ty);
+        const bin_op = try self.binOp(lhs_abs, rhs_abs, lhs_ty, .mul);
+        const mul_abs = try self.signAbsValue(bin_op, lhs_ty);
+        const cmp_op = try self.cmp(mul_abs, bin_op, lhs_ty, .neq);
         try self.emitWValue(cmp_op);
         try self.addLabel(.local_set, overflow_bit.local);
         break :blk try self.wrapOperand(bin_op, lhs_ty);
@@ -4440,13 +4498,23 @@ fn airMulAdd(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         return self.fail("TODO: `@mulAdd` for vectors", .{});
     }
 
-    if (ty.floatBits(self.target) == 16) {
-        return self.fail("TODO: `@mulAdd` for f16", .{});
-    }
-
     const addend = try self.resolveInst(pl_op.operand);
     const lhs = try self.resolveInst(bin_op.lhs);
     const rhs = try self.resolveInst(bin_op.rhs);
+
+    if (ty.floatBits(self.target) == 16) {
+        const addend_ext = try self.fpext(addend, ty, Type.f32);
+        const lhs_ext = try self.fpext(lhs, ty, Type.f32);
+        const rhs_ext = try self.fpext(rhs, ty, Type.f32);
+        // call to compiler-rt `fn fmaf(f32, f32, f32) f32`
+        const result = try self.callIntrinsic(
+            "fmaf",
+            &.{ Type.f32, Type.f32, Type.f32 },
+            Type.f32,
+            &.{ rhs_ext, lhs_ext, addend_ext },
+        );
+        return try self.fptrunc(result, Type.f32, ty);
+    }
 
     const mul_result = try self.binOp(lhs, rhs, ty, .mul);
     return self.binOp(mul_result, addend, ty, .add);
@@ -4622,4 +4690,597 @@ fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !WValue {
         }),
     } });
     return WValue{ .none = {} };
+}
+
+fn airTry(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    const pl_op = self.air.instructions.items(.data)[inst].pl_op;
+    const err_union = try self.resolveInst(pl_op.operand);
+    const extra = self.air.extraData(Air.Try, pl_op.payload);
+    const body = self.air.extra[extra.end..][0..extra.data.body_len];
+    const err_union_ty = self.air.typeOf(pl_op.operand);
+    return lowerTry(self, err_union, body, err_union_ty, false);
+}
+
+fn airTryPtr(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.TryPtr, ty_pl.payload);
+    const err_union_ptr = try self.resolveInst(extra.data.ptr);
+    const body = self.air.extra[extra.end..][0..extra.data.body_len];
+    const err_union_ty = self.air.typeOf(extra.data.ptr).childType();
+    return lowerTry(self, err_union_ptr, body, err_union_ty, true);
+}
+
+fn lowerTry(
+    self: *Self,
+    err_union: WValue,
+    body: []const Air.Inst.Index,
+    err_union_ty: Type,
+    operand_is_ptr: bool,
+) InnerError!WValue {
+    if (operand_is_ptr) {
+        return self.fail("TODO: lowerTry for pointers", .{});
+    }
+
+    const pl_ty = err_union_ty.errorUnionPayload();
+    const pl_has_bits = pl_ty.hasRuntimeBitsIgnoreComptime();
+
+    if (!err_union_ty.errorUnionSet().errorSetIsEmpty()) {
+        // Block we can jump out of when error is not set
+        try self.startBlock(.block, wasm.block_empty);
+
+        // check if the error tag is set for the error union.
+        try self.emitWValue(err_union);
+        if (pl_has_bits) {
+            const err_offset = @intCast(u32, errUnionErrorOffset(pl_ty, self.target));
+            try self.addMemArg(.i32_load16_u, .{
+                .offset = err_union.offset() + err_offset,
+                .alignment = Type.anyerror.abiAlignment(self.target),
+            });
+        }
+        try self.addTag(.i32_eqz);
+        try self.addLabel(.br_if, 0); // jump out of block when error is '0'
+        try self.genBody(body);
+        try self.endBlock();
+    }
+
+    // if we reach here it means error was not set, and we want the payload
+    if (!pl_has_bits) {
+        return WValue{ .none = {} };
+    }
+
+    const pl_offset = @intCast(u32, errUnionPayloadOffset(pl_ty, self.target));
+    if (isByRef(pl_ty, self.target)) {
+        return buildPointerOffset(self, err_union, pl_offset, .new);
+    }
+    return self.load(err_union, pl_ty, pl_offset);
+}
+
+fn airByteSwap(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) {
+        return WValue{ .none = {} };
+    }
+
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const ty = self.air.typeOfIndex(inst);
+    const operand = try self.resolveInst(ty_op.operand);
+
+    if (ty.zigTypeTag() == .Vector) {
+        return self.fail("TODO: @byteSwap for vectors", .{});
+    }
+    const int_info = ty.intInfo(self.target);
+
+    // bytes are no-op
+    if (int_info.bits == 8) {
+        return operand;
+    }
+
+    switch (int_info.bits) {
+        16 => {
+            const shl_res = try self.binOp(operand, .{ .imm32 = 8 }, ty, .shl);
+            const lhs = try self.binOp(shl_res, .{ .imm32 = 0xFF00 }, ty, .@"and");
+            const shr_res = try self.binOp(operand, .{ .imm32 = 8 }, ty, .shr);
+            const res = if (int_info.signedness == .signed) blk: {
+                break :blk try self.wrapOperand(shr_res, Type.u8);
+            } else shr_res;
+            return self.binOp(lhs, res, ty, .@"or");
+        },
+        24 => {
+            const msb = try self.wrapOperand(operand, Type.u16);
+            const lsb = try self.wrapBinOp(operand, .{ .imm32 = 16 }, Type.u8, .shr);
+
+            const shl_res = try self.binOp(msb, .{ .imm32 = 8 }, Type.u16, .shl);
+            const lhs = try self.binOp(shl_res, .{ .imm32 = 0xFF0000 }, Type.u16, .@"and");
+            const shr_res = try self.binOp(msb, .{ .imm32 = 8 }, ty, .shr);
+
+            const res = if (int_info.signedness == .signed) blk: {
+                break :blk try self.wrapOperand(shr_res, Type.u8);
+            } else shr_res;
+            const lhs_tmp = try self.binOp(lhs, res, ty, .@"or");
+            const lhs_result = try self.binOp(lhs_tmp, .{ .imm32 = 8 }, ty, .shr);
+            const rhs_wrap = try self.wrapOperand(msb, Type.u8);
+            const rhs_result = try self.binOp(rhs_wrap, .{ .imm32 = 16 }, ty, .shl);
+
+            const tmp = try self.binOp(lhs_result, rhs_result, ty, .@"or");
+            return self.binOp(tmp, lsb, ty, .@"or");
+        },
+        32 => {
+            const shl_tmp = try self.binOp(operand, .{ .imm32 = 8 }, ty, .shl);
+            const lhs = try self.binOp(shl_tmp, .{ .imm32 = 0xFF00FF00 }, ty, .@"and");
+            const shr_tmp = try self.binOp(operand, .{ .imm32 = 8 }, ty, .shr);
+            const rhs = try self.binOp(shr_tmp, .{ .imm32 = 0xFF00FF }, ty, .@"and");
+            const tmp_or = try self.binOp(lhs, rhs, ty, .@"or");
+
+            const shl = try self.binOp(tmp_or, .{ .imm32 = 16 }, ty, .shl);
+            const shr = try self.binOp(tmp_or, .{ .imm32 = 16 }, ty, .shr);
+            const res = if (int_info.signedness == .signed) blk: {
+                break :blk try self.wrapOperand(shr, Type.u16);
+            } else shr;
+            return self.binOp(shl, res, ty, .@"or");
+        },
+        else => return self.fail("TODO: @byteSwap for integers with bitsize {d}", .{int_info.bits}),
+    }
+}
+
+fn airDiv(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const ty = self.air.typeOfIndex(inst);
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
+
+    if (ty.isSignedInt()) {
+        return self.divSigned(lhs, rhs, ty);
+    }
+    return self.binOp(lhs, rhs, ty, .div);
+}
+
+fn airDivFloor(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const ty = self.air.typeOfIndex(inst);
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
+
+    if (ty.isUnsignedInt()) {
+        return self.binOp(lhs, rhs, ty, .div);
+    } else if (ty.isSignedInt()) {
+        const int_bits = ty.intInfo(self.target).bits;
+        const wasm_bits = toWasmBits(int_bits) orelse {
+            return self.fail("TODO: `@divFloor` for signed integers larger than '{d}' bits", .{int_bits});
+        };
+        const lhs_res = if (wasm_bits != int_bits) blk: {
+            break :blk try self.signAbsValue(lhs, ty);
+        } else lhs;
+        const rhs_res = if (wasm_bits != int_bits) blk: {
+            break :blk try self.signAbsValue(rhs, ty);
+        } else rhs;
+
+        const div_result = try self.binOp(lhs_res, rhs_res, ty, .div);
+        const rem_result = try self.binOp(lhs_res, rhs_res, ty, .rem);
+
+        const zero = switch (wasm_bits) {
+            32 => WValue{ .imm32 = 0 },
+            64 => WValue{ .imm64 = 0 },
+            else => unreachable,
+        };
+        const lhs_less_than_zero = try self.cmp(lhs_res, zero, ty, .lt);
+        const rhs_less_than_zero = try self.cmp(rhs_res, zero, ty, .lt);
+
+        try self.emitWValue(div_result);
+        try self.emitWValue(lhs_less_than_zero);
+        try self.emitWValue(rhs_less_than_zero);
+        switch (wasm_bits) {
+            32 => {
+                try self.addTag(.i32_xor);
+                try self.addTag(.i32_sub);
+            },
+            64 => {
+                try self.addTag(.i64_xor);
+                try self.addTag(.i64_sub);
+            },
+            else => unreachable,
+        }
+        try self.emitWValue(div_result);
+        try self.emitWValue(rem_result);
+        try self.addTag(.select);
+    } else {
+        const float_bits = ty.floatBits(self.target);
+        if (float_bits > 64) {
+            return self.fail("TODO: `@divFloor` for floats with bitsize: {d}", .{float_bits});
+        }
+        const is_f16 = float_bits == 16;
+
+        const lhs_operand = if (is_f16) blk: {
+            break :blk try self.fpext(lhs, Type.f16, Type.f32);
+        } else lhs;
+        const rhs_operand = if (is_f16) blk: {
+            break :blk try self.fpext(rhs, Type.f16, Type.f32);
+        } else rhs;
+
+        try self.emitWValue(lhs_operand);
+        try self.emitWValue(rhs_operand);
+
+        switch (float_bits) {
+            16, 32 => {
+                try self.addTag(.f32_div);
+                try self.addTag(.f32_floor);
+            },
+            64 => {
+                try self.addTag(.f64_div);
+                try self.addTag(.f64_floor);
+            },
+            else => unreachable,
+        }
+
+        if (is_f16) {
+            // we can re-use temporary local
+            try self.addLabel(.local_set, lhs_operand.local);
+            return self.fptrunc(lhs_operand, Type.f32, Type.f16);
+        }
+    }
+
+    const result = try self.allocLocal(ty);
+    try self.addLabel(.local_set, result.local);
+    return result;
+}
+
+fn divSigned(self: *Self, lhs: WValue, rhs: WValue, ty: Type) InnerError!WValue {
+    const int_bits = ty.intInfo(self.target).bits;
+    const wasm_bits = toWasmBits(int_bits) orelse {
+        return self.fail("TODO: Implement signed division for integers with bitsize '{d}'", .{int_bits});
+    };
+
+    if (wasm_bits == 128) {
+        return self.fail("TODO: Implement signed division for 128-bit integerrs", .{});
+    }
+
+    if (wasm_bits != int_bits) {
+        const lhs_abs = try self.signAbsValue(lhs, ty);
+        const rhs_abs = try self.signAbsValue(rhs, ty);
+        try self.emitWValue(lhs_abs);
+        try self.emitWValue(rhs_abs);
+    } else {
+        try self.emitWValue(lhs);
+        try self.emitWValue(rhs);
+    }
+    try self.addTag(.i32_div_s);
+
+    const result = try self.allocLocal(ty);
+    try self.addLabel(.local_set, result.local);
+    return result;
+}
+
+fn signAbsValue(self: *Self, operand: WValue, ty: Type) InnerError!WValue {
+    const int_bits = ty.intInfo(self.target).bits;
+    const wasm_bits = toWasmBits(int_bits) orelse {
+        return self.fail("TODO: signAbsValue for signed integers larger than '{d}' bits", .{int_bits});
+    };
+
+    const shift_val = switch (wasm_bits) {
+        32 => WValue{ .imm32 = wasm_bits - int_bits },
+        64 => WValue{ .imm64 = wasm_bits - int_bits },
+        else => return self.fail("TODO: signAbsValue for i128", .{}),
+    };
+
+    try self.emitWValue(operand);
+    switch (wasm_bits) {
+        32 => {
+            try self.emitWValue(shift_val);
+            try self.addTag(.i32_shl);
+            try self.emitWValue(shift_val);
+            try self.addTag(.i32_shr_s);
+        },
+        64 => {
+            try self.emitWValue(shift_val);
+            try self.addTag(.i64_shl);
+            try self.emitWValue(shift_val);
+            try self.addTag(.i64_shr_s);
+        },
+        else => unreachable,
+    }
+    const result = try self.allocLocal(ty);
+    try self.addLabel(.local_set, result.local);
+    return result;
+}
+
+fn airCeilFloorTrunc(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const ty = self.air.typeOfIndex(inst);
+    const float_bits = ty.floatBits(self.target);
+    const is_f16 = float_bits == 16;
+
+    if (ty.zigTypeTag() == .Vector) {
+        return self.fail("TODO: Implement `@ceil` for vectors", .{});
+    }
+    if (float_bits > 64) {
+        return self.fail("TODO: implement `@ceil`, `@trunc`, `@floor` for floats larger than 64bits", .{});
+    }
+
+    const operand = try self.resolveInst(un_op);
+    const op_to_lower = if (is_f16) blk: {
+        break :blk try self.fpext(operand, Type.f16, Type.f32);
+    } else operand;
+    try self.emitWValue(op_to_lower);
+    const opcode = buildOpcode(.{ .op = op, .valtype1 = typeToValtype(ty, self.target) });
+    try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
+
+    if (is_f16) {
+        // re-use temporary to save locals
+        try self.addLabel(.local_set, op_to_lower.local);
+        return self.fptrunc(op_to_lower, Type.f32, Type.f16);
+    }
+
+    const result = try self.allocLocal(ty);
+    try self.addLabel(.local_set, result.local);
+    return result;
+}
+
+fn airSatBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
+    assert(op == .add or op == .sub);
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const ty = self.air.typeOfIndex(inst);
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
+
+    const int_info = ty.intInfo(self.target);
+    const is_signed = int_info.signedness == .signed;
+
+    if (int_info.bits > 64) {
+        return self.fail("TODO: saturating arithmetic for integers with bitsize '{d}'", .{int_info.bits});
+    }
+
+    if (is_signed) {
+        return signedSat(self, lhs, rhs, ty, op);
+    }
+
+    const wasm_bits = toWasmBits(int_info.bits).?;
+    const bin_result = try self.binOp(lhs, rhs, ty, op);
+    if (wasm_bits != int_info.bits and op == .add) {
+        const val: u64 = @intCast(u64, (@as(u65, 1) << @intCast(u7, int_info.bits)) - 1);
+        const imm_val = switch (wasm_bits) {
+            32 => WValue{ .imm32 = @intCast(u32, val) },
+            64 => WValue{ .imm64 = val },
+            else => unreachable,
+        };
+
+        const cmp_result = try self.cmp(bin_result, imm_val, ty, .lt);
+        try self.emitWValue(bin_result);
+        try self.emitWValue(imm_val);
+        try self.emitWValue(cmp_result);
+    } else {
+        const cmp_result = try self.cmp(bin_result, lhs, ty, if (op == .add) .lt else .gt);
+        switch (wasm_bits) {
+            32 => try self.addImm32(if (op == .add) @as(i32, -1) else 0),
+            64 => try self.addImm64(if (op == .add) @bitCast(u64, @as(i64, -1)) else 0),
+            else => unreachable,
+        }
+        try self.emitWValue(bin_result);
+        try self.emitWValue(cmp_result);
+    }
+
+    try self.addTag(.select);
+    const result = try self.allocLocal(ty);
+    try self.addLabel(.local_set, result.local);
+    return result;
+}
+
+fn signedSat(self: *Self, lhs_operand: WValue, rhs_operand: WValue, ty: Type, op: Op) InnerError!WValue {
+    const int_info = ty.intInfo(self.target);
+    const wasm_bits = toWasmBits(int_info.bits).?;
+    const is_wasm_bits = wasm_bits == int_info.bits;
+
+    const lhs = if (!is_wasm_bits) try self.signAbsValue(lhs_operand, ty) else lhs_operand;
+    const rhs = if (!is_wasm_bits) try self.signAbsValue(rhs_operand, ty) else rhs_operand;
+
+    const max_val: u64 = @intCast(u64, (@as(u65, 1) << @intCast(u7, int_info.bits - 1)) - 1);
+    const min_val: i64 = (-@intCast(i64, @intCast(u63, max_val))) - 1;
+    const max_wvalue = switch (wasm_bits) {
+        32 => WValue{ .imm32 = @truncate(u32, max_val) },
+        64 => WValue{ .imm64 = max_val },
+        else => unreachable,
+    };
+    const min_wvalue = switch (wasm_bits) {
+        32 => WValue{ .imm32 = @bitCast(u32, @truncate(i32, min_val)) },
+        64 => WValue{ .imm64 = @bitCast(u64, min_val) },
+        else => unreachable,
+    };
+
+    const bin_result = try self.binOp(lhs, rhs, ty, op);
+    if (!is_wasm_bits) {
+        const cmp_result_lt = try self.cmp(bin_result, max_wvalue, ty, .lt);
+        try self.emitWValue(bin_result);
+        try self.emitWValue(max_wvalue);
+        try self.emitWValue(cmp_result_lt);
+        try self.addTag(.select);
+        try self.addLabel(.local_set, bin_result.local); // re-use local
+
+        const cmp_result_gt = try self.cmp(bin_result, min_wvalue, ty, .gt);
+        try self.emitWValue(bin_result);
+        try self.emitWValue(min_wvalue);
+        try self.emitWValue(cmp_result_gt);
+        try self.addTag(.select);
+        try self.addLabel(.local_set, bin_result.local); // re-use local
+        return self.wrapOperand(bin_result, ty);
+    } else {
+        const zero = switch (wasm_bits) {
+            32 => WValue{ .imm32 = 0 },
+            64 => WValue{ .imm64 = 0 },
+            else => unreachable,
+        };
+        const cmp_bin_result = try self.cmp(bin_result, lhs, ty, .lt);
+        const cmp_zero_result = try self.cmp(rhs, zero, ty, if (op == .add) .lt else .gt);
+        const xor = try self.binOp(cmp_zero_result, cmp_bin_result, Type.u32, .xor); // comparisons always return i32, so provide u32 as type to xor.
+        const cmp_bin_zero_result = try self.cmp(bin_result, zero, ty, .lt);
+        try self.emitWValue(max_wvalue);
+        try self.emitWValue(min_wvalue);
+        try self.emitWValue(cmp_bin_zero_result);
+        try self.addTag(.select);
+        try self.emitWValue(bin_result);
+        try self.emitWValue(xor);
+        try self.addTag(.select);
+        try self.addLabel(.local_set, bin_result.local); // re-use local
+        return bin_result;
+    }
+}
+
+fn airShlSat(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
+    if (self.liveness.isUnused(inst)) return WValue{ .none = {} };
+
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const ty = self.air.typeOfIndex(inst);
+    const int_info = ty.intInfo(self.target);
+    const is_signed = int_info.signedness == .signed;
+    if (int_info.bits > 64) {
+        return self.fail("TODO: Saturating shifting left for integers with bitsize '{d}'", .{int_info.bits});
+    }
+
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
+    const wasm_bits = toWasmBits(int_info.bits).?;
+    const result = try self.allocLocal(ty);
+
+    if (wasm_bits == int_info.bits) {
+        const shl = try self.binOp(lhs, rhs, ty, .shl);
+        const shr = try self.binOp(shl, rhs, ty, .shr);
+        const cmp_result = try self.cmp(lhs, shr, ty, .neq);
+
+        switch (wasm_bits) {
+            32 => blk: {
+                if (!is_signed) {
+                    try self.addImm32(-1);
+                    break :blk;
+                }
+                const less_than_zero = try self.cmp(lhs, .{ .imm32 = 0 }, ty, .lt);
+                try self.addImm32(std.math.minInt(i32));
+                try self.addImm32(std.math.maxInt(i32));
+                try self.emitWValue(less_than_zero);
+                try self.addTag(.select);
+            },
+            64 => blk: {
+                if (!is_signed) {
+                    try self.addImm64(@bitCast(u64, @as(i64, -1)));
+                    break :blk;
+                }
+                const less_than_zero = try self.cmp(lhs, .{ .imm64 = 0 }, ty, .lt);
+                try self.addImm64(@bitCast(u64, @as(i64, std.math.minInt(i64))));
+                try self.addImm64(@bitCast(u64, @as(i64, std.math.maxInt(i64))));
+                try self.emitWValue(less_than_zero);
+                try self.addTag(.select);
+            },
+            else => unreachable,
+        }
+        try self.emitWValue(shl);
+        try self.emitWValue(cmp_result);
+        try self.addTag(.select);
+        try self.addLabel(.local_set, result.local);
+        return result;
+    } else {
+        const shift_size = wasm_bits - int_info.bits;
+        const shift_value = switch (wasm_bits) {
+            32 => WValue{ .imm32 = shift_size },
+            64 => WValue{ .imm64 = shift_size },
+            else => unreachable,
+        };
+
+        const shl_res = try self.binOp(lhs, shift_value, ty, .shl);
+        const shl = try self.binOp(shl_res, rhs, ty, .shl);
+        const shr = try self.binOp(shl, rhs, ty, .shr);
+        const cmp_result = try self.cmp(shl_res, shr, ty, .neq);
+
+        switch (wasm_bits) {
+            32 => blk: {
+                if (!is_signed) {
+                    try self.addImm32(-1);
+                    break :blk;
+                }
+
+                const less_than_zero = try self.cmp(shl_res, .{ .imm32 = 0 }, ty, .lt);
+                try self.addImm32(std.math.minInt(i32));
+                try self.addImm32(std.math.maxInt(i32));
+                try self.emitWValue(less_than_zero);
+                try self.addTag(.select);
+            },
+            64 => blk: {
+                if (!is_signed) {
+                    try self.addImm64(@bitCast(u64, @as(i64, -1)));
+                    break :blk;
+                }
+
+                const less_than_zero = try self.cmp(shl_res, .{ .imm64 = 0 }, ty, .lt);
+                try self.addImm64(@bitCast(u64, @as(i64, std.math.minInt(i64))));
+                try self.addImm64(@bitCast(u64, @as(i64, std.math.maxInt(i64))));
+                try self.emitWValue(less_than_zero);
+                try self.addTag(.select);
+            },
+            else => unreachable,
+        }
+        try self.emitWValue(shl);
+        try self.emitWValue(cmp_result);
+        try self.addTag(.select);
+        try self.addLabel(.local_set, result.local);
+        const shift_result = try self.binOp(result, shift_value, ty, .shr);
+        if (is_signed) {
+            return self.wrapOperand(shift_result, ty);
+        }
+        return shift_result;
+    }
+}
+
+/// Calls a compiler-rt intrinsic by creating an undefined symbol,
+/// then lowering the arguments and calling the symbol as a function call.
+/// This function call assumes the C-ABI.
+fn callIntrinsic(
+    self: *Self,
+    name: []const u8,
+    param_types: []const Type,
+    return_type: Type,
+    args: []const WValue,
+) InnerError!WValue {
+    assert(param_types.len == args.len);
+    const symbol_index = self.bin_file.base.getGlobalSymbol(name) catch |err| {
+        return self.fail("Could not find or create global symbol '{s}'", .{@errorName(err)});
+    };
+
+    // Always pass over C-ABI
+    var func_type = try genFunctype(self.gpa, .C, param_types, return_type, self.target);
+    defer func_type.deinit(self.gpa);
+    const func_type_index = try self.bin_file.putOrGetFuncType(func_type);
+    try self.bin_file.addOrUpdateImport(name, symbol_index, null, func_type_index);
+
+    const want_sret_param = firstParamSRet(.C, return_type, self.target);
+    // if we want return as first param, we allocate a pointer to stack,
+    // and emit it as our first argument
+    const sret = if (want_sret_param) blk: {
+        const sret_local = try self.allocStack(return_type);
+        try self.lowerToStack(sret_local);
+        break :blk sret_local;
+    } else WValue{ .none = {} };
+
+    // Lower all arguments to the stack before we call our function
+    for (args) |arg, arg_i| {
+        assert(param_types[arg_i].hasRuntimeBitsIgnoreComptime());
+        try self.lowerArg(.C, param_types[arg_i], arg);
+    }
+
+    // Actually call our intrinsic
+    try self.addLabel(.call, symbol_index);
+
+    if (!return_type.hasRuntimeBitsIgnoreComptime()) {
+        return WValue.none;
+    } else if (return_type.isNoReturn()) {
+        try self.addTag(.@"unreachable");
+        return WValue.none;
+    } else if (want_sret_param) {
+        return sret;
+    } else {
+        const result_local = try self.allocLocal(return_type);
+        try self.addLabel(.local_set, result_local.local);
+        return result_local;
+    }
 }

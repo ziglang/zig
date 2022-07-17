@@ -10,17 +10,14 @@
 #ifndef _LIBCPP___ALGORITHM_EQUAL_H
 #define _LIBCPP___ALGORITHM_EQUAL_H
 
-#include <__config>
 #include <__algorithm/comp.h>
+#include <__config>
+#include <__iterator/distance.h>
 #include <__iterator/iterator_traits.h>
-#include <iterator> // FIXME: replace with <__iterator/distance.h> when it lands
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
 #endif
-
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -60,14 +57,14 @@ __equal(_RandomAccessIterator1 __first1, _RandomAccessIterator1 __last1, _Random
   if (_VSTD::distance(__first1, __last1) != _VSTD::distance(__first2, __last2))
     return false;
   return _VSTD::equal<_RandomAccessIterator1, _RandomAccessIterator2,
-                      typename add_lvalue_reference<_BinaryPredicate>::type>(__first1, __last1, __first2, __pred);
+                      _BinaryPredicate&>(__first1, __last1, __first2, __pred);
 }
 
 template <class _InputIterator1, class _InputIterator2, class _BinaryPredicate>
 _LIBCPP_NODISCARD_EXT inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17 bool
 equal(_InputIterator1 __first1, _InputIterator1 __last1, _InputIterator2 __first2, _InputIterator2 __last2,
       _BinaryPredicate __pred) {
-  return _VSTD::__equal<typename add_lvalue_reference<_BinaryPredicate>::type>(
+  return _VSTD::__equal<_BinaryPredicate&>(
       __first1, __last1, __first2, __last2, __pred, typename iterator_traits<_InputIterator1>::iterator_category(),
       typename iterator_traits<_InputIterator2>::iterator_category());
 }
@@ -84,7 +81,5 @@ equal(_InputIterator1 __first1, _InputIterator1 __last1, _InputIterator2 __first
 #endif
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_EQUAL_H

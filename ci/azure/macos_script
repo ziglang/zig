@@ -9,7 +9,7 @@ ZIGDIR="$(pwd)"
 ARCH="x86_64"
 TARGET="$ARCH-macos-none"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.10.0-dev.2348+d43761808"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.10.0-dev.2931+bdf3fa12f"
 PREFIX="$HOME/$CACHE_BASENAME"
 JOBS="-j2"
 
@@ -75,7 +75,8 @@ release/bin/zig build test-translate-c      -Denable-macos-sdk
 release/bin/zig build test-run-translated-c -Denable-macos-sdk
 release/bin/zig build docs                  -Denable-macos-sdk
 release/bin/zig build test-fmt              -Denable-macos-sdk
-release/bin/zig build test-cases            -Denable-macos-sdk
+release/bin/zig build test-cases            -Denable-macos-sdk -Dsingle-threaded
+release/bin/zig build test-link             -Denable-macos-sdk -Domit-stage2
 
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
   mv ../LICENSE release/

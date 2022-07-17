@@ -73,11 +73,11 @@ fn salsaXor(tmp: *align(16) [16]u32, in: []align(16) const u32, out: []align(16)
 }
 
 fn blockMix(tmp: *align(16) [16]u32, in: []align(16) const u32, out: []align(16) u32, r: u30) void {
-    blockCopy(tmp, in[(2 * r - 1) * 16 ..], 1);
+    blockCopy(tmp, @alignCast(16, in[(2 * r - 1) * 16 ..]), 1);
     var i: usize = 0;
     while (i < 2 * r) : (i += 2) {
-        salsaXor(tmp, in[i * 16 ..], out[i * 8 ..]);
-        salsaXor(tmp, in[i * 16 + 16 ..], out[i * 8 + r * 16 ..]);
+        salsaXor(tmp, @alignCast(16, in[i * 16 ..]), @alignCast(16, out[i * 8 ..]));
+        salsaXor(tmp, @alignCast(16, in[i * 16 + 16 ..]), @alignCast(16, out[i * 8 + r * 16 ..]));
     }
 }
 
@@ -87,8 +87,8 @@ fn integerify(b: []align(16) const u32, r: u30) u64 {
 }
 
 fn smix(b: []align(16) u8, r: u30, n: usize, v: []align(16) u32, xy: []align(16) u32) void {
-    var x = xy[0 .. 32 * r];
-    var y = xy[32 * r ..];
+    var x = @alignCast(16, xy[0 .. 32 * r]);
+    var y = @alignCast(16, xy[32 * r ..]);
 
     for (x) |*v1, j| {
         v1.* = mem.readIntSliceLittle(u32, b[4 * j ..]);
@@ -97,21 +97,21 @@ fn smix(b: []align(16) u8, r: u30, n: usize, v: []align(16) u32, xy: []align(16)
     var tmp: [16]u32 align(16) = undefined;
     var i: usize = 0;
     while (i < n) : (i += 2) {
-        blockCopy(v[i * (32 * r) ..], x, 2 * r);
+        blockCopy(@alignCast(16, v[i * (32 * r) ..]), x, 2 * r);
         blockMix(&tmp, x, y, r);
 
-        blockCopy(v[(i + 1) * (32 * r) ..], y, 2 * r);
+        blockCopy(@alignCast(16, v[(i + 1) * (32 * r) ..]), y, 2 * r);
         blockMix(&tmp, y, x, r);
     }
 
     i = 0;
     while (i < n) : (i += 2) {
         var j = @intCast(usize, integerify(x, r) & (n - 1));
-        blockXor(x, v[j * (32 * r) ..], 2 * r);
+        blockXor(x, @alignCast(16, v[j * (32 * r) ..]), 2 * r);
         blockMix(&tmp, x, y, r);
 
         j = @intCast(usize, integerify(y, r) & (n - 1));
-        blockXor(y, v[j * (32 * r) ..], 2 * r);
+        blockXor(y, @alignCast(16, v[j * (32 * r) ..]), 2 * r);
         blockMix(&tmp, y, x, r);
     }
 
@@ -201,7 +201,7 @@ pub fn kdf(
     try pwhash.pbkdf2(dk, password, salt, 1, HmacSha256);
     var i: u32 = 0;
     while (i < params.p) : (i += 1) {
-        smix(dk[i * 128 * params.r ..], params.r, n, v, xy);
+        smix(@alignCast(16, dk[i * 128 * params.r ..]), params.r, n, v, xy);
     }
     try pwhash.pbkdf2(derived_key, password, dk, 1, HmacSha256);
 }
@@ -248,7 +248,7 @@ const crypt_format = struct {
             }
 
             /// Return the slice containing the actual value.
-            pub fn constSlice(self: Self) []const u8 {
+            pub fn constSlice(self: *const Self) []const u8 {
                 return self.buf[0..self.len];
             }
 
@@ -259,7 +259,7 @@ const crypt_format = struct {
                 self.len = len;
             }
 
-            fn toB64(self: Self, buf: []u8) ![]const u8 {
+            fn toB64(self: *const Self, buf: []u8) ![]const u8 {
                 const value = self.constSlice();
                 const len = Codec.encodedLen(value.len);
                 if (len > buf.len) return EncodingError.NoSpaceLeft;

@@ -2781,7 +2781,7 @@ static Error type_is_valid_extern_enum_tag(CodeGen *g, ZigType *ty, bool *result
 
     // According to the ANSI C standard the enumeration type should be either a
     // signed char, a signed integer or an unsigned one. But GCC/Clang allow
-    // other integral types as a compiler extension so let's accomodate them
+    // other integral types as a compiler extension so let's accommodate them
     // aswell.
     return type_allowed_in_extern(g, ty, ExternPositionOther, result);
 }
@@ -9368,7 +9368,7 @@ static void resolve_llvm_types_integer(CodeGen *g, ZigType *type) {
     }
 
     type->llvm_di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&type->name),
-            type->abi_size * 8, dwarf_tag);
+            type->size_in_bits, dwarf_tag);
     type->llvm_type = LLVMIntType(type->size_in_bits);
 }
 
@@ -9932,9 +9932,14 @@ static void resolve_llvm_types(CodeGen *g, ZigType *type, ResolveStatus wanted_r
         case ZigTypeIdVector: {
             if (type->llvm_di_type != nullptr) return;
 
-            type->llvm_type = LLVMVectorType(get_llvm_type(g, type->data.vector.elem_type), type->data.vector.len);
-            type->llvm_di_type = ZigLLVMDIBuilderCreateVectorType(g->dbuilder, 8 * type->abi_size,
-                    type->abi_align, get_llvm_di_type(g, type->data.vector.elem_type), type->data.vector.len);
+            type->llvm_type = LLVMVectorType(get_llvm_type(g, type->data.vector.elem_type),
+                    type->data.vector.len);
+
+            type->llvm_di_type = ZigLLVMDIBuilderCreateVectorType(g->dbuilder,
+                    8 * type->abi_size,
+                    8 * type->abi_align,
+                    get_llvm_di_type(g, type->data.vector.elem_type),
+                    type->data.vector.len);
             return;
         }
         case ZigTypeIdFnFrame:

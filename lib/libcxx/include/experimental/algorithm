@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===-------------------------- algorithm ---------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -31,19 +31,14 @@ ForwardIterator search(ForwardIterator first, ForwardIterator last,
 
 */
 
-#include <experimental/__config>
-#include <algorithm>
-#include <type_traits>
-
 #include <__debug>
+#include <algorithm>
+#include <experimental/__config>
+#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
 #endif
-
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
-
 
 _LIBCPP_BEGIN_NAMESPACE_LFTS
 
@@ -53,7 +48,5 @@ _ForwardIterator search(_ForwardIterator __f, _ForwardIterator __l, const _Searc
 { return __s(__f, __l).first; }
 
 _LIBCPP_END_NAMESPACE_LFTS
-
-_LIBCPP_POP_MACROS
 
 #endif /* _LIBCPP_EXPERIMENTAL_ALGORITHM */

@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===-------------------------- valarray ----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -104,6 +104,8 @@ public:
     valarray apply(value_type f(const value_type&)) const;
     void resize(size_t n, value_type x = value_type());
 };
+
+template<class T, size_t cnt> valarray(const T(&)[cnt], size_t) -> valarray<T>;
 
 class slice
 {
@@ -346,6 +348,7 @@ template <class T> unspecified2 end(const valarray<T>& v);
 #include <functional>
 #include <initializer_list>
 #include <new>
+#include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -1080,6 +1083,11 @@ private:
     void __clear(size_t __capacity);
     valarray& __assign_range(const value_type* __f, const value_type* __l);
 };
+
+#if _LIBCPP_STD_VER > 14
+template<class _Tp, size_t _Size>
+valarray(const _Tp(&)[_Size], size_t) -> valarray<_Tp>;
+#endif
 
 _LIBCPP_EXTERN_TEMPLATE(_LIBCPP_FUNC_VIS void valarray<size_t>::resize(size_t, size_t))
 
@@ -3048,7 +3056,7 @@ template <class _Tp>
 valarray<_Tp>&
 valarray<_Tp>::operator=(const valarray& __v)
 {
-    if (this != &__v)
+    if (this != _VSTD::addressof(__v))
         return __assign_range(__v.__begin_, __v.__end_);
     return *this;
 }

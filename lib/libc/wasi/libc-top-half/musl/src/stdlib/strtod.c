@@ -46,24 +46,3 @@ long double strtold(const char *restrict s, char **restrict p)
 	return strtox(s, p, 2);
 #endif
 }
-
-#ifdef __wasilibc_unmodified_upstream // WASI doesn't support signature-changing aliases
-weak_alias(strtof, strtof_l);
-weak_alias(strtod, strtod_l);
-weak_alias(strtold, strtold_l);
-weak_alias(strtof, __strtof_l);
-weak_alias(strtod, __strtod_l);
-weak_alias(strtold, __strtold_l);
-#else
-// WebAssembly doesn't permit signature-changing aliases, so use wrapper
-// functions instead.
-weak float strtof_l(const char *restrict s, char **restrict p, locale_t loc) {
-	return strtof(s, p);
-}
-weak double strtod_l(const char *restrict s, char **restrict p, locale_t loc) {
-	return strtod(s, p);
-}
-weak long double strtold_l(const char *restrict s, char **restrict p, locale_t loc) {
-	return strtold(s, p);
-}
-#endif

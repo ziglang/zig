@@ -19,6 +19,8 @@ pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
 pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
 pub extern "c" fn malloc_usable_size(?*const anyopaque) usize;
 
+pub extern "c" fn getpid() pid_t;
+
 pub const sf_hdtr = extern struct {
     headers: [*]const iovec_const,
     hdr_cnt: c_int,
@@ -35,7 +37,10 @@ pub extern "c" fn sendfile(
     flags: u32,
 ) c_int;
 
-pub const dl_iterate_phdr_callback = fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
+pub const dl_iterate_phdr_callback = switch (builtin.zig_backend) {
+    .stage1 => fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int,
+    else => *const fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int,
+};
 pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*anyopaque) c_int;
 
 pub const pthread_mutex_t = extern struct {
@@ -394,6 +399,127 @@ pub const sockaddr = extern struct {
     };
 };
 
+pub const CAP_RIGHTS_VERSION = 0;
+
+pub const cap_rights = extern struct {
+    rights: [CAP_RIGHTS_VERSION + 2]u64,
+};
+
+pub const kinfo_file = extern struct {
+    /// Size of this record.
+    /// A zero value is for the sentinel record at the end of an array.
+    structsize: c_int,
+    /// Descriptor type.
+    @"type": c_int,
+    /// Array index.
+    fd: fd_t,
+    /// Reference count.
+    ref_count: c_int,
+    /// Flags.
+    flags: c_int,
+    // 64bit padding.
+    _pad0: c_int,
+    /// Seek location.
+    offset: i64,
+    un: extern union {
+        socket: extern struct {
+            /// Sendq size.
+            sendq: u32,
+            /// Socket domain.
+            domain: c_int,
+            /// Socket type.
+            @"type": c_int,
+            /// Socket protocol.
+            protocol: c_int,
+            /// Socket address.
+            address: sockaddr.storage,
+            /// Peer address.
+            peer: sockaddr.storage,
+            /// Address of so_pcb.
+            pcb: u64,
+            /// Address of inp_ppcb.
+            inpcb: u64,
+            /// Address of unp_conn.
+            unpconn: u64,
+            /// Send buffer state.
+            snd_sb_state: u16,
+            /// Receive buffer state.
+            rcv_sb_state: u16,
+            /// Recvq size.
+            recvq: u32,
+        },
+        file: extern struct {
+            /// Vnode type.
+            @"type": i32,
+            // Reserved for future use
+            _spare1: [3]i32,
+            _spare2: [30]u64,
+            /// Vnode filesystem id.
+            fsid: u64,
+            /// File device.
+            rdev: u64,
+            /// Global file id.
+            fileid: u64,
+            /// File size.
+            size: u64,
+            /// fsid compat for FreeBSD 11.
+            fsid_freebsd11: u32,
+            /// rdev compat for FreeBSD 11.
+            rdev_freebsd11: u32,
+            /// File mode.
+            mode: u16,
+            // 64bit padding.
+            _pad0: u16,
+            _pad1: u32,
+        },
+        sem: extern struct {
+            _spare0: [4]u32,
+            _spare1: [32]u64,
+            /// Semaphore value.
+            value: u32,
+            /// Semaphore mode.
+            mode: u16,
+        },
+        pipe: extern struct {
+            _spare1: [4]u32,
+            _spare2: [32]u64,
+            addr: u64,
+            peer: u64,
+            buffer_cnt: u32,
+            // 64bit padding.
+            kf_pipe_pad0: [3]u32,
+        },
+        proc: extern struct {
+            _spare1: [4]u32,
+            _spare2: [32]u64,
+            pid: pid_t,
+        },
+        eventfd: extern struct {
+            value: u64,
+            flags: u32,
+        },
+    },
+    /// Status flags.
+    status: u16,
+    // 32-bit alignment padding.
+    _pad1: u16,
+    // Reserved for future use.
+    _spare: c_int,
+    /// Capability rights.
+    cap_rights: cap_rights,
+    /// Reserved for future cap_rights
+    _cap_spare: u64,
+    /// Path to file, if any.
+    path: [PATH_MAX - 1:0]u8,
+};
+
+pub const KINFO_FILE_SIZE = 1392;
+
+comptime {
+    std.debug.assert(@sizeOf(kinfo_file) == KINFO_FILE_SIZE);
+    std.debug.assert(@alignOf(kinfo_file) == @sizeOf(u64));
+}
+
 pub const CTL = struct {
     pub const KERN = 1;
     pub const DEBUG = 5;
@@ -402,6 +528,7 @@ pub const CTL = struct {
 pub const KERN = struct {
     pub const PROC = 14; // struct: process entries
     pub const PROC_PATHNAME = 12; // path to executable
+    pub const PROC_FILEDESC = 33; // file descriptors for process
     pub const IOV_MAX = 35;
 };
 
@@ -610,23 +737,67 @@ pub const O = struct {
     pub const NDELAY = NONBLOCK;
 };
 
+/// Command flags for fcntl(2).
 pub const F = struct {
+    /// Duplicate file descriptor.
     pub const DUPFD = 0;
+    /// Get file descriptor flags.
     pub const GETFD = 1;
+    /// Set file descriptor flags.
     pub const SETFD = 2;
+    /// Get file status flags.
     pub const GETFL = 3;
+    /// Set file status flags.
     pub const SETFL = 4;
 
+    /// Get SIGIO/SIGURG proc/pgrrp.
     pub const GETOWN = 5;
+    /// Set SIGIO/SIGURG proc/pgrrp.
     pub const SETOWN = 6;
 
+    /// Get record locking information.
     pub const GETLK = 11;
+    /// Set record locking information.
     pub const SETLK = 12;
+    /// Set record locking information and wait if blocked.
     pub const SETLKW = 13;
 
+    /// Debugging support for remote locks.
+    pub const SETLK_REMOTE = 14;
+    /// Read ahead.
+    pub const READAHEAD = 15;
+
+    /// DUPFD with FD_CLOEXEC set.
+    pub const DUPFD_CLOEXEC = 17;
+    /// DUP2FD with FD_CLOEXEC set.
+    pub const DUP2FD_CLOEXEC = 18;
+
+    pub const ADD_SEALS = 19;
+    pub const GET_SEALS = 20;
+    /// Return `kinfo_file` for a file descriptor.
+    pub const KINFO = 22;
+
+    // Seals (ADD_SEALS, GET_SEALS)
+    /// Prevent adding sealings.
+    pub const SEAL_SEAL = 0x0001;
+    /// May not shrink
+    pub const SEAL_SHRINK = 0x0002;
+    /// May not grow.
+    pub const SEAL_GROW = 0x0004;
+    /// May not write.
+    pub const SEAL_WRITE = 0x0008;
+
+    // Record locking flags (GETLK, SETLK, SETLKW).
+    /// Shared or read lock.
     pub const RDLCK = 1;
-    pub const WRLCK = 3;
+    /// Unlock.
     pub const UNLCK = 2;
+    /// Exclusive or write lock.
+    pub const WRLCK = 3;
+    /// Purge locks for a given system ID.
+    pub const UNLCKSYS = 4;
+    /// Cancel an async lock request.
+    pub const CANCEL = 5;
 
     pub const SETOWN_EX = 15;
     pub const GETOWN_EX = 16;
@@ -998,8 +1169,14 @@ const NSIG = 32;
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const handler_fn = fn (c_int) callconv(.C) void;
-    pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
+    pub const handler_fn = switch (builtin.zig_backend) {
+        .stage1 => fn (c_int) callconv(.C) void,
+        else => *const fn (c_int) callconv(.C) void,
+    };
+    pub const sigaction_fn = switch (builtin.zig_backend) {
+        .stage1 => fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void,
+        else => *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void,
+    };
 
     /// signal handler
     handler: extern union {

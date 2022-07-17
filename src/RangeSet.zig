@@ -85,7 +85,7 @@ pub fn spans(self: *RangeSet, first: Value, last: Value, ty: Type) !bool {
 
         // prev.last + 1 == cur.first
         try counter.copy(prev.last.toBigInt(&space, target));
-        try counter.addScalar(counter.toConst(), 1);
+        try counter.addScalar(&counter, 1);
 
         const cur_start_int = cur.first.toBigInt(&space, target);
         if (!cur_start_int.eq(counter.toConst())) {

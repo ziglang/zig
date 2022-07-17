@@ -132,6 +132,9 @@ char *dcngettext(const char *domainname, const char *msgid1, const char *msgid2,
 	struct binding *q;
 	int old_errno = errno;
 
+	/* match gnu gettext behaviour */
+	if (!msgid1) goto notrans;
+
 	if ((unsigned)category >= LC_ALL) goto notrans;
 
 	if (!domainname) domainname = __gettextdomain();

@@ -10,6 +10,10 @@
 #ifndef __AMMINTRIN_H
 #define __AMMINTRIN_H
 
+#if !defined(__i386__) && !defined(__x86_64__)
+#error "This header is only meant to be used on x86 and x64 architecture"
+#endif
+
 #include <pmmintrin.h>
 
 /* Define the default attributes for the functions in this file. */

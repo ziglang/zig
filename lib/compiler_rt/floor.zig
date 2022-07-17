@@ -1,12 +1,27 @@
-// Ported from musl, which is licensed under the MIT license:
-// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
-//
-// https://git.musl-libc.org/cgit/musl/tree/src/math/floorf.c
-// https://git.musl-libc.org/cgit/musl/tree/src/math/floor.c
+//! Ported from musl, which is licensed under the MIT license:
+//! https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//!
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/floorf.c
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/floor.c
 
 const std = @import("std");
+const builtin = @import("builtin");
 const math = std.math;
 const expect = std.testing.expect;
+const arch = builtin.cpu.arch;
+const common = @import("common.zig");
+
+pub const panic = common.panic;
+
+comptime {
+    @export(__floorh, .{ .name = "__floorh", .linkage = common.linkage });
+    @export(floorf, .{ .name = "floorf", .linkage = common.linkage });
+    @export(floor, .{ .name = "floor", .linkage = common.linkage });
+    @export(__floorx, .{ .name = "__floorx", .linkage = common.linkage });
+    const floorq_sym_name = if (common.want_ppc_abi) "floorf128" else "floorq";
+    @export(floorq, .{ .name = floorq_sym_name, .linkage = common.linkage });
+    @export(floorl, .{ .name = "floorl", .linkage = common.linkage });
+}
 
 pub fn __floorh(x: f16) callconv(.C) f16 {
     var u = @bitCast(u16, x);

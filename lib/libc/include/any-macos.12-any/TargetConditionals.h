@@ -73,25 +73,26 @@
  *            TARGET_OS_WATCH           - Generated code will run under Apple Watch OS
  *            TARGET_OS_BRIDGE          - Generated code will run under Bridge devices
  *            TARGET_OS_MACCATALYST     - Generated code will run under macOS
+ *         TARGET_OS_DRIVERKIT          - Generated code will run under macOS, iOS, Apple TV OS, or Apple Watch OS
  *         TARGET_OS_SIMULATOR      - Generated code will run under a simulator
  *
  *      TARGET_OS_EMBEDDED        - DEPRECATED: Use TARGET_OS_IPHONE and/or TARGET_OS_SIMULATOR instead
  *      TARGET_IPHONE_SIMULATOR   - DEPRECATED: Same as TARGET_OS_SIMULATOR
  *      TARGET_OS_NANO            - DEPRECATED: Same as TARGET_OS_WATCH
  *
- *    +---------------------------------------------------------------------+
- *    |                            TARGET_OS_MAC                            |
- *    | +---+ +-----------------------------------------------+ +---------+ |
- *    | |   | |               TARGET_OS_IPHONE                | |         | |
- *    | |   | | +---------------+ +----+ +-------+ +--------+ | |         | |
- *    | |   | | |      IOS      | |    | |       | |        | | |         | |
- *    | |OSX| | |+-------------+| | TV | | WATCH | | BRIDGE | | |DRIVERKIT| |
- *    | |   | | || MACCATALYST || |    | |       | |        | | |         | |
- *    | |   | | |+-------------+| |    | |       | |        | | |         | |
- *    | |   | | +---------------+ +----+ +-------+ +--------+ | |         | |
- *    | +---+ +-----------------------------------------------+ +---------+ |
- *    +---------------------------------------------------------------------+
- *
+ *    +---------------------------------------------------------------------------+
+ *    |                             TARGET_OS_MAC                                 |
+ *    | +-----+ +-------------------------------------------------+ +-----------+ |
+ *    | |     | |                  TARGET_OS_IPHONE               | |           | |
+ *    | |     | | +-----------------+ +----+ +-------+ +--------+ | |           | |
+ *    | |     | | |       IOS       | |    | |       | |        | | |           | |
+ *    | | OSX | | | +-------------+ | | TV | | WATCH | | BRIDGE | | | DRIVERKIT | |
+ *    | |     | | | | MACCATALYST | | |    | |       | |        | | |           | |
+ *    | |     | | | +-------------+ | |    | |       | |        | | |           | |
+ *    | |     | | +-----------------+ +----+ +-------+ +--------+ | |           | |
+ *    | +-----+ +-------------------------------------------------+ +-----------+ |
+ *    +---------------------------------------------------------------------------+
+
  *  TARGET_RT_*
  *  These conditionals specify in which runtime the generated code will
  *  run. This is needed when the OS and CPU support more than one runtime
@@ -112,13 +113,13 @@
  *      __is_target_os
  *      __is_target_environment
  *
- *  “-target=x86_64-apple-ios12-macabi”
+ *  "-target=x86_64-apple-ios12-macabi"
  *      TARGET_OS_MAC=1
  *      TARGET_OS_IPHONE=1
  *      TARGET_OS_IOS=1
  *      TARGET_OS_MACCATALYST=1
  *
- *  “-target=x86_64-apple-ios12-simulator”
+ *  "-target=x86_64-apple-ios12-simulator"
  *      TARGET_OS_MAC=1
  *      TARGET_OS_IPHONE=1
  *      TARGET_OS_IOS=1
@@ -135,9 +136,9 @@
    #if __has_builtin(__is_target_os)
     #if __has_builtin(__is_target_environment)
 
-    /* “-target=x86_64-apple-ios12-macabi” */
-    /* “-target=arm64-apple-ios12-macabi” */
-    /* “-target=arm64e-apple-ios12-macabi” */
+    /* "-target=x86_64-apple-ios12-macabi" */
+    /* "-target=arm64-apple-ios12-macabi" */
+    /* "-target=arm64e-apple-ios12-macabi" */
     #if (__is_target_arch(x86_64) || __is_target_arch(arm64) || __is_target_arch(arm64e)) && __is_target_vendor(apple) && __is_target_os(ios) && __is_target_environment(macabi)
         #define TARGET_OS_OSX               0
         #define TARGET_OS_IPHONE            1
@@ -150,6 +151,7 @@
         #define TARGET_OS_RTKIT             0
         #define TARGET_OS_MACCATALYST       1
         #define TARGET_OS_MACCATALYST            1
+
         #ifndef TARGET_OS_UIKITFORMAC
          #define TARGET_OS_UIKITFORMAC      1
         #endif
@@ -157,8 +159,10 @@
         #define DYNAMIC_TARGETS_ENABLED     1
     #endif 
 
-    /* “-target=x86_64-apple-ios12-simulator” */
-    #if __is_target_arch(x86_64) && __is_target_vendor(apple) && __is_target_os(ios) && __is_target_environment(simulator)
+    /* "-target=x86_64-apple-ios12-simulator" */
+    /* "-target=arm64-apple-ios12-simulator" */
+    /* "-target=arm64e-apple-ios12-simulator" */
+    #if (__is_target_arch(x86_64) || __is_target_arch(arm64) || __is_target_arch(arm64e)) && __is_target_vendor(apple) && __is_target_os(ios) && __is_target_environment(simulator)
         #define TARGET_OS_OSX               0
         #define TARGET_OS_IPHONE            1
         #define TARGET_OS_IOS               1
@@ -170,6 +174,7 @@
         #define TARGET_OS_RTKIT             0
         #define TARGET_OS_MACCATALYST       0
         #define TARGET_OS_MACCATALYST            0
+
         #ifndef TARGET_OS_UIKITFORMAC
          #define TARGET_OS_UIKITFORMAC      0
         #endif
@@ -177,9 +182,11 @@
         #define DYNAMIC_TARGETS_ENABLED     1
     #endif 
 
-    /* -target=x86_64-apple-driverkit19.0 */
-    /* -target=arm64-apple-driverkit19.0 */
-    /* -target=arm64e-apple-driverkit19.0 */
+
+
+    /* "-target=x86_64-apple-driverkit19.0" */
+    /* "-target=arm64-apple-driverkit19.0" */
+    /* "-target=arm64e-apple-driverkit19.0" */
     #if __is_target_vendor(apple) && __is_target_os(driverkit)
         #define TARGET_OS_OSX               0
         #define TARGET_OS_IPHONE            0
@@ -192,6 +199,7 @@
         #define TARGET_OS_RTKIT             0
         #define TARGET_OS_MACCATALYST       0
         #define TARGET_OS_MACCATALYST            0
+
         #ifndef TARGET_OS_UIKITFORMAC
          #define TARGET_OS_UIKITFORMAC      0
         #endif
@@ -229,6 +237,7 @@
         #define TARGET_OS_TV                0
         #define TARGET_OS_MACCATALYST       0
         #define TARGET_OS_MACCATALYST            0
+
         #ifndef TARGET_OS_UIKITFORMAC
          #define TARGET_OS_UIKITFORMAC      0
         #endif

@@ -16,6 +16,7 @@ extern "C" {
 
 #if defined(__OPENMP_NVPTX__)
 #define __DEVICE__
+#pragma omp begin assumes ext_spmd_amenable no_openmp
 #elif defined(__CUDA__)
 #define __DEVICE__ __device__
 #endif
@@ -456,6 +457,11 @@ __DEVICE__ double __nv_y1(double __a);
 __DEVICE__ float __nv_y1f(float __a);
 __DEVICE__ float __nv_ynf(int __a, float __b);
 __DEVICE__ double __nv_yn(int __a, double __b);
+
+#if defined(__OPENMP_NVPTX__)
+#pragma omp end assumes ext_spmd_amenable no_openmp
+#endif
+
 #if defined(__cplusplus)
 } // extern "C"
 #endif

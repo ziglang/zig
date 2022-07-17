@@ -90,7 +90,6 @@ fn letsTryToCompareBools(a: bool, b: bool) bool {
     return max(bool, a, b);
 }
 test "inlined block and runtime block phi" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try expect(letsTryToCompareBools(true, true));
@@ -390,7 +389,6 @@ test "return 0 from function that has u0 return type" {
 }
 
 test "statically initialized struct" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     st_init_str_foo.x += 1;
@@ -502,7 +500,6 @@ test "comptime shlWithOverflow" {
 }
 
 test "const ptr to variable data changes at runtime" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try expect(foo_ref.name[0] == 'a');
@@ -605,8 +602,6 @@ fn testCompTimeUIntComparisons(x: u32) void {
 const hi1 = "hi";
 const hi2 = hi1;
 test "const global shares pointer with other same one" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-
     try assertEqualPtrs(&hi1[0], &hi2[0]);
     comptime try expect(&hi1[0] == &hi2[0]);
 }
@@ -976,7 +971,6 @@ test "closure capture type of runtime-known parameter" {
 
 test "comptime break passing through runtime condition converted to runtime break" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -1061,7 +1055,6 @@ test "comptime break operand passing through runtime condition converted to runt
 test "comptime break operand passing through runtime switch converted to runtime break" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest(runtime: u8) !void {
@@ -1191,14 +1184,14 @@ test "no dependency loop for alignment of self tagged union" {
 }
 
 test "equality of pointers to comptime const" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const a: i32 = undefined;
     comptime assert(&a == &a);
 }
 
 test "storing an array of type in a field" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() void {
@@ -1222,4 +1215,49 @@ test "storing an array of type in a field" {
     };
 
     S.doTheTest();
+}
+
+test "pass pointer to field of comptime-only type as a runtime parameter" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const Mixed = struct {
+            T: type,
+            x: i32,
+        };
+        const bag: Mixed = .{
+            .T = bool,
+            .x = 1234,
+        };
+
+        var ok = false;
+
+        fn doTheTest() !void {
+            foo(&bag.x);
+            try expect(ok);
+        }
+
+        fn foo(ptr: *const i32) void {
+            ok = ptr.* == 1234;
+        }
+    };
+    try S.doTheTest();
+}
+
+test "comptime write through extern struct reinterpreted as array" {
+    comptime {
+        const S = extern struct {
+            a: u8,
+            b: u8,
+            c: u8,
+        };
+        var s: S = undefined;
+        @ptrCast(*[3]u8, &s)[0] = 1;
+        @ptrCast(*[3]u8, &s)[1] = 2;
+        @ptrCast(*[3]u8, &s)[2] = 3;
+        assert(s.a == 1);
+        assert(s.b == 2);
+        assert(s.c == 3);
+    }
 }

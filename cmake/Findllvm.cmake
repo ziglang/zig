@@ -9,43 +9,44 @@
 
 find_path(LLVM_INCLUDE_DIRS NAMES llvm/IR/IRBuilder.h
   PATHS
-    /usr/lib/llvm/13/include
-    /usr/lib/llvm-13/include
-    /usr/lib/llvm-13.0/include
-    /usr/lib/llvm13/include
-    /usr/local/llvm13/include
-    /usr/local/llvm130/include
-    /usr/local/opt/llvm@13/include
-    /opt/homebrew/opt/llvm@13/include
+    /usr/lib/llvm/14/include
+    /usr/lib/llvm-14/include
+    /usr/lib/llvm-14.0/include
+    /usr/lib/llvm14/include
+    /usr/local/llvm14/include
+    /usr/local/llvm140/include
+    /usr/local/opt/llvm@14/include
+    /opt/homebrew/opt/llvm@14/include
     /mingw64/include
 )
 
 if(ZIG_PREFER_CLANG_CPP_DYLIB)
   find_library(LLVM_LIBRARIES
     NAMES
-      LLVM-13.0
-      LLVM-13
-      LLVM-130
+      LLVM-14.0
+      LLVM-14
+      LLVM-140
       LLVM
+    NAMES_PER_DIR
     PATHS
       ${LLVM_LIBDIRS}
-      /usr/lib/llvm/13/lib
-      /usr/lib/llvm/13/lib64
-      /usr/lib/llvm-13/lib
-      /usr/lib/llvm13/lib
-      /usr/local/llvm13/lib
-      /usr/local/llvm130/lib
-      /usr/local/opt/llvm@13/lib
-      /opt/homebrew/opt/llvm@13/lib
+      /usr/lib/llvm/14/lib
+      /usr/lib/llvm/14/lib64
+      /usr/lib/llvm-14/lib
+      /usr/lib/llvm14/lib
+      /usr/local/llvm14/lib
+      /usr/local/llvm140/lib
+      /usr/local/opt/llvm@14/lib
+      /opt/homebrew/opt/llvm@14/lib
   )
 
   find_program(LLVM_CONFIG_EXE
-      NAMES llvm-config-13 llvm-config-13.0 llvm-config130 llvm-config13 llvm-config
+      NAMES llvm-config-14 llvm-config-14.0 llvm-config140 llvm-config14 llvm-config NAMES_PER_DIR
       PATHS
           "/mingw64/bin"
           "/c/msys64/mingw64/bin"
           "c:/msys64/mingw64/bin"
-          "C:/Libraries/llvm-13.0.0/bin")
+          "C:/Libraries/llvm-14.0.0/bin")
 
   if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
     message(FATAL_ERROR "unable to find llvm-config")
@@ -60,23 +61,23 @@ if(ZIG_PREFER_CLANG_CPP_DYLIB)
     OUTPUT_VARIABLE LLVM_CONFIG_VERSION
     OUTPUT_STRIP_TRAILING_WHITESPACE)
 
-  if("${LLVM_CONFIG_VERSION}" VERSION_LESS 13)
-    message(FATAL_ERROR "expected LLVM 13.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+  if("${LLVM_CONFIG_VERSION}" VERSION_LESS 14)
+    message(FATAL_ERROR "expected LLVM 14.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
   endif()
-  if("${LLVM_CONFIG_VERSION}" VERSION_EQUAL 14)
-    message(FATAL_ERROR "expected LLVM 13.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+  if("${LLVM_CONFIG_VERSION}" VERSION_EQUAL 15)
+    message(FATAL_ERROR "expected LLVM 14.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
   endif()
-  if("${LLVM_CONFIG_VERSION}" VERSION_GREATER 14)
-    message(FATAL_ERROR "expected LLVM 13.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+  if("${LLVM_CONFIG_VERSION}" VERSION_GREATER 15)
+    message(FATAL_ERROR "expected LLVM 14.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
   endif()
 elseif(ZIG_USE_LLVM_CONFIG)
   find_program(LLVM_CONFIG_EXE
-      NAMES llvm-config-13 llvm-config-13.0 llvm-config130 llvm-config13 llvm-config
+      NAMES llvm-config-14 llvm-config-14.0 llvm-config140 llvm-config14 llvm-config NAMES_PER_DIR
       PATHS
           "/mingw64/bin"
           "/c/msys64/mingw64/bin"
           "c:/msys64/mingw64/bin"
-          "C:/Libraries/llvm-13.0.0/bin")
+          "C:/Libraries/llvm-14.0.0/bin")
 
   if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
     message(FATAL_ERROR "unable to find llvm-config")
@@ -91,14 +92,14 @@ elseif(ZIG_USE_LLVM_CONFIG)
     OUTPUT_VARIABLE LLVM_CONFIG_VERSION
     OUTPUT_STRIP_TRAILING_WHITESPACE)
 
-  if("${LLVM_CONFIG_VERSION}" VERSION_LESS 13)
-    message(FATAL_ERROR "expected LLVM 13.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+  if("${LLVM_CONFIG_VERSION}" VERSION_LESS 14)
+    message(FATAL_ERROR "expected LLVM 14.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
   endif()
-  if("${LLVM_CONFIG_VERSION}" VERSION_EQUAL 14)
-    message(FATAL_ERROR "expected LLVM 13.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+  if("${LLVM_CONFIG_VERSION}" VERSION_EQUAL 15)
+    message(FATAL_ERROR "expected LLVM 14.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
   endif()
-  if("${LLVM_CONFIG_VERSION}" VERSION_GREATER 14)
-    message(FATAL_ERROR "expected LLVM 13.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+  if("${LLVM_CONFIG_VERSION}" VERSION_GREATER 15)
+    message(FATAL_ERROR "expected LLVM 14.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
   endif()
 
   execute_process(
@@ -126,6 +127,7 @@ elseif(ZIG_USE_LLVM_CONFIG)
   NEED_TARGET("RISCV")
   NEED_TARGET("Sparc")
   NEED_TARGET("SystemZ")
+  NEED_TARGET("VE")
   NEED_TARGET("WebAssembly")
   NEED_TARGET("X86")
   NEED_TARGET("XCore")
@@ -172,7 +174,7 @@ elseif(ZIG_USE_LLVM_CONFIG)
   set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_SYSTEM_LIBS})
 
   if(NOT LLVM_LIBRARIES)
-    find_library(LLVM_LIBRARIES NAMES LLVM LLVM-13 LLVM-13.0)
+    find_library(LLVM_LIBRARIES NAMES LLVM LLVM-14 LLVM-14.0 NAMES_PER_DIR)
   endif()
 
   link_directories("${CMAKE_PREFIX_PATH}/lib")
@@ -183,7 +185,7 @@ else()
 
   macro(FIND_AND_ADD_LLVM_LIB _libname_)
     string(TOUPPER ${_libname_} _prettylibname_)
-    find_library(LLVM_${_prettylibname_}_LIB NAMES ${_libname_} PATHS ${LLVM_LIBDIRS})
+    find_library(LLVM_${_prettylibname_}_LIB NAMES ${_libname_} NAMES_PER_DIR PATHS ${LLVM_LIBDIRS})
     set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_${_prettylibname_}_LIB})
   endmacro(FIND_AND_ADD_LLVM_LIB)
 
@@ -200,6 +202,7 @@ else()
   FIND_AND_ADD_LLVM_LIB(LLVMXCoreCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMXCoreDesc)
   FIND_AND_ADD_LLVM_LIB(LLVMXCoreInfo)
+  FIND_AND_ADD_LLVM_LIB(LLVMX86TargetMCA)
   FIND_AND_ADD_LLVM_LIB(LLVMX86Disassembler)
   FIND_AND_ADD_LLVM_LIB(LLVMX86AsmParser)
   FIND_AND_ADD_LLVM_LIB(LLVMX86CodeGen)
@@ -211,6 +214,11 @@ else()
   FIND_AND_ADD_LLVM_LIB(LLVMWebAssemblyDesc)
   FIND_AND_ADD_LLVM_LIB(LLVMWebAssemblyUtils)
   FIND_AND_ADD_LLVM_LIB(LLVMWebAssemblyInfo)
+  FIND_AND_ADD_LLVM_LIB(LLVMVEDisassembler)
+  FIND_AND_ADD_LLVM_LIB(LLVMVEAsmParser)
+  FIND_AND_ADD_LLVM_LIB(LLVMVECodeGen)
+  FIND_AND_ADD_LLVM_LIB(LLVMVEDesc)
+  FIND_AND_ADD_LLVM_LIB(LLVMVEInfo)
   FIND_AND_ADD_LLVM_LIB(LLVMSystemZDisassembler)
   FIND_AND_ADD_LLVM_LIB(LLVMSystemZAsmParser)
   FIND_AND_ADD_LLVM_LIB(LLVMSystemZCodeGen)
@@ -270,6 +278,7 @@ else()
   FIND_AND_ADD_LLVM_LIB(LLVMARMDesc)
   FIND_AND_ADD_LLVM_LIB(LLVMARMUtils)
   FIND_AND_ADD_LLVM_LIB(LLVMARMInfo)
+  FIND_AND_ADD_LLVM_LIB(LLVMAMDGPUTargetMCA)
   FIND_AND_ADD_LLVM_LIB(LLVMAMDGPUDisassembler)
   FIND_AND_ADD_LLVM_LIB(LLVMAMDGPUAsmParser)
   FIND_AND_ADD_LLVM_LIB(LLVMAMDGPUCodeGen)
@@ -315,7 +324,6 @@ else()
   FIND_AND_ADD_LLVM_LIB(LLVMMIRParser)
   FIND_AND_ADD_LLVM_LIB(LLVMAsmPrinter)
   FIND_AND_ADD_LLVM_LIB(LLVMDebugInfoMSF)
-  FIND_AND_ADD_LLVM_LIB(LLVMDebugInfoDWARF)
   FIND_AND_ADD_LLVM_LIB(LLVMSelectionDAG)
   FIND_AND_ADD_LLVM_LIB(LLVMCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMIRReader)
@@ -331,6 +339,7 @@ else()
   FIND_AND_ADD_LLVM_LIB(LLVMBitWriter)
   FIND_AND_ADD_LLVM_LIB(LLVMAnalysis)
   FIND_AND_ADD_LLVM_LIB(LLVMProfileData)
+  FIND_AND_ADD_LLVM_LIB(LLVMDebugInfoDWARF)
   FIND_AND_ADD_LLVM_LIB(LLVMObject)
   FIND_AND_ADD_LLVM_LIB(LLVMTextAPI)
   FIND_AND_ADD_LLVM_LIB(LLVMMCParser)

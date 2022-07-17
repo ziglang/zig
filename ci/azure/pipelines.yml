@@ -1,7 +1,7 @@
 jobs:
 - job: BuildMacOS
   pool:
-    vmImage: 'macOS-10.15'
+    vmImage: 'macOS-11'
   timeoutInMinutes: 360
   steps:
   - task: DownloadSecureFile@1
@@ -12,7 +12,7 @@ jobs:
     displayName: 'Build and test'
 - job: BuildMacOS_arm64
   pool:
-    vmImage: 'macOS-10.15'
+    vmImage: 'macOS-11'
   timeoutInMinutes: 180
   steps:
   - task: DownloadSecureFile@1
@@ -27,7 +27,7 @@ jobs:
     vmImage: 'windows-2019'
   variables:
     TARGET: 'x86_64-windows-gnu'
-    ZIG_LLVM_CLANG_LLD_NAME: 'zig+llvm+lld+clang-${{ variables.TARGET }}-0.9.1'
+    ZIG_LLVM_CLANG_LLD_NAME: 'zig+llvm+lld+clang-${{ variables.TARGET }}-0.10.0-dev.2931+bdf3fa12f'
     ZIG_LLVM_CLANG_LLD_URL: 'https://ziglang.org/deps/${{ variables.ZIG_LLVM_CLANG_LLD_NAME }}.zip'
   steps:
   - pwsh: |

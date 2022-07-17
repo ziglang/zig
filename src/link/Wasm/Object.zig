@@ -68,7 +68,7 @@ string_table: Wasm.StringTable = .{},
 const RelocatableData = struct {
     /// The type of the relocatable data
     type: enum { data, code, custom },
-    /// Pointer to the data of the segment, where it's length is written to `size`
+    /// Pointer to the data of the segment, where its length is written to `size`
     data: [*]u8,
     /// The size in bytes of the data representing the segment within the section
     size: u32,
@@ -105,10 +105,10 @@ pub const InitError = error{NotObjectFile} || ParseError || std.fs.File.ReadErro
 
 /// Initializes a new `Object` from a wasm object file.
 /// This also parses and verifies the object file.
-pub fn create(gpa: Allocator, file: std.fs.File, path: []const u8) InitError!Object {
+pub fn create(gpa: Allocator, file: std.fs.File, name: []const u8) InitError!Object {
     var object: Object = .{
         .file = file,
-        .name = path,
+        .name = try gpa.dupe(u8, name),
     };
 
     var is_object_file: bool = false;
@@ -154,6 +154,7 @@ pub fn deinit(self: *Object, gpa: Allocator) void {
     }
     gpa.free(self.relocatable_data);
     self.string_table.deinit(gpa);
+    gpa.free(self.name);
     self.* = undefined;
 }
 
@@ -302,12 +303,16 @@ fn Parser(comptime ReaderType: type) type {
         }
 
         fn parseObject(self: *Self, gpa: Allocator, is_object_file: *bool) Error!void {
+            errdefer self.object.deinit(gpa);
             try self.verifyMagicBytes();
             const version = try self.reader.reader().readIntLittle(u32);
 
             self.object.version = version;
             var relocatable_data = std.ArrayList(RelocatableData).init(gpa);
-            defer relocatable_data.deinit();
+
+            errdefer while (relocatable_data.popOrNull()) |rel_data| {
+                gpa.free(rel_data.data[0..rel_data.size]);
+            } else relocatable_data.deinit();
 
             var section_index: u32 = 0;
             while (self.reader.reader().readByte()) |byte| : (section_index += 1) {
@@ -808,26 +813,31 @@ pub fn parseIntoAtoms(self: *Object, gpa: Allocator, object_index: u16, wasm_bin
         kind: Symbol.Tag,
         index: u32,
     };
-    var symbol_for_segment = std.AutoArrayHashMap(Key, u32).init(gpa);
-    defer symbol_for_segment.deinit();
+    var symbol_for_segment = std.AutoArrayHashMap(Key, std.ArrayList(u32)).init(gpa);
+    defer for (symbol_for_segment.values()) |*list| {
+        list.deinit();
+    } else symbol_for_segment.deinit();
 
     for (self.symtable) |symbol, symbol_index| {
         switch (symbol.tag) {
             .function, .data => if (!symbol.isUndefined()) {
-                try symbol_for_segment.putNoClobber(
-                    .{ .kind = symbol.tag, .index = symbol.index },
-                    @intCast(u32, symbol_index),
-                );
+                const gop = try symbol_for_segment.getOrPut(.{ .kind = symbol.tag, .index = symbol.index });
+                const sym_idx = @intCast(u32, symbol_index);
+                if (!gop.found_existing) {
+                    gop.value_ptr.* = std.ArrayList(u32).init(gpa);
+                }
+                try gop.value_ptr.*.append(sym_idx);
             },
             else => continue,
         }
     }
 
     for (self.relocatable_data) |relocatable_data, index| {
-        const sym_index = symbol_for_segment.get(.{
+        const symbols = symbol_for_segment.getPtr(.{
             .kind = relocatable_data.getSymbolKind(),
             .index = @intCast(u32, relocatable_data.index),
         }) orelse continue; // encountered a segment we do not create an atom for
+        const sym_index = symbols.pop();
         const final_index = try wasm_bin.getMatchingSegment(object_index, @intCast(u32, index));
 
         const atom = try gpa.create(Atom);
@@ -862,6 +872,16 @@ pub fn parseIntoAtoms(self: *Object, gpa: Allocator, object_index: u16, wasm_bin
         }
 
         try atom.code.appendSlice(gpa, relocatable_data.data[0..relocatable_data.size]);
+
+        // symbols referencing the same atom will be added as alias
+        // or as 'parent' when they are global.
+        while (symbols.popOrNull()) |idx| {
+            const alias_symbol = self.symtable[idx];
+            const symbol = self.symtable[atom.sym_index];
+            if (alias_symbol.isGlobal() and symbol.isLocal()) {
+                atom.sym_index = idx;
+            }
+        }
         try wasm_bin.symbol_atom.putNoClobber(gpa, atom.symbolLoc(), atom);
 
         const segment: *Wasm.Segment = &wasm_bin.segments.items[final_index];

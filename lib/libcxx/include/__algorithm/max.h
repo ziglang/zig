@@ -9,9 +9,10 @@
 #ifndef _LIBCPP___ALGORITHM_MAX_H
 #define _LIBCPP___ALGORITHM_MAX_H
 
-#include <__config>
 #include <__algorithm/comp.h>
+#include <__algorithm/comp_ref_type.h>
 #include <__algorithm/max_element.h>
+#include <__config>
 #include <initializer_list>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -49,7 +50,8 @@ _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
 _Tp
 max(initializer_list<_Tp> __t, _Compare __comp)
 {
-    return *_VSTD::max_element(__t.begin(), __t.end(), __comp);
+    typedef typename __comp_ref_type<_Compare>::type _Comp_ref;
+    return *_VSTD::__max_element<_Comp_ref>(__t.begin(), __t.end(), __comp);
 }
 
 template<class _Tp>

@@ -169,7 +169,7 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .@"test" => try emit.mirTest(inst),
 
             .interrupt => try emit.mirInterrupt(inst),
-            .nop => try emit.mirNop(),
+            .nop => {}, // just skip it
 
             // SSE instructions
             .mov_f64_sse => try emit.mirMovFloatSse(.movsd, inst),
@@ -198,8 +198,8 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .dbg_prologue_end => try emit.mirDbgPrologueEnd(inst),
             .dbg_epilogue_begin => try emit.mirDbgEpilogueBegin(inst),
 
-            .push_regs_from_callee_preserved_regs => try emit.mirPushPopRegsFromCalleePreservedRegs(.push, inst),
-            .pop_regs_from_callee_preserved_regs => try emit.mirPushPopRegsFromCalleePreservedRegs(.pop, inst),
+            .push_regs => try emit.mirPushPopRegisterList(.push, inst),
+            .pop_regs => try emit.mirPushPopRegisterList(.pop, inst),
 
             else => {
                 return emit.fail("Implement MIR->Emit lowering for x86_64 for pseudo-inst: {s}", .{tag});
@@ -246,10 +246,6 @@ fn mirInterrupt(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     }
 }
 
-fn mirNop(emit: *Emit) InnerError!void {
-    return lowerToZoEnc(.nop, emit.code);
-}
-
 fn mirSyscall(emit: *Emit) InnerError!void {
     return lowerToZoEnc(.syscall, emit.code);
 }
@@ -283,26 +279,27 @@ fn mirPushPop(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     }
 }
 
-fn mirPushPopRegsFromCalleePreservedRegs(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
+fn mirPushPopRegisterList(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = emit.mir.instructions.items(.ops)[inst].decode();
     const payload = emit.mir.instructions.items(.data)[inst].payload;
-    const data = emit.mir.extraData(Mir.RegsToPushOrPop, payload).data;
-    const regs = data.regs;
-    var disp: u32 = data.disp + 8;
-    for (abi.callee_preserved_regs) |reg, i| {
-        if ((regs >> @intCast(u5, i)) & 1 == 0) continue;
-        if (tag == .push) {
-            try lowerToMrEnc(.mov, RegisterOrMemory.mem(.qword_ptr, .{
-                .disp = @bitCast(u32, -@intCast(i32, disp)),
-                .base = ops.reg1,
-            }), reg.to64(), emit.code);
-        } else {
-            try lowerToRmEnc(.mov, reg.to64(), RegisterOrMemory.mem(.qword_ptr, .{
-                .disp = @bitCast(u32, -@intCast(i32, disp)),
-                .base = ops.reg1,
-            }), emit.code);
+    const save_reg_list = emit.mir.extraData(Mir.SaveRegisterList, payload).data;
+    const reg_list = Mir.RegisterList(Register, &abi.callee_preserved_regs).fromInt(save_reg_list.register_list);
+    var disp: i32 = -@intCast(i32, save_reg_list.stack_end);
+    inline for (abi.callee_preserved_regs) |reg| {
+        if (reg_list.isSet(reg)) {
+            switch (tag) {
+                .push => try lowerToMrEnc(.mov, RegisterOrMemory.mem(.qword_ptr, .{
+                    .disp = @bitCast(u32, disp),
+                    .base = ops.reg1,
+                }), reg, emit.code),
+                .pop => try lowerToRmEnc(.mov, reg, RegisterOrMemory.mem(.qword_ptr, .{
+                    .disp = @bitCast(u32, disp),
+                    .base = ops.reg1,
+                }), emit.code),
+                else => unreachable,
+            }
+            disp += 8;
         }
-        disp += 8;
     }
 }
 

@@ -1,17 +1,33 @@
-// Ported from musl, which is licensed under the MIT license:
-// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
-//
-// https://git.musl-libc.org/cgit/musl/tree/src/math/tanf.c
-// https://git.musl-libc.org/cgit/musl/tree/src/math/tan.c
-// https://golang.org/src/math/tan.go
+//! Ported from musl, which is licensed under the MIT license:
+//! https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//!
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/tanf.c
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/tan.c
+//! https://golang.org/src/math/tan.go
 
 const std = @import("std");
+const builtin = @import("builtin");
 const math = std.math;
 const expect = std.testing.expect;
 
 const kernel = @import("trig.zig");
 const rem_pio2 = @import("rem_pio2.zig").rem_pio2;
 const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;
+
+const arch = builtin.cpu.arch;
+const common = @import("common.zig");
+
+pub const panic = common.panic;
+
+comptime {
+    @export(__tanh, .{ .name = "__tanh", .linkage = common.linkage });
+    @export(tanf, .{ .name = "tanf", .linkage = common.linkage });
+    @export(tan, .{ .name = "tan", .linkage = common.linkage });
+    @export(__tanx, .{ .name = "__tanx", .linkage = common.linkage });
+    const tanq_sym_name = if (common.want_ppc_abi) "tanf128" else "tanq";
+    @export(tanq, .{ .name = tanq_sym_name, .linkage = common.linkage });
+    @export(tanl, .{ .name = "tanl", .linkage = common.linkage });
+}
 
 pub fn __tanh(x: f16) callconv(.C) f16 {
     // TODO: more efficient implementation

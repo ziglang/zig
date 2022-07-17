@@ -4,10 +4,10 @@ set -x
 set -e
 
 sudo pkg update -fq
-sudo pkg install -y cmake py38-s3cmd wget curl jq samurai
+sudo pkg install -y cmake py39-s3cmd wget curl jq samurai
 
 ZIGDIR="$(pwd)"
-CACHE_BASENAME="zig+llvm+lld+clang-x86_64-freebsd-gnu-0.9.1"
+CACHE_BASENAME="zig+llvm+lld+clang-x86_64-freebsd-gnu-0.10.0-dev.2931+bdf3fa12f"
 PREFIX="$HOME/$CACHE_BASENAME"
 
 cd $HOME

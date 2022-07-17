@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===------------------------------ variant -------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -233,10 +233,7 @@ public:
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-// TODO: GCC 5 lies about its support for C++17 (it says it supports it but it
-//       really doesn't). That breaks variant, which uses some C++17 features.
-//       Remove this once we drop support for GCC 5.
-#if _LIBCPP_STD_VER > 14 && !(defined(_LIBCPP_COMPILER_GCC) && _GNUC_VER_NEW < 6000)
+#if _LIBCPP_STD_VER > 14
 
 // Light N-dimensional array of function pointers. Used in place of std::array to avoid
 // adding a dependency.
@@ -269,7 +266,7 @@ template <class _Tp>
 struct _LIBCPP_TEMPLATE_VIS variant_size;
 
 template <class _Tp>
-_LIBCPP_INLINE_VAR constexpr size_t variant_size_v = variant_size<_Tp>::value;
+inline constexpr size_t variant_size_v = variant_size<_Tp>::value;
 
 template <class _Tp>
 struct _LIBCPP_TEMPLATE_VIS variant_size<const _Tp> : variant_size<_Tp> {};
@@ -309,7 +306,7 @@ struct _LIBCPP_TEMPLATE_VIS variant_alternative<_Ip, variant<_Types...>> {
   using type = __type_pack_element<_Ip, _Types...>;
 };
 
-_LIBCPP_INLINE_VAR constexpr size_t variant_npos = static_cast<size_t>(-1);
+inline constexpr size_t variant_npos = static_cast<size_t>(-1);
 
 constexpr int __choose_index_type(unsigned int __num_elem) {
   if (__num_elem < numeric_limits<unsigned char>::max())
@@ -552,7 +549,7 @@ private:
   inline _LIBCPP_INLINE_VISIBILITY
   static constexpr auto __make_fdiagonal_impl() {
     return __make_dispatch<_Fp, _Vs...>(
-        index_sequence<(__identity<_Vs>{}, _Ip)...>{});
+        index_sequence<((void)__identity<_Vs>{}, _Ip)...>{});
   }
 
   template <class _Fp, class... _Vs, size_t... _Is>
@@ -1196,11 +1193,11 @@ struct __narrowing_check {
   template <class _Dest>
   static auto __test_impl(_Dest (&&)[1]) -> __identity<_Dest>;
   template <class _Dest, class _Source>
-  using _Apply _LIBCPP_NODEBUG_TYPE = decltype(__test_impl<_Dest>({declval<_Source>()}));
+  using _Apply _LIBCPP_NODEBUG = decltype(__test_impl<_Dest>({declval<_Source>()}));
 };
 
 template <class _Dest, class _Source>
-using __check_for_narrowing _LIBCPP_NODEBUG_TYPE =
+using __check_for_narrowing _LIBCPP_NODEBUG =
   typename _If<
 #ifdef _LIBCPP_ENABLE_NARROWING_CONVERSIONS_IN_VARIANT
     false &&
@@ -1244,18 +1241,18 @@ struct __make_overloads_imp;
 template <size_t ..._Idx>
 struct __make_overloads_imp<__tuple_indices<_Idx...> > {
   template <class ..._Types>
-  using _Apply _LIBCPP_NODEBUG_TYPE = __all_overloads<__overload<_Types, _Idx>...>;
+  using _Apply _LIBCPP_NODEBUG = __all_overloads<__overload<_Types, _Idx>...>;
 };
 
 template <class ..._Types>
-using _MakeOverloads _LIBCPP_NODEBUG_TYPE = typename __make_overloads_imp<
+using _MakeOverloads _LIBCPP_NODEBUG = typename __make_overloads_imp<
     __make_indices_imp<sizeof...(_Types), 0> >::template _Apply<_Types...>;
 
 template <class _Tp, class... _Types>
 using __best_match_t =
     typename invoke_result_t<_MakeOverloads<_Types...>, _Tp, _Tp>::type;
 
-} // __variant_detail
+} // namespace __variant_detail
 
 template <class... _Types>
 class _LIBCPP_TEMPLATE_VIS variant
@@ -1718,11 +1715,10 @@ inline _LIBCPP_INLINE_VISIBILITY
 
 template <class... _Types>
 inline _LIBCPP_INLINE_VISIBILITY
-auto swap(variant<_Types...>& __lhs,
-          variant<_Types...>& __rhs) noexcept(noexcept(__lhs.swap(__rhs)))
-    -> decltype(__lhs.swap(__rhs)) {
-  __lhs.swap(__rhs);
-}
+auto swap(variant<_Types...>& __lhs, variant<_Types...>& __rhs)
+  noexcept(noexcept(__lhs.swap(__rhs)))
+  -> decltype(      __lhs.swap(__rhs))
+  { return          __lhs.swap(__rhs); }
 
 template <class... _Types>
 struct _LIBCPP_TEMPLATE_VIS hash<

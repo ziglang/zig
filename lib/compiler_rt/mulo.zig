@@ -1,6 +1,15 @@
-const builtin = @import("builtin");
 const std = @import("std");
+const builtin = @import("builtin");
 const math = std.math;
+const common = @import("common.zig");
+
+pub const panic = common.panic;
+
+comptime {
+    @export(__mulosi4, .{ .name = "__mulosi4", .linkage = common.linkage });
+    @export(__mulodi4, .{ .name = "__mulodi4", .linkage = common.linkage });
+    @export(__muloti4, .{ .name = "__muloti4", .linkage = common.linkage });
+}
 
 // mulo - multiplication overflow
 // * return a*%b.
@@ -9,7 +18,6 @@ const math = std.math;
 // - muloXi4_genericFast for 2*bitsize <= usize
 
 inline fn muloXi4_genericSmall(comptime ST: type, a: ST, b: ST, overflow: *c_int) ST {
-    @setRuntimeSafety(builtin.is_test);
     overflow.* = 0;
     const min = math.minInt(ST);
     var res: ST = a *% b;
@@ -24,7 +32,6 @@ inline fn muloXi4_genericSmall(comptime ST: type, a: ST, b: ST, overflow: *c_int
 }
 
 inline fn muloXi4_genericFast(comptime ST: type, a: ST, b: ST, overflow: *c_int) ST {
-    @setRuntimeSafety(builtin.is_test);
     overflow.* = 0;
     const EST = switch (ST) {
         i32 => i64,
@@ -58,6 +65,15 @@ pub fn __mulodi4(a: i64, b: i64, overflow: *c_int) callconv(.C) i64 {
 }
 
 pub fn __muloti4(a: i128, b: i128, overflow: *c_int) callconv(.C) i128 {
+    switch (builtin.zig_backend) {
+        .stage1, .stage2_llvm => {
+            // Workaround for https://github.com/llvm/llvm-project/issues/56403
+            // When we call the genericSmall implementation instead, LLVM optimizer
+            // optimizes __muloti4 to a call to itself.
+            return muloXi4_genericFast(i128, a, b, overflow);
+        },
+        else => {},
+    }
     if (2 * @bitSizeOf(i128) <= @bitSizeOf(usize)) {
         return muloXi4_genericFast(i128, a, b, overflow);
     } else {

@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===-------------------------- functional --------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -86,16 +86,15 @@ inline namespace fundamentals_v1 {
 
 */
 
+#include <__debug>
 #include <__memory/uses_allocator.h>
+#include <algorithm>
+#include <array>
 #include <experimental/__config>
 #include <functional>
-#include <algorithm>
 #include <type_traits>
-#include <vector>
-#include <array>
 #include <unordered_map>
-
-#include <__debug>
+#include <vector>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -103,7 +102,6 @@ inline namespace fundamentals_v1 {
 
 _LIBCPP_PUSH_MACROS
 #include <__undef_macros>
-
 
 _LIBCPP_BEGIN_NAMESPACE_LFTS
 

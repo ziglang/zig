@@ -49,9 +49,10 @@ typedef function_table_entry   *function_table_t;
 #endif /* AUTOTEST */
 
 #ifndef	task_MSG_COUNT
-#define	task_MSG_COUNT	61
+#define	task_MSG_COUNT	63
 #endif	/* task_MSG_COUNT */
 
+#include <Availability.h>
 #include <mach/std_types.h>
 #include <mach/mig.h>
 #include <mach/mig.h>
@@ -111,8 +112,7 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
-__WATCHOS_PROHIBITED
-__TVOS_PROHIBITED
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
 kern_return_t mach_ports_register
 (
 	task_t target_task,
@@ -126,8 +126,7 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
-__WATCHOS_PROHIBITED
-__TVOS_PROHIBITED
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
 kern_return_t mach_ports_lookup
 (
 	task_t target_task,
@@ -155,8 +154,7 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
-__WATCHOS_PROHIBITED
-__TVOS_PROHIBITED
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
 kern_return_t task_set_info
 (
 	task_t target_task,
@@ -171,8 +169,7 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
-__WATCHOS_PROHIBITED
-__TVOS_PROHIBITED
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
 kern_return_t task_suspend
 (
 	task_read_t target_task
@@ -184,8 +181,7 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
-__WATCHOS_PROHIBITED
-__TVOS_PROHIBITED
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
 kern_return_t task_resume
 (
 	task_read_t target_task
@@ -197,8 +193,7 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
-__WATCHOS_PROHIBITED
-__TVOS_PROHIBITED
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
 kern_return_t task_get_special_port
 (
 	task_inspect_t task,
@@ -212,8 +207,7 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
-__WATCHOS_PROHIBITED
-__TVOS_PROHIBITED
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
 kern_return_t task_set_special_port
 (
 	task_t task,
@@ -227,8 +221,7 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
-__WATCHOS_PROHIBITED
-__TVOS_PROHIBITED
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
 kern_return_t thread_create
 (
 	task_t parent_task,
@@ -241,8 +234,7 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
-__WATCHOS_PROHIBITED
-__TVOS_PROHIBITED
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
 kern_return_t thread_create_running
 (
 	task_t parent_task,
@@ -258,8 +250,7 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
-__WATCHOS_PROHIBITED
-__TVOS_PROHIBITED
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
 kern_return_t task_set_exception_ports
 (
 	task_t task,
@@ -275,8 +266,7 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
-__WATCHOS_PROHIBITED
-__TVOS_PROHIBITED
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
 kern_return_t task_get_exception_ports
 (
 	task_t task,
@@ -294,8 +284,7 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
-__WATCHOS_PROHIBITED
-__TVOS_PROHIBITED
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
 kern_return_t task_swap_exception_ports
 (
 	task_t task,
@@ -368,8 +357,7 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
-__WATCHOS_PROHIBITED
-__TVOS_PROHIBITED
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
 kern_return_t task_policy_set
 (
 	task_policy_set_t task,
@@ -384,8 +372,7 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
-__WATCHOS_PROHIBITED
-__TVOS_PROHIBITED
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
 kern_return_t task_policy_get
 (
 	task_policy_get_t task,
@@ -483,8 +470,7 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
-__WATCHOS_PROHIBITED
-__TVOS_PROHIBITED
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
 kern_return_t task_zone_info
 (
 	task_inspect_t target_task,
@@ -555,8 +541,7 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
-__WATCHOS_PROHIBITED
-__TVOS_PROHIBITED
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
 kern_return_t task_get_state
 (
 	task_read_t task,
@@ -571,8 +556,7 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
-__WATCHOS_PROHIBITED
-__TVOS_PROHIBITED
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
 kern_return_t task_set_state
 (
 	task_t task,
@@ -587,8 +571,7 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
-__WATCHOS_PROHIBITED
-__TVOS_PROHIBITED
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
 kern_return_t task_set_phys_footprint_limit
 (
 	task_t task,
@@ -602,8 +585,7 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
-__WATCHOS_PROHIBITED
-__TVOS_PROHIBITED
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
 kern_return_t task_suspend2
 (
 	task_read_t target_task,
@@ -616,8 +598,7 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
-__WATCHOS_PROHIBITED
-__TVOS_PROHIBITED
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
 kern_return_t task_resume2
 (
 	task_suspension_token_t suspend_token
@@ -641,8 +622,7 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
-__WATCHOS_PROHIBITED
-__TVOS_PROHIBITED
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
 kern_return_t task_get_mach_voucher
 (
 	task_read_t task,
@@ -656,8 +636,7 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
-__WATCHOS_PROHIBITED
-__TVOS_PROHIBITED
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
 kern_return_t task_set_mach_voucher
 (
 	task_t task,
@@ -670,8 +649,7 @@ mig_external
 #else
 extern
 #endif	/* mig_external */
-__WATCHOS_PROHIBITED
-__TVOS_PROHIBITED
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
 kern_return_t task_swap_mach_voucher
 (
 	task_t task,
@@ -912,6 +890,30 @@ kern_return_t task_get_exception_ports_info
 	exception_handler_info_array_t old_handlers_info,
 	exception_behavior_array_t old_behaviors,
 	exception_flavor_array_t old_flavors
+);
+
+/* Routine task_test_sync_upcall */
+#ifdef	mig_external
+mig_external
+#else
+extern
+#endif	/* mig_external */
+kern_return_t task_test_sync_upcall
+(
+	task_t task,
+	mach_port_t port
+);
+
+/* Routine task_set_corpse_forking_behavior */
+#ifdef	mig_external
+mig_external
+#else
+extern
+#endif	/* mig_external */
+kern_return_t task_set_corpse_forking_behavior
+(
+	task_t task,
+	task_corpse_forking_behavior_t behavior
 );
 
 __END_DECLS
@@ -1712,6 +1714,32 @@ __END_DECLS
 #ifdef  __MigPackStructs
 #pragma pack(pop)
 #endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		/* start of the kernel processed data */
+		mach_msg_body_t msgh_body;
+		mach_msg_port_descriptor_t port;
+		/* end of the kernel processed data */
+	} __Request__task_test_sync_upcall_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		NDR_record_t NDR;
+		task_corpse_forking_behavior_t behavior;
+	} __Request__task_set_corpse_forking_behavior_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
 #endif /* !__Request__task_subsystem__defined */
 
 /* union of all requests */
@@ -1779,6 +1807,8 @@ union __RequestUnion__task_subsystem {
 	__Request__task_identity_token_get_task_port_t Request_task_identity_token_get_task_port;
 	__Request__task_dyld_process_info_notify_deregister_t Request_task_dyld_process_info_notify_deregister;
 	__Request__task_get_exception_ports_info_t Request_task_get_exception_ports_info;
+	__Request__task_test_sync_upcall_t Request_task_test_sync_upcall;
+	__Request__task_set_corpse_forking_behavior_t Request_task_set_corpse_forking_behavior;
 };
 #endif /* !__RequestUnion__task_subsystem__defined */
 /* typedefs for all replies */
@@ -2592,6 +2622,30 @@ union __RequestUnion__task_subsystem {
 #ifdef  __MigPackStructs
 #pragma pack(pop)
 #endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		NDR_record_t NDR;
+		kern_return_t RetCode;
+	} __Reply__task_test_sync_upcall_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		NDR_record_t NDR;
+		kern_return_t RetCode;
+	} __Reply__task_set_corpse_forking_behavior_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
 #endif /* !__Reply__task_subsystem__defined */
 
 /* union of all replies */
@@ -2659,6 +2713,8 @@ union __ReplyUnion__task_subsystem {
 	__Reply__task_identity_token_get_task_port_t Reply_task_identity_token_get_task_port;
 	__Reply__task_dyld_process_info_notify_deregister_t Reply_task_dyld_process_info_notify_deregister;
 	__Reply__task_get_exception_ports_info_t Reply_task_get_exception_ports_info;
+	__Reply__task_test_sync_upcall_t Reply_task_test_sync_upcall;
+	__Reply__task_set_corpse_forking_behavior_t Reply_task_set_corpse_forking_behavior;
 };
 #endif /* !__RequestUnion__task_subsystem__defined */
 
@@ -2723,7 +2779,9 @@ union __ReplyUnion__task_subsystem {
     { "task_create_identity_token", 3457 },\
     { "task_identity_token_get_task_port", 3458 },\
     { "task_dyld_process_info_notify_deregister", 3459 },\
-    { "task_get_exception_ports_info", 3460 }
+    { "task_get_exception_ports_info", 3460 },\
+    { "task_test_sync_upcall", 3461 },\
+    { "task_set_corpse_forking_behavior", 3462 }
 #endif
 
 #ifdef __AfterMigUserHeader

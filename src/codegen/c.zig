@@ -225,9 +225,6 @@ fn formatIdent(
 }
 
 pub fn fmtIdent(ident: []const u8) std.fmt.Formatter(formatIdent) {
-    if (builtin.zig_backend != .stage1) {
-        @panic("TODO");
-    }
     return .{ .data = ident };
 }
 
@@ -363,7 +360,7 @@ pub const DeclGen = struct {
 
     fn fail(dg: *DeclGen, comptime format: []const u8, args: anytype) error{ AnalysisFail, OutOfMemory } {
         @setCold(true);
-        const src: LazySrcLoc = .{ .node_offset = 0 };
+        const src = LazySrcLoc.nodeOffset(0);
         const src_loc = src.toSrcLoc(dg.decl);
         dg.error_msg = try Module.ErrorMsg.create(dg.module.gpa, src_loc, format, args);
         return error.AnalysisFail;
@@ -751,12 +748,6 @@ pub const DeclGen = struct {
             .ErrorUnion => {
                 const error_type = ty.errorUnionSet();
                 const payload_type = ty.errorUnionPayload();
-
-                if (error_type.errorSetCardinality() == .zero) {
-                    // We use the payload directly as the type.
-                    const payload_val = val.castTag(.eu_payload).?.data;
-                    return dg.renderValue(writer, payload_type, payload_val, location);
-                }
 
                 if (!payload_type.hasRuntimeBits()) {
                     // We use the error type directly as the type.
@@ -1381,12 +1372,7 @@ pub const DeclGen = struct {
                 return w.writeAll("uint16_t");
             },
             .ErrorUnion => {
-                const error_ty = t.errorUnionSet();
                 const payload_ty = t.errorUnionPayload();
-
-                if (error_ty.errorSetCardinality() == .zero) {
-                    return dg.renderType(w, payload_ty);
-                }
 
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
                     return dg.renderType(w, Type.anyerror);
@@ -1769,6 +1755,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .mul_sat => try airSatOp(f, inst, "muls_"),
             .shl_sat => try airSatOp(f, inst, "shls_"),
 
+            .neg => try airNeg(f, inst),
+
             .sqrt,
             .sin,
             .cos,
@@ -1874,6 +1862,9 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .aggregate_init   => try airAggregateInit(f, inst),
             .union_init       => try airUnionInit(f, inst),
             .prefetch         => try airPrefetch(f, inst),
+
+            .@"try"  => try airTry(f, inst),
+            .try_ptr => try airTryPtr(f, inst),
 
             .dbg_var_ptr,
             .dbg_var_val,
@@ -2861,6 +2852,86 @@ fn airBlock(f: *Function, inst: Air.Inst.Index) !CValue {
     return result;
 }
 
+fn airTry(f: *Function, inst: Air.Inst.Index) !CValue {
+    const pl_op = f.air.instructions.items(.data)[inst].pl_op;
+    const err_union = try f.resolveInst(pl_op.operand);
+    const extra = f.air.extraData(Air.Try, pl_op.payload);
+    const body = f.air.extra[extra.end..][0..extra.data.body_len];
+    const err_union_ty = f.air.typeOf(pl_op.operand);
+    const result_ty = f.air.typeOfIndex(inst);
+    return lowerTry(f, err_union, body, err_union_ty, false, result_ty);
+}
+
+fn airTryPtr(f: *Function, inst: Air.Inst.Index) !CValue {
+    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const extra = f.air.extraData(Air.TryPtr, ty_pl.payload);
+    const err_union_ptr = try f.resolveInst(extra.data.ptr);
+    const body = f.air.extra[extra.end..][0..extra.data.body_len];
+    const err_union_ty = f.air.typeOf(extra.data.ptr).childType();
+    const result_ty = f.air.typeOfIndex(inst);
+    return lowerTry(f, err_union_ptr, body, err_union_ty, true, result_ty);
+}
+
+fn lowerTry(
+    f: *Function,
+    err_union: CValue,
+    body: []const Air.Inst.Index,
+    err_union_ty: Type,
+    operand_is_ptr: bool,
+    result_ty: Type,
+) !CValue {
+    const writer = f.object.writer();
+    const payload_ty = err_union_ty.errorUnionPayload();
+    const payload_has_bits = payload_ty.hasRuntimeBitsIgnoreComptime();
+
+    if (!err_union_ty.errorUnionSet().errorSetIsEmpty()) {
+        err: {
+            if (!payload_has_bits) {
+                if (operand_is_ptr) {
+                    try writer.writeAll("if(*");
+                } else {
+                    try writer.writeAll("if(");
+                }
+                try f.writeCValue(writer, err_union);
+                try writer.writeAll(")");
+                break :err;
+            }
+            if (operand_is_ptr or isByRef(err_union_ty)) {
+                try writer.writeAll("if(");
+                try f.writeCValue(writer, err_union);
+                try writer.writeAll("->error)");
+                break :err;
+            }
+            try writer.writeAll("if(");
+            try f.writeCValue(writer, err_union);
+            try writer.writeAll(".error)");
+        }
+
+        try genBody(f, body);
+        try f.object.indent_writer.insertNewline();
+    }
+
+    if (!payload_has_bits) {
+        if (!operand_is_ptr) {
+            return CValue.none;
+        } else {
+            return err_union;
+        }
+    }
+
+    const local = try f.allocLocal(result_ty, .Const);
+    if (operand_is_ptr or isByRef(payload_ty)) {
+        try writer.writeAll(" = &");
+        try f.writeCValue(writer, err_union);
+        try writer.writeAll("->payload;\n");
+    } else {
+        try writer.writeAll(" = ");
+        try f.writeCValue(writer, err_union);
+        try writer.writeAll(".payload;\n");
+    }
+    return local;
+}
+
 fn airBr(f: *Function, inst: Air.Inst.Index) !CValue {
     const branch = f.air.instructions.items(.data)[inst].br;
     const block = f.blocks.get(branch.block_inst).?;
@@ -3378,7 +3449,7 @@ fn airUnwrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
 
     if (operand_ty.zigTypeTag() == .Pointer) {
         const err_union_ty = operand_ty.childType();
-        if (err_union_ty.errorUnionSet().errorSetCardinality() == .zero) {
+        if (err_union_ty.errorUnionSet().errorSetIsEmpty()) {
             return CValue{ .bytes = "0" };
         }
         if (!err_union_ty.errorUnionPayload().hasRuntimeBits()) {
@@ -3390,7 +3461,7 @@ fn airUnwrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
         try writer.writeAll(";\n");
         return local;
     }
-    if (operand_ty.errorUnionSet().errorSetCardinality() == .zero) {
+    if (operand_ty.errorUnionSet().errorSetIsEmpty()) {
         return CValue{ .bytes = "0" };
     }
     if (!operand_ty.errorUnionPayload().hasRuntimeBits()) {
@@ -3418,10 +3489,6 @@ fn airUnwrapErrUnionPay(f: *Function, inst: Air.Inst.Index, maybe_addrof: [*:0]c
     const operand_ty = f.air.typeOf(ty_op.operand);
     const operand_is_ptr = operand_ty.zigTypeTag() == .Pointer;
     const error_union_ty = if (operand_is_ptr) operand_ty.childType() else operand_ty;
-
-    if (error_union_ty.errorUnionSet().errorSetCardinality() == .zero) {
-        return operand;
-    }
 
     if (!error_union_ty.errorUnionPayload().hasRuntimeBits()) {
         return CValue.none;
@@ -3487,11 +3554,6 @@ fn airErrUnionPayloadPtrSet(f: *Function, inst: Air.Inst.Index) !CValue {
     const error_ty = error_union_ty.errorUnionSet();
     const payload_ty = error_union_ty.errorUnionPayload();
 
-    if (error_ty.errorSetCardinality() == .zero) {
-        // TODO: write undefined bytes through the pointer here
-        return operand;
-    }
-
     // First, set the non-error value.
     if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
         try f.writeCValueDeref(writer, operand);
@@ -3535,9 +3597,6 @@ fn airWrapErrUnionPay(f: *Function, inst: Air.Inst.Index) !CValue {
     const operand = try f.resolveInst(ty_op.operand);
 
     const inst_ty = f.air.typeOfIndex(inst);
-    if (inst_ty.errorUnionSet().errorSetCardinality() == .zero) {
-        return operand;
-    }
     const local = try f.allocLocal(inst_ty, .Const);
     try writer.writeAll(" = { .error = 0, .payload = ");
     try f.writeCValue(writer, operand);
@@ -3564,7 +3623,7 @@ fn airIsErr(
 
     try writer.writeAll(" = ");
 
-    if (error_ty.errorSetCardinality() == .zero) {
+    if (error_ty.errorSetIsEmpty()) {
         try writer.print("0 {s} 0;\n", .{op_str});
     } else {
         if (is_ptr) {
@@ -4041,6 +4100,20 @@ fn airWasmMemoryGrow(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
+fn airNeg(f: *Function, inst: Air.Inst.Index) !CValue {
+    if (f.liveness.isUnused(inst)) return CValue.none;
+
+    const un_op = f.air.instructions.items(.data)[inst].un_op;
+    const writer = f.object.writer();
+    const inst_ty = f.air.typeOfIndex(inst);
+    const operand = try f.resolveInst(un_op);
+    const local = try f.allocLocal(inst_ty, .Const);
+    try writer.writeAll("-");
+    try f.writeCValue(writer, operand);
+    try writer.writeAll(";\n");
+    return local;
+}
+
 fn airMulAdd(f: *Function, inst: Air.Inst.Index) !CValue {
     if (f.liveness.isUnused(inst)) return CValue.none;
     const pl_op = f.air.instructions.items(.data)[inst].pl_op;
@@ -4219,5 +4292,10 @@ fn loweredFnRetTyHasBits(fn_ty: Type) bool {
     if (ret_ty.isError()) {
         return true;
     }
+    return false;
+}
+
+fn isByRef(ty: Type) bool {
+    _ = ty;
     return false;
 }

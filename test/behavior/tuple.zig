@@ -124,7 +124,6 @@ test "tuple initializer for var" {
 test "array-like initializer for tuple types" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const T = @Type(.{
         .Struct = .{
@@ -194,9 +193,65 @@ test "tuple as the result from a labeled block" {
 }
 
 test "initializing tuple with explicit type" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
-
     const T = @TypeOf(.{ @as(i32, 0), @as(u32, 0) });
     var a = T{ 0, 0 };
+    _ = a;
+}
+
+test "initializing anon struct with explicit type" {
+    const T = @TypeOf(.{ .foo = @as(i32, 1), .bar = @as(i32, 2) });
+    var a = T{ .foo = 1, .bar = 2 };
+    _ = a;
+}
+
+test "fieldParentPtr of tuple" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
+    var x: u32 = 0;
+    const tuple = .{ x, x };
+    try testing.expect(&tuple == @fieldParentPtr(@TypeOf(tuple), "1", &tuple[1]));
+}
+
+test "fieldParentPtr of anon struct" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
+    var x: u32 = 0;
+    const anon_st = .{ .foo = x, .bar = x };
+    try testing.expect(&anon_st == @fieldParentPtr(@TypeOf(anon_st), "bar", &anon_st.bar));
+}
+
+test "offsetOf tuple" {
+    var x: u32 = 0;
+    const T = @TypeOf(.{ x, x });
+    _ = @offsetOf(T, "1");
+}
+
+test "offsetOf anon struct" {
+    var x: u32 = 0;
+    const T = @TypeOf(.{ .foo = x, .bar = x });
+    _ = @offsetOf(T, "bar");
+}
+
+test "initializing tuple with mixed comptime-runtime fields" {
+    if (true) return error.SkipZigTest; // TODO
+
+    var x: u32 = 15;
+    const T = @TypeOf(.{ @as(i32, -1234), @as(u32, 5678), x });
+    var a: T = .{ -1234, 5678, x + 1 };
+    _ = a;
+}
+
+test "initializing anon struct with mixed comptime-runtime fields" {
+    if (true) return error.SkipZigTest; // TODO
+
+    var x: u32 = 15;
+    const T = @TypeOf(.{ .foo = @as(i32, -1234), .bar = x });
+    var a: T = .{ .foo = -1234, .bar = x + 1 };
     _ = a;
 }

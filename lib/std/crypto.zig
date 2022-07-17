@@ -43,6 +43,7 @@ pub const auth = struct {
 pub const core = struct {
     pub const aes = @import("crypto/aes.zig");
     pub const Gimli = @import("crypto/gimli.zig").State;
+    pub const Xoodoo = @import("crypto/xoodoo.zig").State;
 
     /// Modes are generic compositions to construct encryption/decryption functions from block ciphers and permutations.
     ///
@@ -62,7 +63,9 @@ pub const ecc = struct {
     pub const Curve25519 = @import("crypto/25519/curve25519.zig").Curve25519;
     pub const Edwards25519 = @import("crypto/25519/edwards25519.zig").Edwards25519;
     pub const P256 = @import("crypto/pcurves/p256.zig").P256;
+    pub const P384 = @import("crypto/pcurves/p384.zig").P384;
     pub const Ristretto255 = @import("crypto/25519/ristretto255.zig").Ristretto255;
+    pub const Secp256k1 = @import("crypto/pcurves/secp256k1.zig").Secp256k1;
 };
 
 /// Hash functions.
@@ -74,6 +77,7 @@ pub const hash = struct {
     pub const Sha1 = @import("crypto/sha1.zig").Sha1;
     pub const sha2 = @import("crypto/sha2.zig");
     pub const sha3 = @import("crypto/sha3.zig");
+    pub const composition = @import("crypto/hash_composition.zig");
 };
 
 /// Key derivation functions.
@@ -124,6 +128,7 @@ pub const pwhash = struct {
 /// Digital signature functions.
 pub const sign = struct {
     pub const Ed25519 = @import("crypto/25519/ed25519.zig").Ed25519;
+    pub const ecdsa = @import("crypto/ecdsa.zig");
 };
 
 /// Stream ciphers. These do not provide any kind of authentication.
@@ -201,7 +206,9 @@ test {
     _ = ecc.Curve25519;
     _ = ecc.Edwards25519;
     _ = ecc.P256;
+    _ = ecc.P384;
     _ = ecc.Ristretto255;
+    _ = ecc.Secp256k1;
 
     _ = hash.blake2;
     _ = hash.Blake3;
@@ -210,6 +217,7 @@ test {
     _ = hash.Sha1;
     _ = hash.sha2;
     _ = hash.sha3;
+    _ = hash.composition;
 
     _ = kdf.hkdf;
 
@@ -230,6 +238,7 @@ test {
     _ = pwhash.phc_format;
 
     _ = sign.Ed25519;
+    _ = sign.ecdsa;
 
     _ = stream.chacha.ChaCha20IETF;
     _ = stream.chacha.ChaCha12IETF;

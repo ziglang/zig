@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===---------------------------- set -------------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -182,6 +182,25 @@ public:
     template<typename K>
         pair<const_iterator,const_iterator> equal_range(const K& x) const;  // C++14
 };
+
+template <class InputIterator,
+      class Compare = less<typename iterator_traits<InputIterator>::value_type>,
+      class Allocator = allocator<typename iterator_traits<InputIterator>::value_type>>
+set(InputIterator, InputIterator,
+    Compare = Compare(), Allocator = Allocator())
+  -> set<typename iterator_traits<InputIterator>::value_type, Compare, Allocator>; // C++17
+
+template<class Key, class Compare = less<Key>, class Allocator = allocator<Key>>
+set(initializer_list<Key>, Compare = Compare(), Allocator = Allocator())
+  -> set<Key, Compare, Allocator>; // C++17
+
+template<class InputIterator, class Allocator>
+set(InputIterator, InputIterator, Allocator)
+  -> set<typename iterator_traits<InputIterator>::value_type,
+          less<typename iterator_traits<InputIterator>::value_type>, Allocator>; // C++17
+
+template<class Key, class Allocator>
+set(initializer_list<Key>, Allocator) -> set<Key, less<Key>, Allocator>; // C++17
 
 template <class Key, class Compare, class Allocator>
 bool
@@ -389,6 +408,25 @@ public:
         pair<const_iterator,const_iterator> equal_range(const K& x) const;  // C++14
 };
 
+template <class InputIterator,
+      class Compare = less<typename iterator_traits<InputIterator>::value_type>,
+      class Allocator = allocator<typename iterator_traits<InputIterator>::value_type>>
+multiset(InputIterator, InputIterator,
+    Compare = Compare(), Allocator = Allocator())
+  -> multiset<typename iterator_traits<InputIterator>::value_type, Compare, Allocator>; // C++17
+
+template<class Key, class Compare = less<Key>, class Allocator = allocator<Key>>
+multiset(initializer_list<Key>, Compare = Compare(), Allocator = Allocator())
+  -> multiset<Key, Compare, Allocator>; // C++17
+
+template<class InputIterator, class Allocator>
+multiset(InputIterator, InputIterator, Allocator)
+  -> multiset<typename iterator_traits<InputIterator>::value_type,
+          less<typename iterator_traits<InputIterator>::value_type>, Allocator>; // C++17
+
+template<class Key, class Allocator>
+multiset(initializer_list<Key>, Allocator) -> multiset<Key, less<Key>, Allocator>; // C++17
+
 template <class Key, class Compare, class Allocator>
 bool
 operator==(const multiset<Key, Compare, Allocator>& x,
@@ -436,6 +474,7 @@ erase_if(multiset<Key, Compare, Allocator>& c, Predicate pred);  // C++20
 #include <__config>
 #include <__debug>
 #include <__functional/is_transparent.h>
+#include <__iterator/iterator_traits.h>
 #include <__node_handle>
 #include <__tree>
 #include <__utility/forward.h>
@@ -462,7 +501,7 @@ public:
     // types:
     typedef _Key                                     key_type;
     typedef key_type                                 value_type;
-    typedef _Compare                                 key_compare;
+    typedef __identity_t<_Compare>                   key_compare;
     typedef key_compare                              value_compare;
     typedef __identity_t<_Allocator>                 allocator_type;
     typedef value_type&                              reference;
@@ -474,7 +513,6 @@ public:
 private:
     typedef __tree<value_type, value_compare, allocator_type> __base;
     typedef allocator_traits<allocator_type>                  __alloc_traits;
-    typedef typename __base::__node_holder                    __node_holder;
 
     __base __tree_;
 
@@ -868,30 +906,32 @@ public:
 #endif
 };
 
-#ifndef _LIBCPP_HAS_NO_DEDUCTION_GUIDES
+#if _LIBCPP_STD_VER >= 17
 template<class _InputIterator,
          class _Compare = less<__iter_value_type<_InputIterator>>,
          class _Allocator = allocator<__iter_value_type<_InputIterator>>,
-         class = _EnableIf<__is_allocator<_Allocator>::value, void>,
-         class = _EnableIf<!__is_allocator<_Compare>::value, void>>
+         class = enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value, void>,
+         class = enable_if_t<__is_allocator<_Allocator>::value, void>,
+         class = enable_if_t<!__is_allocator<_Compare>::value, void>>
 set(_InputIterator, _InputIterator, _Compare = _Compare(), _Allocator = _Allocator())
   -> set<__iter_value_type<_InputIterator>, _Compare, _Allocator>;
 
 template<class _Key, class _Compare = less<_Key>,
          class _Allocator = allocator<_Key>,
-         class = _EnableIf<__is_allocator<_Allocator>::value, void>,
-         class = _EnableIf<!__is_allocator<_Compare>::value, void>>
+         class = enable_if_t<!__is_allocator<_Compare>::value, void>,
+         class = enable_if_t<__is_allocator<_Allocator>::value, void>>
 set(initializer_list<_Key>, _Compare = _Compare(), _Allocator = _Allocator())
   -> set<_Key, _Compare, _Allocator>;
 
 template<class _InputIterator, class _Allocator,
-         class = _EnableIf<__is_allocator<_Allocator>::value, void>>
+         class = enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value, void>,
+         class = enable_if_t<__is_allocator<_Allocator>::value, void>>
 set(_InputIterator, _InputIterator, _Allocator)
   -> set<__iter_value_type<_InputIterator>,
          less<__iter_value_type<_InputIterator>>, _Allocator>;
 
 template<class _Key, class _Allocator,
-         class = _EnableIf<__is_allocator<_Allocator>::value, void>>
+         class = enable_if_t<__is_allocator<_Allocator>::value, void>>
 set(initializer_list<_Key>, _Allocator)
   -> set<_Key, less<_Key>, _Allocator>;
 #endif
@@ -994,7 +1034,7 @@ public:
     // types:
     typedef _Key                                     key_type;
     typedef key_type                                 value_type;
-    typedef _Compare                                 key_compare;
+    typedef __identity_t<_Compare>                   key_compare;
     typedef key_compare                              value_compare;
     typedef __identity_t<_Allocator>                 allocator_type;
     typedef value_type&                              reference;
@@ -1006,7 +1046,6 @@ public:
 private:
     typedef __tree<value_type, value_compare, allocator_type> __base;
     typedef allocator_traits<allocator_type>                  __alloc_traits;
-    typedef typename __base::__node_holder                    __node_holder;
 
     __base __tree_;
 
@@ -1399,30 +1438,32 @@ public:
 #endif
 };
 
-#ifndef _LIBCPP_HAS_NO_DEDUCTION_GUIDES
+#if _LIBCPP_STD_VER >= 17
 template<class _InputIterator,
          class _Compare = less<__iter_value_type<_InputIterator>>,
          class _Allocator = allocator<__iter_value_type<_InputIterator>>,
-         class = _EnableIf<__is_allocator<_Allocator>::value, void>,
-         class = _EnableIf<!__is_allocator<_Compare>::value, void>>
+         class = enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value, void>,
+         class = enable_if_t<__is_allocator<_Allocator>::value, void>,
+         class = enable_if_t<!__is_allocator<_Compare>::value, void>>
 multiset(_InputIterator, _InputIterator, _Compare = _Compare(), _Allocator = _Allocator())
   -> multiset<__iter_value_type<_InputIterator>, _Compare, _Allocator>;
 
 template<class _Key, class _Compare = less<_Key>,
          class _Allocator = allocator<_Key>,
-         class = _EnableIf<__is_allocator<_Allocator>::value, void>,
-         class = _EnableIf<!__is_allocator<_Compare>::value, void>>
+         class = enable_if_t<__is_allocator<_Allocator>::value, void>,
+         class = enable_if_t<!__is_allocator<_Compare>::value, void>>
 multiset(initializer_list<_Key>, _Compare = _Compare(), _Allocator = _Allocator())
   -> multiset<_Key, _Compare, _Allocator>;
 
 template<class _InputIterator, class _Allocator,
-         class = _EnableIf<__is_allocator<_Allocator>::value, void>>
+         class = enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value, void>,
+         class = enable_if_t<__is_allocator<_Allocator>::value, void>>
 multiset(_InputIterator, _InputIterator, _Allocator)
   -> multiset<__iter_value_type<_InputIterator>,
          less<__iter_value_type<_InputIterator>>, _Allocator>;
 
 template<class _Key, class _Allocator,
-         class = _EnableIf<__is_allocator<_Allocator>::value, void>>
+         class = enable_if_t<__is_allocator<_Allocator>::value, void>>
 multiset(initializer_list<_Key>, _Allocator)
   -> multiset<_Key, less<_Key>, _Allocator>;
 #endif

@@ -24,7 +24,6 @@ fn testIntToEnumEval(x: i32) !void {
 const IntToEnumNumber = enum { Zero, One, Two, Three, Four };
 
 test "int to enum" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     try testIntToEnumEval(3);
@@ -1107,4 +1106,25 @@ test "enum literal in array literal" {
 
     try expect(array[0] == .one);
     try expect(array[1] == .two);
+}
+
+test "tag name functions are unique" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    {
+        const E = enum { a, b };
+        var b = E.a;
+        var a = @tagName(b);
+        _ = a;
+    }
+    {
+        const E = enum { a, b, c, d, e, f };
+        var b = E.a;
+        var a = @tagName(b);
+        _ = a;
+    }
 }

@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===--------------------------- __nullptr --------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -54,7 +54,7 @@ _LIBCPP_END_NAMESPACE_STD
 namespace std
 {
     typedef decltype(nullptr) nullptr_t;
-}
+} // namespace std
 
 #endif // _LIBCPP_HAS_NO_NULLPTR
 

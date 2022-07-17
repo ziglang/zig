@@ -20,9 +20,6 @@
 #pragma GCC system_header
 #endif
 
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
-
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 // Tag used to default initialize one or both of the pair's elements.
@@ -61,10 +58,8 @@ struct __compressed_pair_elem {
       : __value_(_VSTD::forward<_Args>(_VSTD::get<_Indexes>(__args))...) {}
 #endif
 
-
-  _LIBCPP_INLINE_VISIBILITY reference __get() _NOEXCEPT { return __value_; }
-  _LIBCPP_INLINE_VISIBILITY
-  const_reference __get() const _NOEXCEPT { return __value_; }
+  _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11 reference __get() _NOEXCEPT { return __value_; }
+  _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR const_reference __get() const _NOEXCEPT { return __value_; }
 
 private:
   _Tp __value_;
@@ -100,9 +95,8 @@ struct __compressed_pair_elem<_Tp, _Idx, true> : private _Tp {
       : __value_type(_VSTD::forward<_Args>(_VSTD::get<_Indexes>(__args))...) {}
 #endif
 
-  _LIBCPP_INLINE_VISIBILITY reference __get() _NOEXCEPT { return *this; }
-  _LIBCPP_INLINE_VISIBILITY
-  const_reference __get() const _NOEXCEPT { return *this; }
+  _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11 reference __get() _NOEXCEPT { return *this; }
+  _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR const_reference __get() const _NOEXCEPT { return *this; }
 };
 
 template <class _T1, class _T2>
@@ -118,8 +112,8 @@ public:
     "The current implementation is NOT ABI-compatible with the previous "
     "implementation for this configuration");
 
-    typedef _LIBCPP_NODEBUG_TYPE __compressed_pair_elem<_T1, 0> _Base1;
-    typedef _LIBCPP_NODEBUG_TYPE __compressed_pair_elem<_T2, 1> _Base2;
+    typedef _LIBCPP_NODEBUG __compressed_pair_elem<_T1, 0> _Base1;
+    typedef _LIBCPP_NODEBUG __compressed_pair_elem<_T2, 1> _Base2;
 
     template <bool _Dummy = true,
       class = typename enable_if<
@@ -146,23 +140,19 @@ public:
                typename __make_tuple_indices<sizeof...(_Args2)>::type()) {}
 #endif
 
-  _LIBCPP_INLINE_VISIBILITY
-  typename _Base1::reference first() _NOEXCEPT {
+  _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11 typename _Base1::reference first() _NOEXCEPT {
     return static_cast<_Base1&>(*this).__get();
   }
 
-  _LIBCPP_INLINE_VISIBILITY
-  typename _Base1::const_reference first() const _NOEXCEPT {
+  _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR typename _Base1::const_reference first() const _NOEXCEPT {
     return static_cast<_Base1 const&>(*this).__get();
   }
 
-  _LIBCPP_INLINE_VISIBILITY
-  typename _Base2::reference second() _NOEXCEPT {
+  _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11 typename _Base2::reference second() _NOEXCEPT {
     return static_cast<_Base2&>(*this).__get();
   }
 
-  _LIBCPP_INLINE_VISIBILITY
-  typename _Base2::const_reference second() const _NOEXCEPT {
+  _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR typename _Base2::const_reference second() const _NOEXCEPT {
     return static_cast<_Base2 const&>(*this).__get();
   }
 
@@ -175,11 +165,8 @@ public:
     return static_cast<_Base2*>(__pair);
   }
 
-  _LIBCPP_INLINE_VISIBILITY
-  void swap(__compressed_pair& __x)
-    _NOEXCEPT_(__is_nothrow_swappable<_T1>::value &&
-               __is_nothrow_swappable<_T2>::value)
-  {
+  _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11 void swap(__compressed_pair& __x)
+      _NOEXCEPT_(__is_nothrow_swappable<_T1>::value && __is_nothrow_swappable<_T2>::value) {
     using _VSTD::swap;
     swap(first(), __x.first());
     swap(second(), __x.second());
@@ -187,15 +174,12 @@ public:
 };
 
 template <class _T1, class _T2>
-inline _LIBCPP_INLINE_VISIBILITY
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
 void swap(__compressed_pair<_T1, _T2>& __x, __compressed_pair<_T1, _T2>& __y)
-    _NOEXCEPT_(__is_nothrow_swappable<_T1>::value &&
-               __is_nothrow_swappable<_T2>::value) {
+    _NOEXCEPT_(__is_nothrow_swappable<_T1>::value && __is_nothrow_swappable<_T2>::value) {
   __x.swap(__y);
 }
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___MEMORY_COMPRESSED_PAIR_H

@@ -54,6 +54,7 @@ pub fn build(b: *Builder) !void {
     const skip_release_safe = b.option(bool, "skip-release-safe", "Main test suite skips release-safe builds") orelse skip_release;
     const skip_non_native = b.option(bool, "skip-non-native", "Main test suite skips non-native builds") orelse false;
     const skip_libc = b.option(bool, "skip-libc", "Main test suite skips tests that link libc") orelse false;
+    const skip_single_threaded = b.option(bool, "skip-single-threaded", "Main test suite skips tests that are single-threaded") orelse false;
     const skip_stage1 = b.option(bool, "skip-stage1", "Main test suite skips stage1 compile error tests") orelse false;
     const skip_run_translated_c = b.option(bool, "skip-run-translated-c", "Main test suite skips run-translated-c tests") orelse false;
     const skip_stage2_tests = b.option(bool, "skip-stage2-tests", "Main test suite skips self-hosted compiler tests") orelse false;
@@ -74,11 +75,6 @@ pub fn build(b: *Builder) !void {
         bool,
         "llvm-has-csky",
         "Whether LLVM has the experimental target csky enabled",
-    ) orelse false;
-    const llvm_has_ve = b.option(
-        bool,
-        "llvm-has-ve",
-        "Whether LLVM has the experimental target ve enabled",
     ) orelse false;
     const llvm_has_arc = b.option(
         bool,
@@ -130,6 +126,7 @@ pub fn build(b: *Builder) !void {
     const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse enable_llvm;
     const strip = b.option(bool, "strip", "Omit debug information") orelse false;
     const use_zig0 = b.option(bool, "zig0", "Bootstrap using zig0") orelse false;
+    const value_tracing = b.option(bool, "value-tracing", "Enable extra state tracking to help troubleshoot bugs in the compiler (using the std.debug.Trace API)") orelse false;
 
     const mem_leak_frames: u32 = b.option(u32, "mem-leak-frames", "How many stack frames to print when a memory leak occurs. Tests get 2x this amount.") orelse blk: {
         if (strip) break :blk @as(u32, 0);
@@ -145,6 +142,7 @@ pub fn build(b: *Builder) !void {
 
     const exe = b.addExecutable("zig", main_file);
     exe.strip = strip;
+    exe.build_id = b.option(bool, "build-id", "Include a build id note") orelse false;
     exe.install();
     exe.setBuildMode(mode);
     exe.setTarget(target);
@@ -169,7 +167,6 @@ pub fn build(b: *Builder) !void {
     exe_options.addOption(bool, "have_llvm", enable_llvm);
     exe_options.addOption(bool, "llvm_has_m68k", llvm_has_m68k);
     exe_options.addOption(bool, "llvm_has_csky", llvm_has_csky);
-    exe_options.addOption(bool, "llvm_has_ve", llvm_has_ve);
     exe_options.addOption(bool, "llvm_has_arc", llvm_has_arc);
     exe_options.addOption(bool, "force_gpa", force_gpa);
 
@@ -351,6 +348,7 @@ pub fn build(b: *Builder) !void {
     exe_options.addOption(bool, "enable_tracy", tracy != null);
     exe_options.addOption(bool, "enable_tracy_callstack", tracy_callstack);
     exe_options.addOption(bool, "enable_tracy_allocation", tracy_allocation);
+    exe_options.addOption(bool, "value_tracing", value_tracing);
     exe_options.addOption(bool, "is_stage1", is_stage1);
     exe_options.addOption(bool, "omit_stage2", omit_stage2);
     if (tracy) |tracy_path| {
@@ -392,14 +390,15 @@ pub fn build(b: *Builder) !void {
     test_cases_options.addOption(bool, "have_llvm", enable_llvm);
     test_cases_options.addOption(bool, "llvm_has_m68k", llvm_has_m68k);
     test_cases_options.addOption(bool, "llvm_has_csky", llvm_has_csky);
-    test_cases_options.addOption(bool, "llvm_has_ve", llvm_has_ve);
     test_cases_options.addOption(bool, "llvm_has_arc", llvm_has_arc);
+    test_cases_options.addOption(bool, "force_gpa", force_gpa);
     test_cases_options.addOption(bool, "enable_qemu", b.enable_qemu);
     test_cases_options.addOption(bool, "enable_wine", b.enable_wine);
     test_cases_options.addOption(bool, "enable_wasmtime", b.enable_wasmtime);
     test_cases_options.addOption(bool, "enable_rosetta", b.enable_rosetta);
     test_cases_options.addOption(bool, "enable_darling", b.enable_darling);
     test_cases_options.addOption(u32, "mem_leak_frames", mem_leak_frames * 2);
+    test_cases_options.addOption(bool, "value_tracing", value_tracing);
     test_cases_options.addOption(?[]const u8, "glibc_runtimes_dir", b.glibc_runtimes_dir);
     test_cases_options.addOption([:0]const u8, "version", try b.allocator.dupeZ(u8, version));
     test_cases_options.addOption(std.SemanticVersion, "semver", semver);
@@ -443,7 +442,7 @@ pub fn build(b: *Builder) !void {
         "behavior",
         "Run the behavior tests",
         modes,
-        false, // skip_single_threaded
+        skip_single_threaded,
         skip_non_native,
         skip_libc,
         skip_stage1,
@@ -482,7 +481,8 @@ pub fn build(b: *Builder) !void {
     ));
 
     toolchain_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
-    toolchain_step.dependOn(tests.addStandaloneTests(b, test_filter, modes, skip_non_native, enable_macos_sdk, target));
+    toolchain_step.dependOn(tests.addStandaloneTests(b, test_filter, modes, skip_non_native, enable_macos_sdk, target, omit_stage2));
+    toolchain_step.dependOn(tests.addLinkTests(b, test_filter, modes, enable_macos_sdk, omit_stage2));
     toolchain_step.dependOn(tests.addStackTraceTests(b, test_filter, modes));
     toolchain_step.dependOn(tests.addCliTests(b, test_filter, modes));
     toolchain_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));
@@ -500,7 +500,7 @@ pub fn build(b: *Builder) !void {
         "std",
         "Run the standard library tests",
         modes,
-        false,
+        skip_single_threaded,
         skip_non_native,
         skip_libc,
         skip_stage1,
@@ -990,15 +990,11 @@ const clang_libs = [_][]const u8{
     "clangToolingCore",
 };
 const lld_libs = [_][]const u8{
-    "lldDriver",
     "lldMinGW",
     "lldELF",
     "lldCOFF",
-    "lldMachO",
     "lldWasm",
-    "lldReaderWriter",
-    "lldCore",
-    "lldYAML",
+    "lldMachO",
     "lldCommon",
 };
 // This list can be re-generated with `llvm-config --libfiles` and then
@@ -1016,6 +1012,7 @@ const llvm_libs = [_][]const u8{
     "LLVMXCoreCodeGen",
     "LLVMXCoreDesc",
     "LLVMXCoreInfo",
+    "LLVMX86TargetMCA",
     "LLVMX86Disassembler",
     "LLVMX86AsmParser",
     "LLVMX86CodeGen",
@@ -1027,6 +1024,11 @@ const llvm_libs = [_][]const u8{
     "LLVMWebAssemblyDesc",
     "LLVMWebAssemblyUtils",
     "LLVMWebAssemblyInfo",
+    "LLVMVEDisassembler",
+    "LLVMVEAsmParser",
+    "LLVMVECodeGen",
+    "LLVMVEDesc",
+    "LLVMVEInfo",
     "LLVMSystemZDisassembler",
     "LLVMSystemZAsmParser",
     "LLVMSystemZCodeGen",
@@ -1086,6 +1088,7 @@ const llvm_libs = [_][]const u8{
     "LLVMARMDesc",
     "LLVMARMUtils",
     "LLVMARMInfo",
+    "LLVMAMDGPUTargetMCA",
     "LLVMAMDGPUDisassembler",
     "LLVMAMDGPUAsmParser",
     "LLVMAMDGPUCodeGen",
@@ -1131,7 +1134,6 @@ const llvm_libs = [_][]const u8{
     "LLVMMIRParser",
     "LLVMAsmPrinter",
     "LLVMDebugInfoMSF",
-    "LLVMDebugInfoDWARF",
     "LLVMSelectionDAG",
     "LLVMCodeGen",
     "LLVMIRReader",
@@ -1147,6 +1149,7 @@ const llvm_libs = [_][]const u8{
     "LLVMBitWriter",
     "LLVMAnalysis",
     "LLVMProfileData",
+    "LLVMDebugInfoDWARF",
     "LLVMObject",
     "LLVMTextAPI",
     "LLVMMCParser",

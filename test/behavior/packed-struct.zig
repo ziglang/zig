@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const native_endian = builtin.cpu.arch.endian();
@@ -32,10 +33,10 @@ test "correct size of packed structs" {
 }
 
 test "flags in packed structs" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
 
     const Flags1 = packed struct {
-        // byte 0
+        // first 8 bits
         b0_0: u1,
         b0_1: u1,
         b0_2: u1,
@@ -45,7 +46,7 @@ test "flags in packed structs" {
         b0_6: u1,
         b0_7: u1,
 
-        // partial byte 1 (but not 8 bits)
+        // 7 more bits
         b1_0: u1,
         b1_1: u1,
         b1_2: u1,
@@ -54,12 +55,12 @@ test "flags in packed structs" {
         b1_5: u1,
         b1_6: u1,
 
-        // some padding to fill to size 3
+        // some padding to fill to 24 bits
         _: u9,
     };
 
-    try expectEqual(3, @sizeOf(Flags1));
-    try expectEqual(3 * 8, @bitSizeOf(Flags1));
+    try expectEqual(@sizeOf(u24), @sizeOf(Flags1));
+    try expectEqual(24, @bitSizeOf(Flags1));
 
     const Flags2 = packed struct {
         // byte 0
@@ -85,8 +86,8 @@ test "flags in packed structs" {
         _: u10,
     };
 
-    try expectEqual(4, @sizeOf(Flags2));
-    try expectEqual(8 + 7 + 10, @bitSizeOf(Flags2));
+    try expectEqual(@sizeOf(u25), @sizeOf(Flags2));
+    try expectEqual(25, @bitSizeOf(Flags2));
 
     const Flags3 = packed struct {
         // byte 0
@@ -113,30 +114,30 @@ test "flags in packed structs" {
         _: u16, // it works, if the padding is 8-based
     };
 
-    try expectEqual(4, @sizeOf(Flags3));
-    try expectEqual(4 * 8, @bitSizeOf(Flags3));
+    try expectEqual(@sizeOf(u32), @sizeOf(Flags3));
+    try expectEqual(32, @bitSizeOf(Flags3));
 }
 
 test "arrays in packed structs" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
 
     const T1 = packed struct { array: [3][3]u8 };
     const T2 = packed struct { array: [9]u8 };
 
-    try expectEqual(9, @sizeOf(T1));
-    try expectEqual(9 * 8, @bitSizeOf(T1));
-    try expectEqual(9, @sizeOf(T2));
-    try expectEqual(9 * 8, @bitSizeOf(T2));
+    try expectEqual(@sizeOf(u72), @sizeOf(T1));
+    try expectEqual(72, @bitSizeOf(T1));
+    try expectEqual(@sizeOf(u72), @sizeOf(T2));
+    try expectEqual(72, @bitSizeOf(T2));
 }
 
 test "consistent size of packed structs" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
 
     const TxData1 = packed struct { data: u8, _23: u23, full: bool = false };
     const TxData2 = packed struct { data: u9, _22: u22, full: bool = false };
 
     const register_size_bits = 32;
-    const register_size_bytes = register_size_bits / 8;
+    const register_size_bytes = @sizeOf(u32);
 
     try expectEqual(register_size_bits, @bitSizeOf(TxData1));
     try expectEqual(register_size_bytes, @sizeOf(TxData1));
@@ -150,7 +151,7 @@ test "consistent size of packed structs" {
     const TxData6 = packed struct { a: u24, b: u32 };
 
     const expectedBitSize = 56;
-    const expectedByteSize = expectedBitSize / 8;
+    const expectedByteSize = @sizeOf(u56);
 
     try expectEqual(expectedBitSize, @bitSizeOf(TxData3));
     try expectEqual(expectedByteSize, @sizeOf(TxData3));
@@ -166,7 +167,12 @@ test "consistent size of packed structs" {
 }
 
 test "correct sizeOf and offsets in packed structs" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const PStruct = packed struct {
         bool_a: bool,
@@ -233,11 +239,16 @@ test "correct sizeOf and offsets in packed structs" {
 
     try expectEqual(16, @offsetOf(S, "b"));
     try expectEqual(128, @bitOffsetOf(S, "b"));
-    try expectEqual(20, @sizeOf(S));
+    try expectEqual(@sizeOf(u160), @sizeOf(S));
 }
 
 test "nested packed structs" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S1 = packed struct { a: u8, b: u8, c: u8 };
 
@@ -247,7 +258,7 @@ test "nested packed structs" {
     const S3Padded = packed struct { s3: S3, pad: u16 };
 
     try expectEqual(48, @bitSizeOf(S3));
-    try expectEqual(6, @sizeOf(S3));
+    try expectEqual(@sizeOf(u48), @sizeOf(S3));
 
     try expectEqual(3, @offsetOf(S3, "y"));
     try expectEqual(24, @bitOffsetOf(S3, "y"));
@@ -267,7 +278,7 @@ test "nested packed structs" {
     const S6 = packed struct { a: i32, b: S4, c: i8 };
 
     const expectedBitSize = 80;
-    const expectedByteSize = expectedBitSize / 8;
+    const expectedByteSize = @sizeOf(u80);
     try expectEqual(expectedBitSize, @bitSizeOf(S5));
     try expectEqual(expectedByteSize, @sizeOf(S5));
     try expectEqual(expectedBitSize, @bitSizeOf(S6));
@@ -288,13 +299,7 @@ test "regular in irregular packed struct" {
 
     const Irregular = packed struct {
         bar: Regular = Regular{},
-
-        // This field forces the regular packed struct to be a part of single u48
-        // and thus it all gets represented as an array of 6 bytes in LLVM
         _: u24 = 0,
-
-        // This struct on its own can represent its fields directly in LLVM
-        // with no need to use array of bytes as underlaying representation.
         pub const Regular = packed struct { a: u16 = 0, b: u8 = 0 };
     };
 
@@ -304,4 +309,107 @@ test "regular in irregular packed struct" {
 
     try expectEqual(@as(u16, 235), foo.bar.a);
     try expectEqual(@as(u8, 42), foo.bar.b);
+}
+
+test "byte-aligned field pointer offsets" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
+    const S = struct {
+        const A = packed struct {
+            a: u8,
+            b: u8,
+            c: u8,
+            d: u8,
+        };
+
+        const B = packed struct {
+            a: u16,
+            b: u16,
+        };
+
+        fn doTheTest() !void {
+            var a: A = .{
+                .a = 1,
+                .b = 2,
+                .c = 3,
+                .d = 4,
+            };
+            switch (comptime builtin.cpu.arch.endian()) {
+                .Little => {
+                    comptime assert(@TypeOf(&a.a) == *align(4) u8);
+                    comptime assert(@TypeOf(&a.b) == *u8);
+                    comptime assert(@TypeOf(&a.c) == *align(2) u8);
+                    comptime assert(@TypeOf(&a.d) == *u8);
+                },
+                .Big => {
+                    // TODO re-evaluate packed struct endianness
+                    comptime assert(@TypeOf(&a.a) == *align(4:0:4) u8);
+                    comptime assert(@TypeOf(&a.b) == *align(4:8:4) u8);
+                    comptime assert(@TypeOf(&a.c) == *align(4:16:4) u8);
+                    comptime assert(@TypeOf(&a.d) == *align(4:24:4) u8);
+                },
+            }
+            try expect(a.a == 1);
+            try expect(a.b == 2);
+            try expect(a.c == 3);
+            try expect(a.d == 4);
+
+            a.a += 1;
+            try expect(a.a == 2);
+            try expect(a.b == 2);
+            try expect(a.c == 3);
+            try expect(a.d == 4);
+
+            a.b += 1;
+            try expect(a.a == 2);
+            try expect(a.b == 3);
+            try expect(a.c == 3);
+            try expect(a.d == 4);
+
+            a.c += 1;
+            try expect(a.a == 2);
+            try expect(a.b == 3);
+            try expect(a.c == 4);
+            try expect(a.d == 4);
+
+            a.d += 1;
+            try expect(a.a == 2);
+            try expect(a.b == 3);
+            try expect(a.c == 4);
+            try expect(a.d == 5);
+
+            var b: B = .{
+                .a = 1,
+                .b = 2,
+            };
+            switch (comptime builtin.cpu.arch.endian()) {
+                .Little => {
+                    comptime assert(@TypeOf(&b.a) == *align(4) u16);
+                    comptime assert(@TypeOf(&b.b) == *u16);
+                },
+                .Big => {
+                    comptime assert(@TypeOf(&b.a) == *align(4:0:4) u16);
+                    comptime assert(@TypeOf(&b.b) == *align(4:16:4) u16);
+                },
+            }
+            try expect(b.a == 1);
+            try expect(b.b == 2);
+
+            b.a += 1;
+            try expect(b.a == 2);
+            try expect(b.b == 2);
+
+            b.b += 1;
+            try expect(b.a == 2);
+            try expect(b.b == 3);
+        }
+    };
+
+    try S.doTheTest();
+    comptime try S.doTheTest();
 }

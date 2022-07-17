@@ -1,5 +1,21 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const is_test = builtin.is_test;
+const common = @import("common.zig");
+
+pub const panic = common.panic;
+
+comptime {
+    @export(__clzsi2, .{ .name = "__clzsi2", .linkage = common.linkage });
+    @export(__clzdi2, .{ .name = "__clzdi2", .linkage = common.linkage });
+    @export(__clzti2, .{ .name = "__clzti2", .linkage = common.linkage });
+    @export(__ctzsi2, .{ .name = "__ctzsi2", .linkage = common.linkage });
+    @export(__ctzdi2, .{ .name = "__ctzdi2", .linkage = common.linkage });
+    @export(__ctzti2, .{ .name = "__ctzti2", .linkage = common.linkage });
+    @export(__ffssi2, .{ .name = "__ffssi2", .linkage = common.linkage });
+    @export(__ffsdi2, .{ .name = "__ffsdi2", .linkage = common.linkage });
+    @export(__ffsti2, .{ .name = "__ffsti2", .linkage = common.linkage });
+}
 
 // clz - count leading zeroes
 // - clzXi2 for unoptimized little and big endian
@@ -15,8 +31,6 @@ const builtin = @import("builtin");
 // - ffsXi2 for unoptimized little and big endian
 
 inline fn clzXi2(comptime T: type, a: T) i32 {
-    @setRuntimeSafety(builtin.is_test);
-
     var x = switch (@bitSizeOf(T)) {
         32 => @bitCast(u32, a),
         64 => @bitCast(u64, a),
@@ -154,8 +168,6 @@ pub fn __clzti2(a: i128) callconv(.C) i32 {
 }
 
 inline fn ctzXi2(comptime T: type, a: T) i32 {
-    @setRuntimeSafety(builtin.is_test);
-
     var x = switch (@bitSizeOf(T)) {
         32 => @bitCast(u32, a),
         64 => @bitCast(u64, a),
@@ -191,8 +203,6 @@ pub fn __ctzti2(a: i128) callconv(.C) i32 {
 }
 
 inline fn ffsXi2(comptime T: type, a: T) i32 {
-    @setRuntimeSafety(builtin.is_test);
-
     var x = switch (@bitSizeOf(T)) {
         32 => @bitCast(u32, a),
         64 => @bitCast(u64, a),

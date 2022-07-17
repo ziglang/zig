@@ -1,13 +1,28 @@
-// Ported from musl, which is MIT licensed:
-// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
-//
-// https://git.musl-libc.org/cgit/musl/tree/src/math/fmal.c
-// https://git.musl-libc.org/cgit/musl/tree/src/math/fmaf.c
-// https://git.musl-libc.org/cgit/musl/tree/src/math/fma.c
+//! Ported from musl, which is MIT licensed:
+//! https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//!
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/fmal.c
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/fmaf.c
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/fma.c
 
 const std = @import("std");
+const builtin = @import("builtin");
 const math = std.math;
 const expect = std.testing.expect;
+const arch = builtin.cpu.arch;
+const common = @import("common.zig");
+
+pub const panic = common.panic;
+
+comptime {
+    @export(__fmah, .{ .name = "__fmah", .linkage = common.linkage });
+    @export(fmaf, .{ .name = "fmaf", .linkage = common.linkage });
+    @export(fma, .{ .name = "fma", .linkage = common.linkage });
+    @export(__fmax, .{ .name = "__fmax", .linkage = common.linkage });
+    const fmaq_sym_name = if (common.want_ppc_abi) "fmaf128" else "fmaq";
+    @export(fmaq, .{ .name = fmaq_sym_name, .linkage = common.linkage });
+    @export(fmal, .{ .name = "fmal", .linkage = common.linkage });
+}
 
 pub fn __fmah(x: f16, y: f16, z: f16) callconv(.C) f16 {
     // TODO: more efficient implementation

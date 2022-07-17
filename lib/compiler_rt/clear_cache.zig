@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
 const os = builtin.os.tag;
+pub const panic = @import("common.zig").panic;
 
 // Ported from llvm-project d32170dbd5b0d54436537b6b75beaf44324e0c28
 
@@ -10,7 +11,11 @@ const os = builtin.os.tag;
 // It is expected to invalidate the instruction cache for the
 // specified range.
 
-pub fn clear_cache(start: usize, end: usize) callconv(.C) void {
+comptime {
+    _ = clear_cache;
+}
+
+fn clear_cache(start: usize, end: usize) callconv(.C) void {
     const x86 = switch (arch) {
         .i386, .x86_64 => true,
         else => false,

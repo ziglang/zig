@@ -1336,3 +1336,39 @@ test "packed struct field access via pointer" {
     try S.doTheTest();
     comptime try S.doTheTest();
 }
+
+test "store to comptime field" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
+    {
+        const S = struct {
+            comptime a: [2]u32 = [2]u32{ 1, 2 },
+        };
+        var s: S = .{};
+        s.a = [2]u32{ 1, 2 };
+        s.a[0] = 1;
+    }
+    {
+        const T = struct { a: u32, b: u32 };
+        const S = struct {
+            comptime a: T = T{ .a = 1, .b = 2 },
+        };
+        var s: S = .{};
+        s.a = T{ .a = 1, .b = 2 };
+        s.a.a = 1;
+    }
+}
+
+test "struct field init value is size of the struct" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const namespace = struct {
+        const S = extern struct {
+            size: u8 = @sizeOf(S),
+            blah: u16,
+        };
+    };
+    var s: namespace.S = .{ .blah = 1234 };
+    try expect(s.size == 4);
+}

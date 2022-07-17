@@ -13,12 +13,14 @@
 #include <__debug>
 #include <__iterator/concepts.h>
 #include <__iterator/default_sentinel.h>
+#include <__iterator/incrementable_traits.h>
 #include <__iterator/iter_move.h>
 #include <__iterator/iter_swap.h>
-#include <__iterator/incrementable_traits.h>
 #include <__iterator/iterator_traits.h>
 #include <__iterator/readable_traits.h>
 #include <__memory/pointer_traits.h>
+#include <__utility/move.h>
+#include <compare>
 #include <concepts>
 #include <type_traits>
 
@@ -26,12 +28,9 @@
 #pragma GCC system_header
 #endif
 
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
-
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if !defined(_LIBCPP_HAS_NO_RANGES)
+#if !defined(_LIBCPP_HAS_NO_CONCEPTS)
 
 template<class>
 struct __counted_iterator_concept {};
@@ -97,7 +96,7 @@ public:
   }
 
   _LIBCPP_HIDE_FROM_ABI
-  constexpr const _Iter& base() const& { return __current_; }
+  constexpr const _Iter& base() const& noexcept { return __current_; }
 
   _LIBCPP_HIDE_FROM_ABI
   constexpr _Iter base() && { return _VSTD::move(__current_); }
@@ -297,10 +296,8 @@ struct iterator_traits<counted_iterator<_Iter>> : iterator_traits<_Iter> {
                                 add_pointer_t<iter_reference_t<_Iter>>, void>;
 };
 
-#endif // !defined(_LIBCPP_HAS_NO_RANGES)
+#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS)
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ITERATOR_COUNTED_ITERATOR_H

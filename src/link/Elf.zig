@@ -497,7 +497,7 @@ fn makeString(self: *Elf, bytes: []const u8) !u32 {
     return @intCast(u32, result);
 }
 
-fn getString(self: *Elf, str_off: u32) []const u8 {
+fn getString(self: Elf, str_off: u32) []const u8 {
     assert(str_off < self.shstrtab.items.len);
     return mem.sliceTo(@ptrCast([*:0]const u8, self.shstrtab.items.ptr + str_off), 0);
 }
@@ -1015,6 +1015,10 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     // mixing local and global symbols within a symbol table.
     try self.writeAllGlobalSymbols();
 
+    if (build_options.enable_logging) {
+        self.logSymtab();
+    }
+
     if (self.dwarf) |*dw| {
         if (self.debug_abbrev_section_dirty) {
             try dw.writeDbgAbbrev(&self.base);
@@ -1167,7 +1171,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
                 for (buf) |*shdr, i| {
                     shdr.* = sectHeaderTo32(self.sections.items[i]);
-                    log.debug("writing section {}", .{shdr.*});
+                    log.debug("writing section {s}: {}", .{ self.getString(shdr.sh_name), shdr.* });
                     if (foreign_endian) {
                         mem.byteSwapAllFields(elf.Elf32_Shdr, shdr);
                     }
@@ -1180,7 +1184,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
 
                 for (buf) |*shdr, i| {
                     shdr.* = self.sections.items[i];
-                    log.debug("writing section {}", .{shdr.*});
+                    log.debug("writing section {s}: {}", .{ self.getString(shdr.sh_name), shdr.* });
                     if (foreign_endian) {
                         mem.byteSwapAllFields(elf.Elf64_Shdr, shdr);
                     }
@@ -1268,7 +1272,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
     const stack_size = self.base.options.stack_size_override orelse 16777216;
     const allow_shlib_undefined = self.base.options.allow_shlib_undefined orelse !self.base.options.is_native_os;
     const compiler_rt_path: ?[]const u8 = blk: {
-        if (comp.compiler_rt_static_lib) |x| break :blk x.full_object_path;
+        if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
         if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
         break :blk null;
     };
@@ -1294,7 +1298,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 3);
+        comptime assert(Compilation.link_hash_implementation_version == 7);
 
         try man.addOptionalFile(self.base.options.linker_script);
         try man.addOptionalFile(self.base.options.version_script);
@@ -1311,7 +1315,6 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         // We can skip hashing libc and libc++ components that we are in charge of building from Zig
         // installation sources because they are always a product of the compiler version + target information.
         man.hash.addOptionalBytes(self.base.options.entry);
-        man.hash.add(stack_size);
         man.hash.addOptional(self.base.options.image_base_override);
         man.hash.add(gc_sections);
         man.hash.add(self.base.options.eh_frame_hdr);
@@ -1320,13 +1323,16 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         man.hash.addListOfBytes(self.base.options.lib_dirs);
         man.hash.addListOfBytes(self.base.options.rpath_list);
         man.hash.add(self.base.options.each_lib_rpath);
+        if (self.base.options.output_mode == .Exe) {
+            man.hash.add(stack_size);
+            man.hash.add(self.base.options.build_id);
+        }
         man.hash.add(self.base.options.skip_linker_dependencies);
         man.hash.add(self.base.options.z_nodelete);
         man.hash.add(self.base.options.z_notext);
         man.hash.add(self.base.options.z_defs);
         man.hash.add(self.base.options.z_origin);
         man.hash.add(self.base.options.z_nocopyreloc);
-        man.hash.add(self.base.options.z_noexecstack);
         man.hash.add(self.base.options.z_now);
         man.hash.add(self.base.options.z_relro);
         man.hash.add(self.base.options.hash_style);
@@ -1345,6 +1351,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         link.hashAddSystemLibs(&man.hash, self.base.options.system_libs);
         man.hash.add(allow_shlib_undefined);
         man.hash.add(self.base.options.bind_global_refs_locally);
+        man.hash.add(self.base.options.compress_debug_sections);
         man.hash.add(self.base.options.tsan);
         man.hash.addOptionalBytes(self.base.options.sysroot);
         man.hash.add(self.base.options.linker_optimization);
@@ -1450,6 +1457,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         if (self.base.options.output_mode == .Exe) {
             try argv.append("-z");
             try argv.append(try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size}));
+
+            if (self.base.options.build_id) {
+                try argv.append("--build-id");
+            }
         }
 
         if (self.base.options.image_base_override) |image_base| {
@@ -1501,17 +1512,13 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append("-z");
             try argv.append("nocopyreloc");
         }
-        if (self.base.options.z_noexecstack) {
-            try argv.append("-z");
-            try argv.append("noexecstack");
-        }
         if (self.base.options.z_now) {
-            try argv.append("-z");
-            try argv.append("now");
+            // LLD defaults to -zlazy
+            try argv.append("-znow");
         }
-        if (self.base.options.z_relro) {
-            try argv.append("-z");
-            try argv.append("relro");
+        if (!self.base.options.z_relro) {
+            // LLD defaults to -zrelro
+            try argv.append("-znorelro");
         }
 
         if (getLDMOption(target)) |ldm| {
@@ -1713,6 +1720,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             }
 
             // libc dep
+            self.error_flags.missing_libc = false;
             if (self.base.options.link_libc) {
                 if (self.base.options.libc_installation != null) {
                     const needs_grouping = self.base.options.link_mode == .Static;
@@ -1733,7 +1741,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
                         .Dynamic => "libc.so",
                     }));
                 } else {
-                    unreachable; // Compiler was supposed to emit an error for not being able to provide libc.
+                    self.error_flags.missing_libc = true;
+                    return error.FlushFailure;
                 }
             }
         }
@@ -1744,6 +1753,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
 
         if (allow_shlib_undefined) {
             try argv.append("--allow-shlib-undefined");
+        }
+
+        switch (self.base.options.compress_debug_sections) {
+            .none => {},
+            .zlib => try argv.append("--compress-debug-sections=zlib"),
         }
 
         if (self.base.options.bind_global_refs_locally) {
@@ -2293,7 +2307,7 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
     defer self.base.allocator.free(decl_name);
 
     log.debug("updateDeclCode {s}{*}", .{ decl_name, decl });
-    const required_alignment = decl.ty.abiAlignment(self.base.options.target);
+    const required_alignment = decl.getAlignment(self.base.options.target);
 
     const decl_ptr = self.decls.getPtr(decl_index).?;
     if (decl_ptr.* == null) {
@@ -2787,8 +2801,14 @@ fn writeSymbol(self: *Elf, index: usize) !void {
         if (needed_size > self.allocatedSize(syms_sect.sh_offset)) {
             // Move all the symbols to a new file location.
             const new_offset = self.findFreeSpace(needed_size, sym_align);
+            log.debug("moving '.symtab' from 0x{x} to 0x{x}", .{ syms_sect.sh_offset, new_offset });
             const existing_size = @as(u64, syms_sect.sh_info) * sym_size;
-            const amt = try self.base.file.?.copyRangeAll(syms_sect.sh_offset, self.base.file.?, new_offset, existing_size);
+            const amt = try self.base.file.?.copyRangeAll(
+                syms_sect.sh_offset,
+                self.base.file.?,
+                new_offset,
+                existing_size,
+            );
             if (amt != existing_size) return error.InputOutput;
             syms_sect.sh_offset = new_offset;
         }
@@ -2797,30 +2817,35 @@ fn writeSymbol(self: *Elf, index: usize) !void {
         self.shdr_table_dirty = true; // TODO look into only writing one section
     }
     const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
+    const off = switch (self.ptr_width) {
+        .p32 => syms_sect.sh_offset + @sizeOf(elf.Elf32_Sym) * index,
+        .p64 => syms_sect.sh_offset + @sizeOf(elf.Elf64_Sym) * index,
+    };
+    const local = self.local_symbols.items[index];
+    log.debug("writing symbol {d}, '{s}' at 0x{x}", .{ index, self.getString(local.st_name), off });
+    log.debug("  ({})", .{local});
     switch (self.ptr_width) {
         .p32 => {
             var sym = [1]elf.Elf32_Sym{
                 .{
-                    .st_name = self.local_symbols.items[index].st_name,
-                    .st_value = @intCast(u32, self.local_symbols.items[index].st_value),
-                    .st_size = @intCast(u32, self.local_symbols.items[index].st_size),
-                    .st_info = self.local_symbols.items[index].st_info,
-                    .st_other = self.local_symbols.items[index].st_other,
-                    .st_shndx = self.local_symbols.items[index].st_shndx,
+                    .st_name = local.st_name,
+                    .st_value = @intCast(u32, local.st_value),
+                    .st_size = @intCast(u32, local.st_size),
+                    .st_info = local.st_info,
+                    .st_other = local.st_other,
+                    .st_shndx = local.st_shndx,
                 },
             };
             if (foreign_endian) {
                 mem.byteSwapAllFields(elf.Elf32_Sym, &sym[0]);
             }
-            const off = syms_sect.sh_offset + @sizeOf(elf.Elf32_Sym) * index;
             try self.base.file.?.pwriteAll(mem.sliceAsBytes(sym[0..1]), off);
         },
         .p64 => {
-            var sym = [1]elf.Elf64_Sym{self.local_symbols.items[index]};
+            var sym = [1]elf.Elf64_Sym{local};
             if (foreign_endian) {
                 mem.byteSwapAllFields(elf.Elf64_Sym, &sym[0]);
             }
-            const off = syms_sect.sh_offset + @sizeOf(elf.Elf64_Sym) * index;
             try self.base.file.?.pwriteAll(mem.sliceAsBytes(sym[0..1]), off);
         },
     }
@@ -2840,8 +2865,14 @@ fn writeAllGlobalSymbols(self: *Elf) !void {
     if (needed_size > self.allocatedSize(syms_sect.sh_offset)) {
         // Move all the symbols to a new file location.
         const new_offset = self.findFreeSpace(needed_size, sym_align);
+        log.debug("moving '.symtab' from 0x{x} to 0x{x}", .{ syms_sect.sh_offset, new_offset });
         const existing_size = @as(u64, syms_sect.sh_info) * sym_size;
-        const amt = try self.base.file.?.copyRangeAll(syms_sect.sh_offset, self.base.file.?, new_offset, existing_size);
+        const amt = try self.base.file.?.copyRangeAll(
+            syms_sect.sh_offset,
+            self.base.file.?,
+            new_offset,
+            existing_size,
+        );
         if (amt != existing_size) return error.InputOutput;
         syms_sect.sh_offset = new_offset;
     }
@@ -2850,19 +2881,21 @@ fn writeAllGlobalSymbols(self: *Elf) !void {
 
     const foreign_endian = self.base.options.target.cpu.arch.endian() != builtin.cpu.arch.endian();
     const global_syms_off = syms_sect.sh_offset + self.local_symbols.items.len * sym_size;
+    log.debug("writing {d} global symbols at 0x{x}", .{ self.global_symbols.items.len, global_syms_off });
     switch (self.ptr_width) {
         .p32 => {
             const buf = try self.base.allocator.alloc(elf.Elf32_Sym, self.global_symbols.items.len);
             defer self.base.allocator.free(buf);
 
             for (buf) |*sym, i| {
+                const global = self.global_symbols.items[i];
                 sym.* = .{
-                    .st_name = self.global_symbols.items[i].st_name,
-                    .st_value = @intCast(u32, self.global_symbols.items[i].st_value),
-                    .st_size = @intCast(u32, self.global_symbols.items[i].st_size),
-                    .st_info = self.global_symbols.items[i].st_info,
-                    .st_other = self.global_symbols.items[i].st_other,
-                    .st_shndx = self.global_symbols.items[i].st_shndx,
+                    .st_name = global.st_name,
+                    .st_value = @intCast(u32, global.st_value),
+                    .st_size = @intCast(u32, global.st_size),
+                    .st_info = global.st_info,
+                    .st_other = global.st_other,
+                    .st_shndx = global.st_shndx,
                 };
                 if (foreign_endian) {
                     mem.byteSwapAllFields(elf.Elf32_Sym, sym);
@@ -2875,13 +2908,14 @@ fn writeAllGlobalSymbols(self: *Elf) !void {
             defer self.base.allocator.free(buf);
 
             for (buf) |*sym, i| {
+                const global = self.global_symbols.items[i];
                 sym.* = .{
-                    .st_name = self.global_symbols.items[i].st_name,
-                    .st_value = self.global_symbols.items[i].st_value,
-                    .st_size = self.global_symbols.items[i].st_size,
-                    .st_info = self.global_symbols.items[i].st_info,
-                    .st_other = self.global_symbols.items[i].st_other,
-                    .st_shndx = self.global_symbols.items[i].st_shndx,
+                    .st_name = global.st_name,
+                    .st_value = global.st_value,
+                    .st_size = global.st_size,
+                    .st_info = global.st_info,
+                    .st_other = global.st_other,
+                    .st_shndx = global.st_shndx,
                 };
                 if (foreign_endian) {
                     mem.byteSwapAllFields(elf.Elf64_Sym, sym);
@@ -3187,3 +3221,14 @@ const CsuObjects = struct {
         self.crtn = crtn;
     }
 };
+
+fn logSymtab(self: Elf) void {
+    log.debug("locals:", .{});
+    for (self.local_symbols.items) |sym, id| {
+        log.debug("  {d}: {s}: @{x} in {d}", .{ id, self.getString(sym.st_name), sym.st_value, sym.st_shndx });
+    }
+    log.debug("globals:", .{});
+    for (self.global_symbols.items) |sym, id| {
+        log.debug("  {d}: {s}: @{x} in {d}", .{ id, self.getString(sym.st_name), sym.st_value, sym.st_shndx });
+    }
+}

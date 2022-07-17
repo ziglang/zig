@@ -2945,7 +2945,6 @@ fn transDoWhileLoop(
     defer cond_scope.deinit();
     const cond = try transBoolExpr(c, &cond_scope.base, @ptrCast(*const clang.Expr, stmt.getCond()), .used);
     const if_not_break = switch (cond.tag()) {
-        .false_literal => return transStmt(c, scope, stmt.getBody(), .unused),
         .true_literal => {
             const body_node = try maybeBlockify(c, scope, stmt.getBody());
             return Tag.while_true.create(c.arena, body_node);
@@ -2953,7 +2952,11 @@ fn transDoWhileLoop(
         else => try Tag.if_not_break.create(c.arena, cond),
     };
 
-    const body_node = if (stmt.getBody().getStmtClass() == .CompoundStmtClass) blk: {
+    var body_node = try transStmt(c, &loop_scope, stmt.getBody(), .unused);
+    if (body_node.isNoreturn(true)) {
+        // The body node ends in a noreturn statement. Simply put it in a while (true)
+        // in case it contains breaks or continues.
+    } else if (stmt.getBody().getStmtClass() == .CompoundStmtClass) {
         // there's already a block in C, so we'll append our condition to it.
         // c: do {
         // c:   a;
@@ -2964,12 +2967,10 @@ fn transDoWhileLoop(
         // zig:   b;
         // zig:   if (!cond) break;
         // zig: }
-        const node = try transStmt(c, &loop_scope, stmt.getBody(), .unused);
-        const block = node.castTag(.block).?;
+        const block = body_node.castTag(.block).?;
         block.data.stmts.len += 1; // This is safe since we reserve one extra space in Scope.Block.complete.
         block.data.stmts[block.data.stmts.len - 1] = if_not_break;
-        break :blk node;
-    } else blk: {
+    } else {
         // the C statement is without a block, so we need to create a block to contain it.
         // c: do
         // c:   a;
@@ -2979,10 +2980,10 @@ fn transDoWhileLoop(
         // zig:   if (!cond) break;
         // zig: }
         const statements = try c.arena.alloc(Node, 2);
-        statements[0] = try transStmt(c, &loop_scope, stmt.getBody(), .unused);
+        statements[0] = body_node;
         statements[1] = if_not_break;
-        break :blk try Tag.block.create(c.arena, .{ .label = null, .stmts = statements });
-    };
+        body_node = try Tag.block.create(c.arena, .{ .label = null, .stmts = statements });
+    }
     return Tag.while_true.create(c.arena, body_node);
 }
 
@@ -4810,7 +4811,7 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
                 .rhs = try transQualType(c, scope, element_qt, source_loc),
             });
         },
-        .ExtInt, .ExtVector => {
+        .BitInt, .ExtVector => {
             const type_name = c.str(ty.getTypeClassName());
             return fail(c, error.UnsupportedType, source_loc, "TODO implement translation of type: '{!s}'", .{type_name});
         },
@@ -5109,7 +5110,30 @@ const PatternList = struct {
         [2][]const u8{ "Ull_SUFFIX(X) (X ## Ull)", "ULL_SUFFIX" },
         [2][]const u8{ "ULL_SUFFIX(X) (X ## ULL)", "ULL_SUFFIX" },
 
+        [2][]const u8{ "f_SUFFIX(X) X ## f", "F_SUFFIX" },
+        [2][]const u8{ "F_SUFFIX(X) X ## F", "F_SUFFIX" },
+
+        [2][]const u8{ "u_SUFFIX(X) X ## u", "U_SUFFIX" },
+        [2][]const u8{ "U_SUFFIX(X) X ## U", "U_SUFFIX" },
+
+        [2][]const u8{ "l_SUFFIX(X) X ## l", "L_SUFFIX" },
+        [2][]const u8{ "L_SUFFIX(X) X ## L", "L_SUFFIX" },
+
+        [2][]const u8{ "ul_SUFFIX(X) X ## ul", "UL_SUFFIX" },
+        [2][]const u8{ "uL_SUFFIX(X) X ## uL", "UL_SUFFIX" },
+        [2][]const u8{ "Ul_SUFFIX(X) X ## Ul", "UL_SUFFIX" },
+        [2][]const u8{ "UL_SUFFIX(X) X ## UL", "UL_SUFFIX" },
+
+        [2][]const u8{ "ll_SUFFIX(X) X ## ll", "LL_SUFFIX" },
+        [2][]const u8{ "LL_SUFFIX(X) X ## LL", "LL_SUFFIX" },
+
+        [2][]const u8{ "ull_SUFFIX(X) X ## ull", "ULL_SUFFIX" },
+        [2][]const u8{ "uLL_SUFFIX(X) X ## uLL", "ULL_SUFFIX" },
+        [2][]const u8{ "Ull_SUFFIX(X) X ## Ull", "ULL_SUFFIX" },
+        [2][]const u8{ "ULL_SUFFIX(X) X ## ULL", "ULL_SUFFIX" },
+
         [2][]const u8{ "CAST_OR_CALL(X, Y) (X)(Y)", "CAST_OR_CALL" },
+        [2][]const u8{ "CAST_OR_CALL(X, Y) ((X)(Y))", "CAST_OR_CALL" },
 
         [2][]const u8{
             \\wl_container_of(ptr, sample, member)                     \
@@ -5303,6 +5327,7 @@ test "Macro matching" {
 
     try helper.checkMacro(allocator, pattern_list, "NO_MATCH(X, Y) (X + Y)", null);
     try helper.checkMacro(allocator, pattern_list, "CAST_OR_CALL(X, Y) (X)(Y)", "CAST_OR_CALL");
+    try helper.checkMacro(allocator, pattern_list, "CAST_OR_CALL(X, Y) ((X)(Y))", "CAST_OR_CALL");
     try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) (void)(X)", "DISCARD");
     try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) ((void)(X))", "DISCARD");
     try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) (const void)(X)", "DISCARD");

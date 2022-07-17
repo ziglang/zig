@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===--------------------------- wctype.h ---------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -45,6 +45,10 @@ wctrans_t wctrans(const char* property);
 */
 
 #include <__config>
+
+#if defined(_LIBCPP_HAS_NO_WIDE_CHARACTERS)
+#   error "The <wctype.h> header is not supported since libc++ has been configured with LIBCXX_ENABLE_WIDE_CHARACTERS disabled"
+#endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header

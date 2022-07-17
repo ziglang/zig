@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===---------------------------- stack -----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -41,11 +41,14 @@ public:
 
     explicit stack(const container_type& c);
     explicit stack(container_type&& c);
+    template <class InputIterator> stack(InputIterator first, InputIterator last); // since C++23
     template <class Alloc> explicit stack(const Alloc& a);
     template <class Alloc> stack(const container_type& c, const Alloc& a);
     template <class Alloc> stack(container_type&& c, const Alloc& a);
     template <class Alloc> stack(const stack& c, const Alloc& a);
     template <class Alloc> stack(stack&& c, const Alloc& a);
+    template<class InputIterator, class Alloc>
+    stack(InputIterator first, InputIterator last, const Alloc&); // since C++23
 
     bool empty() const;
     size_type size() const;
@@ -63,8 +66,16 @@ public:
 template<class Container>
   stack(Container) -> stack<typename Container::value_type, Container>;  // C++17
 
+template<class InputIterator>
+  stack(InputIterator, InputIterator) -> stack<iter-value-type<InputIterator>>; // since C++23
+
 template<class Container, class Allocator>
   stack(Container, Allocator) -> stack<typename Container::value_type, Container>; // C++17
+
+template<class InputIterator, class Allocator>
+  stack(InputIterator, InputIterator, Allocator)
+    -> stack<iter-value-type<InputIterator>,
+             deque<iter-value-type<InputIterator>, Allocator>>; // since C++23
 
 template <class T, class Container>
   bool operator==(const stack<T, Container>& x, const stack<T, Container>& y);
@@ -88,9 +99,12 @@ template <class T, class Container>
 */
 
 #include <__config>
+#include <__iterator/iterator_traits.h>
 #include <__memory/uses_allocator.h>
 #include <__utility/forward.h>
 #include <deque>
+#include <type_traits>
+#include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -158,30 +172,44 @@ public:
     template <class _Alloc>
         _LIBCPP_INLINE_VISIBILITY
         explicit stack(const _Alloc& __a,
-                       _EnableIf<uses_allocator<container_type, _Alloc>::value>* = 0)
+                       __enable_if_t<uses_allocator<container_type, _Alloc>::value>* = 0)
             : c(__a) {}
     template <class _Alloc>
         _LIBCPP_INLINE_VISIBILITY
         stack(const container_type& __c, const _Alloc& __a,
-              _EnableIf<uses_allocator<container_type, _Alloc>::value>* = 0)
+              __enable_if_t<uses_allocator<container_type, _Alloc>::value>* = 0)
             : c(__c, __a) {}
     template <class _Alloc>
         _LIBCPP_INLINE_VISIBILITY
         stack(const stack& __s, const _Alloc& __a,
-              _EnableIf<uses_allocator<container_type, _Alloc>::value>* = 0)
+              __enable_if_t<uses_allocator<container_type, _Alloc>::value>* = 0)
             : c(__s.c, __a) {}
 #ifndef _LIBCPP_CXX03_LANG
     template <class _Alloc>
         _LIBCPP_INLINE_VISIBILITY
         stack(container_type&& __c, const _Alloc& __a,
-              _EnableIf<uses_allocator<container_type, _Alloc>::value>* = 0)
+              __enable_if_t<uses_allocator<container_type, _Alloc>::value>* = 0)
             : c(_VSTD::move(__c), __a) {}
     template <class _Alloc>
         _LIBCPP_INLINE_VISIBILITY
         stack(stack&& __s, const _Alloc& __a,
-              _EnableIf<uses_allocator<container_type, _Alloc>::value>* = 0)
+              __enable_if_t<uses_allocator<container_type, _Alloc>::value>* = 0)
             : c(_VSTD::move(__s.c), __a) {}
 #endif // _LIBCPP_CXX03_LANG
+
+#if _LIBCPP_STD_VER > 20
+    template <class _InputIterator,
+              class = __enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value>>
+    _LIBCPP_HIDE_FROM_ABI
+    stack(_InputIterator __first, _InputIterator __last) : c(__first, __last) {}
+
+    template <class _InputIterator,
+              class _Alloc,
+              class = __enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value>,
+              class = __enable_if_t<uses_allocator<container_type, _Alloc>::value>>
+    _LIBCPP_HIDE_FROM_ABI
+    stack(_InputIterator __first, _InputIterator __last, const _Alloc& __alloc) : c(__first, __last, __alloc) {}
+#endif
 
     _LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_INLINE_VISIBILITY
     bool empty()     const      {return c.empty();}
@@ -231,20 +259,34 @@ public:
     operator< (const stack<T1, _C1>& __x, const stack<T1, _C1>& __y);
 };
 
-#ifndef _LIBCPP_HAS_NO_DEDUCTION_GUIDES
+#if _LIBCPP_STD_VER > 14
 template<class _Container,
-         class = _EnableIf<!__is_allocator<_Container>::value>
+         class = enable_if_t<!__is_allocator<_Container>::value>
 >
 stack(_Container)
     -> stack<typename _Container::value_type, _Container>;
 
 template<class _Container,
          class _Alloc,
-         class = _EnableIf<!__is_allocator<_Container>::value>,
-         class = _EnableIf<uses_allocator<_Container, _Alloc>::value>
+         class = enable_if_t<!__is_allocator<_Container>::value>,
+         class = enable_if_t<uses_allocator<_Container, _Alloc>::value>
          >
 stack(_Container, _Alloc)
     -> stack<typename _Container::value_type, _Container>;
+#endif
+
+#if _LIBCPP_STD_VER > 20
+template<class _InputIterator,
+         class = __enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value>>
+stack(_InputIterator, _InputIterator)
+    -> stack<__iter_value_type<_InputIterator>>;
+
+template<class _InputIterator,
+         class _Alloc,
+         class = __enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value>,
+         class = __enable_if_t<__is_allocator<_Alloc>::value>>
+stack(_InputIterator, _InputIterator, _Alloc)
+    -> stack<__iter_value_type<_InputIterator>, deque<__iter_value_type<_InputIterator>, _Alloc>>;
 #endif
 
 template <class _Tp, class _Container>
@@ -297,7 +339,7 @@ operator<=(const stack<_Tp, _Container>& __x, const stack<_Tp, _Container>& __y)
 
 template <class _Tp, class _Container>
 inline _LIBCPP_INLINE_VISIBILITY
-_EnableIf<__is_swappable<_Container>::value, void>
+__enable_if_t<__is_swappable<_Container>::value, void>
 swap(stack<_Tp, _Container>& __x, stack<_Tp, _Container>& __y)
     _NOEXCEPT_(_NOEXCEPT_(__x.swap(__y)))
 {

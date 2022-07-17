@@ -1,12 +1,33 @@
-// Ported from:
-//
-// https://github.com/llvm/llvm-project/commit/d674d96bc56c0f377879d01c9d8dfdaaa7859cdb/compiler-rt/lib/builtins/divsf3.c
+//! Ported from:
+//!
+//! https://github.com/llvm/llvm-project/commit/d674d96bc56c0f377879d01c9d8dfdaaa7859cdb/compiler-rt/lib/builtins/divsf3.c
 
 const std = @import("std");
 const builtin = @import("builtin");
+const arch = builtin.cpu.arch;
+
+const common = @import("common.zig");
+const normalize = common.normalize;
+
+pub const panic = common.panic;
+
+comptime {
+    if (common.want_aeabi) {
+        @export(__aeabi_fdiv, .{ .name = "__aeabi_fdiv", .linkage = common.linkage });
+    } else {
+        @export(__divsf3, .{ .name = "__divsf3", .linkage = common.linkage });
+    }
+}
 
 pub fn __divsf3(a: f32, b: f32) callconv(.C) f32 {
-    @setRuntimeSafety(builtin.is_test);
+    return div(a, b);
+}
+
+fn __aeabi_fdiv(a: f32, b: f32) callconv(.AAPCS) f32 {
+    return div(a, b);
+}
+
+inline fn div(a: f32, b: f32) f32 {
     const Z = std.meta.Int(.unsigned, 32);
 
     const significandBits = std.math.floatMantissaBits(f32);
@@ -182,22 +203,6 @@ pub fn __divsf3(a: f32, b: f32) callconv(.C) f32 {
         // Insert the sign and return
         return @bitCast(f32, absResult | quotientSign);
     }
-}
-
-fn normalize(comptime T: type, significand: *std.meta.Int(.unsigned, @typeInfo(T).Float.bits)) i32 {
-    @setRuntimeSafety(builtin.is_test);
-    const Z = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
-    const significandBits = std.math.floatMantissaBits(T);
-    const implicitBit = @as(Z, 1) << significandBits;
-
-    const shift = @clz(Z, significand.*) - @clz(Z, implicitBit);
-    significand.* <<= @intCast(std.math.Log2Int(Z), shift);
-    return 1 - shift;
-}
-
-pub fn __aeabi_fdiv(a: f32, b: f32) callconv(.AAPCS) f32 {
-    @setRuntimeSafety(false);
-    return @call(.{ .modifier = .always_inline }, __divsf3, .{ a, b });
 }
 
 test {

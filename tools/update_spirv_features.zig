@@ -218,7 +218,7 @@ pub fn main() !void {
 /// TODO: Unfortunately, neither repository contains a machine-readable list of extension dependencies.
 fn gather_extensions(allocator: Allocator, spirv_registry_root: []const u8) ![]const []const u8 {
     const extensions_path = try fs.path.join(allocator, &.{ spirv_registry_root, "extensions" });
-    var extensions_dir = try fs.cwd().openDir(extensions_path, .{ .iterate = true });
+    var extensions_dir = try fs.cwd().openIterableDir(extensions_path, .{});
     defer extensions_dir.close();
 
     var extensions = std.ArrayList([]const u8).init(allocator);
@@ -227,7 +227,7 @@ fn gather_extensions(allocator: Allocator, spirv_registry_root: []const u8) ![]c
     while (try vendor_it.next()) |vendor_entry| {
         std.debug.assert(vendor_entry.kind == .Directory); // If this fails, the structure of SPIRV-Registry has changed.
 
-        const vendor_dir = try extensions_dir.openDir(vendor_entry.name, .{ .iterate = true });
+        const vendor_dir = try extensions_dir.dir.openIterableDir(vendor_entry.name, .{});
         var ext_it = vendor_dir.iterate();
         while (try ext_it.next()) |ext_entry| {
             // There is both a HTML and asciidoc version of every spec (as well as some other directories),
@@ -250,7 +250,7 @@ fn gather_extensions(allocator: Allocator, spirv_registry_root: []const u8) ![]c
             // SPV_EXT_name
             // ```
 
-            const ext_spec = try vendor_dir.readFileAlloc(allocator, ext_entry.name, std.math.maxInt(usize));
+            const ext_spec = try vendor_dir.dir.readFileAlloc(allocator, ext_entry.name, std.math.maxInt(usize));
             const name_strings = "Name Strings";
 
             const name_strings_offset = std.mem.indexOf(u8, ext_spec, name_strings) orelse return error.InvalidRegistry;

@@ -911,17 +911,18 @@ pub const siginfo_t = extern struct {
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with function name.
 pub const Sigaction = extern struct {
-    pub usingnamespace if (builtin.zig_backend == .stage1) struct {
-        pub const handler_fn = fn (c_int) callconv(.C) void;
-        pub const sigaction_fn = fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
-    } else struct {
-        pub const handler_fn = *const fn (c_int) callconv(.C) void;
-        pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
+    pub const handler_fn = switch (builtin.zig_backend) {
+        .stage1 => fn (c_int) callconv(.C) void,
+        else => *const fn (c_int) callconv(.C) void,
+    };
+    pub const sigaction_fn = switch (builtin.zig_backend) {
+        .stage1 => fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void,
+        else => *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void,
     };
 
     handler: extern union {
-        handler: ?Sigaction.handler_fn,
-        sigaction: ?Sigaction.sigaction_fn,
+        handler: ?handler_fn,
+        sigaction: ?sigaction_fn,
     },
     mask: sigset_t,
     flags: c_uint,

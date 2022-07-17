@@ -212,6 +212,27 @@ test "zig fmt: top-level fields" {
     );
 }
 
+test "zig fmt: C style containers" {
+    try testError(
+        \\struct Foo {
+        \\    a: u32,
+        \\};
+    , &[_]Error{
+        .c_style_container,
+        .zig_style_container,
+    });
+    try testError(
+        \\test {
+        \\    struct Foo {
+        \\        a: u32,
+        \\    };
+        \\}
+    , &[_]Error{
+        .c_style_container,
+        .zig_style_container,
+    });
+}
+
 test "zig fmt: decl between fields" {
     try testError(
         \\const S = struct {
@@ -4150,6 +4171,41 @@ test "zig fmt: container doc comments" {
     );
     try testCanonical(
         \\//! Nothing here
+        \\
+    );
+}
+
+test "zig fmt: remove newlines surrounding doc comment" {
+    try testTransform(
+        \\
+        \\
+        \\
+        \\/// doc comment
+        \\
+        \\fn foo() void {}
+        \\
+    ,
+        \\/// doc comment
+        \\fn foo() void {}
+        \\
+    );
+}
+
+test "zig fmt: remove newlines surrounding doc comment within container decl" {
+    try testTransform(
+        \\const Foo = struct {
+        \\
+        \\
+        \\    /// doc comment
+        \\
+        \\    fn foo() void {}
+        \\};
+        \\
+    ,
+        \\const Foo = struct {
+        \\    /// doc comment
+        \\    fn foo() void {}
+        \\};
         \\
     );
 }

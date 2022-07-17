@@ -376,7 +376,7 @@ pub fn mknodat(dirfd: i32, path: [*:0]const u8, mode: u32, dev: u32) usize {
     return syscall4(.mknodat, @bitCast(usize, @as(isize, dirfd)), @ptrToInt(path), mode, dev);
 }
 
-pub fn mount(special: [*:0]const u8, dir: [*:0]const u8, fstype: [*:0]const u8, flags: u32, data: usize) usize {
+pub fn mount(special: [*:0]const u8, dir: [*:0]const u8, fstype: ?[*:0]const u8, flags: u32, data: usize) usize {
     return syscall5(.mount, @ptrToInt(special), @ptrToInt(dir), @ptrToInt(fstype), flags, data);
 }
 
@@ -3222,16 +3222,21 @@ pub const epoll_data = extern union {
     @"u64": u64,
 };
 
-// On x86_64 the structure is packed so that it matches the definition of its
-// 32bit counterpart
-pub const epoll_event = switch (native_arch) {
-    .x86_64 => packed struct {
-        events: u32,
-        data: epoll_data,
+pub const epoll_event = switch (builtin.zig_backend) {
+    // stage1 crashes with the align(4) field so we have this workaround
+    .stage1 => switch (native_arch) {
+        .x86_64 => packed struct {
+            events: u32,
+            data: epoll_data,
+        },
+        else => extern struct {
+            events: u32,
+            data: epoll_data,
+        },
     },
     else => extern struct {
         events: u32,
-        data: epoll_data,
+        data: epoll_data align(4),
     },
 };
 
@@ -4683,7 +4688,6 @@ pub const prctl_mm_map = extern struct {
 };
 
 pub const NETLINK = struct {
-
     /// Routing/device hook
     pub const ROUTE = 0;
 

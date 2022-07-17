@@ -706,12 +706,8 @@ fn expectFail(expected_error: anyerror, data: anytype, filter: []Insn) !void {
 }
 
 test "simulator coverage" {
-    const some_data: packed struct {
-        foo: u32,
-        bar: u8,
-    } = .{
-        .foo = mem.nativeToBig(u32, 0xaabbccdd),
-        .bar = 0x7f,
+    const some_data = [_]u8{
+        0xaa, 0xbb, 0xcc, 0xdd, 0x7f,
     };
 
     try expectPass(&some_data, &.{
@@ -764,7 +760,7 @@ test "simulator coverage" {
         // ld #len
         // fail if A != 5
         Insn.ld_len(),
-        Insn.jmp(.jeq, .{ .k = @sizeOf(@TypeOf(some_data)) }, 1, 0),
+        Insn.jmp(.jeq, .{ .k = some_data.len }, 1, 0),
         Insn.ret(.{ .k = 9 }),
         // ld #0
         // ld arc4random()

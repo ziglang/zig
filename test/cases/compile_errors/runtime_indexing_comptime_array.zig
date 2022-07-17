@@ -21,11 +21,12 @@ pub export fn entry3() void {
     _ = &test_fns[i];
 }
 // error
-// backend=stage2,llvm
+// target=native
+// backend=stage2
 //
-// :6:33: error: values of type '[2]fn() callconv(.C) void' must be comptime known, but index value is runtime known
-// :6:33: note: use '*const fn() callconv(.C) void' for a function pointer type
-// :13:33: error: values of type '[2]fn() callconv(.C) void' must be comptime known, but index value is runtime known
-// :13:33: note: use '*const fn() callconv(.C) void' for a function pointer type
-// :19:33: error: values of type '[2]fn() callconv(.C) void' must be comptime known, but index value is runtime known
-// :19:33: note: use '*const fn() callconv(.C) void' for a function pointer type
+// :7:10: error: values of type '[2]fn() void' must be comptime known, but index value is runtime known
+// :7:10: note: use '*const fn() void' for a function pointer type
+// :15:18: error: values of type '[2]fn() void' must be comptime known, but index value is runtime known
+// :15:17: note: use '*const fn() void' for a function pointer type
+// :21:19: error: values of type '[2]fn() void' must be comptime known, but index value is runtime known
+// :21:18: note: use '*const fn() void' for a function pointer type

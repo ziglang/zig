@@ -108,7 +108,7 @@ fn callMain2() noreturn {
     exit2(0);
 }
 
-fn wasiMain2() noreturn {
+fn wasiMain2() callconv(.C) noreturn {
     switch (@typeInfo(@typeInfo(@TypeOf(root.main)).Fn.return_type.?)) {
         .Void => {
             root.main();
@@ -361,7 +361,6 @@ fn wWinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
     std.os.windows.kernel32.ExitProcess(@bitCast(std.os.windows.UINT, result));
 }
 
-// TODO https://github.com/ziglang/zig/issues/265
 fn posixCallMainAndExit() noreturn {
     @setAlignStack(16);
 

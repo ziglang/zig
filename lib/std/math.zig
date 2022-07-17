@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
@@ -291,6 +292,34 @@ pub inline fn tan(value: anytype) @TypeOf(value) {
     return @tan(value);
 }
 
+// Convert an angle in radians to degrees. T must be a float type.
+pub fn radiansToDegrees(comptime T: type, angle_in_radians: T) T {
+    if (@typeInfo(T) != .Float)
+        @compileError("T must be a float type.");
+    return angle_in_radians * 180.0 / pi;
+}
+
+test "radiansToDegrees" {
+    try std.testing.expectApproxEqAbs(@as(f32, 0), radiansToDegrees(f32, 0), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 90), radiansToDegrees(f32, pi / 2.0), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -45), radiansToDegrees(f32, -pi / 4.0), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 180), radiansToDegrees(f32, pi), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 360), radiansToDegrees(f32, 2.0 * pi), 1e-6);
+}
+
+// Convert an angle in degrees to radians. T must be a float type.
+pub fn degreesToRadians(comptime T: type, angle_in_degrees: T) T {
+    if (@typeInfo(T) != .Float)
+        @compileError("T must be a float type.");
+    return angle_in_degrees * pi / 180.0;
+}
+
+test "degreesToRadians" {
+    try std.testing.expectApproxEqAbs(@as(f32, pi / 2.0), degreesToRadians(f32, 90), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -3 * pi / 2.0), degreesToRadians(f32, -270), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 2 * pi), degreesToRadians(f32, 360), 1e-6);
+}
+
 /// Base-e exponential function on a floating point number.
 /// Uses a dedicated hardware instruction when available.
 /// This is the same as calling the builtin @exp
@@ -506,6 +535,12 @@ pub fn shl(comptime T: type, a: T, shift_amt: anytype) T {
 }
 
 test "shl" {
+    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
+        builtin.cpu.arch == .aarch64)
+    {
+        // https://github.com/ziglang/zig/issues/12012
+        return error.SkipZigTest;
+    }
     try testing.expect(shl(u8, 0b11111111, @as(usize, 3)) == 0b11111000);
     try testing.expect(shl(u8, 0b11111111, @as(usize, 8)) == 0);
     try testing.expect(shl(u8, 0b11111111, @as(usize, 9)) == 0);
@@ -546,6 +581,12 @@ pub fn shr(comptime T: type, a: T, shift_amt: anytype) T {
 }
 
 test "shr" {
+    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
+        builtin.cpu.arch == .aarch64)
+    {
+        // https://github.com/ziglang/zig/issues/12012
+        return error.SkipZigTest;
+    }
     try testing.expect(shr(u8, 0b11111111, @as(usize, 3)) == 0b00011111);
     try testing.expect(shr(u8, 0b11111111, @as(usize, 8)) == 0);
     try testing.expect(shr(u8, 0b11111111, @as(usize, 9)) == 0);
@@ -578,6 +619,12 @@ pub fn rotr(comptime T: type, x: T, r: anytype) T {
 }
 
 test "rotr" {
+    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
+        builtin.cpu.arch == .aarch64)
+    {
+        // https://github.com/ziglang/zig/issues/12012
+        return error.SkipZigTest;
+    }
     try testing.expect(rotr(u8, 0b00000001, @as(usize, 0)) == 0b00000001);
     try testing.expect(rotr(u8, 0b00000001, @as(usize, 9)) == 0b10000000);
     try testing.expect(rotr(u8, 0b00000001, @as(usize, 8)) == 0b00000001);
@@ -606,6 +653,12 @@ pub fn rotl(comptime T: type, x: T, r: anytype) T {
 }
 
 test "rotl" {
+    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
+        builtin.cpu.arch == .aarch64)
+    {
+        // https://github.com/ziglang/zig/issues/12012
+        return error.SkipZigTest;
+    }
     try testing.expect(rotl(u8, 0b00000001, @as(usize, 0)) == 0b00000001);
     try testing.expect(rotl(u8, 0b00000001, @as(usize, 9)) == 0b00000010);
     try testing.expect(rotl(u8, 0b00000001, @as(usize, 8)) == 0b00000001);
@@ -1622,6 +1675,10 @@ fn testSign() !void {
 }
 
 test "sign" {
+    if (builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) {
+        // https://github.com/ziglang/zig/issues/12012
+        return error.SkipZigTest;
+    }
     try testSign();
     comptime try testSign();
 }

@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===-------------------------- __string ----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -10,21 +10,25 @@
 #ifndef _LIBCPP___STRING
 #define _LIBCPP___STRING
 
-#include <__config>
 #include <__algorithm/copy.h>
 #include <__algorithm/copy_backward.h>
 #include <__algorithm/copy_n.h>
 #include <__algorithm/fill_n.h>
-#include <__algorithm/find_first_of.h>
 #include <__algorithm/find_end.h>
+#include <__algorithm/find_first_of.h>
 #include <__algorithm/min.h>
+#include <__config>
 #include <__functional/hash.h>     // for __murmur2_or_cityhash
 #include <__iterator/iterator_traits.h>
-#include <cstdio>      // for EOF
 #include <cstdint>     // for uint_least16_t
+#include <cstdio>      // for EOF
 #include <cstring>     // for memcpy
-#include <cwchar>      // for wmemcpy
+#include <iosfwd>      // for streampos & friends
 #include <type_traits> // for __libcpp_is_constant_evaluated
+
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#   include <cwchar> // for wmemcpy
+#endif
 
 #include <__debug>
 
@@ -37,9 +41,6 @@ _LIBCPP_PUSH_MACROS
 
 
 _LIBCPP_BEGIN_NAMESPACE_STD
-
-// The the extern template ABI lists are kept outside of <string> to improve the
-// readability of that header.
 
 // The extern template ABI lists are kept outside of <string> to improve the
 // readability of that header. We maintain 2 ABI lists:
@@ -265,7 +266,9 @@ inline _LIBCPP_CONSTEXPR_AFTER_CXX17
 _CharT*
 char_traits<_CharT>::copy(char_type* __s1, const char_type* __s2, size_t __n)
 {
-    _LIBCPP_ASSERT(__s2 < __s1 || __s2 >= __s1+__n, "char_traits::copy overlapped range");
+    if (!__libcpp_is_constant_evaluated()) {
+        _LIBCPP_ASSERT(__s2 < __s1 || __s2 >= __s1+__n, "char_traits::copy overlapped range");
+    }
     char_type* __r = __s1;
     for (; __n; --__n, ++__s1, ++__s2)
         assign(*__s1, *__s2);
@@ -287,31 +290,34 @@ char_traits<_CharT>::assign(char_type* __s, size_t __n, char_type __a)
 
 template <class _CharT>
 static inline _LIBCPP_CONSTEXPR_AFTER_CXX17
-_CharT* __move_constexpr(_CharT* __s1, const _CharT* __s2, size_t __n) _NOEXCEPT
+_CharT* __copy_constexpr(_CharT* __dest, const _CharT* __source, size_t __n) _NOEXCEPT
 {
-    if (__n == 0) return __s1;
-    if (__s1 < __s2) {
-      _VSTD::copy(__s2, __s2 + __n, __s1);
-    } else if (__s2 < __s1) {
-      _VSTD::copy_backward(__s2, __s2 + __n, __s1 + __n);
-    }
-    return __s1;
+  _LIBCPP_ASSERT(__libcpp_is_constant_evaluated(), "__copy_constexpr() should always be constant evaluated");
+  _VSTD::copy_n(__source, __n, __dest);
+  return __dest;
 }
 
 template <class _CharT>
 static inline _LIBCPP_CONSTEXPR_AFTER_CXX17
-_CharT* __copy_constexpr(_CharT* __s1, const _CharT* __s2, size_t __n) _NOEXCEPT
+_CharT* __move_constexpr(_CharT* __dest, const _CharT* __source, size_t __n) _NOEXCEPT
 {
-    _VSTD::copy_n(__s2, __n, __s1);
-    return __s1;
+  _LIBCPP_ASSERT(__libcpp_is_constant_evaluated(), "__move_constexpr() should always be constant evaluated");
+  if (__n == 0)
+    return __dest;
+  _CharT* __allocation = new _CharT[__n];
+  _VSTD::__copy_constexpr(__allocation, __source, __n);
+  _VSTD::__copy_constexpr(__dest, static_cast<const _CharT*>(__allocation), __n);
+  delete[] __allocation;
+  return __dest;
 }
 
 template <class _CharT>
 static inline _LIBCPP_CONSTEXPR_AFTER_CXX17
 _CharT* __assign_constexpr(_CharT* __s, size_t __n, _CharT __a) _NOEXCEPT
 {
-     _VSTD::fill_n(__s, __n, __a);
-     return __s;
+  _LIBCPP_ASSERT(__libcpp_is_constant_evaluated(), "__assign_constexpr() should always be constant evaluated");
+  _VSTD::fill_n(__s, __n, __a);
+  return __s;
 }
 
 // char_traits<char>
@@ -334,8 +340,21 @@ struct _LIBCPP_TEMPLATE_VIS char_traits<char>
 
     static _LIBCPP_CONSTEXPR_AFTER_CXX14
     int compare(const char_type* __s1, const char_type* __s2, size_t __n) _NOEXCEPT;
-    static inline size_t _LIBCPP_CONSTEXPR_AFTER_CXX14
-    length(const char_type* __s)  _NOEXCEPT {return __builtin_strlen(__s);}
+
+    static inline size_t _LIBCPP_CONSTEXPR_AFTER_CXX14 length(const char_type* __s)  _NOEXCEPT {
+      // GCC currently does not support __builtin_strlen during constant evaluation.
+      // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=70816
+#ifdef _LIBCPP_COMPILER_GCC
+      if (__libcpp_is_constant_evaluated()) {
+        size_t __i = 0;
+        for (; __s[__i] != char_type('\0'); ++__i)
+            ;
+        return __i;
+      }
+#endif
+      return __builtin_strlen(__s);
+    }
+
     static _LIBCPP_CONSTEXPR_AFTER_CXX14
     const char_type* find(const char_type* __s, size_t __n, const char_type& __a) _NOEXCEPT;
     static inline _LIBCPP_CONSTEXPR_AFTER_CXX17
@@ -348,7 +367,9 @@ struct _LIBCPP_TEMPLATE_VIS char_traits<char>
     static inline _LIBCPP_CONSTEXPR_AFTER_CXX17
     char_type* copy(char_type* __s1, const char_type* __s2, size_t __n) _NOEXCEPT
         {
-            _LIBCPP_ASSERT(__s2 < __s1 || __s2 >= __s1+__n, "char_traits::copy overlapped range");
+            if (!__libcpp_is_constant_evaluated()) {
+                _LIBCPP_ASSERT(__s2 < __s1 || __s2 >= __s1+__n, "char_traits::copy overlapped range");
+            }
             return __libcpp_is_constant_evaluated()
                        ? _VSTD::__copy_constexpr(__s1, __s2, __n)
                        : __n == 0 ? __s1 : (char_type*)_VSTD::memcpy(__s1, __s2, __n);
@@ -419,6 +440,7 @@ char_traits<char>::find(const char_type* __s, size_t __n, const char_type& __a) 
 
 // char_traits<wchar_t>
 
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 template <>
 struct _LIBCPP_TEMPLATE_VIS char_traits<wchar_t>
 {
@@ -451,7 +473,9 @@ struct _LIBCPP_TEMPLATE_VIS char_traits<wchar_t>
     static inline _LIBCPP_CONSTEXPR_AFTER_CXX17
     char_type* copy(char_type* __s1, const char_type* __s2, size_t __n) _NOEXCEPT
         {
-            _LIBCPP_ASSERT(__s2 < __s1 || __s2 >= __s1+__n, "char_traits::copy overlapped range");
+            if (!__libcpp_is_constant_evaluated()) {
+                _LIBCPP_ASSERT(__s2 < __s1 || __s2 >= __s1+__n, "char_traits::copy overlapped range");
+            }
             return __libcpp_is_constant_evaluated()
                        ? _VSTD::__copy_constexpr(__s1, __s2, __n)
                        : __n == 0 ? __s1 : _VSTD::wmemcpy(__s1, __s2, __n);
@@ -497,18 +521,6 @@ char_traits<wchar_t>::compare(const char_type* __s1, const char_type* __s2, size
 #endif
 }
 
-
-template <class _Traits>
-_LIBCPP_INLINE_VISIBILITY
-_LIBCPP_CONSTEXPR
-inline size_t __char_traits_length_checked(const typename _Traits::char_type* __s) _NOEXCEPT {
-#if _LIBCPP_DEBUG_LEVEL >= 1
-  return __s ? _Traits::length(__s) : (_VSTD::__libcpp_debug_function(_VSTD::__libcpp_debug_info(__FILE__, __LINE__, "p == nullptr", "null pointer pass to non-null argument of char_traits<...>::length")), 0);
-#else
-  return _Traits::length(__s);
-#endif
-}
-
 inline _LIBCPP_CONSTEXPR_AFTER_CXX14
 size_t
 char_traits<wchar_t>::length(const char_type* __s) _NOEXCEPT
@@ -545,7 +557,18 @@ char_traits<wchar_t>::find(const char_type* __s, size_t __n, const char_type& __
     return nullptr;
 #endif
 }
+#endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
 
+template <class _Traits>
+_LIBCPP_INLINE_VISIBILITY
+_LIBCPP_CONSTEXPR
+inline size_t __char_traits_length_checked(const typename _Traits::char_type* __s) _NOEXCEPT {
+#if _LIBCPP_DEBUG_LEVEL >= 1
+  return __s ? _Traits::length(__s) : (_VSTD::__libcpp_debug_function(_VSTD::__libcpp_debug_info(__FILE__, __LINE__, "p == nullptr", "null pointer pass to non-null argument of char_traits<...>::length")), 0);
+#else
+  return _Traits::length(__s);
+#endif
+}
 
 #ifndef _LIBCPP_HAS_NO_CHAR8_T
 
@@ -584,8 +607,10 @@ struct _LIBCPP_TEMPLATE_VIS char_traits<char8_t>
 
     static _LIBCPP_CONSTEXPR_AFTER_CXX17
     char_type*       copy(char_type* __s1, const char_type* __s2, size_t __n) _NOEXCEPT
-       {
-            _LIBCPP_ASSERT(__s2 < __s1 || __s2 >= __s1+__n, "char_traits::copy overlapped range");
+        {
+            if (!__libcpp_is_constant_evaluated()) {
+                _LIBCPP_ASSERT(__s2 < __s1 || __s2 >= __s1+__n, "char_traits::copy overlapped range");
+            }
             return __libcpp_is_constant_evaluated()
                        ? _VSTD::__copy_constexpr(__s1, __s2, __n)
                        : __n == 0 ? __s1 : (char_type*)_VSTD::memcpy(__s1, __s2, __n);
@@ -761,7 +786,9 @@ inline _LIBCPP_CONSTEXPR_AFTER_CXX17
 char16_t*
 char_traits<char16_t>::copy(char_type* __s1, const char_type* __s2, size_t __n) _NOEXCEPT
 {
-    _LIBCPP_ASSERT(__s2 < __s1 || __s2 >= __s1+__n, "char_traits::copy overlapped range");
+    if (!__libcpp_is_constant_evaluated()) {
+        _LIBCPP_ASSERT(__s2 < __s1 || __s2 >= __s1+__n, "char_traits::copy overlapped range");
+    }
     char_type* __r = __s1;
     for (; __n; --__n, ++__s1, ++__s2)
         assign(*__s1, *__s2);
@@ -881,7 +908,9 @@ inline _LIBCPP_CONSTEXPR_AFTER_CXX17
 char32_t*
 char_traits<char32_t>::copy(char_type* __s1, const char_type* __s2, size_t __n) _NOEXCEPT
 {
-    _LIBCPP_ASSERT(__s2 < __s1 || __s2 >= __s1+__n, "char_traits::copy overlapped range");
+    if (!__libcpp_is_constant_evaluated()) {
+        _LIBCPP_ASSERT(__s2 < __s1 || __s2 >= __s1+__n, "char_traits::copy overlapped range");
+    }
     char_type* __r = __s1;
     for (; __n; --__n, ++__s1, ++__s2)
         assign(*__s1, *__s2);

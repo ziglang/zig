@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===--------------------------- iosfwd -----------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -95,7 +95,8 @@ using u32streampos = fpos<char_traits<char32_t>::state_type>;
 */
 
 #include <__config>
-#include <wchar.h>  // for mbstate_t
+#include <__mbstate_t.h>
+#include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -112,7 +113,9 @@ template<> struct char_traits<char8_t>;
 #endif
 template<> struct char_traits<char16_t>;
 template<> struct char_traits<char32_t>;
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 template<> struct char_traits<wchar_t>;
+#endif
 
 template<class _Tp>     class _LIBCPP_TEMPLATE_VIS allocator;
 
@@ -156,7 +159,9 @@ template <class _CharT, class _Traits = char_traits<_CharT> >
     class _LIBCPP_TEMPLATE_VIS ostreambuf_iterator;
 
 typedef basic_ios<char>              ios;
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 typedef basic_ios<wchar_t>           wios;
+#endif
 
 typedef basic_streambuf<char>        streambuf;
 typedef basic_istream<char>          istream;
@@ -173,6 +178,7 @@ typedef basic_ifstream<char>         ifstream;
 typedef basic_ofstream<char>         ofstream;
 typedef basic_fstream<char>          fstream;
 
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 typedef basic_streambuf<wchar_t>     wstreambuf;
 typedef basic_istream<wchar_t>       wistream;
 typedef basic_ostream<wchar_t>       wostream;
@@ -187,36 +193,37 @@ typedef basic_filebuf<wchar_t>       wfilebuf;
 typedef basic_ifstream<wchar_t>      wifstream;
 typedef basic_ofstream<wchar_t>      wofstream;
 typedef basic_fstream<wchar_t>       wfstream;
+#endif
 
 template <class _CharT, class _Traits>
-    class _LIBCPP_PREFERRED_NAME(ios) _LIBCPP_PREFERRED_NAME(wios) basic_ios;
+    class _LIBCPP_PREFERRED_NAME(ios) _LIBCPP_IF_WIDE_CHARACTERS(_LIBCPP_PREFERRED_NAME(wios)) basic_ios;
 
 template <class _CharT, class _Traits>
-    class _LIBCPP_PREFERRED_NAME(streambuf) _LIBCPP_PREFERRED_NAME(wstreambuf) basic_streambuf;
+    class _LIBCPP_PREFERRED_NAME(streambuf) _LIBCPP_IF_WIDE_CHARACTERS(_LIBCPP_PREFERRED_NAME(wstreambuf)) basic_streambuf;
 template <class _CharT, class _Traits>
-    class _LIBCPP_PREFERRED_NAME(istream) _LIBCPP_PREFERRED_NAME(wistream) basic_istream;
+    class _LIBCPP_PREFERRED_NAME(istream) _LIBCPP_IF_WIDE_CHARACTERS(_LIBCPP_PREFERRED_NAME(wistream)) basic_istream;
 template <class _CharT, class _Traits>
-    class _LIBCPP_PREFERRED_NAME(ostream) _LIBCPP_PREFERRED_NAME(wostream) basic_ostream;
+    class _LIBCPP_PREFERRED_NAME(ostream) _LIBCPP_IF_WIDE_CHARACTERS(_LIBCPP_PREFERRED_NAME(wostream)) basic_ostream;
 template <class _CharT, class _Traits>
-    class _LIBCPP_PREFERRED_NAME(iostream) _LIBCPP_PREFERRED_NAME(wiostream) basic_iostream;
+    class _LIBCPP_PREFERRED_NAME(iostream) _LIBCPP_IF_WIDE_CHARACTERS(_LIBCPP_PREFERRED_NAME(wiostream)) basic_iostream;
 
 template <class _CharT, class _Traits, class _Allocator>
-    class _LIBCPP_PREFERRED_NAME(stringbuf) _LIBCPP_PREFERRED_NAME(wstringbuf) basic_stringbuf;
+    class _LIBCPP_PREFERRED_NAME(stringbuf) _LIBCPP_IF_WIDE_CHARACTERS(_LIBCPP_PREFERRED_NAME(wstringbuf)) basic_stringbuf;
 template <class _CharT, class _Traits, class _Allocator>
-    class _LIBCPP_PREFERRED_NAME(istringstream) _LIBCPP_PREFERRED_NAME(wistringstream) basic_istringstream;
+    class _LIBCPP_PREFERRED_NAME(istringstream) _LIBCPP_IF_WIDE_CHARACTERS(_LIBCPP_PREFERRED_NAME(wistringstream)) basic_istringstream;
 template <class _CharT, class _Traits, class _Allocator>
-    class _LIBCPP_PREFERRED_NAME(ostringstream) _LIBCPP_PREFERRED_NAME(wostringstream) basic_ostringstream;
+    class _LIBCPP_PREFERRED_NAME(ostringstream) _LIBCPP_IF_WIDE_CHARACTERS(_LIBCPP_PREFERRED_NAME(wostringstream)) basic_ostringstream;
 template <class _CharT, class _Traits, class _Allocator>
-    class _LIBCPP_PREFERRED_NAME(stringstream) _LIBCPP_PREFERRED_NAME(wstringstream) basic_stringstream;
+    class _LIBCPP_PREFERRED_NAME(stringstream) _LIBCPP_IF_WIDE_CHARACTERS(_LIBCPP_PREFERRED_NAME(wstringstream)) basic_stringstream;
 
 template <class _CharT, class _Traits>
-    class _LIBCPP_PREFERRED_NAME(filebuf) _LIBCPP_PREFERRED_NAME(wfilebuf) basic_filebuf;
+    class _LIBCPP_PREFERRED_NAME(filebuf) _LIBCPP_IF_WIDE_CHARACTERS(_LIBCPP_PREFERRED_NAME(wfilebuf)) basic_filebuf;
 template <class _CharT, class _Traits>
-    class _LIBCPP_PREFERRED_NAME(ifstream) _LIBCPP_PREFERRED_NAME(wifstream) basic_ifstream;
+    class _LIBCPP_PREFERRED_NAME(ifstream) _LIBCPP_IF_WIDE_CHARACTERS(_LIBCPP_PREFERRED_NAME(wifstream)) basic_ifstream;
 template <class _CharT, class _Traits>
-    class _LIBCPP_PREFERRED_NAME(ofstream) _LIBCPP_PREFERRED_NAME(wofstream) basic_ofstream;
+    class _LIBCPP_PREFERRED_NAME(ofstream) _LIBCPP_IF_WIDE_CHARACTERS(_LIBCPP_PREFERRED_NAME(wofstream)) basic_ofstream;
 template <class _CharT, class _Traits>
-    class _LIBCPP_PREFERRED_NAME(fstream) _LIBCPP_PREFERRED_NAME(wfstream) basic_fstream;
+    class _LIBCPP_PREFERRED_NAME(fstream) _LIBCPP_IF_WIDE_CHARACTERS(_LIBCPP_PREFERRED_NAME(wfstream)) basic_fstream;
 
 template <class _State>             class _LIBCPP_TEMPLATE_VIS fpos;
 typedef fpos<mbstate_t>    streampos;
@@ -227,7 +234,7 @@ typedef fpos<mbstate_t>    u8streampos;
 #ifndef _LIBCPP_HAS_NO_UNICODE_CHARS
 typedef fpos<mbstate_t>    u16streampos;
 typedef fpos<mbstate_t>    u32streampos;
-#endif // _LIBCPP_HAS_NO_UNICODE_CHARS
+#endif
 
 #if defined(_NEWLIB_VERSION)
 // On newlib, off_t is 'long int'
@@ -241,10 +248,12 @@ template <class _CharT,             // for <stdexcept>
           class _Allocator = allocator<_CharT> >
     class _LIBCPP_TEMPLATE_VIS basic_string;
 typedef basic_string<char, char_traits<char>, allocator<char> > string;
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 typedef basic_string<wchar_t, char_traits<wchar_t>, allocator<wchar_t> > wstring;
+#endif
 
 template <class _CharT, class _Traits, class _Allocator>
-    class _LIBCPP_PREFERRED_NAME(string) _LIBCPP_PREFERRED_NAME(wstring) basic_string;
+    class _LIBCPP_PREFERRED_NAME(string) _LIBCPP_IF_WIDE_CHARACTERS(_LIBCPP_PREFERRED_NAME(wstring)) basic_string;
 
 // Include other forward declarations here
 template <class _Tp, class _Alloc = allocator<_Tp> >

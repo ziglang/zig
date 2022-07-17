@@ -19,7 +19,10 @@ test "casting to void with a macro" {
 }
 
 test "initializer list expression" {
-    if (builtin.zig_backend != .stage1) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try expectEqual(h.Color{
         .r = 200,
@@ -65,6 +68,26 @@ test "casting to union with a macro" {
 
     casted = h.UNION_CAST(d);
     try expect(d == casted.d);
+}
+
+test "casting or calling a value with a paren-surrounded macro" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const l: c_long = 42;
+    const casted = h.CAST_OR_CALL_WITH_PARENS(c_int, l);
+    try expect(casted == @intCast(c_int, l));
+
+    const Helper = struct {
+        fn foo(n: c_int) !void {
+            try expect(n == 42);
+        }
+    };
+
+    try h.CAST_OR_CALL_WITH_PARENS(Helper.foo, 42);
 }
 
 test "nested comma operator" {

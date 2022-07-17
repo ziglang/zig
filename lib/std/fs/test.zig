@@ -8,8 +8,10 @@ const wasi = std.os.wasi;
 
 const ArenaAllocator = std.heap.ArenaAllocator;
 const Dir = std.fs.Dir;
+const IterableDir = std.fs.IterableDir;
 const File = std.fs.File;
 const tmpDir = testing.tmpDir;
+const tmpIterableDir = testing.tmpIterableDir;
 
 test "Dir.readLink" {
     var tmp = tmpDir(.{});
@@ -155,44 +157,44 @@ fn testReadLinkAbsolute(target_path: []const u8, symlink_path: []const u8) !void
 }
 
 test "Dir.Iterator" {
-    var tmp_dir = tmpDir(.{ .iterate = true });
+    var tmp_dir = tmpIterableDir(.{});
     defer tmp_dir.cleanup();
 
     // First, create a couple of entries to iterate over.
-    const file = try tmp_dir.dir.createFile("some_file", .{});
+    const file = try tmp_dir.iterable_dir.dir.createFile("some_file", .{});
     file.close();
 
-    try tmp_dir.dir.makeDir("some_dir");
+    try tmp_dir.iterable_dir.dir.makeDir("some_dir");
 
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var entries = std.ArrayList(Dir.Entry).init(allocator);
+    var entries = std.ArrayList(IterableDir.Entry).init(allocator);
 
     // Create iterator.
-    var iter = tmp_dir.dir.iterate();
+    var iter = tmp_dir.iterable_dir.iterate();
     while (try iter.next()) |entry| {
         // We cannot just store `entry` as on Windows, we're re-using the name buffer
         // which means we'll actually share the `name` pointer between entries!
         const name = try allocator.dupe(u8, entry.name);
-        try entries.append(Dir.Entry{ .name = name, .kind = entry.kind });
+        try entries.append(.{ .name = name, .kind = entry.kind });
     }
 
     try testing.expect(entries.items.len == 2); // note that the Iterator skips '.' and '..'
-    try testing.expect(contains(&entries, Dir.Entry{ .name = "some_file", .kind = Dir.Entry.Kind.File }));
-    try testing.expect(contains(&entries, Dir.Entry{ .name = "some_dir", .kind = Dir.Entry.Kind.Directory }));
+    try testing.expect(contains(&entries, .{ .name = "some_file", .kind = .File }));
+    try testing.expect(contains(&entries, .{ .name = "some_dir", .kind = .Directory }));
 }
 
 test "Dir.Iterator twice" {
-    var tmp_dir = tmpDir(.{ .iterate = true });
+    var tmp_dir = tmpIterableDir(.{});
     defer tmp_dir.cleanup();
 
     // First, create a couple of entries to iterate over.
-    const file = try tmp_dir.dir.createFile("some_file", .{});
+    const file = try tmp_dir.iterable_dir.dir.createFile("some_file", .{});
     file.close();
 
-    try tmp_dir.dir.makeDir("some_dir");
+    try tmp_dir.iterable_dir.dir.makeDir("some_dir");
 
     var arena = ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -200,28 +202,28 @@ test "Dir.Iterator twice" {
 
     var i: u8 = 0;
     while (i < 2) : (i += 1) {
-        var entries = std.ArrayList(Dir.Entry).init(allocator);
+        var entries = std.ArrayList(IterableDir.Entry).init(allocator);
 
         // Create iterator.
-        var iter = tmp_dir.dir.iterate();
+        var iter = tmp_dir.iterable_dir.iterate();
         while (try iter.next()) |entry| {
             // We cannot just store `entry` as on Windows, we're re-using the name buffer
             // which means we'll actually share the `name` pointer between entries!
             const name = try allocator.dupe(u8, entry.name);
-            try entries.append(Dir.Entry{ .name = name, .kind = entry.kind });
+            try entries.append(.{ .name = name, .kind = entry.kind });
         }
 
         try testing.expect(entries.items.len == 2); // note that the Iterator skips '.' and '..'
-        try testing.expect(contains(&entries, Dir.Entry{ .name = "some_file", .kind = Dir.Entry.Kind.File }));
-        try testing.expect(contains(&entries, Dir.Entry{ .name = "some_dir", .kind = Dir.Entry.Kind.Directory }));
+        try testing.expect(contains(&entries, .{ .name = "some_file", .kind = .File }));
+        try testing.expect(contains(&entries, .{ .name = "some_dir", .kind = .Directory }));
     }
 }
 
-fn entryEql(lhs: Dir.Entry, rhs: Dir.Entry) bool {
+fn entryEql(lhs: IterableDir.Entry, rhs: IterableDir.Entry) bool {
     return mem.eql(u8, lhs.name, rhs.name) and lhs.kind == rhs.kind;
 }
 
-fn contains(entries: *const std.ArrayList(Dir.Entry), el: Dir.Entry) bool {
+fn contains(entries: *const std.ArrayList(IterableDir.Entry), el: IterableDir.Entry) bool {
     for (entries.items) |entry| {
         if (entryEql(entry, el)) return true;
     }
@@ -985,7 +987,7 @@ test "walker" {
     if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
     if (builtin.os.tag == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
 
-    var tmp = tmpDir(.{ .iterate = true });
+    var tmp = tmpIterableDir(.{});
     defer tmp.cleanup();
 
     // iteration order of walker is undefined, so need lookup maps to check against
@@ -1011,10 +1013,10 @@ test "walker" {
     });
 
     for (expected_paths.kvs) |kv| {
-        try tmp.dir.makePath(kv.key);
+        try tmp.iterable_dir.dir.makePath(kv.key);
     }
 
-    var walker = try tmp.dir.walk(testing.allocator);
+    var walker = try tmp.iterable_dir.walk(testing.allocator);
     defer walker.deinit();
 
     var num_walked: usize = 0;
@@ -1121,11 +1123,11 @@ test "chmod" {
     try testing.expect((try file.stat()).mode & 0o7777 == 0o644);
 
     try tmp.dir.makeDir("test_dir");
-    var dir = try tmp.dir.openDir("test_dir", .{ .iterate = true });
-    defer dir.close();
+    var iterable_dir = try tmp.dir.openIterableDir("test_dir", .{});
+    defer iterable_dir.close();
 
-    try dir.chmod(0o700);
-    try testing.expect((try dir.stat()).mode & 0o7777 == 0o700);
+    try iterable_dir.chmod(0o700);
+    try testing.expect((try iterable_dir.dir.stat()).mode & 0o7777 == 0o700);
 }
 
 test "chown" {
@@ -1141,9 +1143,9 @@ test "chown" {
 
     try tmp.dir.makeDir("test_dir");
 
-    var dir = try tmp.dir.openDir("test_dir", .{ .iterate = true });
-    defer dir.close();
-    try dir.chown(null, null);
+    var iterable_dir = try tmp.dir.openIterableDir("test_dir", .{});
+    defer iterable_dir.close();
+    try iterable_dir.chown(null, null);
 }
 
 test "File.Metadata" {

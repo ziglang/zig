@@ -1,5 +1,5 @@
 // -*- C++ -*-
-//===------------------------------ span ---------------------------------===//
+//===----------------------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -56,18 +56,18 @@ public:
 
     // [span.cons], span constructors, copy, assignment, and destructor
     constexpr span() noexcept;
-    constexpr explicit(Extent != dynamic_extent) span(pointer ptr, size_type count);
-    constexpr explicit(Extent != dynamic_extent) span(pointer firstElem, pointer lastElem);
+    template <class It>
+    constexpr explicit(Extent != dynamic_extent) span(It first, size_type count);
+    template <class It, class End>
+    constexpr explicit(Extent != dynamic_extent) span(It first, End last);
     template <size_t N>
-        constexpr span(element_type (&arr)[N]) noexcept;
+        constexpr span(type_identity_t<element_type> (&arr)[N]) noexcept;
     template <size_t N>
         constexpr span(array<value_type, N>& arr) noexcept;
     template <size_t N>
         constexpr span(const array<value_type, N>& arr) noexcept;
-    template <class Container>
-        constexpr explicit(Extent != dynamic_extent) span(Container& cont);
-    template <class Container>
-        constexpr explicit(Extent != dynamic_extent) span(const Container& cont);
+    template<class R>
+      constexpr explicit(Extent != dynamic_extent) span(R&& r);
     constexpr span(const span& other) noexcept = default;
     template <class OtherElementType, size_t OtherExtent>
         constexpr explicit(Extent != dynamic_extent) span(const span<OtherElementType, OtherExtent>& s) noexcept;
@@ -89,7 +89,7 @@ public:
     // [span.obs], span observers
     constexpr size_type size() const noexcept;
     constexpr size_type size_bytes() const noexcept;
-    constexpr bool empty() const noexcept;
+    [[nodiscard]] constexpr bool empty() const noexcept;
 
     // [span.elem], span element access
     constexpr reference operator[](size_type idx) const;
@@ -108,6 +108,9 @@ private:
     size_type size_;  // exposition only
 };
 
+template<class It, class EndOrSize>
+    span(It, EndOrSize) -> span<remove_reference_t<iter_reference_t<_It>>>;
+
 template<class T, size_t N>
     span(T (&)[N]) -> span<T, N>;
 
@@ -117,11 +120,8 @@ template<class T, size_t N>
 template<class T, size_t N>
     span(const array<T, N>&) -> span<const T, N>;
 
-template<class Container>
-    span(Container&) -> span<typename Container::value_type>;
-
-template<class Container>
-    span(const Container&) -> span<const typename Container::value_type>;
+template<class R>
+    span(R&&) -> span<remove_reference_t<ranges::range_reference_t<R>>>;
 
 } // namespace std
 
@@ -129,9 +129,13 @@ template<class Container>
 
 #include <__config>
 #include <__debug>
+#include <__iterator/concepts.h>
 #include <__iterator/wrap_iter.h>
+#include <__ranges/concepts.h>
+#include <__ranges/data.h>
 #include <__ranges/enable_borrowed_range.h>
 #include <__ranges/enable_view.h>
+#include <__ranges/size.h>
 #include <array>        // for array
 #include <cstddef>      // for byte
 #include <iterator>     // for iterators
@@ -155,46 +159,46 @@ template <typename _Tp, size_t _Extent = dynamic_extent> class span;
 
 
 template <class _Tp>
-struct __is_span_impl : public false_type {};
-
-template <class _Tp, size_t _Extent>
-struct __is_span_impl<span<_Tp, _Extent>> : public true_type {};
-
-template <class _Tp>
-struct __is_span : public __is_span_impl<remove_cv_t<_Tp>> {};
-
-template <class _Tp>
-struct __is_std_array_impl : public false_type {};
+struct __is_std_array : false_type {};
 
 template <class _Tp, size_t _Sz>
-struct __is_std_array_impl<array<_Tp, _Sz>> : public true_type {};
+struct __is_std_array<array<_Tp, _Sz>> : true_type {};
 
 template <class _Tp>
-struct __is_std_array : public __is_std_array_impl<remove_cv_t<_Tp>> {};
+struct __is_std_span : false_type {};
 
-template <class _Tp, class _ElementType, class = void>
-struct __is_span_compatible_container : public false_type {};
+template <class _Tp, size_t _Sz>
+struct __is_std_span<span<_Tp, _Sz>> : true_type {};
 
-template <class _Tp, class _ElementType>
-struct __is_span_compatible_container<_Tp, _ElementType,
-        void_t<
-        // is not a specialization of span
-            typename enable_if<!__is_span<_Tp>::value, nullptr_t>::type,
-        // is not a specialization of array
-            typename enable_if<!__is_std_array<_Tp>::value, nullptr_t>::type,
-        // is_array_v<Container> is false,
-            typename enable_if<!is_array_v<_Tp>, nullptr_t>::type,
-        // data(cont) and size(cont) are well formed
-            decltype(data(declval<_Tp>())),
-            decltype(size(declval<_Tp>())),
-        // remove_pointer_t<decltype(data(cont))>(*)[] is convertible to ElementType(*)[]
-            typename enable_if<
-                is_convertible_v<remove_pointer_t<decltype(data(declval<_Tp &>()))>(*)[],
-                                 _ElementType(*)[]>,
-                nullptr_t>::type
-        >>
-    : public true_type {};
+#if defined(_LIBCPP_HAS_NO_CONCEPTS) || defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+// This is a temporary workaround until we ship <ranges> -- we've unfortunately been
+// shipping <span> before its API was finalized, and we used to provide a constructor
+// from container types that had the requirements below. To avoid breaking code that
+// has started relying on the range-based constructor until we ship all of <ranges>,
+// we emulate the constructor requirements like this.
+template <class _Range, class _ElementType, class = void>
+struct __span_compatible_range : false_type { };
 
+template <class _Range, class _ElementType>
+struct __span_compatible_range<_Range, _ElementType, void_t<
+    enable_if_t<!__is_std_span<remove_cvref_t<_Range>>::value>,
+    enable_if_t<!__is_std_array<remove_cvref_t<_Range>>::value>,
+    enable_if_t<!is_array_v<remove_cvref_t<_Range>>>,
+    decltype(data(declval<_Range>())),
+    decltype(size(declval<_Range>())),
+    enable_if_t<is_convertible_v<remove_pointer_t<decltype(data(declval<_Range&>()))>(*)[], _ElementType(*)[]>>
+>> : true_type { };
+#else
+template <class _Range, class _ElementType>
+concept __span_compatible_range =
+  ranges::contiguous_range<_Range> &&
+  ranges::sized_range<_Range> &&
+  (ranges::borrowed_range<_Range> || is_const_v<_ElementType>) &&
+  !__is_std_span<remove_cvref_t<_Range>>::value  &&
+  !__is_std_array<remove_cvref_t<_Range>>::value &&
+  !is_array_v<remove_cvref_t<_Range>> &&
+  is_convertible_v<remove_reference_t<ranges::range_reference_t<_Range>>(*)[], _ElementType(*)[]>;
+#endif
 
 template <typename _Tp, size_t _Extent>
 class _LIBCPP_TEMPLATE_VIS span {
@@ -224,12 +228,33 @@ public:
     constexpr span           (const span&) noexcept = default;
     constexpr span& operator=(const span&) noexcept = default;
 
-    _LIBCPP_INLINE_VISIBILITY constexpr explicit span(pointer __ptr, size_type __count) : __data{__ptr}
-        { (void)__count; _LIBCPP_ASSERT(_Extent == __count, "size mismatch in span's constructor (ptr, len)"); }
-    _LIBCPP_INLINE_VISIBILITY constexpr explicit span(pointer __f, pointer __l) : __data{__f}
-        { (void)__l;     _LIBCPP_ASSERT(_Extent == distance(__f, __l), "size mismatch in span's constructor (ptr, ptr)"); }
+#if !defined(_LIBCPP_HAS_NO_CONCEPTS)
+    template <class _It,
+              enable_if_t<contiguous_iterator<_It> &&
+                              is_convertible_v<remove_reference_t<iter_reference_t<_It>>(*)[], element_type (*)[]>,
+                          nullptr_t> = nullptr>
+    _LIBCPP_INLINE_VISIBILITY
+    constexpr explicit span(_It __first, size_type __count)
+        : __data{_VSTD::to_address(__first)} {
+      (void)__count;
+      _LIBCPP_ASSERT(_Extent == __count, "size mismatch in span's constructor (iterator, len)");
+    }
 
-    _LIBCPP_INLINE_VISIBILITY constexpr span(element_type (&__arr)[_Extent])          noexcept : __data{__arr} {}
+    template <
+        class _It, class _End,
+        enable_if_t<is_convertible_v<remove_reference_t<iter_reference_t<_It> > (*)[], element_type (*)[]> &&
+                        contiguous_iterator<_It> && sized_sentinel_for<_End, _It> && !is_convertible_v<_End, size_t>,
+                    nullptr_t> = nullptr>
+    _LIBCPP_INLINE_VISIBILITY
+    constexpr explicit span(_It __first, _End __last) : __data{_VSTD::to_address(__first)} {
+      (void)__last;
+      _LIBCPP_ASSERT((__last - __first >= 0), "invalid range in span's constructor (iterator, sentinel)");
+      _LIBCPP_ASSERT(__last - __first == _Extent,
+                     "invalid range in span's constructor (iterator, sentinel): last - first != extent");
+    }
+#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS)
+
+    _LIBCPP_INLINE_VISIBILITY constexpr span(type_identity_t<element_type> (&__arr)[_Extent]) noexcept : __data{__arr} {}
 
     template <class _OtherElementType,
               enable_if_t<is_convertible_v<_OtherElementType(*)[], element_type (*)[]>, nullptr_t> = nullptr>
@@ -241,21 +266,28 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     constexpr span(const array<_OtherElementType, _Extent>& __arr) noexcept : __data{__arr.data()} {}
 
-    template <class _Container>
+#if defined(_LIBCPP_HAS_NO_CONCEPTS) || defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+    template <class _Container, class = enable_if_t<
+        __span_compatible_range<_Container, element_type>::value
+    >>
     _LIBCPP_INLINE_VISIBILITY
-        constexpr explicit span(      _Container& __c,
-            enable_if_t<__is_span_compatible_container<_Container, _Tp>::value, nullptr_t> = nullptr)
-        : __data{_VSTD::data(__c)} {
-            _LIBCPP_ASSERT(_Extent == _VSTD::size(__c), "size mismatch in span's constructor (range)");
-        }
-
-    template <class _Container>
+    constexpr explicit span(_Container& __c) : __data{std::data(__c)} {
+      _LIBCPP_ASSERT(std::size(__c) == _Extent, "size mismatch in span's constructor (range)");
+    }
+    template <class _Container, class = enable_if_t<
+        __span_compatible_range<const _Container, element_type>::value
+    >>
     _LIBCPP_INLINE_VISIBILITY
-        constexpr explicit span(const _Container& __c,
-            enable_if_t<__is_span_compatible_container<const _Container, _Tp>::value, nullptr_t> = nullptr)
-        : __data{_VSTD::data(__c)} {
-            _LIBCPP_ASSERT(_Extent == _VSTD::size(__c), "size mismatch in span's constructor (range)");
-        }
+    constexpr explicit span(const _Container& __c) : __data{std::data(__c)} {
+      _LIBCPP_ASSERT(std::size(__c) == _Extent, "size mismatch in span's constructor (range)");
+    }
+#else
+    template <__span_compatible_range<element_type> _Range>
+    _LIBCPP_INLINE_VISIBILITY
+    constexpr explicit span(_Range&& __r) : __data{ranges::data(__r)} {
+      _LIBCPP_ASSERT(ranges::size(__r) == _Extent, "size mismatch in span's constructor (range)");
+    }
+#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
     template <class _OtherElementType>
     _LIBCPP_INLINE_VISIBILITY
@@ -331,9 +363,9 @@ public:
         return {data() + __offset, __count};
     }
 
-    _LIBCPP_INLINE_VISIBILITY constexpr size_type size()       const noexcept { return _Extent; }
-    _LIBCPP_INLINE_VISIBILITY constexpr size_type size_bytes() const noexcept { return _Extent * sizeof(element_type); }
-    _LIBCPP_INLINE_VISIBILITY constexpr bool empty()           const noexcept { return _Extent == 0; }
+    _LIBCPP_INLINE_VISIBILITY constexpr size_type size()           const noexcept { return _Extent; }
+    _LIBCPP_INLINE_VISIBILITY constexpr size_type size_bytes()     const noexcept { return _Extent * sizeof(element_type); }
+    [[nodiscard]] _LIBCPP_INLINE_VISIBILITY constexpr bool empty() const noexcept { return _Extent == 0; }
 
     _LIBCPP_INLINE_VISIBILITY constexpr reference operator[](size_type __idx) const noexcept
     {
@@ -402,12 +434,28 @@ public:
     constexpr span           (const span&) noexcept = default;
     constexpr span& operator=(const span&) noexcept = default;
 
-    _LIBCPP_INLINE_VISIBILITY constexpr span(pointer __ptr, size_type __count) : __data{__ptr}, __size{__count} {}
-    _LIBCPP_INLINE_VISIBILITY constexpr span(pointer __f, pointer __l) : __data{__f}, __size{static_cast<size_t>(distance(__f, __l))} {}
+#if !defined(_LIBCPP_HAS_NO_CONCEPTS)
+    template <class _It,
+              enable_if_t<contiguous_iterator<_It> &&
+                              is_convertible_v<remove_reference_t<iter_reference_t<_It> > (*)[], element_type (*)[]>,
+                          nullptr_t> = nullptr>
+    _LIBCPP_INLINE_VISIBILITY
+    constexpr span(_It __first, size_type __count)
+        : __data{_VSTD::to_address(__first)}, __size{__count} {}
+
+    template <
+        class _It, class _End,
+        enable_if_t<is_convertible_v<remove_reference_t<iter_reference_t<_It> > (*)[], element_type (*)[]> &&
+                        contiguous_iterator<_It> && sized_sentinel_for<_End, _It> && !is_convertible_v<_End, size_t>,
+                    nullptr_t> = nullptr>
+    _LIBCPP_INLINE_VISIBILITY
+    constexpr span(_It __first, _End __last)
+        : __data(_VSTD::to_address(__first)), __size(__last - __first) {}
+#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS)
 
     template <size_t _Sz>
     _LIBCPP_INLINE_VISIBILITY
-    constexpr span(element_type (&__arr)[_Sz])          noexcept : __data{__arr}, __size{_Sz} {}
+    constexpr span(type_identity_t<element_type> (&__arr)[_Sz]) noexcept : __data{__arr}, __size{_Sz} {}
 
     template <class _OtherElementType, size_t _Sz,
               enable_if_t<is_convertible_v<_OtherElementType(*)[], element_type (*)[]>, nullptr_t> = nullptr>
@@ -419,18 +467,22 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     constexpr span(const array<_OtherElementType, _Sz>& __arr) noexcept : __data{__arr.data()}, __size{_Sz} {}
 
-    template <class _Container>
+#if defined(_LIBCPP_HAS_NO_CONCEPTS) || defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+    template <class _Container, class = enable_if_t<
+        __span_compatible_range<_Container, element_type>::value
+    >>
     _LIBCPP_INLINE_VISIBILITY
-        constexpr span(      _Container& __c,
-            enable_if_t<__is_span_compatible_container<_Container, _Tp>::value, nullptr_t> = nullptr)
-        : __data{_VSTD::data(__c)}, __size{(size_type) _VSTD::size(__c)} {}
-
-    template <class _Container>
+    constexpr span(_Container& __c) : __data(std::data(__c)), __size{std::size(__c)} {}
+    template <class _Container, class = enable_if_t<
+        __span_compatible_range<const _Container, element_type>::value
+    >>
     _LIBCPP_INLINE_VISIBILITY
-        constexpr span(const _Container& __c,
-            enable_if_t<__is_span_compatible_container<const _Container, _Tp>::value, nullptr_t> = nullptr)
-        : __data{_VSTD::data(__c)}, __size{(size_type) _VSTD::size(__c)} {}
-
+    constexpr span(const _Container& __c) : __data(std::data(__c)), __size{std::size(__c)} {}
+#else
+    template <__span_compatible_range<element_type> _Range>
+    _LIBCPP_INLINE_VISIBILITY
+    constexpr span(_Range&& __r) : __data(ranges::data(__r)), __size{ranges::size(__r)} {}
+#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
     template <class _OtherElementType, size_t _OtherExtent>
     _LIBCPP_INLINE_VISIBILITY
@@ -493,9 +545,9 @@ public:
         return {data() + __offset, __count};
     }
 
-    _LIBCPP_INLINE_VISIBILITY constexpr size_type size()       const noexcept { return __size; }
-    _LIBCPP_INLINE_VISIBILITY constexpr size_type size_bytes() const noexcept { return __size * sizeof(element_type); }
-    _LIBCPP_INLINE_VISIBILITY constexpr bool empty()           const noexcept { return __size == 0; }
+    _LIBCPP_INLINE_VISIBILITY constexpr size_type size()           const noexcept { return __size; }
+    _LIBCPP_INLINE_VISIBILITY constexpr size_type size_bytes()     const noexcept { return __size * sizeof(element_type); }
+    [[nodiscard]] _LIBCPP_INLINE_VISIBILITY constexpr bool empty() const noexcept { return __size == 0; }
 
     _LIBCPP_INLINE_VISIBILITY constexpr reference operator[](size_type __idx) const noexcept
     {
@@ -535,13 +587,13 @@ private:
     size_type __size;
 };
 
-#if !defined(_LIBCPP_HAS_NO_RANGES)
+#if !defined(_LIBCPP_HAS_NO_CONCEPTS)
 template <class _Tp, size_t _Extent>
 inline constexpr bool ranges::enable_borrowed_range<span<_Tp, _Extent> > = true;
 
 template <class _ElementType, size_t _Extent>
 inline constexpr bool ranges::enable_view<span<_ElementType, _Extent>> = true;
-#endif // !defined(_LIBCPP_HAS_NO_RANGES)
+#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS)
 
 //  as_bytes & as_writable_bytes
 template <class _Tp, size_t _Extent>
@@ -556,7 +608,11 @@ auto as_writable_bytes(span<_Tp, _Extent> __s) noexcept
 -> enable_if_t<!is_const_v<_Tp>, decltype(__s.__as_writable_bytes())>
 { return __s.__as_writable_bytes(); }
 
-//  Deduction guides
+#if !defined(_LIBCPP_HAS_NO_CONCEPTS)
+template<contiguous_iterator _It, class _EndOrSize>
+    span(_It, _EndOrSize) -> span<remove_reference_t<iter_reference_t<_It>>>;
+#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS)
+
 template<class _Tp, size_t _Sz>
     span(_Tp (&)[_Sz]) -> span<_Tp, _Sz>;
 
@@ -566,11 +622,16 @@ template<class _Tp, size_t _Sz>
 template<class _Tp, size_t _Sz>
     span(const array<_Tp, _Sz>&) -> span<const _Tp, _Sz>;
 
+#if defined(_LIBCPP_HAS_NO_CONCEPTS) || defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 template<class _Container>
     span(_Container&) -> span<typename _Container::value_type>;
 
 template<class _Container>
     span(const _Container&) -> span<const typename _Container::value_type>;
+#else
+template<ranges::contiguous_range _Range>
+    span(_Range&&) -> span<remove_reference_t<ranges::range_reference_t<_Range>>>;
+#endif
 
 #endif // _LIBCPP_STD_VER > 17
 

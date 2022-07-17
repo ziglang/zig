@@ -511,6 +511,81 @@ test "simple map untyped" {
     try testing.expectEqual(map.get("a").?.int, 0);
 }
 
+test "simple map untyped with a list of maps" {
+    const source =
+        \\a: 0
+        \\b: 
+        \\  - foo: 1
+        \\    bar: 2
+        \\  - foo: 3
+        \\    bar: 4
+        \\c: 1
+    ;
+
+    var yaml = try Yaml.load(testing.allocator, source);
+    defer yaml.deinit();
+
+    try testing.expectEqual(yaml.docs.items.len, 1);
+
+    const map = yaml.docs.items[0].map;
+    try testing.expect(map.contains("a"));
+    try testing.expect(map.contains("b"));
+    try testing.expect(map.contains("c"));
+    try testing.expectEqual(map.get("a").?.int, 0);
+    try testing.expectEqual(map.get("c").?.int, 1);
+    try testing.expectEqual(map.get("b").?.list[0].map.get("foo").?.int, 1);
+    try testing.expectEqual(map.get("b").?.list[0].map.get("bar").?.int, 2);
+    try testing.expectEqual(map.get("b").?.list[1].map.get("foo").?.int, 3);
+    try testing.expectEqual(map.get("b").?.list[1].map.get("bar").?.int, 4);
+}
+
+test "simple map untyped with a list of maps. no indent" {
+    const source =
+        \\b: 
+        \\- foo: 1
+        \\c: 1
+    ;
+
+    var yaml = try Yaml.load(testing.allocator, source);
+    defer yaml.deinit();
+
+    try testing.expectEqual(yaml.docs.items.len, 1);
+
+    const map = yaml.docs.items[0].map;
+    try testing.expect(map.contains("b"));
+    try testing.expect(map.contains("c"));
+    try testing.expectEqual(map.get("c").?.int, 1);
+    try testing.expectEqual(map.get("b").?.list[0].map.get("foo").?.int, 1);
+}
+
+test "simple map untyped with a list of maps. no indent 2" {
+    const source =
+        \\a: 0
+        \\b:
+        \\- foo: 1
+        \\  bar: 2
+        \\- foo: 3
+        \\  bar: 4
+        \\c: 1
+    ;
+
+    var yaml = try Yaml.load(testing.allocator, source);
+    defer yaml.deinit();
+
+    try testing.expectEqual(yaml.docs.items.len, 1);
+
+    const map = yaml.docs.items[0].map;
+    try testing.expect(map.contains("a"));
+    try testing.expect(map.contains("b"));
+    try testing.expect(map.contains("c"));
+    try testing.expectEqual(map.get("a").?.int, 0);
+    try testing.expectEqual(map.get("c").?.int, 1);
+    try testing.expectEqual(map.get("b").?.list[0].map.get("foo").?.int, 1);
+    try testing.expectEqual(map.get("b").?.list[0].map.get("bar").?.int, 2);
+    try testing.expectEqual(map.get("b").?.list[1].map.get("foo").?.int, 3);
+    try testing.expectEqual(map.get("b").?.list[1].map.get("bar").?.int, 4);
+}
+
 test "simple map typed" {
     const source =
         \\a: 0

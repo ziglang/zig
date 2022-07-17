@@ -160,6 +160,12 @@ pub fn extract(
 }
 
 test "vector patterns" {
+    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
+        builtin.cpu.arch == .aarch64)
+    {
+        // https://github.com/ziglang/zig/issues/12012
+        return error.SkipZigTest;
+    }
     const base = @Vector(4, u32){ 10, 20, 30, 40 };
     const other_base = @Vector(4, u32){ 55, 66, 77, 88 };
 
@@ -379,6 +385,12 @@ pub fn prefixScan(comptime op: std.builtin.ReduceOp, comptime hop: isize, vec: a
 
 test "vector prefix scan" {
     if (comptime builtin.cpu.arch.isMIPS()) {
+        return error.SkipZigTest;
+    }
+
+    if (builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) {
+        // Regressed in LLVM 14:
+        // https://github.com/llvm/llvm-project/issues/55522
         return error.SkipZigTest;
     }
 

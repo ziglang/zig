@@ -26,6 +26,27 @@ pub const runtime_safety = switch (builtin.mode) {
     .ReleaseFast, .ReleaseSmall => false,
 };
 
+pub const sys_can_stack_trace = switch (builtin.cpu.arch) {
+    // Observed to go into an infinite loop.
+    // TODO: Make this work.
+    .mips,
+    .mipsel,
+    => false,
+
+    // `@returnAddress()` in LLVM 10 gives
+    // "Non-Emscripten WebAssembly hasn't implemented __builtin_return_address".
+    .wasm32,
+    .wasm64,
+    => builtin.os.tag == .emscripten,
+
+    // `@returnAddress()` is unsupported in LLVM 13.
+    .bpfel,
+    .bpfeb,
+    => false,
+
+    else => true,
+};
+
 pub const LineInfo = struct {
     line: u64,
     column: u64,
@@ -180,11 +201,10 @@ pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
 pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackTrace) void {
     if (native_os == .windows) {
         const addrs = stack_trace.instruction_addresses;
-        const u32_addrs_len = @intCast(u32, addrs.len);
         const first_addr = first_address orelse {
             stack_trace.index = windows.ntdll.RtlCaptureStackBackTrace(
                 0,
-                u32_addrs_len,
+                @intCast(u32, addrs.len),
                 @ptrCast(**anyopaque, addrs.ptr),
                 null,
             );
@@ -192,7 +212,7 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackT
         };
         var addr_buf_stack: [32]usize = undefined;
         const addr_buf = if (addr_buf_stack.len > addrs.len) addr_buf_stack[0..] else addrs;
-        const n = windows.ntdll.RtlCaptureStackBackTrace(0, u32_addrs_len, @ptrCast(**anyopaque, addr_buf.ptr), null);
+        const n = windows.ntdll.RtlCaptureStackBackTrace(0, @intCast(u32, addr_buf.len), @ptrCast(**anyopaque, addr_buf.ptr), null);
         const first_index = for (addr_buf[0..n]) |addr, i| {
             if (addr == first_addr) {
                 break i;
@@ -201,7 +221,8 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackT
             stack_trace.index = 0;
             return;
         };
-        const slice = addr_buf[first_index..n];
+        const end_index = math.min(first_index + addrs.len, n);
+        const slice = addr_buf[first_index..end_index];
         // We use a for loop here because slice and addrs may alias.
         for (slice) |addr, i| {
             addrs[i] = addr;
@@ -1942,4 +1963,103 @@ test "#4353: std.debug should manage resources correctly" {
 
 noinline fn showMyTrace() usize {
     return @returnAddress();
+}
+
+/// This API helps you track where a value originated and where it was mutated,
+/// or any other points of interest.
+/// In debug mode, it adds a small size penalty (104 bytes on 64-bit architectures)
+/// to the aggregate that you add it to.
+/// In release mode, it is size 0 and all methods are no-ops.
+/// This is a pre-made type with default settings.
+/// For more advanced usage, see `ConfigurableTrace`.
+pub const Trace = ConfigurableTrace(2, 4, builtin.mode == .Debug);
+
+pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize, comptime enabled: bool) type {
+    return struct {
+        addrs: [actual_size][stack_frame_count]usize = undefined,
+        notes: [actual_size][]const u8 = undefined,
+        index: Index = 0,
+
+        const actual_size = if (enabled) size else 0;
+        const Index = if (enabled) usize else u0;
+
+        pub const enabled = enabled;
+
+        pub const add = if (enabled) addNoInline else addNoOp;
+
+        pub noinline fn addNoInline(t: *@This(), note: []const u8) void {
+            comptime assert(enabled);
+            return addAddr(t, @returnAddress(), note);
+        }
+
+        pub inline fn addNoOp(t: *@This(), note: []const u8) void {
+            _ = t;
+            _ = note;
+            comptime assert(!enabled);
+        }
+
+        pub fn addAddr(t: *@This(), addr: usize, note: []const u8) void {
+            if (!enabled) return;
+
+            if (t.index < size) {
+                t.notes[t.index] = note;
+                t.addrs[t.index] = [1]usize{0} ** stack_frame_count;
+                var stack_trace: std.builtin.StackTrace = .{
+                    .index = 0,
+                    .instruction_addresses = &t.addrs[t.index],
+                };
+                captureStackTrace(addr, &stack_trace);
+            }
+            // Keep counting even if the end is reached so that the
+            // user can find out how much more size they need.
+            t.index += 1;
+        }
+
+        pub fn dump(t: @This()) void {
+            if (!enabled) return;
+
+            const tty_config = detectTTYConfig();
+            const stderr = io.getStdErr().writer();
+            const end = @minimum(t.index, size);
+            const debug_info = getSelfDebugInfo() catch |err| {
+                stderr.print(
+                    "Unable to dump stack trace: Unable to open debug info: {s}\n",
+                    .{@errorName(err)},
+                ) catch return;
+                return;
+            };
+            for (t.addrs[0..end]) |frames_array, i| {
+                stderr.print("{s}:\n", .{t.notes[i]}) catch return;
+                var frames_array_mutable = frames_array;
+                const frames = mem.sliceTo(frames_array_mutable[0..], 0);
+                const stack_trace: std.builtin.StackTrace = .{
+                    .index = frames.len,
+                    .instruction_addresses = frames,
+                };
+                writeStackTrace(stack_trace, stderr, getDebugInfoAllocator(), debug_info, tty_config) catch continue;
+            }
+            if (t.index > end) {
+                stderr.print("{d} more traces not shown; consider increasing trace size\n", .{
+                    t.index - end,
+                }) catch return;
+            }
+        }
+
+        pub fn format(
+            t: Trace,
+            comptime fmt: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            _ = fmt;
+            _ = options;
+            if (enabled) {
+                try writer.writeAll("\n");
+                t.dump();
+                try writer.writeAll("\n");
+            } else {
+                return writer.writeAll("(value tracing disabled)");
+            }
+        }
+    };
 }

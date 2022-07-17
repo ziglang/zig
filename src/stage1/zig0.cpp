@@ -157,6 +157,17 @@ static void get_native_target(ZigTarget *target) {
     }
 }
 
+static const char* get_baseline_llvm_cpu_name(ZigLLVM_ArchType arch) {
+    return "";
+}
+
+static const char* get_baseline_llvm_cpu_features(ZigLLVM_ArchType arch) {
+    switch (arch) {
+        case ZigLLVM_riscv64: return "+a,+c,+d,+m";
+        default: return "";
+    }
+}
+
 static Error target_parse_triple(struct ZigTarget *target, const char *zig_triple, const char *mcpu,
         const char *dynamic_linker)
 {
@@ -175,8 +186,8 @@ static Error target_parse_triple(struct ZigTarget *target, const char *zig_tripl
         } else if (strcmp(mcpu, "baseline") == 0) {
             target->is_native_os = false;
             target->is_native_cpu = false;
-            target->llvm_cpu_name = "";
-            target->llvm_cpu_features = "";
+            target->llvm_cpu_name = get_baseline_llvm_cpu_name(target->arch);
+            target->llvm_cpu_features = get_baseline_llvm_cpu_features(target->arch);
         } else {
             const char *msg = "stage0 can't handle CPU/features in the target";
             stage2_panic(msg, strlen(msg));
@@ -217,6 +228,9 @@ static Error target_parse_triple(struct ZigTarget *target, const char *zig_tripl
             const char *msg = "stage0 can't handle CPU/features in the target";
             stage2_panic(msg, strlen(msg));
         }
+
+        target->llvm_cpu_name = get_baseline_llvm_cpu_name(target->arch);
+        target->llvm_cpu_features = get_baseline_llvm_cpu_features(target->arch);
     }
 
     return ErrorNone;

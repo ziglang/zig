@@ -59,6 +59,7 @@ stage2/bin/zig build -Dtarget=arm-linux-musleabihf # test building self-hosted f
 # * https://github.com/ziglang/zig/issues/11367 (and corresponding workaround in compiler source)
 # * https://github.com/ziglang/zig/pull/11492#issuecomment-1112871321
 stage2/bin/zig build test-behavior -fqemu -fwasmtime
+stage2/bin/zig test lib/std/std.zig --zig-lib-dir lib
 
 $ZIG build test-behavior         -fqemu -fwasmtime -Domit-stage2
 $ZIG build test-compiler-rt      -fqemu -fwasmtime
