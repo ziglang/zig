@@ -60,6 +60,10 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
             .build_modes = true,
         });
 
+        cases.addBuildFile("test/link/macho/dead_strip/build.zig", .{
+            .build_modes = false,
+        });
+
         cases.addBuildFile("test/link/macho/dead_strip_dylibs/build.zig", .{
             .build_modes = true,
             .requires_macos_sdk = true,
