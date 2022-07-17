@@ -2348,7 +2348,72 @@ pub const SrcLoc = struct {
                     }
                 } else unreachable;
             },
-
+            .node_offset_fn_type_align => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_datas = tree.nodes.items(.data);
+                const node_tags = tree.nodes.items(.tag);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
+                var params: [1]Ast.Node.Index = undefined;
+                const full = switch (node_tags[node]) {
+                    .fn_proto_simple => tree.fnProtoSimple(&params, node),
+                    .fn_proto_multi => tree.fnProtoMulti(node),
+                    .fn_proto_one => tree.fnProtoOne(&params, node),
+                    .fn_proto => tree.fnProto(node),
+                    .fn_decl => switch (node_tags[node_datas[node].lhs]) {
+                        .fn_proto_simple => tree.fnProtoSimple(&params, node_datas[node].lhs),
+                        .fn_proto_multi => tree.fnProtoMulti(node_datas[node].lhs),
+                        .fn_proto_one => tree.fnProtoOne(&params, node_datas[node].lhs),
+                        .fn_proto => tree.fnProto(node_datas[node].lhs),
+                        else => unreachable,
+                    },
+                    else => unreachable,
+                };
+                return nodeToSpan(tree, full.ast.align_expr);
+            },
+            .node_offset_fn_type_addrspace => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_datas = tree.nodes.items(.data);
+                const node_tags = tree.nodes.items(.tag);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
+                var params: [1]Ast.Node.Index = undefined;
+                const full = switch (node_tags[node]) {
+                    .fn_proto_simple => tree.fnProtoSimple(&params, node),
+                    .fn_proto_multi => tree.fnProtoMulti(node),
+                    .fn_proto_one => tree.fnProtoOne(&params, node),
+                    .fn_proto => tree.fnProto(node),
+                    .fn_decl => switch (node_tags[node_datas[node].lhs]) {
+                        .fn_proto_simple => tree.fnProtoSimple(&params, node_datas[node].lhs),
+                        .fn_proto_multi => tree.fnProtoMulti(node_datas[node].lhs),
+                        .fn_proto_one => tree.fnProtoOne(&params, node_datas[node].lhs),
+                        .fn_proto => tree.fnProto(node_datas[node].lhs),
+                        else => unreachable,
+                    },
+                    else => unreachable,
+                };
+                return nodeToSpan(tree, full.ast.addrspace_expr);
+            },
+            .node_offset_fn_type_section => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_datas = tree.nodes.items(.data);
+                const node_tags = tree.nodes.items(.tag);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
+                var params: [1]Ast.Node.Index = undefined;
+                const full = switch (node_tags[node]) {
+                    .fn_proto_simple => tree.fnProtoSimple(&params, node),
+                    .fn_proto_multi => tree.fnProtoMulti(node),
+                    .fn_proto_one => tree.fnProtoOne(&params, node),
+                    .fn_proto => tree.fnProto(node),
+                    .fn_decl => switch (node_tags[node_datas[node].lhs]) {
+                        .fn_proto_simple => tree.fnProtoSimple(&params, node_datas[node].lhs),
+                        .fn_proto_multi => tree.fnProtoMulti(node_datas[node].lhs),
+                        .fn_proto_one => tree.fnProtoOne(&params, node_datas[node].lhs),
+                        .fn_proto => tree.fnProto(node_datas[node].lhs),
+                        else => unreachable,
+                    },
+                    else => unreachable,
+                };
+                return nodeToSpan(tree, full.ast.section_expr);
+            },
             .node_offset_fn_type_cc => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
@@ -2778,6 +2843,24 @@ pub const LazySrcLoc = union(enum) {
     /// range nodes. The error applies to all of them.
     /// The Decl is determined contextually.
     node_offset_switch_range: i32,
+    /// The source location points to the align expr of a function type
+    /// expression, found by taking this AST node index offset from the containing
+    /// Decl AST node, which points to a function type AST node. Next, navigate to
+    /// the calling convention node.
+    /// The Decl is determined contextually.
+    node_offset_fn_type_align: i32,
+    /// The source location points to the addrspace expr of a function type
+    /// expression, found by taking this AST node index offset from the containing
+    /// Decl AST node, which points to a function type AST node. Next, navigate to
+    /// the calling convention node.
+    /// The Decl is determined contextually.
+    node_offset_fn_type_addrspace: i32,
+    /// The source location points to the linksection expr of a function type
+    /// expression, found by taking this AST node index offset from the containing
+    /// Decl AST node, which points to a function type AST node. Next, navigate to
+    /// the calling convention node.
+    /// The Decl is determined contextually.
+    node_offset_fn_type_section: i32,
     /// The source location points to the calling convention of a function type
     /// expression, found by taking this AST node index offset from the containing
     /// Decl AST node, which points to a function type AST node. Next, navigate to
@@ -2897,6 +2980,9 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_switch_operand,
             .node_offset_switch_special_prong,
             .node_offset_switch_range,
+            .node_offset_fn_type_align,
+            .node_offset_fn_type_addrspace,
+            .node_offset_fn_type_section,
             .node_offset_fn_type_cc,
             .node_offset_fn_type_ret_ty,
             .node_offset_anyframe_type,
