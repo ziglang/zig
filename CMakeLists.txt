@@ -107,6 +107,7 @@ endif()
 find_package(llvm 14)
 find_package(clang 14)
 find_package(lld 14)
+find_package(ZLIB)
 
 if(ZIG_STATIC_ZLIB)
     list(REMOVE_ITEM LLVM_LIBRARIES "-lz")
@@ -943,7 +944,7 @@ if("${ZIG_EXECUTABLE}" STREQUAL "")
       COMPILE_FLAGS ${EXE_CFLAGS}
       LINK_FLAGS ${EXE_LDFLAGS}
   )
-  target_link_libraries(zig0 zigstage1)
+  target_link_libraries(zig0 zigstage1 ZLIB::ZLIB)
 endif()
 
 if(MSVC)
@@ -1008,7 +1009,7 @@ set_target_properties(zig PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
     LINK_FLAGS ${EXE_LDFLAGS}
 )
-target_link_libraries(zig zigstage1)
+target_link_libraries(zig zigstage1 ZLIB::ZLIB)
 if(MSVC)
   target_link_libraries(zig ntdll.lib)
 elseif(MINGW)
