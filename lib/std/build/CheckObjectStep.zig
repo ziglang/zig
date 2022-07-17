@@ -50,7 +50,7 @@ pub fn create(builder: *Builder, source: build.FileSource, obj_format: std.Targe
 /// For example, if the two extracted values were saved as `vmaddr` and `entryoff` respectively
 /// they could then be added with this simple program `vmaddr entryoff +`.
 const Action = struct {
-    tag: enum { match, compute_cmp },
+    tag: enum { match, not_present, compute_cmp },
     phrase: []const u8,
     expected: ?ComputeCompareExpected = null,
 
@@ -63,7 +63,7 @@ const Action = struct {
     /// name {*}libobjc{*}.dylib => will match `name` followed by a token which contains `libobjc` and `.dylib`
     ///                             in that order with other letters in between
     fn match(act: Action, haystack: []const u8, global_vars: anytype) !bool {
-        assert(act.tag == .match);
+        assert(act.tag == .match or act.tag == .not_present);
 
         var candidate_var: ?struct { name: []const u8, value: u64 } = null;
         var hay_it = mem.tokenize(u8, mem.trim(u8, haystack, " "), " ");
@@ -202,6 +202,13 @@ const Check = struct {
         }) catch unreachable;
     }
 
+    fn notPresent(self: *Check, phrase: []const u8) void {
+        self.actions.append(.{
+            .tag = .not_present,
+            .phrase = self.builder.dupe(phrase),
+        }) catch unreachable;
+    }
+
     fn computeCmp(self: *Check, phrase: []const u8, expected: ComputeCompareExpected) void {
         self.actions.append(.{
             .tag = .compute_cmp,
@@ -224,6 +231,15 @@ pub fn checkNext(self: *CheckObjectStep, phrase: []const u8) void {
     assert(self.checks.items.len > 0);
     const last = &self.checks.items[self.checks.items.len - 1];
     last.match(phrase);
+}
+
+/// Adds another searched phrase to the latest created Check with `CheckObjectStep.checkStart(...)`
+/// however ensures there is no matching phrase in the output.
+/// Asserts at least one check already exists.
+pub fn checkNotPresent(self: *CheckObjectStep, phrase: []const u8) void {
+    assert(self.checks.items.len > 0);
+    const last = &self.checks.items[self.checks.items.len - 1];
+    last.notPresent(phrase);
 }
 
 /// Creates a new check checking specifically symbol table parsed and dumped from the object
@@ -291,6 +307,21 @@ fn make(step: *Step) !void {
                             \\
                         , .{ act.phrase, output });
                         return error.TestFailed;
+                    }
+                },
+                .not_present => {
+                    while (it.next()) |line| {
+                        if (try act.match(line, &vars)) {
+                            std.debug.print(
+                                \\
+                                \\========= Expected not to find: ===================
+                                \\{s}
+                                \\========= But parsed file does contain it: ========
+                                \\{s}
+                                \\
+                            , .{ act.phrase, output });
+                            return error.TestFailed;
+                        }
                     }
                 },
                 .compute_cmp => {
