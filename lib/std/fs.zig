@@ -1624,7 +1624,7 @@ pub const Dir = struct {
     pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenDirOptions, iterable: bool) OpenError!Dir {
         if (builtin.os.tag == .windows) {
             const sub_path_w = try os.windows.cStrToPrefixedFileW(sub_path_c);
-            return self.openDirW(sub_path_w.span().ptr, args);
+            return self.openDirW(sub_path_w.span().ptr, args, iterable);
         }
         const symlink_flags: u32 = if (args.no_follow) os.O.NOFOLLOW else 0x0;
         if (!iterable) {
@@ -2368,6 +2368,33 @@ pub fn openDirAbsoluteZ(absolute_path_c: [*:0]const u8, flags: Dir.OpenDirOption
 pub fn openDirAbsoluteW(absolute_path_c: [*:0]const u16, flags: Dir.OpenDirOptions) File.OpenError!Dir {
     assert(path.isAbsoluteWindowsW(absolute_path_c));
     return cwd().openDirW(absolute_path_c, flags);
+}
+
+/// Opens a directory at the given path. The directory is a system resource that remains
+/// open until `close` is called on the result.
+/// See `openIterableDirAbsoluteZ` for a function that accepts a null-terminated path.
+///
+/// Asserts that the path parameter has no null bytes.
+pub fn openIterableDirAbsolute(absolute_path: []const u8, flags: Dir.OpenDirOptions) File.OpenError!IterableDir {
+    assert(path.isAbsolute(absolute_path));
+    return cwd().openIterableDir(absolute_path, flags);
+}
+
+/// Same as `openIterableDirAbsolute` but the path parameter is null-terminated.
+pub fn openIterableDirAbsoluteZ(absolute_path_c: [*:0]const u8, flags: Dir.OpenDirOptions) File.OpenError!IterableDir {
+    assert(path.isAbsoluteZ(absolute_path_c));
+    return IterableDir{ .dir = try cwd().openDirZ(absolute_path_c, flags, true) };
+}
+/// Same as `openIterableDirAbsolute` but the path parameter is null-terminated.
+pub fn openIterableDirAbsoluteW(absolute_path_c: [*:0]const u16, flags: Dir.OpenDirOptions) File.OpenError!IterableDir {
+    assert(path.isAbsoluteWindowsW(absolute_path_c));
+    return IterableDir{ .dir = try cwd().openDirW(absolute_path_c, flags, true) };
+}
+
+comptime {
+    _ = openIterableDirAbsolute;
+    _ = openIterableDirAbsoluteZ;
+    _ = openIterableDirAbsoluteW;
 }
 
 /// Opens a file for reading or writing, without attempting to create a new file, based on an absolute path.
