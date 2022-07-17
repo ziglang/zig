@@ -23,8 +23,6 @@ pub fn classifyType(ty: Type, target: Target) [2]Class {
     if (!ty.hasRuntimeBitsIgnoreComptime()) return none;
     switch (ty.zigTypeTag()) {
         .Struct => {
-            // When the (maybe) scalar type exceeds max 'direct' integer size
-            if (ty.abiSize(target) > 8) return memory;
             // When the struct type is non-scalar
             if (ty.structFieldCount() > 1) return memory;
             // When the struct's alignment is non-natural
@@ -34,56 +32,57 @@ pub fn classifyType(ty: Type, target: Target) [2]Class {
                     return memory;
                 }
             }
-            if (field.ty.isInt() or field.ty.isAnyFloat()) {
-                return direct;
-            }
             return classifyType(field.ty, target);
         },
         .Int, .Enum, .ErrorSet, .Vector => {
             const int_bits = ty.intInfo(target).bits;
             if (int_bits <= 64) return direct;
-            if (int_bits > 64 and int_bits <= 128) return .{ .direct, .direct };
+            if (int_bits <= 128) return .{ .direct, .direct };
             return memory;
         },
         .Float => {
             const float_bits = ty.floatBits(target);
             if (float_bits <= 64) return direct;
-            if (float_bits > 64 and float_bits <= 128) return .{ .direct, .direct };
+            if (float_bits <= 128) return .{ .direct, .direct };
             return memory;
         },
         .Bool => return direct,
         .Array => return memory,
-        .ErrorUnion => {
-            const has_tag = ty.errorUnionSet().hasRuntimeBitsIgnoreComptime();
-            const has_pl = ty.errorUnionPayload().hasRuntimeBitsIgnoreComptime();
-            if (!has_pl) return direct;
-            if (!has_tag) {
-                return classifyType(ty.errorUnionPayload(), target);
-            }
-            return memory;
-        },
+        // .ErrorUnion => {
+        //     const has_tag = ty.errorUnionSet().hasRuntimeBitsIgnoreComptime();
+        //     const has_pl = ty.errorUnionPayload().hasRuntimeBitsIgnoreComptime();
+        //     if (!has_pl) return direct;
+        //     if (!has_tag) {
+        //         return classifyType(ty.errorUnionPayload(), target);
+        //     }
+        //     return memory;
+        // },
         .Optional => {
-            if (ty.isPtrLikeOptional()) return direct;
-            var buf: Type.Payload.ElemType = undefined;
-            const pl_has_bits = ty.optionalChild(&buf).hasRuntimeBitsIgnoreComptime();
-            if (!pl_has_bits) return direct;
-            return memory;
+            std.debug.assert(ty.isPtrLikeOptional());
+            return direct;
+            // var buf: Type.Payload.ElemType = undefined;
+            // const pl_has_bits = ty.optionalChild(&buf).hasRuntimeBitsIgnoreComptime();
+            // if (!pl_has_bits) return direct;
+            // return memory;
         },
         .Pointer => {
-            // Slices act like struct and will be passed by reference
-            if (ty.isSlice()) return memory;
+            // // Slices act like struct and will be passed by reference
+            // if (ty.isSlice()) return memory;
             return direct;
         },
         .Union => {
             const layout = ty.unionGetLayout(target);
-            if (layout.payload_size == 0 and layout.tag_size != 0) {
-                return classifyType(ty.unionTagTypeSafety().?, target);
-            }
+            std.debug.assert(layout.tag_size == 0);
+            // if (layout.payload_size == 0 and layout.tag_size != 0) {
+            //     return classifyType(ty.unionTagType().?, target);
+            // }
             if (ty.unionFields().count() > 1) return memory;
             return classifyType(ty.unionFields().values()[0].ty, target);
         },
-        .AnyFrame, .Frame => return direct,
-
+        // .AnyFrame, .Frame => return direct,
+        .ErrorUnion,
+        .Frame,
+        .AnyFrame,
         .NoReturn,
         .Void,
         .Type,
