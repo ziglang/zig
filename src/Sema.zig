@@ -1884,13 +1884,22 @@ fn analyzeAsAlign(
 ) !u32 {
     const alignment_big = try sema.analyzeAsInt(block, src, air_ref, align_ty, "alignment must be comptime known");
     const alignment = @intCast(u32, alignment_big); // We coerce to u16 in the prev line.
+    try sema.validateAlign(block, src, alignment);
+    return alignment;
+}
+
+fn validateAlign(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    alignment: u32,
+) !void {
     if (alignment == 0) return sema.fail(block, src, "alignment must be >= 1", .{});
     if (!std.math.isPowerOfTwo(alignment)) {
         return sema.fail(block, src, "alignment value '{d}' is not a power of two", .{
             alignment,
         });
     }
-    return alignment;
 }
 
 pub fn resolveAlign(
@@ -13902,8 +13911,9 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
                 break :blk 0;
             }
         }
-        const abi_align = (try val.getUnsignedIntAdvanced(target, sema.kit(block, align_src))).?;
-        break :blk @intCast(u32, abi_align);
+        const abi_align = @intCast(u32, (try val.getUnsignedIntAdvanced(target, sema.kit(block, align_src))).?);
+        try sema.validateAlign(block, align_src, abi_align);
+        break :blk abi_align;
     } else 0;
 
     const address_space = if (inst_data.flags.has_addrspace) blk: {
@@ -13940,6 +13950,14 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 
     if (elem_ty.zigTypeTag() == .NoReturn) {
         return sema.fail(block, elem_ty_src, "pointer to noreturn not allowed", .{});
+    } else if (elem_ty.zigTypeTag() == .Fn) {
+        if (inst_data.size != .One) {
+            return sema.fail(block, elem_ty_src, "function pointers must be single pointers", .{});
+        }
+        const fn_align = elem_ty.abiAlignment(target);
+        if (inst_data.flags.has_align and abi_align != 0 and abi_align != fn_align) {
+            return sema.fail(block, align_src, "function pointer alignment disagrees with function alignment", .{});
+        }
     } else if (inst_data.size == .Many and elem_ty.zigTypeTag() == .Opaque) {
         return sema.fail(block, elem_ty_src, "unknown-length pointer to opaque not allowed", .{});
     } else if (inst_data.size == .C) {
@@ -17709,15 +17727,14 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.FuncFancy, inst_data.payload_index);
     const target = sema.mod.getTarget();
 
-    const align_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at align
-    const addrspace_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at addrspace
-    const section_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at section
+    const align_src: LazySrcLoc = .{ .node_offset_fn_type_align = inst_data.src_node };
+    const addrspace_src: LazySrcLoc = .{ .node_offset_fn_type_addrspace = inst_data.src_node };
+    const section_src: LazySrcLoc = .{ .node_offset_fn_type_section = inst_data.src_node };
     const cc_src: LazySrcLoc = .{ .node_offset_fn_type_cc = inst_data.src_node };
-    const ret_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at the return type
+    const ret_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = inst_data.src_node };
 
     var extra_index: usize = extra.end;
 
@@ -17742,6 +17759,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
             break :blk null;
         }
         const alignment = @intCast(u32, val.toUnsignedInt(target));
+        try sema.validateAlign(block, align_src, alignment);
         if (alignment == target_util.defaultFunctionAlignment(target)) {
             break :blk 0;
         } else {
@@ -17757,6 +17775,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
             else => |e| return e,
         };
         const alignment = @intCast(u32, align_tv.val.toUnsignedInt(target));
+        try sema.validateAlign(block, align_src, alignment);
         if (alignment == target_util.defaultFunctionAlignment(target)) {
             break :blk 0;
         } else {

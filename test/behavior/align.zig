@@ -299,7 +299,6 @@ test "implicitly decreasing fn alignment" {
     try testImplicitlyDecreaseFnAlign(alignedBig, 5678);
 }
 
-// TODO make it a compile error to put align on the fn proto instead of on the ptr
 fn testImplicitlyDecreaseFnAlign(ptr: *align(1) const fn () i32, answer: i32) !void {
     try expect(ptr() == answer);
 }
