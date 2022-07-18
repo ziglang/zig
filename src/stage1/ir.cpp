@@ -25972,7 +25972,7 @@ static Error ir_resolve_lazy_raw(AstNode *source_node, ZigValue *val) {
                     case ZigTypeIdBoundFn:
                     case ZigTypeIdVoid:
                     case ZigTypeIdOpaque:
-                        ir_add_error_node(ira, lazy_align_of->target_type->source_node,
+                        ir_add_error_node(ira, source_node,
                             buf_sprintf("no align available for type '%s'",
                                 buf_ptr(&lazy_align_of->target_type->value->data.x_type->name)));
                         return ErrorSemanticAnalyzeFail;
