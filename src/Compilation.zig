@@ -2288,6 +2288,14 @@ pub fn update(comp: *Compilation) !void {
         return;
     }
 
+    if (comp.emit_docs) |doc_location| {
+        if (comp.bin_file.options.module) |module| {
+            var autodoc = Autodoc.init(module, doc_location);
+            defer autodoc.deinit();
+            try autodoc.generateZirData();
+        }
+    }
+
     // Flush takes care of -femit-bin, but we still have -femit-llvm-ir, -femit-llvm-bc, and
     // -femit-asm to handle, in the case of C objects.
     comp.emitOthers();
@@ -2864,14 +2872,6 @@ pub fn performAllTheWork(
             try comp.thread_pool.spawn(workerUpdateCObject, .{
                 comp, c_object, &c_obj_prog_node, &comp.work_queue_wait_group,
             });
-        }
-    }
-
-    if (comp.emit_docs) |doc_location| {
-        if (comp.bin_file.options.module) |module| {
-            var autodoc = Autodoc.init(module, doc_location);
-            defer autodoc.deinit();
-            try autodoc.generateZirData();
         }
     }
 
