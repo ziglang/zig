@@ -7,7 +7,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:1:19: error: expected enum tag type, found 'u32'
+// :1:19: error: expected enum tag type, found 'u32'

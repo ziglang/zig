@@ -7,7 +7,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:1:24: error: expected integer tag type, found 'f32'
+// :1:24: error: expected integer tag type, found 'f32'
