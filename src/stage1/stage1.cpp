@@ -74,8 +74,6 @@ void zig_stage1_build_object(struct ZigStage1 *stage1) {
     buf_init_from_mem(&g->asm_file_output_path, stage1->emit_asm_ptr, stage1->emit_asm_len);
     buf_init_from_mem(&g->llvm_ir_file_output_path, stage1->emit_llvm_ir_ptr, stage1->emit_llvm_ir_len);
     buf_init_from_mem(&g->bitcode_file_output_path, stage1->emit_bitcode_ptr, stage1->emit_bitcode_len);
-    buf_init_from_mem(&g->analysis_json_output_path, stage1->emit_analysis_json_ptr, stage1->emit_analysis_json_len);
-    buf_init_from_mem(&g->docs_output_path, stage1->emit_docs_ptr, stage1->emit_docs_len);
 
     if (stage1->builtin_zig_path_len != 0) {
         g->builtin_zig_path = buf_create_from_mem(stage1->builtin_zig_path_ptr, stage1->builtin_zig_path_len);

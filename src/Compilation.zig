@@ -5169,8 +5169,6 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
     const emit_asm_path = try stage1LocPath(arena, comp.emit_asm, directory);
     const emit_llvm_ir_path = try stage1LocPath(arena, comp.emit_llvm_ir, directory);
     const emit_llvm_bc_path = try stage1LocPath(arena, comp.emit_llvm_bc, directory);
-    const emit_analysis_path = try stage1LocPath(arena, comp.emit_analysis, directory);
-    const emit_docs_path = try stage1LocPath(arena, comp.emit_docs, directory);
     const stage1_pkg = try createStage1Pkg(arena, "root", mod.main_pkg, null);
     const test_filter = comp.test_filter orelse ""[0..0];
     const test_name_prefix = comp.test_name_prefix orelse ""[0..0];
@@ -5191,10 +5189,6 @@ fn updateStage1Module(comp: *Compilation, main_progress_node: *std.Progress.Node
         .emit_llvm_ir_len = emit_llvm_ir_path.len,
         .emit_bitcode_ptr = emit_llvm_bc_path.ptr,
         .emit_bitcode_len = emit_llvm_bc_path.len,
-        .emit_analysis_json_ptr = emit_analysis_path.ptr,
-        .emit_analysis_json_len = emit_analysis_path.len,
-        .emit_docs_ptr = emit_docs_path.ptr,
-        .emit_docs_len = emit_docs_path.len,
         .builtin_zig_path_ptr = builtin_zig_path.ptr,
         .builtin_zig_path_len = builtin_zig_path.len,
         .test_filter_ptr = test_filter.ptr,

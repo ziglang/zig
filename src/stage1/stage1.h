@@ -161,12 +161,6 @@ struct ZigStage1 {
     const char *emit_bitcode_ptr;
     size_t emit_bitcode_len;
 
-    const char *emit_analysis_json_ptr;
-    size_t emit_analysis_json_len;
-
-    const char *emit_docs_ptr;
-    size_t emit_docs_len;
-
     const char *builtin_zig_path_ptr;
     size_t builtin_zig_path_len;
 

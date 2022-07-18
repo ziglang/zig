@@ -16,7 +16,6 @@
 #include "util.hpp"
 #include "zig_llvm.h"
 #include "stage2.h"
-#include "dump_analysis.hpp"
 #include "softfloat.hpp"
 #include "zigendian.h"
 
@@ -10546,57 +10545,6 @@ void codegen_build_object(CodeGen *g) {
 
     gen_root_source(g);
 
-    if (buf_len(&g->analysis_json_output_path) != 0) {
-        const char *analysis_json_filename = buf_ptr(&g->analysis_json_output_path);
-        FILE *f = fopen(analysis_json_filename, "wb");
-        if (f == nullptr) {
-            fprintf(stderr, "Unable to open '%s': %s\n", analysis_json_filename, strerror(errno));
-            exit(1);
-        }
-        zig_print_analysis_dump(g, f, " ", "\n");
-        if (fclose(f) != 0) {
-            fprintf(stderr, "Unable to write '%s': %s\n", analysis_json_filename, strerror(errno));
-            exit(1);
-        }
-    }
-    if (buf_len(&g->docs_output_path) != 0) {
-        Error err;
-        Buf *doc_dir_path = &g->docs_output_path;
-        if ((err = os_make_path(doc_dir_path))) {
-            fprintf(stderr, "Unable to create directory %s: %s\n", buf_ptr(doc_dir_path), err_str(err));
-            exit(1);
-        }
-        Buf *index_html_src_path = buf_sprintf("%s" OS_SEP "docs" OS_SEP "index.html",
-                buf_ptr(g->zig_lib_dir));
-        Buf *index_html_dest_path = buf_sprintf("%s" OS_SEP "index.html", buf_ptr(doc_dir_path));
-        Buf *main_js_src_path = buf_sprintf("%s" OS_SEP "docs" OS_SEP "main.js",
-                buf_ptr(g->zig_lib_dir));
-        Buf *main_js_dest_path = buf_sprintf("%s" OS_SEP "main.js", buf_ptr(doc_dir_path));
-
-        if ((err = os_copy_file(index_html_src_path, index_html_dest_path))) {
-            fprintf(stderr, "Unable to copy %s to %s: %s\n", buf_ptr(index_html_src_path),
-                    buf_ptr(index_html_dest_path), err_str(err));
-            exit(1);
-        }
-        if ((err = os_copy_file(main_js_src_path, main_js_dest_path))) {
-            fprintf(stderr, "Unable to copy %s to %s: %s\n", buf_ptr(main_js_src_path),
-                    buf_ptr(main_js_dest_path), err_str(err));
-            exit(1);
-        }
-        const char *data_js_filename = buf_ptr(buf_sprintf("%s" OS_SEP "data.js", buf_ptr(doc_dir_path)));
-        FILE *f = fopen(data_js_filename, "wb");
-        if (f == nullptr) {
-            fprintf(stderr, "Unable to open '%s': %s\n", data_js_filename, strerror(errno));
-            exit(1);
-        }
-        fprintf(f, "zigAnalysis=");
-        zig_print_analysis_dump(g, f, "", "");
-        fprintf(f, ";");
-        if (fclose(f) != 0) {
-            fprintf(stderr, "Unable to write '%s': %s\n", data_js_filename, strerror(errno));
-            exit(1);
-        }
-    }
 
     codegen_add_time_event(g, "Code Generation");
     {
