@@ -2766,7 +2766,7 @@ fn transInitListExpr(
         ));
     } else {
         const type_name = c.str(qual_type.getTypeClassName());
-        return fail(c, error.UnsupportedType, source_loc, "unsupported initlist type: '{s}'", .{type_name});
+        return fail(c, error.UnsupportedType, source_loc, "unsupported initlist type: '{!s}'", .{type_name});
     }
 }
 
@@ -4813,11 +4813,11 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
         },
         .BitInt, .ExtVector => {
             const type_name = c.str(ty.getTypeClassName());
-            return fail(c, error.UnsupportedType, source_loc, "TODO implement translation of type: '{s}'", .{type_name});
+            return fail(c, error.UnsupportedType, source_loc, "TODO implement translation of type: '{!s}'", .{type_name});
         },
         else => {
             const type_name = c.str(ty.getTypeClassName());
-            return fail(c, error.UnsupportedType, source_loc, "unsupported type: '{s}'", .{type_name});
+            return fail(c, error.UnsupportedType, source_loc, "unsupported type: '{!s}'", .{type_name});
         },
     }
 }
@@ -5053,7 +5053,7 @@ fn finishTransFnProto(
 
 fn warn(c: *Context, scope: *Scope, loc: clang.SourceLocation, comptime format: []const u8, args: anytype) !void {
     const args_prefix = .{c.locStr(loc)};
-    const value = try std.fmt.allocPrint(c.arena, "// {s}: warning: " ++ format, args_prefix ++ args);
+    const value = try std.fmt.allocPrint(c.arena, "// {!s}: warning: " ++ format, args_prefix ++ args);
     try scope.appendNode(try Tag.warning.create(c.arena, value));
 }
 
@@ -5073,7 +5073,7 @@ pub fn failDecl(c: *Context, loc: clang.SourceLocation, name: []const u8, compti
     // pub const name = @compileError(msg);
     const fail_msg = try std.fmt.allocPrint(c.arena, format, args);
     try addTopLevelDecl(c, name, try Tag.fail_decl.create(c.arena, .{ .actual = name, .mangled = fail_msg }));
-    const location_comment = try std.fmt.allocPrint(c.arena, "// {s}", .{c.locStr(loc)});
+    const location_comment = try std.fmt.allocPrint(c.arena, "// {!s}", .{c.locStr(loc)});
     try c.global_scope.nodes.append(try Tag.warning.create(c.arena, location_comment));
 }
 

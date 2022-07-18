@@ -742,7 +742,7 @@ pub const Manifest = struct {
                     "{s}",
                     .{std.fmt.fmtSliceHexLower(&file.bin_digest)},
                 ) catch unreachable;
-                try writer.print("{d} {d} {d} {s} {s}\n", .{
+                try writer.print("{d} {d} {d} {s} {?s}\n", .{
                     file.stat.size,
                     file.stat.inode,
                     file.stat.mtime,

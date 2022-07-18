@@ -548,7 +548,7 @@ fn Parser(comptime ReaderType: type) type {
                     .index = try leb.readULEB128(u32, reader),
                     .addend = if (rel_type_enum.addendIsPresent()) try leb.readULEB128(u32, reader) else null,
                 };
-                log.debug("Found relocation: type({s}) offset({d}) index({d}) addend({d})", .{
+                log.debug("Found relocation: type({s}) offset({d}) index({d}) addend({?d})", .{
                     @tagName(relocation.relocation_type),
                     relocation.offset,
                     relocation.index,
