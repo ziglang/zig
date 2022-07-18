@@ -59,9 +59,6 @@ bindings: std.ArrayListUnmanaged(Binding) = .{},
 /// List of lazy bindings (cf bindings above).
 lazy_bindings: std.ArrayListUnmanaged(Binding) = .{},
 
-/// List of data-in-code entries. This is currently specific to x86_64 only.
-dices: std.ArrayListUnmanaged(macho.data_in_code_entry) = .{},
-
 /// Points to the previous and next neighbours
 next: ?*Atom,
 prev: ?*Atom,
@@ -147,7 +144,6 @@ pub const empty = Atom{
 };
 
 pub fn deinit(self: *Atom, allocator: Allocator) void {
-    self.dices.deinit(allocator);
     self.lazy_bindings.deinit(allocator);
     self.bindings.deinit(allocator);
     self.rebases.deinit(allocator);
@@ -157,7 +153,6 @@ pub fn deinit(self: *Atom, allocator: Allocator) void {
 }
 
 pub fn clearRetainingCapacity(self: *Atom) void {
-    self.dices.clearRetainingCapacity();
     self.lazy_bindings.clearRetainingCapacity();
     self.bindings.clearRetainingCapacity();
     self.rebases.clearRetainingCapacity();

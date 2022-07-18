@@ -187,7 +187,6 @@ error_flags: File.ErrorFlags = File.ErrorFlags{},
 
 load_commands_dirty: bool = false,
 sections_order_dirty: bool = false,
-has_dices: bool = false,
 
 /// A helper var to indicate if we are at the start of the incremental updates, or
 /// already somewhere further along the update-and-run chain.
@@ -6139,55 +6138,74 @@ fn writeFunctionStarts(self: *MachO) !void {
     self.load_commands_dirty = true;
 }
 
-fn writeDices(self: *MachO) !void {
-    if (!self.has_dices) return;
+fn filterDataInCode(
+    dices: []const macho.data_in_code_entry,
+    start_addr: u64,
+    end_addr: u64,
+) []const macho.data_in_code_entry {
+    const Predicate = struct {
+        addr: u64,
 
+        pub fn predicate(self: @This(), dice: macho.data_in_code_entry) bool {
+            return dice.offset >= self.addr;
+        }
+    };
+
+    const start = MachO.findFirst(macho.data_in_code_entry, dices, 0, Predicate{ .addr = start_addr });
+    const end = MachO.findFirst(macho.data_in_code_entry, dices, start, Predicate{ .addr = end_addr });
+
+    return dices[start..end];
+}
+
+fn writeDataInCode(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    var buf = std.ArrayList(u8).init(self.base.allocator);
-    defer buf.deinit();
-
-    var atom: *Atom = self.atoms.get(.{
-        .seg = self.text_segment_cmd_index orelse return,
-        .sect = self.text_section_index orelse return,
-    }) orelse return;
-
-    while (atom.prev) |prev| {
-        atom = prev;
-    }
+    var out_dice = std.ArrayList(macho.data_in_code_entry).init(self.base.allocator);
+    defer out_dice.deinit();
 
     const text_sect = self.getSection(.{
-        .seg = self.text_segment_cmd_index.?,
-        .sect = self.text_section_index.?,
+        .seg = self.text_segment_cmd_index orelse return,
+        .sect = self.text_section_index orelse return,
     });
 
-    while (true) {
-        if (atom.dices.items.len > 0) {
-            const sym = atom.getSymbol(self);
-            const base_off = math.cast(u32, sym.n_value - text_sect.addr + text_sect.offset) orelse return error.Overflow;
+    for (self.objects.items) |object| {
+        const dice = object.parseDataInCode() orelse continue;
+        const source_symtab = object.getSourceSymtab();
+        try out_dice.ensureUnusedCapacity(dice.len);
 
-            try buf.ensureUnusedCapacity(atom.dices.items.len * @sizeOf(macho.data_in_code_entry));
-            for (atom.dices.items) |dice| {
-                const rebased_dice = macho.data_in_code_entry{
-                    .offset = base_off + dice.offset,
-                    .length = dice.length,
-                    .kind = dice.kind,
-                };
-                buf.appendSliceAssumeCapacity(mem.asBytes(&rebased_dice));
+        for (object.managed_atoms.items) |atom| {
+            const sym = atom.getSymbol(self);
+            if (sym.n_desc == N_DESC_GCED) continue;
+            if (atom.sym_index >= source_symtab.len) continue; // synthetic, linker generated
+
+            const match = self.getMatchingSectionFromOrdinal(sym.n_sect);
+            if (match.seg != self.text_segment_cmd_index.? and match.sect != self.text_section_index.?) {
+                continue;
+            }
+
+            const source_sym = source_symtab[atom.sym_index];
+            const source_addr = math.cast(u32, source_sym.n_value) orelse return error.Overflow;
+            const filtered_dice = filterDataInCode(dice, source_addr, source_addr + atom.size);
+            const base = math.cast(u32, sym.n_value - text_sect.addr + text_sect.offset) orelse
+                return error.Overflow;
+
+            for (filtered_dice) |single| {
+                const offset = single.offset - source_addr + base;
+                out_dice.appendAssumeCapacity(.{
+                    .offset = offset,
+                    .length = single.length,
+                    .kind = single.kind,
+                });
             }
         }
-
-        if (atom.next) |next| {
-            atom = next;
-        } else break;
     }
 
     const seg = &self.load_commands.items[self.linkedit_segment_cmd_index.?].segment;
     const dice_cmd = &self.load_commands.items[self.data_in_code_cmd_index.?].linkedit_data;
 
     const dataoff = mem.alignForwardGeneric(u64, seg.inner.fileoff + seg.inner.filesize, @alignOf(u64));
-    const datasize = buf.items.len;
+    const datasize = out_dice.items.len * @sizeOf(macho.data_in_code_entry);
     dice_cmd.dataoff = @intCast(u32, dataoff);
     dice_cmd.datasize = @intCast(u32, datasize);
     seg.inner.filesize = dice_cmd.dataoff + dice_cmd.datasize - seg.inner.fileoff;
@@ -6197,7 +6215,7 @@ fn writeDices(self: *MachO) !void {
         dice_cmd.dataoff + dice_cmd.datasize,
     });
 
-    try self.base.file.?.pwriteAll(buf.items, dice_cmd.dataoff);
+    try self.base.file.?.pwriteAll(mem.sliceAsBytes(out_dice.items), dice_cmd.dataoff);
     self.load_commands_dirty = true;
 }
 
@@ -6392,7 +6410,7 @@ fn writeLinkeditSegment(self: *MachO) !void {
 
     try self.writeDyldInfoData();
     try self.writeFunctionStarts();
-    try self.writeDices();
+    try self.writeDataInCode();
     try self.writeSymtab();
     try self.writeStrtab();
 

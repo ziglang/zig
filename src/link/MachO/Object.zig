@@ -177,7 +177,6 @@ pub fn parse(self: *Object, allocator: Allocator, target: std.Target) !void {
     }
 
     try self.parseSymtab(allocator);
-    self.parseDataInCode();
 }
 
 const Context = struct {
@@ -262,25 +261,6 @@ fn filterRelocs(
     const end = MachO.findFirst(macho.relocation_info, relocs, start, Predicate{ .addr = start_addr });
 
     return relocs[start..end];
-}
-
-fn filterDice(
-    dices: []const macho.data_in_code_entry,
-    start_addr: u64,
-    end_addr: u64,
-) []const macho.data_in_code_entry {
-    const Predicate = struct {
-        addr: u64,
-
-        pub fn predicate(self: @This(), dice: macho.data_in_code_entry) bool {
-            return dice.offset >= self.addr;
-        }
-    };
-
-    const start = MachO.findFirst(macho.data_in_code_entry, dices, 0, Predicate{ .addr = start_addr });
-    const end = MachO.findFirst(macho.data_in_code_entry, dices, start, Predicate{ .addr = end_addr });
-
-    return dices[start..end];
 }
 
 /// Splits object into atoms assuming one-shot linking mode.
@@ -377,15 +357,6 @@ pub fn splitIntoAtomsOneShot(
             sect.addr + sect.size,
             context,
         );
-
-        macho_file.has_dices = macho_file.has_dices or blk: {
-            if (self.text_section_index) |index| {
-                if (index != id) break :blk false;
-                if (self.data_in_code_entries.len == 0) break :blk false;
-                break :blk true;
-            }
-            break :blk false;
-        };
 
         if (subsections_via_symbols and filtered_syms.len > 0) {
             // If the first nlist does not match the start of the section,
@@ -574,19 +545,6 @@ fn createAtomFromSubsection(
         .base_offset = @intCast(i32, base_offset),
     });
 
-    if (macho_file.has_dices) {
-        const dices = filterDice(self.data_in_code_entries, sym.n_value, sym.n_value + size);
-        try atom.dices.ensureTotalCapacity(gpa, dices.len);
-
-        for (dices) |dice| {
-            atom.dices.appendAssumeCapacity(.{
-                .offset = dice.offset - (math.cast(u32, sym.n_value) orelse return error.Overflow),
-                .length = dice.length,
-                .kind = dice.kind,
-            });
-        }
-    }
-
     // Since this is atom gets a helper local temporary symbol that didn't exist
     // in the object file which encompasses the entire section, we need traverse
     // the filtered symbols and note which symbol is contained within so that
@@ -651,11 +609,11 @@ pub fn getSourceSymtab(self: Object) []const macho.nlist_64 {
     );
 }
 
-fn parseDataInCode(self: *Object) void {
-    const index = self.data_in_code_cmd_index orelse return;
+pub fn parseDataInCode(self: Object) ?[]const macho.data_in_code_entry {
+    const index = self.data_in_code_cmd_index orelse return null;
     const data_in_code = self.load_commands.items[index].linkedit_data;
     const raw_dice = self.contents[data_in_code.dataoff..][0..data_in_code.datasize];
-    self.data_in_code_entries = mem.bytesAsSlice(
+    return mem.bytesAsSlice(
         macho.data_in_code_entry,
         @alignCast(@alignOf(macho.data_in_code_entry), raw_dice),
     );
