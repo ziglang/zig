@@ -1233,8 +1233,6 @@ fn walkInstruction(
         .frame_type,
         .frame_size,
         .ptr_to_int,
-        .error_to_int,
-        .int_to_error,
         .minimum,
         .maximum,
         .bit_not,
@@ -2521,12 +2519,6 @@ fn walkInstruction(
                     } else null;
                     _ = src_node;
 
-                    const body_len = if (small.has_body_len) blk: {
-                        const body_len = file.zir.extra[extra_index];
-                        extra_index += 1;
-                        break :blk body_len;
-                    } else 0;
-
                     const fields_len = if (small.has_fields_len) blk: {
                         const fields_len = file.zir.extra[extra_index];
                         extra_index += 1;
@@ -2570,9 +2562,6 @@ fn walkInstruction(
                         extra_index,
                     );
 
-                    // const body = file.zir.extra[extra_index..][0..body_len];
-                    extra_index += body_len;
-
                     var field_type_refs: std.ArrayListUnmanaged(DocData.Expr) = .{};
                     var field_name_indexes: std.ArrayListUnmanaged(usize) = .{};
                     try self.collectStructFieldInfo(
@@ -2612,6 +2601,24 @@ fn walkInstruction(
                     return DocData.WalkResult{
                         .typeRef = .{ .type = @enumToInt(Ref.type_type) },
                         .expr = .{ .this = parent_scope.enclosing_type },
+                    };
+                },
+                .error_to_int,
+                .int_to_error,
+                => {
+                    const extra = file.zir.extraData(Zir.Inst.UnNode, extended.operand).data;
+                    const bin_index = self.exprs.items.len;
+                    try self.exprs.append(self.arena, .{ .builtin = .{ .param = 0 } });
+                    const param = try self.walkRef(file, parent_scope, extra.operand, false);
+
+                    const param_index = self.exprs.items.len;
+                    try self.exprs.append(self.arena, param.expr);
+
+                    self.exprs.items[bin_index] = .{ .builtin = .{ .name = @tagName(tags[inst_index]), .param = param_index } };
+
+                    return DocData.WalkResult{
+                        .typeRef = param.typeRef orelse .{ .type = @enumToInt(Ref.type_type) },
+                        .expr = .{ .builtinIndex = bin_index },
                     };
                 },
             }
@@ -3627,6 +3634,17 @@ fn collectStructFieldInfo(
     const bits_per_field = 4;
     const fields_per_u32 = 32 / bits_per_field;
     const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
+
+    const Field = struct {
+        field_name: u32,
+        doc_comment_index: u32,
+        type_body_len: u32 = 0,
+        align_body_len: u32 = 0,
+        init_body_len: u32 = 0,
+        type_ref: Zir.Inst.Ref = .none,
+    };
+    const fields = try self.arena.alloc(Field, fields_len);
+
     var bit_bag_index: usize = extra_index;
     extra_index += bit_bags_count;
 
@@ -3643,35 +3661,69 @@ fn collectStructFieldInfo(
         cur_bit_bag >>= 1;
         // const is_comptime = @truncate(u1, cur_bit_bag) != 0;
         cur_bit_bag >>= 1;
-        const unused = @truncate(u1, cur_bit_bag) != 0;
+        const has_type_body = @truncate(u1, cur_bit_bag) != 0;
         cur_bit_bag >>= 1;
-        _ = unused;
 
-        const field_name = file.zir.nullTerminatedString(file.zir.extra[extra_index]);
-        extra_index += 1;
-        const field_type = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
+        const field_name = file.zir.extra[extra_index];
         extra_index += 1;
         const doc_comment_index = file.zir.extra[extra_index];
         extra_index += 1;
 
-        if (has_align) extra_index += 1;
-        if (has_default) extra_index += 1;
+        fields[field_i] = .{
+            .field_name = field_name,
+            .doc_comment_index = doc_comment_index,
+        };
 
-        // type
-        {
-            const walk_result = try self.walkRef(file, scope, field_type, false);
-            try field_type_refs.append(self.arena, walk_result.expr);
+        if (has_type_body) {
+            fields[field_i].type_body_len = file.zir.extra[extra_index];
+        } else {
+            fields[field_i].type_ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
         }
+        extra_index += 1;
+
+        if (has_align) {
+            fields[field_i].align_body_len = file.zir.extra[extra_index];
+            extra_index += 1;
+        }
+        if (has_default) {
+            fields[field_i].init_body_len = file.zir.extra[extra_index];
+            extra_index += 1;
+        }
+    }
+
+    const data = file.zir.instructions.items(.data);
+
+    for (fields) |field| {
+        const type_expr = expr: {
+            if (field.type_ref != .none) {
+                const walk_result = try self.walkRef(file, scope, field.type_ref, false);
+                break :expr walk_result.expr;
+            }
+
+            std.debug.assert(field.type_body_len != 0);
+            const body = file.zir.extra[extra_index..][0..field.type_body_len];
+            extra_index += body.len;
+
+            const break_inst = body[body.len - 1];
+            const operand = data[break_inst].@"break".operand;
+            const walk_result = try self.walkRef(file, scope, operand, false);
+            break :expr walk_result.expr;
+        };
+
+        extra_index += field.align_body_len;
+        extra_index += field.init_body_len;
+
+        try field_type_refs.append(self.arena, type_expr);
 
         // ast node
         {
             try field_name_indexes.append(self.arena, self.ast_nodes.items.len);
-            const doc_comment: ?[]const u8 = if (doc_comment_index != 0)
-                file.zir.nullTerminatedString(doc_comment_index)
+            const doc_comment: ?[]const u8 = if (field.doc_comment_index != 0)
+                file.zir.nullTerminatedString(field.doc_comment_index)
             else
                 null;
             try self.ast_nodes.append(self.arena, .{
-                .name = field_name,
+                .name = file.zir.nullTerminatedString(field.field_name),
                 .docs = doc_comment,
             });
         }
