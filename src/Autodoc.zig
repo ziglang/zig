@@ -7,6 +7,7 @@ const File = Module.File;
 const Package = @import("Package.zig");
 const Zir = @import("Zir.zig");
 const Ref = Zir.Inst.Ref;
+const log = std.log.scoped(.autodoc);
 
 module: *Module,
 doc_location: Compilation.EmitLoc,
@@ -62,7 +63,7 @@ pub fn deinit(_: *Autodoc) void {
 pub fn generateZirData(self: *Autodoc) !void {
     if (self.doc_location.directory) |dir| {
         if (dir.path) |path| {
-            std.debug.print("path: {s}\n", .{path});
+            log.debug("path: {s}", .{path});
         }
     }
 
@@ -1700,12 +1701,12 @@ fn walkInstruction(
             // const ast_line = self.ast_nodes.items[ast_index - 1];
 
             // const sep = "=" ** 200;
-            // std.debug.print("{s}\n", .{sep});
-            // std.debug.print("SWITCH BLOCK\n", .{});
-            // std.debug.print("extra = {any}\n", .{extra});
-            // std.debug.print("outer_decl = {any}\n", .{self.types.items[type_index]});
-            // std.debug.print("ast_lines = {}\n", .{ast_line});
-            // std.debug.print("{s}\n", .{sep});
+            // log.debug("{s}", .{sep});
+            // log.debug("SWITCH BLOCK", .{});
+            // log.debug("extra = {any}", .{extra});
+            // log.debug("outer_decl = {any}", .{self.types.items[type_index]});
+            // log.debug("ast_lines = {}", .{ast_line});
+            // log.debug("{s}", .{sep});
 
             const switch_index = self.exprs.items.len;
             try self.exprs.append(self.arena, .{ .switchOp = .{ .cond_index = cond_index, .file_name = file.sub_file_path, .ast = ast_index, .outer_decl = type_index } });
@@ -1728,11 +1729,11 @@ fn walkInstruction(
 
             // const ast_index = self.ast_nodes.items.len;
             // const sep = "=" ** 200;
-            // std.debug.print("{s}\n", .{sep});
-            // std.debug.print("SWITCH COND\n", .{});
-            // std.debug.print("ast index = {}\n", .{ast_index});
-            // std.debug.print("ast previous = {}\n", .{self.ast_nodes.items[ast_index - 1]});
-            // std.debug.print("{s}\n", .{sep});
+            // log.debug("{s}", .{sep});
+            // log.debug("SWITCH COND", .{});
+            // log.debug("ast index = {}", .{ast_index});
+            // log.debug("ast previous = {}", .{self.ast_nodes.items[ast_index - 1]});
+            // log.debug("{s}", .{sep});
 
             return DocData.WalkResult{
                 .typeRef = operand.typeRef,
@@ -2209,12 +2210,12 @@ fn walkInstruction(
                     _ = decls_bits;
 
                     // const sep = "=" ** 200;
-                    // std.debug.print("{s}\n", .{sep});
-                    // std.debug.print("small = {any}\n", .{small});
-                    // std.debug.print("src_node = {}\n", .{src_node});
-                    // std.debug.print("decls_len = {}\n", .{decls_len});
-                    // std.debug.print("decls_bit = {}\n", .{decls_bits});
-                    // std.debug.print("{s}\n", .{sep});
+                    // log.debug("{s}", .{sep});
+                    // log.debug("small = {any}", .{small});
+                    // log.debug("src_node = {}", .{src_node});
+                    // log.debug("decls_len = {}", .{decls_len});
+                    // log.debug("decls_bit = {}", .{decls_bits});
+                    // log.debug("{s}", .{sep});
                     const type_slot_index = self.types.items.len - 1;
                     try self.types.append(self.arena, .{ .Opaque = .{ .name = "TODO" } });
                     return DocData.WalkResult{
@@ -3860,9 +3861,7 @@ fn getBlockInlineBreak(zir: Zir, inst_index: usize) Zir.Inst.Ref {
 }
 
 fn printWithContext(file: *File, inst: usize, comptime fmt: []const u8, args: anytype) void {
-    std.debug.print("Context [{s}] % {}\n", .{ file.sub_file_path, inst });
-    std.debug.print(fmt, args);
-    std.debug.print("\n", .{});
+    log.debug("Context [{s}] % {} \n " ++ fmt, .{ file.sub_file_path, inst } ++ args);
 }
 
 fn panicWithContext(file: *File, inst: usize, comptime fmt: []const u8, args: anytype) noreturn {
