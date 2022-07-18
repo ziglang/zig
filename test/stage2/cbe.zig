@@ -772,7 +772,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\}
         , &.{
             ":4:5: error: switch must handle all possibilities",
-            ":4:5: note: unhandled enumeration value: 'b'",
+            ":1:21: note: unhandled enumeration value: 'b'",
             ":1:11: note: enum 'tmp.E' declared here",
         });
 

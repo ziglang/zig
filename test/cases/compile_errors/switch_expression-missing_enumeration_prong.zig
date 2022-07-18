@@ -19,5 +19,5 @@ export fn entry() usize { return @sizeOf(@TypeOf(&f)); }
 // target=native
 //
 // :8:5: error: switch must handle all possibilities
-// :8:5: note: unhandled enumeration value: 'Four'
+// :5:5: note: unhandled enumeration value: 'Four'
 // :1:16: note: enum 'tmp.Number' declared here

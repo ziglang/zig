@@ -4299,7 +4299,7 @@ fn unionDeclInner(
     members: []const Ast.Node.Index,
     layout: std.builtin.Type.ContainerLayout,
     arg_node: Ast.Node.Index,
-    have_auto_enum: bool,
+    auto_enum_tok: ?Ast.TokenIndex,
 ) InnerError!Zir.Inst.Ref {
     const decl_inst = try gz.reserveInstructionIndex();
 
@@ -4332,6 +4332,15 @@ fn unionDeclInner(
 
     const decl_count = try astgen.scanDecls(&namespace, members);
     const field_count = @intCast(u32, members.len - decl_count);
+
+    if (layout != .Auto and (auto_enum_tok != null or arg_node != 0)) {
+        const layout_str = if (layout == .Extern) "extern" else "packed";
+        if (arg_node != 0) {
+            return astgen.failNode(arg_node, "{s} union does not support enum tag type", .{layout_str});
+        } else {
+            return astgen.failTok(auto_enum_tok.?, "{s} union does not support enum tag type", .{layout_str});
+        }
+    }
 
     const arg_inst: Zir.Inst.Ref = if (arg_node != 0)
         try typeExpr(&block_scope, &namespace.base, arg_node)
@@ -4367,7 +4376,7 @@ fn unionDeclInner(
         if (have_type) {
             const field_type = try typeExpr(&block_scope, &namespace.base, member.ast.type_expr);
             wip_members.appendToField(@enumToInt(field_type));
-        } else if (arg_inst == .none and !have_auto_enum) {
+        } else if (arg_inst == .none and auto_enum_tok == null) {
             return astgen.failNode(member_node, "union field missing type", .{});
         }
         if (have_align) {
@@ -4389,7 +4398,7 @@ fn unionDeclInner(
                     },
                 );
             }
-            if (!have_auto_enum) {
+            if (auto_enum_tok == null) {
                 return astgen.failNodeNotes(
                     node,
                     "explicitly valued tagged union requires inferred enum tag type",
@@ -4425,7 +4434,7 @@ fn unionDeclInner(
         .body_len = body_len,
         .fields_len = field_count,
         .decls_len = decl_count,
-        .auto_enum_tag = have_auto_enum,
+        .auto_enum_tag = auto_enum_tok != null,
     });
 
     wip_members.finishBits(bits_per_field);
@@ -4481,9 +4490,7 @@ fn containerDecl(
                 else => unreachable,
             } else std.builtin.Type.ContainerLayout.Auto;
 
-            const have_auto_enum = container_decl.ast.enum_token != null;
-
-            const result = try unionDeclInner(gz, scope, node, container_decl.ast.members, layout, container_decl.ast.arg, have_auto_enum);
+            const result = try unionDeclInner(gz, scope, node, container_decl.ast.members, layout, container_decl.ast.arg, container_decl.ast.enum_token);
             return rvalue(gz, rl, result, node);
         },
         .keyword_enum => {

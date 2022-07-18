@@ -2626,6 +2626,29 @@ pub const SrcLoc = struct {
                 };
                 return nodeToSpan(tree, full.ast.bit_range_end);
             },
+            .node_offset_container_tag => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_tags = tree.nodes.items(.tag);
+                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+
+                switch (node_tags[parent_node]) {
+                    .container_decl_arg, .container_decl_arg_trailing => {
+                        const full = tree.containerDeclArg(parent_node);
+                        return nodeToSpan(tree, full.ast.arg);
+                    },
+                    .tagged_union_enum_tag, .tagged_union_enum_tag_trailing => {
+                        const full = tree.taggedUnionEnumTag(parent_node);
+
+                        return tokensToSpan(
+                            tree,
+                            tree.firstToken(full.ast.arg) - 2,
+                            tree.lastToken(full.ast.arg) + 1,
+                            tree.nodes.items(.main_token)[full.ast.arg],
+                        );
+                    },
+                    else => unreachable,
+                }
+            },
         }
     }
 
@@ -2935,6 +2958,9 @@ pub const LazySrcLoc = union(enum) {
     /// The source location points to the host size of a pointer.
     /// The Decl is determined contextually.
     node_offset_ptr_hostsize: i32,
+    /// The source location points to the tag type of an union or an enum.
+    /// The Decl is determined contextually.
+    node_offset_container_tag: i32,
 
     pub const nodeOffset = if (TracedOffset.want_tracing) nodeOffsetDebug else nodeOffsetRelease;
 
@@ -3008,6 +3034,7 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_ptr_addrspace,
             .node_offset_ptr_bitoffset,
             .node_offset_ptr_hostsize,
+            .node_offset_container_tag,
             => .{
                 .file_scope = decl.getFileScope(),
                 .parent_decl_node = decl.src_node,
@@ -4711,7 +4738,7 @@ pub fn scanNamespace(
     extra_start: usize,
     decls_len: u32,
     parent_decl: *Decl,
-) SemaError!usize {
+) Allocator.Error!usize {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -4758,7 +4785,7 @@ const ScanDeclIter = struct {
     unnamed_test_index: usize = 0,
 };
 
-fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) SemaError!void {
+fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Error!void {
     const tracy = trace(@src());
     defer tracy.end();
 

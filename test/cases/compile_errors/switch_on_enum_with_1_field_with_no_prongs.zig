@@ -10,5 +10,5 @@ export fn entry() void {
 // target=native
 //
 // :5:5: error: switch must handle all possibilities
-// :5:5: note: unhandled enumeration value: 'M'
+// :1:20: note: unhandled enumeration value: 'M'
 // :1:13: note: enum 'tmp.Foo' declared here
