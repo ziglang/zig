@@ -1471,7 +1471,8 @@ fn walkInstruction(
             };
         },
         .array_type => {
-            const bin = data[inst_index].bin;
+            const pl_node = data[inst_index].pl_node;
+            const bin = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index).data;
             const len = try self.walkRef(file, parent_scope, bin.lhs, false);
             const child = try self.walkRef(file, parent_scope, bin.rhs, false);
 
