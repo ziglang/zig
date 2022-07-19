@@ -2348,6 +2348,26 @@ pub const SrcLoc = struct {
                     }
                 } else unreachable;
             },
+            .node_offset_switch_prong_capture => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const case_node = src_loc.declRelativeToNodeIndex(node_off);
+                const node_tags = tree.nodes.items(.tag);
+                const case = switch (node_tags[case_node]) {
+                    .switch_case_one => tree.switchCaseOne(case_node),
+                    .switch_case => tree.switchCase(case_node),
+                    else => unreachable,
+                };
+                const start_tok = case.payload_token.?;
+                const token_tags = tree.tokens.items(.tag);
+                const end_tok = switch (token_tags[start_tok]) {
+                    .asterisk => start_tok + 1,
+                    else => start_tok,
+                };
+                const start = tree.tokens.items(.start)[start_tok];
+                const end_start = tree.tokens.items(.start)[end_tok];
+                const end = end_start + @intCast(u32, tree.tokenSlice(end_tok).len);
+                return Span{ .start = start, .end = end, .main = start };
+            },
             .node_offset_fn_type_align => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
@@ -2877,6 +2897,9 @@ pub const LazySrcLoc = union(enum) {
     /// range nodes. The error applies to all of them.
     /// The Decl is determined contextually.
     node_offset_switch_range: i32,
+    /// The source location points to the capture of a switch_prong.
+    /// The Decl is determined contextually.
+    node_offset_switch_prong_capture: i32,
     /// The source location points to the align expr of a function type
     /// expression, found by taking this AST node index offset from the containing
     /// Decl AST node, which points to a function type AST node. Next, navigate to
@@ -3017,6 +3040,7 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_switch_operand,
             .node_offset_switch_special_prong,
             .node_offset_switch_range,
+            .node_offset_switch_prong_capture,
             .node_offset_fn_type_align,
             .node_offset_fn_type_addrspace,
             .node_offset_fn_type_section,
@@ -5602,6 +5626,7 @@ pub const SwitchProngSrc = union(enum) {
     scalar: u32,
     multi: Multi,
     range: Multi,
+    multi_capture: u32,
 
     pub const Multi = struct {
         prong: u32,
@@ -5657,6 +5682,9 @@ pub const SwitchProngSrc = union(enum) {
                 .scalar => |i| if (!is_multi and i == scalar_i) return LazySrcLoc.nodeOffset(
                     decl.nodeIndexToRelative(case.ast.values[0]),
                 ),
+                .multi_capture => |i| if (is_multi and i == multi_i) {
+                    return LazySrcLoc{ .node_offset_switch_prong_capture = decl.nodeIndexToRelative(case_node) };
+                },
                 .multi => |s| if (is_multi and s.prong == multi_i) {
                     var item_i: u32 = 0;
                     for (case.ast.values) |item_node| {

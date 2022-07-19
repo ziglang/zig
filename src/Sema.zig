@@ -8197,7 +8197,6 @@ fn zirSwitchCapture(
     const switch_info = zir_datas[capture_info.switch_inst].pl_node;
     const switch_extra = sema.code.extraData(Zir.Inst.SwitchBlock, switch_info.payload_index);
     const operand_src: LazySrcLoc = .{ .node_offset_switch_operand = switch_info.src_node };
-    const switch_src = switch_info.src();
     const operand_is_ref = switch_extra.data.bits.is_ref;
     const cond_inst = Zir.refToIndex(switch_extra.data.operand).?;
     const cond_info = sema.code.instructions.items(.data)[cond_inst].un_node;
@@ -8247,7 +8246,7 @@ fn zirSwitchCapture(
             const first_field_index = @intCast(u32, enum_ty.enumTagFieldIndex(first_item_val, sema.mod).?);
             const first_field = union_obj.fields.values()[first_field_index];
 
-            for (items[1..]) |item| {
+            for (items[1..]) |item, i| {
                 const item_ref = try sema.resolveInst(item);
                 // Previous switch validation ensured this will succeed
                 const item_val = sema.resolveConstValue(block, .unneeded, item_ref, undefined) catch unreachable;
@@ -8255,11 +8254,17 @@ fn zirSwitchCapture(
                 const field_index = enum_ty.enumTagFieldIndex(item_val, sema.mod).?;
                 const field = union_obj.fields.values()[field_index];
                 if (!field.ty.eql(first_field.ty, sema.mod)) {
-                    const first_item_src = switch_src; // TODO better source location
-                    const item_src = switch_src;
                     const msg = msg: {
-                        const msg = try sema.errMsg(block, switch_src, "capture group with incompatible types", .{});
+                        const raw_capture_src = Module.SwitchProngSrc{ .multi_capture = capture_info.prong_index };
+                        const capture_src = raw_capture_src.resolve(sema.gpa, sema.mod.declPtr(block.src_decl), switch_info.src_node, .first);
+
+                        const msg = try sema.errMsg(block, capture_src, "capture group with incompatible types", .{});
                         errdefer msg.destroy(sema.gpa);
+
+                        const raw_first_item_src = Module.SwitchProngSrc{ .multi = .{ .prong = capture_info.prong_index, .item = 0 } };
+                        const first_item_src = raw_first_item_src.resolve(sema.gpa, sema.mod.declPtr(block.src_decl), switch_info.src_node, .first);
+                        const raw_item_src = Module.SwitchProngSrc{ .multi = .{ .prong = capture_info.prong_index, .item = 1 + @intCast(u32, i) } };
+                        const item_src = raw_item_src.resolve(sema.gpa, sema.mod.declPtr(block.src_decl), switch_info.src_node, .first);
                         try sema.errNote(block, first_item_src, msg, "type '{}' here", .{first_field.ty.fmt(sema.mod)});
                         try sema.errNote(block, item_src, msg, "type '{}' here", .{field.ty.fmt(sema.mod)});
                         break :msg msg;
@@ -21094,17 +21099,17 @@ const InMemoryCoercionResult = union(enum) {
                     }
                 }
                 if (!actual_noalias) {
-                    try sema.errNote(block, src, msg, "regular paramter {d} cannot cast into a noalias paramter", .{index});
+                    try sema.errNote(block, src, msg, "regular parameter {d} cannot cast into a noalias parameter", .{index});
                 } else {
-                    try sema.errNote(block, src, msg, "noalias paramter {d} cannot cast into a regular paramter", .{index});
+                    try sema.errNote(block, src, msg, "noalias parameter {d} cannot cast into a regular parameter", .{index});
                 }
                 break;
             },
             .fn_param_comptime => |param| {
                 if (param.wanted) {
-                    try sema.errNote(block, src, msg, "non-comptime paramter {d} cannot cast into a comptime paramter", .{param.index});
+                    try sema.errNote(block, src, msg, "non-comptime parameter {d} cannot cast into a comptime parameter", .{param.index});
                 } else {
-                    try sema.errNote(block, src, msg, "comptime paramter {d} cannot cast into a non-comptime paramter", .{param.index});
+                    try sema.errNote(block, src, msg, "comptime parameter {d} cannot cast into a non-comptime parameter", .{param.index});
                 }
                 break;
             },
