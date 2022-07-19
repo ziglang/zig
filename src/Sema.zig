@@ -5613,84 +5613,39 @@ fn analyzeCall(
         // which means its parameter type expressions must be resolved in order and used
         // to successively coerce the arguments.
         const fn_info = sema.code.getFnInfo(module_fn.zir_body_inst);
-        const zir_tags = sema.code.instructions.items(.tag);
         var arg_i: usize = 0;
-        for (fn_info.param_body) |inst| switch (zir_tags[inst]) {
-            .param, .param_comptime => {
-                // Evaluate the parameter type expression now that previous ones have
-                // been mapped, and coerce the corresponding argument to it.
-                const pl_tok = sema.code.instructions.items(.data)[inst].pl_tok;
-                const param_src = pl_tok.src();
-                const extra = sema.code.extraData(Zir.Inst.Param, pl_tok.payload_index);
-                const param_body = sema.code.extra[extra.end..][0..extra.data.body_len];
-                const param_ty_inst = try sema.resolveBody(&child_block, param_body, inst);
-                const param_ty = try sema.analyzeAsType(&child_block, param_src, param_ty_inst);
-                new_fn_info.param_types[arg_i] = param_ty;
-                const arg_src = call_src; // TODO: better source location
-                const casted_arg = try sema.coerce(&child_block, param_ty, uncasted_args[arg_i], arg_src);
-                try sema.inst_map.putNoClobber(gpa, inst, casted_arg);
-
-                if (is_comptime_call) {
-                    // TODO explain why function is being called at comptime
-                    const arg_val = try sema.resolveConstMaybeUndefVal(&child_block, arg_src, casted_arg, "argument to function being called at comptime must be comptime known");
-                    switch (arg_val.tag()) {
-                        .generic_poison, .generic_poison_type => {
-                            // This function is currently evaluated as part of an as-of-yet unresolvable
-                            // parameter or return type.
-                            return error.GenericPoison;
-                        },
-                        else => {
-                            // Needed so that lazy values do not trigger
-                            // assertion due to type not being resolved
-                            // when the hash function is called.
-                            try sema.resolveLazyValue(&child_block, arg_src, arg_val);
-                        },
-                    }
-                    should_memoize = should_memoize and !arg_val.canMutateComptimeVarState();
-                    memoized_call_key.args[arg_i] = .{
-                        .ty = param_ty,
-                        .val = arg_val,
-                    };
-                }
-
-                arg_i += 1;
-                continue;
-            },
-            .param_anytype, .param_anytype_comptime => {
-                // No coercion needed.
-                const uncasted_arg = uncasted_args[arg_i];
-                new_fn_info.param_types[arg_i] = sema.typeOf(uncasted_arg);
-                try sema.inst_map.putNoClobber(gpa, inst, uncasted_arg);
-
-                if (is_comptime_call) {
-                    const arg_src = call_src; // TODO: better source location
-                    // TODO explain why function is being called at comptime
-                    const arg_val = try sema.resolveConstMaybeUndefVal(&child_block, arg_src, uncasted_arg, "argument to function being called at comptime must be comptime known");
-                    switch (arg_val.tag()) {
-                        .generic_poison, .generic_poison_type => {
-                            // This function is currently evaluated as part of an as-of-yet unresolvable
-                            // parameter or return type.
-                            return error.GenericPoison;
-                        },
-                        else => {
-                            // Needed so that lazy values do not trigger
-                            // assertion due to type not being resolved
-                            // when the hash function is called.
-                            try sema.resolveLazyValue(&child_block, arg_src, arg_val);
-                        },
-                    }
-                    should_memoize = should_memoize and !arg_val.canMutateComptimeVarState();
-                    memoized_call_key.args[arg_i] = .{
-                        .ty = sema.typeOf(uncasted_arg),
-                        .val = arg_val,
-                    };
-                }
-
-                arg_i += 1;
-                continue;
-            },
-            else => continue,
-        };
+        for (fn_info.param_body) |inst| {
+            sema.analyzeInlineCallArg(
+                &child_block,
+                .unneeded,
+                inst,
+                new_fn_info,
+                &arg_i,
+                uncasted_args,
+                is_comptime_call,
+                &should_memoize,
+                memoized_call_key,
+            ) catch |err| switch (err) {
+                error.NeededSourceLocation => {
+                    const decl = sema.mod.declPtr(block.src_decl);
+                    try sema.analyzeInlineCallArg(
+                        // Intentionally use the wrong block here since we know it's
+                        // going to fail and `argSrc` is relative to `block.src_decl`.
+                        block,
+                        Module.argSrc(call_src.node_offset.x, sema.gpa, decl, arg_i),
+                        inst,
+                        new_fn_info,
+                        &arg_i,
+                        uncasted_args,
+                        is_comptime_call,
+                        &should_memoize,
+                        memoized_call_key,
+                    );
+                    return error.AnalysisFail;
+                },
+                else => |e| return e,
+            };
+        }
 
         // In case it is a generic function with an expression for the return type that depends
         // on parameters, we must now do the same for the return type as we just did with
@@ -5746,6 +5701,7 @@ fn analyzeCall(
             if (!is_comptime_call) {
                 try sema.emitDbgInline(block, parent_func.?, module_fn, new_func_resolved_ty, .dbg_inline_begin);
 
+                const zir_tags = sema.code.instructions.items(.tag);
                 for (fn_info.param_body) |param| switch (zir_tags[param]) {
                     .param, .param_comptime => {
                         const inst_data = sema.code.instructions.items(.data)[param].pl_tok;
@@ -5826,11 +5782,26 @@ fn analyzeCall(
 
         const args = try sema.arena.alloc(Air.Inst.Ref, uncasted_args.len);
         for (uncasted_args) |uncasted_arg, i| {
-            const arg_src = call_src; // TODO: better source location
             if (i < fn_params_len) {
                 const param_ty = func_ty.fnParamType(i);
-                try sema.resolveTypeFully(block, arg_src, param_ty);
-                args[i] = try sema.coerce(block, param_ty, uncasted_arg, arg_src);
+                args[i] = sema.analyzeCallArg(
+                    block,
+                    .unneeded,
+                    param_ty,
+                    uncasted_arg,
+                ) catch |err| switch (err) {
+                    error.NeededSourceLocation => {
+                        const decl = sema.mod.declPtr(block.src_decl);
+                        _ = try sema.analyzeCallArg(
+                            block,
+                            Module.argSrc(call_src.node_offset.x, sema.gpa, decl, i),
+                            param_ty,
+                            uncasted_arg,
+                        );
+                        return error.AnalysisFail;
+                    },
+                    else => |e| return e,
+                };
             } else {
                 args[i] = uncasted_arg;
             }
@@ -5860,6 +5831,136 @@ fn analyzeCall(
         try sema.ensureResultUsed(block, result, call_src);
     }
     return result;
+}
+
+fn analyzeInlineCallArg(
+    sema: *Sema,
+    block: *Block,
+    arg_src: LazySrcLoc,
+    inst: Zir.Inst.Index,
+    new_fn_info: Type.Payload.Function.Data,
+    arg_i: *usize,
+    uncasted_args: []const Air.Inst.Ref,
+    is_comptime_call: bool,
+    should_memoize: *bool,
+    memoized_call_key: Module.MemoizedCall.Key,
+) !void {
+    const zir_tags = sema.code.instructions.items(.tag);
+    switch (zir_tags[inst]) {
+        .param, .param_comptime => {
+            // Evaluate the parameter type expression now that previous ones have
+            // been mapped, and coerce the corresponding argument to it.
+            const pl_tok = sema.code.instructions.items(.data)[inst].pl_tok;
+            const param_src = pl_tok.src();
+            const extra = sema.code.extraData(Zir.Inst.Param, pl_tok.payload_index);
+            const param_body = sema.code.extra[extra.end..][0..extra.data.body_len];
+            const param_ty_inst = try sema.resolveBody(block, param_body, inst);
+            const param_ty = try sema.analyzeAsType(block, param_src, param_ty_inst);
+            new_fn_info.param_types[arg_i.*] = param_ty;
+            const uncasted_arg = uncasted_args[arg_i.*];
+            if (try sema.typeRequiresComptime(block, arg_src, param_ty)) {
+                _ = try sema.resolveConstMaybeUndefVal(block, arg_src, uncasted_arg, "argument to parameter with comptime only type must be comptime known");
+            }
+            const casted_arg = try sema.coerce(block, param_ty, uncasted_arg, arg_src);
+            try sema.inst_map.putNoClobber(sema.gpa, inst, casted_arg);
+
+            if (is_comptime_call) {
+                // TODO explain why function is being called at comptime
+                const arg_val = try sema.resolveConstMaybeUndefVal(block, arg_src, casted_arg, "argument to function being called at comptime must be comptime known");
+                switch (arg_val.tag()) {
+                    .generic_poison, .generic_poison_type => {
+                        // This function is currently evaluated as part of an as-of-yet unresolvable
+                        // parameter or return type.
+                        return error.GenericPoison;
+                    },
+                    else => {
+                        // Needed so that lazy values do not trigger
+                        // assertion due to type not being resolved
+                        // when the hash function is called.
+                        try sema.resolveLazyValue(block, arg_src, arg_val);
+                    },
+                }
+                should_memoize.* = should_memoize.* and !arg_val.canMutateComptimeVarState();
+                memoized_call_key.args[arg_i.*] = .{
+                    .ty = param_ty,
+                    .val = arg_val,
+                };
+            }
+
+            arg_i.* += 1;
+        },
+        .param_anytype, .param_anytype_comptime => {
+            // No coercion needed.
+            const uncasted_arg = uncasted_args[arg_i.*];
+            new_fn_info.param_types[arg_i.*] = sema.typeOf(uncasted_arg);
+            try sema.inst_map.putNoClobber(sema.gpa, inst, uncasted_arg);
+
+            if (is_comptime_call) {
+                // TODO explain why function is being called at comptime
+                const arg_val = try sema.resolveConstMaybeUndefVal(block, arg_src, uncasted_arg, "argument to function being called at comptime must be comptime known");
+                switch (arg_val.tag()) {
+                    .generic_poison, .generic_poison_type => {
+                        // This function is currently evaluated as part of an as-of-yet unresolvable
+                        // parameter or return type.
+                        return error.GenericPoison;
+                    },
+                    else => {
+                        // Needed so that lazy values do not trigger
+                        // assertion due to type not being resolved
+                        // when the hash function is called.
+                        try sema.resolveLazyValue(block, arg_src, arg_val);
+                    },
+                }
+                should_memoize.* = should_memoize.* and !arg_val.canMutateComptimeVarState();
+                memoized_call_key.args[arg_i.*] = .{
+                    .ty = sema.typeOf(uncasted_arg),
+                    .val = arg_val,
+                };
+            }
+
+            arg_i.* += 1;
+        },
+        else => {},
+    }
+}
+
+fn analyzeCallArg(
+    sema: *Sema,
+    block: *Block,
+    arg_src: LazySrcLoc,
+    param_ty: Type,
+    uncasted_arg: Air.Inst.Ref,
+) !Air.Inst.Ref {
+    try sema.resolveTypeFully(block, arg_src, param_ty);
+    return sema.coerce(block, param_ty, uncasted_arg, arg_src);
+}
+
+fn analyzeGenericCallArg(
+    sema: *Sema,
+    block: *Block,
+    arg_src: LazySrcLoc,
+    uncasted_arg: Air.Inst.Ref,
+    comptime_arg: TypedValue,
+    runtime_args: []Air.Inst.Ref,
+    new_fn_info: Type.Payload.Function.Data,
+    runtime_i: *u32,
+) !void {
+    const is_runtime = comptime_arg.val.tag() == .generic_poison and
+        comptime_arg.ty.hasRuntimeBits() and
+        !(try sema.typeRequiresComptime(block, arg_src, comptime_arg.ty));
+    if (is_runtime) {
+        const param_ty = new_fn_info.param_types[runtime_i.*];
+        const casted_arg = try sema.coerce(block, param_ty, uncasted_arg, arg_src);
+        try sema.queueFullTypeResolution(param_ty);
+        runtime_args[runtime_i.*] = casted_arg;
+        runtime_i.* += 1;
+    }
+}
+
+fn analyzeGenericCallArgVal(sema: *Sema, block: *Block, arg_src: LazySrcLoc, uncasted_arg: Air.Inst.Ref) !Value {
+    const arg_val = try sema.resolveValue(block, arg_src, uncasted_arg, "parameter is comptime");
+    try sema.resolveLazyValue(block, arg_src, arg_val);
+    return arg_val;
 }
 
 fn instantiateGenericCall(
@@ -5927,10 +6028,16 @@ fn instantiateGenericCall(
             }
 
             if (is_comptime) {
-                const arg_src = call_src; // TODO better source location
                 const arg_ty = sema.typeOf(uncasted_args[i]);
-                const arg_val = try sema.resolveValue(block, arg_src, uncasted_args[i], "parameter is comptime");
-                try sema.resolveLazyValue(block, arg_src, arg_val);
+                const arg_val = sema.analyzeGenericCallArgVal(block, .unneeded, uncasted_args[i]) catch |err| switch (err) {
+                    error.NeededSourceLocation => {
+                        const decl = sema.mod.declPtr(block.src_decl);
+                        const arg_src = Module.argSrc(call_src.node_offset.x, sema.gpa, decl, i);
+                        _ = try sema.analyzeGenericCallArgVal(block, arg_src, uncasted_args[i]);
+                        return error.AnalysisFail;
+                    },
+                    else => |e| return e,
+                };
                 arg_val.hash(arg_ty, &hasher, mod);
                 if (is_anytype) {
                     arg_ty.hashWithHasher(&hasher, mod);
@@ -6086,19 +6193,18 @@ fn instantiateGenericCall(
                 },
                 else => continue,
             }
-            const arg_src = call_src; // TODO: better source location
             const arg = uncasted_args[arg_i];
             if (is_comptime) {
-                if (try sema.resolveMaybeUndefVal(block, arg_src, arg)) |arg_val| {
+                if (try sema.resolveMaybeUndefVal(block, .unneeded, arg)) |arg_val| {
                     const child_arg = try child_sema.addConstant(sema.typeOf(arg), arg_val);
                     child_sema.inst_map.putAssumeCapacityNoClobber(inst, child_arg);
                 } else {
-                    return sema.failWithNeededComptime(block, arg_src, "parameter is comptime");
+                    return sema.failWithNeededComptime(block, .unneeded, undefined);
                 }
             } else if (is_anytype) {
                 const arg_ty = sema.typeOf(arg);
-                if (try sema.typeRequiresComptime(block, arg_src, arg_ty)) {
-                    const arg_val = try sema.resolveConstValue(block, arg_src, arg, "type of anytype parameter requires comptime");
+                if (try sema.typeRequiresComptime(block, .unneeded, arg_ty)) {
+                    const arg_val = try sema.resolveConstValue(block, .unneeded, arg, undefined);
                     const child_arg = try child_sema.addConstant(arg_ty, arg_val);
                     child_sema.inst_map.putAssumeCapacityNoClobber(inst, child_arg);
                 } else {
@@ -6156,8 +6262,7 @@ fn instantiateGenericCall(
             const copied_arg_ty = try child_sema.typeOf(arg).copy(new_decl_arena_allocator);
             anytype_args[arg_i] = is_anytype;
 
-            const arg_src = call_src; // TODO: better source location
-            if (try sema.typeRequiresComptime(block, arg_src, copied_arg_ty)) {
+            if (try sema.typeRequiresComptime(block, .unneeded, copied_arg_ty)) {
                 is_comptime = true;
             }
 
@@ -6236,18 +6341,30 @@ fn instantiateGenericCall(
                 .param_comptime, .param_anytype_comptime, .param, .param_anytype => {},
                 else => continue,
             }
-            const arg_src = call_src; // TODO: better source location
-            const is_runtime = comptime_args[total_i].val.tag() == .generic_poison and
-                comptime_args[total_i].ty.hasRuntimeBits() and
-                !(try sema.typeRequiresComptime(block, arg_src, comptime_args[total_i].ty));
-            if (is_runtime) {
-                const param_ty = new_fn_info.param_types[runtime_i];
-                const uncasted_arg = uncasted_args[total_i];
-                const casted_arg = try sema.coerce(block, param_ty, uncasted_arg, arg_src);
-                try sema.queueFullTypeResolution(param_ty);
-                runtime_args[runtime_i] = casted_arg;
-                runtime_i += 1;
-            }
+            sema.analyzeGenericCallArg(
+                block,
+                .unneeded,
+                uncasted_args[total_i],
+                comptime_args[total_i],
+                runtime_args,
+                new_fn_info,
+                &runtime_i,
+            ) catch |err| switch (err) {
+                error.NeededSourceLocation => {
+                    const decl = sema.mod.declPtr(block.src_decl);
+                    _ = try sema.analyzeGenericCallArg(
+                        block,
+                        Module.argSrc(call_src.node_offset.x, sema.gpa, decl, total_i),
+                        uncasted_args[total_i],
+                        comptime_args[total_i],
+                        runtime_args,
+                        new_fn_info,
+                        &runtime_i,
+                    );
+                    return error.AnalysisFail;
+                },
+                else => |e| return e,
+            };
             total_i += 1;
         }
 
