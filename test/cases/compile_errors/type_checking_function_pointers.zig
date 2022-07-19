@@ -10,6 +10,6 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :6:6: error: expected type '*const fn(*const u8) void', found '*const fn(u8) void'
-// :6:6: note: pointer type child 'fn(u8) void' cannot cast into pointer type child 'fn(*const u8) void'
-// :6:6: note: parameter 0 'u8' cannot cast into '*const u8'
+// :6:7: error: expected type '*const fn(*const u8) void', found '*const fn(u8) void'
+// :6:7: note: pointer type child 'fn(u8) void' cannot cast into pointer type child 'fn(*const u8) void'
+// :6:7: note: parameter 0 'u8' cannot cast into '*const u8'

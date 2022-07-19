@@ -5911,6 +5911,31 @@ pub fn paramSrc(
     }
 }
 
+pub fn argSrc(
+    call_node_offset: i32,
+    gpa: Allocator,
+    decl: *Decl,
+    arg_i: usize,
+) LazySrcLoc {
+    @setCold(true);
+    const tree = decl.getFileScope().getTree(gpa) catch |err| {
+        // In this case we emit a warning + a less precise source location.
+        log.warn("unable to load {s}: {s}", .{
+            decl.getFileScope().sub_file_path, @errorName(err),
+        });
+        return LazySrcLoc.nodeOffset(0);
+    };
+    const node_tags = tree.nodes.items(.tag);
+    const node = decl.relativeToNodeIndex(call_node_offset);
+    var args: [1]Ast.Node.Index = undefined;
+    const full = switch (node_tags[node]) {
+        .call_one, .call_one_comma, .async_call_one, .async_call_one_comma => tree.callOne(&args, node),
+        .call, .call_comma, .async_call, .async_call_comma => tree.callFull(node),
+        else => unreachable,
+    };
+    return LazySrcLoc.nodeOffset(decl.nodeIndexToRelative(full.ast.params[arg_i]));
+}
+
 /// Called from `performAllTheWork`, after all AstGen workers have finished,
 /// and before the main semantic analysis loop begins.
 pub fn processOutdatedAndDeletedDecls(mod: *Module) !void {

@@ -5,7 +5,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:4:9: error: expected type '[]i32', found '[10]i32'
+// :4:9: error: array literal requires address-of operator (&) to coerce to slice type '[]i32'

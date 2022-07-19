@@ -4,7 +4,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:2:20: error: return type cannot be opaque
+// :2:20: error: opaque return type 'anyopaque' not allowed
