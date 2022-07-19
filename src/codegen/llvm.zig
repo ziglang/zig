@@ -9356,11 +9356,11 @@ fn ccAbiPromoteInt(
     return null;
 }
 
+/// This is the one source of truth for whether a type is passed around as an LLVM pointer,
+/// or as an LLVM value.
 fn isByRef(ty: Type) bool {
     // For tuples and structs, if there are more than this many non-void
     // fields, then we make it byref, otherwise byval.
-    // TODO we actually want to set this to 2, however it is tripping an LLVM 14 regression:
-    // https://github.com/llvm/llvm-project/issues/56585
     const max_fields_byval = 0;
 
     switch (ty.zigTypeTag()) {
@@ -9421,10 +9421,6 @@ fn isByRef(ty: Type) bool {
                 return false;
             }
             return true;
-            // TODO we actually want this logic:
-            // however it is tripping an LLVM 14 regression:
-            // https://github.com/llvm/llvm-project/issues/56585
-            //return isByRef(payload_ty);
         },
         .Optional => {
             var buf: Type.Payload.ElemType = undefined;
@@ -9436,10 +9432,6 @@ fn isByRef(ty: Type) bool {
                 return false;
             }
             return true;
-            // TODO we actually want this logic:
-            // however it is tripping an LLVM 14 regression:
-            // https://github.com/llvm/llvm-project/issues/56585
-            //return isByRef(payload_ty);
         },
     }
 }
