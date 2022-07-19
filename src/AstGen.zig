@@ -4724,7 +4724,10 @@ fn containerDecl(
             defer wip_members.deinit();
 
             for (container_decl.ast.members) |member_node| {
-                _ = try containerMember(gz, &namespace.base, &wip_members, member_node);
+                const res = try containerMember(gz, &namespace.base, &wip_members, member_node);
+                if (res == .field) {
+                    return astgen.failNode(member_node, "opaque types cannot have fields", .{});
+                }
             }
 
             try gz.setOpaque(decl_inst, .{

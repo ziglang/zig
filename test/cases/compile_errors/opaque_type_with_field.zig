@@ -5,7 +5,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:1:25: error: opaque types cannot have fields
+// :1:25: error: opaque types cannot have fields
