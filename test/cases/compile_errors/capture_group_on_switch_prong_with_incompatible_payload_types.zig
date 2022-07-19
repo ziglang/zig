@@ -13,9 +13,9 @@ comptime {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:8:20: error: capture group with incompatible types
-// tmp.zig:8:9: note: type 'usize' here
-// tmp.zig:8:13: note: type 'isize' here
+// :8:20: error: capture group with incompatible types
+// :8:10: note: type 'usize' here
+// :8:14: note: type 'isize' here
