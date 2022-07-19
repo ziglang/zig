@@ -5730,12 +5730,7 @@ pub const FuncGen = struct {
             // The payload and the optional are the same value.
             return operand;
         }
-        const index_type = self.context.intType(32);
-        const indices: [2]*const llvm.Value = .{
-            index_type.constNull(), // dereference the pointer
-            index_type.constNull(), // first field is the payload
-        };
-        return self.builder.buildInBoundsGEP(operand, &indices, indices.len, "");
+        return self.builder.buildStructGEP(operand, 0, "");
     }
 
     fn airOptionalPayloadPtrSet(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
@@ -5761,24 +5756,17 @@ pub const FuncGen = struct {
             // Setting to non-null will be done when the payload is set.
             return operand;
         }
-        const index_type = self.context.intType(32);
-        {
-            // First set the non-null bit.
-            const indices: [2]*const llvm.Value = .{
-                index_type.constNull(), // dereference the pointer
-                index_type.constInt(1, .False), // second field is the non-null bit
-            };
-            const non_null_ptr = self.builder.buildInBoundsGEP(operand, &indices, indices.len, "");
-            _ = self.builder.buildStore(non_null_bit, non_null_ptr);
-        }
+
+        // First set the non-null bit.
+        const non_null_ptr = self.builder.buildStructGEP(operand, 1, "");
+        // TODO set alignment on this store
+        _ = self.builder.buildStore(non_null_bit, non_null_ptr);
+
         // Then return the payload pointer (only if it's used).
         if (self.liveness.isUnused(inst))
             return null;
-        const indices: [2]*const llvm.Value = .{
-            index_type.constNull(), // dereference the pointer
-            index_type.constNull(), // first field is the payload
-        };
-        return self.builder.buildInBoundsGEP(operand, &indices, indices.len, "");
+
+        return self.builder.buildStructGEP(operand, 0, "");
     }
 
     fn airOptionalPayload(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
@@ -5874,16 +5862,11 @@ pub const FuncGen = struct {
             _ = self.builder.buildStore(non_error_val, operand);
             return operand;
         }
-        const index_type = self.context.intType(32);
         const target = self.dg.module.getTarget();
         {
             const error_offset = errUnionErrorOffset(payload_ty, target);
             // First set the non-error value.
-            const indices: [2]*const llvm.Value = .{
-                index_type.constNull(), // dereference the pointer
-                index_type.constInt(error_offset, .False),
-            };
-            const non_null_ptr = self.builder.buildInBoundsGEP(operand, &indices, indices.len, "");
+            const non_null_ptr = self.builder.buildStructGEP(operand, error_offset, "");
             const store_inst = self.builder.buildStore(non_error_val, non_null_ptr);
             store_inst.setAlignment(Type.anyerror.abiAlignment(target));
         }
@@ -5892,11 +5875,7 @@ pub const FuncGen = struct {
             return null;
 
         const payload_offset = errUnionPayloadOffset(payload_ty, target);
-        const indices: [2]*const llvm.Value = .{
-            index_type.constNull(), // dereference the pointer
-            index_type.constInt(payload_offset, .False),
-        };
-        return self.builder.buildInBoundsGEP(operand, &indices, indices.len, "");
+        return self.builder.buildStructGEP(operand, payload_offset, "");
     }
 
     fn airErrReturnTrace(self: *FuncGen, _: Air.Inst.Index) !?*const llvm.Value {
@@ -6391,8 +6370,30 @@ pub const FuncGen = struct {
         const overflow_bit = self.builder.buildExtractValue(result_struct, 1, "");
 
         var ty_buf: Type.Payload.Pointer = undefined;
-        const partial = self.builder.buildInsertValue(llvm_dest_ty.getUndef(), result, llvmFieldIndex(dest_ty, 0, tg, &ty_buf).?, "");
-        return self.builder.buildInsertValue(partial, overflow_bit, llvmFieldIndex(dest_ty, 1, tg, &ty_buf).?, "");
+        const result_index = llvmFieldIndex(dest_ty, 0, tg, &ty_buf).?;
+        const overflow_index = llvmFieldIndex(dest_ty, 1, tg, &ty_buf).?;
+
+        if (isByRef(dest_ty)) {
+            const target = self.dg.module.getTarget();
+            const alloca_inst = self.buildAlloca(llvm_dest_ty);
+            const result_alignment = dest_ty.abiAlignment(target);
+            alloca_inst.setAlignment(result_alignment);
+            {
+                const field_ptr = self.builder.buildStructGEP(alloca_inst, result_index, "");
+                const store_inst = self.builder.buildStore(result, field_ptr);
+                store_inst.setAlignment(result_alignment);
+            }
+            {
+                const field_ptr = self.builder.buildStructGEP(alloca_inst, overflow_index, "");
+                const store_inst = self.builder.buildStore(overflow_bit, field_ptr);
+                store_inst.setAlignment(1);
+            }
+
+            return alloca_inst;
+        }
+
+        const partial = self.builder.buildInsertValue(llvm_dest_ty.getUndef(), result, result_index, "");
+        return self.builder.buildInsertValue(partial, overflow_bit, overflow_index, "");
     }
 
     fn buildElementwiseCall(
@@ -6721,8 +6722,30 @@ pub const FuncGen = struct {
         const overflow_bit = self.builder.buildICmp(.NE, lhs, reconstructed, "");
 
         var ty_buf: Type.Payload.Pointer = undefined;
-        const partial = self.builder.buildInsertValue(llvm_dest_ty.getUndef(), result, llvmFieldIndex(dest_ty, 0, tg, &ty_buf).?, "");
-        return self.builder.buildInsertValue(partial, overflow_bit, llvmFieldIndex(dest_ty, 1, tg, &ty_buf).?, "");
+        const result_index = llvmFieldIndex(dest_ty, 0, tg, &ty_buf).?;
+        const overflow_index = llvmFieldIndex(dest_ty, 1, tg, &ty_buf).?;
+
+        if (isByRef(dest_ty)) {
+            const target = self.dg.module.getTarget();
+            const alloca_inst = self.buildAlloca(llvm_dest_ty);
+            const result_alignment = dest_ty.abiAlignment(target);
+            alloca_inst.setAlignment(result_alignment);
+            {
+                const field_ptr = self.builder.buildStructGEP(alloca_inst, result_index, "");
+                const store_inst = self.builder.buildStore(result, field_ptr);
+                store_inst.setAlignment(result_alignment);
+            }
+            {
+                const field_ptr = self.builder.buildStructGEP(alloca_inst, overflow_index, "");
+                const store_inst = self.builder.buildStore(overflow_bit, field_ptr);
+                store_inst.setAlignment(1);
+            }
+
+            return alloca_inst;
+        }
+
+        const partial = self.builder.buildInsertValue(llvm_dest_ty.getUndef(), result, result_index, "");
+        return self.builder.buildInsertValue(partial, overflow_bit, overflow_index, "");
     }
 
     fn airAnd(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
@@ -8336,17 +8359,9 @@ pub const FuncGen = struct {
     fn optIsNonNull(self: *FuncGen, opt_handle: *const llvm.Value, is_by_ref: bool) *const llvm.Value {
         const field = b: {
             if (is_by_ref) {
-                const index_type = self.context.intType(32);
-
-                const indices: [2]*const llvm.Value = .{
-                    index_type.constNull(),
-                    index_type.constInt(1, .False),
-                };
-
-                const field_ptr = self.builder.buildInBoundsGEP(opt_handle, &indices, indices.len, "");
+                const field_ptr = self.builder.buildStructGEP(opt_handle, 1, "");
                 break :b self.builder.buildLoad(field_ptr, "");
             }
-
             break :b self.builder.buildExtractValue(opt_handle, 1, "");
         };
         comptime assert(optional_layout_version == 3);
@@ -8365,12 +8380,7 @@ pub const FuncGen = struct {
 
         if (isByRef(opt_ty)) {
             // We have a pointer and we need to return a pointer to the first field.
-            const index_type = fg.context.intType(32);
-            const indices: [2]*const llvm.Value = .{
-                index_type.constNull(), // dereference the pointer
-                index_type.constNull(), // first field is the payload
-            };
-            const payload_ptr = fg.builder.buildInBoundsGEP(opt_handle, &indices, indices.len, "");
+            const payload_ptr = fg.builder.buildStructGEP(opt_handle, 0, "");
 
             if (isByRef(payload_ty)) {
                 return payload_ptr;
@@ -8401,22 +8411,13 @@ pub const FuncGen = struct {
             const payload_alignment = optional_ty.abiAlignment(target);
             alloca_inst.setAlignment(payload_alignment);
 
-            const index_type = self.context.intType(32);
             {
-                const indices: [2]*const llvm.Value = .{
-                    index_type.constNull(), // dereference the pointer
-                    index_type.constNull(), // first field is the payload
-                };
-                const field_ptr = self.builder.buildInBoundsGEP(alloca_inst, &indices, indices.len, "");
+                const field_ptr = self.builder.buildStructGEP(alloca_inst, 0, "");
                 const store_inst = self.builder.buildStore(payload, field_ptr);
                 store_inst.setAlignment(payload_alignment);
             }
             {
-                const indices: [2]*const llvm.Value = .{
-                    index_type.constNull(), // dereference the pointer
-                    index_type.constInt(1, .False), // second field is the non-null bit
-                };
-                const field_ptr = self.builder.buildInBoundsGEP(alloca_inst, &indices, indices.len, "");
+                const field_ptr = self.builder.buildStructGEP(alloca_inst, 1, "");
                 const store_inst = self.builder.buildStore(non_null_field, field_ptr);
                 store_inst.setAlignment(1);
             }
@@ -9337,7 +9338,7 @@ fn ccAbiPromoteInt(
 fn isByRef(ty: Type) bool {
     // For tuples and structs, if there are more than this many non-void
     // fields, then we make it byref, otherwise byval.
-    const max_fields_byval = 2;
+    const max_fields_byval = 0;
 
     switch (ty.zigTypeTag()) {
         .Type,
