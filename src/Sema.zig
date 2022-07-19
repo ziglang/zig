@@ -7233,6 +7233,7 @@ fn funcCommon(
     opt_lib_name: ?[]const u8,
     noalias_bits: u32,
 ) CompileError!Air.Inst.Ref {
+    const fn_src = LazySrcLoc.nodeOffset(src_node_offset);
     const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = src_node_offset };
     const cc_src: LazySrcLoc = .{ .node_offset_fn_type_cc = src_node_offset };
 
@@ -7241,10 +7242,6 @@ fn funcCommon(
         address_space == null or
         section == .generic or
         cc == null;
-    // Check for generic params.
-    for (block.params.items) |param| {
-        if (param.ty.tag() == .generic_poison) is_generic = true;
-    }
 
     var destroy_fn_on_error = false;
     const new_func: *Module.Fn = new_func: {
@@ -7304,55 +7301,35 @@ fn funcCommon(
         const param_types = try sema.arena.alloc(Type, block.params.items.len);
         const comptime_params = try sema.arena.alloc(bool, block.params.items.len);
         for (block.params.items) |param, i| {
-            const param_src = LazySrcLoc.nodeOffset(src_node_offset); // TODO better soruce location
             param_types[i] = param.ty;
-            const requires_comptime = try sema.typeRequiresComptime(block, param_src, param.ty);
-            comptime_params[i] = param.is_comptime or requires_comptime;
-            is_generic = is_generic or comptime_params[i] or param.ty.tag() == .generic_poison;
-            if (is_extern and is_generic) {
-                // TODO add note: function is generic because of this parameter
-                return sema.fail(block, param_src, "extern function cannot be generic", .{});
-            }
-            if (!param.ty.isValidParamType()) {
-                const opaque_str = if (param.ty.zigTypeTag() == .Opaque) "opaque " else "";
-                const msg = msg: {
-                    const msg = try sema.errMsg(block, param_src, "parameter of {s}type '{}' not allowed", .{
-                        opaque_str, param.ty.fmt(sema.mod),
-                    });
-                    errdefer msg.destroy(sema.gpa);
-
-                    try sema.addDeclaredHereNote(msg, param.ty);
-                    break :msg msg;
-                };
-                return sema.failWithOwnedErrorMsg(block, msg);
-            }
-            if (!Type.fnCallingConventionAllowsZigTypes(cc_workaround) and !(try sema.validateExternType(param.ty, .param_ty))) {
-                const msg = msg: {
-                    const msg = try sema.errMsg(block, param_src, "parameter of type '{}' not allowed in function with calling convention '{s}'", .{
-                        param.ty.fmt(sema.mod), @tagName(cc_workaround),
-                    });
-                    errdefer msg.destroy(sema.gpa);
-
-                    const src_decl = sema.mod.declPtr(block.src_decl);
-                    try sema.explainWhyTypeIsNotExtern(block, param_src, msg, param_src.toSrcLoc(src_decl), param.ty, .param_ty);
-
-                    try sema.addDeclaredHereNote(msg, param.ty);
-                    break :msg msg;
-                };
-                return sema.failWithOwnedErrorMsg(block, msg);
-            }
-            if (requires_comptime and !param.is_comptime) {
-                const msg = msg: {
-                    const msg = try sema.errMsg(block, param_src, "parametter of type '{}' must be declared comptime", .{
-                        param.ty.fmt(sema.mod),
-                    });
-                    errdefer msg.destroy(sema.gpa);
-
-                    try sema.addDeclaredHereNote(msg, param.ty);
-                    break :msg msg;
-                };
-                return sema.failWithOwnedErrorMsg(block, msg);
-            }
+            sema.analyzeParameter(
+                block,
+                fn_src,
+                .unneeded,
+                param,
+                comptime_params,
+                i,
+                &is_generic,
+                is_extern,
+                cc_workaround,
+            ) catch |err| switch (err) {
+                error.NeededSourceLocation => {
+                    const decl = sema.mod.declPtr(block.src_decl);
+                    try sema.analyzeParameter(
+                        block,
+                        fn_src,
+                        Module.paramSrc(src_node_offset, sema.gpa, decl, i),
+                        param,
+                        comptime_params,
+                        i,
+                        &is_generic,
+                        is_extern,
+                        cc_workaround,
+                    );
+                    return error.AnalysisFail;
+                },
+                else => |e| return e,
+            };
         }
 
         const ret_poison = if (!is_generic) rp: {
@@ -7540,6 +7517,79 @@ fn funcCommon(
         .data = new_func,
     };
     return sema.addConstant(fn_ty, Value.initPayload(&fn_payload.base));
+}
+
+fn analyzeParameter(
+    sema: *Sema,
+    block: *Block,
+    func_src: LazySrcLoc,
+    param_src: LazySrcLoc,
+    param: Block.Param,
+    comptime_params: []bool,
+    i: usize,
+    is_generic: *bool,
+    is_extern: bool,
+    cc: std.builtin.CallingConvention,
+) !void {
+    const requires_comptime = try sema.typeRequiresComptime(block, param_src, param.ty);
+    comptime_params[i] = param.is_comptime or requires_comptime;
+    const this_generic = comptime_params[i] or param.ty.tag() == .generic_poison;
+    is_generic.* = is_generic.* or this_generic;
+    if (is_extern and this_generic) {
+        // TODO this check should exist somewhere for notes.
+        if (param_src == .unneeded) return error.NeededSourceLocation;
+        const msg = msg: {
+            const msg = try sema.errMsg(block, func_src, "extern function cannot be generic", .{});
+            errdefer msg.destroy(sema.gpa);
+
+            try sema.errNote(block, param_src, msg, "function is generic because of this parameter", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(block, msg);
+    }
+    if (this_generic and !Type.fnCallingConventionAllowsZigTypes(cc)) {
+        return sema.fail(block, param_src, "generic parameters not allowed in function with calling convention '{s}'", .{@tagName(cc)});
+    }
+    if (!param.ty.isValidParamType()) {
+        const opaque_str = if (param.ty.zigTypeTag() == .Opaque) "opaque " else "";
+        const msg = msg: {
+            const msg = try sema.errMsg(block, param_src, "parameter of {s}type '{}' not allowed", .{
+                opaque_str, param.ty.fmt(sema.mod),
+            });
+            errdefer msg.destroy(sema.gpa);
+
+            try sema.addDeclaredHereNote(msg, param.ty);
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(block, msg);
+    }
+    if (!Type.fnCallingConventionAllowsZigTypes(cc) and !(try sema.validateExternType(param.ty, .param_ty))) {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, param_src, "parameter of type '{}' not allowed in function with calling convention '{s}'", .{
+                param.ty.fmt(sema.mod), @tagName(cc),
+            });
+            errdefer msg.destroy(sema.gpa);
+
+            const src_decl = sema.mod.declPtr(block.src_decl);
+            try sema.explainWhyTypeIsNotExtern(block, param_src, msg, param_src.toSrcLoc(src_decl), param.ty, .param_ty);
+
+            try sema.addDeclaredHereNote(msg, param.ty);
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(block, msg);
+    }
+    if (requires_comptime and !param.is_comptime) {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, param_src, "parametter of type '{}' must be declared comptime", .{
+                param.ty.fmt(sema.mod),
+            });
+            errdefer msg.destroy(sema.gpa);
+
+            try sema.addDeclaredHereNote(msg, param.ty);
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(block, msg);
+    }
 }
 
 fn zirParam(
@@ -18570,9 +18620,9 @@ fn explainWhyTypeIsNotExtern(
         .Union => try mod.errNoteNonLazy(src_loc, msg, "only unions with packed or extern layout are extern compatible", .{}),
         .Array => {
             if (position == .ret_ty) {
-                try mod.errNoteNonLazy(src_loc, msg, "arrays are not allowed as a return type", .{});
+                return mod.errNoteNonLazy(src_loc, msg, "arrays are not allowed as a return type", .{});
             } else if (position == .param_ty) {
-                try mod.errNoteNonLazy(src_loc, msg, "arrays are not allowed as a parameter type", .{});
+                return mod.errNoteNonLazy(src_loc, msg, "arrays are not allowed as a parameter type", .{});
             }
             try sema.explainWhyTypeIsNotExtern(block, src, msg, src_loc, ty.elemType2(), position);
         },

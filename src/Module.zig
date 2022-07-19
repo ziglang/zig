@@ -2482,6 +2482,41 @@ pub const SrcLoc = struct {
                 };
                 return nodeToSpan(tree, full.ast.return_type);
             },
+            .node_offset_param => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const token_tags = tree.tokens.items(.tag);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
+
+                var first_tok = tree.firstToken(node);
+                while (true) switch (token_tags[first_tok - 1]) {
+                    .colon, .identifier, .keyword_comptime, .keyword_noalias => first_tok -= 1,
+                    else => break,
+                };
+                return tokensToSpan(
+                    tree,
+                    first_tok,
+                    tree.lastToken(node),
+                    first_tok,
+                );
+            },
+            .token_offset_param => |token_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const token_tags = tree.tokens.items(.tag);
+                const main_token = tree.nodes.items(.main_token)[src_loc.parent_decl_node];
+                const tok_index = @bitCast(Ast.TokenIndex, token_off + @bitCast(i32, main_token));
+
+                var first_tok = tok_index;
+                while (true) switch (token_tags[first_tok - 1]) {
+                    .colon, .identifier, .keyword_comptime, .keyword_noalias => first_tok -= 1,
+                    else => break,
+                };
+                return tokensToSpan(
+                    tree,
+                    first_tok,
+                    tok_index,
+                    first_tok,
+                );
+            },
 
             .node_offset_anyframe_type => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -2930,6 +2965,8 @@ pub const LazySrcLoc = union(enum) {
     /// the return type node.
     /// The Decl is determined contextually.
     node_offset_fn_type_ret_ty: i32,
+    node_offset_param: i32,
+    token_offset_param: i32,
     /// The source location points to the type expression of an `anyframe->T`
     /// expression, found by taking this AST node index offset from the containing
     /// Decl AST node, which points to a `anyframe->T` expression AST node. Next, navigate
@@ -3046,6 +3083,8 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_fn_type_section,
             .node_offset_fn_type_cc,
             .node_offset_fn_type_ret_ty,
+            .node_offset_param,
+            .token_offset_param,
             .node_offset_anyframe_type,
             .node_offset_lib_name,
             .node_offset_array_type_len,
@@ -5824,6 +5863,52 @@ fn queryFieldSrc(
         field_index += 1;
     }
     unreachable;
+}
+
+pub fn paramSrc(
+    func_node_offset: i32,
+    gpa: Allocator,
+    decl: *Decl,
+    param_i: usize,
+) LazySrcLoc {
+    @setCold(true);
+    const tree = decl.getFileScope().getTree(gpa) catch |err| {
+        // In this case we emit a warning + a less precise source location.
+        log.warn("unable to load {s}: {s}", .{
+            decl.getFileScope().sub_file_path, @errorName(err),
+        });
+        return LazySrcLoc.nodeOffset(0);
+    };
+    const node_datas = tree.nodes.items(.data);
+    const node_tags = tree.nodes.items(.tag);
+    const node = decl.relativeToNodeIndex(func_node_offset);
+    var params: [1]Ast.Node.Index = undefined;
+    const full = switch (node_tags[node]) {
+        .fn_proto_simple => tree.fnProtoSimple(&params, node),
+        .fn_proto_multi => tree.fnProtoMulti(node),
+        .fn_proto_one => tree.fnProtoOne(&params, node),
+        .fn_proto => tree.fnProto(node),
+        .fn_decl => switch (node_tags[node_datas[node].lhs]) {
+            .fn_proto_simple => tree.fnProtoSimple(&params, node_datas[node].lhs),
+            .fn_proto_multi => tree.fnProtoMulti(node_datas[node].lhs),
+            .fn_proto_one => tree.fnProtoOne(&params, node_datas[node].lhs),
+            .fn_proto => tree.fnProto(node_datas[node].lhs),
+            else => unreachable,
+        },
+        else => unreachable,
+    };
+    var it = full.iterate(tree);
+    while (true) {
+        if (it.param_i == param_i) {
+            const param = it.next().?;
+            if (param.anytype_ellipsis3) |some| {
+                const main_token = tree.nodes.items(.main_token)[decl.src_node];
+                return .{ .token_offset_param = @bitCast(i32, some) - @bitCast(i32, main_token) };
+            }
+            return .{ .node_offset_param = decl.nodeIndexToRelative(param.type_expr) };
+        }
+        _ = it.next();
+    }
 }
 
 /// Called from `performAllTheWork`, after all AstGen workers have finished,

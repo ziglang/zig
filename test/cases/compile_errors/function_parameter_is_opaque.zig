@@ -23,8 +23,9 @@ export fn entry4() void {
 // backend=stage2
 // target=native
 //
-// :3:24: error: parameter of opaque type 'tmp.FooType' not allowed
+// :3:28: error: parameter of opaque type 'tmp.FooType' not allowed
 // :1:17: note: opaque declared here
-// :8:24: error: parameter of type '@TypeOf(null)' not allowed
-// :12:1: error: parameter of opaque type 'tmp.FooType' not allowed
-// :17:1: error: parameter of type '@TypeOf(null)' not allowed
+// :8:28: error: parameter of type '@TypeOf(null)' not allowed
+// :12:8: error: parameter of opaque type 'tmp.FooType' not allowed
+// :1:17: note: opaque declared here
+// :17:8: error: parameter of type '@TypeOf(null)' not allowed
