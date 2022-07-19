@@ -410,7 +410,9 @@ pub fn splitIntoAtomsOneShot(
                 next_sym_count += atom_syms.len;
 
                 assert(atom_syms.len > 0);
-                const sym_index = atom_syms[0].index;
+                const sym_index = for (atom_syms) |atom_sym| {
+                    if (atom_sym.getSymbol(context).ext()) break atom_sym.index;
+                } else atom_syms[0].index;
                 const atom_size = blk: {
                     const end_addr = if (next_sym_count < filtered_syms.len)
                         filtered_syms[next_sym_count].getSymbol(context).n_value
@@ -570,12 +572,6 @@ fn createAtomFromSubsection(
     if (gc_roots) |gcr| {
         const is_gc_root = blk: {
             if (sect.isDontDeadStrip()) break :blk true;
-            if (sect.isDontDeadStripIfReferencesLive()) {
-                // TODO if isDontDeadStripIfReferencesLive we should analyse the edges
-                // before making it a GC root
-                break :blk true;
-            }
-            if (mem.eql(u8, "__StaticInit", sect.sectName())) break :blk true;
             switch (sect.type_()) {
                 macho.S_MOD_INIT_FUNC_POINTERS,
                 macho.S_MOD_TERM_FUNC_POINTERS,
@@ -640,4 +636,8 @@ pub fn getSection(self: Object, n_sect: u16) macho.section_64 {
     const seg = self.load_commands.items[self.segment_cmd_index.?].segment;
     assert(n_sect < seg.sections.items.len);
     return seg.sections.items[n_sect];
+}
+
+pub fn getAtomForSymbol(self: Object, sym_index: u32) ?*Atom {
+    return self.atom_by_index_table.get(sym_index);
 }

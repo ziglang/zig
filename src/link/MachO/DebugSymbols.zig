@@ -275,9 +275,12 @@ pub fn flushModule(self: *DebugSymbols, allocator: Allocator, options: link.Opti
         const sym = switch (reloc.@"type") {
             .direct_load => self.base.getSymbol(.{ .sym_index = reloc.target, .file = null }),
             .got_load => blk: {
-                const got_index = self.base.got_entries_table.get(.{ .sym_index = reloc.target, .file = null }).?;
-                const got_atom = self.base.got_entries.items[got_index].atom;
-                break :blk got_atom.getSymbol(self.base);
+                const got_index = self.base.got_entries_table.get(.{
+                    .sym_index = reloc.target,
+                    .file = null,
+                }).?;
+                const got_entry = self.base.got_entries.items[got_index];
+                break :blk got_entry.getSymbol(self.base);
             },
         };
         if (sym.n_value == reloc.prev_vaddr) continue;
@@ -285,9 +288,12 @@ pub fn flushModule(self: *DebugSymbols, allocator: Allocator, options: link.Opti
         const sym_name = switch (reloc.@"type") {
             .direct_load => self.base.getSymbolName(.{ .sym_index = reloc.target, .file = null }),
             .got_load => blk: {
-                const got_index = self.base.got_entries_table.get(.{ .sym_index = reloc.target, .file = null }).?;
-                const got_atom = self.base.got_entries.items[got_index].atom;
-                break :blk got_atom.getName(self.base);
+                const got_index = self.base.got_entries_table.get(.{
+                    .sym_index = reloc.target,
+                    .file = null,
+                }).?;
+                const got_entry = self.base.got_entries.items[got_index];
+                break :blk got_entry.getName(self.base);
             },
         };
         const seg = &self.load_commands.items[self.dwarf_segment_cmd_index.?].segment;
