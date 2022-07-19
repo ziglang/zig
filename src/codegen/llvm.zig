@@ -4740,12 +4740,14 @@ pub const FuncGen = struct {
                 const err_set_ty = try fg.dg.lowerType(Type.anyerror);
                 const zero = err_set_ty.constNull();
                 if (!payload_has_bits) {
+                    // TODO add alignment to this load
                     const loaded = if (operand_is_ptr) fg.builder.buildLoad(err_union, "") else err_union;
                     break :err fg.builder.buildICmp(.NE, loaded, zero, "");
                 }
                 const err_field_index = errUnionErrorOffset(payload_ty, target);
                 if (operand_is_ptr or isByRef(err_union_ty)) {
                     const err_field_ptr = fg.builder.buildStructGEP(err_union, err_field_index, "");
+                    // TODO add alignment to this load
                     const loaded = fg.builder.buildLoad(err_field_ptr, "");
                     break :err fg.builder.buildICmp(.NE, loaded, zero, "");
                 }
@@ -4765,13 +4767,22 @@ pub const FuncGen = struct {
         if (!payload_has_bits) {
             if (!operand_is_ptr) return null;
 
-            // TODO once we update to LLVM 14 this bitcast won't be necessary.
+            // TODO once we update to an LLVM version with opaque pointers
+            // this bitcast won't be necessary.
             const res_ptr_ty = try fg.dg.lowerType(result_ty);
             return fg.builder.buildBitCast(err_union, res_ptr_ty, "");
         }
         const offset = errUnionPayloadOffset(payload_ty, target);
         if (operand_is_ptr or isByRef(payload_ty)) {
             return fg.builder.buildStructGEP(err_union, offset, "");
+        } else if (isByRef(err_union_ty)) {
+            const payload_ptr = fg.builder.buildStructGEP(err_union, offset, "");
+            if (isByRef(payload_ty)) {
+                return payload_ptr;
+            }
+            const load_inst = fg.builder.buildLoad(payload_ptr, "");
+            load_inst.setAlignment(payload_ty.abiAlignment(target));
+            return load_inst;
         }
         return fg.builder.buildExtractValue(err_union, offset, "");
     }
@@ -5795,6 +5806,8 @@ pub const FuncGen = struct {
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
+        const operand_ty = self.air.typeOf(ty_op.operand);
+        const err_union_ty = if (operand_is_ptr) operand_ty.childType() else operand_ty;
         const result_ty = self.air.typeOfIndex(inst);
         const payload_ty = if (operand_is_ptr) result_ty.childType() else result_ty;
         const target = self.dg.module.getTarget();
@@ -5809,6 +5822,14 @@ pub const FuncGen = struct {
         const offset = errUnionPayloadOffset(payload_ty, target);
         if (operand_is_ptr or isByRef(payload_ty)) {
             return self.builder.buildStructGEP(operand, offset, "");
+        } else if (isByRef(err_union_ty)) {
+            const payload_ptr = self.builder.buildStructGEP(operand, offset, "");
+            if (isByRef(payload_ty)) {
+                return payload_ptr;
+            }
+            const load_inst = self.builder.buildLoad(payload_ptr, "");
+            load_inst.setAlignment(payload_ty.abiAlignment(target));
+            return load_inst;
         }
         return self.builder.buildExtractValue(operand, offset, "");
     }
@@ -9338,6 +9359,8 @@ fn ccAbiPromoteInt(
 fn isByRef(ty: Type) bool {
     // For tuples and structs, if there are more than this many non-void
     // fields, then we make it byref, otherwise byval.
+    // TODO we actually want to set this to 2, however it is tripping an LLVM 14 regression:
+    // https://github.com/llvm/llvm-project/issues/56585
     const max_fields_byval = 0;
 
     switch (ty.zigTypeTag()) {
@@ -9392,7 +9415,17 @@ fn isByRef(ty: Type) bool {
             return false;
         },
         .Union => return ty.hasRuntimeBits(),
-        .ErrorUnion => return isByRef(ty.errorUnionPayload()),
+        .ErrorUnion => {
+            const payload_ty = ty.errorUnionPayload();
+            if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+                return false;
+            }
+            return true;
+            // TODO we actually want this logic:
+            // however it is tripping an LLVM 14 regression:
+            // https://github.com/llvm/llvm-project/issues/56585
+            //return isByRef(payload_ty);
+        },
         .Optional => {
             var buf: Type.Payload.ElemType = undefined;
             const payload_ty = ty.optionalChild(&buf);
