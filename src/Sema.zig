@@ -3659,7 +3659,10 @@ fn validateStructInit(
         const field_ptr_extra = sema.code.extraData(Zir.Inst.Field, field_ptr_data.payload_index).data;
         struct_ptr_zir_ref = field_ptr_extra.lhs;
         const field_name = sema.code.nullTerminatedString(field_ptr_extra.field_name_start);
-        const field_index = try sema.structFieldIndex(block, struct_ty, field_name, field_src);
+        const field_index = if (struct_ty.isTuple())
+            try sema.tupleFieldIndex(block, struct_ty, field_name, field_src)
+        else
+            try sema.structFieldIndex(block, struct_ty, field_name, field_src);
         if (found_fields[field_index] != 0) {
             const other_field_ptr = found_fields[field_index];
             const other_field_ptr_data = sema.code.instructions.items(.data)[other_field_ptr].pl_node;
@@ -3701,7 +3704,7 @@ fn validateStructInit(
             }
 
             const field_src = init_src; // TODO better source location
-            const default_field_ptr = try sema.structFieldPtrByIndex(block, init_src, struct_ptr, @intCast(u32, i), field_src, struct_ty);
+            const default_field_ptr = try sema.structFieldPtrByIndex(block, init_src, struct_ptr, @intCast(u32, i), field_src, struct_ty, true);
             const field_ty = sema.typeOf(default_field_ptr).childType();
             const init = try sema.addConstant(field_ty, default_val);
             try sema.storePtr2(block, init_src, default_field_ptr, init_src, init, field_src, .store);
@@ -3859,7 +3862,7 @@ fn validateStructInit(
         if (field_ptr != 0) continue;
 
         const field_src = init_src; // TODO better source location
-        const default_field_ptr = try sema.structFieldPtrByIndex(block, init_src, struct_ptr, @intCast(u32, i), field_src, struct_ty);
+        const default_field_ptr = try sema.structFieldPtrByIndex(block, init_src, struct_ptr, @intCast(u32, i), field_src, struct_ty, true);
         const field_ty = sema.typeOf(default_field_ptr).childType();
         const init = try sema.addConstant(field_ty, field_values[i]);
         try sema.storePtr2(block, init_src, default_field_ptr, init_src, init, field_src, .store);
@@ -14494,7 +14497,10 @@ fn zirStructInit(
             const field_src: LazySrcLoc = .{ .node_offset_initializer = field_type_data.src_node };
             const field_type_extra = sema.code.extraData(Zir.Inst.FieldType, field_type_data.payload_index).data;
             const field_name = sema.code.nullTerminatedString(field_type_extra.name_start);
-            const field_index = try sema.structFieldIndex(block, resolved_ty, field_name, field_src);
+            const field_index = if (resolved_ty.isTuple())
+                try sema.tupleFieldIndex(block, resolved_ty, field_name, field_src)
+            else
+                try sema.structFieldIndex(block, resolved_ty, field_name, field_src);
             if (field_inits[field_index] != .none) {
                 const other_field_type = found_fields[field_index];
                 const other_field_type_data = zir_datas[other_field_type].pl_node;
@@ -14649,7 +14655,7 @@ fn finishStructInit(
         for (field_inits) |field_init, i_usize| {
             const i = @intCast(u32, i_usize);
             const field_src = dest_src;
-            const field_ptr = try sema.structFieldPtrByIndex(block, dest_src, alloc, i, field_src, struct_ty);
+            const field_ptr = try sema.structFieldPtrByIndex(block, dest_src, alloc, i, field_src, struct_ty, true);
             try sema.storePtr(block, dest_src, field_ptr, field_init);
         }
 
@@ -19398,7 +19404,7 @@ fn fieldVal(
         },
         .Struct => if (is_pointer_to) {
             // Avoid loading the entire struct by fetching a pointer and loading that
-            const field_ptr = try sema.structFieldPtr(block, src, object, field_name, field_name_src, inner_ty);
+            const field_ptr = try sema.structFieldPtr(block, src, object, field_name, field_name_src, inner_ty, false);
             return sema.analyzeLoad(block, src, field_ptr, object_src);
         } else {
             return sema.structFieldVal(block, src, object, field_name, field_name_src, inner_ty);
@@ -19607,7 +19613,7 @@ fn fieldPtr(
                 try sema.analyzeLoad(block, src, object_ptr, object_ptr_src)
             else
                 object_ptr;
-            return sema.structFieldPtr(block, src, inner_ptr, field_name, field_name_src, inner_ty);
+            return sema.structFieldPtr(block, src, inner_ptr, field_name, field_name_src, inner_ty, initializing);
         },
         .Union => {
             const inner_ptr = if (is_pointer_to)
@@ -19816,6 +19822,7 @@ fn structFieldPtr(
     field_name: []const u8,
     field_name_src: LazySrcLoc,
     unresolved_struct_ty: Type,
+    initializing: bool,
 ) CompileError!Air.Inst.Ref {
     assert(unresolved_struct_ty.zigTypeTag() == .Struct);
 
@@ -19828,10 +19835,10 @@ fn structFieldPtr(
             return sema.analyzeRef(block, src, len_inst);
         }
         const field_index = try sema.tupleFieldIndex(block, struct_ty, field_name, field_name_src);
-        return sema.tupleFieldPtr(block, src, struct_ptr, field_name_src, field_index);
+        return sema.tupleFieldPtr(block, src, struct_ptr, field_name_src, field_index, initializing);
     } else if (struct_ty.isAnonStruct()) {
         const field_index = try sema.anonStructFieldIndex(block, struct_ty, field_name, field_name_src);
-        return sema.tupleFieldPtr(block, src, struct_ptr, field_name_src, field_index);
+        return sema.tupleFieldPtr(block, src, struct_ptr, field_name_src, field_index, initializing);
     }
 
     const struct_obj = struct_ty.castTag(.@"struct").?.data;
@@ -19840,7 +19847,7 @@ fn structFieldPtr(
         return sema.failWithBadStructFieldAccess(block, struct_obj, field_name_src, field_name);
     const field_index = @intCast(u32, field_index_big);
 
-    return sema.structFieldPtrByIndex(block, src, struct_ptr, field_index, field_name_src, struct_ty);
+    return sema.structFieldPtrByIndex(block, src, struct_ptr, field_index, field_name_src, struct_ty, initializing);
 }
 
 fn structFieldPtrByIndex(
@@ -19851,9 +19858,10 @@ fn structFieldPtrByIndex(
     field_index: u32,
     field_src: LazySrcLoc,
     struct_ty: Type,
+    initializing: bool,
 ) CompileError!Air.Inst.Ref {
     if (struct_ty.isAnonStruct()) {
-        return sema.tupleFieldPtr(block, src, struct_ptr, field_src, field_index);
+        return sema.tupleFieldPtr(block, src, struct_ptr, field_src, field_index, initializing);
     }
 
     const struct_obj = struct_ty.castTag(.@"struct").?.data;
@@ -20048,6 +20056,10 @@ fn tupleFieldValByIndex(
         }
         const field_values = tuple_val.castTag(.aggregate).?.data;
         return sema.addConstant(field_ty, field_values[field_index]);
+    }
+
+    if (tuple_ty.structFieldValueComptime(field_index)) |default_val| {
+        return sema.addConstant(field_ty, default_val);
     }
 
     try sema.requireRuntimeBlock(block, src, null);
@@ -20250,7 +20262,7 @@ fn elemPtr(
             // Tuple field access.
             const index_val = try sema.resolveConstValue(block, elem_index_src, elem_index, "tuple field access index must be comptime known");
             const index = @intCast(u32, index_val.toUnsignedInt(target));
-            return sema.tupleFieldPtr(block, src, indexable_ptr, elem_index_src, index);
+            return sema.tupleFieldPtr(block, src, indexable_ptr, elem_index_src, index, init);
         },
         else => unreachable,
     }
@@ -20353,6 +20365,7 @@ fn tupleFieldPtr(
     tuple_ptr: Air.Inst.Ref,
     field_index_src: LazySrcLoc,
     field_index: u32,
+    init: bool,
 ) CompileError!Air.Inst.Ref {
     const tuple_ptr_ty = sema.typeOf(tuple_ptr);
     const tuple_ty = tuple_ptr_ty.childType();
@@ -20386,7 +20399,17 @@ fn tupleFieldPtr(
         );
     }
 
-    try sema.validateRuntimeElemAccess(block, field_index_src, field_ty, tuple_ty, tuple_ptr_src);
+    if (tuple_ty.structFieldValueComptime(field_index)) |default_val| {
+        const val = try Value.Tag.comptime_field_ptr.create(sema.arena, .{
+            .field_ty = field_ty,
+            .field_val = default_val,
+        });
+        return sema.addConstant(ptr_field_ty, val);
+    }
+
+    if (!init) {
+        try sema.validateRuntimeElemAccess(block, field_index_src, field_ty, tuple_ty, tuple_ptr_src);
+    }
 
     try sema.requireRuntimeBlock(block, tuple_ptr_src, null);
     return block.addStructFieldPtr(tuple_ptr, field_index, ptr_field_ty);

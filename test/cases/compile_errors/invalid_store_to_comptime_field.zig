@@ -13,9 +13,18 @@ pub export fn entry1() void {
     var s: S = .{};
     s.a = T{ .a = 2, .b = 2 };
 }
+pub export fn entry2() void {
+    var list = .{ 1, 2, 3 };
+    var list2 = @TypeOf(list){ .@"0" = 1, .@"1" = 2, .@"2" = 3 };
+    var list3 = @TypeOf(list){ 1, 2, 4 };
+    _ = list2;
+    _ = list3;
+}
+
 // error
 // target=native
 // backend=stage2
 //
 // :6:19: error: value stored in comptime field does not match the default value of the field
 // :14:19: error: value stored in comptime field does not match the default value of the field
+// :19:38: error: value stored in comptime field does not match the default value of the field
