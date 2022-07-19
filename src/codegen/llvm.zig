@@ -4539,7 +4539,7 @@ pub const FuncGen = struct {
                 }
                 // We need to emit instructions to check for equality/inequality
                 // of optionals that are not pointers.
-                const is_by_ref = isByRef(operand_ty);
+                const is_by_ref = isByRef(scalar_ty);
                 const lhs_non_null = self.optIsNonNull(lhs, is_by_ref);
                 const rhs_non_null = self.optIsNonNull(rhs, is_by_ref);
                 const llvm_i2 = self.context.intType(2);
@@ -4564,8 +4564,8 @@ pub const FuncGen = struct {
                 _ = self.builder.buildBr(end_block);
 
                 self.builder.positionBuilderAtEnd(both_pl_block);
-                const lhs_payload = self.optPayloadHandle(lhs, is_by_ref);
-                const rhs_payload = self.optPayloadHandle(rhs, is_by_ref);
+                const lhs_payload = self.optPayloadHandle(lhs, scalar_ty);
+                const rhs_payload = self.optPayloadHandle(rhs, scalar_ty);
                 const payload_cmp = try self.cmp(lhs_payload, rhs_payload, payload_ty, op);
                 _ = self.builder.buildBr(end_block);
                 const both_pl_block_end = self.builder.getInsertBlock();
@@ -5795,7 +5795,7 @@ pub const FuncGen = struct {
             return operand;
         }
 
-        return self.optPayloadHandle(operand, isByRef(payload_ty));
+        return self.optPayloadHandle(operand, optional_ty);
     }
 
     fn airErrUnionPayload(
@@ -7347,11 +7347,9 @@ pub const FuncGen = struct {
         }
 
         comptime assert(optional_layout_version == 3);
-        const optional_llvm_ty = try self.dg.lowerType(optional_ty);
+
         const non_null_bit = self.builder.buildNot(success_bit, "");
-        const non_null_field = self.builder.buildZExt(non_null_bit, self.dg.context.intType(8), "");
-        const partial = self.builder.buildInsertValue(optional_llvm_ty.getUndef(), payload, 0, "");
-        return self.builder.buildInsertValue(partial, non_null_field, 1, "");
+        return buildOptional(self, optional_ty, payload, non_null_bit);
     }
 
     fn airAtomicRmw(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
@@ -7515,11 +7513,13 @@ pub const FuncGen = struct {
         const union_ptr = try self.resolveInst(bin_op.lhs);
         const new_tag = try self.resolveInst(bin_op.rhs);
         if (layout.payload_size == 0) {
+            // TODO alignment on this store
             _ = self.builder.buildStore(new_tag, union_ptr);
             return null;
         }
         const tag_index = @boolToInt(layout.tag_align < layout.payload_align);
         const tag_field_ptr = self.builder.buildStructGEP(union_ptr, tag_index, "");
+        // TODO alignment on this store
         _ = self.builder.buildStore(new_tag, tag_field_ptr);
         return null;
     }
@@ -8355,18 +8355,77 @@ pub const FuncGen = struct {
     }
 
     /// Assumes the optional is not pointer-like and payload has bits.
-    fn optPayloadHandle(self: *FuncGen, opt_handle: *const llvm.Value, is_by_ref: bool) *const llvm.Value {
-        if (is_by_ref) {
+    fn optPayloadHandle(
+        fg: *FuncGen,
+        opt_handle: *const llvm.Value,
+        opt_ty: Type,
+    ) *const llvm.Value {
+        var buf: Type.Payload.ElemType = undefined;
+        const payload_ty = opt_ty.optionalChild(&buf);
+
+        if (isByRef(opt_ty)) {
             // We have a pointer and we need to return a pointer to the first field.
-            const index_type = self.context.intType(32);
+            const index_type = fg.context.intType(32);
             const indices: [2]*const llvm.Value = .{
                 index_type.constNull(), // dereference the pointer
                 index_type.constNull(), // first field is the payload
             };
-            return self.builder.buildInBoundsGEP(opt_handle, &indices, indices.len, "");
+            const payload_ptr = fg.builder.buildInBoundsGEP(opt_handle, &indices, indices.len, "");
+
+            if (isByRef(payload_ty)) {
+                return payload_ptr;
+            }
+            const target = fg.dg.module.getTarget();
+            const payload_alignment = payload_ty.abiAlignment(target);
+            const load_inst = fg.builder.buildLoad(payload_ptr, "");
+            load_inst.setAlignment(payload_alignment);
+            return load_inst;
         }
 
-        return self.builder.buildExtractValue(opt_handle, 0, "");
+        assert(!isByRef(payload_ty));
+        return fg.builder.buildExtractValue(opt_handle, 0, "");
+    }
+
+    fn buildOptional(
+        self: *FuncGen,
+        optional_ty: Type,
+        payload: *const llvm.Value,
+        non_null_bit: *const llvm.Value,
+    ) !?*const llvm.Value {
+        const optional_llvm_ty = try self.dg.lowerType(optional_ty);
+        const non_null_field = self.builder.buildZExt(non_null_bit, self.dg.context.intType(8), "");
+
+        if (isByRef(optional_ty)) {
+            const target = self.dg.module.getTarget();
+            const alloca_inst = self.buildAlloca(optional_llvm_ty);
+            const payload_alignment = optional_ty.abiAlignment(target);
+            alloca_inst.setAlignment(payload_alignment);
+
+            const index_type = self.context.intType(32);
+            {
+                const indices: [2]*const llvm.Value = .{
+                    index_type.constNull(), // dereference the pointer
+                    index_type.constNull(), // first field is the payload
+                };
+                const field_ptr = self.builder.buildInBoundsGEP(alloca_inst, &indices, indices.len, "");
+                const store_inst = self.builder.buildStore(payload, field_ptr);
+                store_inst.setAlignment(payload_alignment);
+            }
+            {
+                const indices: [2]*const llvm.Value = .{
+                    index_type.constNull(), // dereference the pointer
+                    index_type.constInt(1, .False), // second field is the non-null bit
+                };
+                const field_ptr = self.builder.buildInBoundsGEP(alloca_inst, &indices, indices.len, "");
+                const store_inst = self.builder.buildStore(non_null_field, field_ptr);
+                store_inst.setAlignment(1);
+            }
+
+            return alloca_inst;
+        }
+
+        const partial = self.builder.buildInsertValue(optional_llvm_ty.getUndef(), payload, 0, "");
+        return self.builder.buildInsertValue(partial, non_null_field, 1, "");
     }
 
     fn fieldPtr(
@@ -9335,7 +9394,18 @@ fn isByRef(ty: Type) bool {
         .ErrorUnion => return isByRef(ty.errorUnionPayload()),
         .Optional => {
             var buf: Type.Payload.ElemType = undefined;
-            return isByRef(ty.optionalChild(&buf));
+            const payload_ty = ty.optionalChild(&buf);
+            if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+                return false;
+            }
+            if (ty.optionalReprIsPayload()) {
+                return false;
+            }
+            return true;
+            // TODO we actually want this logic:
+            // however it is tripping an LLVM 14 regression:
+            // https://github.com/llvm/llvm-project/issues/56585
+            //return isByRef(payload_ty);
         },
     }
 }
