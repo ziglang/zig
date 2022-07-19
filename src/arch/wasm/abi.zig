@@ -48,38 +48,20 @@ pub fn classifyType(ty: Type, target: Target) [2]Class {
         },
         .Bool => return direct,
         .Array => return memory,
-        // .ErrorUnion => {
-        //     const has_tag = ty.errorUnionSet().hasRuntimeBitsIgnoreComptime();
-        //     const has_pl = ty.errorUnionPayload().hasRuntimeBitsIgnoreComptime();
-        //     if (!has_pl) return direct;
-        //     if (!has_tag) {
-        //         return classifyType(ty.errorUnionPayload(), target);
-        //     }
-        //     return memory;
-        // },
         .Optional => {
             std.debug.assert(ty.isPtrLikeOptional());
             return direct;
-            // var buf: Type.Payload.ElemType = undefined;
-            // const pl_has_bits = ty.optionalChild(&buf).hasRuntimeBitsIgnoreComptime();
-            // if (!pl_has_bits) return direct;
-            // return memory;
         },
         .Pointer => {
-            // // Slices act like struct and will be passed by reference
-            // if (ty.isSlice()) return memory;
+            std.debug.assert(!ty.isSlice());
             return direct;
         },
         .Union => {
             const layout = ty.unionGetLayout(target);
             std.debug.assert(layout.tag_size == 0);
-            // if (layout.payload_size == 0 and layout.tag_size != 0) {
-            //     return classifyType(ty.unionTagType().?, target);
-            // }
             if (ty.unionFields().count() > 1) return memory;
             return classifyType(ty.unionFields().values()[0].ty, target);
         },
-        // .AnyFrame, .Frame => return direct,
         .ErrorUnion,
         .Frame,
         .AnyFrame,

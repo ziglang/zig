@@ -9094,10 +9094,7 @@ fn firstParamSRet(fn_info: Type.Payload.Function.Data, target: std.Target) bool 
                 .windows => return x86_64_abi.classifyWindows(fn_info.return_type, target) == .memory,
                 else => return x86_64_abi.classifySystemV(fn_info.return_type, target)[0] == .memory,
             },
-            .wasm32 => {
-                const classes = wasm_c_abi.classifyType(fn_info.return_type, target);
-                return classes[0] == .indirect;
-            },
+            .wasm32 => return wasm_c_abi.classifyType(fn_info.return_type, target)[0] == .indirect,
             else => return false, // TODO investigate C ABI for other architectures
         },
         else => return false,
