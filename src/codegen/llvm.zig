@@ -1499,7 +1499,7 @@ pub const Object = struct {
                     break :blk fwd_decl;
                 };
 
-                const non_null_ty = Type.bool;
+                const non_null_ty = Type.u8;
                 const payload_size = child_ty.abiSize(target);
                 const payload_align = child_ty.abiAlignment(target);
                 const non_null_size = non_null_ty.abiSize(target);
@@ -2530,16 +2530,16 @@ pub const DeclGen = struct {
                 var buf: Type.Payload.ElemType = undefined;
                 const child_ty = t.optionalChild(&buf);
                 if (!child_ty.hasRuntimeBitsIgnoreComptime()) {
-                    return dg.context.intType(1);
+                    return dg.context.intType(8);
                 }
                 const payload_llvm_ty = try dg.lowerType(child_ty);
                 if (t.optionalReprIsPayload()) {
                     return payload_llvm_ty;
                 }
 
-                comptime assert(optional_layout_version == 2);
+                comptime assert(optional_layout_version == 3);
                 var fields_buf: [3]*const llvm.Type = .{
-                    payload_llvm_ty, dg.context.intType(1), undefined,
+                    payload_llvm_ty, dg.context.intType(8), undefined,
                 };
                 const offset = child_ty.abiSize(target) + 1;
                 const abi_size = t.abiSize(target);
@@ -3134,12 +3134,13 @@ pub const DeclGen = struct {
                 else => unreachable,
             },
             .Optional => {
-                comptime assert(optional_layout_version == 2);
+                comptime assert(optional_layout_version == 3);
                 var buf: Type.Payload.ElemType = undefined;
                 const payload_ty = tv.ty.optionalChild(&buf);
-                const llvm_i1 = dg.context.intType(1);
+
+                const llvm_i8 = dg.context.intType(8);
                 const is_pl = !tv.val.isNull();
-                const non_null_bit = if (is_pl) llvm_i1.constAllOnes() else llvm_i1.constNull();
+                const non_null_bit = if (is_pl) llvm_i8.constInt(1, .False) else llvm_i8.constNull();
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
                     return non_null_bit;
                 }
@@ -4041,10 +4042,10 @@ pub const FuncGen = struct {
                 .cmp_vector => try self.airCmpVector(inst),
                 .cmp_lt_errors_len => try self.airCmpLtErrorsLen(inst),
 
-                .is_non_null     => try self.airIsNonNull(inst, false, false, .NE),
-                .is_non_null_ptr => try self.airIsNonNull(inst, true , false, .NE),
-                .is_null         => try self.airIsNonNull(inst, false, true , .EQ),
-                .is_null_ptr     => try self.airIsNonNull(inst, true , true , .EQ),
+                .is_non_null     => try self.airIsNonNull(inst, false, .NE),
+                .is_non_null_ptr => try self.airIsNonNull(inst, true , .NE),
+                .is_null         => try self.airIsNonNull(inst, false, .EQ),
+                .is_null_ptr     => try self.airIsNonNull(inst, true , .EQ),
 
                 .is_non_err      => try self.airIsErr(inst, .EQ, false),
                 .is_non_err_ptr  => try self.airIsErr(inst, .EQ, true),
@@ -5633,7 +5634,6 @@ pub const FuncGen = struct {
         self: *FuncGen,
         inst: Air.Inst.Index,
         operand_is_ptr: bool,
-        invert: bool,
         pred: llvm.IntPredicate,
     ) !?*const llvm.Value {
         if (self.liveness.isUnused(inst)) return null;
@@ -5648,20 +5648,19 @@ pub const FuncGen = struct {
             return self.builder.buildICmp(pred, loaded, optional_llvm_ty.constNull(), "");
         }
 
+        comptime assert(optional_layout_version == 3);
+
         var buf: Type.Payload.ElemType = undefined;
         const payload_ty = optional_ty.optionalChild(&buf);
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
             const loaded = if (operand_is_ptr) self.builder.buildLoad(operand, "") else operand;
-            if (invert) {
-                return self.builder.buildNot(loaded, "");
-            } else {
-                return loaded;
-            }
+            const llvm_i8 = self.dg.context.intType(8);
+            return self.builder.buildICmp(pred, loaded, llvm_i8.constNull(), "");
         }
 
         const is_by_ref = operand_is_ptr or isByRef(optional_ty);
         const non_null_bit = self.optIsNonNull(operand, is_by_ref);
-        if (invert) {
+        if (pred == .EQ) {
             return self.builder.buildNot(non_null_bit, "");
         } else {
             return non_null_bit;
@@ -5740,15 +5739,17 @@ pub const FuncGen = struct {
     }
 
     fn airOptionalPayloadPtrSet(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        comptime assert(optional_layout_version == 3);
+
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
         const optional_ty = self.air.typeOf(ty_op.operand).childType();
         const result_ty = self.air.getRefType(ty_op.ty);
         var buf: Type.Payload.ElemType = undefined;
         const payload_ty = optional_ty.optionalChild(&buf);
-        const non_null_bit = self.context.intType(1).constAllOnes();
+        const non_null_bit = self.context.intType(8).constInt(1, .False);
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
-            // We have a pointer to a i1. We need to set it to 1 and then return the same pointer.
+            // We have a pointer to a i8. We need to set it to 1 and then return the same pointer.
             _ = self.builder.buildStore(non_null_bit, operand);
 
             // TODO once we update to LLVM 14 this bitcast won't be necessary.
@@ -5914,8 +5915,8 @@ pub const FuncGen = struct {
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const payload_ty = self.air.typeOf(ty_op.operand);
-        const non_null_bit = self.context.intType(1).constAllOnes();
-        comptime assert(optional_layout_version == 2);
+        const non_null_bit = self.context.intType(8).constInt(1, .False);
+        comptime assert(optional_layout_version == 3);
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) return non_null_bit;
         const operand = try self.resolveInst(ty_op.operand);
         const optional_ty = self.air.typeOfIndex(inst);
@@ -7345,10 +7346,12 @@ pub const FuncGen = struct {
             return self.builder.buildSelect(success_bit, payload.typeOf().constNull(), payload, "");
         }
 
+        comptime assert(optional_layout_version == 3);
         const optional_llvm_ty = try self.dg.lowerType(optional_ty);
         const non_null_bit = self.builder.buildNot(success_bit, "");
+        const non_null_field = self.builder.buildZExt(non_null_bit, self.dg.context.intType(8), "");
         const partial = self.builder.buildInsertValue(optional_llvm_ty.getUndef(), payload, 0, "");
-        return self.builder.buildInsertValue(partial, non_null_bit, 1, "");
+        return self.builder.buildInsertValue(partial, non_null_field, 1, "");
     }
 
     fn airAtomicRmw(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
@@ -8331,19 +8334,24 @@ pub const FuncGen = struct {
 
     /// Assumes the optional is not pointer-like and payload has bits.
     fn optIsNonNull(self: *FuncGen, opt_handle: *const llvm.Value, is_by_ref: bool) *const llvm.Value {
-        if (is_by_ref) {
-            const index_type = self.context.intType(32);
+        const field = b: {
+            if (is_by_ref) {
+                const index_type = self.context.intType(32);
 
-            const indices: [2]*const llvm.Value = .{
-                index_type.constNull(),
-                index_type.constInt(1, .False),
-            };
+                const indices: [2]*const llvm.Value = .{
+                    index_type.constNull(),
+                    index_type.constInt(1, .False),
+                };
 
-            const field_ptr = self.builder.buildInBoundsGEP(opt_handle, &indices, indices.len, "");
-            return self.builder.buildLoad(field_ptr, "");
-        }
+                const field_ptr = self.builder.buildInBoundsGEP(opt_handle, &indices, indices.len, "");
+                break :b self.builder.buildLoad(field_ptr, "");
+            }
 
-        return self.builder.buildExtractValue(opt_handle, 1, "");
+            break :b self.builder.buildExtractValue(opt_handle, 1, "");
+        };
+        comptime assert(optional_layout_version == 3);
+
+        return self.builder.buildICmp(.NE, field, self.context.intType(8).constInt(0, .False), "");
     }
 
     /// Assumes the optional is not pointer-like and payload has bits.
@@ -9369,7 +9377,10 @@ fn intrinsicsAllowed(scalar_ty: Type, target: std.Target) bool {
 /// We can do this because for all types, Zig ABI alignment >= LLVM ABI
 /// alignment.
 const struct_layout_version = 2;
-const optional_layout_version = 2;
+
+// TODO: Restore the non_null field to i1 once
+//       https://github.com/llvm/llvm-project/issues/56585/ is fixed
+const optional_layout_version = 3;
 
 /// We use the least significant bit of the pointer address to tell us
 /// whether the type is fully resolved. Types that are only fwd declared
