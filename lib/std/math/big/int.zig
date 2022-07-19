@@ -2719,7 +2719,7 @@ pub const Managed = struct {
     ///
     /// Returns an error if memory could not be allocated.
     pub fn sub(r: *Managed, a: *const Managed, b: *const Managed) !void {
-        try r.ensureCapacity(math.max(a.limbs.len, b.limbs.len) + 1);
+        try r.ensureCapacity(math.max(a.len(), b.len()) + 1);
         var m = r.toMutable();
         m.sub(a.toConst(), b.toConst());
         r.setMetadata(m.positive, m.len);
@@ -2780,7 +2780,7 @@ pub const Managed = struct {
         if (alias_count == 0) {
             m.mulNoAlias(a.toConst(), b.toConst(), rma.allocator);
         } else {
-            const limb_count = calcMulLimbsBufferLen(a.limbs.len, b.limbs.len, alias_count);
+            const limb_count = calcMulLimbsBufferLen(a.len(), b.len(), alias_count);
             const limbs_buffer = try rma.allocator.alloc(Limb, limb_count);
             defer rma.allocator.free(limbs_buffer);
             m.mul(a.toConst(), b.toConst(), limbs_buffer, rma.allocator);
@@ -2813,7 +2813,7 @@ pub const Managed = struct {
         if (alias_count == 0) {
             m.mulWrapNoAlias(a.toConst(), b.toConst(), signedness, bit_count, rma.allocator);
         } else {
-            const limb_count = calcMulWrapLimbsBufferLen(bit_count, a.limbs.len, b.limbs.len, alias_count);
+            const limb_count = calcMulWrapLimbsBufferLen(bit_count, a.len(), b.len(), alias_count);
             const limbs_buffer = try rma.allocator.alloc(Limb, limb_count);
             defer rma.allocator.free(limbs_buffer);
             m.mulWrap(a.toConst(), b.toConst(), signedness, bit_count, limbs_buffer, rma.allocator);
@@ -2843,11 +2843,11 @@ pub const Managed = struct {
     ///
     /// Returns an error if memory could not be allocated.
     pub fn divFloor(q: *Managed, r: *Managed, a: *const Managed, b: *const Managed) !void {
-        try q.ensureCapacity(a.limbs.len);
-        try r.ensureCapacity(b.limbs.len);
+        try q.ensureCapacity(a.len());
+        try r.ensureCapacity(b.len());
         var mq = q.toMutable();
         var mr = r.toMutable();
-        const limbs_buffer = try q.allocator.alloc(Limb, calcDivLimbsBufferLen(a.limbs.len, b.limbs.len));
+        const limbs_buffer = try q.allocator.alloc(Limb, calcDivLimbsBufferLen(a.len(), b.len()));
         defer q.allocator.free(limbs_buffer);
         mq.divFloor(&mr, a.toConst(), b.toConst(), limbs_buffer);
         q.setMetadata(mq.positive, mq.len);
@@ -2860,11 +2860,11 @@ pub const Managed = struct {
     ///
     /// Returns an error if memory could not be allocated.
     pub fn divTrunc(q: *Managed, r: *Managed, a: *const Managed, b: *const Managed) !void {
-        try q.ensureCapacity(a.limbs.len);
-        try r.ensureCapacity(b.limbs.len);
+        try q.ensureCapacity(a.len());
+        try r.ensureCapacity(b.len());
         var mq = q.toMutable();
         var mr = r.toMutable();
-        const limbs_buffer = try q.allocator.alloc(Limb, calcDivLimbsBufferLen(a.limbs.len, b.limbs.len));
+        const limbs_buffer = try q.allocator.alloc(Limb, calcDivLimbsBufferLen(a.len(), b.len()));
         defer q.allocator.free(limbs_buffer);
         mq.divTrunc(&mr, a.toConst(), b.toConst(), limbs_buffer);
         q.setMetadata(mq.positive, mq.len);
@@ -2960,7 +2960,7 @@ pub const Managed = struct {
 
     /// r = a * a
     pub fn sqr(rma: *Managed, a: *const Managed) !void {
-        const needed_limbs = 2 * a.limbs.len + 1;
+        const needed_limbs = 2 * a.len() + 1;
 
         if (rma.limbs.ptr == a.limbs.ptr) {
             var m = try Managed.initCapacity(rma.allocator, needed_limbs);
