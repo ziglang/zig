@@ -8378,8 +8378,11 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         .Enum => {
             var seen_fields = try gpa.alloc(?Module.SwitchProngSrc, operand_ty.enumFieldCount());
             defer gpa.free(seen_fields);
-
             mem.set(?Module.SwitchProngSrc, seen_fields, null);
+
+            // This is used for non-exhaustive enum values that do not correspond to any tags.
+            var range_set = RangeSet.init(gpa, sema.mod);
+            defer range_set.deinit();
 
             var extra_index: usize = special.end;
             {
@@ -8394,6 +8397,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     try sema.validateSwitchItemEnum(
                         block,
                         seen_fields,
+                        &range_set,
                         item_ref,
                         src_node_offset,
                         .{ .scalar = scalar_i },
@@ -8416,6 +8420,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                         try sema.validateSwitchItemEnum(
                             block,
                             seen_fields,
+                            &range_set,
                             item_ref,
                             src_node_offset,
                             .{ .multi = .{ .prong = multi_i, .item = @intCast(u32, item_i) } },
@@ -9317,30 +9322,15 @@ fn validateSwitchItemEnum(
     sema: *Sema,
     block: *Block,
     seen_fields: []?Module.SwitchProngSrc,
+    range_set: *RangeSet,
     item_ref: Zir.Inst.Ref,
     src_node_offset: i32,
     switch_prong_src: Module.SwitchProngSrc,
 ) CompileError!void {
     const item_tv = try sema.resolveSwitchItemVal(block, item_ref, src_node_offset, switch_prong_src, .none);
     const field_index = item_tv.ty.enumTagFieldIndex(item_tv.val, sema.mod) orelse {
-        const msg = msg: {
-            const src = switch_prong_src.resolve(sema.gpa, sema.mod.declPtr(block.src_decl), src_node_offset, .none);
-            const msg = try sema.errMsg(
-                block,
-                src,
-                "enum '{}' has no tag with value '{}'",
-                .{ item_tv.ty.fmt(sema.mod), item_tv.val.fmtValue(item_tv.ty, sema.mod) },
-            );
-            errdefer msg.destroy(sema.gpa);
-            try sema.mod.errNoteNonLazy(
-                item_tv.ty.declSrcLoc(sema.mod),
-                msg,
-                "enum declared here",
-                .{},
-            );
-            break :msg msg;
-        };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        const maybe_prev_src = try range_set.add(item_tv.val, item_tv.val, item_tv.ty, switch_prong_src);
+        return sema.validateSwitchDupe(block, maybe_prev_src, switch_prong_src, src_node_offset);
     };
     const maybe_prev_src = seen_fields[field_index];
     seen_fields[field_index] = switch_prong_src;

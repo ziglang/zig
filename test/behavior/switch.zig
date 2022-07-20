@@ -672,3 +672,21 @@ test "capture of integer forwards the switch condition directly" {
     comptime try S.foo(42);
     comptime try S.foo(100);
 }
+
+test "enum value without tag name used as switch item" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const E = enum(u32) {
+        a = 1,
+        b = 2,
+        _,
+    };
+    var e: E = @intToEnum(E, 0);
+    switch (e) {
+        @intToEnum(E, 0) => {},
+        .a => return error.TestFailed,
+        .b => return error.TestFailed,
+        _ => return error.TestFailed,
+    }
+}
