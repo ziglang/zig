@@ -933,7 +933,6 @@ const stage1_sources = [_][]const u8{
     "src/stage1/bigint.cpp",
     "src/stage1/buffer.cpp",
     "src/stage1/codegen.cpp",
-    "src/stage1/dump_analysis.cpp",
     "src/stage1/errmsg.cpp",
     "src/stage1/error.cpp",
     "src/stage1/heap.cpp",
