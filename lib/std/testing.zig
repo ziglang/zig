@@ -502,7 +502,7 @@ fn printIndicatorLine(source: []const u8, indicator_index: usize) void {
             print(" ", .{});
     }
     if (indicator_index >= source.len)
-        print("^ (out of bounds)\n", .{})
+        print("^ (end of string)\n", .{})
     else
         print("^ ({d})\n", .{source[indicator_index]});
 }
