@@ -299,7 +299,7 @@ test "implicitly decreasing fn alignment" {
     try testImplicitlyDecreaseFnAlign(alignedBig, 5678);
 }
 
-fn testImplicitlyDecreaseFnAlign(ptr: *align(1) const fn () i32, answer: i32) !void {
+fn testImplicitlyDecreaseFnAlign(ptr: *const fn () align(1) i32, answer: i32) !void {
     try expect(ptr() == answer);
 }
 
@@ -325,7 +325,7 @@ test "@alignCast functions" {
 fn fnExpectsOnly1(ptr: *const fn () align(1) i32) i32 {
     return fnExpects4(@alignCast(4, ptr));
 }
-fn fnExpects4(ptr: *align(4) const fn () i32) i32 {
+fn fnExpects4(ptr: *const fn () align(4) i32) i32 {
     return ptr();
 }
 fn simple4() align(4) i32 {
