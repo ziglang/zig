@@ -20,6 +20,35 @@ pub export fn entry2() void {
     _ = list2;
     _ = list3;
 }
+pub export fn entry3() void {
+    const U = struct {
+        comptime foo: u32 = 1,
+        bar: u32,
+        fn foo(x: @This()) void {
+            _ = x;
+        }
+    };
+    _ = U.foo(U{ .foo = 2, .bar = 2 });
+}
+pub export fn entry4() void {
+    const U = struct {
+        comptime foo: u32 = 1,
+        bar: u32,
+        fn foo(x: @This()) void {
+            _ = x;
+        }
+    };
+    _ = U.foo(.{ .foo = 2, .bar = 2 });
+}
+// pub export fn entry5() void {
+//     var x: u32 = 15;
+//     const T = @TypeOf(.{ @as(i32, -1234), @as(u32, 5678), x });
+//     const S = struct {
+//         fn foo(_: T) void {}
+//     };
+//     _ = S.foo(.{ -1234, 5679, x });
+// }
+
 
 // error
 // target=native
@@ -28,3 +57,5 @@ pub export fn entry2() void {
 // :6:19: error: value stored in comptime field does not match the default value of the field
 // :14:19: error: value stored in comptime field does not match the default value of the field
 // :19:38: error: value stored in comptime field does not match the default value of the field
+// :31:19: error: value stored in comptime field does not match the default value of the field
+// :41:14: error: value stored in comptime field does not match the default value of the field

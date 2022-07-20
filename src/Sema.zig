@@ -14515,6 +14515,16 @@ fn zirStructInit(
             }
             found_fields[field_index] = item.data.field_type;
             field_inits[field_index] = try sema.resolveInst(item.data.init);
+            if (resolved_ty.structFieldValueComptime(field_index)) |default_value| {
+                const init_val = (try sema.resolveMaybeUndefVal(block, field_src, field_inits[field_index])) orelse {
+                    return sema.failWithNeededComptime(block, field_src, "value stored in comptime field must be comptime known");
+                };
+
+                if (!init_val.eql(default_value, resolved_ty.structFieldType(field_index), sema.mod)) {
+                    // TODO add note showing where default value is provided
+                    return sema.fail(block, field_src, "value stored in comptime field does not match the default value of the field", .{});
+                }
+            }
         }
 
         return sema.finishStructInit(block, src, src, field_inits, resolved_ty, is_ref);
@@ -23688,6 +23698,7 @@ fn coerceTupleToStruct(
     const struct_ty = try sema.resolveTypeFields(block, dest_ty_src, dest_ty);
 
     if (struct_ty.isTupleOrAnonStruct()) {
+        // NOTE remember to handle comptime fields
         return sema.fail(block, dest_ty_src, "TODO: implement coercion from tuples to tuples", .{});
     }
 
@@ -23708,12 +23719,19 @@ fn coerceTupleToStruct(
             try std.fmt.allocPrint(sema.arena, "{d}", .{i});
         const field_index = try sema.structFieldIndex(block, struct_ty, field_name, field_src);
         const field = fields.values()[field_index];
-        if (field.is_comptime) {
-            return sema.fail(block, dest_ty_src, "TODO: implement coercion from tuples to structs when one of the destination struct fields is comptime", .{});
-        }
         const elem_ref = try tupleField(sema, block, inst_src, inst, field_src, i);
         const coerced = try sema.coerce(block, field.ty, elem_ref, field_src);
         field_refs[field_index] = coerced;
+        if (field.is_comptime) {
+            const init_val = (try sema.resolveMaybeUndefVal(block, field_src, coerced)) orelse {
+                return sema.failWithNeededComptime(block, field_src, "value stored in comptime field must be comptime known");
+            };
+
+            if (!init_val.eql(field.default_val, field.ty, sema.mod)) {
+                // TODO add note showing where default value is provided
+                return sema.fail(block, field_src, "value stored in comptime field does not match the default value of the field", .{});
+            }
+        }
         if (runtime_src == null) {
             if (try sema.resolveMaybeUndefVal(block, field_src, coerced)) |field_val| {
                 field_vals[field_index] = field_val;
