@@ -134,6 +134,7 @@ pub const Type = extern union {
             .extern_options,
             .tuple,
             .anon_struct,
+            .declaration,
             => return .Struct,
 
             .enum_full,
@@ -911,6 +912,7 @@ pub const Type = extern union {
             // for example, a was resolved into .union_tagged but b was one of these tags.
             .type_info => unreachable, // needed to resolve the type before now
 
+            .declaration => unreachable, // needed to resolve the type before now
             .bound_fn => unreachable,
             .var_args_param => unreachable, // can be any type
         }
@@ -1218,6 +1220,7 @@ pub const Type = extern union {
             // we can't hash these based on tags because they wouldn't match the expanded version.
             .type_info => unreachable, // needed to resolve the type before now
 
+            .declaration => unreachable, // needed to resolve the type before now
             .bound_fn => unreachable, // TODO delete from the language
             .var_args_param => unreachable, // can be any type
         }
@@ -1324,6 +1327,7 @@ pub const Type = extern union {
             .export_options,
             .extern_options,
             .type_info,
+            .declaration,
             .@"anyframe",
             .generic_poison,
             .bound_fn,
@@ -1656,6 +1660,7 @@ pub const Type = extern union {
                 .export_options => return writer.writeAll("std.builtin.ExportOptions"),
                 .extern_options => return writer.writeAll("std.builtin.ExternOptions"),
                 .type_info => return writer.writeAll("std.builtin.Type"),
+                .declaration => return writer.writeAll("std.builtin.Declaration"),
                 .function => {
                     const payload = ty.castTag(.function).?.data;
                     try writer.writeAll("fn(");
@@ -1934,6 +1939,7 @@ pub const Type = extern union {
             .export_options => unreachable,
             .extern_options => unreachable,
             .type_info => unreachable,
+            .declaration => unreachable,
 
             .u1,
             .u8,
@@ -2296,6 +2302,7 @@ pub const Type = extern union {
             .export_options => return Value.initTag(.export_options_type),
             .extern_options => return Value.initTag(.extern_options_type),
             .type_info => return Value.initTag(.type_info_type),
+            .declaration => return Value.initTag(.declaration_type),
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
             else => return Value.Tag.ty.create(allocator, self),
@@ -2369,6 +2376,7 @@ pub const Type = extern union {
             .anyopaque,
             .@"opaque",
             .type_info,
+            .declaration,
             .error_set_single,
             .error_union,
             .error_set,
@@ -2609,6 +2617,7 @@ pub const Type = extern union {
             .comptime_float,
             .enum_literal,
             .type_info,
+            .declaration,
             // These are function bodies, not function pointers.
             .fn_noreturn_no_args,
             .fn_void_no_args,
@@ -3068,6 +3077,7 @@ pub const Type = extern union {
             .@"undefined",
             .enum_literal,
             .type_info,
+            .declaration,
             => return AbiAlignmentAdvanced{ .scalar = 0 },
 
             .noreturn,
@@ -3174,6 +3184,7 @@ pub const Type = extern union {
             .export_options => unreachable, // missing call to resolveTypeFields
             .extern_options => unreachable, // missing call to resolveTypeFields
             .type_info => unreachable, // missing call to resolveTypeFields
+            .declaration => unreachable, // missing call to resolveTypeFields
 
             .anyopaque,
             .type,
@@ -3658,6 +3669,7 @@ pub const Type = extern union {
             .export_options,
             .extern_options,
             .type_info,
+            .declaration,
             => @panic("TODO at some point we gotta resolve builtin types"),
         }
     }
@@ -4188,6 +4200,7 @@ pub const Type = extern union {
             .export_options,
             .extern_options,
             .type_info,
+            .declaration,
             => unreachable, // needed to call resolveTypeFields first
 
             else => null,
@@ -4843,6 +4856,7 @@ pub const Type = extern union {
             .export_options,
             .extern_options,
             .type_info,
+            .declaration,
             .@"anyframe",
             .anyframe_T,
             .many_const_pointer,
@@ -5038,6 +5052,7 @@ pub const Type = extern union {
             .comptime_float,
             .enum_literal,
             .type_info,
+            .declaration,
             // These are function bodies, not function pointers.
             .fn_noreturn_no_args,
             .fn_void_no_args,
@@ -5661,6 +5676,7 @@ pub const Type = extern union {
             .export_options,
             .extern_options,
             .type_info,
+            .declaration,
             => unreachable, // needed to call resolveTypeFields first
 
             else => return null,
@@ -5705,6 +5721,7 @@ pub const Type = extern union {
             .export_options,
             .extern_options,
             .type_info,
+            .declaration,
             => unreachable, // These need to be resolved earlier.
 
             else => unreachable,
@@ -5749,6 +5766,7 @@ pub const Type = extern union {
             .export_options,
             .extern_options,
             .type_info,
+            .declaration,
             => unreachable, // These need to be resolved earlier.
 
             else => unreachable,
@@ -5814,6 +5832,7 @@ pub const Type = extern union {
         export_options,
         extern_options,
         type_info,
+        declaration,
         manyptr_u8,
         manyptr_const_u8,
         manyptr_const_u8_sentinel_0,
@@ -5953,6 +5972,7 @@ pub const Type = extern union {
                 .export_options,
                 .extern_options,
                 .type_info,
+                .declaration,
                 .@"anyframe",
                 .bound_fn,
                 => @compileError("Type Tag " ++ @tagName(t) ++ " has no payload"),

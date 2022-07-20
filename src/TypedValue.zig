@@ -137,6 +137,7 @@ pub fn print(
         .export_options_type => return writer.writeAll("std.builtin.ExportOptions"),
         .extern_options_type => return writer.writeAll("std.builtin.ExternOptions"),
         .type_info_type => return writer.writeAll("std.builtin.Type"),
+        .declaration_type => return writer.writeAll("std.builtin.Declaration"),
 
         .empty_struct_value, .aggregate => {
             if (level == 0) {

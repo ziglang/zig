@@ -7741,6 +7741,16 @@ fn builtinCall(
             });
             return rvalue(gz, rl, result, node);
         },
+        .reflect_decl => {
+            const container_type = try typeExpr(gz, scope, params[0]);
+            const name = try comptimeExpr(gz, scope, .{ .coerced_ty = .const_slice_u8_type }, params[1]);
+            const result = try gz.addExtendedPayload(.reflect_decl, Zir.Inst.BinNode{
+                .node = gz.nodeIndexToRelative(node),
+                .lhs = container_type,
+                .rhs = name,
+            });
+            return rvalue(gz, rl, result, node);
+        },
     }
 }
 

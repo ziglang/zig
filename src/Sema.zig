@@ -943,6 +943,7 @@ fn analyzeBodyInner(
                     .select                => try sema.zirSelect(            block, extended),
                     .error_to_int          => try sema.zirErrorToInt(        block, extended),
                     .int_to_error          => try sema.zirIntToError(        block, extended),
+                    .reflect_decl          => try sema.zirReflectDecl(       block, extended),
                     // zig fmt: on
                     .fence => {
                         try sema.zirFence(block, extended);
@@ -17974,6 +17975,75 @@ fn zirWasmMemoryGrow(
         } },
     });
 }
+fn zirReflectDecl(
+    sema: *Sema,
+    block: *Block,
+    extended: Zir.Inst.Extended.InstData,
+) CompileError!Air.Inst.Ref {
+    const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
+
+    const src = LazySrcLoc.nodeOffset(extra.node);
+    const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const name_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
+
+    const namespace_ty = try sema.resolveType(block, ty_src, extra.lhs);
+    const decl_name = try sema.resolveConstString(block, name_src, extra.rhs);
+
+    try checkNamespaceType(sema, block, ty_src, namespace_ty);
+
+    const decl_index = (try sema.namespaceLookup(
+        block,
+        name_src,
+        namespace_ty.getNamespace().?,
+        decl_name,
+    )) orelse return sema.failWithBadMemberAccess(
+        block,
+        namespace_ty,
+        name_src,
+        decl_name,
+    );
+
+    try sema.mod.ensureDeclAnalyzed(decl_index);
+    const decl = sema.mod.declPtr(decl_index);
+    const decl_tv = try decl.typedValue();
+
+    const opt_linksection = if (decl.@"linksection") |ls| blk: {
+        var anon_decl = try block.startAnonDecl(src);
+        defer anon_decl.deinit();
+        const @"linksection" = std.mem.span(ls);
+        const bytes = try anon_decl.arena().dupe(u8, @"linksection"[0 .. @"linksection".len + 1]);
+        const new_decl = try anon_decl.finish(
+            try Type.Tag.array_u8_sentinel_0.create(anon_decl.arena(), bytes.len - 1),
+            try Value.Tag.bytes.create(anon_decl.arena(), bytes),
+            0, // default alignment
+        );
+        break :blk try Value.Tag.decl_ref.create(sema.arena, new_decl);
+    } else null;
+
+    const field_values = try sema.arena.alloc(Value, 3);
+
+    // ty: type
+    field_values[0] = try Value.Tag.ty.create(sema.arena, try decl_tv.ty.copy(sema.arena));
+
+    // alignment: comptime_int
+    field_values[1] = if (decl.@"align" != 0)
+        try Value.Tag.int_u64.create(sema.arena, decl.@"align")
+    else
+        try decl.ty.lazyAbiAlignment(sema.mod.getTarget(), sema.arena);
+
+    // link_section: ?[:0]const u8
+    field_values[2] = try sema.optRefValue(
+        block,
+        src,
+        Type.initTag(.const_slice_u8_sentinel_0),
+        opt_linksection,
+    );
+
+    return sema.addConstant(
+        try sema.getBuiltinType(block, src, "Declaration"),
+        try Value.Tag.aggregate.create(sema.arena, field_values),
+    );
+}
 
 fn zirPrefetch(
     sema: *Sema,
@@ -24983,6 +25053,7 @@ pub fn resolveTypeFields(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) 
         .reduce_op => return sema.resolveBuiltinTypeFields(block, src, "ReduceOp"),
         .call_options => return sema.resolveBuiltinTypeFields(block, src, "CallOptions"),
         .prefetch_options => return sema.resolveBuiltinTypeFields(block, src, "PrefetchOptions"),
+        .declaration => return sema.resolveBuiltinTypeFields(block, src, "Declaration"),
 
         else => return ty,
     }
@@ -25846,6 +25917,7 @@ pub fn typeHasOnePossibleValue(
         .export_options,
         .extern_options,
         .type_info,
+        .declaration,
         .@"anyframe",
         .anyframe_T,
         .many_const_pointer,
@@ -26090,6 +26162,7 @@ pub fn addType(sema: *Sema, ty: Type) !Air.Inst.Ref {
         .reduce_op => return .reduce_op_type,
         .call_options => return .call_options_type,
         .prefetch_options => return .prefetch_options_type,
+        .declaration => return .declaration_type,
         .export_options => return .export_options_type,
         .extern_options => return .extern_options_type,
         .type_info => return .type_info_type,
@@ -26485,6 +26558,7 @@ pub fn typeRequiresComptime(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Typ
         .comptime_float,
         .enum_literal,
         .type_info,
+        .declaration,
         // These are function bodies, not function pointers.
         .fn_noreturn_no_args,
         .fn_void_no_args,
@@ -27296,6 +27370,7 @@ fn enumHasInt(
         .prefetch_options,
         .export_options,
         .extern_options,
+        .declaration,
         => unreachable,
 
         else => unreachable,

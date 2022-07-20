@@ -183,6 +183,14 @@ pub const SourceLocation = struct {
     column: u32,
 };
 
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const Declaration = struct {
+    ty: type,
+    alignment: comptime_int,
+    link_section: ?[:0]const u8,
+};
+
 pub const TypeId = std.meta.Tag(Type);
 
 /// TODO deprecated, use `Type`
@@ -295,7 +303,7 @@ pub const Type = union(enum) {
     pub const Struct = struct {
         layout: ContainerLayout,
         fields: []const StructField,
-        decls: []const Declaration,
+        decls: []const Type.Declaration,
         is_tuple: bool,
     };
 
@@ -336,7 +344,7 @@ pub const Type = union(enum) {
         layout: ContainerLayout,
         tag_type: type,
         fields: []const EnumField,
-        decls: []const Declaration,
+        decls: []const Type.Declaration,
         is_exhaustive: bool,
     };
 
@@ -354,7 +362,7 @@ pub const Type = union(enum) {
         layout: ContainerLayout,
         tag_type: ?type,
         fields: []const UnionField,
-        decls: []const Declaration,
+        decls: []const Type.Declaration,
     };
 
     /// TODO deprecated use Fn.Param
@@ -383,7 +391,7 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const Opaque = struct {
-        decls: []const Declaration,
+        decls: []const Type.Declaration,
     };
 
     /// This data structure is used by the Zig language code generation and

@@ -1969,6 +1969,9 @@ pub const Inst = struct {
         /// Implement builtin `@intToError`.
         /// `operand` is payload index to `UnNode`.
         int_to_error,
+        /// The `@reflectDecl` builtin.
+        /// `operand` is payload index to `BinNode`.
+        reflect_decl,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -2048,6 +2051,7 @@ pub const Inst = struct {
         reduce_op_type,
         call_options_type,
         prefetch_options_type,
+        declaration_type,
         export_options_type,
         extern_options_type,
         type_info_type,
@@ -2328,6 +2332,10 @@ pub const Inst = struct {
             .prefetch_options_type = .{
                 .ty = Type.initTag(.type),
                 .val = Value.initTag(.prefetch_options_type),
+            },
+            .declaration_type = .{
+                .ty = Type.initTag(.type),
+                .val = Value.initTag(.declaration_type),
             },
             .export_options_type = .{
                 .ty = Type.initTag(.type),

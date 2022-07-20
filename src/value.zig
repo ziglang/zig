@@ -76,6 +76,7 @@ pub const Value = extern union {
         export_options_type,
         extern_options_type,
         type_info_type,
+        declaration_type,
         manyptr_u8_type,
         manyptr_const_u8_type,
         manyptr_const_u8_sentinel_0_type,
@@ -267,6 +268,7 @@ pub const Value = extern union {
                 .export_options_type,
                 .extern_options_type,
                 .type_info_type,
+                .declaration_type,
                 .generic_poison,
                 => @compileError("Value Tag " ++ @tagName(t) ++ " has no payload"),
 
@@ -470,6 +472,7 @@ pub const Value = extern union {
             .export_options_type,
             .extern_options_type,
             .type_info_type,
+            .declaration_type,
             .generic_poison,
             .bound_fn,
             => unreachable,
@@ -726,6 +729,7 @@ pub const Value = extern union {
             .export_options_type => return out_stream.writeAll("std.builtin.ExportOptions"),
             .extern_options_type => return out_stream.writeAll("std.builtin.ExternOptions"),
             .type_info_type => return out_stream.writeAll("std.builtin.Type"),
+            .declaration_type => return out_stream.writeAll("std.builtin.Declaration"),
 
             .empty_struct_value => return out_stream.writeAll("struct {}{}"),
             .aggregate => {
@@ -966,6 +970,7 @@ pub const Value = extern union {
             .export_options_type => Type.initTag(.export_options),
             .extern_options_type => Type.initTag(.extern_options),
             .type_info_type => Type.initTag(.type_info),
+            .declaration_type => Type.initTag(.declaration),
 
             .int_type => {
                 const payload = self.castTag(.int_type).?.data;

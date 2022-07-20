@@ -107,6 +107,7 @@ pub const Tag = enum {
     Type,
     type_info,
     type_name,
+    reflect_decl,
     TypeOf,
     union_init,
     Vector,
@@ -903,6 +904,13 @@ pub const list = list: {
             .{
                 .tag = .TypeOf,
                 .param_count = null,
+            },
+        },
+        .{
+            "@reflectDecl",
+            .{
+                .tag = .reflect_decl,
+                .param_count = 2,
             },
         },
         .{
