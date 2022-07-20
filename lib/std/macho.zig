@@ -653,7 +653,7 @@ pub const segment_command_64 = extern struct {
     nsects: u32 = 0,
     flags: u32 = 0,
 
-    pub fn segName(seg: segment_command_64) []const u8 {
+    pub fn segName(seg: *const segment_command_64) []const u8 {
         return parseName(&seg.segname);
     }
 };
@@ -772,11 +772,11 @@ pub const section_64 = extern struct {
     /// reserved
     reserved3: u32 = 0,
 
-    pub fn sectName(sect: section_64) []const u8 {
+    pub fn sectName(sect: *const section_64) []const u8 {
         return parseName(&sect.sectname);
     }
 
-    pub fn segName(sect: section_64) []const u8 {
+    pub fn segName(sect: *const section_64) []const u8 {
         return parseName(&sect.segname);
     }
 
