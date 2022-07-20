@@ -746,11 +746,11 @@ pub const Builder = struct {
             },
             error.UnknownCpuFeature => {
                 log.err(
-                    \\Unknown CPU feature: '{?s}'
+                    \\Unknown CPU feature: '{s}'
                     \\Available CPU features for architecture '{s}':
                     \\
                 , .{
-                    diags.unknown_feature_name,
+                    diags.unknown_feature_name.?,
                     @tagName(diags.arch.?),
                 });
                 for (diags.arch.?.allFeaturesList()) |feature| {
@@ -761,10 +761,10 @@ pub const Builder = struct {
             },
             error.UnknownOperatingSystem => {
                 log.err(
-                    \\Unknown OS: '{?s}'
+                    \\Unknown OS: '{s}'
                     \\Available operating systems:
                     \\
-                , .{diags.os_name});
+                , .{diags.os_name.?});
                 inline for (std.meta.fields(std.Target.Os.Tag)) |field| {
                     log.err(" {s}", .{field.name});
                 }

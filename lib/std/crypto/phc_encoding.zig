@@ -216,7 +216,7 @@ fn serializeTo(params: anytype, out: anytype) !void {
 
     var has_params = false;
     inline for (comptime meta.fields(HashResult)) |p| {
-        if (!(mem.eql(u8, p.name, "alg_id") or
+        if (comptime !(mem.eql(u8, p.name, "alg_id") or
             mem.eql(u8, p.name, "alg_version") or
             mem.eql(u8, p.name, "hash") or
             mem.eql(u8, p.name, "salt")))
@@ -228,7 +228,7 @@ fn serializeTo(params: anytype, out: anytype) !void {
                 try out.print("{s}{s}{s}", .{ p.name, kv_delimiter, try value.toB64(&buf) });
             } else {
                 try out.print(
-                    if (@typeInfo(@TypeOf(value)) == .Pointer) "{s}{s}{s}" else "{s}{s}{?}",
+                    if (@typeInfo(@TypeOf(value)) == .Pointer) "{s}{s}{s}" else "{s}{s}{}",
                     .{ p.name, kv_delimiter, value },
                 );
             }
