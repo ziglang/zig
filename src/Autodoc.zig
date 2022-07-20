@@ -567,7 +567,7 @@ const DocData = struct {
         fieldRef: FieldRef,
         refPath: []Expr,
         int: struct {
-            value: usize, // direct value
+            value: u64, // direct value
             negated: bool = false,
         },
         int_big: struct {
