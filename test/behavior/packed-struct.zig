@@ -421,16 +421,17 @@ test "load pointer from packed struct" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
 
-    const Symbol = struct {
+    const A = struct {
         index: u16,
     };
-    const Relocation = packed struct {
-        symbol: *Symbol,
-        a: u32,
+    const B = packed struct {
+        x: *A,
+        y: u32,
     };
-    var a: []Relocation = &.{};
-    for (a) |rela| {
-        var b = rela.symbol.index;
-        _ = b;
+    var a: A = .{ .index = 123 };
+    var b_list: []B = &.{.{ .x = &a, .y = 99 }};
+    for (b_list) |b| {
+        var i = b.x.index;
+        try expect(i == 123);
     }
 }
