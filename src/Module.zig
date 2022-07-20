@@ -1488,7 +1488,7 @@ pub const Fn = struct {
     branch_quota: u32,
     state: Analysis,
     is_cold: bool = false,
-    is_noinline: bool = false,
+    is_noinline: bool,
     calls_or_awaits_errorable_fn: bool = false,
 
     /// Any inferred error sets that this function owns, both its own inferred error set and
