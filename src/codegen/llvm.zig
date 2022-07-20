@@ -5149,6 +5149,11 @@ pub const FuncGen = struct {
                             const same_size_int = self.context.intType(elem_bits);
                             const truncated_int = self.builder.buildTrunc(shifted_value, same_size_int, "");
                             return self.builder.buildBitCast(truncated_int, elem_llvm_ty, "");
+                        } else if (field_ty.zigTypeTag() == .Pointer) {
+                            const elem_bits = @intCast(c_uint, field_ty.bitSize(target));
+                            const same_size_int = self.context.intType(elem_bits);
+                            const truncated_int = self.builder.buildTrunc(shifted_value, same_size_int, "");
+                            return self.builder.buildIntToPtr(truncated_int, elem_llvm_ty, "");
                         }
                         return self.builder.buildTrunc(shifted_value, elem_llvm_ty, "");
                     },
@@ -7999,7 +8004,10 @@ pub const FuncGen = struct {
                         const non_int_val = try self.resolveInst(elem);
                         const ty_bit_size = @intCast(u16, field.ty.bitSize(target));
                         const small_int_ty = self.dg.context.intType(ty_bit_size);
-                        const small_int_val = self.builder.buildBitCast(non_int_val, small_int_ty, "");
+                        const small_int_val = if (field.ty.zigTypeTag() == .Pointer)
+                            self.builder.buildPtrToInt(non_int_val, small_int_ty, "")
+                        else
+                            self.builder.buildBitCast(non_int_val, small_int_ty, "");
                         const shift_rhs = int_llvm_ty.constInt(running_bits, .False);
                         // If the field is as large as the entire packed struct, this
                         // zext would go from, e.g. i16 to i16. This is legal with
