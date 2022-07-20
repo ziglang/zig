@@ -858,6 +858,12 @@ fn buildOutputType(
                         ) catch |err| {
                             fatal("Failed to add package at path {s}: {s}", .{ pkg_path.?, @errorName(err) });
                         };
+
+                        if (mem.eql(u8, pkg_name.?, "std") or mem.eql(u8, pkg_name.?, "root") or mem.eql(u8, pkg_name.?, "builtin")) {
+                            fatal("unable to add package '{s}' -> '{s}': conflicts with builtin package", .{ pkg_name.?, pkg_path.? });
+                        } else if (cur_pkg.table.get(pkg_name.?)) |prev| {
+                            fatal("unable to add package '{s}' -> '{s}': already exists as '{s}", .{ pkg_name.?, pkg_path.?, prev.root_src_path });
+                        }
                         try cur_pkg.addAndAdopt(gpa, pkg_name.?, new_cur_pkg);
                         cur_pkg = new_cur_pkg;
                     } else if (mem.eql(u8, arg, "--pkg-end")) {
