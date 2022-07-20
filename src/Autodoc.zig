@@ -361,21 +361,7 @@ const DocData = struct {
     /// `ComptimeExpr` represents the result of a piece of comptime logic
     /// that we weren't able to analyze fully. Examples of that are comptime
     /// function calls and comptime if / switch / ... expressions.
-    const DocTypeKinds = blk: {
-        var info = @typeInfo(std.builtin.TypeId);
-        const original_len = info.Enum.fields.len;
-        info.Enum.fields = info.Enum.fields ++ [2]std.builtin.TypeInfo.EnumField{
-            .{
-                .name = "ComptimeExpr",
-                .value = original_len,
-            },
-            .{
-                .name = "Unanalyzed",
-                .value = original_len + 1,
-            },
-        };
-        break :blk @Type(info);
-    };
+    const DocTypeKinds = @typeInfo(Type).Union.tag_type.?;
 
     const ComptimeExpr = struct {
         code: []const u8,
@@ -433,7 +419,7 @@ const DocData = struct {
         @"comptime": bool = false,
     };
 
-    const Type = union(DocTypeKinds) {
+    const Type = union(enum) {
         Unanalyzed: struct {},
         Type: struct { name: []const u8 },
         Void: struct { name: []const u8 },
