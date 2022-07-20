@@ -413,3 +413,25 @@ test "byte-aligned field pointer offsets" {
     try S.doTheTest();
     comptime try S.doTheTest();
 }
+
+test "load pointer from packed struct" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    const A = struct {
+        index: u16,
+    };
+    const B = packed struct {
+        x: *A,
+        y: u32,
+    };
+    var a: A = .{ .index = 123 };
+    var b_list: []B = &.{.{ .x = &a, .y = 99 }};
+    for (b_list) |b| {
+        var i = b.x.index;
+        try expect(i == 123);
+    }
+}
