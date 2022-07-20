@@ -1474,6 +1474,8 @@ pub const LibExeObjStep = struct {
     major_only_filename: ?[]const u8,
     name_only_filename: ?[]const u8,
     strip: bool,
+    // keep in sync with src/link.zig:CompressDebugSections
+    compress_debug_sections: enum { none, zlib } = .none,
     lib_paths: ArrayList([]const u8),
     rpaths: ArrayList([]const u8),
     framework_dirs: ArrayList([]const u8),
@@ -2688,6 +2690,12 @@ pub const LibExeObjStep = struct {
         if (self.strip) {
             try zig_args.append("--strip");
         }
+
+        switch (self.compress_debug_sections) {
+            .none => {},
+            .zlib => try zig_args.append("--compress-debug-sections=zlib"),
+        }
+
         if (self.link_eh_frame_hdr) {
             try zig_args.append("--eh-frame-hdr");
         }
