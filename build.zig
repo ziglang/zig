@@ -484,7 +484,20 @@ pub fn build(b: *Builder) !void {
     ));
 
     toolchain_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
-    toolchain_step.dependOn(tests.addStandaloneTests(b, test_filter, modes, skip_non_native, enable_macos_sdk, target, omit_stage2));
+    toolchain_step.dependOn(tests.addStandaloneTests(
+        b,
+        test_filter,
+        modes,
+        skip_non_native,
+        enable_macos_sdk,
+        target,
+        omit_stage2,
+        b.enable_darling,
+        b.enable_qemu,
+        b.enable_rosetta,
+        b.enable_wasmtime,
+        b.enable_wine,
+    ));
     toolchain_step.dependOn(tests.addLinkTests(b, test_filter, modes, enable_macos_sdk, omit_stage2));
     toolchain_step.dependOn(tests.addStackTraceTests(b, test_filter, modes));
     toolchain_step.dependOn(tests.addCliTests(b, test_filter, modes));
