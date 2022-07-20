@@ -5,7 +5,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
+// backend=llvm
 // target=native
 //
 // :4:9: error: array literal requires address-of operator (&) to coerce to slice type '[]i32'

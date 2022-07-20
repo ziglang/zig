@@ -19,7 +19,7 @@ comptime {
 
 // error
 // backend=stage2
-// target=native
+// target=x86_64-linux
 //
 // :2:19: error: function pointer alignment disagrees with function alignment
 // :16:19: error: function pointer alignment disagrees with function alignment
