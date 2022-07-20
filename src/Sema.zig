@@ -14559,13 +14559,23 @@ fn zirStructInitAnon(
         var runtime_src: ?LazySrcLoc = null;
         var extra_index = extra.end;
         for (types) |*field_ty, i| {
+            const init_src = src; // TODO better source location
             const item = sema.code.extraData(Zir.Inst.StructInitAnon.Item, extra_index);
             extra_index = item.end;
 
             names[i] = sema.code.nullTerminatedString(item.data.field_name);
             const init = try sema.resolveInst(item.data.init);
             field_ty.* = sema.typeOf(init);
-            const init_src = src; // TODO better source location
+            if (types[i].zigTypeTag() == .Opaque) {
+                const msg = msg: {
+                    const msg = try sema.errMsg(block, init_src, "opaque types have unknown size and therefore cannot be directly embedded in structs", .{});
+                    errdefer msg.destroy(sema.gpa);
+
+                    try sema.addDeclaredHereNote(msg, types[i]);
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(block, msg);
+            }
             if (try sema.resolveMaybeUndefVal(block, init_src, init)) |init_val| {
                 values[i] = init_val;
             } else {
@@ -14742,9 +14752,19 @@ fn zirArrayInitAnon(
     const opt_runtime_src = rs: {
         var runtime_src: ?LazySrcLoc = null;
         for (operands) |operand, i| {
+            const operand_src = src; // TODO better source location
             const elem = try sema.resolveInst(operand);
             types[i] = sema.typeOf(elem);
-            const operand_src = src; // TODO better source location
+            if (types[i].zigTypeTag() == .Opaque) {
+                const msg = msg: {
+                    const msg = try sema.errMsg(block, operand_src, "opaque types have unknown size and therefore cannot be directly embedded in structs", .{});
+                    errdefer msg.destroy(sema.gpa);
+
+                    try sema.addDeclaredHereNote(msg, types[i]);
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(block, msg);
+            }
             if (try sema.resolveMaybeUndefVal(block, operand_src, elem)) |val| {
                 values[i] = val;
             } else {
@@ -18641,6 +18661,8 @@ const ExternPosition = enum {
     other,
 };
 
+/// Returns true if `ty` is allowed in extern types.
+/// Does *NOT* require `ty` to be resolved in any way.
 fn validateExternType(sema: *Sema, ty: Type, position: ExternPosition) CompileError!bool {
     switch (ty.zigTypeTag()) {
         .Type,
@@ -25214,20 +25236,6 @@ fn resolveStructFully(
         struct_obj.status = .fully_resolved_wip;
         for (struct_obj.fields.values()) |field| {
             try sema.resolveTypeFully(block, src, field.ty);
-
-            if (struct_obj.layout == .Extern and !(try sema.validateExternType(field.ty, .other))) {
-                const msg = msg: {
-                    const msg = try sema.errMsg(block, src, "extern structs cannot contain fields of type '{}'", .{field.ty.fmt(sema.mod)});
-                    errdefer msg.destroy(sema.gpa);
-
-                    const src_decl = sema.mod.declPtr(block.src_decl);
-                    try sema.explainWhyTypeIsNotExtern(block, src, msg, src.toSrcLoc(src_decl), field.ty, .other);
-
-                    try sema.addDeclaredHereNote(msg, field.ty);
-                    break :msg msg;
-                };
-                return sema.failWithOwnedErrorMsg(block, msg);
-            }
         }
         struct_obj.status = .fully_resolved;
     }
@@ -25261,20 +25269,6 @@ fn resolveUnionFully(
         union_obj.status = .fully_resolved_wip;
         for (union_obj.fields.values()) |field| {
             try sema.resolveTypeFully(block, src, field.ty);
-
-            if (union_obj.layout == .Extern and !(try sema.validateExternType(field.ty, .union_field))) {
-                const msg = msg: {
-                    const msg = try sema.errMsg(block, src, "extern unions cannot contain fields of type '{}'", .{field.ty.fmt(sema.mod)});
-                    errdefer msg.destroy(sema.gpa);
-
-                    const src_decl = sema.mod.declPtr(block.src_decl);
-                    try sema.explainWhyTypeIsNotExtern(block, src, msg, src.toSrcLoc(src_decl), field.ty, .union_field);
-
-                    try sema.addDeclaredHereNote(msg, field.ty);
-                    break :msg msg;
-                };
-                return sema.failWithOwnedErrorMsg(block, msg);
-            }
         }
         union_obj.status = .fully_resolved;
     }
@@ -25612,6 +25606,33 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
         const field = &struct_obj.fields.values()[i];
         field.ty = try field_ty.copy(decl_arena_allocator);
 
+        if (struct_obj.layout == .Extern and !(try sema.validateExternType(field.ty, .other))) {
+            const msg = msg: {
+                const tree = try sema.getAstTree(&block_scope);
+                const fields_src = enumFieldSrcLoc(decl, tree.*, struct_obj.node_offset, i);
+                const msg = try sema.errMsg(&block_scope, fields_src, "extern structs cannot contain fields of type '{}'", .{field.ty.fmt(sema.mod)});
+                errdefer msg.destroy(sema.gpa);
+
+                try sema.explainWhyTypeIsNotExtern(&block_scope, fields_src, msg, fields_src.toSrcLoc(decl), field.ty, .other);
+
+                try sema.addDeclaredHereNote(msg, field.ty);
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(&block_scope, msg);
+        }
+        if (field_ty.zigTypeTag() == .Opaque) {
+            const msg = msg: {
+                const tree = try sema.getAstTree(&block_scope);
+                const field_src = enumFieldSrcLoc(decl, tree.*, struct_obj.node_offset, i);
+                const msg = try sema.errMsg(&block_scope, field_src, "opaque types have unknown size and therefore cannot be directly embedded in structs", .{});
+                errdefer msg.destroy(sema.gpa);
+
+                try sema.addDeclaredHereNote(msg, field_ty);
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(&block_scope, msg);
+        }
+
         if (zir_field.align_body_len > 0) {
             const body = zir.extra[extra_index..][0..zir_field.align_body_len];
             extra_index += body.len;
@@ -25907,6 +25928,33 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
                 };
                 return sema.failWithOwnedErrorMsg(&block_scope, msg);
             }
+        }
+
+        if (union_obj.layout == .Extern and !(try sema.validateExternType(field_ty, .union_field))) {
+            const msg = msg: {
+                const tree = try sema.getAstTree(&block_scope);
+                const field_src = enumFieldSrcLoc(decl, tree.*, union_obj.node_offset, field_i);
+                const msg = try sema.errMsg(&block_scope, field_src, "extern unions cannot contain fields of type '{}'", .{field_ty.fmt(sema.mod)});
+                errdefer msg.destroy(sema.gpa);
+
+                try sema.explainWhyTypeIsNotExtern(&block_scope, field_src, msg, field_src.toSrcLoc(decl), field_ty, .union_field);
+
+                try sema.addDeclaredHereNote(msg, field_ty);
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(&block_scope, msg);
+        }
+        if (field_ty.zigTypeTag() == .Opaque) {
+            const msg = msg: {
+                const tree = try sema.getAstTree(&block_scope);
+                const field_src = enumFieldSrcLoc(decl, tree.*, union_obj.node_offset, field_i);
+                const msg = try sema.errMsg(&block_scope, field_src, "opaque types have unknown size and therefore cannot be directly embedded in unions", .{});
+                errdefer msg.destroy(sema.gpa);
+
+                try sema.addDeclaredHereNote(msg, field_ty);
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(&block_scope, msg);
         }
 
         gop.value_ptr.* = .{
