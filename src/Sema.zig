@@ -4687,6 +4687,10 @@ fn resolveBlockBody(
             return sema.analyzeBlockBody(parent_block, src, child_block, merges);
         } else |err| switch (err) {
             error.ComptimeBreak => {
+                // Comptime control flow is happening, however child_block may still contain
+                // runtime instructions which need to be copied to the parent block.
+                try parent_block.instructions.appendSlice(sema.gpa, child_block.instructions.items);
+
                 const break_inst = sema.comptime_break_inst;
                 const break_data = sema.code.instructions.items(.data)[break_inst].@"break";
                 if (break_data.block_inst == body_inst) {

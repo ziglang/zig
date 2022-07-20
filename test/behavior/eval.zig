@@ -1261,3 +1261,14 @@ test "comptime write through extern struct reinterpreted as array" {
         assert(s.c == 3);
     }
 }
+
+test "continue nested in a conditional in an inline for" {
+    var x: u32 = 1;
+    inline for ([_]u8{ 1, 2, 3 }) |_| {
+        if (1 == 1) {
+            x = 0;
+            continue;
+        }
+    }
+    try expect(x == 0);
+}
