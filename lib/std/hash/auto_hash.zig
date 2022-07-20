@@ -375,6 +375,12 @@ test "testHash struct" {
 }
 
 test "testHash union" {
+    const builtin = @import("builtin");
+    if (builtin.zig_backend == .stage2_llvm and builtin.mode == .ReleaseSafe) {
+        // https://github.com/ziglang/zig/issues/12178
+        return error.SkipZigTest;
+    }
+
     const Foo = union(enum) {
         A: u32,
         B: bool,
