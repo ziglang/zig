@@ -285,12 +285,7 @@ fn filterRelocs(
 }
 
 /// Splits object into atoms assuming one-shot linking mode.
-pub fn splitIntoAtomsOneShot(
-    self: *Object,
-    macho_file: *MachO,
-    object_id: u32,
-    gc_roots: ?*std.AutoHashMap(*Atom, void),
-) !void {
+pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) !void {
     assert(macho_file.mode == .one_shot);
 
     const tracy = trace(@src());
@@ -338,10 +333,7 @@ pub fn splitIntoAtomsOneShot(
 
     // We only care about defined symbols, so filter every other out.
     const sorted_syms = sorted_all_syms.items[0..iundefsym];
-    const dead_strip = macho_file.base.options.gc_sections orelse false;
-    const subsections_via_symbols = self.header.flags & macho.MH_SUBSECTIONS_VIA_SYMBOLS != 0 and
-        (macho_file.base.options.optimize_mode != .Debug or dead_strip);
-    // const subsections_via_symbols = self.header.flags & macho.MH_SUBSECTIONS_VIA_SYMBOLS != 0;
+    const subsections_via_symbols = self.header.flags & macho.MH_SUBSECTIONS_VIA_SYMBOLS != 0;
 
     for (seg.sections.items) |sect, id| {
         const sect_id = @intCast(u8, id);
@@ -417,7 +409,6 @@ pub fn splitIntoAtomsOneShot(
                     &.{},
                     match,
                     sect,
-                    gc_roots,
                 );
                 try macho_file.addAtomToSection(atom, match);
             }
@@ -473,7 +464,6 @@ pub fn splitIntoAtomsOneShot(
                     sorted_atom_syms.items[1..],
                     match,
                     sect,
-                    gc_roots,
                 );
 
                 if (arch == .x86_64 and addr == sect.addr) {
@@ -528,7 +518,6 @@ pub fn splitIntoAtomsOneShot(
                 filtered_syms,
                 match,
                 sect,
-                gc_roots,
             );
             try macho_file.addAtomToSection(atom, match);
         }
@@ -547,7 +536,6 @@ fn createAtomFromSubsection(
     indexes: []const SymbolAtIndex,
     match: MatchingSection,
     sect: macho.section_64,
-    gc_roots: ?*std.AutoHashMap(*Atom, void),
 ) !*Atom {
     const gpa = macho_file.base.allocator;
     const sym = self.symtab.items[sym_index];
@@ -597,21 +585,6 @@ fn createAtomFromSubsection(
         try self.atom_by_index_table.putNoClobber(gpa, inner_sym_index.index, atom);
     }
 
-    if (gc_roots) |gcr| {
-        const is_gc_root = blk: {
-            if (sect.isDontDeadStrip()) break :blk true;
-            switch (sect.type_()) {
-                macho.S_MOD_INIT_FUNC_POINTERS,
-                macho.S_MOD_TERM_FUNC_POINTERS,
-                => break :blk true,
-                else => break :blk false,
-            }
-        };
-        if (is_gc_root) {
-            try gcr.putNoClobber(atom, {});
-        }
-    }
-
     return atom;
 }
 
@@ -633,6 +606,18 @@ pub fn getSourceSymtab(self: Object) []const macho.nlist_64 {
     );
 }
 
+pub fn getSourceSymbol(self: Object, index: u32) ?macho.nlist_64 {
+    const symtab = self.getSourceSymtab();
+    if (index >= symtab.len) return null;
+    return symtab[index];
+}
+
+pub fn getSourceSection(self: Object, index: u16) macho.section_64 {
+    const seg = self.load_commands.items[self.segment_cmd_index.?].segment;
+    assert(index < seg.sections.items.len);
+    return seg.sections.items[index];
+}
+
 pub fn parseDataInCode(self: Object) ?[]const macho.data_in_code_entry {
     const index = self.data_in_code_cmd_index orelse return null;
     const data_in_code = self.load_commands.items[index].linkedit_data;
@@ -643,8 +628,8 @@ pub fn parseDataInCode(self: Object) ?[]const macho.data_in_code_entry {
     );
 }
 
-pub fn getSectionContents(self: Object, sect_id: u16) error{Overflow}![]const u8 {
-    const sect = self.getSection(sect_id);
+pub fn getSectionContents(self: Object, index: u16) error{Overflow}![]const u8 {
+    const sect = self.getSourceSection(index);
     const size = math.cast(usize, sect.size) orelse return error.Overflow;
     log.debug("getting {s},{s} data at 0x{x} - 0x{x}", .{
         sect.segName(),
@@ -658,12 +643,6 @@ pub fn getSectionContents(self: Object, sect_id: u16) error{Overflow}![]const u8
 pub fn getString(self: Object, off: u32) []const u8 {
     assert(off < self.strtab.len);
     return mem.sliceTo(@ptrCast([*:0]const u8, self.strtab.ptr + off), 0);
-}
-
-pub fn getSection(self: Object, n_sect: u16) macho.section_64 {
-    const seg = self.load_commands.items[self.segment_cmd_index.?].segment;
-    assert(n_sect < seg.sections.items.len);
-    return seg.sections.items[n_sect];
 }
 
 pub fn getAtomForSymbol(self: Object, sym_index: u32) ?*Atom {
