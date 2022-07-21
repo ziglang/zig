@@ -144,6 +144,9 @@ pub const Block = struct {
     /// when null, it is determined by build mode, changed by @setRuntimeSafety
     want_safety: ?bool = null,
 
+    /// What mode to generate float operations in, set by @setFloatMode
+    float_mode: std.builtin.FloatMode = .Strict,
+
     c_import_buf: ?*std.ArrayList(u8) = null,
 
     /// type of `err` in `else => |err|`
@@ -206,6 +209,7 @@ pub const Block = struct {
             .runtime_loop = parent.runtime_loop,
             .runtime_index = parent.runtime_index,
             .want_safety = parent.want_safety,
+            .float_mode = parent.float_mode,
             .c_import_buf = parent.c_import_buf,
             .switch_else_err_ty = parent.switch_else_err_ty,
         };
@@ -414,7 +418,7 @@ pub const Block = struct {
 
     fn addCmpVector(block: *Block, lhs: Air.Inst.Ref, rhs: Air.Inst.Ref, cmp_op: std.math.CompareOperator, vector_ty: Air.Inst.Ref) !Air.Inst.Ref {
         return block.addInst(.{
-            .tag = .cmp_vector,
+            .tag = if (block.float_mode == .Optimized) .cmp_vector_optimized else .cmp_vector,
             .data = .{ .ty_pl = .{
                 .ty = vector_ty,
                 .payload = try block.sema.addExtra(Air.VectorCmp{
@@ -714,10 +718,10 @@ fn analyzeBodyInner(
             .closure_get                  => try sema.zirClosureGet(block, inst),
             .cmp_lt                       => try sema.zirCmp(block, inst, .lt),
             .cmp_lte                      => try sema.zirCmp(block, inst, .lte),
-            .cmp_eq                       => try sema.zirCmpEq(block, inst, .eq, .cmp_eq),
+            .cmp_eq                       => try sema.zirCmpEq(block, inst, .eq, Air.Inst.Tag.fromCmpOp(.eq, block.float_mode == .Optimized)),
             .cmp_gte                      => try sema.zirCmp(block, inst, .gte),
             .cmp_gt                       => try sema.zirCmp(block, inst, .gt),
-            .cmp_neq                      => try sema.zirCmpEq(block, inst, .neq, .cmp_neq),
+            .cmp_neq                      => try sema.zirCmpEq(block, inst, .neq, Air.Inst.Tag.fromCmpOp(.neq, block.float_mode == .Optimized)),
             .coerce_result_ptr            => try sema.zirCoerceResultPtr(block, inst),
             .decl_ref                     => try sema.zirDeclRef(block, inst),
             .decl_val                     => try sema.zirDeclVal(block, inst),
@@ -4705,6 +4709,7 @@ fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErro
         .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
         .want_safety = parent_block.want_safety,
+        .float_mode = parent_block.float_mode,
     };
 
     defer child_block.instructions.deinit(gpa);
@@ -5042,13 +5047,7 @@ fn zirSetCold(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!voi
 fn zirSetFloatMode(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!void {
     const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
     const src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
-    const float_mode = try sema.resolveBuiltinEnum(block, src, extra.operand, "FloatMode", "operand to @setFloatMode must be comptime known");
-    switch (float_mode) {
-        .Strict => return,
-        .Optimized => {
-            // TODO implement optimized float mode
-        },
-    }
+    block.float_mode = try sema.resolveBuiltinEnum(block, src, extra.operand, "FloatMode", "operand to @setFloatMode must be comptime known");
 }
 
 fn zirSetRuntimeSafety(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
@@ -8092,7 +8091,7 @@ fn intCast(
                 const ok = if (is_vector) ok: {
                     const is_in_range = try block.addCmpVector(diff_unsigned, dest_range, .lte, try sema.addType(operand_ty));
                     const all_in_range = try block.addInst(.{
-                        .tag = .reduce,
+                        .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
                         .data = .{ .reduce = .{
                             .operand = is_in_range,
                             .operation = .And,
@@ -8109,7 +8108,7 @@ fn intCast(
                 const ok = if (is_vector) ok: {
                     const is_in_range = try block.addCmpVector(diff, dest_max, .lte, try sema.addType(operand_ty));
                     const all_in_range = try block.addInst(.{
-                        .tag = .reduce,
+                        .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
                         .data = .{ .reduce = .{
                             .operand = is_in_range,
                             .operation = .And,
@@ -8130,7 +8129,7 @@ fn intCast(
                 const zero_inst = try sema.addConstant(operand_ty, zero_val);
                 const is_in_range = try block.addCmpVector(operand, zero_inst, .gte, try sema.addType(operand_ty));
                 const all_in_range = try block.addInst(.{
-                    .tag = .reduce,
+                    .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
                     .data = .{ .reduce = .{
                         .operand = is_in_range,
                         .operation = .And,
@@ -9391,7 +9390,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         } else {
             for (items) |item_ref| {
                 const item = try sema.resolveInst(item_ref);
-                const cmp_ok = try case_block.addBinOp(.cmp_eq, operand, item);
+                const cmp_ok = try case_block.addBinOp(if (case_block.float_mode == .Optimized) .cmp_eq_optimized else .cmp_eq, operand, item);
                 if (any_ok != .none) {
                     any_ok = try case_block.addBinOp(.bool_or, any_ok, cmp_ok);
                 } else {
@@ -9411,12 +9410,12 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
                 // operand >= first and operand <= last
                 const range_first_ok = try case_block.addBinOp(
-                    .cmp_gte,
+                    if (case_block.float_mode == .Optimized) .cmp_gte_optimized else .cmp_gte,
                     operand,
                     item_first,
                 );
                 const range_last_ok = try case_block.addBinOp(
-                    .cmp_lte,
+                    if (case_block.float_mode == .Optimized) .cmp_lte_optimized else .cmp_lte,
                     operand,
                     item_last,
                 );
@@ -10023,7 +10022,7 @@ fn zirShl(
         const ov_bit = try sema.tupleFieldValByIndex(block, src, op_ov, 1, op_ov_tuple_ty);
         const any_ov_bit = if (lhs_ty.zigTypeTag() == .Vector)
             try block.addInst(.{
-                .tag = .reduce,
+                .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
                 .data = .{ .reduce = .{
                     .operand = ov_bit,
                     .operation = .Or,
@@ -10120,7 +10119,7 @@ fn zirShr(
         const ok = if (rhs_ty.zigTypeTag() == .Vector) ok: {
             const eql = try block.addCmpVector(lhs, back, .eq, try sema.addType(rhs_ty));
             break :ok try block.addInst(.{
-                .tag = .reduce,
+                .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
                 .data = .{ .reduce = .{
                     .operand = eql,
                     .operation = .And,
@@ -10719,7 +10718,7 @@ fn zirNegate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             return sema.addConstant(rhs_ty, try rhs_val.floatNeg(rhs_ty, sema.arena, target));
         }
         try sema.requireRuntimeBlock(block, src, null);
-        return block.addUnOp(.neg, rhs);
+        return block.addUnOp(if (block.float_mode == .Optimized) .neg_optimized else .neg, rhs);
     }
 
     const lhs = if (rhs_ty.zigTypeTag() == .Vector)
@@ -11078,6 +11077,7 @@ fn analyzeArithmetic(
                         return casted_lhs;
                     }
                 }
+                const air_tag: Air.Inst.Tag = if (block.float_mode == .Optimized) .add_optimized else .add;
                 if (maybe_lhs_val) |lhs_val| {
                     if (lhs_val.isUndef()) {
                         if (is_int) {
@@ -11100,8 +11100,8 @@ fn analyzeArithmetic(
                                 try sema.floatAdd(lhs_val, rhs_val, resolved_type),
                             );
                         }
-                    } else break :rs .{ .src = rhs_src, .air_tag = .add };
-                } else break :rs .{ .src = lhs_src, .air_tag = .add };
+                    } else break :rs .{ .src = rhs_src, .air_tag = air_tag };
+                } else break :rs .{ .src = lhs_src, .air_tag = air_tag };
             },
             .addwrap => {
                 // Integers only; floats are checked above.
@@ -11112,6 +11112,7 @@ fn analyzeArithmetic(
                         return casted_rhs;
                     }
                 }
+                const air_tag: Air.Inst.Tag = if (block.float_mode == .Optimized) .addwrap_optimized else .addwrap;
                 if (maybe_rhs_val) |rhs_val| {
                     if (rhs_val.isUndef()) {
                         return sema.addConstUndef(resolved_type);
@@ -11124,8 +11125,8 @@ fn analyzeArithmetic(
                             resolved_type,
                             try sema.numberAddWrap(block, src, lhs_val, rhs_val, resolved_type),
                         );
-                    } else break :rs .{ .src = lhs_src, .air_tag = .addwrap };
-                } else break :rs .{ .src = rhs_src, .air_tag = .addwrap };
+                    } else break :rs .{ .src = lhs_src, .air_tag = air_tag };
+                } else break :rs .{ .src = rhs_src, .air_tag = air_tag };
             },
             .add_sat => {
                 // Integers only; floats are checked above.
@@ -11173,6 +11174,7 @@ fn analyzeArithmetic(
                         return casted_lhs;
                     }
                 }
+                const air_tag: Air.Inst.Tag = if (block.float_mode == .Optimized) .sub_optimized else .sub;
                 if (maybe_lhs_val) |lhs_val| {
                     if (lhs_val.isUndef()) {
                         if (is_int) {
@@ -11195,8 +11197,8 @@ fn analyzeArithmetic(
                                 try sema.floatSub(lhs_val, rhs_val, resolved_type),
                             );
                         }
-                    } else break :rs .{ .src = rhs_src, .air_tag = .sub };
-                } else break :rs .{ .src = lhs_src, .air_tag = .sub };
+                    } else break :rs .{ .src = rhs_src, .air_tag = air_tag };
+                } else break :rs .{ .src = lhs_src, .air_tag = air_tag };
             },
             .subwrap => {
                 // Integers only; floats are checked above.
@@ -11210,6 +11212,7 @@ fn analyzeArithmetic(
                         return casted_lhs;
                     }
                 }
+                const air_tag: Air.Inst.Tag = if (block.float_mode == .Optimized) .subwrap_optimized else .subwrap;
                 if (maybe_lhs_val) |lhs_val| {
                     if (lhs_val.isUndef()) {
                         return sema.addConstUndef(resolved_type);
@@ -11219,8 +11222,8 @@ fn analyzeArithmetic(
                             resolved_type,
                             try sema.numberSubWrap(block, src, lhs_val, rhs_val, resolved_type),
                         );
-                    } else break :rs .{ .src = rhs_src, .air_tag = .subwrap };
-                } else break :rs .{ .src = lhs_src, .air_tag = .subwrap };
+                    } else break :rs .{ .src = rhs_src, .air_tag = air_tag };
+                } else break :rs .{ .src = lhs_src, .air_tag = air_tag };
             },
             .sub_sat => {
                 // Integers only; floats are checked above.
@@ -11327,14 +11330,14 @@ fn analyzeArithmetic(
                         if (is_int) {
                             break :rs .{ .src = rhs_src, .air_tag = .div_trunc };
                         } else {
-                            break :rs .{ .src = rhs_src, .air_tag = .div_float };
+                            break :rs .{ .src = rhs_src, .air_tag = if (block.float_mode == .Optimized) .div_float_optimized else .div_float };
                         }
                     }
                 } else {
                     if (is_int) {
                         break :rs .{ .src = lhs_src, .air_tag = .div_trunc };
                     } else {
-                        break :rs .{ .src = lhs_src, .air_tag = .div_float };
+                        break :rs .{ .src = lhs_src, .air_tag = if (block.float_mode == .Optimized) .div_float_optimized else .div_float };
                     }
                 }
             },
@@ -11373,6 +11376,7 @@ fn analyzeArithmetic(
                         return sema.failWithDivideByZero(block, rhs_src);
                     }
                 }
+                const air_tag: Air.Inst.Tag = if (block.float_mode == .Optimized) .div_trunc_optimized else .div_trunc;
                 if (maybe_lhs_val) |lhs_val| {
                     if (lhs_val.isUndef()) {
                         if (lhs_scalar_ty.isSignedInt() and rhs_scalar_ty.isSignedInt()) {
@@ -11398,8 +11402,8 @@ fn analyzeArithmetic(
                                 try lhs_val.floatDivTrunc(rhs_val, resolved_type, sema.arena, target),
                             );
                         }
-                    } else break :rs .{ .src = rhs_src, .air_tag = .div_trunc };
-                } else break :rs .{ .src = lhs_src, .air_tag = .div_trunc };
+                    } else break :rs .{ .src = rhs_src, .air_tag = air_tag };
+                } else break :rs .{ .src = lhs_src, .air_tag = air_tag };
             },
             .div_floor => {
                 // For integers:
@@ -11436,6 +11440,7 @@ fn analyzeArithmetic(
                         return sema.failWithDivideByZero(block, rhs_src);
                     }
                 }
+                const air_tag: Air.Inst.Tag = if (block.float_mode == .Optimized) .div_floor_optimized else .div_floor;
                 if (maybe_lhs_val) |lhs_val| {
                     if (lhs_val.isUndef()) {
                         if (lhs_scalar_ty.isSignedInt() and rhs_scalar_ty.isSignedInt()) {
@@ -11461,8 +11466,8 @@ fn analyzeArithmetic(
                                 try lhs_val.floatDivFloor(rhs_val, resolved_type, sema.arena, target),
                             );
                         }
-                    } else break :rs .{ .src = rhs_src, .air_tag = .div_floor };
-                } else break :rs .{ .src = lhs_src, .air_tag = .div_floor };
+                    } else break :rs .{ .src = rhs_src, .air_tag = air_tag };
+                } else break :rs .{ .src = lhs_src, .air_tag = air_tag };
             },
             .div_exact => {
                 // For integers:
@@ -11498,6 +11503,7 @@ fn analyzeArithmetic(
                         return sema.failWithDivideByZero(block, rhs_src);
                     }
                 }
+                const air_tag: Air.Inst.Tag = if (block.float_mode == .Optimized) .div_exact_optimized else .div_exact;
                 if (maybe_lhs_val) |lhs_val| {
                     if (maybe_rhs_val) |rhs_val| {
                         if (is_int) {
@@ -11513,8 +11519,8 @@ fn analyzeArithmetic(
                                 try lhs_val.floatDiv(rhs_val, resolved_type, sema.arena, target),
                             );
                         }
-                    } else break :rs .{ .src = rhs_src, .air_tag = .div_exact };
-                } else break :rs .{ .src = lhs_src, .air_tag = .div_exact };
+                    } else break :rs .{ .src = rhs_src, .air_tag = air_tag };
+                } else break :rs .{ .src = lhs_src, .air_tag = air_tag };
             },
             .mul => {
                 // For integers:
@@ -11535,6 +11541,7 @@ fn analyzeArithmetic(
                         }
                     }
                 }
+                const air_tag: Air.Inst.Tag = if (block.float_mode == .Optimized) .mul_optimized else .mul;
                 if (maybe_rhs_val) |rhs_val| {
                     if (rhs_val.isUndef()) {
                         if (is_int) {
@@ -11570,8 +11577,8 @@ fn analyzeArithmetic(
                                 try lhs_val.floatMul(rhs_val, resolved_type, sema.arena, target),
                             );
                         }
-                    } else break :rs .{ .src = lhs_src, .air_tag = .mul };
-                } else break :rs .{ .src = rhs_src, .air_tag = .mul };
+                    } else break :rs .{ .src = lhs_src, .air_tag = air_tag };
+                } else break :rs .{ .src = rhs_src, .air_tag = air_tag };
             },
             .mulwrap => {
                 // Integers only; floats are handled above.
@@ -11588,6 +11595,7 @@ fn analyzeArithmetic(
                         }
                     }
                 }
+                const air_tag: Air.Inst.Tag = if (block.float_mode == .Optimized) .mulwrap_optimized else .mulwrap;
                 if (maybe_rhs_val) |rhs_val| {
                     if (rhs_val.isUndef()) {
                         return sema.addConstUndef(resolved_type);
@@ -11606,8 +11614,8 @@ fn analyzeArithmetic(
                             resolved_type,
                             try lhs_val.numberMulWrap(rhs_val, resolved_type, sema.arena, target),
                         );
-                    } else break :rs .{ .src = lhs_src, .air_tag = .mulwrap };
-                } else break :rs .{ .src = rhs_src, .air_tag = .mulwrap };
+                    } else break :rs .{ .src = lhs_src, .air_tag = air_tag };
+                } else break :rs .{ .src = rhs_src, .air_tag = air_tag };
             },
             .mul_sat => {
                 // Integers only; floats are checked above.
@@ -11777,6 +11785,7 @@ fn analyzeArithmetic(
                         return sema.failWithDivideByZero(block, rhs_src);
                     }
                 }
+                const air_tag: Air.Inst.Tag = if (block.float_mode == .Optimized) .rem_optimized else .rem;
                 if (maybe_lhs_val) |lhs_val| {
                     if (lhs_val.isUndef()) {
                         return sema.addConstUndef(resolved_type);
@@ -11786,8 +11795,8 @@ fn analyzeArithmetic(
                             resolved_type,
                             try lhs_val.floatRem(rhs_val, resolved_type, sema.arena, target),
                         );
-                    } else break :rs .{ .src = rhs_src, .air_tag = .rem };
-                } else break :rs .{ .src = lhs_src, .air_tag = .rem };
+                    } else break :rs .{ .src = rhs_src, .air_tag = air_tag };
+                } else break :rs .{ .src = lhs_src, .air_tag = air_tag };
             },
             .mod => {
                 // For integers:
@@ -11834,6 +11843,7 @@ fn analyzeArithmetic(
                         return sema.failWithDivideByZero(block, rhs_src);
                     }
                 }
+                const air_tag: Air.Inst.Tag = if (block.float_mode == .Optimized) .mod_optimized else .mod;
                 if (maybe_lhs_val) |lhs_val| {
                     if (lhs_val.isUndef()) {
                         return sema.addConstUndef(resolved_type);
@@ -11843,8 +11853,8 @@ fn analyzeArithmetic(
                             resolved_type,
                             try lhs_val.floatMod(rhs_val, resolved_type, sema.arena, target),
                         );
-                    } else break :rs .{ .src = rhs_src, .air_tag = .mod };
-                } else break :rs .{ .src = lhs_src, .air_tag = .mod };
+                    } else break :rs .{ .src = rhs_src, .air_tag = air_tag };
+                } else break :rs .{ .src = lhs_src, .air_tag = air_tag };
             },
             else => unreachable,
         }
@@ -11874,7 +11884,7 @@ fn analyzeArithmetic(
                 const ov_bit = try sema.tupleFieldValByIndex(block, src, op_ov, 1, op_ov_tuple_ty);
                 const any_ov_bit = if (resolved_type.zigTypeTag() == .Vector)
                     try block.addInst(.{
-                        .tag = .reduce,
+                        .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
                         .data = .{ .reduce = .{
                             .operand = ov_bit,
                             .operation = .Or,
@@ -11890,13 +11900,17 @@ fn analyzeArithmetic(
             }
         }
         switch (rs.air_tag) {
-            .div_float, .div_exact, .div_trunc, .div_floor => {
+            // zig fmt: off
+            .div_float, .div_exact, .div_trunc, .div_floor, .div_float_optimized,
+            .div_exact_optimized, .div_trunc_optimized, .div_floor_optimized
+            // zig fmt: on
+            => if (scalar_tag == .Int or block.float_mode == .Optimized) {
                 const ok = if (resolved_type.zigTypeTag() == .Vector) ok: {
                     const zero_val = try Value.Tag.repeated.create(sema.arena, Value.zero);
                     const zero = try sema.addConstant(sema.typeOf(casted_rhs), zero_val);
                     const ok = try block.addCmpVector(casted_rhs, zero, .neq, try sema.addType(resolved_type));
                     break :ok try block.addInst(.{
-                        .tag = .reduce,
+                        .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
                         .data = .{ .reduce = .{
                             .operand = ok,
                             .operation = .And,
@@ -11904,17 +11918,17 @@ fn analyzeArithmetic(
                     });
                 } else ok: {
                     const zero = try sema.addConstant(sema.typeOf(casted_rhs), Value.zero);
-                    break :ok try block.addBinOp(.cmp_neq, casted_rhs, zero);
+                    break :ok try block.addBinOp(if (block.float_mode == .Optimized) .cmp_neq_optimized else .cmp_neq, casted_rhs, zero);
                 };
                 try sema.addSafetyCheck(block, ok, .divide_by_zero);
             },
-            .rem, .mod => {
+            .rem, .mod, .rem_optimized, .mod_optimized => {
                 const ok = if (resolved_type.zigTypeTag() == .Vector) ok: {
                     const zero_val = try Value.Tag.repeated.create(sema.arena, Value.zero);
                     const zero = try sema.addConstant(sema.typeOf(casted_rhs), zero_val);
                     const ok = try block.addCmpVector(casted_rhs, zero, if (scalar_tag == .Int) .gt else .neq, try sema.addType(resolved_type));
                     break :ok try block.addInst(.{
-                        .tag = .reduce,
+                        .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
                         .data = .{ .reduce = .{
                             .operand = ok,
                             .operation = .And,
@@ -11922,13 +11936,19 @@ fn analyzeArithmetic(
                     });
                 } else ok: {
                     const zero = try sema.addConstant(sema.typeOf(casted_rhs), Value.zero);
-                    break :ok try block.addBinOp(if (scalar_tag == .Int) .cmp_gt else .cmp_neq, casted_rhs, zero);
+                    const air_tag = if (scalar_tag == .Int)
+                        Air.Inst.Tag.cmp_gt
+                    else if (block.float_mode == .Optimized)
+                        Air.Inst.Tag.cmp_neq_optimized
+                    else
+                        Air.Inst.Tag.cmp_neq;
+                    break :ok try block.addBinOp(air_tag, casted_rhs, zero);
                 };
                 try sema.addSafetyCheck(block, ok, .remainder_division_zero_negative);
             },
             else => {},
         }
-        if (rs.air_tag == .div_exact) {
+        if (rs.air_tag == .div_exact or rs.air_tag == .div_exact_optimized) {
             const result = try block.addBinOp(.div_exact, casted_lhs, casted_rhs);
             const ok = if (scalar_tag == .Float) ok: {
                 const floored = try block.addUnOp(.floor, result);
@@ -11936,14 +11956,14 @@ fn analyzeArithmetic(
                 if (resolved_type.zigTypeTag() == .Vector) {
                     const eql = try block.addCmpVector(result, floored, .eq, try sema.addType(resolved_type));
                     break :ok try block.addInst(.{
-                        .tag = .reduce,
+                        .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
                         .data = .{ .reduce = .{
                             .operand = eql,
                             .operation = .And,
                         } },
                     });
                 } else {
-                    const is_in_range = try block.addBinOp(.cmp_eq, result, floored);
+                    const is_in_range = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_eq_optimized else .cmp_eq, result, floored);
                     break :ok is_in_range;
                 }
             } else ok: {
@@ -11962,7 +11982,7 @@ fn analyzeArithmetic(
                     });
                 } else {
                     const zero = try sema.addConstant(sema.typeOf(casted_rhs), Value.zero);
-                    const is_in_range = try block.addBinOp(.cmp_eq, remainder, zero);
+                    const is_in_range = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_eq_optimized else .cmp_eq, remainder, zero);
                     break :ok is_in_range;
                 }
             };
@@ -12476,7 +12496,7 @@ fn cmpSelf(
         const result_ty_ref = try sema.addType(result_ty);
         return block.addCmpVector(casted_lhs, casted_rhs, op, result_ty_ref);
     }
-    const tag = Air.Inst.Tag.fromCmpOp(op);
+    const tag = Air.Inst.Tag.fromCmpOp(op, block.float_mode == .Optimized);
     return block.addBinOp(tag, casted_lhs, casted_rhs);
 }
 
@@ -15954,12 +15974,12 @@ fn zirFloatToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     }
 
     try sema.requireRuntimeBlock(block, inst_data.src(), operand_src);
-    const result = try block.addTyOp(.float_to_int, dest_ty, operand);
+    const result = try block.addTyOp(if (block.float_mode == .Optimized) .float_to_int_optimized else .float_to_int, dest_ty, operand);
     if (block.wantSafety()) {
         const back = try block.addTyOp(.int_to_float, operand_ty, result);
         const diff = try block.addBinOp(.sub, operand, back);
-        const ok_pos = try block.addBinOp(.cmp_lt, diff, try sema.addConstant(operand_ty, Value.one));
-        const ok_neg = try block.addBinOp(.cmp_gt, diff, try sema.addConstant(operand_ty, Value.negative_one));
+        const ok_pos = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_lt_optimized else .cmp_lt, diff, try sema.addConstant(operand_ty, Value.one));
+        const ok_neg = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_gt_optimized else .cmp_gt, diff, try sema.addConstant(operand_ty, Value.negative_one));
         const ok = try block.addBinOp(.bool_and, ok_pos, ok_neg);
         try sema.addSafetyCheck(block, ok, .integer_part_out_of_bounds);
     }
@@ -17194,7 +17214,7 @@ fn zirReduce(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
 
     try sema.requireRuntimeBlock(block, inst_data.src(), operand_src);
     return block.addInst(.{
-        .tag = .reduce,
+        .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
         .data = .{ .reduce = .{
             .operand = operand,
             .operation = operation,
@@ -24489,7 +24509,7 @@ fn cmpNumeric(
         };
         const casted_lhs = try sema.coerce(block, dest_ty, lhs, lhs_src);
         const casted_rhs = try sema.coerce(block, dest_ty, rhs, rhs_src);
-        return block.addBinOp(Air.Inst.Tag.fromCmpOp(op), casted_lhs, casted_rhs);
+        return block.addBinOp(Air.Inst.Tag.fromCmpOp(op, block.float_mode == .Optimized), casted_lhs, casted_rhs);
     }
     // For mixed unsigned integer sizes, implicit cast both operands to the larger integer.
     // For mixed signed and unsigned integers, implicit cast both operands to a signed
@@ -24610,7 +24630,7 @@ fn cmpNumeric(
     const casted_lhs = try sema.coerce(block, dest_ty, lhs, lhs_src);
     const casted_rhs = try sema.coerce(block, dest_ty, rhs, rhs_src);
 
-    return block.addBinOp(Air.Inst.Tag.fromCmpOp(op), casted_lhs, casted_rhs);
+    return block.addBinOp(Air.Inst.Tag.fromCmpOp(op, block.float_mode == .Optimized), casted_lhs, casted_rhs);
 }
 
 /// Asserts that lhs and rhs types are both vectors.
