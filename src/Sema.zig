@@ -14209,8 +14209,10 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         if (inst_data.size != .One) {
             return sema.fail(block, elem_ty_src, "function pointers must be single pointers", .{});
         }
-        const fn_align = elem_ty.abiAlignment(target);
-        if (inst_data.flags.has_align and abi_align != 0 and abi_align != fn_align) {
+        const fn_align = elem_ty.fnInfo().alignment;
+        if (inst_data.flags.has_align and abi_align != 0 and fn_align != 0 and
+            abi_align != fn_align)
+        {
             return sema.fail(block, align_src, "function pointer alignment disagrees with function alignment", .{});
         }
     } else if (inst_data.size == .Many and elem_ty.zigTypeTag() == .Opaque) {
