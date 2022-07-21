@@ -18010,6 +18010,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     const section_src: LazySrcLoc = .{ .node_offset_fn_type_section = inst_data.src_node };
     const cc_src: LazySrcLoc = .{ .node_offset_fn_type_cc = inst_data.src_node };
     const ret_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = inst_data.src_node };
+    const has_body = extra.data.body_len != 0;
 
     var extra_index: usize = extra.end;
 
@@ -18019,8 +18020,11 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         break :blk lib_name;
     } else null;
 
-    if ((extra.data.bits.has_align_body or extra.data.bits.has_align_ref) and sema.mod.getTarget().cpu.arch.isWasm()) {
-        return sema.fail(block, align_src, "'align' is not allowed on functions in wasm", .{});
+    if (has_body and
+        (extra.data.bits.has_align_body or extra.data.bits.has_align_ref) and
+        !target_util.supportsFunctionAlignment(target))
+    {
+        return sema.fail(block, align_src, "target does not support function alignment", .{});
     }
 
     const @"align": ?u32 = if (extra.data.bits.has_align_body) blk: {
@@ -18162,7 +18166,6 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     } else 0;
 
     var src_locs: Zir.Inst.Func.SrcLocs = undefined;
-    const has_body = extra.data.body_len != 0;
     if (has_body) {
         extra_index += extra.data.body_len;
         src_locs = sema.code.extraData(Zir.Inst.Func.SrcLocs, extra_index).data;
