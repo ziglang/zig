@@ -67,17 +67,15 @@ pub fn generateZirData(self: *Autodoc) !void {
         }
     }
 
-    var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    const dir =
-        if (self.module.main_pkg.root_src_directory.path) |rp|
-        std.os.realpath(rp, &buf) catch unreachable
-    else
-        std.os.getcwd(&buf) catch unreachable;
-    const root_file_path = self.module.main_pkg.root_src_path;
-    const abs_root_path = try std.fs.path.join(self.arena, &.{ dir, root_file_path });
-    defer self.arena.free(abs_root_path);
-    const file = self.module.import_table.get(abs_root_path).?;
+    const root_src_dir = self.module.main_pkg.root_src_directory;
+    const root_src_path = self.module.main_pkg.root_src_path;
+    const joined_src_path = try root_src_dir.join(self.arena, &.{root_src_path});
+    defer self.arena.free(joined_src_path);
 
+    const abs_root_src_path = try std.fs.path.resolve(self.arena, &.{ ".", joined_src_path });
+    defer self.arena.free(abs_root_src_path);
+
+    const file = self.module.import_table.get(abs_root_src_path).?; // file is expected to be present in the import table
     // Append all the types in Zir.Inst.Ref.
     {
         try self.types.append(self.arena, .{
@@ -229,44 +227,44 @@ pub fn generateZirData(self: *Autodoc) !void {
             self.doc_location.basename,
         ) catch |e| switch (e) {
             error.PathAlreadyExists => {},
-            else => unreachable,
+            else => |err| return err,
         };
     } else {
         self.module.zig_cache_artifact_directory.handle.makeDir(
             self.doc_location.basename,
         ) catch |e| switch (e) {
             error.PathAlreadyExists => {},
-            else => unreachable,
+            else => |err| return err,
         };
     }
     const output_dir = if (self.doc_location.directory) |d|
-        (d.handle.openDir(self.doc_location.basename, .{}) catch unreachable)
+        try d.handle.openDir(self.doc_location.basename, .{})
     else
-        (self.module.zig_cache_artifact_directory.handle.openDir(self.doc_location.basename, .{}) catch unreachable);
+        try self.module.zig_cache_artifact_directory.handle.openDir(self.doc_location.basename, .{});
     {
-        const data_js_f = output_dir.createFile("data.js", .{}) catch unreachable;
+        const data_js_f = try output_dir.createFile("data.js", .{});
         defer data_js_f.close();
         var buffer = std.io.bufferedWriter(data_js_f.writer());
 
         const out = buffer.writer();
-        out.print(
+        try out.print(
             \\ /** @type {{DocData}} */
             \\ var zigAnalysis=
-        , .{}) catch unreachable;
-        std.json.stringify(
+        , .{});
+        try std.json.stringify(
             data,
             .{
                 .whitespace = .{},
                 .emit_null_optional_fields = false,
             },
             out,
-        ) catch unreachable;
-        out.print(";", .{}) catch unreachable;
+        );
+        try out.print(";", .{});
 
         // last thing (that can fail) that we do is flush
-        buffer.flush() catch unreachable;
+        try buffer.flush();
     }
-    
+
     // copy main.js, index.html
     var docs_dir = try self.module.comp.zig_lib_directory.handle.openDir("docs", .{});
     defer docs_dir.close();
@@ -694,6 +692,12 @@ const DocData = struct {
     };
 };
 
+const AutodocErrors = error{
+    OutOfMemory,
+    CurrentWorkingDirectoryUnlinked,
+    Unexpected,
+};
+
 /// Called when we need to analyze a Zir instruction.
 /// For example it gets called by `generateZirData` on instruction 0,
 /// which represents the top-level struct corresponding to the root file.
@@ -708,7 +712,7 @@ fn walkInstruction(
     parent_scope: *Scope,
     inst_index: usize,
     need_type: bool, // true if the caller needs us to provide also a typeRef
-) error{OutOfMemory}!DocData.WalkResult {
+) AutodocErrors!DocData.WalkResult {
     const tags = file.zir.instructions.items(.tag);
     const data = file.zir.instructions.items(.data);
 
@@ -778,16 +782,15 @@ fn walkInstruction(
                 // TODO: Add this package as a dependency to the current pakcage
                 // TODO: this seems something that could be done in bulk
                 //       at the beginning or the end, or something.
-                var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-                const dir =
-                    if (other_package.root_src_directory.path) |rp|
-                    std.os.realpath(rp, &buf) catch unreachable
-                else
-                    std.os.getcwd(&buf) catch unreachable;
-                const root_file_path = other_package.root_src_path;
-                const abs_root_path = try std.fs.path.join(self.arena, &.{ dir, root_file_path });
-                defer self.arena.free(abs_root_path);
-                const new_file = self.module.import_table.get(abs_root_path).?;
+                const root_src_dir = other_package.root_src_directory;
+                const root_src_path = other_package.root_src_path;
+                const joined_src_path = try root_src_dir.join(self.arena, &.{root_src_path});
+                defer self.arena.free(joined_src_path);
+
+                const abs_root_src_path = try std.fs.path.resolve(self.arena, &.{ ".", joined_src_path });
+                defer self.arena.free(abs_root_src_path);
+
+                const new_file = self.module.import_table.get(abs_root_src_path).?;
 
                 var root_scope = Scope{ .parent = null, .enclosing_type = main_type_index };
                 try self.ast_nodes.append(self.arena, .{ .name = "(root)" });
@@ -2630,7 +2633,7 @@ fn walkDecls(
     decl_indexes: *std.ArrayListUnmanaged(usize),
     priv_decl_indexes: *std.ArrayListUnmanaged(usize),
     extra_start: usize,
-) error{OutOfMemory}!usize {
+) AutodocErrors!usize {
     const bit_bags_count = std.math.divCeil(usize, decls_len, 8) catch unreachable;
     var extra_index = extra_start + bit_bags_count;
     var bit_bag_index: usize = extra_start;
@@ -2886,7 +2889,7 @@ fn tryResolveRefPath(
     file: *File,
     inst_index: usize, // used only for panicWithContext
     path: []DocData.Expr,
-) error{OutOfMemory}!void {
+) AutodocErrors!void {
     var i: usize = 0;
     outer: while (i < path.len - 1) : (i += 1) {
         const parent = path[i];
@@ -3189,7 +3192,7 @@ fn analyzeFancyFunction(
     inst_index: usize,
     self_ast_node_index: usize,
     type_slot_index: usize,
-) error{OutOfMemory}!DocData.WalkResult {
+) AutodocErrors!DocData.WalkResult {
     const tags = file.zir.instructions.items(.tag);
     const data = file.zir.instructions.items(.data);
     const fn_info = file.zir.getFnInfo(@intCast(u32, inst_index));
@@ -3405,7 +3408,7 @@ fn analyzeFunction(
     inst_index: usize,
     self_ast_node_index: usize,
     type_slot_index: usize,
-) error{OutOfMemory}!DocData.WalkResult {
+) AutodocErrors!DocData.WalkResult {
     const tags = file.zir.instructions.items(.tag);
     const data = file.zir.instructions.items(.data);
     const fn_info = file.zir.getFnInfo(@intCast(u32, inst_index));
@@ -3726,7 +3729,7 @@ fn walkRef(
     parent_scope: *Scope,
     ref: Ref,
     need_type: bool, // true when the caller needs also a typeRef for the return value
-) !DocData.WalkResult {
+) AutodocErrors!DocData.WalkResult {
     const enum_value = @enumToInt(ref);
     if (enum_value <= @enumToInt(Ref.anyerror_void_error_union_type)) {
         // We can just return a type that indexes into `types` with the
