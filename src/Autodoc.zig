@@ -266,12 +266,12 @@ pub fn generateZirData(self: *Autodoc) !void {
         // last thing (that can fail) that we do is flush
         buffer.flush() catch unreachable;
     }
+    
     // copy main.js, index.html
-    const docs = try self.module.comp.zig_lib_directory.join(self.arena, &.{ "docs", std.fs.path.sep_str });
-    var docs_dir = std.fs.openDirAbsolute(docs, .{}) catch unreachable;
+    var docs_dir = try self.module.comp.zig_lib_directory.handle.openDir("docs", .{});
     defer docs_dir.close();
-    docs_dir.copyFile("main.js", output_dir, "main.js", .{}) catch unreachable;
-    docs_dir.copyFile("index.html", output_dir, "index.html", .{}) catch unreachable;
+    try docs_dir.copyFile("main.js", output_dir, "main.js", .{});
+    try docs_dir.copyFile("index.html", output_dir, "index.html", .{});
 }
 
 /// Represents a chain of scopes, used to resolve decl references to the
