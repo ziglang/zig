@@ -55,11 +55,11 @@ stage3/bin/zig build -Dtarget=arm-linux-musleabihf # test building self-hosted f
 stage3/bin/zig build test-compiler-rt    -fqemu -fwasmtime -Denable-llvm
 stage3/bin/zig build test-behavior       -fqemu -fwasmtime -Denable-llvm
 stage3/bin/zig build test-std            -fqemu -fwasmtime -Denable-llvm
+stage3/bin/zig build test-universal-libc -fqemu -fwasmtime -Denable-llvm
 stage3/bin/zig build test-compare-output -fqemu -fwasmtime -Denable-llvm
 stage3/bin/zig build test-asm-link       -fqemu -fwasmtime -Denable-llvm
 stage3/bin/zig build test-fmt            -fqemu -fwasmtime -Denable-llvm
 
-$STAGE1_ZIG build test-universal-libc   -fqemu -fwasmtime
 $STAGE1_ZIG build test-standalone       -fqemu -fwasmtime
 $STAGE1_ZIG build test-stack-traces     -fqemu -fwasmtime
 $STAGE1_ZIG build test-cli              -fqemu -fwasmtime
@@ -79,7 +79,7 @@ $STAGE1_ZIG test lib/std/std.zig \
 tidy --drop-empty-elements no -qe zig-cache/langref.html
 
 # Build release zig.
-$STAGE1_ZIG build \
+stage3/bin/zig build \
   --prefix "$RELEASE_STAGING" \
   --search-prefix "$DEPS_LOCAL" \
   -Dstatic-llvm \
