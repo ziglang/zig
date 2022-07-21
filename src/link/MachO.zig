@@ -432,7 +432,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
             CodeSignature.init(page_size)
         else
             null,
-        .mode = if (use_stage1 or use_llvm or options.cache_mode == .whole)
+        .mode = if (use_stage1 or use_llvm or options.module == null or options.cache_mode == .whole)
             .one_shot
         else
             .incremental,
@@ -441,6 +441,8 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
     if (use_llvm and !use_stage1) {
         self.llvm_object = try LlvmObject.create(gpa, options);
     }
+
+    log.debug("selected linker mode '{s}'", .{@tagName(self.mode)});
 
     return self;
 }
