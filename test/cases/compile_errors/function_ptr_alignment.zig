@@ -16,10 +16,13 @@ comptime {
     var a: *align(2) fn () void = undefined;
     _ = a;
 }
+comptime {
+    var a: *align(1) fn () align(2) void = undefined;
+    _ = a;
+}
 
 // error
 // backend=stage2
-// target=x86_64-linux
+// target=native
 //
-// :2:19: error: function pointer alignment disagrees with function alignment
-// :16:19: error: function pointer alignment disagrees with function alignment
+// :20:19: error: function pointer alignment disagrees with function alignment
