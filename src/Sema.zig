@@ -16352,7 +16352,12 @@ fn zirAlignCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         const ptr_int = try block.addUnOp(.ptrtoint, actual_ptr);
         const remainder = try block.addBinOp(.bit_and, ptr_int, align_minus_1);
         const is_aligned = try block.addBinOp(.cmp_eq, remainder, .zero_usize);
-        try sema.addSafetyCheck(block, is_aligned, .incorrect_alignment);
+        const ok = if (ptr_ty.isSlice()) ok: {
+            const len = try sema.analyzeSliceLen(block, ptr_src, ptr);
+            const len_zero = try block.addBinOp(.cmp_eq, len, try sema.addConstant(Type.usize, Value.zero));
+            break :ok try block.addBinOp(.bit_or, len_zero, is_aligned);
+        } else is_aligned;
+        try sema.addSafetyCheck(block, ok, .incorrect_alignment);
     }
     return sema.coerceCompatiblePtrs(block, dest_ty, ptr, ptr_src);
 }
