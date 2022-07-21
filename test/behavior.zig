@@ -165,6 +165,7 @@ test {
 
     if (builtin.zig_backend != .stage1) {
         _ = @import("behavior/decltest.zig");
+        _ = @import("behavior/reflect_decl.zig");
     }
 
     if (builtin.os.tag != .wasi) {
