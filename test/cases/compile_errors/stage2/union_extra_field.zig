@@ -16,5 +16,5 @@ export fn entry() usize {
 // error
 // target=native
 //
-// :10:5: error: enum 'tmp.E' has no field named 'd'
+// :10:5: error: no field named 'd' in enum 'tmp.E'
 // :1:11: note: enum declared here

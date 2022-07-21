@@ -8,4 +8,4 @@ export fn entry() usize { return @sizeOf(@TypeOf(&f)); }
 // backend=stage2
 // target=native
 //
-// :3:6: error: type '[]const u8' has no field or member function named 'copy'
+// :3:6: error: no field or member function named 'copy' in '[]const u8'

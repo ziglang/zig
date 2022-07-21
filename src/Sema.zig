@@ -6814,12 +6814,7 @@ fn zirIntToEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
                     .{ dest_ty.fmt(sema.mod), int_val.fmtValue(sema.typeOf(operand), sema.mod) },
                 );
                 errdefer msg.destroy(sema.gpa);
-                try sema.mod.errNoteNonLazy(
-                    dest_ty.declSrcLoc(sema.mod),
-                    msg,
-                    "enum declared here",
-                    .{},
-                );
+                try sema.addDeclaredHereNote(msg, dest_ty);
                 break :msg msg;
             };
             return sema.failWithOwnedErrorMsg(block, msg);
@@ -19432,16 +19427,7 @@ fn fieldVal(
                             return inst;
                         }
                     }
-                    // TODO add note: declared here
-                    const kw_name = switch (child_type.zigTypeTag()) {
-                        .Struct => "struct",
-                        .Opaque => "opaque",
-                        .Union => "union",
-                        else => unreachable,
-                    };
-                    return sema.fail(block, src, "{s} '{}' has no member named '{s}'", .{
-                        kw_name, child_type.fmt(sema.mod), field_name,
-                    });
+                    return sema.failWithBadMemberAccess(block, child_type, src, field_name);
                 },
                 else => {
                     const msg = msg: {
@@ -19783,7 +19769,13 @@ fn fieldCallBind(
         else => {},
     }
 
-    return sema.fail(block, src, "type '{}' has no field or member function named '{s}'", .{ concrete_ty.fmt(sema.mod), field_name });
+    const msg = msg: {
+        const msg = try sema.errMsg(block, src, "no field or member function named '{s}' in '{}'", .{ field_name, concrete_ty.fmt(sema.mod) });
+        errdefer msg.destroy(sema.gpa);
+        try sema.addDeclaredHereNote(msg, concrete_ty);
+        break :msg msg;
+    };
+    return sema.failWithOwnedErrorMsg(block, msg);
 }
 
 fn finishFieldCallBind(
@@ -21176,16 +21168,11 @@ fn coerceExtra(
                         const msg = try sema.errMsg(
                             block,
                             inst_src,
-                            "enum '{}' has no field named '{s}'",
-                            .{ dest_ty.fmt(sema.mod), bytes },
+                            "no field named '{s}' in enum '{}'",
+                            .{ bytes, dest_ty.fmt(sema.mod) },
                         );
                         errdefer msg.destroy(sema.gpa);
-                        try sema.mod.errNoteNonLazy(
-                            dest_ty.declSrcLoc(sema.mod),
-                            msg,
-                            "enum declared here",
-                            .{},
-                        );
+                        try sema.addDeclaredHereNote(msg, dest_ty);
                         break :msg msg;
                     };
                     return sema.failWithOwnedErrorMsg(block, msg);
@@ -26230,7 +26217,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
                 const msg = msg: {
                     const tree = try sema.getAstTree(&block_scope);
                     const field_src = enumFieldSrcLoc(decl, tree.*, union_obj.node_offset, field_i);
-                    const msg = try sema.errMsg(&block_scope, field_src, "enum '{}' has no field named '{s}'", .{ union_obj.tag_ty.fmt(sema.mod), field_name });
+                    const msg = try sema.errMsg(&block_scope, field_src, "no field named '{s}' in enum '{}'", .{ field_name, union_obj.tag_ty.fmt(sema.mod) });
                     errdefer msg.destroy(sema.gpa);
                     try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
                     break :msg msg;
