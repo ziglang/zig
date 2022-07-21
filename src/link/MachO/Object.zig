@@ -197,11 +197,9 @@ const SymbolAtIndex = struct {
         return mem.sliceTo(@ptrCast([*:0]const u8, ctx.strtab.ptr + sym.n_strx), 0);
     }
 
+    /// Returns whether lhs is less than rhs by allocated address in object file.
+    /// Undefined symbols are pushed to the back (always evaluate to true).
     fn lessThan(ctx: Context, lhs_index: SymbolAtIndex, rhs_index: SymbolAtIndex) bool {
-        // We sort by type: defined < undefined, and
-        // afterwards by address in each group. Normally, dysymtab should
-        // be enough to guarantee the sort, but turns out not every compiler
-        // is kind enough to specify the symbols in the correct order.
         const lhs = lhs_index.getSymbol(ctx);
         const rhs = rhs_index.getSymbol(ctx);
         if (lhs.sect()) {
@@ -214,6 +212,29 @@ const SymbolAtIndex = struct {
         } else {
             return false;
         }
+    }
+
+    /// Returns whether lhs is less senior than rhs. The rules are:
+    /// 1. ext
+    /// 2. weak
+    /// 3. local
+    /// 4. temp (local starting with `l` prefix).
+    fn lessThanBySeniority(ctx: Context, lhs_index: SymbolAtIndex, rhs_index: SymbolAtIndex) bool {
+        const lhs = lhs_index.getSymbol(ctx);
+        const rhs = rhs_index.getSymbol(ctx);
+        if (!rhs.ext()) {
+            const lhs_name = lhs_index.getSymbolName(ctx);
+            return mem.startsWith(u8, lhs_name, "l") or mem.startsWith(u8, lhs_name, "L");
+        } else if (rhs.pext() or rhs.weakDef()) {
+            return !lhs.ext();
+        } else {
+            return false;
+        }
+    }
+
+    /// Like lessThanBySeniority but negated.
+    fn greaterThanBySeniority(ctx: Context, lhs_index: SymbolAtIndex, rhs_index: SymbolAtIndex) bool {
+        return !lessThanBySeniority(ctx, lhs_index, rhs_index);
     }
 };
 
@@ -295,6 +316,10 @@ pub fn splitIntoAtomsOneShot(
         sorted_all_syms.appendAssumeCapacity(.{ .index = @intCast(u32, index) });
     }
 
+    // We sort by type: defined < undefined, and
+    // afterwards by address in each group. Normally, dysymtab should
+    // be enough to guarantee the sort, but turns out not every compiler
+    // is kind enough to specify the symbols in the correct order.
     sort.sort(SymbolAtIndex, sorted_all_syms.items, context, SymbolAtIndex.lessThan);
 
     // Well, shit, sometimes compilers skip the dysymtab load command altogether, meaning we
@@ -409,10 +434,18 @@ pub fn splitIntoAtomsOneShot(
                 );
                 next_sym_count += atom_syms.len;
 
+                // We want to bubble up the first externally defined symbol here.
                 assert(atom_syms.len > 0);
-                const sym_index = for (atom_syms) |atom_sym| {
-                    if (atom_sym.getSymbol(context).ext()) break atom_sym.index;
-                } else atom_syms[0].index;
+                var sorted_atom_syms = std.ArrayList(SymbolAtIndex).init(gpa);
+                defer sorted_atom_syms.deinit();
+                try sorted_atom_syms.appendSlice(atom_syms);
+                sort.sort(
+                    SymbolAtIndex,
+                    sorted_atom_syms.items,
+                    context,
+                    SymbolAtIndex.greaterThanBySeniority,
+                );
+
                 const atom_size = blk: {
                     const end_addr = if (next_sym_count < filtered_syms.len)
                         filtered_syms[next_sym_count].getSymbol(context).n_value
@@ -432,12 +465,12 @@ pub fn splitIntoAtomsOneShot(
                 const atom = try self.createAtomFromSubsection(
                     macho_file,
                     object_id,
-                    sym_index,
+                    sorted_atom_syms.items[0].index,
                     atom_size,
                     atom_align,
                     atom_code,
                     relocs,
-                    atom_syms[1..],
+                    sorted_atom_syms.items[1..],
                     match,
                     sect,
                     gc_roots,
@@ -552,12 +585,7 @@ fn createAtomFromSubsection(
     // the filtered symbols and note which symbol is contained within so that
     // we can properly allocate addresses down the line.
     // While we're at it, we need to update segment,section mapping of each symbol too.
-    try atom.contained.ensureTotalCapacity(gpa, indexes.len + 1);
-    atom.contained.appendAssumeCapacity(.{
-        .sym_index = sym_index,
-        .offset = 0,
-    });
-
+    try atom.contained.ensureTotalCapacity(gpa, indexes.len);
     for (indexes) |inner_sym_index| {
         const inner_sym = &self.symtab.items[inner_sym_index.index];
         inner_sym.n_sect = macho_file.getSectionOrdinal(match);

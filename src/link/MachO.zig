@@ -2940,12 +2940,6 @@ fn createTentativeDefAtoms(self: *MachO) !void {
 
         if (global.file) |file| {
             const object = &self.objects.items[file];
-
-            try atom.contained.append(gpa, .{
-                .sym_index = global.sym_index,
-                .offset = 0,
-            });
-
             try object.managed_atoms.append(gpa, atom);
             try object.atom_by_index_table.putNoClobber(gpa, global.sym_index, atom);
         } else {
@@ -5594,6 +5588,7 @@ fn gcAtoms(self: *MachO, gc_roots: *std.AutoHashMap(*Atom, void)) !void {
 
                 const global = atom.getSymbolWithLoc();
                 const sym = atom.getSymbolPtr(self);
+                const match = self.getMatchingSectionFromOrdinal(sym.n_sect);
 
                 if (sym.n_desc == N_DESC_GCED) continue;
                 if (!sym.ext()) {
@@ -5604,15 +5599,6 @@ fn gcAtoms(self: *MachO, gc_roots: *std.AutoHashMap(*Atom, void)) !void {
                         }
                     } else continue;
                 }
-
-                loop = true;
-                const match = self.getMatchingSectionFromOrdinal(sym.n_sect);
-
-                // TODO don't dedup eh_frame info yet until we actually implement parsing unwind records
-                if (match.eql(.{
-                    .seg = self.text_segment_cmd_index,
-                    .sect = self.eh_frame_section_index,
-                })) continue;
 
                 self.logAtom(atom);
                 sym.n_desc = N_DESC_GCED;
@@ -5644,6 +5630,8 @@ fn gcAtoms(self: *MachO, gc_roots: *std.AutoHashMap(*Atom, void)) !void {
                     const tlv_ptr_sym = tlv_ptr_atom.getSymbolPtr(self);
                     tlv_ptr_sym.n_desc = N_DESC_GCED;
                 }
+
+                loop = true;
             }
         }
     }
@@ -6831,7 +6819,6 @@ pub fn generateSymbolStabs(
     };
     const tu_name = try compile_unit.die.getAttrString(&debug_info.inner, dwarf.AT.name);
     const tu_comp_dir = try compile_unit.die.getAttrString(&debug_info.inner, dwarf.AT.comp_dir);
-    const source_symtab = object.getSourceSymtab();
 
     // Open scope
     try locals.ensureUnusedCapacity(3);
@@ -6857,71 +6844,27 @@ pub fn generateSymbolStabs(
         .n_value = object.mtime,
     });
 
+    var stabs_buf: [4]macho.nlist_64 = undefined;
+
     for (object.managed_atoms.items) |atom| {
+        const stabs = try self.generateSymbolStabsForSymbol(
+            atom.getSymbolWithLoc(),
+            debug_info,
+            &stabs_buf,
+        );
+        try locals.appendSlice(stabs);
+
         for (atom.contained.items) |sym_at_off| {
             const sym_loc = SymbolWithLoc{
                 .sym_index = sym_at_off.sym_index,
                 .file = atom.file,
             };
-            const sym = self.getSymbol(sym_loc);
-            const sym_name = self.getSymbolName(sym_loc);
-            if (sym.n_strx == 0) continue;
-            if (sym.n_desc == N_DESC_GCED) continue;
-            if (self.symbolIsTemp(sym_loc)) continue;
-            if (sym_at_off.sym_index >= source_symtab.len) continue; // synthetic, linker generated
-
-            const source_sym = source_symtab[sym_at_off.sym_index];
-            const size: ?u64 = size: {
-                if (source_sym.tentative()) break :size null;
-                for (debug_info.inner.func_list.items) |func| {
-                    if (func.pc_range) |range| {
-                        if (source_sym.n_value >= range.start and source_sym.n_value < range.end) {
-                            break :size range.end - range.start;
-                        }
-                    }
-                }
-                break :size null;
-            };
-
-            if (size) |ss| {
-                try locals.ensureUnusedCapacity(4);
-                locals.appendAssumeCapacity(.{
-                    .n_strx = 0,
-                    .n_type = macho.N_BNSYM,
-                    .n_sect = sym.n_sect,
-                    .n_desc = 0,
-                    .n_value = sym.n_value,
-                });
-                locals.appendAssumeCapacity(.{
-                    .n_strx = try self.strtab.insert(gpa, sym_name),
-                    .n_type = macho.N_FUN,
-                    .n_sect = sym.n_sect,
-                    .n_desc = 0,
-                    .n_value = sym.n_value,
-                });
-                locals.appendAssumeCapacity(.{
-                    .n_strx = 0,
-                    .n_type = macho.N_FUN,
-                    .n_sect = 0,
-                    .n_desc = 0,
-                    .n_value = ss,
-                });
-                locals.appendAssumeCapacity(.{
-                    .n_strx = 0,
-                    .n_type = macho.N_ENSYM,
-                    .n_sect = sym.n_sect,
-                    .n_desc = 0,
-                    .n_value = ss,
-                });
-            } else {
-                try locals.append(.{
-                    .n_strx = try self.strtab.insert(gpa, sym_name),
-                    .n_type = macho.N_STSYM,
-                    .n_sect = sym.n_sect,
-                    .n_desc = 0,
-                    .n_value = sym.n_value,
-                });
-            }
+            const contained_stabs = try self.generateSymbolStabsForSymbol(
+                sym_loc,
+                debug_info,
+                &stabs_buf,
+            );
+            try locals.appendSlice(contained_stabs);
         }
     }
 
@@ -6933,6 +6876,78 @@ pub fn generateSymbolStabs(
         .n_desc = 0,
         .n_value = 0,
     });
+}
+
+fn generateSymbolStabsForSymbol(
+    self: *MachO,
+    sym_loc: SymbolWithLoc,
+    debug_info: DebugInfo,
+    buf: *[4]macho.nlist_64,
+) ![]const macho.nlist_64 {
+    const gpa = self.base.allocator;
+    const object = self.objects.items[sym_loc.file.?];
+    const source_symtab = object.getSourceSymtab();
+    const sym = self.getSymbol(sym_loc);
+    const sym_name = self.getSymbolName(sym_loc);
+
+    if (sym.n_strx == 0) return buf[0..0];
+    if (sym.n_desc == N_DESC_GCED) return buf[0..0];
+    if (self.symbolIsTemp(sym_loc)) return buf[0..0];
+    if (sym_loc.sym_index >= source_symtab.len) return buf[0..0]; // synthetic, linker generated
+
+    const source_sym = source_symtab[sym_loc.sym_index];
+    const size: ?u64 = size: {
+        if (source_sym.tentative()) break :size null;
+        for (debug_info.inner.func_list.items) |func| {
+            if (func.pc_range) |range| {
+                if (source_sym.n_value >= range.start and source_sym.n_value < range.end) {
+                    break :size range.end - range.start;
+                }
+            }
+        }
+        break :size null;
+    };
+
+    if (size) |ss| {
+        buf[0] = .{
+            .n_strx = 0,
+            .n_type = macho.N_BNSYM,
+            .n_sect = sym.n_sect,
+            .n_desc = 0,
+            .n_value = sym.n_value,
+        };
+        buf[1] = .{
+            .n_strx = try self.strtab.insert(gpa, sym_name),
+            .n_type = macho.N_FUN,
+            .n_sect = sym.n_sect,
+            .n_desc = 0,
+            .n_value = sym.n_value,
+        };
+        buf[2] = .{
+            .n_strx = 0,
+            .n_type = macho.N_FUN,
+            .n_sect = 0,
+            .n_desc = 0,
+            .n_value = ss,
+        };
+        buf[3] = .{
+            .n_strx = 0,
+            .n_type = macho.N_ENSYM,
+            .n_sect = sym.n_sect,
+            .n_desc = 0,
+            .n_value = ss,
+        };
+        return buf;
+    } else {
+        buf[0] = .{
+            .n_strx = try self.strtab.insert(gpa, sym_name),
+            .n_type = macho.N_STSYM,
+            .n_sect = sym.n_sect,
+            .n_desc = 0,
+            .n_value = sym.n_value,
+        };
+        return buf[0..1];
+    }
 }
 
 fn snapshotState(self: *MachO) !void {
