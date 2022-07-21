@@ -7,7 +7,7 @@ export fn entry() usize { return @sizeOf(@TypeOf(&seventh_fib_number)); }
 
 // error
 // backend=stage2
-// target=x86_64-linux
+// target=native
 //
 // :3:21: error: evaluation exceeded 1000 backwards branches
 // :3:21: note: use @setEvalBranchQuota() to raise the branch limit from 1000

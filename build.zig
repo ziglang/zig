@@ -11,6 +11,7 @@ const InstallDirectoryOptions = std.build.InstallDirectoryOptions;
 const assert = std.debug.assert;
 
 const zig_version = std.builtin.Version{ .major = 0, .minor = 10, .patch = 0 };
+const stack_size = 32 * 1024 * 1024;
 
 pub fn build(b: *Builder) !void {
     b.setPreferredReleaseMode(.ReleaseFast);
@@ -41,6 +42,7 @@ pub fn build(b: *Builder) !void {
     const toolchain_step = b.step("test-toolchain", "Run the tests for the toolchain");
 
     var test_cases = b.addTest("src/test.zig");
+    test_cases.stack_size = stack_size;
     test_cases.setBuildMode(mode);
     test_cases.addPackagePath("test_cases", "test/cases.zig");
     test_cases.single_threaded = single_threaded;
@@ -141,6 +143,7 @@ pub fn build(b: *Builder) !void {
     };
 
     const exe = b.addExecutable("zig", main_file);
+    exe.stack_size = stack_size;
     exe.strip = strip;
     exe.build_id = b.option(bool, "build-id", "Include a build id note") orelse false;
     exe.install();
