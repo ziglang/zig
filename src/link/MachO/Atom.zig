@@ -308,7 +308,7 @@ pub fn parseRelocs(self: *Atom, relocs: []const macho.relocation_info, context: 
             if (rel.r_extern == 0) {
                 const sect_id = @intCast(u16, rel.r_symbolnum - 1);
                 const sym_index = object.sections_as_symbols.get(sect_id) orelse blk: {
-                    const sect = object.getSection(sect_id);
+                    const sect = object.getSourceSection(sect_id);
                     const match = (try context.macho_file.getMatchingSection(sect)) orelse
                         unreachable;
                     const sym_index = @intCast(u32, object.symtab.items.len);
@@ -360,7 +360,7 @@ pub fn parseRelocs(self: *Atom, relocs: []const macho.relocation_info, context: 
                         else
                             mem.readIntLittle(i32, self.code.items[offset..][0..4]);
                         if (rel.r_extern == 0) {
-                            const target_sect_base_addr = object.getSection(@intCast(u16, rel.r_symbolnum - 1)).addr;
+                            const target_sect_base_addr = object.getSourceSection(@intCast(u16, rel.r_symbolnum - 1)).addr;
                             addend -= @intCast(i64, target_sect_base_addr);
                         }
                         try self.addPtrBindingOrRebase(rel, target, context);
@@ -392,7 +392,7 @@ pub fn parseRelocs(self: *Atom, relocs: []const macho.relocation_info, context: 
                         else
                             mem.readIntLittle(i32, self.code.items[offset..][0..4]);
                         if (rel.r_extern == 0) {
-                            const target_sect_base_addr = object.getSection(@intCast(u16, rel.r_symbolnum - 1)).addr;
+                            const target_sect_base_addr = object.getSourceSection(@intCast(u16, rel.r_symbolnum - 1)).addr;
                             addend -= @intCast(i64, target_sect_base_addr);
                         }
                         try self.addPtrBindingOrRebase(rel, target, context);
@@ -413,7 +413,7 @@ pub fn parseRelocs(self: *Atom, relocs: []const macho.relocation_info, context: 
                         if (rel.r_extern == 0) {
                             // Note for the future self: when r_extern == 0, we should subtract correction from the
                             // addend.
-                            const target_sect_base_addr = object.getSection(@intCast(u16, rel.r_symbolnum - 1)).addr;
+                            const target_sect_base_addr = object.getSourceSection(@intCast(u16, rel.r_symbolnum - 1)).addr;
                             // We need to add base_offset, i.e., offset of this atom wrt to the source
                             // section. Otherwise, the addend will over-/under-shoot.
                             addend += @intCast(i64, context.base_addr + offset + 4) -

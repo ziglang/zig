@@ -16,6 +16,7 @@ const meta = std.meta;
 const aarch64 = @import("../arch/aarch64/bits.zig");
 const bind = @import("MachO/bind.zig");
 const codegen = @import("../codegen.zig");
+const dead_strip = @import("MachO/dead_strip.zig");
 const link = @import("../link.zig");
 const llvm_backend = @import("../codegen/llvm.zig");
 const target_util = @import("../target.zig");
@@ -709,7 +710,7 @@ fn linkOneShot(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) 
     const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
     const stack_size = self.base.options.stack_size_override orelse 0;
-    const dead_strip = self.base.options.gc_sections orelse false;
+    const gc_sections = self.base.options.gc_sections orelse false;
 
     const id_symlink_basename = "zld.id";
 
@@ -741,7 +742,7 @@ fn linkOneShot(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) 
         man.hash.addOptional(self.base.options.search_strategy);
         man.hash.addOptional(self.base.options.headerpad_size);
         man.hash.add(self.base.options.headerpad_max_install_names);
-        man.hash.add(dead_strip);
+        man.hash.add(gc_sections);
         man.hash.add(self.base.options.dead_strip_dylibs);
         man.hash.add(self.base.options.strip);
         man.hash.addListOfBytes(self.base.options.lib_dirs);
@@ -1068,7 +1069,7 @@ fn linkOneShot(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) 
                 try argv.append("-headerpad_max_install_names");
             }
 
-            if (dead_strip) {
+            if (gc_sections) {
                 try argv.append("-dead_strip");
             }
 
@@ -1186,19 +1187,12 @@ fn linkOneShot(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) 
 
         try self.createTentativeDefAtoms();
 
-        if (dead_strip) {
-            var gc_roots = std.AutoHashMap(*Atom, void).init(gpa);
-            defer gc_roots.deinit();
+        for (self.objects.items) |*object, object_id| {
+            try object.splitIntoAtomsOneShot(self, @intCast(u32, object_id));
+        }
 
-            for (self.objects.items) |*object, object_id| {
-                try object.splitIntoAtomsOneShot(self, @intCast(u32, object_id), &gc_roots);
-            }
-
-            try self.gcAtoms(&gc_roots);
-        } else {
-            for (self.objects.items) |*object, object_id| {
-                try object.splitIntoAtomsOneShot(self, @intCast(u32, object_id), null);
-            }
+        if (gc_sections) {
+            try dead_strip.gcAtoms(self);
         }
 
         try self.pruneAndSortSections();
@@ -5504,227 +5498,6 @@ fn pruneAndSortSections(self: *MachO) !void {
     self.sections_order_dirty = false;
 }
 
-fn gcAtoms(self: *MachO, gc_roots: *std.AutoHashMap(*Atom, void)) !void {
-    assert(self.base.options.gc_sections.?);
-
-    const gpa = self.base.allocator;
-
-    if (self.base.options.output_mode == .Exe) {
-        // Add entrypoint as GC root
-        const global = try self.getEntryPoint();
-        const atom = self.getAtomForSymbol(global).?; // panic here means fatal error
-        _ = try gc_roots.getOrPut(atom);
-    } else {
-        assert(self.base.options.output_mode == .Lib);
-        // Add exports as GC roots
-        for (self.globals.values()) |global| {
-            const sym = self.getSymbol(global);
-            if (!sym.sect()) continue;
-            const atom = self.getAtomForSymbol(global) orelse {
-                log.debug("skipping {s}", .{self.getSymbolName(global)});
-                continue;
-            };
-            _ = try gc_roots.getOrPut(atom);
-        }
-    }
-    // TODO just a temp until we learn how to parse unwind records
-    if (self.globals.get("___gxx_personality_v0")) |global| {
-        if (self.getAtomForSymbol(global)) |atom| {
-            _ = try gc_roots.getOrPut(atom);
-        }
-    }
-
-    var stack = std.ArrayList(*Atom).init(gpa);
-    defer stack.deinit();
-    try stack.ensureUnusedCapacity(gc_roots.count());
-
-    var alive = std.AutoHashMap(*Atom, void).init(gpa);
-    defer alive.deinit();
-    try alive.ensureUnusedCapacity(gc_roots.count());
-
-    log.debug("GC roots:", .{});
-    var gc_roots_it = gc_roots.keyIterator();
-    while (gc_roots_it.next()) |gc_root| {
-        self.logAtom(gc_root.*);
-        stack.appendAssumeCapacity(gc_root.*);
-        alive.putAssumeCapacity(gc_root.*, {});
-    }
-
-    while (stack.popOrNull()) |source_atom| {
-        for (source_atom.relocs.items) |rel| {
-            if (rel.getTargetAtom(self)) |target_atom| {
-                const gop = try alive.getOrPut(target_atom);
-                if (!gop.found_existing) {
-                    log.debug("  retained ATOM(%{d}, '{s}') in object({d})", .{
-                        target_atom.sym_index,
-                        target_atom.getName(self),
-                        target_atom.file,
-                    });
-                    log.debug("    referenced by ATOM(%{d}, '{s}') in object({d})", .{
-                        source_atom.sym_index,
-                        source_atom.getName(self),
-                        source_atom.file,
-                    });
-                    try stack.append(target_atom);
-                }
-            }
-        }
-    }
-    // TODO live support
-
-    // Any section that ends up here will be updated, that is,
-    // its size and alignment recalculated.
-    var gc_sections = std.AutoHashMap(MatchingSection, void).init(gpa);
-    defer gc_sections.deinit();
-
-    var loop: bool = true;
-    while (loop) {
-        loop = false;
-
-        for (self.objects.items) |object| {
-            for (object.getSourceSymtab()) |_, source_index| {
-                const atom = object.getAtomForSymbol(@intCast(u32, source_index)) orelse continue;
-                if (alive.contains(atom)) continue;
-
-                const global = atom.getSymbolWithLoc();
-                const sym = atom.getSymbolPtr(self);
-                const match = self.getMatchingSectionFromOrdinal(sym.n_sect);
-
-                if (sym.n_desc == N_DESC_GCED) continue;
-                if (!sym.ext()) {
-                    for (atom.relocs.items) |rel| {
-                        if (rel.getTargetAtom(self)) |target_atom| {
-                            const target_sym = target_atom.getSymbol(self);
-                            if (target_sym.n_desc == N_DESC_GCED) break;
-                        }
-                    } else continue;
-                }
-
-                self.logAtom(atom);
-                sym.n_desc = N_DESC_GCED;
-                self.removeAtomFromSection(atom, match);
-                _ = try gc_sections.put(match, {});
-
-                for (atom.contained.items) |sym_off| {
-                    const inner = self.getSymbolPtr(.{
-                        .sym_index = sym_off.sym_index,
-                        .file = atom.file,
-                    });
-                    inner.n_desc = N_DESC_GCED;
-                }
-
-                if (self.got_entries_table.contains(global)) {
-                    const got_atom = self.getGotAtomForSymbol(global).?;
-                    const got_sym = got_atom.getSymbolPtr(self);
-                    got_sym.n_desc = N_DESC_GCED;
-                }
-
-                if (self.stubs_table.contains(global)) {
-                    const stubs_atom = self.getStubsAtomForSymbol(global).?;
-                    const stubs_sym = stubs_atom.getSymbolPtr(self);
-                    stubs_sym.n_desc = N_DESC_GCED;
-                }
-
-                if (self.tlv_ptr_entries_table.contains(global)) {
-                    const tlv_ptr_atom = self.getTlvPtrAtomForSymbol(global).?;
-                    const tlv_ptr_sym = tlv_ptr_atom.getSymbolPtr(self);
-                    tlv_ptr_sym.n_desc = N_DESC_GCED;
-                }
-
-                loop = true;
-            }
-        }
-    }
-
-    for (self.got_entries.items) |entry| {
-        const sym = entry.getSymbol(self);
-        if (sym.n_desc != N_DESC_GCED) continue;
-
-        // TODO tombstone
-        const atom = entry.getAtom(self);
-        const match = self.getMatchingSectionFromOrdinal(sym.n_sect);
-        self.removeAtomFromSection(atom, match);
-        _ = try gc_sections.put(match, {});
-        _ = self.got_entries_table.remove(entry.target);
-    }
-
-    for (self.stubs.items) |entry| {
-        const sym = entry.getSymbol(self);
-        if (sym.n_desc != N_DESC_GCED) continue;
-
-        // TODO tombstone
-        const atom = entry.getAtom(self);
-        const match = self.getMatchingSectionFromOrdinal(sym.n_sect);
-        self.removeAtomFromSection(atom, match);
-        _ = try gc_sections.put(match, {});
-        _ = self.stubs_table.remove(entry.target);
-    }
-
-    for (self.tlv_ptr_entries.items) |entry| {
-        const sym = entry.getSymbol(self);
-        if (sym.n_desc != N_DESC_GCED) continue;
-
-        // TODO tombstone
-        const atom = entry.getAtom(self);
-        const match = self.getMatchingSectionFromOrdinal(sym.n_sect);
-        self.removeAtomFromSection(atom, match);
-        _ = try gc_sections.put(match, {});
-        _ = self.tlv_ptr_entries_table.remove(entry.target);
-    }
-
-    var gc_sections_it = gc_sections.iterator();
-    while (gc_sections_it.next()) |entry| {
-        const match = entry.key_ptr.*;
-        const sect = self.getSectionPtr(match);
-        if (sect.size == 0) continue; // Pruning happens automatically in next step.
-
-        sect.@"align" = 0;
-        sect.size = 0;
-
-        var atom = self.atoms.get(match).?;
-
-        while (atom.prev) |prev| {
-            atom = prev;
-        }
-
-        while (true) {
-            const atom_alignment = try math.powi(u32, 2, atom.alignment);
-            const aligned_end_addr = mem.alignForwardGeneric(u64, sect.size, atom_alignment);
-            const padding = aligned_end_addr - sect.size;
-            sect.size += padding + atom.size;
-            sect.@"align" = @maximum(sect.@"align", atom.alignment);
-
-            if (atom.next) |next| {
-                atom = next;
-            } else break;
-        }
-    }
-}
-
-fn removeAtomFromSection(self: *MachO, atom: *Atom, match: MatchingSection) void {
-    const sect = self.getSectionPtr(match);
-
-    // If we want to enable GC for incremental codepath, we need to take into
-    // account any padding that might have been left here.
-    sect.size -= atom.size;
-
-    if (atom.prev) |prev| {
-        prev.next = atom.next;
-    }
-    if (atom.next) |next| {
-        next.prev = atom.prev;
-    } else {
-        const last = self.atoms.getPtr(match).?;
-        if (atom.prev) |prev| {
-            last.* = prev;
-        } else {
-            // The section will be GCed in the next step.
-            last.* = undefined;
-            sect.size = 0;
-        }
-    }
-}
-
 fn updateSectionOrdinals(self: *MachO) !void {
     if (!self.sections_order_dirty) return;
 
@@ -6217,20 +5990,18 @@ fn writeDataInCode(self: *MachO) !void {
 
     for (self.objects.items) |object| {
         const dice = object.parseDataInCode() orelse continue;
-        const source_symtab = object.getSourceSymtab();
         try out_dice.ensureUnusedCapacity(dice.len);
 
         for (object.managed_atoms.items) |atom| {
             const sym = atom.getSymbol(self);
             if (sym.n_desc == N_DESC_GCED) continue;
-            if (atom.sym_index >= source_symtab.len) continue; // synthetic, linker generated
 
             const match = self.getMatchingSectionFromOrdinal(sym.n_sect);
             if (match.seg != self.text_segment_cmd_index.? and match.sect != self.text_section_index.?) {
                 continue;
             }
 
-            const source_sym = source_symtab[atom.sym_index];
+            const source_sym = object.getSourceSymbol(atom.sym_index) orelse continue;
             const source_addr = math.cast(u32, source_sym.n_value) orelse return error.Overflow;
             const filtered_dice = filterDataInCode(dice, source_addr, source_addr + atom.size);
             const base = math.cast(u32, sym.n_value - text_sect.addr + text_sect.offset) orelse
@@ -6886,16 +6657,14 @@ fn generateSymbolStabsForSymbol(
 ) ![]const macho.nlist_64 {
     const gpa = self.base.allocator;
     const object = self.objects.items[sym_loc.file.?];
-    const source_symtab = object.getSourceSymtab();
     const sym = self.getSymbol(sym_loc);
     const sym_name = self.getSymbolName(sym_loc);
 
     if (sym.n_strx == 0) return buf[0..0];
     if (sym.n_desc == N_DESC_GCED) return buf[0..0];
     if (self.symbolIsTemp(sym_loc)) return buf[0..0];
-    if (sym_loc.sym_index >= source_symtab.len) return buf[0..0]; // synthetic, linker generated
 
-    const source_sym = source_symtab[sym_loc.sym_index];
+    const source_sym = object.getSourceSymbol(sym_loc.sym_index) orelse return buf[0..0];
     const size: ?u64 = size: {
         if (source_sym.tentative()) break :size null;
         for (debug_info.inner.func_list.items) |func| {
@@ -7353,7 +7122,7 @@ fn logAtoms(self: *MachO) void {
     }
 }
 
-fn logAtom(self: *MachO, atom: *const Atom) void {
+pub fn logAtom(self: *MachO, atom: *const Atom) void {
     const sym = atom.getSymbol(self);
     const sym_name = atom.getName(self);
     log.debug("  ATOM(%{d}, '{s}') @ {x} (sizeof({x}), alignof({x})) in object({d}) in sect({d})", .{
