@@ -494,8 +494,10 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\
         \\pub fn main() !void {
         \\    var allocator_buf: [10]u8 = undefined;
-        \\    var fixedBufferAllocator = std.mem.validationWrap(std.heap.FixedBufferAllocator.init(&allocator_buf));
-        \\    const allocator = std.heap.loggingAllocator(fixedBufferAllocator.allocator()).allocator();
+        \\    var fba = std.heap.FixedBufferAllocator.init(&allocator_buf);
+        \\    var fba_wrapped = std.mem.validationWrap(fba);
+        \\    var logging_allocator = std.heap.loggingAllocator(fba_wrapped.allocator());
+        \\    const allocator = logging_allocator.allocator();
         \\
         \\    var a = try allocator.alloc(u8, 10);
         \\    a = allocator.shrink(a, 5);
