@@ -1,8 +1,10 @@
 ---
 kind: pipeline
+type: docker
 name: test-aarch64-linux-musl
 
 platform:
+  os: linux
   arch: arm64
 
 steps:
