@@ -1372,3 +1372,26 @@ test "struct field init value is size of the struct" {
     var s: namespace.S = .{ .blah = 1234 };
     try expect(s.size == 4);
 }
+
+test "under-aligned struct field" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const U = extern union {
+        fd: i32,
+        u32: u32,
+        u64: u64,
+    };
+    const S = extern struct {
+        events: u32,
+        data: U align(4),
+    };
+    var runtime: usize = 1234;
+    const ptr = &S{ .events = 0, .data = .{ .u64 = runtime } };
+    const array = @ptrCast(*const [12]u8, ptr);
+    const result = std.mem.readIntNative(u64, array[4..12]);
+    try expect(result == 1234);
+}

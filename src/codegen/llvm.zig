@@ -2680,11 +2680,15 @@ pub const DeclGen = struct {
                 comptime assert(struct_layout_version == 2);
                 var offset: u64 = 0;
                 var big_align: u32 = 0;
+                var any_underaligned_fields = false;
 
                 for (struct_obj.fields.values()) |field| {
                     if (field.is_comptime or !field.ty.hasRuntimeBitsIgnoreComptime()) continue;
 
                     const field_align = field.normalAlignment(target);
+                    const field_ty_align = field.ty.abiAlignment(target);
+                    any_underaligned_fields = any_underaligned_fields or
+                        field_align < field_ty_align;
                     big_align = @maximum(big_align, field_align);
                     const prev_offset = offset;
                     offset = std.mem.alignForwardGeneric(u64, offset, field_align);
@@ -2712,7 +2716,7 @@ pub const DeclGen = struct {
                 llvm_struct_ty.structSetBody(
                     llvm_field_types.items.ptr,
                     @intCast(c_uint, llvm_field_types.items.len),
-                    .False,
+                    llvm.Bool.fromBool(any_underaligned_fields),
                 );
 
                 return llvm_struct_ty;

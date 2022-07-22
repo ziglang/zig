@@ -3236,7 +3236,10 @@ pub const epoll_event = switch (builtin.zig_backend) {
     },
     else => extern struct {
         events: u32,
-        data: epoll_data align(4),
+        data: epoll_data align(switch (native_arch) {
+            .x86_64 => 4,
+            else => @alignOf(epoll_data),
+        }),
     },
 };
 

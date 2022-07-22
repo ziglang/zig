@@ -1021,7 +1021,7 @@ pub const StandaloneContext = struct {
             defer zig_args.resize(zig_args_base_len) catch unreachable;
 
             const run_cmd = b.addSystemCommand(zig_args.items);
-            const log_step = b.addLog("PASS {s} ({s})\n", .{ annotated_case_name, @tagName(mode) });
+            const log_step = b.addLog("PASS {s} ({s})", .{ annotated_case_name, @tagName(mode) });
             log_step.step.dependOn(&run_cmd.step);
 
             self.step.dependOn(&log_step.step);
@@ -1046,7 +1046,7 @@ pub const StandaloneContext = struct {
                 exe.linkSystemLibrary("c");
             }
 
-            const log_step = b.addLog("PASS {s}\n", .{annotated_case_name});
+            const log_step = b.addLog("PASS {s}", .{annotated_case_name});
             log_step.step.dependOn(&exe.step);
 
             self.step.dependOn(&log_step.step);
