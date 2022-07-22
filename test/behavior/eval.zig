@@ -1272,3 +1272,13 @@ test "continue nested in a conditional in an inline for" {
     }
     try expect(x == 0);
 }
+
+test "optional pointer represented as a pointer value" {
+    comptime {
+        var val: u8 = 15;
+        const opt_ptr: ?*u8 = &val;
+
+        const payload_ptr = &opt_ptr.?;
+        try expect(payload_ptr.*.* == 15);
+    }
+}
