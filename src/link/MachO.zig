@@ -2310,11 +2310,11 @@ fn shiftLocalsByOffset(self: *MachO, match: MatchingSection, offset: i64) !void 
     var atom = self.atoms.get(match) orelse return;
 
     while (true) {
-        const atom_sym = &self.locals.items[atom.sym_index];
+        const atom_sym = atom.getSymbolPtr(self);
         atom_sym.n_value = @intCast(u64, @intCast(i64, atom_sym.n_value) + offset);
 
         for (atom.contained.items) |sym_at_off| {
-            const contained_sym = &self.locals.items[sym_at_off.sym_index];
+            const contained_sym = self.getSymbolPtr(.{ .sym_index = sym_at_off.sym_index, .file = atom.file });
             contained_sym.n_value = @intCast(u64, @intCast(i64, contained_sym.n_value) + offset);
         }
 
@@ -3488,7 +3488,7 @@ fn shrinkAtom(self: *MachO, atom: *Atom, new_block_size: u64, match: MatchingSec
 }
 
 fn growAtom(self: *MachO, atom: *Atom, new_atom_size: u64, alignment: u64, match: MatchingSection) !u64 {
-    const sym = self.locals.items[atom.sym_index];
+    const sym = atom.getSymbol(self);
     const align_ok = mem.alignBackwardGeneric(u64, sym.n_value, alignment) == sym.n_value;
     const need_realloc = !align_ok or new_atom_size > atom.capacity(self);
     if (!need_realloc) return sym.n_value;
@@ -3643,14 +3643,14 @@ pub fn updateFunc(self: *MachO, module: *Module, func: *Module.Fn, air: Air, liv
         },
     }
 
-    const symbol = try self.placeDecl(decl_index, decl.link.macho.code.items.len);
+    const addr = try self.placeDecl(decl_index, decl.link.macho.code.items.len);
 
     if (decl_state) |*ds| {
         try self.d_sym.?.dwarf.commitDeclState(
             &self.base,
             module,
             decl,
-            symbol.n_value,
+            addr,
             decl.link.macho.size,
             ds,
         );
@@ -3731,7 +3731,7 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Modu
 
     errdefer self.freeAtom(atom, match, true);
 
-    const symbol = &self.locals.items[atom.sym_index];
+    const symbol = atom.getSymbolPtr(self);
     symbol.* = .{
         .n_strx = name_str_index,
         .n_type = macho.N_SECT,
@@ -3814,14 +3814,14 @@ pub fn updateDecl(self: *MachO, module: *Module, decl_index: Module.Decl.Index) 
             },
         }
     };
-    const symbol = try self.placeDecl(decl_index, code.len);
+    const addr = try self.placeDecl(decl_index, code.len);
 
     if (decl_state) |*ds| {
         try self.d_sym.?.dwarf.commitDeclState(
             &self.base,
             module,
             decl,
-            symbol.n_value,
+            addr,
             decl.link.macho.size,
             ds,
         );
@@ -3977,12 +3977,11 @@ fn getMatchingSectionAtom(
     return match;
 }
 
-fn placeDecl(self: *MachO, decl_index: Module.Decl.Index, code_len: usize) !*macho.nlist_64 {
+fn placeDecl(self: *MachO, decl_index: Module.Decl.Index, code_len: usize) !u64 {
     const module = self.base.options.module.?;
     const decl = module.declPtr(decl_index);
     const required_alignment = decl.getAlignment(self.base.options.target);
     assert(decl.link.macho.sym_index != 0); // Caller forgot to call allocateDeclIndexes()
-    const symbol = &self.locals.items[decl.link.macho.sym_index];
 
     const sym_name = try decl.getFullyQualifiedName(module);
     defer self.base.allocator.free(sym_name);
@@ -4000,6 +3999,7 @@ fn placeDecl(self: *MachO, decl_index: Module.Decl.Index, code_len: usize) !*mac
     const match = decl_ptr.*.?;
 
     if (decl.link.macho.size != 0) {
+        const symbol = decl.link.macho.getSymbolPtr(self);
         const capacity = decl.link.macho.capacity(self);
         const need_realloc = code_len > capacity or !mem.isAlignedGeneric(u64, symbol.n_value, required_alignment);
 
@@ -4033,6 +4033,7 @@ fn placeDecl(self: *MachO, decl_index: Module.Decl.Index, code_len: usize) !*mac
 
         errdefer self.freeAtom(&decl.link.macho, match, false);
 
+        const symbol = decl.link.macho.getSymbolPtr(self);
         symbol.* = .{
             .n_strx = name_str_index,
             .n_type = macho.N_SECT,
@@ -4047,7 +4048,7 @@ fn placeDecl(self: *MachO, decl_index: Module.Decl.Index, code_len: usize) !*mac
         self.got_entries.items[got_index].sym_index = got_atom.sym_index;
     }
 
-    return symbol;
+    return decl.link.macho.getSymbol(self).n_value;
 }
 
 pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl: *const Module.Decl) !void {
@@ -5233,7 +5234,7 @@ fn allocateAtom(
             const big_atom = free_list.items[i];
             // We now have a pointer to a live atom that has too much capacity.
             // Is it enough that we could fit this new atom?
-            const sym = self.locals.items[big_atom.sym_index];
+            const sym = big_atom.getSymbol(self);
             const capacity = big_atom.capacity(self);
             const ideal_capacity = if (needs_padding) padToIdeal(capacity) else capacity;
             const ideal_capacity_end_vaddr = math.add(u64, sym.n_value, ideal_capacity) catch ideal_capacity;
@@ -5264,7 +5265,7 @@ fn allocateAtom(
             }
             break :blk new_start_vaddr;
         } else if (self.atoms.get(match)) |last| {
-            const last_symbol = self.locals.items[last.sym_index];
+            const last_symbol = last.getSymbol(self);
             const ideal_capacity = if (needs_padding) padToIdeal(last.size) else last.size;
             const ideal_capacity_end_vaddr = last_symbol.n_value + ideal_capacity;
             const new_start_vaddr = mem.alignForwardGeneric(u64, ideal_capacity_end_vaddr, alignment);
