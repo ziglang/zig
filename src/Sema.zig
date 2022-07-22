@@ -22660,7 +22660,11 @@ fn beginComptimePtrMutation(
                             .ty = payload_ty,
                         },
 
-                        else => unreachable,
+                        else => return ComptimePtrMutationKit{
+                            .decl_ref_mut = parent.decl_ref_mut,
+                            .pointee = .{ .direct = val_ptr },
+                            .ty = payload_ty,
+                        },
                     }
                 },
                 .bad_decl_ty, .bad_ptr_ty => return parent,
