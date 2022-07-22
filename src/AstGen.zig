@@ -4214,6 +4214,12 @@ fn structDeclInner(
         const have_value = member.ast.value_expr != 0;
         const is_comptime = member.comptime_token != null;
 
+        if (is_comptime and layout == .Packed) {
+            return astgen.failTok(member.comptime_token.?, "packed struct fields cannot be marked comptime", .{});
+        } else if (is_comptime and layout == .Extern) {
+            return astgen.failTok(member.comptime_token.?, "extern struct fields cannot be marked comptime", .{});
+        }
+
         if (!is_comptime) {
             known_non_opv = known_non_opv or
                 nodeImpliesMoreThanOnePossibleValue(tree, member.ast.type_expr);

@@ -14509,6 +14509,7 @@ fn zirStructInit(
         var field_i: u32 = 0;
         var extra_index = extra.end;
 
+        const is_packed = resolved_ty.containerLayout() == .Packed;
         while (field_i < extra.data.fields_len) : (field_i += 1) {
             const item = sema.code.extraData(Zir.Inst.StructInit.Item, extra_index);
             extra_index = item.end;
@@ -14535,7 +14536,7 @@ fn zirStructInit(
             }
             found_fields[field_index] = item.data.field_type;
             field_inits[field_index] = try sema.resolveInst(item.data.init);
-            if (resolved_ty.structFieldValueComptime(field_index)) |default_value| {
+            if (!is_packed) if (resolved_ty.structFieldValueComptime(field_index)) |default_value| {
                 const init_val = (try sema.resolveMaybeUndefVal(block, field_src, field_inits[field_index])) orelse {
                     return sema.failWithNeededComptime(block, field_src, "value stored in comptime field must be comptime known");
                 };
@@ -14544,7 +14545,7 @@ fn zirStructInit(
                     // TODO add note showing where default value is provided
                     return sema.fail(block, field_src, "value stored in comptime field does not match the default value of the field", .{});
                 }
-            }
+            };
         }
 
         return sema.finishStructInit(block, src, src, field_inits, resolved_ty, is_ref);
