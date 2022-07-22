@@ -3618,8 +3618,9 @@ fn airIsErr(
     const operand = try f.resolveInst(un_op);
     const operand_ty = f.air.typeOf(un_op);
     const local = try f.allocLocal(Type.initTag(.bool), .Const);
-    const payload_ty = operand_ty.errorUnionPayload();
-    const error_ty = operand_ty.errorUnionSet();
+    const err_union_ty = if (is_ptr) operand_ty.childType() else operand_ty;
+    const payload_ty = err_union_ty.errorUnionPayload();
+    const error_ty = err_union_ty.errorUnionSet();
 
     try writer.writeAll(" = ");
 
