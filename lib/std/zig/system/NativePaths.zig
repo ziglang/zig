@@ -84,13 +84,14 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
 
     if (comptime builtin.target.isDarwin()) {
         try self.addIncludeDir("/usr/include");
-        try self.addIncludeDir("/usr/local/include");
-
         try self.addLibDir("/usr/lib");
-        try self.addLibDir("/usr/local/lib");
-
-        try self.addFrameworkDir("/Library/Frameworks");
         try self.addFrameworkDir("/System/Library/Frameworks");
+
+        if (builtin.target.os.version_range.semver.min.major < 11) {
+            try self.addIncludeDir("/usr/local/include");
+            try self.addLibDir("/usr/local/lib");
+            try self.addFrameworkDir("/Library/Frameworks");
+        }
 
         return self;
     }
