@@ -549,25 +549,27 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     });
 
-    cases.add("function prototype translated as optional",
-        \\typedef void (*fnptr_ty)(void);
-        \\typedef __attribute__((cdecl)) void (*fnptr_attr_ty)(void);
-        \\struct foo {
-        \\    __attribute__((cdecl)) void (*foo)(void);
-        \\    void (*bar)(void);
-        \\    fnptr_ty baz;
-        \\    fnptr_attr_ty qux;
-        \\};
-    , &[_][]const u8{
-        \\pub const fnptr_ty = ?fn () callconv(.C) void;
-        \\pub const fnptr_attr_ty = ?fn () callconv(.C) void;
-        \\pub const struct_foo = extern struct {
-        \\    foo: ?fn () callconv(.C) void,
-        \\    bar: ?fn () callconv(.C) void,
-        \\    baz: fnptr_ty,
-        \\    qux: fnptr_attr_ty,
-        \\};
-    });
+    if (builtin.zig_backend != .stage1) {
+        cases.add("function prototype translated as optional",
+            \\typedef void (*fnptr_ty)(void);
+            \\typedef __attribute__((cdecl)) void (*fnptr_attr_ty)(void);
+            \\struct foo {
+            \\    __attribute__((cdecl)) void (*foo)(void);
+            \\    void (*bar)(void);
+            \\    fnptr_ty baz;
+            \\    fnptr_attr_ty qux;
+            \\};
+        , &[_][]const u8{
+            \\pub const fnptr_ty = ?*const fn () callconv(.C) void;
+            \\pub const fnptr_attr_ty = ?*const fn () callconv(.C) void;
+            \\pub const struct_foo = extern struct {
+            \\    foo: ?*const fn () callconv(.C) void,
+            \\    bar: ?*const fn () callconv(.C) void,
+            \\    baz: fnptr_ty,
+            \\    qux: fnptr_attr_ty,
+            \\};
+        });
+    }
 
     cases.add("function prototype with parenthesis",
         \\void (f0) (void *L);
@@ -895,20 +897,22 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const baz = c_int;
     });
 
-    cases.add("casting pointers to ints and ints to pointers",
-        \\void foo(void);
-        \\void bar(void) {
-        \\    void *func_ptr = foo;
-        \\    void (*typed_func_ptr)(void) = (void (*)(void)) (unsigned long) func_ptr;
-        \\}
-    , &[_][]const u8{
-        \\pub extern fn foo() void;
-        \\pub export fn bar() void {
-        \\    var func_ptr: ?*anyopaque = @ptrCast(?*anyopaque, foo);
-        \\    var typed_func_ptr: ?fn () callconv(.C) void = @intToPtr(?fn () callconv(.C) void, @intCast(c_ulong, @ptrToInt(func_ptr)));
-        \\    _ = typed_func_ptr;
-        \\}
-    });
+    if (builtin.zig_backend != .stage1) {
+        cases.add("casting pointers to ints and ints to pointers",
+            \\void foo(void);
+            \\void bar(void) {
+            \\    void *func_ptr = foo;
+            \\    void (*typed_func_ptr)(void) = (void (*)(void)) (unsigned long) func_ptr;
+            \\}
+        , &[_][]const u8{
+            \\pub extern fn foo() void;
+            \\pub export fn bar() void {
+            \\    var func_ptr: ?*anyopaque = @ptrCast(?*anyopaque, foo);
+            \\    var typed_func_ptr: ?*const fn () callconv(.C) void = @intToPtr(?*const fn () callconv(.C) void, @intCast(c_ulong, @ptrToInt(func_ptr)));
+            \\    _ = typed_func_ptr;
+            \\}
+        });
+    }
 
     cases.add("noreturn attribute",
         \\void foo(void) __attribute__((noreturn));
@@ -968,19 +972,21 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add("typedef of function in struct field",
-        \\typedef void lws_callback_function(void);
-        \\struct Foo {
-        \\    void (*func)(void);
-        \\    lws_callback_function *callback_http;
-        \\};
-    , &[_][]const u8{
-        \\pub const lws_callback_function = fn () callconv(.C) void;
-        \\pub const struct_Foo = extern struct {
-        \\    func: ?fn () callconv(.C) void,
-        \\    callback_http: ?lws_callback_function,
-        \\};
-    });
+    if (builtin.zig_backend != .stage1) {
+        cases.add("typedef of function in struct field",
+            \\typedef void lws_callback_function(void);
+            \\struct Foo {
+            \\    void (*func)(void);
+            \\    lws_callback_function *callback_http;
+            \\};
+        , &[_][]const u8{
+            \\pub const lws_callback_function = fn () callconv(.C) void;
+            \\pub const struct_Foo = extern struct {
+            \\    func: ?*const fn () callconv(.C) void,
+            \\    callback_http: ?*const lws_callback_function,
+            \\};
+        });
+    }
 
     cases.add("pointer to struct demoted to opaque due to bit fields",
         \\struct Foo {
@@ -1051,17 +1057,19 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const Foo = struct_Foo;
     });
 
-    cases.add("self referential struct with function pointer",
-        \\struct Foo {
-        \\    void (*derp)(struct Foo *foo);
-        \\};
-    , &[_][]const u8{
-        \\pub const struct_Foo = extern struct {
-        \\    derp: ?fn ([*c]struct_Foo) callconv(.C) void,
-        \\};
-        ,
-        \\pub const Foo = struct_Foo;
-    });
+    if (builtin.zig_backend != .stage1) {
+        cases.add("self referential struct with function pointer",
+            \\struct Foo {
+            \\    void (*derp)(struct Foo *foo);
+            \\};
+        , &[_][]const u8{
+            \\pub const struct_Foo = extern struct {
+            \\    derp: ?*const fn ([*c]struct_Foo) callconv(.C) void,
+            \\};
+            ,
+            \\pub const Foo = struct_Foo;
+        });
+    }
 
     cases.add("struct prototype used in func",
         \\struct Foo;
@@ -1327,11 +1335,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern fn func(array: [*c]c_int) void;
     });
 
-    cases.add("__cdecl doesn't mess up function pointers",
-        \\void foo(void (__cdecl *fn_ptr)(void));
-    , &[_][]const u8{
-        \\pub extern fn foo(fn_ptr: ?fn () callconv(.C) void) void;
-    });
+    if (builtin.zig_backend != .stage1) {
+        cases.add("__cdecl doesn't mess up function pointers",
+            \\void foo(void (__cdecl *fn_ptr)(void));
+        , &[_][]const u8{
+            \\pub extern fn foo(fn_ptr: ?*const fn () callconv(.C) void) void;
+        });
+    }
 
     cases.add("void cast",
         \\void foo() {
@@ -1674,13 +1684,15 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub extern var my_enum: enum_enum_ty;
     });
 
-    cases.add("Parameterless function pointers",
-        \\typedef void (*fn0)();
-        \\typedef void (*fn1)(char);
-    , &[_][]const u8{
-        \\pub const fn0 = ?fn (...) callconv(.C) void;
-        \\pub const fn1 = ?fn (u8) callconv(.C) void;
-    });
+    if (builtin.zig_backend != .stage1) {
+        cases.add("Parameterless function pointers",
+            \\typedef void (*fn0)();
+            \\typedef void (*fn1)(char);
+        , &[_][]const u8{
+            \\pub const fn0 = ?*const fn (...) callconv(.C) void;
+            \\pub const fn1 = ?*const fn (u8) callconv(.C) void;
+        });
+    }
 
     cases.addWithTarget("Calling convention", .{
         .cpu_arch = .i386,
@@ -1880,60 +1892,64 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const SDL_INIT_VIDEO = @as(c_ulonglong, 0x00000020);
     });
 
-    cases.add("generate inline func for #define global extern fn",
-        \\extern void (*fn_ptr)(void);
-        \\#define foo fn_ptr
-        \\
-        \\extern char (*fn_ptr2)(int, float);
-        \\#define bar fn_ptr2
-    , &[_][]const u8{
-        \\pub extern var fn_ptr: ?fn () callconv(.C) void;
-        ,
-        \\pub inline fn foo() void {
-        \\    return fn_ptr.?();
-        \\}
-        ,
-        \\pub extern var fn_ptr2: ?fn (c_int, f32) callconv(.C) u8;
-        ,
-        \\pub inline fn bar(arg_1: c_int, arg_2: f32) u8 {
-        \\    return fn_ptr2.?(arg_1, arg_2);
-        \\}
-    });
+    if (builtin.zig_backend != .stage1) {
+        cases.add("generate inline func for #define global extern fn",
+            \\extern void (*fn_ptr)(void);
+            \\#define foo fn_ptr
+            \\
+            \\extern char (*fn_ptr2)(int, float);
+            \\#define bar fn_ptr2
+        , &[_][]const u8{
+            \\pub extern var fn_ptr: ?*const fn () callconv(.C) void;
+            ,
+            \\pub inline fn foo() void {
+            \\    return fn_ptr.?();
+            \\}
+            ,
+            \\pub extern var fn_ptr2: ?*const fn (c_int, f32) callconv(.C) u8;
+            ,
+            \\pub inline fn bar(arg_1: c_int, arg_2: f32) u8 {
+            \\    return fn_ptr2.?(arg_1, arg_2);
+            \\}
+        });
+    }
 
-    cases.add("macros with field targets",
-        \\typedef unsigned int GLbitfield;
-        \\typedef void (*PFNGLCLEARPROC) (GLbitfield mask);
-        \\typedef void(*OpenGLProc)(void);
-        \\union OpenGLProcs {
-        \\    OpenGLProc ptr[1];
-        \\    struct {
-        \\        PFNGLCLEARPROC Clear;
-        \\    } gl;
-        \\};
-        \\extern union OpenGLProcs glProcs;
-        \\#define glClearUnion glProcs.gl.Clear
-        \\#define glClearPFN PFNGLCLEARPROC
-    , &[_][]const u8{
-        \\pub const GLbitfield = c_uint;
-        \\pub const PFNGLCLEARPROC = ?fn (GLbitfield) callconv(.C) void;
-        \\pub const OpenGLProc = ?fn () callconv(.C) void;
-        \\const struct_unnamed_1 = extern struct {
-        \\    Clear: PFNGLCLEARPROC,
-        \\};
-        \\pub const union_OpenGLProcs = extern union {
-        \\    ptr: [1]OpenGLProc,
-        \\    gl: struct_unnamed_1,
-        \\};
-        \\pub extern var glProcs: union_OpenGLProcs;
-        ,
-        \\pub const glClearPFN = PFNGLCLEARPROC;
-        ,
-        \\pub inline fn glClearUnion(arg_2: GLbitfield) void {
-        \\    return glProcs.gl.Clear.?(arg_2);
-        \\}
-        ,
-        \\pub const OpenGLProcs = union_OpenGLProcs;
-    });
+    if (builtin.zig_backend != .stage1) {
+        cases.add("macros with field targets",
+            \\typedef unsigned int GLbitfield;
+            \\typedef void (*PFNGLCLEARPROC) (GLbitfield mask);
+            \\typedef void(*OpenGLProc)(void);
+            \\union OpenGLProcs {
+            \\    OpenGLProc ptr[1];
+            \\    struct {
+            \\        PFNGLCLEARPROC Clear;
+            \\    } gl;
+            \\};
+            \\extern union OpenGLProcs glProcs;
+            \\#define glClearUnion glProcs.gl.Clear
+            \\#define glClearPFN PFNGLCLEARPROC
+        , &[_][]const u8{
+            \\pub const GLbitfield = c_uint;
+            \\pub const PFNGLCLEARPROC = ?*const fn (GLbitfield) callconv(.C) void;
+            \\pub const OpenGLProc = ?*const fn () callconv(.C) void;
+            \\const struct_unnamed_1 = extern struct {
+            \\    Clear: PFNGLCLEARPROC,
+            \\};
+            \\pub const union_OpenGLProcs = extern union {
+            \\    ptr: [1]OpenGLProc,
+            \\    gl: struct_unnamed_1,
+            \\};
+            \\pub extern var glProcs: union_OpenGLProcs;
+            ,
+            \\pub const glClearPFN = PFNGLCLEARPROC;
+            ,
+            \\pub inline fn glClearUnion(arg_2: GLbitfield) void {
+            \\    return glProcs.gl.Clear.?(arg_2);
+            \\}
+            ,
+            \\pub const OpenGLProcs = union_OpenGLProcs;
+        });
+    }
 
     cases.add("macro pointer cast",
         \\#define NRF_GPIO_BASE 0
@@ -2840,35 +2856,37 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add("deref function pointer",
-        \\void foo(void) {}
-        \\int baz(void) { return 0; }
-        \\void bar(void) {
-        \\    void(*f)(void) = foo;
-        \\    int(*b)(void) = baz;
-        \\    f();
-        \\    (*(f))();
-        \\    foo();
-        \\    b();
-        \\    (*(b))();
-        \\    baz();
-        \\}
-    , &[_][]const u8{
-        \\pub export fn foo() void {}
-        \\pub export fn baz() c_int {
-        \\    return 0;
-        \\}
-        \\pub export fn bar() void {
-        \\    var f: ?fn () callconv(.C) void = foo;
-        \\    var b: ?fn () callconv(.C) c_int = baz;
-        \\    f.?();
-        \\    f.?();
-        \\    foo();
-        \\    _ = b.?();
-        \\    _ = b.?();
-        \\    _ = baz();
-        \\}
-    });
+    if (builtin.zig_backend != .stage1) {
+        cases.add("deref function pointer",
+            \\void foo(void) {}
+            \\int baz(void) { return 0; }
+            \\void bar(void) {
+            \\    void(*f)(void) = foo;
+            \\    int(*b)(void) = baz;
+            \\    f();
+            \\    (*(f))();
+            \\    foo();
+            \\    b();
+            \\    (*(b))();
+            \\    baz();
+            \\}
+        , &[_][]const u8{
+            \\pub export fn foo() void {}
+            \\pub export fn baz() c_int {
+            \\    return 0;
+            \\}
+            \\pub export fn bar() void {
+            \\    var f: ?*const fn () callconv(.C) void = foo;
+            \\    var b: ?*const fn () callconv(.C) c_int = baz;
+            \\    f.?();
+            \\    f.?();
+            \\    foo();
+            \\    _ = b.?();
+            \\    _ = b.?();
+            \\    _ = baz();
+            \\}
+        });
+    }
 
     cases.add("pre increment/decrement",
         \\void foo(void) {
@@ -3143,73 +3161,77 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add("implicit casts",
-        \\#include <stdbool.h>
-        \\
-        \\void fn_int(int x);
-        \\void fn_f32(float x);
-        \\void fn_f64(double x);
-        \\void fn_char(char x);
-        \\void fn_bool(bool x);
-        \\void fn_ptr(void *x);
-        \\
-        \\void call() {
-        \\    fn_int(3.0f);
-        \\    fn_int(3.0);
-        \\    fn_int('ABCD');
-        \\    fn_f32(3);
-        \\    fn_f64(3);
-        \\    fn_char('3');
-        \\    fn_char('\x1');
-        \\    fn_char(0);
-        \\    fn_f32(3.0f);
-        \\    fn_f64(3.0);
-        \\    fn_bool(123);
-        \\    fn_bool(0);
-        \\    fn_bool(&fn_int);
-        \\    fn_int(&fn_int);
-        \\    fn_ptr(42);
-        \\}
-    , &[_][]const u8{
-        \\pub extern fn fn_int(x: c_int) void;
-        \\pub extern fn fn_f32(x: f32) void;
-        \\pub extern fn fn_f64(x: f64) void;
-        \\pub extern fn fn_char(x: u8) void;
-        \\pub extern fn fn_bool(x: bool) void;
-        \\pub extern fn fn_ptr(x: ?*anyopaque) void;
-        \\pub export fn call() void {
-        \\    fn_int(@floatToInt(c_int, 3.0));
-        \\    fn_int(@floatToInt(c_int, 3.0));
-        \\    fn_int(@as(c_int, 1094861636));
-        \\    fn_f32(@intToFloat(f32, @as(c_int, 3)));
-        \\    fn_f64(@intToFloat(f64, @as(c_int, 3)));
-        \\    fn_char(@bitCast(u8, @truncate(i8, @as(c_int, '3'))));
-        \\    fn_char(@bitCast(u8, @truncate(i8, @as(c_int, '\x01'))));
-        \\    fn_char(@bitCast(u8, @truncate(i8, @as(c_int, 0))));
-        \\    fn_f32(3.0);
-        \\    fn_f64(3.0);
-        \\    fn_bool(@as(c_int, 123) != 0);
-        \\    fn_bool(@as(c_int, 0) != 0);
-        \\    fn_bool(@ptrToInt(fn_int) != 0);
-        \\    fn_int(@intCast(c_int, @ptrToInt(fn_int)));
-        \\    fn_ptr(@intToPtr(?*anyopaque, @as(c_int, 42)));
-        \\}
-    });
+    if (builtin.zig_backend != .stage1) {
+        cases.add("implicit casts",
+            \\#include <stdbool.h>
+            \\
+            \\void fn_int(int x);
+            \\void fn_f32(float x);
+            \\void fn_f64(double x);
+            \\void fn_char(char x);
+            \\void fn_bool(bool x);
+            \\void fn_ptr(void *x);
+            \\
+            \\void call() {
+            \\    fn_int(3.0f);
+            \\    fn_int(3.0);
+            \\    fn_int('ABCD');
+            \\    fn_f32(3);
+            \\    fn_f64(3);
+            \\    fn_char('3');
+            \\    fn_char('\x1');
+            \\    fn_char(0);
+            \\    fn_f32(3.0f);
+            \\    fn_f64(3.0);
+            \\    fn_bool(123);
+            \\    fn_bool(0);
+            \\    fn_bool(&fn_int);
+            \\    fn_int(&fn_int);
+            \\    fn_ptr(42);
+            \\}
+        , &[_][]const u8{
+            \\pub extern fn fn_int(x: c_int) void;
+            \\pub extern fn fn_f32(x: f32) void;
+            \\pub extern fn fn_f64(x: f64) void;
+            \\pub extern fn fn_char(x: u8) void;
+            \\pub extern fn fn_bool(x: bool) void;
+            \\pub extern fn fn_ptr(x: ?*anyopaque) void;
+            \\pub export fn call() void {
+            \\    fn_int(@floatToInt(c_int, 3.0));
+            \\    fn_int(@floatToInt(c_int, 3.0));
+            \\    fn_int(@as(c_int, 1094861636));
+            \\    fn_f32(@intToFloat(f32, @as(c_int, 3)));
+            \\    fn_f64(@intToFloat(f64, @as(c_int, 3)));
+            \\    fn_char(@bitCast(u8, @truncate(i8, @as(c_int, '3'))));
+            \\    fn_char(@bitCast(u8, @truncate(i8, @as(c_int, '\x01'))));
+            \\    fn_char(@bitCast(u8, @truncate(i8, @as(c_int, 0))));
+            \\    fn_f32(3.0);
+            \\    fn_f64(3.0);
+            \\    fn_bool(@as(c_int, 123) != 0);
+            \\    fn_bool(@as(c_int, 0) != 0);
+            \\    fn_bool(@ptrToInt(&fn_int) != 0);
+            \\    fn_int(@intCast(c_int, @ptrToInt(&fn_int)));
+            \\    fn_ptr(@intToPtr(?*anyopaque, @as(c_int, 42)));
+            \\}
+        });
+    }
 
-    cases.add("function call",
-        \\static void bar(void) { }
-        \\void foo(int *(baz)(void)) {
-        \\    bar();
-        \\    baz();
-        \\}
-    , &[_][]const u8{
-        \\pub fn bar() callconv(.C) void {}
-        \\pub export fn foo(arg_baz: ?fn () callconv(.C) [*c]c_int) void {
-        \\    var baz = arg_baz;
-        \\    bar();
-        \\    _ = baz.?();
-        \\}
-    });
+    if (builtin.zig_backend != .stage1) {
+        cases.add("function call",
+            \\static void bar(void) { }
+            \\void foo(int *(baz)(void)) {
+            \\    bar();
+            \\    baz();
+            \\}
+        , &[_][]const u8{
+            \\pub fn bar() callconv(.C) void {}
+            \\pub export fn foo(arg_baz: ?*const fn () callconv(.C) [*c]c_int) void {
+            \\    var baz = arg_baz;
+            \\    bar();
+            \\    _ = baz.?();
+            \\}
+        });
+    }
 
     cases.add("macro defines string literal with octal",
         \\#define FOO "aoeu\023 derp"
