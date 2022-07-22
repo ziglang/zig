@@ -22625,7 +22625,9 @@ fn beginComptimePtrMutation(
             }
         },
         .opt_payload_ptr => {
-            const opt_ptr = ptr_val.castTag(.opt_payload_ptr).?.data;
+            const opt_ptr = if (ptr_val.castTag(.opt_payload_ptr)) |some| some.data else {
+                return sema.beginComptimePtrMutation(block, src, ptr_val, try ptr_elem_ty.optionalChildAlloc(sema.arena));
+            };
             var parent = try beginComptimePtrMutation(sema, block, src, opt_ptr.container_ptr, opt_ptr.container_ty);
             switch (parent.pointee) {
                 .direct => |val_ptr| {
@@ -22941,7 +22943,7 @@ fn beginComptimePtrLoad(
                 if (coerce_in_mem_ok) {
                     const payload_val = switch (ptr_val.tag()) {
                         .eu_payload_ptr => tv.val.castTag(.eu_payload).?.data,
-                        .opt_payload_ptr => tv.val.castTag(.opt_payload).?.data,
+                        .opt_payload_ptr => if (tv.val.castTag(.opt_payload)) |some| some.data else tv.val,
                         else => unreachable,
                     };
                     tv.* = TypedValue{ .ty = payload_ty, .val = payload_val };
