@@ -1663,11 +1663,15 @@ fn resolveMaybeUndefValIntable(
     inst: Air.Inst.Ref,
 ) CompileError!?Value {
     const val = (try sema.resolveMaybeUndefValAllowVariables(block, src, inst)) orelse return null;
-    switch (val.tag()) {
-        .variable, .decl_ref, .decl_ref_mut => return null,
+    var check = val;
+    while (true) switch (check.tag()) {
+        .variable, .decl_ref, .decl_ref_mut, .comptime_field_ptr => return null,
+        .field_ptr => check = check.castTag(.field_ptr).?.data.container_ptr,
+        .elem_ptr => check = check.castTag(.elem_ptr).?.data.array_ptr,
+        .eu_payload_ptr, .opt_payload_ptr => check = check.cast(Value.Payload.PayloadPtr).?.data.container_ptr,
         .generic_poison => return error.GenericPoison,
         else => return val,
-    }
+    };
 }
 
 /// Returns all Value tags including `variable` and `undef`.
@@ -7893,7 +7897,7 @@ fn zirPtrToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     if (!ptr_ty.isPtrAtRuntime()) {
         return sema.fail(block, ptr_src, "expected pointer, found '{}'", .{ptr_ty.fmt(sema.mod)});
     }
-    if (try sema.resolveMaybeUndefVal(block, ptr_src, ptr)) |ptr_val| {
+    if (try sema.resolveMaybeUndefValIntable(block, ptr_src, ptr)) |ptr_val| {
         return sema.addConstant(Type.usize, ptr_val);
     }
     try sema.requireRuntimeBlock(block, ptr_src, ptr_src);
