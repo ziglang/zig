@@ -712,7 +712,8 @@ fn linkOneShot(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) 
     const is_dyn_lib = self.base.options.link_mode == .Dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or self.base.options.output_mode == .Exe;
     const stack_size = self.base.options.stack_size_override orelse 0;
-    const gc_sections = self.base.options.gc_sections orelse false;
+    const is_debug_build = self.base.options.optimize_mode == .Debug;
+    const gc_sections = self.base.options.gc_sections orelse !is_debug_build;
 
     const id_symlink_basename = "zld.id";
 

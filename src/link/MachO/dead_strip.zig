@@ -11,8 +11,6 @@ const MachO = @import("../MachO.zig");
 const MatchingSection = MachO.MatchingSection;
 
 pub fn gcAtoms(macho_file: *MachO) !void {
-    assert(macho_file.base.options.gc_sections.?);
-
     const gpa = macho_file.base.allocator;
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
