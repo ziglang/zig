@@ -22946,8 +22946,13 @@ fn beginComptimePtrLoad(
                     (try sema.coerceInMemoryAllowed(block, tv.ty, payload_ptr.container_ty, false, target, src, src)) == .ok;
                 if (coerce_in_mem_ok) {
                     const payload_val = switch (ptr_val.tag()) {
-                        .eu_payload_ptr => tv.val.castTag(.eu_payload).?.data,
-                        .opt_payload_ptr => if (tv.val.castTag(.opt_payload)) |some| some.data else tv.val,
+                        .eu_payload_ptr => if (tv.val.castTag(.eu_payload)) |some| some.data else {
+                            return sema.fail(block, src, "attempt to unwrap error: {s}", .{tv.val.castTag(.@"error").?.data.name});
+                        },
+                        .opt_payload_ptr => if (tv.val.castTag(.opt_payload)) |some| some.data else opt: {
+                            if (tv.val.isNull()) return sema.fail(block, src, "attempt to use null value", .{});
+                            break :opt tv.val;
+                        },
                         else => unreachable,
                     };
                     tv.* = TypedValue{ .ty = payload_ty, .val = payload_val };
@@ -22956,6 +22961,9 @@ fn beginComptimePtrLoad(
             }
             deref.pointee = null;
             break :blk deref;
+        },
+        .null_value => {
+            return sema.fail(block, src, "attempt to use null value", .{});
         },
 
         .zero,
