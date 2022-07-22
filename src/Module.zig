@@ -5952,6 +5952,58 @@ pub fn argSrc(
     return LazySrcLoc.nodeOffset(decl.nodeIndexToRelative(full.ast.params[arg_i]));
 }
 
+pub fn initSrc(
+    init_node_offset: i32,
+    gpa: Allocator,
+    decl: *Decl,
+    init_index: usize,
+) LazySrcLoc {
+    @setCold(true);
+    const tree = decl.getFileScope().getTree(gpa) catch |err| {
+        // In this case we emit a warning + a less precise source location.
+        log.warn("unable to load {s}: {s}", .{
+            decl.getFileScope().sub_file_path, @errorName(err),
+        });
+        return LazySrcLoc.nodeOffset(0);
+    };
+    const node_tags = tree.nodes.items(.tag);
+    const node = decl.relativeToNodeIndex(init_node_offset);
+    var buf: [2]Ast.Node.Index = undefined;
+    const full = switch (node_tags[node]) {
+        .array_init_one, .array_init_one_comma => tree.arrayInitOne(buf[0..1], node).ast.elements,
+        .array_init_dot_two, .array_init_dot_two_comma => tree.arrayInitDotTwo(&buf, node).ast.elements,
+        .array_init_dot, .array_init_dot_comma => tree.arrayInitDot(node).ast.elements,
+        .array_init, .array_init_comma => tree.arrayInit(node).ast.elements,
+
+        .struct_init_one, .struct_init_one_comma => tree.structInitOne(buf[0..1], node).ast.fields,
+        .struct_init_dot_two, .struct_init_dot_two_comma => tree.structInitDotTwo(&buf, node).ast.fields,
+        .struct_init_dot, .struct_init_dot_comma => tree.structInitDot(node).ast.fields,
+        .struct_init, .struct_init_comma => tree.structInit(node).ast.fields,
+        else => unreachable,
+    };
+    switch (node_tags[node]) {
+        .array_init_one,
+        .array_init_one_comma,
+        .array_init_dot_two,
+        .array_init_dot_two_comma,
+        .array_init_dot,
+        .array_init_dot_comma,
+        .array_init,
+        .array_init_comma,
+        => return LazySrcLoc.nodeOffset(decl.nodeIndexToRelative(full[init_index])),
+        .struct_init_one,
+        .struct_init_one_comma,
+        .struct_init_dot_two,
+        .struct_init_dot_two_comma,
+        .struct_init_dot,
+        .struct_init_dot_comma,
+        .struct_init,
+        .struct_init_comma,
+        => return LazySrcLoc{ .node_offset_initializer = decl.nodeIndexToRelative(full[init_index]) },
+        else => unreachable,
+    }
+}
+
 /// Called from `performAllTheWork`, after all AstGen workers have finished,
 /// and before the main semantic analysis loop begins.
 pub fn processOutdatedAndDeletedDecls(mod: *Module) !void {

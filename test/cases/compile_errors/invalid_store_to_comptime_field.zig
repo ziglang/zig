@@ -58,4 +58,5 @@ pub export fn entry4() void {
 // :14:19: error: value stored in comptime field does not match the default value of the field
 // :19:38: error: value stored in comptime field does not match the default value of the field
 // :31:19: error: value stored in comptime field does not match the default value of the field
-// :41:14: error: value stored in comptime field does not match the default value of the field
+// :25:29: note: default value set here
+// :41:16: error: value stored in comptime field does not match the default value of the field

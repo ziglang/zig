@@ -14721,22 +14721,41 @@ fn zirStructInitAnon(
     const extra = sema.code.extraData(Zir.Inst.StructInitAnon, inst_data.payload_index);
     const types = try sema.arena.alloc(Type, extra.data.fields_len);
     const values = try sema.arena.alloc(Value, types.len);
-    const names = try sema.arena.alloc([]const u8, types.len);
+    var fields = std.StringArrayHashMapUnmanaged(u32){};
+    defer fields.deinit(sema.gpa);
+    try fields.ensureUnusedCapacity(sema.gpa, types.len);
 
-    const opt_runtime_src = rs: {
-        var runtime_src: ?LazySrcLoc = null;
+    const opt_runtime_index = rs: {
+        var runtime_index: ?usize = null;
         var extra_index = extra.end;
         for (types) |*field_ty, i| {
-            const init_src = src; // TODO better source location
             const item = sema.code.extraData(Zir.Inst.StructInitAnon.Item, extra_index);
             extra_index = item.end;
 
-            names[i] = sema.code.nullTerminatedString(item.data.field_name);
+            const name = sema.code.nullTerminatedString(item.data.field_name);
+            const gop = fields.getOrPutAssumeCapacity(name);
+            if (gop.found_existing) {
+                const msg = msg: {
+                    const decl = sema.mod.declPtr(block.src_decl);
+                    const field_src = Module.initSrc(src.node_offset.x, sema.gpa, decl, i);
+                    const msg = try sema.errMsg(block, field_src, "duplicate field", .{});
+                    errdefer msg.destroy(sema.gpa);
+
+                    const prev_source = Module.initSrc(src.node_offset.x, sema.gpa, decl, gop.value_ptr.*);
+                    try sema.errNote(block, prev_source, msg, "other field here", .{});
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(block, msg);
+            }
+            gop.value_ptr.* = @intCast(u32, i);
+
             const init = try sema.resolveInst(item.data.init);
             field_ty.* = sema.typeOf(init);
             if (types[i].zigTypeTag() == .Opaque) {
                 const msg = msg: {
-                    const msg = try sema.errMsg(block, init_src, "opaque types have unknown size and therefore cannot be directly embedded in structs", .{});
+                    const decl = sema.mod.declPtr(block.src_decl);
+                    const field_src = Module.initSrc(src.node_offset.x, sema.gpa, decl, i);
+                    const msg = try sema.errMsg(block, field_src, "opaque types have unknown size and therefore cannot be directly embedded in structs", .{});
                     errdefer msg.destroy(sema.gpa);
 
                     try sema.addDeclaredHereNote(msg, types[i]);
@@ -14744,28 +14763,37 @@ fn zirStructInitAnon(
                 };
                 return sema.failWithOwnedErrorMsg(block, msg);
             }
+            const init_src = src; // TODO better source location
             if (try sema.resolveMaybeUndefVal(block, init_src, init)) |init_val| {
                 values[i] = init_val;
             } else {
                 values[i] = Value.initTag(.unreachable_value);
-                runtime_src = init_src;
+                runtime_index = i;
             }
         }
-        break :rs runtime_src;
+        break :rs runtime_index;
     };
 
     const tuple_ty = try Type.Tag.anon_struct.create(sema.arena, .{
-        .names = names,
+        .names = try sema.arena.dupe([]const u8, fields.keys()),
         .types = types,
         .values = values,
     });
 
-    const runtime_src = opt_runtime_src orelse {
+    const runtime_index = opt_runtime_index orelse {
         const tuple_val = try Value.Tag.aggregate.create(sema.arena, values);
         return sema.addConstantMaybeRef(block, src, tuple_ty, tuple_val, is_ref);
     };
 
-    try sema.requireRuntimeBlock(block, src, runtime_src);
+    sema.requireRuntimeBlock(block, src, .unneeded) catch |err| switch (err) {
+        error.NeededSourceLocation => {
+            const decl = sema.mod.declPtr(block.src_decl);
+            const field_src = Module.initSrc(src.node_offset.x, sema.gpa, decl, runtime_index);
+            try sema.requireRuntimeBlock(block, src, field_src);
+            return error.AnalysisFail;
+        },
+        else => |e| return e,
+    };
 
     if (is_ref) {
         const target = sema.mod.getTarget();

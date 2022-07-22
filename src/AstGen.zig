@@ -1589,13 +1589,12 @@ fn structInitExpr(
 
     switch (rl) {
         .discard => {
-            // TODO if a type expr is given the fields should be validated for that type
             if (struct_init.ast.type_expr != 0) {
                 const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
                 _ = try gz.addUnNode(.validate_struct_init_ty, ty_inst, node);
-            }
-            for (struct_init.ast.fields) |field_init| {
-                _ = try expr(gz, scope, .discard, field_init);
+                _ = try structInitExprRlTy(gz, scope, node, struct_init, ty_inst, .struct_init);
+            } else {
+                _ = try structInitExprRlNone(gz, scope, node, struct_init, .none, .struct_init_anon);
             }
             return Zir.Inst.Ref.void_value;
         },
