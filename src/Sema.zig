@@ -19466,7 +19466,7 @@ fn fieldCallBind(
 
     const raw_ptr_src = src; // TODO better source location
     const raw_ptr_ty = sema.typeOf(raw_ptr);
-    const inner_ty = if (raw_ptr_ty.zigTypeTag() == .Pointer and raw_ptr_ty.ptrSize() == .One)
+    const inner_ty = if (raw_ptr_ty.zigTypeTag() == .Pointer and (raw_ptr_ty.ptrSize() == .One or raw_ptr_ty.ptrSize() == .C))
         raw_ptr_ty.childType()
     else
         return sema.fail(block, raw_ptr_src, "expected single pointer, found '{}'", .{raw_ptr_ty.fmt(sema.mod)});
