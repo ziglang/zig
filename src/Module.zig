@@ -2704,6 +2704,18 @@ pub const SrcLoc = struct {
                     else => unreachable,
                 }
             },
+            .node_offset_field_default => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_tags = tree.nodes.items(.tag);
+                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+
+                const full: Ast.full.ContainerField = switch (node_tags[parent_node]) {
+                    .container_field => tree.containerField(parent_node),
+                    .container_field_init => tree.containerFieldInit(parent_node),
+                    else => unreachable,
+                };
+                return nodeToSpan(tree, full.ast.value_expr);
+            },
         }
     }
 
@@ -3021,6 +3033,9 @@ pub const LazySrcLoc = union(enum) {
     /// The source location points to the tag type of an union or an enum.
     /// The Decl is determined contextually.
     node_offset_container_tag: i32,
+    /// The source location points to the default value of a field.
+    /// The Decl is determined contextually.
+    node_offset_field_default: i32,
 
     pub const nodeOffset = if (TracedOffset.want_tracing) nodeOffsetDebug else nodeOffsetRelease;
 
@@ -3098,6 +3113,7 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_ptr_bitoffset,
             .node_offset_ptr_hostsize,
             .node_offset_container_tag,
+            .node_offset_field_default,
             => .{
                 .file_scope = decl.getFileScope(),
                 .parent_decl_node = decl.src_node,

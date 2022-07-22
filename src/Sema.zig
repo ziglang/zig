@@ -1789,6 +1789,24 @@ fn failWithIntegerOverflow(sema: *Sema, block: *Block, src: LazySrcLoc, int_ty: 
     });
 }
 
+fn failWithInvalidComptimeFieldStore(sema: *Sema, block: *Block, init_src: LazySrcLoc, container_ty: Type, field_index: usize) CompileError {
+    const msg = msg: {
+        const msg = try sema.errMsg(block, init_src, "value stored in comptime field does not match the default value of the field", .{});
+        errdefer msg.destroy(sema.gpa);
+
+        const decl_index = container_ty.getOwnerDeclOrNull() orelse break :msg msg;
+
+        const tree = try sema.getAstTree(block);
+        const decl = sema.mod.declPtr(decl_index);
+        const field_src = enumFieldSrcLoc(decl, tree.*, container_ty.getNodeOffset(), field_index);
+        const default_value_src: LazySrcLoc = .{ .node_offset_field_default = field_src.node_offset.x };
+
+        try sema.errNote(block, default_value_src, msg, "default value set here", .{});
+        break :msg msg;
+    };
+    return sema.failWithOwnedErrorMsg(block, msg);
+}
+
 /// We don't return a pointer to the new error note because the pointer
 /// becomes invalid when you add another one.
 fn errNote(
@@ -14542,8 +14560,7 @@ fn zirStructInit(
                 };
 
                 if (!init_val.eql(default_value, resolved_ty.structFieldType(field_index), sema.mod)) {
-                    // TODO add note showing where default value is provided
-                    return sema.fail(block, field_src, "value stored in comptime field does not match the default value of the field", .{});
+                    return sema.failWithInvalidComptimeFieldStore(block, field_src, resolved_ty, field_index);
                 }
             };
         }
@@ -22379,7 +22396,7 @@ fn storePtrVal(
         .direct => |val_ptr| {
             if (mut_kit.decl_ref_mut.runtime_index == .comptime_field_ptr) {
                 if (!operand_val.eql(val_ptr.*, operand_ty, sema.mod)) {
-                    // TODO add note showing where default value is provided
+                    // TODO use failWithInvalidComptimeFieldStore
                     return sema.fail(block, src, "value stored in comptime field does not match the default value of the field", .{});
                 }
                 return;
@@ -23754,8 +23771,7 @@ fn coerceTupleToStruct(
             };
 
             if (!init_val.eql(field.default_val, field.ty, sema.mod)) {
-                // TODO add note showing where default value is provided
-                return sema.fail(block, field_src, "value stored in comptime field does not match the default value of the field", .{});
+                return sema.failWithInvalidComptimeFieldStore(block, field_src, inst_ty, i);
             }
         }
         if (runtime_src == null) {

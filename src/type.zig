@@ -5714,6 +5714,10 @@ pub const Type = extern union {
     }
 
     pub fn getOwnerDecl(ty: Type) Module.Decl.Index {
+        return ty.getOwnerDeclOrNull() orelse unreachable;
+    }
+
+    pub fn getOwnerDeclOrNull(ty: Type) ?Module.Decl.Index {
         switch (ty.tag()) {
             .enum_full, .enum_nonexhaustive => {
                 const enum_full = ty.cast(Payload.EnumFull).?.data;
@@ -5753,7 +5757,7 @@ pub const Type = extern union {
             .type_info,
             => unreachable, // These need to be resolved earlier.
 
-            else => unreachable,
+            else => return null,
         }
     }
 
