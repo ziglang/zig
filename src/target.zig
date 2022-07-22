@@ -744,6 +744,7 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
     }
 }
 
+/// This function returns 1 if function alignment is not observable or settable.
 pub fn defaultFunctionAlignment(target: std.Target) u32 {
     return switch (target.cpu.arch) {
         .arm, .armeb => 4,
@@ -751,5 +752,12 @@ pub fn defaultFunctionAlignment(target: std.Target) u32 {
         .sparc, .sparcel, .sparc64 => 4,
         .riscv64 => 2,
         else => 1,
+    };
+}
+
+pub fn supportsFunctionAlignment(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .wasm32, .wasm64 => false,
+        else => true,
     };
 }

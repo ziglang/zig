@@ -1347,7 +1347,7 @@ fn arrayInitExpr(
             }
         }
         const array_type_inst = try typeExpr(gz, scope, array_init.ast.type_expr);
-        _ = try gz.addUnNode(.validate_array_init_ty, array_type_inst, node);
+        _ = try gz.addUnNode(.validate_array_init_ty, array_type_inst, array_init.ast.type_expr);
         break :inst .{
             .array = array_type_inst,
             .elem = .none,
@@ -2332,7 +2332,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .err_union_code,
             .err_union_code_ptr,
             .ptr_type,
-            .ptr_type_simple,
+            .overflow_arithmetic_ptr,
             .enum_literal,
             .merge_error_sets,
             .error_union_type,
@@ -3110,24 +3110,6 @@ fn ptrType(
 
     const elem_type = try typeExpr(gz, scope, ptr_info.ast.child_type);
 
-    const simple = ptr_info.ast.align_node == 0 and
-        ptr_info.ast.addrspace_node == 0 and
-        ptr_info.ast.sentinel == 0 and
-        ptr_info.ast.bit_range_start == 0;
-
-    if (simple) {
-        const result = try gz.add(.{ .tag = .ptr_type_simple, .data = .{
-            .ptr_type_simple = .{
-                .is_allowzero = ptr_info.allowzero_token != null,
-                .is_mutable = ptr_info.const_token == null,
-                .is_volatile = ptr_info.volatile_token != null,
-                .size = ptr_info.size,
-                .elem_type = elem_type,
-            },
-        } });
-        return rvalue(gz, rl, result, node);
-    }
-
     var sentinel_ref: Zir.Inst.Ref = .none;
     var align_ref: Zir.Inst.Ref = .none;
     var addrspace_ref: Zir.Inst.Ref = .none;
@@ -3160,7 +3142,10 @@ fn ptrType(
     try gz.astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.PtrType).Struct.fields.len +
         trailing_count);
 
-    const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.PtrType{ .elem_type = elem_type });
+    const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.PtrType{
+        .elem_type = elem_type,
+        .src_node = gz.nodeIndexToRelative(node),
+    });
     if (sentinel_ref != .none) {
         gz.astgen.extra.appendAssumeCapacity(@enumToInt(sentinel_ref));
     }
@@ -4314,7 +4299,7 @@ fn unionDeclInner(
     members: []const Ast.Node.Index,
     layout: std.builtin.Type.ContainerLayout,
     arg_node: Ast.Node.Index,
-    have_auto_enum: bool,
+    auto_enum_tok: ?Ast.TokenIndex,
 ) InnerError!Zir.Inst.Ref {
     const decl_inst = try gz.reserveInstructionIndex();
 
@@ -4347,6 +4332,15 @@ fn unionDeclInner(
 
     const decl_count = try astgen.scanDecls(&namespace, members);
     const field_count = @intCast(u32, members.len - decl_count);
+
+    if (layout != .Auto and (auto_enum_tok != null or arg_node != 0)) {
+        const layout_str = if (layout == .Extern) "extern" else "packed";
+        if (arg_node != 0) {
+            return astgen.failNode(arg_node, "{s} union does not support enum tag type", .{layout_str});
+        } else {
+            return astgen.failTok(auto_enum_tok.?, "{s} union does not support enum tag type", .{layout_str});
+        }
+    }
 
     const arg_inst: Zir.Inst.Ref = if (arg_node != 0)
         try typeExpr(&block_scope, &namespace.base, arg_node)
@@ -4382,7 +4376,7 @@ fn unionDeclInner(
         if (have_type) {
             const field_type = try typeExpr(&block_scope, &namespace.base, member.ast.type_expr);
             wip_members.appendToField(@enumToInt(field_type));
-        } else if (arg_inst == .none and !have_auto_enum) {
+        } else if (arg_inst == .none and auto_enum_tok == null) {
             return astgen.failNode(member_node, "union field missing type", .{});
         }
         if (have_align) {
@@ -4404,7 +4398,7 @@ fn unionDeclInner(
                     },
                 );
             }
-            if (!have_auto_enum) {
+            if (auto_enum_tok == null) {
                 return astgen.failNodeNotes(
                     node,
                     "explicitly valued tagged union requires inferred enum tag type",
@@ -4440,7 +4434,7 @@ fn unionDeclInner(
         .body_len = body_len,
         .fields_len = field_count,
         .decls_len = decl_count,
-        .auto_enum_tag = have_auto_enum,
+        .auto_enum_tag = auto_enum_tok != null,
     });
 
     wip_members.finishBits(bits_per_field);
@@ -4496,9 +4490,7 @@ fn containerDecl(
                 else => unreachable,
             } else std.builtin.Type.ContainerLayout.Auto;
 
-            const have_auto_enum = container_decl.ast.enum_token != null;
-
-            const result = try unionDeclInner(gz, scope, node, container_decl.ast.members, layout, container_decl.ast.arg, have_auto_enum);
+            const result = try unionDeclInner(gz, scope, node, container_decl.ast.members, layout, container_decl.ast.arg, container_decl.ast.enum_token);
             return rvalue(gz, rl, result, node);
         },
         .keyword_enum => {
@@ -4732,7 +4724,10 @@ fn containerDecl(
             defer wip_members.deinit();
 
             for (container_decl.ast.members) |member_node| {
-                _ = try containerMember(gz, &namespace.base, &wip_members, member_node);
+                const res = try containerMember(gz, &namespace.base, &wip_members, member_node);
+                if (res == .field) {
+                    return astgen.failNode(member_node, "opaque types cannot have fields", .{});
+                }
             }
 
             try gz.setOpaque(decl_inst, .{
@@ -7588,15 +7583,7 @@ fn builtinCall(
         .shl_with_overflow => {
             const int_type = try typeExpr(gz, scope, params[0]);
             const log2_int_type = try gz.addUnNode(.log2_int_type, int_type, params[0]);
-            const ptr_type = try gz.add(.{ .tag = .ptr_type_simple, .data = .{
-                .ptr_type_simple = .{
-                    .is_allowzero = false,
-                    .is_mutable = true,
-                    .is_volatile = false,
-                    .size = .One,
-                    .elem_type = int_type,
-                },
-            } });
+            const ptr_type = try gz.addUnNode(.overflow_arithmetic_ptr, int_type, params[0]);
             const lhs = try expr(gz, scope, .{ .ty = int_type }, params[1]);
             const rhs = try expr(gz, scope, .{ .ty = log2_int_type }, params[2]);
             const ptr = try expr(gz, scope, .{ .ty = ptr_type }, params[3]);
@@ -7987,15 +7974,7 @@ fn overflowArithmetic(
     tag: Zir.Inst.Extended,
 ) InnerError!Zir.Inst.Ref {
     const int_type = try typeExpr(gz, scope, params[0]);
-    const ptr_type = try gz.add(.{ .tag = .ptr_type_simple, .data = .{
-        .ptr_type_simple = .{
-            .is_allowzero = false,
-            .is_mutable = true,
-            .is_volatile = false,
-            .size = .One,
-            .elem_type = int_type,
-        },
-    } });
+    const ptr_type = try gz.addUnNode(.overflow_arithmetic_ptr, int_type, params[0]);
     const lhs = try expr(gz, scope, .{ .ty = int_type }, params[1]);
     const rhs = try expr(gz, scope, .{ .ty = int_type }, params[2]);
     const ptr = try expr(gz, scope, .{ .ty = ptr_type }, params[3]);

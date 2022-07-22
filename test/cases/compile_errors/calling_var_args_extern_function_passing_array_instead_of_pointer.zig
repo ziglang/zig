@@ -7,4 +7,4 @@ pub extern fn foo(format: *const u8, ...) void;
 // backend=stage2
 // target=native
 //
-// :2:8: error: expected type '*const u8', found '[5:0]u8'
+// :2:16: error: expected type '*const u8', found '[5:0]u8'
