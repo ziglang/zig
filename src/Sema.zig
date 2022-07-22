@@ -3875,9 +3875,15 @@ fn zirValidateArrayInit(
     const array_len = array_ty.arrayLen();
 
     if (instrs.len != array_len) {
-        return sema.fail(block, init_src, "expected {d} array elements; found {d}", .{
-            array_len, instrs.len,
-        });
+        if (array_ty.zigTypeTag() == .Array) {
+            return sema.fail(block, init_src, "expected {d} array elements; found {d}", .{
+                array_len, instrs.len,
+            });
+        } else {
+            return sema.fail(block, init_src, "expected {d} vector elements; found {d}", .{
+                array_len, instrs.len,
+            });
+        }
     }
 
     if ((is_comptime or block.is_comptime) and
@@ -14265,7 +14271,7 @@ fn zirStructInitEmpty(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
 
     switch (obj_ty.zigTypeTag()) {
         .Struct => return sema.structInitEmpty(block, obj_ty, src, src),
-        .Array => return arrayInitEmpty(sema, obj_ty),
+        .Array, .Vector => return sema.arrayInitEmpty(block, src, obj_ty),
         .Void => return sema.addConstant(obj_ty, Value.void),
         else => return sema.failWithArrayInitNotSupported(block, src, obj_ty),
     }
@@ -14290,7 +14296,15 @@ fn structInitEmpty(
     return sema.finishStructInit(block, init_src, dest_src, field_inits, struct_ty, false);
 }
 
-fn arrayInitEmpty(sema: *Sema, obj_ty: Type) CompileError!Air.Inst.Ref {
+fn arrayInitEmpty(sema: *Sema, block: *Block, src: LazySrcLoc, obj_ty: Type) CompileError!Air.Inst.Ref {
+    const arr_len = obj_ty.arrayLen();
+    if (arr_len != 0) {
+        if (obj_ty.zigTypeTag() == .Array) {
+            return sema.fail(block, src, "expected {d} array elements; found 0", .{arr_len});
+        } else {
+            return sema.fail(block, src, "expected {d} vector elements; found 0", .{arr_len});
+        }
+    }
     if (obj_ty.sentinel()) |sentinel| {
         const val = try Value.Tag.empty_array_sentinel.create(sema.arena, sentinel);
         return sema.addConstant(obj_ty, val);
@@ -20978,7 +20992,7 @@ fn coerceExtra(
             .Vector => return sema.coerceArrayLike(block, dest_ty, dest_ty_src, inst, inst_src),
             .Struct => {
                 if (inst == .empty_struct) {
-                    return arrayInitEmpty(sema, dest_ty);
+                    return sema.arrayInitEmpty(block, inst_src, dest_ty);
                 }
                 if (inst_ty.isTuple()) {
                     return sema.coerceTupleToArray(block, dest_ty, dest_ty_src, inst, inst_src);
