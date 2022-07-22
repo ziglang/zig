@@ -92,6 +92,7 @@ fn collectRoots(roots: *std.AutoHashMap(*Atom, void), macho_file: *MachO) !void 
             const source_sect = object.getSourceSection(source_sym.n_sect - 1);
             const is_gc_root = blk: {
                 if (source_sect.isDontDeadStrip()) break :blk true;
+                if (mem.eql(u8, "__StaticInit", source_sect.sectName())) break :blk true;
                 switch (source_sect.type_()) {
                     macho.S_MOD_INIT_FUNC_POINTERS,
                     macho.S_MOD_TERM_FUNC_POINTERS,
