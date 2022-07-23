@@ -3709,7 +3709,7 @@ pub const IORING_SPLICE_F_FD_IN_FIXED = 1 << 31;
 pub const IORING_POLL_ADD_MULTI = 1 << 0;
 /// Update existing poll request, matching sqe->addr as the old user_data field.
 pub const IORING_POLL_UPDATE_EVENTS = 1 << 1;
-pub const IORING_POLL_UPDATE_USER_DATA = 1 << 1;
+pub const IORING_POLL_UPDATE_USER_DATA = 1 << 2;
 
 // ASYNC_CANCEL flags.
 
