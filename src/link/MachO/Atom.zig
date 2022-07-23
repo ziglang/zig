@@ -246,7 +246,7 @@ pub fn parseRelocs(self: *Atom, relocs: []const macho.relocation_info, context: 
                             else => {
                                 log.err("unexpected relocation type after ARM64_RELOC_ADDEND", .{});
                                 log.err("  expected ARM64_RELOC_PAGE21 or ARM64_RELOC_PAGEOFF12", .{});
-                                log.err("  found {s}", .{next});
+                                log.err("  found {}", .{next});
                                 return error.UnexpectedRelocationType;
                             },
                         }
@@ -285,7 +285,7 @@ pub fn parseRelocs(self: *Atom, relocs: []const macho.relocation_info, context: 
                     else => {
                         log.err("unexpected relocation type after ARM64_RELOC_ADDEND", .{});
                         log.err("  expected ARM64_RELOC_UNSIGNED", .{});
-                        log.err("  found {s}", .{@intToEnum(macho.reloc_type_arm64, relocs[i + 1].r_type)});
+                        log.err("  found {}", .{@intToEnum(macho.reloc_type_arm64, relocs[i + 1].r_type)});
                         return error.UnexpectedRelocationType;
                     },
                 },
@@ -294,7 +294,7 @@ pub fn parseRelocs(self: *Atom, relocs: []const macho.relocation_info, context: 
                     else => {
                         log.err("unexpected relocation type after X86_64_RELOC_ADDEND", .{});
                         log.err("  expected X86_64_RELOC_UNSIGNED", .{});
-                        log.err("  found {s}", .{@intToEnum(macho.reloc_type_x86_64, relocs[i + 1].r_type)});
+                        log.err("  found {}", .{@intToEnum(macho.reloc_type_x86_64, relocs[i + 1].r_type)});
                         return error.UnexpectedRelocationType;
                     },
                 },

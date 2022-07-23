@@ -1582,8 +1582,8 @@ test "Serialize formats" {
     for (testcases) |case| {
         const actual = case.inst.toU32();
         testing.expectEqual(case.expected, actual) catch |err| {
-            std.debug.print("error: {x}\n", .{err});
-            std.debug.print("case: {x}\n", .{case});
+            std.debug.print("error: {}\n", .{err});
+            std.debug.print("case: {}\n", .{case});
             return err;
         };
     }

@@ -4076,12 +4076,12 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
 
         const stdin = io.getStdIn();
         const source_code = readSourceFileToEndAlloc(gpa, &stdin, null) catch |err| {
-            fatal("unable to read stdin: {s}", .{err});
+            fatal("unable to read stdin: {}", .{err});
         };
         defer gpa.free(source_code);
 
         var tree = std.zig.parse(gpa, source_code) catch |err| {
-            fatal("error parsing stdin: {s}", .{err});
+            fatal("error parsing stdin: {}", .{err});
         };
         defer tree.deinit(gpa);
 
@@ -5011,7 +5011,7 @@ pub fn cmdAstCheck(
     } else {
         const stdin = io.getStdIn();
         const source = readSourceFileToEndAlloc(arena, &stdin, null) catch |err| {
-            fatal("unable to read stdin: {s}", .{err});
+            fatal("unable to read stdin: {}", .{err});
         };
         file.sub_file_path = "<stdin>";
         file.source = source;

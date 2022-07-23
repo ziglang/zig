@@ -110,7 +110,7 @@ pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch)
         },
     };
     if (this_arch != cpu_arch) {
-        log.err("mismatched cpu architecture: expected {s}, found {s}", .{ cpu_arch, this_arch });
+        log.err("mismatched cpu architecture: expected {}, found {}", .{ cpu_arch, this_arch });
         return error.MismatchedCpuArchitecture;
     }
 
@@ -171,7 +171,7 @@ pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch)
                 cmd.linkedit_data.dataoff += file_offset;
             },
             else => {
-                log.debug("Unknown load command detected: 0x{x}.", .{cmd.cmd()});
+                log.debug("Unknown load command detected: 0x{x}.", .{@enumToInt(cmd.cmd())});
             },
         }
         self.load_commands.appendAssumeCapacity(cmd);

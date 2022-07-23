@@ -167,7 +167,7 @@ pub fn parse(
     const this_arch: std.Target.Cpu.Arch = try fat.decodeArch(self.header.?.cputype, true);
 
     if (this_arch != cpu_arch) {
-        log.err("mismatched cpu architecture: expected {s}, found {s}", .{ cpu_arch, this_arch });
+        log.err("mismatched cpu architecture: expected {}, found {}", .{ cpu_arch, this_arch });
         return error.MismatchedCpuArchitecture;
     }
 
@@ -208,7 +208,7 @@ fn readLoadCommands(
                 }
             },
             else => {
-                log.debug("Unknown load command detected: 0x{x}.", .{cmd.cmd()});
+                log.debug("Unknown load command detected: 0x{x}.", .{@enumToInt(cmd.cmd())});
             },
         }
         self.load_commands.appendAssumeCapacity(cmd);
