@@ -7557,7 +7557,7 @@ fn funcCommon(
         }
 
         if (cc_workaround == .Inline and is_noinline) {
-            return sema.fail(block, cc_src, "callconv(.Inline) and noinline are incompatible together", .{});
+            return sema.fail(block, cc_src, "'noinline' function cannot have callconv 'Inline'", .{});
         }
 
         break :fn_ty try Type.Tag.function.create(sema.arena, .{
