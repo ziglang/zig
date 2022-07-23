@@ -340,7 +340,6 @@ set(STAGE1_SOURCES
     "${CMAKE_SOURCE_DIR}/src/stage1/bigint.cpp"
     "${CMAKE_SOURCE_DIR}/src/stage1/buffer.cpp"
     "${CMAKE_SOURCE_DIR}/src/stage1/codegen.cpp"
-    "${CMAKE_SOURCE_DIR}/src/stage1/dump_analysis.cpp"
     "${CMAKE_SOURCE_DIR}/src/stage1/errmsg.cpp"
     "${CMAKE_SOURCE_DIR}/src/stage1/error.cpp"
     "${CMAKE_SOURCE_DIR}/src/stage1/heap.cpp"
