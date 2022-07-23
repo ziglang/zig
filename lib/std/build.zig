@@ -1561,6 +1561,10 @@ pub const LibExeObjStep = struct {
     /// safely garbage-collected during the linking phase.
     link_function_sections: bool = false,
 
+    /// Remove functions and data that are unreachable by the entry point or
+    /// exported symbols.
+    link_gc_sections: ?bool = null,
+
     linker_allow_shlib_undefined: ?bool = null,
 
     /// Permit read-only relocations in read-only segments. Disallowed by default.
@@ -2704,6 +2708,9 @@ pub const LibExeObjStep = struct {
         }
         if (self.link_function_sections) {
             try zig_args.append("-ffunction-sections");
+        }
+        if (self.link_gc_sections) |x| {
+            try zig_args.append(if (x) "--gc-sections" else "--no-gc-sections");
         }
         if (self.linker_allow_shlib_undefined) |x| {
             try zig_args.append(if (x) "-fallow-shlib-undefined" else "-fno-allow-shlib-undefined");
