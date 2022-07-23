@@ -1597,12 +1597,15 @@ test "byteSwapAllFields" {
 
 /// Returns an iterator that iterates over the slices of `buffer` that are not
 /// any of the bytes in `delimiter_bytes`.
-/// tokenize(u8, "   abc def    ghi  ", " ")
-/// Will return slices for "abc", "def", "ghi", null, in that order.
+///
+/// `tokenize(u8, "   abc def    ghi  ", " ") will return slices
+/// for "abc", "def", "ghi", null, in that order.
+///
 /// If `buffer` is empty, the iterator will return null.
 /// If `delimiter_bytes` does not exist in buffer,
 /// the iterator will return `buffer`, null, in that order.
-/// See also the related function `split`.
+///
+/// See also: `split` and `splitBackwards`.
 pub fn tokenize(comptime T: type, buffer: []const T, delimiter_bytes: []const T) TokenIterator(T) {
     return .{
         .index = 0,
@@ -1696,12 +1699,15 @@ test "tokenize (reset)" {
 
 /// Returns an iterator that iterates over the slices of `buffer` that
 /// are separated by bytes in `delimiter`.
-/// split(u8, "abc|def||ghi", "|")
-/// will return slices for "abc", "def", "", "ghi", null, in that order.
+///
+/// `split(u8, "abc|def||ghi", "|")` will return slices
+/// for "abc", "def", "", "ghi", null, in that order.
+///
 /// If `delimiter` does not exist in buffer,
 /// the iterator will return `buffer`, null, in that order.
 /// The delimiter length must not be zero.
-/// See also the related function `tokenize`.
+///
+/// See also: `tokenize` and `splitBackwards`.
 pub fn split(comptime T: type, buffer: []const T, delimiter: []const T) SplitIterator(T) {
     assert(delimiter.len != 0);
     return .{
@@ -1714,7 +1720,7 @@ pub fn split(comptime T: type, buffer: []const T, delimiter: []const T) SplitIte
 test "split" {
     var it = split(u8, "abc|def||ghi", "|");
     try testing.expectEqualSlices(u8, it.rest(), "abc|def||ghi");
-    try testing.expectEqualSlices(u8, it.next().?, "abc");
+    try testing.expectEqualSlices(u8, it.first(), "abc");
 
     try testing.expectEqualSlices(u8, it.rest(), "def||ghi");
     try testing.expectEqualSlices(u8, it.next().?, "def");
@@ -1729,16 +1735,16 @@ test "split" {
     try testing.expect(it.next() == null);
 
     it = split(u8, "", "|");
-    try testing.expectEqualSlices(u8, it.next().?, "");
+    try testing.expectEqualSlices(u8, it.first(), "");
     try testing.expect(it.next() == null);
 
     it = split(u8, "|", "|");
-    try testing.expectEqualSlices(u8, it.next().?, "");
+    try testing.expectEqualSlices(u8, it.first(), "");
     try testing.expectEqualSlices(u8, it.next().?, "");
     try testing.expect(it.next() == null);
 
     it = split(u8, "hello", " ");
-    try testing.expectEqualSlices(u8, it.next().?, "hello");
+    try testing.expectEqualSlices(u8, it.first(), "hello");
     try testing.expect(it.next() == null);
 
     var it16 = split(
@@ -1746,13 +1752,13 @@ test "split" {
         std.unicode.utf8ToUtf16LeStringLiteral("hello"),
         std.unicode.utf8ToUtf16LeStringLiteral(" "),
     );
-    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("hello"));
+    try testing.expectEqualSlices(u16, it16.first(), std.unicode.utf8ToUtf16LeStringLiteral("hello"));
     try testing.expect(it16.next() == null);
 }
 
 test "split (multibyte)" {
     var it = split(u8, "a, b ,, c, d, e", ", ");
-    try testing.expectEqualSlices(u8, it.next().?, "a");
+    try testing.expectEqualSlices(u8, it.first(), "a");
     try testing.expectEqualSlices(u8, it.rest(), "b ,, c, d, e");
     try testing.expectEqualSlices(u8, it.next().?, "b ,");
     try testing.expectEqualSlices(u8, it.next().?, "c");
@@ -1765,7 +1771,7 @@ test "split (multibyte)" {
         std.unicode.utf8ToUtf16LeStringLiteral("a, b ,, c, d, e"),
         std.unicode.utf8ToUtf16LeStringLiteral(", "),
     );
-    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("a"));
+    try testing.expectEqualSlices(u16, it16.first(), std.unicode.utf8ToUtf16LeStringLiteral("a"));
     try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("b ,"));
     try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("c"));
     try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("d"));
@@ -1775,11 +1781,15 @@ test "split (multibyte)" {
 
 /// Returns an iterator that iterates backwards over the slices of `buffer`
 /// that are separated by bytes in `delimiter`.
-/// splitBackwards(u8, "abc|def||ghi", "|")
-/// will return slices for "ghi", "", "def", "abc", null, in that order.
+///
+/// `splitBackwards(u8, "abc|def||ghi", "|") will return slices
+/// for "ghi", "", "def", "abc", null, in that order.
+///
 /// If `delimiter` does not exist in buffer,
 /// the iterator will return `buffer`, null, in that order.
 /// The delimiter length must not be zero.
+///
+/// See also: `tokenize` and `split`.
 pub fn splitBackwards(comptime T: type, buffer: []const T, delimiter: []const T) SplitBackwardsIterator(T) {
     assert(delimiter.len != 0);
     return SplitBackwardsIterator(T){
@@ -1792,7 +1802,7 @@ pub fn splitBackwards(comptime T: type, buffer: []const T, delimiter: []const T)
 test "splitBackwards" {
     var it = splitBackwards(u8, "abc|def||ghi", "|");
     try testing.expectEqualSlices(u8, it.rest(), "abc|def||ghi");
-    try testing.expectEqualSlices(u8, it.next().?, "ghi");
+    try testing.expectEqualSlices(u8, it.first(), "ghi");
 
     try testing.expectEqualSlices(u8, it.rest(), "abc|def|");
     try testing.expectEqualSlices(u8, it.next().?, "");
@@ -1807,16 +1817,16 @@ test "splitBackwards" {
     try testing.expect(it.next() == null);
 
     it = splitBackwards(u8, "", "|");
-    try testing.expectEqualSlices(u8, it.next().?, "");
+    try testing.expectEqualSlices(u8, it.first(), "");
     try testing.expect(it.next() == null);
 
     it = splitBackwards(u8, "|", "|");
-    try testing.expectEqualSlices(u8, it.next().?, "");
+    try testing.expectEqualSlices(u8, it.first(), "");
     try testing.expectEqualSlices(u8, it.next().?, "");
     try testing.expect(it.next() == null);
 
     it = splitBackwards(u8, "hello", " ");
-    try testing.expectEqualSlices(u8, it.next().?, "hello");
+    try testing.expectEqualSlices(u8, it.first(), "hello");
     try testing.expect(it.next() == null);
 
     var it16 = splitBackwards(
@@ -1824,14 +1834,14 @@ test "splitBackwards" {
         std.unicode.utf8ToUtf16LeStringLiteral("hello"),
         std.unicode.utf8ToUtf16LeStringLiteral(" "),
     );
-    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("hello"));
+    try testing.expectEqualSlices(u16, it16.first(), std.unicode.utf8ToUtf16LeStringLiteral("hello"));
     try testing.expect(it16.next() == null);
 }
 
 test "splitBackwards (multibyte)" {
     var it = splitBackwards(u8, "a, b ,, c, d, e", ", ");
     try testing.expectEqualSlices(u8, it.rest(), "a, b ,, c, d, e");
-    try testing.expectEqualSlices(u8, it.next().?, "e");
+    try testing.expectEqualSlices(u8, it.first(), "e");
 
     try testing.expectEqualSlices(u8, it.rest(), "a, b ,, c, d");
     try testing.expectEqualSlices(u8, it.next().?, "d");
@@ -1853,7 +1863,7 @@ test "splitBackwards (multibyte)" {
         std.unicode.utf8ToUtf16LeStringLiteral("a, b ,, c, d, e"),
         std.unicode.utf8ToUtf16LeStringLiteral(", "),
     );
-    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("e"));
+    try testing.expectEqualSlices(u16, it16.first(), std.unicode.utf8ToUtf16LeStringLiteral("e"));
     try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("d"));
     try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("c"));
     try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("b ,"));
@@ -1944,6 +1954,13 @@ pub fn SplitIterator(comptime T: type) type {
 
         const Self = @This();
 
+        /// Returns a slice of the first field. This never fails.
+        /// Call this only to get the first field and then use `next` to get all subsequent fields.
+        pub fn first(self: *Self) []const T {
+            assert(self.index.? == 0);
+            return self.next().?;
+        }
+
         /// Returns a slice of the next field, or null if splitting is complete.
         pub fn next(self: *Self) ?[]const T {
             const start = self.index orelse return null;
@@ -1973,6 +1990,13 @@ pub fn SplitBackwardsIterator(comptime T: type) type {
         delimiter: []const T,
 
         const Self = @This();
+
+        /// Returns a slice of the first field. This never fails.
+        /// Call this only to get the first field and then use `next` to get all subsequent fields.
+        pub fn first(self: *Self) []const T {
+            assert(self.index.? == self.buffer.len);
+            return self.next().?;
+        }
 
         /// Returns a slice of the next field, or null if splitting is complete.
         pub fn next(self: *Self) ?[]const T {
