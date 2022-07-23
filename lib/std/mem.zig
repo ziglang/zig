@@ -1598,7 +1598,7 @@ test "byteSwapAllFields" {
 /// Returns an iterator that iterates over the slices of `buffer` that are not
 /// any of the bytes in `delimiter_bytes`.
 ///
-/// `tokenize(u8, "   abc def    ghi  ", " ") will return slices
+/// `tokenize(u8, "   abc def    ghi  ", " ")` will return slices
 /// for "abc", "def", "ghi", null, in that order.
 ///
 /// If `buffer` is empty, the iterator will return null.
@@ -1782,7 +1782,7 @@ test "split (multibyte)" {
 /// Returns an iterator that iterates backwards over the slices of `buffer`
 /// that are separated by bytes in `delimiter`.
 ///
-/// `splitBackwards(u8, "abc|def||ghi", "|") will return slices
+/// `splitBackwards(u8, "abc|def||ghi", "|")` will return slices
 /// for "ghi", "", "def", "abc", null, in that order.
 ///
 /// If `delimiter` does not exist in buffer,
