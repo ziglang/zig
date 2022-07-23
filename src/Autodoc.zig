@@ -1373,12 +1373,18 @@ fn walkInstruction(
 
         //     return operand;
         // },
-        .ptr_type_simple => {
-            const ptr = data[inst_index].ptr_type_simple;
-            const elem_type_ref = try self.walkRef(file, parent_scope, ptr.elem_type, false);
+        .overflow_arithmetic_ptr => {
+            const un_node = data[inst_index].un_node;
+            const elem_type_ref = try self.walkRef(file, parent_scope, un_node.operand, false);
             const type_slot_index = self.types.items.len;
             try self.types.append(self.arena, .{
-                .Pointer = .{ .size = ptr.size, .child = elem_type_ref.expr, .is_mutable = ptr.is_mutable, .is_volatile = ptr.is_volatile, .is_allowzero = ptr.is_allowzero },
+                .Pointer = .{
+                    .size = .One,
+                    .child = elem_type_ref.expr,
+                    .is_mutable = true,
+                    .is_volatile = false,
+                    .is_allowzero = false,
+                },
             });
 
             return DocData.WalkResult{
