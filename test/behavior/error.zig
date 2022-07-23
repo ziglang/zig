@@ -724,3 +724,15 @@ test "simple else prong allowed even when all errors handled" {
     };
     try expect(value == 255);
 }
+
+test {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    var err_union: anyerror!u8 = 15;
+
+    const payload_ptr = &(err_union catch unreachable);
+    try expect(payload_ptr.* == 15);
+}

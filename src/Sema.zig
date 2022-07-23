@@ -1663,11 +1663,15 @@ fn resolveMaybeUndefValIntable(
     inst: Air.Inst.Ref,
 ) CompileError!?Value {
     const val = (try sema.resolveMaybeUndefValAllowVariables(block, src, inst)) orelse return null;
-    switch (val.tag()) {
-        .variable, .decl_ref, .decl_ref_mut => return null,
+    var check = val;
+    while (true) switch (check.tag()) {
+        .variable, .decl_ref, .decl_ref_mut, .comptime_field_ptr => return null,
+        .field_ptr => check = check.castTag(.field_ptr).?.data.container_ptr,
+        .elem_ptr => check = check.castTag(.elem_ptr).?.data.array_ptr,
+        .eu_payload_ptr, .opt_payload_ptr => check = check.cast(Value.Payload.PayloadPtr).?.data.container_ptr,
         .generic_poison => return error.GenericPoison,
         else => return val,
-    }
+    };
 }
 
 /// Returns all Value tags including `variable` and `undef`.
@@ -3871,9 +3875,15 @@ fn zirValidateArrayInit(
     const array_len = array_ty.arrayLen();
 
     if (instrs.len != array_len) {
-        return sema.fail(block, init_src, "expected {d} array elements; found {d}", .{
-            array_len, instrs.len,
-        });
+        if (array_ty.zigTypeTag() == .Array) {
+            return sema.fail(block, init_src, "expected {d} array elements; found {d}", .{
+                array_len, instrs.len,
+            });
+        } else {
+            return sema.fail(block, init_src, "expected {d} vector elements; found {d}", .{
+                array_len, instrs.len,
+            });
+        }
     }
 
     if ((is_comptime or block.is_comptime) and
@@ -7893,7 +7903,7 @@ fn zirPtrToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     if (!ptr_ty.isPtrAtRuntime()) {
         return sema.fail(block, ptr_src, "expected pointer, found '{}'", .{ptr_ty.fmt(sema.mod)});
     }
-    if (try sema.resolveMaybeUndefVal(block, ptr_src, ptr)) |ptr_val| {
+    if (try sema.resolveMaybeUndefValIntable(block, ptr_src, ptr)) |ptr_val| {
         return sema.addConstant(Type.usize, ptr_val);
     }
     try sema.requireRuntimeBlock(block, ptr_src, ptr_src);
@@ -14261,7 +14271,7 @@ fn zirStructInitEmpty(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
 
     switch (obj_ty.zigTypeTag()) {
         .Struct => return sema.structInitEmpty(block, obj_ty, src, src),
-        .Array => return arrayInitEmpty(sema, obj_ty),
+        .Array, .Vector => return sema.arrayInitEmpty(block, src, obj_ty),
         .Void => return sema.addConstant(obj_ty, Value.void),
         else => return sema.failWithArrayInitNotSupported(block, src, obj_ty),
     }
@@ -14286,7 +14296,15 @@ fn structInitEmpty(
     return sema.finishStructInit(block, init_src, dest_src, field_inits, struct_ty, false);
 }
 
-fn arrayInitEmpty(sema: *Sema, obj_ty: Type) CompileError!Air.Inst.Ref {
+fn arrayInitEmpty(sema: *Sema, block: *Block, src: LazySrcLoc, obj_ty: Type) CompileError!Air.Inst.Ref {
+    const arr_len = obj_ty.arrayLen();
+    if (arr_len != 0) {
+        if (obj_ty.zigTypeTag() == .Array) {
+            return sema.fail(block, src, "expected {d} array elements; found 0", .{arr_len});
+        } else {
+            return sema.fail(block, src, "expected {d} vector elements; found 0", .{arr_len});
+        }
+    }
     if (obj_ty.sentinel()) |sentinel| {
         const val = try Value.Tag.empty_array_sentinel.create(sema.arena, sentinel);
         return sema.addConstant(obj_ty, val);
@@ -19448,7 +19466,7 @@ fn fieldCallBind(
 
     const raw_ptr_src = src; // TODO better source location
     const raw_ptr_ty = sema.typeOf(raw_ptr);
-    const inner_ty = if (raw_ptr_ty.zigTypeTag() == .Pointer and raw_ptr_ty.ptrSize() == .One)
+    const inner_ty = if (raw_ptr_ty.zigTypeTag() == .Pointer and (raw_ptr_ty.ptrSize() == .One or raw_ptr_ty.ptrSize() == .C))
         raw_ptr_ty.childType()
     else
         return sema.fail(block, raw_ptr_src, "expected single pointer, found '{}'", .{raw_ptr_ty.fmt(sema.mod)});
@@ -20974,7 +20992,7 @@ fn coerceExtra(
             .Vector => return sema.coerceArrayLike(block, dest_ty, dest_ty_src, inst, inst_src),
             .Struct => {
                 if (inst == .empty_struct) {
-                    return arrayInitEmpty(sema, dest_ty);
+                    return sema.arrayInitEmpty(block, inst_src, dest_ty);
                 }
                 if (inst_ty.isTuple()) {
                     return sema.coerceTupleToArray(block, dest_ty, dest_ty_src, inst, inst_src);
@@ -22607,7 +22625,9 @@ fn beginComptimePtrMutation(
             }
         },
         .opt_payload_ptr => {
-            const opt_ptr = ptr_val.castTag(.opt_payload_ptr).?.data;
+            const opt_ptr = if (ptr_val.castTag(.opt_payload_ptr)) |some| some.data else {
+                return sema.beginComptimePtrMutation(block, src, ptr_val, try ptr_elem_ty.optionalChildAlloc(sema.arena));
+            };
             var parent = try beginComptimePtrMutation(sema, block, src, opt_ptr.container_ptr, opt_ptr.container_ty);
             switch (parent.pointee) {
                 .direct => |val_ptr| {
@@ -22640,7 +22660,11 @@ fn beginComptimePtrMutation(
                             .ty = payload_ty,
                         },
 
-                        else => unreachable,
+                        else => return ComptimePtrMutationKit{
+                            .decl_ref_mut = parent.decl_ref_mut,
+                            .pointee = .{ .direct = val_ptr },
+                            .ty = payload_ty,
+                        },
                     }
                 },
                 .bad_decl_ty, .bad_ptr_ty => return parent,
@@ -22922,8 +22946,13 @@ fn beginComptimePtrLoad(
                     (try sema.coerceInMemoryAllowed(block, tv.ty, payload_ptr.container_ty, false, target, src, src)) == .ok;
                 if (coerce_in_mem_ok) {
                     const payload_val = switch (ptr_val.tag()) {
-                        .eu_payload_ptr => tv.val.castTag(.eu_payload).?.data,
-                        .opt_payload_ptr => tv.val.castTag(.opt_payload).?.data,
+                        .eu_payload_ptr => if (tv.val.castTag(.eu_payload)) |some| some.data else {
+                            return sema.fail(block, src, "attempt to unwrap error: {s}", .{tv.val.castTag(.@"error").?.data.name});
+                        },
+                        .opt_payload_ptr => if (tv.val.castTag(.opt_payload)) |some| some.data else opt: {
+                            if (tv.val.isNull()) return sema.fail(block, src, "attempt to use null value", .{});
+                            break :opt tv.val;
+                        },
                         else => unreachable,
                     };
                     tv.* = TypedValue{ .ty = payload_ty, .val = payload_val };
@@ -22932,6 +22961,9 @@ fn beginComptimePtrLoad(
             }
             deref.pointee = null;
             break :blk deref;
+        },
+        .null_value => {
+            return sema.fail(block, src, "attempt to use null value", .{});
         },
 
         .zero,
