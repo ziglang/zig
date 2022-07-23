@@ -202,7 +202,7 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .pop_regs => try emit.mirPushPopRegisterList(.pop, inst),
 
             else => {
-                return emit.fail("Implement MIR->Emit lowering for x86_64 for pseudo-inst: {s}", .{tag});
+                return emit.fail("Implement MIR->Emit lowering for x86_64 for pseudo-inst: {}", .{tag});
             },
         }
     }

@@ -2173,7 +2173,7 @@ fn coerceResultPtr(
             },
             else => {
                 if (std.debug.runtime_safety) {
-                    std.debug.panic("unexpected AIR tag for coerce_result_ptr: {s}", .{
+                    std.debug.panic("unexpected AIR tag for coerce_result_ptr: {}", .{
                         air_tags[trash_inst],
                     });
                 } else {

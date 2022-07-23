@@ -551,7 +551,7 @@ const Writer = struct {
     fn writeElemTypeIndex(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].bin;
         try self.writeInstRef(stream, inst_data.lhs);
-        try stream.print(", {d})", .{inst_data.rhs});
+        try stream.print(", {d})", .{@enumToInt(inst_data.rhs)});
     }
 
     fn writeUnNode(

@@ -454,6 +454,10 @@ fn stripOptionalOrErrorUnionSpec(comptime fmt: []const u8) []const u8 {
         fmt[1..];
 }
 
+fn invalidFmtErr(comptime fmt: []const u8, value: anytype) void {
+    @compileError("invalid format string '" ++ fmt ++ "' for type '" ++ @typeName(@TypeOf(value)) ++ "'");
+}
+
 pub fn formatType(
     value: anytype,
     comptime fmt: []const u8,
@@ -482,9 +486,11 @@ pub fn formatType(
             return formatValue(value, actual_fmt, options, writer);
         },
         .Void => {
+            if (actual_fmt.len != 0) invalidFmtErr(fmt, value);
             return formatBuf("void", options, writer);
         },
         .Bool => {
+            if (actual_fmt.len != 0) invalidFmtErr(fmt, value);
             return formatBuf(if (value) "true" else "false", options, writer);
         },
         .Optional => {
@@ -504,16 +510,18 @@ pub fn formatType(
             if (value) |payload| {
                 return formatType(payload, remaining_fmt, options, writer, max_depth);
             } else |err| {
-                return formatType(err, remaining_fmt, options, writer, max_depth);
+                return formatType(err, "", options, writer, max_depth);
             }
         },
         .ErrorSet => {
+            if (actual_fmt.len != 0) invalidFmtErr(fmt, value);
             try writer.writeAll("error.");
             return writer.writeAll(@errorName(value));
         },
         .Enum => |enumInfo| {
             try writer.writeAll(@typeName(T));
             if (enumInfo.is_exhaustive) {
+                if (actual_fmt.len != 0) invalidFmtErr(fmt, value);
                 try writer.writeAll(".");
                 try writer.writeAll(@tagName(value));
                 return;
@@ -534,6 +542,7 @@ pub fn formatType(
             try writer.writeAll(")");
         },
         .Union => |info| {
+            if (actual_fmt.len != 0) invalidFmtErr(fmt, value);
             try writer.writeAll(@typeName(T));
             if (max_depth == 0) {
                 return writer.writeAll("{ ... }");
@@ -553,6 +562,7 @@ pub fn formatType(
             }
         },
         .Struct => |info| {
+            if (actual_fmt.len != 0) invalidFmtErr(fmt, value);
             if (info.is_tuple) {
                 // Skip the type and field names when formatting tuples.
                 if (max_depth == 0) {
@@ -608,7 +618,7 @@ pub fn formatType(
                         }
                         return;
                     }
-                    @compileError("unknown format string: '" ++ actual_fmt ++ "' for type '" ++ @typeName(T) ++ "'");
+                    invalidFmtErr(fmt, value);
                 },
                 .Enum, .Union, .Struct => {
                     return formatType(value.*, actual_fmt, options, writer, max_depth);
@@ -630,7 +640,7 @@ pub fn formatType(
                         else => {},
                     }
                 }
-                @compileError("unknown format string: '" ++ actual_fmt ++ "' for type '" ++ @typeName(T) ++ "'");
+                invalidFmtErr(fmt, value);
             },
             .Slice => {
                 if (actual_fmt.len == 0)
@@ -693,14 +703,22 @@ pub fn formatType(
             try writer.writeAll(" }");
         },
         .Fn => {
+            if (actual_fmt.len != 0) invalidFmtErr(fmt, value);
             return format(writer, "{s}@{x}", .{ @typeName(T), @ptrToInt(value) });
         },
-        .Type => return formatBuf(@typeName(value), options, writer),
+        .Type => {
+            if (actual_fmt.len != 0) invalidFmtErr(fmt, value);
+            return formatBuf(@typeName(value), options, writer);
+        },
         .EnumLiteral => {
+            if (actual_fmt.len != 0) invalidFmtErr(fmt, value);
             const buffer = [_]u8{'.'} ++ @tagName(value);
             return formatBuf(buffer, options, writer);
         },
-        .Null => return formatBuf("null", options, writer),
+        .Null => {
+            if (actual_fmt.len != 0) invalidFmtErr(fmt, value);
+            return formatBuf("null", options, writer);
+        },
         else => @compileError("unable to format type '" ++ @typeName(T) ++ "'"),
     }
 }
@@ -768,7 +786,7 @@ pub fn formatIntValue(
         radix = 8;
         case = .lower;
     } else {
-        @compileError("unsupported format string '" ++ fmt ++ "' for type '" ++ @typeName(@TypeOf(value)) ++ "'");
+        invalidFmtErr(fmt, value);
     }
 
     return formatInt(int_value, radix, case, options, writer);
@@ -797,7 +815,7 @@ fn formatFloatValue(
             error.NoSpaceLeft => unreachable,
         };
     } else {
-        @compileError("unsupported format string '" ++ fmt ++ "' for type '" ++ @typeName(@TypeOf(value)) ++ "'");
+        invalidFmtErr(fmt, value);
     }
 
     return formatBuf(buf_stream.getWritten(), options, writer);
@@ -2000,6 +2018,12 @@ test "optional" {
     {
         const value: ?i32 = 1234;
         try expectFmt("optional: 1234\n", "optional: {?}\n", .{value});
+        try expectFmt("optional: 1234\n", "optional: {?d}\n", .{value});
+        try expectFmt("optional: 4d2\n", "optional: {?x}\n", .{value});
+    }
+    {
+        const value: ?[]const u8 = "string";
+        try expectFmt("optional: string\n", "optional: {?s}\n", .{value});
     }
     {
         const value: ?i32 = null;
@@ -2015,6 +2039,12 @@ test "error" {
     {
         const value: anyerror!i32 = 1234;
         try expectFmt("error union: 1234\n", "error union: {!}\n", .{value});
+        try expectFmt("error union: 1234\n", "error union: {!d}\n", .{value});
+        try expectFmt("error union: 4d2\n", "error union: {!x}\n", .{value});
+    }
+    {
+        const value: anyerror![]const u8 = "string";
+        try expectFmt("error union: string\n", "error union: {!s}\n", .{value});
     }
     {
         const value: anyerror!i32 = error.InvalidChar;
@@ -2209,6 +2239,10 @@ test "struct" {
 }
 
 test "enum" {
+    if (builtin.zig_backend == .stage1) {
+        // stage1 starts the typename with 'std' which might also be desireable for stage2
+        return error.SkipZigTest;
+    }
     const Enum = enum {
         One,
         Two,
@@ -2216,8 +2250,8 @@ test "enum" {
     const value = Enum.Two;
     try expectFmt("enum: Enum.Two\n", "enum: {}\n", .{value});
     try expectFmt("enum: Enum.Two\n", "enum: {}\n", .{&value});
-    try expectFmt("enum: Enum.One\n", "enum: {x}\n", .{Enum.One});
-    try expectFmt("enum: Enum.Two\n", "enum: {X}\n", .{Enum.Two});
+    try expectFmt("enum: Enum.One\n", "enum: {}\n", .{Enum.One});
+    try expectFmt("enum: Enum.Two\n", "enum: {}\n", .{Enum.Two});
 
     // test very large enum to verify ct branch quota is large enough
     try expectFmt("enum: os.windows.win32error.Win32Error.INVALID_FUNCTION\n", "enum: {}\n", .{std.os.windows.Win32Error.INVALID_FUNCTION});
@@ -2675,7 +2709,7 @@ test "vector" {
 }
 
 test "enum-literal" {
-    try expectFmt(".hello_world", "{s}", .{.hello_world});
+    try expectFmt(".hello_world", "{}", .{.hello_world});
 }
 
 test "padding" {

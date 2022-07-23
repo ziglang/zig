@@ -1773,7 +1773,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
         } else if (func_val.castTag(.decl_ref)) |decl_ref| {
             break :blk module.declPtr(decl_ref.data);
         }
-        return self.fail("Expected a function, but instead found type '{s}'", .{func_val.tag()});
+        return self.fail("Expected a function, but instead found type '{}'", .{func_val.tag()});
     };
 
     const sret = if (first_param_sret) blk: {
@@ -2365,7 +2365,7 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
             },
             .int_u64, .one => return WValue{ .imm32 = @intCast(u32, val.toUnsignedInt(target)) },
             .zero, .null_value => return WValue{ .imm32 = 0 },
-            else => return self.fail("Wasm TODO: lowerConstant for other const pointer tag {s}", .{val.tag()}),
+            else => return self.fail("Wasm TODO: lowerConstant for other const pointer tag {}", .{val.tag()}),
         },
         .Enum => {
             if (val.castTag(.enum_field_index)) |field_index| {
@@ -2421,7 +2421,7 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
             const is_pl = val.tag() == .opt_payload;
             return WValue{ .imm32 = if (is_pl) @as(u32, 1) else 0 };
         },
-        else => |zig_type| return self.fail("Wasm TODO: LowerConstant for zigTypeTag {s}", .{zig_type}),
+        else => |zig_type| return self.fail("Wasm TODO: LowerConstant for zigTypeTag {}", .{zig_type}),
     }
 }
 
