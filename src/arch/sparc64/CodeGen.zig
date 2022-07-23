@@ -652,7 +652,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .field_parent_ptr => @panic("TODO try self.airFieldParentPtr(inst)"),
 
             .switch_br       => try self.airSwitch(inst),
-            .slice_ptr       => @panic("TODO try self.airSlicePtr(inst)"),
+            .slice_ptr       => try self.airSlicePtr(inst),
             .slice_len       => try self.airSliceLen(inst),
 
             .ptr_slice_len_ptr => @panic("TODO try self.airPtrSliceLenPtr(inst)"),
@@ -2242,6 +2242,25 @@ fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
             },
             .memory => |addr| {
                 break :result MCValue{ .memory = addr + ptr_bytes };
+            },
+            else => return self.fail("TODO implement slice_len for {}", .{mcv}),
+        }
+    };
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn airSlicePtr(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const mcv = try self.resolveInst(ty_op.operand);
+        switch (mcv) {
+            .dead, .unreach, .none => unreachable,
+            .register => unreachable, // a slice doesn't fit in one register
+            .stack_offset => |off| {
+                break :result MCValue{ .stack_offset = off };
+            },
+            .memory => |addr| {
+                break :result MCValue{ .memory = addr };
             },
             else => return self.fail("TODO implement slice_len for {}", .{mcv}),
         }
