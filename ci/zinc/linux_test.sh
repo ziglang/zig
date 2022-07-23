@@ -66,7 +66,7 @@ $STAGE1_ZIG build test-stack-traces     -fqemu -fwasmtime
 $STAGE1_ZIG build test-cli              -fqemu -fwasmtime
 $STAGE1_ZIG build test-run-translated-c -fqemu -fwasmtime
 $STAGE1_ZIG build docs                  -fqemu -fwasmtime
-$STAGE1_ZIG build test-cases            -fqemu -fwasmtime
+$STAGE1_ZIG build test-cases            -fqemu -fwasmtime -Denable-llvm
 
 # Produce the experimental std lib documentation.
 mkdir -p "$RELEASE_STAGING/docs/std"
