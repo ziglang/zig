@@ -7228,7 +7228,7 @@ pub fn print(self: *Writer, arg0: []const u8, arg1: i32) !void {
       <p>
       And now, what happens if we give too many arguments to {#syntax#}print{#endsyntax#}?
       </p>
-      {#code_begin|test_err|Unused argument in 'here is a string: '{s}' here is a number: {}#}
+      {#code_begin|test_err|unused argument in 'here is a string: '{s}' here is a number: {}#}
 const print = @import("std").debug.print;
 
 const a_number: i32 = 1234;
