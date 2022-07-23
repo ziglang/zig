@@ -3496,6 +3496,12 @@ pub const IORING_FEAT_RW_CUR_POS = 1 << 3;
 pub const IORING_FEAT_CUR_PERSONALITY = 1 << 4;
 pub const IORING_FEAT_FAST_POLL = 1 << 5;
 pub const IORING_FEAT_POLL_32BITS = 1 << 6;
+pub const IORING_FEAT_SQPOLL_NONFIXED = 1 << 7;
+pub const IORING_FEAT_EXT_ARG = 1 << 8;
+pub const IORING_FEAT_NATIVE_WORKERS = 1 << 9;
+pub const IORING_FEAT_RSRC_TAGS = 1 << 10;
+pub const IORING_FEAT_CQE_SKIP = 1 << 11;
+pub const IORING_FEAT_LINKED_FILE = 1 << 12;
 
 // io_uring_params.flags
 
@@ -3519,6 +3525,26 @@ pub const IORING_SETUP_ATTACH_WQ = 1 << 5;
 
 /// start with ring disabled
 pub const IORING_SETUP_R_DISABLED = 1 << 6;
+
+/// continue submit on error
+pub const IORING_SETUP_SUBMIT_ALL = 1 << 7;
+
+/// Cooperative task running. When requests complete, they often require
+/// forcing the submitter to transition to the kernel to complete. If this
+/// flag is set, work will be done when the task transitions anyway, rather
+/// than force an inter-processor interrupt reschedule. This avoids interrupting
+/// a task running in userspace, and saves an IPI.
+pub const IORING_SETUP_COOP_TASKRUN = 1 << 8;
+
+/// If COOP_TASKRUN is set, get notified if task work is available for
+/// running and a kernel transition would be needed to run it. This sets
+/// IORING_SQ_TASKRUN in the sq ring flags. Not valid with COOP_TASKRUN.
+pub const IORING_SETUP_TASKRUN_FLAG = 1 << 9;
+
+/// SQEs are 128 byte
+pub const IORING_SETUP_SQE128 = 1 << 10;
+/// CQEs are 32 byte
+pub const IORING_SETUP_CQE32 = 1 << 11;
 
 pub const io_sqring_offsets = extern struct {
     /// offset of ring head
@@ -3550,9 +3576,10 @@ pub const io_sqring_offsets = extern struct {
 
 /// needs io_uring_enter wakeup
 pub const IORING_SQ_NEED_WAKEUP = 1 << 0;
-
 /// kernel has cqes waiting beyond the cq ring
 pub const IORING_SQ_CQ_OVERFLOW = 1 << 1;
+/// task should enter the kernel
+pub const IORING_SQ_TASKRUN = 1 << 2;
 
 pub const io_cqring_offsets = extern struct {
     head: u32,
@@ -3587,6 +3614,7 @@ pub const IOSQE_BIT = enum(u8) {
     IO_HARDLINK,
     ASYNC,
     BUFFER_SELECT,
+    CQE_SKIP_SUCCESS,
 
     _,
 };
@@ -3610,6 +3638,10 @@ pub const IOSQE_ASYNC = 1 << @enumToInt(IOSQE_BIT.ASYNC);
 
 /// select buffer from buf_group
 pub const IOSQE_BUFFER_SELECT = 1 << @enumToInt(IOSQE_BIT.BUFFER_SELECT);
+
+/// don't post CQE if request succeeded
+/// Available since Linux 5.17
+pub const IOSQE_CQE_SKIP_SUCCESS = 1 << @enumToInt(IOSQE_BIT.CQE_SKIP_SUCCESS);
 
 pub const IORING_OP = enum(u8) {
     NOP,
@@ -3656,11 +3688,51 @@ pub const IORING_OP = enum(u8) {
     _,
 };
 
-// io_uring_sqe.fsync_flags
+// io_uring_sqe.fsync_flags (rw_flags in the Zig struct)
 pub const IORING_FSYNC_DATASYNC = 1 << 0;
 
-// io_uring_sqe.timeout_flags
+// io_uring_sqe.timeout_flags (rw_flags in the Zig struct)
 pub const IORING_TIMEOUT_ABS = 1 << 0;
+pub const IORING_TIMEOUT_UPDATE = 1 << 1; // Available since Linux 5.11
+pub const IORING_TIMEOUT_BOOTTIME = 1 << 2; // Available since Linux 5.15
+pub const IORING_TIMEOUT_REALTIME = 1 << 3; // Available since Linux 5.15
+pub const IORING_LINK_TIMEOUT_UPDATE = 1 << 4; // Available since Linux 5.15
+pub const IORING_TIMEOUT_ETIME_SUCCESS = 1 << 5; // Available since Linux 5.16
+pub const IORING_TIMEOUT_CLOCK_MASK = IORING_TIMEOUT_BOOTTIME | IORING_TIMEOUT_REALTIME;
+pub const IORING_TIMEOUT_UPDATE_MASK = IORING_TIMEOUT_UPDATE | IORING_LINK_TIMEOUT_UPDATE;
+
+// io_uring_sqe.splice_flags (rw_flags in the Zig struct)
+// extends splice(2) flags
+pub const IORING_SPLICE_F_FD_IN_FIXED = 1 << 31;
+
+// POLL_ADD flags.
+// Note that since sqe->poll_events (rw_flags in the Zig struct) is the flag space, the command flags for POLL_ADD are stored in sqe->len.
+
+/// Multishot poll. Sets IORING_CQE_F_MORE if the poll handler will continue to report CQEs on behalf of the same SQE.
+pub const IORING_POLL_ADD_MULTI = 1 << 0;
+/// Update existing poll request, matching sqe->addr as the old user_data field.
+pub const IORING_POLL_UPDATE_EVENTS = 1 << 1;
+pub const IORING_POLL_UPDATE_USER_DATA = 1 << 2;
+
+// ASYNC_CANCEL flags.
+
+/// Cancel all requests that match the given key
+pub const IORING_ASYNC_CANCEL_ALL = 1 << 0;
+/// Key off 'fd' for cancelation rather than the request 'user_data'.
+pub const IORING_ASYNC_CANCEL_FD = 1 << 1;
+/// Match any request
+pub const IORING_ASYNC_CANCEL_ANY = 1 << 2;
+
+// send/sendmsg and recv/recvmsg flags (sqe->ioprio)
+
+/// If set, instead of first attempting to send or receive and arm poll if that yields an -EAGAIN result,
+/// arm poll upfront and skip the initial transfer attempt.
+pub const IORING_RECVSEND_POLL_FIRST = 1 << 0;
+/// Multishot recv. Sets IORING_CQE_F_MORE if the handler will continue to report CQEs on behalf of the same SQE.
+pub const IORING_RECV_MULTISHOT = 1 << 1;
+
+/// accept flags stored in sqe->ioprio
+pub const IORING_ACCEPT_MULTISHOT = 1 << 0;
 
 // IO completion data structure (Completion Queue Entry)
 pub const io_uring_cqe = extern struct {
@@ -3683,7 +3755,13 @@ pub const io_uring_cqe = extern struct {
 
 /// If set, the upper 16 bits are the buffer ID
 pub const IORING_CQE_F_BUFFER = 1 << 0;
+/// If set, parent SQE will generate more CQE entries.
+/// Avaiable since Linux 5.13.
+pub const IORING_CQE_F_MORE = 1 << 1;
+/// If set, more data to read after socket recv
+pub const IORING_CQE_F_SOCK_NONEMPTY = 1 << 2;
 
+/// Magic offsets for the application to mmap the data it needs
 pub const IORING_OFF_SQ_RING = 0;
 pub const IORING_OFF_CQ_RING = 0x8000000;
 pub const IORING_OFF_SQES = 0x10000000;
@@ -3691,6 +3769,9 @@ pub const IORING_OFF_SQES = 0x10000000;
 // io_uring_enter flags
 pub const IORING_ENTER_GETEVENTS = 1 << 0;
 pub const IORING_ENTER_SQ_WAKEUP = 1 << 1;
+pub const IORING_ENTER_SQ_WAIT = 1 << 2;
+pub const IORING_ENTER_EXT_ARG = 1 << 3;
+pub const IORING_ENTER_REGISTERED_RING = 1 << 4;
 
 // io_uring_register opcodes and arguments
 pub const IORING_REGISTER = enum(u8) {
@@ -3707,6 +3788,33 @@ pub const IORING_REGISTER = enum(u8) {
     UNREGISTER_PERSONALITY,
     REGISTER_RESTRICTIONS,
     REGISTER_ENABLE_RINGS,
+
+    // extended with tagging
+    IORING_REGISTER_FILES2,
+    IORING_REGISTER_FILES_UPDATE2,
+    IORING_REGISTER_BUFFERS2,
+    IORING_REGISTER_BUFFERS_UPDATE,
+
+    // set/clear io-wq thread affinities
+    IORING_REGISTER_IOWQ_AFF,
+    IORING_UNREGISTER_IOWQ_AFF,
+
+    // set/get max number of io-wq workers
+    IORING_REGISTER_IOWQ_MAX_WORKERS,
+
+    // register/unregister io_uring fd with the ring
+    IORING_REGISTER_RING_FDS,
+    IORING_UNREGISTER_RING_FDS,
+
+    // register ring based provide buffer group
+    IORING_REGISTER_PBUF_RING,
+    IORING_UNREGISTER_PBUF_RING,
+
+    // sync cancelation API
+    IORING_REGISTER_SYNC_CANCEL,
+
+    // register a range of fixed file slots for automatic slot allocation
+    IORING_REGISTER_FILE_ALLOC_RANGE,
 
     _,
 };
