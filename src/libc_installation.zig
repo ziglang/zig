@@ -64,10 +64,7 @@ pub const LibCInstallation = struct {
         while (it.next()) |line| {
             if (line.len == 0 or line[0] == '#') continue;
             var line_it = std.mem.split(u8, line, "=");
-            const name = line_it.next() orelse {
-                log.err("missing equal sign after field name\n", .{});
-                return error.ParseError;
-            };
+            const name = line_it.first();
             const value = line_it.rest();
             inline for (fields) |field, i| {
                 if (std.mem.eql(u8, name, field.name)) {

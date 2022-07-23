@@ -1154,7 +1154,7 @@ fn linuxLookupNameFromHosts(
         else => |e| return e,
     }) |line| {
         var split_it = mem.split(u8, line, "#");
-        const no_comment_line = split_it.next().?;
+        const no_comment_line = split_it.first();
 
         var line_it = mem.tokenize(u8, no_comment_line, " \t");
         const ip_text = line_it.next() orelse continue;
@@ -1356,7 +1356,7 @@ fn getResolvConf(allocator: mem.Allocator, rc: *ResolvConf) !void {
     }) |line| {
         const no_comment_line = no_comment_line: {
             var split = mem.split(u8, line, "#");
-            break :no_comment_line split.next().?;
+            break :no_comment_line split.first();
         };
         var line_it = mem.tokenize(u8, no_comment_line, " \t");
 
@@ -1364,7 +1364,7 @@ fn getResolvConf(allocator: mem.Allocator, rc: *ResolvConf) !void {
         if (mem.eql(u8, token, "options")) {
             while (line_it.next()) |sub_tok| {
                 var colon_it = mem.split(u8, sub_tok, ":");
-                const name = colon_it.next().?;
+                const name = colon_it.first();
                 const value_txt = colon_it.next() orelse continue;
                 const value = std.fmt.parseInt(u8, value_txt, 10) catch |err| switch (err) {
                     // TODO https://github.com/ziglang/zig/issues/11812

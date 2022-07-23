@@ -303,7 +303,7 @@ const TestManifest = struct {
 
             // Parse key=value(s)
             var kv_it = std.mem.split(u8, trimmed, "=");
-            const key = kv_it.next() orelse return error.MissingKeyForConfig;
+            const key = kv_it.first();
             try manifest.config_map.putNoClobber(key, kv_it.next() orelse return error.MissingValuesForConfig);
         }
 
@@ -697,7 +697,7 @@ pub const TestContext = struct {
                 }
                 // example: "file.zig:1:2: error: bad thing happened"
                 var it = std.mem.split(u8, err_msg_line, ":");
-                const src_path = it.next() orelse @panic("missing colon");
+                const src_path = it.first();
                 const line_text = it.next() orelse @panic("missing line");
                 const col_text = it.next() orelse @panic("missing column");
                 const kind_text = it.next() orelse @panic("missing 'error'/'note'");
@@ -1698,7 +1698,7 @@ pub const TestContext = struct {
                                         var fib = std.io.fixedBufferStream(&buf);
                                         try msg.renderToWriter(.no_color, fib.writer(), "error", .Red, 0);
                                         var it = std.mem.split(u8, fib.getWritten(), "error: ");
-                                        _ = it.next();
+                                        _ = it.first();
                                         const rendered = it.rest();
                                         break :blk rendered[0 .. rendered.len - 1]; // trim final newline
                                     };
