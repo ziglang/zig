@@ -16,9 +16,7 @@ pub fn build(b: *Builder) void {
         check.checkInSymtab();
         check.checkNext("{*} (__TEXT,__text) external _iAmUnused");
 
-        test_step.dependOn(&check.step);
-
-        const run_cmd = exe.run();
+        const run_cmd = check.runAndCompare();
         run_cmd.expectStdOutEqual("Hello!\n");
         test_step.dependOn(&run_cmd.step);
     }
@@ -32,9 +30,7 @@ pub fn build(b: *Builder) void {
         check.checkInSymtab();
         check.checkNotPresent("{*} (__TEXT,__text) external _iAmUnused");
 
-        test_step.dependOn(&check.step);
-
-        const run_cmd = exe.run();
+        const run_cmd = check.runAndCompare();
         run_cmd.expectStdOutEqual("Hello!\n");
         test_step.dependOn(&run_cmd.step);
     }
