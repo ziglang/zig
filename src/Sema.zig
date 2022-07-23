@@ -20203,7 +20203,9 @@ fn unionFieldPtr(
     }
 
     try sema.requireRuntimeBlock(block, src, null);
-    if (!initializing and union_obj.layout == .Auto and block.wantSafety() and union_ty.unionTagTypeSafety() != null) {
+    if (!initializing and union_obj.layout == .Auto and block.wantSafety() and
+        union_ty.unionTagTypeSafety() != null and union_obj.fields.count() > 1)
+    {
         const enum_ty = union_ty.unionTagTypeHypothetical();
         const wanted_tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
         const wanted_tag = try sema.addConstant(enum_ty, wanted_tag_val);
@@ -20271,7 +20273,9 @@ fn unionFieldVal(
     }
 
     try sema.requireRuntimeBlock(block, src, null);
-    if (union_obj.layout == .Auto and block.wantSafety() and union_ty.unionTagTypeSafety() != null) {
+    if (union_obj.layout == .Auto and block.wantSafety() and
+        union_ty.unionTagTypeSafety() != null and union_obj.fields.count() > 1)
+    {
         const enum_ty = union_ty.unionTagTypeHypothetical();
         const wanted_tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
         const wanted_tag = try sema.addConstant(enum_ty, wanted_tag_val);
