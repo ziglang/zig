@@ -514,10 +514,10 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .bit_or          => try self.airBinOp(inst, .bit_or),
             .xor             => try self.airBinOp(inst, .xor),
 
-            .add_sat         => @panic("TODO try self.airAddSat(inst)"),
-            .sub_sat         => @panic("TODO try self.airSubSat(inst)"),
-            .mul_sat         => @panic("TODO try self.airMulSat(inst)"),
-            .shl_sat         => @panic("TODO try self.airShlSat(inst)"),
+            .add_sat         => try self.airAddSat(inst),
+            .sub_sat         => try self.airSubSat(inst),
+            .mul_sat         => try self.airMulSat(inst),
+            .shl_sat         => try self.airShlSat(inst),
             .min             => @panic("TODO try self.airMin(inst)"),
             .max             => @panic("TODO try self.airMax(inst)"),
             .rem             => try self.airRem(inst),
@@ -539,7 +539,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .round,
             .trunc_float,
             .neg,
-            => @panic("TODO try self.airUnaryMath(inst)"),
+            => try self.airUnaryMath(inst),
 
             .add_with_overflow => try self.airAddSubWithOverflow(inst),
             .sub_with_overflow => try self.airAddSubWithOverflow(inst),
@@ -605,7 +605,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .get_union_tag   => @panic("TODO try self.airGetUnionTag(inst)"),
             .clz             => try self.airClz(inst),
             .ctz             => try self.airCtz(inst),
-            .popcount        => @panic("TODO try self.airPopcount(inst)"),
+            .popcount        => try self.airPopcount(inst),
             .byte_swap       => @panic("TODO try self.airByteSwap(inst)"),
             .bit_reverse     => @panic("TODO try self.airBitReverse(inst)"),
             .tag_name        => try self.airTagName(inst),
@@ -616,7 +616,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .reduce          => @panic("TODO try self.airReduce(inst)"),
             .aggregate_init  => try self.airAggregateInit(inst),
             .union_init      => @panic("TODO try self.airUnionInit(inst)"),
-            .prefetch        => @panic("TODO try self.airPrefetch(inst)"),
+            .prefetch        => try self.airPrefetch(inst),
             .mul_add         => @panic("TODO try self.airMulAdd(inst)"),
 
             .@"try"          => try self.airTry(inst),
@@ -661,16 +661,16 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .array_elem_val      => try self.airArrayElemVal(inst),
             .slice_elem_val      => try self.airSliceElemVal(inst),
             .slice_elem_ptr      => @panic("TODO try self.airSliceElemPtr(inst)"),
-            .ptr_elem_val        => @panic("TODO try self.airPtrElemVal(inst)"),
+            .ptr_elem_val        => try self.airPtrElemVal(inst),
             .ptr_elem_ptr        => try self.airPtrElemPtr(inst),
 
             .constant => unreachable, // excluded from function bodies
             .const_ty => unreachable, // excluded from function bodies
             .unreach  => self.finishAirBookkeeping(),
 
-            .optional_payload           => @panic("TODO try self.airOptionalPayload(inst)"),
-            .optional_payload_ptr       => @panic("TODO try self.airOptionalPayloadPtr(inst)"),
-            .optional_payload_ptr_set   => @panic("TODO try self.airOptionalPayloadPtrSet(inst)"),
+            .optional_payload           => try self.airOptionalPayload(inst),
+            .optional_payload_ptr       => try self.airOptionalPayloadPtr(inst),
+            .optional_payload_ptr_set   => try self.airOptionalPayloadPtrSet(inst),
             .unwrap_errunion_err        => try self.airUnwrapErrErr(inst),
             .unwrap_errunion_payload    => try self.airUnwrapErrPayload(inst),
             .unwrap_errunion_err_ptr    => @panic("TODO try self.airUnwrapErrErrPtr(inst)"),
@@ -723,6 +723,12 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             }
         }
     }
+}
+
+fn airAddSat(self: *Self, inst: Air.Inst.Index) !void {
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement add_sat for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
@@ -1805,6 +1811,12 @@ fn airMod(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, .{ .register = mod_reg }, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
+fn airMulSat(self: *Self, inst: Air.Inst.Index) !void {
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement mul_sat for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
 fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
     //const tag = self.air.instructions.items(.tag)[inst];
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
@@ -1966,6 +1978,43 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
+fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement .optional_payload for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn airOptionalPayloadPtr(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement .optional_payload_ptr for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn airOptionalPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement .optional_payload_ptr_set for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn airPopcount(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airPopcount for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn airPrefetch(self: *Self, inst: Air.Inst.Index) !void {
+    const prefetch = self.air.instructions.items(.data)[inst].prefetch;
+    // TODO Emit a PREFETCH/IPREFETCH as necessary, see A.7 and A.42
+    return self.finishAir(inst, MCValue.dead, .{ prefetch.ptr, .none, .none });
+}
+
+fn airPtrElemVal(self: *Self, inst: Air.Inst.Index) !void {
+    const is_volatile = false; // TODO
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement ptr_elem_val for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
 fn airPtrElemPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
@@ -2018,6 +2067,12 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
 fn airRetPtr(self: *Self, inst: Air.Inst.Index) !void {
     const stack_offset = try self.allocMemPtr(inst);
     return self.finishAir(inst, .{ .ptr_stack_offset = stack_offset }, .{ .none, .none, .none });
+}
+
+fn airShlSat(self: *Self, inst: Air.Inst.Index) !void {
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement shl_sat for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
@@ -2281,6 +2336,12 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ extra.struct_operand, .none, .none });
 }
 
+fn airSubSat(self: *Self, inst: Air.Inst.Index) !void {
+    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement sub_sat for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
 fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
     _ = inst;
     return self.fail("TODO implement switch for {}", .{self.target.cpu.arch});
@@ -2312,6 +2373,15 @@ fn airTry(self: *Self, inst: Air.Inst.Index) !void {
         break :result try self.errUnionPayload(error_union, error_union_ty);
     };
     return self.finishAir(inst, result, .{ pl_op.operand, .none, .none });
+}
+
+fn airUnaryMath(self: *Self, inst: Air.Inst.Index) !void {
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const result: MCValue = if (self.liveness.isUnused(inst))
+        .dead
+    else
+        return self.fail("TODO implement airUnaryMath for {}", .{self.target.cpu.arch});
+    return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
 fn airUnwrapErrErr(self: *Self, inst: Air.Inst.Index) !void {
