@@ -601,6 +601,21 @@ stack_size: u32 = 0,
 /// However, local variables or the usage of `@setAlignStack` can overwrite this default.
 stack_alignment: u32 = 16,
 
+// For each individual Wasm valtype we store a seperate free list which
+// allows us to re-use locals that are no longer used. e.g. a temporary local.
+/// A list of indexes which represents a local of valtype `i32`.
+/// It is illegal to store a non-i32 valtype in this list.
+free_locals_i32: std.ArrayListUnmanaged(u32) = .{},
+/// A list of indexes which represents a local of valtype `i64`.
+/// It is illegal to store a non-i32 valtype in this list.
+free_locals_i64: std.ArrayListUnmanaged(u32) = .{},
+/// A list of indexes which represents a local of valtype `f32`.
+/// It is illegal to store a non-i32 valtype in this list.
+free_locals_f32: std.ArrayListUnmanaged(u32) = .{},
+/// A list of indexes which represents a local of valtype `f64`.
+/// It is illegal to store a non-i32 valtype in this list.
+free_locals_f64: std.ArrayListUnmanaged(u32) = .{},
+
 const InnerError = error{
     OutOfMemory,
     /// An error occurred when trying to lower AIR to MIR.
@@ -781,11 +796,41 @@ fn emitWValue(self: *Self, value: WValue) InnerError!void {
 /// Creates one locals for a given `Type`.
 /// Returns a corresponding `Wvalue` with `local` as active tag
 fn allocLocal(self: *Self, ty: Type) InnerError!WValue {
+    const valtype = typeToValtype(ty, self.target);
+    switch (valtype) {
+        .i32 => if (self.free_locals_i32.popOrNull()) |index| {
+            return WValue{ .local = index };
+        },
+        .i64 => if (self.free_locals_i64.popOrNull()) |index| {
+            return WValue{ .local = index };
+        },
+        .f32 => if (self.free_locals_f32.popOrNull()) |index| {
+            return WValue{ .local = index };
+        },
+        .f64 => if (self.free_locals_f64.popOrNull()) |index| {
+            return WValue{ .local = index };
+        },
+    }
+    // no local was free to be re-used, so allocate a new local instead
+    try self.locals.append(self.gpa, wasm.valtype(valtype));
     const initial_index = self.local_index;
-    const valtype = genValtype(ty, self.target);
-    try self.locals.append(self.gpa, valtype);
     self.local_index += 1;
     return WValue{ .local = initial_index };
+}
+
+/// Marks a local as no longer being referenced and essentially allows
+/// us to re-use it somewhere else within the function.
+/// The valtype of the local is deducted by using the index of the given.
+/// Asserts given `WValue` is a `local`.
+fn freeLocal(self: *Self, value: WValue) InnerError!WValue {
+    const index = value.local;
+    const valtype = wasm.valtype(self.locals.items[index]);
+    switch (valtype) {
+        .i32 => self.free_locals_i32.append(index) catch {}, // It's ok to fail any of those, a new local can be allocated instead
+        .i64 => self.free_locals_i64.append(index) catch {},
+        .f32 => self.free_locals_f32.append(index) catch {},
+        .f64 => self.free_locals_f64.append(index) catch {},
+    }
 }
 
 /// Generates a `wasm.Type` from a given function type.
