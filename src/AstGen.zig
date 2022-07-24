@@ -1274,6 +1274,7 @@ fn fnProtoExpr(
         .is_inferred_error = false,
         .is_test = false,
         .is_extern = false,
+        .is_noinline = false,
         .noalias_bits = noalias_bits,
     });
 
@@ -3389,7 +3390,6 @@ fn fnDecl(
     };
     defer fn_gz.unstack();
 
-    // TODO: support noinline
     const is_pub = fn_proto.visib_token != null;
     const is_export = blk: {
         const maybe_export_token = fn_proto.extern_export_inline_token orelse break :blk false;
@@ -3402,6 +3402,10 @@ fn fnDecl(
     const has_inline_keyword = blk: {
         const maybe_inline_token = fn_proto.extern_export_inline_token orelse break :blk false;
         break :blk token_tags[maybe_inline_token] == .keyword_inline;
+    };
+    const is_noinline = blk: {
+        const maybe_noinline_token = fn_proto.extern_export_inline_token orelse break :blk false;
+        break :blk token_tags[maybe_noinline_token] == .keyword_noinline;
     };
 
     const doc_comment_index = try astgen.docCommentAsString(fn_proto.firstToken());
@@ -3610,6 +3614,7 @@ fn fnDecl(
             .is_inferred_error = false,
             .is_test = false,
             .is_extern = true,
+            .is_noinline = is_noinline,
             .noalias_bits = noalias_bits,
         });
     } else func: {
@@ -3658,6 +3663,7 @@ fn fnDecl(
             .is_inferred_error = is_inferred_error,
             .is_test = false,
             .is_extern = false,
+            .is_noinline = is_noinline,
             .noalias_bits = noalias_bits,
         });
     };
@@ -4093,6 +4099,7 @@ fn testDecl(
         .is_inferred_error = true,
         .is_test = true,
         .is_extern = false,
+        .is_noinline = false,
         .noalias_bits = 0,
     });
 
@@ -10175,6 +10182,7 @@ const GenZir = struct {
         is_inferred_error: bool,
         is_test: bool,
         is_extern: bool,
+        is_noinline: bool,
     }) !Zir.Inst.Ref {
         assert(args.src_node != 0);
         const astgen = gz.astgen;
@@ -10216,10 +10224,9 @@ const GenZir = struct {
         }
         const body_len = astgen.countBodyLenAfterFixups(body);
 
-        if (args.cc_ref != .none or args.lib_name != 0 or
-            args.is_var_args or args.is_test or args.is_extern or
-            args.align_ref != .none or args.section_ref != .none or
-            args.addrspace_ref != .none or args.noalias_bits != 0)
+        if (args.cc_ref != .none or args.lib_name != 0 or args.is_var_args or args.is_test or
+            args.is_extern or args.align_ref != .none or args.section_ref != .none or
+            args.addrspace_ref != .none or args.noalias_bits != 0 or args.is_noinline)
         {
             var align_body: []Zir.Inst.Index = &.{};
             var addrspace_body: []Zir.Inst.Index = &.{};
@@ -10252,6 +10259,7 @@ const GenZir = struct {
                     .is_inferred_error = args.is_inferred_error,
                     .is_test = args.is_test,
                     .is_extern = args.is_extern,
+                    .is_noinline = args.is_noinline,
                     .has_lib_name = args.lib_name != 0,
                     .has_any_noalias = args.noalias_bits != 0,
 

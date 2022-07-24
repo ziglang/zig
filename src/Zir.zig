@@ -2736,6 +2736,7 @@ pub const Inst = struct {
             is_inferred_error: bool,
             is_test: bool,
             is_extern: bool,
+            is_noinline: bool,
             has_align_ref: bool,
             has_align_body: bool,
             has_addrspace_ref: bool,
@@ -2748,7 +2749,7 @@ pub const Inst = struct {
             has_ret_ty_body: bool,
             has_lib_name: bool,
             has_any_noalias: bool,
-            _: u16 = undefined,
+            _: u15 = undefined,
         };
     };
 

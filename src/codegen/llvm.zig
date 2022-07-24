@@ -699,6 +699,12 @@ pub const Object = struct {
             DeclGen.removeFnAttr(llvm_func, "cold");
         }
 
+        if (func.is_noinline) {
+            dg.addFnAttr(llvm_func, "noinline");
+        } else {
+            DeclGen.removeFnAttr(llvm_func, "noinline");
+        }
+
         // Remove all the basic blocks of a function in order to start over, generating
         // LLVM IR from an empty function body.
         while (llvm_func.getFirstBasicBlock()) |bb| {
