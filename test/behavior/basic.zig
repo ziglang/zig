@@ -978,6 +978,13 @@ test "array type comes from generic function" {
 }
 
 test "generic function uses return type of other generic function" {
+    if (builtin.zig_backend != .stage1) {
+        // This test has been failing sporadically on the CI.
+        // It's not enough to verify that it works locally; we need to diagnose why
+        // it fails on the CI sometimes before turning it back on.
+        // https://github.com/ziglang/zig/issues/12208
+        return error.SkipZigTest;
+    }
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
