@@ -6,8 +6,7 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.add("test/standalone/hello_world/hello.zig");
     cases.addC("test/standalone/hello_world/hello_libc.zig");
     cases.add("test/standalone/cat/main.zig");
-    if (builtin.zig_backend == .stage1) {
-        // https://github.com/ziglang/zig/issues/6025
+    if (builtin.zig_backend == .stage1) { // https://github.com/ziglang/zig/issues/6025
         cases.add("test/standalone/issue_9693/main.zig");
     }
     cases.add("test/standalone/guess_number/main.zig");
@@ -32,14 +31,18 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.addBuildFile("test/standalone/empty_env/build.zig", .{});
     cases.addBuildFile("test/standalone/issue_7030/build.zig", .{});
     cases.addBuildFile("test/standalone/install_raw_hex/build.zig", .{});
-    cases.addBuildFile("test/standalone/issue_9812/build.zig", .{});
+    if (builtin.zig_backend == .stage1) { // https://github.com/ziglang/zig/issues/12194
+        cases.addBuildFile("test/standalone/issue_9812/build.zig", .{});
+    }
     cases.addBuildFile("test/standalone/issue_11595/build.zig", .{});
     if (builtin.os.tag != .wasi) {
         cases.addBuildFile("test/standalone/load_dynamic_library/build.zig", .{});
     }
     // C ABI compatibility issue: https://github.com/ziglang/zig/issues/1481
     if (builtin.cpu.arch == .x86_64) {
-        cases.addBuildFile("test/stage1/c_abi/build.zig", .{});
+        if (builtin.zig_backend == .stage1) { // https://github.com/ziglang/zig/issues/12222
+            cases.addBuildFile("test/stage1/c_abi/build.zig", .{});
+        }
     }
     cases.addBuildFile("test/standalone/c_compiler/build.zig", .{
         .build_modes = true,
@@ -51,7 +54,9 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     }
     // Try to build and run a PIE executable.
     if (builtin.os.tag == .linux) {
-        cases.addBuildFile("test/standalone/pie/build.zig", .{});
+        if (builtin.zig_backend == .stage1) { // https://github.com/ziglang/zig/issues/12223
+            cases.addBuildFile("test/standalone/pie/build.zig", .{});
+        }
     }
 
     // Ensure the development tools are buildable.
@@ -60,7 +65,9 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     // https://github.com/ziglang/zig/issues/12015
     //cases.add("tools/gen_spirv_spec.zig");
 
-    cases.add("tools/gen_stubs.zig");
+    if (builtin.zig_backend == .stage1) { // https://github.com/ziglang/zig/issues/12223
+        cases.add("tools/gen_stubs.zig");
+    }
     cases.add("tools/generate_linux_syscalls.zig");
     cases.add("tools/process_headers.zig");
     cases.add("tools/update-license-headers.zig");
