@@ -290,8 +290,7 @@ fn refreshWithHeldLock(self: *Progress) void {
     var end: usize = 0;
     if (self.columns_written > 0) {
         // restore the cursor position by moving the cursor
-        // `columns_written` cells to the left, then clear the rest of the
-        // line
+        // `columns_written` cells to the left, then clear the rest of the line
         if (self.supports_ansi_escape_codes) {
             end += (std.fmt.bufPrint(self.output_buffer_slice[end..], "\x1b[{d}D", .{self.columns_written}) catch unreachable).len;
             end += (std.fmt.bufPrint(self.output_buffer_slice[end..], "\x1b[0K", .{}) catch unreachable).len;
@@ -343,9 +342,8 @@ fn refreshWithHeldLock(self: *Progress) void {
         self.columns_written = 0;
     }
 
-    // from here on we will print printable characters.
-    // make sure the unprintable characters we printed don't affect when we truncate the line
-    // in `bufWrite`.
+    // from here on we will write printable characters. we also make sure the unprintable characters
+    // we possibly wrote previously don't affect whether we truncate the line in `bufWrite`.
     const unprintables = end;
     end = 0;
     self.output_buffer_slice = self.output_buffer[unprintables .. unprintables + self.max_width.?];
