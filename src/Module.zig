@@ -4122,13 +4122,21 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func: *Fn) SemaError!void {
             };
             defer air.deinit(gpa);
 
-            if (mod.comp.bin_file.options.emit == null) return;
+            const comp = mod.comp;
+
+            if (comp.bin_file.options.emit == null and
+                comp.emit_asm == null and
+                comp.emit_llvm_ir == null and
+                comp.emit_llvm_bc == null)
+            {
+                return;
+            }
 
             log.debug("analyze liveness of {s}", .{decl.name});
             var liveness = try Liveness.analyze(gpa, air);
             defer liveness.deinit(gpa);
 
-            if (builtin.mode == .Debug and mod.comp.verbose_air) {
+            if (builtin.mode == .Debug and comp.verbose_air) {
                 const fqn = try decl.getFullyQualifiedName(mod);
                 defer mod.gpa.free(fqn);
 
@@ -4137,7 +4145,7 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func: *Fn) SemaError!void {
                 std.debug.print("# End Function AIR: {s}\n\n", .{fqn});
             }
 
-            mod.comp.bin_file.updateFunc(mod, func, air, liveness) catch |err| switch (err) {
+            comp.bin_file.updateFunc(mod, func, air, liveness) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => {
                     decl.analysis = .codegen_failure;
