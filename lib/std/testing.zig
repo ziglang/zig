@@ -542,7 +542,7 @@ fn printIndicatorLine(source: []const u8, indicator_index: usize) void {
     if (indicator_index >= source.len)
         print("^ (end of string)\n", .{})
     else
-        print("^ ('\\u{{{x}}}')\n", .{source[indicator_index]});
+        print("^ ('\\x{x:0>2}')\n", .{source[indicator_index]});
 }
 
 fn printWithVisibleNewlines(source: []const u8) void {
