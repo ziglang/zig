@@ -390,6 +390,7 @@ const Writer = struct {
             .switch_block => try self.writeSwitchBlock(stream, inst),
 
             .field_ptr,
+            .field_ptr_init,
             .field_val,
             .field_call_bind,
             => try self.writePlNodeField(stream, inst),

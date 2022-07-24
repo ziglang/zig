@@ -787,7 +787,7 @@ pub const Decl = struct {
                 const opaque_obj = ty.cast(Type.Payload.Opaque).?.data;
                 return &opaque_obj.namespace;
             },
-            .@"union", .union_tagged => {
+            .@"union", .union_safety_tagged, .union_tagged => {
                 const union_obj = ty.cast(Type.Payload.Union).?.data;
                 return &union_obj.namespace;
             },
@@ -2704,6 +2704,18 @@ pub const SrcLoc = struct {
                     else => unreachable,
                 }
             },
+            .node_offset_field_default => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_tags = tree.nodes.items(.tag);
+                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+
+                const full: Ast.full.ContainerField = switch (node_tags[parent_node]) {
+                    .container_field => tree.containerField(parent_node),
+                    .container_field_init => tree.containerFieldInit(parent_node),
+                    else => unreachable,
+                };
+                return nodeToSpan(tree, full.ast.value_expr);
+            },
         }
     }
 
@@ -3021,6 +3033,9 @@ pub const LazySrcLoc = union(enum) {
     /// The source location points to the tag type of an union or an enum.
     /// The Decl is determined contextually.
     node_offset_container_tag: i32,
+    /// The source location points to the default value of a field.
+    /// The Decl is determined contextually.
+    node_offset_field_default: i32,
 
     pub const nodeOffset = if (TracedOffset.want_tracing) nodeOffsetDebug else nodeOffsetRelease;
 
@@ -3098,6 +3113,7 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_ptr_bitoffset,
             .node_offset_ptr_hostsize,
             .node_offset_container_tag,
+            .node_offset_field_default,
             => .{
                 .file_scope = decl.getFileScope(),
                 .parent_decl_node = decl.src_node,
@@ -5934,6 +5950,58 @@ pub fn argSrc(
         else => unreachable,
     };
     return LazySrcLoc.nodeOffset(decl.nodeIndexToRelative(full.ast.params[arg_i]));
+}
+
+pub fn initSrc(
+    init_node_offset: i32,
+    gpa: Allocator,
+    decl: *Decl,
+    init_index: usize,
+) LazySrcLoc {
+    @setCold(true);
+    const tree = decl.getFileScope().getTree(gpa) catch |err| {
+        // In this case we emit a warning + a less precise source location.
+        log.warn("unable to load {s}: {s}", .{
+            decl.getFileScope().sub_file_path, @errorName(err),
+        });
+        return LazySrcLoc.nodeOffset(0);
+    };
+    const node_tags = tree.nodes.items(.tag);
+    const node = decl.relativeToNodeIndex(init_node_offset);
+    var buf: [2]Ast.Node.Index = undefined;
+    const full = switch (node_tags[node]) {
+        .array_init_one, .array_init_one_comma => tree.arrayInitOne(buf[0..1], node).ast.elements,
+        .array_init_dot_two, .array_init_dot_two_comma => tree.arrayInitDotTwo(&buf, node).ast.elements,
+        .array_init_dot, .array_init_dot_comma => tree.arrayInitDot(node).ast.elements,
+        .array_init, .array_init_comma => tree.arrayInit(node).ast.elements,
+
+        .struct_init_one, .struct_init_one_comma => tree.structInitOne(buf[0..1], node).ast.fields,
+        .struct_init_dot_two, .struct_init_dot_two_comma => tree.structInitDotTwo(&buf, node).ast.fields,
+        .struct_init_dot, .struct_init_dot_comma => tree.structInitDot(node).ast.fields,
+        .struct_init, .struct_init_comma => tree.structInit(node).ast.fields,
+        else => unreachable,
+    };
+    switch (node_tags[node]) {
+        .array_init_one,
+        .array_init_one_comma,
+        .array_init_dot_two,
+        .array_init_dot_two_comma,
+        .array_init_dot,
+        .array_init_dot_comma,
+        .array_init,
+        .array_init_comma,
+        => return LazySrcLoc.nodeOffset(decl.nodeIndexToRelative(full[init_index])),
+        .struct_init_one,
+        .struct_init_one_comma,
+        .struct_init_dot_two,
+        .struct_init_dot_two_comma,
+        .struct_init_dot,
+        .struct_init_dot_comma,
+        .struct_init,
+        .struct_init_comma,
+        => return LazySrcLoc{ .node_offset_initializer = decl.nodeIndexToRelative(full[init_index]) },
+        else => unreachable,
+    }
 }
 
 /// Called from `performAllTheWork`, after all AstGen workers have finished,

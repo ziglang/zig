@@ -1,9 +1,11 @@
 const std = @import("std");
 
 pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
-    _ = message;
     _ = stack_trace;
-    std.process.exit(0);
+    if (std.mem.eql(u8, message, "incorrect alignment")) {
+        std.process.exit(0);
+    }
+    std.process.exit(1);
 }
 
 pub fn main() !void {
@@ -18,5 +20,5 @@ fn foo(bytes: []u8) u32 {
     return int_slice[0];
 }
 // run
-// backend=stage1
+// backend=llvm
 // target=native

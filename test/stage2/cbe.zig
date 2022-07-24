@@ -839,7 +839,7 @@ pub fn addCases(ctx: *TestContext) !void {
             \\    _ = x;
             \\}
         , &.{
-            ":3:17: error: enum 'tmp.E' has no field named 'd'",
+            ":3:17: error: no field named 'd' in enum 'tmp.E'",
             ":1:11: note: enum declared here",
         });
     }

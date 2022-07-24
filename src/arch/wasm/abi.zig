@@ -77,7 +77,7 @@ pub fn classifyType(ty: Type, target: Target) [2]Class {
         .Union => {
             const layout = ty.unionGetLayout(target);
             if (layout.payload_size == 0 and layout.tag_size != 0) {
-                return classifyType(ty.unionTagType().?, target);
+                return classifyType(ty.unionTagTypeSafety().?, target);
             }
             if (ty.unionFields().count() > 1) return memory;
             return classifyType(ty.unionFields().values()[0].ty, target);
@@ -111,7 +111,7 @@ pub fn scalarType(ty: Type, target: std.Target) Type {
         .Union => {
             const layout = ty.unionGetLayout(target);
             if (layout.payload_size == 0 and layout.tag_size != 0) {
-                return scalarType(ty.unionTagType().?, target);
+                return scalarType(ty.unionTagTypeSafety().?, target);
             }
             std.debug.assert(ty.unionFields().count() == 1);
             return scalarType(ty.unionFields().values()[0].ty, target);

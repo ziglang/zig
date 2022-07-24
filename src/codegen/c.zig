@@ -504,7 +504,7 @@ pub const DeclGen = struct {
                 if (field_ty.hasRuntimeBitsIgnoreComptime()) {
                     try writer.writeAll("&(");
                     try dg.renderParentPtr(writer, field_ptr.container_ptr, container_ptr_ty);
-                    if (field_ptr.container_ty.tag() == .union_tagged) {
+                    if (field_ptr.container_ty.tag() == .union_tagged or field_ptr.container_ty.tag() == .union_safety_tagged) {
                         try writer.print(")->payload.{ }", .{fmtIdent(field_name)});
                     } else {
                         try writer.print(")->{ }", .{fmtIdent(field_name)});
@@ -842,7 +842,7 @@ pub const DeclGen = struct {
                 try dg.renderTypecast(writer, ty);
                 try writer.writeAll("){");
 
-                if (ty.unionTagType()) |tag_ty| {
+                if (ty.unionTagTypeSafety()) |tag_ty| {
                     if (layout.tag_size != 0) {
                         try writer.writeAll(".tag = ");
                         try dg.renderValue(writer, tag_ty, union_obj.tag, location);
@@ -858,7 +858,7 @@ pub const DeclGen = struct {
                     try writer.print(".{ } = ", .{fmtIdent(field_name)});
                     try dg.renderValue(writer, field_ty, union_obj.val, location);
                 }
-                if (ty.unionTagType()) |_| {
+                if (ty.unionTagTypeSafety()) |_| {
                     try writer.writeAll("}");
                 }
                 try writer.writeAll("}");
@@ -1110,7 +1110,7 @@ pub const DeclGen = struct {
         defer buffer.deinit();
 
         try buffer.appendSlice("typedef ");
-        if (t.unionTagType()) |tag_ty| {
+        if (t.unionTagTypeSafety()) |tag_ty| {
             const name: CValue = .{ .bytes = "tag" };
             try buffer.appendSlice("struct {\n ");
             if (layout.tag_size != 0) {
@@ -1134,7 +1134,7 @@ pub const DeclGen = struct {
         }
         try buffer.appendSlice("} ");
 
-        if (t.unionTagType()) |_| {
+        if (t.unionTagTypeSafety()) |_| {
             try buffer.appendSlice("payload;\n} ");
         }
 
@@ -1928,6 +1928,30 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
 
             .wasm_memory_size => try airWasmMemorySize(f, inst),
             .wasm_memory_grow => try airWasmMemoryGrow(f, inst),
+
+            .add_optimized,
+            .addwrap_optimized,
+            .sub_optimized,
+            .subwrap_optimized,
+            .mul_optimized,
+            .mulwrap_optimized,
+            .div_float_optimized,
+            .div_trunc_optimized,
+            .div_floor_optimized,
+            .div_exact_optimized,
+            .rem_optimized,
+            .mod_optimized,
+            .neg_optimized,
+            .cmp_lt_optimized,
+            .cmp_lte_optimized,
+            .cmp_eq_optimized,
+            .cmp_gte_optimized,
+            .cmp_gt_optimized,
+            .cmp_neq_optimized,
+            .cmp_vector_optimized,
+            .reduce_optimized,
+            .float_to_int_optimized,
+            => return f.fail("TODO implement optimized float mode", .{}),
             // zig fmt: on
         };
         switch (result_value) {
@@ -3368,7 +3392,7 @@ fn structFieldPtr(f: *Function, inst: Air.Inst.Index, struct_ptr_ty: Type, struc
             field_name = fields.keys()[index];
             field_val_ty = fields.values()[index].ty;
         },
-        .@"union", .union_tagged => {
+        .@"union", .union_safety_tagged, .union_tagged => {
             const fields = struct_ty.unionFields();
             field_name = fields.keys()[index];
             field_val_ty = fields.values()[index].ty;
@@ -3383,7 +3407,7 @@ fn structFieldPtr(f: *Function, inst: Air.Inst.Index, struct_ptr_ty: Type, struc
         },
         else => unreachable,
     }
-    const payload = if (struct_ty.tag() == .union_tagged) "payload." else "";
+    const payload = if (struct_ty.tag() == .union_tagged or struct_ty.tag() == .union_safety_tagged) "payload." else "";
 
     const inst_ty = f.air.typeOfIndex(inst);
     const local = try f.allocLocal(inst_ty, .Const);
@@ -3415,7 +3439,7 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
     defer buf.deinit();
     const field_name = switch (struct_ty.tag()) {
         .@"struct" => struct_ty.structFields().keys()[extra.field_index],
-        .@"union", .union_tagged => struct_ty.unionFields().keys()[extra.field_index],
+        .@"union", .union_safety_tagged, .union_tagged => struct_ty.unionFields().keys()[extra.field_index],
         .tuple, .anon_struct => blk: {
             const tuple = struct_ty.tupleFields();
             if (tuple.values[extra.field_index].tag() != .unreachable_value) return CValue.none;
@@ -3425,7 +3449,7 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
         },
         else => unreachable,
     };
-    const payload = if (struct_ty.tag() == .union_tagged) "payload." else "";
+    const payload = if (struct_ty.tag() == .union_tagged or struct_ty.tag() == .union_safety_tagged) "payload." else "";
 
     const inst_ty = f.air.typeOfIndex(inst);
     const local = try f.allocLocal(inst_ty, .Const);

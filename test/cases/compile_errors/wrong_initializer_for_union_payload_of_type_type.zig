@@ -13,5 +13,4 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :9:14: error: expected type 'type', found 'tmp.U'
-// :1:11: note: union declared here
+// :9:8: error: use of undefined value here causes undefined behavior

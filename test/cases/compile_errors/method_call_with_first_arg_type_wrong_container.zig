@@ -27,4 +27,5 @@ export fn foo() void {
 // backend=llvm
 // target=native
 //
-// :23:6: error: type 'tmp.List' has no field or member function named 'init'
+// :23:6: error: no field or member function named 'init' in 'tmp.List'
+// :1:14: note: struct declared here

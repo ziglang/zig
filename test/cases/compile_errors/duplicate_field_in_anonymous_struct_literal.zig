@@ -11,9 +11,8 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
-// is_test=1
 //
-// tmp.zig:7:13: error: duplicate field
-// tmp.zig:4:13: note: other field here
+// :7:16: error: duplicate field
+// :4:16: note: other field here

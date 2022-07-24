@@ -149,6 +149,7 @@ pub const Type = extern union {
             => return .Enum,
 
             .@"union",
+            .union_safety_tagged,
             .union_tagged,
             .type_info,
             => return .Union,
@@ -902,7 +903,7 @@ pub const Type = extern union {
             .reduce_op,
             => unreachable, // needed to resolve the type before now
 
-            .@"union", .union_tagged => {
+            .@"union", .union_safety_tagged, .union_tagged => {
                 const a_union_obj = a.cast(Payload.Union).?.data;
                 const b_union_obj = (b.cast(Payload.Union) orelse return false).data;
                 return a_union_obj == b_union_obj;
@@ -1210,7 +1211,7 @@ pub const Type = extern union {
             .reduce_op,
             => unreachable, // needed to resolve the type before now
 
-            .@"union", .union_tagged => {
+            .@"union", .union_safety_tagged, .union_tagged => {
                 const union_obj: *const Module.Union = ty.cast(Payload.Union).?.data;
                 std.hash.autoHash(hasher, std.builtin.TypeId.Union);
                 std.hash.autoHash(hasher, union_obj);
@@ -1479,7 +1480,7 @@ pub const Type = extern union {
             .error_set_single => return self.copyPayloadShallow(allocator, Payload.Name),
             .empty_struct => return self.copyPayloadShallow(allocator, Payload.ContainerScope),
             .@"struct" => return self.copyPayloadShallow(allocator, Payload.Struct),
-            .@"union", .union_tagged => return self.copyPayloadShallow(allocator, Payload.Union),
+            .@"union", .union_safety_tagged, .union_tagged => return self.copyPayloadShallow(allocator, Payload.Union),
             .enum_simple => return self.copyPayloadShallow(allocator, Payload.EnumSimple),
             .enum_numbered => return self.copyPayloadShallow(allocator, Payload.EnumNumbered),
             .enum_full, .enum_nonexhaustive => return self.copyPayloadShallow(allocator, Payload.EnumFull),
@@ -1603,7 +1604,7 @@ pub const Type = extern union {
                         @tagName(t), struct_obj.owner_decl,
                     });
                 },
-                .@"union", .union_tagged => {
+                .@"union", .union_safety_tagged, .union_tagged => {
                     const union_obj = ty.cast(Payload.Union).?.data;
                     return writer.print("({s} decl={d})", .{
                         @tagName(t), union_obj.owner_decl,
@@ -1989,7 +1990,7 @@ pub const Type = extern union {
                 const decl = mod.declPtr(struct_obj.owner_decl);
                 try decl.renderFullyQualifiedName(mod, writer);
             },
-            .@"union", .union_tagged => {
+            .@"union", .union_safety_tagged, .union_tagged => {
                 const union_obj = ty.cast(Payload.Union).?.data;
                 const decl = mod.declPtr(union_obj.owner_decl);
                 try decl.renderFullyQualifiedName(mod, writer);
@@ -2485,8 +2486,8 @@ pub const Type = extern union {
                     return false;
                 }
             },
-            .union_tagged => {
-                const union_obj = ty.castTag(.union_tagged).?.data;
+            .union_safety_tagged, .union_tagged => {
+                const union_obj = ty.cast(Payload.Union).?.data;
                 if (try union_obj.tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit)) {
                     return true;
                 }
@@ -2644,7 +2645,7 @@ pub const Type = extern union {
 
             .optional => ty.isPtrLikeOptional(),
             .@"struct" => ty.castTag(.@"struct").?.data.layout != .Auto,
-            .@"union" => ty.castTag(.@"union").?.data.layout != .Auto,
+            .@"union", .union_safety_tagged => ty.cast(Payload.Union).?.data.layout != .Auto,
             .union_tagged => false,
         };
     }
@@ -3050,11 +3051,10 @@ pub const Type = extern union {
             },
             .@"union" => {
                 const union_obj = ty.castTag(.@"union").?.data;
-                // TODO pass `true` for have_tag when unions have a safety tag
                 return abiAlignmentAdvancedUnion(ty, target, strat, union_obj, false);
             },
-            .union_tagged => {
-                const union_obj = ty.castTag(.union_tagged).?.data;
+            .union_safety_tagged, .union_tagged => {
+                const union_obj = ty.cast(Payload.Union).?.data;
                 return abiAlignmentAdvancedUnion(ty, target, strat, union_obj, true);
             },
 
@@ -3232,11 +3232,10 @@ pub const Type = extern union {
             },
             .@"union" => {
                 const union_obj = ty.castTag(.@"union").?.data;
-                // TODO pass `true` for have_tag when unions have a safety tag
                 return abiSizeAdvancedUnion(ty, target, strat, union_obj, false);
             },
-            .union_tagged => {
-                const union_obj = ty.castTag(.union_tagged).?.data;
+            .union_safety_tagged, .union_tagged => {
+                const union_obj = ty.cast(Payload.Union).?.data;
                 return abiSizeAdvancedUnion(ty, target, strat, union_obj, true);
             },
 
@@ -3526,7 +3525,7 @@ pub const Type = extern union {
                 return try bitSizeAdvanced(int_tag_ty, target, sema_kit);
             },
 
-            .@"union", .union_tagged => {
+            .@"union", .union_safety_tagged, .union_tagged => {
                 if (sema_kit) |sk| _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty);
                 const union_obj = ty.cast(Payload.Union).?.data;
                 assert(union_obj.haveFieldTypes());
@@ -4194,6 +4193,33 @@ pub const Type = extern union {
         };
     }
 
+    /// Same as `unionTagType` but includes safety tag.
+    /// Codegen should use this version.
+    pub fn unionTagTypeSafety(ty: Type) ?Type {
+        return switch (ty.tag()) {
+            .union_safety_tagged, .union_tagged => {
+                const union_obj = ty.cast(Payload.Union).?.data;
+                assert(union_obj.haveFieldTypes());
+                return union_obj.tag_ty;
+            },
+
+            .atomic_order,
+            .atomic_rmw_op,
+            .calling_convention,
+            .address_space,
+            .float_mode,
+            .reduce_op,
+            .call_options,
+            .prefetch_options,
+            .export_options,
+            .extern_options,
+            .type_info,
+            => unreachable, // needed to call resolveTypeFields first
+
+            else => null,
+        };
+    }
+
     /// Asserts the type is a union; returns the tag type, even if the tag will
     /// not be stored at runtime.
     pub fn unionTagTypeHypothetical(ty: Type) Type {
@@ -4225,8 +4251,8 @@ pub const Type = extern union {
                 const union_obj = ty.castTag(.@"union").?.data;
                 return union_obj.getLayout(target, false);
             },
-            .union_tagged => {
-                const union_obj = ty.castTag(.union_tagged).?.data;
+            .union_safety_tagged, .union_tagged => {
+                const union_obj = ty.cast(Payload.Union).?.data;
                 return union_obj.getLayout(target, true);
             },
             else => unreachable,
@@ -4238,6 +4264,7 @@ pub const Type = extern union {
             .tuple, .empty_struct_literal, .anon_struct => .Auto,
             .@"struct" => ty.castTag(.@"struct").?.data.layout,
             .@"union" => ty.castTag(.@"union").?.data.layout,
+            .union_safety_tagged => ty.castTag(.union_safety_tagged).?.data.layout,
             .union_tagged => ty.castTag(.union_tagged).?.data.layout,
             else => unreachable,
         };
@@ -4936,7 +4963,7 @@ pub const Type = extern union {
                     return null;
                 }
             },
-            .@"union", .union_tagged => {
+            .@"union", .union_safety_tagged, .union_tagged => {
                 const union_obj = ty.cast(Payload.Union).?.data;
                 const tag_val = union_obj.tag_ty.onePossibleValue() orelse return null;
                 const only_field = union_obj.fields.values()[0];
@@ -5114,7 +5141,7 @@ pub const Type = extern union {
                 }
             },
 
-            .@"union", .union_tagged => {
+            .@"union", .union_safety_tagged, .union_tagged => {
                 const union_obj = ty.cast(Type.Payload.Union).?.data;
                 switch (union_obj.requires_comptime) {
                     .wip, .unknown => unreachable, // This function asserts types already resolved.
@@ -5167,6 +5194,7 @@ pub const Type = extern union {
             .empty_struct => self.castTag(.empty_struct).?.data,
             .@"opaque" => &self.castTag(.@"opaque").?.data.namespace,
             .@"union" => &self.castTag(.@"union").?.data.namespace,
+            .union_safety_tagged => &self.castTag(.union_safety_tagged).?.data.namespace,
             .union_tagged => &self.castTag(.union_tagged).?.data.namespace,
 
             else => null,
@@ -5439,7 +5467,7 @@ pub const Type = extern union {
                 const struct_obj = ty.castTag(.@"struct").?.data;
                 return struct_obj.fields.values()[index].ty;
             },
-            .@"union", .union_tagged => {
+            .@"union", .union_safety_tagged, .union_tagged => {
                 const union_obj = ty.cast(Payload.Union).?.data;
                 return union_obj.fields.values()[index].ty;
             },
@@ -5456,7 +5484,7 @@ pub const Type = extern union {
                 assert(struct_obj.layout != .Packed);
                 return struct_obj.fields.values()[index].normalAlignment(target);
             },
-            .@"union", .union_tagged => {
+            .@"union", .union_safety_tagged, .union_tagged => {
                 const union_obj = ty.cast(Payload.Union).?.data;
                 return union_obj.fields.values()[index].normalAlignment(target);
             },
@@ -5619,8 +5647,8 @@ pub const Type = extern union {
             },
 
             .@"union" => return 0,
-            .union_tagged => {
-                const union_obj = ty.castTag(.union_tagged).?.data;
+            .union_safety_tagged, .union_tagged => {
+                const union_obj = ty.cast(Payload.Union).?.data;
                 const layout = union_obj.getLayout(target, true);
                 if (layout.tag_align >= layout.payload_align) {
                     // {Tag, Payload}
@@ -5660,7 +5688,7 @@ pub const Type = extern union {
                 const error_set = ty.castTag(.error_set).?.data;
                 return error_set.srcLoc(mod);
             },
-            .@"union", .union_tagged => {
+            .@"union", .union_safety_tagged, .union_tagged => {
                 const union_obj = ty.cast(Payload.Union).?.data;
                 return union_obj.srcLoc(mod);
             },
@@ -5686,6 +5714,10 @@ pub const Type = extern union {
     }
 
     pub fn getOwnerDecl(ty: Type) Module.Decl.Index {
+        return ty.getOwnerDeclOrNull() orelse unreachable;
+    }
+
+    pub fn getOwnerDeclOrNull(ty: Type) ?Module.Decl.Index {
         switch (ty.tag()) {
             .enum_full, .enum_nonexhaustive => {
                 const enum_full = ty.cast(Payload.EnumFull).?.data;
@@ -5704,7 +5736,7 @@ pub const Type = extern union {
                 const error_set = ty.castTag(.error_set).?.data;
                 return error_set.owner_decl;
             },
-            .@"union", .union_tagged => {
+            .@"union", .union_safety_tagged, .union_tagged => {
                 const union_obj = ty.cast(Payload.Union).?.data;
                 return union_obj.owner_decl;
             },
@@ -5725,7 +5757,7 @@ pub const Type = extern union {
             .type_info,
             => unreachable, // These need to be resolved earlier.
 
-            else => unreachable,
+            else => return null,
         }
     }
 
@@ -5748,7 +5780,7 @@ pub const Type = extern union {
                 const error_set = ty.castTag(.error_set).?.data;
                 return error_set.node_offset;
             },
-            .@"union", .union_tagged => {
+            .@"union", .union_safety_tagged, .union_tagged => {
                 const union_obj = ty.cast(Payload.Union).?.data;
                 return union_obj.node_offset;
             },
@@ -5893,6 +5925,7 @@ pub const Type = extern union {
         @"opaque",
         @"struct",
         @"union",
+        union_safety_tagged,
         union_tagged,
         enum_simple,
         enum_numbered,
@@ -6009,7 +6042,7 @@ pub const Type = extern union {
                 .error_set_single => Payload.Name,
                 .@"opaque" => Payload.Opaque,
                 .@"struct" => Payload.Struct,
-                .@"union", .union_tagged => Payload.Union,
+                .@"union", .union_safety_tagged, .union_tagged => Payload.Union,
                 .enum_full, .enum_nonexhaustive => Payload.EnumFull,
                 .enum_simple => Payload.EnumSimple,
                 .enum_numbered => Payload.EnumNumbered,

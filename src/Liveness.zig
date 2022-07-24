@@ -173,6 +173,25 @@ pub fn categorizeOperand(
         .shr_exact,
         .min,
         .max,
+        .add_optimized,
+        .addwrap_optimized,
+        .sub_optimized,
+        .subwrap_optimized,
+        .mul_optimized,
+        .mulwrap_optimized,
+        .div_float_optimized,
+        .div_trunc_optimized,
+        .div_floor_optimized,
+        .div_exact_optimized,
+        .rem_optimized,
+        .mod_optimized,
+        .neg_optimized,
+        .cmp_lt_optimized,
+        .cmp_lte_optimized,
+        .cmp_eq_optimized,
+        .cmp_gte_optimized,
+        .cmp_gt_optimized,
+        .cmp_neq_optimized,
         => {
             const o = air_datas[inst].bin_op;
             if (o.lhs == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
@@ -239,6 +258,7 @@ pub fn categorizeOperand(
         .struct_field_ptr_index_3,
         .array_to_slice,
         .float_to_int,
+        .float_to_int_optimized,
         .int_to_float,
         .get_union_tag,
         .clz,
@@ -381,12 +401,12 @@ pub fn categorizeOperand(
             if (extra.b == operand_ref) return matchOperandSmallIndex(l, inst, 1, .none);
             return .none;
         },
-        .reduce => {
+        .reduce, .reduce_optimized => {
             const reduce = air_datas[inst].reduce;
             if (reduce.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
             return .none;
         },
-        .cmp_vector => {
+        .cmp_vector, .cmp_vector_optimized => {
             const extra = air.extraData(Air.VectorCmp, air_datas[inst].ty_pl.payload).data;
             if (extra.lhs == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
             if (extra.rhs == operand_ref) return matchOperandSmallIndex(l, inst, 1, .none);
@@ -701,29 +721,47 @@ fn analyzeInst(
 
     switch (inst_tags[inst]) {
         .add,
+        .add_optimized,
         .addwrap,
+        .addwrap_optimized,
         .add_sat,
         .sub,
+        .sub_optimized,
         .subwrap,
+        .subwrap_optimized,
         .sub_sat,
         .mul,
+        .mul_optimized,
         .mulwrap,
+        .mulwrap_optimized,
         .mul_sat,
         .div_float,
+        .div_float_optimized,
         .div_trunc,
+        .div_trunc_optimized,
         .div_floor,
+        .div_floor_optimized,
         .div_exact,
+        .div_exact_optimized,
         .rem,
+        .rem_optimized,
         .mod,
+        .mod_optimized,
         .bit_and,
         .bit_or,
         .xor,
         .cmp_lt,
+        .cmp_lt_optimized,
         .cmp_lte,
+        .cmp_lte_optimized,
         .cmp_eq,
+        .cmp_eq_optimized,
         .cmp_gte,
+        .cmp_gte_optimized,
         .cmp_gt,
+        .cmp_gt_optimized,
         .cmp_neq,
+        .cmp_neq_optimized,
         .bool_and,
         .bool_or,
         .store,
@@ -794,6 +832,7 @@ fn analyzeInst(
         .struct_field_ptr_index_3,
         .array_to_slice,
         .float_to_int,
+        .float_to_int_optimized,
         .int_to_float,
         .get_union_tag,
         .clz,
@@ -836,6 +875,7 @@ fn analyzeInst(
         .round,
         .trunc_float,
         .neg,
+        .neg_optimized,
         .cmp_lt_errors_len,
         .set_err_return_trace,
         => {
@@ -903,11 +943,11 @@ fn analyzeInst(
             const extra = a.air.extraData(Air.Shuffle, inst_datas[inst].ty_pl.payload).data;
             return trackOperands(a, new_set, inst, main_tomb, .{ extra.a, extra.b, .none });
         },
-        .reduce => {
+        .reduce, .reduce_optimized => {
             const reduce = inst_datas[inst].reduce;
             return trackOperands(a, new_set, inst, main_tomb, .{ reduce.operand, .none, .none });
         },
-        .cmp_vector => {
+        .cmp_vector, .cmp_vector_optimized => {
             const extra = a.air.extraData(Air.VectorCmp, inst_datas[inst].ty_pl.payload).data;
             return trackOperands(a, new_set, inst, main_tomb, .{ extra.lhs, extra.rhs, .none });
         },

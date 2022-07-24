@@ -941,6 +941,9 @@ pub const Builder = opaque {
 
     pub const buildFPMulReduce = ZigLLVMBuildFPMulReduce;
     extern fn ZigLLVMBuildFPMulReduce(B: *const Builder, Acc: *const Value, Val: *const Value) *const Value;
+
+    pub const setFastMath = ZigLLVMSetFastMath;
+    extern fn ZigLLVMSetFastMath(B: *const Builder, on_state: bool) void;
 };
 
 pub const MDString = opaque {

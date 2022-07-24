@@ -1589,13 +1589,12 @@ fn structInitExpr(
 
     switch (rl) {
         .discard => {
-            // TODO if a type expr is given the fields should be validated for that type
             if (struct_init.ast.type_expr != 0) {
                 const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
                 _ = try gz.addUnNode(.validate_struct_init_ty, ty_inst, node);
-            }
-            for (struct_init.ast.fields) |field_init| {
-                _ = try expr(gz, scope, .discard, field_init);
+                _ = try structInitExprRlTy(gz, scope, node, struct_init, ty_inst, .struct_init);
+            } else {
+                _ = try structInitExprRlNone(gz, scope, node, struct_init, .none, .struct_init_anon);
             }
             return Zir.Inst.Ref.void_value;
         },
@@ -1729,7 +1728,7 @@ fn structInitExprRlPtrInner(
     for (struct_init.ast.fields) |field_init| {
         const name_token = tree.firstToken(field_init) - 2;
         const str_index = try astgen.identAsString(name_token);
-        const field_ptr = try gz.addPlNode(.field_ptr, field_init, Zir.Inst.Field{
+        const field_ptr = try gz.addPlNode(.field_ptr_init, field_init, Zir.Inst.Field{
             .lhs = result_ptr,
             .field_name_start = str_index,
         });
@@ -2287,6 +2286,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .elem_ptr_imm,
             .elem_val_node,
             .field_ptr,
+            .field_ptr_init,
             .field_val,
             .field_call_bind,
             .field_ptr_named,
@@ -4212,6 +4212,12 @@ fn structDeclInner(
         const have_align = member.ast.align_expr != 0;
         const have_value = member.ast.value_expr != 0;
         const is_comptime = member.comptime_token != null;
+
+        if (is_comptime and layout == .Packed) {
+            return astgen.failTok(member.comptime_token.?, "packed struct fields cannot be marked comptime", .{});
+        } else if (is_comptime and layout == .Extern) {
+            return astgen.failTok(member.comptime_token.?, "extern struct fields cannot be marked comptime", .{});
+        }
 
         if (!is_comptime) {
             known_non_opv = known_non_opv or
@@ -6504,8 +6510,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
         },
         .always => {
             // Value is always an error. Emit both error defers and regular defers.
-            const result = if (rl == .ptr) try gz.addUnNode(.load, rl.ptr, node) else operand;
-            const err_code = try gz.addUnNode(.err_union_code, result, node);
+            const err_code = if (rl == .ptr) try gz.addUnNode(.load, rl.ptr, node) else operand;
             try genDefers(gz, defer_outer, scope, .{ .both = err_code });
             try gz.addRet(rl, operand, node);
             return Zir.Inst.Ref.unreachable_value;

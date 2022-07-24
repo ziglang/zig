@@ -813,6 +813,7 @@ test "conversion to f32" {
 test "conversion to f80" {
     if (builtin.zig_backend == .stage1 and builtin.cpu.arch != .x86_64)
         return error.SkipZigTest; // https://github.com/ziglang/zig/issues/11408
+    if (std.debug.runtime_safety) return error.SkipZigTest;
 
     const intToFloat = @import("./int_to_float.zig").intToFloat;
 

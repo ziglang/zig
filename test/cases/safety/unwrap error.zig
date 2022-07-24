@@ -15,5 +15,5 @@ fn bar() !void {
     return error.Whatever;
 }
 // run
-// backend=stage1
+// backend=llvm
 // target=native
