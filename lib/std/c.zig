@@ -185,39 +185,122 @@ pub extern "c" fn flock(fd: c.fd_t, operation: c_int) c_int;
 pub extern "c" fn ioctl(fd: c.fd_t, request: c_int, ...) c_int;
 pub extern "c" fn uname(buf: *c.utsname) c_int;
 
-pub extern "c" fn gethostname(name: [*]u8, len: usize) c_int;
-pub extern "c" fn shutdown(socket: c.fd_t, how: c_int) c_int;
-pub extern "c" fn bind(socket: c.fd_t, address: ?*const c.sockaddr, address_len: c.socklen_t) c_int;
 pub extern "c" fn socketpair(domain: c_uint, sock_type: c_uint, protocol: c_uint, sv: *[2]c.fd_t) c_int;
-pub extern "c" fn listen(sockfd: c.fd_t, backlog: c_uint) c_int;
-pub extern "c" fn getsockname(sockfd: c.fd_t, noalias addr: *c.sockaddr, noalias addrlen: *c.socklen_t) c_int;
-pub extern "c" fn getpeername(sockfd: c.fd_t, noalias addr: *c.sockaddr, noalias addrlen: *c.socklen_t) c_int;
-pub extern "c" fn connect(sockfd: c.fd_t, sock_addr: *const c.sockaddr, addrlen: c.socklen_t) c_int;
-pub extern "c" fn accept(sockfd: c.fd_t, noalias addr: ?*c.sockaddr, noalias addrlen: ?*c.socklen_t) c_int;
 pub extern "c" fn accept4(sockfd: c.fd_t, noalias addr: ?*c.sockaddr, noalias addrlen: ?*c.socklen_t, flags: c_uint) c_int;
-pub extern "c" fn getsockopt(sockfd: c.fd_t, level: u32, optname: u32, noalias optval: ?*anyopaque, noalias optlen: *c.socklen_t) c_int;
-pub extern "c" fn setsockopt(sockfd: c.fd_t, level: u32, optname: u32, optval: ?*const anyopaque, optlen: c.socklen_t) c_int;
-pub extern "c" fn send(sockfd: c.fd_t, buf: *const anyopaque, len: usize, flags: u32) isize;
-pub extern "c" fn sendto(
-    sockfd: c.fd_t,
-    buf: *const anyopaque,
-    len: usize,
-    flags: u32,
-    dest_addr: ?*const c.sockaddr,
-    addrlen: c.socklen_t,
-) isize;
 pub extern "c" fn sendmsg(sockfd: c.fd_t, msg: *const std.x.os.Socket.Message, flags: c_int) isize;
-
-pub extern "c" fn recv(sockfd: c.fd_t, arg1: ?*anyopaque, arg2: usize, arg3: c_int) isize;
-pub extern "c" fn recvfrom(
-    sockfd: c.fd_t,
-    noalias buf: *anyopaque,
-    len: usize,
-    flags: u32,
-    noalias src_addr: ?*c.sockaddr,
-    noalias addrlen: ?*c.socklen_t,
-) isize;
 pub extern "c" fn recvmsg(sockfd: c.fd_t, msg: *std.x.os.Socket.Message, flags: c_int) isize;
+
+pub usingnamespace switch (builtin.os.tag) {
+    .windows => struct { // ws2_32 uses different size types
+        const ws2_32 = std.os.windows.ws2_32;
+        const WINAPI = std.os.windows.WINAPI;
+
+        pub extern "ws2_32" fn gethostname(name: [*]u8, len: i32) callconv(WINAPI) i32;
+        pub extern "ws2_32" fn shutdown(s: ws2_32.SOCKET, how: i32) callconv(WINAPI) i32;
+        pub extern "ws2_32" fn bind(s: ws2_32.SOCKET, name: *const ws2_32.sockaddr, namelen: i32) callconv(WINAPI) i32;
+        pub extern "ws2_32" fn listen(s: ws2_32.SOCKET, backlog: i32) callconv(WINAPI) i32;
+        pub extern "ws2_32" fn getsockname(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *i32) callconv(WINAPI) i32;
+        pub extern "ws2_32" fn getpeername(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *i32) callconv(WINAPI) i32;
+        pub extern "ws2_32" fn connect(s: ws2_32.SOCKET, name: *const ws2_32.sockaddr, namelen: i32) callconv(WINAPI) i32;
+        pub extern "ws2_32" fn accept(s: ws2_32.SOCKET, addr: ?*ws2_32.sockaddr, addrlen: ?*i32) callconv(WINAPI) ws2_32.SOCKET;
+        pub extern "ws2_32" fn getsockopt(s: ws2_32.SOCKET, level: i32, optname: i32, optval: [*]u8, optlen: *i32) callconv(WINAPI) i32;
+        pub extern "ws2_32" fn setsockopt(s: ws2_32.SOCKET, level: i32, optname: i32, optval: ?[*]const u8, optlen: i32) callconv(WINAPI) i32;
+
+        pub extern "ws2_32" fn send(s: ws2_32.SOCKET, buf: [*]const u8, len: i32, flags: u32) callconv(WINAPI) i32;
+        pub extern "ws2_32" fn sendto(
+            s: ws2_32.SOCKET,
+            buf: [*]const u8,
+            len: i32,
+            flags: i32,
+            to: *const ws2_32.sockaddr,
+            tolen: i32,
+        ) callconv(WINAPI) i32;
+
+        pub extern "ws2_32" fn recv(s: ws2_32.SOCKET, buf: [*]u8, len: i32, flags: i32) callconv(WINAPI) i32;
+        pub extern "ws2_32" fn recvfrom(
+            s: ws2_32.SOCKET,
+            buf: [*]u8,
+            len: i32,
+            flags: i32,
+            from: ?*ws2_32.sockaddr,
+            fromlen: ?*i32,
+        ) callconv(WINAPI) i32;
+
+        pub extern "ws2_32" fn getaddrinfo(
+            pNodeName: ?[*:0]const u8,
+            pServiceName: ?[*:0]const u8,
+            pHints: ?*const ws2_32.addrinfoa,
+            ppResult: **ws2_32.addrinfoa,
+        ) callconv(WINAPI) i32;
+
+        pub extern "ws2_32" fn freeaddrinfo(pAddrInfo: ?*ws2_32.addrinfoa) callconv(WINAPI) void;
+
+        pub extern "ws2_32" fn getnameinfo(
+            pSockaddr: *const ws2_32.sockaddr,
+            SockaddrLength: i32,
+            pNodeBuffer: ?[*]u8,
+            NodeBufferSize: u32,
+            pServiceBuffer: ?[*]u8,
+            ServiceBufferName: u32,
+            Flags: i32,
+        ) callconv(WINAPI) i32;
+
+        pub extern "IPHLPAPI" fn if_nametoindex([*:0]const u8) callconv(WINAPI) u32;
+    },
+    else => struct {
+        pub extern "c" fn gethostname(name: [*]u8, len: usize) c_int;
+        pub extern "c" fn shutdown(socket: c.fd_t, how: c_int) c_int;
+        pub extern "c" fn bind(socket: c.fd_t, address: ?*const c.sockaddr, address_len: c.socklen_t) c_int;
+        pub extern "c" fn listen(sockfd: c.fd_t, backlog: c_uint) c_int;
+        pub extern "c" fn getsockname(sockfd: c.fd_t, noalias addr: *c.sockaddr, noalias addrlen: *c.socklen_t) c_int;
+        pub extern "c" fn getpeername(sockfd: c.fd_t, noalias addr: *c.sockaddr, noalias addrlen: *c.socklen_t) c_int;
+        pub extern "c" fn connect(sockfd: c.fd_t, sock_addr: *const c.sockaddr, addrlen: c.socklen_t) c_int;
+        pub extern "c" fn accept(sockfd: c.fd_t, noalias addr: ?*c.sockaddr, noalias addrlen: ?*c.socklen_t) c_int;
+        pub extern "c" fn getsockopt(sockfd: c.fd_t, level: u32, optname: u32, noalias optval: ?*anyopaque, noalias optlen: *c.socklen_t) c_int;
+        pub extern "c" fn setsockopt(sockfd: c.fd_t, level: u32, optname: u32, optval: ?*const anyopaque, optlen: c.socklen_t) c_int;
+
+        pub extern "c" fn send(sockfd: c.fd_t, buf: *const anyopaque, len: usize, flags: u32) isize;
+        pub extern "c" fn sendto(
+            sockfd: c.fd_t,
+            buf: *const anyopaque,
+            len: usize,
+            flags: u32,
+            dest_addr: ?*const c.sockaddr,
+            addrlen: c.socklen_t,
+        ) isize;
+
+        pub extern "c" fn recv(sockfd: c.fd_t, arg1: ?*anyopaque, arg2: usize, arg3: c_int) isize;
+        pub extern "c" fn recvfrom(
+            sockfd: c.fd_t,
+            noalias buf: *anyopaque,
+            len: usize,
+            flags: u32,
+            noalias src_addr: ?*c.sockaddr,
+            noalias addrlen: ?*c.socklen_t,
+        ) isize;
+
+        pub extern "c" fn getaddrinfo(
+            noalias node: ?[*:0]const u8,
+            noalias service: ?[*:0]const u8,
+            noalias hints: ?*const c.addrinfo,
+            noalias res: **c.addrinfo,
+        ) c.EAI;
+
+        pub extern "c" fn freeaddrinfo(res: *c.addrinfo) void;
+
+        pub extern "c" fn getnameinfo(
+            noalias addr: *const c.sockaddr,
+            addrlen: c.socklen_t,
+            noalias host: [*]u8,
+            hostlen: c.socklen_t,
+            noalias serv: [*]u8,
+            servlen: c.socklen_t,
+            flags: u32,
+        ) c.EAI;
+
+        pub extern "c" fn if_nametoindex([*:0]const u8) c_int;
+    },
+};
 
 pub extern "c" fn kill(pid: c.pid_t, sig: c_int) c_int;
 pub extern "c" fn getdirentries(fd: c.fd_t, buf_ptr: [*]u8, nbytes: usize, basep: *i64) isize;
@@ -318,25 +401,6 @@ pub extern "c" fn port_getn(
 ) c_int;
 pub extern "c" fn port_alert(port: c.port_t, flags: u32, events: u32, user_var: ?*anyopaque) c_int;
 
-pub extern "c" fn getaddrinfo(
-    noalias node: ?[*:0]const u8,
-    noalias service: ?[*:0]const u8,
-    noalias hints: ?*const c.addrinfo,
-    noalias res: **c.addrinfo,
-) c.EAI;
-
-pub extern "c" fn freeaddrinfo(res: *c.addrinfo) void;
-
-pub extern "c" fn getnameinfo(
-    noalias addr: *const c.sockaddr,
-    addrlen: c.socklen_t,
-    noalias host: [*]u8,
-    hostlen: c.socklen_t,
-    noalias serv: [*]u8,
-    servlen: c.socklen_t,
-    flags: u32,
-) c.EAI;
-
 pub extern "c" fn gai_strerror(errcode: c.EAI) [*:0]const u8;
 
 pub extern "c" fn poll(fds: [*]c.pollfd, nfds: c.nfds_t, timeout: c_int) c_int;
@@ -393,8 +457,6 @@ pub extern "c" fn syslog(priority: c_int, message: [*:0]const u8, ...) void;
 pub extern "c" fn openlog(ident: [*:0]const u8, logopt: c_int, facility: c_int) void;
 pub extern "c" fn closelog() void;
 pub extern "c" fn setlogmask(maskpri: c_int) c_int;
-
-pub extern "c" fn if_nametoindex([*:0]const u8) c_int;
 
 pub const max_align_t = if (builtin.abi == .msvc)
     f64
