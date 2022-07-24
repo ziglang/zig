@@ -29,6 +29,8 @@ const errUnionErrorOffset = codegen.errUnionErrorOffset;
 const WValue = union(enum) {
     /// May be referenced but is unused
     none: void,
+    /// The value lives on top of the stack
+    stack: void,
     /// Index of the local variable
     local: u32,
     /// An immediate 32bit value
@@ -55,7 +57,7 @@ const WValue = union(enum) {
     /// In wasm function pointers are indexes into a function table,
     /// rather than an address in the data section.
     function_index: u32,
-    /// Offset from the bottom of the stack, with the offset
+    /// Offset from the bottom of the virtual stack, with the offset
     /// pointing to where the value lives.
     stack_offset: u32,
 
@@ -69,6 +71,21 @@ const WValue = union(enum) {
         switch (self) {
             .stack_offset => |stack_offset| return stack_offset,
             else => return 0,
+        }
+    }
+
+    /// Promotes a `WValue` to a local when given value is on top of the stack.
+    /// When encountering a `local` or `stack_offset` this is essentially a no-op.
+    /// All other tags are illegal.
+    fn toLocal(self: WValue, gen: *Self, ty: Type) InnerError!WValue {
+        switch (self) {
+            .stack => {
+                const local = try gen.allocLocal(ty);
+                try gen.addLabel(.local_set, local.local);
+                return local;
+            },
+            .local, .stack_offset => return self,
+            else => unreachable,
         }
     }
 };
@@ -774,7 +791,7 @@ fn genBlockType(ty: Type, target: std.Target) u8 {
 /// Writes the bytecode depending on the given `WValue` in `val`
 fn emitWValue(self: *Self, value: WValue) InnerError!void {
     switch (value) {
-        .none => {}, // no-op
+        .none, .stack => {}, // no-op
         .local => |idx| try self.addLabel(.local_get, idx),
         .imm32 => |val| try self.addImm32(@bitCast(i32, val)),
         .imm64 => |val| try self.addImm64(val),
@@ -1892,6 +1909,7 @@ fn airStore(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 }
 
 fn store(self: *Self, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerError!void {
+    assert(!(lhs != .stack and rhs == .stack));
     switch (ty.zigTypeTag()) {
         .ErrorUnion => {
             const pl_ty = ty.errorUnionPayload();
@@ -2070,10 +2088,14 @@ fn airBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
     const rhs = try self.resolveInst(bin_op.rhs);
     const ty = self.air.typeOf(bin_op.lhs);
 
-    return self.binOp(lhs, rhs, ty, op);
+    const stack_value = try self.binOp(lhs, rhs, ty, op);
+    return stack_value.toLocal(self, ty);
 }
 
+/// Performs a binary operation on the given `WValue`'s
+/// NOTE: THis leaves the value on top of the stack.
 fn binOp(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WValue {
+    assert(!(lhs != .stack and rhs == .stack));
     if (isByRef(ty, self.target)) {
         if (ty.zigTypeTag() == .Int) {
             return self.binOpBigInt(lhs, rhs, ty, op);
@@ -2099,10 +2121,7 @@ fn binOp(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WVa
 
     try self.addTag(Mir.Inst.Tag.fromOpcode(opcode));
 
-    // save the result in a temporary
-    const bin_local = try self.allocLocal(ty);
-    try self.addLabel(.local_set, bin_local.local);
-    return bin_local;
+    return WValue{ .stack = {} };
 }
 
 fn binOpFloat16(self: *Self, lhs: WValue, rhs: WValue, op: Op) InnerError!WValue {
@@ -2134,8 +2153,8 @@ fn binOpBigInt(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerErr
     const rhs_high_bit = try self.load(rhs, Type.u64, 0);
     const rhs_low_bit = try self.load(rhs, Type.u64, 8);
 
-    const low_op_res = try self.binOp(lhs_low_bit, rhs_low_bit, Type.u64, op);
-    const high_op_res = try self.binOp(lhs_high_bit, rhs_high_bit, Type.u64, op);
+    const low_op_res = try (try self.binOp(lhs_low_bit, rhs_low_bit, Type.u64, op)).toLocal(self, Type.u64);
+    const high_op_res = try (try self.binOp(lhs_high_bit, rhs_high_bit, Type.u64, op)).toLocal(self, Type.u64);
 
     const lt = if (op == .add) blk: {
         break :blk try self.cmp(high_op_res, rhs_high_bit, Type.u64, .lt);
@@ -2143,7 +2162,7 @@ fn binOpBigInt(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerErr
         break :blk try self.cmp(lhs_high_bit, rhs_high_bit, Type.u64, .lt);
     } else unreachable;
     const tmp = try self.intcast(lt, Type.u32, Type.u64);
-    const tmp_op = try self.binOp(low_op_res, tmp, Type.u64, op);
+    const tmp_op = try (try self.binOp(low_op_res, tmp, Type.u64, op)).toLocal(self, Type.u64);
 
     try self.store(result, high_op_res, Type.u64, 0);
     try self.store(result, tmp_op, Type.u64, 8);
@@ -2202,6 +2221,7 @@ fn wrapOperand(self: *Self, operand: WValue, ty: Type) InnerError!WValue {
     if (wasm_bits == bitsize) return operand;
 
     if (wasm_bits == 128) {
+        assert(operand != .stack);
         const msb = try self.load(operand, Type.u64, 0);
         const lsb = try self.load(operand, Type.u64, 8);
 
@@ -2772,19 +2792,19 @@ fn airNot(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         switch (wasm_bits) {
             32 => {
                 const bin_op = try self.binOp(operand, .{ .imm32 = ~@as(u32, 0) }, operand_ty, .xor);
-                return self.wrapOperand(bin_op, operand_ty);
+                return (try self.wrapOperand(bin_op, operand_ty)).toLocal(self, operand_ty);
             },
             64 => {
                 const bin_op = try self.binOp(operand, .{ .imm64 = ~@as(u64, 0) }, operand_ty, .xor);
-                return self.wrapOperand(bin_op, operand_ty);
+                return (try self.wrapOperand(bin_op, operand_ty)).toLocal(self, operand_ty);
             },
             128 => {
                 const result_ptr = try self.allocStack(operand_ty);
                 const msb = try self.load(operand, Type.u64, 0);
                 const lsb = try self.load(operand, Type.u64, 8);
 
-                const msb_xor = try self.binOp(msb, .{ .imm64 = ~@as(u64, 0) }, Type.u64, .xor);
-                const lsb_xor = try self.binOp(lsb, .{ .imm64 = ~@as(u64, 0) }, Type.u64, .xor);
+                const msb_xor = try (try self.binOp(msb, .{ .imm64 = ~@as(u64, 0) }, Type.u64, .xor)).toLocal(self, operand_ty);
+                const lsb_xor = try (try self.binOp(lsb, .{ .imm64 = ~@as(u64, 0) }, Type.u64, .xor)).toLocal(self, operand_ty);
                 try self.store(result_ptr, msb_xor, Type.u64, 0);
                 try self.store(result_ptr, lsb_xor, Type.u64, 8);
                 return result_ptr;
@@ -3215,7 +3235,7 @@ fn intcast(self: *Self, operand: WValue, given: Type, wanted: Type) InnerError!W
 
         // For signed integers we shift msb by 63 (64bit integer - 1 sign bit) and store remaining value
         if (wanted.isSignedInt()) {
-            const shr = try self.binOp(lhs, .{ .imm64 = 63 }, Type.i64, .shr);
+            const shr = try (try self.binOp(lhs, .{ .imm64 = 63 }, Type.i64, .shr)).toLocal(self, Type.i64);
             try self.store(stack_ptr, shr, Type.u64, 8);
         } else {
             // Ensure memory of lsb is zero'd
@@ -4320,7 +4340,7 @@ fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!W
         break :blk try self.signAbsValue(rhs_op, lhs_ty);
     } else rhs_op;
 
-    const bin_op = try self.binOp(lhs, rhs, lhs_ty, op);
+    const bin_op = try (try self.binOp(lhs, rhs, lhs_ty, op)).toLocal(self, lhs_ty);
     const result = if (wasm_bits != int_info.bits) blk: {
         break :blk try self.wrapOperand(bin_op, lhs_ty);
     } else bin_op;
@@ -4330,7 +4350,7 @@ fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!W
         if (wasm_bits == int_info.bits) {
             const cmp_zero = try self.cmp(rhs, zero, lhs_ty, cmp_op);
             const lt = try self.cmp(bin_op, lhs, lhs_ty, .lt);
-            break :blk try self.binOp(cmp_zero, lt, Type.u32, .xor); // result of cmp_zero and lt is always 32bit
+            break :blk try (try self.binOp(cmp_zero, lt, Type.u32, .xor)).toLocal(self, Type.u32); // result of cmp_zero and lt is always 32bit
         }
         const abs = try self.signAbsValue(bin_op, lhs_ty);
         break :blk try self.cmp(abs, bin_op, lhs_ty, .neq);
@@ -4360,8 +4380,8 @@ fn airAddSubWithOverflowBigInt(self: *Self, lhs: WValue, rhs: WValue, ty: Type, 
     const rhs_high_bit = try self.load(rhs, Type.u64, 0);
     const rhs_low_bit = try self.load(rhs, Type.u64, 8);
 
-    const low_op_res = try self.binOp(lhs_low_bit, rhs_low_bit, Type.u64, op);
-    const high_op_res = try self.binOp(lhs_high_bit, rhs_high_bit, Type.u64, op);
+    const low_op_res = try (try self.binOp(lhs_low_bit, rhs_low_bit, Type.u64, op)).toLocal(self, Type.u64);
+    const high_op_res = try (try self.binOp(lhs_high_bit, rhs_high_bit, Type.u64, op)).toLocal(self, Type.u64);
 
     const lt = if (op == .add) blk: {
         break :blk try self.cmp(high_op_res, lhs_high_bit, Type.u64, .lt);
@@ -4369,14 +4389,14 @@ fn airAddSubWithOverflowBigInt(self: *Self, lhs: WValue, rhs: WValue, ty: Type, 
         break :blk try self.cmp(lhs_high_bit, rhs_high_bit, Type.u64, .lt);
     } else unreachable;
     const tmp = try self.intcast(lt, Type.u32, Type.u64);
-    const tmp_op = try self.binOp(low_op_res, tmp, Type.u64, op);
+    const tmp_op = try (try self.binOp(low_op_res, tmp, Type.u64, op)).toLocal(self, Type.u64);
 
     const overflow_bit = if (is_signed) blk: {
-        const xor_op = try self.binOp(lhs_low_bit, tmp_op, Type.u64, .xor);
         const xor_low = try self.binOp(lhs_low_bit, rhs_low_bit, Type.u64, .xor);
         const to_wrap = if (op == .add) wrap: {
             break :wrap try self.binOp(xor_low, .{ .imm64 = ~@as(u64, 0) }, Type.u64, .xor);
         } else xor_low;
+        const xor_op = try self.binOp(lhs_low_bit, tmp_op, Type.u64, .xor);
         const wrap = try self.binOp(to_wrap, xor_op, Type.u64, .@"and");
         break :blk try self.cmp(wrap, .{ .imm64 = 0 }, Type.i64, .lt); // i64 because signed
     } else blk: {
@@ -4422,7 +4442,7 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         return self.fail("TODO: Implement shl_with_overflow for integer bitsize: {d}", .{int_info.bits});
     };
 
-    const shl = try self.binOp(lhs, rhs, lhs_ty, .shl);
+    const shl = try (try self.binOp(lhs, rhs, lhs_ty, .shl)).toLocal(self, lhs_ty);
     const result = if (wasm_bits != int_info.bits) blk: {
         break :blk try self.wrapOperand(shl, lhs_ty);
     } else shl;
@@ -4432,7 +4452,7 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         const wrapped = try self.wrapBinOp(abs, rhs, lhs_ty, .shr);
         break :blk try self.cmp(lhs, wrapped, lhs_ty, .neq);
     } else blk: {
-        const shr = try self.binOp(result, rhs, lhs_ty, .shr);
+        const shr = try (try self.binOp(result, rhs, lhs_ty, .shr)).toLocal(self, lhs_ty);
         break :blk try self.cmp(lhs, shr, lhs_ty, .neq);
     };
 
@@ -4478,7 +4498,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         const new_ty = if (int_info.signedness == .signed) Type.i64 else Type.u64;
         const lhs_upcast = try self.intcast(lhs, lhs_ty, new_ty);
         const rhs_upcast = try self.intcast(rhs, lhs_ty, new_ty);
-        const bin_op = try self.binOp(lhs_upcast, rhs_upcast, new_ty, .mul);
+        const bin_op = try (try self.binOp(lhs_upcast, rhs_upcast, new_ty, .mul)).toLocal(self, new_ty);
         if (int_info.signedness == .unsigned) {
             const shr = try self.binOp(bin_op, .{ .imm64 = int_info.bits }, new_ty, .shr);
             const wrap = try self.intcast(shr, new_ty, lhs_ty);
@@ -4488,7 +4508,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
             break :blk try self.intcast(bin_op, new_ty, lhs_ty);
         } else {
             const down_cast = try self.intcast(bin_op, new_ty, lhs_ty);
-            const shr = try self.binOp(down_cast, .{ .imm32 = int_info.bits - 1 }, lhs_ty, .shr);
+            const shr = try (try self.binOp(down_cast, .{ .imm32 = int_info.bits - 1 }, lhs_ty, .shr)).toLocal(self, lhs_ty);
 
             const shr_res = try self.binOp(bin_op, .{ .imm64 = int_info.bits }, new_ty, .shr);
             const down_shr_res = try self.intcast(shr_res, new_ty, lhs_ty);
@@ -4500,14 +4520,14 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     } else if (int_info.signedness == .signed) blk: {
         const lhs_abs = try self.signAbsValue(lhs, lhs_ty);
         const rhs_abs = try self.signAbsValue(rhs, lhs_ty);
-        const bin_op = try self.binOp(lhs_abs, rhs_abs, lhs_ty, .mul);
+        const bin_op = try (try self.binOp(lhs_abs, rhs_abs, lhs_ty, .mul)).toLocal(self, lhs_ty);
         const mul_abs = try self.signAbsValue(bin_op, lhs_ty);
         const cmp_op = try self.cmp(mul_abs, bin_op, lhs_ty, .neq);
         try self.emitWValue(cmp_op);
         try self.addLabel(.local_set, overflow_bit.local);
         break :blk try self.wrapOperand(bin_op, lhs_ty);
     } else blk: {
-        const bin_op = try self.binOp(lhs, rhs, lhs_ty, .mul);
+        const bin_op = try (try self.binOp(lhs, rhs, lhs_ty, .mul)).toLocal(self, lhs_ty);
         const shift_imm = if (wasm_bits == 32)
             WValue{ .imm32 = int_info.bits }
         else
@@ -4587,7 +4607,7 @@ fn airMulAdd(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     }
 
     const mul_result = try self.binOp(lhs, rhs, ty, .mul);
-    return self.binOp(mul_result, addend, ty, .add);
+    return (try self.binOp(mul_result, addend, ty, .add)).toLocal(self, ty);
 }
 
 fn airClz(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -4663,16 +4683,16 @@ fn airCtz(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         32 => {
             if (wasm_bits != int_info.bits) {
                 const val: u32 = @as(u32, 1) << @intCast(u5, int_info.bits);
-                const bin_op = try self.binOp(operand, .{ .imm32 = val }, ty, .@"or");
-                try self.emitWValue(bin_op);
+                // leave value on the stack
+                _ = try self.binOp(operand, .{ .imm32 = val }, ty, .@"or");
             } else try self.emitWValue(operand);
             try self.addTag(.i32_ctz);
         },
         64 => {
             if (wasm_bits != int_info.bits) {
                 const val: u64 = @as(u64, 1) << @intCast(u6, int_info.bits);
-                const bin_op = try self.binOp(operand, .{ .imm64 = val }, ty, .@"or");
-                try self.emitWValue(bin_op);
+                // leave value on the stack
+                _ = try self.binOp(operand, .{ .imm64 = val }, ty, .@"or");
             } else try self.emitWValue(operand);
             try self.addTag(.i64_ctz);
             try self.addTag(.i32_wrap_i64);
@@ -4847,45 +4867,45 @@ fn airByteSwap(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     switch (int_info.bits) {
         16 => {
             const shl_res = try self.binOp(operand, .{ .imm32 = 8 }, ty, .shl);
-            const lhs = try self.binOp(shl_res, .{ .imm32 = 0xFF00 }, ty, .@"and");
-            const shr_res = try self.binOp(operand, .{ .imm32 = 8 }, ty, .shr);
+            const lhs = try (try self.binOp(shl_res, .{ .imm32 = 0xFF00 }, ty, .@"and")).toLocal(self, ty);
+            const shr_res = try (try self.binOp(operand, .{ .imm32 = 8 }, ty, .shr)).toLocal(self, ty);
             const res = if (int_info.signedness == .signed) blk: {
                 break :blk try self.wrapOperand(shr_res, Type.u8);
             } else shr_res;
-            return self.binOp(lhs, res, ty, .@"or");
+            return (try self.binOp(lhs, res, ty, .@"or")).toLocal(self, ty);
         },
         24 => {
             const msb = try self.wrapOperand(operand, Type.u16);
             const lsb = try self.wrapBinOp(operand, .{ .imm32 = 16 }, Type.u8, .shr);
 
             const shl_res = try self.binOp(msb, .{ .imm32 = 8 }, Type.u16, .shl);
-            const lhs = try self.binOp(shl_res, .{ .imm32 = 0xFF0000 }, Type.u16, .@"and");
-            const shr_res = try self.binOp(msb, .{ .imm32 = 8 }, ty, .shr);
+            const lhs = try (try self.binOp(shl_res, .{ .imm32 = 0xFF0000 }, Type.u16, .@"and")).toLocal(self, Type.u16);
+            const shr_res = try (try self.binOp(msb, .{ .imm32 = 8 }, ty, .shr)).toLocal(self, ty);
 
             const res = if (int_info.signedness == .signed) blk: {
                 break :blk try self.wrapOperand(shr_res, Type.u8);
             } else shr_res;
             const lhs_tmp = try self.binOp(lhs, res, ty, .@"or");
-            const lhs_result = try self.binOp(lhs_tmp, .{ .imm32 = 8 }, ty, .shr);
+            const lhs_result = try (try self.binOp(lhs_tmp, .{ .imm32 = 8 }, ty, .shr)).toLocal(self, ty);
             const rhs_wrap = try self.wrapOperand(msb, Type.u8);
-            const rhs_result = try self.binOp(rhs_wrap, .{ .imm32 = 16 }, ty, .shl);
+            const rhs_result = try (try self.binOp(rhs_wrap, .{ .imm32 = 16 }, ty, .shl)).toLocal(self, ty);
 
             const tmp = try self.binOp(lhs_result, rhs_result, ty, .@"or");
-            return self.binOp(tmp, lsb, ty, .@"or");
+            return (try self.binOp(tmp, lsb, ty, .@"or")).toLocal(self, ty);
         },
         32 => {
             const shl_tmp = try self.binOp(operand, .{ .imm32 = 8 }, ty, .shl);
-            const lhs = try self.binOp(shl_tmp, .{ .imm32 = 0xFF00FF00 }, ty, .@"and");
+            const lhs = try (try self.binOp(shl_tmp, .{ .imm32 = 0xFF00FF00 }, ty, .@"and")).toLocal(self, ty);
             const shr_tmp = try self.binOp(operand, .{ .imm32 = 8 }, ty, .shr);
-            const rhs = try self.binOp(shr_tmp, .{ .imm32 = 0xFF00FF }, ty, .@"and");
-            const tmp_or = try self.binOp(lhs, rhs, ty, .@"or");
+            const rhs = try (try self.binOp(shr_tmp, .{ .imm32 = 0xFF00FF }, ty, .@"and")).toLocal(self, ty);
+            const tmp_or = try (try self.binOp(lhs, rhs, ty, .@"or")).toLocal(self, ty);
 
-            const shl = try self.binOp(tmp_or, .{ .imm32 = 16 }, ty, .shl);
-            const shr = try self.binOp(tmp_or, .{ .imm32 = 16 }, ty, .shr);
+            const shr = try (try self.binOp(tmp_or, .{ .imm32 = 16 }, ty, .shr)).toLocal(self, ty);
             const res = if (int_info.signedness == .signed) blk: {
                 break :blk try self.wrapOperand(shr, Type.u16);
             } else shr;
-            return self.binOp(shl, res, ty, .@"or");
+            const shl = try self.binOp(tmp_or, .{ .imm32 = 16 }, ty, .shl);
+            return (try self.binOp(shl, res, ty, .@"or")).toLocal(self, ty);
         },
         else => return self.fail("TODO: @byteSwap for integers with bitsize {d}", .{int_info.bits}),
     }
@@ -4902,7 +4922,7 @@ fn airDiv(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (ty.isSignedInt()) {
         return self.divSigned(lhs, rhs, ty);
     }
-    return self.binOp(lhs, rhs, ty, .div);
+    return (try self.binOp(lhs, rhs, ty, .div)).toLocal(self, ty);
 }
 
 fn airDivFloor(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -4914,7 +4934,7 @@ fn airDivFloor(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const rhs = try self.resolveInst(bin_op.rhs);
 
     if (ty.isUnsignedInt()) {
-        return self.binOp(lhs, rhs, ty, .div);
+        return (try self.binOp(lhs, rhs, ty, .div)).toLocal(self, ty);
     } else if (ty.isSignedInt()) {
         const int_bits = ty.intInfo(self.target).bits;
         const wasm_bits = toWasmBits(int_bits) orelse {
@@ -4927,9 +4947,6 @@ fn airDivFloor(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
             break :blk try self.signAbsValue(rhs, ty);
         } else rhs;
 
-        const div_result = try self.binOp(lhs_res, rhs_res, ty, .div);
-        const rem_result = try self.binOp(lhs_res, rhs_res, ty, .rem);
-
         const zero = switch (wasm_bits) {
             32 => WValue{ .imm32 = 0 },
             64 => WValue{ .imm64 = 0 },
@@ -4938,7 +4955,10 @@ fn airDivFloor(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         const lhs_less_than_zero = try self.cmp(lhs_res, zero, ty, .lt);
         const rhs_less_than_zero = try self.cmp(rhs_res, zero, ty, .lt);
 
-        try self.emitWValue(div_result);
+        const div_result = try self.allocLocal(ty);
+        // leave on stack
+        _ = try self.binOp(lhs_res, rhs_res, ty, .div);
+        try self.addLabel(.local_tee, div_result.local);
         try self.emitWValue(lhs_less_than_zero);
         try self.emitWValue(rhs_less_than_zero);
         switch (wasm_bits) {
@@ -4953,7 +4973,8 @@ fn airDivFloor(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
             else => unreachable,
         }
         try self.emitWValue(div_result);
-        try self.emitWValue(rem_result);
+        // leave value on the stack
+        _ = try self.binOp(lhs_res, rhs_res, ty, .rem);
         try self.addTag(.select);
     } else {
         const float_bits = ty.floatBits(self.target);
@@ -5110,7 +5131,7 @@ fn airSatBinOp(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
     }
 
     const wasm_bits = toWasmBits(int_info.bits).?;
-    const bin_result = try self.binOp(lhs, rhs, ty, op);
+    const bin_result = try (try self.binOp(lhs, rhs, ty, op)).toLocal(self, ty);
     if (wasm_bits != int_info.bits and op == .add) {
         const val: u64 = @intCast(u64, (@as(u65, 1) << @intCast(u7, int_info.bits)) - 1);
         const imm_val = switch (wasm_bits) {
@@ -5161,7 +5182,7 @@ fn signedSat(self: *Self, lhs_operand: WValue, rhs_operand: WValue, ty: Type, op
         else => unreachable,
     };
 
-    const bin_result = try self.binOp(lhs, rhs, ty, op);
+    const bin_result = try (try self.binOp(lhs, rhs, ty, op)).toLocal(self, ty);
     if (!is_wasm_bits) {
         const cmp_result_lt = try self.cmp(bin_result, max_wvalue, ty, .lt);
         try self.emitWValue(bin_result);
@@ -5185,14 +5206,14 @@ fn signedSat(self: *Self, lhs_operand: WValue, rhs_operand: WValue, ty: Type, op
         };
         const cmp_bin_result = try self.cmp(bin_result, lhs, ty, .lt);
         const cmp_zero_result = try self.cmp(rhs, zero, ty, if (op == .add) .lt else .gt);
-        const xor = try self.binOp(cmp_zero_result, cmp_bin_result, Type.u32, .xor); // comparisons always return i32, so provide u32 as type to xor.
         const cmp_bin_zero_result = try self.cmp(bin_result, zero, ty, .lt);
         try self.emitWValue(max_wvalue);
         try self.emitWValue(min_wvalue);
         try self.emitWValue(cmp_bin_zero_result);
         try self.addTag(.select);
         try self.emitWValue(bin_result);
-        try self.emitWValue(xor);
+        // leave on stack
+        _ = try self.binOp(cmp_zero_result, cmp_bin_result, Type.u32, .xor); // comparisons always return i32, so provide u32 as type to xor.
         try self.addTag(.select);
         try self.addLabel(.local_set, bin_result.local); // re-use local
         return bin_result;
@@ -5216,8 +5237,8 @@ fn airShlSat(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     const result = try self.allocLocal(ty);
 
     if (wasm_bits == int_info.bits) {
-        const shl = try self.binOp(lhs, rhs, ty, .shl);
-        const shr = try self.binOp(shl, rhs, ty, .shr);
+        const shl = try (try self.binOp(lhs, rhs, ty, .shl)).toLocal(self, ty);
+        const shr = try (try self.binOp(shl, rhs, ty, .shr)).toLocal(self, ty);
         const cmp_result = try self.cmp(lhs, shr, ty, .neq);
 
         switch (wasm_bits) {
@@ -5258,9 +5279,9 @@ fn airShlSat(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
             else => unreachable,
         };
 
-        const shl_res = try self.binOp(lhs, shift_value, ty, .shl);
-        const shl = try self.binOp(shl_res, rhs, ty, .shl);
-        const shr = try self.binOp(shl, rhs, ty, .shr);
+        const shl_res = try (try self.binOp(lhs, shift_value, ty, .shl)).toLocal(self, ty);
+        const shl = try (try self.binOp(shl_res, rhs, ty, .shl)).toLocal(self, ty);
+        const shr = try (try self.binOp(shl, rhs, ty, .shr)).toLocal(self, ty);
         const cmp_result = try self.cmp(shl_res, shr, ty, .neq);
 
         switch (wasm_bits) {
@@ -5294,7 +5315,7 @@ fn airShlSat(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         try self.emitWValue(cmp_result);
         try self.addTag(.select);
         try self.addLabel(.local_set, result.local);
-        const shift_result = try self.binOp(result, shift_value, ty, .shr);
+        const shift_result = try (try self.binOp(result, shift_value, ty, .shr)).toLocal(self, ty);
         if (is_signed) {
             return self.wrapOperand(shift_result, ty);
         }
