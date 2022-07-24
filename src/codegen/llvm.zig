@@ -9514,7 +9514,7 @@ fn isByRef(ty: Type) bool {
 /// and false if we expect LLVM to crash if it counters an x86_fp80 type.
 fn backendSupportsF80(target: std.Target) bool {
     return switch (target.cpu.arch) {
-        .x86_64, .i386 => true,
+        .x86_64, .i386 => !std.Target.x86.featureSetHas(target.cpu.features, .soft_float),
         else => false,
     };
 }
