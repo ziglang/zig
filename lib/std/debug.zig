@@ -1939,6 +1939,7 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
     };
 
     // Don't use std.debug.print() as stderr_mutex may still be locked.
+    _ = timedWaitStdErrMutex(); // os.abort() is called - don't bother to unlock the mutex
     nosuspend {
         const stderr = io.getStdErr().writer();
         _ = switch (sig) {
@@ -2017,12 +2018,29 @@ fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(windows.WIN
     }
 }
 
+fn timedWaitStdErrMutex() bool {
+    if (!builtin.single_threaded) {
+        // As we don't know if our thread holds the lock or any other thread is currently printing.
+        // We try to synchronize up to retry_count and then print anyways to avoid deadlock.
+        var retry_count: u64 = 100;
+        const wait_ns = std.time.ns_per_ms;
+        while (retry_count > 0) : (retry_count -= 1) {
+            if (stderr_mutex.tryLock()) return true;
+            // cannot use os.nanosleep(0, wait_ns); as this would require libc on some platforms
+            var futex = std.atomic.Atomic(u32).init(0);
+            std.Thread.Futex.timedWait(&futex, 0, wait_ns) catch {};
+        }
+    }
+    return false;
+}
+
 // zig won't let me use an anon enum here https://github.com/ziglang/zig/issues/3707
 fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, comptime msg: u8, comptime format: ?[]const u8) noreturn {
     const exception_address = @ptrToInt(info.ExceptionRecord.ExceptionAddress);
     if (@hasDecl(windows, "CONTEXT")) {
         const regs = info.ContextRecord.getRegs();
         // Don't use std.debug.print() as stderr_mutex may still be locked.
+        _ = timedWaitStdErrMutex(); // os.abort() is called - don't bother to unlock the mutex
         nosuspend {
             const stderr = io.getStdErr().writer();
             _ = switch (msg) {
