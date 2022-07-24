@@ -1514,6 +1514,10 @@ pub fn tcsetattr(fd: fd_t, optional_action: TCSA, termios_p: *const termios) usi
     return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), T.CSETS + @enumToInt(optional_action), @ptrToInt(termios_p));
 }
 
+pub fn tcdrain(fd: fd_t) usize {
+    return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), T.CSBRK, 1);
+}
+
 pub fn ioctl(fd: fd_t, request: u32, arg: usize) usize {
     return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), request, arg);
 }
