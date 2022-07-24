@@ -1034,6 +1034,30 @@ test "walker" {
     try testing.expectEqual(expected_paths.kvs.len, num_walked);
 }
 
+test "walker without fully iterating" {
+    if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");
+
+    var tmp = tmpIterableDir(.{});
+    defer tmp.cleanup();
+
+    var walker = try tmp.iterable_dir.walk(testing.allocator);
+    defer walker.deinit();
+
+    // Create 2 directories inside the tmp directory, but then only iterate once before breaking.
+    // This ensures that walker doesn't try to close the initial directory when not fully iterating.
+
+    try tmp.iterable_dir.dir.makePath("a");
+    try tmp.iterable_dir.dir.makePath("b");
+
+    var num_walked: usize = 0;
+    while (try walker.next()) |_| {
+        num_walked += 1;
+        break;
+    }
+    try testing.expectEqual(@as(usize, 1), num_walked);
+}
+
 test ". and .. in fs.Dir functions" {
     if (builtin.os.tag == .wasi and builtin.link_libc) return error.SkipZigTest;
     if (builtin.os.tag == .wasi and !builtin.link_libc) try os.initPreopensWasi(std.heap.page_allocator, "/");

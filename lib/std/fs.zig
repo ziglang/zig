@@ -889,8 +889,11 @@ pub const IterableDir = struct {
         }
 
         pub fn deinit(self: *Walker) void {
-            for (self.stack.items) |*item| {
-                item.iter.dir.close();
+            // Close any remaining directories except the initial one (which is always at index 0)
+            if (self.stack.items.len > 1) {
+                for (self.stack.items[1..]) |*item| {
+                    item.iter.dir.close();
+                }
             }
             self.stack.deinit();
             self.name_buffer.deinit();
