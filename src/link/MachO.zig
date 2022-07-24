@@ -363,7 +363,7 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
 
         // Create dSYM bundle.
         const dir = options.module.?.zig_cache_artifact_directory;
-        log.debug("creating {s}.dSYM bundle in {?s}", .{ emit.sub_path, dir.path });
+        log.debug("creating {s}.dSYM bundle in {s}", .{ emit.sub_path, dir.path });
 
         const d_sym_path = try fmt.allocPrint(
             allocator,

@@ -3168,7 +3168,7 @@ fn parseCrossTargetOrReportFatalError(
                     @tagName(diags.arch.?), help_text.items,
                 });
             }
-            fatal("Unknown CPU feature: '{s}'", .{diags.unknown_feature_name.?});
+            fatal("Unknown CPU feature: '{s}'", .{diags.unknown_feature_name});
         },
         else => |e| return e,
     };
@@ -3496,8 +3496,7 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, enable_cache: bool, stage
     } else {
         const out_zig_path = try fs.path.join(arena, &[_][]const u8{ "o", &digest, translated_zig_basename });
         const zig_file = comp.local_cache_directory.handle.openFile(out_zig_path, .{}) catch |err| {
-            const path = comp.local_cache_directory.path orelse ".";
-            fatal("unable to open cached translated zig file '{s}{s}{s}': {s}", .{ path, fs.path.sep_str, out_zig_path, @errorName(err) });
+            fatal("unable to open cached translated zig file '{s}{s}{s}': {s}", .{ comp.local_cache_directory.path, fs.path.sep_str, out_zig_path, @errorName(err) });
         };
         defer zig_file.close();
         try io.getStdOut().writeFileAll(zig_file, .{});
@@ -3627,8 +3626,7 @@ pub fn cmdInit(
         .Exe => "init-exe",
     };
     var template_dir = zig_lib_directory.handle.openDir(template_sub_path, .{}) catch |err| {
-        const path = zig_lib_directory.path orelse ".";
-        fatal("unable to open zig project template directory '{s}{s}{s}': {s}", .{ path, s, template_sub_path, @errorName(err) });
+        fatal("unable to open zig project template directory '{s}{s}{s}': {s}", .{ zig_lib_directory.path, s, template_sub_path, @errorName(err) });
     };
     defer template_dir.close();
 

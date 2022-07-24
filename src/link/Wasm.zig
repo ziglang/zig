@@ -1629,7 +1629,7 @@ fn setupMemory(self: *Wasm) !void {
             return error.MemoryTooBig;
         }
         self.memories.limits.max = @intCast(u32, max_memory / page_size);
-        log.debug("Maximum memory pages: {?d}", .{self.memories.limits.max});
+        log.debug("Maximum memory pages: {d}", .{self.memories.limits.max});
     }
 }
 
