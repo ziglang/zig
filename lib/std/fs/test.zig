@@ -219,6 +219,30 @@ test "Dir.Iterator twice" {
     }
 }
 
+test "Dir.Iterator but dir is deleted during iteration" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    // Create directory and setup an iterator for it
+    var iterable_subdir = try tmp.dir.makeOpenPathIterable("subdir", .{});
+    defer iterable_subdir.close();
+
+    var iterator = iterable_subdir.iterate();
+
+    // Create something to iterate over within the subdir
+    try tmp.dir.makePath("subdir/b");
+
+    // Then, before iterating, delete the directory that we're iterating.
+    // This is a contrived reproduction, but this could happen outside of the program, in another thread, etc.
+    // If we get an error while trying to delete, we can skip this test (this will happen on platforms
+    // like Windows which will give FileBusy if the directory is currently open for iteration).
+    tmp.dir.deleteTree("subdir") catch return error.SkipZigTest;
+
+    // Now, when we try to iterate, the next call should return null immediately.
+    const entry = try iterator.next();
+    try std.testing.expect(entry == null);
+}
+
 fn entryEql(lhs: IterableDir.Entry, rhs: IterableDir.Entry) bool {
     return mem.eql(u8, lhs.name, rhs.name) and lhs.kind == rhs.kind;
 }
