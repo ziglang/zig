@@ -12,6 +12,7 @@ const CheckObjectStep = @This();
 const Allocator = mem.Allocator;
 const Builder = build.Builder;
 const Step = build.Step;
+const EmulatableRunStep = build.EmulatableRunStep;
 
 pub const base_id = .check_obj;
 
@@ -35,6 +36,16 @@ pub fn create(builder: *Builder, source: build.FileSource, obj_format: std.Targe
     };
     self.source.addStepDependencies(&self.step);
     return self;
+}
+
+/// Runs and (optionally) compares the output of a binary.
+/// Asserts `self` was generated from an executable step.
+pub fn runAndCompare(self: *CheckObjectStep) *EmulatableRunStep {
+    const dependencies_len = self.step.dependencies.items.len;
+    assert(dependencies_len > 0);
+    const exe_step = self.step.dependencies.items[dependencies_len - 1];
+    const exe = exe_step.cast(std.build.LibExeObjStep).?;
+    return EmulatableRunStep.create(self.builder, "EmulatableRun", exe);
 }
 
 /// There two types of actions currently suported:

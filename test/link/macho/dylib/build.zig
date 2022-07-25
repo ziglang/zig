@@ -3,12 +3,14 @@ const Builder = std.build.Builder;
 
 pub fn build(b: *Builder) void {
     const mode = b.standardReleaseOptions();
+    const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 
     const test_step = b.step("test", "Test");
     test_step.dependOn(b.getInstallStep());
 
     const dylib = b.addSharedLibrary("a", null, b.version(1, 0, 0));
     dylib.setBuildMode(mode);
+    dylib.setTarget(target);
     dylib.addCSourceFile("a.c", &.{});
     dylib.linkLibC();
     dylib.install();
@@ -23,6 +25,7 @@ pub fn build(b: *Builder) void {
     test_step.dependOn(&check_dylib.step);
 
     const exe = b.addExecutable("main", null);
+    exe.setTarget(target);
     exe.setBuildMode(mode);
     exe.addCSourceFile("main.c", &.{});
     exe.linkSystemLibrary("a");
@@ -40,9 +43,7 @@ pub fn build(b: *Builder) void {
     check_exe.checkStart("cmd RPATH");
     check_exe.checkNext(std.fmt.allocPrint(b.allocator, "path {s}", .{b.pathFromRoot("zig-out/lib")}) catch unreachable);
 
-    test_step.dependOn(&check_exe.step);
-
-    const run = exe.run();
+    const run = check_exe.runAndCompare();
     run.cwd = b.pathFromRoot(".");
     run.expectStdOutEqual("Hello world");
     test_step.dependOn(&run.step);

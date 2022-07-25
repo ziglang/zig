@@ -26,6 +26,7 @@ pub const CheckFileStep = @import("build/CheckFileStep.zig");
 pub const CheckObjectStep = @import("build/CheckObjectStep.zig");
 pub const InstallRawStep = @import("build/InstallRawStep.zig");
 pub const OptionsStep = @import("build/OptionsStep.zig");
+pub const EmulatableRunStep = @import("build/EmulatableRunStep.zig");
 
 pub const Builder = struct {
     install_tls: TopLevelStep,
@@ -1890,6 +1891,21 @@ pub const LibExeObjStep = struct {
         return run_step;
     }
 
+    /// Creates an `EmulatableRunStep` with an executable built with `addExecutable`.
+    /// Allows running foreign binaries through emulation platforms such as Qemu or Rosetta.
+    /// When a binary cannot be ran through emulation or the option is disabled, a warning
+    /// will be printed and the binary will *NOT* be ran.
+    pub fn runEmulatable(exe: *LibExeObjStep) *EmulatableRunStep {
+        assert(exe.kind == .exe or exe.kind == .text_exe);
+
+        const run_step = EmulatableRunStep.create(exe.builder.fmt("run {s}", .{exe.step.name}), exe);
+        if (exe.vcpkg_bin_path) |path| {
+            run_step.addPathDir(path);
+        }
+
+        return run_step;
+    }
+
     pub fn checkObject(self: *LibExeObjStep, obj_format: std.Target.ObjectFormat) *CheckObjectStep {
         return CheckObjectStep.create(self.builder, self.getOutputSource(), obj_format);
     }
@@ -3604,6 +3620,7 @@ pub const Step = struct {
         translate_c,
         write_file,
         run,
+        emulatable_run,
         check_file,
         check_object,
         install_raw,

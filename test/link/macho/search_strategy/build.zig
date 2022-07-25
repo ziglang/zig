@@ -1,6 +1,7 @@
 const std = @import("std");
 const Builder = std.build.Builder;
 const LibExeObjectStep = std.build.LibExeObjStep;
+const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 
 pub fn build(b: *Builder) void {
     const mode = b.standardReleaseOptions();
@@ -17,9 +18,7 @@ pub fn build(b: *Builder) void {
         check.checkStart("cmd LOAD_DYLIB");
         check.checkNext("name @rpath/liba.dylib");
 
-        test_step.dependOn(&check.step);
-
-        const run = exe.run();
+        const run = check.runAndCompare();
         run.cwd = b.pathFromRoot(".");
         run.expectStdOutEqual("Hello world");
         test_step.dependOn(&run.step);
@@ -30,7 +29,7 @@ pub fn build(b: *Builder) void {
         const exe = createScenario(b, mode);
         exe.search_strategy = .paths_first;
 
-        const run = exe.run();
+        const run = std.build.EmulatableRunStep.create(b, "run", exe);
         run.cwd = b.pathFromRoot(".");
         run.expectStdOutEqual("Hello world");
         test_step.dependOn(&run.step);
@@ -39,6 +38,7 @@ pub fn build(b: *Builder) void {
 
 fn createScenario(b: *Builder, mode: std.builtin.Mode) *LibExeObjectStep {
     const static = b.addStaticLibrary("a", null);
+    static.setTarget(target);
     static.setBuildMode(mode);
     static.addCSourceFile("a.c", &.{});
     static.linkLibC();
@@ -48,6 +48,7 @@ fn createScenario(b: *Builder, mode: std.builtin.Mode) *LibExeObjectStep {
     static.install();
 
     const dylib = b.addSharedLibrary("a", null, b.version(1, 0, 0));
+    dylib.setTarget(target);
     dylib.setBuildMode(mode);
     dylib.addCSourceFile("a.c", &.{});
     dylib.linkLibC();
@@ -57,6 +58,7 @@ fn createScenario(b: *Builder, mode: std.builtin.Mode) *LibExeObjectStep {
     dylib.install();
 
     const exe = b.addExecutable("main", null);
+    exe.setTarget(target);
     exe.setBuildMode(mode);
     exe.addCSourceFile("main.c", &.{});
     exe.linkSystemLibraryName("a");
