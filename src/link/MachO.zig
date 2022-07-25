@@ -1415,7 +1415,7 @@ fn parseObject(self: *MachO, path: []const u8) !bool {
         .mtime = mtime,
     };
 
-    object.parse(self.base.allocator, self.base.options.target) catch |err| switch (err) {
+    object.parse(self.base.allocator, self.base.options.target.cpu.arch) catch |err| switch (err) {
         error.EndOfStream, error.NotObject => {
             object.deinit(self.base.allocator);
             return false;
@@ -1443,7 +1443,7 @@ fn parseArchive(self: *MachO, path: []const u8, force_load: bool) !bool {
         .file = file,
     };
 
-    archive.parse(self.base.allocator, self.base.options.target) catch |err| switch (err) {
+    archive.parse(self.base.allocator, self.base.options.target.cpu.arch) catch |err| switch (err) {
         error.EndOfStream, error.NotArchive => {
             archive.deinit(self.base.allocator);
             return false;
@@ -1463,7 +1463,11 @@ fn parseArchive(self: *MachO, path: []const u8, force_load: bool) !bool {
         }
         for (offsets.keys()) |off| {
             const object = try self.objects.addOne(self.base.allocator);
-            object.* = try archive.parseObject(self.base.allocator, self.base.options.target, off);
+            object.* = try archive.parseObject(
+                self.base.allocator,
+                self.base.options.target.cpu.arch,
+                off,
+            );
         }
     } else {
         try self.archives.append(self.base.allocator, archive);
@@ -1511,7 +1515,7 @@ pub fn parseDylib(
 
     dylib.parse(
         self.base.allocator,
-        self.base.options.target,
+        self.base.options.target.cpu.arch,
         dylib_id,
         dependent_libs,
     ) catch |err| switch (err) {
@@ -3126,7 +3130,11 @@ fn resolveSymbolsInArchives(self: *MachO) !void {
 
             const object_id = @intCast(u16, self.objects.items.len);
             const object = try self.objects.addOne(self.base.allocator);
-            object.* = try archive.parseObject(self.base.allocator, self.base.options.target, offsets.items[0]);
+            object.* = try archive.parseObject(
+                self.base.allocator,
+                self.base.options.target.cpu.arch,
+                offsets.items[0],
+            );
             try self.resolveSymbolsInObject(object, object_id);
 
             continue :loop;
