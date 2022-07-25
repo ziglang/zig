@@ -33,17 +33,26 @@ pub fn main() !void {
     defer fs.cwd().deleteTree(dir_path) catch {};
 
     const TestFn = fn ([]const u8, []const u8) anyerror!void;
-    const test_fns = [_]TestFn{
-        testZigInitLib,
-        testZigInitExe,
-        testGodboltApi,
-        testMissingOutputPath,
-        testZigFmt,
+    const Test = struct {
+        func: TestFn,
+        name: []const u8,
     };
-    inline for (test_fns) |testFn| {
+    const tests = [_]Test{
+        .{ .func = testZigInitLib, .name = "zig init-lib" },
+        .{ .func = testZigInitExe, .name = "zig init-exe" },
+        .{ .func = testGodboltApi, .name = "godbolt API" },
+        .{ .func = testMissingOutputPath, .name = "missing output path" },
+        .{ .func = testZigFmt, .name = "zig fmt" },
+    };
+    inline for (tests) |t| {
         try fs.cwd().deleteTree(dir_path);
         try fs.cwd().makeDir(dir_path);
-        try testFn(zig_exe, dir_path);
+        t.func(zig_exe, dir_path) catch |err| {
+            std.debug.print("test '{s}' failed: {s}\n", .{
+                t.name, @errorName(err),
+            });
+            return err;
+        };
     }
 }
 
