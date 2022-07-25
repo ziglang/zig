@@ -2153,8 +2153,8 @@ fn binOpBigInt(self: *Self, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerErr
     const rhs_high_bit = try self.load(rhs, Type.u64, 0);
     const rhs_low_bit = try self.load(rhs, Type.u64, 8);
 
-    const low_op_res = try (try self.binOp(lhs_low_bit, rhs_low_bit, Type.u64, op)).toLocal(self, Type.u64);
     const high_op_res = try (try self.binOp(lhs_high_bit, rhs_high_bit, Type.u64, op)).toLocal(self, Type.u64);
+    const low_op_res = try self.binOp(lhs_low_bit, rhs_low_bit, Type.u64, op);
 
     const lt = if (op == .add) blk: {
         break :blk try self.cmp(high_op_res, rhs_high_bit, Type.u64, .lt);
@@ -3190,12 +3190,13 @@ fn airIntcast(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
         return self.fail("todo Wasm intcast for bitsize > 128", .{});
     }
 
-    return self.intcast(operand, operand_ty, ty);
+    return (try self.intcast(operand, operand_ty, ty)).toLocal(self, ty);
 }
 
 /// Upcasts or downcasts an integer based on the given and wanted types,
 /// and stores the result in a new operand.
 /// Asserts type's bitsize <= 128
+/// NOTE: May leave the result on the top of the stack.
 fn intcast(self: *Self, operand: WValue, given: Type, wanted: Type) InnerError!WValue {
     const given_info = given.intInfo(self.target);
     const wanted_info = wanted.intInfo(self.target);
@@ -3227,7 +3228,7 @@ fn intcast(self: *Self, operand: WValue, given: Type, wanted: Type) InnerError!W
                 given,
                 if (wanted.isSignedInt()) Type.i64 else Type.u64,
             );
-            break :blk tmp;
+            break :blk try tmp.toLocal(self, Type.u64);
         } else operand;
 
         // store msb first
@@ -3244,9 +3245,7 @@ fn intcast(self: *Self, operand: WValue, given: Type, wanted: Type) InnerError!W
         return stack_ptr;
     } else return self.load(operand, wanted, 0);
 
-    const result = try self.allocLocal(wanted);
-    try self.addLabel(.local_set, result.local);
-    return result;
+    return WValue{ .stack = {} };
 }
 
 fn airIsNull(self: *Self, inst: Air.Inst.Index, opcode: wasm.Opcode, op_kind: enum { value, ptr }) InnerError!WValue {
@@ -3478,7 +3477,7 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     if (wasm_bits != wanted_bits) {
         return self.wrapOperand(result, wanted_ty);
     }
-    return result;
+    return result.toLocal(self, wanted_ty);
 }
 
 fn airBoolToInt(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
@@ -4387,7 +4386,7 @@ fn airAddSubWithOverflowBigInt(self: *Self, lhs: WValue, rhs: WValue, ty: Type, 
     } else if (op == .sub) blk: {
         break :blk try (try self.cmp(lhs_high_bit, rhs_high_bit, Type.u64, .lt)).toLocal(self, Type.u32);
     } else unreachable;
-    const tmp = try self.intcast(lt, Type.u32, Type.u64);
+    const tmp = try (try self.intcast(lt, Type.u32, Type.u64)).toLocal(self, Type.u64);
     const tmp_op = try (try self.binOp(low_op_res, tmp, Type.u64, op)).toLocal(self, Type.u64);
 
     const overflow_bit = if (is_signed) blk: {
@@ -4500,9 +4499,9 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
             const wrap = try self.intcast(shr, new_ty, lhs_ty);
             _ = try self.cmp(wrap, zero, lhs_ty, .neq);
             try self.addLabel(.local_set, overflow_bit.local);
-            break :blk try self.intcast(bin_op, new_ty, lhs_ty);
+            break :blk try (try self.intcast(bin_op, new_ty, lhs_ty)).toLocal(self, lhs_ty);
         } else {
-            const down_cast = try self.intcast(bin_op, new_ty, lhs_ty);
+            const down_cast = try (try self.intcast(bin_op, new_ty, lhs_ty)).toLocal(self, lhs_ty);
             const shr = try (try self.binOp(down_cast, .{ .imm32 = int_info.bits - 1 }, lhs_ty, .shr)).toLocal(self, lhs_ty);
 
             const shr_res = try self.binOp(bin_op, .{ .imm64 = int_info.bits }, new_ty, .shr);
