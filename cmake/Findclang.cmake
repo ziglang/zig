@@ -9,7 +9,9 @@
 
 find_path(CLANG_INCLUDE_DIRS NAMES clang/Frontend/ASTUnit.h
   HINTS ${LLVM_INCLUDE_DIRS}
-  NO_DEFAULT_PATH # Only look for clang next to LLVM
+  # Only look for Clang next to LLVM or in { CMAKE_PREFIX_PATH, CMAKE_LIBRARY_PATH, CMAKE_FRAMEWORK_PATH }
+  NO_SYSTEM_ENVIRONMENT_PATH
+  NO_CMAKE_SYSTEM_PATH
 )
 
 if(${LLVM_LINK_MODE} STREQUAL "shared")
@@ -21,14 +23,18 @@ if(${LLVM_LINK_MODE} STREQUAL "shared")
       clang-cpp
     NAMES_PER_DIR
     HINTS "${LLVM_LIBDIRS}"
-    NO_DEFAULT_PATH # Only look for Clang next to LLVM
+    # Only look for Clang next to LLVM or in { CMAKE_PREFIX_PATH, CMAKE_LIBRARY_PATH, CMAKE_FRAMEWORK_PATH }
+    NO_SYSTEM_ENVIRONMENT_PATH
+    NO_CMAKE_SYSTEM_PATH
   )
 else()
   macro(FIND_AND_ADD_CLANG_LIB _libname_)
     string(TOUPPER ${_libname_} _prettylibname_)
     find_library(CLANG_${_prettylibname_}_LIB NAMES ${_libname_} NAMES_PER_DIR
       HINTS "${LLVM_LIBDIRS}"
-      NO_DEFAULT_PATH # Only look for Clang next to LLVM
+      # Only look for Clang next to LLVM or in { CMAKE_PREFIX_PATH, CMAKE_LIBRARY_PATH, CMAKE_FRAMEWORK_PATH }
+      NO_SYSTEM_ENVIRONMENT_PATH
+      NO_CMAKE_SYSTEM_PATH
     )
     if(CLANG_${_prettylibname_}_LIB)
       set(CLANG_LIBRARIES ${CLANG_LIBRARIES} ${CLANG_${_prettylibname_}_LIB})
