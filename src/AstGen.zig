@@ -3497,6 +3497,12 @@ fn fnDecl(
 
     const lib_name: u32 = if (fn_proto.lib_name) |lib_name_token| blk: {
         const lib_name_str = try astgen.strLitAsString(lib_name_token);
+        const lib_name_slice = astgen.string_bytes.items[lib_name_str.index..][0..lib_name_str.len];
+        if (mem.indexOfScalar(u8, lib_name_slice, 0) != null) {
+            return astgen.failTok(lib_name_token, "library name cannot contain null bytes", .{});
+        } else if (lib_name_str.len == 0) {
+            return astgen.failTok(lib_name_token, "library name cannot be empty", .{});
+        }
         break :blk lib_name_str.index;
     } else 0;
 
@@ -3750,6 +3756,12 @@ fn globalVarDecl(
 
     const lib_name: u32 = if (var_decl.lib_name) |lib_name_token| blk: {
         const lib_name_str = try astgen.strLitAsString(lib_name_token);
+        const lib_name_slice = astgen.string_bytes.items[lib_name_str.index..][0..lib_name_str.len];
+        if (mem.indexOfScalar(u8, lib_name_slice, 0) != null) {
+            return astgen.failTok(lib_name_token, "library name cannot contain null bytes", .{});
+        } else if (lib_name_str.len == 0) {
+            return astgen.failTok(lib_name_token, "library name cannot be empty", .{});
+        }
         break :blk lib_name_str.index;
     } else 0;
 
@@ -7239,6 +7251,12 @@ fn builtinCall(
             }
             const str_lit_token = main_tokens[operand_node];
             const str = try astgen.strLitAsString(str_lit_token);
+            const str_slice = astgen.string_bytes.items[str.index..][0..str.len];
+            if (mem.indexOfScalar(u8, str_slice, 0) != null) {
+                return astgen.failTok(str_lit_token, "import path cannot contain null bytes", .{});
+            } else if (str.len == 0) {
+                return astgen.failTok(str_lit_token, "import path cannot be empty", .{});
+            }
             const result = try gz.addStrTok(.import, str.index, str_lit_token);
             const gop = try astgen.imports.getOrPut(astgen.gpa, str.index);
             if (!gop.found_existing) {
@@ -9260,6 +9278,11 @@ fn identifierTokenString(astgen: *AstGen, token: Ast.TokenIndex) InnerError![]co
     var buf: ArrayListUnmanaged(u8) = .{};
     defer buf.deinit(astgen.gpa);
     try astgen.parseStrLit(token, &buf, ident_name, 1);
+    if (mem.indexOfScalar(u8, buf.items, 0) != null) {
+        return astgen.failTok(token, "identifier cannot contain null bytes", .{});
+    } else if (buf.items.len == 0) {
+        return astgen.failTok(token, "identifier cannot be empty", .{});
+    }
     const duped = try astgen.arena.dupe(u8, buf.items);
     return duped;
 }
@@ -9279,7 +9302,14 @@ fn appendIdentStr(
     if (!mem.startsWith(u8, ident_name, "@")) {
         return buf.appendSlice(astgen.gpa, ident_name);
     } else {
-        return astgen.parseStrLit(token, buf, ident_name, 1);
+        const start = buf.items.len;
+        try astgen.parseStrLit(token, buf, ident_name, 1);
+        const slice = buf.items[start..];
+        if (mem.indexOfScalar(u8, slice, 0) != null) {
+            return astgen.failTok(token, "identifier cannot contain null bytes", .{});
+        } else if (slice.len == 0) {
+            return astgen.failTok(token, "identifier cannot be empty", .{});
+        }
     }
 }
 
@@ -9723,6 +9753,12 @@ fn testNameString(astgen: *AstGen, str_lit_token: Ast.TokenIndex) !u32 {
     const token_bytes = astgen.tree.tokenSlice(str_lit_token);
     try string_bytes.append(gpa, 0); // Indicates this is a test.
     try astgen.parseStrLit(str_lit_token, string_bytes, token_bytes, 0);
+    const slice = string_bytes.items[str_index + 1 ..];
+    if (mem.indexOfScalar(u8, slice, 0) != null) {
+        return astgen.failTok(str_lit_token, "test name cannot contain null bytes", .{});
+    } else if (slice.len == 0) {
+        return astgen.failTok(str_lit_token, "empty test name must be omitted", .{});
+    }
     try string_bytes.append(gpa, 0);
     return str_index;
 }

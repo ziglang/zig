@@ -87,6 +87,6 @@ pub const DarwinSDK = struct {
     }
 };
 
-test "" {
+test {
     _ = macos;
 }
