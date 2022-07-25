@@ -225,6 +225,8 @@ test "Dir.Iterator but dir is deleted during iteration" {
 
     // Create directory and setup an iterator for it
     var iterable_subdir = try tmp.dir.makeOpenPathIterable("subdir", .{});
+    defer iterable_subdir.close();
+
     var iterator = iterable_subdir.iterate();
 
     // Create something to iterate over within the subdir
