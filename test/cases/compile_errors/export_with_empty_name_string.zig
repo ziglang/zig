@@ -7,4 +7,4 @@ comptime {
 // backend=llvm
 // target=native
 //
-// :3:21: error: exported symbol name cannot be empty
+// :3:24: error: exported symbol name cannot be empty

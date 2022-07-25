@@ -6021,6 +6021,53 @@ pub fn initSrc(
     }
 }
 
+pub fn optionsSrc(gpa: Allocator, decl: *Decl, base_src: LazySrcLoc, wanted: []const u8) LazySrcLoc {
+    @setCold(true);
+    const tree = decl.getFileScope().getTree(gpa) catch |err| {
+        // In this case we emit a warning + a less precise source location.
+        log.warn("unable to load {s}: {s}", .{
+            decl.getFileScope().sub_file_path, @errorName(err),
+        });
+        return LazySrcLoc.nodeOffset(0);
+    };
+
+    const o_i: struct { off: i32, i: u8 } = switch (base_src) {
+        .node_offset_builtin_call_arg0 => |n| .{ .off = n, .i = 0 },
+        .node_offset_builtin_call_arg1 => |n| .{ .off = n, .i = 1 },
+        else => unreachable,
+    };
+
+    const node = decl.relativeToNodeIndex(o_i.off);
+    const node_datas = tree.nodes.items(.data);
+    const node_tags = tree.nodes.items(.tag);
+    const arg_node = switch (node_tags[node]) {
+        .builtin_call_two, .builtin_call_two_comma => switch (o_i.i) {
+            0 => node_datas[node].lhs,
+            1 => node_datas[node].rhs,
+            else => unreachable,
+        },
+        .builtin_call, .builtin_call_comma => tree.extra_data[node_datas[node].lhs + o_i.i],
+        else => unreachable,
+    };
+    var buf: [2]std.zig.Ast.Node.Index = undefined;
+    const init_nodes = switch (node_tags[arg_node]) {
+        .struct_init_one, .struct_init_one_comma => tree.structInitOne(buf[0..1], arg_node).ast.fields,
+        .struct_init_dot_two, .struct_init_dot_two_comma => tree.structInitDotTwo(&buf, arg_node).ast.fields,
+        .struct_init_dot, .struct_init_dot_comma => tree.structInitDot(arg_node).ast.fields,
+        .struct_init, .struct_init_comma => tree.structInit(arg_node).ast.fields,
+        else => return base_src,
+    };
+    for (init_nodes) |init_node| {
+        // . IDENTIFIER = init_node
+        const name_token = tree.firstToken(init_node) - 2;
+        const name = tree.tokenSlice(name_token);
+        if (std.mem.eql(u8, name, wanted)) {
+            return LazySrcLoc{ .node_offset_initializer = decl.nodeIndexToRelative(init_node) };
+        }
+    }
+    return base_src;
+}
+
 /// Called from `performAllTheWork`, after all AstGen workers have finished,
 /// and before the main semantic analysis loop begins.
 pub fn processOutdatedAndDeletedDecls(mod: *Module) !void {
