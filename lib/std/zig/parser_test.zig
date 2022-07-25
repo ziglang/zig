@@ -184,15 +184,6 @@ test "zig fmt: file ends in comment after var decl" {
     );
 }
 
-test "zig fmt: doc comments on test" {
-    try testCanonical(
-        \\/// hello
-        \\/// world
-        \\test "" {}
-        \\
-    );
-}
-
 test "zig fmt: if statment" {
     try testCanonical(
         \\test "" {
@@ -2700,9 +2691,6 @@ test "zig fmt: comments in statements" {
 
 test "zig fmt: comments before test decl" {
     try testCanonical(
-        \\/// top level doc comment
-        \\test "hi" {}
-        \\
         \\// top level normal comment
         \\test "hi" {}
         \\
