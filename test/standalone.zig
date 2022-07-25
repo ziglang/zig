@@ -44,6 +44,12 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
             cases.addBuildFile("test/stage1/c_abi/build.zig", .{});
         }
     }
+    // C ABI tests only pass for the Wasm target when using stage2
+    cases.addBuildFile("test/stage1/c_abi/build_wasm.zig", .{
+        .requires_stage2 = true,
+        .use_emulation = true,
+    });
+
     cases.addBuildFile("test/standalone/c_compiler/build.zig", .{
         .build_modes = true,
         .cross_targets = true,

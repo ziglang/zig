@@ -22,6 +22,7 @@ const Type = @import("../type.zig").Type;
 const LazySrcLoc = Module.LazySrcLoc;
 const CType = @import("../type.zig").CType;
 const x86_64_abi = @import("../arch/x86_64/abi.zig");
+const wasm_c_abi = @import("../arch/wasm/abi.zig");
 
 const Error = error{ OutOfMemory, CodegenFail };
 
@@ -9093,6 +9094,7 @@ fn firstParamSRet(fn_info: Type.Payload.Function.Data, target: std.Target) bool 
                 .windows => return x86_64_abi.classifyWindows(fn_info.return_type, target) == .memory,
                 else => return x86_64_abi.classifySystemV(fn_info.return_type, target)[0] == .memory,
             },
+            .wasm32 => return wasm_c_abi.classifyType(fn_info.return_type, target)[0] == .indirect,
             else => return false, // TODO investigate C ABI for other architectures
         },
         else => return false,
@@ -9196,6 +9198,20 @@ fn lowerFnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*const llvm.
                         }
                         return dg.context.structType(&llvm_types_buffer, llvm_types_index, .False);
                     },
+                },
+                .wasm32 => {
+                    if (is_scalar) {
+                        return dg.lowerType(fn_info.return_type);
+                    }
+                    const classes = wasm_c_abi.classifyType(fn_info.return_type, target);
+                    if (classes[0] == .indirect or classes[0] == .none) {
+                        return dg.context.voidType();
+                    }
+
+                    assert(classes[0] == .direct and classes[1] == .none);
+                    const scalar_type = wasm_c_abi.scalarType(fn_info.return_type, target);
+                    const abi_size = scalar_type.abiSize(target);
+                    return dg.context.intType(@intCast(c_uint, abi_size * 8));
                 },
                 // TODO investigate C ABI for other architectures
                 else => return dg.lowerType(fn_info.return_type),
@@ -9371,6 +9387,18 @@ const ParamTypeIterator = struct {
                             it.zig_index += 1;
                             return .multiple_llvm_ints;
                         },
+                    },
+                    .wasm32 => {
+                        it.zig_index += 1;
+                        it.llvm_index += 1;
+                        if (is_scalar) {
+                            return .byval;
+                        }
+                        const classes = wasm_c_abi.classifyType(ty, it.target);
+                        if (classes[0] == .indirect) {
+                            return .byref;
+                        }
+                        return .abi_sized_int;
                     },
                     // TODO investigate C ABI for other architectures
                     else => {

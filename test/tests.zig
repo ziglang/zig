@@ -463,6 +463,11 @@ pub fn addStandaloneTests(
     enable_macos_sdk: bool,
     target: std.zig.CrossTarget,
     omit_stage2: bool,
+    enable_darling: bool,
+    enable_qemu: bool,
+    enable_rosetta: bool,
+    enable_wasmtime: bool,
+    enable_wine: bool,
 ) *build.Step {
     const cases = b.allocator.create(StandaloneContext) catch unreachable;
     cases.* = StandaloneContext{
@@ -475,6 +480,11 @@ pub fn addStandaloneTests(
         .enable_macos_sdk = enable_macos_sdk,
         .target = target,
         .omit_stage2 = omit_stage2,
+        .enable_darling = enable_darling,
+        .enable_qemu = enable_qemu,
+        .enable_rosetta = enable_rosetta,
+        .enable_wasmtime = enable_wasmtime,
+        .enable_wine = enable_wine,
     };
 
     standalone.addCases(cases);
@@ -962,6 +972,11 @@ pub const StandaloneContext = struct {
     enable_macos_sdk: bool,
     target: std.zig.CrossTarget,
     omit_stage2: bool,
+    enable_darling: bool = false,
+    enable_qemu: bool = false,
+    enable_rosetta: bool = false,
+    enable_wasmtime: bool = false,
+    enable_wine: bool = false,
 
     pub fn addC(self: *StandaloneContext, root_src: []const u8) void {
         self.addAllArgs(root_src, true);
@@ -976,6 +991,7 @@ pub const StandaloneContext = struct {
         cross_targets: bool = false,
         requires_macos_sdk: bool = false,
         requires_stage2: bool = false,
+        use_emulation: bool = false,
     }) void {
         const b = self.b;
 
@@ -1005,6 +1021,24 @@ pub const StandaloneContext = struct {
             const target_triple = self.target.zigTriple(b.allocator) catch unreachable;
             const target_arg = fmt.allocPrint(b.allocator, "-Dtarget={s}", .{target_triple}) catch unreachable;
             zig_args.append(target_arg) catch unreachable;
+        }
+
+        if (features.use_emulation) {
+            if (self.enable_darling) {
+                zig_args.append("-fdarling") catch unreachable;
+            }
+            if (self.enable_qemu) {
+                zig_args.append("-fqemu") catch unreachable;
+            }
+            if (self.enable_rosetta) {
+                zig_args.append("-frosetta") catch unreachable;
+            }
+            if (self.enable_wasmtime) {
+                zig_args.append("-fwasmtime") catch unreachable;
+            }
+            if (self.enable_wine) {
+                zig_args.append("-fwine") catch unreachable;
+            }
         }
 
         const modes = if (features.build_modes) self.modes else &[1]Mode{.Debug};
