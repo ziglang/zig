@@ -231,7 +231,7 @@ pub fn parse(args: ParseOptions) !CrossTarget {
     };
 
     var it = mem.split(u8, args.arch_os_abi, "-");
-    const arch_name = it.next().?;
+    const arch_name = it.first();
     const arch_is_native = mem.eql(u8, arch_name, "native");
     if (!arch_is_native) {
         result.cpu_arch = std.meta.stringToEnum(Target.Cpu.Arch, arch_name) orelse
@@ -249,7 +249,7 @@ pub fn parse(args: ParseOptions) !CrossTarget {
     const opt_abi_text = it.next();
     if (opt_abi_text) |abi_text| {
         var abi_it = mem.split(u8, abi_text, ".");
-        const abi = std.meta.stringToEnum(Target.Abi, abi_it.next().?) orelse
+        const abi = std.meta.stringToEnum(Target.Abi, abi_it.first()) orelse
             return error.UnknownApplicationBinaryInterface;
         result.abi = abi;
         diags.abi = abi;
@@ -330,7 +330,7 @@ pub fn parse(args: ParseOptions) !CrossTarget {
 /// target CPU architecture in order to fully populate `ParseOptions`.
 pub fn parseCpuArch(args: ParseOptions) ?Target.Cpu.Arch {
     var it = mem.split(u8, args.arch_os_abi, "-");
-    const arch_name = it.next().?;
+    const arch_name = it.first();
     const arch_is_native = mem.eql(u8, arch_name, "native");
     if (arch_is_native) {
         return builtin.cpu.arch;
@@ -632,7 +632,7 @@ pub fn updateCpuFeatures(self: CrossTarget, set: *Target.Cpu.Feature.Set) void {
 
 fn parseOs(result: *CrossTarget, diags: *ParseOptions.Diagnostics, text: []const u8) !void {
     var it = mem.split(u8, text, ".");
-    const os_name = it.next().?;
+    const os_name = it.first();
     diags.os_name = os_name;
     const os_is_native = mem.eql(u8, os_name, "native");
     if (!os_is_native) {
@@ -711,7 +711,7 @@ fn parseOs(result: *CrossTarget, diags: *ParseOptions.Diagnostics, text: []const
         .windows => {
             var range_it = mem.split(u8, version_text, "...");
 
-            const min_text = range_it.next().?;
+            const min_text = range_it.first();
             const min_ver = std.meta.stringToEnum(Target.Os.WindowsVersion, min_text) orelse
                 return error.InvalidOperatingSystemVersion;
             result.os_version_min = .{ .windows = min_ver };

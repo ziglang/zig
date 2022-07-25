@@ -503,7 +503,7 @@ pub const Version = struct {
 
         var it = std.mem.split(u8, text[0..end], ".");
         // substring is not empty, first call will succeed
-        const major = it.next().?;
+        const major = it.first();
         if (major.len == 0) return error.InvalidVersion;
         const minor = it.next() orelse "0";
         // ignore 'patch' if 'minor' is invalid
