@@ -5353,7 +5353,9 @@ fn zirCall(
     const func_type = sema.typeOf(func);
 
     // Desugar bound functions here
+    var bound_arg_src: ?LazySrcLoc = null;
     if (func_type.tag() == .bound_fn) {
+        bound_arg_src = func_src;
         const bound_func = try sema.resolveValue(block, .unneeded, func, undefined);
         const bound_data = &bound_func.cast(Value.Payload.BoundFn).?.data;
         func = bound_data.func_inst;
@@ -5369,7 +5371,7 @@ fn zirCall(
         }
     }
 
-    return sema.analyzeCall(block, func, func_src, call_src, modifier, ensure_result_used, resolved_args);
+    return sema.analyzeCall(block, func, func_src, call_src, modifier, ensure_result_used, resolved_args, bound_arg_src);
 }
 
 const GenericCallAdapter = struct {
@@ -5438,6 +5440,7 @@ fn analyzeCall(
     modifier: std.builtin.CallOptions.Modifier,
     ensure_result_used: bool,
     uncasted_args: []const Air.Inst.Ref,
+    bound_arg_src: ?LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
 
@@ -5532,6 +5535,7 @@ fn analyzeCall(
             ensure_result_used,
             uncasted_args,
             call_tag,
+            bound_arg_src,
         )) |some| {
             return some;
         } else |err| switch (err) {
@@ -5654,6 +5658,7 @@ fn analyzeCall(
         var arg_i: usize = 0;
         for (fn_info.param_body) |inst| {
             sema.analyzeInlineCallArg(
+                block,
                 &child_block,
                 .unneeded,
                 inst,
@@ -5665,12 +5670,13 @@ fn analyzeCall(
                 memoized_call_key,
             ) catch |err| switch (err) {
                 error.NeededSourceLocation => {
+                    sema.inst_map.clearRetainingCapacity();
                     const decl = sema.mod.declPtr(block.src_decl);
+                    child_block.src_decl = block.src_decl;
                     try sema.analyzeInlineCallArg(
-                        // Intentionally use the wrong block here since we know it's
-                        // going to fail and `argSrc` is relative to `block.src_decl`.
                         block,
-                        Module.argSrc(call_src.node_offset.x, sema.gpa, decl, arg_i),
+                        &child_block,
+                        Module.argSrc(call_src.node_offset.x, sema.gpa, decl, arg_i, bound_arg_src),
                         inst,
                         new_fn_info,
                         &arg_i,
@@ -5832,7 +5838,7 @@ fn analyzeCall(
                         const decl = sema.mod.declPtr(block.src_decl);
                         _ = try sema.analyzeCallArg(
                             block,
-                            Module.argSrc(call_src.node_offset.x, sema.gpa, decl, i),
+                            Module.argSrc(call_src.node_offset.x, sema.gpa, decl, i, bound_arg_src),
                             param_ty,
                             uncasted_arg,
                         );
@@ -5873,7 +5879,8 @@ fn analyzeCall(
 
 fn analyzeInlineCallArg(
     sema: *Sema,
-    block: *Block,
+    arg_block: *Block,
+    param_block: *Block,
     arg_src: LazySrcLoc,
     inst: Zir.Inst.Index,
     new_fn_info: Type.Payload.Function.Data,
@@ -5892,19 +5899,19 @@ fn analyzeInlineCallArg(
             const param_src = pl_tok.src();
             const extra = sema.code.extraData(Zir.Inst.Param, pl_tok.payload_index);
             const param_body = sema.code.extra[extra.end..][0..extra.data.body_len];
-            const param_ty_inst = try sema.resolveBody(block, param_body, inst);
-            const param_ty = try sema.analyzeAsType(block, param_src, param_ty_inst);
+            const param_ty_inst = try sema.resolveBody(param_block, param_body, inst);
+            const param_ty = try sema.analyzeAsType(param_block, param_src, param_ty_inst);
             new_fn_info.param_types[arg_i.*] = param_ty;
             const uncasted_arg = uncasted_args[arg_i.*];
-            if (try sema.typeRequiresComptime(block, arg_src, param_ty)) {
-                _ = try sema.resolveConstMaybeUndefVal(block, arg_src, uncasted_arg, "argument to parameter with comptime only type must be comptime known");
+            if (try sema.typeRequiresComptime(arg_block, arg_src, param_ty)) {
+                _ = try sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "argument to parameter with comptime only type must be comptime known");
             }
-            const casted_arg = try sema.coerce(block, param_ty, uncasted_arg, arg_src);
+            const casted_arg = try sema.coerce(arg_block, param_ty, uncasted_arg, arg_src);
             try sema.inst_map.putNoClobber(sema.gpa, inst, casted_arg);
 
             if (is_comptime_call) {
                 // TODO explain why function is being called at comptime
-                const arg_val = try sema.resolveConstMaybeUndefVal(block, arg_src, casted_arg, "argument to function being called at comptime must be comptime known");
+                const arg_val = try sema.resolveConstMaybeUndefVal(arg_block, arg_src, casted_arg, "argument to function being called at comptime must be comptime known");
                 switch (arg_val.tag()) {
                     .generic_poison, .generic_poison_type => {
                         // This function is currently evaluated as part of an as-of-yet unresolvable
@@ -5915,7 +5922,7 @@ fn analyzeInlineCallArg(
                         // Needed so that lazy values do not trigger
                         // assertion due to type not being resolved
                         // when the hash function is called.
-                        try sema.resolveLazyValue(block, arg_src, arg_val);
+                        try sema.resolveLazyValue(arg_block, arg_src, arg_val);
                     },
                 }
                 should_memoize.* = should_memoize.* and !arg_val.canMutateComptimeVarState();
@@ -5935,7 +5942,7 @@ fn analyzeInlineCallArg(
 
             if (is_comptime_call) {
                 // TODO explain why function is being called at comptime
-                const arg_val = try sema.resolveConstMaybeUndefVal(block, arg_src, uncasted_arg, "argument to function being called at comptime must be comptime known");
+                const arg_val = try sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "argument to function being called at comptime must be comptime known");
                 switch (arg_val.tag()) {
                     .generic_poison, .generic_poison_type => {
                         // This function is currently evaluated as part of an as-of-yet unresolvable
@@ -5946,7 +5953,7 @@ fn analyzeInlineCallArg(
                         // Needed so that lazy values do not trigger
                         // assertion due to type not being resolved
                         // when the hash function is called.
-                        try sema.resolveLazyValue(block, arg_src, arg_val);
+                        try sema.resolveLazyValue(arg_block, arg_src, arg_val);
                     },
                 }
                 should_memoize.* = should_memoize.* and !arg_val.canMutateComptimeVarState();
@@ -6011,6 +6018,7 @@ fn instantiateGenericCall(
     ensure_result_used: bool,
     uncasted_args: []const Air.Inst.Ref,
     call_tag: Air.Inst.Tag,
+    bound_arg_src: ?LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const gpa = sema.gpa;
@@ -6070,7 +6078,7 @@ fn instantiateGenericCall(
                 const arg_val = sema.analyzeGenericCallArgVal(block, .unneeded, uncasted_args[i]) catch |err| switch (err) {
                     error.NeededSourceLocation => {
                         const decl = sema.mod.declPtr(block.src_decl);
-                        const arg_src = Module.argSrc(call_src.node_offset.x, sema.gpa, decl, i);
+                        const arg_src = Module.argSrc(call_src.node_offset.x, sema.gpa, decl, i, bound_arg_src);
                         _ = try sema.analyzeGenericCallArgVal(block, arg_src, uncasted_args[i]);
                         return error.AnalysisFail;
                     },
@@ -6392,7 +6400,7 @@ fn instantiateGenericCall(
                     const decl = sema.mod.declPtr(block.src_decl);
                     _ = try sema.analyzeGenericCallArg(
                         block,
-                        Module.argSrc(call_src.node_offset.x, sema.gpa, decl, total_i),
+                        Module.argSrc(call_src.node_offset.x, sema.gpa, decl, total_i, bound_arg_src),
                         uncasted_args[total_i],
                         comptime_args[total_i],
                         runtime_args,
@@ -14263,7 +14271,7 @@ fn analyzeRet(
         const ptr_stack_trace_ty = try Type.Tag.optional_single_mut_pointer.create(sema.arena, stack_trace_ty);
         const err_return_trace = try block.addTy(.err_return_trace, ptr_stack_trace_ty);
         const args: [1]Air.Inst.Ref = .{err_return_trace};
-        _ = try sema.analyzeCall(block, return_err_fn, src, src, .never_inline, false, &args);
+        _ = try sema.analyzeCall(block, return_err_fn, src, src, .never_inline, false, &args, null);
     }
 
     try sema.resolveTypeLayout(block, src, sema.fn_ret_ty);
@@ -17880,7 +17888,9 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     var resolved_args: []Air.Inst.Ref = undefined;
 
     // Desugar bound functions here
+    var bound_arg_src: ?LazySrcLoc = null;
     if (sema.typeOf(func).tag() == .bound_fn) {
+        bound_arg_src = func_src;
         const bound_func = try sema.resolveValue(block, .unneeded, func, undefined);
         const bound_data = &bound_func.cast(Value.Payload.BoundFn).?.data;
         func = bound_data.func_inst;
@@ -17896,7 +17906,7 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         }
     }
     const ensure_result_used = extra.flags.ensure_result_used;
-    return sema.analyzeCall(block, func, func_src, call_src, modifier, ensure_result_used, resolved_args);
+    return sema.analyzeCall(block, func, func_src, call_src, modifier, ensure_result_used, resolved_args, bound_arg_src);
 }
 
 fn zirFieldParentPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -19182,7 +19192,7 @@ fn panicWithMsg(
         Value.@"null",
     );
     const args: [2]Air.Inst.Ref = .{ msg_inst, null_stack_trace };
-    _ = try sema.analyzeCall(block, panic_fn, src, src, .auto, false, &args);
+    _ = try sema.analyzeCall(block, panic_fn, src, src, .auto, false, &args, null);
     return always_noreturn;
 }
 
@@ -19223,7 +19233,7 @@ fn panicUnwrapError(
             const err = try fail_block.addTyOp(unwrap_err_tag, Type.anyerror, operand);
             const err_return_trace = try sema.getErrorReturnTrace(&fail_block, src);
             const args: [2]Air.Inst.Ref = .{ err_return_trace, err };
-            _ = try sema.analyzeCall(&fail_block, panic_fn, src, src, .auto, false, &args);
+            _ = try sema.analyzeCall(&fail_block, panic_fn, src, src, .auto, false, &args, null);
         }
     }
     try sema.addSafetyCheckExtra(parent_block, ok, &fail_block);
@@ -19264,7 +19274,7 @@ fn panicIndexOutOfBounds(
         } else {
             const panic_fn = try sema.getBuiltin(&fail_block, src, "panicOutOfBounds");
             const args: [2]Air.Inst.Ref = .{ index, len };
-            _ = try sema.analyzeCall(&fail_block, panic_fn, src, src, .auto, false, &args);
+            _ = try sema.analyzeCall(&fail_block, panic_fn, src, src, .auto, false, &args, null);
         }
     }
     try sema.addSafetyCheckExtra(parent_block, ok, &fail_block);

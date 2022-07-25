@@ -5940,7 +5940,9 @@ pub fn argSrc(
     gpa: Allocator,
     decl: *Decl,
     arg_i: usize,
+    bound_arg_src: ?LazySrcLoc,
 ) LazySrcLoc {
+    if (arg_i == 0 and bound_arg_src != null) return bound_arg_src.?;
     @setCold(true);
     const tree = decl.getFileScope().getTree(gpa) catch |err| {
         // In this case we emit a warning + a less precise source location.
