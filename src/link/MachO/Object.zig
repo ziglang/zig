@@ -66,6 +66,7 @@ pub fn deinit(self: *Object, gpa: Allocator) void {
     }
     self.load_commands.deinit(gpa);
     gpa.free(self.contents);
+    self.symtab.deinit(gpa);
     self.sections_as_symbols.deinit(gpa);
     self.atom_by_index_table.deinit(gpa);
 
@@ -78,7 +79,7 @@ pub fn deinit(self: *Object, gpa: Allocator) void {
     gpa.free(self.name);
 }
 
-pub fn parse(self: *Object, allocator: Allocator, target: std.Target) !void {
+pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch) !void {
     const file_stat = try self.file.stat();
     const file_size = math.cast(usize, file_stat.size) orelse return error.Overflow;
     self.contents = try self.file.readToEndAlloc(allocator, file_size);
@@ -108,8 +109,8 @@ pub fn parse(self: *Object, allocator: Allocator, target: std.Target) !void {
             return error.UnsupportedCpuArchitecture;
         },
     };
-    if (this_arch != target.cpu.arch) {
-        log.err("mismatched cpu architecture: expected {s}, found {s}", .{ target.cpu.arch, this_arch });
+    if (this_arch != cpu_arch) {
+        log.err("mismatched cpu architecture: expected {s}, found {s}", .{ cpu_arch, this_arch });
         return error.MismatchedCpuArchitecture;
     }
 
@@ -351,7 +352,7 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
             macho_file.getSection(match).sectName(),
         });
 
-        const arch = macho_file.base.options.target.cpu.arch;
+        const cpu_arch = macho_file.base.options.target.cpu.arch;
         const is_zerofill = blk: {
             const section_type = sect.type_();
             break :blk section_type == macho.S_ZEROFILL or section_type == macho.S_THREAD_LOCAL_ZEROFILL;
@@ -466,7 +467,7 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
                     sect,
                 );
 
-                if (arch == .x86_64 and addr == sect.addr) {
+                if (cpu_arch == .x86_64 and addr == sect.addr) {
                     // In x86_64 relocs, it can so happen that the compiler refers to the same
                     // atom by both the actual assigned symbol and the start of the section. In this
                     // case, we need to link the two together so add an alias.

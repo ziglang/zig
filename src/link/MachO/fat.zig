@@ -6,7 +6,7 @@ const mem = std.mem;
 const native_endian = builtin.target.cpu.arch.endian();
 
 pub fn decodeArch(cputype: macho.cpu_type_t, comptime logError: bool) !std.Target.Cpu.Arch {
-    const arch: std.Target.Cpu.Arch = switch (cputype) {
+    const cpu_arch: std.Target.Cpu.Arch = switch (cputype) {
         macho.CPU_TYPE_ARM64 => .aarch64,
         macho.CPU_TYPE_X86_64 => .x86_64,
         else => {
@@ -16,7 +16,7 @@ pub fn decodeArch(cputype: macho.cpu_type_t, comptime logError: bool) !std.Targe
             return error.UnsupportedCpuArchitecture;
         },
     };
-    return arch;
+    return cpu_arch;
 }
 
 fn readFatStruct(reader: anytype, comptime T: type) !T {
@@ -29,7 +29,7 @@ fn readFatStruct(reader: anytype, comptime T: type) !T {
     return res;
 }
 
-pub fn getLibraryOffset(reader: anytype, target: std.Target) !u64 {
+pub fn getLibraryOffset(reader: anytype, cpu_arch: std.Target.Cpu.Arch) !u64 {
     const fat_header = try readFatStruct(reader, macho.fat_header);
     if (fat_header.magic != macho.FAT_MAGIC) return 0;
 
@@ -41,12 +41,12 @@ pub fn getLibraryOffset(reader: anytype, target: std.Target) !u64 {
         const lib_arch = decodeArch(fat_arch.cputype, false) catch |err| switch (err) {
             error.UnsupportedCpuArchitecture => continue,
         };
-        if (lib_arch == target.cpu.arch) {
+        if (lib_arch == cpu_arch) {
             // We have found a matching architecture!
             return fat_arch.offset;
         }
     } else {
-        log.err("Could not find matching cpu architecture in fat library: expected {s}", .{target.cpu.arch});
+        log.err("Could not find matching cpu architecture in fat library: expected {s}", .{cpu_arch});
         return error.MismatchedCpuArchitecture;
     }
 }

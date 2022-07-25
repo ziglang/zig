@@ -103,9 +103,9 @@ pub fn deinit(self: *Archive, allocator: Allocator) void {
     allocator.free(self.name);
 }
 
-pub fn parse(self: *Archive, allocator: Allocator, target: std.Target) !void {
+pub fn parse(self: *Archive, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch) !void {
     const reader = self.file.reader();
-    self.library_offset = try fat.getLibraryOffset(reader, target);
+    self.library_offset = try fat.getLibraryOffset(reader, cpu_arch);
     try self.file.seekTo(self.library_offset);
 
     const magic = try reader.readBytesNoEof(SARMAG);
@@ -187,7 +187,7 @@ fn parseTableOfContents(self: *Archive, allocator: Allocator, reader: anytype) !
     }
 }
 
-pub fn parseObject(self: Archive, allocator: Allocator, target: std.Target, offset: u32) !Object {
+pub fn parseObject(self: Archive, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch, offset: u32) !Object {
     const reader = self.file.reader();
     try reader.context.seekTo(offset + self.library_offset);
 
@@ -216,7 +216,7 @@ pub fn parseObject(self: Archive, allocator: Allocator, target: std.Target, offs
         .mtime = try self.header.?.date(),
     };
 
-    try object.parse(allocator, target);
+    try object.parse(allocator, cpu_arch);
     try reader.context.seekTo(0);
 
     return object;
