@@ -216,7 +216,7 @@ fn serializeTo(params: anytype, out: anytype) !void {
 
     var has_params = false;
     inline for (comptime meta.fields(HashResult)) |p| {
-        if (!(mem.eql(u8, p.name, "alg_id") or
+        if (comptime !(mem.eql(u8, p.name, "alg_id") or
             mem.eql(u8, p.name, "alg_version") or
             mem.eql(u8, p.name, "hash") or
             mem.eql(u8, p.name, "salt")))

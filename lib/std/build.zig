@@ -751,7 +751,7 @@ pub const Builder = struct {
                     \\Available CPU features for architecture '{s}':
                     \\
                 , .{
-                    diags.unknown_feature_name,
+                    diags.unknown_feature_name.?,
                     @tagName(diags.arch.?),
                 });
                 for (diags.arch.?.allFeaturesList()) |feature| {
@@ -765,7 +765,7 @@ pub const Builder = struct {
                     \\Unknown OS: '{s}'
                     \\Available operating systems:
                     \\
-                , .{diags.os_name});
+                , .{diags.os_name.?});
                 inline for (std.meta.fields(std.Target.Os.Tag)) |field| {
                     log.err(" {s}", .{field.name});
                 }

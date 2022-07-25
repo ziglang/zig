@@ -363,7 +363,7 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
 
         // Create dSYM bundle.
         const dir = options.module.?.zig_cache_artifact_directory;
-        log.debug("creating {s}.dSYM bundle in {s}", .{ emit.sub_path, dir.path });
+        log.debug("creating {s}.dSYM bundle in {?s}", .{ emit.sub_path, dir.path });
 
         const d_sym_path = try fmt.allocPrint(
             allocator,
@@ -2374,7 +2374,7 @@ fn writeAtomsOneShot(self: *MachO) !void {
                 break :blk math.cast(usize, size) orelse return error.Overflow;
             } else 0;
 
-            log.debug("  (adding ATOM(%{d}, '{s}') from object({d}) to buffer)", .{
+            log.debug("  (adding ATOM(%{d}, '{s}') from object({?d}) to buffer)", .{
                 atom.sym_index,
                 atom.getName(self),
                 atom.file,
@@ -2907,7 +2907,7 @@ fn createTentativeDefAtoms(self: *MachO) !void {
         const sym = self.getSymbolPtr(global);
         if (!sym.tentative()) continue;
 
-        log.debug("creating tentative definition for ATOM(%{d}, '{s}') in object({d})", .{
+        log.debug("creating tentative definition for ATOM(%{d}, '{s}') in object({?d})", .{
             global.sym_index, self.getSymbolName(global), global.file,
         });
 
@@ -3686,7 +3686,7 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Modu
     };
     const name = self.strtab.get(name_str_index);
 
-    log.debug("allocating symbol indexes for {s}", .{name});
+    log.debug("allocating symbol indexes for {?s}", .{name});
 
     const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
     const sym_index = try self.allocateSymbol();
@@ -3726,7 +3726,7 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Modu
     );
     const addr = try self.allocateAtom(atom, code.len, required_alignment, match);
 
-    log.debug("allocated atom for {s} at 0x{x}", .{ name, addr });
+    log.debug("allocated atom for {?s} at 0x{x}", .{ name, addr });
     log.debug("  (required alignment 0x{x})", .{required_alignment});
 
     errdefer self.freeAtom(atom, match, true);
@@ -7032,7 +7032,7 @@ fn logSymtab(self: *MachO) void {
             @divTrunc(sym.n_desc, macho.N_SYMBOL_RESOLVER)
         else
             sym.n_sect;
-        log.debug("    %{d}: {s} @{x} in {s}({d}), {s}", .{
+        log.debug("    %{d}: {?s} @{x} in {s}({d}), {s}", .{
             sym_id,
             self.strtab.get(sym.n_strx),
             sym.n_value,
@@ -7045,7 +7045,7 @@ fn logSymtab(self: *MachO) void {
     log.debug("globals table:", .{});
     for (self.globals.keys()) |name, id| {
         const value = self.globals.values()[id];
-        log.debug("  {s} => %{d} in object({d})", .{ name, value.sym_index, value.file });
+        log.debug("  {s} => %{d} in object({?d})", .{ name, value.sym_index, value.file });
     }
 
     log.debug("GOT entries:", .{});
@@ -7060,7 +7060,7 @@ fn logSymtab(self: *MachO) void {
                 self.getSymbolName(entry.target),
             });
         } else {
-            log.debug("  {d}@{x} => local(%{d}) in object({d}) {s}", .{
+            log.debug("  {d}@{x} => local(%{d}) in object({?d}) {s}", .{
                 i,
                 atom_sym.n_value,
                 entry.target.sym_index,
@@ -7129,7 +7129,7 @@ fn logAtoms(self: *MachO) void {
 pub fn logAtom(self: *MachO, atom: *const Atom) void {
     const sym = atom.getSymbol(self);
     const sym_name = atom.getName(self);
-    log.debug("  ATOM(%{d}, '{s}') @ {x} (sizeof({x}), alignof({x})) in object({d}) in sect({d})", .{
+    log.debug("  ATOM(%{d}, '{s}') @ {x} (sizeof({x}), alignof({x})) in object({?d}) in sect({d})", .{
         atom.sym_index,
         sym_name,
         sym.n_value,

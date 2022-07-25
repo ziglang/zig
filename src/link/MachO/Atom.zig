@@ -541,7 +541,7 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
         const arch = macho_file.base.options.target.cpu.arch;
         switch (arch) {
             .aarch64 => {
-                log.debug("  RELA({s}) @ {x} => %{d} in object({d})", .{
+                log.debug("  RELA({s}) @ {x} => %{d} in object({?d})", .{
                     @tagName(@intToEnum(macho.reloc_type_arm64, rel.@"type")),
                     rel.offset,
                     rel.target.sym_index,
@@ -549,7 +549,7 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
                 });
             },
             .x86_64 => {
-                log.debug("  RELA({s}) @ {x} => %{d} in object({d})", .{
+                log.debug("  RELA({s}) @ {x} => %{d} in object({?d})", .{
                     @tagName(@intToEnum(macho.reloc_type_x86_64, rel.@"type")),
                     rel.offset,
                     rel.target.sym_index,
@@ -579,7 +579,7 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
                 log.debug("    | atomless target '{s}'", .{target_name});
                 break :blk atomless_sym.n_value;
             };
-            log.debug("    | target ATOM(%{d}, '{s}') in object({d})", .{
+            log.debug("    | target ATOM(%{d}, '{s}') in object({?d})", .{
                 target_atom.sym_index,
                 target_atom.getName(macho_file),
                 target_atom.file,

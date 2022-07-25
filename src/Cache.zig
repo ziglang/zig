@@ -747,7 +747,7 @@ pub const Manifest = struct {
                     file.stat.inode,
                     file.stat.mtime,
                     &encoded_digest,
-                    file.path,
+                    file.path.?,
                 });
             }
 
