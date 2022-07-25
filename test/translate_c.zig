@@ -3435,7 +3435,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    var x = arg_x;
         \\    var a: bool = @as(c_int, @boolToInt(x)) != @as(c_int, 1);
         \\    var b: bool = @as(c_int, @boolToInt(a)) != @as(c_int, 0);
-        \\    var c: bool = @ptrToInt(foo) != 0;
+        \\    var c: bool = @ptrToInt(&foo) != 0;
         \\    return foo(@as(c_int, @boolToInt(c)) != @as(c_int, @boolToInt(b)));
         \\}
     });

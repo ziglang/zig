@@ -36,6 +36,9 @@ pub fn cast(comptime DestType: type, target: anytype) DestType {
                 .Int => {
                     return castInt(DestType, target);
                 },
+                .Fn => {
+                    return castInt(DestType, @ptrToInt(&target));
+                },
                 else => {},
             }
         },
@@ -45,6 +48,7 @@ pub fn cast(comptime DestType: type, target: anytype) DestType {
             }
             @compileError("cast to union type '" ++ @typeName(DestType) ++ "' from type '" ++ @typeName(SourceType) ++ "' which is not present in union");
         },
+        .Bool => return cast(usize, target) != 0,
         else => {},
     }
     return @as(DestType, target);

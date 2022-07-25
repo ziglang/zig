@@ -36,6 +36,7 @@ pub const Node = extern union {
         /// "string"[0..end]
         string_slice,
         identifier,
+        fn_identifier,
         @"if",
         /// if (!operand) break;
         if_not_break,
@@ -335,6 +336,7 @@ pub const Node = extern union {
                 .char_literal,
                 .enum_literal,
                 .identifier,
+                .fn_identifier,
                 .warning,
                 .type,
                 .helpers_macro,
@@ -1052,6 +1054,14 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         },
         .identifier => {
             const payload = node.castTag(.identifier).?.data;
+            return c.addNode(.{
+                .tag = .identifier,
+                .main_token = try c.addIdentifier(payload),
+                .data = undefined,
+            });
+        },
+        .fn_identifier => {
+            const payload = node.castTag(.fn_identifier).?.data;
             return c.addNode(.{
                 .tag = .identifier,
                 .main_token = try c.addIdentifier(payload),
@@ -2234,6 +2244,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .char_literal,
         .enum_literal,
         .identifier,
+        .fn_identifier,
         .field_access,
         .ptr_cast,
         .type,
