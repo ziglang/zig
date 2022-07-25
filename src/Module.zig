@@ -5939,10 +5939,11 @@ pub fn argSrc(
     call_node_offset: i32,
     gpa: Allocator,
     decl: *Decl,
-    arg_i: usize,
+    start_arg_i: usize,
     bound_arg_src: ?LazySrcLoc,
 ) LazySrcLoc {
-    if (arg_i == 0 and bound_arg_src != null) return bound_arg_src.?;
+    if (start_arg_i == 0 and bound_arg_src != null) return bound_arg_src.?;
+    const arg_i = start_arg_i - @boolToInt(bound_arg_src != null);
     @setCold(true);
     const tree = decl.getFileScope().getTree(gpa) catch |err| {
         // In this case we emit a warning + a less precise source location.
@@ -5957,6 +5958,12 @@ pub fn argSrc(
     const full = switch (node_tags[node]) {
         .call_one, .call_one_comma, .async_call_one, .async_call_one_comma => tree.callOne(&args, node),
         .call, .call_comma, .async_call, .async_call_comma => tree.callFull(node),
+        .builtin_call => {
+            const node_datas = tree.nodes.items(.data);
+            const call_args_node = tree.extra_data[node_datas[node].rhs - 1];
+            const call_args_offset = decl.nodeIndexToRelative(call_args_node);
+            return initSrc(call_args_offset, gpa, decl, arg_i);
+        },
         else => unreachable,
     };
     return LazySrcLoc.nodeOffset(decl.nodeIndexToRelative(full.ast.params[arg_i]));
@@ -5989,7 +5996,7 @@ pub fn initSrc(
         .struct_init_dot_two, .struct_init_dot_two_comma => tree.structInitDotTwo(&buf, node).ast.fields,
         .struct_init_dot, .struct_init_dot_comma => tree.structInitDot(node).ast.fields,
         .struct_init, .struct_init_comma => tree.structInit(node).ast.fields,
-        else => unreachable,
+        else => return LazySrcLoc.nodeOffset(init_node_offset),
     };
     switch (node_tags[node]) {
         .array_init_one,
