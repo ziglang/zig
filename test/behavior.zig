@@ -159,7 +159,7 @@ test {
     _ = @import("behavior/while.zig");
     _ = @import("behavior/widening.zig");
 
-    if (builtin.stage2_arch == .wasm32) {
+    if (builtin.cpu.arch == .wasm32) {
         _ = @import("behavior/wasm.zig");
     }
 

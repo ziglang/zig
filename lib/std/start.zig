@@ -131,7 +131,7 @@ fn wWinMainCRTStartup2() callconv(.C) noreturn {
 
 fn exit2(code: usize) noreturn {
     switch (native_os) {
-        .linux => switch (builtin.stage2_arch) {
+        .linux => switch (builtin.cpu.arch) {
             .x86_64 => {
                 asm volatile ("syscall"
                     :
@@ -175,7 +175,7 @@ fn exit2(code: usize) noreturn {
             else => @compileError("TODO"),
         },
         // exits(0)
-        .plan9 => switch (builtin.stage2_arch) {
+        .plan9 => switch (builtin.cpu.arch) {
             .x86_64 => {
                 asm volatile (
                     \\push $0
