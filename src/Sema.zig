@@ -1146,6 +1146,24 @@ fn analyzeBodyInner(
                 i += 1;
                 continue;
             },
+            .check_comptime_control_flow => {
+                if (!block.is_comptime) {
+                    if (block.runtime_cond orelse block.runtime_loop) |runtime_src| {
+                        const inst_data = sema.code.instructions.items(.data)[inst].node;
+                        const src = LazySrcLoc.nodeOffset(inst_data);
+                        const msg = msg: {
+                            const msg = try sema.errMsg(block, src, "comptime control flow inside runtime block", .{});
+                            errdefer msg.destroy(sema.gpa);
+
+                            try sema.errNote(block, runtime_src, msg, "runtime control flow here", .{});
+                            break :msg msg;
+                        };
+                        return sema.failWithOwnedErrorMsg(block, msg);
+                    }
+                }
+                i += 1;
+                continue;
+            },
 
             // Special case instructions to handle comptime control flow.
             .@"break" => {
