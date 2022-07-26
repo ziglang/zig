@@ -4,7 +4,7 @@ export fn a() void {
 fn c(d: i32, e: i32, f: i32) void { _ = d; _ = e; _ = f; }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:2:6: error: expected 3 argument(s), found 1
+// :2:6: error: expected 3 argument(s), found 1

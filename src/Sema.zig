@@ -5496,7 +5496,7 @@ fn analyzeCall(
         // TODO add error note: declared here
         return sema.fail(
             block,
-            func_src,
+            call_src,
             "expected {d} argument(s), found {d}",
             .{ fn_params_len, uncasted_args.len },
         );
@@ -21275,7 +21275,7 @@ fn coerceExtra(
             else => {},
         },
         .ErrorUnion => switch (inst_ty.zigTypeTag()) {
-            .ErrorUnion => {
+            .ErrorUnion => eu: {
                 if (maybe_inst_val) |inst_val| {
                     switch (inst_val.tag()) {
                         .undef => return sema.addConstUndef(dest_ty),
@@ -21284,7 +21284,10 @@ fn coerceExtra(
                                 inst_ty.errorUnionPayload(),
                                 inst_val.castTag(.eu_payload).?.data,
                             );
-                            return sema.wrapErrorUnionPayload(block, dest_ty, payload, inst_src);
+                            return sema.wrapErrorUnionPayload(block, dest_ty, payload, inst_src) catch |err| switch (err) {
+                                error.NotCoercible => break :eu,
+                                else => |e| return e,
+                            };
                         },
                         else => {
                             const error_set = try sema.addConstant(
@@ -21303,9 +21306,12 @@ fn coerceExtra(
             .Undefined => {
                 return sema.addConstUndef(dest_ty);
             },
-            else => {
+            else => eu: {
                 // T to E!T
-                return sema.wrapErrorUnionPayload(block, dest_ty, inst, inst_src);
+                return sema.wrapErrorUnionPayload(block, dest_ty, inst, inst_src) catch |err| switch (err) {
+                    error.NotCoercible => break :eu,
+                    else => |e| return e,
+                };
             },
         },
         .Union => switch (inst_ty.zigTypeTag()) {
@@ -24795,7 +24801,7 @@ fn wrapErrorUnionPayload(
     inst_src: LazySrcLoc,
 ) !Air.Inst.Ref {
     const dest_payload_ty = dest_ty.errorUnionPayload();
-    const coerced = try sema.coerce(block, dest_payload_ty, inst, inst_src);
+    const coerced = try sema.coerceExtra(block, dest_payload_ty, inst, inst_src, false, false);
     if (try sema.resolveMaybeUndefVal(block, inst_src, coerced)) |val| {
         return sema.addConstant(dest_ty, try Value.Tag.eu_payload.create(sema.arena, val));
     }
