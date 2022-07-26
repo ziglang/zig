@@ -6,4 +6,6 @@ export fn foo() void {
 // backend=stage2
 // target=native
 //
-// :2:5: error: expression value is ignored
+// :2:5: error: value of type 'comptime_int' ignored
+// :2:5: note: all non-void values must be used
+// :2:5: note: this error can be suppressed by assigning the value to '_'

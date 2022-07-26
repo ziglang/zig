@@ -2869,7 +2869,16 @@ fn ensureResultUsed(
             };
             return sema.failWithOwnedErrorMsg(block, msg);
         },
-        else => return sema.fail(block, src, "expression value is ignored", .{}),
+        else => {
+            const msg = msg: {
+                const msg = try sema.errMsg(block, src, "value of type '{}' ignored", .{operand_ty.fmt(sema.mod)});
+                errdefer msg.destroy(sema.gpa);
+                try sema.errNote(block, src, msg, "all non-void values must be used", .{});
+                try sema.errNote(block, src, msg, "this error can be suppressed by assigning the value to '_'", .{});
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(block, msg);
+        },
     }
 }
 
