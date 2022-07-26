@@ -424,6 +424,9 @@ test "zeroes" {
 
     comptime var comptime_union = zeroes(C_union);
     try testing.expectEqual(@as(u8, 0), comptime_union.a);
+
+    // https://github.com/ziglang/zig/pull/12246
+    _ = zeroes(struct { handle: void });
 }
 
 /// Initializes all fields of the struct with their default value, or zero values if no default value is present.
