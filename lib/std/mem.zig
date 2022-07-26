@@ -267,7 +267,7 @@ pub fn zeroes(comptime T: type) T {
             return null;
         },
         .Struct => |struct_info| {
-            if (@sizeOf(T) == 0) return T{};
+            if (@sizeOf(T) == 0) return undefined;
             if (struct_info.layout == .Extern) {
                 var item: T = undefined;
                 set(u8, asBytes(&item), 0);
