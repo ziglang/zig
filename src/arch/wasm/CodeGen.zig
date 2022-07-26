@@ -4309,10 +4309,10 @@ fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!W
     // for signed integers, we first apply signed shifts by the difference in bits
     // to get the signed value, as we store it internally as 2's complement.
     const lhs = if (wasm_bits != int_info.bits and is_signed) blk: {
-        break :blk try self.signAbsValue(lhs_op, lhs_ty);
+        break :blk try (try self.signAbsValue(lhs_op, lhs_ty)).toLocal(self, lhs_ty);
     } else lhs_op;
     const rhs = if (wasm_bits != int_info.bits and is_signed) blk: {
-        break :blk try self.signAbsValue(rhs_op, lhs_ty);
+        break :blk try (try self.signAbsValue(rhs_op, lhs_ty)).toLocal(self, lhs_ty);
     } else rhs_op;
 
     const bin_op = try (try self.binOp(lhs, rhs, lhs_ty, op)).toLocal(self, lhs_ty);
@@ -4420,9 +4420,9 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     } else shl;
 
     const overflow_bit = if (wasm_bits != int_info.bits and is_signed) blk: {
-        const abs = try self.signAbsValue(shl, lhs_ty);
         // emit lhs to stack to we can keep 'wrapped' on the stack also
         try self.emitWValue(lhs);
+        const abs = try self.signAbsValue(shl, lhs_ty);
         const wrapped = try self.wrapBinOp(abs, rhs, lhs_ty, .shr);
         break :blk try self.cmp(.{ .stack = {} }, wrapped, lhs_ty, .neq);
     } else blk: {
@@ -4909,10 +4909,10 @@ fn airDivFloor(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
             return self.fail("TODO: `@divFloor` for signed integers larger than '{d}' bits", .{int_bits});
         };
         const lhs_res = if (wasm_bits != int_bits) blk: {
-            break :blk try self.signAbsValue(lhs, ty);
+            break :blk try (try self.signAbsValue(lhs, ty)).toLocal(self, ty);
         } else lhs;
         const rhs_res = if (wasm_bits != int_bits) blk: {
-            break :blk try self.signAbsValue(rhs, ty);
+            break :blk try (try self.signAbsValue(rhs, ty)).toLocal(self, ty);
         } else rhs;
 
         const zero = switch (wasm_bits) {
@@ -4994,10 +4994,9 @@ fn divSigned(self: *Self, lhs: WValue, rhs: WValue, ty: Type) InnerError!WValue 
     }
 
     if (wasm_bits != int_bits) {
-        const lhs_abs = try self.signAbsValue(lhs, ty);
-        const rhs_abs = try self.signAbsValue(rhs, ty);
-        try self.emitWValue(lhs_abs);
-        try self.emitWValue(rhs_abs);
+        // Leave both values on the stack
+        _ = try self.signAbsValue(lhs, ty);
+        _ = try self.signAbsValue(rhs, ty);
     } else {
         try self.emitWValue(lhs);
         try self.emitWValue(rhs);
@@ -5009,6 +5008,8 @@ fn divSigned(self: *Self, lhs: WValue, rhs: WValue, ty: Type) InnerError!WValue 
     return result;
 }
 
+/// Retrieves the absolute value of a signed integer
+/// NOTE: Leaves the result value on the stack.
 fn signAbsValue(self: *Self, operand: WValue, ty: Type) InnerError!WValue {
     const int_bits = ty.intInfo(self.target).bits;
     const wasm_bits = toWasmBits(int_bits) orelse {
@@ -5037,9 +5038,8 @@ fn signAbsValue(self: *Self, operand: WValue, ty: Type) InnerError!WValue {
         },
         else => unreachable,
     }
-    const result = try self.allocLocal(ty);
-    try self.addLabel(.local_set, result.local);
-    return result;
+
+    return WValue{ .stack = {} };
 }
 
 fn airCeilFloorTrunc(self: *Self, inst: Air.Inst.Index, op: Op) InnerError!WValue {
@@ -5130,8 +5130,12 @@ fn signedSat(self: *Self, lhs_operand: WValue, rhs_operand: WValue, ty: Type, op
     const wasm_bits = toWasmBits(int_info.bits).?;
     const is_wasm_bits = wasm_bits == int_info.bits;
 
-    const lhs = if (!is_wasm_bits) try self.signAbsValue(lhs_operand, ty) else lhs_operand;
-    const rhs = if (!is_wasm_bits) try self.signAbsValue(rhs_operand, ty) else rhs_operand;
+    const lhs = if (!is_wasm_bits) lhs: {
+        break :lhs try (try self.signAbsValue(lhs_operand, ty)).toLocal(self, ty);
+    } else lhs_operand;
+    const rhs = if (!is_wasm_bits) rhs: {
+        break :rhs try (try self.signAbsValue(rhs_operand, ty)).toLocal(self, ty);
+    } else rhs_operand;
 
     const max_val: u64 = @intCast(u64, (@as(u65, 1) << @intCast(u7, int_info.bits - 1)) - 1);
     const min_val: i64 = (-@intCast(i64, @intCast(u63, max_val))) - 1;
