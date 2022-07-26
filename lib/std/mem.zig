@@ -1779,6 +1779,20 @@ test "split (multibyte)" {
     try testing.expect(it16.next() == null);
 }
 
+test "split (reset)" {
+    var it = split(u8, "abc def ghi", " ");
+    try testing.expect(eql(u8, it.first(), "abc"));
+    try testing.expect(eql(u8, it.next().?, "def"));
+    try testing.expect(eql(u8, it.next().?, "ghi"));
+
+    it.reset();
+
+    try testing.expect(eql(u8, it.first(), "abc"));
+    try testing.expect(eql(u8, it.next().?, "def"));
+    try testing.expect(eql(u8, it.next().?, "ghi"));
+    try testing.expect(it.next() == null);
+}
+
 /// Returns an iterator that iterates backwards over the slices of `buffer`
 /// that are separated by bytes in `delimiter`.
 ///
@@ -1869,6 +1883,20 @@ test "splitBackwards (multibyte)" {
     try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("b ,"));
     try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("a"));
     try testing.expect(it16.next() == null);
+}
+
+test "splitBackwards (reset)" {
+    var it = splitBackwards(u8, "abc def ghi", " ");
+    try testing.expect(eql(u8, it.first(), "ghi"));
+    try testing.expect(eql(u8, it.next().?, "def"));
+    try testing.expect(eql(u8, it.next().?, "abc"));
+
+    it.reset();
+
+    try testing.expect(eql(u8, it.first(), "ghi"));
+    try testing.expect(eql(u8, it.next().?, "def"));
+    try testing.expect(eql(u8, it.next().?, "abc"));
+    try testing.expect(it.next() == null);
 }
 
 pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
@@ -1980,6 +2008,11 @@ pub fn SplitIterator(comptime T: type) type {
             const start = self.index orelse end;
             return self.buffer[start..end];
         }
+
+        /// Resets the iterator to the initial slice.
+        pub fn reset(self: *Self) void {
+            self.index = 0;
+        }
     };
 }
 
@@ -2015,6 +2048,11 @@ pub fn SplitBackwardsIterator(comptime T: type) type {
         pub fn rest(self: Self) []const T {
             const end = self.index orelse 0;
             return self.buffer[0..end];
+        }
+
+        /// Resets the iterator to the initial slice.
+        pub fn reset(self: *Self) void {
+            self.index = self.buffer.len;
         }
     };
 }
