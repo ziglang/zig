@@ -8916,6 +8916,10 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
                 if (special_prong == .@"else" and seen_errors.count() == operand_ty.errorSetNames().len) {
 
+                    // TODO re-enable if defer implementation is improved
+                    // https://github.com/ziglang/zig/issues/11798
+                    if (true) break :else_validation;
+
                     // In order to enable common patterns for generic code allow simple else bodies
                     // else => unreachable,
                     // else => return,
