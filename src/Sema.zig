@@ -4508,6 +4508,7 @@ fn zirCompileLog(
         const arg = try sema.resolveInst(arg_ref);
         const arg_ty = sema.typeOf(arg);
         if (try sema.resolveMaybeUndefVal(block, src, arg)) |val| {
+            try sema.resolveLazyValue(block, src, val);
             try writer.print("@as({}, {})", .{
                 arg_ty.fmt(sema.mod), val.fmtValue(arg_ty, sema.mod),
             });
@@ -25438,6 +25439,10 @@ fn resolveLazyValue(
     switch (val.tag()) {
         .lazy_align => {
             const ty = val.castTag(.lazy_align).?.data;
+            return sema.resolveTypeLayout(block, src, ty);
+        },
+        .lazy_size => {
+            const ty = val.castTag(.lazy_size).?.data;
             return sema.resolveTypeLayout(block, src, ty);
         },
         else => return,
