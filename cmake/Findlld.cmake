@@ -7,6 +7,7 @@
 # LLD_LIBRARIES
 
 find_path(LLD_INCLUDE_DIRS NAMES lld/Common/Driver.h
+    HINTS ${LLVM_INCLUDE_DIRS}
     PATHS
         /usr/lib/llvm-14/include
         /usr/local/llvm140/include
@@ -16,6 +17,7 @@ find_path(LLD_INCLUDE_DIRS NAMES lld/Common/Driver.h
         /mingw64/include)
 
 find_library(LLD_LIBRARY NAMES lld-14.0 lld140 lld NAMES_PER_DIR
+    HINTS ${LLVM_LIBDIRS}
     PATHS
         /usr/lib/llvm-14/lib
         /usr/local/llvm140/lib
@@ -29,6 +31,7 @@ else()
     macro(FIND_AND_ADD_LLD_LIB _libname_)
         string(TOUPPER ${_libname_} _prettylibname_)
         find_library(LLD_${_prettylibname_}_LIB NAMES ${_libname_} NAMES_PER_DIR
+            HINTS ${LLVM_LIBDIRS}
             PATHS
                 ${LLD_LIBDIRS}
                 /usr/lib/llvm-14/lib
@@ -39,8 +42,8 @@ else()
                 /mingw64/lib
                 /c/msys64/mingw64/lib
                 c:/msys64/mingw64/lib)
-            if(LLD_${_prettylibname_}_LIB)
-                set(LLD_LIBRARIES ${LLD_LIBRARIES} ${LLD_${_prettylibname_}_LIB})
+        if(LLD_${_prettylibname_}_LIB)
+            set(LLD_LIBRARIES ${LLD_LIBRARIES} ${LLD_${_prettylibname_}_LIB})
         endif()
     endmacro(FIND_AND_ADD_LLD_LIB)
 

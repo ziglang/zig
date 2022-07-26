@@ -676,6 +676,7 @@ fn addCMakeLibraryList(exe: *std.build.LibExeObjStep, list: []const u8) void {
 }
 
 const CMakeConfig = struct {
+    llvm_linkage: std.build.LibExeObjStep.Linkage,
     cmake_binary_dir: []const u8,
     cmake_prefix_path: []const u8,
     cxx_compiler: []const u8,
@@ -714,6 +715,7 @@ fn findAndParseConfigH(b: *Builder, config_h_path_option: ?[]const u8) ?CMakeCon
     };
 
     var ctx: CMakeConfig = .{
+        .llvm_linkage = undefined,
         .cmake_binary_dir = undefined,
         .cmake_prefix_path = undefined,
         .cxx_compiler = undefined,
@@ -757,6 +759,7 @@ fn findAndParseConfigH(b: *Builder, config_h_path_option: ?[]const u8) ?CMakeCon
             .prefix = "#define ZIG_DIA_GUIDS_LIB ",
             .field = "dia_guids_lib",
         },
+        // .prefix = ZIG_LLVM_LINK_MODE parsed manually below
     };
 
     var lines_it = mem.tokenize(u8, config_h_text, "\r\n");
@@ -768,6 +771,12 @@ fn findAndParseConfigH(b: *Builder, config_h_path_option: ?[]const u8) ?CMakeCon
                 const quoted = it.next().?; // the stuff inside the quote
                 @field(ctx, mapping.field) = toNativePathSep(b, quoted);
             }
+        }
+        if (mem.startsWith(u8, line, "#define ZIG_LLVM_LINK_MODE ")) {
+            var it = mem.split(u8, line, "\"");
+            _ = it.next().?; // skip the stuff before the quote
+            const quoted = it.next().?; // the stuff inside the quote
+            ctx.llvm_linkage = if (mem.eql(u8, quoted, "shared")) .dynamic else .static;
         }
     }
     return ctx;

@@ -8,52 +8,33 @@
 # CLANG_LIBDIRS
 
 find_path(CLANG_INCLUDE_DIRS NAMES clang/Frontend/ASTUnit.h
-  PATHS
-    /usr/lib/llvm/14/include
-    /usr/lib/llvm-14/include
-    /usr/lib/llvm-14.0/include
-    /usr/local/llvm140/include
-    /usr/local/llvm14/include
-    /usr/local/opt/llvm@14/include
-    /opt/homebrew/opt/llvm@14/include
-    /mingw64/include
+  HINTS ${LLVM_INCLUDE_DIRS}
+  # Only look for Clang next to LLVM or in { CMAKE_PREFIX_PATH, CMAKE_LIBRARY_PATH, CMAKE_FRAMEWORK_PATH }
+  NO_SYSTEM_ENVIRONMENT_PATH
+  NO_CMAKE_SYSTEM_PATH
 )
 
-if(ZIG_PREFER_CLANG_CPP_DYLIB)
+if(${LLVM_LINK_MODE} STREQUAL "shared")
   find_library(CLANG_LIBRARIES
     NAMES
+      libclang-cpp.so.14
       clang-cpp-14.0
       clang-cpp140
       clang-cpp
     NAMES_PER_DIR
-    PATHS
-      ${CLANG_LIBDIRS}
-      /usr/lib/llvm/14/lib
-      /usr/lib/llvm/14/lib64
-      /usr/lib/llvm-14/lib
-      /usr/local/llvm140/lib
-      /usr/local/llvm14/lib
-      /usr/local/opt/llvm@14/lib
-      /opt/homebrew/opt/llvm@14/lib
+    HINTS "${LLVM_LIBDIRS}"
+    # Only look for Clang next to LLVM or in { CMAKE_PREFIX_PATH, CMAKE_LIBRARY_PATH, CMAKE_FRAMEWORK_PATH }
+    NO_SYSTEM_ENVIRONMENT_PATH
+    NO_CMAKE_SYSTEM_PATH
   )
-endif()
-
-if(NOT CLANG_LIBRARIES)
+else()
   macro(FIND_AND_ADD_CLANG_LIB _libname_)
     string(TOUPPER ${_libname_} _prettylibname_)
     find_library(CLANG_${_prettylibname_}_LIB NAMES ${_libname_} NAMES_PER_DIR
-      PATHS
-        ${CLANG_LIBDIRS}
-        /usr/lib/llvm/14/lib
-        /usr/lib/llvm-14/lib
-        /usr/lib/llvm-14.0/lib
-        /usr/local/llvm140/lib
-        /usr/local/llvm14/lib
-        /usr/local/opt/llvm@14/lib
-        /opt/homebrew/opt/llvm@14/lib
-        /mingw64/lib
-        /c/msys64/mingw64/lib
-        c:\\msys64\\mingw64\\lib
+      HINTS "${LLVM_LIBDIRS}"
+      # Only look for Clang next to LLVM or in { CMAKE_PREFIX_PATH, CMAKE_LIBRARY_PATH, CMAKE_FRAMEWORK_PATH }
+      NO_SYSTEM_ENVIRONMENT_PATH
+      NO_CMAKE_SYSTEM_PATH
     )
     if(CLANG_${_prettylibname_}_LIB)
       set(CLANG_LIBRARIES ${CLANG_LIBRARIES} ${CLANG_${_prettylibname_}_LIB})
