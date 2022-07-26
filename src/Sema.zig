@@ -4909,7 +4909,13 @@ fn zirExport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         return sema.fail(block, src, "TODO: implement exporting with field access", .{});
     }
     const decl_index = try sema.lookupIdentifier(block, operand_src, decl_name);
-    const options = try sema.resolveExportOptions(block, options_src, extra.options);
+    const options = sema.resolveExportOptions(block, .unneeded, extra.options) catch |err| switch (err) {
+        error.NeededSourceLocation => {
+            _ = try sema.resolveExportOptions(block, options_src, extra.options);
+            return error.AnalysisFail;
+        },
+        else => |e| return e,
+    };
     try sema.analyzeExport(block, src, options, decl_index);
 }
 
@@ -4923,7 +4929,13 @@ fn zirExportValue(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const options_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const operand = try sema.resolveInstConst(block, operand_src, extra.operand, "export target must be comptime known");
-    const options = try sema.resolveExportOptions(block, options_src, extra.options);
+    const options = sema.resolveExportOptions(block, .unneeded, extra.options) catch |err| switch (err) {
+        error.NeededSourceLocation => {
+            _ = try sema.resolveExportOptions(block, options_src, extra.options);
+            return error.AnalysisFail;
+        },
+        else => |e| return e,
+    };
     const decl_index = switch (operand.val.tag()) {
         .function => operand.val.castTag(.function).?.data.owner_decl,
         else => return sema.fail(block, operand_src, "TODO implement exporting arbitrary Value objects", .{}), // TODO put this Value into an anonymous Decl and then export it.
@@ -17029,6 +17041,11 @@ fn checkVectorizableBinaryOperands(
     }
 }
 
+fn maybeOptionsSrc(sema: *Sema, block: *Block, base_src: LazySrcLoc, wanted: []const u8) LazySrcLoc {
+    if (base_src == .unneeded) return .unneeded;
+    return Module.optionsSrc(sema.gpa, sema.mod.declPtr(block.src_decl), base_src, wanted);
+}
+
 fn resolveExportOptions(
     sema: *Sema,
     block: *Block,
@@ -17039,34 +17056,39 @@ fn resolveExportOptions(
     const air_ref = try sema.resolveInst(zir_ref);
     const options = try sema.coerce(block, export_options_ty, air_ref, src);
 
-    const name_operand = try sema.fieldVal(block, src, options, "name", src);
-    const name_val = try sema.resolveConstValue(block, src, name_operand, "name of exported value must be comptime known");
+    const name_src = sema.maybeOptionsSrc(block, src, "name");
+    const linkage_src = sema.maybeOptionsSrc(block, src, "linkage");
+    const section_src = sema.maybeOptionsSrc(block, src, "section");
+    const visibility_src = sema.maybeOptionsSrc(block, src, "visibility");
+
+    const name_operand = try sema.fieldVal(block, src, options, "name", name_src);
+    const name_val = try sema.resolveConstValue(block, name_src, name_operand, "name of exported value must be comptime known");
     const name_ty = Type.initTag(.const_slice_u8);
     const name = try name_val.toAllocatedBytes(name_ty, sema.arena, sema.mod);
 
-    const linkage_operand = try sema.fieldVal(block, src, options, "linkage", src);
-    const linkage_val = try sema.resolveConstValue(block, src, linkage_operand, "linkage of exported value must be comptime known");
+    const linkage_operand = try sema.fieldVal(block, src, options, "linkage", linkage_src);
+    const linkage_val = try sema.resolveConstValue(block, linkage_src, linkage_operand, "linkage of exported value must be comptime known");
     const linkage = linkage_val.toEnum(std.builtin.GlobalLinkage);
 
-    const section = try sema.fieldVal(block, src, options, "section", src);
-    const section_val = try sema.resolveConstValue(block, src, section, "linksection of exported value must be comptime known");
+    const section = try sema.fieldVal(block, src, options, "section", section_src);
+    const section_val = try sema.resolveConstValue(block, section_src, section, "linksection of exported value must be comptime known");
 
-    const visibility_operand = try sema.fieldVal(block, src, options, "visibility", src);
-    const visibility_val = try sema.resolveConstValue(block, src, visibility_operand, "visibility of exported value must be comptime known");
+    const visibility_operand = try sema.fieldVal(block, src, options, "visibility", visibility_src);
+    const visibility_val = try sema.resolveConstValue(block, visibility_src, visibility_operand, "visibility of exported value must be comptime known");
     const visibility = visibility_val.toEnum(std.builtin.SymbolVisibility);
 
     if (name.len < 1) {
-        return sema.fail(block, src, "exported symbol name cannot be empty", .{});
+        return sema.fail(block, name_src, "exported symbol name cannot be empty", .{});
     }
 
     if (visibility != .default and linkage == .Internal) {
-        return sema.fail(block, src, "symbol '{s}' exported with internal linkage has non-default visibility {s}", .{
+        return sema.fail(block, visibility_src, "symbol '{s}' exported with internal linkage has non-default visibility {s}", .{
             name, @tagName(visibility),
         });
     }
 
     if (!section_val.isNull()) {
-        return sema.fail(block, src, "TODO: implement exporting with linksection", .{});
+        return sema.fail(block, section_src, "TODO: implement exporting with linksection", .{});
     }
 
     return std.builtin.ExportOptions{
@@ -17805,6 +17827,77 @@ fn zirMulAdd(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     });
 }
 
+fn resolveCallOptions(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    zir_ref: Zir.Inst.Ref,
+    is_comptime: bool,
+    is_nosuspend: bool,
+    func: Air.Inst.Ref,
+    func_src: LazySrcLoc,
+) CompileError!std.builtin.CallOptions.Modifier {
+    const call_options_ty = try sema.getBuiltinType(block, src, "CallOptions");
+    const air_ref = try sema.resolveInst(zir_ref);
+    const options = try sema.coerce(block, call_options_ty, air_ref, src);
+
+    const modifier_src = sema.maybeOptionsSrc(block, src, "modifier");
+    const stack_src = sema.maybeOptionsSrc(block, src, "stack");
+
+    const modifier = try sema.fieldVal(block, src, options, "modifier", modifier_src);
+    const modifier_val = try sema.resolveConstValue(block, modifier_src, modifier, "call modifier must be comptime known");
+    const wanted_modifier = modifier_val.toEnum(std.builtin.CallOptions.Modifier);
+
+    const stack = try sema.fieldVal(block, src, options, "stack", stack_src);
+    const stack_val = try sema.resolveConstValue(block, stack_src, stack, "call stack value must be comptime known");
+
+    if (!stack_val.isNull()) {
+        return sema.fail(block, stack_src, "TODO: implement @call with stack", .{});
+    }
+
+    switch (wanted_modifier) {
+        // These can be upgraded to comptime or nosuspend calls.
+        .auto, .never_tail, .no_async => {
+            if (is_comptime) {
+                if (wanted_modifier == .never_tail) {
+                    return sema.fail(block, modifier_src, "unable to perform 'never_tail' call at compile-time", .{});
+                }
+                return .compile_time;
+            }
+            if (is_nosuspend) {
+                return .no_async;
+            }
+            return wanted_modifier;
+        },
+        // These can be upgraded to comptime. nosuspend bit can be safely ignored.
+        .always_tail, .always_inline, .compile_time => {
+            _ = (try sema.resolveDefinedValue(block, func_src, func)) orelse {
+                return sema.fail(block, func_src, "modifier '{s}' requires a comptime-known function", .{@tagName(wanted_modifier)});
+            };
+
+            if (is_comptime) {
+                return .compile_time;
+            }
+            return wanted_modifier;
+        },
+        .async_kw => {
+            if (is_nosuspend) {
+                return sema.fail(block, modifier_src, "modifier 'async_kw' cannot be used inside nosuspend block", .{});
+            }
+            if (is_comptime) {
+                return sema.fail(block, modifier_src, "modifier 'async_kw' cannot be used in combination with comptime function call", .{});
+            }
+            return wanted_modifier;
+        },
+        .never_inline => {
+            if (is_comptime) {
+                return sema.fail(block, modifier_src, "unable to perform 'never_inline' call at compile-time", .{});
+            }
+            return wanted_modifier;
+        },
+    }
+}
+
 fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -17817,68 +17910,30 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
     const extra = sema.code.extraData(Zir.Inst.BuiltinCall, inst_data.payload_index).data;
     var func = try sema.resolveInst(extra.callee);
-    const options = try sema.resolveInst(extra.options);
+    const modifier = sema.resolveCallOptions(
+        block,
+        .unneeded,
+        extra.options,
+        extra.flags.is_comptime,
+        extra.flags.is_nosuspend,
+        func,
+        func_src,
+    ) catch |err| switch (err) {
+        error.NeededSourceLocation => {
+            _ = try sema.resolveCallOptions(
+                block,
+                options_src,
+                extra.options,
+                extra.flags.is_comptime,
+                extra.flags.is_nosuspend,
+                func,
+                func_src,
+            );
+            return error.AnalysisFail;
+        },
+        else => |e| return e,
+    };
     const args = try sema.resolveInst(extra.args);
-
-    const wanted_modifier: std.builtin.CallOptions.Modifier = modifier: {
-        const call_options_ty = try sema.getBuiltinType(block, options_src, "CallOptions");
-        const coerced_options = try sema.coerce(block, call_options_ty, options, options_src);
-
-        const modifier = try sema.fieldVal(block, options_src, coerced_options, "modifier", options_src);
-        const modifier_val = try sema.resolveConstValue(block, options_src, modifier, "call modifier must be comptime known");
-
-        const stack = try sema.fieldVal(block, options_src, coerced_options, "stack", options_src);
-        const stack_val = try sema.resolveConstValue(block, options_src, stack, "call stack value must be comptime known");
-
-        if (!stack_val.isNull()) {
-            return sema.fail(block, options_src, "TODO: implement @call with stack", .{});
-        }
-        break :modifier modifier_val.toEnum(std.builtin.CallOptions.Modifier);
-    };
-
-    const is_comptime = extra.flags.is_comptime or block.is_comptime;
-
-    const modifier: std.builtin.CallOptions.Modifier = switch (wanted_modifier) {
-        // These can be upgraded to comptime or nosuspend calls.
-        .auto, .never_tail, .no_async => m: {
-            if (is_comptime) {
-                if (wanted_modifier == .never_tail) {
-                    return sema.fail(block, options_src, "unable to perform 'never_tail' call at compile-time", .{});
-                }
-                break :m .compile_time;
-            }
-            if (extra.flags.is_nosuspend) {
-                break :m .no_async;
-            }
-            break :m wanted_modifier;
-        },
-        // These can be upgraded to comptime. nosuspend bit can be safely ignored.
-        .always_tail, .always_inline, .compile_time => m: {
-            _ = (try sema.resolveDefinedValue(block, func_src, func)) orelse {
-                return sema.fail(block, func_src, "modifier '{s}' requires a comptime-known function", .{@tagName(wanted_modifier)});
-            };
-
-            if (is_comptime) {
-                break :m .compile_time;
-            }
-            break :m wanted_modifier;
-        },
-        .async_kw => m: {
-            if (extra.flags.is_nosuspend) {
-                return sema.fail(block, options_src, "modifier 'async_kw' cannot be used inside nosuspend block", .{});
-            }
-            if (is_comptime) {
-                return sema.fail(block, options_src, "modifier 'async_kw' cannot be used in combination with comptime function call", .{});
-            }
-            break :m wanted_modifier;
-        },
-        .never_inline => m: {
-            if (is_comptime) {
-                return sema.fail(block, options_src, "unable to perform 'never_inline' call at compile-time", .{});
-            }
-            break :m wanted_modifier;
-        },
-    };
 
     const args_ty = sema.typeOf(args);
     if (!args_ty.isTuple() and args_ty.tag() != .empty_struct_literal) {
@@ -18579,6 +18634,36 @@ fn zirWasmMemoryGrow(
     });
 }
 
+fn resolvePrefetchOptions(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    zir_ref: Zir.Inst.Ref,
+) CompileError!std.builtin.PrefetchOptions {
+    const options_ty = try sema.getBuiltinType(block, src, "PrefetchOptions");
+    const options = try sema.coerce(block, options_ty, try sema.resolveInst(zir_ref), src);
+    const target = sema.mod.getTarget();
+
+    const rw_src = sema.maybeOptionsSrc(block, src, "rw");
+    const locality_src = sema.maybeOptionsSrc(block, src, "locality");
+    const cache_src = sema.maybeOptionsSrc(block, src, "cache");
+
+    const rw = try sema.fieldVal(block, src, options, "rw", rw_src);
+    const rw_val = try sema.resolveConstValue(block, rw_src, rw, "prefetch read/write must be comptime known");
+
+    const locality = try sema.fieldVal(block, src, options, "locality", locality_src);
+    const locality_val = try sema.resolveConstValue(block, locality_src, locality, "prefetch locality must be comptime known");
+
+    const cache = try sema.fieldVal(block, src, options, "cache", cache_src);
+    const cache_val = try sema.resolveConstValue(block, cache_src, cache, "prefetch cache must be comptime known");
+
+    return std.builtin.PrefetchOptions{
+        .rw = rw_val.toEnum(std.builtin.PrefetchOptions.Rw),
+        .locality = @intCast(u2, locality_val.toUnsignedInt(target)),
+        .cache = cache_val.toEnum(std.builtin.PrefetchOptions.Cache),
+    };
+}
+
 fn zirPrefetch(
     sema: *Sema,
     block: *Block,
@@ -18587,37 +18672,85 @@ fn zirPrefetch(
     const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
     const ptr_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
     const opts_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
-    const options_ty = try sema.getBuiltinType(block, opts_src, "PrefetchOptions");
     const ptr = try sema.resolveInst(extra.lhs);
     try sema.checkPtrOperand(block, ptr_src, sema.typeOf(ptr));
-    const options = try sema.coerce(block, options_ty, try sema.resolveInst(extra.rhs), opts_src);
-    const target = sema.mod.getTarget();
 
-    const rw = try sema.fieldVal(block, opts_src, options, "rw", opts_src);
-    const rw_val = try sema.resolveConstValue(block, opts_src, rw, "prefetch read/write must be comptime known");
-    const rw_tag = rw_val.toEnum(std.builtin.PrefetchOptions.Rw);
-
-    const locality = try sema.fieldVal(block, opts_src, options, "locality", opts_src);
-    const locality_val = try sema.resolveConstValue(block, opts_src, locality, "prefetch locality must be comptime known");
-    const locality_int = @intCast(u2, locality_val.toUnsignedInt(target));
-
-    const cache = try sema.fieldVal(block, opts_src, options, "cache", opts_src);
-    const cache_val = try sema.resolveConstValue(block, opts_src, cache, "prefetch cache must be comptime known");
-    const cache_tag = cache_val.toEnum(std.builtin.PrefetchOptions.Cache);
+    const options = sema.resolvePrefetchOptions(block, .unneeded, extra.rhs) catch |err| switch (err) {
+        error.NeededSourceLocation => {
+            _ = try sema.resolvePrefetchOptions(block, opts_src, extra.rhs);
+            return error.AnalysisFail;
+        },
+        else => |e| return e,
+    };
 
     if (!block.is_comptime) {
         _ = try block.addInst(.{
             .tag = .prefetch,
             .data = .{ .prefetch = .{
                 .ptr = ptr,
-                .rw = rw_tag,
-                .locality = locality_int,
-                .cache = cache_tag,
+                .rw = options.rw,
+                .locality = options.locality,
+                .cache = options.cache,
             } },
         });
     }
 
     return Air.Inst.Ref.void_value;
+}
+
+fn resolveExternOptions(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    zir_ref: Zir.Inst.Ref,
+) CompileError!std.builtin.ExternOptions {
+    const options_inst = try sema.resolveInst(zir_ref);
+    const extern_options_ty = try sema.getBuiltinType(block, src, "ExternOptions");
+    const options = try sema.coerce(block, extern_options_ty, options_inst, src);
+    const mod = sema.mod;
+
+    const name_src = sema.maybeOptionsSrc(block, src, "name");
+    const library_src = sema.maybeOptionsSrc(block, src, "library");
+    const linkage_src = sema.maybeOptionsSrc(block, src, "linkage");
+    const thread_local_src = sema.maybeOptionsSrc(block, src, "thread_local");
+
+    const name_ref = try sema.fieldVal(block, src, options, "name", name_src);
+    const name_val = try sema.resolveConstValue(block, name_src, name_ref, "name of the extern symbol must be comptime known");
+    const name = try name_val.toAllocatedBytes(Type.initTag(.const_slice_u8), sema.arena, mod);
+
+    const library_name_inst = try sema.fieldVal(block, src, options, "library_name", library_src);
+    const library_name_val = try sema.resolveConstValue(block, library_src, library_name_inst, "library in which extern symbol is must be comptime known");
+
+    const linkage_ref = try sema.fieldVal(block, src, options, "linkage", linkage_src);
+    const linkage_val = try sema.resolveConstValue(block, linkage_src, linkage_ref, "linkage of the extern symbol must be comptime known");
+    const linkage = linkage_val.toEnum(std.builtin.GlobalLinkage);
+
+    const is_thread_local = try sema.fieldVal(block, src, options, "is_thread_local", thread_local_src);
+    const is_thread_local_val = try sema.resolveConstValue(block, thread_local_src, is_thread_local, "threadlocality of the extern symbol must be comptime known");
+
+    const library_name = if (!library_name_val.isNull()) blk: {
+        const payload = library_name_val.castTag(.opt_payload).?.data;
+        const library_name = try payload.toAllocatedBytes(Type.initTag(.const_slice_u8), sema.arena, mod);
+        if (library_name.len == 0) {
+            return sema.fail(block, library_src, "library name name cannot be empty", .{});
+        }
+        break :blk try sema.handleExternLibName(block, library_src, library_name);
+    } else null;
+
+    if (name.len == 0) {
+        return sema.fail(block, name_src, "extern symbol name cannot be empty", .{});
+    }
+
+    if (linkage != .Weak and linkage != .Strong) {
+        return sema.fail(block, linkage_src, "extern symbol must use strong or weak linkage", .{});
+    }
+
+    return std.builtin.ExternOptions{
+        .name = name,
+        .library_name = library_name,
+        .linkage = linkage,
+        .is_thread_local = is_thread_local_val.toBool(),
+    };
 }
 
 fn zirBuiltinExtern(
@@ -18631,50 +18764,17 @@ fn zirBuiltinExtern(
     const options_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
 
     var ty = try sema.resolveType(block, ty_src, extra.lhs);
-    const options_inst = try sema.resolveInst(extra.rhs);
-    const mod = sema.mod;
-
-    const options = options: {
-        const extern_options_ty = try sema.getBuiltinType(block, options_src, "ExternOptions");
-        const options = try sema.coerce(block, extern_options_ty, options_inst, options_src);
-
-        const name = try sema.fieldVal(block, options_src, options, "name", options_src);
-        const name_val = try sema.resolveConstValue(block, options_src, name, "name of the extern symbol must be comptime known");
-
-        const library_name_inst = try sema.fieldVal(block, options_src, options, "library_name", options_src);
-        const library_name_val = try sema.resolveConstValue(block, options_src, library_name_inst, "library in which extern symbol is must be comptime known");
-
-        const linkage = try sema.fieldVal(block, options_src, options, "linkage", options_src);
-        const linkage_val = try sema.resolveConstValue(block, options_src, linkage, "linkage of the extern symbol must be comptime known");
-
-        const is_thread_local = try sema.fieldVal(block, options_src, options, "is_thread_local", options_src);
-        const is_thread_local_val = try sema.resolveConstValue(block, options_src, is_thread_local, "threadlocality of the extern symbol must be comptime known");
-
-        var library_name: ?[]const u8 = null;
-        if (!library_name_val.isNull()) {
-            const payload = library_name_val.castTag(.opt_payload).?.data;
-            library_name = try payload.toAllocatedBytes(Type.initTag(.const_slice_u8), sema.arena, mod);
-        }
-
-        break :options std.builtin.ExternOptions{
-            .name = try name_val.toAllocatedBytes(Type.initTag(.const_slice_u8), sema.arena, mod),
-            .library_name = library_name,
-            .linkage = linkage_val.toEnum(std.builtin.GlobalLinkage),
-            .is_thread_local = is_thread_local_val.toBool(),
-        };
-    };
-
     if (!ty.isPtrAtRuntime()) {
-        return sema.fail(block, options_src, "expected (optional) pointer", .{});
+        return sema.fail(block, ty_src, "expected (optional) pointer", .{});
     }
 
-    if (options.name.len == 0) {
-        return sema.fail(block, options_src, "extern symbol name cannot be empty", .{});
-    }
-
-    if (options.linkage != .Weak and options.linkage != .Strong) {
-        return sema.fail(block, options_src, "extern symbol must use strong or weak linkage", .{});
-    }
+    const options = sema.resolveExternOptions(block, .unneeded, extra.rhs) catch |err| switch (err) {
+        error.NeededSourceLocation => {
+            _ = try sema.resolveExternOptions(block, options_src, extra.rhs);
+            return error.AnalysisFail;
+        },
+        else => |e| return e,
+    };
 
     if (options.linkage == .Weak and !ty.ptrAllowsZero()) {
         ty = try Type.optional(sema.arena, ty);
@@ -18682,9 +18782,9 @@ fn zirBuiltinExtern(
 
     // TODO check duplicate extern
 
-    const new_decl_index = try mod.allocateNewDecl(sema.owner_decl.src_namespace, sema.owner_decl.src_node, null);
-    errdefer mod.destroyDecl(new_decl_index);
-    const new_decl = mod.declPtr(new_decl_index);
+    const new_decl_index = try sema.mod.allocateNewDecl(sema.owner_decl.src_namespace, sema.owner_decl.src_node, null);
+    errdefer sema.mod.destroyDecl(new_decl_index);
+    const new_decl = sema.mod.declPtr(new_decl_index);
     new_decl.name = try sema.gpa.dupeZ(u8, options.name);
 
     var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
@@ -18704,13 +18804,6 @@ fn zirBuiltinExtern(
         .lib_name = null,
     };
 
-    if (options.library_name) |library_name| {
-        if (library_name.len == 0) {
-            return sema.fail(block, options_src, "library name name cannot be empty", .{});
-        }
-        new_var.lib_name = try sema.handleExternLibName(block, options_src, library_name);
-    }
-
     new_decl.src_line = sema.owner_decl.src_line;
     new_decl.ty = try ty.copy(new_decl_arena_allocator);
     new_decl.val = try Value.Tag.variable.create(new_decl_arena_allocator, new_var);
@@ -18718,7 +18811,7 @@ fn zirBuiltinExtern(
     new_decl.@"linksection" = null;
     new_decl.has_tv = true;
     new_decl.analysis = .complete;
-    new_decl.generation = mod.generation;
+    new_decl.generation = sema.mod.generation;
 
     const arena_state = try new_decl_arena_allocator.create(std.heap.ArenaAllocator.State);
     arena_state.* = new_decl_arena.state;

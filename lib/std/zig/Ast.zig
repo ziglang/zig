@@ -297,6 +297,12 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         .unattached_doc_comment => {
             return stream.writeAll("unattached documentation comment");
         },
+        .test_doc_comment => {
+            return stream.writeAll("documentation comments cannot be attached to tests");
+        },
+        .comptime_doc_comment => {
+            return stream.writeAll("documentation comments cannot be attached to comptime blocks");
+        },
         .varargs_nonfinal => {
             return stream.writeAll("function prototype has parameter after varargs");
         },
@@ -2539,6 +2545,8 @@ pub const Error = struct {
         invalid_bit_range,
         same_line_doc_comment,
         unattached_doc_comment,
+        test_doc_comment,
+        comptime_doc_comment,
         varargs_nonfinal,
         expected_continue_expr,
         expected_semi_after_decl,

@@ -14,7 +14,7 @@ const Error = error{
     InvalidCmdLine,
 };
 
-test "" {
+test {
     const allocator = std.heap.c_allocator;
 
     const args = try std.process.argsAlloc(allocator);

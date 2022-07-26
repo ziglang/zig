@@ -1,4 +1,4 @@
-test "" {}
+test {}
 
 pub fn panic() void {}
 

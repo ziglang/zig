@@ -28,8 +28,8 @@ fn baz2() void {}
 // target=native
 //
 // :2:21: error: expected a tuple, found 'void'
-// :5:21: error: unable to perform 'never_inline' call at compile-time
-// :8:21: error: unable to perform 'never_tail' call at compile-time
+// :5:33: error: unable to perform 'never_inline' call at compile-time
+// :8:33: error: unable to perform 'never_tail' call at compile-time
 // :11:5: error: no-inline call of inline function
 // :15:43: error: modifier 'compile_time' requires a comptime-known function
 // :19:44: error: modifier 'always_inline' requires a comptime-known function

@@ -259,6 +259,9 @@ const Parser = struct {
 
             switch (p.token_tags[p.tok_i]) {
                 .keyword_test => {
+                    if (doc_comment) |some| {
+                        try p.warnMsg(.{ .tag = .test_doc_comment, .token = some });
+                    }
                     const test_decl_node = try p.expectTestDeclRecoverable();
                     if (test_decl_node != 0) {
                         if (field_state == .seen) {
@@ -317,6 +320,9 @@ const Parser = struct {
                         }
                     },
                     .l_brace => {
+                        if (doc_comment) |some| {
+                            try p.warnMsg(.{ .tag = .test_doc_comment, .token = some });
+                        }
                         const comptime_token = p.nextToken();
                         const block = p.parseBlock() catch |err| switch (err) {
                             error.OutOfMemory => return error.OutOfMemory,
