@@ -1595,7 +1595,7 @@ pub const TestContext = struct {
         });
         defer comp.destroy();
 
-        for (case.updates.items) |update, update_index| {
+        update: for (case.updates.items) |update, update_index| {
             var update_node = root_node.start(update.name, 3);
             update_node.activate();
             defer update_node.end();
@@ -1803,7 +1803,7 @@ pub const TestContext = struct {
                 .Execution => |expected_stdout| {
                     if (!std.process.can_spawn) {
                         print("Unable to spawn child processes on {s}, skipping test.\n", .{@tagName(builtin.os.tag)});
-                        return; // Pass test.
+                        continue :update; // Pass test.
                     }
 
                     update_node.setEstimatedTotalItems(4);
@@ -1829,7 +1829,7 @@ pub const TestContext = struct {
                         if (case.object_format != null and case.object_format.? == .c) {
                             if (host.getExternalExecutor(target_info, .{ .link_libc = true }) != .native) {
                                 // We wouldn't be able to run the compiled C code.
-                                return; // Pass test.
+                                continue :update; // Pass test.
                             }
                             try argv.appendSlice(&[_][]const u8{
                                 std.testing.zig_exe_path,
@@ -1845,18 +1845,18 @@ pub const TestContext = struct {
                             });
                         } else switch (host.getExternalExecutor(target_info, .{ .link_libc = case.link_libc })) {
                             .native => try argv.append(exe_path),
-                            .bad_dl, .bad_os_or_cpu => return, // Pass test.
+                            .bad_dl, .bad_os_or_cpu => continue :update, // Pass test.
 
                             .rosetta => if (enable_rosetta) {
                                 try argv.append(exe_path);
                             } else {
-                                return; // Rosetta not available, pass test.
+                                continue :update; // Rosetta not available, pass test.
                             },
 
                             .qemu => |qemu_bin_name| if (enable_qemu) {
                                 const need_cross_glibc = target.isGnuLibC() and case.link_libc;
                                 const glibc_dir_arg = if (need_cross_glibc)
-                                    glibc_runtimes_dir orelse return // glibc dir not available; pass test
+                                    glibc_runtimes_dir orelse continue :update // glibc dir not available; pass test
                                 else
                                     null;
                                 try argv.append(qemu_bin_name);
@@ -1872,14 +1872,14 @@ pub const TestContext = struct {
                                 }
                                 try argv.append(exe_path);
                             } else {
-                                return; // QEMU not available; pass test.
+                                continue :update; // QEMU not available; pass test.
                             },
 
                             .wine => |wine_bin_name| if (enable_wine) {
                                 try argv.append(wine_bin_name);
                                 try argv.append(exe_path);
                             } else {
-                                return; // Wine not available; pass test.
+                                continue :update; // Wine not available; pass test.
                             },
 
                             .wasmtime => |wasmtime_bin_name| if (enable_wasmtime) {
@@ -1887,7 +1887,7 @@ pub const TestContext = struct {
                                 try argv.append("--dir=.");
                                 try argv.append(exe_path);
                             } else {
-                                return; // wasmtime not available; pass test.
+                                continue :update; // wasmtime not available; pass test.
                             },
 
                             .darling => |darling_bin_name| if (enable_darling) {
@@ -1897,7 +1897,7 @@ pub const TestContext = struct {
                                 try argv.append("shell");
                                 try argv.append(exe_path);
                             } else {
-                                return; // Darling not available; pass test.
+                                continue :update; // Darling not available; pass test.
                             },
                         }
 
