@@ -409,6 +409,7 @@ const Writer = struct {
             .alloc_inferred_comptime_mut,
             .ret_ptr,
             .ret_type,
+            .check_comptime_control_flow,
             => try self.writeNode(stream, inst),
 
             .error_value,

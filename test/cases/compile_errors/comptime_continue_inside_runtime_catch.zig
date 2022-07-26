@@ -9,8 +9,8 @@ fn bad() !void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:4:21: error: comptime control flow inside runtime block
-// tmp.zig:4:15: note: runtime block created here
+// :4:21: error: comptime control flow inside runtime block
+// :4:15: note: runtime control flow here

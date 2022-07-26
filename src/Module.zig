@@ -2283,6 +2283,8 @@ pub const SrcLoc = struct {
                     .@"while" => tree.whileFull(node).ast.cond_expr,
                     .for_simple => tree.forSimple(node).ast.cond_expr,
                     .@"for" => tree.forFull(node).ast.cond_expr,
+                    .@"orelse" => node,
+                    .@"catch" => node,
                     else => unreachable,
                 };
                 return nodeToSpan(tree, src_node);
