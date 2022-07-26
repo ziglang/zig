@@ -41,11 +41,11 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     // C ABI compatibility issue: https://github.com/ziglang/zig/issues/1481
     if (builtin.cpu.arch == .x86_64) {
         if (builtin.zig_backend == .stage1) { // https://github.com/ziglang/zig/issues/12222
-            cases.addBuildFile("test/stage1/c_abi/build.zig", .{});
+            cases.addBuildFile("test/c_abi/build.zig", .{});
         }
     }
     // C ABI tests only pass for the Wasm target when using stage2
-    cases.addBuildFile("test/stage1/c_abi/build_wasm.zig", .{
+    cases.addBuildFile("test/c_abi/build_wasm.zig", .{
         .requires_stage2 = true,
         .use_emulation = true,
     });
