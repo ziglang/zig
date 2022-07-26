@@ -24,7 +24,7 @@
 //!
 //! DynamicBitSet:
 //!   A bit set with runtime known size, backed by an allocated slice
-//!   of MaskType.
+//!   of usize.
 //!
 //! DynamicBitSetUnmanaged:
 //!   A variant of DynamicBitSet which does not store a pointer to its
