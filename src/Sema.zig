@@ -20499,6 +20499,14 @@ fn tupleFieldPtr(
         .@"addrspace" = tuple_ptr_ty.ptrAddressSpace(),
     });
 
+    if (tuple_ty.structFieldValueComptime(field_index)) |default_val| {
+        const val = try Value.Tag.comptime_field_ptr.create(sema.arena, .{
+            .field_ty = field_ty,
+            .field_val = default_val,
+        });
+        return sema.addConstant(ptr_field_ty, val);
+    }
+
     if (try sema.resolveMaybeUndefVal(block, tuple_ptr_src, tuple_ptr)) |tuple_ptr_val| {
         return sema.addConstant(
             ptr_field_ty,
@@ -20508,14 +20516,6 @@ fn tupleFieldPtr(
                 .field_index = field_index,
             }),
         );
-    }
-
-    if (tuple_ty.structFieldValueComptime(field_index)) |default_val| {
-        const val = try Value.Tag.comptime_field_ptr.create(sema.arena, .{
-            .field_ty = field_ty,
-            .field_val = default_val,
-        });
-        return sema.addConstant(ptr_field_ty, val);
     }
 
     if (!init) {
@@ -23239,6 +23239,16 @@ fn beginComptimePtrLoad(
                 };
             }
             break :blk deref;
+        },
+
+        .comptime_field_ptr => blk: {
+            const comptime_field_ptr = ptr_val.castTag(.comptime_field_ptr).?.data;
+            break :blk ComptimePtrLoadKit{
+                .parent = null,
+                .pointee = .{ .ty = comptime_field_ptr.field_ty, .val = comptime_field_ptr.field_val },
+                .is_mutable = false,
+                .ty_without_well_defined_layout = comptime_field_ptr.field_ty,
+            };
         },
 
         .opt_payload_ptr,

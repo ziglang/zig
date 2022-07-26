@@ -40,6 +40,10 @@ pub export fn entry4() void {
     };
     _ = U.foo(.{ .foo = 2, .bar = 2 });
 }
+pub export fn entry5() void {
+    comptime var y = .{ 1, 2};
+    y = .{ 3, 4 };
+}
 // pub export fn entry5() void {
 //     var x: u32 = 15;
 //     const T = @TypeOf(.{ @as(i32, -1234), @as(u32, 5678), x });
@@ -60,3 +64,4 @@ pub export fn entry4() void {
 // :31:19: error: value stored in comptime field does not match the default value of the field
 // :25:29: note: default value set here
 // :41:16: error: value stored in comptime field does not match the default value of the field
+// :45:12: error: value stored in comptime field does not match the default value of the field
