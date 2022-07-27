@@ -1974,6 +1974,17 @@ pub const LibExeObjStep = struct {
                     .use_pkg_config = .no,
                 },
             }) catch unreachable;
+
+            if (self.target.isGnuLibC()) {
+                self.link_objects.append(.{
+                    .system_lib = .{
+                        .name = "c_nonshared",
+                        .needed = false,
+                        .weak = false,
+                        .use_pkg_config = .no,
+                    },
+                }) catch unreachable;
+            }
         }
     }
 
