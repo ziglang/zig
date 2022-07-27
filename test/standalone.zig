@@ -60,9 +60,7 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     }
     // Try to build and run a PIE executable.
     if (builtin.os.tag == .linux) {
-        if (builtin.zig_backend == .stage1) { // https://github.com/ziglang/zig/issues/12223
-            cases.addBuildFile("test/standalone/pie/build.zig", .{});
-        }
+        cases.addBuildFile("test/standalone/pie/build.zig", .{});
     }
 
     // Ensure the development tools are buildable.

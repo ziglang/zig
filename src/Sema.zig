@@ -15441,8 +15441,17 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             const is_allowzero_val = struct_val[6];
             const sentinel_val = struct_val[7];
 
+            const abi_align = @intCast(u29, alignment_val.toUnsignedInt(target)); // TODO: Validate this value.
+
             var buffer: Value.ToTypeBuffer = undefined;
-            const child_ty = child_val.toType(&buffer);
+            const unresolved_elem_ty = child_val.toType(&buffer);
+            const elem_ty = if (abi_align == 0)
+                unresolved_elem_ty
+            else t: {
+                const elem_ty = try sema.resolveTypeFields(block, src, unresolved_elem_ty);
+                try sema.resolveTypeLayout(block, src, elem_ty);
+                break :t elem_ty;
+            };
 
             const ptr_size = size_val.toEnum(std.builtin.Type.Pointer.Size);
 
@@ -15454,7 +15463,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
                 const sentinel_ptr_val = sentinel_val.castTag(.opt_payload).?.data;
                 const ptr_ty = try Type.ptr(sema.arena, mod, .{
                     .@"addrspace" = .generic,
-                    .pointee_type = child_ty,
+                    .pointee_type = try elem_ty.copy(sema.arena),
                 });
                 actual_sentinel = (try sema.pointerDeref(block, src, sentinel_ptr_val, ptr_ty)).?;
             }
@@ -15463,9 +15472,9 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
                 .size = ptr_size,
                 .mutable = !is_const_val.toBool(),
                 .@"volatile" = is_volatile_val.toBool(),
-                .@"align" = @intCast(u29, alignment_val.toUnsignedInt(target)), // TODO: Validate this value.
+                .@"align" = abi_align,
                 .@"addrspace" = address_space_val.toEnum(std.builtin.AddressSpace),
-                .pointee_type = try child_ty.copy(sema.arena),
+                .pointee_type = try elem_ty.copy(sema.arena),
                 .@"allowzero" = is_allowzero_val.toBool(),
                 .sentinel = actual_sentinel,
             });
