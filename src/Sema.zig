@@ -5695,6 +5695,7 @@ fn analyzeCall(
                     sema.inst_map.clearRetainingCapacity();
                     const decl = sema.mod.declPtr(block.src_decl);
                     child_block.src_decl = block.src_decl;
+                    arg_i = 0;
                     try sema.analyzeInlineCallArg(
                         block,
                         &child_block,
@@ -12864,7 +12865,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 else
                     try Value.Tag.opt_payload.create(
                         params_anon_decl.arena(),
-                        try Value.Tag.ty.create(params_anon_decl.arena(), param_ty),
+                        try Value.Tag.ty.create(params_anon_decl.arena(), try param_ty.copy(params_anon_decl.arena())),
                     );
 
                 const param_fields = try params_anon_decl.arena().create([3]Value);
@@ -26635,7 +26636,7 @@ fn getBuiltinType(
 ) CompileError!Type {
     const ty_inst = try sema.getBuiltin(block, src, name);
     const result_ty = try sema.analyzeAsType(block, src, ty_inst);
-    try sema.queueFullTypeResolution(result_ty);
+    try sema.resolveTypeFully(block, src, result_ty); // Should not fail
     return result_ty;
 }
 
