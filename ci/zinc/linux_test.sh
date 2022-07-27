@@ -62,11 +62,12 @@ stage3/bin/zig build test-fmt            -fqemu -fwasmtime -Denable-llvm
 stage3/bin/zig build test-translate-c    -fqemu -fwasmtime -Denable-llvm
 stage3/bin/zig build test-standalone     -fqemu -fwasmtime -Denable-llvm
 stage3/bin/zig build test-cli            -fqemu -fwasmtime -Denable-llvm
+# https://github.com/ziglang/zig/issues/12144
+stage3/bin/zig build test-cases          -fqemu -fwasmtime
 
 $STAGE1_ZIG build test-stack-traces     -fqemu -fwasmtime
 $STAGE1_ZIG build test-run-translated-c -fqemu -fwasmtime
 $STAGE1_ZIG build docs                  -fqemu -fwasmtime
-$STAGE1_ZIG build test-cases            -fqemu -fwasmtime
 $STAGE1_ZIG build test-link             -fqemu -fwasmtime
 
 # Produce the experimental std lib documentation.
