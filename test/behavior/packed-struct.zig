@@ -436,3 +436,25 @@ test "load pointer from packed struct" {
         try expect(i == 123);
     }
 }
+
+test "@ptrToInt on a packed struct field" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
+    const S = struct {
+        const P = packed struct {
+            x: u8,
+            y: u8,
+            z: u32,
+        };
+        var p0: P = P{
+            .x = 1,
+            .y = 2,
+            .z = 0,
+        };
+    };
+    try expect(@ptrToInt(&S.p0.z) - @ptrToInt(&S.p0.x) == 2);
+}

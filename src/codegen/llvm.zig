@@ -3646,6 +3646,24 @@ pub const DeclGen = struct {
                     },
                     .Struct => {
                         const field_ty = parent_ty.structFieldType(field_index);
+                        if (parent_ty.containerLayout() == .Packed) {
+                            const llvm_usize = dg.context.intType(target.cpu.arch.ptrBitWidth());
+                            const base_addr = parent_llvm_ptr.constPtrToInt(llvm_usize);
+                            // count bits of fields before this one
+                            const prev_bits = b: {
+                                var b: usize = 0;
+                                for (parent_ty.structFields().values()[0..field_index]) |field| {
+                                    if (field.is_comptime or !field.ty.hasRuntimeBitsIgnoreComptime()) continue;
+                                    b += field.ty.bitSize(target);
+                                }
+                                break :b b;
+                            };
+                            const byte_offset = llvm_usize.constInt((prev_bits + 7) / 8, .False);
+                            const field_addr = base_addr.constAdd(byte_offset);
+                            bitcast_needed = false;
+                            const final_llvm_ty = (try dg.lowerType(ptr_child_ty)).pointerType(0);
+                            break :blk field_addr.constIntToPtr(final_llvm_ty);
+                        }
                         bitcast_needed = !field_ty.eql(ptr_child_ty, dg.module);
 
                         var ty_buf: Type.Payload.Pointer = undefined;
