@@ -891,39 +891,42 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\}
     , "");
 
-    cases.add("Obscure ways of calling functions; issue #4124",
-        \\#include <stdlib.h>
-        \\static int add(int a, int b) {
-        \\    return a + b;
-        \\}
-        \\typedef int (*adder)(int, int);
-        \\typedef void (*funcptr)(void);
-        \\int main() {
-        \\    if ((add)(1, 2) != 3) abort();
-        \\    if ((&add)(1, 2) != 3) abort();
-        \\    if (add(3, 1) != 4) abort();
-        \\    if ((*add)(2, 3) != 5) abort();
-        \\    if ((**add)(7, -1) != 6) abort();
-        \\    if ((***add)(-2, 9) != 7) abort();
-        \\
-        \\    int (*ptr)(int a, int b);
-        \\    ptr = add;
-        \\
-        \\    if (ptr(1, 2) != 3) abort();
-        \\    if ((*ptr)(3, 1) != 4) abort();
-        \\    if ((**ptr)(2, 3) != 5) abort();
-        \\    if ((***ptr)(7, -1) != 6) abort();
-        \\    if ((****ptr)(-2, 9) != 7) abort();
-        \\
-        \\    funcptr addr1 = (funcptr)(add);
-        \\    funcptr addr2 = (funcptr)(&add);
-        \\
-        \\    if (addr1 != addr2) abort();
-        \\    if (((int(*)(int, int))addr1)(1, 2) != 3) abort();
-        \\    if (((adder)addr2)(1, 2) != 3) abort();
-        \\    return 0;
-        \\}
-    , "");
+    if (@import("builtin").zig_backend == .stage1) {
+        // https://github.com/ziglang/zig/issues/12263
+        cases.add("Obscure ways of calling functions; issue #4124",
+            \\#include <stdlib.h>
+            \\static int add(int a, int b) {
+            \\    return a + b;
+            \\}
+            \\typedef int (*adder)(int, int);
+            \\typedef void (*funcptr)(void);
+            \\int main() {
+            \\    if ((add)(1, 2) != 3) abort();
+            \\    if ((&add)(1, 2) != 3) abort();
+            \\    if (add(3, 1) != 4) abort();
+            \\    if ((*add)(2, 3) != 5) abort();
+            \\    if ((**add)(7, -1) != 6) abort();
+            \\    if ((***add)(-2, 9) != 7) abort();
+            \\
+            \\    int (*ptr)(int a, int b);
+            \\    ptr = add;
+            \\
+            \\    if (ptr(1, 2) != 3) abort();
+            \\    if ((*ptr)(3, 1) != 4) abort();
+            \\    if ((**ptr)(2, 3) != 5) abort();
+            \\    if ((***ptr)(7, -1) != 6) abort();
+            \\    if ((****ptr)(-2, 9) != 7) abort();
+            \\
+            \\    funcptr addr1 = (funcptr)(add);
+            \\    funcptr addr2 = (funcptr)(&add);
+            \\
+            \\    if (addr1 != addr2) abort();
+            \\    if (((int(*)(int, int))addr1)(1, 2) != 3) abort();
+            \\    if (((adder)addr2)(1, 2) != 3) abort();
+            \\    return 0;
+            \\}
+        , "");
+    }
 
     cases.add("Return boolean expression as int; issue #6215",
         \\#include <stdlib.h>
@@ -1319,25 +1322,28 @@ pub fn addCases(cases: *tests.RunTranslatedCContext) void {
         \\}
     , "");
 
-    cases.add("basic vector expressions",
-        \\#include <stdlib.h>
-        \\#include <stdint.h>
-        \\typedef int16_t  __v8hi __attribute__((__vector_size__(16)));
-        \\int main(int argc, char**argv) {
-        \\    __v8hi uninitialized;
-        \\    __v8hi empty_init = {};
-        \\    __v8hi partial_init = {0, 1, 2, 3};
-        \\
-        \\    __v8hi a = {0, 1, 2, 3, 4, 5, 6, 7};
-        \\    __v8hi b = (__v8hi) {100, 200, 300, 400, 500, 600, 700, 800};
-        \\
-        \\    __v8hi sum = a + b;
-        \\    for (int i = 0; i < 8; i++) {
-        \\        if (sum[i] != a[i] + b[i]) abort();
-        \\    }
-        \\    return 0;
-        \\}
-    , "");
+    if (@import("builtin").zig_backend == .stage1) {
+        // https://github.com/ziglang/zig/issues/12264
+        cases.add("basic vector expressions",
+            \\#include <stdlib.h>
+            \\#include <stdint.h>
+            \\typedef int16_t  __v8hi __attribute__((__vector_size__(16)));
+            \\int main(int argc, char**argv) {
+            \\    __v8hi uninitialized;
+            \\    __v8hi empty_init = {};
+            \\    __v8hi partial_init = {0, 1, 2, 3};
+            \\
+            \\    __v8hi a = {0, 1, 2, 3, 4, 5, 6, 7};
+            \\    __v8hi b = (__v8hi) {100, 200, 300, 400, 500, 600, 700, 800};
+            \\
+            \\    __v8hi sum = a + b;
+            \\    for (int i = 0; i < 8; i++) {
+            \\        if (sum[i] != a[i] + b[i]) abort();
+            \\    }
+            \\    return 0;
+            \\}
+        , "");
+    }
 
     cases.add("__builtin_shufflevector",
         \\#include <stdlib.h>
