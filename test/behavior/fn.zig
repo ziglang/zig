@@ -408,3 +408,17 @@ test "function with inferred error set but returning no error" {
     const return_ty = @typeInfo(@TypeOf(S.foo)).Fn.return_type.?;
     try expectEqual(0, @typeInfo(@typeInfo(return_ty).ErrorUnion.error_set).ErrorSet.?.len);
 }
+
+test "import passed byref to function in return type" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn get() @import("std").ArrayListUnmanaged(i32) {
+            var x: @import("std").ArrayListUnmanaged(i32) = .{};
+            return x;
+        }
+    };
+    var list = S.get();
+    try expect(list.items.len == 0);
+}
