@@ -263,11 +263,13 @@ pub fn flushModule(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) 
     // Covers zig.h and err_typedef_item.
     try f.all_buffers.ensureUnusedCapacity(gpa, 2);
 
-    f.all_buffers.appendAssumeCapacity(.{
-        .iov_base = zig_h,
-        .iov_len = zig_h.len,
-    });
-    f.file_size += zig_h.len;
+    if (zig_h.len != 0) {
+        f.all_buffers.appendAssumeCapacity(.{
+            .iov_base = zig_h,
+            .iov_len = zig_h.len,
+        });
+        f.file_size += zig_h.len;
+    }
 
     const err_typedef_writer = f.err_typedef_buf.writer(gpa);
     const err_typedef_index = f.all_buffers.items.len;
@@ -301,11 +303,18 @@ pub fn flushModule(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) 
         try flushDecl(self, &f, decl_index);
     }
 
-    f.all_buffers.items[err_typedef_index] = .{
-        .iov_base = f.err_typedef_buf.items.ptr,
-        .iov_len = f.err_typedef_buf.items.len,
-    };
-    f.file_size += f.err_typedef_buf.items.len;
+    if (f.err_typedef_buf.items.len == 0) {
+        f.all_buffers.items[err_typedef_index] = .{
+            .iov_base = "",
+            .iov_len = 0,
+        };
+    } else {
+        f.all_buffers.items[err_typedef_index] = .{
+            .iov_base = f.err_typedef_buf.items.ptr,
+            .iov_len = f.err_typedef_buf.items.len,
+        };
+        f.file_size += f.err_typedef_buf.items.len;
+    }
 
     // Now the function bodies.
     try f.all_buffers.ensureUnusedCapacity(gpa, f.fn_count);
@@ -391,21 +400,25 @@ fn flushDecl(self: *C, f: *Flush, decl_index: Module.Decl.Index) FlushDeclError!
 
     if (decl_block.fwd_decl.items.len != 0) {
         const buf = decl_block.fwd_decl.items;
-        try f.all_buffers.append(gpa, .{
-            .iov_base = buf.ptr,
-            .iov_len = buf.len,
-        });
-        f.file_size += buf.len;
+        if (buf.len != 0) {
+            try f.all_buffers.append(gpa, .{
+                .iov_base = buf.ptr,
+                .iov_len = buf.len,
+            });
+            f.file_size += buf.len;
+        }
     }
     if (decl.getFunction() != null) {
         f.fn_count += 1;
     } else if (decl_block.code.items.len != 0) {
         const buf = decl_block.code.items;
-        try f.all_buffers.append(gpa, .{
-            .iov_base = buf.ptr,
-            .iov_len = buf.len,
-        });
-        f.file_size += buf.len;
+        if (buf.len != 0) {
+            try f.all_buffers.append(gpa, .{
+                .iov_base = buf.ptr,
+                .iov_len = buf.len,
+            });
+            f.file_size += buf.len;
+        }
     }
 }
 
@@ -421,19 +434,23 @@ pub fn flushEmitH(module: *Module) !void {
     defer all_buffers.deinit();
 
     var file_size: u64 = zig_h.len;
-    all_buffers.appendAssumeCapacity(.{
-        .iov_base = zig_h,
-        .iov_len = zig_h.len,
-    });
+    if (zig_h.len != 0) {
+        all_buffers.appendAssumeCapacity(.{
+            .iov_base = zig_h,
+            .iov_len = zig_h.len,
+        });
+    }
 
     for (emit_h.decl_table.keys()) |decl_index| {
         const decl_emit_h = emit_h.declPtr(decl_index);
         const buf = decl_emit_h.fwd_decl.items;
-        all_buffers.appendAssumeCapacity(.{
-            .iov_base = buf.ptr,
-            .iov_len = buf.len,
-        });
-        file_size += buf.len;
+        if (buf.len != 0) {
+            all_buffers.appendAssumeCapacity(.{
+                .iov_base = buf.ptr,
+                .iov_len = buf.len,
+            });
+            file_size += buf.len;
+        }
     }
 
     const directory = emit_h.loc.directory orelse module.comp.local_cache_directory;
