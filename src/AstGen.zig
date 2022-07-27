@@ -751,6 +751,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
         },
 
         .unreachable_literal => {
+            try emitDbgNode(gz, node);
             _ = try gz.addAsIndex(.{
                 .tag = .@"unreachable",
                 .data = .{ .@"unreachable" = .{
@@ -7443,7 +7444,6 @@ fn builtinCall(
         .bool_to_int           => return simpleUnOp(gz, scope, rl, node, bool_rl,                             params[0], .bool_to_int),
         .embed_file            => return simpleUnOp(gz, scope, rl, node, .{ .ty = .const_slice_u8_type },     params[0], .embed_file),
         .error_name            => return simpleUnOp(gz, scope, rl, node, .{ .ty = .anyerror_type },           params[0], .error_name),
-        .panic                 => return simpleUnOp(gz, scope, rl, node, .{ .ty = .const_slice_u8_type },     params[0], if (gz.force_comptime) .panic_comptime else .panic),
         .set_cold              => return simpleUnOp(gz, scope, rl, node, bool_rl,                             params[0], .set_cold),
         .set_runtime_safety    => return simpleUnOp(gz, scope, rl, node, bool_rl,                             params[0], .set_runtime_safety),
         .sqrt                  => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .sqrt),
@@ -7476,6 +7476,10 @@ fn builtinCall(
         .truncate     => return typeCast(gz, scope, rl, node, params[0], params[1], .truncate),
         // zig fmt: on
 
+        .panic => {
+            try emitDbgNode(gz, node);
+            return simpleUnOp(gz, scope, rl, node, .{ .ty = .const_slice_u8_type }, params[0], if (gz.force_comptime) .panic_comptime else .panic);
+        },
         .error_to_int => {
             const operand = try expr(gz, scope, .none, params[0]);
             const result = try gz.addExtendedPayload(.error_to_int, Zir.Inst.UnNode{
