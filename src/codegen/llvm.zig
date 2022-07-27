@@ -673,6 +673,7 @@ pub const Object = struct {
     ) !void {
         const decl_index = func.owner_decl;
         const decl = module.declPtr(decl_index);
+        const target = module.getTarget();
 
         var dg: DeclGen = .{
             .context = o.context,
@@ -706,6 +707,17 @@ pub const Object = struct {
             DeclGen.removeFnAttr(llvm_func, "noinline");
         }
 
+        // TODO: port these over from stage1
+        // addLLVMFnAttr(llvm_fn, "sspstrong");
+        // addLLVMFnAttrStr(llvm_fn, "stack-protector-buffer-size", "4");
+
+        // TODO: disable this if safety is off for the function scope
+        if (module.comp.bin_file.options.stack_check) {
+            dg.addFnAttrString(llvm_func, "probe-stack", "__zig_probe_stack");
+        } else if (target.os.tag == .uefi) {
+            dg.addFnAttrString(llvm_func, "no-stack-arg-probe", "");
+        }
+
         // Remove all the basic blocks of a function in order to start over, generating
         // LLVM IR from an empty function body.
         while (llvm_func.getFirstBasicBlock()) |bb| {
@@ -719,7 +731,6 @@ pub const Object = struct {
 
         // This gets the LLVM values from the function and stores them in `dg.args`.
         const fn_info = decl.ty.fnInfo();
-        const target = dg.module.getTarget();
         const sret = firstParamSRet(fn_info, target);
         const ret_ptr = if (sret) llvm_func.getParam(0) else null;
         const gpa = dg.gpa;
@@ -730,7 +741,7 @@ pub const Object = struct {
         };
 
         const err_return_tracing = fn_info.return_type.isError() and
-            dg.module.comp.bin_file.options.error_return_tracing;
+            module.comp.bin_file.options.error_return_tracing;
 
         const err_ret_trace = if (err_return_tracing)
             llvm_func.getParam(@boolToInt(ret_ptr != null))
@@ -920,7 +931,7 @@ pub const Object = struct {
 
             const line_number = decl.src_line + 1;
             const is_internal_linkage = decl.val.tag() != .extern_fn and
-                !dg.module.decl_exports.contains(decl_index);
+                !module.decl_exports.contains(decl_index);
             const noret_bit: c_uint = if (fn_info.return_type.isNoReturn())
                 llvm.DIFlags.NoReturn
             else
@@ -936,7 +947,7 @@ pub const Object = struct {
                 true, // is definition
                 line_number + func.lbrace_line, // scope line
                 llvm.DIFlags.StaticMember | noret_bit,
-                dg.module.comp.bin_file.options.optimize_mode != .Debug,
+                module.comp.bin_file.options.optimize_mode != .Debug,
                 null, // decl_subprogram
             );
             try dg.object.di_map.put(gpa, decl, subprogram.toNode());
