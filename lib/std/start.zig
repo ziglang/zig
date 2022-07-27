@@ -455,10 +455,6 @@ fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
     std.os.argv = argv[0..argc];
     std.os.environ = envp;
 
-    if (builtin.zig_backend == .stage2_llvm) {
-        return @call(.{ .modifier = .always_inline }, callMain, .{});
-    }
-
     std.debug.maybeEnableSegfaultHandler();
 
     return initEventLoopAndCallMain();

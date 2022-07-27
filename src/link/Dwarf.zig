@@ -1752,7 +1752,7 @@ fn pwriteDbgLineNops(
         .iov_base = buf.ptr,
         .iov_len = buf.len,
     };
-    vec_index += 1;
+    if (buf.len > 0) vec_index += 1;
 
     {
         var padding_left = next_padding_size;
@@ -1861,7 +1861,7 @@ fn pwriteDbgInfoNops(
         .iov_base = buf.ptr,
         .iov_len = buf.len,
     };
-    vec_index += 1;
+    if (buf.len > 0) vec_index += 1;
 
     {
         var padding_left = next_padding_size;
