@@ -4300,17 +4300,6 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
     );
     defer self.gpa.free(liveness.deaths);
 
-    // If the condition dies here in this switch instruction, process
-    // that death now instead of later as this has an effect on
-    // whether it needs to be spilled in the branches
-    if (self.liveness.operandDies(inst, 0)) {
-        const op_int = @enumToInt(pl_op.operand);
-        if (op_int >= Air.Inst.Ref.typed_value_map.len) {
-            const op_index = @intCast(Air.Inst.Index, op_int - Air.Inst.Ref.typed_value_map.len);
-            self.processDeath(op_index);
-        }
-    }
-
     var extra_index: usize = switch_br.end;
     var case_i: u32 = 0;
     while (case_i < switch_br.data.cases_len) : (case_i += 1) {
@@ -4320,21 +4309,43 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
         const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
         extra_index = case.end + items.len + case_body.len;
 
-        var relocs = try self.gpa.alloc(u32, items.len);
-        defer self.gpa.free(relocs);
+        // For every item, we compare it to condition and branch into
+        // the prong if they are equal. After we compared to all
+        // items, we branch into the next prong (or if no other prongs
+        // exist out of the switch statement).
+        //
+        //             cmp condition, item1
+        //             beq prong
+        //             cmp condition, item2
+        //             beq prong
+        //             cmp condition, item3
+        //             beq prong
+        //             b out
+        // prong:      ...
+        //             ...
+        // out:        ...
+        const branch_into_prong_relocs = try self.gpa.alloc(u32, items.len);
+        defer self.gpa.free(branch_into_prong_relocs);
 
-        if (items.len == 1) {
+        for (items) |item, idx| {
             const condition = try self.resolveInst(pl_op.operand);
-            const item = try self.resolveInst(items[0]);
+            const item_mcv = try self.resolveInst(item);
 
             const operands: BinOpOperands = .{ .mcv = .{
                 .lhs = condition,
-                .rhs = item,
+                .rhs = item_mcv,
             } };
-            const cmp_result = try self.cmp(operands, condition_ty, .eq);
-            relocs[0] = try self.condBr(cmp_result);
-        } else {
-            return self.fail("TODO switch with multiple items", .{});
+            const cmp_result = try self.cmp(operands, condition_ty, .neq);
+            branch_into_prong_relocs[idx] = try self.condBr(cmp_result);
+        }
+
+        const branch_away_from_prong_reloc = try self.addInst(.{
+            .tag = .b,
+            .data = .{ .inst = undefined }, // populated later through performReloc
+        });
+
+        for (branch_into_prong_relocs) |reloc| {
+            try self.performReloc(reloc);
         }
 
         // Capture the state of register and stack allocation state so that we can revert to it.
@@ -4369,9 +4380,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
         self.next_stack_offset = parent_next_stack_offset;
         self.register_manager.free_registers = parent_free_registers;
 
-        for (relocs) |reloc| {
-            try self.performReloc(reloc);
-        }
+        try self.performReloc(branch_away_from_prong_reloc);
     }
 
     if (switch_br.data.else_body_len > 0) {
@@ -4414,9 +4423,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
         // in airCondBr.
     }
 
-    // We already took care of pl_op.operand earlier, so we're going
-    // to pass .none here
-    return self.finishAir(inst, .unreach, .{ .none, .none, .none });
+    return self.finishAir(inst, .unreach, .{ pl_op.operand, .none, .none });
 }
 
 fn performReloc(self: *Self, inst: Mir.Inst.Index) !void {
