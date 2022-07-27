@@ -1220,6 +1220,7 @@ pub const Union = struct {
         };
         const node = owner_decl.relativeToNodeIndex(u.node_offset);
         const node_tags = tree.nodes.items(.tag);
+        var buf: [2]Ast.Node.Index = undefined;
         switch (node_tags[node]) {
             .container_decl,
             .container_decl_trailing,
@@ -1231,6 +1232,15 @@ pub const Union = struct {
             .container_decl_arg,
             .container_decl_arg_trailing,
             => return queryFieldSrc(tree.*, query, file, tree.containerDeclArg(node)),
+            .tagged_union,
+            .tagged_union_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.taggedUnion(node)),
+            .tagged_union_two,
+            .tagged_union_two_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.taggedUnionTwo(&buf, node)),
+            .tagged_union_enum_tag,
+            .tagged_union_enum_tag_trailing,
+            => return queryFieldSrc(tree.*, query, file, tree.taggedUnionEnumTag(node)),
             else => unreachable,
         }
     }
