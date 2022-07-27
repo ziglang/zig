@@ -1843,7 +1843,7 @@ pub const TestContext = struct {
 
                             .qemu => |qemu_bin_name| if (enable_qemu) {
                                 const need_cross_glibc = target.isGnuLibC() and case.link_libc;
-                                const glibc_dir_arg = if (need_cross_glibc)
+                                const glibc_dir_arg: ?[]const u8 = if (need_cross_glibc)
                                     glibc_runtimes_dir orelse continue :update // glibc dir not available; pass test
                                 else
                                     null;
