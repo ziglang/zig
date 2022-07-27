@@ -4,7 +4,8 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:3:47: error: expected type 'std.builtin.AtomicOrder', found 'u32'
+// :3:47: error: expected type 'builtin.AtomicOrder', found 'u32'
+// :?:?: note: enum declared here

@@ -2869,7 +2869,16 @@ fn ensureResultUsed(
             };
             return sema.failWithOwnedErrorMsg(block, msg);
         },
-        else => return sema.fail(block, src, "expression value is ignored", .{}),
+        else => {
+            const msg = msg: {
+                const msg = try sema.errMsg(block, src, "value of type '{}' ignored", .{operand_ty.fmt(sema.mod)});
+                errdefer msg.destroy(sema.gpa);
+                try sema.errNote(block, src, msg, "all non-void values must be used", .{});
+                try sema.errNote(block, src, msg, "this error can be suppressed by assigning the value to '_'", .{});
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(block, msg);
+        },
     }
 }
 
@@ -4508,6 +4517,7 @@ fn zirCompileLog(
         const arg = try sema.resolveInst(arg_ref);
         const arg_ty = sema.typeOf(arg);
         if (try sema.resolveMaybeUndefVal(block, src, arg)) |val| {
+            try sema.resolveLazyValue(block, src, val);
             try writer.print("@as({}, {})", .{
                 arg_ty.fmt(sema.mod), val.fmtValue(arg_ty, sema.mod),
             });
@@ -5498,7 +5508,7 @@ fn analyzeCall(
         // TODO add error note: declared here
         return sema.fail(
             block,
-            func_src,
+            call_src,
             "expected {d} argument(s), found {d}",
             .{ fn_params_len, uncasted_args.len },
         );
@@ -8917,6 +8927,10 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 }
 
                 if (special_prong == .@"else" and seen_errors.count() == operand_ty.errorSetNames().len) {
+
+                    // TODO re-enable if defer implementation is improved
+                    // https://github.com/ziglang/zig/issues/11798
+                    if (true) break :else_validation;
 
                     // In order to enable common patterns for generic code allow simple else bodies
                     // else => unreachable,
@@ -20592,6 +20606,14 @@ fn tupleFieldPtr(
         .@"addrspace" = tuple_ptr_ty.ptrAddressSpace(),
     });
 
+    if (tuple_ty.structFieldValueComptime(field_index)) |default_val| {
+        const val = try Value.Tag.comptime_field_ptr.create(sema.arena, .{
+            .field_ty = field_ty,
+            .field_val = default_val,
+        });
+        return sema.addConstant(ptr_field_ty, val);
+    }
+
     if (try sema.resolveMaybeUndefVal(block, tuple_ptr_src, tuple_ptr)) |tuple_ptr_val| {
         return sema.addConstant(
             ptr_field_ty,
@@ -20601,14 +20623,6 @@ fn tupleFieldPtr(
                 .field_index = field_index,
             }),
         );
-    }
-
-    if (tuple_ty.structFieldValueComptime(field_index)) |default_val| {
-        const val = try Value.Tag.comptime_field_ptr.create(sema.arena, .{
-            .field_ty = field_ty,
-            .field_val = default_val,
-        });
-        return sema.addConstant(ptr_field_ty, val);
     }
 
     if (!init) {
@@ -21354,7 +21368,7 @@ fn coerceExtra(
             else => {},
         },
         .ErrorUnion => switch (inst_ty.zigTypeTag()) {
-            .ErrorUnion => {
+            .ErrorUnion => eu: {
                 if (maybe_inst_val) |inst_val| {
                     switch (inst_val.tag()) {
                         .undef => return sema.addConstUndef(dest_ty),
@@ -21363,7 +21377,10 @@ fn coerceExtra(
                                 inst_ty.errorUnionPayload(),
                                 inst_val.castTag(.eu_payload).?.data,
                             );
-                            return sema.wrapErrorUnionPayload(block, dest_ty, payload, inst_src);
+                            return sema.wrapErrorUnionPayload(block, dest_ty, payload, inst_src) catch |err| switch (err) {
+                                error.NotCoercible => break :eu,
+                                else => |e| return e,
+                            };
                         },
                         else => {
                             const error_set = try sema.addConstant(
@@ -21382,9 +21399,12 @@ fn coerceExtra(
             .Undefined => {
                 return sema.addConstUndef(dest_ty);
             },
-            else => {
+            else => eu: {
                 // T to E!T
-                return sema.wrapErrorUnionPayload(block, dest_ty, inst, inst_src);
+                return sema.wrapErrorUnionPayload(block, dest_ty, inst, inst_src) catch |err| switch (err) {
+                    error.NotCoercible => break :eu,
+                    else => |e| return e,
+                };
             },
         },
         .Union => switch (inst_ty.zigTypeTag()) {
@@ -23334,6 +23354,16 @@ fn beginComptimePtrLoad(
             break :blk deref;
         },
 
+        .comptime_field_ptr => blk: {
+            const comptime_field_ptr = ptr_val.castTag(.comptime_field_ptr).?.data;
+            break :blk ComptimePtrLoadKit{
+                .parent = null,
+                .pointee = .{ .ty = comptime_field_ptr.field_ty, .val = comptime_field_ptr.field_val },
+                .is_mutable = false,
+                .ty_without_well_defined_layout = comptime_field_ptr.field_ty,
+            };
+        },
+
         .opt_payload_ptr,
         .eu_payload_ptr,
         => blk: {
@@ -24864,7 +24894,7 @@ fn wrapErrorUnionPayload(
     inst_src: LazySrcLoc,
 ) !Air.Inst.Ref {
     const dest_payload_ty = dest_ty.errorUnionPayload();
-    const coerced = try sema.coerce(block, dest_payload_ty, inst, inst_src);
+    const coerced = try sema.coerceExtra(block, dest_payload_ty, inst, inst_src, false, false);
     if (try sema.resolveMaybeUndefVal(block, inst_src, coerced)) |val| {
         return sema.addConstant(dest_ty, try Value.Tag.eu_payload.create(sema.arena, val));
     }
@@ -25521,6 +25551,10 @@ fn resolveLazyValue(
     switch (val.tag()) {
         .lazy_align => {
             const ty = val.castTag(.lazy_align).?.data;
+            return sema.resolveTypeLayout(block, src, ty);
+        },
+        .lazy_size => {
+            const ty = val.castTag(.lazy_size).?.data;
             return sema.resolveTypeLayout(block, src, ty);
         },
         else => return,

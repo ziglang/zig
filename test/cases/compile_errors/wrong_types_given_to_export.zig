@@ -4,7 +4,8 @@ comptime {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:3:59: error: expected type 'std.builtin.GlobalLinkage', found 'comptime_int'
+// :3:50: error: expected type 'builtin.GlobalLinkage', found 'u32'
+// :?:?: note: enum declared here

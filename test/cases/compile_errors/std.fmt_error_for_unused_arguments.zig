@@ -3,7 +3,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=llvm
 // target=native
 //
-// ?:?:?: error: 10 unused arguments in '{d} {d} {d} {d} {d}'
+// :?:?: error: 10 unused arguments in '{d} {d} {d} {d} {d}'
