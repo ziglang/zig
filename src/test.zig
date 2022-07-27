@@ -1594,6 +1594,7 @@ pub const TestContext = struct {
 
             var module_node = update_node.start("parse/analysis/codegen", 0);
             module_node.activate();
+            module_node.context.refresh();
             try comp.makeBinFileWritable();
             try comp.update();
             module_node.end();
