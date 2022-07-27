@@ -15,7 +15,7 @@ const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 
 pub const base_tag: link.File.Tag = .c;
-pub const zig_h = @embedFile("C/zig.h");
+pub const zig_h = "#include <zig.h>\n";
 
 base: link.File,
 /// This linker backend does not try to incrementally link output C source code.

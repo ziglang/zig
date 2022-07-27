@@ -749,7 +749,6 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/libunwind.zig"
     "${CMAKE_SOURCE_DIR}/src/link.zig"
     "${CMAKE_SOURCE_DIR}/src/link/C.zig"
-    "${CMAKE_SOURCE_DIR}/src/link/C/zig.h"
     "${CMAKE_SOURCE_DIR}/src/link/Coff.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO.zig"
