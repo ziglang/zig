@@ -4491,17 +4491,29 @@ pub const FuncGen = struct {
             }
             return null;
         }
+
         const abi_ret_ty = try lowerFnRetTy(self.dg, fn_info);
+        const ptr_abi_ty = abi_ret_ty.pointerType(0);
         const operand = try self.resolveInst(un_op);
+        const target = self.dg.module.getTarget();
+        const alignment = ret_ty.abiAlignment(target);
+
+        if (isByRef(ret_ty)) {
+            // operand is a pointer however self.ret_ptr is null so that means
+            // we need to return a value.
+            const casted_ptr = self.builder.buildBitCast(operand, ptr_abi_ty, "");
+            const load_inst = self.builder.buildLoad(casted_ptr, "");
+            load_inst.setAlignment(alignment);
+            _ = self.builder.buildRet(load_inst);
+            return null;
+        }
+
         const llvm_ret_ty = operand.typeOf();
         if (abi_ret_ty == llvm_ret_ty) {
             _ = self.builder.buildRet(operand);
             return null;
         }
 
-        const target = self.dg.module.getTarget();
-        const alignment = ret_ty.abiAlignment(target);
-        const ptr_abi_ty = abi_ret_ty.pointerType(0);
         const rp = self.buildAlloca(llvm_ret_ty);
         rp.setAlignment(alignment);
         const store_inst = self.builder.buildStore(operand, rp);
