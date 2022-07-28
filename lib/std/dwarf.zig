@@ -1159,7 +1159,7 @@ pub const DwarfInfo = struct {
             if (is_64) {
                 return std.mem.readIntSlice(u64, debug_str_offsets[offset .. offset + 8], di.endian);
             }
-            return @as(u64, std.mem.readIntSlice(u32, debug_str_offsets[offset .. offset + 4], di.endian));
+            return @intCast(u64, std.mem.readIntSlice(u32, debug_str_offsets[offset .. offset + 4], di.endian));
         }
         return error.InvalidDebugInfo;
     }
