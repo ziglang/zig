@@ -8288,6 +8288,7 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 
     const dest_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
     const operand = try sema.resolveInst(extra.rhs);
+    const operand_ty = sema.typeOf(operand);
     switch (dest_ty.zigTypeTag()) {
         .AnyFrame,
         .ComptimeFloat,
@@ -8310,8 +8311,8 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             const msg = msg: {
                 const msg = try sema.errMsg(block, dest_ty_src, "cannot @bitCast to '{}'", .{dest_ty.fmt(sema.mod)});
                 errdefer msg.destroy(sema.gpa);
-                switch (sema.typeOf(operand).zigTypeTag()) {
-                    .Int, .ComptimeInt => try sema.errNote(block, dest_ty_src, msg, "use @intToEnum for type coercion", .{}),
+                switch (operand_ty.zigTypeTag()) {
+                    .Int, .ComptimeInt => try sema.errNote(block, dest_ty_src, msg, "use @intToEnum to cast from '{}'", .{operand_ty.fmt(sema.mod)}),
                     else => {},
                 }
 
@@ -8320,9 +8321,20 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             return sema.failWithOwnedErrorMsg(block, msg);
         },
 
-        .Pointer => return sema.fail(block, dest_ty_src, "cannot @bitCast to '{}', use @ptrCast to cast to a pointer", .{
-            dest_ty.fmt(sema.mod),
-        }),
+        .Pointer => {
+            const msg = msg: {
+                const msg = try sema.errMsg(block, dest_ty_src, "cannot @bitCast to '{}'", .{dest_ty.fmt(sema.mod)});
+                errdefer msg.destroy(sema.gpa);
+                switch (operand_ty.zigTypeTag()) {
+                    .Int, .ComptimeInt => try sema.errNote(block, dest_ty_src, msg, "use @intToPtr to cast from '{}'", .{operand_ty.fmt(sema.mod)}),
+                    .Pointer => try sema.errNote(block, dest_ty_src, msg, "use @ptrCast to cast from '{}'", .{operand_ty.fmt(sema.mod)}),
+                    else => {},
+                }
+
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(block, msg);
+        },
         .Struct, .Union => if (dest_ty.containerLayout() == .Auto) {
             const container = switch (dest_ty.zigTypeTag()) {
                 .Struct => "struct",
@@ -8331,6 +8343,70 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             };
             return sema.fail(block, dest_ty_src, "cannot @bitCast to '{}', {s} does not have a guaranteed in-memory layout", .{
                 dest_ty.fmt(sema.mod), container,
+            });
+        },
+        .BoundFn => @panic("TODO remove this type from the language and compiler"),
+
+        .Array,
+        .Bool,
+        .Float,
+        .Int,
+        .Vector,
+        => {},
+    }
+    switch (operand_ty.zigTypeTag()) {
+        .AnyFrame,
+        .ComptimeFloat,
+        .ComptimeInt,
+        .EnumLiteral,
+        .ErrorSet,
+        .ErrorUnion,
+        .Fn,
+        .Frame,
+        .NoReturn,
+        .Null,
+        .Opaque,
+        .Optional,
+        .Type,
+        .Undefined,
+        .Void,
+        => return sema.fail(block, operand_src, "cannot @bitCast from '{}'", .{operand_ty.fmt(sema.mod)}),
+
+        .Enum => {
+            const msg = msg: {
+                const msg = try sema.errMsg(block, operand_src, "cannot @bitCast from '{}'", .{operand_ty.fmt(sema.mod)});
+                errdefer msg.destroy(sema.gpa);
+                switch (dest_ty.zigTypeTag()) {
+                    .Int, .ComptimeInt => try sema.errNote(block, operand_src, msg, "use @enumToInt to cast to '{}'", .{dest_ty.fmt(sema.mod)}),
+                    else => {},
+                }
+
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(block, msg);
+        },
+        .Pointer => {
+            const msg = msg: {
+                const msg = try sema.errMsg(block, operand_src, "cannot @bitCast from '{}'", .{operand_ty.fmt(sema.mod)});
+                errdefer msg.destroy(sema.gpa);
+                switch (dest_ty.zigTypeTag()) {
+                    .Int, .ComptimeInt => try sema.errNote(block, operand_src, msg, "use @ptrToInt to cast to '{}'", .{dest_ty.fmt(sema.mod)}),
+                    .Pointer => try sema.errNote(block, operand_src, msg, "use @ptrCast to cast to '{}'", .{dest_ty.fmt(sema.mod)}),
+                    else => {},
+                }
+
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(block, msg);
+        },
+        .Struct, .Union => if (operand_ty.containerLayout() == .Auto) {
+            const container = switch (operand_ty.zigTypeTag()) {
+                .Struct => "struct",
+                .Union => "union",
+                else => unreachable,
+            };
+            return sema.fail(block, operand_src, "cannot @bitCast from '{}', {s} does not have a guaranteed in-memory layout", .{
+                operand_ty.fmt(sema.mod), container,
             });
         },
         .BoundFn => @panic("TODO remove this type from the language and compiler"),
