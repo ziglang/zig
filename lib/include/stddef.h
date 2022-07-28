@@ -62,7 +62,7 @@ typedef __SIZE_TYPE__ rsize_t;
 #endif /* defined(__need_STDDEF_H_misc) */
 
 #if defined(__need_wchar_t)
-#ifndef __cplusplus
+#if !defined(__cplusplus) || (defined(_MSC_VER) && !_NATIVE_WCHAR_T_DEFINED)
 /* Always define wchar_t when modules are available. */
 #if !defined(_WCHAR_T) || __has_feature(modules)
 #if !__has_feature(modules)

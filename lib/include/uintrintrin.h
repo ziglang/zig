@@ -39,9 +39,9 @@ struct __uintr_frame
 ///
 /// This intrinsic corresponds to the <c> CLUI </c> instruction.
 ///
-/// \operation
+/// \code{.operation}
 ///   UIF := 0
-/// \endoperation
+/// \endcode
 static __inline__ void __DEFAULT_FN_ATTRS
 _clui (void)
 {
@@ -60,9 +60,9 @@ _clui (void)
 ///
 /// This intrinsic corresponds to the <c> STUI </c> instruction.
 ///
-/// \operation
+/// \code{.operation}
 ///   UIF := 1
-/// \endoperation
+/// \endcode
 static __inline__ void __DEFAULT_FN_ATTRS
 _stui (void)
 {
@@ -81,7 +81,7 @@ _stui (void)
 ///
 /// \returns The current value of the user interrupt flag (UIF).
 ///
-/// \operation
+/// \code{.operation}
 ///   CF := UIF
 ///   ZF := 0
 ///   AF := 0
@@ -89,7 +89,7 @@ _stui (void)
 ///   PF := 0
 ///   SF := 0
 ///   dst := CF
-/// \endoperation
+/// \endcode
 static __inline__ unsigned char __DEFAULT_FN_ATTRS
 _testui (void)
 {
@@ -110,7 +110,7 @@ _testui (void)
 ///    Index of user-interrupt target table entry in user-interrupt target
 ///    table.
 ///
-/// \operation
+/// \code{.operation}
 ///   IF __a > UITTSZ
 ///     GP (0)
 ///   FI
@@ -143,7 +143,7 @@ _testui (void)
 ///       SendOrdinaryIPI(tempUPID.NV, tempUPID.NDST[15:8])
 ///     FI
 ///   FI
-/// \endoperation
+/// \endcode
 static __inline__ void __DEFAULT_FN_ATTRS
 _senduipi (unsigned long long __a)
 {

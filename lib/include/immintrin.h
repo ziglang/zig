@@ -276,20 +276,20 @@ _rdpid_u32(void) {
 static __inline__ int __attribute__((__always_inline__, __nodebug__, __target__("rdrnd")))
 _rdrand16_step(unsigned short *__p)
 {
-  return __builtin_ia32_rdrand16_step(__p);
+  return (int)__builtin_ia32_rdrand16_step(__p);
 }
 
 static __inline__ int __attribute__((__always_inline__, __nodebug__, __target__("rdrnd")))
 _rdrand32_step(unsigned int *__p)
 {
-  return __builtin_ia32_rdrand32_step(__p);
+  return (int)__builtin_ia32_rdrand32_step(__p);
 }
 
 #ifdef __x86_64__
 static __inline__ int __attribute__((__always_inline__, __nodebug__, __target__("rdrnd")))
 _rdrand64_step(unsigned long long *__p)
 {
-  return __builtin_ia32_rdrand64_step(__p);
+  return (int)__builtin_ia32_rdrand64_step(__p);
 }
 #endif
 #endif /* __RDRND__ */
@@ -360,50 +360,50 @@ _writegsbase_u64(unsigned long long __V)
 static __inline__ short __attribute__((__always_inline__, __nodebug__, __target__("movbe")))
 _loadbe_i16(void const * __P) {
   struct __loadu_i16 {
-    short __v;
+    unsigned short __v;
   } __attribute__((__packed__, __may_alias__));
-  return __builtin_bswap16(((const struct __loadu_i16*)__P)->__v);
+  return (short)__builtin_bswap16(((const struct __loadu_i16*)__P)->__v);
 }
 
 static __inline__ void __attribute__((__always_inline__, __nodebug__, __target__("movbe")))
 _storebe_i16(void * __P, short __D) {
   struct __storeu_i16 {
-    short __v;
+    unsigned short __v;
   } __attribute__((__packed__, __may_alias__));
-  ((struct __storeu_i16*)__P)->__v = __builtin_bswap16(__D);
+  ((struct __storeu_i16*)__P)->__v = __builtin_bswap16((unsigned short)__D);
 }
 
 static __inline__ int __attribute__((__always_inline__, __nodebug__, __target__("movbe")))
 _loadbe_i32(void const * __P) {
   struct __loadu_i32 {
-    int __v;
+    unsigned int __v;
   } __attribute__((__packed__, __may_alias__));
-  return __builtin_bswap32(((const struct __loadu_i32*)__P)->__v);
+  return (int)__builtin_bswap32(((const struct __loadu_i32*)__P)->__v);
 }
 
 static __inline__ void __attribute__((__always_inline__, __nodebug__, __target__("movbe")))
 _storebe_i32(void * __P, int __D) {
   struct __storeu_i32 {
-    int __v;
+    unsigned int __v;
   } __attribute__((__packed__, __may_alias__));
-  ((struct __storeu_i32*)__P)->__v = __builtin_bswap32(__D);
+  ((struct __storeu_i32*)__P)->__v = __builtin_bswap32((unsigned int)__D);
 }
 
 #ifdef __x86_64__
 static __inline__ long long __attribute__((__always_inline__, __nodebug__, __target__("movbe")))
 _loadbe_i64(void const * __P) {
   struct __loadu_i64 {
-    long long __v;
+    unsigned long long __v;
   } __attribute__((__packed__, __may_alias__));
-  return __builtin_bswap64(((const struct __loadu_i64*)__P)->__v);
+  return (long long)__builtin_bswap64(((const struct __loadu_i64*)__P)->__v);
 }
 
 static __inline__ void __attribute__((__always_inline__, __nodebug__, __target__("movbe")))
 _storebe_i64(void * __P, long long __D) {
   struct __storeu_i64 {
-    long long __v;
+    unsigned long long __v;
   } __attribute__((__packed__, __may_alias__));
-  ((struct __storeu_i64*)__P)->__v = __builtin_bswap64(__D);
+  ((struct __storeu_i64*)__P)->__v = __builtin_bswap64((unsigned long long)__D);
 }
 #endif
 #endif /* __MOVBE */

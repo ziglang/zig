@@ -2086,7 +2086,7 @@ _mm_storer_ps(float *__p, __m128 __a)
 /// \headerfile <x86intrin.h>
 ///
 /// \code
-/// void _mm_prefetch(const void * a, const int sel);
+/// void _mm_prefetch(const void *a, const int sel);
 /// \endcode
 ///
 /// This intrinsic corresponds to the <c> PREFETCHNTA </c> instruction.
@@ -2360,7 +2360,10 @@ _mm_mulhi_pu16(__m64 __a, __m64 __b)
 ///    00: assigned from bits [15:0] of \a a. \n
 ///    01: assigned from bits [31:16] of \a a. \n
 ///    10: assigned from bits [47:32] of \a a. \n
-///    11: assigned from bits [63:48] of \a a.
+///    11: assigned from bits [63:48] of \a a. \n
+///    Note: To generate a mask, you can use the \c _MM_SHUFFLE macro.
+///    <c>_MM_SHUFFLE(b6, b4, b2, b0)</c> can create an 8-bit mask of the form
+///    <c>[b6, b4, b2, b0]</c>.
 /// \returns A 64-bit integer vector containing the shuffled values.
 #define _mm_shuffle_pi16(a, n) \
   ((__m64)__builtin_ia32_pshufw((__v4hi)(__m64)(a), (n)))
@@ -2602,7 +2605,10 @@ void _mm_setcsr(unsigned int __i);
 ///    00: Bits [31:0] copied from the specified operand. \n
 ///    01: Bits [63:32] copied from the specified operand. \n
 ///    10: Bits [95:64] copied from the specified operand. \n
-///    11: Bits [127:96] copied from the specified operand.
+///    11: Bits [127:96] copied from the specified operand. \n
+///    Note: To generate a mask, you can use the \c _MM_SHUFFLE macro.
+///    <c>_MM_SHUFFLE(b6, b4, b2, b0)</c> can create an 8-bit mask of the form
+///    <c>[b6, b4, b2, b0]</c>.
 /// \returns A 128-bit vector of [4 x float] containing the shuffled values.
 #define _mm_shuffle_ps(a, b, mask) \
   ((__m128)__builtin_ia32_shufps((__v4sf)(__m128)(a), (__v4sf)(__m128)(b), \

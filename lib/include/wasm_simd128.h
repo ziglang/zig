@@ -1405,12 +1405,12 @@ wasm_f64x2_convert_low_u32x4(v128_t __a) {
 
 static __inline__ v128_t __DEFAULT_FN_ATTRS
 wasm_i32x4_trunc_sat_f64x2_zero(v128_t __a) {
-  return (v128_t)__builtin_wasm_trunc_sat_zero_s_f64x2_i32x4((__f64x2)__a);
+  return (v128_t)__builtin_wasm_trunc_sat_s_zero_f64x2_i32x4((__f64x2)__a);
 }
 
 static __inline__ v128_t __DEFAULT_FN_ATTRS
 wasm_u32x4_trunc_sat_f64x2_zero(v128_t __a) {
-  return (v128_t)__builtin_wasm_trunc_sat_zero_u_f64x2_i32x4((__f64x2)__a);
+  return (v128_t)__builtin_wasm_trunc_sat_u_zero_f64x2_i32x4((__f64x2)__a);
 }
 
 static __inline__ v128_t __DEFAULT_FN_ATTRS

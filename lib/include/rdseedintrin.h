@@ -20,20 +20,20 @@
 static __inline__ int __DEFAULT_FN_ATTRS
 _rdseed16_step(unsigned short *__p)
 {
-  return __builtin_ia32_rdseed16_step(__p);
+  return (int) __builtin_ia32_rdseed16_step(__p);
 }
 
 static __inline__ int __DEFAULT_FN_ATTRS
 _rdseed32_step(unsigned int *__p)
 {
-  return __builtin_ia32_rdseed32_step(__p);
+  return (int) __builtin_ia32_rdseed32_step(__p);
 }
 
 #ifdef __x86_64__
 static __inline__ int __DEFAULT_FN_ATTRS
 _rdseed64_step(unsigned long long *__p)
 {
-  return __builtin_ia32_rdseed64_step(__p);
+  return (int) __builtin_ia32_rdseed64_step(__p);
 }
 #endif
 

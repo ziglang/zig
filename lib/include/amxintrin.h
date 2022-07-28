@@ -439,8 +439,6 @@ static __inline__ void __tile_dpbuud(__tile1024i *dst, __tile1024i src0,
 ///
 /// This intrinsic corresponds to the <c> TILESTORED </c> instruction.
 ///
-/// \param dst
-///    A destination tile. Max size is 1024 Bytes.
 /// \param base
 ///    A pointer to base address.
 /// \param stride
