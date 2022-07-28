@@ -3016,29 +3016,27 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                 break :result MCValue{ .memory = addr + struct_field_offset };
             },
             .register_with_overflow => |rwo| {
-                switch (index) {
-                    0 => {
-                        // get wrapped value: return register
-                        break :result MCValue{ .register = rwo.reg };
-                    },
-                    1 => {
-                        // TODO return special MCValue condition flags
-                        // get overflow bit: set register to C flag
-                        // resp. V flag
-                        const raw_dest_reg = try self.register_manager.allocReg(null, gp);
-                        const dest_reg = raw_dest_reg.to32();
+                const reg_lock = self.register_manager.lockRegAssumeUnused(rwo.reg);
+                defer self.register_manager.unlockReg(reg_lock);
 
-                        _ = try self.addInst(.{
-                            .tag = .cset,
-                            .data = .{ .r_cond = .{
-                                .rd = dest_reg,
-                                .cond = rwo.flag,
-                            } },
-                        });
+                const field: MCValue = switch (index) {
+                    // get wrapped value: return register
+                    0 => MCValue{ .register = rwo.reg },
 
-                        break :result MCValue{ .register = dest_reg };
-                    },
+                    // get overflow bit: return C or V flag
+                    1 => MCValue{ .condition_flags = rwo.flag },
+
                     else => unreachable,
+                };
+
+                if (self.reuseOperand(inst, operand, 0, field)) {
+                    break :result field;
+                } else {
+                    // Copy to new register
+                    const dest_reg = try self.register_manager.allocReg(null, gp);
+                    try self.genSetReg(struct_ty.structFieldType(index), dest_reg, field);
+
+                    break :result MCValue{ .register = dest_reg };
                 }
             },
             else => return self.fail("TODO implement codegen struct_field_val for {}", .{mcv}),
