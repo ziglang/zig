@@ -229,7 +229,6 @@ const Writer = struct {
             .switch_cond_ref,
             .array_base_ptr,
             .field_base_ptr,
-            .validate_array_init_ty,
             .validate_struct_init_ty,
             .make_ptr_const,
             .validate_deref,
@@ -246,6 +245,7 @@ const Writer = struct {
             .bool_br_or,
             => try self.writeBoolBr(stream, inst),
 
+            .validate_array_init_ty => try self.writeValidateArrayInitTy(stream, inst),
             .array_type_sentinel => try self.writeArrayTypeSentinel(stream, inst),
             .param_type => try self.writeParamType(stream, inst),
             .ptr_type => try self.writePtrType(stream, inst),
@@ -574,6 +574,18 @@ const Writer = struct {
         const inst_data = self.code.instructions.items(.data)[inst].un_tok;
         try self.writeInstRef(stream, inst_data.operand);
         try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeValidateArrayInitTy(
+        self: *Writer,
+        stream: anytype,
+        inst: Zir.Inst.Index,
+    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Zir.Inst.ArrayInit, inst_data.payload_index).data;
+        try self.writeInstRef(stream, extra.ty);
+        try stream.print(", {d}) ", .{extra.init_count});
         try self.writeSrc(stream, inst_data.src());
     }
 

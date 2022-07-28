@@ -1709,7 +1709,7 @@ pub const Inst = struct {
                 .switch_capture_multi_ref = .switch_capture,
                 .array_base_ptr = .un_node,
                 .field_base_ptr = .un_node,
-                .validate_array_init_ty = .un_node,
+                .validate_array_init_ty = .pl_node,
                 .validate_struct_init_ty = .un_node,
                 .validate_struct_init = .pl_node,
                 .validate_struct_init_comptime = .pl_node,
@@ -3542,6 +3542,11 @@ pub const Inst = struct {
     pub const LineColumn = struct {
         line: u32,
         column: u32,
+    };
+
+    pub const ArrayInit = struct {
+        ty: Ref,
+        init_count: u32,
     };
 };
 

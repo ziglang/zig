@@ -1349,7 +1349,10 @@ fn arrayInitExpr(
             }
         }
         const array_type_inst = try typeExpr(gz, scope, array_init.ast.type_expr);
-        _ = try gz.addUnNode(.validate_array_init_ty, array_type_inst, array_init.ast.type_expr);
+        _ = try gz.addPlNode(.validate_array_init_ty, node, Zir.Inst.ArrayInit{
+            .ty = array_type_inst,
+            .init_count = @intCast(u32, array_init.ast.elements.len),
+        });
         break :inst .{
             .array = array_type_inst,
             .elem = .none,
