@@ -793,7 +793,7 @@ const llvm_targets = [_]LlvmTarget{
         .td_name = "Sparc.td",
     },
     .{
-        .zig_name = "systemz",
+        .zig_name = "s390x",
         .llvm_name = "SystemZ",
         .td_name = "SystemZ.td",
     },
