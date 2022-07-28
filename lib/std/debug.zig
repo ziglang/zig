@@ -846,6 +846,7 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_file: File) !ModuleDebugInfo
                 .debug_info = debug_info_data orelse return error.MissingDebugInfo,
                 .debug_abbrev = debug_abbrev_data orelse return error.MissingDebugInfo,
                 .debug_str = debug_str_data orelse return error.MissingDebugInfo,
+                .debug_str_offsets = null,
                 .debug_line = debug_line_data orelse return error.MissingDebugInfo,
                 .debug_line_str = debug_line_str_data,
                 .debug_ranges = debug_ranges_data,
@@ -1548,6 +1549,7 @@ pub const ModuleDebugInfo = switch (native_os) {
                 .debug_info = try chopSlice(mapped_mem, debug_info.offset, debug_info.size),
                 .debug_abbrev = try chopSlice(mapped_mem, debug_abbrev.offset, debug_abbrev.size),
                 .debug_str = try chopSlice(mapped_mem, debug_str.offset, debug_str.size),
+                .debug_str_offsets = null,
                 .debug_line = try chopSlice(mapped_mem, debug_line.offset, debug_line.size),
                 .debug_line_str = if (opt_debug_line_str) |debug_line_str|
                     try chopSlice(mapped_mem, debug_line_str.offset, debug_line_str.size)
