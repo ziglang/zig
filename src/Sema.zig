@@ -3475,19 +3475,43 @@ fn validateArrayInitTy(
     block: *Block,
     inst: Zir.Inst.Index,
 ) CompileError!void {
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
-    const ty = try sema.resolveType(block, src, inst_data.operand);
+    const ty_src: LazySrcLoc = .{ .node_offset_init_ty = inst_data.src_node };
+    const extra = sema.code.extraData(Zir.Inst.ArrayInit, inst_data.payload_index).data;
+    const ty = try sema.resolveType(block, ty_src, extra.ty);
 
     switch (ty.zigTypeTag()) {
-        .Array, .Vector => return,
+        .Array => {
+            const array_len = ty.arrayLen();
+            if (extra.init_count != array_len) {
+                return sema.fail(block, src, "expected {d} array elements; found {d}", .{
+                    array_len, extra.init_count,
+                });
+            }
+            return;
+        },
+        .Vector => {
+            const array_len = ty.arrayLen();
+            if (extra.init_count != array_len) {
+                return sema.fail(block, src, "expected {d} vector elements; found {d}", .{
+                    array_len, extra.init_count,
+                });
+            }
+            return;
+        },
         .Struct => if (ty.isTuple()) {
-            // TODO validate element count
+            const array_len = ty.arrayLen();
+            if (extra.init_count > array_len) {
+                return sema.fail(block, src, "expected at most {d} tuple fields; found {d}", .{
+                    array_len, extra.init_count,
+                });
+            }
             return;
         },
         else => {},
     }
-    return sema.failWithArrayInitNotSupported(block, src, ty);
+    return sema.failWithArrayInitNotSupported(block, ty_src, ty);
 }
 
 fn validateStructInitTy(
@@ -3723,6 +3747,15 @@ fn validateStructInit(
 
             const default_val = struct_ty.structFieldDefaultValue(i);
             if (default_val.tag() == .unreachable_value) {
+                if (struct_ty.isTuple()) {
+                    const template = "missing tuple field with index {d}";
+                    if (root_msg) |msg| {
+                        try sema.errNote(block, init_src, msg, template, .{i});
+                    } else {
+                        root_msg = try sema.errMsg(block, init_src, template, .{i});
+                    }
+                    continue;
+                }
                 const field_name = struct_ty.structFieldName(i);
                 const template = "missing struct field: {s}";
                 const args = .{field_name};
@@ -3735,7 +3768,10 @@ fn validateStructInit(
             }
 
             const field_src = init_src; // TODO better source location
-            const default_field_ptr = try sema.structFieldPtrByIndex(block, init_src, struct_ptr, @intCast(u32, i), field_src, struct_ty, true);
+            const default_field_ptr = if (struct_ty.isTuple())
+                try sema.tupleFieldPtr(block, init_src, struct_ptr, field_src, @intCast(u32, i), true)
+            else
+                try sema.structFieldPtrByIndex(block, init_src, struct_ptr, @intCast(u32, i), field_src, struct_ty, true);
             const field_ty = sema.typeOf(default_field_ptr).childType();
             const init = try sema.addConstant(field_ty, default_val);
             try sema.storePtr2(block, init_src, default_field_ptr, init_src, init, field_src, .store);
@@ -3850,6 +3886,15 @@ fn validateStructInit(
 
         const default_val = struct_ty.structFieldDefaultValue(i);
         if (default_val.tag() == .unreachable_value) {
+            if (struct_ty.isTuple()) {
+                const template = "missing tuple field with index {d}";
+                if (root_msg) |msg| {
+                    try sema.errNote(block, init_src, msg, template, .{i});
+                } else {
+                    root_msg = try sema.errMsg(block, init_src, template, .{i});
+                }
+                continue;
+            }
             const field_name = struct_ty.structFieldName(i);
             const template = "missing struct field: {s}";
             const args = .{field_name};
@@ -3893,7 +3938,10 @@ fn validateStructInit(
         if (field_ptr != 0) continue;
 
         const field_src = init_src; // TODO better source location
-        const default_field_ptr = try sema.structFieldPtrByIndex(block, init_src, struct_ptr, @intCast(u32, i), field_src, struct_ty, true);
+        const default_field_ptr = if (struct_ty.isTuple())
+            try sema.tupleFieldPtr(block, init_src, struct_ptr, field_src, @intCast(u32, i), true)
+        else
+            try sema.structFieldPtrByIndex(block, init_src, struct_ptr, @intCast(u32, i), field_src, struct_ty, true);
         const field_ty = sema.typeOf(default_field_ptr).childType();
         const init = try sema.addConstant(field_ty, field_values[i]);
         try sema.storePtr2(block, init_src, default_field_ptr, init_src, init, field_src, .store);
@@ -3916,15 +3964,24 @@ fn zirValidateArrayInit(
     const array_ty = sema.typeOf(array_ptr).childType();
     const array_len = array_ty.arrayLen();
 
-    if (instrs.len != array_len) {
-        if (array_ty.zigTypeTag() == .Array) {
-            return sema.fail(block, init_src, "expected {d} array elements; found {d}", .{
-                array_len, instrs.len,
-            });
-        } else {
-            return sema.fail(block, init_src, "expected {d} vector elements; found {d}", .{
-                array_len, instrs.len,
-            });
+    if (instrs.len != array_len and array_ty.isTuple()) {
+        const struct_obj = array_ty.castTag(.tuple).?.data;
+        var root_msg: ?*Module.ErrorMsg = null;
+        for (struct_obj.values) |default_val, i| {
+            if (i < instrs.len) continue;
+
+            if (default_val.tag() == .unreachable_value) {
+                const template = "missing tuple field with index {d}";
+                if (root_msg) |msg| {
+                    try sema.errNote(block, init_src, msg, template, .{i});
+                } else {
+                    root_msg = try sema.errMsg(block, init_src, template, .{i});
+                }
+            }
+        }
+
+        if (root_msg) |msg| {
+            return sema.failWithOwnedErrorMsg(block, msg);
         }
     }
 
@@ -3977,10 +4034,17 @@ fn zirValidateArrayInit(
         }
         first_block_index = @minimum(first_block_index, block_index);
 
-        // Array has one possible value, so value is always comptime-known
-        if (opt_opv) |opv| {
-            element_vals[i] = opv;
-            continue;
+        if (array_ty.isTuple()) {
+            if (array_ty.structFieldValueComptime(i)) |opv| {
+                element_vals[i] = opv;
+                continue;
+            }
+        } else {
+            // Array has one possible value, so value is always comptime-known
+            if (opt_opv) |opv| {
+                element_vals[i] = opv;
+                continue;
+            }
         }
 
         // If the next instructon is a store with a comptime operand, this element
@@ -14696,6 +14760,22 @@ fn finishStructInit(
                 field_inits[i] = try sema.addConstant(struct_obj.types[i], default_val);
             }
         }
+    } else if (struct_ty.isTuple()) {
+        const struct_obj = struct_ty.castTag(.tuple).?.data;
+        for (struct_obj.values) |default_val, i| {
+            if (field_inits[i] != .none) continue;
+
+            if (default_val.tag() == .unreachable_value) {
+                const template = "missing tuple field with index {d}";
+                if (root_msg) |msg| {
+                    try sema.errNote(block, init_src, msg, template, .{i});
+                } else {
+                    root_msg = try sema.errMsg(block, init_src, template, .{i});
+                }
+            } else {
+                field_inits[i] = try sema.addConstant(struct_obj.types[i], default_val);
+            }
+        }
     } else {
         const struct_obj = struct_ty.castTag(.@"struct").?.data;
         for (struct_obj.fields.values()) |field, i| {
@@ -20241,7 +20321,7 @@ fn tupleFieldVal(
     return tupleFieldValByIndex(sema, block, src, tuple_byval, field_index, tuple_ty);
 }
 
-/// Don't forget to check for "len" before calling this.
+/// Asserts that `field_name` is not "len".
 fn tupleFieldIndex(
     sema: *Sema,
     block: *Block,
@@ -20249,8 +20329,12 @@ fn tupleFieldIndex(
     field_name: []const u8,
     field_name_src: LazySrcLoc,
 ) CompileError!u32 {
+    assert(!std.mem.eql(u8, field_name, "len"));
     if (std.fmt.parseUnsigned(u32, field_name, 10)) |field_index| {
         if (field_index < tuple_ty.structFieldCount()) return field_index;
+        return sema.fail(block, field_name_src, "index '{s}' out of bounds of tuple '{}'", .{
+            field_name, tuple_ty.fmt(sema.mod),
+        });
     } else |_| {}
 
     return sema.fail(block, field_name_src, "no field named '{s}' in tuple '{}'", .{

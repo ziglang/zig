@@ -2726,6 +2726,21 @@ pub const SrcLoc = struct {
                 };
                 return nodeToSpan(tree, full.ast.value_expr);
             },
+            .node_offset_init_ty => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node_tags = tree.nodes.items(.tag);
+                const parent_node = src_loc.declRelativeToNodeIndex(node_off);
+
+                var buf: [2]Ast.Node.Index = undefined;
+                const full: Ast.full.ArrayInit = switch (node_tags[parent_node]) {
+                    .array_init_one, .array_init_one_comma => tree.arrayInitOne(buf[0..1], parent_node),
+                    .array_init_dot_two, .array_init_dot_two_comma => tree.arrayInitDotTwo(&buf, parent_node),
+                    .array_init_dot, .array_init_dot_comma => tree.arrayInitDot(parent_node),
+                    .array_init, .array_init_comma => tree.arrayInit(parent_node),
+                    else => unreachable,
+                };
+                return nodeToSpan(tree, full.ast.type_expr);
+            },
         }
     }
 
@@ -3046,6 +3061,9 @@ pub const LazySrcLoc = union(enum) {
     /// The source location points to the default value of a field.
     /// The Decl is determined contextually.
     node_offset_field_default: i32,
+    /// The source location points to the type of an array or struct initializer.
+    /// The Decl is determined contextually.
+    node_offset_init_ty: i32,
 
     pub const nodeOffset = if (TracedOffset.want_tracing) nodeOffsetDebug else nodeOffsetRelease;
 
@@ -3124,6 +3142,7 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_ptr_hostsize,
             .node_offset_container_tag,
             .node_offset_field_default,
+            .node_offset_init_ty,
             => .{
                 .file_scope = decl.getFileScope(),
                 .parent_decl_node = decl.src_node,
