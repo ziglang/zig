@@ -25150,7 +25150,10 @@ fn analyzeSlice(
             if (!end_is_len) {
                 const end = try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
                 if (try sema.resolveDefinedValue(block, end_src, end)) |end_val| {
-                    if (try sema.resolveDefinedValue(block, src, ptr_or_slice)) |slice_val| {
+                    if (try sema.resolveMaybeUndefVal(block, src, ptr_or_slice)) |slice_val| {
+                        if (slice_val.isUndef()) {
+                            return sema.fail(block, src, "slice of undefined", .{});
+                        }
                         const has_sentinel = slice_ty.sentinel() != null;
                         var int_payload: Value.Payload.U64 = .{
                             .base = .{ .tag = .int_u64 },
@@ -25213,8 +25216,8 @@ fn analyzeSlice(
     };
 
     // requirement: start <= end
-    if (try sema.resolveDefinedValue(block, src, end)) |end_val| {
-        if (try sema.resolveDefinedValue(block, src, start)) |start_val| {
+    if (try sema.resolveDefinedValue(block, end_src, end)) |end_val| {
+        if (try sema.resolveDefinedValue(block, start_src, start)) |start_val| {
             if (try sema.compare(block, src, start_val, .gt, end_val, Type.usize)) {
                 return sema.fail(
                     block,
@@ -25225,6 +25228,45 @@ fn analyzeSlice(
                         end_val.fmtValue(Type.usize, mod),
                     },
                 );
+            }
+            if (try sema.resolveMaybeUndefVal(block, ptr_src, new_ptr)) |ptr_val| sentinel_check: {
+                const expected_sentinel = sentinel orelse break :sentinel_check;
+                const start_int = start_val.getUnsignedInt(sema.mod.getTarget()).?;
+                const end_int = end_val.getUnsignedInt(sema.mod.getTarget()).?;
+                const sentinel_index = try sema.usizeCast(block, end_src, end_int - start_int);
+
+                const elem_ptr = try ptr_val.elemPtr(sema.typeOf(new_ptr), sema.arena, sentinel_index, sema.mod);
+                const res = try sema.pointerDerefExtra(block, src, elem_ptr, elem_ty, false);
+                const actual_sentinel = switch (res) {
+                    .runtime_load => break :sentinel_check,
+                    .val => |v| v,
+                    .needed_well_defined => |ty| return sema.fail(
+                        block,
+                        src,
+                        "comptime dereference requires '{}' to have a well-defined layout, but it does not.",
+                        .{ty.fmt(sema.mod)},
+                    ),
+                    .out_of_bounds => |ty| return sema.fail(
+                        block,
+                        end_src,
+                        "slice end index {d} exceeds bounds of containing decl of type '{}'",
+                        .{ end_int, ty.fmt(sema.mod) },
+                    ),
+                };
+
+                if (!actual_sentinel.eql(expected_sentinel, elem_ty, sema.mod)) {
+                    const msg = msg: {
+                        const msg = try sema.errMsg(block, src, "value in memory does not match slice sentinel", .{});
+                        errdefer msg.destroy(sema.gpa);
+                        try sema.errNote(block, src, msg, "expected '{}', found '{}'", .{
+                            expected_sentinel.fmtValue(elem_ty, sema.mod),
+                            actual_sentinel.fmtValue(elem_ty, sema.mod),
+                        });
+
+                        break :msg msg;
+                    };
+                    return sema.failWithOwnedErrorMsg(block, msg);
+                }
             }
         }
     }
@@ -27866,9 +27908,36 @@ pub fn analyzeAddrspace(
 /// Returns `null` if the pointer contents cannot be loaded at comptime.
 fn pointerDeref(sema: *Sema, block: *Block, src: LazySrcLoc, ptr_val: Value, ptr_ty: Type) CompileError!?Value {
     const load_ty = ptr_ty.childType();
+    const res = try sema.pointerDerefExtra(block, src, ptr_val, load_ty, true);
+    switch (res) {
+        .runtime_load => return null,
+        .val => |v| return v,
+        .needed_well_defined => |ty| return sema.fail(
+            block,
+            src,
+            "comptime dereference requires '{}' to have a well-defined layout, but it does not.",
+            .{ty.fmt(sema.mod)},
+        ),
+        .out_of_bounds => |ty| return sema.fail(
+            block,
+            src,
+            "dereference of '{}' exceeds bounds of containing decl of type '{}'",
+            .{ ptr_ty.fmt(sema.mod), ty.fmt(sema.mod) },
+        ),
+    }
+}
+
+const DerefResult = union(enum) {
+    runtime_load,
+    val: Value,
+    needed_well_defined: Type,
+    out_of_bounds: Type,
+};
+
+fn pointerDerefExtra(sema: *Sema, block: *Block, src: LazySrcLoc, ptr_val: Value, load_ty: Type, want_mutable: bool) CompileError!DerefResult {
     const target = sema.mod.getTarget();
     const deref = sema.beginComptimePtrLoad(block, src, ptr_val, load_ty) catch |err| switch (err) {
-        error.RuntimeLoad => return null,
+        error.RuntimeLoad => return DerefResult{ .runtime_load = {} },
         else => |e| return e,
     };
 
@@ -27879,39 +27948,40 @@ fn pointerDeref(sema: *Sema, block: *Block, src: LazySrcLoc, ptr_val: Value, ptr
         if (coerce_in_mem_ok) {
             // We have a Value that lines up in virtual memory exactly with what we want to load,
             // and it is in-memory coercible to load_ty. It may be returned without modifications.
-            if (deref.is_mutable) {
+            if (deref.is_mutable and want_mutable) {
                 // The decl whose value we are obtaining here may be overwritten with
                 // a different value upon further semantic analysis, which would
                 // invalidate this memory. So we must copy here.
-                return try tv.val.copy(sema.arena);
+                return DerefResult{ .val = try tv.val.copy(sema.arena) };
             }
-            return tv.val;
+            return DerefResult{ .val = tv.val };
         }
     }
 
     // The type is not in-memory coercible or the direct dereference failed, so it must
     // be bitcast according to the pointer type we are performing the load through.
-    if (!load_ty.hasWellDefinedLayout())
-        return sema.fail(block, src, "comptime dereference requires '{}' to have a well-defined layout, but it does not.", .{load_ty.fmt(sema.mod)});
+    if (!load_ty.hasWellDefinedLayout()) {
+        return DerefResult{ .needed_well_defined = load_ty };
+    }
 
     const load_sz = try sema.typeAbiSize(block, src, load_ty);
 
     // Try the smaller bit-cast first, since that's more efficient than using the larger `parent`
     if (deref.pointee) |tv| if (load_sz <= try sema.typeAbiSize(block, src, tv.ty))
-        return try sema.bitCastVal(block, src, tv.val, tv.ty, load_ty, 0);
+        return DerefResult{ .val = try sema.bitCastVal(block, src, tv.val, tv.ty, load_ty, 0) };
 
     // If that fails, try to bit-cast from the largest parent value with a well-defined layout
     if (deref.parent) |parent| if (load_sz + parent.byte_offset <= try sema.typeAbiSize(block, src, parent.tv.ty))
-        return try sema.bitCastVal(block, src, parent.tv.val, parent.tv.ty, load_ty, parent.byte_offset);
+        return DerefResult{ .val = try sema.bitCastVal(block, src, parent.tv.val, parent.tv.ty, load_ty, parent.byte_offset) };
 
     if (deref.ty_without_well_defined_layout) |bad_ty| {
         // We got no parent for bit-casting, or the parent we got was too small. Either way, the problem
         // is that some type we encountered when de-referencing does not have a well-defined layout.
-        return sema.fail(block, src, "comptime dereference requires '{}' to have a well-defined layout, but it does not.", .{bad_ty.fmt(sema.mod)});
+        return DerefResult{ .needed_well_defined = bad_ty };
     } else {
         // If all encountered types had well-defined layouts, the parent is the root decl and it just
         // wasn't big enough for the load.
-        return sema.fail(block, src, "dereference of '{}' exceeds bounds of containing decl of type '{}'", .{ ptr_ty.fmt(sema.mod), deref.parent.?.tv.ty.fmt(sema.mod) });
+        return DerefResult{ .out_of_bounds = deref.parent.?.tv.ty };
     }
 }
 
