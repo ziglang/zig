@@ -1152,14 +1152,14 @@ pub const DwarfInfo = struct {
     }
 
     fn getStringOffset(di: *DwarfInfo, offset: u64, is_64: bool) !u64 {
-        if(di.debug_str_offsets) |debug_str_offsets| {
+        if (di.debug_str_offsets) |debug_str_offsets| {
             if (offset >= debug_str_offsets.len) {
                 return error.InvalidDebugInfo;
             }
-            if(is_64) {
-                return std.mem.readIntSlice(u64, debug_str_offsets[offset..offset+8], di.endian);
+            if (is_64) {
+                return std.mem.readIntSlice(u64, debug_str_offsets[offset .. offset + 8], di.endian);
             }
-            return @as(u64, std.mem.readIntSlice(u32, debug_str_offsets[offset..offset+4], di.endian));
+            return @as(u64, std.mem.readIntSlice(u32, debug_str_offsets[offset .. offset + 4], di.endian));
         }
         return error.InvalidDebugInfo;
     }
