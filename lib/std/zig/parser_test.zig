@@ -5118,6 +5118,14 @@ test "zig fmt: while continue expr" {
     });
 }
 
+test "zig fmt: error for missing sentinel value in sentinel slice" {
+    try testError(
+        \\const foo = foo[0..:];
+    , &[_]Error{
+        .expected_expr,
+    });
+}
+
 test "zig fmt: error for invalid bit range" {
     try testError(
         \\var x: []align(0:0:0)u8 = bar;
