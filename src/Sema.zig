@@ -2971,7 +2971,7 @@ fn zirAllocExtended(
     const extra = sema.code.extraData(Zir.Inst.AllocExtended, extended.operand);
     const src = LazySrcLoc.nodeOffset(extra.data.src_node);
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = extra.data.src_node };
-    const align_src = src; // TODO better source location
+    const align_src: LazySrcLoc = .{ .node_offset_var_decl_align = extra.data.src_node };
     const small = @bitCast(Zir.Inst.AllocExtended.Small, extended.small);
 
     var extra_index: usize = extra.end;
@@ -8046,7 +8046,7 @@ fn zirPtrToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     if (try sema.resolveMaybeUndefValIntable(block, ptr_src, ptr)) |ptr_val| {
         return sema.addConstant(Type.usize, ptr_val);
     }
-    try sema.requireRuntimeBlock(block, ptr_src, ptr_src);
+    try sema.requireRuntimeBlock(block, inst_data.src(), ptr_src);
     return block.addUnOp(.ptrtoint, ptr);
 }
 
@@ -13174,8 +13174,8 @@ fn zirBuiltinSrc(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const src = sema.src; // TODO better source location
-    const extra = sema.code.extraData(Zir.Inst.LineColumn, extended.operand).data;
+    const extra = sema.code.extraData(Zir.Inst.Src, extended.operand).data;
+    const src = LazySrcLoc.nodeOffset(extra.node);
     const func = sema.func orelse return sema.fail(block, src, "@src outside function", .{});
     const fn_owner_decl = sema.mod.declPtr(func.owner_decl);
 
@@ -18959,10 +18959,8 @@ fn zirVarExtended(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.ExtendedVar, extended.operand);
-    const src = sema.src;
-    const ty_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at type
-    const name_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at the name token
-    const init_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at init expr
+    const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = 0 };
+    const init_src: LazySrcLoc = .{ .node_offset_var_decl_init = 0 };
     const small = @bitCast(Zir.Inst.ExtendedVar.Small, extended.small);
 
     var extra_index: usize = extra.end;
@@ -18976,12 +18974,6 @@ fn zirVarExtended(
     // ZIR supports encoding this information but it is not used; the information
     // is encoded via the Decl entry.
     assert(!small.has_align);
-    //const align_val: Value = if (small.has_align) blk: {
-    //    const align_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
-    //    extra_index += 1;
-    //    const align_tv = try sema.resolveInstConst(block, align_src, align_ref);
-    //    break :blk align_tv.val;
-    //} else Value.@"null";
 
     const uncasted_init: Air.Inst.Ref = if (small.has_init) blk: {
         const init_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
@@ -19005,7 +18997,7 @@ fn zirVarExtended(
             return sema.failWithNeededComptime(block, init_src, "container level variable initializers must be comptime known");
     } else Value.initTag(.unreachable_value);
 
-    try sema.validateVarType(block, name_src, var_ty, small.is_extern);
+    try sema.validateVarType(block, ty_src, var_ty, small.is_extern);
 
     const new_var = try sema.gpa.create(Module.Var);
     errdefer sema.gpa.destroy(new_var);
