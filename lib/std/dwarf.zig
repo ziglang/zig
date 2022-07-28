@@ -214,6 +214,7 @@ const FormValue = union(enum) {
     RefAddr: u64,
     String: []const u8,
     StrPtr: u64,
+    StrOffset: u64,
     LineStrPtr: u64,
 };
 
@@ -284,11 +285,12 @@ const Die = struct {
         };
     }
 
-    pub fn getAttrString(self: *const Die, di: *DwarfInfo, id: u64) ![]const u8 {
+    pub fn getAttrString(self: *const Die, di: *DwarfInfo, id: u64, is_64: bool) ![]const u8 {
         const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return switch (form_value.*) {
             FormValue.String => |value| value,
             FormValue.StrPtr => |offset| di.getString(offset),
+            FormValue.StrOffset => |index| di.getLineString(try di.getStringOffset(index, is_64)),
             FormValue.LineStrPtr => |offset| di.getLineString(offset),
             else => error.InvalidDebugInfo,
         };
@@ -522,6 +524,10 @@ fn parseFormValue(allocator: mem.Allocator, in_stream: anytype, form_id: u64, en
 
         FORM.string => FormValue{ .String = try in_stream.readUntilDelimiterAlloc(allocator, 0, math.maxInt(usize)) },
         FORM.strp => FormValue{ .StrPtr = try readAddress(in_stream, endian, is_64) },
+        FORM.strx1 => return FormValue{ .StrOffset = @intCast(u64, try in_stream.readInt(u8, endian)) },
+        FORM.strx2 => return FormValue{ .StrOffset = @intCast(u64, try in_stream.readInt(u16, endian)) },
+        FORM.strx3 => return FormValue{ .StrOffset = @intCast(u64, try in_stream.readInt(u24, endian)) },
+        FORM.strx4 => return FormValue{ .StrOffset = @intCast(u64, try in_stream.readInt(u32, endian)) },
         FORM.line_strp => FormValue{ .LineStrPtr = try readAddress(in_stream, endian, is_64) },
         FORM.indirect => {
             const child_form_id = try nosuspend leb.readULEB128(u64, in_stream);
@@ -554,6 +560,7 @@ pub const DwarfInfo = struct {
     debug_info: []const u8,
     debug_abbrev: []const u8,
     debug_str: []const u8,
+    debug_str_offsets: ?[]const u8,
     debug_line: []const u8,
     debug_line_str: ?[]const u8,
     debug_ranges: ?[]const u8,
@@ -652,7 +659,7 @@ pub const DwarfInfo = struct {
                             // Prevent endless loops
                             while (depth > 0) : (depth -= 1) {
                                 if (this_die_obj.getAttr(AT.name)) |_| {
-                                    const name = try this_die_obj.getAttrString(di, AT.name);
+                                    const name = try this_die_obj.getAttrString(di, AT.name, is_64);
                                     break :x try allocator.dupe(u8, name);
                                 } else if (this_die_obj.getAttr(AT.abstract_origin)) |_| {
                                     // Follow the DIE it points to and repeat
@@ -956,7 +963,7 @@ pub const DwarfInfo = struct {
         const in = &stream.reader();
         const seekable = &stream.seekableStream();
 
-        const compile_unit_cwd = try compile_unit.die.getAttrString(di, AT.comp_dir);
+        const compile_unit_cwd = try compile_unit.die.getAttrString(di, AT.comp_dir, compile_unit.is_64);
         const line_info_offset = try compile_unit.die.getAttrSecOffset(AT.stmt_list);
 
         try seekable.seekTo(line_info_offset);
@@ -1141,6 +1148,19 @@ pub const DwarfInfo = struct {
             return di.debug_str[casted_offset..last];
         }
 
+        return error.InvalidDebugInfo;
+    }
+
+    fn getStringOffset(di: *DwarfInfo, offset: u64, is_64: bool) !u64 {
+        if(di.debug_str_offsets) |debug_str_offsets| {
+            if (offset >= debug_str_offsets.len) {
+                return error.InvalidDebugInfo;
+            }
+            if(is_64) {
+                return std.mem.readIntSlice(u64, debug_str_offsets[offset..offset+8], di.endian);
+            }
+            return @as(u64, std.mem.readIntSlice(u32, debug_str_offsets[offset..offset+4], di.endian));
+        }
         return error.InvalidDebugInfo;
     }
 
