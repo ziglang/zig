@@ -1226,3 +1226,33 @@ test "extern union most-aligned field is smaller" {
     var a: ?U = .{ .un = [_]u8{0} ** 110 };
     try expect(a != null);
 }
+
+test "return an extern union from C calling convention" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const namespace = struct {
+        const S = extern struct {
+            x: c_int,
+        };
+        const U = extern union {
+            l: c_long,
+            d: f64,
+            s: S,
+        };
+
+        fn bar(arg_u: U) callconv(.C) U {
+            var u = arg_u;
+            return u;
+        }
+    };
+
+    var u: namespace.U = namespace.U{
+        .l = @as(c_long, 42),
+    };
+    u = namespace.bar(namespace.U{
+        .d = 4.0,
+    });
+    try expect(u.d == 4.0);
+}

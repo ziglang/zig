@@ -169,6 +169,9 @@ pub const Value = opaque {
     pub const constNot = LLVMConstNot;
     extern fn LLVMConstNot(ConstantVal: *const Value) *const Value;
 
+    pub const constAdd = LLVMConstAdd;
+    extern fn LLVMConstAdd(LHSConstant: *const Value, RHSConstant: *const Value) *const Value;
+
     pub const setWeak = LLVMSetWeak;
     extern fn LLVMSetWeak(CmpXchgInst: *const Value, IsWeak: Bool) void;
 
