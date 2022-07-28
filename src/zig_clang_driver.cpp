@@ -207,6 +207,8 @@ extern int cc1_main(ArrayRef<const char *> Argv, const char *Argv0,
                     void *MainAddr);
 extern int cc1as_main(ArrayRef<const char *> Argv, const char *Argv0,
                       void *MainAddr);
+extern int cc1gen_reproducer_main(ArrayRef<const char *> Argv,
+                                  const char *Argv0, void *MainAddr);
 
 static void insertTargetAndModeArgs(const ParsedClangName &NameParts,
                                     SmallVectorImpl<const char *> &ArgVector,
@@ -316,28 +318,22 @@ static int ExecuteCC1Tool(SmallVectorImpl<const char *> &ArgV) {
   if (Tool == "-cc1as")
     return cc1as_main(makeArrayRef(ArgV).slice(2), ArgV[0],
                       GetExecutablePathVP);
+  if (Tool == "-cc1gen-reproducer")
+    return cc1gen_reproducer_main(makeArrayRef(ArgV).slice(2), ArgV[0],
+                                  GetExecutablePathVP);
   // Reject unknown tools.
   llvm::errs() << "error: unknown integrated tool '" << Tool << "'. "
                << "Valid tools include '-cc1' and '-cc1as'.\n";
   return 1;
 }
 
-extern "C" int ZigClang_main(int Argc, const char **Argv);
-int ZigClang_main(int Argc, const char **Argv) {
+int clang_main(int Argc, char **Argv) {
   noteBottomOfStack();
-  // ZIG PATCH: On Windows, InitLLVM calls GetCommandLineW(),
-  // and overwrites the args.  We don't want it to do that,
-  // and we also don't need the signal handlers it installs
-  // (we have our own already), so we just use llvm_shutdown_obj
-  // instead.
-  // llvm::InitLLVM X(Argc, Argv);
-  llvm::llvm_shutdown_obj X;
-
+  llvm::InitLLVM X(Argc, Argv);
   llvm::setBugReportMsg("PLEASE submit a bug report to " BUG_REPORT_URL
                         " and include the crash backtrace, preprocessed "
                         "source, and associated run script.\n");
-  size_t argv_offset = (strcmp(Argv[1], "-cc1") == 0 || strcmp(Argv[1], "-cc1as") == 0) ? 0 : 1;
-  SmallVector<const char *, 256> Args(Argv + argv_offset, Argv + Argc);
+  SmallVector<const char *, 256> Args(Argv, Argv + Argc);
 
   if (llvm::sys::Process::FixupStandardFileDescriptors())
     return 1;
@@ -410,18 +406,18 @@ int ZigClang_main(int Argc, const char **Argv) {
   if (ClangCLMode) {
     // Arguments in "CL" are prepended.
     llvm::Optional<std::string> OptCL = llvm::sys::Process::GetEnv("CL");
-    if (OptCL.hasValue()) {
+    if (OptCL) {
       SmallVector<const char *, 8> PrependedOpts;
-      getCLEnvVarOptions(OptCL.getValue(), Saver, PrependedOpts);
+      getCLEnvVarOptions(OptCL.value(), Saver, PrependedOpts);
 
       // Insert right after the program name to prepend to the argument list.
       Args.insert(Args.begin() + 1, PrependedOpts.begin(), PrependedOpts.end());
     }
     // Arguments in "_CL_" are appended.
     llvm::Optional<std::string> Opt_CL_ = llvm::sys::Process::GetEnv("_CL_");
-    if (Opt_CL_.hasValue()) {
+    if (Opt_CL_) {
       SmallVector<const char *, 8> AppendedOpts;
-      getCLEnvVarOptions(Opt_CL_.getValue(), Saver, AppendedOpts);
+      getCLEnvVarOptions(Opt_CL_.value(), Saver, AppendedOpts);
 
       // Insert at the end of the argument list to append.
       Args.append(AppendedOpts.begin(), AppendedOpts.end());
@@ -436,9 +432,7 @@ int ZigClang_main(int Argc, const char **Argv) {
     ApplyQAOverride(Args, OverrideStr, SavedStrings);
   }
 
-  // Pass local param `Argv[0]` as fallback.
-  // See https://github.com/ziglang/zig/pull/3292 .
-  std::string Path = GetExecutablePath(Argv[0], CanonicalPrefixes);
+  std::string Path = GetExecutablePath(Args[0], CanonicalPrefixes);
 
   // Whether the cc1 tool should be called inside the current process, or if we
   // should spawn a new clang subprocess (old behavior).
@@ -488,32 +482,39 @@ int ZigClang_main(int Argc, const char **Argv) {
   }
 
   std::unique_ptr<Compilation> C(TheDriver.BuildCompilation(Args));
+
+  Driver::ReproLevel ReproLevel = Driver::ReproLevel::OnCrash;
+  if (Arg *A = C->getArgs().getLastArg(options::OPT_gen_reproducer_eq)) {
+    auto Level = llvm::StringSwitch<Optional<Driver::ReproLevel>>(A->getValue())
+                     .Case("off", Driver::ReproLevel::Off)
+                     .Case("crash", Driver::ReproLevel::OnCrash)
+                     .Case("error", Driver::ReproLevel::OnError)
+                     .Case("always", Driver::ReproLevel::Always)
+                     .Default(None);
+    if (!Level) {
+      llvm::errs() << "Unknown value for " << A->getSpelling() << ": '"
+                   << A->getValue() << "'\n";
+      return 1;
+    }
+    ReproLevel = *Level;
+  }
+  if (!!::getenv("FORCE_CLANG_DIAGNOSTICS_CRASH"))
+    ReproLevel = Driver::ReproLevel::Always;
+
   int Res = 1;
   bool IsCrash = false;
+  Driver::CommandStatus CommandStatus = Driver::CommandStatus::Ok;
+  // Pretend the first command failed if ReproStatus is Always.
+  const Command *FailingCommand = nullptr;
+  if (!C->getJobs().empty())
+    FailingCommand = &*C->getJobs().begin();
   if (C && !C->containsError()) {
     SmallVector<std::pair<int, const Command *>, 4> FailingCommands;
     Res = TheDriver.ExecuteCompilation(*C, FailingCommands);
 
-    // Force a crash to test the diagnostics.
-    if (TheDriver.GenReproducer) {
-      Diags.Report(diag::err_drv_force_crash)
-        << !::getenv("FORCE_CLANG_DIAGNOSTICS_CRASH");
-
-      // Pretend that every command failed.
-      FailingCommands.clear();
-      for (const auto &J : C->getJobs())
-        if (const Command *C = dyn_cast<Command>(&J))
-          FailingCommands.push_back(std::make_pair(-1, C));
-
-      // Print the bug report message that would be printed if we did actually
-      // crash, but only if we're crashing due to FORCE_CLANG_DIAGNOSTICS_CRASH.
-      if (::getenv("FORCE_CLANG_DIAGNOSTICS_CRASH"))
-        llvm::dbgs() << llvm::getBugReportMsg();
-    }
-
     for (const auto &P : FailingCommands) {
       int CommandRes = P.first;
-      const Command *FailingCommand = P.second;
+      FailingCommand = P.second;
       if (!Res)
         Res = CommandRes;
 
@@ -532,12 +533,21 @@ int ZigClang_main(int Argc, const char **Argv) {
       // https://pubs.opengroup.org/onlinepubs/9699919799/xrat/V4_xcu_chap02.html
       IsCrash |= CommandRes > 128;
 #endif
-      if (IsCrash) {
-        TheDriver.generateCompilationDiagnostics(*C, *FailingCommand);
+      CommandStatus =
+          IsCrash ? Driver::CommandStatus::Crash : Driver::CommandStatus::Error;
+      if (IsCrash)
         break;
-      }
     }
   }
+
+  // Print the bug report message that would be printed if we did actually
+  // crash, but only if we're crashing due to FORCE_CLANG_DIAGNOSTICS_CRASH.
+  if (::getenv("FORCE_CLANG_DIAGNOSTICS_CRASH"))
+    llvm::dbgs() << llvm::getBugReportMsg();
+  if (FailingCommand != nullptr &&
+    TheDriver.maybeGenerateCompilationDiagnostics(CommandStatus, ReproLevel,
+                                                  *C, *FailingCommand))
+    Res = 1;
 
   Diags.getClient()->finish();
 
