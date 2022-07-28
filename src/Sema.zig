@@ -4674,10 +4674,6 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
         error.OutOfMemory => return error.OutOfMemory,
         else => unreachable, // we pass null for root_src_dir_path
     };
-    const std_pkg = mod.main_pkg.table.get("std").?;
-    const builtin_pkg = mod.main_pkg.table.get("builtin").?;
-    try c_import_pkg.add(sema.gpa, "builtin", builtin_pkg);
-    try c_import_pkg.add(sema.gpa, "std", std_pkg);
 
     const result = mod.importPkg(c_import_pkg) catch |err|
         return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});

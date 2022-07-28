@@ -4673,6 +4673,15 @@ pub fn importFile(
     cur_file: *File,
     import_string: []const u8,
 ) !ImportFileResult {
+    if (std.mem.eql(u8, import_string, "std")) {
+        return mod.importPkg(mod.main_pkg.table.get("std").?);
+    }
+    if (std.mem.eql(u8, import_string, "builtin")) {
+        return mod.importPkg(mod.main_pkg.table.get("builtin").?);
+    }
+    if (std.mem.eql(u8, import_string, "root")) {
+        return mod.importPkg(mod.root_pkg);
+    }
     if (cur_file.pkg.table.get(import_string)) |pkg| {
         return mod.importPkg(pkg);
     }
