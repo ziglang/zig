@@ -1446,7 +1446,13 @@ static int ranlib_main(int argc, char **argv) {
 }
 
 int llvm_ar_main(int argc, char **argv) {
-  InitLLVM X(argc, argv);
+  // ZIG PATCH: On Windows, InitLLVM calls GetCommandLineW(),
+  // and overwrites the args.  We don't want it to do that,
+  // and we also don't need the signal handlers it installs
+  // (we have our own already), so we just use llvm_shutdown_obj
+  // instead.
+  // InitLLVM X(argc, argv);
+  llvm::llvm_shutdown_obj X;
   ToolName = argv[0];
 
   llvm::InitializeAllTargetInfos();
