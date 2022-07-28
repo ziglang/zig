@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const build_options = @import("build_options");
 const Autodoc = @This();
@@ -254,7 +255,7 @@ pub fn generateZirData(self: *Autodoc) !void {
         try std.json.stringify(
             data,
             .{
-                .whitespace = .{},
+                .whitespace = .{ .indent = if (builtin.mode == .Debug) .{ .Space = 4 } else .None },
                 .emit_null_optional_fields = false,
             },
             out,
