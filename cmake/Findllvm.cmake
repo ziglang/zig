@@ -13,12 +13,12 @@ if(ZIG_USE_LLVM_CONFIG)
   while(1)
     unset(LLVM_CONFIG_EXE CACHE)
     find_program(LLVM_CONFIG_EXE
-        NAMES llvm-config-14 llvm-config-14.0 llvm-config140 llvm-config14 llvm-config NAMES_PER_DIR
+        NAMES llvm-config-15 llvm-config-15.0 llvm-config150 llvm-config15 llvm-config NAMES_PER_DIR
         PATHS
             "/mingw64/bin"
             "/c/msys64/mingw64/bin"
             "c:/msys64/mingw64/bin"
-            "C:/Libraries/llvm-14.0.0/bin")
+            "C:/Libraries/llvm-15.0.0/bin")
 
     if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
       if (DEFINED LLVM_CONFIG_ERROR_MESSAGE)
@@ -35,9 +35,9 @@ if(ZIG_USE_LLVM_CONFIG)
       OUTPUT_STRIP_TRAILING_WHITESPACE)
 
     get_filename_component(LLVM_CONFIG_DIR "${LLVM_CONFIG_EXE}" DIRECTORY)
-    if("${LLVM_CONFIG_VERSION}" VERSION_LESS 14 OR "${LLVM_CONFIG_VERSION}" VERSION_EQUAL 15 OR "${LLVM_CONFIG_VERSION}" VERSION_GREATER 15)
+    if("${LLVM_CONFIG_VERSION}" VERSION_LESS 15 OR "${LLVM_CONFIG_VERSION}" VERSION_EQUAL 16 OR "${LLVM_CONFIG_VERSION}" VERSION_GREATER 16)
       # Save the error message, in case this is the last llvm-config we find
-      set(LLVM_CONFIG_ERROR_MESSAGE "expected LLVM 14.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+      set(LLVM_CONFIG_ERROR_MESSAGE "expected LLVM 15.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
 
       # Ignore this directory and try the search again
       list(APPEND CMAKE_IGNORE_PATH "${LLVM_CONFIG_DIR}")
@@ -61,9 +61,9 @@ if(ZIG_USE_LLVM_CONFIG)
       if (LLVM_CONFIG_ERROR) 
         # Save the error message, in case this is the last llvm-config we find
         if (ZIG_SHARED_LLVM)
-          set(LLVM_CONFIG_ERROR_MESSAGE "LLVM 14.x found at ${LLVM_CONFIG_EXE} does not support linking as a shared library")
+          set(LLVM_CONFIG_ERROR_MESSAGE "LLVM 15.x found at ${LLVM_CONFIG_EXE} does not support linking as a shared library")
         else()
-          set(LLVM_CONFIG_ERROR_MESSAGE "LLVM 14.x found at ${LLVM_CONFIG_EXE} does not support linking as a static library")
+          set(LLVM_CONFIG_ERROR_MESSAGE "LLVM 15.x found at ${LLVM_CONFIG_EXE} does not support linking as a static library")
         endif()
 
         # Ignore this directory and try the search again
