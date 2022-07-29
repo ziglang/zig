@@ -2766,6 +2766,19 @@ pub const Value = extern union {
         return self.isUndef();
     }
 
+    /// Returns true if any value contained in `self` is undefined.
+    /// TODO: check for cases such as array that is not marked undef but all the element
+    /// values are marked undef, or struct that is not marked undef but all fields are marked
+    /// undef, etc.
+    pub fn anyUndef(self: Value) bool {
+        if (self.castTag(.aggregate)) |aggregate| {
+            for (aggregate.data) |val| {
+                if (val.anyUndef()) return true;
+            }
+        }
+        return self.isUndef();
+    }
+
     /// Asserts the value is not undefined and not unreachable.
     /// Integer value 0 is considered null because of C pointers.
     pub fn isNull(self: Value) bool {
