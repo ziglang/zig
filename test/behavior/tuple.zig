@@ -275,3 +275,18 @@ test "tuple in tuple passed to generic function" {
     const x = comptime S.pair(1.5, 2.5);
     try S.foo(.{x});
 }
+
+test "coerce tuple to tuple" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
+    const T = std.meta.Tuple(&.{u8});
+    const S = struct {
+        fn foo(x: T) !void {
+            try expect(x[0] == 123);
+        }
+    };
+    try S.foo(.{123});
+}

@@ -24528,8 +24528,7 @@ fn coerceTupleToStruct(
     const struct_ty = try sema.resolveTypeFields(block, dest_ty_src, dest_ty);
 
     if (struct_ty.isTupleOrAnonStruct()) {
-        // NOTE remember to handle comptime fields
-        return sema.fail(block, dest_ty_src, "TODO: implement coercion from tuples to tuples", .{});
+        return sema.coerceTupleToTuple(block, struct_ty, inst, inst_src);
     }
 
     const fields = struct_ty.structFields();
@@ -24608,6 +24607,110 @@ fn coerceTupleToStruct(
 
     return sema.addConstant(
         struct_ty,
+        try Value.Tag.aggregate.create(sema.arena, field_vals),
+    );
+}
+
+fn coerceTupleToTuple(
+    sema: *Sema,
+    block: *Block,
+    tuple_ty: Type,
+    inst: Air.Inst.Ref,
+    inst_src: LazySrcLoc,
+) !Air.Inst.Ref {
+    const field_count = tuple_ty.structFieldCount();
+    const field_vals = try sema.arena.alloc(Value, field_count);
+    const field_refs = try sema.arena.alloc(Air.Inst.Ref, field_vals.len);
+    mem.set(Air.Inst.Ref, field_refs, .none);
+
+    const inst_ty = sema.typeOf(inst);
+    const tuple = inst_ty.tupleFields();
+    var runtime_src: ?LazySrcLoc = null;
+    for (tuple.types) |_, i_usize| {
+        const i = @intCast(u32, i_usize);
+        const field_src = inst_src; // TODO better source location
+        const field_name = if (inst_ty.castTag(.anon_struct)) |payload|
+            payload.data.names[i]
+        else
+            try std.fmt.allocPrint(sema.arena, "{d}", .{i});
+
+        if (mem.eql(u8, field_name, "len")) {
+            return sema.fail(block, field_src, "cannot assign to 'len' field of tuple", .{});
+        }
+
+        const field_index = try sema.tupleFieldIndex(block, tuple_ty, field_name, field_src);
+
+        const field_ty = tuple_ty.structFieldType(i);
+        const default_val = tuple_ty.structFieldDefaultValue(i);
+        const elem_ref = try tupleField(sema, block, inst_src, inst, field_src, i);
+        const coerced = try sema.coerce(block, field_ty, elem_ref, field_src);
+        field_refs[field_index] = coerced;
+        if (default_val.tag() != .unreachable_value) {
+            const init_val = (try sema.resolveMaybeUndefVal(block, field_src, coerced)) orelse {
+                return sema.failWithNeededComptime(block, field_src, "value stored in comptime field must be comptime known");
+            };
+
+            if (!init_val.eql(default_val, field_ty, sema.mod)) {
+                return sema.failWithInvalidComptimeFieldStore(block, field_src, inst_ty, i);
+            }
+        }
+        if (runtime_src == null) {
+            if (try sema.resolveMaybeUndefVal(block, field_src, coerced)) |field_val| {
+                field_vals[field_index] = field_val;
+            } else {
+                runtime_src = field_src;
+            }
+        }
+    }
+
+    // Populate default field values and report errors for missing fields.
+    var root_msg: ?*Module.ErrorMsg = null;
+
+    for (field_refs) |*field_ref, i| {
+        if (field_ref.* != .none) continue;
+
+        const default_val = tuple_ty.structFieldDefaultValue(i);
+        const field_ty = tuple_ty.structFieldType(i);
+
+        const field_src = inst_src; // TODO better source location
+        if (default_val.tag() == .unreachable_value) {
+            if (tuple_ty.isTuple()) {
+                const template = "missing tuple field: {d}";
+                if (root_msg) |msg| {
+                    try sema.errNote(block, field_src, msg, template, .{i});
+                } else {
+                    root_msg = try sema.errMsg(block, field_src, template, .{i});
+                }
+                continue;
+            }
+            const template = "missing struct field: {s}";
+            const args = .{tuple_ty.structFieldName(i)};
+            if (root_msg) |msg| {
+                try sema.errNote(block, field_src, msg, template, args);
+            } else {
+                root_msg = try sema.errMsg(block, field_src, template, args);
+            }
+            continue;
+        }
+        if (runtime_src == null) {
+            field_vals[i] = default_val;
+        } else {
+            field_ref.* = try sema.addConstant(field_ty, default_val);
+        }
+    }
+
+    if (root_msg) |msg| {
+        try sema.addDeclaredHereNote(msg, tuple_ty);
+        return sema.failWithOwnedErrorMsg(block, msg);
+    }
+
+    if (runtime_src) |rs| {
+        try sema.requireRuntimeBlock(block, inst_src, rs);
+        return block.addAggregateInit(tuple_ty, field_refs);
+    }
+
+    return sema.addConstant(
+        tuple_ty,
         try Value.Tag.aggregate.create(sema.arena, field_vals),
     );
 }
