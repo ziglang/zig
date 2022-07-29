@@ -2292,25 +2292,13 @@ pub const Value = extern union {
                 }
             },
             .Struct => {
-                if (ty.isTupleOrAnonStruct()) {
-                    const fields = ty.tupleFields();
-                    for (fields.values) |field_val, i| {
-                        field_val.hash(fields.types[i], hasher, mod);
-                    }
-                    return;
-                }
-                const fields = ty.structFields().values();
-                if (fields.len == 0) return;
                 switch (val.tag()) {
-                    .empty_struct_value => {
-                        for (fields) |field| {
-                            field.default_val.hash(field.ty, hasher, mod);
-                        }
-                    },
+                    .empty_struct_value => {},
                     .aggregate => {
                         const field_values = val.castTag(.aggregate).?.data;
                         for (field_values) |field_val, i| {
-                            field_val.hash(fields[i].ty, hasher, mod);
+                            const field_ty = ty.structFieldType(i);
+                            field_val.hash(field_ty, hasher, mod);
                         }
                     },
                     else => unreachable,
