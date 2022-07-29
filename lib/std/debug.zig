@@ -1784,6 +1784,7 @@ pub fn updateSegfaultHandler(act: ?*const os.Sigaction) error{OperationNotSuppor
     try os.sigaction(os.SIG.SEGV, act, null);
     try os.sigaction(os.SIG.ILL, act, null);
     try os.sigaction(os.SIG.BUS, act, null);
+    try os.sigaction(os.SIG.FPE, act, null);
 }
 
 /// Attaches a global SIGSEGV handler which calls @panic("segmentation fault");
@@ -1845,6 +1846,7 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
             os.SIG.SEGV => stderr.print("Segmentation fault at address 0x{x}\n", .{addr}),
             os.SIG.ILL => stderr.print("Illegal instruction at address 0x{x}\n", .{addr}),
             os.SIG.BUS => stderr.print("Bus error at address 0x{x}\n", .{addr}),
+            os.SIG.FPE => stderr.print("Arithmetic exception at address 0x{x}\n", .{addr}),
             else => unreachable,
         } catch os.abort();
     }
