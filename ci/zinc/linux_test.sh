@@ -63,8 +63,7 @@ stage3/bin/zig build test-translate-c      -fqemu -fwasmtime -Denable-llvm
 stage3/bin/zig build test-run-translated-c -fqemu -fwasmtime -Denable-llvm
 stage3/bin/zig build test-standalone       -fqemu -fwasmtime -Denable-llvm
 stage3/bin/zig build test-cli              -fqemu -fwasmtime -Denable-llvm
-# https://github.com/ziglang/zig/issues/12144
-stage3/bin/zig build test-cases            -fqemu -fwasmtime
+stage3/bin/zig build test-cases            -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
 stage3/bin/zig build test-link             -fqemu -fwasmtime -Denable-llvm
 
 $STAGE1_ZIG build test-stack-traces     -fqemu -fwasmtime
