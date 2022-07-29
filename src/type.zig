@@ -6592,7 +6592,7 @@ pub const CType = enum {
                 .longlong, .ulonglong, .longdouble => return 64,
             },
 
-            .macos, .ios, .tvos, .watchos => switch (self) {
+            .macos, .ios, .tvos, .watchos, .driverkit => switch (self) {
                 .short, .ushort => return 16,
                 .int, .uint => return 32,
                 .long, .ulong, .longlong, .ulonglong => return 64,
@@ -6617,6 +6617,7 @@ pub const CType = enum {
             .nvcl,
             .amdhsa,
             .ps4,
+            .ps5,
             .elfiamcu,
             .mesa3d,
             .contiki,
@@ -6626,6 +6627,7 @@ pub const CType = enum {
             .opencl,
             .glsl450,
             .vulkan,
+            .shadermodel,
             => @panic("TODO specify the C integer and float type sizes for this OS"),
         }
     }

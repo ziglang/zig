@@ -112,12 +112,16 @@ static Os get_zig_os_type(ZigLLVM_OSType os_type) {
             return OsAMDHSA;
         case ZigLLVM_PS4:
             return OsPS4;
+        case ZigLLVM_PS5:
+            return OsPS5;
         case ZigLLVM_ELFIAMCU:
             return OsELFIAMCU;
         case ZigLLVM_TvOS:
             return OsTvOS;
         case ZigLLVM_WatchOS:
             return OsWatchOS;
+        case ZigLLVM_DriverKit:
+            return OsDriverKit;
         case ZigLLVM_Mesa3D:
             return OsMesa3D;
         case ZigLLVM_Contiki:
@@ -132,6 +136,8 @@ static Os get_zig_os_type(ZigLLVM_OSType os_type) {
             return OsWASI;
         case ZigLLVM_Emscripten:
             return OsEmscripten;
+        case ZigLLVM_ShaderModel:
+            return OsShaderModel;
     }
     zig_unreachable();
 }

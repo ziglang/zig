@@ -1048,7 +1048,6 @@ pub const TargetData = opaque {
 
 pub const CodeModel = enum(c_int) {
     Default,
-    JITDefault,
     Tiny,
     Small,
     Kernel,
@@ -1198,6 +1197,12 @@ pub extern fn LLVMInitializeM68kAsmParser() void;
 pub extern fn LLVMInitializeCSKYAsmParser() void;
 pub extern fn LLVMInitializeVEAsmParser() void;
 
+pub extern fn LLVMInitializeLoongArchTarget() void;
+pub extern fn LLVMInitializeLoongArchTargetInfo() void;
+pub extern fn LLVMInitializeLoongArchTargetMC() void;
+pub extern fn LLVMInitializeLoongArchAsmPrinter() void;
+pub extern fn LLVMInitializeLoongArchAsmParser() void;
+
 extern fn ZigLLDLinkCOFF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool, disable_output: bool) bool;
 extern fn ZigLLDLinkELF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool, disable_output: bool) bool;
 extern fn ZigLLDLinkWasm(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool, disable_output: bool) bool;
@@ -1209,9 +1214,11 @@ pub const LinkWasm = ZigLLDLinkWasm;
 pub const ObjectFormatType = enum(c_int) {
     Unknown,
     COFF,
+    DXContainer,
     ELF,
     GOFF,
     MachO,
+    SPIRV,
     Wasm,
     XCOFF,
 };
@@ -1251,9 +1258,11 @@ pub const OSType = enum(c_int) {
     NVCL,
     AMDHSA,
     PS4,
+    PS5,
     ELFIAMCU,
     TvOS,
     WatchOS,
+    DriverKit,
     Mesa3D,
     Contiki,
     AMDPAL,
@@ -1261,6 +1270,7 @@ pub const OSType = enum(c_int) {
     Hurd,
     WASI,
     Emscripten,
+    ShaderModel,
 };
 
 pub const ArchType = enum(c_int) {
@@ -1275,7 +1285,10 @@ pub const ArchType = enum(c_int) {
     bpfel,
     bpfeb,
     csky,
+    dxil,
     hexagon,
+    loongarch32,
+    loongarch64,
     m68k,
     mips,
     mipsel,
@@ -1311,6 +1324,8 @@ pub const ArchType = enum(c_int) {
     hsail64,
     spir,
     spir64,
+    spirv32,
+    spirv64,
     kalimba,
     shave,
     lanai,

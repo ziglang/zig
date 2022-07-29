@@ -281,6 +281,7 @@ pub const File = struct {
         if (use_stage1 or options.emit == null) {
             return switch (options.object_format) {
                 .coff => &(try Coff.createEmpty(allocator, options)).base,
+                .dxcontainer => @panic("TODO"),
                 .elf => &(try Elf.createEmpty(allocator, options)).base,
                 .macho => unreachable,
                 .wasm => &(try Wasm.createEmpty(allocator, options)).base,
@@ -300,6 +301,7 @@ pub const File = struct {
                 // Initialize with empty.
                 return switch (options.object_format) {
                     .coff => &(try Coff.createEmpty(allocator, options)).base,
+                    .dxcontainer => @panic("TODO"),
                     .elf => &(try Elf.createEmpty(allocator, options)).base,
                     .macho => unreachable,
                     .plan9 => &(try Plan9.createEmpty(allocator, options)).base,
@@ -321,6 +323,7 @@ pub const File = struct {
 
         const file: *File = switch (options.object_format) {
             .coff => &(try Coff.openPath(allocator, sub_path, options)).base,
+            .dxcontainer => @panic("TODO"),
             .elf => &(try Elf.openPath(allocator, sub_path, options)).base,
             .macho => unreachable,
             .plan9 => &(try Plan9.openPath(allocator, sub_path, options)).base,

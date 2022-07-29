@@ -190,6 +190,7 @@ pub fn binNameAlloc(allocator: std.mem.Allocator, options: BinNameOptions) error
             .Lib => return std.fmt.allocPrint(allocator, "{s}{s}.a", .{ target.libPrefix(), root_name }),
         },
         .nvptx => return std.fmt.allocPrint(allocator, "{s}", .{root_name}),
+        .dxcontainer => return std.fmt.allocPrint(allocator, "{s}", .{root_name}),
     }
 }
 

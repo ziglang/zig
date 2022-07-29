@@ -41,7 +41,10 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
         .bpfel => "bpfel",
         .bpfeb => "bpfeb",
         .csky => "csky",
+        .dxil => "dxil",
         .hexagon => "hexagon",
+        .loongarch32 => "loongarch32",
+        .loongarch64 => "loongarch64",
         .m68k => "m68k",
         .mips => "mips",
         .mipsel => "mipsel",
@@ -116,6 +119,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
         .nvcl => "nvcl",
         .amdhsa => "amdhsa",
         .ps4 => "ps4",
+        .ps5 => "ps5",
         .elfiamcu => "elfiamcu",
         .mesa3d => "mesa3d",
         .contiki => "contiki",
@@ -124,11 +128,13 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
         .hurd => "hurd",
         .wasi => "wasi",
         .emscripten => "emscripten",
+        .shadermodel => "shadermodel",
         .uefi => "windows",
         .macos => "macosx",
         .ios => "ios",
         .tvos => "tvos",
         .watchos => "watchos",
+        .driverkit => "driverkit",
         .opencl,
         .glsl450,
         .vulkan,
@@ -171,6 +177,15 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
         .coreclr => "coreclr",
         .simulator => "simulator",
         .macabi => "macabi",
+        .pixel => "pixel",
+        .vertex => "vertex",
+        .geometry => "geometry",
+        .hull => "hull",
+        .domain => "domain",
+        .compute => "compute",
+        .library => "library",
+        .mesh => "mesh",
+        .amplification => "amplification",
     };
     try llvm_triple.appendSlice(llvm_abi);
 
@@ -8808,12 +8823,22 @@ fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             llvm.LLVMInitializeBPFAsmPrinter();
             llvm.LLVMInitializeBPFAsmParser();
         },
+        .dxil => {
+            @panic("TODO initializeLLVMTarget .dxil");
+        },
         .hexagon => {
             llvm.LLVMInitializeHexagonTarget();
             llvm.LLVMInitializeHexagonTargetInfo();
             llvm.LLVMInitializeHexagonTargetMC();
             llvm.LLVMInitializeHexagonAsmPrinter();
             llvm.LLVMInitializeHexagonAsmParser();
+        },
+        .loongarch32, .loongarch64 => {
+            llvm.LLVMInitializeLoongArchTarget();
+            llvm.LLVMInitializeLoongArchTargetInfo();
+            llvm.LLVMInitializeLoongArchTargetMC();
+            llvm.LLVMInitializeLoongArchAsmPrinter();
+            llvm.LLVMInitializeLoongArchAsmParser();
         },
         .lanai => {
             llvm.LLVMInitializeLanaiTarget();

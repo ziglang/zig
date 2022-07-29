@@ -339,7 +339,10 @@ enum ZigLLVM_ArchType {
     ZigLLVM_bpfel,          // eBPF or extended BPF or 64-bit BPF (little endian)
     ZigLLVM_bpfeb,          // eBPF or extended BPF or 64-bit BPF (big endian)
     ZigLLVM_csky,           // CSKY: csky
+    ZigLLVM_dxil,           // DXIL 32-bit DirectX bytecode
     ZigLLVM_hexagon,        // Hexagon: hexagon
+    ZigLLVM_loongarch32,    // LoongArch (32-bit): loongarch32
+    ZigLLVM_loongarch64,    // LoongArch (64-bit): loongarch64
     ZigLLVM_m68k,           // M68k: Motorola 680x0 family
     ZigLLVM_mips,           // MIPS: mips, mipsallegrex, mipsr6
     ZigLLVM_mipsel,         // MIPSEL: mipsel, mipsallegrexe, mipsr6el
@@ -437,9 +440,11 @@ enum ZigLLVM_OSType {
     ZigLLVM_NVCL,       // NVIDIA OpenCL
     ZigLLVM_AMDHSA,     // AMD HSA Runtime
     ZigLLVM_PS4,
+    ZigLLVM_PS5,
     ZigLLVM_ELFIAMCU,
     ZigLLVM_TvOS,       // Apple tvOS
     ZigLLVM_WatchOS,    // Apple watchOS
+    ZigLLVM_DriverKit,  // Apple DriverKit
     ZigLLVM_Mesa3D,
     ZigLLVM_Contiki,
     ZigLLVM_AMDPAL,     // AMD PAL Runtime
@@ -447,8 +452,9 @@ enum ZigLLVM_OSType {
     ZigLLVM_Hurd,       // GNU/Hurd
     ZigLLVM_WASI,       // Experimental WebAssembly OS
     ZigLLVM_Emscripten,
+    ZigLLVM_ShaderModel, // DirecX ShaderModel
 
-    ZigLLVM_LastOSType = ZigLLVM_Emscripten
+    ZigLLVM_LastOSType = ZigLLVM_ShaderModel
 };
 
 // Synchronize with target.cpp::abi_list
@@ -470,23 +476,39 @@ enum ZigLLVM_EnvironmentType {
     ZigLLVM_MuslEABI,
     ZigLLVM_MuslEABIHF,
     ZigLLVM_MuslX32,
-
     ZigLLVM_MSVC,
     ZigLLVM_Itanium,
     ZigLLVM_Cygnus,
     ZigLLVM_CoreCLR,
     ZigLLVM_Simulator, // Simulator variants of other systems, e.g., Apple's iOS
     ZigLLVM_MacABI, // Mac Catalyst variant of Apple's iOS deployment target.
-    ZigLLVM_LastEnvironmentType = ZigLLVM_MacABI
+    ZigLLVM_Pixel,
+    ZigLLVM_Vertex,
+    ZigLLVM_Geometry,
+    ZigLLVM_Hull,
+    ZigLLVM_Domain,
+    ZigLLVM_Compute,
+    ZigLLVM_Library,
+    ZigLLVM_RayGeneration,
+    ZigLLVM_Intersection,
+    ZigLLVM_AnyHit,
+    ZigLLVM_ClosestHit,
+    ZigLLVM_Miss,
+    ZigLLVM_Callable,
+    ZigLLVM_Mesh,
+    ZigLLVM_Amplification,
+    ZigLLVM_LastEnvironmentType = ZigLLVM_Amplification
 };
 
 enum ZigLLVM_ObjectFormatType {
     ZigLLVM_UnknownObjectFormat,
 
     ZigLLVM_COFF,
+    ZigLLVM_DXContainer,
     ZigLLVM_ELF,
     ZigLLVM_GOFF,
     ZigLLVM_MachO,
+    ZigLLVM_SPIRV,
     ZigLLVM_Wasm,
     ZigLLVM_XCOFF,
 };

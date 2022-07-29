@@ -107,6 +107,16 @@ pub fn libCGenericName(target: std.Target) [:0]const u8 {
         .simulator,
         .macabi,
         => unreachable,
+        .pixel,
+        .vertex,
+        .geometry,
+        .hull,
+        .domain,
+        .compute,
+        .library,
+        .mesh,
+        .amplification,
+        => unreachable,
     }
 }
 
@@ -212,6 +222,7 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         => return false,
 
         .coff,
+        .dxcontainer,
         .elf,
         .macho,
         .wasm,
@@ -233,7 +244,10 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .bpfel,
         .bpfeb,
         .csky,
+        .dxil,
         .hexagon,
+        .loongarch32,
+        .loongarch64,
         .m68k,
         .mips,
         .mipsel,
@@ -335,9 +349,11 @@ pub fn osToLLVM(os_tag: std.Target.Os.Tag) llvm.OSType {
         .nvcl => .NVCL,
         .amdhsa => .AMDHSA,
         .ps4 => .PS4,
+        .ps5 => .PS5,
         .elfiamcu => .ELFIAMCU,
         .tvos => .TvOS,
         .watchos => .WatchOS,
+        .driverkit => .DriverKit,
         .mesa3d => .Mesa3D,
         .contiki => .Contiki,
         .amdpal => .AMDPAL,
@@ -345,6 +361,7 @@ pub fn osToLLVM(os_tag: std.Target.Os.Tag) llvm.OSType {
         .hurd => .Hurd,
         .wasi => .WASI,
         .emscripten => .Emscripten,
+        .shadermodel => .ShaderModel,
     };
 }
 
@@ -360,7 +377,10 @@ pub fn archToLLVM(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .bpfel => .bpfel,
         .bpfeb => .bpfeb,
         .csky => .csky,
+        .dxil => .dxil,
         .hexagon => .hexagon,
+        .loongarch32 => .loongarch32,
+        .loongarch64 => .loongarch64,
         .m68k => .m68k,
         .mips => .mips,
         .mipsel => .mipsel,
@@ -654,6 +674,11 @@ pub fn atomicPtrAlignment(
         => 64,
 
         .x86_64 => 128,
+
+        .dxil,
+        .loongarch32,
+        .loongarch64,
+        => @panic("TODO populate this table with bit size of largest atomic for this CPU architecture"),
     };
 
     var buffer: Type.Payload.Bits = undefined;

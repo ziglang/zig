@@ -40,9 +40,11 @@ pub const Target = struct {
             nvcl,
             amdhsa,
             ps4,
+            ps5,
             elfiamcu,
             tvos,
             watchos,
+            driverkit,
             mesa3d,
             contiki,
             amdpal,
@@ -50,6 +52,7 @@ pub const Target = struct {
             hurd,
             wasi,
             emscripten,
+            shadermodel,
             uefi,
             opencl,
             glsl450,
@@ -59,7 +62,7 @@ pub const Target = struct {
 
             pub fn isDarwin(tag: Tag) bool {
                 return switch (tag) {
-                    .ios, .macos, .watchos, .tvos => true,
+                    .ios, .macos, .watchos, .tvos, .driverkit => true,
                     else => false,
                 };
             }
@@ -244,10 +247,12 @@ pub const Target = struct {
                     .nvcl,
                     .amdhsa,
                     .ps4,
+                    .ps5,
                     .elfiamcu,
                     .mesa3d,
                     .contiki,
                     .amdpal,
+                    .driverkit,
                     .hermit,
                     .hurd,
                     .wasi,
@@ -323,7 +328,6 @@ pub const Target = struct {
                             .max = .{ .major = 5, .minor = 11 },
                         },
                     },
-
                     .linux => return .{
                         .linux = .{
                             .range = .{
@@ -333,11 +337,16 @@ pub const Target = struct {
                             .glibc = .{ .major = 2, .minor = 19 },
                         },
                     },
-
                     .windows => return .{
                         .windows = .{
                             .min = .win8_1,
                             .max = WindowsVersion.latest,
+                        },
+                    },
+                    .shadermodel => return .{
+                        .semver = .{
+                            .min = .{ .major = 6, .minor = 0 },
+                            .max = .{ .major = 6, .minor = 6 },
                         },
                     },
                 }
@@ -396,6 +405,7 @@ pub const Target = struct {
                 .ios,
                 .tvos,
                 .watchos,
+                .driverkit,
                 .dragonfly,
                 .openbsd,
                 .haiku,
@@ -419,6 +429,7 @@ pub const Target = struct {
                 .nvcl,
                 .amdhsa,
                 .ps4,
+                .ps5,
                 .elfiamcu,
                 .mesa3d,
                 .contiki,
@@ -427,6 +438,7 @@ pub const Target = struct {
                 .hurd,
                 .wasi,
                 .emscripten,
+                .shadermodel,
                 .uefi,
                 .opencl,
                 .glsl450,
@@ -481,6 +493,15 @@ pub const Target = struct {
         coreclr,
         simulator,
         macabi,
+        pixel,
+        vertex,
+        geometry,
+        hull,
+        domain,
+        compute,
+        library,
+        mesh,
+        amplification,
 
         pub fn default(arch: Cpu.Arch, target_os: Os) Abi {
             if (arch.isWasm()) {
@@ -502,6 +523,7 @@ pub const Target = struct {
                 .nvcl,
                 .amdhsa,
                 .ps4,
+                .ps5,
                 .elfiamcu,
                 .mesa3d,
                 .contiki,
@@ -523,6 +545,7 @@ pub const Target = struct {
                 .wasi,
                 .emscripten,
                 => return .musl,
+                .shadermodel => return .pixel,
                 .opencl, // TODO: SPIR-V ABIs with Linkage capability
                 .glsl450,
                 .vulkan,
@@ -531,6 +554,7 @@ pub const Target = struct {
                 .ios,
                 .tvos,
                 .watchos,
+                .driverkit,
                 => return .none,
             }
         }
@@ -565,14 +589,16 @@ pub const Target = struct {
         coff,
         /// Executable and Linking Format
         elf,
+        ///
+        dxcontainer,
         /// macOS relocatables
         macho,
+        /// Standard, Portable Intermediate Representation V
+        spirv,
         /// WebAssembly
         wasm,
         /// C source code
         c,
-        /// Standard, Portable Intermediate Representation V
-        spirv,
         /// Intel IHEX
         hex,
         /// Machine code with no metadata.
@@ -592,6 +618,7 @@ pub const Target = struct {
                 .raw => ".bin",
                 .plan9 => plan9Ext(cpu_arch),
                 .nvptx => ".ptx",
+                .dxcontainer => @panic("TODO dxcontainer file extension"),
             };
         }
     };
@@ -769,7 +796,10 @@ pub const Target = struct {
             bpfel,
             bpfeb,
             csky,
+            dxil,
             hexagon,
+            loongarch32,
+            loongarch64,
             m68k,
             mips,
             mipsel,
@@ -919,7 +949,10 @@ pub const Target = struct {
                     .arc => .ARC,
                     .arm => .ARM,
                     .armeb => .ARM,
+                    .dxil => .NONE,
                     .hexagon => .HEXAGON,
+                    .loongarch32 => @panic("TODO"),
+                    .loongarch64 => @panic("TODO"),
                     .m68k => .@"68K",
                     .le32 => .NONE,
                     .mips => .MIPS,
@@ -980,7 +1013,10 @@ pub const Target = struct {
                     .arc => .Unknown,
                     .arm => .ARM,
                     .armeb => .Unknown,
+                    .dxil => .Unknown,
                     .hexagon => .Unknown,
+                    .loongarch32 => @panic("TODO"),
+                    .loongarch64 => @panic("TODO"),
                     .m68k => .Unknown,
                     .le32 => .Unknown,
                     .mips => .Unknown,
@@ -1045,7 +1081,10 @@ pub const Target = struct {
                     .amdil64,
                     .bpfel,
                     .csky,
+                    .dxil,
                     .hexagon,
+                    .loongarch32,
+                    .loongarch64,
                     .hsail,
                     .hsail64,
                     .kalimba,
@@ -1111,7 +1150,9 @@ pub const Target = struct {
                     .arm,
                     .armeb,
                     .csky,
+                    .dxil,
                     .hexagon,
+                    .loongarch32,
                     .m68k,
                     .le32,
                     .mips,
@@ -1147,6 +1188,7 @@ pub const Target = struct {
                     .mips64el,
                     .powerpc64,
                     .powerpc64le,
+                    .loongarch64,
                     .riscv64,
                     .x86_64,
                     .nvptx64,
@@ -1636,6 +1678,9 @@ pub const Target = struct {
                 .renderscript32,
                 .renderscript64,
                 .ve,
+                .dxil,
+                .loongarch32,
+                .loongarch64,
                 => return result,
             },
 
@@ -1643,6 +1688,7 @@ pub const Target = struct {
             .tvos,
             .watchos,
             .macos,
+            .driverkit,
             => return copy(&result, "/usr/lib/dyld"),
 
             // Operating systems in this list have been verified as not having a standard
@@ -1678,12 +1724,14 @@ pub const Target = struct {
             .nvcl,
             .amdhsa,
             .ps4,
+            .ps5,
             .elfiamcu,
             .mesa3d,
             .contiki,
             .amdpal,
             .hermit,
             .hurd,
+            .shadermodel,
             => return result,
         }
     }
@@ -1852,6 +1900,9 @@ pub const Target = struct {
             .renderscript64,
             .ve,
             .spirv64,
+            .dxil,
+            .loongarch32,
+            .loongarch64,
             => 16,
         };
     }

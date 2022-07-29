@@ -118,10 +118,12 @@ fn updateOsVersionRange(self: *CrossTarget, os: Target.Os) void {
         .nvcl,
         .amdhsa,
         .ps4,
+        .ps5,
         .elfiamcu,
         .mesa3d,
         .contiki,
         .amdpal,
+        .driverkit,
         .hermit,
         .hurd,
         .wasi,
@@ -145,6 +147,7 @@ fn updateOsVersionRange(self: *CrossTarget, os: Target.Os) void {
         .netbsd,
         .openbsd,
         .dragonfly,
+        .shadermodel,
         => {
             self.os_version_min = .{ .semver = os.version_range.semver.min };
             self.os_version_max = .{ .semver = os.version_range.semver.max };
@@ -663,10 +666,12 @@ fn parseOs(result: *CrossTarget, diags: *ParseOptions.Diagnostics, text: []const
         .nvcl,
         .amdhsa,
         .ps4,
+        .ps5,
         .elfiamcu,
         .mesa3d,
         .contiki,
         .amdpal,
+        .driverkit,
         .hermit,
         .hurd,
         .wasi,
@@ -688,6 +693,7 @@ fn parseOs(result: *CrossTarget, diags: *ParseOptions.Diagnostics, text: []const
         .openbsd,
         .linux,
         .dragonfly,
+        .shadermodel,
         => {
             var range_it = mem.split(u8, version_text, "...");
 
