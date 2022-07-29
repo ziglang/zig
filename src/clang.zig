@@ -1913,3 +1913,6 @@ extern fn ZigClangLoadFromCommandLine(
     errors_len: *usize,
     resources_path: [*:0]const u8,
 ) ?*ASTUnit;
+
+pub const isLLVMUsingSeparateLibcxx = ZigClangIsLLVMUsingSeparateLibcxx;
+extern fn ZigClangIsLLVMUsingSeparateLibcxx() bool;

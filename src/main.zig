@@ -174,6 +174,17 @@ pub fn main() anyerror!void {
     return mainArgs(gpa, arena, args);
 }
 
+/// Check that LLVM and Clang have been linked properly so that they are using the same
+/// libc++ and can safely share objects with pointers to static variables in libc++
+fn verifyLibcxxCorrectlyLinked() void {
+    if (build_options.have_llvm and ZigClangIsLLVMUsingSeparateLibcxx()) {
+        fatal(
+            \\Zig was built/linked incorrectly: LLVM and Clang have separate copies of libc++
+            \\       If you are dynamically linking LLVM, make sure you dynamically link libc++ too
+        , .{});
+    }
+}
+
 pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     if (args.len <= 1) {
         std.log.info("{s}", .{usage});
@@ -261,8 +272,12 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         const stdout = io.getStdOut().writer();
         return @import("print_targets.zig").cmdTargets(arena, cmd_args, stdout, info.target);
     } else if (mem.eql(u8, cmd, "version")) {
-        return std.io.getStdOut().writeAll(build_options.version ++ "\n");
+        try std.io.getStdOut().writeAll(build_options.version ++ "\n");
+        // Check libc++ linkage to make sure Zig was built correctly, but only for "env" and "version"
+        // to avoid affecting the startup time for build-critical commands (check takes about ~10 μs)
+        return verifyLibcxxCorrectlyLinked();
     } else if (mem.eql(u8, cmd, "env")) {
+        verifyLibcxxCorrectlyLinked();
         return @import("print_env.zig").cmdEnv(arena, cmd_args, io.getStdOut().writer());
     } else if (mem.eql(u8, cmd, "zen")) {
         return io.getStdOut().writeAll(info_zen);
@@ -4486,6 +4501,8 @@ pub const info_zen =
     \\
     \\
 ;
+
+extern fn ZigClangIsLLVMUsingSeparateLibcxx() bool;
 
 extern "c" fn ZigClang_main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
 extern "c" fn ZigLlvmAr_main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
