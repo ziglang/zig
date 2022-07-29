@@ -5201,10 +5201,20 @@ pub const Type = extern union {
         };
     }
 
+    // Works for vectors and vectors of integers.
+    pub fn minInt(ty: Type, arena: Allocator, target: Target) !Value {
+        const scalar = try minIntScalar(ty.scalarType(), arena, target);
+        if (ty.zigTypeTag() == .Vector) {
+            return Value.Tag.repeated.create(arena, scalar);
+        } else {
+            return scalar;
+        }
+    }
+
     /// Asserts that self.zigTypeTag() == .Int.
-    pub fn minInt(self: Type, arena: Allocator, target: Target) !Value {
-        assert(self.zigTypeTag() == .Int);
-        const info = self.intInfo(target);
+    pub fn minIntScalar(ty: Type, arena: Allocator, target: Target) !Value {
+        assert(ty.zigTypeTag() == .Int);
+        const info = ty.intInfo(target);
 
         if (info.signedness == .unsigned) {
             return Value.zero;

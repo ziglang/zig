@@ -875,10 +875,6 @@ fn analyzeBodyInner(
             .add       => try sema.zirArithmetic(block, inst, .add),
             .addwrap   => try sema.zirArithmetic(block, inst, .addwrap),
             .add_sat   => try sema.zirArithmetic(block, inst, .add_sat),
-            .div       => try sema.zirArithmetic(block, inst, .div),
-            .div_exact => try sema.zirArithmetic(block, inst, .div_exact),
-            .div_floor => try sema.zirArithmetic(block, inst, .div_floor),
-            .div_trunc => try sema.zirArithmetic(block, inst, .div_trunc),
             .mod_rem   => try sema.zirArithmetic(block, inst, .mod_rem),
             .mod       => try sema.zirArithmetic(block, inst, .mod),
             .rem       => try sema.zirArithmetic(block, inst, .rem),
@@ -888,6 +884,11 @@ fn analyzeBodyInner(
             .sub       => try sema.zirArithmetic(block, inst, .sub),
             .subwrap   => try sema.zirArithmetic(block, inst, .subwrap),
             .sub_sat   => try sema.zirArithmetic(block, inst, .sub_sat),
+
+            .div       => try sema.zirDiv(block, inst),
+            .div_exact => try sema.zirDivExact(block, inst),
+            .div_floor => try sema.zirDivFloor(block, inst),
+            .div_trunc => try sema.zirDivTrunc(block, inst),
 
             .maximum => try sema.zirMinMax(block, inst, .max),
             .minimum => try sema.zirMinMax(block, inst, .min),
@@ -10920,6 +10921,636 @@ fn zirArithmetic(
     return sema.analyzeArithmetic(block, zir_tag, lhs, rhs, sema.src, lhs_src, rhs_src);
 }
 
+fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src: LazySrcLoc = .{ .node_offset_bin_op = inst_data.src_node };
+    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const lhs = try sema.resolveInst(extra.lhs);
+    const rhs = try sema.resolveInst(extra.rhs);
+    const lhs_ty = sema.typeOf(lhs);
+    const rhs_ty = sema.typeOf(rhs);
+    const lhs_zig_ty_tag = try lhs_ty.zigTypeTagOrPoison();
+    const rhs_zig_ty_tag = try rhs_ty.zigTypeTagOrPoison();
+    try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
+    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty, .div);
+
+    const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
+    const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
+        .override = &[_]LazySrcLoc{ lhs_src, rhs_src },
+    });
+
+    const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
+    const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs_src);
+
+    const lhs_scalar_ty = lhs_ty.scalarType();
+    const rhs_scalar_ty = rhs_ty.scalarType();
+    const scalar_tag = resolved_type.scalarType().zigTypeTag();
+
+    const is_int = scalar_tag == .Int or scalar_tag == .ComptimeInt;
+
+    try sema.checkArithmeticOp(block, src, scalar_tag, lhs_zig_ty_tag, rhs_zig_ty_tag, .div);
+
+    const mod = sema.mod;
+    const target = mod.getTarget();
+    const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(block, lhs_src, casted_lhs);
+    const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(block, rhs_src, casted_rhs);
+
+    // TODO: emit compile error when .div is used on integers and there would be an
+    // ambiguous result between div_floor and div_trunc.
+
+    // For integers:
+    // If the lhs is zero, then zero is returned regardless of rhs.
+    // If the rhs is zero, compile error for division by zero.
+    // If the rhs is undefined, compile error because there is a possible
+    // value (zero) for which the division would be illegal behavior.
+    // If the lhs is undefined:
+    //   * if lhs type is signed:
+    //     * if rhs is comptime-known and not -1, result is undefined
+    //     * if rhs is -1 or runtime-known, compile error because there is a
+    //        possible value (-min_int / -1)  for which division would be
+    //        illegal behavior.
+    //   * if lhs type is unsigned, undef is returned regardless of rhs.
+    //
+    // For floats:
+    // If the rhs is zero:
+    //  * comptime_float: compile error for division by zero.
+    //  * other float type:
+    //    * if the lhs is zero: QNaN
+    //    * otherwise: +Inf or -Inf depending on lhs sign
+    // If the rhs is undefined:
+    //  * comptime_float: compile error because there is a possible
+    //    value (zero) for which the division would be illegal behavior.
+    //  * other float type: result is undefined
+    // If the lhs is undefined, result is undefined.
+    switch (scalar_tag) {
+        .Int, .ComptimeInt, .ComptimeFloat => {
+            if (maybe_lhs_val) |lhs_val| {
+                if (!lhs_val.isUndef()) {
+                    if (try lhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
+                        return sema.addConstant(resolved_type, Value.zero);
+                    }
+                }
+            }
+            if (maybe_rhs_val) |rhs_val| {
+                if (rhs_val.isUndef()) {
+                    return sema.failWithUseOfUndef(block, rhs_src);
+                }
+                if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
+                    return sema.failWithDivideByZero(block, rhs_src);
+                }
+                // TODO: if the RHS is one, return the LHS directly
+            }
+        },
+        else => {},
+    }
+
+    const runtime_src = rs: {
+        if (maybe_lhs_val) |lhs_val| {
+            if (lhs_val.isUndef()) {
+                if (lhs_scalar_ty.isSignedInt() and rhs_scalar_ty.isSignedInt()) {
+                    if (maybe_rhs_val) |rhs_val| {
+                        if (try sema.compare(block, src, rhs_val, .neq, Value.negative_one, resolved_type)) {
+                            return sema.addConstUndef(resolved_type);
+                        }
+                    }
+                    return sema.failWithUseOfUndef(block, rhs_src);
+                }
+                return sema.addConstUndef(resolved_type);
+            }
+
+            if (maybe_rhs_val) |rhs_val| {
+                if (is_int) {
+                    return sema.addConstant(
+                        resolved_type,
+                        try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, target),
+                    );
+                } else {
+                    return sema.addConstant(
+                        resolved_type,
+                        try lhs_val.floatDiv(rhs_val, resolved_type, sema.arena, target),
+                    );
+                }
+            } else {
+                break :rs rhs_src;
+            }
+        } else {
+            break :rs lhs_src;
+        }
+    };
+
+    try sema.requireRuntimeBlock(block, src, runtime_src);
+
+    if (block.wantSafety()) {
+        try sema.addDivIntOverflowSafety(block, resolved_type, lhs_scalar_ty, maybe_lhs_val, maybe_rhs_val, casted_lhs, casted_rhs, is_int);
+        try sema.addDivByZeroSafety(block, resolved_type, maybe_rhs_val, casted_rhs, is_int);
+    }
+
+    const air_tag = if (is_int) Air.Inst.Tag.div_trunc else switch (block.float_mode) {
+        .Optimized => Air.Inst.Tag.div_float_optimized,
+        .Strict => Air.Inst.Tag.div_float,
+    };
+    return block.addBinOp(air_tag, casted_lhs, casted_rhs);
+}
+
+fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src: LazySrcLoc = .{ .node_offset_bin_op = inst_data.src_node };
+    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const lhs = try sema.resolveInst(extra.lhs);
+    const rhs = try sema.resolveInst(extra.rhs);
+    const lhs_ty = sema.typeOf(lhs);
+    const rhs_ty = sema.typeOf(rhs);
+    const lhs_zig_ty_tag = try lhs_ty.zigTypeTagOrPoison();
+    const rhs_zig_ty_tag = try rhs_ty.zigTypeTagOrPoison();
+    try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
+    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty, .div_exact);
+
+    const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
+    const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
+        .override = &[_]LazySrcLoc{ lhs_src, rhs_src },
+    });
+
+    const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
+    const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs_src);
+
+    const lhs_scalar_ty = lhs_ty.scalarType();
+    const scalar_tag = resolved_type.scalarType().zigTypeTag();
+
+    const is_int = scalar_tag == .Int or scalar_tag == .ComptimeInt;
+
+    try sema.checkArithmeticOp(block, src, scalar_tag, lhs_zig_ty_tag, rhs_zig_ty_tag, .div_exact);
+
+    const mod = sema.mod;
+    const target = mod.getTarget();
+    const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(block, lhs_src, casted_lhs);
+    const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(block, rhs_src, casted_rhs);
+
+    const runtime_src = rs: {
+        // For integers:
+        // If the lhs is zero, then zero is returned regardless of rhs.
+        // If the rhs is zero, compile error for division by zero.
+        // If the rhs is undefined, compile error because there is a possible
+        // value (zero) for which the division would be illegal behavior.
+        // If the lhs is undefined, compile error because there is a possible
+        // value for which the division would result in a remainder.
+        // TODO: emit runtime safety for if there is a remainder
+        // TODO: emit runtime safety for division by zero
+        //
+        // For floats:
+        // If the rhs is zero, compile error for division by zero.
+        // If the rhs is undefined, compile error because there is a possible
+        // value (zero) for which the division would be illegal behavior.
+        // If the lhs is undefined, compile error because there is a possible
+        // value for which the division would result in a remainder.
+        if (maybe_lhs_val) |lhs_val| {
+            if (lhs_val.isUndef()) {
+                return sema.failWithUseOfUndef(block, rhs_src);
+            } else {
+                if (try lhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
+                    return sema.addConstant(resolved_type, Value.zero);
+                }
+            }
+        }
+        if (maybe_rhs_val) |rhs_val| {
+            if (rhs_val.isUndef()) {
+                return sema.failWithUseOfUndef(block, rhs_src);
+            }
+            if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
+                return sema.failWithDivideByZero(block, rhs_src);
+            }
+            // TODO: if the RHS is one, return the LHS directly
+        }
+        if (maybe_lhs_val) |lhs_val| {
+            if (maybe_rhs_val) |rhs_val| {
+                if (is_int) {
+                    // TODO: emit compile error if there is a remainder
+                    return sema.addConstant(
+                        resolved_type,
+                        try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, target),
+                    );
+                } else {
+                    // TODO: emit compile error if there is a remainder
+                    return sema.addConstant(
+                        resolved_type,
+                        try lhs_val.floatDiv(rhs_val, resolved_type, sema.arena, target),
+                    );
+                }
+            } else break :rs rhs_src;
+        } else break :rs lhs_src;
+    };
+
+    try sema.requireRuntimeBlock(block, src, runtime_src);
+
+    // Depending on whether safety is enabled, we will have a slightly different strategy
+    // here. The `div_exact` AIR instruction causes undefined behavior if a remainder
+    // is produced, so in the safety check case, it cannot be used. Instead we do a
+    // div_trunc and check for remainder.
+
+    if (block.wantSafety()) {
+        try sema.addDivIntOverflowSafety(block, resolved_type, lhs_scalar_ty, maybe_lhs_val, maybe_rhs_val, casted_lhs, casted_rhs, is_int);
+        try sema.addDivByZeroSafety(block, resolved_type, maybe_rhs_val, casted_rhs, is_int);
+
+        const result = try block.addBinOp(.div_trunc, casted_lhs, casted_rhs);
+        const ok = if (!is_int) ok: {
+            const floored = try block.addUnOp(.floor, result);
+
+            if (resolved_type.zigTypeTag() == .Vector) {
+                const eql = try block.addCmpVector(result, floored, .eq, try sema.addType(resolved_type));
+                break :ok try block.addInst(.{
+                    .tag = switch (block.float_mode) {
+                        .Strict => .reduce,
+                        .Optimized => .reduce_optimized,
+                    },
+                    .data = .{ .reduce = .{
+                        .operand = eql,
+                        .operation = .And,
+                    } },
+                });
+            } else {
+                const is_in_range = try block.addBinOp(switch (block.float_mode) {
+                    .Strict => .cmp_eq,
+                    .Optimized => .cmp_eq_optimized,
+                }, result, floored);
+                break :ok is_in_range;
+            }
+        } else ok: {
+            const remainder = try block.addBinOp(.rem, casted_lhs, casted_rhs);
+
+            if (resolved_type.zigTypeTag() == .Vector) {
+                const zero_val = try Value.Tag.repeated.create(sema.arena, Value.zero);
+                const zero = try sema.addConstant(resolved_type, zero_val);
+                const eql = try block.addCmpVector(remainder, zero, .eq, try sema.addType(resolved_type));
+                break :ok try block.addInst(.{
+                    .tag = .reduce,
+                    .data = .{ .reduce = .{
+                        .operand = eql,
+                        .operation = .And,
+                    } },
+                });
+            } else {
+                const zero = try sema.addConstant(resolved_type, Value.zero);
+                const is_in_range = try block.addBinOp(.cmp_eq, remainder, zero);
+                break :ok is_in_range;
+            }
+        };
+        try sema.addSafetyCheck(block, ok, .exact_division_remainder);
+        return result;
+    }
+
+    return block.addBinOp(airTag(block, is_int, .div_exact, .div_exact_optimized), casted_lhs, casted_rhs);
+}
+
+fn zirDivFloor(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src: LazySrcLoc = .{ .node_offset_bin_op = inst_data.src_node };
+    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const lhs = try sema.resolveInst(extra.lhs);
+    const rhs = try sema.resolveInst(extra.rhs);
+    const lhs_ty = sema.typeOf(lhs);
+    const rhs_ty = sema.typeOf(rhs);
+    const lhs_zig_ty_tag = try lhs_ty.zigTypeTagOrPoison();
+    const rhs_zig_ty_tag = try rhs_ty.zigTypeTagOrPoison();
+    try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
+    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty, .div_floor);
+
+    const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
+    const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
+        .override = &[_]LazySrcLoc{ lhs_src, rhs_src },
+    });
+
+    const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
+    const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs_src);
+
+    const lhs_scalar_ty = lhs_ty.scalarType();
+    const rhs_scalar_ty = rhs_ty.scalarType();
+    const scalar_tag = resolved_type.scalarType().zigTypeTag();
+
+    const is_int = scalar_tag == .Int or scalar_tag == .ComptimeInt;
+
+    try sema.checkArithmeticOp(block, src, scalar_tag, lhs_zig_ty_tag, rhs_zig_ty_tag, .div_floor);
+
+    const mod = sema.mod;
+    const target = mod.getTarget();
+    const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(block, lhs_src, casted_lhs);
+    const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(block, rhs_src, casted_rhs);
+
+    const runtime_src = rs: {
+        // For integers:
+        // If the lhs is zero, then zero is returned regardless of rhs.
+        // If the rhs is zero, compile error for division by zero.
+        // If the rhs is undefined, compile error because there is a possible
+        // value (zero) for which the division would be illegal behavior.
+        // If the lhs is undefined:
+        //   * if lhs type is signed:
+        //     * if rhs is comptime-known and not -1, result is undefined
+        //     * if rhs is -1 or runtime-known, compile error because there is a
+        //        possible value (-min_int / -1)  for which division would be
+        //        illegal behavior.
+        //   * if lhs type is unsigned, undef is returned regardless of rhs.
+        // TODO: emit runtime safety for division by zero
+        //
+        // For floats:
+        // If the rhs is zero, compile error for division by zero.
+        // If the rhs is undefined, compile error because there is a possible
+        // value (zero) for which the division would be illegal behavior.
+        // If the lhs is undefined, result is undefined.
+        if (maybe_lhs_val) |lhs_val| {
+            if (!lhs_val.isUndef()) {
+                if (try lhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
+                    return sema.addConstant(resolved_type, Value.zero);
+                }
+            }
+        }
+        if (maybe_rhs_val) |rhs_val| {
+            if (rhs_val.isUndef()) {
+                return sema.failWithUseOfUndef(block, rhs_src);
+            }
+            if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
+                return sema.failWithDivideByZero(block, rhs_src);
+            }
+            // TODO: if the RHS is one, return the LHS directly
+        }
+        if (maybe_lhs_val) |lhs_val| {
+            if (lhs_val.isUndef()) {
+                if (lhs_scalar_ty.isSignedInt() and rhs_scalar_ty.isSignedInt()) {
+                    if (maybe_rhs_val) |rhs_val| {
+                        if (try sema.compare(block, src, rhs_val, .neq, Value.negative_one, resolved_type)) {
+                            return sema.addConstUndef(resolved_type);
+                        }
+                    }
+                    return sema.failWithUseOfUndef(block, rhs_src);
+                }
+                return sema.addConstUndef(resolved_type);
+            }
+
+            if (maybe_rhs_val) |rhs_val| {
+                if (is_int) {
+                    return sema.addConstant(
+                        resolved_type,
+                        try lhs_val.intDivFloor(rhs_val, resolved_type, sema.arena, target),
+                    );
+                } else {
+                    return sema.addConstant(
+                        resolved_type,
+                        try lhs_val.floatDivFloor(rhs_val, resolved_type, sema.arena, target),
+                    );
+                }
+            } else break :rs rhs_src;
+        } else break :rs lhs_src;
+    };
+
+    try sema.requireRuntimeBlock(block, src, runtime_src);
+
+    if (block.wantSafety()) {
+        try sema.addDivIntOverflowSafety(block, resolved_type, lhs_scalar_ty, maybe_lhs_val, maybe_rhs_val, casted_lhs, casted_rhs, is_int);
+        try sema.addDivByZeroSafety(block, resolved_type, maybe_rhs_val, casted_rhs, is_int);
+    }
+
+    return block.addBinOp(airTag(block, is_int, .div_floor, .div_floor_optimized), casted_lhs, casted_rhs);
+}
+
+fn zirDivTrunc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src: LazySrcLoc = .{ .node_offset_bin_op = inst_data.src_node };
+    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const lhs = try sema.resolveInst(extra.lhs);
+    const rhs = try sema.resolveInst(extra.rhs);
+    const lhs_ty = sema.typeOf(lhs);
+    const rhs_ty = sema.typeOf(rhs);
+    const lhs_zig_ty_tag = try lhs_ty.zigTypeTagOrPoison();
+    const rhs_zig_ty_tag = try rhs_ty.zigTypeTagOrPoison();
+    try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
+    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty, .div_trunc);
+
+    const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
+    const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
+        .override = &[_]LazySrcLoc{ lhs_src, rhs_src },
+    });
+
+    const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
+    const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs_src);
+
+    const lhs_scalar_ty = lhs_ty.scalarType();
+    const rhs_scalar_ty = rhs_ty.scalarType();
+    const scalar_tag = resolved_type.scalarType().zigTypeTag();
+
+    const is_int = scalar_tag == .Int or scalar_tag == .ComptimeInt;
+
+    try sema.checkArithmeticOp(block, src, scalar_tag, lhs_zig_ty_tag, rhs_zig_ty_tag, .div_trunc);
+
+    const mod = sema.mod;
+    const target = mod.getTarget();
+    const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(block, lhs_src, casted_lhs);
+    const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(block, rhs_src, casted_rhs);
+
+    const runtime_src = rs: {
+        // For integers:
+        // If the lhs is zero, then zero is returned regardless of rhs.
+        // If the rhs is zero, compile error for division by zero.
+        // If the rhs is undefined, compile error because there is a possible
+        // value (zero) for which the division would be illegal behavior.
+        // If the lhs is undefined:
+        //   * if lhs type is signed:
+        //     * if rhs is comptime-known and not -1, result is undefined
+        //     * if rhs is -1 or runtime-known, compile error because there is a
+        //        possible value (-min_int / -1)  for which division would be
+        //        illegal behavior.
+        //   * if lhs type is unsigned, undef is returned regardless of rhs.
+        // TODO: emit runtime safety for division by zero
+        //
+        // For floats:
+        // If the rhs is zero, compile error for division by zero.
+        // If the rhs is undefined, compile error because there is a possible
+        // value (zero) for which the division would be illegal behavior.
+        // If the lhs is undefined, result is undefined.
+        if (maybe_lhs_val) |lhs_val| {
+            if (!lhs_val.isUndef()) {
+                if (try lhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
+                    return sema.addConstant(resolved_type, Value.zero);
+                }
+            }
+        }
+        if (maybe_rhs_val) |rhs_val| {
+            if (rhs_val.isUndef()) {
+                return sema.failWithUseOfUndef(block, rhs_src);
+            }
+            if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
+                return sema.failWithDivideByZero(block, rhs_src);
+            }
+        }
+        if (maybe_lhs_val) |lhs_val| {
+            if (lhs_val.isUndef()) {
+                if (lhs_scalar_ty.isSignedInt() and rhs_scalar_ty.isSignedInt()) {
+                    if (maybe_rhs_val) |rhs_val| {
+                        if (try sema.compare(block, src, rhs_val, .neq, Value.negative_one, resolved_type)) {
+                            return sema.addConstUndef(resolved_type);
+                        }
+                    }
+                    return sema.failWithUseOfUndef(block, rhs_src);
+                }
+                return sema.addConstUndef(resolved_type);
+            }
+
+            if (maybe_rhs_val) |rhs_val| {
+                if (is_int) {
+                    return sema.addConstant(
+                        resolved_type,
+                        try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, target),
+                    );
+                } else {
+                    return sema.addConstant(
+                        resolved_type,
+                        try lhs_val.floatDivTrunc(rhs_val, resolved_type, sema.arena, target),
+                    );
+                }
+            } else break :rs rhs_src;
+        } else break :rs lhs_src;
+    };
+
+    try sema.requireRuntimeBlock(block, src, runtime_src);
+
+    if (block.wantSafety()) {
+        try sema.addDivIntOverflowSafety(block, resolved_type, lhs_scalar_ty, maybe_lhs_val, maybe_rhs_val, casted_lhs, casted_rhs, is_int);
+        try sema.addDivByZeroSafety(block, resolved_type, maybe_rhs_val, casted_rhs, is_int);
+    }
+
+    return block.addBinOp(airTag(block, is_int, .div_trunc, .div_trunc_optimized), casted_lhs, casted_rhs);
+}
+
+fn addDivIntOverflowSafety(
+    sema: *Sema,
+    block: *Block,
+    resolved_type: Type,
+    lhs_scalar_ty: Type,
+    maybe_lhs_val: ?Value,
+    maybe_rhs_val: ?Value,
+    casted_lhs: Air.Inst.Ref,
+    casted_rhs: Air.Inst.Ref,
+    is_int: bool,
+) CompileError!void {
+    if (!is_int) return;
+
+    // If the LHS is unsigned, it cannot cause overflow.
+    if (!lhs_scalar_ty.isSignedInt()) return;
+
+    const mod = sema.mod;
+    const target = mod.getTarget();
+
+    // If the LHS is widened to a larger integer type, no overflow is possible.
+    if (lhs_scalar_ty.intInfo(target).bits < resolved_type.intInfo(target).bits) {
+        return;
+    }
+
+    const min_int = try resolved_type.minInt(sema.arena, target);
+    const neg_one_scalar = try Value.Tag.int_i64.create(sema.arena, -1);
+    const neg_one = if (resolved_type.zigTypeTag() == .Vector)
+        try Value.Tag.repeated.create(sema.arena, neg_one_scalar)
+    else
+        neg_one_scalar;
+
+    // If the LHS is comptime-known to be not equal to the min int,
+    // no overflow is possible.
+    if (maybe_lhs_val) |lhs_val| {
+        if (!lhs_val.compare(.eq, min_int, resolved_type, mod)) return;
+    }
+
+    // If the RHS is comptime-known to not be equal to -1, no overflow is possible.
+    if (maybe_rhs_val) |rhs_val| {
+        if (!rhs_val.compare(.eq, neg_one, resolved_type, mod)) return;
+    }
+
+    var ok: Air.Inst.Ref = .none;
+    if (resolved_type.zigTypeTag() == .Vector) {
+        const vector_ty_ref = try sema.addType(resolved_type);
+        if (maybe_lhs_val == null) {
+            const min_int_ref = try sema.addConstant(resolved_type, min_int);
+            ok = try block.addCmpVector(casted_lhs, min_int_ref, .neq, vector_ty_ref);
+        }
+        if (maybe_rhs_val == null) {
+            const neg_one_ref = try sema.addConstant(resolved_type, neg_one);
+            const rhs_ok = try block.addCmpVector(casted_rhs, neg_one_ref, .neq, vector_ty_ref);
+            if (ok == .none) {
+                ok = rhs_ok;
+            } else {
+                ok = try block.addBinOp(.bool_or, ok, rhs_ok);
+            }
+        }
+        assert(ok != .none);
+        ok = try block.addInst(.{
+            .tag = .reduce,
+            .data = .{ .reduce = .{
+                .operand = ok,
+                .operation = .And,
+            } },
+        });
+    } else {
+        if (maybe_lhs_val == null) {
+            const min_int_ref = try sema.addConstant(resolved_type, min_int);
+            ok = try block.addBinOp(.cmp_neq, casted_lhs, min_int_ref);
+        }
+        if (maybe_rhs_val == null) {
+            const neg_one_ref = try sema.addConstant(resolved_type, neg_one);
+            const rhs_ok = try block.addBinOp(.cmp_neq, casted_rhs, neg_one_ref);
+            if (ok == .none) {
+                ok = rhs_ok;
+            } else {
+                ok = try block.addBinOp(.bool_or, ok, rhs_ok);
+            }
+        }
+        assert(ok != .none);
+    }
+    try sema.addSafetyCheck(block, ok, .integer_overflow);
+}
+
+fn addDivByZeroSafety(
+    sema: *Sema,
+    block: *Block,
+    resolved_type: Type,
+    maybe_rhs_val: ?Value,
+    casted_rhs: Air.Inst.Ref,
+    is_int: bool,
+) CompileError!void {
+    // Strict IEEE floats have well-defined division by zero.
+    if (!is_int and block.float_mode == .Strict) return;
+
+    // If rhs was comptime-known to be zero a compile error would have been
+    // emitted above.
+    if (maybe_rhs_val != null) return;
+
+    const ok = if (resolved_type.zigTypeTag() == .Vector) ok: {
+        const zero_val = try Value.Tag.repeated.create(sema.arena, Value.zero);
+        const zero = try sema.addConstant(resolved_type, zero_val);
+        const ok = try block.addCmpVector(casted_rhs, zero, .neq, try sema.addType(resolved_type));
+        break :ok try block.addInst(.{
+            .tag = if (is_int) .reduce else .reduce_optimized,
+            .data = .{ .reduce = .{
+                .operand = ok,
+                .operation = .And,
+            } },
+        });
+    } else ok: {
+        const zero = try sema.addConstant(resolved_type, Value.zero);
+        break :ok try block.addBinOp(if (is_int) .cmp_neq else .cmp_neq_optimized, casted_rhs, zero);
+    };
+    try sema.addSafetyCheck(block, ok, .divide_by_zero);
+}
+
+fn airTag(block: *Block, is_int: bool, normal: Air.Inst.Tag, optimized: Air.Inst.Tag) Air.Inst.Tag {
+    if (is_int) return normal;
+    return switch (block.float_mode) {
+        .Strict => normal,
+        .Optimized => optimized,
+    };
+}
+
 fn zirOverflowArithmetic(
     sema: *Sema,
     block: *Block,
@@ -11186,13 +11817,8 @@ fn analyzeArithmetic(
     const scalar_tag = resolved_type.scalarType().zigTypeTag();
 
     const is_int = scalar_tag == .Int or scalar_tag == .ComptimeInt;
-    const is_float = scalar_tag == .Float or scalar_tag == .ComptimeFloat;
 
-    if (!is_int and !(is_float and floatOpAllowed(zir_tag))) {
-        return sema.fail(block, src, "invalid operands to binary expression: '{s}' and '{s}'", .{
-            @tagName(lhs_zig_ty_tag), @tagName(rhs_zig_ty_tag),
-        });
-    }
+    try sema.checkArithmeticOp(block, src, scalar_tag, lhs_zig_ty_tag, rhs_zig_ty_tag, zir_tag);
 
     const mod = sema.mod;
     const target = mod.getTarget();
@@ -11398,277 +12024,6 @@ fn analyzeArithmetic(
                         return sema.addConstant(resolved_type, val);
                     } else break :rs .{ .src = rhs_src, .air_tag = .sub_sat };
                 } else break :rs .{ .src = lhs_src, .air_tag = .sub_sat };
-            },
-            .div => {
-                // TODO: emit compile error when .div is used on integers and there would be an
-                // ambiguous result between div_floor and div_trunc.
-
-                // For integers:
-                // If the lhs is zero, then zero is returned regardless of rhs.
-                // If the rhs is zero, compile error for division by zero.
-                // If the rhs is undefined, compile error because there is a possible
-                // value (zero) for which the division would be illegal behavior.
-                // If the lhs is undefined:
-                //   * if lhs type is signed:
-                //     * if rhs is comptime-known and not -1, result is undefined
-                //     * if rhs is -1 or runtime-known, compile error because there is a
-                //        possible value (-min_int / -1)  for which division would be
-                //        illegal behavior.
-                //   * if lhs type is unsigned, undef is returned regardless of rhs.
-                // TODO: emit runtime safety for division by zero
-                //
-                // For floats:
-                // If the rhs is zero:
-                //  * comptime_float: compile error for division by zero.
-                //  * other float type:
-                //    * if the lhs is zero: QNaN
-                //    * otherwise: +Inf or -Inf depending on lhs sign
-                // If the rhs is undefined:
-                //  * comptime_float: compile error because there is a possible
-                //    value (zero) for which the division would be illegal behavior.
-                //  * other float type: result is undefined
-                // If the lhs is undefined, result is undefined.
-                switch (scalar_tag) {
-                    .Int, .ComptimeInt, .ComptimeFloat => {
-                        if (maybe_lhs_val) |lhs_val| {
-                            if (!lhs_val.isUndef()) {
-                                if (try lhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                                    return sema.addConstant(resolved_type, Value.zero);
-                                }
-                            }
-                        }
-                        if (maybe_rhs_val) |rhs_val| {
-                            if (rhs_val.isUndef()) {
-                                return sema.failWithUseOfUndef(block, rhs_src);
-                            }
-                            if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                                return sema.failWithDivideByZero(block, rhs_src);
-                            }
-                        }
-                    },
-                    else => {},
-                }
-
-                if (maybe_lhs_val) |lhs_val| {
-                    if (lhs_val.isUndef()) {
-                        if (lhs_scalar_ty.isSignedInt() and rhs_scalar_ty.isSignedInt()) {
-                            if (maybe_rhs_val) |rhs_val| {
-                                if (try sema.compare(block, src, rhs_val, .neq, Value.negative_one, resolved_type)) {
-                                    return sema.addConstUndef(resolved_type);
-                                }
-                            }
-                            return sema.failWithUseOfUndef(block, rhs_src);
-                        }
-                        return sema.addConstUndef(resolved_type);
-                    }
-
-                    if (maybe_rhs_val) |rhs_val| {
-                        if (is_int) {
-                            return sema.addConstant(
-                                resolved_type,
-                                try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, target),
-                            );
-                        } else {
-                            return sema.addConstant(
-                                resolved_type,
-                                try lhs_val.floatDiv(rhs_val, resolved_type, sema.arena, target),
-                            );
-                        }
-                    } else {
-                        if (is_int) {
-                            break :rs .{ .src = rhs_src, .air_tag = .div_trunc };
-                        } else {
-                            break :rs .{ .src = rhs_src, .air_tag = if (block.float_mode == .Optimized) .div_float_optimized else .div_float };
-                        }
-                    }
-                } else {
-                    if (is_int) {
-                        break :rs .{ .src = lhs_src, .air_tag = .div_trunc };
-                    } else {
-                        break :rs .{ .src = lhs_src, .air_tag = if (block.float_mode == .Optimized) .div_float_optimized else .div_float };
-                    }
-                }
-            },
-            .div_trunc => {
-                // For integers:
-                // If the lhs is zero, then zero is returned regardless of rhs.
-                // If the rhs is zero, compile error for division by zero.
-                // If the rhs is undefined, compile error because there is a possible
-                // value (zero) for which the division would be illegal behavior.
-                // If the lhs is undefined:
-                //   * if lhs type is signed:
-                //     * if rhs is comptime-known and not -1, result is undefined
-                //     * if rhs is -1 or runtime-known, compile error because there is a
-                //        possible value (-min_int / -1)  for which division would be
-                //        illegal behavior.
-                //   * if lhs type is unsigned, undef is returned regardless of rhs.
-                // TODO: emit runtime safety for division by zero
-                //
-                // For floats:
-                // If the rhs is zero, compile error for division by zero.
-                // If the rhs is undefined, compile error because there is a possible
-                // value (zero) for which the division would be illegal behavior.
-                // If the lhs is undefined, result is undefined.
-                if (maybe_lhs_val) |lhs_val| {
-                    if (!lhs_val.isUndef()) {
-                        if (try lhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                            return sema.addConstant(resolved_type, Value.zero);
-                        }
-                    }
-                }
-                if (maybe_rhs_val) |rhs_val| {
-                    if (rhs_val.isUndef()) {
-                        return sema.failWithUseOfUndef(block, rhs_src);
-                    }
-                    if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                        return sema.failWithDivideByZero(block, rhs_src);
-                    }
-                }
-                const air_tag: Air.Inst.Tag = if (block.float_mode == .Optimized) .div_trunc_optimized else .div_trunc;
-                if (maybe_lhs_val) |lhs_val| {
-                    if (lhs_val.isUndef()) {
-                        if (lhs_scalar_ty.isSignedInt() and rhs_scalar_ty.isSignedInt()) {
-                            if (maybe_rhs_val) |rhs_val| {
-                                if (try sema.compare(block, src, rhs_val, .neq, Value.negative_one, resolved_type)) {
-                                    return sema.addConstUndef(resolved_type);
-                                }
-                            }
-                            return sema.failWithUseOfUndef(block, rhs_src);
-                        }
-                        return sema.addConstUndef(resolved_type);
-                    }
-
-                    if (maybe_rhs_val) |rhs_val| {
-                        if (is_int) {
-                            return sema.addConstant(
-                                resolved_type,
-                                try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, target),
-                            );
-                        } else {
-                            return sema.addConstant(
-                                resolved_type,
-                                try lhs_val.floatDivTrunc(rhs_val, resolved_type, sema.arena, target),
-                            );
-                        }
-                    } else break :rs .{ .src = rhs_src, .air_tag = air_tag };
-                } else break :rs .{ .src = lhs_src, .air_tag = air_tag };
-            },
-            .div_floor => {
-                // For integers:
-                // If the lhs is zero, then zero is returned regardless of rhs.
-                // If the rhs is zero, compile error for division by zero.
-                // If the rhs is undefined, compile error because there is a possible
-                // value (zero) for which the division would be illegal behavior.
-                // If the lhs is undefined:
-                //   * if lhs type is signed:
-                //     * if rhs is comptime-known and not -1, result is undefined
-                //     * if rhs is -1 or runtime-known, compile error because there is a
-                //        possible value (-min_int / -1)  for which division would be
-                //        illegal behavior.
-                //   * if lhs type is unsigned, undef is returned regardless of rhs.
-                // TODO: emit runtime safety for division by zero
-                //
-                // For floats:
-                // If the rhs is zero, compile error for division by zero.
-                // If the rhs is undefined, compile error because there is a possible
-                // value (zero) for which the division would be illegal behavior.
-                // If the lhs is undefined, result is undefined.
-                if (maybe_lhs_val) |lhs_val| {
-                    if (!lhs_val.isUndef()) {
-                        if (try lhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                            return sema.addConstant(resolved_type, Value.zero);
-                        }
-                    }
-                }
-                if (maybe_rhs_val) |rhs_val| {
-                    if (rhs_val.isUndef()) {
-                        return sema.failWithUseOfUndef(block, rhs_src);
-                    }
-                    if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                        return sema.failWithDivideByZero(block, rhs_src);
-                    }
-                }
-                const air_tag: Air.Inst.Tag = if (block.float_mode == .Optimized) .div_floor_optimized else .div_floor;
-                if (maybe_lhs_val) |lhs_val| {
-                    if (lhs_val.isUndef()) {
-                        if (lhs_scalar_ty.isSignedInt() and rhs_scalar_ty.isSignedInt()) {
-                            if (maybe_rhs_val) |rhs_val| {
-                                if (try sema.compare(block, src, rhs_val, .neq, Value.negative_one, resolved_type)) {
-                                    return sema.addConstUndef(resolved_type);
-                                }
-                            }
-                            return sema.failWithUseOfUndef(block, rhs_src);
-                        }
-                        return sema.addConstUndef(resolved_type);
-                    }
-
-                    if (maybe_rhs_val) |rhs_val| {
-                        if (is_int) {
-                            return sema.addConstant(
-                                resolved_type,
-                                try lhs_val.intDivFloor(rhs_val, resolved_type, sema.arena, target),
-                            );
-                        } else {
-                            return sema.addConstant(
-                                resolved_type,
-                                try lhs_val.floatDivFloor(rhs_val, resolved_type, sema.arena, target),
-                            );
-                        }
-                    } else break :rs .{ .src = rhs_src, .air_tag = air_tag };
-                } else break :rs .{ .src = lhs_src, .air_tag = air_tag };
-            },
-            .div_exact => {
-                // For integers:
-                // If the lhs is zero, then zero is returned regardless of rhs.
-                // If the rhs is zero, compile error for division by zero.
-                // If the rhs is undefined, compile error because there is a possible
-                // value (zero) for which the division would be illegal behavior.
-                // If the lhs is undefined, compile error because there is a possible
-                // value for which the division would result in a remainder.
-                // TODO: emit runtime safety for if there is a remainder
-                // TODO: emit runtime safety for division by zero
-                //
-                // For floats:
-                // If the rhs is zero, compile error for division by zero.
-                // If the rhs is undefined, compile error because there is a possible
-                // value (zero) for which the division would be illegal behavior.
-                // If the lhs is undefined, compile error because there is a possible
-                // value for which the division would result in a remainder.
-                if (maybe_lhs_val) |lhs_val| {
-                    if (lhs_val.isUndef()) {
-                        return sema.failWithUseOfUndef(block, rhs_src);
-                    } else {
-                        if (try lhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                            return sema.addConstant(resolved_type, Value.zero);
-                        }
-                    }
-                }
-                if (maybe_rhs_val) |rhs_val| {
-                    if (rhs_val.isUndef()) {
-                        return sema.failWithUseOfUndef(block, rhs_src);
-                    }
-                    if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                        return sema.failWithDivideByZero(block, rhs_src);
-                    }
-                }
-                const air_tag: Air.Inst.Tag = if (block.float_mode == .Optimized) .div_exact_optimized else .div_exact;
-                if (maybe_lhs_val) |lhs_val| {
-                    if (maybe_rhs_val) |rhs_val| {
-                        if (is_int) {
-                            // TODO: emit compile error if there is a remainder
-                            return sema.addConstant(
-                                resolved_type,
-                                try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, target),
-                            );
-                        } else {
-                            // TODO: emit compile error if there is a remainder
-                            return sema.addConstant(
-                                resolved_type,
-                                try lhs_val.floatDiv(rhs_val, resolved_type, sema.arena, target),
-                            );
-                        }
-                    } else break :rs .{ .src = rhs_src, .air_tag = air_tag };
-                } else break :rs .{ .src = lhs_src, .air_tag = air_tag };
             },
             .mul => {
                 // For integers:
@@ -12048,28 +12403,6 @@ fn analyzeArithmetic(
             }
         }
         switch (rs.air_tag) {
-            // zig fmt: off
-            .div_float, .div_exact, .div_trunc, .div_floor, .div_float_optimized,
-            .div_exact_optimized, .div_trunc_optimized, .div_floor_optimized
-            // zig fmt: on
-            => if (scalar_tag == .Int or block.float_mode == .Optimized) {
-                const ok = if (resolved_type.zigTypeTag() == .Vector) ok: {
-                    const zero_val = try Value.Tag.repeated.create(sema.arena, Value.zero);
-                    const zero = try sema.addConstant(sema.typeOf(casted_rhs), zero_val);
-                    const ok = try block.addCmpVector(casted_rhs, zero, .neq, try sema.addType(resolved_type));
-                    break :ok try block.addInst(.{
-                        .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
-                        .data = .{ .reduce = .{
-                            .operand = ok,
-                            .operation = .And,
-                        } },
-                    });
-                } else ok: {
-                    const zero = try sema.addConstant(sema.typeOf(casted_rhs), Value.zero);
-                    break :ok try block.addBinOp(if (block.float_mode == .Optimized) .cmp_neq_optimized else .cmp_neq, casted_rhs, zero);
-                };
-                try sema.addSafetyCheck(block, ok, .divide_by_zero);
-            },
             .rem, .mod, .rem_optimized, .mod_optimized => {
                 const ok = if (resolved_type.zigTypeTag() == .Vector) ok: {
                     const zero_val = try Value.Tag.repeated.create(sema.arena, Value.zero);
@@ -12095,47 +12428,6 @@ fn analyzeArithmetic(
                 try sema.addSafetyCheck(block, ok, .remainder_division_zero_negative);
             },
             else => {},
-        }
-        if (rs.air_tag == .div_exact or rs.air_tag == .div_exact_optimized) {
-            const result = try block.addBinOp(.div_exact, casted_lhs, casted_rhs);
-            const ok = if (scalar_tag == .Float) ok: {
-                const floored = try block.addUnOp(.floor, result);
-
-                if (resolved_type.zigTypeTag() == .Vector) {
-                    const eql = try block.addCmpVector(result, floored, .eq, try sema.addType(resolved_type));
-                    break :ok try block.addInst(.{
-                        .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
-                        .data = .{ .reduce = .{
-                            .operand = eql,
-                            .operation = .And,
-                        } },
-                    });
-                } else {
-                    const is_in_range = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_eq_optimized else .cmp_eq, result, floored);
-                    break :ok is_in_range;
-                }
-            } else ok: {
-                const remainder = try block.addBinOp(.rem, casted_lhs, casted_rhs);
-
-                if (resolved_type.zigTypeTag() == .Vector) {
-                    const zero_val = try Value.Tag.repeated.create(sema.arena, Value.zero);
-                    const zero = try sema.addConstant(sema.typeOf(casted_rhs), zero_val);
-                    const eql = try block.addCmpVector(remainder, zero, .eq, try sema.addType(resolved_type));
-                    break :ok try block.addInst(.{
-                        .tag = .reduce,
-                        .data = .{ .reduce = .{
-                            .operand = eql,
-                            .operation = .And,
-                        } },
-                    });
-                } else {
-                    const zero = try sema.addConstant(sema.typeOf(casted_rhs), Value.zero);
-                    const is_in_range = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_eq_optimized else .cmp_eq, remainder, zero);
-                    break :ok is_in_range;
-                }
-            };
-            try sema.addSafetyCheck(block, ok, .exact_division_remainder);
-            return result;
         }
     }
     return block.addBinOp(rs.air_tag, casted_lhs, casted_rhs);
@@ -16801,6 +17093,46 @@ fn checkIntType(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileEr
         .ComptimeInt => return true,
         .Int => return false,
         else => return sema.fail(block, src, "expected integer type, found '{}'", .{ty.fmt(sema.mod)}),
+    }
+}
+
+fn checkInvalidPtrArithmetic(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    ty: Type,
+    zir_tag: Zir.Inst.Tag,
+) CompileError!void {
+    switch (try ty.zigTypeTagOrPoison()) {
+        .Pointer => switch (ty.ptrSize()) {
+            .One, .Slice => return,
+            .Many, .C => return sema.fail(
+                block,
+                src,
+                "invalid pointer arithmetic operand: '{s}''",
+                .{@tagName(zir_tag)},
+            ),
+        },
+        else => return,
+    }
+}
+
+fn checkArithmeticOp(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    scalar_tag: std.builtin.TypeId,
+    lhs_zig_ty_tag: std.builtin.TypeId,
+    rhs_zig_ty_tag: std.builtin.TypeId,
+    zir_tag: Zir.Inst.Tag,
+) CompileError!void {
+    const is_int = scalar_tag == .Int or scalar_tag == .ComptimeInt;
+    const is_float = scalar_tag == .Float or scalar_tag == .ComptimeFloat;
+
+    if (!is_int and !(is_float and floatOpAllowed(zir_tag))) {
+        return sema.fail(block, src, "invalid operands to binary expression: '{s}' and '{s}'", .{
+            @tagName(lhs_zig_ty_tag), @tagName(rhs_zig_ty_tag),
+        });
     }
 }
 

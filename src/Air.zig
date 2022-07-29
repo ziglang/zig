@@ -111,8 +111,9 @@ pub const Inst = struct {
         div_floor,
         /// Same as `div_floor` with optimized float mode.
         div_floor_optimized,
-        /// Integer or float division. Guaranteed no remainder.
-        /// For integers, wrapping is undefined behavior.
+        /// Integer or float division.
+        /// If a remainder would be produced, undefined behavior occurs.
+        /// For integers, overflow is undefined behavior.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
         /// Uses the `bin_op` field.
