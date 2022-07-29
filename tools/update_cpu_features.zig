@@ -734,6 +734,11 @@ const llvm_targets = [_]LlvmTarget{
         .td_name = "Hexagon.td",
     },
     .{
+        .zig_name = "loongarch",
+        .llvm_name = "LoongArch",
+        .td_name = "LoongArch.td",
+    },
+    .{
         .zig_name = "lanai",
         .llvm_name = "Lanai",
         .td_name = "Lanai.td",
@@ -934,7 +939,7 @@ fn processOneTarget(job: Job) anyerror!void {
     const child_result = try std.ChildProcess.exec(.{
         .allocator = arena,
         .argv = &child_args,
-        .max_output_bytes = 200 * 1024 * 1024,
+        .max_output_bytes = 1024 * 1024 * 1024,
     });
     tblgen_progress.end();
     if (child_result.stderr.len != 0) {
@@ -1286,7 +1291,7 @@ fn usageAndExit(file: fs.File, arg0: []const u8, code: u8) noreturn {
         \\
         \\Updates lib/std/target/<target>.zig from llvm/lib/Target/<Target>/<Target>.td .
         \\
-        \\On a less beefy system, or when debugging, compile with --single-threaded.
+        \\On a less beefy system, or when debugging, compile with -fsingle-threaded.
         \\
     , .{arg0}) catch std.process.exit(1);
     std.process.exit(code);

@@ -13,12 +13,14 @@ pub const Feature = enum {
     a78c,
     aes,
     aggressive_fma,
+    all,
     alternate_sextload_cvt_f32_pattern,
     altnzcv,
     am,
     amvs,
     arith_bcc_fusion,
     arith_cbz_fusion,
+    ascend_store_address,
     balance_fp_ops,
     bf16,
     brbe,
@@ -50,6 +52,7 @@ pub const Feature = enum {
     el3,
     ete,
     exynos_cheap_as_move,
+    exynos_m4,
     f32mm,
     f64mm,
     fgt,
@@ -61,6 +64,7 @@ pub const Feature = enum {
     fptoint,
     fullfp16,
     fuse_address,
+    fuse_adrp_add,
     fuse_aes,
     fuse_arith_logic,
     fuse_crypto_eor,
@@ -73,6 +77,7 @@ pub const Feature = enum {
     hcx,
     i8mm,
     jsconv,
+    ldapr,
     lor,
     ls64,
     lse,
@@ -139,7 +144,6 @@ pub const Feature = enum {
     spe_eef,
     specrestrict,
     ssbs,
-    streaming_sve,
     strict_align,
     sve,
     sve2,
@@ -206,6 +210,7 @@ pub const all_features = blk: {
         .description = "Cortex-A65 ARM processors",
         .dependencies = featureSet(&[_]Feature{
             .fuse_address,
+            .fuse_adrp_add,
             .fuse_aes,
             .fuse_literals,
         }),
@@ -256,6 +261,11 @@ pub const all_features = blk: {
         .description = "Enable Aggressive FMA for floating-point.",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.all)] = .{
+        .llvm_name = "all",
+        .description = "Enable all instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.alternate_sextload_cvt_f32_pattern)] = .{
         .llvm_name = "alternate-sextload-cvt-f32-pattern",
         .description = "Use alternative pattern for sextload convert to f32",
@@ -286,6 +296,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.arith_cbz_fusion)] = .{
         .llvm_name = "arith-cbz-fusion",
         .description = "CPU fuses arithmetic + cbz/cbnz operations",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.ascend_store_address)] = .{
+        .llvm_name = "ascend-store-address",
+        .description = "Schedule vector stores by ascending address",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.balance_fp_ops)] = .{
@@ -454,6 +469,25 @@ pub const all_features = blk: {
             .custom_cheap_as_move,
         }),
     };
+    result[@enumToInt(Feature.exynos_m4)] = .{
+        .llvm_name = "exynosm4",
+        .description = "Samsung Exynos-M4 processors",
+        .dependencies = featureSet(&[_]Feature{
+            .arith_bcc_fusion,
+            .arith_cbz_fusion,
+            .exynos_cheap_as_move,
+            .force_32bit_jump_tables,
+            .fuse_address,
+            .fuse_adrp_add,
+            .fuse_aes,
+            .fuse_arith_logic,
+            .fuse_csel,
+            .fuse_literals,
+            .lsl_fast,
+            .use_postra_scheduler,
+            .zcz,
+        }),
+    };
     result[@enumToInt(Feature.f32mm)] = .{
         .llvm_name = "f32mm",
         .description = "Enable Matrix Multiply FP32 Extension",
@@ -517,6 +551,11 @@ pub const all_features = blk: {
         .description = "CPU fuses address generation and memory operations",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.fuse_adrp_add)] = .{
+        .llvm_name = "fuse-adrp-add",
+        .description = "CPU fuses adrp+add operations",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.fuse_aes)] = .{
         .llvm_name = "fuse-aes",
         .description = "CPU fuses AES crypto operations",
@@ -578,6 +617,11 @@ pub const all_features = blk: {
         .dependencies = featureSet(&[_]Feature{
             .fp_armv8,
         }),
+    };
+    result[@enumToInt(Feature.ldapr)] = .{
+        .llvm_name = "ldapr",
+        .description = "Use LDAPR to lower atomic loads; experimental until we have more testing/a formal correctness proof",
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.lor)] = .{
         .llvm_name = "lor",
@@ -891,7 +935,7 @@ pub const all_features = blk: {
         .description = "Enable Scalable Matrix Extension (SME)",
         .dependencies = featureSet(&[_]Feature{
             .bf16,
-            .streaming_sve,
+            .use_scalar_inc_vl,
         }),
     };
     result[@enumToInt(Feature.sme_f64)] = .{
@@ -926,11 +970,6 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.ssbs)] = .{
         .llvm_name = "ssbs",
         .description = "Enable Speculative Store Bypass Safe bit",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@enumToInt(Feature.streaming_sve)] = .{
-        .llvm_name = "streaming-sve",
-        .description = "Enable subset of SVE(2) instructions for Streaming SVE execution mode",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.strict_align)] = .{
@@ -1178,6 +1217,7 @@ pub const all_features = blk: {
             .rcpc_immo,
             .rdm,
             .sel2,
+            .specrestrict,
             .tlb_rmi,
             .tracev8_4,
             .uaops,
@@ -1387,6 +1427,7 @@ pub const cpu = struct {
             .fp16fml,
             .fptoint,
             .fuse_address,
+            .fuse_adrp_add,
             .fuse_aes,
             .fuse_arith_logic,
             .fuse_crypto_eor,
@@ -1472,6 +1513,7 @@ pub const cpu = struct {
             .fp16fml,
             .fptoint,
             .fuse_address,
+            .fuse_adrp_add,
             .fuse_aes,
             .fuse_arith_logic,
             .fuse_crypto_eor,
@@ -1503,6 +1545,7 @@ pub const cpu = struct {
             .fp16fml,
             .fptoint,
             .fuse_address,
+            .fuse_adrp_add,
             .fuse_aes,
             .fuse_arith_logic,
             .fuse_crypto_eor,
@@ -1636,6 +1679,7 @@ pub const cpu = struct {
             .crc,
             .crypto,
             .custom_cheap_as_move,
+            .fuse_adrp_add,
             .fuse_aes,
             .fuse_literals,
             .perfmon,
@@ -1652,6 +1696,7 @@ pub const cpu = struct {
             .crypto,
             .dotprod,
             .fullfp16,
+            .perfmon,
             .rcpc,
             .ssbs,
             .v8_2a,
@@ -1665,6 +1710,7 @@ pub const cpu = struct {
             .crypto,
             .dotprod,
             .fullfp16,
+            .perfmon,
             .rcpc,
             .ssbs,
             .v8_2a,
@@ -1691,6 +1737,7 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .crc,
             .crypto,
+            .fuse_adrp_add,
             .fuse_aes,
             .fuse_literals,
             .perfmon,
@@ -1729,6 +1776,7 @@ pub const cpu = struct {
             .crypto,
             .dotprod,
             .fullfp16,
+            .perfmon,
             .rcpc,
             .ssbs,
             .v8_2a,
@@ -1742,6 +1790,7 @@ pub const cpu = struct {
             .crypto,
             .dotprod,
             .fullfp16,
+            .perfmon,
             .rcpc,
             .ssbs,
             .v8_2a,
@@ -1756,6 +1805,7 @@ pub const cpu = struct {
             .dotprod,
             .fullfp16,
             .fuse_aes,
+            .perfmon,
             .rcpc,
             .ssbs,
             .v8_2a,
@@ -1802,7 +1852,6 @@ pub const cpu = struct {
             .perfmon,
             .predres,
             .sb,
-            .specrestrict,
             .ssbs,
             .v8r,
         }),
@@ -1924,68 +1973,44 @@ pub const cpu = struct {
         .name = "exynos_m3",
         .llvm_name = "exynos-m3",
         .features = featureSet(&[_]Feature{
-            .arith_bcc_fusion,
-            .arith_cbz_fusion,
             .crc,
             .crypto,
             .exynos_cheap_as_move,
             .force_32bit_jump_tables,
             .fuse_address,
+            .fuse_adrp_add,
             .fuse_aes,
-            .fuse_arith_logic,
             .fuse_csel,
             .fuse_literals,
             .lsl_fast,
             .perfmon,
+            .predictable_select_expensive,
             .use_postra_scheduler,
             .v8a,
-            .zcz,
         }),
     };
     pub const exynos_m4 = CpuModel{
         .name = "exynos_m4",
         .llvm_name = "exynos-m4",
         .features = featureSet(&[_]Feature{
-            .arith_bcc_fusion,
-            .arith_cbz_fusion,
             .crypto,
             .dotprod,
-            .exynos_cheap_as_move,
-            .force_32bit_jump_tables,
+            .exynos_m4,
             .fullfp16,
-            .fuse_address,
-            .fuse_aes,
-            .fuse_arith_logic,
-            .fuse_csel,
-            .fuse_literals,
-            .lsl_fast,
             .perfmon,
-            .use_postra_scheduler,
             .v8_2a,
-            .zcz,
         }),
     };
     pub const exynos_m5 = CpuModel{
         .name = "exynos_m5",
         .llvm_name = "exynos-m5",
         .features = featureSet(&[_]Feature{
-            .arith_bcc_fusion,
-            .arith_cbz_fusion,
             .crypto,
             .dotprod,
-            .exynos_cheap_as_move,
-            .force_32bit_jump_tables,
+            .exynos_m4,
             .fullfp16,
-            .fuse_address,
-            .fuse_aes,
-            .fuse_arith_logic,
-            .fuse_csel,
-            .fuse_literals,
-            .lsl_fast,
             .perfmon,
-            .use_postra_scheduler,
             .v8_2a,
-            .zcz,
         }),
     };
     pub const falkor = CpuModel{
@@ -2010,9 +2035,9 @@ pub const cpu = struct {
         .llvm_name = "generic",
         .features = featureSet(&[_]Feature{
             .ete,
+            .fuse_adrp_add,
             .fuse_aes,
             .neon,
-            .perfmon,
             .use_postra_scheduler,
         }),
     };
@@ -2058,6 +2083,7 @@ pub const cpu = struct {
             .dotprod,
             .fullfp16,
             .fuse_aes,
+            .perfmon,
             .rcpc,
             .ssbs,
             .use_postra_scheduler,
@@ -2072,6 +2098,7 @@ pub const cpu = struct {
             .dotprod,
             .fullfp16,
             .fuse_aes,
+            .perfmon,
             .rcpc,
             .spe,
             .ssbs,
@@ -2089,6 +2116,7 @@ pub const cpu = struct {
             .fuse_aes,
             .i8mm,
             .mte,
+            .perfmon,
             .sve2_bitperm,
             .use_postra_scheduler,
             .v8_5a,
