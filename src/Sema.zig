@@ -11450,7 +11450,11 @@ fn addDivIntOverflowSafety(
     }
 
     const min_int = try resolved_type.minInt(sema.arena, target);
-    const neg_one = try Value.Tag.int_i64.create(sema.arena, -1);
+    const neg_one_scalar = try Value.Tag.int_i64.create(sema.arena, -1);
+    const neg_one = if (resolved_type.zigTypeTag() == .Vector)
+        try Value.Tag.repeated.create(sema.arena, neg_one_scalar)
+    else
+        neg_one_scalar;
 
     // If the LHS is comptime-known to be not equal to the min int,
     // no overflow is possible.
@@ -11467,17 +11471,11 @@ fn addDivIntOverflowSafety(
     if (resolved_type.zigTypeTag() == .Vector) {
         const vector_ty_ref = try sema.addType(resolved_type);
         if (maybe_lhs_val == null) {
-            const min_int_ref = try sema.addConstant(
-                resolved_type,
-                try Value.Tag.repeated.create(sema.arena, min_int),
-            );
+            const min_int_ref = try sema.addConstant(resolved_type, min_int);
             ok = try block.addCmpVector(casted_lhs, min_int_ref, .neq, vector_ty_ref);
         }
         if (maybe_rhs_val == null) {
-            const neg_one_ref = try sema.addConstant(
-                resolved_type,
-                try Value.Tag.repeated.create(sema.arena, neg_one),
-            );
+            const neg_one_ref = try sema.addConstant(resolved_type, neg_one);
             const rhs_ok = try block.addCmpVector(casted_rhs, neg_one_ref, .neq, vector_ty_ref);
             if (ok == .none) {
                 ok = rhs_ok;
