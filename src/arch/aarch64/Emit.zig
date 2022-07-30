@@ -27,14 +27,21 @@ code: *std.ArrayList(u8),
 
 prev_di_line: u32,
 prev_di_column: u32,
+
 /// Relative to the beginning of `code`.
 prev_di_pc: usize,
 
+/// The amount of stack space consumed by all stack arguments as well
+/// as the saved callee-saved registers
+prologue_stack_space: u32,
+
 /// The branch type of every branch
 branch_types: std.AutoHashMapUnmanaged(Mir.Inst.Index, BranchType) = .{},
+
 /// For every forward branch, maps the target instruction to a list of
 /// branches which branch to this target instruction
 branch_forward_origins: std.AutoHashMapUnmanaged(Mir.Inst.Index, std.ArrayListUnmanaged(Mir.Inst.Index)) = .{},
+
 /// For backward branches: stores the code offset of the target
 /// instruction
 ///
@@ -42,6 +49,8 @@ branch_forward_origins: std.AutoHashMapUnmanaged(Mir.Inst.Index, std.ArrayListUn
 /// instruction
 code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .{},
 
+/// The final stack frame size of the function (already aligned to the
+/// respective stack alignment). Does not include prologue stack space.
 stack_size: u32,
 
 const InnerError = error{
@@ -147,6 +156,12 @@ pub fn emitMir(
             .str_stack => try emit.mirLoadStoreStack(inst),
             .strb_stack => try emit.mirLoadStoreStack(inst),
             .strh_stack => try emit.mirLoadStoreStack(inst),
+
+            .ldr_stack_argument => try emit.mirLoadStackArgument(inst),
+            .ldrb_stack_argument => try emit.mirLoadStackArgument(inst),
+            .ldrh_stack_argument => try emit.mirLoadStackArgument(inst),
+            .ldrsb_stack_argument => try emit.mirLoadStackArgument(inst),
+            .ldrsh_stack_argument => try emit.mirLoadStackArgument(inst),
 
             .ldr_register => try emit.mirLoadStoreRegisterRegister(inst),
             .ldrb_register => try emit.mirLoadStoreRegisterRegister(inst),
@@ -916,6 +931,55 @@ fn mirLoadStoreRegisterPair(emit: *Emit, inst: Mir.Inst.Index) !void {
     switch (tag) {
         .stp => try emit.writeInstruction(Instruction.stp(rt, rt2, rn, offset)),
         .ldp => try emit.writeInstruction(Instruction.ldp(rt, rt2, rn, offset)),
+        else => unreachable,
+    }
+}
+
+fn mirLoadStackArgument(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const load_store_stack = emit.mir.instructions.items(.data)[inst].load_store_stack;
+    const rt = load_store_stack.rt;
+
+    const raw_offset = emit.stack_size + emit.prologue_stack_space - load_store_stack.offset;
+    const offset = switch (tag) {
+        .ldrb_stack_argument, .ldrsb_stack_argument => blk: {
+            if (math.cast(u12, raw_offset)) |imm| {
+                break :blk Instruction.LoadStoreOffset.imm(imm);
+            } else {
+                return emit.fail("TODO load stack argument byte with larger offset", .{});
+            }
+        },
+        .ldrh_stack_argument, .ldrsh_stack_argument => blk: {
+            assert(std.mem.isAlignedGeneric(u32, raw_offset, 2)); // misaligned stack entry
+            if (math.cast(u12, @divExact(raw_offset, 2))) |imm| {
+                break :blk Instruction.LoadStoreOffset.imm(imm);
+            } else {
+                return emit.fail("TODO load stack argument halfword with larger offset", .{});
+            }
+        },
+        .ldr_stack_argument => blk: {
+            const alignment: u32 = switch (rt.size()) {
+                32 => 4,
+                64 => 8,
+                else => unreachable,
+            };
+
+            assert(std.mem.isAlignedGeneric(u32, raw_offset, alignment)); // misaligned stack entry
+            if (math.cast(u12, @divExact(raw_offset, alignment))) |imm| {
+                break :blk Instruction.LoadStoreOffset.imm(imm);
+            } else {
+                return emit.fail("TODO load stack argument with larger offset", .{});
+            }
+        },
+        else => unreachable,
+    };
+
+    switch (tag) {
+        .ldr_stack_argument => try emit.writeInstruction(Instruction.ldr(rt, .sp, offset)),
+        .ldrb_stack_argument => try emit.writeInstruction(Instruction.ldrb(rt, .sp, offset)),
+        .ldrh_stack_argument => try emit.writeInstruction(Instruction.ldrh(rt, .sp, offset)),
+        .ldrsb_stack_argument => try emit.writeInstruction(Instruction.ldrsb(rt, .sp, offset)),
+        .ldrsh_stack_argument => try emit.writeInstruction(Instruction.ldrsh(rt, .sp, offset)),
         else => unreachable,
     }
 }

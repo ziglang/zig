@@ -94,18 +94,24 @@ pub const Inst = struct {
         ldp,
         /// Pseudo-instruction: Load from stack
         ldr_stack,
+        /// Pseudo-instruction: Load from stack argument
+        ldr_stack_argument,
         /// Load Register (immediate)
         ldr_immediate,
         /// Load Register (register)
         ldr_register,
         /// Pseudo-instruction: Load byte from stack
         ldrb_stack,
+        /// Pseudo-instruction: Load byte from stack argument
+        ldrb_stack_argument,
         /// Load Register Byte (immediate)
         ldrb_immediate,
         /// Load Register Byte (register)
         ldrb_register,
         /// Pseudo-instruction: Load halfword from stack
         ldrh_stack,
+        /// Pseudo-instruction: Load halfword from stack argument
+        ldrh_stack_argument,
         /// Load Register Halfword (immediate)
         ldrh_immediate,
         /// Load Register Halfword (register)
@@ -114,10 +120,14 @@ pub const Inst = struct {
         ldrsb_immediate,
         /// Pseudo-instruction: Load signed byte from stack
         ldrsb_stack,
+        /// Pseudo-instruction: Load signed byte from stack argument
+        ldrsb_stack_argument,
         /// Load Register Signed Halfword (immediate)
         ldrsh_immediate,
         /// Pseudo-instruction: Load signed halfword from stack
         ldrsh_stack,
+        /// Pseudo-instruction: Load signed halfword from stack argument
+        ldrsh_stack_argument,
         /// Load Register Signed Word (immediate)
         ldrsw_immediate,
         /// Logical Shift Left (immediate)
