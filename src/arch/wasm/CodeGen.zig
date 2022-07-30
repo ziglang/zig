@@ -603,7 +603,7 @@ stack_alignment: u32 = 16,
 
 const InnerError = error{
     OutOfMemory,
-    /// An error occured when trying to lower AIR to MIR.
+    /// An error occurred when trying to lower AIR to MIR.
     CodegenFail,
     /// Can occur when dereferencing a pointer that points to a `Decl` of which the analysis has failed
     AnalysisFail,
@@ -4410,7 +4410,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     }
 
     // We store the bit if it's overflowed or not in this. As it's zero-initialized
-    // we only need to update it if an overflow (or underflow) occured.
+    // we only need to update it if an overflow (or underflow) occurred.
     const overflow_bit = try self.allocLocal(Type.initTag(.u1));
     const int_info = lhs_ty.intInfo(self.target);
     const wasm_bits = toWasmBits(int_info.bits) orelse {
