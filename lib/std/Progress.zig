@@ -207,7 +207,7 @@ fn getTerminalWidth(self: Progress, file_handle: os.fd_t) !u16 {
         std.debug.assert(self.is_windows_terminal);
         var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
         if (windows.kernel32.GetConsoleScreenBufferInfo(file_handle, &info) != windows.TRUE)
-            unreachable;
+            return error.Unexpected;
         return @intCast(u16, info.dwSize.X);
     } else if (builtin.os.tag == .linux) {
         // TODO: figure out how to get this working on FreeBSD, macOS etc. too.
@@ -248,7 +248,7 @@ fn getTerminalCursorColumn(self: Progress, file: std.fs.File) !u16 {
         std.debug.assert(self.is_windows_terminal);
         var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
         if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != windows.TRUE)
-            unreachable;
+            return error.Unexpected;
         return @intCast(u16, info.dwCursorPosition.X);
     } else {
         return error.Unsupported;
