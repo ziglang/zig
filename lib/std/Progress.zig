@@ -210,8 +210,11 @@ fn refreshWithHeldLock(self: *Progress) void {
             std.debug.assert(self.is_windows_terminal);
 
             var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-            if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != windows.TRUE)
-                unreachable;
+            if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != windows.TRUE) {
+                // stop trying to write to this file
+                self.terminal = null;
+                break :winapi;
+            }
 
             var cursor_pos = windows.COORD{
                 .X = info.dwCursorPosition.X - @intCast(windows.SHORT, self.columns_written),
@@ -231,7 +234,7 @@ fn refreshWithHeldLock(self: *Progress) void {
                 cursor_pos,
                 &written,
             ) != windows.TRUE) {
-                // Stop trying to write to this file.
+                // stop trying to write to this file
                 self.terminal = null;
                 break :winapi;
             }
@@ -241,10 +244,16 @@ fn refreshWithHeldLock(self: *Progress) void {
                 fill_chars,
                 cursor_pos,
                 &written,
-            ) != windows.TRUE) unreachable;
-
-            if (windows.kernel32.SetConsoleCursorPosition(file.handle, cursor_pos) != windows.TRUE)
-                unreachable;
+            ) != windows.TRUE) {
+                // stop trying to write to this file
+                self.terminal = null;
+                break :winapi;
+            }
+            if (windows.kernel32.SetConsoleCursorPosition(file.handle, cursor_pos) != windows.TRUE) {
+                // stop trying to write to this file
+                self.terminal = null;
+                break :winapi;
+            }
         } else {
             // we are in a "dumb" terminal like in acme or writing to a file
             self.output_buffer[end] = '\n';
@@ -288,7 +297,7 @@ fn refreshWithHeldLock(self: *Progress) void {
     }
 
     _ = file.write(self.output_buffer[0..end]) catch {
-        // Stop trying to write to this file once it errors.
+        // stop trying to write to this file
         self.terminal = null;
     };
     if (self.timer) |*timer| {

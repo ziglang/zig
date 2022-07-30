@@ -119,7 +119,7 @@ pub fn detectTTYConfig() TTY.Config {
         if (stderr_file.supportsAnsiEscapeCodes()) {
             return .escape_codes;
         } else if (native_os == .windows and stderr_file.isTty()) {
-            return .windows_api;
+            return .{ .windows_api = stderr_file };
         } else {
             return .no_color;
         }
@@ -415,9 +415,9 @@ pub fn writeStackTrace(
     if (stack_trace.index > stack_trace.instruction_addresses.len) {
         const dropped_frames = stack_trace.index - stack_trace.instruction_addresses.len;
 
-        tty_config.setColor(out_stream, .Bold);
+        tty_config.setColor(out_stream, .Bold) catch {};
         try out_stream.print("({d} additional stack frames skipped...)\n", .{dropped_frames});
-        tty_config.setColor(out_stream, .Reset);
+        tty_config.setColor(out_stream, .Reset) catch {};
     }
 }
 
@@ -605,59 +605,39 @@ pub const TTY = struct {
         Reset,
     };
 
-    pub const Config = enum {
+    pub const Config = union(enum) {
         no_color,
         escape_codes,
-        // TODO give this a payload of file handle
-        windows_api,
+        windows_api: File,
 
-        pub fn setColor(conf: Config, out_stream: anytype, color: Color) void {
+        pub fn setColor(conf: Config, out_stream: anytype, color: Color) !void {
             nosuspend switch (conf) {
                 .no_color => return,
-                .escape_codes => switch (color) {
-                    .Red => out_stream.writeAll(RED) catch return,
-                    .Green => out_stream.writeAll(GREEN) catch return,
-                    .Cyan => out_stream.writeAll(CYAN) catch return,
-                    .White => out_stream.writeAll(WHITE) catch return,
-                    .Dim => out_stream.writeAll(DIM) catch return,
-                    .Bold => out_stream.writeAll(BOLD) catch return,
-                    .Reset => out_stream.writeAll(RESET) catch return,
-                },
-                .windows_api => if (native_os == .windows) {
-                    const stderr_file = io.getStdErr();
-                    const S = struct {
-                        var attrs: windows.WORD = undefined;
-                        var init_attrs = false;
+                .escape_codes => {
+                    const color_string = switch (color) {
+                        .Red => RED,
+                        .Green => GREEN,
+                        .Cyan => CYAN,
+                        .White => WHITE,
+                        .Dim => DIM,
+                        .Bold => BOLD,
+                        .Reset => RESET,
                     };
-                    if (!S.init_attrs) {
-                        S.init_attrs = true;
-                        var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-                        // TODO handle error
-                        _ = windows.kernel32.GetConsoleScreenBufferInfo(stderr_file.handle, &info);
-                        S.attrs = info.wAttributes;
-                    }
-
-                    // TODO handle errors
-                    switch (color) {
-                        .Red => {
-                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_INTENSITY) catch {};
-                        },
-                        .Green => {
-                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY) catch {};
-                        },
-                        .Cyan => {
-                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY) catch {};
-                        },
-                        .White, .Bold => {
-                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY) catch {};
-                        },
-                        .Dim => {
-                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, windows.FOREGROUND_INTENSITY) catch {};
-                        },
-                        .Reset => {
-                            _ = windows.SetConsoleTextAttribute(stderr_file.handle, S.attrs) catch {};
-                        },
-                    }
+                    try out_stream.writeAll(color_string);
+                },
+                .windows_api => |file| if (native_os == .windows) {
+                    var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+                    if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != windows.TRUE)
+                        return error.FailedRetrievingTerminalInfo;
+                    const attributes = switch (color) {
+                        .Red => windows.FOREGROUND_RED | windows.FOREGROUND_INTENSITY,
+                        .Green => windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY,
+                        .Cyan => windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY,
+                        .White, .Bold => windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY,
+                        .Dim => windows.FOREGROUND_INTENSITY,
+                        .Reset => info.wAttributes,
+                    };
+                    try windows.SetConsoleTextAttribute(file.handle, attributes);
                 } else {
                     unreachable;
                 },
@@ -751,7 +731,7 @@ fn printLineInfo(
     comptime printLineFromFile: anytype,
 ) !void {
     nosuspend {
-        tty_config.setColor(out_stream, .Bold);
+        try tty_config.setColor(out_stream, .Bold);
 
         if (line_info) |*li| {
             try out_stream.print("{s}:{d}:{d}", .{ li.file_name, li.line, li.column });
@@ -759,11 +739,11 @@ fn printLineInfo(
             try out_stream.writeAll("???:?:?");
         }
 
-        tty_config.setColor(out_stream, .Reset);
+        try tty_config.setColor(out_stream, .Reset);
         try out_stream.writeAll(": ");
-        tty_config.setColor(out_stream, .Dim);
+        try tty_config.setColor(out_stream, .Dim);
         try out_stream.print("0x{x} in {s} ({s})", .{ address, symbol_name, compile_unit_name });
-        tty_config.setColor(out_stream, .Reset);
+        try tty_config.setColor(out_stream, .Reset);
         try out_stream.writeAll("\n");
 
         // Show the matching source code line if possible
@@ -774,9 +754,9 @@ fn printLineInfo(
                     const space_needed = @intCast(usize, li.column - 1);
 
                     try out_stream.writeByteNTimes(' ', space_needed);
-                    tty_config.setColor(out_stream, .Green);
+                    try tty_config.setColor(out_stream, .Green);
                     try out_stream.writeAll("^");
-                    tty_config.setColor(out_stream, .Reset);
+                    try tty_config.setColor(out_stream, .Reset);
                 }
                 try out_stream.writeAll("\n");
             } else |err| switch (err) {
