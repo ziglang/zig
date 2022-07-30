@@ -120,6 +120,15 @@ pub fn log(
     comptime format: []const u8,
     args: anytype,
 ) void {
+    const is_comptime = b: {
+        // A cursed technique to detect whether we are running in a comptime context or not
+        var cond: bool = true;
+        break :b @TypeOf(if (cond) @as(u1, 1) else null) == u1;
+    };
+    if (is_comptime) {
+        return std.log.defaultLog(message_level, scope, format, args);
+    }
+
     if (@enumToInt(message_level) <= @enumToInt(std.log.Level.err)) {
         log_err_count += 1;
     }

@@ -128,8 +128,7 @@ fn log(
     const effective_log_level = blk: {
         inline for (scope_levels) |scope_level| {
             if (scope_level.scope == scope) break :blk scope_level.level;
-        }
-        break :blk level;
+        } else break :blk level;
     };
 
     if (@enumToInt(message_level) <= @enumToInt(effective_log_level)) {
@@ -151,18 +150,30 @@ pub fn defaultLog(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    if (builtin.os.tag == .freestanding)
-        @compileError(
-            \\freestanding targets do not have I/O configured;
-            \\please provide at least an empty `log` function declaration
-        );
+    const is_comptime = b: {
+        // A cursed technique to detect whether we are running in a comptime context or not
+        var cond: bool = true;
+        break :b @TypeOf(if (cond) @as(u1, 1) else null) == u1;
+    };
+    if (is_comptime) {
+        const prefix = if (scope == .default) "" else "(" ++ @tagName(scope) ++ "): ";
+        const str = std.fmt.comptimePrint(prefix ++ format ++ "\n", args);
+        @compileError(str);
+    } else {
+        if (builtin.os.tag == .freestanding)
+            @compileError(
+                \\freestanding targets do not have I/O configured;
+                \\please provide at least an empty `log` function declaration
+            );
 
-    const level_txt = comptime message_level.asText();
-    const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
-    const stderr = std.io.getStdErr().writer();
-    std.debug.getStderrMutex().lock();
-    defer std.debug.getStderrMutex().unlock();
-    nosuspend stderr.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
+        const level_txt = comptime message_level.asText();
+        const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
+
+        const stderr = std.io.getStdErr().writer();
+        std.debug.getStderrMutex().lock();
+        defer std.debug.getStderrMutex().unlock();
+        nosuspend stderr.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
+    }
 }
 
 /// Returns a scoped logging namespace that logs all messages using the scope
