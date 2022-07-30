@@ -1464,12 +1464,8 @@ pub const Fn = struct {
     /// These never have .generic_poison for the Type
     /// because the Type is needed to pass to `Type.eql` and for inserting comptime arguments
     /// into the inst_map when analyzing the body of a generic function instantiation.
-    /// Instead, the is_anytype knowledge is communicated via `anytype_args`.
+    /// Instead, the is_anytype knowledge is communicated via `isAnytypeParam`.
     comptime_args: ?[*]TypedValue,
-    /// When comptime_args is null, this is undefined. Otherwise, this flags each
-    /// parameter and tells whether it is anytype.
-    /// TODO apply the same enhancement for param_names below to this field.
-    anytype_args: [*]bool,
 
     /// Precomputed hash for monomorphed_funcs.
     /// This is important because it may be accessed when resizing monomorphed_funcs
@@ -1582,6 +1578,21 @@ pub const Fn = struct {
             gpa.destroy(node);
             it = next;
         }
+    }
+
+    pub fn isAnytypeParam(func: Fn, mod: *Module, index: u32) bool {
+        const file = mod.declPtr(func.owner_decl).getFileScope();
+
+        const tags = file.zir.instructions.items(.tag);
+
+        const param_body = file.zir.getParamBody(func.zir_body_inst);
+        const param = param_body[index];
+
+        return switch (tags[param]) {
+            .param, .param_comptime => false,
+            .param_anytype, .param_anytype_comptime => true,
+            else => unreachable,
+        };
     }
 
     pub fn getParamName(func: Fn, mod: *Module, index: u32) [:0]const u8 {
