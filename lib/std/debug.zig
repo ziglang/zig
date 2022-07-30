@@ -384,14 +384,6 @@ pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize
     os.abort();
 }
 
-const RED = "\x1b[31;1m";
-const GREEN = "\x1b[32;1m";
-const CYAN = "\x1b[36;1m";
-const WHITE = "\x1b[37;1m";
-const BOLD = "\x1b[1m";
-const DIM = "\x1b[2m";
-const RESET = "\x1b[0m";
-
 pub fn writeStackTrace(
     stack_trace: std.builtin.StackTrace,
     out_stream: anytype,
@@ -615,13 +607,13 @@ pub const TTY = struct {
                 .no_color => return,
                 .escape_codes => {
                     const color_string = switch (color) {
-                        .Red => RED,
-                        .Green => GREEN,
-                        .Cyan => CYAN,
-                        .White => WHITE,
-                        .Dim => DIM,
-                        .Bold => BOLD,
-                        .Reset => RESET,
+                        .Red => "\x1b[31;1m",
+                        .Green => "\x1b[32;1m",
+                        .Cyan => "\x1b[36;1m",
+                        .White => "\x1b[37;1m",
+                        .Bold => "\x1b[1m",
+                        .Dim => "\x1b[2m",
+                        .Reset => "\x1b[0m",
                     };
                     try out_stream.writeAll(color_string);
                 },
