@@ -197,6 +197,25 @@ pub const ChildProcess = struct {
         stderr: []u8,
     };
 
+    pub fn collectOutput(
+        child: ChildProcess,
+        stdout: *std.ArrayList(u8),
+        stderr: *std.ArrayList(u8),
+        max_output_bytes: usize,
+    ) !void {
+        if (builtin.os.tag == .haiku) {
+            const stdout_in = child.stdout.?.reader();
+            const stderr_in = child.stderr.?.reader();
+
+            try stdout_in.readAllArrayList(stdout, max_output_bytes);
+            try stderr_in.readAllArrayList(stderr, max_output_bytes);
+        } else if (builtin.os.tag == .windows) {
+            try collectOutputWindows(child, stdout, stderr, max_output_bytes);
+        } else {
+            try collectOutputPosix(child, stdout, stderr, max_output_bytes);
+        }
+    }
+
     fn collectOutputPosix(
         child: ChildProcess,
         stdout: *std.ArrayList(u8),
@@ -297,8 +316,12 @@ pub const ChildProcess = struct {
         }
     }
 
-    fn collectOutputWindows(child: ChildProcess, outs: [2]*std.ArrayList(u8), max_output_bytes: usize) !void {
+    fn collectOutputWindows(child: ChildProcess, stdout: *std.ArrayList(u8), stderr: *std.ArrayList(u8), max_output_bytes: usize) !void {
         const bump_amt = 512;
+        const outs = [_]*std.ArrayList(u8){
+            stdout,
+            stderr,
+        };
         const handles = [_]windows.HANDLE{
             child.stdout.?.handle,
             child.stderr.?.handle,
@@ -391,24 +414,6 @@ pub const ChildProcess = struct {
         child.env_map = args.env_map;
         child.expand_arg0 = args.expand_arg0;
 
-        try child.spawn();
-
-        if (builtin.os.tag == .haiku) {
-            const stdout_in = child.stdout.?.reader();
-            const stderr_in = child.stderr.?.reader();
-
-            const stdout = try stdout_in.readAllAlloc(args.allocator, args.max_output_bytes);
-            errdefer args.allocator.free(stdout);
-            const stderr = try stderr_in.readAllAlloc(args.allocator, args.max_output_bytes);
-            errdefer args.allocator.free(stderr);
-
-            return ExecResult{
-                .term = try child.wait(),
-                .stdout = stdout,
-                .stderr = stderr,
-            };
-        }
-
         var stdout = std.ArrayList(u8).init(args.allocator);
         var stderr = std.ArrayList(u8).init(args.allocator);
         errdefer {
@@ -416,11 +421,8 @@ pub const ChildProcess = struct {
             stderr.deinit();
         }
 
-        if (builtin.os.tag == .windows) {
-            try collectOutputWindows(child, [_]*std.ArrayList(u8){ &stdout, &stderr }, args.max_output_bytes);
-        } else {
-            try collectOutputPosix(child, &stdout, &stderr, args.max_output_bytes);
-        }
+        try child.spawn();
+        try child.collectOutput(&stdout, &stderr, args.max_output_bytes);
 
         return ExecResult{
             .term = try child.wait(),
