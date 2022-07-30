@@ -2959,7 +2959,7 @@ fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Live
 
 fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, mcv: MCValue, arg_index: u32) !void {
     const ty = self.air.instructions.items(.data)[inst].ty;
-    const name = self.mod_fn.getParamName(arg_index);
+    const name = self.mod_fn.getParamName(self.bin_file.options.module.?, arg_index);
     const name_with_null = name.ptr[0 .. name.len + 1];
 
     switch (mcv) {

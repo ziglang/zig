@@ -3372,7 +3372,7 @@ fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, arg_index: u32, stack_byte_c
 
     const mcv = self.args[arg_index];
     const ty = self.air.instructions.items(.data)[inst].ty;
-    const name = self.mod_fn.getParamName(arg_index);
+    const name = self.mod_fn.getParamName(self.bin_file.options.module.?, arg_index);
     const name_with_null = name.ptr[0 .. name.len + 1];
 
     switch (mcv) {

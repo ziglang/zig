@@ -7313,7 +7313,7 @@ pub const FuncGen = struct {
             const lbrace_col = func.lbrace_column + 1;
             const di_local_var = dib.createParameterVariable(
                 self.di_scope.?,
-                func.getParamName(src_index).ptr, // TODO test 0 bit args
+                func.getParamName(self.dg.module, src_index).ptr, // TODO test 0 bit args
                 self.di_file.?,
                 lbrace_line,
                 try self.dg.object.lowerDebugType(inst_ty, .full),

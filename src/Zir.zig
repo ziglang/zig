@@ -3909,6 +3909,27 @@ pub const FnInfo = struct {
     total_params_len: u32,
 };
 
+pub fn getParamBody(zir: Zir, fn_inst: Inst.Index) []const u32 {
+    const tags = zir.instructions.items(.tag);
+    const datas = zir.instructions.items(.data);
+    const inst_data = datas[fn_inst].pl_node;
+
+    const param_block_index = switch (tags[fn_inst]) {
+        .func, .func_inferred => blk: {
+            const extra = zir.extraData(Inst.Func, inst_data.payload_index);
+            break :blk extra.data.param_block;
+        },
+        .func_fancy => blk: {
+            const extra = zir.extraData(Inst.FuncFancy, inst_data.payload_index);
+            break :blk extra.data.param_block;
+        },
+        else => unreachable,
+    };
+
+    const param_block = zir.extraData(Inst.Block, datas[param_block_index].pl_node.payload_index);
+    return zir.extra[param_block.end..][0..param_block.data.body_len];
+}
+
 pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
     const tags = zir.instructions.items(.tag);
     const datas = zir.instructions.items(.data);

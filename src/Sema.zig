@@ -7753,11 +7753,6 @@ fn funcCommon(
         break :blk if (sema.comptime_args.len == 0) null else sema.comptime_args.ptr;
     } else null;
 
-    const param_names = try sema.gpa.alloc([:0]const u8, block.params.items.len);
-    for (param_names) |*param_name, i| {
-        param_name.* = try sema.gpa.dupeZ(u8, block.params.items[i].name);
-    }
-
     const hash = new_func.hash;
     const fn_payload = try sema.arena.create(Value.Payload.Function);
     new_func.* = .{
@@ -7771,7 +7766,6 @@ fn funcCommon(
         .rbrace_line = src_locs.rbrace_line,
         .lbrace_column = @truncate(u16, src_locs.columns),
         .rbrace_column = @truncate(u16, src_locs.columns >> 16),
-        .param_names = param_names,
         .branch_quota = default_branch_quota,
         .is_noinline = is_noinline,
     };
