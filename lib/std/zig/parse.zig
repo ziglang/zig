@@ -3257,7 +3257,7 @@ const Parser = struct {
                 if (p.eatToken(.ellipsis2)) |_| {
                     const end_expr = try p.parseExpr();
                     if (p.eatToken(.colon)) |_| {
-                        const sentinel = try p.parseExpr();
+                        const sentinel = try p.expectExpr();
                         _ = try p.expectToken(.r_bracket);
                         return p.addNode(.{
                             .tag = .slice_sentinel,

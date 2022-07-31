@@ -2292,25 +2292,13 @@ pub const Value = extern union {
                 }
             },
             .Struct => {
-                if (ty.isTupleOrAnonStruct()) {
-                    const fields = ty.tupleFields();
-                    for (fields.values) |field_val, i| {
-                        field_val.hash(fields.types[i], hasher, mod);
-                    }
-                    return;
-                }
-                const fields = ty.structFields().values();
-                if (fields.len == 0) return;
                 switch (val.tag()) {
-                    .empty_struct_value => {
-                        for (fields) |field| {
-                            field.default_val.hash(field.ty, hasher, mod);
-                        }
-                    },
+                    .empty_struct_value => {},
                     .aggregate => {
                         const field_values = val.castTag(.aggregate).?.data;
                         for (field_values) |field_val, i| {
-                            field_val.hash(fields[i].ty, hasher, mod);
+                            const field_ty = ty.structFieldType(i);
+                            field_val.hash(field_ty, hasher, mod);
                         }
                     },
                     else => unreachable,
@@ -2795,6 +2783,19 @@ pub const Value = extern union {
     /// values are marked undef, or struct that is not marked undef but all fields are marked
     /// undef, etc.
     pub fn isUndefDeep(self: Value) bool {
+        return self.isUndef();
+    }
+
+    /// Returns true if any value contained in `self` is undefined.
+    /// TODO: check for cases such as array that is not marked undef but all the element
+    /// values are marked undef, or struct that is not marked undef but all fields are marked
+    /// undef, etc.
+    pub fn anyUndef(self: Value) bool {
+        if (self.castTag(.aggregate)) |aggregate| {
+            for (aggregate.data) |val| {
+                if (val.anyUndef()) return true;
+            }
+        }
         return self.isUndef();
     }
 

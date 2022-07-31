@@ -12,7 +12,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:1:20: error: enums must have 1 or more fields
+// :1:13: error: enums must have at least one field
