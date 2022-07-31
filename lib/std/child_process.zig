@@ -197,12 +197,19 @@ pub const ChildProcess = struct {
         stderr: []u8,
     };
 
+    /// Collect the output from the process's stdout and stderr. Will return once all output
+    /// has been collected. This does not mean that the process has ended. `wait` should still
+    /// be called to wait for and clean up the process.
+    ///
+    /// The process must be started with stdout_behavior and stderr_behavior == .Pipe
     pub fn collectOutput(
         child: ChildProcess,
         stdout: *std.ArrayList(u8),
         stderr: *std.ArrayList(u8),
         max_output_bytes: usize,
     ) !void {
+        debug.assert(child.stdout_behavior == .Pipe);
+        debug.assert(child.stderr_behavior == .Pipe);
         if (builtin.os.tag == .haiku) {
             const stdout_in = child.stdout.?.reader();
             const stderr_in = child.stderr.?.reader();
