@@ -150,6 +150,11 @@ pub const options = struct {
     else
         log.defaultLog;
 
+    pub const fmt_max_depth = if (@hasDecl(options_override, "fmt_max_depth"))
+        options_override.fmt_max_depth
+    else
+        fmt.default_max_depth;
+
     pub const cryptoRandomSeed: fn (buffer: []u8) void = if (@hasDecl(options_override, "cryptoRandomSeed"))
         options_override.cryptoRandomSeed
     else
