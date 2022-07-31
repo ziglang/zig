@@ -7,7 +7,9 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:3:31: error: expected type 'std.builtin.Type', found 'std.builtin.Type.Int'
+// :3:31: error: expected type 'builtin.Type', found 'builtin.Type.Int'
+// :?:?: note: struct declared here
+// :?:?: note: union declared here

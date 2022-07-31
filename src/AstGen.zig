@@ -1349,7 +1349,10 @@ fn arrayInitExpr(
             }
         }
         const array_type_inst = try typeExpr(gz, scope, array_init.ast.type_expr);
-        _ = try gz.addUnNode(.validate_array_init_ty, array_type_inst, array_init.ast.type_expr);
+        _ = try gz.addPlNode(.validate_array_init_ty, node, Zir.Inst.ArrayInit{
+            .ty = array_type_inst,
+            .init_count = @intCast(u32, array_init.ast.elements.len),
+        });
         break :inst .{
             .array = array_type_inst,
             .elem = .none,
@@ -1940,6 +1943,9 @@ fn continueExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) 
                     .break_inline
                 else
                     .@"break";
+                if (break_tag == .break_inline) {
+                    _ = try parent_gz.addNode(.check_comptime_control_flow, node);
+                }
                 _ = try parent_gz.addBreak(break_tag, continue_block, .void_value);
                 return Zir.Inst.Ref.unreachable_value;
             },
@@ -2473,6 +2479,7 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
             .repeat_inline,
             .panic,
             .panic_comptime,
+            .check_comptime_control_flow,
             => {
                 noreturn_src_node = statement;
                 break :b true;

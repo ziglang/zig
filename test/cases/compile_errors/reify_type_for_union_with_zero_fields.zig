@@ -11,7 +11,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:1:25: error: unions must have 1 or more fields
+// :1:18: error: unions must have at least one field

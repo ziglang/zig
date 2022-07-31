@@ -73,6 +73,9 @@ pub fn print(
     const target = mod.getTarget();
     var val = tv.val;
     var ty = tv.ty;
+    if (val.isVariable(mod))
+        return writer.writeAll("(variable)");
+
     while (true) switch (val.tag()) {
         .u1_type => return writer.writeAll("u1"),
         .u8_type => return writer.writeAll("u8"),
@@ -155,9 +158,12 @@ pub fn print(
                     }
                     try print(.{
                         .ty = ty.structFieldType(i),
-                        .val = ty.structFieldValueComptime(i) orelse b: {
-                            const vals = val.castTag(.aggregate).?.data;
-                            break :b vals[i];
+                        .val = switch (ty.containerLayout()) {
+                            .Packed => val.castTag(.aggregate).?.data[i],
+                            else => ty.structFieldValueComptime(i) orelse b: {
+                                const vals = val.castTag(.aggregate).?.data;
+                                break :b vals[i];
+                            },
                         },
                     }, writer, level - 1, mod);
                 }
@@ -241,7 +247,7 @@ pub fn print(
             mod.declPtr(val.castTag(.function).?.data.owner_decl).name,
         }),
         .extern_fn => return writer.writeAll("(extern function)"),
-        .variable => return writer.writeAll("(variable)"),
+        .variable => unreachable,
         .decl_ref_mut => {
             const decl_index = val.castTag(.decl_ref_mut).?.data.decl_index;
             const decl = mod.declPtr(decl_index);

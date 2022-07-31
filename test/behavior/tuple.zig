@@ -255,3 +255,38 @@ test "initializing anon struct with mixed comptime-runtime fields" {
     var a: T = .{ .foo = -1234, .bar = x + 1 };
     _ = a;
 }
+
+test "tuple in tuple passed to generic function" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
+    const S = struct {
+        fn pair(x: f32, y: f32) std.meta.Tuple(&.{ f32, f32 }) {
+            return .{ x, y };
+        }
+
+        fn foo(x: anytype) !void {
+            try expect(x[0][0] == 1.5);
+            try expect(x[0][1] == 2.5);
+        }
+    };
+    const x = comptime S.pair(1.5, 2.5);
+    try S.foo(.{x});
+}
+
+test "coerce tuple to tuple" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
+    const T = std.meta.Tuple(&.{u8});
+    const S = struct {
+        fn foo(x: T) !void {
+            try expect(x[0] == 123);
+        }
+    };
+    try S.foo(.{123});
+}

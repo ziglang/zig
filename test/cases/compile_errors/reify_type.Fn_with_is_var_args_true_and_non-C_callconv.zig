@@ -11,7 +11,7 @@ const Foo = @Type(.{
 comptime { _ = Foo; }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:1:20: error: varargs functions must have C calling convention
+// :1:13: error: varargs functions must have C calling convention

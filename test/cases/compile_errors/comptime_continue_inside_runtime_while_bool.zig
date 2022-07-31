@@ -8,8 +8,8 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:5:25: error: comptime control flow inside runtime block
-// tmp.zig:5:9: note: runtime block created here
+// :5:25: error: comptime control flow inside runtime block
+// :5:18: note: runtime control flow here

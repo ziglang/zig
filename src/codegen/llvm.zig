@@ -5491,22 +5491,26 @@ pub const FuncGen = struct {
         defer arena_allocator.deinit();
         const arena = arena_allocator.allocator();
 
-        const return_count: u8 = for (outputs) |output| {
-            if (output == .none) break 1;
-        } else 0;
-        const llvm_params_len = inputs.len + outputs.len - return_count;
-        const llvm_param_types = try arena.alloc(*const llvm.Type, llvm_params_len);
-        const llvm_param_values = try arena.alloc(*const llvm.Value, llvm_params_len);
-        const llvm_param_attrs = try arena.alloc(bool, llvm_params_len);
+        // The exact number of return / parameter values depends on which output values
+        // are passed by reference as indirect outputs (determined below).
+        const max_return_count = outputs.len;
+        const llvm_ret_types = try arena.alloc(*const llvm.Type, max_return_count);
+        const llvm_ret_indirect = try arena.alloc(bool, max_return_count);
+
+        const max_param_count = inputs.len + outputs.len;
+        const llvm_param_types = try arena.alloc(*const llvm.Type, max_param_count);
+        const llvm_param_values = try arena.alloc(*const llvm.Value, max_param_count);
+        const llvm_param_attrs = try arena.alloc(bool, max_param_count);
         const target = self.dg.module.getTarget();
 
+        var llvm_ret_i: usize = 0;
         var llvm_param_i: usize = 0;
-        var total_i: usize = 0;
+        var total_i: u16 = 0;
 
-        var name_map: std.StringArrayHashMapUnmanaged(void) = .{};
-        try name_map.ensureUnusedCapacity(arena, outputs.len + inputs.len);
+        var name_map: std.StringArrayHashMapUnmanaged(u16) = .{};
+        try name_map.ensureUnusedCapacity(arena, max_param_count);
 
-        for (outputs) |output| {
+        for (outputs) |output, i| {
             const extra_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
             const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
             const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
@@ -5519,15 +5523,30 @@ pub const FuncGen = struct {
                 llvm_constraints.appendAssumeCapacity(',');
             }
             llvm_constraints.appendAssumeCapacity('=');
+
+            // Pass any non-return outputs indirectly, if the constraint accepts a memory location
+            llvm_ret_indirect[i] = (output != .none) and constraintAllowsMemory(constraint);
             if (output != .none) {
                 try llvm_constraints.ensureUnusedCapacity(self.gpa, llvm_constraints.capacity + 1);
-                llvm_constraints.appendAssumeCapacity('*');
-
                 const output_inst = try self.resolveInst(output);
-                llvm_param_values[llvm_param_i] = output_inst;
-                llvm_param_types[llvm_param_i] = output_inst.typeOf();
-                llvm_param_attrs[llvm_param_i] = true;
-                llvm_param_i += 1;
+
+                if (llvm_ret_indirect[i]) {
+                    // Pass the result by reference as an indirect output (e.g. "=*m")
+                    llvm_constraints.appendAssumeCapacity('*');
+
+                    llvm_param_values[llvm_param_i] = output_inst;
+                    llvm_param_types[llvm_param_i] = output_inst.typeOf();
+                    llvm_param_attrs[llvm_param_i] = true;
+                    llvm_param_i += 1;
+                } else {
+                    // Pass the result directly (e.g. "=r")
+                    llvm_ret_types[llvm_ret_i] = output_inst.typeOf().getElementType();
+                    llvm_ret_i += 1;
+                }
+            } else {
+                const ret_ty = self.air.typeOfIndex(inst);
+                llvm_ret_types[llvm_ret_i] = try self.dg.lowerType(ret_ty);
+                llvm_ret_i += 1;
             }
 
             // LLVM uses commas internally to separate different constraints,
@@ -5536,13 +5555,16 @@ pub const FuncGen = struct {
             // to GCC's inline assembly.
             // http://llvm.org/docs/LangRef.html#constraint-codes
             for (constraint[1..]) |byte| {
-                llvm_constraints.appendAssumeCapacity(switch (byte) {
-                    ',' => '|',
-                    else => byte,
-                });
+                switch (byte) {
+                    ',' => llvm_constraints.appendAssumeCapacity('|'),
+                    '*' => {}, // Indirect outputs are handled above
+                    else => llvm_constraints.appendAssumeCapacity(byte),
+                }
             }
 
-            name_map.putAssumeCapacityNoClobber(name, {});
+            if (!std.mem.eql(u8, name, "_")) {
+                name_map.putAssumeCapacityNoClobber(name, total_i);
+            }
             total_i += 1;
         }
 
@@ -5594,7 +5616,7 @@ pub const FuncGen = struct {
             }
 
             if (!std.mem.eql(u8, name, "_")) {
-                name_map.putAssumeCapacityNoClobber(name, {});
+                name_map.putAssumeCapacityNoClobber(name, total_i);
             }
 
             // In the case of indirect inputs, LLVM requires the callsite to have
@@ -5624,6 +5646,11 @@ pub const FuncGen = struct {
                 total_i += 1;
             }
         }
+
+        // We have finished scanning through all inputs/outputs, so the number of
+        // parameters and return values is known.
+        const param_count = llvm_param_i;
+        const return_count = llvm_ret_i;
 
         // For some targets, Clang unconditionally adds some clobbers to all inline assembly.
         // While this is probably not strictly necessary, if we don't follow Clang's lead
@@ -5682,7 +5709,7 @@ pub const FuncGen = struct {
                         const name = asm_source[name_start..i];
                         state = .start;
 
-                        const index = name_map.getIndex(name) orelse {
+                        const index = name_map.get(name) orelse {
                             // we should validate the assembly in Sema; by now it is too late
                             return self.todo("unknown input or output name: '{s}'", .{name});
                         };
@@ -5693,12 +5720,20 @@ pub const FuncGen = struct {
             }
         }
 
-        const ret_ty = self.air.typeOfIndex(inst);
-        const ret_llvm_ty = try self.dg.lowerType(ret_ty);
+        const ret_llvm_ty = switch (return_count) {
+            0 => self.context.voidType(),
+            1 => llvm_ret_types[0],
+            else => self.context.structType(
+                llvm_ret_types.ptr,
+                @intCast(c_uint, return_count),
+                .False,
+            ),
+        };
+
         const llvm_fn_ty = llvm.functionType(
             ret_llvm_ty,
             llvm_param_types.ptr,
-            @intCast(c_uint, llvm_param_types.len),
+            @intCast(c_uint, param_count),
             .False,
         );
         const asm_fn = llvm.getInlineAsm(
@@ -5715,18 +5750,40 @@ pub const FuncGen = struct {
         const call = self.builder.buildCall(
             asm_fn,
             llvm_param_values.ptr,
-            @intCast(c_uint, llvm_param_values.len),
+            @intCast(c_uint, param_count),
             .C,
             .Auto,
             "",
         );
-        for (llvm_param_attrs) |need_elem_ty, i| {
+        for (llvm_param_attrs[0..param_count]) |need_elem_ty, i| {
             if (need_elem_ty) {
                 const elem_ty = llvm_param_types[i].getElementType();
                 llvm.setCallElemTypeAttr(call, i, elem_ty);
             }
         }
-        return call;
+
+        var ret_val = call;
+        llvm_ret_i = 0;
+        for (outputs) |output, i| {
+            if (llvm_ret_indirect[i]) continue;
+
+            const output_value = if (return_count > 1) b: {
+                break :b self.builder.buildExtractValue(call, @intCast(c_uint, llvm_ret_i), "");
+            } else call;
+
+            if (output != .none) {
+                const output_ptr = try self.resolveInst(output);
+                const output_ptr_ty = self.air.typeOf(output);
+
+                const store_inst = self.builder.buildStore(output_value, output_ptr);
+                store_inst.setAlignment(output_ptr_ty.ptrAlignment(target));
+            } else {
+                ret_val = output_value;
+            }
+            llvm_ret_i += 1;
+        }
+
+        return ret_val;
     }
 
     fn airIsNonNull(
@@ -9709,10 +9766,30 @@ fn errUnionErrorOffset(payload_ty: Type, target: std.Target) u1 {
     return @boolToInt(Type.anyerror.abiAlignment(target) <= payload_ty.abiAlignment(target));
 }
 
+/// Returns true for asm constraint (e.g. "=*m", "=r") if it accepts a memory location
+///
+/// See also TargetInfo::validateOutputConstraint, AArch64TargetInfo::validateAsmConstraint, etc. in Clang
 fn constraintAllowsMemory(constraint: []const u8) bool {
-    return constraint[0] == 'm';
+    // TODO: This implementation is woefully incomplete.
+    for (constraint) |byte| {
+        switch (byte) {
+            '=', '*', ',', '&' => {},
+            'm', 'o', 'X', 'g' => return true,
+            else => {},
+        }
+    } else return false;
 }
 
+/// Returns true for asm constraint (e.g. "=*m", "=r") if it accepts a register
+///
+/// See also TargetInfo::validateOutputConstraint, AArch64TargetInfo::validateAsmConstraint, etc. in Clang
 fn constraintAllowsRegister(constraint: []const u8) bool {
-    return constraint[0] != 'm';
+    // TODO: This implementation is woefully incomplete.
+    for (constraint) |byte| {
+        switch (byte) {
+            '=', '*', ',', '&' => {},
+            'm', 'o' => {},
+            else => return true,
+        }
+    } else return false;
 }
