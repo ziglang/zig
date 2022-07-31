@@ -2976,6 +2976,7 @@ pub const IN = struct {
     pub const ONLYDIR = 0x01000000;
     pub const DONT_FOLLOW = 0x02000000;
     pub const EXCL_UNLINK = 0x04000000;
+    pub const MASK_CREATE = 0x10000000;
     pub const MASK_ADD = 0x20000000;
 
     pub const ISDIR = 0x40000000;
