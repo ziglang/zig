@@ -246,7 +246,7 @@ pub fn parseRelocs(self: *Atom, relocs: []const macho.relocation_info, context: 
                             else => {
                                 log.err("unexpected relocation type after ARM64_RELOC_ADDEND", .{});
                                 log.err("  expected ARM64_RELOC_PAGE21 or ARM64_RELOC_PAGEOFF12", .{});
-                                log.err("  found {}", .{next});
+                                log.err("  found {s}", .{@tagName(next)});
                                 return error.UnexpectedRelocationType;
                             },
                         }
@@ -285,7 +285,9 @@ pub fn parseRelocs(self: *Atom, relocs: []const macho.relocation_info, context: 
                     else => {
                         log.err("unexpected relocation type after ARM64_RELOC_ADDEND", .{});
                         log.err("  expected ARM64_RELOC_UNSIGNED", .{});
-                        log.err("  found {}", .{@intToEnum(macho.reloc_type_arm64, relocs[i + 1].r_type)});
+                        log.err("  found {s}", .{
+                            @tagName(@intToEnum(macho.reloc_type_arm64, relocs[i + 1].r_type)),
+                        });
                         return error.UnexpectedRelocationType;
                     },
                 },
@@ -294,7 +296,9 @@ pub fn parseRelocs(self: *Atom, relocs: []const macho.relocation_info, context: 
                     else => {
                         log.err("unexpected relocation type after X86_64_RELOC_ADDEND", .{});
                         log.err("  expected X86_64_RELOC_UNSIGNED", .{});
-                        log.err("  found {}", .{@intToEnum(macho.reloc_type_x86_64, relocs[i + 1].r_type)});
+                        log.err("  found {s}", .{
+                            @tagName(@intToEnum(macho.reloc_type_x86_64, relocs[i + 1].r_type)),
+                        });
                         return error.UnexpectedRelocationType;
                     },
                 },
@@ -309,13 +313,13 @@ pub fn parseRelocs(self: *Atom, relocs: []const macho.relocation_info, context: 
                 const sect_id = @intCast(u16, rel.r_symbolnum - 1);
                 const sym_index = object.sections_as_symbols.get(sect_id) orelse blk: {
                     const sect = object.getSourceSection(sect_id);
-                    const match = (try context.macho_file.getMatchingSection(sect)) orelse
+                    const match = (try context.macho_file.getOutputSection(sect)) orelse
                         unreachable;
                     const sym_index = @intCast(u32, object.symtab.items.len);
                     try object.symtab.append(gpa, .{
                         .n_strx = 0,
                         .n_type = macho.N_SECT,
-                        .n_sect = context.macho_file.getSectionOrdinal(match),
+                        .n_sect = match + 1,
                         .n_desc = 0,
                         .n_value = sect.addr,
                     });
@@ -459,9 +463,10 @@ fn addPtrBindingOrRebase(
         });
     } else {
         const source_sym = self.getSymbol(context.macho_file);
-        const match = context.macho_file.getMatchingSectionFromOrdinal(source_sym.n_sect);
-        const sect = context.macho_file.getSection(match);
-        const sect_type = sect.type_();
+        const section = context.macho_file.sections.get(source_sym.n_sect - 1);
+        const header = section.header;
+        const segment_index = section.segment_index;
+        const sect_type = header.type_();
 
         const should_rebase = rebase: {
             if (rel.r_length != 3) break :rebase false;
@@ -470,12 +475,12 @@ fn addPtrBindingOrRebase(
             // that the segment is writable should be enough here.
             const is_right_segment = blk: {
                 if (context.macho_file.data_segment_cmd_index) |idx| {
-                    if (match.seg == idx) {
+                    if (segment_index == idx) {
                         break :blk true;
                     }
                 }
                 if (context.macho_file.data_const_segment_cmd_index) |idx| {
-                    if (match.seg == idx) {
+                    if (segment_index == idx) {
                         break :blk true;
                     }
                 }
@@ -565,9 +570,8 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
         };
         const is_tlv = is_tlv: {
             const source_sym = self.getSymbol(macho_file);
-            const match = macho_file.getMatchingSectionFromOrdinal(source_sym.n_sect);
-            const sect = macho_file.getSection(match);
-            break :is_tlv sect.type_() == macho.S_THREAD_LOCAL_VARIABLES;
+            const header = macho_file.sections.items(.header)[source_sym.n_sect - 1];
+            break :is_tlv header.type_() == macho.S_THREAD_LOCAL_VARIABLES;
         };
         const target_addr = blk: {
             const target_atom = rel.getTargetAtom(macho_file) orelse {
@@ -608,10 +612,7 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
                         return error.FailedToResolveRelocationTarget;
                     }
                 };
-                break :base_address macho_file.getSection(.{
-                    .seg = macho_file.data_segment_cmd_index.?,
-                    .sect = sect_id,
-                }).addr;
+                break :base_address macho_file.sections.items(.header)[sect_id].addr;
             } else 0;
             break :blk target_sym.n_value - base_address;
         };

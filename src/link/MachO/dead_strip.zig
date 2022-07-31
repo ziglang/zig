@@ -8,7 +8,6 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const Atom = @import("Atom.zig");
 const MachO = @import("../MachO.zig");
-const MatchingSection = MachO.MatchingSection;
 
 pub fn gcAtoms(macho_file: *MachO) !void {
     const gpa = macho_file.base.allocator;
@@ -25,12 +24,12 @@ pub fn gcAtoms(macho_file: *MachO) !void {
     try prune(arena, alive, macho_file);
 }
 
-fn removeAtomFromSection(atom: *Atom, match: MatchingSection, macho_file: *MachO) void {
-    const sect = macho_file.getSectionPtr(match);
+fn removeAtomFromSection(atom: *Atom, match: u8, macho_file: *MachO) void {
+    var section = macho_file.sections.get(match);
 
     // If we want to enable GC for incremental codepath, we need to take into
     // account any padding that might have been left here.
-    sect.size -= atom.size;
+    section.header.size -= atom.size;
 
     if (atom.prev) |prev| {
         prev.next = atom.next;
@@ -38,15 +37,16 @@ fn removeAtomFromSection(atom: *Atom, match: MatchingSection, macho_file: *MachO
     if (atom.next) |next| {
         next.prev = atom.prev;
     } else {
-        const last = macho_file.atoms.getPtr(match).?;
         if (atom.prev) |prev| {
-            last.* = prev;
+            section.last_atom = prev;
         } else {
             // The section will be GCed in the next step.
-            last.* = undefined;
-            sect.size = 0;
+            section.last_atom = null;
+            section.header.size = 0;
         }
     }
+
+    macho_file.sections.set(match, section);
 }
 
 fn collectRoots(roots: *std.AutoHashMap(*Atom, void), macho_file: *MachO) !void {
@@ -173,19 +173,19 @@ fn mark(
 fn prune(arena: Allocator, alive: std.AutoHashMap(*Atom, void), macho_file: *MachO) !void {
     // Any section that ends up here will be updated, that is,
     // its size and alignment recalculated.
-    var gc_sections = std.AutoHashMap(MatchingSection, void).init(arena);
+    var gc_sections = std.AutoHashMap(u8, void).init(arena);
     var loop: bool = true;
     while (loop) {
         loop = false;
 
         for (macho_file.objects.items) |object| {
-            for (object.getSourceSymtab()) |_, source_index| {
+            for (object.in_symtab) |_, source_index| {
                 const atom = object.getAtomForSymbol(@intCast(u32, source_index)) orelse continue;
                 if (alive.contains(atom)) continue;
 
                 const global = atom.getSymbolWithLoc();
                 const sym = atom.getSymbolPtr(macho_file);
-                const match = macho_file.getMatchingSectionFromOrdinal(sym.n_sect);
+                const match = sym.n_sect - 1;
 
                 if (sym.n_desc == MachO.N_DESC_GCED) continue;
                 if (!sym.ext() and !refersDead(atom, macho_file)) continue;
@@ -232,7 +232,7 @@ fn prune(arena: Allocator, alive: std.AutoHashMap(*Atom, void), macho_file: *Mac
 
         // TODO tombstone
         const atom = entry.getAtom(macho_file);
-        const match = macho_file.getMatchingSectionFromOrdinal(sym.n_sect);
+        const match = sym.n_sect - 1;
         removeAtomFromSection(atom, match, macho_file);
         _ = try gc_sections.put(match, {});
         _ = macho_file.got_entries_table.remove(entry.target);
@@ -244,7 +244,7 @@ fn prune(arena: Allocator, alive: std.AutoHashMap(*Atom, void), macho_file: *Mac
 
         // TODO tombstone
         const atom = entry.getAtom(macho_file);
-        const match = macho_file.getMatchingSectionFromOrdinal(sym.n_sect);
+        const match = sym.n_sect - 1;
         removeAtomFromSection(atom, match, macho_file);
         _ = try gc_sections.put(match, {});
         _ = macho_file.stubs_table.remove(entry.target);
@@ -256,7 +256,7 @@ fn prune(arena: Allocator, alive: std.AutoHashMap(*Atom, void), macho_file: *Mac
 
         // TODO tombstone
         const atom = entry.getAtom(macho_file);
-        const match = macho_file.getMatchingSectionFromOrdinal(sym.n_sect);
+        const match = sym.n_sect - 1;
         removeAtomFromSection(atom, match, macho_file);
         _ = try gc_sections.put(match, {});
         _ = macho_file.tlv_ptr_entries_table.remove(entry.target);
@@ -265,13 +265,13 @@ fn prune(arena: Allocator, alive: std.AutoHashMap(*Atom, void), macho_file: *Mac
     var gc_sections_it = gc_sections.iterator();
     while (gc_sections_it.next()) |entry| {
         const match = entry.key_ptr.*;
-        const sect = macho_file.getSectionPtr(match);
-        if (sect.size == 0) continue; // Pruning happens automatically in next step.
+        var section = macho_file.sections.get(match);
+        if (section.header.size == 0) continue; // Pruning happens automatically in next step.
 
-        sect.@"align" = 0;
-        sect.size = 0;
+        section.header.@"align" = 0;
+        section.header.size = 0;
 
-        var atom = macho_file.atoms.get(match).?;
+        var atom = section.last_atom.?;
 
         while (atom.prev) |prev| {
             atom = prev;
@@ -279,14 +279,16 @@ fn prune(arena: Allocator, alive: std.AutoHashMap(*Atom, void), macho_file: *Mac
 
         while (true) {
             const atom_alignment = try math.powi(u32, 2, atom.alignment);
-            const aligned_end_addr = mem.alignForwardGeneric(u64, sect.size, atom_alignment);
-            const padding = aligned_end_addr - sect.size;
-            sect.size += padding + atom.size;
-            sect.@"align" = @maximum(sect.@"align", atom.alignment);
+            const aligned_end_addr = mem.alignForwardGeneric(u64, section.header.size, atom_alignment);
+            const padding = aligned_end_addr - section.header.size;
+            section.header.size += padding + atom.size;
+            section.header.@"align" = @maximum(section.header.@"align", atom.alignment);
 
             if (atom.next) |next| {
                 atom = next;
             } else break;
         }
+
+        macho_file.sections.set(match, section);
     }
 }

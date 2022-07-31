@@ -3,6 +3,7 @@ const Object = @This();
 const std = @import("std");
 const build_options = @import("build_options");
 const assert = std.debug.assert;
+const dwarf = std.dwarf;
 const fs = std.fs;
 const io = std.io;
 const log = std.log.scoped(.link);
@@ -14,43 +15,20 @@ const trace = @import("../../tracy.zig").trace;
 
 const Allocator = mem.Allocator;
 const Atom = @import("Atom.zig");
+const LoadCommandIterator = macho.LoadCommandIterator;
 const MachO = @import("../MachO.zig");
-const MatchingSection = MachO.MatchingSection;
 const SymbolWithLoc = MachO.SymbolWithLoc;
 
-file: fs.File,
 name: []const u8,
 mtime: u64,
-
-/// Data contents of the file. Includes sections, and data of load commands.
-/// Excludes the backing memory for the header and load commands.
-/// Initialized in `parse`.
-contents: []const u8 = undefined,
-
-file_offset: ?u32 = null,
+contents: []align(@alignOf(u64)) const u8,
 
 header: macho.mach_header_64 = undefined,
-
-load_commands: std.ArrayListUnmanaged(macho.LoadCommand) = .{},
-
-segment_cmd_index: ?u16 = null,
-text_section_index: ?u16 = null,
-symtab_cmd_index: ?u16 = null,
-dysymtab_cmd_index: ?u16 = null,
-build_version_cmd_index: ?u16 = null,
-data_in_code_cmd_index: ?u16 = null,
-
-// __DWARF segment sections
-dwarf_debug_info_index: ?u16 = null,
-dwarf_debug_abbrev_index: ?u16 = null,
-dwarf_debug_str_index: ?u16 = null,
-dwarf_debug_line_index: ?u16 = null,
-dwarf_debug_line_str_index: ?u16 = null,
-dwarf_debug_ranges_index: ?u16 = null,
+in_symtab: []const macho.nlist_64 = undefined,
+in_strtab: []const u8 = undefined,
 
 symtab: std.ArrayListUnmanaged(macho.nlist_64) = .{},
-strtab: []const u8 = &.{},
-data_in_code_entries: []const macho.data_in_code_entry = &.{},
+sections: std.ArrayListUnmanaged(macho.section_64) = .{},
 
 sections_as_symbols: std.AutoHashMapUnmanaged(u16, u32) = .{},
 
@@ -61,12 +39,8 @@ managed_atoms: std.ArrayListUnmanaged(*Atom) = .{},
 atom_by_index_table: std.AutoHashMapUnmanaged(u32, *Atom) = .{},
 
 pub fn deinit(self: *Object, gpa: Allocator) void {
-    for (self.load_commands.items) |*lc| {
-        lc.deinit(gpa);
-    }
-    self.load_commands.deinit(gpa);
-    gpa.free(self.contents);
     self.symtab.deinit(gpa);
+    self.sections.deinit(gpa);
     self.sections_as_symbols.deinit(gpa);
     self.atom_by_index_table.deinit(gpa);
 
@@ -77,22 +51,15 @@ pub fn deinit(self: *Object, gpa: Allocator) void {
     self.managed_atoms.deinit(gpa);
 
     gpa.free(self.name);
+    gpa.free(self.contents);
 }
 
 pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch) !void {
-    const file_stat = try self.file.stat();
-    const file_size = math.cast(usize, file_stat.size) orelse return error.Overflow;
-    self.contents = try self.file.readToEndAlloc(allocator, file_size);
-
     var stream = std.io.fixedBufferStream(self.contents);
     const reader = stream.reader();
 
-    const file_offset = self.file_offset orelse 0;
-    if (file_offset > 0) {
-        try reader.context.seekTo(file_offset);
-    }
-
     self.header = try reader.readStruct(macho.mach_header_64);
+
     if (self.header.filetype != macho.MH_OBJECT) {
         log.debug("invalid filetype: expected 0x{x}, found 0x{x}", .{
             macho.MH_OBJECT,
@@ -110,92 +77,54 @@ pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch)
         },
     };
     if (this_arch != cpu_arch) {
-        log.err("mismatched cpu architecture: expected {}, found {}", .{ cpu_arch, this_arch });
+        log.err("mismatched cpu architecture: expected {s}, found {s}", .{
+            @tagName(cpu_arch),
+            @tagName(this_arch),
+        });
         return error.MismatchedCpuArchitecture;
     }
 
-    try self.load_commands.ensureUnusedCapacity(allocator, self.header.ncmds);
-
-    var i: u16 = 0;
-    while (i < self.header.ncmds) : (i += 1) {
-        var cmd = try macho.LoadCommand.read(allocator, reader);
+    var it = LoadCommandIterator{
+        .ncmds = self.header.ncmds,
+        .buffer = self.contents[@sizeOf(macho.mach_header_64)..][0..self.header.sizeofcmds],
+    };
+    while (it.next()) |cmd| {
         switch (cmd.cmd()) {
             .SEGMENT_64 => {
-                self.segment_cmd_index = i;
-                var seg = cmd.segment;
-                for (seg.sections.items) |*sect, j| {
-                    const index = @intCast(u16, j);
-                    const segname = sect.segName();
-                    const sectname = sect.sectName();
-                    if (mem.eql(u8, segname, "__DWARF")) {
-                        if (mem.eql(u8, sectname, "__debug_info")) {
-                            self.dwarf_debug_info_index = index;
-                        } else if (mem.eql(u8, sectname, "__debug_abbrev")) {
-                            self.dwarf_debug_abbrev_index = index;
-                        } else if (mem.eql(u8, sectname, "__debug_str")) {
-                            self.dwarf_debug_str_index = index;
-                        } else if (mem.eql(u8, sectname, "__debug_line")) {
-                            self.dwarf_debug_line_index = index;
-                        } else if (mem.eql(u8, sectname, "__debug_line_str")) {
-                            self.dwarf_debug_line_str_index = index;
-                        } else if (mem.eql(u8, sectname, "__debug_ranges")) {
-                            self.dwarf_debug_ranges_index = index;
-                        }
-                    } else if (mem.eql(u8, segname, "__TEXT")) {
-                        if (mem.eql(u8, sectname, "__text")) {
-                            self.text_section_index = index;
-                        }
-                    }
-
-                    sect.offset += file_offset;
-                    if (sect.reloff > 0) {
-                        sect.reloff += file_offset;
-                    }
+                const segment = cmd.cast(macho.segment_command_64).?;
+                try self.sections.ensureUnusedCapacity(allocator, segment.nsects);
+                for (cmd.getSections()) |sect| {
+                    self.sections.appendAssumeCapacity(sect);
                 }
-
-                seg.inner.fileoff += file_offset;
             },
             .SYMTAB => {
-                self.symtab_cmd_index = i;
-                cmd.symtab.symoff += file_offset;
-                cmd.symtab.stroff += file_offset;
+                const symtab = cmd.cast(macho.symtab_command).?;
+                self.in_symtab = @ptrCast(
+                    [*]const macho.nlist_64,
+                    @alignCast(@alignOf(macho.nlist_64), &self.contents[symtab.symoff]),
+                )[0..symtab.nsyms];
+                self.in_strtab = self.contents[symtab.stroff..][0..symtab.strsize];
+                try self.symtab.appendSlice(allocator, self.in_symtab);
             },
-            .DYSYMTAB => {
-                self.dysymtab_cmd_index = i;
-            },
-            .BUILD_VERSION => {
-                self.build_version_cmd_index = i;
-            },
-            .DATA_IN_CODE => {
-                self.data_in_code_cmd_index = i;
-                cmd.linkedit_data.dataoff += file_offset;
-            },
-            else => {
-                log.debug("Unknown load command detected: 0x{x}.", .{@enumToInt(cmd.cmd())});
-            },
+            else => {},
         }
-        self.load_commands.appendAssumeCapacity(cmd);
     }
-
-    try self.parseSymtab(allocator);
 }
 
 const Context = struct {
-    symtab: []const macho.nlist_64,
-    strtab: []const u8,
+    object: *const Object,
 };
 
 const SymbolAtIndex = struct {
     index: u32,
 
     fn getSymbol(self: SymbolAtIndex, ctx: Context) macho.nlist_64 {
-        return ctx.symtab[self.index];
+        return ctx.object.getSourceSymbol(self.index).?;
     }
 
     fn getSymbolName(self: SymbolAtIndex, ctx: Context) []const u8 {
         const sym = self.getSymbol(ctx);
-        assert(sym.n_strx < ctx.strtab.len);
-        return mem.sliceTo(@ptrCast([*:0]const u8, ctx.strtab.ptr + sym.n_strx), 0);
+        return ctx.object.getString(sym.n_strx);
     }
 
     /// Returns whether lhs is less than rhs by allocated address in object file.
@@ -293,7 +222,6 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
     defer tracy.end();
 
     const gpa = macho_file.base.allocator;
-    const seg = self.load_commands.items[self.segment_cmd_index.?].segment;
 
     log.debug("splitting object({d}, {s}) into atoms: one-shot mode", .{ object_id, self.name });
 
@@ -302,13 +230,12 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
     // the GO compiler does not necessarily respect that therefore we sort immediately by type
     // and address within.
     const context = Context{
-        .symtab = self.getSourceSymtab(),
-        .strtab = self.strtab,
+        .object = self,
     };
-    var sorted_all_syms = try std.ArrayList(SymbolAtIndex).initCapacity(gpa, context.symtab.len);
+    var sorted_all_syms = try std.ArrayList(SymbolAtIndex).initCapacity(gpa, self.in_symtab.len);
     defer sorted_all_syms.deinit();
 
-    for (context.symtab) |_, index| {
+    for (self.in_symtab) |_, index| {
         sorted_all_syms.appendAssumeCapacity(.{ .index = @intCast(u32, index) });
     }
 
@@ -320,36 +247,36 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
 
     // Well, shit, sometimes compilers skip the dysymtab load command altogether, meaning we
     // have to infer the start of undef section in the symtab ourselves.
-    const iundefsym = if (self.dysymtab_cmd_index) |cmd_index| blk: {
-        const dysymtab = self.load_commands.items[cmd_index].dysymtab;
+    const iundefsym = blk: {
+        const dysymtab = self.parseDysymtab() orelse {
+            var iundefsym: usize = sorted_all_syms.items.len;
+            while (iundefsym > 0) : (iundefsym -= 1) {
+                const sym = sorted_all_syms.items[iundefsym - 1].getSymbol(context);
+                if (sym.sect()) break;
+            }
+            break :blk iundefsym;
+        };
         break :blk dysymtab.iundefsym;
-    } else blk: {
-        var iundefsym: usize = sorted_all_syms.items.len;
-        while (iundefsym > 0) : (iundefsym -= 1) {
-            const sym = sorted_all_syms.items[iundefsym - 1].getSymbol(context);
-            if (sym.sect()) break;
-        }
-        break :blk iundefsym;
     };
 
     // We only care about defined symbols, so filter every other out.
     const sorted_syms = sorted_all_syms.items[0..iundefsym];
     const subsections_via_symbols = self.header.flags & macho.MH_SUBSECTIONS_VIA_SYMBOLS != 0;
 
-    for (seg.sections.items) |sect, id| {
+    for (self.sections.items) |sect, id| {
         const sect_id = @intCast(u8, id);
         log.debug("splitting section '{s},{s}' into atoms", .{ sect.segName(), sect.sectName() });
 
         // Get matching segment/section in the final artifact.
-        const match = (try macho_file.getMatchingSection(sect)) orelse {
+        const match = (try macho_file.getOutputSection(sect)) orelse {
             log.debug("  unhandled section", .{});
             continue;
         };
 
         log.debug("  output sect({d}, '{s},{s}')", .{
-            macho_file.getSectionOrdinal(match),
-            macho_file.getSection(match).segName(),
-            macho_file.getSection(match).sectName(),
+            match + 1,
+            macho_file.sections.items(.header)[match].segName(),
+            macho_file.sections.items(.header)[match].sectName(),
         });
 
         const cpu_arch = macho_file.base.options.target.cpu.arch;
@@ -359,14 +286,13 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
         };
 
         // Read section's code
-        const code: ?[]const u8 = if (!is_zerofill) try self.getSectionContents(sect_id) else null;
+        const code: ?[]const u8 = if (!is_zerofill) try self.getSectionContents(sect) else null;
 
         // Read section's list of relocations
-        const raw_relocs = self.contents[sect.reloff..][0 .. sect.nreloc * @sizeOf(macho.relocation_info)];
-        const relocs = mem.bytesAsSlice(
-            macho.relocation_info,
-            @alignCast(@alignOf(macho.relocation_info), raw_relocs),
-        );
+        const relocs = @ptrCast(
+            [*]const macho.relocation_info,
+            @alignCast(@alignOf(macho.relocation_info), &self.contents[sect.reloff]),
+        )[0..sect.nreloc];
 
         // Symbols within this section only.
         const filtered_syms = filterSymbolsByAddress(
@@ -387,7 +313,7 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
                     try self.symtab.append(gpa, .{
                         .n_strx = 0,
                         .n_type = macho.N_SECT,
-                        .n_sect = macho_file.getSectionOrdinal(match),
+                        .n_sect = match + 1,
                         .n_desc = 0,
                         .n_value = sect.addr,
                     });
@@ -476,7 +402,7 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
                         try self.symtab.append(gpa, .{
                             .n_strx = 0,
                             .n_type = macho.N_SECT,
-                            .n_sect = macho_file.getSectionOrdinal(match),
+                            .n_sect = match + 1,
                             .n_desc = 0,
                             .n_value = addr,
                         });
@@ -501,7 +427,7 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
                 try self.symtab.append(gpa, .{
                     .n_strx = 0,
                     .n_type = macho.N_SECT,
-                    .n_sect = macho_file.getSectionOrdinal(match),
+                    .n_sect = match + 1,
                     .n_desc = 0,
                     .n_value = sect.addr,
                 });
@@ -535,21 +461,21 @@ fn createAtomFromSubsection(
     code: ?[]const u8,
     relocs: []const macho.relocation_info,
     indexes: []const SymbolAtIndex,
-    match: MatchingSection,
+    match: u8,
     sect: macho.section_64,
 ) !*Atom {
     const gpa = macho_file.base.allocator;
     const sym = self.symtab.items[sym_index];
     const atom = try MachO.createEmptyAtom(gpa, sym_index, size, alignment);
     atom.file = object_id;
-    self.symtab.items[sym_index].n_sect = macho_file.getSectionOrdinal(match);
+    self.symtab.items[sym_index].n_sect = match + 1;
 
     log.debug("creating ATOM(%{d}, '{s}') in sect({d}, '{s},{s}') in object({d})", .{
         sym_index,
         self.getString(sym.n_strx),
-        macho_file.getSectionOrdinal(match),
-        macho_file.getSection(match).segName(),
-        macho_file.getSection(match).sectName(),
+        match + 1,
+        macho_file.sections.items(.header)[match].segName(),
+        macho_file.sections.items(.header)[match].sectName(),
         object_id,
     });
 
@@ -577,7 +503,7 @@ fn createAtomFromSubsection(
     try atom.contained.ensureTotalCapacity(gpa, indexes.len);
     for (indexes) |inner_sym_index| {
         const inner_sym = &self.symtab.items[inner_sym_index.index];
-        inner_sym.n_sect = macho_file.getSectionOrdinal(match);
+        inner_sym.n_sect = match + 1;
         atom.contained.appendAssumeCapacity(.{
             .sym_index = inner_sym_index.index,
             .offset = inner_sym.n_value - sym.n_value,
@@ -589,48 +515,84 @@ fn createAtomFromSubsection(
     return atom;
 }
 
-fn parseSymtab(self: *Object, allocator: Allocator) !void {
-    const index = self.symtab_cmd_index orelse return;
-    const symtab = self.load_commands.items[index].symtab;
-    try self.symtab.appendSlice(allocator, self.getSourceSymtab());
-    self.strtab = self.contents[symtab.stroff..][0..symtab.strsize];
-}
-
-pub fn getSourceSymtab(self: Object) []const macho.nlist_64 {
-    const index = self.symtab_cmd_index orelse return &[0]macho.nlist_64{};
-    const symtab = self.load_commands.items[index].symtab;
-    const symtab_size = @sizeOf(macho.nlist_64) * symtab.nsyms;
-    const raw_symtab = self.contents[symtab.symoff..][0..symtab_size];
-    return mem.bytesAsSlice(
-        macho.nlist_64,
-        @alignCast(@alignOf(macho.nlist_64), raw_symtab),
-    );
-}
-
 pub fn getSourceSymbol(self: Object, index: u32) ?macho.nlist_64 {
-    const symtab = self.getSourceSymtab();
-    if (index >= symtab.len) return null;
-    return symtab[index];
+    if (index >= self.in_symtab.len) return null;
+    return self.in_symtab[index];
 }
 
 pub fn getSourceSection(self: Object, index: u16) macho.section_64 {
-    const seg = self.load_commands.items[self.segment_cmd_index.?].segment;
-    assert(index < seg.sections.items.len);
-    return seg.sections.items[index];
+    assert(index < self.sections.items.len);
+    return self.sections.items[index];
 }
 
 pub fn parseDataInCode(self: Object) ?[]const macho.data_in_code_entry {
-    const index = self.data_in_code_cmd_index orelse return null;
-    const data_in_code = self.load_commands.items[index].linkedit_data;
-    const raw_dice = self.contents[data_in_code.dataoff..][0..data_in_code.datasize];
-    return mem.bytesAsSlice(
-        macho.data_in_code_entry,
-        @alignCast(@alignOf(macho.data_in_code_entry), raw_dice),
-    );
+    var it = LoadCommandIterator{
+        .ncmds = self.header.ncmds,
+        .buffer = self.contents[@sizeOf(macho.mach_header_64)..][0..self.header.sizeofcmds],
+    };
+    while (it.next()) |cmd| {
+        switch (cmd.cmd()) {
+            .DATA_IN_CODE => {
+                const dice = cmd.cast(macho.linkedit_data_command).?;
+                const ndice = @divExact(dice.datasize, @sizeOf(macho.data_in_code_entry));
+                return @ptrCast(
+                    [*]const macho.data_in_code_entry,
+                    @alignCast(@alignOf(macho.data_in_code_entry), &self.contents[dice.dataoff]),
+                )[0..ndice];
+            },
+            else => {},
+        }
+    } else return null;
 }
 
-pub fn getSectionContents(self: Object, index: u16) error{Overflow}![]const u8 {
-    const sect = self.getSourceSection(index);
+fn parseDysymtab(self: Object) ?macho.dysymtab_command {
+    var it = LoadCommandIterator{
+        .ncmds = self.header.ncmds,
+        .buffer = self.contents[@sizeOf(macho.mach_header_64)..][0..self.header.sizeofcmds],
+    };
+    while (it.next()) |cmd| {
+        switch (cmd.cmd()) {
+            .DYSYMTAB => {
+                return cmd.cast(macho.dysymtab_command).?;
+            },
+            else => {},
+        }
+    } else return null;
+}
+
+pub fn parseDwarfInfo(self: Object) error{Overflow}!dwarf.DwarfInfo {
+    var di = dwarf.DwarfInfo{
+        .endian = .Little,
+        .debug_info = &[0]u8{},
+        .debug_abbrev = &[0]u8{},
+        .debug_str = &[0]u8{},
+        .debug_line = &[0]u8{},
+        .debug_line_str = &[0]u8{},
+        .debug_ranges = &[0]u8{},
+    };
+    for (self.sections.items) |sect| {
+        const segname = sect.segName();
+        const sectname = sect.sectName();
+        if (mem.eql(u8, segname, "__DWARF")) {
+            if (mem.eql(u8, sectname, "__debug_info")) {
+                di.debug_info = try self.getSectionContents(sect);
+            } else if (mem.eql(u8, sectname, "__debug_abbrev")) {
+                di.debug_abbrev = try self.getSectionContents(sect);
+            } else if (mem.eql(u8, sectname, "__debug_str")) {
+                di.debug_str = try self.getSectionContents(sect);
+            } else if (mem.eql(u8, sectname, "__debug_line")) {
+                di.debug_line = try self.getSectionContents(sect);
+            } else if (mem.eql(u8, sectname, "__debug_line_str")) {
+                di.debug_line_str = try self.getSectionContents(sect);
+            } else if (mem.eql(u8, sectname, "__debug_ranges")) {
+                di.debug_ranges = try self.getSectionContents(sect);
+            }
+        }
+    }
+    return di;
+}
+
+pub fn getSectionContents(self: Object, sect: macho.section_64) error{Overflow}![]const u8 {
     const size = math.cast(usize, sect.size) orelse return error.Overflow;
     log.debug("getting {s},{s} data at 0x{x} - 0x{x}", .{
         sect.segName(),
@@ -642,8 +604,8 @@ pub fn getSectionContents(self: Object, index: u16) error{Overflow}![]const u8 {
 }
 
 pub fn getString(self: Object, off: u32) []const u8 {
-    assert(off < self.strtab.len);
-    return mem.sliceTo(@ptrCast([*:0]const u8, self.strtab.ptr + off), 0);
+    assert(off < self.in_strtab.len);
+    return mem.sliceTo(@ptrCast([*:0]const u8, self.in_strtab.ptr + off), 0);
 }
 
 pub fn getAtomForSymbol(self: Object, sym_index: u32) ?*Atom {

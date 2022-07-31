@@ -1835,429 +1835,70 @@ pub const data_in_code_entry = extern struct {
     kind: u16,
 };
 
-/// A Zig wrapper for all known MachO load commands.
-/// Provides interface to read and write the load command data to a buffer.
-pub const LoadCommand = union(enum) {
-    segment: SegmentCommand,
-    dyld_info_only: dyld_info_command,
-    symtab: symtab_command,
-    dysymtab: dysymtab_command,
-    dylinker: GenericCommandWithData(dylinker_command),
-    dylib: GenericCommandWithData(dylib_command),
-    main: entry_point_command,
-    version_min: version_min_command,
-    source_version: source_version_command,
-    build_version: GenericCommandWithData(build_version_command),
-    uuid: uuid_command,
-    linkedit_data: linkedit_data_command,
-    rpath: GenericCommandWithData(rpath_command),
-    unknown: GenericCommandWithData(load_command),
+pub const LoadCommandIterator = struct {
+    ncmds: usize,
+    buffer: []align(@alignOf(u64)) const u8,
+    index: usize = 0,
 
-    pub fn read(allocator: Allocator, reader: anytype) !LoadCommand {
-        const header = try reader.readStruct(load_command);
-        var buffer = try allocator.alloc(u8, header.cmdsize);
-        defer allocator.free(buffer);
-        mem.copy(u8, buffer, mem.asBytes(&header));
-        try reader.readNoEof(buffer[@sizeOf(load_command)..]);
-        var stream = io.fixedBufferStream(buffer);
+    pub const LoadCommand = struct {
+        hdr: load_command,
+        data: []const u8,
 
-        return switch (header.cmd) {
-            .SEGMENT_64 => LoadCommand{
-                .segment = try SegmentCommand.read(allocator, stream.reader()),
-            },
-            .DYLD_INFO, .DYLD_INFO_ONLY => LoadCommand{
-                .dyld_info_only = try stream.reader().readStruct(dyld_info_command),
-            },
-            .SYMTAB => LoadCommand{
-                .symtab = try stream.reader().readStruct(symtab_command),
-            },
-            .DYSYMTAB => LoadCommand{
-                .dysymtab = try stream.reader().readStruct(dysymtab_command),
-            },
-            .ID_DYLINKER, .LOAD_DYLINKER, .DYLD_ENVIRONMENT => LoadCommand{
-                .dylinker = try GenericCommandWithData(dylinker_command).read(allocator, stream.reader()),
-            },
-            .ID_DYLIB, .LOAD_WEAK_DYLIB, .LOAD_DYLIB, .REEXPORT_DYLIB => LoadCommand{
-                .dylib = try GenericCommandWithData(dylib_command).read(allocator, stream.reader()),
-            },
-            .MAIN => LoadCommand{
-                .main = try stream.reader().readStruct(entry_point_command),
-            },
-            .VERSION_MIN_MACOSX, .VERSION_MIN_IPHONEOS, .VERSION_MIN_WATCHOS, .VERSION_MIN_TVOS => LoadCommand{
-                .version_min = try stream.reader().readStruct(version_min_command),
-            },
-            .SOURCE_VERSION => LoadCommand{
-                .source_version = try stream.reader().readStruct(source_version_command),
-            },
-            .BUILD_VERSION => LoadCommand{
-                .build_version = try GenericCommandWithData(build_version_command).read(allocator, stream.reader()),
-            },
-            .UUID => LoadCommand{
-                .uuid = try stream.reader().readStruct(uuid_command),
-            },
-            .FUNCTION_STARTS, .DATA_IN_CODE, .CODE_SIGNATURE => LoadCommand{
-                .linkedit_data = try stream.reader().readStruct(linkedit_data_command),
-            },
-            .RPATH => LoadCommand{
-                .rpath = try GenericCommandWithData(rpath_command).read(allocator, stream.reader()),
-            },
-            else => LoadCommand{
-                .unknown = try GenericCommandWithData(load_command).read(allocator, stream.reader()),
-            },
+        pub fn cmd(lc: LoadCommand) LC {
+            return lc.hdr.cmd;
+        }
+
+        pub fn cmdsize(lc: LoadCommand) u32 {
+            return lc.hdr.cmdsize;
+        }
+
+        pub fn cast(lc: LoadCommand, comptime Cmd: type) ?Cmd {
+            if (lc.data.len < @sizeOf(Cmd)) return null;
+            return @ptrCast(*const Cmd, @alignCast(@alignOf(Cmd), &lc.data[0])).*;
+        }
+
+        /// Asserts LoadCommand is of type segment_command_64.
+        pub fn getSections(lc: LoadCommand) []const section_64 {
+            const segment_lc = lc.cast(segment_command_64).?;
+            if (segment_lc.nsects == 0) return &[0]section_64{};
+            const data = lc.data[@sizeOf(segment_command_64)..];
+            const sections = @ptrCast(
+                [*]const section_64,
+                @alignCast(@alignOf(section_64), &data[0]),
+            )[0..segment_lc.nsects];
+            return sections;
+        }
+
+        /// Asserts LoadCommand is of type dylib_command.
+        pub fn getDylibPathName(lc: LoadCommand) []const u8 {
+            const dylib_lc = lc.cast(dylib_command).?;
+            const data = lc.data[dylib_lc.dylib.name..];
+            return mem.sliceTo(data, 0);
+        }
+
+        /// Asserts LoadCommand is of type rpath_command.
+        pub fn getRpathPathName(lc: LoadCommand) []const u8 {
+            const rpath_lc = lc.cast(rpath_command).?;
+            const data = lc.data[rpath_lc.path..];
+            return mem.sliceTo(data, 0);
+        }
+    };
+
+    pub fn next(it: *LoadCommandIterator) ?LoadCommand {
+        if (it.index >= it.ncmds) return null;
+
+        const hdr = @ptrCast(
+            *const load_command,
+            @alignCast(@alignOf(load_command), &it.buffer[0]),
+        ).*;
+        const cmd = LoadCommand{
+            .hdr = hdr,
+            .data = it.buffer[0..hdr.cmdsize],
         };
-    }
 
-    pub fn write(self: LoadCommand, writer: anytype) !void {
-        return switch (self) {
-            .dyld_info_only => |x| writeStruct(x, writer),
-            .symtab => |x| writeStruct(x, writer),
-            .dysymtab => |x| writeStruct(x, writer),
-            .main => |x| writeStruct(x, writer),
-            .version_min => |x| writeStruct(x, writer),
-            .source_version => |x| writeStruct(x, writer),
-            .uuid => |x| writeStruct(x, writer),
-            .linkedit_data => |x| writeStruct(x, writer),
-            .segment => |x| x.write(writer),
-            .dylinker => |x| x.write(writer),
-            .dylib => |x| x.write(writer),
-            .rpath => |x| x.write(writer),
-            .build_version => |x| x.write(writer),
-            .unknown => |x| x.write(writer),
-        };
-    }
+        it.buffer = it.buffer[hdr.cmdsize..];
+        it.index += 1;
 
-    pub fn cmd(self: LoadCommand) LC {
-        return switch (self) {
-            .dyld_info_only => |x| x.cmd,
-            .symtab => |x| x.cmd,
-            .dysymtab => |x| x.cmd,
-            .main => |x| x.cmd,
-            .version_min => |x| x.cmd,
-            .source_version => |x| x.cmd,
-            .uuid => |x| x.cmd,
-            .linkedit_data => |x| x.cmd,
-            .segment => |x| x.inner.cmd,
-            .dylinker => |x| x.inner.cmd,
-            .dylib => |x| x.inner.cmd,
-            .rpath => |x| x.inner.cmd,
-            .build_version => |x| x.inner.cmd,
-            .unknown => |x| x.inner.cmd,
-        };
-    }
-
-    pub fn cmdsize(self: LoadCommand) u32 {
-        return switch (self) {
-            .dyld_info_only => |x| x.cmdsize,
-            .symtab => |x| x.cmdsize,
-            .dysymtab => |x| x.cmdsize,
-            .main => |x| x.cmdsize,
-            .version_min => |x| x.cmdsize,
-            .source_version => |x| x.cmdsize,
-            .linkedit_data => |x| x.cmdsize,
-            .uuid => |x| x.cmdsize,
-            .segment => |x| x.inner.cmdsize,
-            .dylinker => |x| x.inner.cmdsize,
-            .dylib => |x| x.inner.cmdsize,
-            .rpath => |x| x.inner.cmdsize,
-            .build_version => |x| x.inner.cmdsize,
-            .unknown => |x| x.inner.cmdsize,
-        };
-    }
-
-    pub fn deinit(self: *LoadCommand, allocator: Allocator) void {
-        return switch (self.*) {
-            .segment => |*x| x.deinit(allocator),
-            .dylinker => |*x| x.deinit(allocator),
-            .dylib => |*x| x.deinit(allocator),
-            .rpath => |*x| x.deinit(allocator),
-            .build_version => |*x| x.deinit(allocator),
-            .unknown => |*x| x.deinit(allocator),
-            else => {},
-        };
-    }
-
-    fn writeStruct(command: anytype, writer: anytype) !void {
-        return writer.writeAll(mem.asBytes(&command));
-    }
-
-    pub fn eql(self: LoadCommand, other: LoadCommand) bool {
-        if (@as(meta.Tag(LoadCommand), self) != @as(meta.Tag(LoadCommand), other)) return false;
-        return switch (self) {
-            .dyld_info_only => |x| meta.eql(x, other.dyld_info_only),
-            .symtab => |x| meta.eql(x, other.symtab),
-            .dysymtab => |x| meta.eql(x, other.dysymtab),
-            .main => |x| meta.eql(x, other.main),
-            .version_min => |x| meta.eql(x, other.version_min),
-            .source_version => |x| meta.eql(x, other.source_version),
-            .build_version => |x| x.eql(other.build_version),
-            .uuid => |x| meta.eql(x, other.uuid),
-            .linkedit_data => |x| meta.eql(x, other.linkedit_data),
-            .segment => |x| x.eql(other.segment),
-            .dylinker => |x| x.eql(other.dylinker),
-            .dylib => |x| x.eql(other.dylib),
-            .rpath => |x| x.eql(other.rpath),
-            .unknown => |x| x.eql(other.unknown),
-        };
+        return cmd;
     }
 };
-
-/// A Zig wrapper for segment_command_64.
-/// Encloses the extern struct together with a list of sections for this segment.
-pub const SegmentCommand = struct {
-    inner: segment_command_64,
-    sections: std.ArrayListUnmanaged(section_64) = .{},
-
-    pub fn read(allocator: Allocator, reader: anytype) !SegmentCommand {
-        const inner = try reader.readStruct(segment_command_64);
-        var segment = SegmentCommand{
-            .inner = inner,
-        };
-        try segment.sections.ensureTotalCapacityPrecise(allocator, inner.nsects);
-
-        var i: usize = 0;
-        while (i < inner.nsects) : (i += 1) {
-            const sect = try reader.readStruct(section_64);
-            segment.sections.appendAssumeCapacity(sect);
-        }
-
-        return segment;
-    }
-
-    pub fn write(self: SegmentCommand, writer: anytype) !void {
-        try writer.writeAll(mem.asBytes(&self.inner));
-        for (self.sections.items) |sect| {
-            try writer.writeAll(mem.asBytes(&sect));
-        }
-    }
-
-    pub fn deinit(self: *SegmentCommand, allocator: Allocator) void {
-        self.sections.deinit(allocator);
-    }
-
-    pub fn eql(self: SegmentCommand, other: SegmentCommand) bool {
-        if (!meta.eql(self.inner, other.inner)) return false;
-        const lhs = self.sections.items;
-        const rhs = other.sections.items;
-        var i: usize = 0;
-        while (i < self.inner.nsects) : (i += 1) {
-            if (!meta.eql(lhs[i], rhs[i])) return false;
-        }
-        return true;
-    }
-};
-
-pub fn emptyGenericCommandWithData(cmd: anytype) GenericCommandWithData(@TypeOf(cmd)) {
-    return .{ .inner = cmd };
-}
-
-/// A Zig wrapper for a generic load command with variable-length data.
-pub fn GenericCommandWithData(comptime Cmd: type) type {
-    return struct {
-        inner: Cmd,
-        /// This field remains undefined until `read` is called.
-        data: []u8 = undefined,
-
-        const Self = @This();
-
-        pub fn read(allocator: Allocator, reader: anytype) !Self {
-            const inner = try reader.readStruct(Cmd);
-            var data = try allocator.alloc(u8, inner.cmdsize - @sizeOf(Cmd));
-            errdefer allocator.free(data);
-            try reader.readNoEof(data);
-            return Self{
-                .inner = inner,
-                .data = data,
-            };
-        }
-
-        pub fn write(self: Self, writer: anytype) !void {
-            try writer.writeAll(mem.asBytes(&self.inner));
-            try writer.writeAll(self.data);
-        }
-
-        pub fn deinit(self: *Self, allocator: Allocator) void {
-            allocator.free(self.data);
-        }
-
-        pub fn eql(self: Self, other: Self) bool {
-            if (!meta.eql(self.inner, other.inner)) return false;
-            return mem.eql(u8, self.data, other.data);
-        }
-    };
-}
-
-pub fn createLoadDylibCommand(
-    allocator: Allocator,
-    cmd_id: LC,
-    name: []const u8,
-    timestamp: u32,
-    current_version: u32,
-    compatibility_version: u32,
-) !GenericCommandWithData(dylib_command) {
-    assert(cmd_id == .LOAD_DYLIB or cmd_id == .LOAD_WEAK_DYLIB or cmd_id == .REEXPORT_DYLIB or cmd_id == .ID_DYLIB);
-    const cmdsize = @intCast(u32, mem.alignForwardGeneric(
-        u64,
-        @sizeOf(dylib_command) + name.len + 1, // +1 for nul
-        @sizeOf(u64),
-    ));
-
-    var dylib_cmd = emptyGenericCommandWithData(dylib_command{
-        .cmd = cmd_id,
-        .cmdsize = cmdsize,
-        .dylib = .{
-            .name = @sizeOf(dylib_command),
-            .timestamp = timestamp,
-            .current_version = current_version,
-            .compatibility_version = compatibility_version,
-        },
-    });
-    dylib_cmd.data = try allocator.alloc(u8, cmdsize - dylib_cmd.inner.dylib.name);
-
-    mem.set(u8, dylib_cmd.data, 0);
-    mem.copy(u8, dylib_cmd.data, name);
-
-    return dylib_cmd;
-}
-
-fn testRead(allocator: Allocator, buffer: []const u8, expected: anytype) !void {
-    var stream = io.fixedBufferStream(buffer);
-    var given = try LoadCommand.read(allocator, stream.reader());
-    defer given.deinit(allocator);
-    try testing.expect(expected.eql(given));
-}
-
-fn testWrite(buffer: []u8, cmd: LoadCommand, expected: []const u8) !void {
-    var stream = io.fixedBufferStream(buffer);
-    try cmd.write(stream.writer());
-    try testing.expect(mem.eql(u8, expected, buffer[0..expected.len]));
-}
-
-fn makeStaticString(bytes: []const u8) [16]u8 {
-    var buf = [_]u8{0} ** 16;
-    assert(bytes.len <= buf.len);
-    mem.copy(u8, &buf, bytes);
-    return buf;
-}
-
-test "read-write segment command" {
-    // TODO compiling for macOS from big-endian arch
-    if (builtin.target.cpu.arch.endian() != .Little) return error.SkipZigTest;
-
-    var gpa = testing.allocator;
-    const in_buffer = &[_]u8{
-        0x19, 0x00, 0x00, 0x00, // cmd
-        0x98, 0x00, 0x00, 0x00, // cmdsize
-        0x5f, 0x5f, 0x54, 0x45, 0x58, 0x54, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // segname
-        0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, // vmaddr
-        0x00, 0x80, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, // vmsize
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // fileoff
-        0x00, 0x80, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, // filesize
-        0x07, 0x00, 0x00, 0x00, // maxprot
-        0x05, 0x00, 0x00, 0x00, // initprot
-        0x01, 0x00, 0x00, 0x00, // nsects
-        0x00, 0x00, 0x00, 0x00, // flags
-        0x5f, 0x5f, 0x74, 0x65, 0x78, 0x74, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // sectname
-        0x5f, 0x5f, 0x54, 0x45, 0x58, 0x54, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // segname
-        0x00, 0x40, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, // address
-        0xc0, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // size
-        0x00, 0x40, 0x00, 0x00, // offset
-        0x02, 0x00, 0x00, 0x00, // alignment
-        0x00, 0x00, 0x00, 0x00, // reloff
-        0x00, 0x00, 0x00, 0x00, // nreloc
-        0x00, 0x04, 0x00, 0x80, // flags
-        0x00, 0x00, 0x00, 0x00, // reserved1
-        0x00, 0x00, 0x00, 0x00, // reserved2
-        0x00, 0x00, 0x00, 0x00, // reserved3
-    };
-    var cmd = SegmentCommand{
-        .inner = .{
-            .cmdsize = 152,
-            .segname = makeStaticString("__TEXT"),
-            .vmaddr = 4294967296,
-            .vmsize = 294912,
-            .filesize = 294912,
-            .maxprot = PROT.READ | PROT.WRITE | PROT.EXEC,
-            .initprot = PROT.EXEC | PROT.READ,
-            .nsects = 1,
-        },
-    };
-    try cmd.sections.append(gpa, .{
-        .sectname = makeStaticString("__text"),
-        .segname = makeStaticString("__TEXT"),
-        .addr = 4294983680,
-        .size = 448,
-        .offset = 16384,
-        .@"align" = 2,
-        .flags = S_REGULAR | S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS,
-    });
-    defer cmd.deinit(gpa);
-    try testRead(gpa, in_buffer, LoadCommand{ .segment = cmd });
-
-    var out_buffer: [in_buffer.len]u8 = undefined;
-    try testWrite(&out_buffer, LoadCommand{ .segment = cmd }, in_buffer);
-}
-
-test "read-write generic command with data" {
-    // TODO compiling for macOS from big-endian arch
-    if (builtin.target.cpu.arch.endian() != .Little) return error.SkipZigTest;
-
-    var gpa = testing.allocator;
-    const in_buffer = &[_]u8{
-        0x0c, 0x00, 0x00, 0x00, // cmd
-        0x20, 0x00, 0x00, 0x00, // cmdsize
-        0x18, 0x00, 0x00, 0x00, // name
-        0x02, 0x00, 0x00, 0x00, // timestamp
-        0x00, 0x00, 0x00, 0x00, // current_version
-        0x00, 0x00, 0x00, 0x00, // compatibility_version
-        0x2f, 0x75, 0x73, 0x72, 0x00, 0x00, 0x00, 0x00, // data
-    };
-    var cmd = GenericCommandWithData(dylib_command){
-        .inner = .{
-            .cmd = .LOAD_DYLIB,
-            .cmdsize = 32,
-            .dylib = .{
-                .name = 24,
-                .timestamp = 2,
-                .current_version = 0,
-                .compatibility_version = 0,
-            },
-        },
-    };
-    cmd.data = try gpa.alloc(u8, 8);
-    defer gpa.free(cmd.data);
-    cmd.data[0] = 0x2f;
-    cmd.data[1] = 0x75;
-    cmd.data[2] = 0x73;
-    cmd.data[3] = 0x72;
-    cmd.data[4] = 0x0;
-    cmd.data[5] = 0x0;
-    cmd.data[6] = 0x0;
-    cmd.data[7] = 0x0;
-    try testRead(gpa, in_buffer, LoadCommand{ .dylib = cmd });
-
-    var out_buffer: [in_buffer.len]u8 = undefined;
-    try testWrite(&out_buffer, LoadCommand{ .dylib = cmd }, in_buffer);
-}
-
-test "read-write C struct command" {
-    // TODO compiling for macOS from big-endian arch
-    if (builtin.target.cpu.arch.endian() != .Little) return error.SkipZigTest;
-
-    var gpa = testing.allocator;
-    const in_buffer = &[_]u8{
-        0x28, 0x00, 0x00, 0x80, // cmd
-        0x18, 0x00, 0x00, 0x00, // cmdsize
-        0x04, 0x41, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // entryoff
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // stacksize
-    };
-    const cmd = .{
-        .cmd = .MAIN,
-        .cmdsize = 24,
-        .entryoff = 16644,
-        .stacksize = 0,
-    };
-    try testRead(gpa, in_buffer, LoadCommand{ .main = cmd });
-
-    var out_buffer: [in_buffer.len]u8 = undefined;
-    try testWrite(&out_buffer, LoadCommand{ .main = cmd }, in_buffer);
-}
