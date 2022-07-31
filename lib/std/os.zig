@@ -4244,6 +4244,7 @@ pub const INotifyAddWatchError = error{
     SystemResources,
     UserResourceLimitReached,
     NotDir,
+    WatchAlreadyExists,
 } || UnexpectedError;
 
 /// add a watch to an initialized inotify instance
@@ -4266,6 +4267,7 @@ pub fn inotify_add_watchZ(inotify_fd: i32, pathname: [*:0]const u8, mask: u32) I
         .NOMEM => return error.SystemResources,
         .NOSPC => return error.UserResourceLimitReached,
         .NOTDIR => return error.NotDir,
+        .EXIST => return error.WatchAlreadyExists,
         else => |err| return unexpectedErrno(err),
     }
 }
