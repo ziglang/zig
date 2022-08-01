@@ -529,6 +529,7 @@ fn addStub(target: MachO.SymbolWithLoc, context: RelocContext) !void {
     if (context.macho_file.stubs_table.contains(target)) return;
 
     const stub_index = try context.macho_file.allocateStubEntry(target);
+
     const stub_helper_atom = try context.macho_file.createStubHelperAtom();
     const laptr_atom = try context.macho_file.createLazyPointerAtom(stub_helper_atom.sym_index, target);
     const stub_atom = try context.macho_file.createStubAtom(laptr_atom.sym_index);
@@ -601,9 +602,9 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
                 // * wrt to __thread_data if defined, then
                 // * wrt to __thread_bss
                 const sect_id: u16 = sect_id: {
-                    if (macho_file.tlv_data_section_index) |i| {
+                    if (macho_file.getSectionByName("__DATA", "__thread_data")) |i| {
                         break :sect_id i;
-                    } else if (macho_file.tlv_bss_section_index) |i| {
+                    } else if (macho_file.getSectionByName("__DATA", "__thread_bss")) |i| {
                         break :sect_id i;
                     } else {
                         log.err("threadlocal variables present but no initializer sections found", .{});
