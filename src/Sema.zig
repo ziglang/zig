@@ -16429,10 +16429,24 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
                 return sema.fail(block, src, "varargs functions must have C calling convention", .{});
             }
 
-            const alignment = @intCast(u29, alignment_val.toUnsignedInt(target)); // TODO: Validate this value.
+            const alignment = alignment: {
+                if (!try sema.intFitsInType(block, src, alignment_val, Type.u32, null)) {
+                    return sema.fail(block, src, "alignment must fit in 'u32'", .{});
+                }
+                const alignment = @intCast(u29, alignment_val.toUnsignedInt(target));
+                if (alignment == target_util.defaultFunctionAlignment(target)) {
+                    break :alignment 0;
+                } else {
+                    break :alignment alignment;
+                }
+            };
             var buf: Value.ToTypeBuffer = undefined;
 
-            const args: []Value = if (args_val.castTag(.aggregate)) |some| some.data else &.{};
+            const args_slice_val = args_val.castTag(.slice).?.data;
+            const args_decl_index = args_slice_val.ptr.pointerDecl().?;
+            try sema.ensureDeclAnalyzed(args_decl_index);
+            const args_decl = mod.declPtr(args_decl_index);
+            const args: []Value = if (args_decl.val.castTag(.aggregate)) |some| some.data else &.{};
             var param_types = try sema.arena.alloc(Type, args.len);
             var comptime_params = try sema.arena.alloc(bool, args.len);
             var noalias_bits: u32 = 0;
