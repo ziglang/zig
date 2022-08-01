@@ -511,14 +511,13 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
 
     try self.createMhExecuteHeaderSymbol();
     try self.resolveDyldStubBinder();
+    try self.createDyldPrivateAtom();
+    try self.createStubHelperPreambleAtom();
     try self.resolveSymbolsInDylibs();
 
     if (self.unresolved.count() > 0) {
         return error.UndefinedSymbolReference;
     }
-
-    try self.createDyldPrivateAtom();
-    try self.createStubHelperPreambleAtom();
 
     try self.allocateSpecialSymbols();
 
@@ -589,7 +588,7 @@ pub fn flushModule(self: *MachO, comp: *Compilation, prog_node: *std.Progress.No
     } else null;
 
     var headers_buf = std.ArrayList(u8).init(arena);
-    try self.writeSegmentHeaders(0, self.segments.items.len, &ncmds, headers_buf.writer());
+    try self.writeSegmentHeaders(&ncmds, headers_buf.writer());
 
     try self.base.file.?.pwriteAll(headers_buf.items, @sizeOf(macho.mach_header_64));
     try self.base.file.?.pwriteAll(lc_buffer.items, @sizeOf(macho.mach_header_64) + headers_buf.items.len);
@@ -1203,7 +1202,7 @@ fn linkOneShot(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) 
         } else null;
 
         var headers_buf = std.ArrayList(u8).init(arena);
-        try self.writeSegmentHeaders(0, self.segments.items.len, &ncmds, headers_buf.writer());
+        try self.writeSegmentHeaders(&ncmds, headers_buf.writer());
 
         try self.base.file.?.pwriteAll(headers_buf.items, @sizeOf(macho.mach_header_64));
         try self.base.file.?.pwriteAll(lc_buffer.items, @sizeOf(macho.mach_header_64) + headers_buf.items.len);
@@ -3863,7 +3862,9 @@ pub fn deleteExport(self: *MachO, exp: Export) void {
 fn freeUnnamedConsts(self: *MachO, decl_index: Module.Decl.Index) void {
     const unnamed_consts = self.unnamed_const_atoms.getPtr(decl_index) orelse return;
     for (unnamed_consts.items) |atom| {
-        const sect_id = atom.getSymbol(self).n_sect;
+        // TODO
+        // const sect_id = atom.getSymbol(self).n_sect;
+        const sect_id = self.getSectionByName("__TEXT", "__const").?;
         self.freeAtom(atom, sect_id, true);
         self.locals_free_list.append(self.base.allocator, atom.sym_index) catch {};
         self.locals.items[atom.sym_index].n_type = 0;
@@ -4402,8 +4403,6 @@ fn initSection(
     const index = try self.insertSection(segment_id, .{
         .sectname = makeStaticString(sectname),
         .segname = seg.segname,
-        .size = if (self.mode == .incremental) @intCast(u32, size) else 0,
-        .@"align" = alignment,
         .flags = opts.flags,
         .reserved1 = opts.reserved1,
         .reserved2 = opts.reserved2,
@@ -4413,6 +4412,9 @@ fn initSection(
 
     if (self.mode == .incremental) {
         const header = &self.sections.items(.header)[index];
+        header.size = size;
+        header.@"align" = alignment;
+
         const prev_end_off = if (index > 0) blk: {
             const prev_section = self.sections.get(index - 1);
             if (prev_section.segment_index == segment_id) {
@@ -4421,15 +4423,25 @@ fn initSection(
             } else break :blk seg.fileoff;
         } else 0;
         const alignment_pow_2 = try math.powi(u32, 2, alignment);
-        const padding: u64 = if (index == 0) try self.calcMinHeaderPad() else 0;
+        // TODO better prealloc for __text section
+        // const padding: u64 = if (index == 0) try self.calcMinHeaderPad() else 0;
+        const padding: u64 = if (index == 0) 0x1000 else 0;
         const off = mem.alignForwardGeneric(u64, padding + prev_end_off, alignment_pow_2);
-        log.debug("allocating {s},{s} section at 0x{x}", .{ header.segName(), header.sectName(), off });
-
-        header.addr = seg.vmaddr + off - seg.fileoff;
 
         if (!header.isZerofill()) {
             header.offset = @intCast(u32, off);
         }
+        header.addr = seg.vmaddr + off - seg.fileoff;
+
+        // TODO this will break if we are inserting section that is not the last section
+        // in a segment.
+        const max_size = self.allocatedSize(segment_id, off);
+
+        if (size > max_size) {
+            try self.growSection(index, @intCast(u32, size));
+        }
+
+        log.debug("allocating {s},{s} section at 0x{x}", .{ header.segName(), header.sectName(), off });
 
         self.updateSectionOrdinals(index + 1);
     }
@@ -4494,7 +4506,7 @@ fn updateSectionOrdinals(self: *MachO, start: u8) void {
 
     const slice = self.sections.slice();
     for (slice.items(.last_atom)[start..]) |last_atom| {
-        var atom = last_atom.?;
+        var atom = last_atom orelse continue;
 
         while (true) {
             const sym = atom.getSymbolPtr(self);
@@ -4534,17 +4546,6 @@ fn shiftLocalsByOffset(self: *MachO, sect_id: u8, offset: i64) !void {
             atom = prev;
         } else break;
     }
-}
-
-fn findFreeSpace(self: MachO, segment_id: u8, alignment: u64, start: ?u64) u64 {
-    const seg = self.segments.items[segment_id];
-    const indexes = self.getSectionIndexes(segment_id);
-    if (indexes.end - indexes.start == 0) {
-        return if (start) |v| v else seg.fileoff;
-    }
-    const last_sect = self.sections.items(.header)[indexes.end - 1];
-    const final_off = last_sect.offset + padToIdeal(last_sect.size);
-    return mem.alignForwardGeneric(u64, final_off, alignment);
 }
 
 fn growSegment(self: *MachO, segment_index: u8, new_size: u64) !void {
@@ -4885,14 +4886,14 @@ fn getSegmentAllocBase(self: MachO, indices: []const ?u8) struct { vmaddr: u64, 
     return .{ .vmaddr = 0, .fileoff = 0 };
 }
 
-pub fn writeSegmentHeaders(self: *MachO, start: usize, end: usize, ncmds: *u32, writer: anytype) !void {
-    for (self.segments.items[start..end]) |seg, i| {
+fn writeSegmentHeaders(self: *MachO, ncmds: *u32, writer: anytype) !void {
+    for (self.segments.items) |seg, i| {
         if (seg.nsects == 0 and
             (mem.eql(u8, seg.segName(), "__DATA_CONST") or
             mem.eql(u8, seg.segName(), "__DATA"))) continue;
         try writer.writeStruct(seg);
 
-        const indexes = self.getSectionIndexes(@intCast(u8, start + i));
+        const indexes = self.getSectionIndexes(@intCast(u8, i));
         for (self.sections.items(.header)[indexes.start..indexes.end]) |header| {
             try writer.writeStruct(header);
         }
@@ -5718,7 +5719,7 @@ pub fn getSectionByName(self: MachO, segname: []const u8, sectname: []const u8) 
     } else return null;
 }
 
-fn getSectionIndexes(self: MachO, segment_index: u8) struct { start: u8, end: u8 } {
+pub fn getSectionIndexes(self: MachO, segment_index: u8) struct { start: u8, end: u8 } {
     var start: u8 = 0;
     const nsects = for (self.segments.items) |seg, i| {
         if (i == segment_index) break @intCast(u8, seg.nsects);
