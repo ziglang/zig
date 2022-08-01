@@ -107,6 +107,23 @@ pub fn libCGenericName(target: std.Target) [:0]const u8 {
         .simulator,
         .macabi,
         => unreachable,
+
+        .pixel,
+        .vertex,
+        .geometry,
+        .hull,
+        .domain,
+        .compute,
+        .library,
+        .raygeneration,
+        .intersection,
+        .anyhit,
+        .closesthit,
+        .miss,
+        .callable,
+        .mesh,
+        .amplification,
+        => unreachable,
     }
 }
 
@@ -219,6 +236,7 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .hex,
         .raw,
         .nvptx,
+        .dxcontainer,
         => {},
     }
 
@@ -233,7 +251,10 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .bpfel,
         .bpfeb,
         .csky,
+        .dxil,
         .hexagon,
+        .loongarch32,
+        .loongarch64,
         .m68k,
         .mips,
         .mipsel,
@@ -335,6 +356,7 @@ pub fn osToLLVM(os_tag: std.Target.Os.Tag) llvm.OSType {
         .nvcl => .NVCL,
         .amdhsa => .AMDHSA,
         .ps4 => .PS4,
+        .ps5 => .PS5,
         .elfiamcu => .ELFIAMCU,
         .tvos => .TvOS,
         .watchos => .WatchOS,
@@ -345,6 +367,8 @@ pub fn osToLLVM(os_tag: std.Target.Os.Tag) llvm.OSType {
         .hurd => .Hurd,
         .wasi => .WASI,
         .emscripten => .Emscripten,
+        .driverkit => .DriverKit,
+        .shadermodel => .ShaderModel,
     };
 }
 
@@ -360,7 +384,10 @@ pub fn archToLLVM(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .bpfel => .bpfel,
         .bpfeb => .bpfeb,
         .csky => .csky,
+        .dxil => .dxil,
         .hexagon => .hexagon,
+        .loongarch32 => .loongarch32,
+        .loongarch64 => .loongarch64,
         .m68k => .m68k,
         .mips => .mips,
         .mipsel => .mipsel,
@@ -627,6 +654,8 @@ pub fn atomicPtrAlignment(
         .renderscript32,
         .csky,
         .spirv32,
+        .dxil,
+        .loongarch32,
         => 32,
 
         .aarch64,
@@ -651,6 +680,7 @@ pub fn atomicPtrAlignment(
         .renderscript64,
         .ve,
         .spirv64,
+        .loongarch64,
         => 64,
 
         .x86_64 => 128,

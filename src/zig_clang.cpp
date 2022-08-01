@@ -317,6 +317,7 @@ void ZigClang_detect_enum_TypeClass(clang::Type::TypeClass ty) {
         case clang::Type::Enum:
         case clang::Type::Elaborated:
         case clang::Type::Attributed:
+        case clang::Type::BTFTagAttributed:
         case clang::Type::BitInt:
         case clang::Type::TemplateTypeParm:
         case clang::Type::SubstTemplateTypeParm:
@@ -346,6 +347,7 @@ static_assert((clang::Type::TypeClass)ZigClangType_IncompleteArray == clang::Typ
 static_assert((clang::Type::TypeClass)ZigClangType_VariableArray == clang::Type::VariableArray, "");
 static_assert((clang::Type::TypeClass)ZigClangType_Atomic == clang::Type::Atomic, "");
 static_assert((clang::Type::TypeClass)ZigClangType_Attributed == clang::Type::Attributed, "");
+static_assert((clang::Type::TypeClass)ZigClangType_BTFTagAttributed == clang::Type::BTFTagAttributed, "");
 static_assert((clang::Type::TypeClass)ZigClangType_BitInt == clang::Type::BitInt, "");
 static_assert((clang::Type::TypeClass)ZigClangType_BlockPointer == clang::Type::BlockPointer, "");
 static_assert((clang::Type::TypeClass)ZigClangType_Builtin == clang::Type::Builtin, "");
@@ -432,25 +434,33 @@ void ZigClang_detect_enum_StmtClass(clang::Stmt::StmtClass x) {
         case clang::Stmt::OMPForDirectiveClass:
         case clang::Stmt::OMPForSimdDirectiveClass:
         case clang::Stmt::OMPGenericLoopDirectiveClass:
+        case clang::Stmt::OMPMaskedTaskLoopDirectiveClass:
+        case clang::Stmt::OMPMaskedTaskLoopSimdDirectiveClass:
         case clang::Stmt::OMPMasterTaskLoopDirectiveClass:
         case clang::Stmt::OMPMasterTaskLoopSimdDirectiveClass:
         case clang::Stmt::OMPParallelForDirectiveClass:
         case clang::Stmt::OMPParallelForSimdDirectiveClass:
+        case clang::Stmt::OMPParallelGenericLoopDirectiveClass:
+        case clang::Stmt::OMPParallelMaskedTaskLoopDirectiveClass:
+        case clang::Stmt::OMPParallelMaskedTaskLoopSimdDirectiveClass:
         case clang::Stmt::OMPParallelMasterTaskLoopDirectiveClass:
         case clang::Stmt::OMPParallelMasterTaskLoopSimdDirectiveClass:
         case clang::Stmt::OMPSimdDirectiveClass:
         case clang::Stmt::OMPTargetParallelForSimdDirectiveClass:
+        case clang::Stmt::OMPTargetParallelGenericLoopDirectiveClass:
         case clang::Stmt::OMPTargetSimdDirectiveClass:
         case clang::Stmt::OMPTargetTeamsDistributeDirectiveClass:
         case clang::Stmt::OMPTargetTeamsDistributeParallelForDirectiveClass:
         case clang::Stmt::OMPTargetTeamsDistributeParallelForSimdDirectiveClass:
         case clang::Stmt::OMPTargetTeamsDistributeSimdDirectiveClass:
+        case clang::Stmt::OMPTargetTeamsGenericLoopDirectiveClass:
         case clang::Stmt::OMPTaskLoopDirectiveClass:
         case clang::Stmt::OMPTaskLoopSimdDirectiveClass:
         case clang::Stmt::OMPTeamsDistributeDirectiveClass:
         case clang::Stmt::OMPTeamsDistributeParallelForDirectiveClass:
         case clang::Stmt::OMPTeamsDistributeParallelForSimdDirectiveClass:
         case clang::Stmt::OMPTeamsDistributeSimdDirectiveClass:
+        case clang::Stmt::OMPTeamsGenericLoopDirectiveClass:
         case clang::Stmt::OMPTileDirectiveClass:
         case clang::Stmt::OMPUnrollDirectiveClass:
         case clang::Stmt::OMPMaskedDirectiveClass:
@@ -458,6 +468,7 @@ void ZigClang_detect_enum_StmtClass(clang::Stmt::StmtClass x) {
         case clang::Stmt::OMPMetaDirectiveClass:
         case clang::Stmt::OMPOrderedDirectiveClass:
         case clang::Stmt::OMPParallelDirectiveClass:
+        case clang::Stmt::OMPParallelMaskedDirectiveClass:
         case clang::Stmt::OMPParallelMasterDirectiveClass:
         case clang::Stmt::OMPParallelSectionsDirectiveClass:
         case clang::Stmt::OMPScanDirectiveClass:
@@ -659,25 +670,33 @@ static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPDistributeSimdDirectiveCla
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPForDirectiveClass == clang::Stmt::OMPForDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPForSimdDirectiveClass == clang::Stmt::OMPForSimdDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPGenericLoopDirectiveClass == clang::Stmt::OMPGenericLoopDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPMaskedTaskLoopDirectiveClass == clang::Stmt::OMPMaskedTaskLoopDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPMaskedTaskLoopSimdDirectiveClass == clang::Stmt::OMPMaskedTaskLoopSimdDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPMasterTaskLoopDirectiveClass == clang::Stmt::OMPMasterTaskLoopDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPMasterTaskLoopSimdDirectiveClass == clang::Stmt::OMPMasterTaskLoopSimdDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPParallelForDirectiveClass == clang::Stmt::OMPParallelForDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPParallelForSimdDirectiveClass == clang::Stmt::OMPParallelForSimdDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPParallelGenericLoopDirectiveClass == clang::Stmt::OMPParallelGenericLoopDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPParallelMaskedTaskLoopDirectiveClass == clang::Stmt::OMPParallelMaskedTaskLoopDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPParallelMaskedTaskLoopSimdDirectiveClass == clang::Stmt::OMPParallelMaskedTaskLoopSimdDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPParallelMasterTaskLoopDirectiveClass == clang::Stmt::OMPParallelMasterTaskLoopDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPParallelMasterTaskLoopSimdDirectiveClass == clang::Stmt::OMPParallelMasterTaskLoopSimdDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPSimdDirectiveClass == clang::Stmt::OMPSimdDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTargetParallelForSimdDirectiveClass == clang::Stmt::OMPTargetParallelForSimdDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTargetParallelGenericLoopDirectiveClass == clang::Stmt::OMPTargetParallelGenericLoopDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTargetSimdDirectiveClass == clang::Stmt::OMPTargetSimdDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTargetTeamsDistributeDirectiveClass == clang::Stmt::OMPTargetTeamsDistributeDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTargetTeamsDistributeParallelForDirectiveClass == clang::Stmt::OMPTargetTeamsDistributeParallelForDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTargetTeamsDistributeParallelForSimdDirectiveClass == clang::Stmt::OMPTargetTeamsDistributeParallelForSimdDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTargetTeamsDistributeSimdDirectiveClass == clang::Stmt::OMPTargetTeamsDistributeSimdDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTargetTeamsGenericLoopDirectiveClass == clang::Stmt::OMPTargetTeamsGenericLoopDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTaskLoopDirectiveClass == clang::Stmt::OMPTaskLoopDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTaskLoopSimdDirectiveClass == clang::Stmt::OMPTaskLoopSimdDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTeamsDistributeDirectiveClass == clang::Stmt::OMPTeamsDistributeDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTeamsDistributeParallelForDirectiveClass == clang::Stmt::OMPTeamsDistributeParallelForDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTeamsDistributeParallelForSimdDirectiveClass == clang::Stmt::OMPTeamsDistributeParallelForSimdDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTeamsDistributeSimdDirectiveClass == clang::Stmt::OMPTeamsDistributeSimdDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTeamsGenericLoopDirectiveClass == clang::Stmt::OMPTeamsGenericLoopDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPTileDirectiveClass == clang::Stmt::OMPTileDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPUnrollDirectiveClass == clang::Stmt::OMPUnrollDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPMaskedDirectiveClass == clang::Stmt::OMPMaskedDirectiveClass, "");
@@ -685,6 +704,7 @@ static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPMasterDirectiveClass == cl
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPMetaDirectiveClass == clang::Stmt::OMPMetaDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPOrderedDirectiveClass == clang::Stmt::OMPOrderedDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPParallelDirectiveClass == clang::Stmt::OMPParallelDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPParallelMaskedDirectiveClass == clang::Stmt::OMPParallelMaskedDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPParallelMasterDirectiveClass == clang::Stmt::OMPParallelMasterDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPParallelSectionsDirectiveClass == clang::Stmt::OMPParallelSectionsDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPScanDirectiveClass == clang::Stmt::OMPScanDirectiveClass, "");
@@ -958,6 +978,7 @@ void ZigClang_detect_enum_DeclKind(clang::Decl::Kind x) {
         case clang::Decl::OMPDeclareMapper:
         case clang::Decl::OMPDeclareReduction:
         case clang::Decl::TemplateParamObject:
+        case clang::Decl::UnnamedGlobalConstant:
         case clang::Decl::UnresolvedUsingValue:
         case clang::Decl::OMPAllocate:
         case clang::Decl::OMPRequires:
@@ -1046,6 +1067,7 @@ static_assert((clang::Decl::Kind)ZigClangDeclMSGuid == clang::Decl::MSGuid, "");
 static_assert((clang::Decl::Kind)ZigClangDeclOMPDeclareMapper == clang::Decl::OMPDeclareMapper, "");
 static_assert((clang::Decl::Kind)ZigClangDeclOMPDeclareReduction == clang::Decl::OMPDeclareReduction, "");
 static_assert((clang::Decl::Kind)ZigClangDeclTemplateParamObject == clang::Decl::TemplateParamObject, "");
+static_assert((clang::Decl::Kind)ZigClangDeclUnnamedGlobalConstant == clang::Decl::UnnamedGlobalConstant, "");
 static_assert((clang::Decl::Kind)ZigClangDeclUnresolvedUsingValue == clang::Decl::UnresolvedUsingValue, "");
 static_assert((clang::Decl::Kind)ZigClangDeclOMPRequires == clang::Decl::OMPRequires, "");
 static_assert((clang::Decl::Kind)ZigClangDeclOMPThreadPrivate == clang::Decl::OMPThreadPrivate, "");
@@ -1560,6 +1582,8 @@ void ZigClang_detect_enum_CallingConv(clang::CallingConv x) {
         case clang::CC_PreserveMost:
         case clang::CC_PreserveAll:
         case clang::CC_AArch64VectorCall:
+        case clang::CC_AArch64SVEPCS:
+        case clang::CC_AMDGPUKernelCall:
             break;
     }
 }
@@ -1583,6 +1607,8 @@ static_assert((clang::CallingConv)ZigClangCallingConv_SwiftAsync == clang::CC_Sw
 static_assert((clang::CallingConv)ZigClangCallingConv_PreserveMost == clang::CC_PreserveMost, "");
 static_assert((clang::CallingConv)ZigClangCallingConv_PreserveAll == clang::CC_PreserveAll, "");
 static_assert((clang::CallingConv)ZigClangCallingConv_AArch64VectorCall == clang::CC_AArch64VectorCall, "");
+static_assert((clang::CallingConv)ZigClangCallingConv_AArch64SVEPCS == clang::CC_AArch64SVEPCS, "");
+static_assert((clang::CallingConv)ZigClangCallingConv_AMDGPUKernelCall == clang::CC_AMDGPUKernelCall, "");
 
 void ZigClang_detect_enum_StorageClass(clang::StorageClass x) {
     switch (x) {
@@ -1622,22 +1648,6 @@ static_assert((llvm::RoundingMode)ZigClangAPFloat_roundingMode_TowardZero == llv
 static_assert((llvm::RoundingMode)ZigClangAPFloat_roundingMode_NearestTiesToAway == llvm::RoundingMode::NearestTiesToAway, "");
 static_assert((llvm::RoundingMode)ZigClangAPFloat_roundingMode_Dynamic == llvm::RoundingMode::Dynamic, "");
 static_assert((llvm::RoundingMode)ZigClangAPFloat_roundingMode_Invalid == llvm::RoundingMode::Invalid, "");
-
-void ZigClang_detect_enum_StringKind(clang::StringLiteral::StringKind x) {
-    switch (x) {
-        case clang::StringLiteral::Ascii:
-        case clang::StringLiteral::Wide:
-        case clang::StringLiteral::UTF8:
-        case clang::StringLiteral::UTF16:
-        case clang::StringLiteral::UTF32:
-            break;
-    }
-}
-static_assert((clang::StringLiteral::StringKind)ZigClangStringLiteral_StringKind_Ascii == clang::StringLiteral::Ascii, "");
-static_assert((clang::StringLiteral::StringKind)ZigClangStringLiteral_StringKind_Wide == clang::StringLiteral::Wide, "");
-static_assert((clang::StringLiteral::StringKind)ZigClangStringLiteral_StringKind_UTF8 == clang::StringLiteral::UTF8, "");
-static_assert((clang::StringLiteral::StringKind)ZigClangStringLiteral_StringKind_UTF16 == clang::StringLiteral::UTF16, "");
-static_assert((clang::StringLiteral::StringKind)ZigClangStringLiteral_StringKind_UTF32 == clang::StringLiteral::UTF32, "");
 
 void ZigClang_detect_enum_CharacterKind(clang::CharacterLiteral::CharacterKind x) {
     switch (x) {
@@ -2724,9 +2734,9 @@ ZigClangAPFloatBase_Semantics ZigClangFloatingLiteral_getRawSemantics(const ZigC
     return static_cast<ZigClangAPFloatBase_Semantics>(casted->getRawSemantics());
 }
 
-enum ZigClangStringLiteral_StringKind ZigClangStringLiteral_getKind(const struct ZigClangStringLiteral *self) {
+enum ZigClangCharacterLiteral_CharacterKind ZigClangStringLiteral_getKind(const struct ZigClangStringLiteral *self) {
     auto casted = reinterpret_cast<const clang::StringLiteral *>(self);
-    return (ZigClangStringLiteral_StringKind)casted->getKind();
+    return (ZigClangCharacterLiteral_CharacterKind)casted->getKind();
 }
 
 uint32_t ZigClangStringLiteral_getCodeUnit(const struct ZigClangStringLiteral *self, size_t i) {

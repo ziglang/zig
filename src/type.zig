@@ -6627,6 +6627,7 @@ pub const CType = enum {
             .nvcl,
             .amdhsa,
             .ps4,
+            .ps5,
             .elfiamcu,
             .mesa3d,
             .contiki,
@@ -6636,6 +6637,8 @@ pub const CType = enum {
             .opencl,
             .glsl450,
             .vulkan,
+            .driverkit,
+            .shadermodel,
             => @panic("TODO specify the C integer and float type sizes for this OS"),
         }
     }

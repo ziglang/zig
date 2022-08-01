@@ -290,6 +290,7 @@ pub const File = struct {
                 .nvptx => &(try NvPtx.createEmpty(allocator, options)).base,
                 .hex => return error.HexObjectFormatUnimplemented,
                 .raw => return error.RawObjectFormatUnimplemented,
+                .dxcontainer => return error.DirectXContainerObjectFormatUnimplemented,
             };
         }
         const emit = options.emit.?;
@@ -309,6 +310,7 @@ pub const File = struct {
                     .nvptx => &(try NvPtx.createEmpty(allocator, options)).base,
                     .hex => return error.HexObjectFormatUnimplemented,
                     .raw => return error.RawObjectFormatUnimplemented,
+                    .dxcontainer => return error.DirectXContainerObjectFormatUnimplemented,
                 };
             }
             // Open a temporary object file, not the final output file because we
@@ -330,6 +332,7 @@ pub const File = struct {
             .nvptx => &(try NvPtx.openPath(allocator, sub_path, options)).base,
             .hex => return error.HexObjectFormatUnimplemented,
             .raw => return error.RawObjectFormatUnimplemented,
+            .dxcontainer => return error.DirectXContainerObjectFormatUnimplemented,
         };
 
         if (use_lld) {

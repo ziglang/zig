@@ -1212,9 +1212,11 @@ pub const LinkWasm = ZigLLDLinkWasm;
 pub const ObjectFormatType = enum(c_int) {
     Unknown,
     COFF,
+    DXContainer,
     ELF,
     GOFF,
     MachO,
+    SPIRV,
     Wasm,
     XCOFF,
 };
@@ -1254,9 +1256,11 @@ pub const OSType = enum(c_int) {
     NVCL,
     AMDHSA,
     PS4,
+    PS5,
     ELFIAMCU,
     TvOS,
     WatchOS,
+    DriverKit,
     Mesa3D,
     Contiki,
     AMDPAL,
@@ -1264,6 +1268,7 @@ pub const OSType = enum(c_int) {
     Hurd,
     WASI,
     Emscripten,
+    ShaderModel,
 };
 
 pub const ArchType = enum(c_int) {
@@ -1278,7 +1283,10 @@ pub const ArchType = enum(c_int) {
     bpfel,
     bpfeb,
     csky,
+    dxil,
     hexagon,
+    loongarch32,
+    loongarch64,
     m68k,
     mips,
     mipsel,
@@ -1314,6 +1322,8 @@ pub const ArchType = enum(c_int) {
     hsail64,
     spir,
     spir64,
+    spirv32,
+    spirv64,
     kalimba,
     shave,
     lanai,

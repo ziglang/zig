@@ -252,6 +252,7 @@ enum ZigClangTypeClass {
     ZigClangType_VariableArray,
     ZigClangType_Atomic,
     ZigClangType_Attributed,
+    ZigClangType_BTFTagAttributed,
     ZigClangType_BitInt,
     ZigClangType_BlockPointer,
     ZigClangType_Builtin,
@@ -337,25 +338,33 @@ enum ZigClangStmtClass {
     ZigClangStmt_OMPForDirectiveClass,
     ZigClangStmt_OMPForSimdDirectiveClass,
     ZigClangStmt_OMPGenericLoopDirectiveClass,
+    ZigClangStmt_OMPMaskedTaskLoopDirectiveClass,
+    ZigClangStmt_OMPMaskedTaskLoopSimdDirectiveClass,
     ZigClangStmt_OMPMasterTaskLoopDirectiveClass,
     ZigClangStmt_OMPMasterTaskLoopSimdDirectiveClass,
     ZigClangStmt_OMPParallelForDirectiveClass,
     ZigClangStmt_OMPParallelForSimdDirectiveClass,
+    ZigClangStmt_OMPParallelGenericLoopDirectiveClass,
+    ZigClangStmt_OMPParallelMaskedTaskLoopDirectiveClass,
+    ZigClangStmt_OMPParallelMaskedTaskLoopSimdDirectiveClass,
     ZigClangStmt_OMPParallelMasterTaskLoopDirectiveClass,
     ZigClangStmt_OMPParallelMasterTaskLoopSimdDirectiveClass,
     ZigClangStmt_OMPSimdDirectiveClass,
     ZigClangStmt_OMPTargetParallelForSimdDirectiveClass,
+    ZigClangStmt_OMPTargetParallelGenericLoopDirectiveClass,
     ZigClangStmt_OMPTargetSimdDirectiveClass,
     ZigClangStmt_OMPTargetTeamsDistributeDirectiveClass,
     ZigClangStmt_OMPTargetTeamsDistributeParallelForDirectiveClass,
     ZigClangStmt_OMPTargetTeamsDistributeParallelForSimdDirectiveClass,
     ZigClangStmt_OMPTargetTeamsDistributeSimdDirectiveClass,
+    ZigClangStmt_OMPTargetTeamsGenericLoopDirectiveClass,
     ZigClangStmt_OMPTaskLoopDirectiveClass,
     ZigClangStmt_OMPTaskLoopSimdDirectiveClass,
     ZigClangStmt_OMPTeamsDistributeDirectiveClass,
     ZigClangStmt_OMPTeamsDistributeParallelForDirectiveClass,
     ZigClangStmt_OMPTeamsDistributeParallelForSimdDirectiveClass,
     ZigClangStmt_OMPTeamsDistributeSimdDirectiveClass,
+    ZigClangStmt_OMPTeamsGenericLoopDirectiveClass,
     ZigClangStmt_OMPTileDirectiveClass,
     ZigClangStmt_OMPUnrollDirectiveClass,
     ZigClangStmt_OMPMaskedDirectiveClass,
@@ -363,6 +372,7 @@ enum ZigClangStmtClass {
     ZigClangStmt_OMPMetaDirectiveClass,
     ZigClangStmt_OMPOrderedDirectiveClass,
     ZigClangStmt_OMPParallelDirectiveClass,
+    ZigClangStmt_OMPParallelMaskedDirectiveClass,
     ZigClangStmt_OMPParallelMasterDirectiveClass,
     ZigClangStmt_OMPParallelSectionsDirectiveClass,
     ZigClangStmt_OMPScanDirectiveClass,
@@ -667,6 +677,7 @@ enum ZigClangDeclKind {
     ZigClangDeclOMPDeclareMapper,
     ZigClangDeclOMPDeclareReduction,
     ZigClangDeclTemplateParamObject,
+    ZigClangDeclUnnamedGlobalConstant,
     ZigClangDeclUnresolvedUsingValue,
     ZigClangDeclOMPAllocate,
     ZigClangDeclOMPRequires,
@@ -921,25 +932,27 @@ enum ZigClangBuiltinTypeKind {
 };
 
 enum ZigClangCallingConv {
-    ZigClangCallingConv_C,           // __attribute__((cdecl))
-    ZigClangCallingConv_X86StdCall,  // __attribute__((stdcall))
-    ZigClangCallingConv_X86FastCall, // __attribute__((fastcall))
-    ZigClangCallingConv_X86ThisCall, // __attribute__((thiscall))
-    ZigClangCallingConv_X86VectorCall, // __attribute__((vectorcall))
-    ZigClangCallingConv_X86Pascal,   // __attribute__((pascal))
-    ZigClangCallingConv_Win64,       // __attribute__((ms_abi))
-    ZigClangCallingConv_X86_64SysV,  // __attribute__((sysv_abi))
-    ZigClangCallingConv_X86RegCall, // __attribute__((regcall))
-    ZigClangCallingConv_AAPCS,       // __attribute__((pcs("aapcs")))
-    ZigClangCallingConv_AAPCS_VFP,   // __attribute__((pcs("aapcs-vfp")))
-    ZigClangCallingConv_IntelOclBicc, // __attribute__((intel_ocl_bicc))
-    ZigClangCallingConv_SpirFunction, // default for OpenCL functions on SPIR target
-    ZigClangCallingConv_OpenCLKernel, // inferred for OpenCL kernels
-    ZigClangCallingConv_Swift,        // __attribute__((swiftcall))
-    ZigClangCallingConv_SwiftAsync,   // __attribute__((swiftasynccall))
-    ZigClangCallingConv_PreserveMost, // __attribute__((preserve_most))
-    ZigClangCallingConv_PreserveAll,  // __attribute__((preserve_all))
-    ZigClangCallingConv_AArch64VectorCall, // __attribute__((aarch64_vector_pcs))
+    ZigClangCallingConv_C,
+    ZigClangCallingConv_X86StdCall,
+    ZigClangCallingConv_X86FastCall,
+    ZigClangCallingConv_X86ThisCall,
+    ZigClangCallingConv_X86VectorCall,
+    ZigClangCallingConv_X86Pascal,
+    ZigClangCallingConv_Win64,
+    ZigClangCallingConv_X86_64SysV,
+    ZigClangCallingConv_X86RegCall,
+    ZigClangCallingConv_AAPCS,
+    ZigClangCallingConv_AAPCS_VFP,
+    ZigClangCallingConv_IntelOclBicc,
+    ZigClangCallingConv_SpirFunction,
+    ZigClangCallingConv_OpenCLKernel,
+    ZigClangCallingConv_Swift,
+    ZigClangCallingConv_SwiftAsync,
+    ZigClangCallingConv_PreserveMost,
+    ZigClangCallingConv_PreserveAll,
+    ZigClangCallingConv_AArch64VectorCall,
+    ZigClangCallingConv_AArch64SVEPCS,
+    ZigClangCallingConv_AMDGPUKernelCall,
 };
 
 enum ZigClangStorageClass {
@@ -1253,7 +1266,6 @@ ZIG_EXTERN_C double ZigClangFloatingLiteral_getValueAsApproximateDouble(const Zi
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangFloatingLiteral_getBeginLoc(const struct ZigClangFloatingLiteral *);
 ZIG_EXTERN_C ZigClangAPFloatBase_Semantics ZigClangFloatingLiteral_getRawSemantics(const ZigClangFloatingLiteral *self);
 
-ZIG_EXTERN_C enum ZigClangStringLiteral_StringKind ZigClangStringLiteral_getKind(const struct ZigClangStringLiteral *self);
 ZIG_EXTERN_C uint32_t ZigClangStringLiteral_getCodeUnit(const struct ZigClangStringLiteral *self, size_t i);
 ZIG_EXTERN_C unsigned ZigClangStringLiteral_getLength(const struct ZigClangStringLiteral *self);
 ZIG_EXTERN_C unsigned ZigClangStringLiteral_getCharByteWidth(const struct ZigClangStringLiteral *self);

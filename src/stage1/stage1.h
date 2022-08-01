@@ -83,9 +83,11 @@ enum Os {
     OsNVCL,       // NVIDIA OpenCL
     OsAMDHSA,     // AMD HSA Runtime
     OsPS4,
+    OsPS5,
     OsELFIAMCU,
     OsTvOS,       // Apple tvOS
     OsWatchOS,    // Apple watchOS
+    OsDriverKit,  // Apple DriverKit
     OsMesa3D,
     OsContiki,
     OsAMDPAL,
@@ -93,6 +95,7 @@ enum Os {
     OsHurd,
     OsWASI,
     OsEmscripten,
+    OsShaderModel, // DirectX ShaderModel
     OsUefi,
     OsOpenCL,
     OsGLSL450,
