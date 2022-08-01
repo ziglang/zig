@@ -466,7 +466,7 @@ fn addPtrBindingOrRebase(
         const section = context.macho_file.sections.get(source_sym.n_sect - 1);
         const header = section.header;
         const segment_index = section.segment_index;
-        const sect_type = header.type_();
+        const sect_type = header.@"type"();
 
         const should_rebase = rebase: {
             if (rel.r_length != 3) break :rebase false;
@@ -571,7 +571,7 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
         const is_tlv = is_tlv: {
             const source_sym = self.getSymbol(macho_file);
             const header = macho_file.sections.items(.header)[source_sym.n_sect - 1];
-            break :is_tlv header.type_() == macho.S_THREAD_LOCAL_VARIABLES;
+            break :is_tlv header.@"type"() == macho.S_THREAD_LOCAL_VARIABLES;
         };
         const target_addr = blk: {
             const target_atom = rel.getTargetAtom(macho_file) orelse {

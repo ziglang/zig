@@ -43,6 +43,9 @@ fn removeAtomFromSection(atom: *Atom, match: u8, macho_file: *MachO) void {
             // The section will be GCed in the next step.
             section.last_atom = null;
             section.header.size = 0;
+            const segment = &macho_file.segments.items[section.segment_index];
+            segment.cmdsize -= @sizeOf(macho.section_64);
+            segment.nsects -= 1;
         }
     }
 
@@ -93,7 +96,7 @@ fn collectRoots(roots: *std.AutoHashMap(*Atom, void), macho_file: *MachO) !void 
             const is_gc_root = blk: {
                 if (source_sect.isDontDeadStrip()) break :blk true;
                 if (mem.eql(u8, "__StaticInit", source_sect.sectName())) break :blk true;
-                switch (source_sect.type_()) {
+                switch (source_sect.@"type"()) {
                     macho.S_MOD_INIT_FUNC_POINTERS,
                     macho.S_MOD_TERM_FUNC_POINTERS,
                     => break :blk true,

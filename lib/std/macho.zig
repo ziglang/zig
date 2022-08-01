@@ -780,7 +780,7 @@ pub const section_64 = extern struct {
         return parseName(&sect.segname);
     }
 
-    pub fn type_(sect: section_64) u8 {
+    pub fn @"type"(sect: section_64) u8 {
         return @truncate(u8, sect.flags & 0xff);
     }
 
@@ -791,6 +791,11 @@ pub const section_64 = extern struct {
     pub fn isCode(sect: section_64) bool {
         const attr = sect.attrs();
         return attr & S_ATTR_PURE_INSTRUCTIONS != 0 or attr & S_ATTR_SOME_INSTRUCTIONS != 0;
+    }
+
+    pub fn isZerofill(sect: section_64) bool {
+        const tt = sect.@"type"();
+        return tt == S_ZEROFILL or tt == S_GB_ZEROFILL or tt == S_THREAD_LOCAL_ZEROFILL;
     }
 
     pub fn isDebug(sect: section_64) bool {
