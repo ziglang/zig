@@ -846,6 +846,17 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace) noreturn
     }
 }
 
+pub fn checkNonScalarSentinel(expected: anytype, actual: @TypeOf(expected)) void {
+    if (!std.meta.eql(expected, actual)) {
+        panicSentinelMismatch(expected, actual);
+    }
+}
+
+pub fn panicSentinelMismatch(expected: anytype, actual: @TypeOf(expected)) noreturn {
+    @setCold(true);
+    std.debug.panic("sentinel mismatch: expected {any}, found {any}", .{ expected, actual });
+}
+
 pub fn panicUnwrapError(st: ?*StackTrace, err: anyerror) noreturn {
     @setCold(true);
     std.debug.panicExtra(st, "attempt to unwrap error: {s}", .{@errorName(err)});

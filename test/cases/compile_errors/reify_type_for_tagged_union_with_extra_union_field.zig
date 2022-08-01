@@ -31,5 +31,5 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :13:16: error: no field named 'arst' in enum 'tmp.Tag__enum_264'
+// :13:16: error: no field named 'arst' in enum 'tmp.Tag__enum_266'
 // :1:13: note: enum declared here
