@@ -5803,7 +5803,7 @@ pub const FuncGen = struct {
             .False,
         );
         const call = self.builder.buildCall(
-            asm_fn.typeOf(),
+            llvm_fn_ty,
             asm_fn,
             llvm_param_values.ptr,
             @intCast(c_uint, param_count),
