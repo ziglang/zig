@@ -26629,21 +26629,41 @@ fn resolveStructLayout(
         switch (struct_obj.status) {
             .none, .have_field_types => {},
             .field_types_wip, .layout_wip => {
-                return sema.fail(block, src, "struct '{}' depends on itself", .{ty.fmt(sema.mod)});
+                const msg = try Module.ErrorMsg.create(
+                    sema.gpa,
+                    struct_obj.srcLoc(sema.mod),
+                    "struct '{}' depends on itself",
+                    .{ty.fmt(sema.mod)},
+                );
+                return sema.failWithOwnedErrorMsg(msg);
             },
             .have_layout, .fully_resolved_wip, .fully_resolved => return,
         }
         struct_obj.status = .layout_wip;
-        for (struct_obj.fields.values()) |field| {
-            try sema.resolveTypeLayout(block, src, field.ty);
+        for (struct_obj.fields.values()) |field, i| {
+            sema.resolveTypeLayout(block, src, field.ty) catch |err| switch (err) {
+                error.AnalysisFail => {
+                    const msg = sema.err orelse return err;
+                    try sema.addFieldErrNote(block, ty, i, msg, "while checking this field", .{});
+                    return err;
+                },
+                else => return err,
+            };
         }
         struct_obj.status = .have_layout;
 
         // In case of querying the ABI alignment of this struct, we will ask
         // for hasRuntimeBits() of each field, so we need "requires comptime"
         // to be known already before this function returns.
-        for (struct_obj.fields.values()) |field| {
-            _ = try sema.typeRequiresComptime(block, src, field.ty);
+        for (struct_obj.fields.values()) |field, i| {
+            _ = sema.typeRequiresComptime(block, src, field.ty) catch |err| switch (err) {
+                error.AnalysisFail => {
+                    const msg = sema.err orelse return err;
+                    try sema.addFieldErrNote(block, ty, i, msg, "while checking this field", .{});
+                    return err;
+                },
+                else => return err,
+            };
         }
     }
     // otherwise it's a tuple; no need to resolve anything
@@ -26660,13 +26680,26 @@ fn resolveUnionLayout(
     switch (union_obj.status) {
         .none, .have_field_types => {},
         .field_types_wip, .layout_wip => {
-            return sema.fail(block, src, "union '{}' depends on itself", .{ty.fmt(sema.mod)});
+            const msg = try Module.ErrorMsg.create(
+                sema.gpa,
+                union_obj.srcLoc(sema.mod),
+                "union '{}' depends on itself",
+                .{ty.fmt(sema.mod)},
+            );
+            return sema.failWithOwnedErrorMsg(msg);
         },
         .have_layout, .fully_resolved_wip, .fully_resolved => return,
     }
     union_obj.status = .layout_wip;
-    for (union_obj.fields.values()) |field| {
-        try sema.resolveTypeLayout(block, src, field.ty);
+    for (union_obj.fields.values()) |field, i| {
+        sema.resolveTypeLayout(block, src, field.ty) catch |err| switch (err) {
+            error.AnalysisFail => {
+                const msg = sema.err orelse return err;
+                try sema.addFieldErrNote(block, ty, i, msg, "while checking this field", .{});
+                return err;
+            },
+            else => return err,
+        };
     }
     union_obj.status = .have_layout;
 }
@@ -26794,12 +26827,12 @@ pub fn resolveTypeFields(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) 
     switch (ty.tag()) {
         .@"struct" => {
             const struct_obj = ty.castTag(.@"struct").?.data;
-            try sema.resolveTypeFieldsStruct(block, src, ty, struct_obj);
+            try sema.resolveTypeFieldsStruct(ty, struct_obj);
             return ty;
         },
         .@"union", .union_safety_tagged, .union_tagged => {
             const union_obj = ty.cast(Type.Payload.Union).?.data;
-            try sema.resolveTypeFieldsUnion(block, src, ty, union_obj);
+            try sema.resolveTypeFieldsUnion(ty, union_obj);
             return ty;
         },
         .type_info => return sema.resolveBuiltinTypeFields(block, src, "Type"),
@@ -26820,15 +26853,19 @@ pub fn resolveTypeFields(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) 
 
 fn resolveTypeFieldsStruct(
     sema: *Sema,
-    block: *Block,
-    src: LazySrcLoc,
     ty: Type,
     struct_obj: *Module.Struct,
 ) CompileError!void {
     switch (struct_obj.status) {
         .none => {},
         .field_types_wip => {
-            return sema.fail(block, src, "struct '{}' depends on itself", .{ty.fmt(sema.mod)});
+            const msg = try Module.ErrorMsg.create(
+                sema.gpa,
+                struct_obj.srcLoc(sema.mod),
+                "struct '{}' depends on itself",
+                .{ty.fmt(sema.mod)},
+            );
+            return sema.failWithOwnedErrorMsg(msg);
         },
         .have_field_types,
         .have_layout,
@@ -26842,17 +26879,17 @@ fn resolveTypeFieldsStruct(
     try semaStructFields(sema.mod, struct_obj);
 }
 
-fn resolveTypeFieldsUnion(
-    sema: *Sema,
-    block: *Block,
-    src: LazySrcLoc,
-    ty: Type,
-    union_obj: *Module.Union,
-) CompileError!void {
+fn resolveTypeFieldsUnion(sema: *Sema, ty: Type, union_obj: *Module.Union) CompileError!void {
     switch (union_obj.status) {
         .none => {},
         .field_types_wip => {
-            return sema.fail(block, src, "union '{}' depends on itself", .{ty.fmt(sema.mod)});
+            const msg = try Module.ErrorMsg.create(
+                sema.gpa,
+                union_obj.srcLoc(sema.mod),
+                "union '{}' depends on itself",
+                .{ty.fmt(sema.mod)},
+            );
+            return sema.failWithOwnedErrorMsg(msg);
         },
         .have_field_types,
         .have_layout,
@@ -27786,9 +27823,19 @@ pub fn typeHasOnePossibleValue(
         .@"struct" => {
             const resolved_ty = try sema.resolveTypeFields(block, src, ty);
             const s = resolved_ty.castTag(.@"struct").?.data;
-            for (s.fields.values()) |value| {
-                if (value.is_comptime) continue;
-                if ((try sema.typeHasOnePossibleValue(block, src, value.ty)) == null) {
+            for (s.fields.values()) |field, i| {
+                if (field.is_comptime) continue;
+                if (field.ty.eql(resolved_ty, sema.mod)) {
+                    const msg = try Module.ErrorMsg.create(
+                        sema.gpa,
+                        s.srcLoc(sema.mod),
+                        "struct '{}' depends on itself",
+                        .{ty.fmt(sema.mod)},
+                    );
+                    try sema.addFieldErrNote(block, resolved_ty, i, msg, "while checking this field", .{});
+                    return sema.failWithOwnedErrorMsg(msg);
+                }
+                if ((try sema.typeHasOnePossibleValue(block, src, field.ty)) == null) {
                     return null;
                 }
             }
@@ -27854,6 +27901,16 @@ pub fn typeHasOnePossibleValue(
             const tag_val = (try sema.typeHasOnePossibleValue(block, src, union_obj.tag_ty)) orelse
                 return null;
             const only_field = union_obj.fields.values()[0];
+            if (only_field.ty.eql(resolved_ty, sema.mod)) {
+                const msg = try Module.ErrorMsg.create(
+                    sema.gpa,
+                    union_obj.srcLoc(sema.mod),
+                    "union '{}' depends on itself",
+                    .{ty.fmt(sema.mod)},
+                );
+                try sema.addFieldErrNote(block, resolved_ty, 0, msg, "while checking this field", .{});
+                return sema.failWithOwnedErrorMsg(msg);
+            }
             const val_val = (try sema.typeHasOnePossibleValue(block, src, only_field.ty)) orelse
                 return null;
             // TODO make this not allocate. The function in `Type.onePossibleValue`
@@ -28493,7 +28550,7 @@ pub fn typeRequiresComptime(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Typ
                     if (struct_obj.status == .field_types_wip)
                         return false;
 
-                    try sema.resolveTypeFieldsStruct(block, src, ty, struct_obj);
+                    try sema.resolveTypeFieldsStruct(ty, struct_obj);
 
                     struct_obj.requires_comptime = .wip;
                     for (struct_obj.fields.values()) |field| {
@@ -28518,7 +28575,7 @@ pub fn typeRequiresComptime(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Typ
                     if (union_obj.status == .field_types_wip)
                         return false;
 
-                    try sema.resolveTypeFieldsUnion(block, src, ty, union_obj);
+                    try sema.resolveTypeFieldsUnion(ty, union_obj);
 
                     union_obj.requires_comptime = .wip;
                     for (union_obj.fields.values()) |field| {

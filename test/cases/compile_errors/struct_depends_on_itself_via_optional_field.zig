@@ -11,9 +11,9 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:1:17: error: struct 'LhsExpr' depends on itself
-// tmp.zig:5:5: note: while checking this field
-// tmp.zig:2:5: note: while checking this field
+// :1:17: error: struct 'tmp.LhsExpr' depends on itself
+// :5:5: note: while checking this field
+// :2:5: note: while checking this field
