@@ -580,6 +580,7 @@ const DocData = struct {
         enumLiteral: []const u8, // direct value
         alignOf: usize, // index in `exprs`
         typeOf: usize, // index in `exprs`
+        typeInfo: usize, // index in `exprs`
         typeOf_peer: []usize,
         errorUnion: usize, // index in `exprs`
         as: As,
@@ -1788,7 +1789,7 @@ fn walkInstruction(
 
             return DocData.WalkResult{
                 .typeRef = operand.typeRef,
-                .expr = .{ .typeOf = operand_index },
+                .expr = .{ .typeInfo = operand_index },
             };
         },
         .as_node => {
