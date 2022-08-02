@@ -2043,6 +2043,7 @@ struct CodeGen {
     LLVMValueRef wasm_memory_grow;
     LLVMValueRef prefetch;
     LLVMTypeRef anyframe_fn_type;
+    LLVMTypeRef any_frame_header_llvm_ty;
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, ZigType *, buf_hash, buf_eql_buf> import_table;

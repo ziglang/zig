@@ -125,8 +125,9 @@ enum ZigLLVM_CallAttr {
     ZigLLVM_CallAttrAlwaysTail,
     ZigLLVM_CallAttrAlwaysInline,
 };
-ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,
-        unsigned NumArgs, enum ZigLLVM_CallingConv CC, enum ZigLLVM_CallAttr attr, const char *Name);
+ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMTypeRef function_type,
+        LLVMValueRef Fn, LLVMValueRef *Args, unsigned NumArgs, enum ZigLLVM_CallingConv CC,
+        enum ZigLLVM_CallAttr attr, const char *Name);
 
 ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildMemCpy(LLVMBuilderRef B, LLVMValueRef Dst, unsigned DstAlign,
         LLVMValueRef Src, unsigned SrcAlign, LLVMValueRef Size, bool isVolatile);

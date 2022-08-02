@@ -31,6 +31,9 @@ pub const Context = opaque {
     pub const createStringAttribute = LLVMCreateStringAttribute;
     extern fn LLVMCreateStringAttribute(*const Context, Key: [*]const u8, Key_Len: c_uint, Value: [*]const u8, Value_Len: c_uint) *const Attribute;
 
+    pub const pointerType = LLVMPointerTypeInContext;
+    extern fn LLVMPointerTypeInContext(C: *const Context, AddressSpace: c_uint) *const Type;
+
     pub const intType = LLVMIntTypeInContext;
     extern fn LLVMIntTypeInContext(C: *const Context, NumBits: c_uint) *const Type;
 
@@ -138,8 +141,9 @@ pub const Value = opaque {
     pub const setAliasee = LLVMAliasSetAliasee;
     extern fn LLVMAliasSetAliasee(Alias: *const Value, Aliasee: *const Value) void;
 
-    pub const constInBoundsGEP = LLVMConstInBoundsGEP;
-    extern fn LLVMConstInBoundsGEP(
+    pub const constInBoundsGEP = LLVMConstInBoundsGEP2;
+    extern fn LLVMConstInBoundsGEP2(
+        Ty: *const Type,
         ConstantVal: *const Value,
         ConstantIndices: [*]const *const Value,
         NumIndices: c_uint,
@@ -275,9 +279,6 @@ pub const Type = opaque {
 
     pub const getUndef = LLVMGetUndef;
     extern fn LLVMGetUndef(Ty: *const Type) *const Value;
-
-    pub const pointerType = LLVMPointerType;
-    extern fn LLVMPointerType(ElementType: *const Type, AddressSpace: c_uint) *const Type;
 
     pub const arrayType = LLVMArrayType;
     extern fn LLVMArrayType(ElementType: *const Type, ElementCount: c_uint) *const Type;
@@ -506,6 +507,7 @@ pub const Builder = opaque {
     pub const buildCall = ZigLLVMBuildCall;
     extern fn ZigLLVMBuildCall(
         *const Builder,
+        *const Type,
         Fn: *const Value,
         Args: [*]const *const Value,
         NumArgs: c_uint,
@@ -529,8 +531,8 @@ pub const Builder = opaque {
     pub const buildStore = LLVMBuildStore;
     extern fn LLVMBuildStore(*const Builder, Val: *const Value, Ptr: *const Value) *const Value;
 
-    pub const buildLoad = LLVMBuildLoad;
-    extern fn LLVMBuildLoad(*const Builder, PointerVal: *const Value, Name: [*:0]const u8) *const Value;
+    pub const buildLoad = LLVMBuildLoad2;
+    extern fn LLVMBuildLoad2(*const Builder, Ty: *const Type, PointerVal: *const Value, Name: [*:0]const u8) *const Value;
 
     pub const buildNeg = LLVMBuildNeg;
     extern fn LLVMBuildNeg(*const Builder, V: *const Value, Name: [*:0]const u8) *const Value;
@@ -655,16 +657,7 @@ pub const Builder = opaque {
     pub const buildBitCast = LLVMBuildBitCast;
     extern fn LLVMBuildBitCast(*const Builder, Val: *const Value, DestTy: *const Type, Name: [*:0]const u8) *const Value;
 
-    pub const buildInBoundsGEP = LLVMBuildInBoundsGEP;
-    extern fn LLVMBuildInBoundsGEP(
-        B: *const Builder,
-        Pointer: *const Value,
-        Indices: [*]const *const Value,
-        NumIndices: c_uint,
-        Name: [*:0]const u8,
-    ) *const Value;
-
-    pub const buildInBoundsGEP2 = LLVMBuildInBoundsGEP2;
+    pub const buildInBoundsGEP = LLVMBuildInBoundsGEP2;
     extern fn LLVMBuildInBoundsGEP2(
         B: *const Builder,
         Ty: *const Type,
@@ -741,9 +734,10 @@ pub const Builder = opaque {
         Name: [*:0]const u8,
     ) *const Value;
 
-    pub const buildStructGEP = LLVMBuildStructGEP;
-    extern fn LLVMBuildStructGEP(
+    pub const buildStructGEP = LLVMBuildStructGEP2;
+    extern fn LLVMBuildStructGEP2(
         B: *const Builder,
+        Ty: *const Type,
         Pointer: *const Value,
         Idx: c_uint,
         Name: [*:0]const u8,

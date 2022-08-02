@@ -9746,6 +9746,7 @@ static void resolve_llvm_types_any_frame(CodeGen *g, ZigType *any_frame_type, Re
 
     Buf *name = buf_sprintf("(%s header)", buf_ptr(&any_frame_type->name));
     LLVMTypeRef frame_header_type = LLVMStructCreateNamed(LLVMGetGlobalContext(), buf_ptr(name));
+    g->any_frame_header_llvm_ty = frame_header_type;
     any_frame_type->llvm_type = LLVMPointerType(frame_header_type, 0);
 
     unsigned dwarf_kind = ZigLLVMTag_DW_structure_type();

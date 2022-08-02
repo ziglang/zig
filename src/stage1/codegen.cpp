@@ -88,8 +88,8 @@ static bool value_is_all_undef(CodeGen *g, ZigValue *const_val);
 static void gen_undef_init(CodeGen *g, ZigType *ptr_type, ZigType *value_type, LLVMValueRef ptr);
 static LLVMValueRef build_alloca(CodeGen *g, ZigType *type_entry, const char *name, uint32_t alignment);
 static LLVMValueRef gen_await_early_return(CodeGen *g, Stage1AirInst *source_instr,
-        LLVMValueRef target_frame_ptr, ZigType *result_type, ZigType *ptr_result_type,
-        LLVMValueRef result_loc, bool non_async);
+        LLVMTypeRef target_frame_struct_llvm_ty, LLVMValueRef target_frame_ptr,
+        ZigType *result_type, ZigType *ptr_result_type, LLVMValueRef result_loc, bool non_async);
 
 static void addLLVMAttr(LLVMValueRef val, LLVMAttributeIndex attr_index, const char *attr_name) {
     unsigned kind_id = LLVMGetEnumAttributeKindForName(attr_name, strlen(attr_name));
@@ -911,10 +911,10 @@ static LLVMValueRef gen_store(CodeGen *g, LLVMValueRef value, LLVMValueRef ptr, 
     return gen_store_untyped(g, value, ptr, alignment, ptr_type->data.pointer.is_volatile);
 }
 
-static LLVMValueRef gen_load_untyped(CodeGen *g, LLVMValueRef ptr, uint32_t alignment, bool is_volatile,
-        const char *name)
+static LLVMValueRef gen_load_untyped(CodeGen *g, LLVMTypeRef elem_llvm_ty, LLVMValueRef ptr,
+        uint32_t alignment, bool is_volatile, const char *name)
 {
-    LLVMValueRef result = LLVMBuildLoad(g->builder, ptr, name);
+    LLVMValueRef result = LLVMBuildLoad2(g->builder, elem_llvm_ty, ptr, name);
     if (is_volatile) LLVMSetVolatile(result, true);
     if (alignment == 0) {
         LLVMSetAlignment(result, LLVMABIAlignmentOfType(g->target_data_ref, LLVMGetElementType(LLVMTypeOf(ptr))));
@@ -927,7 +927,9 @@ static LLVMValueRef gen_load_untyped(CodeGen *g, LLVMValueRef ptr, uint32_t alig
 static LLVMValueRef gen_load(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_type, const char *name) {
     assert(ptr_type->id == ZigTypeIdPointer);
     uint32_t alignment = get_ptr_align(g, ptr_type);
-    return gen_load_untyped(g, ptr, alignment, ptr_type->data.pointer.is_volatile, name);
+    LLVMTypeRef elem_llvm_ty = get_llvm_type(g, ptr_type->data.pointer.child_type);
+    bool is_volatile = ptr_type->data.pointer.is_volatile;
+    return gen_load_untyped(g, elem_llvm_ty, ptr, alignment, is_volatile, name);
 }
 
 static LLVMValueRef get_handle_value(CodeGen *g, LLVMValueRef ptr, ZigType *type, ZigType *ptr_type) {
@@ -1090,7 +1092,7 @@ static void gen_panic(CodeGen *g, LLVMValueRef msg_arg, LLVMValueRef stack_trace
         msg_arg,
         stack_trace_arg,
     };
-    ZigLLVMBuildCall(g->builder, fn_val, args, 2, llvm_cc, ZigLLVM_CallAttrAuto, "");
+    ZigLLVMBuildCall(g->builder, LLVMTypeOf(fn_val), fn_val, args, 2, llvm_cc, ZigLLVM_CallAttrAuto, "");
     if (!stack_trace_is_llvm_alloca) {
         // The stack trace argument is not in the stack of the caller, so
         // we'd like to set tail call here, but because slices (the type of msg_arg) are
@@ -1265,26 +1267,37 @@ static LLVMValueRef get_add_error_return_trace_addr_fn(CodeGen *g) {
     LLVMValueRef address_value = LLVMGetParam(fn_val, 1);
 
     size_t index_field_index = g->stack_trace_type->data.structure.fields[0]->gen_index;
-    LLVMValueRef index_field_ptr = LLVMBuildStructGEP(g->builder, err_ret_trace_ptr, (unsigned)index_field_index, "");
+    LLVMValueRef index_field_ptr = LLVMBuildStructGEP2(g->builder,
+            get_llvm_type(g, g->stack_trace_type),
+            err_ret_trace_ptr, (unsigned)index_field_index, "");
     size_t addresses_field_index = g->stack_trace_type->data.structure.fields[1]->gen_index;
-    LLVMValueRef addresses_field_ptr = LLVMBuildStructGEP(g->builder, err_ret_trace_ptr, (unsigned)addresses_field_index, "");
+    LLVMValueRef addresses_field_ptr = LLVMBuildStructGEP2(g->builder,
+            get_llvm_type(g, g->stack_trace_type),
+            err_ret_trace_ptr, (unsigned)addresses_field_index, "");
 
     ZigType *slice_type = g->stack_trace_type->data.structure.fields[1]->type_entry;
     size_t ptr_field_index = slice_type->data.structure.fields[slice_ptr_index]->gen_index;
-    LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, addresses_field_ptr, (unsigned)ptr_field_index, "");
+    LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP2(g->builder,
+            LLVMGetGEPSourceElementType(addresses_field_ptr),
+            addresses_field_ptr, (unsigned)ptr_field_index, "");
     size_t len_field_index = slice_type->data.structure.fields[slice_len_index]->gen_index;
-    LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, addresses_field_ptr, (unsigned)len_field_index, "");
+    LLVMValueRef len_field_ptr = LLVMBuildStructGEP2(g->builder,
+            LLVMGetGEPSourceElementType(addresses_field_ptr),
+            addresses_field_ptr, (unsigned)len_field_index, "");
 
-    LLVMValueRef len_value = gen_load_untyped(g, len_field_ptr, 0, false, "");
-    LLVMValueRef index_val = gen_load_untyped(g, index_field_ptr, 0, false, "");
+    LLVMValueRef len_value = gen_load_untyped(g, LLVMGetGEPSourceElementType(len_field_ptr),
+            len_field_ptr, 0, false, "");
+    LLVMValueRef index_val = gen_load_untyped(g, LLVMGetGEPSourceElementType(index_field_ptr),
+            index_field_ptr, 0, false, "");
     LLVMValueRef len_val_minus_one = LLVMBuildSub(g->builder, len_value, LLVMConstInt(usize_type_ref, 1, false), "");
     LLVMValueRef masked_val = LLVMBuildAnd(g->builder, index_val, len_val_minus_one, "");
     LLVMValueRef address_indices[] = {
         masked_val,
     };
 
-    LLVMValueRef ptr_value = gen_load_untyped(g, ptr_field_ptr, 0, false, "");
-    LLVMValueRef address_slot = LLVMBuildInBoundsGEP(g->builder, ptr_value, address_indices, 1, "");
+    LLVMValueRef ptr_value = gen_load_untyped(g, LLVMGetGEPSourceElementType(ptr_field_ptr),
+            ptr_field_ptr, 0, false, "");
+    LLVMValueRef address_slot = LLVMBuildInBoundsGEP2(g->builder, usize_type_ref, ptr_value, address_indices, 1, "");
 
     gen_store_untyped(g, address_value, address_slot, 0, false);
 
@@ -1340,7 +1353,8 @@ static LLVMValueRef get_return_err_fn(CodeGen *g) {
 
     LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
     LLVMValueRef zero = LLVMConstNull(get_llvm_type(g, g->builtin_types.entry_i32));
-    LLVMValueRef return_address_ptr = LLVMBuildCall(g->builder, get_return_address_fn_val(g), &zero, 1, "");
+    LLVMValueRef return_address_ptr = LLVMBuildCall2(g->builder,
+            LLVMTypeOf(get_return_address_fn_val(g)), get_return_address_fn_val(g), &zero, 1, "");
     LLVMValueRef return_address = LLVMBuildPtrToInt(g->builder, return_address_ptr, usize_type_ref, "");
 
     LLVMBasicBlockRef return_block = LLVMAppendBasicBlock(fn_val, "Return");
@@ -1355,7 +1369,8 @@ static LLVMValueRef get_return_err_fn(CodeGen *g) {
 
     LLVMPositionBuilderAtEnd(g->builder, dest_non_null_block);
     LLVMValueRef args[] = { err_ret_trace_ptr, return_address };
-    ZigLLVMBuildCall(g->builder, add_error_return_trace_addr_fn_val, args, 2,
+    ZigLLVMBuildCall(g->builder, LLVMTypeOf(add_error_return_trace_addr_fn_val),
+            add_error_return_trace_addr_fn_val, args, 2,
             get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_CallAttrAlwaysInline, "");
     LLVMBuildRetVoid(g->builder);
 
@@ -1446,25 +1461,32 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
         LLVMConstNull(usize_ty->llvm_type),
         err_val,
     };
-    LLVMValueRef err_name_val = LLVMBuildInBoundsGEP(g->builder, g->err_name_table, err_table_indices, 2, "");
+    LLVMValueRef err_name_val = LLVMBuildInBoundsGEP2(g->builder,
+            get_llvm_type(g, str_type),
+            g->err_name_table, err_table_indices, 2, "");
 
-    LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, err_name_val, slice_ptr_index, "");
-    LLVMValueRef err_name_ptr = gen_load_untyped(g, ptr_field_ptr, 0, false, "");
+    LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP2(g->builder,
+            LLVMGetGEPSourceElementType(err_name_val), err_name_val, slice_ptr_index, "");
+    LLVMValueRef err_name_ptr = gen_load_untyped(g, LLVMGetGEPSourceElementType(ptr_field_ptr),
+            ptr_field_ptr, 0, false, "");
 
-    LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, err_name_val, slice_len_index, "");
-    LLVMValueRef err_name_len = gen_load_untyped(g, len_field_ptr, 0, false, "");
+    LLVMValueRef len_field_ptr = LLVMBuildStructGEP2(g->builder,
+            LLVMGetGEPSourceElementType(err_name_val), err_name_val, slice_len_index, "");
+    LLVMValueRef err_name_len = gen_load_untyped(g, LLVMGetGEPSourceElementType(len_field_ptr),
+                len_field_ptr, 0, false, "");
 
     LLVMValueRef msg_prefix_len = LLVMConstInt(usize_ty->llvm_type, strlen(unwrap_err_msg_text), false);
     // Points to the beginning of msg_buffer
     LLVMValueRef msg_buffer_ptr_indices[] = {
         LLVMConstNull(usize_ty->llvm_type),
     };
-    LLVMValueRef msg_buffer_ptr = LLVMBuildInBoundsGEP(g->builder, msg_buffer, msg_buffer_ptr_indices, 1, "");
+    LLVMValueRef msg_buffer_ptr = LLVMBuildInBoundsGEP2(g->builder, LLVMInt8Type(), msg_buffer,
+        msg_buffer_ptr_indices, 1, "");
     // Points to the beginning of the constant prefix message
     LLVMValueRef msg_prefix_ptr_indices[] = {
         LLVMConstNull(usize_ty->llvm_type),
     };
-    LLVMValueRef msg_prefix_ptr = LLVMConstInBoundsGEP(msg_prefix, msg_prefix_ptr_indices, 1);
+    LLVMValueRef msg_prefix_ptr = LLVMConstInBoundsGEP2(LLVMInt8Type(), msg_prefix, msg_prefix_ptr_indices, 1);
 
     // Build the message using the prefix...
     ZigLLVMBuildMemCpy(g->builder, msg_buffer_ptr, 1, msg_prefix_ptr, 1, msg_prefix_len, false);
@@ -1472,16 +1494,18 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     LLVMValueRef msg_buffer_ptr_after_indices[] = {
         msg_prefix_len,
     };
-    LLVMValueRef msg_buffer_ptr_after = LLVMBuildInBoundsGEP(g->builder, msg_buffer, msg_buffer_ptr_after_indices, 1, "");
+    LLVMValueRef msg_buffer_ptr_after = LLVMBuildInBoundsGEP2(g->builder, LLVMInt8Type(), msg_buffer, msg_buffer_ptr_after_indices, 1, "");
     ZigLLVMBuildMemCpy(g->builder, msg_buffer_ptr_after, 1, err_name_ptr, 1, err_name_len, false);
 
     // Set the slice pointer
-    LLVMValueRef msg_slice_ptr_field_ptr = LLVMBuildStructGEP(g->builder, msg_slice, slice_ptr_index, "");
+    LLVMValueRef msg_slice_ptr_field_ptr = LLVMBuildStructGEP2(g->builder,
+            get_llvm_type(g, str_type), msg_slice, slice_ptr_index, "");
     gen_store_untyped(g, msg_buffer_ptr, msg_slice_ptr_field_ptr, 0, false);
 
     // Set the slice length
     LLVMValueRef slice_len = LLVMBuildNUWAdd(g->builder, msg_prefix_len, err_name_len, "");
-    LLVMValueRef msg_slice_len_field_ptr = LLVMBuildStructGEP(g->builder, msg_slice, slice_len_index, "");
+    LLVMValueRef msg_slice_len_field_ptr = LLVMBuildStructGEP2(g->builder,
+            get_llvm_type(g, str_type), msg_slice, slice_len_index, "");
     gen_store_untyped(g, slice_len, msg_slice_len_field_ptr, 0, false);
 
     // Call panic()
@@ -1522,13 +1546,15 @@ static void gen_safety_crash_for_err(CodeGen *g, LLVMValueRef err_val, Scope *sc
             err_ret_trace_val,
             err_val,
         };
-        call_instruction = ZigLLVMBuildCall(g->builder, safety_crash_err_fn, args, 2,
+        call_instruction = ZigLLVMBuildCall(g->builder, LLVMTypeOf(safety_crash_err_fn),
+                safety_crash_err_fn, args, 2,
                 get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_CallAttrAuto, "");
     } else {
         LLVMValueRef args[] = {
             err_val,
         };
-        call_instruction = ZigLLVMBuildCall(g->builder, safety_crash_err_fn, args, 1,
+        call_instruction = ZigLLVMBuildCall(g->builder, LLVMTypeOf(safety_crash_err_fn),
+                safety_crash_err_fn, args, 1,
                 get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_CallAttrAuto, "");
     }
     if (!is_llvm_alloca) {
@@ -1573,7 +1599,7 @@ static void add_bounds_check(CodeGen *g, LLVMValueRef target_val,
 static void add_sentinel_check(CodeGen *g, LLVMValueRef sentinel_elem_ptr, ZigValue *sentinel) {
     LLVMValueRef expected_sentinel = gen_const_val(g, sentinel, "");
 
-    LLVMValueRef actual_sentinel = gen_load_untyped(g, sentinel_elem_ptr, 0, false, "");
+    LLVMValueRef actual_sentinel = gen_load_untyped(g, LLVMTypeOf(expected_sentinel), sentinel_elem_ptr, 0, false, "");
     LLVMValueRef ok_bit;
     if (sentinel->type->id == ZigTypeIdFloat) {
         ok_bit = LLVMBuildFCmp(g->builder, LLVMRealOEQ, actual_sentinel, expected_sentinel, "");
@@ -1706,7 +1732,7 @@ static LLVMValueRef gen_soft_float_widen_or_shorten(CodeGen *g, ZigType *actual_
         func_ref = LLVMAddFunction(g->module, fn_name, fn_type);
     }
 
-    result = LLVMBuildCall(g->builder, func_ref, &expr_val, 1, "");
+    result = LLVMBuildCall2(g->builder, LLVMTypeOf(func_ref), func_ref, &expr_val, 1, "");
 
     // On non-Arm platforms we need to bitcast __trunc<>fhf2 result back to f16
     if (castTruncatedToF16) {
@@ -1852,7 +1878,7 @@ static LLVMValueRef gen_overflow_op(CodeGen *g, ZigType *operand_type, AddSubMul
         val1,
         val2,
     };
-    LLVMValueRef result_struct = LLVMBuildCall(g->builder, fn_val, params, 2, "");
+    LLVMValueRef result_struct = LLVMBuildCall2(g->builder, LLVMTypeOf(fn_val), fn_val, params, 2, "");
     LLVMValueRef result = LLVMBuildExtractValue(g->builder, result_struct, 0, "");
     LLVMValueRef overflow_bit = LLVMBuildExtractValue(g->builder, result_struct, 1, "");
     if (operand_type->id == ZigTypeIdVector) {
@@ -2272,9 +2298,8 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
                     fn_walk->data.attrs.gen_i += 1;
                     break;
                 case FnWalkIdCall: {
-                    LLVMTypeRef ptr_to_int_type_ref = LLVMPointerType(LLVMIntType((unsigned)ty_size * 8), 0);
-                    LLVMValueRef bitcasted = LLVMBuildBitCast(g->builder, val, ptr_to_int_type_ref, "");
-                    LLVMValueRef loaded = LLVMBuildLoad(g->builder, bitcasted, "");
+                    LLVMTypeRef ptr_elem_llvm_ty = LLVMIntType((unsigned)ty_size * 8);
+                    LLVMValueRef loaded = LLVMBuildLoad2(g->builder, ptr_elem_llvm_ty, val, "");
                     fn_walk->data.call.gen_param_values->append(loaded);
                     break;
                 }
@@ -2342,18 +2367,17 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
                     break;
                 }
                 case FnWalkIdCall: {
-                    LLVMValueRef abi_ptr_to_struct = LLVMBuildBitCast(g->builder, val, LLVMPointerType(abi_type, 0), "");
                     if (number_of_regs == 1) {
-                        LLVMValueRef loaded = LLVMBuildLoad(g->builder, abi_ptr_to_struct, "");
+                        LLVMValueRef loaded = LLVMBuildLoad2(g->builder, abi_type, val, "");
                         fn_walk->data.call.gen_param_values->append(loaded);
                         break;
                     }
                     for (uint32_t i = 0; i < number_of_regs; i += 1) {
-                        LLVMValueRef zero = LLVMConstInt(LLVMInt32Type(), 0, false);
-                        LLVMValueRef index = LLVMConstInt(LLVMInt32Type(), i, false);
-                        LLVMValueRef indices[] = { zero, index };
-                        LLVMValueRef adjusted_ptr_to_struct = LLVMBuildInBoundsGEP(g->builder, abi_ptr_to_struct, indices, 2, "");
-                        LLVMValueRef loaded = LLVMBuildLoad(g->builder, adjusted_ptr_to_struct, "");
+                        LLVMValueRef adjusted_ptr_to_struct = LLVMBuildStructGEP2(g->builder,
+                                abi_type, val, i, "");
+                        LLVMValueRef loaded = LLVMBuildLoad2(g->builder,
+                                LLVMGetGEPSourceElementType(adjusted_ptr_to_struct),
+                                adjusted_ptr_to_struct, "");
                         fn_walk->data.call.gen_param_values->append(loaded);
                     }
                     break;
@@ -2388,13 +2412,13 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
                         LLVMValueRef bitcasted = LLVMBuildBitCast(g->builder, var->value_ref, ptr_to_int_type_ref, "");
                         gen_store_untyped(g, arg, bitcasted, var->align_bytes, false);
                     } else {
-                        LLVMValueRef abi_ptr_to_struct = LLVMBuildBitCast(g->builder, var->value_ref, LLVMPointerType(abi_type, 0), "");
                         for (uint32_t i = 0; i < number_of_regs; i += 1) {
                             LLVMValueRef arg = LLVMGetParam(llvm_fn, fn_walk->data.inits.gen_i + i);
                             LLVMValueRef zero = LLVMConstInt(LLVMInt32Type(), 0, false);
                             LLVMValueRef index = LLVMConstInt(LLVMInt32Type(), i, false);
                             LLVMValueRef indices[] = { zero, index };
-                            LLVMValueRef adjusted_ptr_to_struct = LLVMBuildInBoundsGEP(g->builder, abi_ptr_to_struct, indices, 2, "");
+                            LLVMValueRef adjusted_ptr_to_struct = LLVMBuildInBoundsGEP2(g->builder,
+                                    abi_type, var->value_ref, indices, 2, "");
                             LLVMBuildStore(g->builder, arg, adjusted_ptr_to_struct);
                         }
                         fn_walk->data.inits.gen_i += 1;
@@ -2573,8 +2597,9 @@ static LLVMValueRef get_merge_err_ret_traces_fn_val(CodeGen *g) {
     LLVMBasicBlockRef return_block = LLVMAppendBasicBlock(fn_val, "Return");
     LLVMBasicBlockRef non_null_block = LLVMAppendBasicBlock(fn_val, "NonNull");
 
-    LLVMValueRef frame_index_ptr = LLVMBuildAlloca(g->builder, g->builtin_types.entry_usize->llvm_type, "frame_index");
-    LLVMValueRef frames_left_ptr = LLVMBuildAlloca(g->builder, g->builtin_types.entry_usize->llvm_type, "frames_left");
+    LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
+    LLVMValueRef frame_index_ptr = LLVMBuildAlloca(g->builder, usize_type_ref, "frame_index");
+    LLVMValueRef frames_left_ptr = LLVMBuildAlloca(g->builder, usize_type_ref, "frames_left");
 
     LLVMValueRef dest_stack_trace_ptr = LLVMGetParam(fn_val, 0);
     LLVMValueRef src_stack_trace_ptr = LLVMGetParam(fn_val, 1);
@@ -2589,18 +2614,27 @@ static LLVMValueRef get_merge_err_ret_traces_fn_val(CodeGen *g) {
     LLVMPositionBuilderAtEnd(g->builder, non_null_block);
     size_t src_index_field_index = g->stack_trace_type->data.structure.fields[0]->gen_index;
     size_t src_addresses_field_index = g->stack_trace_type->data.structure.fields[1]->gen_index;
-    LLVMValueRef src_index_field_ptr = LLVMBuildStructGEP(g->builder, src_stack_trace_ptr,
+    LLVMValueRef src_index_field_ptr = LLVMBuildStructGEP2(g->builder,
+            get_llvm_type(g, g->stack_trace_type), src_stack_trace_ptr,
             (unsigned)src_index_field_index, "");
-    LLVMValueRef src_addresses_field_ptr = LLVMBuildStructGEP(g->builder, src_stack_trace_ptr,
+    LLVMValueRef src_addresses_field_ptr = LLVMBuildStructGEP2(g->builder,
+            get_llvm_type(g, g->stack_trace_type), src_stack_trace_ptr,
             (unsigned)src_addresses_field_index, "");
     ZigType *slice_type = g->stack_trace_type->data.structure.fields[1]->type_entry;
     size_t ptr_field_index = slice_type->data.structure.fields[slice_ptr_index]->gen_index;
-    LLVMValueRef src_ptr_field_ptr = LLVMBuildStructGEP(g->builder, src_addresses_field_ptr, (unsigned)ptr_field_index, "");
+    LLVMValueRef src_ptr_field_ptr = LLVMBuildStructGEP2(g->builder,
+            LLVMGetGEPSourceElementType(src_addresses_field_ptr),
+            src_addresses_field_ptr, (unsigned)ptr_field_index, "");
     size_t len_field_index = slice_type->data.structure.fields[slice_len_index]->gen_index;
-    LLVMValueRef src_len_field_ptr = LLVMBuildStructGEP(g->builder, src_addresses_field_ptr, (unsigned)len_field_index, "");
-    LLVMValueRef src_index_val = LLVMBuildLoad(g->builder, src_index_field_ptr, "");
-    LLVMValueRef src_ptr_val = LLVMBuildLoad(g->builder, src_ptr_field_ptr, "");
-    LLVMValueRef src_len_val = LLVMBuildLoad(g->builder, src_len_field_ptr, "");
+    LLVMValueRef src_len_field_ptr = LLVMBuildStructGEP2(g->builder,
+            LLVMGetGEPSourceElementType(src_addresses_field_ptr),
+            src_addresses_field_ptr, (unsigned)len_field_index, "");
+    LLVMValueRef src_index_val = LLVMBuildLoad2(g->builder,
+            LLVMGetGEPSourceElementType(src_index_field_ptr), src_index_field_ptr, "");
+    LLVMValueRef src_ptr_val = LLVMBuildLoad2(g->builder,
+            LLVMGetGEPSourceElementType(src_ptr_field_ptr), src_ptr_field_ptr, "");
+    LLVMValueRef src_len_val = LLVMBuildLoad2(g->builder,
+            LLVMGetGEPSourceElementType(src_len_field_ptr), src_len_field_ptr, "");
     LLVMValueRef no_wrap_bit = LLVMBuildICmp(g->builder, LLVMIntULT, src_index_val, src_len_val, "");
     LLVMBasicBlockRef no_wrap_block = LLVMAppendBasicBlock(fn_val, "NoWrap");
     LLVMBasicBlockRef yes_wrap_block = LLVMAppendBasicBlock(fn_val, "YesWrap");
@@ -2608,14 +2642,14 @@ static LLVMValueRef get_merge_err_ret_traces_fn_val(CodeGen *g) {
     LLVMBuildCondBr(g->builder, no_wrap_bit, no_wrap_block, yes_wrap_block);
 
     LLVMPositionBuilderAtEnd(g->builder, no_wrap_block);
-    LLVMValueRef usize_zero = LLVMConstNull(g->builtin_types.entry_usize->llvm_type);
+    LLVMValueRef usize_zero = LLVMConstNull(usize_type_ref);
     LLVMBuildStore(g->builder, usize_zero, frame_index_ptr);
     LLVMBuildStore(g->builder, src_index_val, frames_left_ptr);
     LLVMValueRef frames_left_eq_zero_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, src_index_val, usize_zero, "");
     LLVMBuildCondBr(g->builder, frames_left_eq_zero_bit, return_block, loop_block);
 
     LLVMPositionBuilderAtEnd(g->builder, yes_wrap_block);
-    LLVMValueRef usize_one = LLVMConstInt(g->builtin_types.entry_usize->llvm_type, 1, false);
+    LLVMValueRef usize_one = LLVMConstInt(usize_type_ref, 1, false);
     LLVMValueRef plus_one = LLVMBuildNUWAdd(g->builder, src_index_val, usize_one, "");
     LLVMValueRef mod_len = LLVMBuildURem(g->builder, plus_one, src_len_val, "");
     LLVMBuildStore(g->builder, mod_len, frame_index_ptr);
@@ -2623,12 +2657,15 @@ static LLVMValueRef get_merge_err_ret_traces_fn_val(CodeGen *g) {
     LLVMBuildBr(g->builder, loop_block);
 
     LLVMPositionBuilderAtEnd(g->builder, loop_block);
-    LLVMValueRef ptr_index = LLVMBuildLoad(g->builder, frame_index_ptr, "");
-    LLVMValueRef addr_ptr = LLVMBuildInBoundsGEP(g->builder, src_ptr_val, &ptr_index, 1, "");
-    LLVMValueRef this_addr_val = LLVMBuildLoad(g->builder, addr_ptr, "");
+    LLVMValueRef ptr_index = LLVMBuildLoad2(g->builder, usize_type_ref, frame_index_ptr, "");
+    LLVMValueRef addr_ptr = LLVMBuildInBoundsGEP2(g->builder,
+            usize_type_ref, src_ptr_val, &ptr_index, 1, "");
+    LLVMValueRef this_addr_val = LLVMBuildLoad2(g->builder, LLVMGetGEPSourceElementType(addr_ptr),
+            addr_ptr, "");
     LLVMValueRef args[] = {dest_stack_trace_ptr, this_addr_val};
-    ZigLLVMBuildCall(g->builder, add_error_return_trace_addr_fn_val, args, 2, get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_CallAttrAlwaysInline, "");
-    LLVMValueRef prev_frames_left = LLVMBuildLoad(g->builder, frames_left_ptr, "");
+    ZigLLVMBuildCall(g->builder, LLVMTypeOf(add_error_return_trace_addr_fn_val),
+            add_error_return_trace_addr_fn_val, args, 2, get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_CallAttrAlwaysInline, "");
+    LLVMValueRef prev_frames_left = LLVMBuildLoad2(g->builder, usize_type_ref, frames_left_ptr, "");
     LLVMValueRef new_frames_left = LLVMBuildNUWSub(g->builder, prev_frames_left, usize_one, "");
     LLVMValueRef done_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, new_frames_left, usize_zero, "");
     LLVMBasicBlockRef continue_block = LLVMAppendBasicBlock(fn_val, "Continue");
@@ -2639,7 +2676,7 @@ static LLVMValueRef get_merge_err_ret_traces_fn_val(CodeGen *g) {
 
     LLVMPositionBuilderAtEnd(g->builder, continue_block);
     LLVMBuildStore(g->builder, new_frames_left, frames_left_ptr);
-    LLVMValueRef prev_index = LLVMBuildLoad(g->builder, frame_index_ptr, "");
+    LLVMValueRef prev_index = LLVMBuildLoad2(g->builder, usize_type_ref, frame_index_ptr, "");
     LLVMValueRef index_plus_one = LLVMBuildNUWAdd(g->builder, prev_index, usize_one, "");
     LLVMValueRef index_mod_len = LLVMBuildURem(g->builder, index_plus_one, src_len_val, "");
     LLVMBuildStore(g->builder, index_mod_len, frame_index_ptr);
@@ -2666,13 +2703,14 @@ static LLVMValueRef ir_render_save_err_ret_addr(CodeGen *g, Stage1Air *executabl
     bool is_llvm_alloca;
     LLVMValueRef my_err_trace_val = get_cur_err_ret_trace_val(g, save_err_ret_addr_instruction->base.scope,
             &is_llvm_alloca);
-    ZigLLVMBuildCall(g->builder, return_err_fn, &my_err_trace_val, 1,
+    ZigLLVMBuildCall(g->builder, LLVMTypeOf(return_err_fn), return_err_fn, &my_err_trace_val, 1,
             get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_CallAttrAuto, "");
 
     ZigType *ret_type = g->cur_fn->type_entry->data.fn.fn_type_id.return_type;
     if (fn_is_async(g->cur_fn) && codegen_fn_has_err_ret_tracing_arg(g, ret_type)) {
-        LLVMValueRef trace_ptr_ptr = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr,
-                frame_index_trace_arg(g, ret_type), "");
+        ZigType *frame_type = get_fn_frame_type(g, g->cur_fn);
+        LLVMValueRef trace_ptr_ptr = LLVMBuildStructGEP2(g->builder, get_llvm_type(g, frame_type),
+                g->cur_frame_ptr, frame_index_trace_arg(g, ret_type), "");
         LLVMBuildStore(g->builder, my_err_trace_val, trace_ptr_ptr);
     }
 
@@ -2702,16 +2740,20 @@ static void gen_assert_resume_id(CodeGen *g, Stage1AirInst *source_instr, Resume
     LLVMPositionBuilderAtEnd(g->builder, end_bb);
 }
 
-static LLVMValueRef gen_resume(CodeGen *g, LLVMValueRef fn_val, LLVMValueRef target_frame_ptr, ResumeId resume_id) {
+static LLVMValueRef gen_resume(CodeGen *g, LLVMValueRef fn_val, LLVMValueRef target_frame_ptr,
+        ResumeId resume_id)
+{
     LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
     if (fn_val == nullptr) {
-        LLVMValueRef fn_ptr_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr, frame_fn_ptr_index, "");
-        fn_val = LLVMBuildLoad(g->builder, fn_ptr_ptr, "");
+        LLVMValueRef fn_ptr_ptr = LLVMBuildStructGEP2(g->builder, g->any_frame_header_llvm_ty,
+                target_frame_ptr, frame_fn_ptr_index, "");
+        fn_val = LLVMBuildLoad2(g->builder, LLVMPointerTypeInContext(LLVMGetGlobalContext(), 0),
+                fn_ptr_ptr, "");
     }
     LLVMValueRef arg_val = LLVMConstSub(LLVMConstAllOnes(usize_type_ref),
             LLVMConstInt(usize_type_ref, resume_id, false));
     LLVMValueRef args[] = {target_frame_ptr, arg_val};
-    return ZigLLVMBuildCall(g->builder, fn_val, args, 2, ZigLLVM_Fast, ZigLLVM_CallAttrAuto, "");
+    return ZigLLVMBuildCall(g->builder, LLVMTypeOf(fn_val), fn_val, args, 2, ZigLLVM_Fast, ZigLLVM_CallAttrAuto, "");
 }
 
 static LLVMBasicBlockRef gen_suspend_begin(CodeGen *g, const char *name_hint) {
@@ -2733,11 +2775,11 @@ static void set_tail_call_if_appropriate(CodeGen *g, LLVMValueRef call_inst) {
     LLVMSetTailCall(call_inst, true);
 }
 
-static LLVMValueRef gen_maybe_atomic_op(CodeGen *g, LLVMAtomicRMWBinOp op, LLVMValueRef ptr, LLVMValueRef val,
-        LLVMAtomicOrdering order)
+static LLVMValueRef gen_maybe_atomic_op(CodeGen *g, LLVMAtomicRMWBinOp op, LLVMValueRef ptr,
+        LLVMValueRef val, LLVMAtomicOrdering order)
 {
     if (g->is_single_threaded) {
-        LLVMValueRef loaded = LLVMBuildLoad(g->builder, ptr, "");
+        LLVMValueRef loaded = LLVMBuildLoad2(g->builder, LLVMTypeOf(val), ptr, "");
         LLVMValueRef modified;
         switch (op) {
             case LLVMAtomicRMWBinOpXchg:
@@ -2811,8 +2853,11 @@ static void gen_async_return(CodeGen *g, Stage1AirInstReturn *instruction) {
         // If the awaiter result pointer is non-null, we need to copy the result to there.
         LLVMBasicBlockRef copy_block = LLVMAppendBasicBlock(g->cur_fn_val, "CopyResult");
         LLVMBasicBlockRef copy_end_block = LLVMAppendBasicBlock(g->cur_fn_val, "CopyResultEnd");
-        LLVMValueRef awaiter_ret_ptr_ptr = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr, frame_ret_start + 1, "");
-        LLVMValueRef awaiter_ret_ptr = LLVMBuildLoad(g->builder, awaiter_ret_ptr_ptr, "");
+        LLVMValueRef awaiter_ret_ptr_ptr = LLVMBuildStructGEP2(g->builder,
+                get_llvm_type(g, get_fn_frame_type(g, g->cur_fn)),
+                g->cur_frame_ptr, frame_ret_start + 1, "");
+        LLVMValueRef awaiter_ret_ptr = LLVMBuildLoad2(g->builder,
+                LLVMPointerTypeInContext(LLVMGetGlobalContext(), 0), awaiter_ret_ptr_ptr, "");
         LLVMValueRef zero_ptr = LLVMConstNull(LLVMTypeOf(awaiter_ret_ptr));
         LLVMValueRef need_copy_bit = LLVMBuildICmp(g->builder, LLVMIntNE, awaiter_ret_ptr, zero_ptr, "");
         LLVMBuildCondBr(g->builder, need_copy_bit, copy_block, copy_end_block);
@@ -2831,20 +2876,25 @@ static void gen_async_return(CodeGen *g, Stage1AirInstReturn *instruction) {
 
         LLVMPositionBuilderAtEnd(g->builder, copy_end_block);
         if (codegen_fn_has_err_ret_tracing_arg(g, ret_type)) {
-            LLVMValueRef awaiter_trace_ptr_ptr = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr,
-                    frame_index_trace_arg(g, ret_type) + 1, "");
-            LLVMValueRef dest_trace_ptr = LLVMBuildLoad(g->builder, awaiter_trace_ptr_ptr, "");
+            LLVMValueRef awaiter_trace_ptr_ptr = LLVMBuildStructGEP2(g->builder,
+                    get_llvm_type(g, get_fn_frame_type(g, g->cur_fn)),
+                    g->cur_frame_ptr, frame_index_trace_arg(g, ret_type) + 1, "");
+            LLVMValueRef dest_trace_ptr = LLVMBuildLoad2(g->builder,
+                    LLVMPointerTypeInContext(LLVMGetGlobalContext(), 0),
+                    awaiter_trace_ptr_ptr, "");
             bool is_llvm_alloca;
             LLVMValueRef my_err_trace_val = get_cur_err_ret_trace_val(g, instruction->base.scope, &is_llvm_alloca);
             LLVMValueRef args[] = { dest_trace_ptr, my_err_trace_val };
-            ZigLLVMBuildCall(g->builder, get_merge_err_ret_traces_fn_val(g), args, 2,
+            ZigLLVMBuildCall(g->builder, LLVMTypeOf(get_merge_err_ret_traces_fn_val(g)),
+                    get_merge_err_ret_traces_fn_val(g), args, 2,
                     get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_CallAttrAuto, "");
         }
     }
 
     // Resume the caller by tail calling them.
     ZigType *any_frame_type = get_any_frame_type(g, ret_type);
-    LLVMValueRef their_frame_ptr = LLVMBuildIntToPtr(g->builder, prev_val, get_llvm_type(g, any_frame_type), "");
+    LLVMValueRef their_frame_ptr = LLVMBuildIntToPtr(g->builder, prev_val,
+            get_llvm_type(g, any_frame_type), "");
     LLVMValueRef call_inst = gen_resume(g, nullptr, their_frame_ptr, ResumeIdReturn);
     set_tail_call_if_appropriate(g, call_inst);
     LLVMBuildRetVoid(g->builder);
@@ -2853,21 +2903,14 @@ static void gen_async_return(CodeGen *g, Stage1AirInstReturn *instruction) {
 static LLVMValueRef gen_convert_to_c_abi(CodeGen *g, LLVMValueRef location, LLVMValueRef value) {
     ZigType *return_type = g->cur_fn->type_entry->data.fn.gen_return_type;
     size_t size = type_size(g, return_type);
-
     LLVMTypeRef abi_return_type = get_llvm_c_abi_type(g, return_type);
-    LLVMTypeRef abi_return_type_pointer = LLVMPointerType(abi_return_type, 0);
 
     if (size < 8) {
-        LLVMValueRef bitcast = LLVMBuildBitCast(g->builder, value, abi_return_type_pointer, "");
-        return LLVMBuildLoad(g->builder, bitcast, "");
+        return LLVMBuildLoad2(g->builder, abi_return_type, value, "");
     } else {
-        LLVMTypeRef i8ptr = LLVMPointerType(LLVMInt8Type(), 0);
-        LLVMValueRef bc_location = LLVMBuildBitCast(g->builder, location, i8ptr, "");
-        LLVMValueRef bc_value = LLVMBuildBitCast(g->builder, value, i8ptr, "");
-
         LLVMValueRef len = LLVMConstInt(LLVMInt64Type(), size, false);
-        ZigLLVMBuildMemCpy(g->builder, bc_location, 8, bc_value, return_type->abi_align, len, false);
-        return LLVMBuildLoad(g->builder, location, "");
+        ZigLLVMBuildMemCpy(g->builder, location, 8, value, return_type->abi_align, len, false);
+        return LLVMBuildLoad2(g->builder, abi_return_type, location, "");
     }
 }
 
@@ -2903,19 +2946,21 @@ static LLVMValueRef ir_render_return(CodeGen *g, Stage1Air *executable, Stage1Ai
     } else if (g->cur_fn->type_entry->data.fn.fn_type_id.cc != CallingConventionAsync &&
             handle_is_ptr(g, g->cur_fn->type_entry->data.fn.fn_type_id.return_type))
     {
+        LLVMTypeRef ret_llvm_ty = get_llvm_type(g, g->cur_fn->type_entry->data.fn.fn_type_id.return_type);
         if (instruction->operand == nullptr) {
-            LLVMValueRef by_val_value = gen_load_untyped(g, g->cur_ret_ptr, 0, false, "");
+            LLVMValueRef by_val_value = gen_load_untyped(g, ret_llvm_ty, g->cur_ret_ptr, 0, false, "");
             LLVMBuildRet(g->builder, by_val_value);
         } else {
             LLVMValueRef value = ir_llvm_value(g, instruction->operand);
-            LLVMValueRef by_val_value = gen_load_untyped(g, value, 0, false, "");
+            LLVMValueRef by_val_value = gen_load_untyped(g, ret_llvm_ty, value, 0, false, "");
             LLVMBuildRet(g->builder, by_val_value);
         }
     } else if (instruction->operand == nullptr) {
         if (g->cur_ret_ptr == nullptr) {
             LLVMBuildRetVoid(g->builder);
         } else {
-            LLVMValueRef by_val_value = gen_load_untyped(g, g->cur_ret_ptr, 0, false, "");
+            LLVMTypeRef ret_llvm_ty = get_llvm_type(g, g->cur_fn->type_entry->data.fn.fn_type_id.return_type);
+            LLVMValueRef by_val_value = gen_load_untyped(g, ret_llvm_ty, g->cur_ret_ptr, 0, false, "");
             LLVMBuildRet(g->builder, by_val_value);
         }
     } else {
@@ -3011,20 +3056,18 @@ static LLVMValueRef gen_soft_float_un_op(CodeGen *g, LLVMValueRef op, ZigType *o
              float_un_op_to_name(op_id), libc_float_suffix(g, scalar_type));
     LLVMValueRef func_ref = get_soft_float_fn(g, fn_name, 1, scalar_type->llvm_type, scalar_type->llvm_type);
 
-    LLVMValueRef result;
     if (vector_len == 0) {
-        return LLVMBuildCall(g->builder, func_ref, &op, 1, "");
+        return LLVMBuildCall2(g->builder, LLVMTypeOf(func_ref), func_ref, &op, 1, "");
     } else {
-        result = build_alloca(g, operand_type, "", 0);
+        LLVMValueRef result = LLVMGetUndef(operand_type->llvm_type);
         LLVMTypeRef usize_ref = g->builtin_types.entry_usize->llvm_type;
         for (uint32_t i = 0; i < vector_len; i++) {
             LLVMValueRef index_value = LLVMConstInt(usize_ref, i, false);
             LLVMValueRef param = LLVMBuildExtractElement(g->builder, op, index_value, "");
-            LLVMValueRef call_result = LLVMBuildCall(g->builder, func_ref, &param, 1, "");
-            LLVMBuildInsertElement(g->builder, LLVMBuildLoad(g->builder, result, ""),
-                call_result, index_value, "");
+            LLVMValueRef call_result = LLVMBuildCall2(g->builder, LLVMTypeOf(func_ref), func_ref, &param, 1, "");
+            result = LLVMBuildInsertElement(g->builder, result, call_result, index_value, "");
         }
-        return LLVMBuildLoad(g->builder, result, "");
+        return result;
     }
 }
 
@@ -3038,7 +3081,7 @@ static LLVMValueRef gen_float_un_op(CodeGen *g, LLVMValueRef operand, ZigType *o
         return gen_soft_float_un_op(g, operand, operand_type, op);
     }
     LLVMValueRef float_op_fn = get_float_fn(g, operand_type, ZigLLVMFnIdFloatOp, op);
-    return LLVMBuildCall(g->builder, float_op_fn, &operand, 1, "");
+    return LLVMBuildCall2(g->builder, LLVMTypeOf(float_op_fn), float_op_fn, &operand, 1, "");
 }
 
 enum DivKind {
@@ -3404,7 +3447,7 @@ static LLVMValueRef gen_soft_int_to_float_op(CodeGen *g, LLVMValueRef value_ref,
     }
 
     LLVMValueRef params[1] = {value_ref};
-    return LLVMBuildCall(g->builder, func_ref, params, param_count, "");
+    return LLVMBuildCall2(g->builder, LLVMTypeOf(func_ref), func_ref, params, param_count, "");
 }
 
 static LLVMValueRef gen_soft_float_to_int_op(CodeGen *g, LLVMValueRef value_ref, ZigType *operand_type, ZigType *result_type) {
@@ -3440,7 +3483,7 @@ static LLVMValueRef gen_soft_float_to_int_op(CodeGen *g, LLVMValueRef value_ref,
     }
 
     LLVMValueRef params[1] = {value_ref};
-    LLVMValueRef result = LLVMBuildCall(g->builder, func_ref, params, param_count, "");
+    LLVMValueRef result = LLVMBuildCall2(g->builder, LLVMTypeOf(func_ref), func_ref, params, param_count, "");
 
     if ((wider_type->data.integral.bit_count == 128) && (g->zig_target->os == OsWindows) && (g->zig_target->arch == ZigLLVM_x86_64)) {
         result = LLVMBuildBitCast(g->builder, result, wider_type->llvm_type, "");
@@ -3553,12 +3596,12 @@ static LLVMValueRef gen_soft_float_bin_op(CodeGen *g, LLVMValueRef op1_value, LL
     LLVMValueRef result;
     if (vector_len == 0) {
         LLVMValueRef params[2] = {op1_value, op2_value};
-        result = LLVMBuildCall(g->builder, func_ref, params, param_count, "");
+        result = LLVMBuildCall2(g->builder, LLVMTypeOf(func_ref), func_ref, params, param_count, "");
         result = add_icmp(g, result, res_icmp);
     } else {
         ZigType *alloca_ty = operand_type;
         if (res_icmp != NONE) alloca_ty = get_vector_type(g, vector_len, g->builtin_types.entry_bool);
-        result = build_alloca(g, alloca_ty, "", 0);
+        result = LLVMGetUndef(alloca_ty->llvm_type);
 
         LLVMTypeRef usize_ref = g->builtin_types.entry_usize->llvm_type;
         for (uint32_t i = 0; i < vector_len; i++) {
@@ -3567,13 +3610,10 @@ static LLVMValueRef gen_soft_float_bin_op(CodeGen *g, LLVMValueRef op1_value, LL
                 LLVMBuildExtractElement(g->builder, op1_value, index_value, ""),
                 LLVMBuildExtractElement(g->builder, op2_value, index_value, ""),
             };
-            LLVMValueRef call_result = LLVMBuildCall(g->builder, func_ref, params, param_count, "");
+            LLVMValueRef call_result = LLVMBuildCall2(g->builder, LLVMTypeOf(func_ref), func_ref, params, param_count, "");
             call_result = add_icmp(g, call_result, res_icmp);
-            LLVMBuildInsertElement(g->builder, LLVMBuildLoad(g->builder, result, ""),
-                call_result, index_value, "");
+            result = LLVMBuildInsertElement(g->builder, result, call_result, index_value, "");
         }
-
-        result = LLVMBuildLoad(g->builder, result, "");
     }
 
     // Some operations are implemented as compound ops and require us to perform some
@@ -3703,7 +3743,9 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, Stage1Air *executable,
                 }
 
                 // TODO runtime safety
-                return LLVMBuildInBoundsGEP(g->builder, op1_value, &subscript_value, 1, "");
+                LLVMTypeRef elem_llvm_ty = get_llvm_type(g, scalar_type->data.pointer.child_type);
+                return LLVMBuildInBoundsGEP2(g->builder, elem_llvm_ty, op1_value,
+                        &subscript_value, 1, "");
             } else if (scalar_type->id == ZigTypeIdFloat) {
                 ZigLLVMSetFastMath(g->builder, ir_want_fast_math(g, &bin_op_instruction->base));
                 return float_op[add_sub_mul](g->builder, op1_value, op2_value, "");
@@ -4044,20 +4086,23 @@ static LLVMValueRef ir_render_ptr_of_array_to_slice(CodeGen *g, Stage1Air *execu
     assert(array_type->id == ZigTypeIdArray);
 
     if (type_has_bits(g, actual_type)) {
-        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, result_loc, ptr_index, "");
+        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP2(g->builder, get_llvm_type(g, slice_type),
+                result_loc, ptr_index, "");
         LLVMValueRef indices[] = {
             LLVMConstNull(g->builtin_types.entry_usize->llvm_type),
             LLVMConstInt(g->builtin_types.entry_usize->llvm_type, 0, false),
         };
         LLVMValueRef expr_val = ir_llvm_value(g, instruction->operand);
-        LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, expr_val, indices, 2, "");
+        LLVMTypeRef elem_llvm_ty = get_llvm_type(g, array_type->data.array.child_type);
+        LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP2(g->builder, elem_llvm_ty, expr_val,
+                indices, 2, "");
         gen_store_untyped(g, slice_start_ptr, ptr_field_ptr, 0, false);
     } else if (ir_want_runtime_safety(g, &instruction->base) && ptr_index != SIZE_MAX) {
-        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, result_loc, ptr_index, "");
+        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP2(g->builder, get_llvm_type(g, slice_type), result_loc, ptr_index, "");
         gen_undef_init(g, slice_ptr_type, slice_ptr_type, ptr_field_ptr);
     }
 
-    LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, result_loc, len_index, "");
+    LLVMValueRef len_field_ptr = LLVMBuildStructGEP2(g->builder, get_llvm_type(g, slice_type), result_loc, len_index, "");
     LLVMValueRef len_value = LLVMConstInt(g->builtin_types.entry_usize->llvm_type,
             array_type->data.array.len, false);
     gen_store_untyped(g, len_value, len_field_ptr, 0, false);
@@ -4102,20 +4147,20 @@ static LLVMValueRef ir_render_bit_cast(CodeGen *g, Stage1Air *executable,
     bool actual_is_ptr = handle_is_ptr(g, actual_type);
     if (wanted_is_ptr == actual_is_ptr) {
         // We either bitcast the value directly or bitcast the pointer which does a pointer cast
-        LLVMTypeRef wanted_type_ref = wanted_is_ptr ?
-            LLVMPointerType(get_llvm_type(g, wanted_type), 0) : get_llvm_type(g, wanted_type);
-        return LLVMBuildBitCast(g->builder, value, wanted_type_ref, "");
+        if (wanted_is_ptr) {
+            return value;
+        } else {
+            LLVMTypeRef wanted_type_ref = get_llvm_type(g, wanted_type);
+            return LLVMBuildBitCast(g->builder, value, wanted_type_ref, "");
+        }
     } else if (actual_is_ptr) {
         // A scalar is wanted but we got a pointer
-        LLVMTypeRef wanted_ptr_type_ref = LLVMPointerType(get_llvm_type(g, wanted_type), 0);
-        LLVMValueRef bitcasted_ptr = LLVMBuildBitCast(g->builder, value, wanted_ptr_type_ref, "");
         uint32_t alignment = get_abi_alignment(g, actual_type);
-        return gen_load_untyped(g, bitcasted_ptr, alignment, false, "");
+        return gen_load_untyped(g, get_llvm_type(g, wanted_type), value, alignment, false, "");
     } else {
         // A pointer is wanted but we got a scalar
         assert(actual_type->id == ZigTypeIdPointer);
-        LLVMTypeRef wanted_ptr_type_ref = LLVMPointerType(get_llvm_type(g, wanted_type), 0);
-        return LLVMBuildBitCast(g->builder, value, wanted_ptr_type_ref, "");
+        return value;
     }
 }
 
@@ -4298,32 +4343,26 @@ static LLVMValueRef ir_render_binary_not(CodeGen *g, Stage1Air *executable,
 
 static LLVMValueRef gen_soft_float_neg(CodeGen *g, ZigType *operand_type, LLVMValueRef operand) {
     uint32_t vector_len = operand_type->id == ZigTypeIdVector ? operand_type->data.vector.len : 0;
-    uint16_t num_bits = operand_type->data.floating.bit_count;
+    uint16_t num_bits = operand_type->id == ZigTypeIdVector ? 
+        operand_type->data.vector.elem_type->data.floating.bit_count :
+        operand_type->data.floating.bit_count;
 
     ZigType *iX_type = get_int_type(g, true, num_bits);
-    LLVMValueRef sign_mask = LLVMConstInt(iX_type->llvm_type, 1, false);
-    sign_mask = LLVMConstShl(sign_mask, LLVMConstInt(iX_type->llvm_type, num_bits - 1, false));
+    LLVMValueRef sign_mask = LLVMConstShl(
+            LLVMConstInt(iX_type->llvm_type, 1, false),
+            LLVMConstInt(iX_type->llvm_type, num_bits - 1, false));
 
-    if (vector_len == 0) {
-        LLVMValueRef bitcasted_operand = LLVMBuildBitCast(g->builder, operand, iX_type->llvm_type, "");
-        LLVMValueRef result = LLVMBuildXor(g->builder, bitcasted_operand, sign_mask, "");
+    LLVMValueRef sign_mask_splat = (vector_len == 0) ? sign_mask :
+        LLVMBuildVectorSplat(g->builder, vector_len, sign_mask, "");
 
-        return LLVMBuildBitCast(g->builder, result, operand_type->llvm_type, "");
-    } else {
-        LLVMTypeRef usize_ref = g->builtin_types.entry_usize->llvm_type;
-        ZigType *iX_vector_type = get_vector_type(g, vector_len, iX_type);
+    LLVMValueRef bitcasted_operand = LLVMBuildBitCast(g->builder, operand,
+            (vector_len == 0) ?
+                iX_type->llvm_type :
+                get_vector_type(g, vector_len, iX_type)->llvm_type,
+            "");
 
-        LLVMValueRef result = build_alloca(g, iX_vector_type, "", 0);
-        LLVMValueRef bitcasted_operand = LLVMBuildBitCast(g->builder, operand, iX_vector_type->llvm_type, "");
-        for (uint32_t i = 0; i < vector_len; i++) {
-            LLVMValueRef index_value = LLVMConstInt(usize_ref, i, false);
-            LLVMValueRef elem = LLVMBuildExtractElement(g->builder, bitcasted_operand, index_value, "");
-            LLVMValueRef result_elem = LLVMBuildXor(g->builder, elem, sign_mask, "");
-            LLVMBuildInsertElement(g->builder, LLVMBuildLoad(g->builder, result, ""),
-                result_elem, index_value, "");
-        }
-        return LLVMBuildBitCast(g->builder, LLVMBuildLoad(g->builder, result, ""), operand_type->llvm_type, "");
-    }
+    LLVMValueRef result = LLVMBuildXor(g->builder, bitcasted_operand, sign_mask_splat, "");
+    return LLVMBuildBitCast(g->builder, result, operand_type->llvm_type, "");
 }
 
 static LLVMValueRef gen_negation(CodeGen *g, Stage1AirInst *inst, Stage1AirInst *operand, bool wrapping) {
@@ -4398,7 +4437,7 @@ static LLVMValueRef ir_render_load_ptr(CodeGen *g, Stage1Air *executable,
     if (ptr_type->data.pointer.vector_index != VECTOR_INDEX_NONE) {
         LLVMValueRef index_val = LLVMConstInt(LLVMInt32Type(),
                 ptr_type->data.pointer.vector_index, false);
-        LLVMValueRef loaded_vector = LLVMBuildLoad(g->builder, ptr, "");
+        LLVMValueRef loaded_vector = LLVMBuildLoad2(g->builder, get_llvm_type(g, child_type), ptr, "");
         return LLVMBuildExtractElement(g->builder, loaded_vector, index_val, "");
     }
 
@@ -4524,7 +4563,8 @@ static LLVMValueRef gen_valgrind_client_request(CodeGen *g, LLVMValueRef default
                     zero,
                     LLVMConstInt(usize_type_ref, i, false),
                 };
-                LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP(g->builder, array_ptr, indexes, 2, "");
+                LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP2(g->builder, usize_type_ref,
+                        array_ptr, indexes, 2, "");
                 LLVMBuildStore(g->builder, array_elements[i], elem_ptr);
             }
 
@@ -4545,7 +4585,7 @@ static LLVMValueRef gen_valgrind_client_request(CodeGen *g, LLVMValueRef default
             LLVMValueRef asm_fn = LLVMGetInlineAsm(function_type, buf_ptr(asm_template), buf_len(asm_template),
                     buf_ptr(asm_constraints), buf_len(asm_constraints), asm_has_side_effects, asm_is_alignstack,
                     LLVMInlineAsmDialectATT, false);
-            return LLVMBuildCall(g->builder, asm_fn, param_values, input_and_output_count, "");
+            return LLVMBuildCall2(g->builder, LLVMTypeOf(asm_fn), asm_fn, param_values, input_and_output_count, "");
         }
     }
     zig_unreachable();
@@ -4713,16 +4753,13 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, Stage1Air *executable, Stage1
             size_t host_int_bytes = ptr_type->data.pointer.host_int_bytes;
             if (host_int_bytes != 0) {
                 uint32_t size_in_bits = type_size_bits(g, ptr_type->data.pointer.child_type);
-                LLVMTypeRef ptr_u8_type_ref = LLVMPointerType(LLVMInt8Type(), 0);
-                LLVMValueRef u8_array_ptr = LLVMBuildBitCast(g->builder, array_ptr, ptr_u8_type_ref, "");
                 assert(size_in_bits % 8 == 0);
                 LLVMValueRef elem_size_bytes = LLVMConstInt(g->builtin_types.entry_usize->llvm_type,
                         size_in_bits / 8, false);
                 LLVMValueRef byte_offset = LLVMBuildNUWMul(g->builder, subscript_value, elem_size_bytes, "");
-                LLVMValueRef indices[] = {
-                    byte_offset
-                };
-                LLVMValueRef elem_byte_ptr = LLVMBuildInBoundsGEP(g->builder, u8_array_ptr, indices, 1, "");
+                LLVMValueRef indices[] = { byte_offset };
+                LLVMValueRef elem_byte_ptr = LLVMBuildInBoundsGEP2(g->builder, LLVMInt8Type(),
+                        array_ptr, indices, 1, "");
                 return LLVMBuildBitCast(g->builder, elem_byte_ptr, LLVMPointerType(get_llvm_type(g, child_type), 0), "");
             }
         }
@@ -4730,14 +4767,14 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, Stage1Air *executable, Stage1
             LLVMConstNull(g->builtin_types.entry_usize->llvm_type),
             subscript_value
         };
-        return LLVMBuildInBoundsGEP(g->builder, array_ptr, indices, 2, "");
+        return LLVMBuildInBoundsGEP2(g->builder, get_llvm_type(g, child_type), array_ptr,
+                indices, 2, "");
     } else if (array_type->id == ZigTypeIdPointer) {
         LLVMValueRef array_ptr = get_handle_value(g, array_ptr_ptr, array_type, array_ptr_type);
         assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
-        LLVMValueRef indices[] = {
-            subscript_value
-        };
-        return LLVMBuildInBoundsGEP(g->builder, array_ptr, indices, 1, "");
+        LLVMValueRef indices[] = { subscript_value };
+        LLVMTypeRef elem_llvm_ty = get_llvm_type(g, array_type->data.pointer.child_type);
+        return LLVMBuildInBoundsGEP2(g->builder, elem_llvm_ty, array_ptr, indices, 1, "");
     } else if (array_type->id == ZigTypeIdStruct) {
         LLVMValueRef array_ptr = get_handle_value(g, array_ptr_ptr, array_type, array_ptr_type);
         assert(array_type->data.structure.special == StructSpecialSlice);
@@ -4752,22 +4789,26 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, Stage1Air *executable, Stage1
         }
 
         assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
-        assert(LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(array_ptr))) == LLVMStructTypeKind);
 
         if (safety_check_on) {
             size_t len_index = array_type->data.structure.fields[slice_len_index]->gen_index;
             assert(len_index != SIZE_MAX);
-            LLVMValueRef len_ptr = LLVMBuildStructGEP(g->builder, array_ptr, (unsigned)len_index, "");
-            LLVMValueRef len = gen_load_untyped(g, len_ptr, 0, false, "");
+            LLVMValueRef len_ptr = LLVMBuildStructGEP2(g->builder, get_llvm_type(g, array_type),
+                    array_ptr, (unsigned)len_index, "");
+            LLVMValueRef len = gen_load_untyped(g, LLVMGetGEPSourceElementType(len_ptr), len_ptr,
+                    0, false, "");
             LLVMIntPredicate upper_op = (ptr_type->data.pointer.sentinel != nullptr) ? LLVMIntULE : LLVMIntULT;
             add_bounds_check(g, subscript_value, LLVMIntEQ, nullptr, upper_op, len);
         }
 
         size_t ptr_index = array_type->data.structure.fields[slice_ptr_index]->gen_index;
         assert(ptr_index != SIZE_MAX);
-        LLVMValueRef ptr_ptr = LLVMBuildStructGEP(g->builder, array_ptr, (unsigned)ptr_index, "");
-        LLVMValueRef ptr = gen_load_untyped(g, ptr_ptr, 0, false, "");
-        return LLVMBuildInBoundsGEP(g->builder, ptr, &subscript_value, 1, "");
+        LLVMValueRef ptr_ptr = LLVMBuildStructGEP2(g->builder, get_llvm_type(g, array_type),
+                array_ptr, (unsigned)ptr_index, "");
+        LLVMValueRef ptr = gen_load_untyped(g, LLVMGetGEPSourceElementType(ptr_ptr), ptr_ptr, 0,
+                false, "");
+        LLVMTypeRef elem_llvm_ty = get_llvm_type(g, ptr_type->data.pointer.child_type);
+        return LLVMBuildInBoundsGEP2(g->builder, elem_llvm_ty, ptr, &subscript_value, 1, "");
     } else if (array_type->id == ZigTypeIdVector) {
         return array_ptr_ptr;
     } else {
@@ -4775,12 +4816,16 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, Stage1Air *executable, Stage1
     }
 }
 
-static LLVMValueRef get_new_stack_addr(CodeGen *g, LLVMValueRef new_stack) {
-    LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, new_stack, (unsigned)slice_ptr_index, "");
-    LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, new_stack, (unsigned)slice_len_index, "");
+static LLVMValueRef get_new_stack_addr(CodeGen *g, LLVMTypeRef new_stack_llvm_ty,
+        LLVMValueRef new_stack)
+{
+    LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP2(g->builder, new_stack_llvm_ty, new_stack, (unsigned)slice_ptr_index, "");
+    LLVMValueRef len_field_ptr = LLVMBuildStructGEP2(g->builder, new_stack_llvm_ty, new_stack, (unsigned)slice_len_index, "");
 
-    LLVMValueRef ptr_value = gen_load_untyped(g, ptr_field_ptr, 0, false, "");
-    LLVMValueRef len_value = gen_load_untyped(g, len_field_ptr, 0, false, "");
+    LLVMValueRef ptr_value = gen_load_untyped(g, LLVMGetGEPSourceElementType(ptr_field_ptr),
+            ptr_field_ptr, 0, false, "");
+    LLVMValueRef len_value = gen_load_untyped(g, LLVMGetGEPSourceElementType(len_field_ptr),
+            len_field_ptr, 0, false, "");
 
     LLVMValueRef ptr_addr = LLVMBuildPtrToInt(g->builder, ptr_value, LLVMTypeOf(len_value), "");
     LLVMValueRef end_addr = LLVMBuildNUWAdd(g->builder, ptr_addr, len_value, "");
@@ -4804,7 +4849,7 @@ static void gen_set_stack_pointer(CodeGen *g, LLVMValueRef aligned_end_addr) {
         aligned_end_addr,
     };
 
-    LLVMBuildCall(g->builder, write_register_fn_val, params, 2, "");
+    LLVMBuildCall2(g->builder, LLVMTypeOf(write_register_fn_val), write_register_fn_val, params, 2, "");
 }
 
 static void render_async_spills(CodeGen *g) {
@@ -4834,7 +4879,9 @@ static void render_async_spills(CodeGen *g) {
         }
 
         calc_llvm_field_index_add(g, &arg_calc, var->var_type);
-        var->value_ref = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr, arg_calc.field_index - 1, var->name);
+        var->value_ref = LLVMBuildStructGEP2(g->builder,
+                get_llvm_type(g, get_fn_frame_type(g, g->cur_fn)),
+                g->cur_frame_ptr, arg_calc.field_index - 1, var->name);
         if (var->decl_node) {
             var->di_loc_var = ZigLLVMCreateAutoVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
                 var->name, import->data.structure.root_struct->di_file,
@@ -4852,7 +4899,9 @@ static void render_async_spills(CodeGen *g) {
             continue;
 
         size_t gen_index = frame_type->data.structure.fields[instruction->field_index]->gen_index;
-        instruction->base.llvm_value = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr, gen_index,
+        instruction->base.llvm_value = LLVMBuildStructGEP2(g->builder,
+                get_llvm_type(g, get_fn_frame_type(g, g->cur_fn)),
+                g->cur_frame_ptr, gen_index,
                 instruction->name_hint);
     }
 }
@@ -4892,11 +4941,9 @@ static void render_async_var_decls(CodeGen *g, Scope *scope) {
 static LLVMValueRef gen_frame_size(CodeGen *g, LLVMValueRef fn_val) {
     assert(g->need_frame_size_prefix_data);
     LLVMTypeRef usize_llvm_type = g->builtin_types.entry_usize->llvm_type;
-    LLVMTypeRef ptr_usize_llvm_type = LLVMPointerType(usize_llvm_type, 0);
-    LLVMValueRef casted_fn_val = LLVMBuildBitCast(g->builder, fn_val, ptr_usize_llvm_type, "");
     LLVMValueRef negative_one = LLVMConstInt(LLVMInt32Type(), -1, true);
-    LLVMValueRef prefix_ptr = LLVMBuildInBoundsGEP(g->builder, casted_fn_val, &negative_one, 1, "");
-    LLVMValueRef load_inst = LLVMBuildLoad(g->builder, prefix_ptr, "");
+    LLVMValueRef prefix_ptr = LLVMBuildInBoundsGEP2(g->builder, usize_llvm_type, fn_val, &negative_one, 1, "");
+    LLVMValueRef load_inst = LLVMBuildLoad2(g->builder, usize_llvm_type, prefix_ptr, "");
 
     // Some architectures (e.g SPARCv9) has different alignment requirements between a
     // function/usize pointer and also require all loads to be aligned.
@@ -4910,17 +4957,23 @@ static LLVMValueRef gen_frame_size(CodeGen *g, LLVMValueRef fn_val) {
 static void gen_init_stack_trace(CodeGen *g, LLVMValueRef trace_field_ptr, LLVMValueRef addrs_field_ptr) {
     LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
     LLVMValueRef zero = LLVMConstNull(usize_type_ref);
+    LLVMTypeRef stack_trace_llvm_ty = get_llvm_type(g, get_stack_trace_type(g));
 
-    LLVMValueRef index_ptr = LLVMBuildStructGEP(g->builder, trace_field_ptr, 0, "");
+    LLVMValueRef index_ptr = LLVMBuildStructGEP2(g->builder, stack_trace_llvm_ty, trace_field_ptr, 0, "");
     LLVMBuildStore(g->builder, zero, index_ptr);
 
-    LLVMValueRef addrs_slice_ptr = LLVMBuildStructGEP(g->builder, trace_field_ptr, 1, "");
-    LLVMValueRef addrs_ptr_ptr = LLVMBuildStructGEP(g->builder, addrs_slice_ptr, slice_ptr_index, "");
+    LLVMValueRef addrs_slice_ptr = LLVMBuildStructGEP2(g->builder, stack_trace_llvm_ty, trace_field_ptr, 1, "");
+    LLVMValueRef addrs_ptr_ptr = LLVMBuildStructGEP2(g->builder,
+            LLVMGetGEPSourceElementType(addrs_slice_ptr),
+            addrs_slice_ptr, slice_ptr_index, "");
     LLVMValueRef indices[] = { LLVMConstNull(usize_type_ref), LLVMConstNull(usize_type_ref) };
-    LLVMValueRef trace_field_addrs_as_ptr = LLVMBuildInBoundsGEP(g->builder, addrs_field_ptr, indices, 2, "");
+    LLVMValueRef trace_field_addrs_as_ptr = LLVMBuildInBoundsGEP2(g->builder,
+            usize_type_ref, addrs_field_ptr, indices, 2, "");
     LLVMBuildStore(g->builder, trace_field_addrs_as_ptr, addrs_ptr_ptr);
 
-    LLVMValueRef addrs_len_ptr = LLVMBuildStructGEP(g->builder, addrs_slice_ptr, slice_len_index, "");
+    LLVMValueRef addrs_len_ptr = LLVMBuildStructGEP2(g->builder,
+            LLVMGetGEPSourceElementType(addrs_slice_ptr),
+            addrs_slice_ptr, slice_len_index, "");
     LLVMBuildStore(g->builder, LLVMConstInt(usize_type_ref, stack_trace_ptr_count, false), addrs_len_ptr);
 }
 
@@ -4942,6 +4995,10 @@ static LLVMValueRef ir_render_call(CodeGen *g, Stage1Air *executable, Stage1AirI
         fn_type = instruction->fn_ref->value->type;
         callee_is_async = fn_type->data.fn.fn_type_id.cc == CallingConventionAsync;
     }
+
+    LLVMTypeRef frame_struct_llvm_ty = (instruction->fn_entry != nullptr) ?
+        get_llvm_type(g, get_fn_frame_type(g, instruction->fn_entry)) :
+        g->any_frame_header_llvm_ty;
 
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
 
@@ -4971,8 +5028,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, Stage1Air *executable, Stage1AirI
                 ir_assert(instruction->frame_result_loc != nullptr, &instruction->base);
                 frame_result_loc_uncasted = ir_llvm_value(g, instruction->frame_result_loc);
                 ir_assert(instruction->fn_entry != nullptr, &instruction->base);
-                frame_result_loc = LLVMBuildBitCast(g->builder, frame_result_loc_uncasted,
-                        LLVMPointerType(get_llvm_type(g, instruction->fn_entry->frame_type), 0), "");
+                frame_result_loc = frame_result_loc_uncasted;
             }
         } else {
             if (instruction->new_stack->value->type->id == ZigTypeIdPointer &&
@@ -4981,9 +5037,12 @@ static LLVMValueRef ir_render_call(CodeGen *g, Stage1Air *executable, Stage1AirI
                 frame_result_loc = ir_llvm_value(g, instruction->new_stack);
             } else {
                 LLVMValueRef frame_slice_ptr = ir_llvm_value(g, instruction->new_stack);
+                LLVMTypeRef frame_slice_llvm_ty =
+                    get_llvm_type(g, instruction->new_stack->value->type->data.pointer.child_type);
                 if (ir_want_runtime_safety(g, &instruction->base)) {
-                    LLVMValueRef given_len_ptr = LLVMBuildStructGEP(g->builder, frame_slice_ptr, slice_len_index, "");
-                    LLVMValueRef given_frame_len = LLVMBuildLoad(g->builder, given_len_ptr, "");
+                    LLVMValueRef given_len_ptr = LLVMBuildStructGEP2(g->builder,
+                            frame_slice_llvm_ty, frame_slice_ptr, slice_len_index, "");
+                    LLVMValueRef given_frame_len = LLVMBuildLoad2(g->builder, usize_type_ref, given_len_ptr, "");
                     LLVMValueRef actual_frame_len = gen_frame_size(g, fn_val);
 
                     LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "FrameSizeCheckFail");
@@ -4998,18 +5057,18 @@ static LLVMValueRef ir_render_call(CodeGen *g, Stage1Air *executable, Stage1AirI
                     LLVMPositionBuilderAtEnd(g->builder, ok_block);
                 }
                 need_frame_ptr_ptr_spill = true;
-                LLVMValueRef frame_ptr_ptr = LLVMBuildStructGEP(g->builder, frame_slice_ptr, slice_ptr_index, "");
-                LLVMValueRef frame_ptr = LLVMBuildLoad(g->builder, frame_ptr_ptr, "");
+                LLVMValueRef frame_ptr_ptr = LLVMBuildStructGEP2(g->builder, frame_slice_llvm_ty,
+                        frame_slice_ptr, slice_ptr_index, "");
+                LLVMValueRef frame_ptr = LLVMBuildLoad2(g->builder,
+                        LLVMGetGEPSourceElementType(frame_ptr_ptr), frame_ptr_ptr, "");
                 if (instruction->fn_entry == nullptr) {
                     anyframe_type = get_any_frame_type(g, src_return_type);
-                    frame_result_loc = LLVMBuildBitCast(g->builder, frame_ptr, get_llvm_type(g, anyframe_type), "");
+                    frame_result_loc = frame_ptr;
                 } else {
                     ZigType *frame_type = get_fn_frame_type(g, instruction->fn_entry);
                     if ((err = type_resolve(g, frame_type, ResolveStatusLLVMFull)))
                         codegen_report_errors_and_exit(g);
-                    ZigType *ptr_frame_type = get_pointer_to_type(g, frame_type, false);
-                    frame_result_loc = LLVMBuildBitCast(g->builder, frame_ptr,
-                            get_llvm_type(g, ptr_frame_type), "");
+                    frame_result_loc = frame_ptr;
                 }
             }
         }
@@ -5019,7 +5078,8 @@ static LLVMValueRef ir_render_call(CodeGen *g, Stage1Air *executable, Stage1AirI
 
                 if (ret_has_bits) {
                     // Use the result location which is inside the frame if this is an async call.
-                    ret_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, frame_ret_start + 2, "");
+                    ret_ptr = LLVMBuildStructGEP2(g->builder, frame_struct_llvm_ty,
+                            frame_result_loc, frame_ret_start + 2, "");
                 }
             } else {
                 awaiter_init_val = zero;
@@ -5030,7 +5090,8 @@ static LLVMValueRef ir_render_call(CodeGen *g, Stage1Air *executable, Stage1AirI
                         ret_ptr = result_loc;
                     } else {
                         // no result location provided to @asyncCall - use the one inside the frame.
-                        ret_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, frame_ret_start + 2, "");
+                        ret_ptr = LLVMBuildStructGEP2(g->builder, frame_struct_llvm_ty,
+                                frame_result_loc, frame_ret_start + 2, "");
                     }
                 }
             }
@@ -5050,20 +5111,20 @@ static LLVMValueRef ir_render_call(CodeGen *g, Stage1Air *executable, Stage1AirI
             if (ret_has_bits) {
                 if (result_loc == nullptr) {
                     // return type is a scalar, but we still need a pointer to it. Use the async fn frame.
-                    ret_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, frame_ret_start + 2, "");
+                    ret_ptr = LLVMBuildStructGEP2(g->builder, frame_struct_llvm_ty, frame_result_loc, frame_ret_start + 2, "");
                 } else {
                     // Use the call instruction's result location.
                     ret_ptr = result_loc;
                 }
 
                 // Store a zero in the awaiter's result ptr to indicate we do not need a copy made.
-                LLVMValueRef awaiter_ret_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, frame_ret_start + 1, "");
+                LLVMValueRef awaiter_ret_ptr = LLVMBuildStructGEP2(g->builder, frame_struct_llvm_ty, frame_result_loc, frame_ret_start + 1, "");
                 LLVMValueRef zero_ptr = LLVMConstNull(LLVMGetElementType(LLVMTypeOf(awaiter_ret_ptr)));
                 LLVMBuildStore(g->builder, zero_ptr, awaiter_ret_ptr);
             }
 
             if (prefix_arg_err_ret_stack) {
-                LLVMValueRef err_ret_trace_ptr_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc,
+                LLVMValueRef err_ret_trace_ptr_ptr = LLVMBuildStructGEP2(g->builder, frame_struct_llvm_ty, frame_result_loc,
                         frame_index_trace_arg(g, src_return_type) + 1, "");
                 bool is_llvm_alloca;
                 LLVMValueRef my_err_ret_trace_val = get_cur_err_ret_trace_val(g, instruction->base.scope,
@@ -5074,19 +5135,19 @@ static LLVMValueRef ir_render_call(CodeGen *g, Stage1Air *executable, Stage1AirI
 
         assert(frame_result_loc != nullptr);
 
-        LLVMValueRef fn_ptr_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, frame_fn_ptr_index, "");
+        LLVMValueRef fn_ptr_ptr = LLVMBuildStructGEP2(g->builder, frame_struct_llvm_ty, frame_result_loc, frame_fn_ptr_index, "");
         LLVMValueRef bitcasted_fn_val = LLVMBuildBitCast(g->builder, fn_val,
                 LLVMGetElementType(LLVMTypeOf(fn_ptr_ptr)), "");
         LLVMBuildStore(g->builder, bitcasted_fn_val, fn_ptr_ptr);
 
-        LLVMValueRef resume_index_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, frame_resume_index, "");
+        LLVMValueRef resume_index_ptr = LLVMBuildStructGEP2(g->builder, frame_struct_llvm_ty, frame_result_loc, frame_resume_index, "");
         LLVMBuildStore(g->builder, zero, resume_index_ptr);
 
-        LLVMValueRef awaiter_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, frame_awaiter_index, "");
+        LLVMValueRef awaiter_ptr = LLVMBuildStructGEP2(g->builder, frame_struct_llvm_ty, frame_result_loc, frame_awaiter_index, "");
         LLVMBuildStore(g->builder, awaiter_init_val, awaiter_ptr);
 
         if (ret_has_bits) {
-            LLVMValueRef ret_ptr_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, frame_ret_start, "");
+            LLVMValueRef ret_ptr_ptr = LLVMBuildStructGEP2(g->builder, frame_struct_llvm_ty, frame_result_loc, frame_ret_start, "");
             LLVMBuildStore(g->builder, ret_ptr, ret_ptr_ptr);
         }
     } else if (instruction->modifier == CallModifierAsync) {
@@ -5097,12 +5158,12 @@ static LLVMValueRef ir_render_call(CodeGen *g, Stage1Air *executable, Stage1AirI
         frame_result_loc = result_loc;
         awaiter_init_val = LLVMConstAllOnes(usize_type_ref);
 
-        LLVMValueRef awaiter_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, frame_awaiter_index, "");
+        LLVMValueRef awaiter_ptr = LLVMBuildStructGEP2(g->builder, frame_struct_llvm_ty, frame_result_loc, frame_awaiter_index, "");
         LLVMBuildStore(g->builder, awaiter_init_val, awaiter_ptr);
 
         if (ret_has_bits) {
-            ret_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, frame_ret_start + 2, "");
-            LLVMValueRef ret_ptr_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, frame_ret_start, "");
+            ret_ptr = LLVMBuildStructGEP2(g->builder, frame_struct_llvm_ty, frame_result_loc, frame_ret_start + 2, "");
+            LLVMValueRef ret_ptr_ptr = LLVMBuildStructGEP2(g->builder, frame_struct_llvm_ty, frame_result_loc, frame_ret_start, "");
             LLVMBuildStore(g->builder, ret_ptr, ret_ptr_ptr);
 
             if (first_arg_ret) {
@@ -5113,11 +5174,11 @@ static LLVMValueRef ir_render_call(CodeGen *g, Stage1Air *executable, Stage1AirI
                 // Then we have to wire up the StackTrace pointers.
                 // Await is responsible for merging error return traces.
                 uint32_t trace_field_index_start = frame_index_trace_arg(g, src_return_type);
-                LLVMValueRef callee_trace_ptr_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc,
+                LLVMValueRef callee_trace_ptr_ptr = LLVMBuildStructGEP2(g->builder, frame_struct_llvm_ty, frame_result_loc,
                         trace_field_index_start, "");
-                LLVMValueRef trace_field_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc,
+                LLVMValueRef trace_field_ptr = LLVMBuildStructGEP2(g->builder, frame_struct_llvm_ty, frame_result_loc,
                         trace_field_index_start + 2, "");
-                LLVMValueRef addrs_field_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc,
+                LLVMValueRef addrs_field_ptr = LLVMBuildStructGEP2(g->builder, frame_struct_llvm_ty, frame_result_loc,
                         trace_field_index_start + 3, "");
 
                 LLVMBuildStore(g->builder, trace_field_ptr, callee_trace_ptr_ptr);
@@ -5177,7 +5238,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, Stage1Air *executable, Stage1AirI
         CalcLLVMFieldIndex arg_calc_start = {0};
         frame_index_arg_calc(g, &arg_calc_start, fn_type->data.fn.fn_type_id.return_type);
 
-        LLVMValueRef casted_frame;
+        LLVMTypeRef casted_frame_llvm_ty;
         if (instruction->new_stack != nullptr && instruction->fn_entry == nullptr) {
             // We need the frame type to be a pointer to a struct that includes the args
 
@@ -5208,17 +5269,15 @@ static LLVMValueRef ir_render_call(CodeGen *g, Stage1Air *executable, Stage1AirI
             }
             LLVMTypeRef frame_with_args_type = LLVMStructType(field_types, field_count, false);
             heap::c_allocator.deallocate(field_types, field_count);
-            LLVMTypeRef ptr_frame_with_args_type = LLVMPointerType(frame_with_args_type, 0);
-
-            casted_frame = LLVMBuildBitCast(g->builder, frame_result_loc, ptr_frame_with_args_type, "");
+            casted_frame_llvm_ty = frame_with_args_type;
         } else {
-            casted_frame = frame_result_loc;
+            casted_frame_llvm_ty = frame_struct_llvm_ty;
         }
 
         CalcLLVMFieldIndex arg_calc = arg_calc_start;
         for (size_t arg_i = 0; arg_i < gen_param_values.length; arg_i += 1) {
             calc_llvm_field_index_add(g, &arg_calc, gen_param_types.at(arg_i));
-            LLVMValueRef arg_ptr = LLVMBuildStructGEP(g->builder, casted_frame, arg_calc.field_index - 1, "");
+            LLVMValueRef arg_ptr = LLVMBuildStructGEP2(g->builder, casted_frame_llvm_ty, frame_result_loc, arg_calc.field_index - 1, "");
             gen_assign_raw(g, arg_ptr, get_pointer_to_type(g, gen_param_types.at(arg_i), true),
                     gen_param_values.at(arg_i));
         }
@@ -5235,8 +5294,8 @@ static LLVMValueRef ir_render_call(CodeGen *g, Stage1Air *executable, Stage1AirI
             gen_resume(g, fn_val, frame_result_loc, ResumeIdCall);
 
             if (ir_want_runtime_safety(g, &instruction->base)) {
-                LLVMValueRef awaiter_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc,
-                        frame_awaiter_index, "");
+                LLVMValueRef awaiter_ptr = LLVMBuildStructGEP2(g->builder, frame_struct_llvm_ty,
+                        frame_result_loc, frame_awaiter_index, "");
                 LLVMValueRef all_ones = LLVMConstAllOnes(usize_type_ref);
                 LLVMValueRef prev_val = gen_maybe_atomic_op(g, LLVMAtomicRMWBinOpXchg, awaiter_ptr,
                         all_ones, LLVMAtomicOrderingRelease);
@@ -5255,7 +5314,8 @@ static LLVMValueRef ir_render_call(CodeGen *g, Stage1Air *executable, Stage1AirI
 
             ZigType *result_type = instruction->base.value->type;
             ZigType *ptr_result_type = get_pointer_to_type(g, result_type, true);
-            return gen_await_early_return(g, &instruction->base, frame_result_loc,
+            return gen_await_early_return(g, &instruction->base,
+                    frame_struct_llvm_ty, frame_result_loc,
                     result_type, ptr_result_type, result_loc, true);
         } else {
             ZigType *ptr_result_type = get_pointer_to_type(g, src_return_type, true);
@@ -5284,8 +5344,11 @@ static LLVMValueRef ir_render_call(CodeGen *g, Stage1Air *executable, Stage1AirI
 
             if (need_frame_ptr_ptr_spill) {
                 LLVMValueRef frame_slice_ptr = ir_llvm_value(g, instruction->new_stack);
-                LLVMValueRef frame_ptr_ptr = LLVMBuildStructGEP(g->builder, frame_slice_ptr, slice_ptr_index, "");
-                frame_result_loc_uncasted = LLVMBuildLoad(g->builder, frame_ptr_ptr, "");
+                LLVMValueRef frame_ptr_ptr = LLVMBuildStructGEP2(g->builder,
+                        get_llvm_type(g, instruction->new_stack->value->type->data.pointer.child_type),
+                        frame_slice_ptr, slice_ptr_index, "");
+                frame_result_loc_uncasted = LLVMBuildLoad2(g->builder,
+                        LLVMGetGEPSourceElementType(frame_ptr_ptr), frame_ptr_ptr, "");
             }
             if (frame_result_loc_uncasted != nullptr) {
                 if (instruction->fn_entry != nullptr) {
@@ -5297,31 +5360,34 @@ static LLVMValueRef ir_render_call(CodeGen *g, Stage1Air *executable, Stage1AirI
                 }
             }
 
-            LLVMValueRef result_ptr = LLVMBuildStructGEP(g->builder, frame_result_loc, frame_ret_start + 2, "");
-            return LLVMBuildLoad(g->builder, result_ptr, "");
+            LLVMValueRef result_ptr = LLVMBuildStructGEP2(g->builder, frame_struct_llvm_ty,
+                    frame_result_loc, frame_ret_start + 2, "");
+            return LLVMBuildLoad2(g->builder, get_llvm_type(g, src_return_type), result_ptr, "");
         }
     } else {
         gen_param_types.deinit();
     }
 
     if (instruction->new_stack == nullptr || instruction->is_async_call_builtin) {
-        result = ZigLLVMBuildCall(g->builder, fn_val,
+        result = ZigLLVMBuildCall(g->builder, LLVMTypeOf(fn_val), fn_val,
                 gen_param_values.items, (unsigned)gen_param_values.length, llvm_cc, call_attr, "");
     } else if (instruction->modifier == CallModifierAsync) {
         zig_panic("TODO @asyncCall of non-async function");
     } else {
-        LLVMValueRef new_stack_addr = get_new_stack_addr(g, ir_llvm_value(g, instruction->new_stack));
+        LLVMValueRef new_stack_addr = get_new_stack_addr(g,
+                get_llvm_type(g, instruction->new_stack->value->type),
+                ir_llvm_value(g, instruction->new_stack));
         LLVMValueRef old_stack_ref;
         if (src_return_type->id != ZigTypeIdUnreachable) {
             LLVMValueRef stacksave_fn_val = get_stacksave_fn_val(g);
-            old_stack_ref = LLVMBuildCall(g->builder, stacksave_fn_val, nullptr, 0, "");
+            old_stack_ref = LLVMBuildCall2(g->builder, LLVMTypeOf(stacksave_fn_val), stacksave_fn_val, nullptr, 0, "");
         }
         gen_set_stack_pointer(g, new_stack_addr);
-        result = ZigLLVMBuildCall(g->builder, fn_val,
+        result = ZigLLVMBuildCall(g->builder, LLVMTypeOf(fn_val), fn_val,
                 gen_param_values.items, (unsigned)gen_param_values.length, llvm_cc, call_attr, "");
         if (src_return_type->id != ZigTypeIdUnreachable) {
             LLVMValueRef stackrestore_fn_val = get_stackrestore_fn_val(g);
-            LLVMBuildCall(g->builder, stackrestore_fn_val, &old_stack_ref, 1, "");
+            LLVMBuildCall2(g->builder, LLVMTypeOf(stackrestore_fn_val), stackrestore_fn_val, &old_stack_ref, 1, "");
         }
     }
 
@@ -5361,6 +5427,8 @@ static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, Stage1Air *executable
     LLVMValueRef struct_ptr = ir_llvm_value(g, instruction->struct_ptr);
     // not necessarily a pointer. could be ZigTypeIdStruct
     ZigType *struct_ptr_type = instruction->struct_ptr->value->type;
+    ZigType *struct_ty = (struct_ptr_type->id == ZigTypeIdPointer) ?
+        struct_ptr_type->data.pointer.child_type : struct_ptr_type;
     TypeStructField *field = instruction->field;
 
     if (!type_has_bits(g, field->type_entry))
@@ -5387,7 +5455,8 @@ static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, Stage1Air *executable
         codegen_report_errors_and_exit(g);
 
     ir_assert(field->gen_index != SIZE_MAX, &instruction->base);
-    LLVMValueRef field_ptr_val = LLVMBuildStructGEP(g->builder, struct_ptr, (unsigned)field->gen_index, "");
+    LLVMValueRef field_ptr_val = LLVMBuildStructGEP2(g->builder,
+            get_llvm_type(g, struct_ty), struct_ptr, (unsigned)field->gen_index, "");
     ZigType *res_type = instruction->base.value->type;
     ir_assert(res_type->id == ZigTypeIdPointer, &instruction->base);
     if (res_type->data.pointer.host_int_bytes != 0) {
@@ -5432,8 +5501,9 @@ static LLVMValueRef ir_render_union_field_ptr(CodeGen *g, Stage1Air *executable,
                 LLVMPointerType(tag_type_ref, 0), "");
         } else {
             assert(union_type->data.unionation.gen_tag_index != SIZE_MAX);
-            tag_field_ptr = LLVMBuildStructGEP(g->builder, union_ptr,
-                union_type->data.unionation.gen_tag_index, "");
+            tag_field_ptr = LLVMBuildStructGEP2(g->builder,
+                    get_llvm_type(g, union_type),
+                union_ptr, union_type->data.unionation.gen_tag_index, "");
         }
 
         LLVMValueRef tag_value = bigint_to_llvm_const(tag_type_ref,
@@ -5448,19 +5518,25 @@ static LLVMValueRef ir_render_union_field_ptr(CodeGen *g, Stage1Air *executable,
     LLVMTypeRef field_type_ref = LLVMPointerType(get_llvm_type(g, field->type_entry), 0);
 
     if (union_type->data.unionation.gen_tag_index == SIZE_MAX) {
-        LLVMValueRef union_field_ptr = LLVMBuildStructGEP(g->builder, union_ptr, 0, "");
+        LLVMValueRef union_field_ptr = LLVMBuildStructGEP2(g->builder,
+                get_llvm_type(g, union_type), union_ptr, 0, "");
         LLVMValueRef bitcasted_union_field_ptr = LLVMBuildBitCast(g->builder, union_field_ptr, field_type_ref, "");
         return bitcasted_union_field_ptr;
     }
 
     if (instruction->initializing) {
-        LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, union_ptr, union_type->data.unionation.gen_tag_index, "");
+        LLVMValueRef tag_field_ptr = LLVMBuildStructGEP2(g->builder,
+                get_llvm_type(g, union_type),
+                union_ptr, union_type->data.unionation.gen_tag_index, "");
         LLVMValueRef tag_value = bigint_to_llvm_const(get_llvm_type(g, union_type->data.unionation.tag_type),
                 &field->enum_field->value);
         gen_store_untyped(g, tag_value, tag_field_ptr, 0, false);
     } else if (instruction->safety_check_on && ir_want_runtime_safety(g, &instruction->base)) {
-        LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, union_ptr, union_type->data.unionation.gen_tag_index, "");
-        LLVMValueRef tag_value = gen_load_untyped(g, tag_field_ptr, 0, false, "");
+        LLVMValueRef tag_field_ptr = LLVMBuildStructGEP2(g->builder,
+                get_llvm_type(g, union_type),
+                union_ptr, union_type->data.unionation.gen_tag_index, "");
+        LLVMValueRef tag_value = gen_load_untyped(g, LLVMGetGEPSourceElementType(tag_field_ptr),
+                tag_field_ptr, 0, false, "");
 
 
         LLVMValueRef expected_tag_value = bigint_to_llvm_const(get_llvm_type(g, union_type->data.unionation.tag_type),
@@ -5476,10 +5552,9 @@ static LLVMValueRef ir_render_union_field_ptr(CodeGen *g, Stage1Air *executable,
         LLVMPositionBuilderAtEnd(g->builder, ok_block);
     }
 
-    LLVMValueRef union_field_ptr = LLVMBuildStructGEP(g->builder, union_ptr,
-            union_type->data.unionation.gen_union_index, "");
-    LLVMValueRef bitcasted_union_field_ptr = LLVMBuildBitCast(g->builder, union_field_ptr, field_type_ref, "");
-    return bitcasted_union_field_ptr;
+    LLVMValueRef union_field_ptr = LLVMBuildStructGEP2(g->builder, get_llvm_type(g, union_type),
+            union_ptr, union_type->data.unionation.gen_union_index, "");
+    return union_field_ptr;
 }
 
 static size_t find_asm_index(CodeGen *g, AstNode *node, AsmToken *tok, Buf *src_template) {
@@ -5660,7 +5735,7 @@ static LLVMValueRef ir_render_asm_gen(CodeGen *g, Stage1Air *executable, Stage1A
     LLVMValueRef asm_fn = LLVMGetInlineAsm(function_type, buf_ptr(&llvm_template), buf_len(&llvm_template),
             buf_ptr(&constraint_buf), buf_len(&constraint_buf), is_volatile, false, LLVMInlineAsmDialectATT, false);
 
-    LLVMValueRef built_call = LLVMBuildCall(g->builder, asm_fn, param_values, (unsigned)input_and_output_count, "");
+    LLVMValueRef built_call = LLVMBuildCall2(g->builder, LLVMTypeOf(asm_fn), asm_fn, param_values, (unsigned)input_and_output_count, "");
 
     for (size_t i = 0; i < input_and_output_count; i += 1) {
         if (param_needs_attr[i]) {
@@ -5689,8 +5764,9 @@ static LLVMValueRef gen_non_null_bit(CodeGen *g, ZigType *maybe_type, LLVMValueR
     if (is_scalar)
         return LLVMBuildICmp(g->builder, LLVMIntNE, maybe_handle, LLVMConstNull(get_llvm_type(g, maybe_type)), "");
 
-    LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, maybe_handle, maybe_null_index, "");
-    return gen_load_untyped(g, maybe_field_ptr, 0, false, "");
+    LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP2(g->builder,
+            get_llvm_type(g, maybe_type), maybe_handle, maybe_null_index, "");
+    return gen_load_untyped(g, LLVMGetGEPSourceElementType(maybe_field_ptr), maybe_field_ptr, 0, false, "");
 }
 
 static LLVMValueRef ir_render_test_non_null(CodeGen *g, Stage1Air *executable,
@@ -5736,12 +5812,13 @@ static LLVMValueRef ir_render_optional_unwrap_ptr(CodeGen *g, Stage1Air *executa
         } else {
             LLVMValueRef optional_struct_ref = get_handle_value(g, base_ptr, maybe_type, ptr_type);
             if (instruction->initializing) {
-                LLVMValueRef non_null_bit_ptr = LLVMBuildStructGEP(g->builder, optional_struct_ref,
-                        maybe_null_index, "");
+                LLVMValueRef non_null_bit_ptr = LLVMBuildStructGEP2(g->builder,
+                        get_llvm_type(g, maybe_type), optional_struct_ref, maybe_null_index, "");
                 LLVMValueRef non_null_bit = LLVMConstInt(LLVMInt1Type(), 1, false);
                 gen_store_untyped(g, non_null_bit, non_null_bit_ptr, 0, false);
             }
-            return LLVMBuildStructGEP(g->builder, optional_struct_ref, maybe_child_index, "");
+            return LLVMBuildStructGEP2(g->builder,
+                get_llvm_type(g, maybe_type), optional_struct_ref, maybe_child_index, "");
         }
     }
 }
@@ -5818,7 +5895,7 @@ static LLVMValueRef ir_render_clz(CodeGen *g, Stage1Air *executable, Stage1AirIn
         operand,
         LLVMConstNull(LLVMInt1Type()),
     };
-    LLVMValueRef wrong_size_int = LLVMBuildCall(g->builder, fn_val, params, 2, "");
+    LLVMValueRef wrong_size_int = LLVMBuildCall2(g->builder, LLVMTypeOf(fn_val), fn_val, params, 2, "");
     return gen_widen_or_shorten(g, false, int_type, instruction->base.value->type, wrong_size_int);
 }
 
@@ -5830,7 +5907,7 @@ static LLVMValueRef ir_render_ctz(CodeGen *g, Stage1Air *executable, Stage1AirIn
         operand,
         LLVMConstNull(LLVMInt1Type()),
     };
-    LLVMValueRef wrong_size_int = LLVMBuildCall(g->builder, fn_val, params, 2, "");
+    LLVMValueRef wrong_size_int = LLVMBuildCall2(g->builder, LLVMTypeOf(fn_val), fn_val, params, 2, "");
     return gen_widen_or_shorten(g, false, int_type, instruction->base.value->type, wrong_size_int);
 }
 
@@ -5887,7 +5964,7 @@ static LLVMValueRef ir_render_pop_count(CodeGen *g, Stage1Air *executable, Stage
     ZigType *int_type = instruction->op->value->type;
     LLVMValueRef fn_val = get_int_builtin_fn(g, int_type, BuiltinFnIdPopCount);
     LLVMValueRef operand = ir_llvm_value(g, instruction->op);
-    LLVMValueRef wrong_size_int = LLVMBuildCall(g->builder, fn_val, &operand, 1, "");
+    LLVMValueRef wrong_size_int = LLVMBuildCall2(g->builder, LLVMTypeOf(fn_val), fn_val, &operand, 1, "");
     return gen_widen_or_shorten(g, false, int_type, instruction->base.value->type, wrong_size_int);
 }
 
@@ -5978,7 +6055,11 @@ static LLVMValueRef ir_render_err_name(CodeGen *g, Stage1Air *executable, Stage1
         LLVMConstNull(g->builtin_types.entry_usize->llvm_type),
         err_val,
     };
-    return LLVMBuildInBoundsGEP(g->builder, g->err_name_table, indices, 2, "");
+    ZigType *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
+            PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0, false);
+    ZigType *str_type = get_slice_type(g, u8_ptr_type);
+    LLVMTypeRef elem_llvm_ty = get_llvm_type(g, str_type);
+    return LLVMBuildInBoundsGEP2(g->builder, elem_llvm_ty, g->err_name_table, indices, 2, "");
 }
 
 static LLVMValueRef get_enum_tag_name_function(CodeGen *g, ZigType *enum_type) {
@@ -6050,7 +6131,7 @@ static LLVMValueRef get_enum_tag_name_function(CodeGen *g, ZigType *enum_type) {
         LLVMSetAlignment(str_global, LLVMABIAlignmentOfType(g->target_data_ref, LLVMTypeOf(str_init)));
 
         LLVMValueRef fields[] = {
-            LLVMConstGEP(str_global, array_ptr_indices, 2),
+            LLVMConstInBoundsGEP2(LLVMInt8Type(), str_global, array_ptr_indices, 2),
             LLVMConstInt(g->builtin_types.entry_usize->llvm_type, buf_len(name), false),
         };
         LLVMValueRef slice_init_value = LLVMConstNamedStruct(get_llvm_type(g, u8_slice_type), fields, 2);
@@ -6099,7 +6180,8 @@ static LLVMValueRef ir_render_enum_tag_name(CodeGen *g, Stage1Air *executable,
     LLVMValueRef enum_name_function = get_enum_tag_name_function(g, enum_type);
 
     LLVMValueRef enum_tag_value = ir_llvm_value(g, instruction->target);
-    return ZigLLVMBuildCall(g->builder, enum_name_function, &enum_tag_value, 1,
+    return ZigLLVMBuildCall(g->builder, LLVMTypeOf(enum_name_function), enum_name_function,
+            &enum_tag_value, 1,
             get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_CallAttrAuto, "");
 }
 
@@ -6166,8 +6248,10 @@ static LLVMValueRef ir_render_align_cast(CodeGen *g, Stage1Air *executable, Stag
         align_bytes = get_ptr_align(g, slice_ptr_type);
 
         size_t ptr_index = target_type->data.structure.fields[slice_ptr_index]->gen_index;
-        LLVMValueRef ptr_val_ptr = LLVMBuildStructGEP(g->builder, target_val, (unsigned)ptr_index, "");
-        ptr_val = gen_load_untyped(g, ptr_val_ptr, 0, false, "");
+        LLVMValueRef ptr_val_ptr = LLVMBuildStructGEP2(g->builder,
+                get_llvm_type(g, instruction->target->value->type->data.pointer.child_type),
+                target_val, (unsigned)ptr_index, "");
+        ptr_val = gen_load_untyped(g, LLVMGetGEPSourceElementType(ptr_val_ptr), ptr_val_ptr, 0, false, "");
     } else {
         zig_unreachable();
     }
@@ -6319,12 +6403,16 @@ static LLVMValueRef ir_render_cmpxchg(CodeGen *g, Stage1Air *executable, Stage1A
     if (actual_abi_type != nullptr) {
         payload_val = LLVMBuildTrunc(g->builder, payload_val, get_llvm_type(g, operand_type), "");
     }
-    LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, result_loc, maybe_child_index, "");
+    LLVMTypeRef result_loc_struct_llvm_ty = get_llvm_type(g,
+            instruction->result_loc->value->type->data.pointer.child_type);
+    LLVMValueRef val_ptr = LLVMBuildStructGEP2(g->builder,
+            result_loc_struct_llvm_ty, result_loc, maybe_child_index, "");
     gen_assign_raw(g, val_ptr, get_pointer_to_type(g, child_type, false), payload_val);
 
     LLVMValueRef success_bit = LLVMBuildExtractValue(g->builder, result_val, 1, "");
     LLVMValueRef nonnull_bit = LLVMBuildNot(g->builder, success_bit, "");
-    LLVMValueRef maybe_ptr = LLVMBuildStructGEP(g->builder, result_loc, maybe_null_index, "");
+    LLVMValueRef maybe_ptr = LLVMBuildStructGEP2(g->builder, result_loc_struct_llvm_ty, result_loc,
+            maybe_null_index, "");
     gen_store_untyped(g, nonnull_bit, maybe_ptr, 0, false);
     return result_loc;
 }
@@ -6469,7 +6557,7 @@ static LLVMValueRef ir_render_memcpy(CodeGen *g, Stage1Air *executable, Stage1Ai
 static LLVMValueRef ir_render_wasm_memory_size(CodeGen *g, Stage1Air *executable, Stage1AirInstWasmMemorySize *instruction) {
     // TODO adjust for wasm64
     LLVMValueRef param = ir_llvm_value(g, instruction->index);
-    LLVMValueRef val = LLVMBuildCall(g->builder, gen_wasm_memory_size(g), &param, 1, "");
+    LLVMValueRef val = LLVMBuildCall2(g->builder, LLVMTypeOf(gen_wasm_memory_size(g)), gen_wasm_memory_size(g), &param, 1, "");
     return val;
 }
 
@@ -6479,7 +6567,7 @@ static LLVMValueRef ir_render_wasm_memory_grow(CodeGen *g, Stage1Air *executable
         ir_llvm_value(g, instruction->index),
         ir_llvm_value(g, instruction->delta),
     };
-    LLVMValueRef val = LLVMBuildCall(g->builder, gen_wasm_memory_grow(g), params, 2, "");
+    LLVMValueRef val = LLVMBuildCall2(g->builder, LLVMTypeOf(gen_wasm_memory_grow(g)), gen_wasm_memory_grow(g), params, 2, "");
     return val;
 }
 
@@ -6525,7 +6613,7 @@ static LLVMValueRef ir_render_prefetch(CodeGen *g, Stage1Air *executable, Stage1
         LLVMConstInt(LLVMInt32Type(), instruction->locality, false),
         LLVMConstInt(LLVMInt32Type(), instruction->cache, false),
     };
-    LLVMValueRef val = LLVMBuildCall(g->builder, gen_prefetch(g), params, 4, "");
+    LLVMValueRef val = LLVMBuildCall2(g->builder, LLVMTypeOf(gen_prefetch(g)), gen_prefetch(g), params, 4, "");
     return val;
 }
 
@@ -6591,12 +6679,15 @@ static LLVMValueRef ir_render_slice(CodeGen *g, Stage1Air *executable, Stage1Air
             codegen_report_errors_and_exit(g);
 
         if (value_has_bits) {
+            LLVMTypeRef elem_llvm_ty = get_llvm_type(g, array_type->data.array.child_type);
+
             if (want_runtime_safety && sentinel != nullptr) {
                 LLVMValueRef indices[] = {
                     LLVMConstNull(g->builtin_types.entry_usize->llvm_type),
                     end_val,
                 };
-                LLVMValueRef sentinel_elem_ptr = LLVMBuildInBoundsGEP(g->builder, array_ptr, indices, 2, "");
+                LLVMValueRef sentinel_elem_ptr = LLVMBuildInBoundsGEP2(g->builder,
+                    elem_llvm_ty, array_ptr, indices, 2, "");
                 add_sentinel_check(g, sentinel_elem_ptr, sentinel);
             }
 
@@ -6604,7 +6695,7 @@ static LLVMValueRef ir_render_slice(CodeGen *g, Stage1Air *executable, Stage1Air
                 LLVMConstNull(g->builtin_types.entry_usize->llvm_type),
                 start_val,
             };
-            slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, array_ptr, indices, 2, "");
+            slice_start_ptr = LLVMBuildInBoundsGEP2(g->builder, elem_llvm_ty, array_ptr, indices, 2, "");
         }
 
         len_value = LLVMBuildNUWSub(g->builder, end_val, start_val, "");
@@ -6623,27 +6714,31 @@ static LLVMValueRef ir_render_slice(CodeGen *g, Stage1Air *executable, Stage1Air
             codegen_report_errors_and_exit(g);
 
         if (value_has_bits) {
+            LLVMTypeRef elem_llvm_ty = get_llvm_type(g, array_type->data.pointer.child_type);
+
             if (want_runtime_safety && sentinel != nullptr) {
-                LLVMValueRef sentinel_elem_ptr = LLVMBuildInBoundsGEP(g->builder, array_ptr, &end_val, 1, "");
+                LLVMValueRef sentinel_elem_ptr = LLVMBuildInBoundsGEP2(g->builder, elem_llvm_ty,
+                        array_ptr, &end_val, 1, "");
                 add_sentinel_check(g, sentinel_elem_ptr, sentinel);
             }
 
-            slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, array_ptr, &start_val, 1, "");
+            slice_start_ptr = LLVMBuildInBoundsGEP2(g->builder, elem_llvm_ty, array_ptr,
+                    &start_val, 1, "");
         }
 
         len_value = LLVMBuildNUWSub(g->builder, end_val, start_val, "");
     } else if (array_type->id == ZigTypeIdStruct) {
         assert(array_type->data.structure.special == StructSpecialSlice);
         assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
-        assert(LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(array_ptr))) == LLVMStructTypeKind);
 
         const size_t gen_len_index = array_type->data.structure.fields[slice_len_index]->gen_index;
         assert(gen_len_index != SIZE_MAX);
 
         LLVMValueRef prev_end = nullptr;
         if (!instruction->end || want_runtime_safety) {
-            LLVMValueRef src_len_ptr = LLVMBuildStructGEP(g->builder, array_ptr, gen_len_index, "");
-            prev_end = gen_load_untyped(g, src_len_ptr, 0, false, "");
+            LLVMValueRef src_len_ptr = LLVMBuildStructGEP2(g->builder,
+                    get_llvm_type(g, array_type), array_ptr, gen_len_index, "");
+            prev_end = gen_load_untyped(g, LLVMGetGEPSourceElementType(src_len_ptr), src_len_ptr, 0, false, "");
         }
 
         LLVMValueRef start_val = ir_llvm_value(g, instruction->start);
@@ -6682,18 +6777,22 @@ static LLVMValueRef ir_render_slice(CodeGen *g, Stage1Air *executable, Stage1Air
             codegen_report_errors_and_exit(g);
 
         if (ptr_has_bits) {
+            LLVMTypeRef elem_llvm_ty = get_llvm_type(g, ptr_field_type->data.pointer.child_type);
             const size_t gen_ptr_index = array_type->data.structure.fields[slice_ptr_index]->gen_index;
             assert(gen_ptr_index != SIZE_MAX);
 
-            LLVMValueRef src_ptr_ptr = LLVMBuildStructGEP(g->builder, array_ptr, gen_ptr_index, "");
-            LLVMValueRef src_ptr = gen_load_untyped(g, src_ptr_ptr, 0, false, "");
+            LLVMValueRef src_ptr_ptr = LLVMBuildStructGEP2(g->builder,
+                    get_llvm_type(g, array_type), array_ptr, gen_ptr_index, "");
+            LLVMValueRef src_ptr = gen_load_untyped(g, LLVMGetGEPSourceElementType(src_ptr_ptr),
+                    src_ptr_ptr, 0, false, "");
 
             if (sentinel != nullptr) {
-                LLVMValueRef sentinel_elem_ptr = LLVMBuildInBoundsGEP(g->builder, src_ptr, &end_val, 1, "");
+                LLVMValueRef sentinel_elem_ptr = LLVMBuildInBoundsGEP2(g->builder, elem_llvm_ty,
+                        src_ptr, &end_val, 1, "");
                 add_sentinel_check(g, sentinel_elem_ptr, sentinel);
             }
 
-            slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, src_ptr, &start_val, 1, "");
+            slice_start_ptr = LLVMBuildInBoundsGEP2(g->builder, elem_llvm_ty, src_ptr, &start_val, 1, "");
         }
 
         len_value = LLVMBuildNUWSub(g->builder, end_val, start_val, "");
@@ -6735,7 +6834,8 @@ static LLVMValueRef ir_render_slice(CodeGen *g, Stage1Air *executable, Stage1Air
     // The slice may not have a pointer at all if it points to a zero-sized type
     const size_t gen_ptr_index = result_type->data.structure.fields[slice_ptr_index]->gen_index;
     if (gen_ptr_index != SIZE_MAX) {
-        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, gen_ptr_index, "");
+        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP2(g->builder,
+                get_llvm_type(g, result_type), tmp_struct_ptr, gen_ptr_index, "");
         if (slice_start_ptr != nullptr) {
             gen_store_untyped(g, slice_start_ptr, ptr_field_ptr, 0, false);
         } else if (want_runtime_safety) {
@@ -6748,7 +6848,8 @@ static LLVMValueRef ir_render_slice(CodeGen *g, Stage1Air *executable, Stage1Air
     const size_t gen_len_index = result_type->data.structure.fields[slice_len_index]->gen_index;
     assert(gen_len_index != SIZE_MAX);
 
-    LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, gen_len_index, "");
+    LLVMValueRef len_field_ptr = LLVMBuildStructGEP2(g->builder,
+            get_llvm_type(g, result_type), tmp_struct_ptr, gen_len_index, "");
     gen_store_untyped(g, len_value, len_field_ptr, 0, false);
 
     return tmp_struct_ptr;
@@ -6767,7 +6868,7 @@ static LLVMValueRef get_trap_fn_val(CodeGen *g) {
 
 
 static LLVMValueRef ir_render_breakpoint(CodeGen *g, Stage1Air *executable, Stage1AirInstBreakpoint *instruction) {
-    LLVMBuildCall(g->builder, get_trap_fn_val(g), nullptr, 0, "");
+    LLVMBuildCall2(g->builder, LLVMTypeOf(get_trap_fn_val(g)), get_trap_fn_val(g), nullptr, 0, "");
     return nullptr;
 }
 
@@ -6781,7 +6882,7 @@ static LLVMValueRef ir_render_return_address(CodeGen *g, Stage1Air *executable,
     }
 
     LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_i32->llvm_type);
-    LLVMValueRef ptr_val = LLVMBuildCall(g->builder, get_return_address_fn_val(g), &zero, 1, "");
+    LLVMValueRef ptr_val = LLVMBuildCall2(g->builder, LLVMTypeOf(get_return_address_fn_val(g)), get_return_address_fn_val(g), &zero, 1, "");
     return LLVMBuildPtrToInt(g->builder, ptr_val, g->builtin_types.entry_usize->llvm_type, "");
 }
 
@@ -6803,7 +6904,7 @@ static LLVMValueRef ir_render_frame_address(CodeGen *g, Stage1Air *executable,
         Stage1AirInstFrameAddress *instruction)
 {
     LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_i32->llvm_type);
-    LLVMValueRef ptr_val = LLVMBuildCall(g->builder, get_frame_address_fn_val(g), &zero, 1, "");
+    LLVMValueRef ptr_val = LLVMBuildCall2(g->builder, LLVMTypeOf(get_frame_address_fn_val(g)), get_frame_address_fn_val(g), &zero, 1, "");
     return LLVMBuildPtrToInt(g->builder, ptr_val, g->builtin_types.entry_usize->llvm_type, "");
 }
 
@@ -6866,7 +6967,7 @@ static LLVMValueRef ir_render_overflow_op(CodeGen *g, Stage1Air *executable, Sta
         op2,
     };
 
-    LLVMValueRef result_struct = LLVMBuildCall(g->builder, fn_val, params, 2, "");
+    LLVMValueRef result_struct = LLVMBuildCall2(g->builder, LLVMTypeOf(fn_val), fn_val, params, 2, "");
     LLVMValueRef result = LLVMBuildExtractValue(g->builder, result_struct, 0, "");
     LLVMValueRef overflow_bit = LLVMBuildExtractValue(g->builder, result_struct, 1, "");
     gen_store(g, result, ptr_result, instruction->result_ptr->value->type);
@@ -6881,8 +6982,9 @@ static LLVMValueRef ir_render_test_err(CodeGen *g, Stage1Air *executable, Stage1
 
     LLVMValueRef err_val;
     if (type_has_bits(g, payload_type)) {
-        LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, err_union_handle, err_union_err_index, "");
-        err_val = gen_load_untyped(g, err_val_ptr, 0, false, "");
+        LLVMValueRef err_val_ptr = LLVMBuildStructGEP2(g->builder,
+                get_llvm_type(g, err_union_type), err_union_handle, err_union_err_index, "");
+        err_val = gen_load_untyped(g, LLVMGetGEPSourceElementType(err_val_ptr), err_val_ptr, 0, false, "");
     } else {
         err_val = err_union_handle;
     }
@@ -6907,7 +7009,8 @@ static LLVMValueRef ir_render_unwrap_err_code(CodeGen *g, Stage1Air *executable,
     } else {
         // TODO assign undef to the payload
         LLVMValueRef err_union_handle = get_handle_value(g, err_union_ptr, err_union_type, ptr_type);
-        return LLVMBuildStructGEP(g->builder, err_union_handle, err_union_err_index, "");
+        return LLVMBuildStructGEP2(g->builder, get_llvm_type(g, err_union_type), err_union_handle,
+                err_union_err_index, "");
     }
 }
 
@@ -6946,11 +7049,14 @@ static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, Stage1Air *executab
         return err_union_handle;
     }
 
+    LLVMTypeRef err_union_llvm_ty = get_llvm_type(g, err_union_type);
+
     if (want_safety) {
         LLVMValueRef err_val;
         if (type_has_bits(g, payload_type)) {
-            LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, err_union_handle, err_union_err_index, "");
-            err_val = gen_load_untyped(g, err_val_ptr, 0, false, "");
+            LLVMValueRef err_val_ptr = LLVMBuildStructGEP2(g->builder, err_union_llvm_ty,
+                    err_union_handle, err_union_err_index, "");
+            err_val = gen_load_untyped(g, LLVMGetGEPSourceElementType(err_val_ptr), err_val_ptr, 0, false, "");
         } else {
             err_val = err_union_handle;
         }
@@ -6967,11 +7073,13 @@ static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, Stage1Air *executab
 
     if (type_has_bits(g, payload_type)) {
         if (instruction->initializing) {
-            LLVMValueRef err_tag_ptr = LLVMBuildStructGEP(g->builder, err_union_handle, err_union_err_index, "");
+            LLVMValueRef err_tag_ptr = LLVMBuildStructGEP2(g->builder, err_union_llvm_ty,
+                    err_union_handle, err_union_err_index, "");
             LLVMValueRef ok_err_val = LLVMConstNull(get_llvm_type(g, g->err_tag_type));
             gen_store_untyped(g, ok_err_val, err_tag_ptr, 0, false);
         }
-        return LLVMBuildStructGEP(g->builder, err_union_handle, err_union_payload_index, "");
+        return LLVMBuildStructGEP2(g->builder, err_union_llvm_ty, err_union_handle,
+                err_union_payload_index, "");
     } else {
         if (instruction->initializing) {
             gen_store_untyped(g, zero, err_union_ptr, 0, false);
@@ -7006,11 +7114,14 @@ static LLVMValueRef ir_render_optional_wrap(CodeGen *g, Stage1Air *executable, S
     }
 
     LLVMValueRef result_loc = ir_llvm_value(g, instruction->result_loc);
+    LLVMTypeRef result_llvm_struct_ty = get_llvm_type(g, wanted_type);
 
-    LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, result_loc, maybe_child_index, "");
+    LLVMValueRef val_ptr = LLVMBuildStructGEP2(g->builder, result_llvm_struct_ty, result_loc,
+            maybe_child_index, "");
     // child_type and instruction->value->value->type may differ by constness
     gen_assign_raw(g, val_ptr, get_pointer_to_type(g, child_type, false), payload_val);
-    LLVMValueRef maybe_ptr = LLVMBuildStructGEP(g->builder, result_loc, maybe_null_index, "");
+    LLVMValueRef maybe_ptr = LLVMBuildStructGEP2(g->builder, result_llvm_struct_ty, result_loc,
+            maybe_null_index, "");
     gen_store_untyped(g, LLVMConstAllOnes(LLVMInt1Type()), maybe_ptr, 0, false);
 
     return result_loc;
@@ -7028,7 +7139,8 @@ static LLVMValueRef ir_render_err_wrap_code(CodeGen *g, Stage1Air *executable, S
 
     LLVMValueRef result_loc = ir_llvm_value(g, instruction->result_loc);
 
-    LLVMValueRef err_tag_ptr = LLVMBuildStructGEP(g->builder, result_loc, err_union_err_index, "");
+    LLVMValueRef err_tag_ptr = LLVMBuildStructGEP2(g->builder, get_llvm_type(g, wanted_type),
+            result_loc, err_union_err_index, "");
     gen_store_untyped(g, err_val, err_tag_ptr, 0, false);
 
     // TODO store undef to the payload
@@ -7057,11 +7169,14 @@ static LLVMValueRef ir_render_err_wrap_payload(CodeGen *g, Stage1Air *executable
     LLVMValueRef result_loc = ir_llvm_value(g, instruction->result_loc);
 
     LLVMValueRef payload_val = ir_llvm_value(g, instruction->operand);
+    LLVMTypeRef result_struct_llvm_ty = get_llvm_type(g, wanted_type);
 
-    LLVMValueRef err_tag_ptr = LLVMBuildStructGEP(g->builder, result_loc, err_union_err_index, "");
+    LLVMValueRef err_tag_ptr = LLVMBuildStructGEP2(g->builder, result_struct_llvm_ty, result_loc,
+            err_union_err_index, "");
     gen_store_untyped(g, ok_err_val, err_tag_ptr, 0, false);
 
-    LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, result_loc, err_union_payload_index, "");
+    LLVMValueRef payload_ptr = LLVMBuildStructGEP2(g->builder, result_struct_llvm_ty, result_loc,
+            err_union_payload_index, "");
     gen_assign_raw(g, payload_ptr, get_pointer_to_type(g, payload_type, false), payload_val);
 
     return result_loc;
@@ -7079,7 +7194,8 @@ static LLVMValueRef ir_render_union_tag(CodeGen *g, Stage1Air *executable, Stage
         return union_val;
 
     assert(union_type->data.unionation.gen_tag_index != SIZE_MAX);
-    LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, union_val,
+    LLVMValueRef tag_field_ptr = LLVMBuildStructGEP2(g->builder,
+            get_llvm_type(g, union_type), union_val,
             union_type->data.unionation.gen_tag_index, "");
     ZigType *ptr_type = get_pointer_to_type(g, tag_type, false);
     return get_handle_value(g, tag_field_ptr, tag_type, ptr_type);
@@ -7221,14 +7337,12 @@ static LLVMValueRef ir_render_soft_mul_add(CodeGen *g, Stage1Air *executable, St
     LLVMValueRef op1 = ir_llvm_value(g, instruction->op1);
     LLVMValueRef op2 = ir_llvm_value(g, instruction->op2);
     LLVMValueRef op3 = ir_llvm_value(g, instruction->op3);
-    LLVMValueRef result;
     if (vector_len == 0) {
         LLVMValueRef params[3] = { op1, op2, op3 };
-        result = LLVMBuildCall(g->builder, func_ref, params, 3, "");
-    } else {
-        result = build_alloca(g, instruction->op1->value->type, "", 0);
+        return LLVMBuildCall2(g->builder, LLVMTypeOf(func_ref), func_ref, params, 3, "");
     }
 
+    LLVMValueRef result = LLVMGetUndef(get_llvm_type(g, instruction->op1->value->type));
     LLVMTypeRef usize_ref = g->builtin_types.entry_usize->llvm_type;
     for (uint32_t i = 0; i < vector_len; i++) {
         LLVMValueRef index_value = LLVMConstInt(usize_ref, i, false);
@@ -7238,12 +7352,8 @@ static LLVMValueRef ir_render_soft_mul_add(CodeGen *g, Stage1Air *executable, St
             LLVMBuildExtractElement(g->builder, op2, index_value, ""),
             LLVMBuildExtractElement(g->builder, op3, index_value, ""),
         };
-        LLVMValueRef call_result = LLVMBuildCall(g->builder, func_ref, params, 3, "");
-        LLVMBuildInsertElement(g->builder, LLVMBuildLoad(g->builder, result, ""),
-            call_result, index_value, "");
-    }
-    if (vector_len != 0) {
-        result = LLVMBuildLoad(g->builder, result, "");
+        LLVMValueRef call_result = LLVMBuildCall2(g->builder, LLVMTypeOf(func_ref), func_ref, params, 3, "");
+        result = LLVMBuildInsertElement(g->builder, result, call_result, index_value, "");
     }
     return result;
 }
@@ -7262,7 +7372,7 @@ static LLVMValueRef ir_render_mul_add(CodeGen *g, Stage1Air *executable, Stage1A
            instruction->base.value->type->id == ZigTypeIdVector);
     LLVMValueRef fn_val = get_float_fn(g, instruction->base.value->type, ZigLLVMFnIdFMA, BuiltinFnIdMulAdd);
     LLVMValueRef args[3] = { op1, op2, op3 };
-    return LLVMBuildCall(g->builder, fn_val, args, 3, "");
+    return LLVMBuildCall2(g->builder, LLVMTypeOf(fn_val), fn_val, args, 3, "");
 }
 
 static LLVMValueRef ir_render_bswap(CodeGen *g, Stage1Air *executable, Stage1AirInstBswap *instruction) {
@@ -7273,7 +7383,7 @@ static LLVMValueRef ir_render_bswap(CodeGen *g, Stage1Air *executable, Stage1Air
     assert(int_type->id == ZigTypeIdInt);
     if (int_type->data.integral.bit_count % 16 == 0) {
         LLVMValueRef fn_val = get_int_builtin_fn(g, expr_type, BuiltinFnIdBswap);
-        return LLVMBuildCall(g->builder, fn_val, &op, 1, "");
+        return LLVMBuildCall2(g->builder, LLVMTypeOf(fn_val), fn_val, &op, 1, "");
     }
     // Not an even number of bytes, so we zext 1 byte, then bswap, shift right 1 byte, truncate
     ZigType *extended_type = get_int_type(g, int_type->data.integral.is_signed,
@@ -7292,7 +7402,7 @@ static LLVMValueRef ir_render_bswap(CodeGen *g, Stage1Air *executable, Stage1Air
     LLVMValueRef extended = LLVMBuildZExt(g->builder, op, get_llvm_type(g, extended_type), "");
     // 00aabbcc
     LLVMValueRef fn_val = get_int_builtin_fn(g, extended_type, BuiltinFnIdBswap);
-    LLVMValueRef swapped = LLVMBuildCall(g->builder, fn_val, &extended, 1, "");
+    LLVMValueRef swapped = LLVMBuildCall2(g->builder, LLVMTypeOf(fn_val), fn_val, &extended, 1, "");
     // ccbbaa00
     LLVMValueRef shifted = ZigLLVMBuildLShrExact(g->builder, swapped, shift_amt, "");
     // 00ccbbaa
@@ -7328,7 +7438,7 @@ static LLVMValueRef ir_render_bit_reverse(CodeGen *g, Stage1Air *executable, Sta
     ZigType *int_type = instruction->base.value->type;
     assert(int_type->id == ZigTypeIdInt);
     LLVMValueRef fn_val = get_int_builtin_fn(g, instruction->base.value->type, BuiltinFnIdBitReverse);
-    return LLVMBuildCall(g->builder, fn_val, &op, 1, "");
+    return LLVMBuildCall2(g->builder, LLVMTypeOf(fn_val), fn_val, &op, 1, "");
 }
 
 static LLVMValueRef ir_render_vector_to_array(CodeGen *g, Stage1Air *executable,
@@ -7341,6 +7451,7 @@ static LLVMValueRef ir_render_vector_to_array(CodeGen *g, Stage1Air *executable,
     LLVMValueRef vector = ir_llvm_value(g, instruction->vector);
 
     ZigType *elem_type = array_type->data.array.child_type;
+    LLVMTypeRef elem_llvm_ty = get_llvm_type(g, elem_type);
     bool bitcast_ok = elem_type->size_in_bits == elem_type->abi_size * 8;
     if (bitcast_ok) {
         LLVMValueRef casted_ptr = LLVMBuildBitCast(g->builder, result_loc,
@@ -7357,7 +7468,7 @@ static LLVMValueRef ir_render_vector_to_array(CodeGen *g, Stage1Air *executable,
             LLVMValueRef index_usize = LLVMConstInt(usize_type_ref, i, false);
             LLVMValueRef index_u32 = LLVMConstInt(u32_type_ref, i, false);
             LLVMValueRef indexes[] = { zero, index_usize };
-            LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP(g->builder, result_loc, indexes, 2, "");
+            LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP2(g->builder, elem_llvm_ty, result_loc, indexes, 2, "");
             LLVMValueRef elem = LLVMBuildExtractElement(g->builder, vector, index_u32, "");
             LLVMBuildStore(g->builder, elem, elem_ptr);
         }
@@ -7377,12 +7488,10 @@ static LLVMValueRef ir_render_array_to_vector(CodeGen *g, Stage1Air *executable,
     ZigType *elem_type = vector_type->data.vector.elem_type;
     bool bitcast_ok = elem_type->size_in_bits == elem_type->abi_size * 8;
     if (bitcast_ok) {
-        LLVMValueRef casted_ptr = LLVMBuildBitCast(g->builder, array_ptr,
-                LLVMPointerType(vector_type_ref, 0), "");
         ZigType *array_type = instruction->array->value->type;
         assert(array_type->id == ZigTypeIdArray);
         uint32_t alignment = get_abi_alignment(g, array_type->data.array.child_type);
-        return gen_load_untyped(g, casted_ptr, alignment, false, "");
+        return gen_load_untyped(g, vector_type_ref, array_ptr, alignment, false, "");
     } else {
         // If the ABI size of the element type is not evenly divisible by size_in_bits, a simple bitcast
         // will not work, and we fall back to insertelement.
@@ -7390,12 +7499,14 @@ static LLVMValueRef ir_render_array_to_vector(CodeGen *g, Stage1Air *executable,
         LLVMTypeRef u32_type_ref = LLVMInt32Type();
         LLVMValueRef zero = LLVMConstInt(usize_type_ref, 0, false);
         LLVMValueRef vector = LLVMGetUndef(vector_type_ref);
+        LLVMTypeRef elem_llvm_ty = get_llvm_type(g, elem_type);
         for (uintptr_t i = 0; i < instruction->base.value->type->data.vector.len; i++) {
             LLVMValueRef index_usize = LLVMConstInt(usize_type_ref, i, false);
             LLVMValueRef index_u32 = LLVMConstInt(u32_type_ref, i, false);
             LLVMValueRef indexes[] = { zero, index_usize };
-            LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP(g->builder, array_ptr, indexes, 2, "");
-            LLVMValueRef elem = LLVMBuildLoad(g->builder, elem_ptr, "");
+            LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP2(g->builder, elem_llvm_ty, array_ptr,
+                    indexes, 2, "");
+            LLVMValueRef elem = LLVMBuildLoad2(g->builder, elem_llvm_ty, elem_ptr, "");
             vector = LLVMBuildInsertElement(g->builder, vector, elem, index_u32, "");
         }
         return vector;
@@ -7461,14 +7572,16 @@ static LLVMValueRef ir_render_suspend_finish(CodeGen *g, Stage1Air *executable,
 }
 
 static LLVMValueRef gen_await_early_return(CodeGen *g, Stage1AirInst *source_instr,
-        LLVMValueRef target_frame_ptr, ZigType *result_type, ZigType *ptr_result_type,
-        LLVMValueRef result_loc, bool non_async)
+        LLVMTypeRef target_frame_struct_llvm_ty, LLVMValueRef target_frame_ptr,
+        ZigType *result_type, ZigType *ptr_result_type, LLVMValueRef result_loc, bool non_async)
 {
     LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
     LLVMValueRef their_result_ptr = nullptr;
     if (type_has_bits(g, result_type) && (non_async || result_loc != nullptr)) {
-        LLVMValueRef their_result_ptr_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr, frame_ret_start, "");
-        their_result_ptr = LLVMBuildLoad(g->builder, their_result_ptr_ptr, "");
+        LLVMValueRef their_result_ptr_ptr = LLVMBuildStructGEP2(g->builder,
+                target_frame_struct_llvm_ty, target_frame_ptr, frame_ret_start, "");
+        their_result_ptr = LLVMBuildLoad2(g->builder,
+                LLVMGetGEPSourceElementType(their_result_ptr_ptr), their_result_ptr_ptr, "");
         if (result_loc != nullptr) {
             LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
             LLVMValueRef dest_ptr_casted = LLVMBuildBitCast(g->builder, result_loc, ptr_u8, "");
@@ -7482,13 +7595,16 @@ static LLVMValueRef gen_await_early_return(CodeGen *g, Stage1AirInst *source_ins
         }
     }
     if (codegen_fn_has_err_ret_tracing_arg(g, result_type)) {
-        LLVMValueRef their_trace_ptr_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr,
+        LLVMValueRef their_trace_ptr_ptr = LLVMBuildStructGEP2(g->builder,
+                target_frame_struct_llvm_ty, target_frame_ptr,
                 frame_index_trace_arg(g, result_type), "");
-        LLVMValueRef src_trace_ptr = LLVMBuildLoad(g->builder, their_trace_ptr_ptr, "");
+        LLVMValueRef src_trace_ptr = LLVMBuildLoad2(g->builder,
+                LLVMGetGEPSourceElementType(their_trace_ptr_ptr), their_trace_ptr_ptr, "");
         bool is_llvm_alloca;
         LLVMValueRef dest_trace_ptr = get_cur_err_ret_trace_val(g, source_instr->scope, &is_llvm_alloca);
         LLVMValueRef args[] = { dest_trace_ptr, src_trace_ptr };
-        ZigLLVMBuildCall(g->builder, get_merge_err_ret_traces_fn_val(g), args, 2,
+        ZigLLVMBuildCall(g->builder, LLVMTypeOf(get_merge_err_ret_traces_fn_val(g)),
+                get_merge_err_ret_traces_fn_val(g), args, 2,
                 get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_CallAttrAuto, "");
     }
     if (non_async && type_has_bits(g, result_type)) {
@@ -7503,6 +7619,8 @@ static LLVMValueRef ir_render_await(CodeGen *g, Stage1Air *executable, Stage1Air
     LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
     LLVMValueRef zero = LLVMConstNull(usize_type_ref);
     LLVMValueRef target_frame_ptr = ir_llvm_value(g, instruction->frame);
+    LLVMTypeRef target_frame_llvm_ty = get_llvm_type(g,
+            instruction->frame->value->type->data.pointer.child_type);
     ZigType *result_type = instruction->base.value->type;
     ZigType *ptr_result_type = get_pointer_to_type(g, result_type, true);
 
@@ -7512,8 +7630,8 @@ static LLVMValueRef ir_render_await(CodeGen *g, Stage1Air *executable, Stage1Air
     if (instruction->is_nosuspend ||
         (instruction->target_fn != nullptr && !fn_is_async(instruction->target_fn)))
     {
-        return gen_await_early_return(g, &instruction->base, target_frame_ptr, result_type,
-                ptr_result_type, result_loc, true);
+        return gen_await_early_return(g, &instruction->base, target_frame_llvm_ty,
+                target_frame_ptr, result_type, ptr_result_type, result_loc, true);
     }
 
     // Prepare to be suspended
@@ -7525,7 +7643,8 @@ static LLVMValueRef ir_render_await(CodeGen *g, Stage1Air *executable, Stage1Air
 
     // supply the awaiter return pointer
     if (type_has_bits(g, result_type)) {
-        LLVMValueRef awaiter_ret_ptr_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr, frame_ret_start + 1, "");
+        LLVMValueRef awaiter_ret_ptr_ptr = LLVMBuildStructGEP2(g->builder, target_frame_llvm_ty,
+                target_frame_ptr, frame_ret_start + 1, "");
         if (result_loc == nullptr) {
             // no copy needed
             LLVMBuildStore(g->builder, LLVMConstNull(LLVMGetElementType(LLVMTypeOf(awaiter_ret_ptr_ptr))),
@@ -7540,14 +7659,15 @@ static LLVMValueRef ir_render_await(CodeGen *g, Stage1Air *executable, Stage1Air
         bool is_llvm_alloca;
         LLVMValueRef my_err_ret_trace_val = get_cur_err_ret_trace_val(g, instruction->base.scope, &is_llvm_alloca);
         assert(my_err_ret_trace_val != nullptr);
-        LLVMValueRef err_ret_trace_ptr_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr,
-                frame_index_trace_arg(g, result_type) + 1, "");
+        LLVMValueRef err_ret_trace_ptr_ptr = LLVMBuildStructGEP2(g->builder, target_frame_llvm_ty,
+                target_frame_ptr, frame_index_trace_arg(g, result_type) + 1, "");
         LLVMBuildStore(g->builder, my_err_ret_trace_val, err_ret_trace_ptr_ptr);
     }
 
     // caller's own frame pointer
     LLVMValueRef awaiter_init_val = LLVMBuildPtrToInt(g->builder, g->cur_frame_ptr, usize_type_ref, "");
-    LLVMValueRef awaiter_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr, frame_awaiter_index, "");
+    LLVMValueRef awaiter_ptr = LLVMBuildStructGEP2(g->builder, target_frame_llvm_ty,
+            target_frame_ptr, frame_awaiter_index, "");
     LLVMValueRef prev_val = gen_maybe_atomic_op(g, LLVMAtomicRMWBinOpXchg, awaiter_ptr, awaiter_init_val,
             LLVMAtomicOrderingRelease);
 
@@ -7572,8 +7692,8 @@ static LLVMValueRef ir_render_await(CodeGen *g, Stage1Air *executable, Stage1Air
     // Early return: The async function has already completed. We must copy the result and
     // the error return trace if applicable.
     LLVMPositionBuilderAtEnd(g->builder, early_return_block);
-    gen_await_early_return(g, &instruction->base, target_frame_ptr, result_type, ptr_result_type,
-            result_loc, false);
+    gen_await_early_return(g, &instruction->base, target_frame_llvm_ty, target_frame_ptr,
+            result_type, ptr_result_type, result_loc, false);
     LLVMBuildBr(g->builder, end_bb);
 
     LLVMPositionBuilderAtEnd(g->builder, resume_bb);
@@ -7631,7 +7751,8 @@ static LLVMValueRef ir_render_spill_end(CodeGen *g, Stage1Air *executable, Stage
             zig_unreachable();
         case SpillIdRetErrCode: {
             LLVMValueRef ptr = ir_llvm_value(g, g->cur_fn->err_code_spill);
-            return LLVMBuildLoad(g->builder, ptr, "");
+            LLVMTypeRef llvm_ty = g->builtin_types.entry_global_error_set->llvm_type;
+            return LLVMBuildLoad2(g->builder, llvm_ty, ptr, "");
         }
 
     }
@@ -7923,24 +8044,12 @@ static LLVMValueRef gen_const_ptr_array_recursive(CodeGen *g, ZigValue *array_co
     ConstParent *parent = &array_const_val->parent;
     LLVMValueRef base_ptr = gen_parent_ptr(g, array_const_val, parent);
 
-    LLVMTypeKind el_type = LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(base_ptr)));
-    if (el_type == LLVMArrayTypeKind) {
-        ZigType *usize = g->builtin_types.entry_usize;
-        LLVMValueRef indices[] = {
-            LLVMConstNull(usize->llvm_type),
-            LLVMConstInt(usize->llvm_type, index, false),
-        };
-        return LLVMConstInBoundsGEP(base_ptr, indices, 2);
-    } else if (el_type == LLVMStructTypeKind) {
-        ZigType *u32 = g->builtin_types.entry_u32;
-        LLVMValueRef indices[] = {
-            LLVMConstNull(get_llvm_type(g, u32)),
-            LLVMConstInt(get_llvm_type(g, u32), index, false),
-        };
-        return LLVMConstInBoundsGEP(base_ptr, indices, 2);
-    } else {
-        return base_ptr;
-    }
+    ZigType *usize = g->builtin_types.entry_usize;
+    LLVMValueRef indices[] = {
+        LLVMConstNull(usize->llvm_type),
+        LLVMConstInt(usize->llvm_type, index, false),
+    };
+    return LLVMConstInBoundsGEP2(get_llvm_type(g, array_const_val->type), base_ptr, indices, 2);
 }
 
 static LLVMValueRef gen_const_ptr_struct_recursive(CodeGen *g, ZigValue *struct_const_val, size_t field_index) {
@@ -7957,9 +8066,7 @@ static LLVMValueRef gen_const_ptr_struct_recursive(CodeGen *g, ZigValue *struct_
     // alignment purposes and have the following LLVM type: <{ %T, [N x i8] }>.
     // Add an extra bitcast as we're only interested in the %T part.
     assert(handle_is_ptr(g, struct_const_val->type));
-    LLVMValueRef casted_base_ptr = LLVMConstBitCast(base_ptr,
-            LLVMPointerType(get_llvm_type(g, struct_const_val->type), 0));
-    return LLVMConstInBoundsGEP(casted_base_ptr, indices, 2);
+    return LLVMConstInBoundsGEP2(get_llvm_type(g, struct_const_val->type), base_ptr, indices, 2);
 }
 
 static LLVMValueRef gen_const_ptr_err_union_code_recursive(CodeGen *g, ZigValue *err_union_const_val) {
@@ -7971,7 +8078,7 @@ static LLVMValueRef gen_const_ptr_err_union_code_recursive(CodeGen *g, ZigValue 
         LLVMConstNull(get_llvm_type(g, u32)),
         LLVMConstInt(get_llvm_type(g, u32), err_union_err_index, false),
     };
-    return LLVMConstInBoundsGEP(base_ptr, indices, 2);
+    return LLVMConstInBoundsGEP2(get_llvm_type(g, err_union_const_val->type), base_ptr, indices, 2);
 }
 
 static LLVMValueRef gen_const_ptr_err_union_payload_recursive(CodeGen *g, ZigValue *err_union_const_val) {
@@ -7983,7 +8090,7 @@ static LLVMValueRef gen_const_ptr_err_union_payload_recursive(CodeGen *g, ZigVal
         LLVMConstNull(get_llvm_type(g, u32)),
         LLVMConstInt(get_llvm_type(g, u32), err_union_payload_index, false),
     };
-    return LLVMConstInBoundsGEP(base_ptr, indices, 2);
+    return LLVMConstInBoundsGEP2(get_llvm_type(g, err_union_const_val->type), base_ptr, indices, 2);
 }
 
 static LLVMValueRef gen_const_ptr_optional_payload_recursive(CodeGen *g, ZigValue *optional_const_val) {
@@ -7995,7 +8102,7 @@ static LLVMValueRef gen_const_ptr_optional_payload_recursive(CodeGen *g, ZigValu
         LLVMConstNull(get_llvm_type(g, u32)),
         LLVMConstInt(get_llvm_type(g, u32), maybe_child_index, false),
     };
-    return LLVMConstInBoundsGEP(base_ptr, indices, 2);
+    return LLVMConstInBoundsGEP2(get_llvm_type(g, optional_const_val->type), base_ptr, indices, 2);
 }
 
 static LLVMValueRef gen_const_ptr_union_recursive(CodeGen *g, ZigValue *union_const_val) {
@@ -8012,7 +8119,7 @@ static LLVMValueRef gen_const_ptr_union_recursive(CodeGen *g, ZigValue *union_co
         LLVMConstNull(get_llvm_type(g, u32)),
         LLVMConstInt(get_llvm_type(g, u32), union_payload_index, false),
     };
-    return LLVMConstInBoundsGEP(base_ptr, indices, (union_payload_index != SIZE_MAX) ? 2 : 1);
+    return LLVMConstInBoundsGEP2(get_llvm_type(g, union_const_val->type), base_ptr, indices, (union_payload_index != SIZE_MAX) ? 2 : 1);
 }
 
 static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, ZigValue *const_val) {
@@ -9206,28 +9313,38 @@ static void do_code_gen(CodeGen *g) {
             }
         }
 
+        LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
+
         // finishing error return trace setup. we have to do this after all the allocas.
         if (have_err_ret_trace_stack) {
             ZigType *usize = g->builtin_types.entry_usize;
             size_t index_field_index = g->stack_trace_type->data.structure.fields[0]->gen_index;
-            LLVMValueRef index_field_ptr = LLVMBuildStructGEP(g->builder, g->cur_err_ret_trace_val_stack, (unsigned)index_field_index, "");
+            LLVMValueRef index_field_ptr = LLVMBuildStructGEP2(g->builder,
+                    get_llvm_type(g, g->stack_trace_type),
+                    g->cur_err_ret_trace_val_stack, (unsigned)index_field_index, "");
             gen_store_untyped(g, LLVMConstNull(usize->llvm_type), index_field_ptr, 0, false);
 
             size_t addresses_field_index = g->stack_trace_type->data.structure.fields[1]->gen_index;
-            LLVMValueRef addresses_field_ptr = LLVMBuildStructGEP(g->builder, g->cur_err_ret_trace_val_stack, (unsigned)addresses_field_index, "");
+            LLVMValueRef addresses_field_ptr = LLVMBuildStructGEP2(g->builder,
+                    get_llvm_type(g, g->stack_trace_type),
+                    g->cur_err_ret_trace_val_stack, (unsigned)addresses_field_index, "");
 
             ZigType *slice_type = g->stack_trace_type->data.structure.fields[1]->type_entry;
             size_t ptr_field_index = slice_type->data.structure.fields[slice_ptr_index]->gen_index;
-            LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, addresses_field_ptr, (unsigned)ptr_field_index, "");
+            LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP2(g->builder,
+                    LLVMGetGEPSourceElementType(addresses_field_ptr),
+                    addresses_field_ptr, (unsigned)ptr_field_index, "");
             LLVMValueRef zero = LLVMConstNull(usize->llvm_type);
             LLVMValueRef indices[] = {zero, zero};
-            LLVMValueRef err_ret_array_val_elem0_ptr = LLVMBuildInBoundsGEP(g->builder, err_ret_array_val,
-                    indices, 2, "");
+            LLVMValueRef err_ret_array_val_elem0_ptr = LLVMBuildInBoundsGEP2(g->builder,
+                    usize_type_ref, err_ret_array_val, indices, 2, "");
             ZigType *ptr_ptr_usize_type = get_pointer_to_type(g, get_pointer_to_type(g, usize, false), false);
             gen_store(g, err_ret_array_val_elem0_ptr, ptr_field_ptr, ptr_ptr_usize_type);
 
             size_t len_field_index = slice_type->data.structure.fields[slice_len_index]->gen_index;
-            LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, addresses_field_ptr, (unsigned)len_field_index, "");
+            LLVMValueRef len_field_ptr = LLVMBuildStructGEP2(g->builder,
+                    LLVMGetGEPSourceElementType(addresses_field_ptr),
+                    addresses_field_ptr, (unsigned)len_field_index, "");
             gen_store(g, LLVMConstInt(usize->llvm_type, stack_trace_ptr_count, false), len_field_ptr, get_pointer_to_type(g, usize, false));
         }
 
@@ -9235,7 +9352,6 @@ static void do_code_gen(CodeGen *g) {
             (void)get_llvm_type(g, fn_table_entry->frame_type);
             g->cur_resume_block_count = 0;
 
-            LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
             LLVMValueRef size_val = LLVMConstInt(usize_type_ref, fn_table_entry->frame_type->abi_size, false);
             if (g->need_frame_size_prefix_data) {
                 ZigLLVMFunctionSetPrefixData(fn_table_entry->llvm_value, size_val);
@@ -9254,22 +9370,31 @@ static void do_code_gen(CodeGen *g) {
 
             LLVMPositionBuilderAtEnd(g->builder, g->cur_preamble_llvm_block);
             render_async_spills(g);
-            g->cur_async_awaiter_ptr = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr, frame_awaiter_index, "");
-            LLVMValueRef resume_index_ptr = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr, frame_resume_index, "");
+            g->cur_async_awaiter_ptr = LLVMBuildStructGEP2(g->builder,
+                    get_llvm_type(g, get_fn_frame_type(g, g->cur_fn)),
+                    g->cur_frame_ptr, frame_awaiter_index, "");
+            LLVMValueRef resume_index_ptr = LLVMBuildStructGEP2(g->builder,
+                    get_llvm_type(g, get_fn_frame_type(g, g->cur_fn)),
+                    g->cur_frame_ptr, frame_resume_index, "");
             g->cur_async_resume_index_ptr = resume_index_ptr;
 
             if (type_has_bits(g, fn_type_id->return_type)) {
-                LLVMValueRef cur_ret_ptr_ptr = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr, frame_ret_start, "");
-                g->cur_ret_ptr = LLVMBuildLoad(g->builder, cur_ret_ptr_ptr, "");
+                LLVMValueRef cur_ret_ptr_ptr = LLVMBuildStructGEP2(g->builder,
+                        get_llvm_type(g, get_fn_frame_type(g, g->cur_fn)),
+                        g->cur_frame_ptr, frame_ret_start, "");
+                g->cur_ret_ptr = LLVMBuildLoad2(g->builder,
+                        LLVMPointerTypeInContext(LLVMGetGlobalContext(), 0), cur_ret_ptr_ptr, "");
             }
             uint32_t trace_field_index_stack = UINT32_MAX;
             if (codegen_fn_has_err_ret_tracing_stack(g, fn_table_entry, true)) {
                 trace_field_index_stack = frame_index_trace_stack(g, fn_table_entry);
-                g->cur_err_ret_trace_val_stack = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr,
+                g->cur_err_ret_trace_val_stack = LLVMBuildStructGEP2(g->builder,
+                        get_llvm_type(g, get_fn_frame_type(g, g->cur_fn)),
+                        g->cur_frame_ptr,
                         trace_field_index_stack, "");
             }
 
-            LLVMValueRef resume_index = LLVMBuildLoad(g->builder, resume_index_ptr, "");
+            LLVMValueRef resume_index = LLVMBuildLoad2(g->builder, usize_type_ref, resume_index_ptr, "");
             LLVMValueRef switch_instr = LLVMBuildSwitch(g->builder, resume_index, bad_resume_block, 4);
             g->cur_async_switch_instr = switch_instr;
 
@@ -9293,15 +9418,21 @@ static void do_code_gen(CodeGen *g) {
             LLVMBuildStore(g->builder, g->cur_bad_not_suspended_index, g->cur_async_resume_index_ptr);
             if (trace_field_index_stack != UINT32_MAX) {
                 if (codegen_fn_has_err_ret_tracing_arg(g, fn_type_id->return_type)) {
-                    LLVMValueRef trace_ptr_ptr = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr,
+                    LLVMValueRef trace_ptr_ptr = LLVMBuildStructGEP2(g->builder,
+                            get_llvm_type(g, get_fn_frame_type(g, g->cur_fn)),
+                            g->cur_frame_ptr,
                             frame_index_trace_arg(g, fn_type_id->return_type), "");
                     LLVMValueRef zero_ptr = LLVMConstNull(LLVMGetElementType(LLVMTypeOf(trace_ptr_ptr)));
                     LLVMBuildStore(g->builder, zero_ptr, trace_ptr_ptr);
                 }
 
-                LLVMValueRef trace_field_ptr = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr,
+                LLVMValueRef trace_field_ptr = LLVMBuildStructGEP2(g->builder,
+                        get_llvm_type(g, get_fn_frame_type(g, g->cur_fn)),
+                        g->cur_frame_ptr,
                         trace_field_index_stack, "");
-                LLVMValueRef addrs_field_ptr = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr,
+                LLVMValueRef addrs_field_ptr = LLVMBuildStructGEP2(g->builder,
+                        get_llvm_type(g, get_fn_frame_type(g, g->cur_fn)),
+                        g->cur_frame_ptr,
                         trace_field_index_stack + 1, "");
 
                 gen_init_stack_trace(g, trace_field_ptr, addrs_field_ptr);
