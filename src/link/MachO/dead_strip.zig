@@ -43,9 +43,6 @@ fn removeAtomFromSection(atom: *Atom, match: u8, macho_file: *MachO) void {
             // The section will be GCed in the next step.
             section.last_atom = null;
             section.header.size = 0;
-            const segment = &macho_file.segments.items[section.segment_index];
-            segment.cmdsize -= @sizeOf(macho.section_64);
-            segment.nsects -= 1;
         }
     }
 

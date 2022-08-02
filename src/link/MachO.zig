@@ -4888,13 +4888,26 @@ fn getSegmentAllocBase(self: MachO, indices: []const ?u8) struct { vmaddr: u64, 
 
 fn writeSegmentHeaders(self: *MachO, ncmds: *u32, writer: anytype) !void {
     for (self.segments.items) |seg, i| {
-        if (seg.nsects == 0 and
-            (mem.eql(u8, seg.segName(), "__DATA_CONST") or
-            mem.eql(u8, seg.segName(), "__DATA"))) continue;
-        try writer.writeStruct(seg);
-
         const indexes = self.getSectionIndexes(@intCast(u8, i));
+        var out_seg = seg;
+        out_seg.cmdsize = @sizeOf(macho.segment_command_64);
+        out_seg.nsects = 0;
+
+        // Update section headers count; any section with size of 0 is excluded
+        // since it doesn't have any data in the final binary file.
         for (self.sections.items(.header)[indexes.start..indexes.end]) |header| {
+            if (header.size == 0) continue;
+            out_seg.cmdsize += @sizeOf(macho.section_64);
+            out_seg.nsects += 1;
+        }
+
+        if (out_seg.nsects == 0 and
+            (mem.eql(u8, out_seg.segName(), "__DATA_CONST") or
+            mem.eql(u8, out_seg.segName(), "__DATA"))) continue;
+
+        try writer.writeStruct(out_seg);
+        for (self.sections.items(.header)[indexes.start..indexes.end]) |header| {
+            if (header.size == 0) continue;
             try writer.writeStruct(header);
         }
 
