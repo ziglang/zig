@@ -4901,7 +4901,7 @@ pub const FuncGen = struct {
             if (isByRef(payload_ty)) {
                 return payload_ptr;
             }
-            const load_inst = fg.builder.buildLoad(payload_ptr.getGEPSourceElementType(), payload_ptr, "");
+            const load_inst = fg.builder.buildLoad(payload_ptr.getGEPResultElementType(), payload_ptr, "");
             load_inst.setAlignment(payload_ty.abiAlignment(target));
             return load_inst;
         }
@@ -6043,7 +6043,7 @@ pub const FuncGen = struct {
             if (isByRef(payload_ty)) {
                 return payload_ptr;
             }
-            const load_inst = self.builder.buildLoad(payload_ptr.getGEPSourceElementType(), payload_ptr, "");
+            const load_inst = self.builder.buildLoad(payload_ptr.getGEPResultElementType(), payload_ptr, "");
             load_inst.setAlignment(payload_ty.abiAlignment(target));
             return load_inst;
         }
@@ -7820,7 +7820,7 @@ pub const FuncGen = struct {
             }
             const tag_index = @boolToInt(layout.tag_align < layout.payload_align);
             const tag_field_ptr = self.builder.buildStructGEP(llvm_un_ty, union_handle, tag_index, "");
-            return self.builder.buildLoad(tag_field_ptr.getGEPSourceElementType(), tag_field_ptr, "");
+            return self.builder.buildLoad(tag_field_ptr.getGEPResultElementType(), tag_field_ptr, "");
         } else {
             if (layout.payload_size == 0) {
                 return union_handle;
@@ -8671,7 +8671,7 @@ pub const FuncGen = struct {
             }
             const target = fg.dg.module.getTarget();
             const payload_alignment = payload_ty.abiAlignment(target);
-            const load_inst = fg.builder.buildLoad(payload_ptr.getGEPSourceElementType(), payload_ptr, "");
+            const load_inst = fg.builder.buildLoad(payload_ptr.getGEPResultElementType(), payload_ptr, "");
             load_inst.setAlignment(payload_alignment);
             return load_inst;
         }

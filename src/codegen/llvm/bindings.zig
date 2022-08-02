@@ -242,8 +242,8 @@ pub const Value = opaque {
     pub const addFunctionAttr = ZigLLVMAddFunctionAttr;
     extern fn ZigLLVMAddFunctionAttr(Fn: *const Value, attr_name: [*:0]const u8, attr_value: [*:0]const u8) void;
 
-    pub const getGEPSourceElementType = LLVMGetGEPSourceElementType;
-    extern fn LLVMGetGEPSourceElementType(GEP: *const Value) *const Type;
+    pub const getGEPResultElementType = ZigLLVMGetGEPResultElementType;
+    extern fn ZigLLVMGetGEPResultElementType(GEP: *const Value) *const Type;
 };
 
 pub const Type = opaque {

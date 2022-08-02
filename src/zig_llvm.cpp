@@ -1195,6 +1195,10 @@ void ZigLLVMSetCallElemTypeAttr(LLVMValueRef Call, size_t arg_index, LLVMTypeRef
             Attribute::get(call_inst->getContext(), Attribute::ElementType, llvm_type));
 }
 
+LLVMTypeRef ZigLLVMGetGEPResultElementType(LLVMValueRef GEP) {
+    return wrap(unwrap<GEPOperator>(GEP)->getResultElementType());
+}
+
 void ZigLLVMFunctionSetPrefixData(LLVMValueRef function, LLVMValueRef data) {
     unwrap<Function>(function)->setPrefixData(unwrap<Constant>(data));
 }
