@@ -1487,7 +1487,8 @@ pub fn parseDylib(
     var file_size = math.cast(usize, file_stat.size) orelse return error.Overflow;
 
     const reader = file.reader();
-    const fat_offset = try fat.getLibraryOffset(reader, cpu_arch);
+    const fat_offset = math.cast(usize, try fat.getLibraryOffset(reader, cpu_arch)) orelse
+        return error.Overflow;
     try file.seekTo(fat_offset);
     file_size -= fat_offset;
 
@@ -5091,7 +5092,7 @@ fn writeDyldInfoData(self: *MachO, ncmds: *u32, lc_writer: anytype) !void {
     const needed_size = export_off + export_size - rebase_off;
     link_seg.filesize = needed_size;
 
-    var buffer = try gpa.alloc(u8, needed_size);
+    var buffer = try gpa.alloc(u8, math.cast(usize, needed_size) orelse return error.Overflow);
     defer gpa.free(buffer);
     mem.set(u8, buffer, 0);
 
@@ -5115,7 +5116,9 @@ fn writeDyldInfoData(self: *MachO, ncmds: *u32, lc_writer: anytype) !void {
     });
 
     try self.base.file.?.pwriteAll(buffer, rebase_off);
-    try self.populateLazyBindOffsetsInStubHelper(buffer[lazy_bind_off - rebase_off ..][0..lazy_bind_size]);
+    const start = math.cast(usize, lazy_bind_off - rebase_off) orelse return error.Overflow;
+    const end = start + (math.cast(usize, lazy_bind_size) orelse return error.Overflow);
+    try self.populateLazyBindOffsetsInStubHelper(buffer[start..end]);
 
     try lc_writer.writeStruct(macho.dyld_info_command{
         .cmd = .DYLD_INFO_ONLY,
