@@ -768,12 +768,12 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
         .if_simple => return ifExpr(gz, scope, rl.br(), node, tree.ifSimple(node)),
         .@"if" => return ifExpr(gz, scope, rl.br(), node, tree.ifFull(node)),
 
-        .while_simple => return whileExpr(gz, scope, rl.br(), node, tree.whileSimple(node)),
-        .while_cont => return whileExpr(gz, scope, rl.br(), node, tree.whileCont(node)),
-        .@"while" => return whileExpr(gz, scope, rl.br(), node, tree.whileFull(node)),
+        .while_simple => return whileExpr(gz, scope, rl.br(), node, tree.whileSimple(node), false),
+        .while_cont => return whileExpr(gz, scope, rl.br(), node, tree.whileCont(node), false),
+        .@"while" => return whileExpr(gz, scope, rl.br(), node, tree.whileFull(node), false),
 
-        .for_simple => return forExpr(gz, scope, rl.br(), node, tree.forSimple(node)),
-        .@"for" => return forExpr(gz, scope, rl.br(), node, tree.forFull(node)),
+        .for_simple => return forExpr(gz, scope, rl.br(), node, tree.forSimple(node), false),
+        .@"for" => return forExpr(gz, scope, rl.br(), node, tree.forFull(node), false),
 
         .slice_open => {
             const lhs = try expr(gz, scope, .ref, node_datas[node].lhs);
@@ -2152,6 +2152,7 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const node_tags = tree.nodes.items(.tag);
+    const node_data = tree.nodes.items(.data);
 
     if (statements.len == 0) return;
 
@@ -2178,8 +2179,10 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
                 },
             );
         }
-        switch (node_tags[statement]) {
-            // zig fmt: off
+        var inner_node = statement;
+        while (true) {
+            switch (node_tags[inner_node]) {
+                // zig fmt: off
             .global_var_decl  => scope = try varDecl(gz, scope, statement, block_arena_allocator, tree.globalVarDecl(statement)),
             .local_var_decl   => scope = try varDecl(gz, scope, statement, block_arena_allocator, tree.localVarDecl(statement)),
             .simple_var_decl  => scope = try varDecl(gz, scope, statement, block_arena_allocator, tree.simpleVarDecl(statement)),
@@ -2204,9 +2207,23 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
             .assign_add_wrap => try assignOp(gz, scope, statement, .addwrap),
             .assign_mul      => try assignOp(gz, scope, statement, .mul),
             .assign_mul_wrap => try assignOp(gz, scope, statement, .mulwrap),
+            
+            .grouped_expression => {
+                inner_node = node_data[statement].lhs;
+                continue;
+            },
 
-            else => noreturn_src_node = try unusedResultExpr(gz, scope, statement),
+            .while_simple => _ = try whileExpr(gz, scope, .discard, inner_node, tree.whileSimple(inner_node), true),
+            .while_cont => _ = try whileExpr(gz, scope, .discard, inner_node, tree.whileCont(inner_node), true),
+            .@"while" => _ = try whileExpr(gz, scope, .discard, inner_node, tree.whileFull(inner_node), true),
+
+            .for_simple => _ = try forExpr(gz, scope, .discard, inner_node, tree.forSimple(inner_node), true),
+            .@"for" => _ = try forExpr(gz, scope, .discard, inner_node, tree.forFull(inner_node), true),
+
+            else => noreturn_src_node = try unusedResultExpr(gz, scope, inner_node),
             // zig fmt: on
+            }
+            break;
         }
     }
 
@@ -2245,6 +2262,10 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
     // We need to emit an error if the result is not `noreturn` or `void`, but
     // we want to avoid adding the ZIR instruction if possible for performance.
     const maybe_unused_result = try expr(gz, scope, .none, statement);
+    return addEnsureResult(gz, maybe_unused_result, statement);
+}
+
+fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: Ast.Node.Index) InnerError!Ast.Node.Index {
     var noreturn_src_node: Ast.Node.Index = 0;
     const elide_check = if (refToIndex(maybe_unused_result)) |inst| b: {
         // Note that this array becomes invalid after appending more items to it
@@ -5648,6 +5669,7 @@ fn whileExpr(
     rl: ResultLoc,
     node: Ast.Node.Index,
     while_full: Ast.full.While,
+    is_statement: bool,
 ) InnerError!Zir.Inst.Ref {
     const astgen = parent_gz.astgen;
     const tree = astgen.tree;
@@ -5818,6 +5840,8 @@ fn whileExpr(
         try then_scope.addDbgVar(.dbg_var_val, some, dbg_var_inst);
     }
     const then_result = try expr(&then_scope, then_sub_scope, loop_scope.break_result_loc, while_full.ast.then_expr);
+    _ = try addEnsureResult(&then_scope, then_result, while_full.ast.then_expr);
+
     try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
     try then_scope.addDbgBlockEnd();
 
@@ -5860,7 +5884,11 @@ fn whileExpr(
         // control flow apply to outer loops; not this one.
         loop_scope.continue_block = 0;
         loop_scope.break_block = 0;
-        const e = try expr(&else_scope, sub_scope, loop_scope.break_result_loc, else_node);
+        const else_result = try expr(&else_scope, sub_scope, loop_scope.break_result_loc, else_node);
+        if (is_statement) {
+            _ = try addEnsureResult(&else_scope, else_result, else_node);
+        }
+
         if (!else_scope.endsWithNoReturn()) {
             loop_scope.break_count += 1;
         }
@@ -5868,7 +5896,7 @@ fn whileExpr(
         try else_scope.addDbgBlockEnd();
         break :blk .{
             .src = else_node,
-            .result = e,
+            .result = else_result,
         };
     } else .{
         .src = while_full.ast.then_expr,
@@ -5881,7 +5909,7 @@ fn whileExpr(
         }
     }
     const break_tag: Zir.Inst.Tag = if (is_inline) .break_inline else .@"break";
-    return finishThenElseBlock(
+    const result = try finishThenElseBlock(
         parent_gz,
         rl,
         node,
@@ -5896,6 +5924,10 @@ fn whileExpr(
         cond_block,
         break_tag,
     );
+    if (is_statement) {
+        _ = try parent_gz.addUnNode(.ensure_result_used, result, node);
+    }
+    return result;
 }
 
 fn forExpr(
@@ -5904,6 +5936,7 @@ fn forExpr(
     rl: ResultLoc,
     node: Ast.Node.Index,
     for_full: Ast.full.While,
+    is_statement: bool,
 ) InnerError!Zir.Inst.Ref {
     const astgen = parent_gz.astgen;
 
@@ -6047,6 +6080,8 @@ fn forExpr(
     };
 
     const then_result = try expr(&then_scope, then_sub_scope, loop_scope.break_result_loc, for_full.ast.then_expr);
+    _ = try addEnsureResult(&then_scope, then_result, for_full.ast.then_expr);
+
     try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
     try then_scope.addDbgBlockEnd();
 
@@ -6064,6 +6099,10 @@ fn forExpr(
         loop_scope.continue_block = 0;
         loop_scope.break_block = 0;
         const else_result = try expr(&else_scope, sub_scope, loop_scope.break_result_loc, else_node);
+        if (is_statement) {
+            _ = try addEnsureResult(&else_scope, else_result, else_node);
+        }
+
         if (!else_scope.endsWithNoReturn()) {
             loop_scope.break_count += 1;
         }
@@ -6082,7 +6121,7 @@ fn forExpr(
         }
     }
     const break_tag: Zir.Inst.Tag = if (is_inline) .break_inline else .@"break";
-    return finishThenElseBlock(
+    const result = try finishThenElseBlock(
         parent_gz,
         rl,
         node,
@@ -6097,6 +6136,10 @@ fn forExpr(
         cond_block,
         break_tag,
     );
+    if (is_statement) {
+        _ = try parent_gz.addUnNode(.ensure_result_used, result, node);
+    }
+    return result;
 }
 
 fn switchExpr(
