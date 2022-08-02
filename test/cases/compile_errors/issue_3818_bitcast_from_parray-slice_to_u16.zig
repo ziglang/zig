@@ -10,8 +10,10 @@ export fn foo2() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:3:42: error: unable to @bitCast from pointer type '*[2]u8'
-// tmp.zig:8:32: error: destination type 'u16' has size 2 but source type '[]const u8' has size 16
+// :3:42: error: cannot @bitCast from '*[2]u8'
+// :3:42: note: use @ptrToInt to cast to 'u16'
+// :8:37: error: cannot @bitCast from '[]const u8'
+// :8:37: note: use @ptrToInt to cast to 'u16'

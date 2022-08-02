@@ -2971,7 +2971,7 @@ fn zirAllocExtended(
     const extra = sema.code.extraData(Zir.Inst.AllocExtended, extended.operand);
     const src = LazySrcLoc.nodeOffset(extra.data.src_node);
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = extra.data.src_node };
-    const align_src = src; // TODO better source location
+    const align_src: LazySrcLoc = .{ .node_offset_var_decl_align = extra.data.src_node };
     const small = @bitCast(Zir.Inst.AllocExtended.Small, extended.small);
 
     var extra_index: usize = extra.end;
@@ -5049,13 +5049,13 @@ pub fn analyzeExport(
     try mod.ensureDeclAnalyzed(exported_decl_index);
     const exported_decl = mod.declPtr(exported_decl_index);
 
-    if (!(try sema.validateExternType(exported_decl.ty, .other))) {
+    if (!sema.validateExternType(exported_decl.ty, .other)) {
         const msg = msg: {
             const msg = try sema.errMsg(block, src, "unable to export type '{}'", .{exported_decl.ty.fmt(sema.mod)});
             errdefer msg.destroy(sema.gpa);
 
             const src_decl = sema.mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsNotExtern(block, src, msg, src.toSrcLoc(src_decl), exported_decl.ty, .other);
+            try sema.explainWhyTypeIsNotExtern(msg, src.toSrcLoc(src_decl), exported_decl.ty, .other);
 
             try sema.addDeclaredHereNote(msg, exported_decl.ty);
             break :msg msg;
@@ -7634,7 +7634,7 @@ fn funcCommon(
             };
             return sema.failWithOwnedErrorMsg(block, msg);
         }
-        if (!Type.fnCallingConventionAllowsZigTypes(cc_workaround) and !(try sema.validateExternType(return_type, .ret_ty))) {
+        if (!Type.fnCallingConventionAllowsZigTypes(cc_workaround) and !sema.validateExternType(return_type, .ret_ty)) {
             const msg = msg: {
                 const msg = try sema.errMsg(block, ret_ty_src, "return type '{}' not allowed in function with calling convention '{s}'", .{
                     return_type.fmt(sema.mod), @tagName(cc_workaround),
@@ -7642,7 +7642,7 @@ fn funcCommon(
                 errdefer msg.destroy(sema.gpa);
 
                 const src_decl = sema.mod.declPtr(block.src_decl);
-                try sema.explainWhyTypeIsNotExtern(block, ret_ty_src, msg, ret_ty_src.toSrcLoc(src_decl), return_type, .ret_ty);
+                try sema.explainWhyTypeIsNotExtern(msg, ret_ty_src.toSrcLoc(src_decl), return_type, .ret_ty);
 
                 try sema.addDeclaredHereNote(msg, return_type);
                 break :msg msg;
@@ -7830,7 +7830,7 @@ fn analyzeParameter(
         };
         return sema.failWithOwnedErrorMsg(block, msg);
     }
-    if (!Type.fnCallingConventionAllowsZigTypes(cc) and !(try sema.validateExternType(param.ty, .param_ty))) {
+    if (!Type.fnCallingConventionAllowsZigTypes(cc) and !sema.validateExternType(param.ty, .param_ty)) {
         const msg = msg: {
             const msg = try sema.errMsg(block, param_src, "parameter of type '{}' not allowed in function with calling convention '{s}'", .{
                 param.ty.fmt(sema.mod), @tagName(cc),
@@ -7838,7 +7838,7 @@ fn analyzeParameter(
             errdefer msg.destroy(sema.gpa);
 
             const src_decl = sema.mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsNotExtern(block, param_src, msg, param_src.toSrcLoc(src_decl), param.ty, .param_ty);
+            try sema.explainWhyTypeIsNotExtern(msg, param_src.toSrcLoc(src_decl), param.ty, .param_ty);
 
             try sema.addDeclaredHereNote(msg, param.ty);
             break :msg msg;
@@ -8046,7 +8046,7 @@ fn zirPtrToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     if (try sema.resolveMaybeUndefValIntable(block, ptr_src, ptr)) |ptr_val| {
         return sema.addConstant(Type.usize, ptr_val);
     }
-    try sema.requireRuntimeBlock(block, ptr_src, ptr_src);
+    try sema.requireRuntimeBlock(block, inst_data.src(), ptr_src);
     return block.addUnOp(.ptrtoint, ptr);
 }
 
@@ -8288,6 +8288,7 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 
     const dest_ty = try sema.resolveType(block, dest_ty_src, extra.lhs);
     const operand = try sema.resolveInst(extra.rhs);
+    const operand_ty = sema.typeOf(operand);
     switch (dest_ty.zigTypeTag()) {
         .AnyFrame,
         .ComptimeFloat,
@@ -8310,8 +8311,8 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             const msg = msg: {
                 const msg = try sema.errMsg(block, dest_ty_src, "cannot @bitCast to '{}'", .{dest_ty.fmt(sema.mod)});
                 errdefer msg.destroy(sema.gpa);
-                switch (sema.typeOf(operand).zigTypeTag()) {
-                    .Int, .ComptimeInt => try sema.errNote(block, dest_ty_src, msg, "use @intToEnum for type coercion", .{}),
+                switch (operand_ty.zigTypeTag()) {
+                    .Int, .ComptimeInt => try sema.errNote(block, dest_ty_src, msg, "use @intToEnum to cast from '{}'", .{operand_ty.fmt(sema.mod)}),
                     else => {},
                 }
 
@@ -8320,9 +8321,20 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             return sema.failWithOwnedErrorMsg(block, msg);
         },
 
-        .Pointer => return sema.fail(block, dest_ty_src, "cannot @bitCast to '{}', use @ptrCast to cast to a pointer", .{
-            dest_ty.fmt(sema.mod),
-        }),
+        .Pointer => {
+            const msg = msg: {
+                const msg = try sema.errMsg(block, dest_ty_src, "cannot @bitCast to '{}'", .{dest_ty.fmt(sema.mod)});
+                errdefer msg.destroy(sema.gpa);
+                switch (operand_ty.zigTypeTag()) {
+                    .Int, .ComptimeInt => try sema.errNote(block, dest_ty_src, msg, "use @intToPtr to cast from '{}'", .{operand_ty.fmt(sema.mod)}),
+                    .Pointer => try sema.errNote(block, dest_ty_src, msg, "use @ptrCast to cast from '{}'", .{operand_ty.fmt(sema.mod)}),
+                    else => {},
+                }
+
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(block, msg);
+        },
         .Struct, .Union => if (dest_ty.containerLayout() == .Auto) {
             const container = switch (dest_ty.zigTypeTag()) {
                 .Struct => "struct",
@@ -8331,6 +8343,70 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             };
             return sema.fail(block, dest_ty_src, "cannot @bitCast to '{}', {s} does not have a guaranteed in-memory layout", .{
                 dest_ty.fmt(sema.mod), container,
+            });
+        },
+        .BoundFn => @panic("TODO remove this type from the language and compiler"),
+
+        .Array,
+        .Bool,
+        .Float,
+        .Int,
+        .Vector,
+        => {},
+    }
+    switch (operand_ty.zigTypeTag()) {
+        .AnyFrame,
+        .ComptimeFloat,
+        .ComptimeInt,
+        .EnumLiteral,
+        .ErrorSet,
+        .ErrorUnion,
+        .Fn,
+        .Frame,
+        .NoReturn,
+        .Null,
+        .Opaque,
+        .Optional,
+        .Type,
+        .Undefined,
+        .Void,
+        => return sema.fail(block, operand_src, "cannot @bitCast from '{}'", .{operand_ty.fmt(sema.mod)}),
+
+        .Enum => {
+            const msg = msg: {
+                const msg = try sema.errMsg(block, operand_src, "cannot @bitCast from '{}'", .{operand_ty.fmt(sema.mod)});
+                errdefer msg.destroy(sema.gpa);
+                switch (dest_ty.zigTypeTag()) {
+                    .Int, .ComptimeInt => try sema.errNote(block, operand_src, msg, "use @enumToInt to cast to '{}'", .{dest_ty.fmt(sema.mod)}),
+                    else => {},
+                }
+
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(block, msg);
+        },
+        .Pointer => {
+            const msg = msg: {
+                const msg = try sema.errMsg(block, operand_src, "cannot @bitCast from '{}'", .{operand_ty.fmt(sema.mod)});
+                errdefer msg.destroy(sema.gpa);
+                switch (dest_ty.zigTypeTag()) {
+                    .Int, .ComptimeInt => try sema.errNote(block, operand_src, msg, "use @ptrToInt to cast to '{}'", .{dest_ty.fmt(sema.mod)}),
+                    .Pointer => try sema.errNote(block, operand_src, msg, "use @ptrCast to cast to '{}'", .{dest_ty.fmt(sema.mod)}),
+                    else => {},
+                }
+
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(block, msg);
+        },
+        .Struct, .Union => if (operand_ty.containerLayout() == .Auto) {
+            const container = switch (operand_ty.zigTypeTag()) {
+                .Struct => "struct",
+                .Union => "union",
+                else => unreachable,
+            };
+            return sema.fail(block, operand_src, "cannot @bitCast from '{}', {s} does not have a guaranteed in-memory layout", .{
+                operand_ty.fmt(sema.mod), container,
             });
         },
         .BoundFn => @panic("TODO remove this type from the language and compiler"),
@@ -13098,8 +13174,8 @@ fn zirBuiltinSrc(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const src = sema.src; // TODO better source location
-    const extra = sema.code.extraData(Zir.Inst.LineColumn, extended.operand).data;
+    const extra = sema.code.extraData(Zir.Inst.Src, extended.operand).data;
+    const src = LazySrcLoc.nodeOffset(extra.node);
     const func = sema.func orelse return sema.fail(block, src, "@src outside function", .{});
     const fn_owner_decl = sema.mod.declPtr(func.owner_decl);
 
@@ -14790,13 +14866,13 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     } else if (inst_data.size == .Many and elem_ty.zigTypeTag() == .Opaque) {
         return sema.fail(block, elem_ty_src, "unknown-length pointer to opaque not allowed", .{});
     } else if (inst_data.size == .C) {
-        if (!(try sema.validateExternType(elem_ty, .other))) {
+        if (!sema.validateExternType(elem_ty, .other)) {
             const msg = msg: {
                 const msg = try sema.errMsg(block, elem_ty_src, "C pointers cannot point to non-C-ABI-compatible type '{}'", .{elem_ty.fmt(sema.mod)});
                 errdefer msg.destroy(sema.gpa);
 
                 const src_decl = sema.mod.declPtr(block.src_decl);
-                try sema.explainWhyTypeIsNotExtern(block, elem_ty_src, msg, elem_ty_src.toSrcLoc(src_decl), elem_ty, .other);
+                try sema.explainWhyTypeIsNotExtern(msg, elem_ty_src.toSrcLoc(src_decl), elem_ty, .other);
 
                 try sema.addDeclaredHereNote(msg, elem_ty);
                 break :msg msg;
@@ -15874,13 +15950,13 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             } else if (ptr_size == .Many and elem_ty.zigTypeTag() == .Opaque) {
                 return sema.fail(block, src, "unknown-length pointer to opaque not allowed", .{});
             } else if (ptr_size == .C) {
-                if (!(try sema.validateExternType(elem_ty, .other))) {
+                if (!sema.validateExternType(elem_ty, .other)) {
                     const msg = msg: {
                         const msg = try sema.errMsg(block, src, "C pointers cannot point to non-C-ABI-compatible type '{}'", .{elem_ty.fmt(sema.mod)});
                         errdefer msg.destroy(sema.gpa);
 
                         const src_decl = sema.mod.declPtr(block.src_decl);
-                        try sema.explainWhyTypeIsNotExtern(block, src, msg, src.toSrcLoc(src_decl), elem_ty, .other);
+                        try sema.explainWhyTypeIsNotExtern(msg, src.toSrcLoc(src_decl), elem_ty, .other);
 
                         try sema.addDeclaredHereNote(msg, elem_ty);
                         break :msg msg;
@@ -18883,10 +18959,8 @@ fn zirVarExtended(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.ExtendedVar, extended.operand);
-    const src = sema.src;
-    const ty_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at type
-    const name_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at the name token
-    const init_src: LazySrcLoc = src; // TODO add a LazySrcLoc that points at init expr
+    const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = 0 };
+    const init_src: LazySrcLoc = .{ .node_offset_var_decl_init = 0 };
     const small = @bitCast(Zir.Inst.ExtendedVar.Small, extended.small);
 
     var extra_index: usize = extra.end;
@@ -18900,12 +18974,6 @@ fn zirVarExtended(
     // ZIR supports encoding this information but it is not used; the information
     // is encoded via the Decl entry.
     assert(!small.has_align);
-    //const align_val: Value = if (small.has_align) blk: {
-    //    const align_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
-    //    extra_index += 1;
-    //    const align_tv = try sema.resolveInstConst(block, align_src, align_ref);
-    //    break :blk align_tv.val;
-    //} else Value.@"null";
 
     const uncasted_init: Air.Inst.Ref = if (small.has_init) blk: {
         const init_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
@@ -18929,7 +18997,7 @@ fn zirVarExtended(
             return sema.failWithNeededComptime(block, init_src, "container level variable initializers must be comptime known");
     } else Value.initTag(.unreachable_value);
 
-    try sema.validateVarType(block, name_src, var_ty, small.is_extern);
+    try sema.validateVarType(block, ty_src, var_ty, small.is_extern);
 
     const new_var = try sema.gpa.create(Module.Var);
     errdefer sema.gpa.destroy(new_var);
@@ -19668,7 +19736,7 @@ const ExternPosition = enum {
 
 /// Returns true if `ty` is allowed in extern types.
 /// Does *NOT* require `ty` to be resolved in any way.
-fn validateExternType(sema: *Sema, ty: Type, position: ExternPosition) CompileError!bool {
+fn validateExternType(sema: *Sema, ty: Type, position: ExternPosition) bool {
     switch (ty.zigTypeTag()) {
         .Type,
         .ComptimeFloat,
@@ -19713,8 +19781,6 @@ fn validateExternType(sema: *Sema, ty: Type, position: ExternPosition) CompileEr
 
 fn explainWhyTypeIsNotExtern(
     sema: *Sema,
-    block: *Block,
-    src: LazySrcLoc,
     msg: *Module.ErrorMsg,
     src_loc: Module.SrcLoc,
     ty: Type,
@@ -19758,7 +19824,7 @@ fn explainWhyTypeIsNotExtern(
             var buf: Type.Payload.Bits = undefined;
             const tag_ty = ty.intTagType(&buf);
             try mod.errNoteNonLazy(src_loc, msg, "enum tag type '{}' is not extern compatible", .{tag_ty.fmt(sema.mod)});
-            try sema.explainWhyTypeIsNotExtern(block, src, msg, src_loc, tag_ty, position);
+            try sema.explainWhyTypeIsNotExtern(msg, src_loc, tag_ty, position);
         },
         .Struct => try mod.errNoteNonLazy(src_loc, msg, "only structs with packed or extern layout are extern compatible", .{}),
         .Union => try mod.errNoteNonLazy(src_loc, msg, "only unions with packed or extern layout are extern compatible", .{}),
@@ -19768,10 +19834,84 @@ fn explainWhyTypeIsNotExtern(
             } else if (position == .param_ty) {
                 return mod.errNoteNonLazy(src_loc, msg, "arrays are not allowed as a parameter type", .{});
             }
-            try sema.explainWhyTypeIsNotExtern(block, src, msg, src_loc, ty.elemType2(), position);
+            try sema.explainWhyTypeIsNotExtern(msg, src_loc, ty.elemType2(), position);
         },
-        .Vector => try sema.explainWhyTypeIsNotExtern(block, src, msg, src_loc, ty.elemType2(), position),
+        .Vector => try sema.explainWhyTypeIsNotExtern(msg, src_loc, ty.elemType2(), position),
         .Optional => try mod.errNoteNonLazy(src_loc, msg, "only pointer like optionals are extern compatible", .{}),
+    }
+}
+
+/// Returns true if `ty` is allowed in packed types.
+/// Does *NOT* require `ty` to be resolved in any way.
+fn validatePackedType(ty: Type) bool {
+    switch (ty.zigTypeTag()) {
+        .Type,
+        .ComptimeFloat,
+        .ComptimeInt,
+        .EnumLiteral,
+        .Undefined,
+        .Null,
+        .ErrorUnion,
+        .ErrorSet,
+        .BoundFn,
+        .Frame,
+        .NoReturn,
+        .Opaque,
+        .AnyFrame,
+        .Fn,
+        .Array,
+        .Optional,
+        => return false,
+        .Void,
+        .Bool,
+        .Float,
+        .Pointer,
+        .Int,
+        .Vector,
+        .Enum,
+        => return true,
+        .Struct, .Union => return ty.containerLayout() == .Packed,
+    }
+}
+
+fn explainWhyTypeIsNotPacked(
+    sema: *Sema,
+    msg: *Module.ErrorMsg,
+    src_loc: Module.SrcLoc,
+    ty: Type,
+) CompileError!void {
+    const mod = sema.mod;
+    switch (ty.zigTypeTag()) {
+        .Void,
+        .Bool,
+        .Float,
+        .Pointer,
+        .Int,
+        .Vector,
+        .Enum,
+        => return,
+        .Type,
+        .ComptimeFloat,
+        .ComptimeInt,
+        .EnumLiteral,
+        .Undefined,
+        .Null,
+        .BoundFn,
+        .Frame,
+        .NoReturn,
+        .Opaque,
+        .ErrorUnion,
+        .ErrorSet,
+        .AnyFrame,
+        .Optional,
+        .Array,
+        => try mod.errNoteNonLazy(src_loc, msg, "type has no guaranteed in-memory representation", .{}),
+        .Fn => {
+            try mod.errNoteNonLazy(src_loc, msg, "type has no guaranteed in-memory representation", .{});
+            try mod.errNoteNonLazy(src_loc, msg, "use '*const ' to make a function pointer type", .{});
+        },
+        .Struct => try mod.errNoteNonLazy(src_loc, msg, "only packed structs layout are allowed in packed types", .{}),
+        .Union => try mod.errNoteNonLazy(src_loc, msg, "only packed unions layout are allowed in packed types", .{}),
     }
 }
 
@@ -26851,20 +26991,6 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
         const field = &struct_obj.fields.values()[i];
         field.ty = try field_ty.copy(decl_arena_allocator);
 
-        if (struct_obj.layout == .Extern and !(try sema.validateExternType(field.ty, .other))) {
-            const msg = msg: {
-                const tree = try sema.getAstTree(&block_scope);
-                const fields_src = enumFieldSrcLoc(decl, tree.*, struct_obj.node_offset, i);
-                const msg = try sema.errMsg(&block_scope, fields_src, "extern structs cannot contain fields of type '{}'", .{field.ty.fmt(sema.mod)});
-                errdefer msg.destroy(sema.gpa);
-
-                try sema.explainWhyTypeIsNotExtern(&block_scope, fields_src, msg, fields_src.toSrcLoc(decl), field.ty, .other);
-
-                try sema.addDeclaredHereNote(msg, field.ty);
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(&block_scope, msg);
-        }
         if (field_ty.zigTypeTag() == .Opaque) {
             const msg = msg: {
                 const tree = try sema.getAstTree(&block_scope);
@@ -26873,6 +26999,33 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
                 errdefer msg.destroy(sema.gpa);
 
                 try sema.addDeclaredHereNote(msg, field_ty);
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(&block_scope, msg);
+        }
+        if (struct_obj.layout == .Extern and !sema.validateExternType(field.ty, .other)) {
+            const msg = msg: {
+                const tree = try sema.getAstTree(&block_scope);
+                const fields_src = enumFieldSrcLoc(decl, tree.*, struct_obj.node_offset, i);
+                const msg = try sema.errMsg(&block_scope, fields_src, "extern structs cannot contain fields of type '{}'", .{field.ty.fmt(sema.mod)});
+                errdefer msg.destroy(sema.gpa);
+
+                try sema.explainWhyTypeIsNotExtern(msg, fields_src.toSrcLoc(decl), field.ty, .other);
+
+                try sema.addDeclaredHereNote(msg, field.ty);
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(&block_scope, msg);
+        } else if (struct_obj.layout == .Packed and !(validatePackedType(field.ty))) {
+            const msg = msg: {
+                const tree = try sema.getAstTree(&block_scope);
+                const fields_src = enumFieldSrcLoc(decl, tree.*, struct_obj.node_offset, i);
+                const msg = try sema.errMsg(&block_scope, fields_src, "packed structs cannot contain fields of type '{}'", .{field.ty.fmt(sema.mod)});
+                errdefer msg.destroy(sema.gpa);
+
+                try sema.explainWhyTypeIsNotPacked(msg, fields_src.toSrcLoc(decl), field.ty);
+
+                try sema.addDeclaredHereNote(msg, field.ty);
                 break :msg msg;
             };
             return sema.failWithOwnedErrorMsg(&block_scope, msg);
@@ -27175,26 +27328,39 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
             }
         }
 
-        if (union_obj.layout == .Extern and !(try sema.validateExternType(field_ty, .union_field))) {
-            const msg = msg: {
-                const tree = try sema.getAstTree(&block_scope);
-                const field_src = enumFieldSrcLoc(decl, tree.*, union_obj.node_offset, field_i);
-                const msg = try sema.errMsg(&block_scope, field_src, "extern unions cannot contain fields of type '{}'", .{field_ty.fmt(sema.mod)});
-                errdefer msg.destroy(sema.gpa);
-
-                try sema.explainWhyTypeIsNotExtern(&block_scope, field_src, msg, field_src.toSrcLoc(decl), field_ty, .union_field);
-
-                try sema.addDeclaredHereNote(msg, field_ty);
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(&block_scope, msg);
-        }
         if (field_ty.zigTypeTag() == .Opaque) {
             const msg = msg: {
                 const tree = try sema.getAstTree(&block_scope);
                 const field_src = enumFieldSrcLoc(decl, tree.*, union_obj.node_offset, field_i);
                 const msg = try sema.errMsg(&block_scope, field_src, "opaque types have unknown size and therefore cannot be directly embedded in unions", .{});
                 errdefer msg.destroy(sema.gpa);
+
+                try sema.addDeclaredHereNote(msg, field_ty);
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(&block_scope, msg);
+        }
+        if (union_obj.layout == .Extern and !sema.validateExternType(field_ty, .union_field)) {
+            const msg = msg: {
+                const tree = try sema.getAstTree(&block_scope);
+                const field_src = enumFieldSrcLoc(decl, tree.*, union_obj.node_offset, field_i);
+                const msg = try sema.errMsg(&block_scope, field_src, "extern unions cannot contain fields of type '{}'", .{field_ty.fmt(sema.mod)});
+                errdefer msg.destroy(sema.gpa);
+
+                try sema.explainWhyTypeIsNotExtern(msg, field_src.toSrcLoc(decl), field_ty, .union_field);
+
+                try sema.addDeclaredHereNote(msg, field_ty);
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(&block_scope, msg);
+        } else if (union_obj.layout == .Packed and !(validatePackedType(field_ty))) {
+            const msg = msg: {
+                const tree = try sema.getAstTree(&block_scope);
+                const fields_src = enumFieldSrcLoc(decl, tree.*, union_obj.node_offset, field_i);
+                const msg = try sema.errMsg(&block_scope, fields_src, "packed unions cannot contain fields of type '{}'", .{field_ty.fmt(sema.mod)});
+                errdefer msg.destroy(sema.gpa);
+
+                try sema.explainWhyTypeIsNotPacked(msg, fields_src.toSrcLoc(decl), field_ty);
 
                 try sema.addDeclaredHereNote(msg, field_ty);
                 break :msg msg;
