@@ -13143,6 +13143,36 @@ fn zirClosureGet(
         scope = scope.parent.?;
     } else unreachable;
 
+    if (tv.val.tag() == .generic_poison and !block.is_typeof and !block.is_comptime and sema.func != null) {
+        const msg = msg: {
+            const name = name: {
+                const file = sema.owner_decl.getFileScope();
+                const tree = file.getTree(sema.mod.gpa) catch |err| {
+                    // In this case we emit a warning + a less precise source location.
+                    log.warn("unable to load {s}: {s}", .{
+                        file.sub_file_path, @errorName(err),
+                    });
+                    break :name null;
+                };
+                const node = sema.owner_decl.relativeToNodeIndex(inst_data.src_node);
+                const token = tree.nodes.items(.main_token)[node];
+                break :name tree.tokenSlice(token);
+            };
+
+            const msg = if (name) |some|
+                try sema.errMsg(block, inst_data.src(), "'{s}' not accessible from inner function", .{some})
+            else
+                try sema.errMsg(block, inst_data.src(), "variable not accessible from inner function", .{});
+            errdefer msg.destroy(sema.gpa);
+
+            try sema.errNote(block, LazySrcLoc.nodeOffset(0), msg, "crossed function definition here", .{});
+
+            // TODO add "declared here" note
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(block, msg);
+    }
+
     return sema.addConstant(tv.ty, tv.val);
 }
 
