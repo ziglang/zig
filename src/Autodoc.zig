@@ -1399,7 +1399,6 @@ fn walkInstruction(
             const extra = file.zir.extraData(Zir.Inst.PtrType, ptr.payload_index);
             var extra_index = extra.end;
 
-            const type_slot_index = self.types.items.len;
             const elem_type_ref = try self.walkRef(
                 file,
                 parent_scope,
@@ -1446,6 +1445,7 @@ fn walkInstruction(
                 host_size = ref_result.expr;
             }
 
+            const type_slot_index = self.types.items.len;
             try self.types.append(self.arena, .{
                 .Pointer = .{
                     .size = ptr.size,
@@ -2994,7 +2994,7 @@ fn tryResolveRefPath(
                     "TODO: handle `{s}`in tryResolveRefPath\nInfo: {}",
                     .{ @tagName(resolved_parent), resolved_parent },
                 );
-                path[i + 1] = (try self.cteTodo("match failure")).expr;
+                path[i + 1] = (try self.cteTodo("<match failure>")).expr;
                 continue :outer;
             },
             .comptimeExpr, .call, .typeOf => {
