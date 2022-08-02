@@ -74,6 +74,8 @@ types_to_resolve: std.ArrayListUnmanaged(Air.Inst.Ref) = .{},
 /// Sema must convert comptime control flow to runtime control flow, which means
 /// breaking from a block.
 post_hoc_blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, *LabeledBlock) = .{},
+/// Populated with the last compile error created.
+err: ?*Module.ErrorMsg = null,
 
 const std = @import("std");
 const mem = std.mem;
@@ -174,7 +176,6 @@ pub const Block = struct {
     pub const Inlining = struct {
         comptime_result: Air.Inst.Ref,
         merges: Merges,
-        err: ?*Module.ErrorMsg = null,
     };
 
     pub const Merges = struct {
@@ -1159,7 +1160,7 @@ fn analyzeBodyInner(
                             try sema.errNote(block, runtime_src, msg, "runtime control flow here", .{});
                             break :msg msg;
                         };
-                        return sema.failWithOwnedErrorMsg(block, msg);
+                        return sema.failWithOwnedErrorMsg(msg);
                     }
                 }
                 i += 1;
@@ -1738,7 +1739,7 @@ fn failWithNeededComptime(sema: *Sema, block: *Block, src: LazySrcLoc, reason: [
         try sema.errNote(block, src, msg, "{s}", .{reason});
         break :msg msg;
     };
-    return sema.failWithOwnedErrorMsg(block, msg);
+    return sema.failWithOwnedErrorMsg(msg);
 }
 
 fn failWithUseOfUndef(sema: *Sema, block: *Block, src: LazySrcLoc) CompileError {
@@ -1770,7 +1771,7 @@ fn failWithArrayInitNotSupported(sema: *Sema, block: *Block, src: LazySrcLoc, ty
         }
         break :msg msg;
     };
-    return sema.failWithOwnedErrorMsg(block, msg);
+    return sema.failWithOwnedErrorMsg(msg);
 }
 
 fn failWithStructInitNotSupported(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError {
@@ -1801,7 +1802,7 @@ fn failWithIntegerOverflow(sema: *Sema, block: *Block, src: LazySrcLoc, int_ty: 
             try sema.errNote(block, src, msg, "when computing vector element at index '{d}'", .{vector_index});
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
     return sema.fail(block, src, "overflow of integer type '{}' with value '{}'", .{
         int_ty.fmt(sema.mod), val.fmtValue(int_ty, sema.mod),
@@ -1823,7 +1824,7 @@ fn failWithInvalidComptimeFieldStore(sema: *Sema, block: *Block, init_src: LazyS
         try sema.errNote(block, default_value_src, msg, "default value set here", .{});
         break :msg msg;
     };
-    return sema.failWithOwnedErrorMsg(block, msg);
+    return sema.failWithOwnedErrorMsg(msg);
 }
 
 /// We don't return a pointer to the new error note because the pointer
@@ -1878,10 +1879,10 @@ pub fn fail(
     args: anytype,
 ) CompileError {
     const err_msg = try sema.errMsg(block, src, format, args);
-    return sema.failWithOwnedErrorMsg(block, err_msg);
+    return sema.failWithOwnedErrorMsg(err_msg);
 }
 
-fn failWithOwnedErrorMsg(sema: *Sema, block: *Block, err_msg: *Module.ErrorMsg) CompileError {
+fn failWithOwnedErrorMsg(sema: *Sema, err_msg: *Module.ErrorMsg) CompileError {
     @setCold(true);
 
     if (crash_report.is_enabled and sema.mod.comp.debug_compile_errors) {
@@ -1894,7 +1895,7 @@ fn failWithOwnedErrorMsg(sema: *Sema, block: *Block, err_msg: *Module.ErrorMsg) 
     }
 
     const mod = sema.mod;
-    if (block.inlining) |some| some.err = err_msg;
+    sema.err = err_msg;
 
     {
         errdefer err_msg.destroy(mod.gpa);
@@ -2591,7 +2592,7 @@ fn zirEnumDecl(
                 try sema.errNote(block, other_tag_src, msg, "other field here", .{});
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         }
 
         if (has_tag_value) {
@@ -2886,7 +2887,7 @@ fn ensureResultUsed(
                 try sema.errNote(block, src, msg, "consider using `try`, `catch`, or `if`", .{});
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         },
         else => {
             const msg = msg: {
@@ -2896,7 +2897,7 @@ fn ensureResultUsed(
                 try sema.errNote(block, src, msg, "this error can be suppressed by assigning the value to '_'", .{});
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         },
     }
 }
@@ -2917,7 +2918,7 @@ fn zirEnsureResultNonError(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                 try sema.errNote(block, src, msg, "consider using `try`, `catch`, or `if`", .{});
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         },
         else => return,
     }
@@ -2957,7 +2958,7 @@ fn zirIndexablePtrLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
             );
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
 
     return sema.fieldVal(block, src, object, "len", src);
@@ -3615,7 +3616,7 @@ fn validateUnionInit(
             try sema.addDeclaredHereNote(msg, union_ty);
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
 
     if ((is_comptime or block.is_comptime) and
@@ -3747,7 +3748,7 @@ fn validateStructInit(
                 try sema.errNote(block, other_field_src, msg, "other field here", .{});
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         }
         found_fields[field_index] = field_ptr;
     }
@@ -3808,7 +3809,7 @@ fn validateStructInit(
                     .{fqn},
                 );
             }
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         }
 
         return;
@@ -3938,7 +3939,7 @@ fn validateStructInit(
                 .{fqn},
             );
         }
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
 
     if (struct_is_comptime) {
@@ -4000,7 +4001,7 @@ fn zirValidateArrayInit(
         }
 
         if (root_msg) |msg| {
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         }
     }
 
@@ -4180,7 +4181,7 @@ fn zirValidateDeref(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
             try sema.explainWhyTypeIsComptime(block, src, msg, src.toSrcLoc(src_decl), elem_ty);
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
 }
 
@@ -4206,7 +4207,7 @@ fn failWithBadMemberAccess(
         try sema.addDeclaredHereNote(msg, agg_ty);
         break :msg msg;
     };
-    return sema.failWithOwnedErrorMsg(block, msg);
+    return sema.failWithOwnedErrorMsg(msg);
 }
 
 fn failWithBadStructFieldAccess(
@@ -4232,7 +4233,7 @@ fn failWithBadStructFieldAccess(
         try sema.mod.errNoteNonLazy(struct_obj.srcLoc(sema.mod), msg, "struct declared here", .{});
         break :msg msg;
     };
-    return sema.failWithOwnedErrorMsg(block, msg);
+    return sema.failWithOwnedErrorMsg(msg);
 }
 
 fn failWithBadUnionFieldAccess(
@@ -4258,7 +4259,7 @@ fn failWithBadUnionFieldAccess(
         try sema.mod.errNoteNonLazy(union_obj.srcLoc(sema.mod), msg, "union declared here", .{});
         break :msg msg;
     };
-    return sema.failWithOwnedErrorMsg(block, msg);
+    return sema.failWithOwnedErrorMsg(msg);
 }
 
 fn addDeclaredHereNote(sema: *Sema, parent: *Module.ErrorMsg, decl_ty: Type) !void {
@@ -4747,7 +4748,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
             @import("clang.zig").Stage2ErrorMsg.delete(c_import_res.errors.ptr, c_import_res.errors.len);
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(parent_block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
     const c_import_pkg = Package.create(
         sema.gpa,
@@ -4921,7 +4922,7 @@ fn analyzeBlockBody(
 
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(child_block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
     const ty_inst = try sema.addType(resolved_ty);
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
@@ -5060,7 +5061,7 @@ pub fn analyzeExport(
             try sema.addDeclaredHereNote(msg, exported_decl.ty);
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
 
     const gpa = mod.gpa;
@@ -5150,7 +5151,7 @@ fn zirSetAlignStack(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Inst
             try sema.errNote(block, gop.value_ptr.src, msg, "other instance here", .{});
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
     gop.value_ptr.* = .{ .alignment = alignment, .src = src };
 }
@@ -5413,7 +5414,7 @@ fn lookupInNamespace(
                     }
                     break :msg msg;
                 };
-                return sema.failWithOwnedErrorMsg(block, msg);
+                return sema.failWithOwnedErrorMsg(msg);
             },
         }
     } else if (namespace.decls.getKeyAdapted(ident_name, Module.DeclAdapter{ .mod = mod })) |decl_index| {
@@ -5872,9 +5873,8 @@ fn analyzeCall(
                 sema.analyzeBody(&child_block, fn_info.body) catch |err| switch (err) {
                     error.ComptimeReturn => break :result inlining.comptime_result,
                     error.AnalysisFail => {
-                        const err_msg = inlining.err orelse return err;
+                        const err_msg = sema.err orelse return err;
                         try sema.errNote(block, call_src, err_msg, "called from here", .{});
-                        if (block.inlining) |some| some.err = err_msg;
                         return err;
                     },
                     else => |e| return e,
@@ -6802,7 +6802,7 @@ fn zirMergeErrorSets(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
             try sema.errNote(block, src, msg, "'||' merges error sets; 'or' performs boolean OR", .{});
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
     const lhs_ty = try sema.analyzeAsType(block, lhs_src, lhs);
     const rhs_ty = try sema.analyzeAsType(block, rhs_src, rhs);
@@ -6927,7 +6927,7 @@ fn zirIntToEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
                 try sema.addDeclaredHereNote(msg, dest_ty);
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         }
         return sema.addConstant(dest_ty, int_val);
     }
@@ -7632,7 +7632,7 @@ fn funcCommon(
                 try sema.addDeclaredHereNote(msg, bare_return_type);
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         }
         if (!Type.fnCallingConventionAllowsZigTypes(cc_workaround) and !sema.validateExternType(return_type, .ret_ty)) {
             const msg = msg: {
@@ -7647,7 +7647,7 @@ fn funcCommon(
                 try sema.addDeclaredHereNote(msg, return_type);
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         }
 
         const arch = sema.mod.getTarget().cpu.arch;
@@ -7812,7 +7812,7 @@ fn analyzeParameter(
             try sema.errNote(block, param_src, msg, "function is generic because of this parameter", .{});
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
     if (this_generic and !Type.fnCallingConventionAllowsZigTypes(cc)) {
         return sema.fail(block, param_src, "generic parameters not allowed in function with calling convention '{s}'", .{@tagName(cc)});
@@ -7828,7 +7828,7 @@ fn analyzeParameter(
             try sema.addDeclaredHereNote(msg, param.ty);
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
     if (!Type.fnCallingConventionAllowsZigTypes(cc) and !sema.validateExternType(param.ty, .param_ty)) {
         const msg = msg: {
@@ -7843,7 +7843,7 @@ fn analyzeParameter(
             try sema.addDeclaredHereNote(msg, param.ty);
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
     if (requires_comptime and !param.is_comptime) {
         const msg = msg: {
@@ -7855,7 +7855,7 @@ fn analyzeParameter(
             try sema.addDeclaredHereNote(msg, param.ty);
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
 }
 
@@ -8318,7 +8318,7 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         },
 
         .Pointer => {
@@ -8333,7 +8333,7 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         },
         .Struct, .Union => if (dest_ty.containerLayout() == .Auto) {
             const container = switch (dest_ty.zigTypeTag()) {
@@ -8383,7 +8383,7 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         },
         .Pointer => {
             const msg = msg: {
@@ -8397,7 +8397,7 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         },
         .Struct, .Union => if (operand_ty.containerLayout() == .Auto) {
             const container = switch (operand_ty.zigTypeTag()) {
@@ -8663,7 +8663,7 @@ fn zirSwitchCapture(
                         try sema.errNote(block, item_src, msg, "type '{}' here", .{field.ty.fmt(sema.mod)});
                         break :msg msg;
                     };
-                    return sema.failWithOwnedErrorMsg(block, msg);
+                    return sema.failWithOwnedErrorMsg(msg);
                 }
             }
 
@@ -8786,7 +8786,7 @@ fn zirSwitchCond(
                     }
                     break :msg msg;
                 };
-                return sema.failWithOwnedErrorMsg(block, msg);
+                return sema.failWithOwnedErrorMsg(msg);
             };
             return sema.unionToTag(block, enum_ty, operand, src);
         },
@@ -8875,7 +8875,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             );
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
 
     const target = sema.mod.getTarget();
@@ -8979,7 +8979,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     );
                     break :msg msg;
                 };
-                return sema.failWithOwnedErrorMsg(block, msg);
+                return sema.failWithOwnedErrorMsg(msg);
             } else if (special_prong == .none and operand_ty.isNonexhaustiveEnum() and !union_originally) {
                 return sema.fail(
                     block,
@@ -9079,7 +9079,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 if (maybe_msg) |msg| {
                     maybe_msg = null;
                     try sema.addDeclaredHereNote(msg, operand_ty);
-                    return sema.failWithOwnedErrorMsg(block, msg);
+                    return sema.failWithOwnedErrorMsg(msg);
                 }
 
                 if (special_prong == .@"else" and seen_errors.count() == operand_ty.errorSetNames().len) {
@@ -9888,7 +9888,7 @@ fn validateSwitchDupe(
         );
         break :msg msg;
     };
-    return sema.failWithOwnedErrorMsg(block, msg);
+    return sema.failWithOwnedErrorMsg(msg);
 }
 
 fn validateSwitchItemBool(
@@ -9958,7 +9958,7 @@ fn validateSwitchNoRange(
         );
         break :msg msg;
     };
-    return sema.failWithOwnedErrorMsg(block, msg);
+    return sema.failWithOwnedErrorMsg(msg);
 }
 
 fn zirHasField(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -12882,7 +12882,7 @@ fn analyzeCmpUnionTag(
             try sema.mod.errNoteNonLazy(union_ty.declSrcLoc(sema.mod), msg, "union '{}' is not a tagged union", .{union_ty.fmt(sema.mod)});
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     };
     // Coerce both the union and the tag to the union's tag type, and then execute the
     // enum comparison codepath.
@@ -13170,7 +13170,7 @@ fn zirClosureGet(
             // TODO add "declared here" note
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
 
     return sema.addConstant(tv.ty, tv.val);
@@ -14907,7 +14907,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
                 try sema.addDeclaredHereNote(msg, elem_ty);
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         }
         if (elem_ty.zigTypeTag() == .Opaque) {
             return sema.fail(block, elem_ty_src, "C pointers cannot point to opaque types", .{});
@@ -15078,7 +15078,7 @@ fn zirStructInit(
                     try sema.errNote(block, other_field_src, msg, "other field here", .{});
                     break :msg msg;
                 };
-                return sema.failWithOwnedErrorMsg(block, msg);
+                return sema.failWithOwnedErrorMsg(msg);
             }
             found_fields[field_index] = item.data.field_type;
             field_inits[field_index] = try sema.resolveInst(item.data.init);
@@ -15219,7 +15219,7 @@ fn finishStructInit(
                 .{fqn},
             );
         }
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
 
     const is_comptime = for (field_inits) |field_init| {
@@ -15294,7 +15294,7 @@ fn zirStructInitAnon(
                     try sema.errNote(block, prev_source, msg, "other field here", .{});
                     break :msg msg;
                 };
-                return sema.failWithOwnedErrorMsg(block, msg);
+                return sema.failWithOwnedErrorMsg(msg);
             }
             gop.value_ptr.* = @intCast(u32, i);
 
@@ -15310,7 +15310,7 @@ fn zirStructInitAnon(
                     try sema.addDeclaredHereNote(msg, types[i]);
                     break :msg msg;
                 };
-                return sema.failWithOwnedErrorMsg(block, msg);
+                return sema.failWithOwnedErrorMsg(msg);
             }
             const init_src = src; // TODO better source location
             if (try sema.resolveMaybeUndefVal(block, init_src, init)) |init_val| {
@@ -15508,7 +15508,7 @@ fn zirArrayInitAnon(
                     try sema.addDeclaredHereNote(msg, types[i]);
                     break :msg msg;
                 };
-                return sema.failWithOwnedErrorMsg(block, msg);
+                return sema.failWithOwnedErrorMsg(msg);
             }
             if (try sema.resolveMaybeUndefVal(block, operand_src, elem)) |val| {
                 values[i] = val;
@@ -15822,7 +15822,7 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
                 try sema.addDeclaredHereNote(msg, operand_ty);
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         },
         else => return sema.fail(block, operand_src, "expected enum or union; found '{}'", .{
             operand_ty.fmt(mod),
@@ -15841,7 +15841,7 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
                 try mod.errNoteNonLazy(enum_decl.srcLoc(), msg, "declared here", .{});
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         };
         const field_name = enum_ty.enumFieldName(field_index);
         return sema.addStrLit(block, field_name);
@@ -15991,7 +15991,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
                         try sema.addDeclaredHereNote(msg, elem_ty);
                         break :msg msg;
                     };
-                    return sema.failWithOwnedErrorMsg(block, msg);
+                    return sema.failWithOwnedErrorMsg(msg);
                 }
                 if (elem_ty.zigTypeTag() == .Opaque) {
                     return sema.fail(block, src, "C pointers cannot point to opaque types", .{});
@@ -16394,7 +16394,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
                                 try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
                                 break :msg msg;
                             };
-                            return sema.failWithOwnedErrorMsg(block, msg);
+                            return sema.failWithOwnedErrorMsg(msg);
                         }
                     }
 
@@ -16428,7 +16428,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
                         try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
                         break :msg msg;
                     };
-                    return sema.failWithOwnedErrorMsg(block, msg);
+                    return sema.failWithOwnedErrorMsg(msg);
                 }
             }
 
@@ -16898,7 +16898,7 @@ fn zirErrSetCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
             try sema.addDeclaredHereNote(msg, dest_ty);
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
 
     if (maybe_operand_val) |val| {
@@ -16916,7 +16916,7 @@ fn zirErrSetCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
                     try sema.addDeclaredHereNote(msg, dest_ty);
                     break :msg msg;
                 };
-                return sema.failWithOwnedErrorMsg(block, msg);
+                return sema.failWithOwnedErrorMsg(msg);
             }
         }
 
@@ -17054,7 +17054,7 @@ fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 });
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         }
     }
 
@@ -17345,7 +17345,7 @@ fn bitOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!u6
                 try sema.addDeclaredHereNote(msg, ty);
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         },
     }
 
@@ -17449,7 +17449,7 @@ fn checkPtrOperand(
 
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         },
         .Optional => if (ty.isPtrLikeOptional()) return,
         else => {},
@@ -17479,7 +17479,7 @@ fn checkPtrType(
 
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         },
         .Optional => if (ty.isPtrLikeOptional()) return,
         else => {},
@@ -17615,7 +17615,7 @@ fn checkComptimeVarStore(
                 try sema.errNote(block, cond_src, msg, "runtime condition here", .{});
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         }
         if (block.runtime_loop) |loop_src| {
             const msg = msg: {
@@ -17624,7 +17624,7 @@ fn checkComptimeVarStore(
                 try sema.errNote(block, loop_src, msg, "non-inline loop here", .{});
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         }
         unreachable;
     }
@@ -17761,7 +17761,7 @@ fn checkVectorizableBinaryOperands(
                 try sema.errNote(block, rhs_src, msg, "length {d} here", .{rhs_len});
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         }
     } else {
         const msg = msg: {
@@ -17778,7 +17778,7 @@ fn checkVectorizableBinaryOperands(
             }
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
 }
 
@@ -18178,7 +18178,7 @@ fn analyzeShuffle(
 
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         }
     }
 
@@ -18774,7 +18774,7 @@ fn zirFieldParentPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
                 try sema.addDeclaredHereNote(msg, struct_ty);
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         }
         return sema.addConstant(result_ptr, payload.data.container_ptr);
     }
@@ -19574,7 +19574,7 @@ fn requireRuntimeBlock(sema: *Sema, block: *Block, src: LazySrcLoc, runtime_src:
             }
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
     try sema.requireFunctionBlock(block, src);
 }
@@ -19603,7 +19603,7 @@ fn validateVarType(
 
         break :msg msg;
     };
-    return sema.failWithOwnedErrorMsg(block, msg);
+    return sema.failWithOwnedErrorMsg(msg);
 }
 
 fn validateRunTimeType(
@@ -20305,7 +20305,7 @@ fn emitBackwardBranch(sema: *Sema, block: *Block, src: LazySrcLoc) !void {
             "use @setEvalBranchQuota() to raise the branch limit from {d}",
             .{sema.branch_quota},
         );
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
 }
 
@@ -20413,7 +20413,7 @@ fn fieldVal(
                             try sema.addDeclaredHereNote(msg, child_type);
                             break :msg msg;
                         };
-                        return sema.failWithOwnedErrorMsg(block, msg);
+                        return sema.failWithOwnedErrorMsg(msg);
                     } else (try sema.mod.getErrorValue(field_name)).key;
 
                     return sema.addConstant(
@@ -20468,7 +20468,7 @@ fn fieldVal(
                         if (child_type.zigTypeTag() == .Array) try sema.errNote(block, src, msg, "array values have 'len' member", .{});
                         break :msg msg;
                     };
-                    return sema.failWithOwnedErrorMsg(block, msg);
+                    return sema.failWithOwnedErrorMsg(msg);
                 },
             }
         },
@@ -20806,7 +20806,7 @@ fn fieldCallBind(
         try sema.addDeclaredHereNote(msg, concrete_ty);
         break :msg msg;
     };
-    return sema.failWithOwnedErrorMsg(block, msg);
+    return sema.failWithOwnedErrorMsg(msg);
 }
 
 fn finishFieldCallBind(
@@ -20861,7 +20861,7 @@ fn namespaceLookup(
                 try sema.mod.errNoteNonLazy(decl.srcLoc(), msg, "declared here", .{});
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         }
         return decl_index;
     }
@@ -21194,7 +21194,7 @@ fn unionFieldPtr(
                         try sema.addDeclaredHereNote(msg, union_ty);
                         break :msg msg;
                     };
-                    return sema.failWithOwnedErrorMsg(block, msg);
+                    return sema.failWithOwnedErrorMsg(msg);
                 }
             },
             .Packed, .Extern => {},
@@ -21264,7 +21264,7 @@ fn unionFieldVal(
                         try sema.addDeclaredHereNote(msg, union_ty);
                         break :msg msg;
                     };
-                    return sema.failWithOwnedErrorMsg(block, msg);
+                    return sema.failWithOwnedErrorMsg(msg);
                 }
             },
             .Packed, .Extern => {
@@ -21438,7 +21438,7 @@ fn validateRuntimeElemAccess(
 
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
 }
 
@@ -22214,7 +22214,7 @@ fn coerceExtra(
                         try sema.addDeclaredHereNote(msg, dest_ty);
                         break :msg msg;
                     };
-                    return sema.failWithOwnedErrorMsg(block, msg);
+                    return sema.failWithOwnedErrorMsg(msg);
                 };
                 return sema.addConstant(
                     dest_ty,
@@ -22342,7 +22342,7 @@ fn coerceExtra(
             try sema.mod.errNoteNonLazy(ret_ty_src.toSrcLoc(src_decl), msg, "'noreturn' declared here", .{});
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
 
     const msg = msg: {
@@ -22383,7 +22383,7 @@ fn coerceExtra(
 
         break :msg msg;
     };
-    return sema.failWithOwnedErrorMsg(block, msg);
+    return sema.failWithOwnedErrorMsg(msg);
 }
 
 const InMemoryCoercionResult = union(enum) {
@@ -24448,7 +24448,7 @@ fn coerceEnumToUnion(
             try sema.addDeclaredHereNote(msg, union_ty);
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     };
 
     const enum_tag = try sema.coerce(block, tag_ty, inst, inst_src);
@@ -24463,7 +24463,7 @@ fn coerceEnumToUnion(
                 try sema.addDeclaredHereNote(msg, union_ty);
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         };
         const field = union_obj.fields.values()[field_index];
         const field_ty = try sema.resolveTypeFields(block, inst_src, field.ty);
@@ -24479,7 +24479,7 @@ fn coerceEnumToUnion(
                 try sema.addDeclaredHereNote(msg, union_ty);
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(block, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         };
 
         return sema.addConstant(union_ty, try Value.Tag.@"union".create(sema.arena, .{
@@ -24499,7 +24499,7 @@ fn coerceEnumToUnion(
             try sema.addDeclaredHereNote(msg, tag_ty);
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
 
     // If the union has all fields 0 bits, the union value is just the enum value.
@@ -24528,7 +24528,7 @@ fn coerceEnumToUnion(
         try sema.addDeclaredHereNote(msg, union_ty);
         break :msg msg;
     };
-    return sema.failWithOwnedErrorMsg(block, msg);
+    return sema.failWithOwnedErrorMsg(msg);
 }
 
 fn coerceAnonStructToUnion(
@@ -24557,7 +24557,7 @@ fn coerceAnonStructToUnion(
             try sema.addDeclaredHereNote(msg, union_ty);
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
 
     const field_name = anon_struct.names[0];
@@ -24617,7 +24617,7 @@ fn coerceArrayLike(
             try sema.errNote(block, inst_src, msg, "source has length {d}", .{inst_len});
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
 
     const dest_elem_ty = dest_ty.childType();
@@ -24689,7 +24689,7 @@ fn coerceTupleToArray(
             try sema.errNote(block, inst_src, msg, "source has length {d}", .{inst_len});
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
 
     const dest_elems = try sema.usizeCast(block, dest_ty_src, dest_ty.arrayLenIncludingSentinel());
@@ -24852,7 +24852,7 @@ fn coerceTupleToStruct(
 
     if (root_msg) |msg| {
         try sema.addDeclaredHereNote(msg, struct_ty);
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
 
     if (runtime_src) |rs| {
@@ -24956,7 +24956,7 @@ fn coerceTupleToTuple(
 
     if (root_msg) |msg| {
         try sema.addDeclaredHereNote(msg, tuple_ty);
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
 
     if (runtime_src) |rs| {
@@ -25521,7 +25521,7 @@ fn analyzeSlice(
 
                         break :msg msg;
                     };
-                    return sema.failWithOwnedErrorMsg(block, msg);
+                    return sema.failWithOwnedErrorMsg(msg);
                 }
             }
         }
@@ -26470,7 +26470,7 @@ fn resolvePeerTypes(
 
             break :msg msg;
         };
-        return sema.failWithOwnedErrorMsg(block, msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
 
     const chosen_ty = sema.typeOf(chosen);
@@ -27068,7 +27068,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
                     try sema.errNote(&block_scope, src, msg, "struct declared here", .{});
                     break :msg msg;
                 };
-                return sema.failWithOwnedErrorMsg(&block_scope, msg);
+                return sema.failWithOwnedErrorMsg(msg);
             }
             gop.value_ptr.* = .{
                 .ty = Type.initTag(.noreturn),
@@ -27127,7 +27127,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
                 try sema.addDeclaredHereNote(msg, field_ty);
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(&block_scope, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         }
         if (struct_obj.layout == .Extern and !sema.validateExternType(field.ty, .other)) {
             const msg = msg: {
@@ -27141,7 +27141,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
                 try sema.addDeclaredHereNote(msg, field.ty);
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(&block_scope, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         } else if (struct_obj.layout == .Packed and !(validatePackedType(field.ty))) {
             const msg = msg: {
                 const tree = try sema.getAstTree(&block_scope);
@@ -27154,7 +27154,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
                 try sema.addDeclaredHereNote(msg, field.ty);
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(&block_scope, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         }
 
         if (zir_field.align_body_len > 0) {
@@ -27436,7 +27436,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
                 try sema.errNote(&block_scope, src, msg, "union declared here", .{});
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(&block_scope, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         }
 
         if (tag_ty_field_names) |*names| {
@@ -27450,7 +27450,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
                     try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
                     break :msg msg;
                 };
-                return sema.failWithOwnedErrorMsg(&block_scope, msg);
+                return sema.failWithOwnedErrorMsg(msg);
             }
         }
 
@@ -27464,7 +27464,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
                 try sema.addDeclaredHereNote(msg, field_ty);
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(&block_scope, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         }
         if (union_obj.layout == .Extern and !sema.validateExternType(field_ty, .union_field)) {
             const msg = msg: {
@@ -27478,7 +27478,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
                 try sema.addDeclaredHereNote(msg, field_ty);
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(&block_scope, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         } else if (union_obj.layout == .Packed and !(validatePackedType(field_ty))) {
             const msg = msg: {
                 const tree = try sema.getAstTree(&block_scope);
@@ -27491,7 +27491,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
                 try sema.addDeclaredHereNote(msg, field_ty);
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(&block_scope, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         }
 
         gop.value_ptr.* = .{
@@ -27523,7 +27523,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
                 try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
                 break :msg msg;
             };
-            return sema.failWithOwnedErrorMsg(&block_scope, msg);
+            return sema.failWithOwnedErrorMsg(msg);
         }
     }
 }
