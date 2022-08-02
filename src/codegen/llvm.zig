@@ -4622,7 +4622,7 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(un_op);
         const llvm_fn = try self.getCmpLtErrorsLenFunction();
         const args: [1]*const llvm.Value = .{operand};
-        return self.builder.buildCall(llvm_fn.typeOf(), llvm_fn, &args, args.len, .Fast, .Auto, "");
+        return self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &args, args.len, .Fast, .Auto, "");
     }
 
     fn cmp(
@@ -5058,7 +5058,7 @@ pub const FuncGen = struct {
         const libc_fn = self.getLibcFunction(fn_name, &param_types, dest_llvm_ty);
         const params = [1]*const llvm.Value{extended};
 
-        return self.builder.buildCall(libc_fn.typeOf(), libc_fn, &params, params.len, .C, .Auto, "");
+        return self.builder.buildCall(libc_fn.globalGetValueType(), libc_fn, &params, params.len, .C, .Auto, "");
     }
 
     fn airFloatToInt(self: *FuncGen, inst: Air.Inst.Index, want_fast_math: bool) !?*const llvm.Value {
@@ -5113,7 +5113,7 @@ pub const FuncGen = struct {
         const libc_fn = self.getLibcFunction(fn_name, &param_types, libc_ret_ty);
         const params = [1]*const llvm.Value{operand};
 
-        var result = self.builder.buildCall(libc_fn.typeOf(), libc_fn, &params, params.len, .C, .Auto, "");
+        var result = self.builder.buildCall(libc_fn.globalGetValueType(), libc_fn, &params, params.len, .C, .Auto, "");
 
         if (libc_ret_ty != ret_ty) result = self.builder.buildBitCast(result, ret_ty, "");
         if (ret_ty != dest_llvm_ty) result = self.builder.buildTrunc(result, dest_llvm_ty, "");
@@ -6241,7 +6241,7 @@ pub const FuncGen = struct {
         const llvm_u32 = self.context.intType(32);
         const llvm_fn = self.getIntrinsic("llvm.wasm.memory.size", &.{llvm_u32});
         const args: [1]*const llvm.Value = .{llvm_u32.constInt(index, .False)};
-        return self.builder.buildCall(llvm_fn.typeOf(), llvm_fn, &args, args.len, .Fast, .Auto, "");
+        return self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &args, args.len, .Fast, .Auto, "");
     }
 
     fn airWasmMemoryGrow(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
@@ -6254,7 +6254,7 @@ pub const FuncGen = struct {
             llvm_u32.constInt(index, .False),
             operand,
         };
-        return self.builder.buildCall(llvm_fn.typeOf(), llvm_fn, &args, args.len, .Fast, .Auto, "");
+        return self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &args, args.len, .Fast, .Auto, "");
     }
 
     fn airMin(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
@@ -6619,7 +6619,7 @@ pub const FuncGen = struct {
         const tg = self.dg.module.getTarget();
 
         const llvm_fn = self.getIntrinsic(intrinsic_name, &.{llvm_lhs_ty});
-        const result_struct = self.builder.buildCall(llvm_fn.typeOf(), llvm_fn, &[_]*const llvm.Value{ lhs, rhs }, 2, .Fast, .Auto, "");
+        const result_struct = self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &[_]*const llvm.Value{ lhs, rhs }, 2, .Fast, .Auto, "");
 
         const result = self.builder.buildExtractValue(result_struct, 0, "");
         const overflow_bit = self.builder.buildExtractValue(result_struct, 1, "");
@@ -6671,7 +6671,7 @@ pub const FuncGen = struct {
             for (args_vectors) |arg_vector, k| {
                 args[k] = self.builder.buildExtractElement(arg_vector, index_i32, "");
             }
-            const result_elem = self.builder.buildCall(llvm_fn.typeOf(), llvm_fn, &args, args_len, .C, .Auto, "");
+            const result_elem = self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &args, args_len, .C, .Auto, "");
             result = self.builder.buildInsertElement(result, result_elem, index_i32, "");
         }
         return result;
@@ -6798,7 +6798,7 @@ pub const FuncGen = struct {
             return self.builder.buildICmp(int_pred, result, zero_vector, "");
         }
 
-        const result = self.builder.buildCall(libc_fn.typeOf(), libc_fn, &params, params.len, .C, .Auto, "");
+        const result = self.builder.buildCall(libc_fn.globalGetValueType(), libc_fn, &params, params.len, .C, .Auto, "");
         return self.builder.buildICmp(int_pred, result, zero, "");
     }
 
@@ -6926,7 +6926,7 @@ pub const FuncGen = struct {
                 break :b libc_fn;
             },
         };
-        return self.builder.buildCall(llvm_fn.typeOf(), llvm_fn, &params, params_len, .C, .Auto, "");
+        return self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &params, params_len, .C, .Auto, "");
     }
 
     fn airMulAdd(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
@@ -7537,7 +7537,7 @@ pub const FuncGen = struct {
     fn airBreakpoint(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
         _ = inst;
         const llvm_fn = self.getIntrinsic("llvm.debugtrap", &.{});
-        _ = self.builder.buildCall(llvm_fn.typeOf(), llvm_fn, undefined, 0, .C, .Auto, "");
+        _ = self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, undefined, 0, .C, .Auto, "");
         return null;
     }
 
@@ -7554,7 +7554,7 @@ pub const FuncGen = struct {
         const llvm_i32 = self.context.intType(32);
         const llvm_fn = self.getIntrinsic("llvm.returnaddress", &.{});
         const params = [_]*const llvm.Value{llvm_i32.constNull()};
-        const ptr_val = self.builder.buildCall(llvm_fn.typeOf(), llvm_fn, &params, params.len, .Fast, .Auto, "");
+        const ptr_val = self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &params, params.len, .Fast, .Auto, "");
         return self.builder.buildPtrToInt(ptr_val, llvm_usize, "");
     }
 
@@ -7571,7 +7571,7 @@ pub const FuncGen = struct {
         };
 
         const params = [_]*const llvm.Value{llvm_i32.constNull()};
-        const ptr_val = self.builder.buildCall(llvm_fn.typeOf(), llvm_fn, &params, params.len, .Fast, .Auto, "");
+        const ptr_val = self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &params, params.len, .Fast, .Auto, "");
         const llvm_usize = try self.dg.lowerType(Type.usize);
         return self.builder.buildPtrToInt(ptr_val, llvm_usize, "");
     }
@@ -7863,7 +7863,7 @@ pub const FuncGen = struct {
         const fn_val = self.getIntrinsic(llvm_fn_name, &.{operand_llvm_ty});
 
         const params = [_]*const llvm.Value{ operand, llvm_i1.constNull() };
-        const wrong_size_result = self.builder.buildCall(fn_val.typeOf(), fn_val, &params, params.len, .C, .Auto, "");
+        const wrong_size_result = self.builder.buildCall(fn_val.globalGetValueType(), fn_val, &params, params.len, .C, .Auto, "");
         const result_ty = self.air.typeOfIndex(inst);
         const result_llvm_ty = try self.dg.lowerType(result_ty);
 
@@ -7890,7 +7890,7 @@ pub const FuncGen = struct {
         const operand_llvm_ty = try self.dg.lowerType(operand_ty);
         const fn_val = self.getIntrinsic(llvm_fn_name, &.{operand_llvm_ty});
 
-        const wrong_size_result = self.builder.buildCall(fn_val.typeOf(), fn_val, &params, params.len, .C, .Auto, "");
+        const wrong_size_result = self.builder.buildCall(fn_val.globalGetValueType(), fn_val, &params, params.len, .C, .Auto, "");
         const result_ty = self.air.typeOfIndex(inst);
         const result_llvm_ty = try self.dg.lowerType(result_ty);
 
@@ -7947,7 +7947,7 @@ pub const FuncGen = struct {
         const params = [_]*const llvm.Value{operand};
         const fn_val = self.getIntrinsic(llvm_fn_name, &.{operand_llvm_ty});
 
-        const wrong_size_result = self.builder.buildCall(fn_val.typeOf(), fn_val, &params, params.len, .C, .Auto, "");
+        const wrong_size_result = self.builder.buildCall(fn_val.globalGetValueType(), fn_val, &params, params.len, .C, .Auto, "");
 
         const result_ty = self.air.typeOfIndex(inst);
         const result_llvm_ty = try self.dg.lowerType(result_ty);
@@ -7970,7 +7970,7 @@ pub const FuncGen = struct {
 
         const llvm_fn = try self.getEnumTagNameFunction(enum_ty);
         const params = [_]*const llvm.Value{operand};
-        return self.builder.buildCall(llvm_fn.typeOf(), llvm_fn, &params, params.len, .Fast, .Auto, "");
+        return self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &params, params.len, .Fast, .Auto, "");
     }
 
     fn getEnumTagNameFunction(self: *FuncGen, enum_ty: Type) !*const llvm.Value {
@@ -8526,7 +8526,7 @@ pub const FuncGen = struct {
             llvm_u32.constInt(prefetch.locality, .False),
             llvm_u32.constInt(@enumToInt(prefetch.cache), .False),
         };
-        _ = self.builder.buildCall(fn_val.typeOf(), fn_val, &params, params.len, .C, .Auto, "");
+        _ = self.builder.buildCall(fn_val.globalGetValueType(), fn_val, &params, params.len, .C, .Auto, "");
         return null;
     }
 
@@ -8606,7 +8606,7 @@ pub const FuncGen = struct {
         };
 
         var args: [1]*const llvm.Value = .{arg};
-        const result = self.builder.buildCall(llvm_fn.typeOf(), llvm_fn, &args, args.len, .C, .Auto, "");
+        const result = self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &args, args.len, .C, .Auto, "");
         const final_cast_llvm_ty = final_cast orelse return result;
         return self.builder.buildBitCast(result, final_cast_llvm_ty, "");
     }
