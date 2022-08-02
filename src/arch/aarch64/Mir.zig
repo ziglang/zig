@@ -92,6 +92,8 @@ pub const Inst = struct {
         load_memory_ptr_direct,
         /// Load Pair of Registers
         ldp,
+        /// Pseudo-instruction: Load pointer to stack argument
+        ldr_ptr_stack_argument,
         /// Pseudo-instruction: Load from stack
         ldr_stack,
         /// Pseudo-instruction: Load from stack argument

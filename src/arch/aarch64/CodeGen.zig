@@ -340,7 +340,7 @@ pub fn generate(
         .prev_di_line = module_fn.lbrace_line,
         .prev_di_column = module_fn.lbrace_column,
         .stack_size = mem.alignForwardGeneric(u32, function.max_end_stack, function.stack_align),
-        .prologue_stack_space = call_info.stack_byte_count + function.saved_regs_stack_space,
+        .saved_regs_stack_space = function.saved_regs_stack_space,
     };
     defer emit.deinit();
 
@@ -2317,6 +2317,9 @@ fn errUnionErr(self: *Self, error_union_mcv: MCValue, error_union_ty: Type) !MCV
     const err_offset = @intCast(u32, errUnionErrorOffset(payload_ty, self.target.*));
     switch (error_union_mcv) {
         .register => return self.fail("TODO errUnionErr for registers", .{}),
+        .stack_argument_offset => |off| {
+            return MCValue{ .stack_argument_offset = off + err_offset };
+        },
         .stack_offset => |off| {
             return MCValue{ .stack_offset = off - err_offset };
         },
@@ -2351,6 +2354,9 @@ fn errUnionPayload(self: *Self, error_union_mcv: MCValue, error_union_ty: Type) 
     const payload_offset = @intCast(u32, errUnionPayloadOffset(payload_ty, self.target.*));
     switch (error_union_mcv) {
         .register => return self.fail("TODO errUnionPayload for registers", .{}),
+        .stack_argument_offset => |off| {
+            return MCValue{ .stack_argument_offset = off + payload_offset };
+        },
         .stack_offset => |off| {
             return MCValue{ .stack_offset = off - payload_offset };
         },
@@ -3016,7 +3022,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
         switch (mcv) {
             .dead, .unreach => unreachable,
             .stack_argument_offset => |off| {
-                break :result MCValue{ .stack_argument_offset = off - struct_field_offset };
+                break :result MCValue{ .stack_argument_offset = off + struct_field_offset };
             },
             .stack_offset => |off| {
                 break :result MCValue{ .stack_offset = off - struct_field_offset };
@@ -3150,6 +3156,9 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
     // saving compare flags may require a new caller-saved register
     try self.spillCompareFlagsIfOccupied();
 
+    // Make space for the arguments passed via the stack
+    self.max_end_stack += info.stack_byte_count;
+
     for (info.args) |mc_arg, arg_i| {
         const arg = args[arg_i];
         const arg_ty = self.air.typeOf(arg);
@@ -3164,7 +3173,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
             .stack_offset => unreachable,
             .stack_argument_offset => |offset| try self.genSetStackArgument(
                 arg_ty,
-                info.stack_byte_count - offset,
+                offset,
                 arg_mcv,
             ),
             else => unreachable,
@@ -3642,40 +3651,14 @@ fn isNonNull(self: *Self, operand: MCValue) !MCValue {
 
 fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
     const error_type = ty.errorUnionSet();
-    const payload_type = ty.errorUnionPayload();
+    const error_int_type = Type.initTag(.u16);
 
     if (error_type.errorSetIsEmpty()) {
         return MCValue{ .immediate = 0 }; // always false
     }
 
-    const err_off = errUnionErrorOffset(payload_type, self.target.*);
-    switch (operand) {
-        .stack_offset => |off| {
-            const offset = off - @intCast(u32, err_off);
-            const tmp_reg = try self.copyToTmpRegister(Type.anyerror, .{ .stack_offset = offset });
-            _ = try self.addInst(.{
-                .tag = .cmp_immediate,
-                .data = .{ .r_imm12_sh = .{
-                    .rn = tmp_reg,
-                    .imm12 = 0,
-                } },
-            });
-        },
-        .register => |reg| {
-            if (err_off > 0 or payload_type.hasRuntimeBitsIgnoreComptime()) {
-                return self.fail("TODO implement isErr for register operand with payload bits", .{});
-            }
-            _ = try self.addInst(.{
-                .tag = .cmp_immediate,
-                .data = .{ .r_imm12_sh = .{
-                    .rn = reg,
-                    .imm12 = 0,
-                } },
-            });
-        },
-        else => return self.fail("TODO implement isErr for {}", .{operand}),
-    }
-
+    const error_mcv = try self.errUnionErr(operand, ty);
+    _ = try self.binOp(.cmp_eq, error_mcv, .{ .immediate = 0 }, error_int_type, error_int_type, null);
     return MCValue{ .condition_flags = .hi };
 }
 
@@ -4174,6 +4157,15 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                         // sub src_reg, fp, #off
                         try self.genSetReg(ptr_ty, src_reg, .{ .ptr_stack_offset = off });
                     },
+                    .stack_argument_offset => |off| {
+                        _ = try self.addInst(.{
+                            .tag = .ldr_ptr_stack_argument,
+                            .data = .{ .load_store_stack = .{
+                                .rt = src_reg,
+                                .offset = off,
+                            } },
+                        });
+                    },
                     .memory => |addr| try self.genSetReg(Type.usize, src_reg, .{ .immediate = addr }),
                     .got_load,
                     .direct_load,
@@ -4433,7 +4425,7 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
             }
         },
         .register_with_overflow => {
-            return self.fail("TODO implement genSetStack {}", .{mcv});
+            return self.fail("TODO implement genSetStackArgument {}", .{mcv});
         },
         .got_load,
         .direct_load,
@@ -4469,6 +4461,15 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                         // sub src_reg, fp, #off
                         try self.genSetReg(ptr_ty, src_reg, .{ .ptr_stack_offset = off });
                     },
+                    .stack_argument_offset => |off| {
+                        _ = try self.addInst(.{
+                            .tag = .ldr_ptr_stack_argument,
+                            .data = .{ .load_store_stack = .{
+                                .rt = src_reg,
+                                .offset = off,
+                            } },
+                        });
+                    },
                     .memory => |addr| try self.genSetReg(ptr_ty, src_reg, .{ .immediate = @intCast(u32, addr) }),
                     .got_load,
                     .direct_load,
@@ -4490,7 +4491,6 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                             },
                         });
                     },
-                    .stack_argument_offset => return self.fail("TODO load {}", .{mcv}),
                     else => unreachable,
                 }
 
@@ -4989,10 +4989,26 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             result.stack_align = 1;
             return result;
         },
-        .Unspecified, .C => {
+        .C => {
             // ARM64 Procedure Call Standard
             var ncrn: usize = 0; // Next Core Register Number
             var nsaa: u32 = 0; // Next stacked argument address
+
+            if (ret_ty.zigTypeTag() == .NoReturn) {
+                result.return_value = .{ .unreach = {} };
+            } else if (!ret_ty.hasRuntimeBitsIgnoreComptime() and !ret_ty.isError()) {
+                result.return_value = .{ .none = {} };
+            } else {
+                const ret_ty_size = @intCast(u32, ret_ty.abiSize(self.target.*));
+                if (ret_ty_size == 0) {
+                    assert(ret_ty.isError());
+                    result.return_value = .{ .immediate = 0 };
+                } else if (ret_ty_size <= 8) {
+                    result.return_value = .{ .register = registerAlias(c_abi_int_return_regs[0], ret_ty_size) };
+                } else {
+                    return self.fail("TODO support more return types for ARM backend", .{});
+                }
+            }
 
             for (param_types) |ty, i| {
                 const param_size = @intCast(u32, ty.abiSize(self.target.*));
@@ -5027,36 +5043,52 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                         }
                     }
 
-                    nsaa += param_size;
                     result.args[i] = .{ .stack_argument_offset = nsaa };
+                    nsaa += param_size;
                 }
             }
 
             result.stack_byte_count = nsaa;
             result.stack_align = 16;
         },
+        .Unspecified => {
+            if (ret_ty.zigTypeTag() == .NoReturn) {
+                result.return_value = .{ .unreach = {} };
+            } else if (!ret_ty.hasRuntimeBitsIgnoreComptime() and !ret_ty.isError()) {
+                result.return_value = .{ .none = {} };
+            } else {
+                const ret_ty_size = @intCast(u32, ret_ty.abiSize(self.target.*));
+                if (ret_ty_size == 0) {
+                    assert(ret_ty.isError());
+                    result.return_value = .{ .immediate = 0 };
+                } else if (ret_ty_size <= 8) {
+                    result.return_value = .{ .register = registerAlias(c_abi_int_return_regs[0], ret_ty_size) };
+                } else {
+                    return self.fail("TODO support more return types for ARM backend", .{});
+                }
+            }
+
+            var stack_offset: u32 = 0;
+
+            for (param_types) |ty, i| {
+                if (ty.abiSize(self.target.*) > 0) {
+                    const param_size = @intCast(u32, ty.abiSize(self.target.*));
+                    const param_alignment = ty.abiAlignment(self.target.*);
+
+                    stack_offset = std.mem.alignForwardGeneric(u32, stack_offset, param_alignment);
+                    result.args[i] = .{ .stack_argument_offset = stack_offset };
+                    stack_offset += param_size;
+                } else {
+                    result.args[i] = .{ .none = {} };
+                }
+            }
+
+            result.stack_byte_count = stack_offset;
+            result.stack_align = 16;
+        },
         else => return self.fail("TODO implement function parameters for {} on aarch64", .{cc}),
     }
 
-    if (ret_ty.zigTypeTag() == .NoReturn) {
-        result.return_value = .{ .unreach = {} };
-    } else if (!ret_ty.hasRuntimeBitsIgnoreComptime() and !ret_ty.isError()) {
-        result.return_value = .{ .none = {} };
-    } else switch (cc) {
-        .Naked => unreachable,
-        .Unspecified, .C => {
-            const ret_ty_size = @intCast(u32, ret_ty.abiSize(self.target.*));
-            if (ret_ty_size == 0) {
-                assert(ret_ty.isError());
-                result.return_value = .{ .immediate = 0 };
-            } else if (ret_ty_size <= 8) {
-                result.return_value = .{ .register = registerAlias(c_abi_int_return_regs[0], ret_ty_size) };
-            } else {
-                return self.fail("TODO support more return types for ARM backend", .{});
-            }
-        },
-        else => return self.fail("TODO implement function return values for {}", .{cc}),
-    }
     return result;
 }
 

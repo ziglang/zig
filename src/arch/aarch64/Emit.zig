@@ -31,9 +31,9 @@ prev_di_column: u32,
 /// Relative to the beginning of `code`.
 prev_di_pc: usize,
 
-/// The amount of stack space consumed by all stack arguments as well
-/// as the saved callee-saved registers
-prologue_stack_space: u32,
+/// The amount of stack space consumed by the saved callee-saved
+/// registers in bytes
+saved_regs_stack_space: u32,
 
 /// The branch type of every branch
 branch_types: std.AutoHashMapUnmanaged(Mir.Inst.Index, BranchType) = .{},
@@ -158,6 +158,7 @@ pub fn emitMir(
             .strh_stack => try emit.mirLoadStoreStack(inst),
 
             .ldr_stack_argument => try emit.mirLoadStackArgument(inst),
+            .ldr_ptr_stack_argument => try emit.mirLoadStackArgument(inst),
             .ldrb_stack_argument => try emit.mirLoadStackArgument(inst),
             .ldrh_stack_argument => try emit.mirLoadStackArgument(inst),
             .ldrsb_stack_argument => try emit.mirLoadStackArgument(inst),
@@ -940,24 +941,42 @@ fn mirLoadStackArgument(emit: *Emit, inst: Mir.Inst.Index) !void {
     const load_store_stack = emit.mir.instructions.items(.data)[inst].load_store_stack;
     const rt = load_store_stack.rt;
 
-    const raw_offset = emit.stack_size + emit.prologue_stack_space - load_store_stack.offset;
-    const offset = switch (tag) {
-        .ldrb_stack_argument, .ldrsb_stack_argument => blk: {
-            if (math.cast(u12, raw_offset)) |imm| {
-                break :blk Instruction.LoadStoreOffset.imm(imm);
-            } else {
+    const raw_offset = emit.stack_size + emit.saved_regs_stack_space + load_store_stack.offset;
+    switch (tag) {
+        .ldr_ptr_stack_argument => {
+            const offset = if (math.cast(u12, raw_offset)) |imm| imm else {
+                return emit.fail("TODO load stack argument ptr with larger offset", .{});
+            };
+
+            switch (tag) {
+                .ldr_ptr_stack_argument => try emit.writeInstruction(Instruction.add(rt, .sp, offset, false)),
+                else => unreachable,
+            }
+        },
+        .ldrb_stack_argument, .ldrsb_stack_argument => {
+            const offset = if (math.cast(u12, raw_offset)) |imm| Instruction.LoadStoreOffset.imm(imm) else {
                 return emit.fail("TODO load stack argument byte with larger offset", .{});
+            };
+
+            switch (tag) {
+                .ldrb_stack_argument => try emit.writeInstruction(Instruction.ldrb(rt, .sp, offset)),
+                .ldrsb_stack_argument => try emit.writeInstruction(Instruction.ldrsb(rt, .sp, offset)),
+                else => unreachable,
             }
         },
-        .ldrh_stack_argument, .ldrsh_stack_argument => blk: {
+        .ldrh_stack_argument, .ldrsh_stack_argument => {
             assert(std.mem.isAlignedGeneric(u32, raw_offset, 2)); // misaligned stack entry
-            if (math.cast(u12, @divExact(raw_offset, 2))) |imm| {
-                break :blk Instruction.LoadStoreOffset.imm(imm);
-            } else {
+            const offset = if (math.cast(u12, @divExact(raw_offset, 2))) |imm| Instruction.LoadStoreOffset.imm(imm) else {
                 return emit.fail("TODO load stack argument halfword with larger offset", .{});
+            };
+
+            switch (tag) {
+                .ldrh_stack_argument => try emit.writeInstruction(Instruction.ldrh(rt, .sp, offset)),
+                .ldrsh_stack_argument => try emit.writeInstruction(Instruction.ldrsh(rt, .sp, offset)),
+                else => unreachable,
             }
         },
-        .ldr_stack_argument => blk: {
+        .ldr_stack_argument => {
             const alignment: u32 = switch (rt.size()) {
                 32 => 4,
                 64 => 8,
@@ -965,21 +984,15 @@ fn mirLoadStackArgument(emit: *Emit, inst: Mir.Inst.Index) !void {
             };
 
             assert(std.mem.isAlignedGeneric(u32, raw_offset, alignment)); // misaligned stack entry
-            if (math.cast(u12, @divExact(raw_offset, alignment))) |imm| {
-                break :blk Instruction.LoadStoreOffset.imm(imm);
-            } else {
+            const offset = if (math.cast(u12, @divExact(raw_offset, alignment))) |imm| Instruction.LoadStoreOffset.imm(imm) else {
                 return emit.fail("TODO load stack argument with larger offset", .{});
+            };
+
+            switch (tag) {
+                .ldr_stack_argument => try emit.writeInstruction(Instruction.ldr(rt, .sp, offset)),
+                else => unreachable,
             }
         },
-        else => unreachable,
-    };
-
-    switch (tag) {
-        .ldr_stack_argument => try emit.writeInstruction(Instruction.ldr(rt, .sp, offset)),
-        .ldrb_stack_argument => try emit.writeInstruction(Instruction.ldrb(rt, .sp, offset)),
-        .ldrh_stack_argument => try emit.writeInstruction(Instruction.ldrh(rt, .sp, offset)),
-        .ldrsb_stack_argument => try emit.writeInstruction(Instruction.ldrsb(rt, .sp, offset)),
-        .ldrsh_stack_argument => try emit.writeInstruction(Instruction.ldrsh(rt, .sp, offset)),
         else => unreachable,
     }
 }
