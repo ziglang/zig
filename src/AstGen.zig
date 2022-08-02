@@ -2696,6 +2696,7 @@ fn genDefers(
                             break :blk &local_val_scope.base;
                         };
                         try unusedResultDeferExpr(gz, defer_scope, sub_scope, expr_node);
+                        try checkUsed(gz, scope, sub_scope);
                         try gz.addDbgBlockEnd();
                     },
                     .normal_only => continue,
@@ -5384,7 +5385,7 @@ fn ifExpr(
             const tag: Zir.Inst.Tag = if (payload_is_ref) .is_non_err_ptr else .is_non_err;
             break :c .{
                 .inst = err_union,
-                .bool_bit = try block_scope.addUnNode(tag, err_union, node),
+                .bool_bit = try block_scope.addUnNode(tag, err_union, if_full.ast.cond_expr),
             };
         } else if (if_full.payload_token) |_| {
             const cond_rl: ResultLoc = if (payload_is_ref) .ref else .none;
@@ -5392,7 +5393,7 @@ fn ifExpr(
             const tag: Zir.Inst.Tag = if (payload_is_ref) .is_non_null_ptr else .is_non_null;
             break :c .{
                 .inst = optional,
-                .bool_bit = try block_scope.addUnNode(tag, optional, node),
+                .bool_bit = try block_scope.addUnNode(tag, optional, if_full.ast.cond_expr),
             };
         } else {
             const cond = try expr(&block_scope, &block_scope.base, bool_rl, if_full.ast.cond_expr);
@@ -5423,7 +5424,7 @@ fn ifExpr(
                     .err_union_payload_unsafe_ptr
                 else
                     .err_union_payload_unsafe;
-                const payload_inst = try then_scope.addUnNode(tag, cond.inst, node);
+                const payload_inst = try then_scope.addUnNode(tag, cond.inst, if_full.ast.then_expr);
                 const token_name_index = payload_token + @boolToInt(payload_is_ref);
                 const ident_name = try astgen.identAsString(token_name_index);
                 const token_name_str = tree.tokenSlice(token_name_index);
@@ -5452,7 +5453,7 @@ fn ifExpr(
             const ident_bytes = tree.tokenSlice(ident_token);
             if (mem.eql(u8, "_", ident_bytes))
                 break :s &then_scope.base;
-            const payload_inst = try then_scope.addUnNode(tag, cond.inst, node);
+            const payload_inst = try then_scope.addUnNode(tag, cond.inst, if_full.ast.then_expr);
             const ident_name = try astgen.identAsString(ident_token);
             try astgen.detectLocalShadowing(&then_scope.base, ident_name, ident_token, ident_bytes);
             payload_val_scope = .{
@@ -5495,7 +5496,7 @@ fn ifExpr(
                     .err_union_code_ptr
                 else
                     .err_union_code;
-                const payload_inst = try else_scope.addUnNode(tag, cond.inst, node);
+                const payload_inst = try else_scope.addUnNode(tag, cond.inst, if_full.ast.cond_expr);
                 const ident_name = try astgen.identAsString(error_token);
                 const error_token_str = tree.tokenSlice(error_token);
                 if (mem.eql(u8, "_", error_token_str))
@@ -5709,7 +5710,7 @@ fn whileExpr(
             const tag: Zir.Inst.Tag = if (payload_is_ref) .is_non_err_ptr else .is_non_err;
             break :c .{
                 .inst = err_union,
-                .bool_bit = try continue_scope.addUnNode(tag, err_union, node),
+                .bool_bit = try continue_scope.addUnNode(tag, err_union, while_full.ast.then_expr),
             };
         } else if (while_full.payload_token) |_| {
             const cond_rl: ResultLoc = if (payload_is_ref) .ref else .none;
@@ -5717,7 +5718,7 @@ fn whileExpr(
             const tag: Zir.Inst.Tag = if (payload_is_ref) .is_non_null_ptr else .is_non_null;
             break :c .{
                 .inst = optional,
-                .bool_bit = try continue_scope.addUnNode(tag, optional, node),
+                .bool_bit = try continue_scope.addUnNode(tag, optional, while_full.ast.then_expr),
             };
         } else {
             const cond = try expr(&continue_scope, &continue_scope.base, bool_rl, while_full.ast.cond_expr);
@@ -5755,7 +5756,7 @@ fn whileExpr(
                 else
                     .err_union_payload_unsafe;
                 // will add this instruction to then_scope.instructions below
-                payload_inst = try then_scope.makeUnNode(tag, cond.inst, node);
+                payload_inst = try then_scope.makeUnNode(tag, cond.inst, while_full.ast.cond_expr);
                 const ident_token = if (payload_is_ref) payload_token + 1 else payload_token;
                 const ident_bytes = tree.tokenSlice(ident_token);
                 if (mem.eql(u8, "_", ident_bytes))
@@ -5784,7 +5785,7 @@ fn whileExpr(
             else
                 .optional_payload_unsafe;
             // will add this instruction to then_scope.instructions below
-            payload_inst = try then_scope.makeUnNode(tag, cond.inst, node);
+            payload_inst = try then_scope.makeUnNode(tag, cond.inst, while_full.ast.cond_expr);
             const ident_name = try astgen.identAsString(ident_token);
             const ident_bytes = tree.tokenSlice(ident_token);
             if (mem.eql(u8, "_", ident_bytes))
@@ -5860,7 +5861,7 @@ fn whileExpr(
                     .err_union_code_ptr
                 else
                     .err_union_code;
-                const else_payload_inst = try else_scope.addUnNode(tag, cond.inst, node);
+                const else_payload_inst = try else_scope.addUnNode(tag, cond.inst, while_full.ast.cond_expr);
                 const ident_name = try astgen.identAsString(error_token);
                 const ident_bytes = tree.tokenSlice(error_token);
                 if (mem.eql(u8, ident_bytes, "_"))

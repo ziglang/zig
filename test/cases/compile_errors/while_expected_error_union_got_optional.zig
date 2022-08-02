@@ -4,7 +4,7 @@ export fn foo() void {
 fn bar() ?i32 { return 1; }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:2:15: error: expected error union type, found '?i32'
+// :2:15: error: expected error union type, found '?i32'
