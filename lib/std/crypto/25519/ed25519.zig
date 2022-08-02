@@ -229,15 +229,14 @@ pub const Ed25519 = struct {
             blind_secret_key: BlindSecretKey,
         };
 
-        /// Blind an existing key pair with a blinding seed.
-        pub fn blind(key_pair: Ed25519.KeyPair, blind_seed: [blind_seed_length]u8) !BlindKeyPair {
+        /// Blind an existing key pair with a blinding seed and a context.
+        pub fn blind(key_pair: Ed25519.KeyPair, blind_seed: [blind_seed_length]u8, ctx: []const u8) !BlindKeyPair {
             var h: [Sha512.digest_length]u8 = undefined;
             Sha512.hash(key_pair.secret_key[0..32], &h, .{});
             Curve.scalar.clamp(h[0..32]);
             const scalar = Curve.scalar.reduce(h[0..32].*);
 
-            var blind_h: [Sha512.digest_length]u8 = undefined;
-            Sha512.hash(blind_seed[0..], &blind_h, .{});
+            const blind_h = blindCtx(blind_seed, ctx);
             const blind_factor = Curve.scalar.reduce(blind_h[0..32].*);
 
             const blind_scalar = Curve.scalar.mul(scalar, blind_factor);
@@ -259,9 +258,8 @@ pub const Ed25519 = struct {
         }
 
         /// Recover a public key from a blind version of it.
-        pub fn unblindPublicKey(blind_public_key: [public_length]u8, blind_seed: [blind_seed_length]u8) ![public_length]u8 {
-            var blind_h: [Sha512.digest_length]u8 = undefined;
-            Sha512.hash(&blind_seed, &blind_h, .{});
+        pub fn unblindPublicKey(blind_public_key: [public_length]u8, blind_seed: [blind_seed_length]u8, ctx: []const u8) ![public_length]u8 {
+            const blind_h = blindCtx(blind_seed, ctx);
             const inv_blind_factor = Scalar.fromBytes(blind_h[0..32].*).invert().toBytes();
             const public_key = try (try Curve.fromBytes(blind_public_key)).mul(inv_blind_factor);
             return public_key.toBytes();
@@ -296,6 +294,17 @@ pub const Ed25519 = struct {
             const s = Curve.scalar.mulAdd(hram, key_pair.blind_secret_key.blind_scalar, nonce);
             mem.copy(u8, sig[32..], s[0..]);
             return sig;
+        }
+
+        /// Compute a blind context from a blinding seed and a context.
+        fn blindCtx(blind_seed: [blind_seed_length]u8, ctx: []const u8) [Sha512.digest_length]u8 {
+            var blind_h: [Sha512.digest_length]u8 = undefined;
+            var hx = Sha512.init(.{});
+            hx.update(&blind_seed);
+            hx.update(&[1]u8{0});
+            hx.update(ctx);
+            hx.final(&blind_h);
+            return blind_h;
         }
     };
 };
@@ -458,7 +467,7 @@ test "ed25519 with blind keys" {
     crypto.random.bytes(&blind);
 
     // Blind the key pair
-    const blind_kp = try BlindKeySignatures.blind(kp, blind);
+    const blind_kp = try BlindKeySignatures.blind(kp, blind, "ctx");
 
     // Sign a message and check that it can be verified with the blind public key
     const msg = "test";
@@ -466,6 +475,6 @@ test "ed25519 with blind keys" {
     try Ed25519.verify(sig, msg, blind_kp.blind_public_key);
 
     // Unblind the public key
-    const pk = try BlindKeySignatures.unblindPublicKey(blind_kp.blind_public_key, blind);
+    const pk = try BlindKeySignatures.unblindPublicKey(blind_kp.blind_public_key, blind, "ctx");
     try std.testing.expectEqualSlices(u8, &pk, &kp.public_key);
 }
