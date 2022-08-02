@@ -916,9 +916,7 @@ static LLVMValueRef gen_load_untyped(CodeGen *g, LLVMTypeRef elem_llvm_ty, LLVMV
 {
     LLVMValueRef result = LLVMBuildLoad2(g->builder, elem_llvm_ty, ptr, name);
     if (is_volatile) LLVMSetVolatile(result, true);
-    if (alignment == 0) {
-        LLVMSetAlignment(result, LLVMABIAlignmentOfType(g->target_data_ref, LLVMGetElementType(LLVMTypeOf(ptr))));
-    } else {
+    if (alignment != 0) {
         LLVMSetAlignment(result, alignment);
     }
     return result;
@@ -5129,7 +5127,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, Stage1Air *executable, Stage1AirI
 
                 // Store a zero in the awaiter's result ptr to indicate we do not need a copy made.
                 LLVMValueRef awaiter_ret_ptr = LLVMBuildStructGEP2(g->builder, frame_struct_llvm_ty, frame_result_loc, frame_ret_start + 1, "");
-                LLVMValueRef zero_ptr = LLVMConstNull(LLVMGetElementType(LLVMTypeOf(awaiter_ret_ptr)));
+                LLVMValueRef zero_ptr = LLVMConstNull(LLVMGetGEPSourceElementType(awaiter_ret_ptr));
                 LLVMBuildStore(g->builder, zero_ptr, awaiter_ret_ptr);
             }
 
@@ -5147,7 +5145,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, Stage1Air *executable, Stage1AirI
 
         LLVMValueRef fn_ptr_ptr = LLVMBuildStructGEP2(g->builder, frame_struct_llvm_ty, frame_result_loc, frame_fn_ptr_index, "");
         LLVMValueRef bitcasted_fn_val = LLVMBuildBitCast(g->builder, fn_val,
-                LLVMGetElementType(LLVMTypeOf(fn_ptr_ptr)), "");
+                LLVMGetGEPSourceElementType(fn_ptr_ptr), "");
         LLVMBuildStore(g->builder, bitcasted_fn_val, fn_ptr_ptr);
 
         LLVMValueRef resume_index_ptr = LLVMBuildStructGEP2(g->builder, frame_struct_llvm_ty, frame_result_loc, frame_resume_index, "");
@@ -5266,8 +5264,8 @@ static LLVMValueRef ir_render_call(CodeGen *g, Stage1Air *executable, Stage1AirI
             size_t field_count = arg_calc.field_index;
 
             LLVMTypeRef *field_types = heap::c_allocator.allocate_nonzero<LLVMTypeRef>(field_count);
-            LLVMGetStructElementTypes(LLVMGetElementType(LLVMTypeOf(frame_result_loc)), field_types);
-            assert(LLVMCountStructElementTypes(LLVMGetElementType(LLVMTypeOf(frame_result_loc))) == arg_calc_start.field_index);
+            LLVMGetStructElementTypes(frame_struct_llvm_ty, field_types);
+            assert(LLVMCountStructElementTypes(frame_struct_llvm_ty) == arg_calc_start.field_index);
 
             arg_calc = arg_calc_start;
             for (size_t arg_i = 0; arg_i < gen_param_values.length; arg_i += 1) {
@@ -5648,7 +5646,7 @@ static LLVMValueRef ir_render_asm_gen(CodeGen *g, Stage1Air *executable, Stage1A
     size_t param_index = 0;
     LLVMTypeRef *param_types = heap::c_allocator.allocate<LLVMTypeRef>(input_and_output_count);
     LLVMValueRef *param_values = heap::c_allocator.allocate<LLVMValueRef>(input_and_output_count);
-    bool *param_needs_attr = heap::c_allocator.allocate<bool>(input_and_output_count);
+    LLVMTypeRef *param_needs_attr = heap::c_allocator.allocate<LLVMTypeRef>(input_and_output_count);
     for (size_t i = 0; i < asm_expr->output_list.length; i += 1, total_index += 1) {
         AsmOutput *asm_output = asm_expr->output_list.at(i);
         bool is_return = (asm_output->return_type != nullptr);
@@ -5664,7 +5662,8 @@ static LLVMValueRef ir_render_asm_gen(CodeGen *g, Stage1Air *executable, Stage1A
             buf_appendf(&constraint_buf, "=%s", buf_ptr(asm_output->constraint) + 1);
         } else {
             buf_appendf(&constraint_buf, "=*%s", buf_ptr(asm_output->constraint) + 1);
-            param_needs_attr[param_index] = true;
+            ZigVar *variable = instruction->output_vars[i];
+            param_needs_attr[param_index] = get_llvm_type(g, variable->var_type);
         }
         if (total_index + 1 < total_constraint_count) {
             buf_append_char(&constraint_buf, ',');
@@ -5690,6 +5689,7 @@ static LLVMValueRef ir_render_asm_gen(CodeGen *g, Stage1Air *executable, Stage1A
         ZigType *const type = ir_input->value->type;
         LLVMTypeRef type_ref = get_llvm_type(g, type);
         LLVMValueRef value_ref = ir_llvm_value(g, ir_input);
+        LLVMTypeRef elem_type_ref = nullptr;
         // Handle integers of non pot bitsize by widening them.
         if (type->id == ZigTypeIdInt) {
             const size_t bitsize = type->data.integral.bit_count;
@@ -5701,6 +5701,7 @@ static LLVMValueRef ir_render_asm_gen(CodeGen *g, Stage1Air *executable, Stage1A
                 value_ref = gen_widen_or_shorten(g, false, type, wider_type, value_ref);
             }
         } else if (handle_is_ptr(g, type)) {
+            elem_type_ref = type_ref;
             ZigType *gen_type = get_pointer_to_type(g, type, true);
             type_ref = get_llvm_type(g, gen_type);
         }
@@ -5708,7 +5709,9 @@ static LLVMValueRef ir_render_asm_gen(CodeGen *g, Stage1Air *executable, Stage1A
         param_types[param_index] = type_ref;
         param_values[param_index] = value_ref;
         // In the case of indirect inputs, LLVM requires the callsite to have an elementtype(<ty>) attribute.
-        param_needs_attr[param_index] = buf_ptr(asm_input->constraint)[0] == '*';
+        if (buf_ptr(asm_input->constraint)[0] == '*') {
+            param_needs_attr[param_index] = elem_type_ref;
+        }
     }
     for (size_t i = 0; i < asm_expr->clobber_list.length; i += 1, total_index += 1) {
         Buf *clobber_buf = asm_expr->clobber_list.at(i);
@@ -5756,8 +5759,8 @@ static LLVMValueRef ir_render_asm_gen(CodeGen *g, Stage1Air *executable, Stage1A
     LLVMValueRef built_call = LLVMBuildCall2(g->builder, LLVMGlobalGetValueType(asm_fn), asm_fn, param_values, (unsigned)input_and_output_count, "");
 
     for (size_t i = 0; i < input_and_output_count; i += 1) {
-        if (param_needs_attr[i]) {
-            LLVMTypeRef elem_ty = LLVMGetElementType(param_types[i]);
+        if (param_needs_attr[i] != nullptr) {
+            LLVMTypeRef elem_ty = param_needs_attr[i];
             ZigLLVMSetCallElemTypeAttr(built_call, i, elem_ty);
         }
     }
@@ -7665,7 +7668,7 @@ static LLVMValueRef ir_render_await(CodeGen *g, Stage1Air *executable, Stage1Air
                 target_frame_ptr, frame_ret_start + 1, "");
         if (result_loc == nullptr) {
             // no copy needed
-            LLVMBuildStore(g->builder, LLVMConstNull(LLVMGetElementType(LLVMTypeOf(awaiter_ret_ptr_ptr))),
+            LLVMBuildStore(g->builder, LLVMConstNull(LLVMGetGEPSourceElementType(awaiter_ret_ptr_ptr)),
                     awaiter_ret_ptr_ptr);
         } else {
             LLVMBuildStore(g->builder, result_loc, awaiter_ret_ptr_ptr);
@@ -9440,7 +9443,7 @@ static void do_code_gen(CodeGen *g) {
                             get_llvm_type(g, get_fn_frame_type(g, g->cur_fn)),
                             g->cur_frame_ptr,
                             frame_index_trace_arg(g, fn_type_id->return_type), "");
-                    LLVMValueRef zero_ptr = LLVMConstNull(LLVMGetElementType(LLVMTypeOf(trace_ptr_ptr)));
+                    LLVMValueRef zero_ptr = LLVMConstNull(LLVMGetGEPSourceElementType(trace_ptr_ptr));
                     LLVMBuildStore(g->builder, zero_ptr, trace_ptr_ptr);
                 }
 
