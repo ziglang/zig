@@ -1901,7 +1901,7 @@ pub const LoadCommandIterator = struct {
             .data = it.buffer[0..hdr.cmdsize],
         };
 
-        it.buffer = it.buffer[hdr.cmdsize..];
+        it.buffer = @alignCast(@alignOf(u64), it.buffer[hdr.cmdsize..]);
         it.index += 1;
 
         return cmd;
