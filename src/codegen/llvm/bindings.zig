@@ -141,14 +141,6 @@ pub const Value = opaque {
     pub const setAliasee = LLVMAliasSetAliasee;
     extern fn LLVMAliasSetAliasee(Alias: *const Value, Aliasee: *const Value) void;
 
-    pub const constInBoundsGEP = LLVMConstInBoundsGEP2;
-    extern fn LLVMConstInBoundsGEP2(
-        Ty: *const Type,
-        ConstantVal: *const Value,
-        ConstantIndices: [*]const *const Value,
-        NumIndices: c_uint,
-    ) *const Value;
-
     pub const constBitCast = LLVMConstBitCast;
     extern fn LLVMConstBitCast(ConstantVal: *const Value, ToType: *const Type) *const Value;
 
@@ -249,6 +241,9 @@ pub const Value = opaque {
 
     pub const addFunctionAttr = ZigLLVMAddFunctionAttr;
     extern fn ZigLLVMAddFunctionAttr(Fn: *const Value, attr_name: [*:0]const u8, attr_value: [*:0]const u8) void;
+
+    pub const getGEPSourceElementType = LLVMGetGEPSourceElementType;
+    extern fn LLVMGetGEPSourceElementType(GEP: *const Value) *const Type;
 };
 
 pub const Type = opaque {
@@ -279,6 +274,9 @@ pub const Type = opaque {
 
     pub const getUndef = LLVMGetUndef;
     extern fn LLVMGetUndef(Ty: *const Type) *const Value;
+
+    pub const pointerType = LLVMPointerType;
+    extern fn LLVMPointerType(ElementType: *const Type, AddressSpace: c_uint) *const Type;
 
     pub const arrayType = LLVMArrayType;
     extern fn LLVMArrayType(ElementType: *const Type, ElementCount: c_uint) *const Type;
@@ -311,6 +309,14 @@ pub const Type = opaque {
 
     pub const isSized = LLVMTypeIsSized;
     extern fn LLVMTypeIsSized(Ty: *const Type) Bool;
+
+    pub const constInBoundsGEP = LLVMConstInBoundsGEP2;
+    extern fn LLVMConstInBoundsGEP2(
+        Ty: *const Type,
+        ConstantVal: *const Value,
+        ConstantIndices: [*]const *const Value,
+        NumIndices: c_uint,
+    ) *const Value;
 };
 
 pub const Module = opaque {
