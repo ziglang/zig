@@ -6,7 +6,8 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:2:19: error: dependency loop detected
+// :1:1: error: dependency loop detected
+// :2:19: note: referenced here

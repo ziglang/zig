@@ -5312,7 +5312,14 @@ fn zirDeclRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const src = inst_data.src();
     const decl_name = inst_data.get(sema.code);
     const decl_index = try sema.lookupIdentifier(block, src, decl_name);
-    return sema.analyzeDeclRef(decl_index);
+    return sema.analyzeDeclRef(decl_index) catch |err| switch (err) {
+        error.AnalysisFail => {
+            const msg = sema.err orelse return err;
+            try sema.errNote(block, src, msg, "referenced here", .{});
+            return err;
+        },
+        else => return err,
+    };
 }
 
 fn zirDeclVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -20876,7 +20883,14 @@ fn namespaceLookupRef(
     decl_name: []const u8,
 ) CompileError!?Air.Inst.Ref {
     const decl = (try sema.namespaceLookup(block, src, namespace, decl_name)) orelse return null;
-    return try sema.analyzeDeclRef(decl);
+    return sema.analyzeDeclRef(decl) catch |err| switch (err) {
+        error.AnalysisFail => {
+            const msg = sema.err orelse return err;
+            try sema.errNote(block, src, msg, "referenced here", .{});
+            return err;
+        },
+        else => return err,
+    };
 }
 
 fn namespaceLookupVal(
@@ -24979,7 +24993,14 @@ fn analyzeDeclVal(
     if (sema.decl_val_table.get(decl_index)) |result| {
         return result;
     }
-    const decl_ref = try sema.analyzeDeclRef(decl_index);
+    const decl_ref = sema.analyzeDeclRef(decl_index) catch |err| switch (err) {
+        error.AnalysisFail => {
+            const msg = sema.err orelse return err;
+            try sema.errNote(block, src, msg, "referenced here", .{});
+            return err;
+        },
+        else => return err,
+    };
     const result = try sema.analyzeLoad(block, src, decl_ref, src);
     if (Air.refToIndex(result)) |index| {
         if (sema.air_instructions.items(.tag)[index] == .constant and !block.is_typeof) {
@@ -24990,6 +25011,12 @@ fn analyzeDeclVal(
 }
 
 fn ensureDeclAnalyzed(sema: *Sema, decl_index: Decl.Index) CompileError!void {
+    const decl = sema.mod.declPtr(decl_index);
+    if (decl.analysis == .in_progress) {
+        const msg = try Module.ErrorMsg.create(sema.gpa, decl.srcLoc(), "dependency loop detected", .{});
+        return sema.failWithOwnedErrorMsg(msg);
+    }
+
     sema.mod.ensureDeclAnalyzed(decl_index) catch |err| {
         if (sema.owner_func) |owner_func| {
             owner_func.state = .dependency_failure;
