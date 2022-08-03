@@ -4577,8 +4577,8 @@ static LLVMValueRef gen_valgrind_client_request(CodeGen *g, LLVMValueRef default
                     zero,
                     LLVMConstInt(usize_type_ref, i, false),
                 };
-                LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP2(g->builder, usize_type_ref,
-                        array_ptr, indexes, 2, "");
+                LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP2(g->builder,
+                    LLVMGetAllocatedType(array_ptr), array_ptr, indexes, 2, "");
                 LLVMBuildStore(g->builder, array_elements[i], elem_ptr);
             }
 
@@ -4599,7 +4599,7 @@ static LLVMValueRef gen_valgrind_client_request(CodeGen *g, LLVMValueRef default
             LLVMValueRef asm_fn = LLVMGetInlineAsm(function_type, buf_ptr(asm_template), buf_len(asm_template),
                     buf_ptr(asm_constraints), buf_len(asm_constraints), asm_has_side_effects, asm_is_alignstack,
                     LLVMInlineAsmDialectATT, false);
-            return LLVMBuildCall2(g->builder, LLVMGlobalGetValueType(asm_fn), asm_fn, param_values, input_and_output_count, "");
+            return LLVMBuildCall2(g->builder, function_type, asm_fn, param_values, input_and_output_count, "");
         }
     }
     zig_unreachable();
@@ -6761,14 +6761,14 @@ static LLVMValueRef ir_render_slice(CodeGen *g, Stage1Air *executable, Stage1Air
             codegen_report_errors_and_exit(g);
 
         if (value_has_bits) {
-            LLVMTypeRef array_llvm_ty = get_llvm_type(g, array_type);
+            LLVMTypeRef elem_llvm_ty = get_llvm_type(g, array_type->data.pointer.child_type);
             if (want_runtime_safety && sentinel != nullptr) {
-                LLVMValueRef sentinel_elem_ptr = LLVMBuildInBoundsGEP2(g->builder, array_llvm_ty,
+                LLVMValueRef sentinel_elem_ptr = LLVMBuildInBoundsGEP2(g->builder, elem_llvm_ty,
                         array_ptr, &end_val, 1, "");
                 add_sentinel_check(g, sentinel_elem_ptr, sentinel);
             }
 
-            slice_start_ptr = LLVMBuildInBoundsGEP2(g->builder, array_llvm_ty, array_ptr,
+            slice_start_ptr = LLVMBuildInBoundsGEP2(g->builder, elem_llvm_ty, array_ptr,
                     &start_val, 1, "");
         }
 
