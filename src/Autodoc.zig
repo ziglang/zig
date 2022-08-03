@@ -468,7 +468,7 @@ const DocData = struct {
             child: Expr,
         },
         ErrorUnion: struct { lhs: Expr, rhs: Expr },
-        // ErrorUnion: struct { name: []const u8 },
+        InferredErrorUnion: struct { payload: Expr },
         ErrorSet: struct {
             name: []const u8,
             fields: ?[]const Field = null,
@@ -582,7 +582,7 @@ const DocData = struct {
         typeOf: usize, // index in `exprs`
         typeInfo: usize, // index in `exprs`
         typeOf_peer: []usize,
-        errorUnion: usize, // index in `exprs`
+        errorUnion: usize, // index in `types`
         as: As,
         sizeOf: usize, // index in `exprs`
         bitSizeOf: usize, // index in `exprs`
@@ -1929,7 +1929,7 @@ fn walkInstruction(
                 .comptimeExpr = self.comptime_exprs.items.len,
             } };
             try self.comptime_exprs.append(self.arena, .{
-                .code = "if(banana) 1 else 0",
+                .code = "if (...) { ... }",
             });
             return res;
         },
@@ -2119,6 +2119,7 @@ fn walkInstruction(
                 inst_index,
                 self_ast_node_index,
                 type_slot_index,
+                tags[inst_index] == .func_inferred,
             );
 
             return result;
@@ -3416,6 +3417,7 @@ fn analyzeFunction(
     inst_index: usize,
     self_ast_node_index: usize,
     type_slot_index: usize,
+    ret_is_inferred_error_set: bool,
 ) AutodocErrors!DocData.WalkResult {
     const tags = file.zir.instructions.items(.tag);
     const data = file.zir.instructions.items(.data);
@@ -3522,13 +3524,23 @@ fn analyzeFunction(
         else => null,
     };
 
+    const ret_type: DocData.Expr = blk: {
+        if (ret_is_inferred_error_set) {
+            const ret_type_slot_index = self.types.items.len;
+            try self.types.append(self.arena, .{
+                .InferredErrorUnion = .{ .payload = ret_type_ref },
+            });
+            break :blk .{ .type = ret_type_slot_index };
+        } else break :blk ret_type_ref;
+    };
+
     self.ast_nodes.items[self_ast_node_index].fields = param_ast_indexes.items;
     self.types.items[type_slot_index] = .{
         .Fn = .{
             .name = "todo_name func",
             .src = self_ast_node_index,
             .params = param_type_refs.items,
-            .ret = ret_type_ref,
+            .ret = ret_type,
             .generic_ret = generic_ret,
         },
     };
