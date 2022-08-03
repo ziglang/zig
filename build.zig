@@ -1046,6 +1046,8 @@ const clang_libs = [_][]const u8{
     "clangCrossTU",
     "clangIndex",
     "clangToolingCore",
+    "clangExtractAPI",
+    "clangSupport",
 };
 const lld_libs = [_][]const u8{
     "lldMinGW",
