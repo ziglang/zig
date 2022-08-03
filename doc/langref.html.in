@@ -2629,7 +2629,7 @@ test "Conversion between vectors, arrays, and slices" {
             </li>
         </ul>
         <ul>
-            <li>{#syntax#}[]T{#endsyntax#} - pointer to runtime-known number of items.
+            <li>{#syntax#}[]T{#endsyntax#} - is a slice (a fat pointer, which contains a pointer of type [*]T and a length).
             <ul>
                 <li>Supports index syntax: {#syntax#}slice[i]{#endsyntax#}</li>
                 <li>Supports slice syntax: {#syntax#}slice[start..end]{#endsyntax#}</li>
