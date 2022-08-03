@@ -2365,7 +2365,7 @@ pub const DeclGen = struct {
         }
         dg.addFnAttr(llvm_fn, "nounwind");
         if (comp.unwind_tables) {
-            dg.addFnAttr(llvm_fn, "uwtable");
+            dg.addFnAttrString(llvm_fn, "uwtable", "sync");
         }
         if (comp.bin_file.options.skip_linker_dependencies or
             comp.bin_file.options.no_builtin)
@@ -4996,8 +4996,8 @@ pub const FuncGen = struct {
         const indices: [2]*const llvm.Value = .{
             llvm_usize.constNull(), llvm_usize.constNull(),
         };
-        const elem_llvm_ty = try self.dg.lowerType(array_ty.childType());
-        const ptr = self.builder.buildInBoundsGEP(elem_llvm_ty, operand, &indices, indices.len, "");
+        const array_llvm_ty = try self.dg.lowerType(array_ty);
+        const ptr = self.builder.buildInBoundsGEP(array_llvm_ty, operand, &indices, indices.len, "");
         const partial = self.builder.buildInsertValue(slice_llvm_ty.getUndef(), ptr, 0, "");
         return self.builder.buildInsertValue(partial, len, 1, "");
     }
@@ -5174,13 +5174,14 @@ pub const FuncGen = struct {
         const array_llvm_val = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
         if (isByRef(array_ty)) {
-            const elem_ty = array_ty.childType();
-            const elem_llvm_ty = try self.dg.lowerType(elem_ty);
+            const array_llvm_ty = try self.dg.lowerType(array_ty);
             const indices: [2]*const llvm.Value = .{ self.context.intType(32).constNull(), rhs };
-            const elem_ptr = self.builder.buildInBoundsGEP(elem_llvm_ty, array_llvm_val, &indices, indices.len, "");
+            const elem_ptr = self.builder.buildInBoundsGEP(array_llvm_ty, array_llvm_val, &indices, indices.len, "");
+            const elem_ty = array_ty.childType();
             if (isByRef(elem_ty)) {
                 return elem_ptr;
             } else {
+                const elem_llvm_ty = try self.dg.lowerType(elem_ty);
                 return self.builder.buildLoad(elem_llvm_ty, elem_ptr, "");
             }
         }
@@ -7306,6 +7307,7 @@ pub const FuncGen = struct {
             } else {
                 // If the ABI size of the element type is not evenly divisible by size in bits;
                 // a simple bitcast will not work, and we fall back to extractelement.
+                const array_llvm_ty = try self.dg.lowerType(operand_ty);
                 const elem_llvm_ty = try self.dg.lowerType(elem_ty);
                 const llvm_usize = try self.dg.lowerType(Type.usize);
                 const llvm_u32 = self.context.intType(32);
@@ -7317,7 +7319,7 @@ pub const FuncGen = struct {
                     const index_usize = llvm_usize.constInt(i, .False);
                     const index_u32 = llvm_u32.constInt(i, .False);
                     const indexes: [2]*const llvm.Value = .{ zero, index_usize };
-                    const elem_ptr = self.builder.buildInBoundsGEP(elem_llvm_ty, operand, &indexes, indexes.len, "");
+                    const elem_ptr = self.builder.buildInBoundsGEP(array_llvm_ty, operand, &indexes, indexes.len, "");
                     const elem = self.builder.buildLoad(elem_llvm_ty, elem_ptr, "");
                     vector = self.builder.buildInsertElement(vector, elem, index_u32, "");
                 }
