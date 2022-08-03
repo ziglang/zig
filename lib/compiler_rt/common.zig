@@ -40,7 +40,13 @@ pub const want_windows_v2u64_abi = builtin.os.tag == .windows and builtin.cpu.ar
 ///   x86_64-windows-msvc => true
 ///   any-macos-any => false
 pub const gnu_f16_abi = switch (builtin.cpu.arch) {
-    .wasm32, .wasm64, .riscv64, .riscv32 => false,
+    .wasm32,
+    .wasm64,
+    .riscv64,
+    .riscv32,
+    .i386,
+    .x86_64,
+    => false,
 
     .arm, .armeb, .thumb, .thumbeb => switch (builtin.abi) {
         .eabi, .eabihf => false,
