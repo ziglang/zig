@@ -853,8 +853,6 @@ pub const EmitH = struct {
 pub const ErrorSet = struct {
     /// The Decl that corresponds to the error set itself.
     owner_decl: Decl.Index,
-    /// Offset from Decl node index, points to the error set AST node.
-    node_offset: i32,
     /// The string bytes are stored in the owner Decl arena.
     /// These must be in sorted order. See sortNames.
     names: NameMap,
@@ -866,7 +864,7 @@ pub const ErrorSet = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = LazySrcLoc.nodeOffset(self.node_offset),
+            .lazy = LazySrcLoc.nodeOffset(0),
         };
     }
 
@@ -893,8 +891,6 @@ pub const Struct = struct {
     namespace: Namespace,
     /// The Decl that corresponds to the struct itself.
     owner_decl: Decl.Index,
-    /// Offset from `owner_decl`, points to the struct AST node.
-    node_offset: i32,
     /// Index of the struct_decl ZIR instruction.
     zir_index: Zir.Inst.Index,
 
@@ -953,7 +949,7 @@ pub const Struct = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = LazySrcLoc.nodeOffset(s.node_offset),
+            .lazy = LazySrcLoc.nodeOffset(0),
         };
     }
 
@@ -968,7 +964,7 @@ pub const Struct = struct {
             });
             return s.srcLoc(mod);
         };
-        const node = owner_decl.relativeToNodeIndex(s.node_offset);
+        const node = owner_decl.relativeToNodeIndex(0);
         const node_tags = tree.nodes.items(.tag);
         switch (node_tags[node]) {
             .container_decl,
@@ -1060,8 +1056,6 @@ pub const Struct = struct {
 pub const EnumSimple = struct {
     /// The Decl that corresponds to the enum itself.
     owner_decl: Decl.Index,
-    /// Offset from `owner_decl`, points to the enum decl AST node.
-    node_offset: i32,
     /// Set of field names in declaration order.
     fields: NameMap,
 
@@ -1072,7 +1066,7 @@ pub const EnumSimple = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = LazySrcLoc.nodeOffset(self.node_offset),
+            .lazy = LazySrcLoc.nodeOffset(0),
         };
     }
 };
@@ -1083,8 +1077,6 @@ pub const EnumSimple = struct {
 pub const EnumNumbered = struct {
     /// The Decl that corresponds to the enum itself.
     owner_decl: Decl.Index,
-    /// Offset from `owner_decl`, points to the enum decl AST node.
-    node_offset: i32,
     /// An integer type which is used for the numerical value of the enum.
     /// Whether zig chooses this type or the user specifies it, it is stored here.
     tag_ty: Type,
@@ -1103,7 +1095,7 @@ pub const EnumNumbered = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = LazySrcLoc.nodeOffset(self.node_offset),
+            .lazy = LazySrcLoc.nodeOffset(0),
         };
     }
 };
@@ -1113,8 +1105,6 @@ pub const EnumNumbered = struct {
 pub const EnumFull = struct {
     /// The Decl that corresponds to the enum itself.
     owner_decl: Decl.Index,
-    /// Offset from `owner_decl`, points to the enum decl AST node.
-    node_offset: i32,
     /// An integer type which is used for the numerical value of the enum.
     /// Whether zig chooses this type or the user specifies it, it is stored here.
     tag_ty: Type,
@@ -1137,7 +1127,7 @@ pub const EnumFull = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = LazySrcLoc.nodeOffset(self.node_offset),
+            .lazy = LazySrcLoc.nodeOffset(0),
         };
     }
 };
@@ -1155,8 +1145,6 @@ pub const Union = struct {
     namespace: Namespace,
     /// The Decl that corresponds to the union itself.
     owner_decl: Decl.Index,
-    /// Offset from `owner_decl`, points to the union decl AST node.
-    node_offset: i32,
     /// Index of the union_decl ZIR instruction.
     zir_index: Zir.Inst.Index,
 
@@ -1203,7 +1191,7 @@ pub const Union = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = LazySrcLoc.nodeOffset(self.node_offset),
+            .lazy = LazySrcLoc.nodeOffset(0),
         };
     }
 
@@ -1218,7 +1206,7 @@ pub const Union = struct {
             });
             return u.srcLoc(mod);
         };
-        const node = owner_decl.relativeToNodeIndex(u.node_offset);
+        const node = owner_decl.relativeToNodeIndex(0);
         const node_tags = tree.nodes.items(.tag);
         var buf: [2]Ast.Node.Index = undefined;
         switch (node_tags[node]) {
@@ -1410,8 +1398,6 @@ pub const Union = struct {
 pub const Opaque = struct {
     /// The Decl that corresponds to the opaque itself.
     owner_decl: Decl.Index,
-    /// Offset from `owner_decl`, points to the opaque decl AST node.
-    node_offset: i32,
     /// Represents the declarations inside this opaque.
     namespace: Namespace,
 
@@ -1420,7 +1406,7 @@ pub const Opaque = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = LazySrcLoc.nodeOffset(self.node_offset),
+            .lazy = LazySrcLoc.nodeOffset(0),
         };
     }
 
@@ -4324,7 +4310,6 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     struct_obj.* = .{
         .owner_decl = undefined, // set below
         .fields = .{},
-        .node_offset = 0, // it's the struct for the root file
         .zir_index = undefined, // set below
         .layout = .Auto,
         .status = .none,
