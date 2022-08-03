@@ -19670,6 +19670,8 @@ fn validateRunTimeType(
     };
 }
 
+const TypeSet = std.HashMapUnmanaged(Type, void, Type.HashContext64, std.hash_map.default_max_load_percentage);
+
 fn explainWhyTypeIsComptime(
     sema: *Sema,
     block: *Block,
@@ -19677,6 +19679,20 @@ fn explainWhyTypeIsComptime(
     msg: *Module.ErrorMsg,
     src_loc: Module.SrcLoc,
     ty: Type,
+) CompileError!void {
+    var type_set = TypeSet{};
+    defer type_set.deinit(sema.gpa);
+    return sema.explainWhyTypeIsComptimeInner(block, src, msg, src_loc, ty, &type_set);
+}
+
+fn explainWhyTypeIsComptimeInner(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    msg: *Module.ErrorMsg,
+    src_loc: Module.SrcLoc,
+    ty: Type,
+    type_set: *TypeSet,
 ) CompileError!void {
     const mod = sema.mod;
     switch (ty.zigTypeTag()) {
@@ -19714,7 +19730,7 @@ fn explainWhyTypeIsComptime(
         },
 
         .Array, .Vector => {
-            try sema.explainWhyTypeIsComptime(block, src, msg, src_loc, ty.elemType());
+            try sema.explainWhyTypeIsComptimeInner(block, src, msg, src_loc, ty.elemType(), type_set);
         },
         .Pointer => {
             const elem_ty = ty.elemType2();
@@ -19732,18 +19748,20 @@ fn explainWhyTypeIsComptime(
                 }
                 return;
             }
-            try sema.explainWhyTypeIsComptime(block, src, msg, src_loc, ty.elemType());
+            try sema.explainWhyTypeIsComptimeInner(block, src, msg, src_loc, ty.elemType(), type_set);
         },
 
         .Optional => {
             var buf: Type.Payload.ElemType = undefined;
-            try sema.explainWhyTypeIsComptime(block, src, msg, src_loc, ty.optionalChild(&buf));
+            try sema.explainWhyTypeIsComptimeInner(block, src, msg, src_loc, ty.optionalChild(&buf), type_set);
         },
         .ErrorUnion => {
-            try sema.explainWhyTypeIsComptime(block, src, msg, src_loc, ty.errorUnionPayload());
+            try sema.explainWhyTypeIsComptimeInner(block, src, msg, src_loc, ty.errorUnionPayload(), type_set);
         },
 
         .Struct => {
+            if ((try type_set.getOrPutContext(sema.gpa, ty, .{ .mod = mod })).found_existing) return;
+
             if (ty.castTag(.@"struct")) |payload| {
                 const struct_obj = payload.data;
                 for (struct_obj.fields.values()) |field, i| {
@@ -19751,9 +19769,10 @@ fn explainWhyTypeIsComptime(
                         .index = i,
                         .range = .type,
                     });
+
                     if (try sema.typeRequiresComptime(block, src, field.ty)) {
                         try mod.errNoteNonLazy(field_src_loc, msg, "struct requires comptime because of this field", .{});
-                        try sema.explainWhyTypeIsComptime(block, src, msg, field_src_loc, field.ty);
+                        try sema.explainWhyTypeIsComptimeInner(block, src, msg, field_src_loc, field.ty, type_set);
                     }
                 }
             }
@@ -19761,6 +19780,8 @@ fn explainWhyTypeIsComptime(
         },
 
         .Union => {
+            if ((try type_set.getOrPutContext(sema.gpa, ty, .{ .mod = mod })).found_existing) return;
+
             if (ty.cast(Type.Payload.Union)) |payload| {
                 const union_obj = payload.data;
                 for (union_obj.fields.values()) |field, i| {
@@ -19768,9 +19789,10 @@ fn explainWhyTypeIsComptime(
                         .index = i,
                         .range = .type,
                     });
+
                     if (try sema.typeRequiresComptime(block, src, field.ty)) {
                         try mod.errNoteNonLazy(field_src_loc, msg, "union requires comptime because of this field", .{});
-                        try sema.explainWhyTypeIsComptime(block, src, msg, field_src_loc, field.ty);
+                        try sema.explainWhyTypeIsComptimeInner(block, src, msg, field_src_loc, field.ty, type_set);
                     }
                 }
             }
