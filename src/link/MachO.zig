@@ -64,7 +64,10 @@ const SystemLib = struct {
 const Section = struct {
     header: macho.section_64,
     segment_index: u8,
-    last_atom: ?*Atom = null, // TODO temporary hack; we really should shrink section to 0
+
+    // TODO is null here necessary, or can we do away with tracking via section
+    // size in incremental context?
+    last_atom: ?*Atom = null,
 
     /// A list of atoms that have surplus capacity. This list can have false
     /// positives, as functions grow and shrink over time, only sometimes being added
@@ -4434,8 +4437,8 @@ fn initSection(
         }
         header.addr = seg.vmaddr + off - seg.fileoff;
 
-        // TODO this will break if we are inserting section that is not the last section
-        // in a segment.
+        // TODO Will this break if we are inserting section that is not the last section
+        // in a segment?
         const max_size = self.allocatedSize(segment_id, off);
 
         if (size > max_size) {
