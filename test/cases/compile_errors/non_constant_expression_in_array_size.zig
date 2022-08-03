@@ -11,4 +11,4 @@ export fn entry() usize { return @offsetOf(Foo, "y"); }
 // target=native
 //
 // :5:25: error: cannot load runtime value in comptime block
-// :2:15: note: called from here
+// :2:12: note: called from here

@@ -1245,6 +1245,10 @@ const Writer = struct {
         if (decls_len == 0) {
             try stream.writeAll("{}, ");
         } else {
+            const prev_parent_decl_node = self.parent_decl_node;
+            if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
+            defer self.parent_decl_node = prev_parent_decl_node;
+
             try stream.writeAll("{\n");
             self.indent += 2;
             extra_index = try self.writeDecls(stream, decls_len, extra_index);
@@ -1415,6 +1419,10 @@ const Writer = struct {
         if (decls_len == 0) {
             try stream.writeAll("{}, ");
         } else {
+            const prev_parent_decl_node = self.parent_decl_node;
+            if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
+            defer self.parent_decl_node = prev_parent_decl_node;
+
             try stream.writeAll("{\n");
             self.indent += 2;
             extra_index = try self.writeDecls(stream, decls_len, extra_index);
@@ -1662,6 +1670,10 @@ const Writer = struct {
         if (decls_len == 0) {
             try stream.writeAll("{}, ");
         } else {
+            const prev_parent_decl_node = self.parent_decl_node;
+            if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
+            defer self.parent_decl_node = prev_parent_decl_node;
+
             try stream.writeAll("{\n");
             self.indent += 2;
             extra_index = try self.writeDecls(stream, decls_len, extra_index);
@@ -1755,6 +1767,10 @@ const Writer = struct {
         if (decls_len == 0) {
             try stream.writeAll("{})");
         } else {
+            const prev_parent_decl_node = self.parent_decl_node;
+            if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
+            defer self.parent_decl_node = prev_parent_decl_node;
+
             try stream.writeAll("{\n");
             self.indent += 2;
             _ = try self.writeDecls(stream, decls_len, extra_index);

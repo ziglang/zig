@@ -4278,7 +4278,7 @@ fn structDeclInner(
     var known_non_opv = false;
     var known_comptime_only = false;
     for (container_decl.ast.members) |member_node| {
-        const member = switch (try containerMember(gz, &namespace.base, &wip_members, member_node)) {
+        const member = switch (try containerMember(&block_scope, &namespace.base, &wip_members, member_node)) {
             .decl => continue,
             .field => |field| field,
         };
@@ -4445,7 +4445,7 @@ fn unionDeclInner(
     defer wip_members.deinit();
 
     for (members) |member_node| {
-        const member = switch (try containerMember(gz, &namespace.base, &wip_members, member_node)) {
+        const member = switch (try containerMember(&block_scope, &namespace.base, &wip_members, member_node)) {
             .decl => continue,
             .field => |field| field,
         };
@@ -4732,7 +4732,7 @@ fn containerDecl(
             for (container_decl.ast.members) |member_node| {
                 if (member_node == counts.nonexhaustive_node)
                     continue;
-                const member = switch (try containerMember(gz, &namespace.base, &wip_members, member_node)) {
+                const member = switch (try containerMember(&block_scope, &namespace.base, &wip_members, member_node)) {
                     .decl => continue,
                     .field => |field| field,
                 };
@@ -4810,13 +4810,26 @@ fn containerDecl(
             };
             defer namespace.deinit(gpa);
 
+            astgen.advanceSourceCursorToNode(node);
+            var block_scope: GenZir = .{
+                .parent = &namespace.base,
+                .decl_node_index = node,
+                .decl_line = astgen.source_line,
+                .astgen = astgen,
+                .force_comptime = true,
+                .in_defer = false,
+                .instructions = gz.instructions,
+                .instructions_top = gz.instructions.items.len,
+            };
+            defer block_scope.unstack();
+
             const decl_count = try astgen.scanDecls(&namespace, container_decl.ast.members);
 
             var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, 0, 0, 0);
             defer wip_members.deinit();
 
             for (container_decl.ast.members) |member_node| {
-                const res = try containerMember(gz, &namespace.base, &wip_members, member_node);
+                const res = try containerMember(&block_scope, &namespace.base, &wip_members, member_node);
                 if (res == .field) {
                     return astgen.failNode(member_node, "opaque types cannot have fields", .{});
                 }
