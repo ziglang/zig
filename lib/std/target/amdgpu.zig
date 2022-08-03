@@ -10,7 +10,9 @@ pub const Feature = enum {
     add_no_carry_insts,
     aperture_regs,
     architected_flat_scratch,
-    atomic_fadd_insts,
+    atomic_fadd_no_rtn_insts,
+    atomic_fadd_rtn_insts,
+    atomic_pk_fadd_no_rtn_insts,
     auto_waitcnt_before_barrier,
     ci_insts,
     cumode,
@@ -22,12 +24,12 @@ pub const Feature = enum {
     dot5_insts,
     dot6_insts,
     dot7_insts,
+    dot8_insts,
     dpp,
     dpp8,
     dpp_64bit,
+    ds128,
     ds_src2_insts,
-    enable_ds128,
-    enable_prt_strict_null,
     extended_image_insts,
     fast_denormal_f32,
     fast_fmaf,
@@ -35,11 +37,13 @@ pub const Feature = enum {
     flat_for_global,
     flat_global_insts,
     flat_inst_offsets,
+    flat_scratch,
     flat_scratch_insts,
     flat_segment_offset_bug,
     fma_mix_insts,
     fmaf,
     fp64,
+    fp8_insts,
     full_rate_64_ops,
     g16,
     gcn3_encoding,
@@ -49,13 +53,17 @@ pub const Feature = enum {
     gfx10_a_encoding,
     gfx10_b_encoding,
     gfx10_insts,
+    gfx11,
+    gfx11_insts,
     gfx7_gfx8_gfx9_insts,
     gfx8_insts,
     gfx9,
     gfx90a_insts,
+    gfx940_insts,
     gfx9_insts,
     half_rate_64_ops,
     image_gather4_d16_bug,
+    image_insts,
     image_store_d16_bug,
     inst_fwd_prefetch_bug,
     int_clamp_insts,
@@ -90,6 +98,7 @@ pub const Feature = enum {
     packed_tid,
     pk_fmac_f16_inst,
     promote_alloca,
+    prt_strict_null,
     r128_a16,
     s_memrealtime,
     s_memtime_inst,
@@ -113,12 +122,14 @@ pub const Feature = enum {
     tgsplit,
     trap_handler,
     trig_reduced_range,
+    true16,
     unaligned_access_mode,
     unaligned_buffer_access,
     unaligned_ds_access,
     unaligned_scratch_access,
     unpacked_d16_vmem,
     unsafe_ds_offset_folding,
+    user_sgpr_init16_bug,
     vcmpx_exec_war_hazard,
     vcmpx_permlane_hazard,
     vgpr_index_mode,
@@ -126,6 +137,7 @@ pub const Feature = enum {
     volcanic_islands,
     vop3_literal,
     vop3p,
+    vopd,
     vscnt,
     wavefrontsize16,
     wavefrontsize32,
@@ -168,9 +180,23 @@ pub const all_features = blk: {
         .description = "Flat Scratch register is a readonly SPI initialized architected register",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.atomic_fadd_insts)] = .{
-        .llvm_name = "atomic-fadd-insts",
-        .description = "Has buffer_atomic_add_f32, buffer_atomic_pk_add_f16, global_atomic_add_f32, global_atomic_pk_add_f16 instructions",
+    result[@enumToInt(Feature.atomic_fadd_no_rtn_insts)] = .{
+        .llvm_name = "atomic-fadd-no-rtn-insts",
+        .description = "Has buffer_atomic_add_f32 and global_atomic_add_f32 instructions that don't return original value",
+        .dependencies = featureSet(&[_]Feature{
+            .flat_global_insts,
+        }),
+    };
+    result[@enumToInt(Feature.atomic_fadd_rtn_insts)] = .{
+        .llvm_name = "atomic-fadd-rtn-insts",
+        .description = "Has buffer_atomic_add_f32 and global_atomic_add_f32 instructions that return original value",
+        .dependencies = featureSet(&[_]Feature{
+            .flat_global_insts,
+        }),
+    };
+    result[@enumToInt(Feature.atomic_pk_fadd_no_rtn_insts)] = .{
+        .llvm_name = "atomic-pk-fadd-no-rtn-insts",
+        .description = "Has buffer_atomic_pk_add_f16 and global_atomic_pk_add_f16 instructions that don't return original value",
         .dependencies = featureSet(&[_]Feature{
             .flat_global_insts,
         }),
@@ -230,6 +256,11 @@ pub const all_features = blk: {
         .description = "Has v_dot2_f32_f16, v_dot4_u32_u8, v_dot8_u32_u4 instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.dot8_insts)] = .{
+        .llvm_name = "dot8-insts",
+        .description = "Has v_dot2_f16_f16, v_dot2_bf16_bf16, v_dot2_f32_bf16, v_dot4_i32_iu8, v_dot8_i32_iu4 instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.dpp)] = .{
         .llvm_name = "dpp",
         .description = "Support DPP (Data Parallel Primitives) extension",
@@ -245,19 +276,14 @@ pub const all_features = blk: {
         .description = "Support DPP (Data Parallel Primitives) extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.ds_src2_insts)] = .{
-        .llvm_name = "ds-src2-insts",
-        .description = "Has ds_*_src2 instructions",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@enumToInt(Feature.enable_ds128)] = .{
+    result[@enumToInt(Feature.ds128)] = .{
         .llvm_name = "enable-ds128",
         .description = "Use ds_{read|write}_b128",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.enable_prt_strict_null)] = .{
-        .llvm_name = "enable-prt-strict-null",
-        .description = "Enable zeroing of result registers for sparse texture fetches",
+    result[@enumToInt(Feature.ds_src2_insts)] = .{
+        .llvm_name = "ds-src2-insts",
+        .description = "Has ds_*_src2 instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.extended_image_insts)] = .{
@@ -295,6 +321,11 @@ pub const all_features = blk: {
         .description = "Flat instructions have immediate offset addressing mode",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.flat_scratch)] = .{
+        .llvm_name = "enable-flat-scratch",
+        .description = "Use scratch_* flat memory instructions to access scratch",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.flat_scratch_insts)] = .{
         .llvm_name = "flat-scratch-insts",
         .description = "Have scratch_* flat memory instructions",
@@ -318,6 +349,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.fp64)] = .{
         .llvm_name = "fp64",
         .description = "Enable double precision operations",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.fp8_insts)] = .{
+        .llvm_name = "fp8-insts",
+        .description = "Has fp8 and bf8 instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.full_rate_64_ops)] = .{
@@ -364,6 +400,7 @@ pub const all_features = blk: {
             .gfx10_insts,
             .gfx8_insts,
             .gfx9_insts,
+            .image_insts,
             .int_clamp_insts,
             .inv_2pi_inline_imm,
             .localmemorysize65536,
@@ -403,6 +440,56 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.gfx10_insts)] = .{
         .llvm_name = "gfx10-insts",
         .description = "Additional instructions for GFX10+",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.gfx11)] = .{
+        .llvm_name = "gfx11",
+        .description = "GFX11 GPU generation",
+        .dependencies = featureSet(&[_]Feature{
+            .@"16_bit_insts",
+            .a16,
+            .add_no_carry_insts,
+            .aperture_regs,
+            .ci_insts,
+            .dpp,
+            .dpp8,
+            .extended_image_insts,
+            .fast_denormal_f32,
+            .fast_fmaf,
+            .flat_address_space,
+            .flat_global_insts,
+            .flat_inst_offsets,
+            .flat_scratch_insts,
+            .fma_mix_insts,
+            .fp64,
+            .g16,
+            .gfx10_3_insts,
+            .gfx10_a_encoding,
+            .gfx10_b_encoding,
+            .gfx10_insts,
+            .gfx11_insts,
+            .gfx8_insts,
+            .gfx9_insts,
+            .int_clamp_insts,
+            .inv_2pi_inline_imm,
+            .localmemorysize65536,
+            .mimg_r128,
+            .movrel,
+            .no_data_dep_hazard,
+            .no_sdst_cmpx,
+            .pk_fmac_f16_inst,
+            .true16,
+            .unaligned_buffer_access,
+            .unaligned_ds_access,
+            .vop3_literal,
+            .vop3p,
+            .vopd,
+            .vscnt,
+        }),
+    };
+    result[@enumToInt(Feature.gfx11_insts)] = .{
+        .llvm_name = "gfx11-insts",
+        .description = "Additional instructions for GFX11+",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.gfx7_gfx8_gfx9_insts)] = .{
@@ -462,6 +549,11 @@ pub const all_features = blk: {
         .description = "Additional instructions for GFX90A+",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.gfx940_insts)] = .{
+        .llvm_name = "gfx940-insts",
+        .description = "Additional instructions for GFX940+",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.gfx9_insts)] = .{
         .llvm_name = "gfx9-insts",
         .description = "Additional instructions for GFX9+",
@@ -475,6 +567,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.image_gather4_d16_bug)] = .{
         .llvm_name = "image-gather4-d16-bug",
         .description = "Image Gather4 D16 hardware bug",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.image_insts)] = .{
+        .llvm_name = "image-insts",
+        .description = "Support image instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.image_store_d16_bug)] = .{
@@ -647,6 +744,11 @@ pub const all_features = blk: {
         .description = "Enable promote alloca pass",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.prt_strict_null)] = .{
+        .llvm_name = "enable-prt-strict-null",
+        .description = "Enable zeroing of result registers for sparse texture fetches",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.r128_a16)] = .{
         .llvm_name = "r128-a16",
         .description = "Support gfx9-style A16 for 16-bit coordinates/gradients/lod/clamp/mip image operands, where a16 is aliased with r128",
@@ -717,6 +819,7 @@ pub const all_features = blk: {
             .flat_address_space,
             .fp64,
             .gfx7_gfx8_gfx9_insts,
+            .image_insts,
             .localmemorysize65536,
             .mad_mac_f32_insts,
             .mimg_r128,
@@ -754,6 +857,7 @@ pub const all_features = blk: {
             .ds_src2_insts,
             .extended_image_insts,
             .fp64,
+            .image_insts,
             .ldsbankcount32,
             .localmemorysize32768,
             .mad_mac_f32_insts,
@@ -789,6 +893,11 @@ pub const all_features = blk: {
         .description = "Requires use of fract on arguments to trig instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.true16)] = .{
+        .llvm_name = "true16",
+        .description = "True 16-bit operand instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.unaligned_access_mode)] = .{
         .llvm_name = "unaligned-access-mode",
         .description = "Enable unaligned global, local and region loads and stores if the hardware supports it",
@@ -817,6 +926,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.unsafe_ds_offset_folding)] = .{
         .llvm_name = "unsafe-ds-offset-folding",
         .description = "Force using DS instruction immediate offsets on SI",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.user_sgpr_init16_bug)] = .{
+        .llvm_name = "user-sgpr-init16-bug",
+        .description = "Bug requiring at least 16 user+system SGPRs to be enabled",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.vcmpx_exec_war_hazard)] = .{
@@ -854,6 +968,7 @@ pub const all_features = blk: {
             .gcn3_encoding,
             .gfx7_gfx8_gfx9_insts,
             .gfx8_insts,
+            .image_insts,
             .int_clamp_insts,
             .inv_2pi_inline_imm,
             .localmemorysize65536,
@@ -880,6 +995,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.vop3p)] = .{
         .llvm_name = "vop3p",
         .description = "Has VOP3P packed instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.vopd)] = .{
+        .llvm_name = "vopd",
+        .description = "Has VOPD dual issue wave32 instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.vscnt)] = .{
@@ -1226,6 +1346,118 @@ pub const cpu = struct {
             .wavefrontsize32,
         }),
     };
+    pub const gfx1036 = CpuModel{
+        .name = "gfx1036",
+        .llvm_name = "gfx1036",
+        .features = featureSet(&[_]Feature{
+            .dl_insts,
+            .dot1_insts,
+            .dot2_insts,
+            .dot5_insts,
+            .dot6_insts,
+            .dot7_insts,
+            .gfx10,
+            .gfx10_3_insts,
+            .gfx10_a_encoding,
+            .gfx10_b_encoding,
+            .ldsbankcount32,
+            .nsa_encoding,
+            .nsa_max_size_13,
+            .shader_cycles_register,
+            .wavefrontsize32,
+        }),
+    };
+    pub const gfx1100 = CpuModel{
+        .name = "gfx1100",
+        .llvm_name = "gfx1100",
+        .features = featureSet(&[_]Feature{
+            .architected_flat_scratch,
+            .atomic_fadd_no_rtn_insts,
+            .atomic_fadd_rtn_insts,
+            .dl_insts,
+            .dot5_insts,
+            .dot7_insts,
+            .dot8_insts,
+            .gfx11,
+            .image_insts,
+            .ldsbankcount32,
+            .nsa_encoding,
+            .nsa_max_size_5,
+            .packed_tid,
+            .shader_cycles_register,
+            .user_sgpr_init16_bug,
+            .vcmpx_permlane_hazard,
+            .wavefrontsize32,
+        }),
+    };
+    pub const gfx1101 = CpuModel{
+        .name = "gfx1101",
+        .llvm_name = "gfx1101",
+        .features = featureSet(&[_]Feature{
+            .architected_flat_scratch,
+            .atomic_fadd_no_rtn_insts,
+            .atomic_fadd_rtn_insts,
+            .dl_insts,
+            .dot5_insts,
+            .dot7_insts,
+            .dot8_insts,
+            .gfx11,
+            .image_insts,
+            .ldsbankcount32,
+            .nsa_encoding,
+            .nsa_max_size_5,
+            .packed_tid,
+            .shader_cycles_register,
+            .vcmpx_permlane_hazard,
+            .wavefrontsize32,
+        }),
+    };
+    pub const gfx1102 = CpuModel{
+        .name = "gfx1102",
+        .llvm_name = "gfx1102",
+        .features = featureSet(&[_]Feature{
+            .architected_flat_scratch,
+            .atomic_fadd_no_rtn_insts,
+            .atomic_fadd_rtn_insts,
+            .dl_insts,
+            .dot5_insts,
+            .dot7_insts,
+            .dot8_insts,
+            .gfx11,
+            .image_insts,
+            .ldsbankcount32,
+            .nsa_encoding,
+            .nsa_max_size_5,
+            .packed_tid,
+            .shader_cycles_register,
+            .user_sgpr_init16_bug,
+            .vcmpx_permlane_hazard,
+            .wavefrontsize32,
+        }),
+    };
+    pub const gfx1103 = CpuModel{
+        .name = "gfx1103",
+        .llvm_name = "gfx1103",
+        .features = featureSet(&[_]Feature{
+            .architected_flat_scratch,
+            .atomic_fadd_no_rtn_insts,
+            .atomic_fadd_rtn_insts,
+            .dl_insts,
+            .dot5_insts,
+            .dot7_insts,
+            .dot8_insts,
+            .gfx11,
+            .image_insts,
+            .ldsbankcount32,
+            .nsa_encoding,
+            .nsa_max_size_5,
+            .packed_tid,
+            .shader_cycles_register,
+            .user_sgpr_init16_bug,
+            .vcmpx_permlane_hazard,
+            .wavefrontsize32,
+        }),
+    };
     pub const gfx600 = CpuModel{
         .name = "gfx600",
         .llvm_name = "gfx600",
@@ -1360,6 +1592,7 @@ pub const cpu = struct {
             .extended_image_insts,
             .gfx9,
             .image_gather4_d16_bug,
+            .image_insts,
             .ldsbankcount32,
             .mad_mac_f32_insts,
             .mad_mix_insts,
@@ -1373,6 +1606,7 @@ pub const cpu = struct {
             .extended_image_insts,
             .gfx9,
             .image_gather4_d16_bug,
+            .image_insts,
             .ldsbankcount32,
             .mad_mac_f32_insts,
             .mad_mix_insts,
@@ -1387,6 +1621,7 @@ pub const cpu = struct {
             .fma_mix_insts,
             .gfx9,
             .image_gather4_d16_bug,
+            .image_insts,
             .ldsbankcount32,
             .mad_mac_f32_insts,
         }),
@@ -1405,6 +1640,7 @@ pub const cpu = struct {
             .gfx9,
             .half_rate_64_ops,
             .image_gather4_d16_bug,
+            .image_insts,
             .ldsbankcount32,
             .mad_mac_f32_insts,
             .sramecc_support,
@@ -1414,7 +1650,8 @@ pub const cpu = struct {
         .name = "gfx908",
         .llvm_name = "gfx908",
         .features = featureSet(&[_]Feature{
-            .atomic_fadd_insts,
+            .atomic_fadd_no_rtn_insts,
+            .atomic_pk_fadd_no_rtn_insts,
             .dl_insts,
             .dot1_insts,
             .dot2_insts,
@@ -1429,6 +1666,7 @@ pub const cpu = struct {
             .gfx9,
             .half_rate_64_ops,
             .image_gather4_d16_bug,
+            .image_insts,
             .ldsbankcount32,
             .mad_mac_f32_insts,
             .mai_insts,
@@ -1445,6 +1683,7 @@ pub const cpu = struct {
             .extended_image_insts,
             .gfx9,
             .image_gather4_d16_bug,
+            .image_insts,
             .ldsbankcount32,
             .mad_mac_f32_insts,
             .mad_mix_insts,
@@ -1454,7 +1693,9 @@ pub const cpu = struct {
         .name = "gfx90a",
         .llvm_name = "gfx90a",
         .features = featureSet(&[_]Feature{
-            .atomic_fadd_insts,
+            .atomic_fadd_no_rtn_insts,
+            .atomic_fadd_rtn_insts,
+            .atomic_pk_fadd_no_rtn_insts,
             .dl_insts,
             .dot1_insts,
             .dot2_insts,
@@ -1468,6 +1709,7 @@ pub const cpu = struct {
             .full_rate_64_ops,
             .gfx9,
             .gfx90a_insts,
+            .image_insts,
             .ldsbankcount32,
             .mad_mac_f32_insts,
             .mai_insts,
@@ -1485,9 +1727,41 @@ pub const cpu = struct {
             .extended_image_insts,
             .gfx9,
             .image_gather4_d16_bug,
+            .image_insts,
             .ldsbankcount32,
             .mad_mac_f32_insts,
             .mad_mix_insts,
+        }),
+    };
+    pub const gfx940 = CpuModel{
+        .name = "gfx940",
+        .llvm_name = "gfx940",
+        .features = featureSet(&[_]Feature{
+            .architected_flat_scratch,
+            .atomic_fadd_no_rtn_insts,
+            .atomic_fadd_rtn_insts,
+            .atomic_pk_fadd_no_rtn_insts,
+            .dl_insts,
+            .dot1_insts,
+            .dot2_insts,
+            .dot3_insts,
+            .dot4_insts,
+            .dot5_insts,
+            .dot6_insts,
+            .dot7_insts,
+            .dpp_64bit,
+            .fma_mix_insts,
+            .fp8_insts,
+            .full_rate_64_ops,
+            .gfx9,
+            .gfx90a_insts,
+            .gfx940_insts,
+            .ldsbankcount32,
+            .mai_insts,
+            .packed_fp32_ops,
+            .packed_tid,
+            .pk_fmac_f16_inst,
+            .sramecc_support,
         }),
     };
     pub const hainan = CpuModel{

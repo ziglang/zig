@@ -8,6 +8,7 @@ pub const Feature = enum {
     atomics,
     bulk_memory,
     exception_handling,
+    extended_const,
     multivalue,
     mutable_globals,
     nontrapping_fptoint,
@@ -40,6 +41,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.exception_handling)] = .{
         .llvm_name = "exception-handling",
         .description = "Enable Wasm exception handling",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.extended_const)] = .{
+        .llvm_name = "extended-const",
+        .description = "Enable extended const expressions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.multivalue)] = .{

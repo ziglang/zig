@@ -51,6 +51,10 @@ const llvm_targets = [_]LlvmTarget{
         .branch_quota = 2000,
         .feature_overrides = &.{
             .{
+                .llvm_name = "all",
+                .omit = true,
+            },
+            .{
                 .llvm_name = "v8a",
                 .extra_deps = &.{ "fp_armv8", "neon" },
             },
@@ -81,13 +85,12 @@ const llvm_targets = [_]LlvmTarget{
             },
             .{
                 .llvm_name = "exynosm3",
-                .zig_name = "exynos_m3",
                 .flatten = true,
                 .extra_deps = &.{"v8a"},
             },
             .{
                 .llvm_name = "exynosm4",
-                .zig_name = "exynos_m4",
+                .flatten = true,
             },
             .{
                 .llvm_name = "v8.1a",
@@ -299,6 +302,18 @@ const llvm_targets = [_]LlvmTarget{
             .{
                 .llvm_name = "dumpcode",
                 .omit = true,
+            },
+            .{
+                .llvm_name = "enable-ds128",
+                .zig_name = "ds128",
+            },
+            .{
+                .llvm_name = "enable-flat-scratch",
+                .zig_name = "flat_scratch",
+            },
+            .{
+                .llvm_name = "enable-prt-strict-null",
+                .zig_name = "prt_strict_null",
             },
         },
     },
@@ -934,7 +949,7 @@ fn processOneTarget(job: Job) anyerror!void {
     const child_result = try std.ChildProcess.exec(.{
         .allocator = arena,
         .argv = &child_args,
-        .max_output_bytes = 200 * 1024 * 1024,
+        .max_output_bytes = 400 * 1024 * 1024,
     });
     tblgen_progress.end();
     if (child_result.stderr.len != 0) {

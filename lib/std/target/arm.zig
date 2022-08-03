@@ -8,9 +8,12 @@ pub const Feature = enum {
     @"32bit",
     @"8msecext",
     a76,
+    aapcs_frame_chain,
+    aapcs_frame_chain_leaf,
     aclass,
     acquire_release,
     aes,
+    atomics_32,
     avoid_movs_shop,
     avoid_partial_cpsr,
     bf16,
@@ -37,6 +40,7 @@ pub const Feature = enum {
     expand_fp_mlx,
     exynos,
     fix_cmse_cve_2021_35465,
+    fix_cortex_a57_aes_1742098,
     fp16,
     fp16fml,
     fp64,
@@ -133,6 +137,7 @@ pub const Feature = enum {
     thumb2,
     thumb_mode,
     trustzone,
+    use_mipipeliner,
     use_misched,
     v2,
     v2a,
@@ -218,6 +223,18 @@ pub const all_features = blk: {
         .description = "Cortex-A76 ARM processors",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.aapcs_frame_chain)] = .{
+        .llvm_name = "aapcs-frame-chain",
+        .description = "Create an AAPCS compliant frame chain",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.aapcs_frame_chain_leaf)] = .{
+        .llvm_name = "aapcs-frame-chain-leaf",
+        .description = "Create an AAPCS compliant frame chain for leaf functions",
+        .dependencies = featureSet(&[_]Feature{
+            .aapcs_frame_chain,
+        }),
+    };
     result[@enumToInt(Feature.aclass)] = .{
         .llvm_name = "aclass",
         .description = "Is application profile ('A' series)",
@@ -234,6 +251,11 @@ pub const all_features = blk: {
         .dependencies = featureSet(&[_]Feature{
             .neon,
         }),
+    };
+    result[@enumToInt(Feature.atomics_32)] = .{
+        .llvm_name = "atomics-32",
+        .description = "Assume that lock-free 32-bit atomics are available",
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.avoid_movs_shop)] = .{
         .llvm_name = "avoid-movs-shop",
@@ -406,6 +428,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.fix_cmse_cve_2021_35465)] = .{
         .llvm_name = "fix-cmse-cve-2021-35465",
         .description = "Mitigate against the cve-2021-35465 security vulnurability",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.fix_cortex_a57_aes_1742098)] = .{
+        .llvm_name = "fix-cortex-a57-aes-1742098",
+        .description = "Work around Cortex-A57 Erratum 1742098 / Cortex-A72 Erratum 1655431 (AES)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.fp16)] = .{
@@ -987,6 +1014,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.trustzone)] = .{
         .llvm_name = "trustzone",
         .description = "Enable support for TrustZone security extensions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.use_mipipeliner)] = .{
+        .llvm_name = "use-mipipeliner",
+        .description = "Use the MachinePipeliner",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.use_misched)] = .{
@@ -1911,6 +1943,7 @@ pub const cpu = struct {
         .features = featureSet(&[_]Feature{
             .avoid_partial_cpsr,
             .cheap_predicable_cpsr,
+            .fix_cortex_a57_aes_1742098,
             .fpao,
             .v8a,
         }),
@@ -1946,6 +1979,7 @@ pub const cpu = struct {
         .name = "cortex_a72",
         .llvm_name = "cortex-a72",
         .features = featureSet(&[_]Feature{
+            .fix_cortex_a57_aes_1742098,
             .v8a,
         }),
     };
@@ -2151,8 +2185,20 @@ pub const cpu = struct {
         .llvm_name = "cortex-m7",
         .features = featureSet(&[_]Feature{
             .fp_armv8d16,
+            .use_mipipeliner,
             .use_misched,
             .v7em,
+        }),
+    };
+    pub const cortex_m85 = CpuModel{
+        .name = "cortex_m85",
+        .llvm_name = "cortex-m85",
+        .features = featureSet(&[_]Feature{
+            .fp_armv8d16,
+            .mve_fp,
+            .pacbti,
+            .use_misched,
+            .v8_1m_main,
         }),
     };
     pub const cortex_r4 = CpuModel{
