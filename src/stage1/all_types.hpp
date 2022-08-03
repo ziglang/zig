@@ -1594,6 +1594,7 @@ struct ZigTypeFnFrame {
 
 struct ZigTypeAnyFrame {
     ZigType *result_type; // null if `anyframe` instead of `anyframe->T`
+    LLVMTypeRef struct_llvm_ty;
 };
 
 struct ZigType {
