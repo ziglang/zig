@@ -2641,7 +2641,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         // This is necessary because LLD does not behave properly as a library -
         // it calls exit() and does not reset all global data between invocations.
         try argv.appendSlice(&[_][]const u8{ comp.self_exe_path.?, "wasm-ld" });
-        try argv.append("-error-limit=0");
+        try argv.append("--error-limit=0");
 
         if (self.base.options.lto) {
             switch (self.base.options.optimize_mode) {

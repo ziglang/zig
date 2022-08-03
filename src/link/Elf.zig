@@ -1426,7 +1426,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append("-r");
         }
 
-        try argv.append("-error-limit=0");
+        try argv.append("--error-limit=0");
 
         if (self.base.options.sysroot) |sysroot| {
             try argv.append(try std.fmt.allocPrint(arena, "--sysroot={s}", .{sysroot}));
