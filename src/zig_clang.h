@@ -1266,6 +1266,9 @@ ZIG_EXTERN_C double ZigClangFloatingLiteral_getValueAsApproximateDouble(const Zi
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangFloatingLiteral_getBeginLoc(const struct ZigClangFloatingLiteral *);
 ZIG_EXTERN_C ZigClangAPFloatBase_Semantics ZigClangFloatingLiteral_getRawSemantics(const ZigClangFloatingLiteral *self);
 
+
+ZIG_EXTERN_C enum ZigClangCharacterLiteral_CharacterKind ZigClangStringLiteral_getKind(
+        const struct ZigClangStringLiteral *self);
 ZIG_EXTERN_C uint32_t ZigClangStringLiteral_getCodeUnit(const struct ZigClangStringLiteral *self, size_t i);
 ZIG_EXTERN_C unsigned ZigClangStringLiteral_getLength(const struct ZigClangStringLiteral *self);
 ZIG_EXTERN_C unsigned ZigClangStringLiteral_getCharByteWidth(const struct ZigClangStringLiteral *self);
