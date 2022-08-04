@@ -91,9 +91,11 @@ pub fn emitMir(
             .sub_immediate => try emit.mirAddSubtractImmediate(inst),
             .subs_immediate => try emit.mirAddSubtractImmediate(inst),
 
-            .asr_register => try emit.mirShiftRegister(inst),
-            .lsl_register => try emit.mirShiftRegister(inst),
-            .lsr_register => try emit.mirShiftRegister(inst),
+            .asr_register => try emit.mirDataProcessing2Source(inst),
+            .lsl_register => try emit.mirDataProcessing2Source(inst),
+            .lsr_register => try emit.mirDataProcessing2Source(inst),
+            .sdiv => try emit.mirDataProcessing2Source(inst),
+            .udiv => try emit.mirDataProcessing2Source(inst),
 
             .asr_immediate => try emit.mirShiftImmediate(inst),
             .lsl_immediate => try emit.mirShiftImmediate(inst),
@@ -520,7 +522,7 @@ fn mirAddSubtractImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
     }
 }
 
-fn mirShiftRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
+fn mirDataProcessing2Source(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const rrr = emit.mir.instructions.items(.data)[inst].rrr;
     const rd = rrr.rd;
@@ -531,6 +533,8 @@ fn mirShiftRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
         .asr_register => try emit.writeInstruction(Instruction.asrRegister(rd, rn, rm)),
         .lsl_register => try emit.writeInstruction(Instruction.lslRegister(rd, rn, rm)),
         .lsr_register => try emit.writeInstruction(Instruction.lsrRegister(rd, rn, rm)),
+        .sdiv => try emit.writeInstruction(Instruction.sdiv(rd, rn, rm)),
+        .udiv => try emit.writeInstruction(Instruction.udiv(rd, rn, rm)),
         else => unreachable,
     }
 }

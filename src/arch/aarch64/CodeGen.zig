@@ -561,33 +561,38 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
         switch (air_tags[inst]) {
             // zig fmt: off
-            .add       => try self.airBinOp(inst, .add),
-            .addwrap   => try self.airBinOp(inst, .addwrap),
-            .sub       => try self.airBinOp(inst, .sub),
-            .subwrap   => try self.airBinOp(inst, .subwrap),
-            .mul       => try self.airBinOp(inst, .mul),
-            .mulwrap   => try self.airBinOp(inst, .mulwrap),
-            .shl       => try self.airBinOp(inst, .shl),
-            .shl_exact => try self.airBinOp(inst, .shl_exact),
-            .bool_and  => try self.airBinOp(inst, .bool_and),
-            .bool_or   => try self.airBinOp(inst, .bool_or),
-            .bit_and   => try self.airBinOp(inst, .bit_and),
-            .bit_or    => try self.airBinOp(inst, .bit_or),
-            .xor       => try self.airBinOp(inst, .xor),
-            .shr       => try self.airBinOp(inst, .shr),
-            .shr_exact => try self.airBinOp(inst, .shr_exact),
+            .add             => try self.airBinOp(inst, .add),
+            .addwrap         => try self.airBinOp(inst, .addwrap),
+            .sub             => try self.airBinOp(inst, .sub),
+            .subwrap         => try self.airBinOp(inst, .subwrap),
+            .mul             => try self.airBinOp(inst, .mul),
+            .mulwrap         => try self.airBinOp(inst, .mulwrap),
+            .shl             => try self.airBinOp(inst, .shl),
+            .shl_exact       => try self.airBinOp(inst, .shl_exact),
+            .bool_and        => try self.airBinOp(inst, .bool_and),
+            .bool_or         => try self.airBinOp(inst, .bool_or),
+            .bit_and         => try self.airBinOp(inst, .bit_and),
+            .bit_or          => try self.airBinOp(inst, .bit_or),
+            .xor             => try self.airBinOp(inst, .xor),
+            .shr             => try self.airBinOp(inst, .shr),
+            .shr_exact       => try self.airBinOp(inst, .shr_exact),
+            .div_float       => try self.airBinOp(inst, .div_float),
+            .div_trunc       => try self.airBinOp(inst, .div_trunc),
+            .div_floor       => try self.airBinOp(inst, .div_floor),
+            .div_exact       => try self.airBinOp(inst, .div_exact),
+            .rem             => try self.airBinOp(inst, .rem),
+            .mod             => try self.airBinOp(inst, .mod),
 
-            .ptr_add => try self.airPtrArithmetic(inst, .ptr_add),
-            .ptr_sub => try self.airPtrArithmetic(inst, .ptr_sub),
+            .ptr_add         => try self.airPtrArithmetic(inst, .ptr_add),
+            .ptr_sub         => try self.airPtrArithmetic(inst, .ptr_sub),
+
+            .min             => try self.airMin(inst),
+            .max             => try self.airMax(inst),
 
             .add_sat         => try self.airAddSat(inst),
             .sub_sat         => try self.airSubSat(inst),
             .mul_sat         => try self.airMulSat(inst),
-            .rem             => try self.airRem(inst),
-            .mod             => try self.airMod(inst),
             .shl_sat         => try self.airShlSat(inst),
-            .min             => try self.airMin(inst),
-            .max             => try self.airMax(inst),
             .slice           => try self.airSlice(inst),
 
             .sqrt,
@@ -611,8 +616,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .sub_with_overflow => try self.airOverflow(inst),
             .mul_with_overflow => try self.airMulWithOverflow(inst),
             .shl_with_overflow => try self.airShlWithOverflow(inst),
-
-            .div_float, .div_trunc, .div_floor, .div_exact => try self.airDiv(inst),
 
             .cmp_lt  => try self.airCmp(inst, .lt),
             .cmp_lte => try self.airCmp(inst, .lte),
@@ -1391,6 +1394,8 @@ fn binOpRegister(
         .lsl_register,
         .asr_register,
         .lsr_register,
+        .sdiv,
+        .udiv,
         => .{ .rrr = .{
             .rd = dest_reg,
             .rn = lhs_reg,
@@ -1624,6 +1629,67 @@ fn binOp(
                         return try self.binOpRegister(.mul, lhs, rhs, lhs_ty, rhs_ty, metadata);
                     } else {
                         return self.fail("TODO binary operations on int with bits > 64", .{});
+                    }
+                },
+                else => unreachable,
+            }
+        },
+        .div_float => {
+            switch (lhs_ty.zigTypeTag()) {
+                .Float => return self.fail("TODO div_float", .{}),
+                .Vector => return self.fail("TODO div_float on vectors", .{}),
+                else => unreachable,
+            }
+        },
+        .div_trunc, .div_floor, .div_exact => {
+            switch (lhs_ty.zigTypeTag()) {
+                .Float => return self.fail("TODO div on floats", .{}),
+                .Vector => return self.fail("TODO div on vectors", .{}),
+                .Int => {
+                    assert(lhs_ty.eql(rhs_ty, mod));
+                    const int_info = lhs_ty.intInfo(self.target.*);
+                    if (int_info.bits <= 64) {
+                        switch (int_info.signedness) {
+                            .signed => {
+                                switch (tag) {
+                                    .div_trunc, .div_exact => {
+                                        // TODO optimize integer division by constants
+                                        return try self.binOpRegister(.sdiv, lhs, rhs, lhs_ty, rhs_ty, metadata);
+                                    },
+                                    .div_floor => return self.fail("TODO div_floor on signed integers", .{}),
+                                    else => unreachable,
+                                }
+                            },
+                            .unsigned => {
+                                // TODO optimize integer division by constants
+                                return try self.binOpRegister(.udiv, lhs, rhs, lhs_ty, rhs_ty, metadata);
+                            },
+                        }
+                    } else {
+                        return self.fail("TODO integer division for ints with bits > 64", .{});
+                    }
+                },
+                else => unreachable,
+            }
+        },
+        .rem, .mod => {
+            switch (lhs_ty.zigTypeTag()) {
+                .Float => return self.fail("TODO rem/mod on floats", .{}),
+                .Vector => return self.fail("TODO rem/mod on vectors", .{}),
+                .Int => {
+                    assert(lhs_ty.eql(rhs_ty, mod));
+                    const int_info = lhs_ty.intInfo(self.target.*);
+                    if (int_info.bits <= 32) {
+                        switch (int_info.signedness) {
+                            .signed => {
+                                return self.fail("TODO rem/mod on signed integers", .{});
+                            },
+                            .unsigned => {
+                                return self.fail("TODO rem/mod on unsigned integers", .{});
+                            },
+                        }
+                    } else {
+                        return self.fail("TODO rem/mod for integers with bits > 64", .{});
                     }
                 },
                 else => unreachable,
@@ -2298,24 +2364,6 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         }
     };
     return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
-}
-
-fn airDiv(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement div for {}", .{self.target.cpu.arch});
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
-fn airRem(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement rem for {}", .{self.target.cpu.arch});
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
-fn airMod(self: *Self, inst: Air.Inst.Index) !void {
-    const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement mod for {}", .{self.target.cpu.arch});
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airShlSat(self: *Self, inst: Air.Inst.Index) !void {
