@@ -207,6 +207,85 @@ pub fn addCases(ctx: *TestContext) !void {
         });
     }
 
+    {
+        const case = ctx.obj("self referential struct requires comptime ", .{});
+        case.backend = .stage2;
+
+        case.addError(
+            \\const S = struct {
+            \\    a: fn () void,
+            \\    b: *S,
+            \\};
+            \\pub export fn entry() void {
+            \\    var s: S = undefined;
+            \\    _ = s;
+            \\}
+        , &[_][]const u8{
+            ":6:12: error: variable of type 'tmp.S' must be const or comptime",
+            ":2:8: note: struct requires comptime because of this field",
+            ":2:8: note: use '*const fn() void' for a function pointer type",
+            ":3:8: note: struct requires comptime because of this field",
+        });
+    }
+
+    {
+        const case = ctx.obj("self referential union requires comptime ", .{});
+        case.backend = .stage2;
+
+        case.addError(
+            \\const U = union {
+            \\    a: fn () void,
+            \\    b: *U,
+            \\};
+            \\pub export fn entry() void {
+            \\    var u: U = undefined;
+            \\    _ = u;
+            \\}
+        , &[_][]const u8{
+            ":6:12: error: variable of type 'tmp.U' must be const or comptime",
+            ":2:8: note: union requires comptime because of this field",
+            ":2:8: note: use '*const fn() void' for a function pointer type",
+            ":3:8: note: union requires comptime because of this field",
+        });
+    }
+
+    {
+        const case = ctx.obj("self referential struct requires comptime multiple occurrences ", .{});
+        case.backend = .stage2;
+
+        case.addError(
+            \\const S = struct {
+            \\	a: S2,
+            \\	b: S3,
+            \\	c: S4,
+            \\};
+            \\
+            \\const S2 = struct {
+            \\    a: fn () void,
+            \\};
+            \\
+            \\const S3 = struct {
+            \\	a: S2,
+            \\};
+            \\
+            \\const S4 = struct {
+            \\	a: S2,
+            \\};
+            \\
+            \\pub export fn entry() void {
+            \\    var s: S = undefined;
+            \\    _ = s;
+            \\}
+        , &[_][]const u8{
+            ":20:12: error: variable of type 'tmp.S' must be const or comptime",
+            ":2:5: note: struct requires comptime because of this field",
+            ":3:5: note: struct requires comptime because of this field",
+            ":12:5: note: struct requires comptime because of this field",
+            ":4:5: note: struct requires comptime because of this field",
+            ":16:5: note: struct requires comptime because of this field",
+        });
+    }
+
     // TODO test this in stage2, but we won't even try in stage1
     //ctx.objErrStage1("inline fn calls itself indirectly",
     //    \\export fn foo() void {
