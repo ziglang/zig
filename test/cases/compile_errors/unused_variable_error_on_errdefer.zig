@@ -7,7 +7,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:2:15: error: unused variable: 'a'
+// :2:15: error: unused capture

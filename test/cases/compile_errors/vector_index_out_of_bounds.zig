@@ -4,7 +4,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:2:62: error: index 3 outside vector of size 3
+// :2:49: error: expected 3 vector elements; found 4
