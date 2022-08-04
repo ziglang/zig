@@ -1750,10 +1750,11 @@ pub const Target = struct {
                 else => false,
             },
             f64 => switch (target.cpu.arch) {
+                .aarch64 => target.isDarwin(),
+
                 .x86_64,
                 .i386,
                 .riscv64,
-                .aarch64,
                 .aarch64_be,
                 .aarch64_32,
                 .s390x,
