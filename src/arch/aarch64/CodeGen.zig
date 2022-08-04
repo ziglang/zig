@@ -1029,17 +1029,37 @@ fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
     if (self.liveness.isUnused(inst))
         return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
 
-    const operand_ty = self.air.typeOf(ty_op.operand);
-    const operand = try self.resolveInst(ty_op.operand);
-    const info_a = operand_ty.intInfo(self.target.*);
-    const info_b = self.air.typeOfIndex(inst).intInfo(self.target.*);
-    if (info_a.signedness != info_b.signedness)
-        return self.fail("TODO gen intcast sign safety in semantic analysis", .{});
+    const operand = ty_op.operand;
+    const operand_mcv = try self.resolveInst(operand);
+    const operand_ty = self.air.typeOf(operand);
+    const operand_info = operand_ty.intInfo(self.target.*);
 
-    if (info_a.bits == info_b.bits)
-        return self.finishAir(inst, operand, .{ ty_op.operand, .none, .none });
+    const dest_ty = self.air.typeOfIndex(inst);
+    const dest_info = dest_ty.intInfo(self.target.*);
 
-    return self.fail("TODO implement intCast for {}", .{self.target.cpu.arch});
+    const result: MCValue = result: {
+        const operand_lock: ?RegisterLock = switch (operand_mcv) {
+            .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+            else => null,
+        };
+        defer if (operand_lock) |lock| self.register_manager.unlockReg(lock);
+
+        if (dest_info.bits > operand_info.bits) {
+            const dest_mcv = try self.allocRegOrMem(inst, true);
+            try self.setRegOrMem(self.air.typeOfIndex(inst), dest_mcv, operand_mcv);
+            break :result dest_mcv;
+        } else {
+            if (self.reuseOperand(inst, operand, 0, operand_mcv)) {
+                break :result operand_mcv;
+            } else {
+                const dest_mcv = try self.allocRegOrMem(inst, true);
+                try self.setRegOrMem(self.air.typeOfIndex(inst), dest_mcv, operand_mcv);
+                break :result dest_mcv;
+            }
+        }
+    };
+
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn truncRegister(
@@ -1065,6 +1085,8 @@ fn truncRegister(
             });
         },
         32, 64 => {
+            assert(dest_reg.size() == operand_reg.size());
+
             _ = try self.addInst(.{
                 .tag = .mov_register,
                 .data = .{ .rr = .{
@@ -2955,6 +2977,8 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
             defer if (addr_reg_lock) |reg| self.register_manager.unlockReg(reg);
 
             switch (value) {
+                .dead => unreachable,
+                .undef => unreachable,
                 .register => |value_reg| {
                     try self.genStrRegister(value_reg, addr_reg, value_ty);
                 },
@@ -2968,7 +2992,41 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                         try self.genSetReg(value_ty, tmp_reg, value);
                         try self.store(ptr, .{ .register = tmp_reg }, ptr_ty, value_ty);
                     } else {
-                        return self.fail("TODO implement memcpy", .{});
+                        const regs = try self.register_manager.allocRegs(4, .{ null, null, null, null }, gp);
+                        const regs_locks = self.register_manager.lockRegsAssumeUnused(4, regs);
+                        defer for (regs_locks) |reg| {
+                            self.register_manager.unlockReg(reg);
+                        };
+
+                        const src_reg = addr_reg;
+                        const dst_reg = regs[0];
+                        const len_reg = regs[1];
+                        const count_reg = regs[2];
+                        const tmp_reg = regs[3];
+
+                        switch (value) {
+                            .stack_offset => |off| {
+                                // sub src_reg, fp, #off
+                                try self.genSetReg(ptr_ty, src_reg, .{ .ptr_stack_offset = off });
+                            },
+                            .memory => |addr| try self.genSetReg(Type.usize, src_reg, .{ .immediate = @intCast(u32, addr) }),
+                            .stack_argument_offset => |off| {
+                                _ = try self.addInst(.{
+                                    .tag = .ldr_ptr_stack_argument,
+                                    .data = .{ .load_store_stack = .{
+                                        .rt = src_reg,
+                                        .offset = off,
+                                    } },
+                                });
+                            },
+                            else => return self.fail("TODO store {} to register", .{value}),
+                        }
+
+                        // mov len, #abi_size
+                        try self.genSetReg(Type.usize, len_reg, .{ .immediate = abi_size });
+
+                        // memcpy(src, dst, len)
+                        try self.genInlineMemcpy(src_reg, dst_reg, len_reg, count_reg, tmp_reg);
                     }
                 },
             }
@@ -4359,6 +4417,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             }
         },
         .register => |src_reg| {
+            assert(src_reg.size() == reg.size());
+
             // If the registers are the same, nothing to do.
             if (src_reg.id() == reg.id())
                 return;
