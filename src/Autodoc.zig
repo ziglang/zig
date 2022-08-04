@@ -3497,10 +3497,9 @@ fn analyzeFunction(
             },
         },
         else => blk: {
-            //const last_instr_index = fn_info.ret_ty_body[fn_info.ret_ty_body.len - 1];
-            //const break_operand = data[last_instr_index].@"break".operand;
-            //const wr = try self.walkRef(file, scope, break_operand, false);
-            const wr = try self.walkRef(file, scope, fn_info.ret_ty_ref, false);
+            const last_instr_index = fn_info.ret_ty_body[fn_info.ret_ty_body.len - 1];
+            const break_operand = data[last_instr_index].@"break".operand;
+            const wr = try self.walkRef(file, scope, break_operand, false);
             break :blk wr.expr;
         },
     };
