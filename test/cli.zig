@@ -104,7 +104,8 @@ fn testZigInitLib(zig_exe: []const u8, dir_path: []const u8) !void {
 fn testZigInitExe(zig_exe: []const u8, dir_path: []const u8) !void {
     _ = try exec(dir_path, true, &[_][]const u8{ zig_exe, "init-exe" });
     const run_result = try exec(dir_path, true, &[_][]const u8{ zig_exe, "build", "run" });
-    try testing.expectEqualStrings("info: All your codebase are belong to us.\n", run_result.stderr);
+    try testing.expectEqualStrings("All your codebase are belong to us.\n", run_result.stderr);
+    try testing.expectEqualStrings("Run `zig build test` to run the tests.\n", run_result.stdout);
 }
 
 fn testGodboltApi(zig_exe: []const u8, dir_path: []const u8) anyerror!void {
