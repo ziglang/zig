@@ -1,4 +1,4 @@
-const Foo = struct {
+const Foo = union {
     x: Foo,
 };
 
@@ -9,7 +9,8 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:1:13: error: struct 'Foo' depends on itself
+// :1:13: error: union 'tmp.Foo' depends on itself
+// :2:5: note: while checking this field

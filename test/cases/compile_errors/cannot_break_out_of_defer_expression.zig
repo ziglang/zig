@@ -7,7 +7,8 @@ export fn foo() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:4:13: error: cannot break out of defer expression
+// :4:13: error: cannot break out of defer expression
+// :3:9: note: defer expression here

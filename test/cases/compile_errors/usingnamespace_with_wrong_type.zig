@@ -4,4 +4,4 @@ usingnamespace void;
 // backend=stage2
 // target=native
 //
-// :1:1: error: type void has no namespace
+// :1:16: error: type void has no namespace

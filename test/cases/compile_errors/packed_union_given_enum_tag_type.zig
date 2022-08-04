@@ -14,7 +14,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:6:30: error: packed union does not support enum tag type
+// :6:30: error: packed union does not support enum tag type

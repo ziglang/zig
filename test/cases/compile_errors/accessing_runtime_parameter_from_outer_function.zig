@@ -1,4 +1,4 @@
-fn outer(y: u32) fn (u32) u32 {
+fn outer(y: u32) *const fn (u32) u32 {
     const st = struct {
         fn get(z: u32) u32 {
             return z + y;
@@ -13,9 +13,8 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:4:24: error: 'y' not accessible from inner function
-// tmp.zig:3:28: note: crossed function definition here
-// tmp.zig:1:10: note: declared here
+// :4:24: error: 'y' not accessible from inner function
+// :3:9: note: crossed function definition here

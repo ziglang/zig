@@ -468,7 +468,7 @@ const DocData = struct {
             child: Expr,
         },
         ErrorUnion: struct { lhs: Expr, rhs: Expr },
-        // ErrorUnion: struct { name: []const u8 },
+        InferredErrorUnion: struct { payload: Expr },
         ErrorSet: struct {
             name: []const u8,
             fields: ?[]const Field = null,
@@ -580,8 +580,9 @@ const DocData = struct {
         enumLiteral: []const u8, // direct value
         alignOf: usize, // index in `exprs`
         typeOf: usize, // index in `exprs`
+        typeInfo: usize, // index in `exprs`
         typeOf_peer: []usize,
-        errorUnion: usize, // index in `exprs`
+        errorUnion: usize, // index in `types`
         as: As,
         sizeOf: usize, // index in `exprs`
         bitSizeOf: usize, // index in `exprs`
@@ -1398,7 +1399,6 @@ fn walkInstruction(
             const extra = file.zir.extraData(Zir.Inst.PtrType, ptr.payload_index);
             var extra_index = extra.end;
 
-            const type_slot_index = self.types.items.len;
             const elem_type_ref = try self.walkRef(
                 file,
                 parent_scope,
@@ -1445,6 +1445,7 @@ fn walkInstruction(
                 host_size = ref_result.expr;
             }
 
+            const type_slot_index = self.types.items.len;
             try self.types.append(self.arena, .{
                 .Pointer = .{
                     .size = ptr.size,
@@ -1788,7 +1789,7 @@ fn walkInstruction(
 
             return DocData.WalkResult{
                 .typeRef = operand.typeRef,
-                .expr = .{ .typeOf = operand_index },
+                .expr = .{ .typeInfo = operand_index },
             };
         },
         .as_node => {
@@ -1928,7 +1929,7 @@ fn walkInstruction(
                 .comptimeExpr = self.comptime_exprs.items.len,
             } };
             try self.comptime_exprs.append(self.arena, .{
-                .code = "if(banana) 1 else 0",
+                .code = "if (...) { ... }",
             });
             return res;
         },
@@ -2118,6 +2119,7 @@ fn walkInstruction(
                 inst_index,
                 self_ast_node_index,
                 type_slot_index,
+                tags[inst_index] == .func_inferred,
             );
 
             return result;
@@ -2993,7 +2995,7 @@ fn tryResolveRefPath(
                     "TODO: handle `{s}`in tryResolveRefPath\nInfo: {}",
                     .{ @tagName(resolved_parent), resolved_parent },
                 );
-                path[i + 1] = (try self.cteTodo("match failure")).expr;
+                path[i + 1] = (try self.cteTodo("<match failure>")).expr;
                 continue :outer;
             },
             .comptimeExpr, .call, .typeOf => {
@@ -3415,6 +3417,7 @@ fn analyzeFunction(
     inst_index: usize,
     self_ast_node_index: usize,
     type_slot_index: usize,
+    ret_is_inferred_error_set: bool,
 ) AutodocErrors!DocData.WalkResult {
     const tags = file.zir.instructions.items(.tag);
     const data = file.zir.instructions.items(.data);
@@ -3521,13 +3524,23 @@ fn analyzeFunction(
         else => null,
     };
 
+    const ret_type: DocData.Expr = blk: {
+        if (ret_is_inferred_error_set) {
+            const ret_type_slot_index = self.types.items.len;
+            try self.types.append(self.arena, .{
+                .InferredErrorUnion = .{ .payload = ret_type_ref },
+            });
+            break :blk .{ .type = ret_type_slot_index };
+        } else break :blk ret_type_ref;
+    };
+
     self.ast_nodes.items[self_ast_node_index].fields = param_ast_indexes.items;
     self.types.items[type_slot_index] = .{
         .Fn = .{
             .name = "todo_name func",
             .src = self_ast_node_index,
             .params = param_type_refs.items,
-            .ret = ret_type_ref,
+            .ret = ret_type,
             .generic_ret = generic_ret,
         },
     };

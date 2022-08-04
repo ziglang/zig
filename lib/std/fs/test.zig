@@ -241,6 +241,11 @@ test "Dir.Iterator but dir is deleted during iteration" {
     // Now, when we try to iterate, the next call should return null immediately.
     const entry = try iterator.next();
     try std.testing.expect(entry == null);
+
+    // On Linux, we can opt-in to receiving a more specific error by calling `nextLinux`
+    if (builtin.os.tag == .linux) {
+        try std.testing.expectError(error.DirNotFound, iterator.nextLinux());
+    }
 }
 
 fn entryEql(lhs: IterableDir.Entry, rhs: IterableDir.Entry) bool {

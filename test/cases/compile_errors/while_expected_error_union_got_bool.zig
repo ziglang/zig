@@ -4,7 +4,7 @@ export fn foo() void {
 fn bar() bool { return true; }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:2:15: error: expected error union type, found 'bool'
+// :2:15: error: expected error union type, found 'bool'
