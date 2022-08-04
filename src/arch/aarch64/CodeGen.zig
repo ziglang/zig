@@ -418,6 +418,23 @@ fn gen(self: *Self) !void {
         // sub sp, sp, #reloc
         const backpatch_reloc = try self.addNop();
 
+        if (self.ret_mcv == .stack_offset) {
+            // The address of where to store the return value is in x0
+            // (or w0 when pointer size is 32 bits). As this register
+            // might get overwritten along the way, save the address
+            // to the stack.
+            const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+            const ptr_bytes = @divExact(ptr_bits, 8);
+            const ret_ptr_reg = registerAlias(.x0, ptr_bytes);
+
+            const stack_offset = mem.alignForwardGeneric(u32, self.next_stack_offset, ptr_bytes) + ptr_bytes;
+            self.next_stack_offset = stack_offset;
+            self.max_end_stack = @maximum(self.max_end_stack, self.next_stack_offset);
+
+            try self.genSetStack(Type.usize, stack_offset, MCValue{ .register = ret_ptr_reg });
+            self.ret_mcv = MCValue{ .stack_offset = stack_offset };
+        }
+
         _ = try self.addInst(.{
             .tag = .dbg_prologue_end,
             .data = .{ .nop = {} },
@@ -2446,21 +2463,28 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
+fn slicePtr(mcv: MCValue) MCValue {
+    switch (mcv) {
+        .dead, .unreach, .none => unreachable,
+        .register => unreachable, // a slice doesn't fit in one register
+        .stack_argument_offset => |off| {
+            return MCValue{ .stack_argument_offset = off };
+        },
+        .stack_offset => |off| {
+            return MCValue{ .stack_offset = off };
+        },
+        .memory => |addr| {
+            return MCValue{ .memory = addr };
+        },
+        else => unreachable, // invalid MCValue for a slice
+    }
+}
+
 fn airSlicePtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const mcv = try self.resolveInst(ty_op.operand);
-        switch (mcv) {
-            .dead, .unreach, .none => unreachable,
-            .register => unreachable, // a slice doesn't fit in one register
-            .stack_offset => |off| {
-                break :result MCValue{ .stack_offset = off };
-            },
-            .memory => |addr| {
-                break :result MCValue{ .memory = addr };
-            },
-            else => return self.fail("TODO implement slice_len for {}", .{mcv}),
-        }
+        break :result slicePtr(mcv);
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
@@ -2474,6 +2498,9 @@ fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
         switch (mcv) {
             .dead, .unreach, .none => unreachable,
             .register => unreachable, // a slice doesn't fit in one register
+            .stack_argument_offset => |off| {
+                break :result MCValue{ .stack_argument_offset = off + ptr_bytes };
+            },
             .stack_offset => |off| {
                 break :result MCValue{ .stack_offset = off - ptr_bytes };
             },
@@ -2524,16 +2551,15 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
 
     if (!is_volatile and self.liveness.isUnused(inst)) return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
     const result: MCValue = result: {
+        const slice_ty = self.air.typeOf(bin_op.lhs);
+        const elem_ty = slice_ty.childType();
+        const elem_size = elem_ty.abiSize(self.target.*);
         const slice_mcv = try self.resolveInst(bin_op.lhs);
 
         // TODO optimize for the case where the index is a constant,
         // i.e. index_mcv == .immediate
         const index_mcv = try self.resolveInst(bin_op.rhs);
         const index_is_register = index_mcv == .register;
-
-        const slice_ty = self.air.typeOf(bin_op.lhs);
-        const elem_ty = slice_ty.childType();
-        const elem_size = elem_ty.abiSize(self.target.*);
 
         var buf: Type.SlicePtrFieldTypeBuffer = undefined;
         const slice_ptr_field_type = slice_ty.slicePtrFieldType(&buf);
@@ -2544,15 +2570,17 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
             null;
         defer if (index_lock) |reg| self.register_manager.unlockReg(reg);
 
-        const base_mcv: MCValue = switch (slice_mcv) {
-            .stack_offset => |off| .{ .register = try self.copyToTmpRegister(slice_ptr_field_type, .{ .stack_offset = off }) },
-            else => return self.fail("TODO slice_elem_val when slice is {}", .{slice_mcv}),
-        };
-        const base_lock = self.register_manager.lockRegAssumeUnused(base_mcv.register);
-        defer self.register_manager.unlockReg(base_lock);
+        const base_mcv = slicePtr(slice_mcv);
 
         switch (elem_size) {
             else => {
+                const base_reg = switch (base_mcv) {
+                    .register => |r| r,
+                    else => try self.copyToTmpRegister(slice_ptr_field_type, base_mcv),
+                };
+                const base_reg_lock = self.register_manager.lockRegAssumeUnused(base_reg);
+                defer self.register_manager.unlockReg(base_reg_lock);
+
                 const dest = try self.allocRegOrMem(inst, true);
                 const addr = try self.binOp(.ptr_add, base_mcv, index_mcv, slice_ptr_field_type, Type.usize, null);
                 try self.load(dest, addr, slice_ptr_field_type);
@@ -2567,7 +2595,16 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
 fn airSliceElemPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement slice_elem_ptr for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const slice_mcv = try self.resolveInst(extra.lhs);
+        const index_mcv = try self.resolveInst(extra.rhs);
+        const base_mcv = slicePtr(slice_mcv);
+
+        const slice_ty = self.air.typeOf(extra.lhs);
+
+        const addr = try self.binOp(.ptr_add, base_mcv, index_mcv, slice_ty, Type.usize, null);
+        break :result addr;
+    };
     return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
 }
 
@@ -3156,6 +3193,28 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
     // saving compare flags may require a new caller-saved register
     try self.spillCompareFlagsIfOccupied();
 
+    if (info.return_value == .stack_offset) {
+        log.debug("airCall: return by reference", .{});
+        const ret_ty = fn_ty.fnReturnType();
+        const ret_abi_size = @intCast(u32, ret_ty.abiSize(self.target.*));
+        const ret_abi_align = @intCast(u32, ret_ty.abiAlignment(self.target.*));
+        const stack_offset = try self.allocMem(inst, ret_abi_size, ret_abi_align);
+
+        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+        const ptr_bytes = @divExact(ptr_bits, 8);
+        const ret_ptr_reg = registerAlias(.x0, ptr_bytes);
+
+        var ptr_ty_payload: Type.Payload.ElemType = .{
+            .base = .{ .tag = .single_mut_pointer },
+            .data = ret_ty,
+        };
+        const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
+        try self.register_manager.getReg(ret_ptr_reg, null);
+        try self.genSetReg(ptr_ty, ret_ptr_reg, .{ .ptr_stack_offset = stack_offset });
+
+        info.return_value = .{ .stack_offset = stack_offset };
+    }
+
     // Make space for the arguments passed via the stack
     self.max_end_stack += info.stack_byte_count;
 
@@ -3319,8 +3378,15 @@ fn airRet(self: *Self, inst: Air.Inst.Index) !void {
         },
         .stack_offset => {
             // Return result by reference
-            // TODO
-            return self.fail("TODO implement airRet for {}", .{self.ret_mcv});
+            //
+            // self.ret_mcv is an address to where this function
+            // should store its result into
+            var ptr_ty_payload: Type.Payload.ElemType = .{
+                .base = .{ .tag = .single_mut_pointer },
+                .data = ret_ty,
+            };
+            const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
+            try self.store(self.ret_mcv, operand, ptr_ty, ret_ty);
         },
         else => unreachable,
     }
@@ -3346,10 +3412,34 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
         },
         .stack_offset => {
             // Return result by reference
-            // TODO
-            return self.fail("TODO implement airRetLoad for {}", .{self.ret_mcv});
+            //
+            // self.ret_mcv is an address to where this function
+            // should store its result into
+            //
+            // If the operand is a ret_ptr instruction, we are done
+            // here. Else we need to load the result from the location
+            // pointed to by the operand and store it to the result
+            // location.
+            const op_inst = Air.refToIndex(un_op).?;
+            if (self.air.instructions.items(.tag)[op_inst] != .ret_ptr) {
+                const abi_size = @intCast(u32, ret_ty.abiSize(self.target.*));
+                const abi_align = ret_ty.abiAlignment(self.target.*);
+
+                // This is essentially allocMem without the
+                // instruction tracking
+                if (abi_align > self.stack_align)
+                    self.stack_align = abi_align;
+                // TODO find a free slot instead of always appending
+                const offset = mem.alignForwardGeneric(u32, self.next_stack_offset, abi_align) + abi_size;
+                self.next_stack_offset = offset;
+                self.max_end_stack = @maximum(self.max_end_stack, self.next_stack_offset);
+
+                const tmp_mcv = MCValue{ .stack_offset = offset };
+                try self.load(tmp_mcv, ptr, ptr_ty);
+                try self.store(self.ret_mcv, tmp_mcv, ptr_ty, ret_ty);
+            }
         },
-        else => unreachable,
+        else => unreachable, // invalid return result
     }
 
     try self.exitlude_jump_relocs.append(self.gpa, try self.addNop());
@@ -5062,9 +5152,14 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                     assert(ret_ty.isError());
                     result.return_value = .{ .immediate = 0 };
                 } else if (ret_ty_size <= 8) {
-                    result.return_value = .{ .register = registerAlias(c_abi_int_return_regs[0], ret_ty_size) };
+                    result.return_value = .{ .register = registerAlias(.x0, ret_ty_size) };
                 } else {
-                    return self.fail("TODO support more return types for ARM backend", .{});
+                    // The result is returned by reference, not by
+                    // value. This means that x0 (or w0 when pointer
+                    // size is 32 bits) will contain the address of
+                    // where this function should write the result
+                    // into.
+                    result.return_value = .{ .stack_offset = 0 };
                 }
             }
 
