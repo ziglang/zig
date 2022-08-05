@@ -1577,8 +1577,7 @@ pub fn setupErrorReturnTrace(sema: *Sema, block: *Block, last_arg_index: usize) 
 
     // st.index = 0;
     const index_field_ptr = try sema.fieldPtr(&err_trace_block, src, st_ptr, "index", src, true);
-    const zero = try sema.addConstant(Type.usize, Value.zero);
-    try sema.storePtr2(&err_trace_block, src, index_field_ptr, src, zero, src, .store);
+    try sema.storePtr2(&err_trace_block, src, index_field_ptr, src, .zero_usize, src, .store);
 
     // @errorReturnTrace() = &st;
     _ = try err_trace_block.addUnOp(.set_err_return_trace, st_ptr);
@@ -17134,7 +17133,7 @@ fn zirAlignCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         const is_aligned = try block.addBinOp(.cmp_eq, remainder, .zero_usize);
         const ok = if (ptr_ty.isSlice()) ok: {
             const len = try sema.analyzeSliceLen(block, ptr_src, ptr);
-            const len_zero = try block.addBinOp(.cmp_eq, len, try sema.addConstant(Type.usize, Value.zero));
+            const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
             break :ok try block.addBinOp(.bit_or, len_zero, is_aligned);
         } else is_aligned;
         try sema.addSafetyCheck(block, ok, .incorrect_alignment);
@@ -21957,7 +21956,6 @@ fn coerceExtra(
                     .ok => {},
                     else => break :src_c_ptr,
                 }
-                // TODO add safety check for null pointer
                 return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
             }
 
@@ -24430,6 +24428,22 @@ fn coerceCompatiblePtrs(
         return sema.addConstant(dest_ty, val);
     }
     try sema.requireRuntimeBlock(block, inst_src, null);
+    const inst_ty = sema.typeOf(inst);
+    const inst_allows_zero = (inst_ty.zigTypeTag() == .Pointer and inst_ty.ptrAllowsZero()) or true;
+    if (block.wantSafety() and inst_allows_zero and !dest_ty.ptrAllowsZero()) {
+        const actual_ptr = if (inst_ty.isSlice())
+            try sema.analyzeSlicePtr(block, inst_src, inst, inst_ty)
+        else
+            inst;
+        const ptr_int = try block.addUnOp(.ptrtoint, actual_ptr);
+        const is_non_zero = try block.addBinOp(.cmp_neq, ptr_int, .zero_usize);
+        const ok = if (inst_ty.isSlice()) ok: {
+            const len = try sema.analyzeSliceLen(block, inst_src, inst);
+            const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
+            break :ok try block.addBinOp(.bit_or, len_zero, is_non_zero);
+        } else is_non_zero;
+        try sema.addSafetyCheck(block, ok, .cast_to_null);
+    }
     return sema.bitCast(block, dest_ty, inst, inst_src);
 }
 
