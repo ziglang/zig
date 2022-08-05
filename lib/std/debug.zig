@@ -968,24 +968,20 @@ fn readMachODebugInfo(allocator: mem.Allocator, macho_file: File) !ModuleDebugIn
     if (hdr.magic != macho.MH_MAGIC_64)
         return error.InvalidDebugInfo;
 
-    const hdr_base = @ptrCast([*]const u8, hdr);
-    var ptr = hdr_base + @sizeOf(macho.mach_header_64);
-    var ncmd: u32 = hdr.ncmds;
-    const symtab = while (ncmd != 0) : (ncmd -= 1) {
-        const lc = @ptrCast(*const std.macho.load_command, ptr);
-        switch (lc.cmd) {
-            .SYMTAB => break @ptrCast(*const std.macho.symtab_command, ptr),
-            else => {},
-        }
-        ptr = @alignCast(@alignOf(std.macho.load_command), ptr + lc.cmdsize);
-    } else {
-        return error.MissingDebugInfo;
+    var it = macho.LoadCommandIterator{
+        .ncmds = hdr.ncmds,
+        .buffer = mapped_mem[@sizeOf(macho.mach_header_64)..][0..hdr.sizeofcmds],
     };
+    const symtab = while (it.next()) |cmd| switch (cmd.cmd()) {
+        .SYMTAB => break cmd.cast(macho.symtab_command).?,
+        else => {},
+    } else return error.MissingDebugInfo;
+
     const syms = @ptrCast(
         [*]const macho.nlist_64,
-        @alignCast(@alignOf(macho.nlist_64), hdr_base + symtab.symoff),
+        @alignCast(@alignOf(macho.nlist_64), &mapped_mem[symtab.symoff]),
     )[0..symtab.nsyms];
-    const strings = @ptrCast([*]const u8, hdr_base + symtab.stroff)[0 .. symtab.strsize - 1 :0];
+    const strings = mapped_mem[symtab.stroff..][0 .. symtab.strsize - 1 :0];
 
     const symbols_buf = try allocator.alloc(MachoSymbol, syms.len);
 
@@ -1200,48 +1196,46 @@ pub const DebugInfo = struct {
             if (address < base_address) continue;
 
             const header = std.c._dyld_get_image_header(i) orelse continue;
-            // The array of load commands is right after the header
-            var cmd_ptr = @intToPtr([*]u8, @ptrToInt(header) + @sizeOf(macho.mach_header_64));
 
-            var cmds = header.ncmds;
-            while (cmds != 0) : (cmds -= 1) {
-                const lc = @ptrCast(
-                    *macho.load_command,
-                    @alignCast(@alignOf(macho.load_command), cmd_ptr),
-                );
-                cmd_ptr += lc.cmdsize;
-                if (lc.cmd != .SEGMENT_64) continue;
+            var it = macho.LoadCommandIterator{
+                .ncmds = header.ncmds,
+                .buffer = @alignCast(@alignOf(u64), @intToPtr(
+                    [*]u8,
+                    @ptrToInt(header) + @sizeOf(macho.mach_header_64),
+                ))[0..header.sizeofcmds],
+            };
+            while (it.next()) |cmd| switch (cmd.cmd()) {
+                .SEGMENT_64 => {
+                    const segment_cmd = cmd.cast(macho.segment_command_64).?;
+                    const rebased_address = address - base_address;
+                    const seg_start = segment_cmd.vmaddr;
+                    const seg_end = seg_start + segment_cmd.vmsize;
 
-                const segment_cmd = @ptrCast(
-                    *const std.macho.segment_command_64,
-                    @alignCast(@alignOf(std.macho.segment_command_64), lc),
-                );
+                    if (rebased_address >= seg_start and rebased_address < seg_end) {
+                        if (self.address_map.get(base_address)) |obj_di| {
+                            return obj_di;
+                        }
 
-                const rebased_address = address - base_address;
-                const seg_start = segment_cmd.vmaddr;
-                const seg_end = seg_start + segment_cmd.vmsize;
+                        const obj_di = try self.allocator.create(ModuleDebugInfo);
+                        errdefer self.allocator.destroy(obj_di);
 
-                if (rebased_address >= seg_start and rebased_address < seg_end) {
-                    if (self.address_map.get(base_address)) |obj_di| {
+                        const macho_path = mem.sliceTo(std.c._dyld_get_image_name(i), 0);
+                        const macho_file = fs.cwd().openFile(macho_path, .{
+                            .intended_io_mode = .blocking,
+                        }) catch |err| switch (err) {
+                            error.FileNotFound => return error.MissingDebugInfo,
+                            else => return err,
+                        };
+                        obj_di.* = try readMachODebugInfo(self.allocator, macho_file);
+                        obj_di.base_address = base_address;
+
+                        try self.address_map.putNoClobber(base_address, obj_di);
+
                         return obj_di;
                     }
-
-                    const obj_di = try self.allocator.create(ModuleDebugInfo);
-                    errdefer self.allocator.destroy(obj_di);
-
-                    const macho_path = mem.sliceTo(std.c._dyld_get_image_name(i), 0);
-                    const macho_file = fs.cwd().openFile(macho_path, .{ .intended_io_mode = .blocking }) catch |err| switch (err) {
-                        error.FileNotFound => return error.MissingDebugInfo,
-                        else => return err,
-                    };
-                    obj_di.* = try readMachODebugInfo(self.allocator, macho_file);
-                    obj_di.base_address = base_address;
-
-                    try self.address_map.putNoClobber(base_address, obj_di);
-
-                    return obj_di;
-                }
-            }
+                },
+                else => {},
+            };
         }
 
         return error.MissingDebugInfo;
@@ -1445,44 +1439,31 @@ pub const ModuleDebugInfo = switch (native_os) {
             if (hdr.magic != std.macho.MH_MAGIC_64)
                 return error.InvalidDebugInfo;
 
-            const hdr_base = @ptrCast([*]const u8, hdr);
-            var ptr = hdr_base + @sizeOf(macho.mach_header_64);
-            var segptr = ptr;
-            var ncmd: u32 = hdr.ncmds;
-            var segcmd: ?*const macho.segment_command_64 = null;
-            var symtabcmd: ?*const macho.symtab_command = null;
-
-            while (ncmd != 0) : (ncmd -= 1) {
-                const lc = @ptrCast(*const std.macho.load_command, ptr);
-                switch (lc.cmd) {
-                    .SEGMENT_64 => {
-                        segcmd = @ptrCast(
-                            *const std.macho.segment_command_64,
-                            @alignCast(@alignOf(std.macho.segment_command_64), ptr),
-                        );
-                        segptr = ptr;
-                    },
-                    .SYMTAB => {
-                        symtabcmd = @ptrCast(
-                            *const std.macho.symtab_command,
-                            @alignCast(@alignOf(std.macho.symtab_command), ptr),
-                        );
-                    },
-                    else => {},
-                }
-                ptr = @alignCast(@alignOf(std.macho.load_command), ptr + lc.cmdsize);
-            }
+            var segcmd: ?macho.LoadCommandIterator.LoadCommand = null;
+            var symtabcmd: ?macho.symtab_command = null;
+            var it = macho.LoadCommandIterator{
+                .ncmds = hdr.ncmds,
+                .buffer = mapped_mem[@sizeOf(macho.mach_header_64)..][0..hdr.sizeofcmds],
+            };
+            while (it.next()) |cmd| switch (cmd.cmd()) {
+                .SEGMENT_64 => segcmd = cmd,
+                .SYMTAB => symtabcmd = cmd.cast(macho.symtab_command).?,
+                else => {},
+            };
 
             if (segcmd == null or symtabcmd == null) return error.MissingDebugInfo;
 
             // Parse symbols
             const strtab = @ptrCast(
                 [*]const u8,
-                hdr_base + symtabcmd.?.stroff,
+                &mapped_mem[symtabcmd.?.stroff],
             )[0 .. symtabcmd.?.strsize - 1 :0];
             const symtab = @ptrCast(
                 [*]const macho.nlist_64,
-                @alignCast(@alignOf(macho.nlist_64), hdr_base + symtabcmd.?.symoff),
+                @alignCast(
+                    @alignOf(macho.nlist_64),
+                    &mapped_mem[symtabcmd.?.symoff],
+                ),
             )[0..symtabcmd.?.nsyms];
 
             // TODO handle tentative (common) symbols
@@ -1496,25 +1477,15 @@ pub const ModuleDebugInfo = switch (native_os) {
                 addr_table.putAssumeCapacityNoClobber(sym_name, sym.n_value);
             }
 
-            var opt_debug_line: ?*const macho.section_64 = null;
-            var opt_debug_info: ?*const macho.section_64 = null;
-            var opt_debug_abbrev: ?*const macho.section_64 = null;
-            var opt_debug_str: ?*const macho.section_64 = null;
-            var opt_debug_line_str: ?*const macho.section_64 = null;
-            var opt_debug_ranges: ?*const macho.section_64 = null;
+            var opt_debug_line: ?macho.section_64 = null;
+            var opt_debug_info: ?macho.section_64 = null;
+            var opt_debug_abbrev: ?macho.section_64 = null;
+            var opt_debug_str: ?macho.section_64 = null;
+            var opt_debug_line_str: ?macho.section_64 = null;
+            var opt_debug_ranges: ?macho.section_64 = null;
 
-            const sections = @ptrCast(
-                [*]const macho.section_64,
-                @alignCast(@alignOf(macho.section_64), segptr + @sizeOf(std.macho.segment_command_64)),
-            )[0..segcmd.?.nsects];
-            for (sections) |*sect| {
-                // The section name may not exceed 16 chars and a trailing null may
-                // not be present
-                const name = if (mem.indexOfScalar(u8, sect.sectname[0..], 0)) |last|
-                    sect.sectname[0..last]
-                else
-                    sect.sectname[0..];
-
+            for (segcmd.?.getSections()) |sect| {
+                const name = sect.sectName();
                 if (mem.eql(u8, name, "__debug_line")) {
                     opt_debug_line = sect;
                 } else if (mem.eql(u8, name, "__debug_info")) {
