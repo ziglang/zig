@@ -25574,6 +25574,22 @@ fn analyzeSlice(
                     const is_non_null = try sema.analyzeIsNull(block, ptr_src, ptr, true);
                     try sema.addSafetyCheck(block, is_non_null, .unwrap_null);
                 }
+
+                if (slice_ty.isSlice()) {
+                    const slice_len_inst = try block.addTyOp(.slice_len, Type.usize, ptr_or_slice);
+                    const actual_len = if (slice_ty.sentinel() == null)
+                        slice_len_inst
+                    else
+                        try sema.analyzeArithmetic(block, .add, slice_len_inst, .one, src, end_src, end_src);
+
+                    const actual_end = if (slice_sentinel != null)
+                        try sema.analyzeArithmetic(block, .add, end, .one, src, end_src, end_src)
+                    else
+                        end;
+
+                    try sema.panicIndexOutOfBounds(block, src, actual_end, actual_len, .cmp_lte);
+                }
+
                 // requirement: result[new_len] == slice_sentinel
                 try sema.panicSentinelMismatch(block, src, slice_sentinel, elem_ty, result, new_len);
             }
@@ -25635,7 +25651,11 @@ fn analyzeSlice(
             break :blk try sema.analyzeArithmetic(block, .add, slice_len_inst, .one, src, end_src, end_src);
         } else null;
         if (opt_len_inst) |len_inst| {
-            try sema.panicIndexOutOfBounds(block, src, end, len_inst, .cmp_lte);
+            const actual_end = if (slice_sentinel != null)
+                try sema.analyzeArithmetic(block, .add, end, .one, src, end_src, end_src)
+            else
+                end;
+            try sema.panicIndexOutOfBounds(block, src, actual_end, len_inst, .cmp_lte);
         }
 
         // requirement: start <= end

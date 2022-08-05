@@ -11,7 +11,8 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noretur
 pub fn main() !void {
     var buf = [4]u8{ 'a', 'b', 'c', 0 };
     const input: []u8 = &buf;
-    const slice = input[0..4 :0];
+    var len: usize = 4;
+    const slice = input[0..len :0];
     _ = slice;
     return error.TestFailed;
 }
