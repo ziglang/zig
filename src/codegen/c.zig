@@ -1952,6 +1952,8 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .reduce_optimized,
             .float_to_int_optimized,
             => return f.fail("TODO implement optimized float mode", .{}),
+
+            .is_named_enum_value => return f.fail("TODO: C backend: implement is_named_enum_value", .{}),
             // zig fmt: on
         };
         switch (result_value) {

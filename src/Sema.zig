@@ -6933,8 +6933,12 @@ fn zirIntToEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     }
 
     try sema.requireRuntimeBlock(block, src, operand_src);
-    // TODO insert safety check to make sure the value matches an enum value
-    return block.addTyOp(.intcast, dest_ty, operand);
+    const result = try block.addTyOp(.intcast, dest_ty, operand);
+    if (block.wantSafety() and !dest_ty.isNonexhaustiveEnum() and sema.mod.comp.bin_file.options.use_llvm) {
+        const ok = try block.addUnOp(.is_named_enum_value, result);
+        try sema.addSafetyCheck(block, ok, .invalid_enum_value);
+    }
+    return result;
 }
 
 /// Pointer in, pointer out.
@@ -15887,6 +15891,11 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         const field_name = enum_ty.enumFieldName(field_index);
         return sema.addStrLit(block, field_name);
     }
+    try sema.requireRuntimeBlock(block, src, operand_src);
+    if (block.wantSafety() and sema.mod.comp.bin_file.options.use_llvm) {
+        const ok = try block.addUnOp(.is_named_enum_value, casted_operand);
+        try sema.addSafetyCheck(block, ok, .invalid_enum_value);
+    }
     // In case the value is runtime-known, we have an AIR instruction for this instead
     // of trying to lower it in Sema because an optimization pass may result in the operand
     // being comptime-known, which would let us elide the `tag_name` AIR instruction.
@@ -20019,6 +20028,7 @@ pub const PanicId = enum {
     integer_part_out_of_bounds,
     corrupt_switch,
     shift_rhs_too_big,
+    invalid_enum_value,
 };
 
 fn addSafetyCheck(
@@ -20316,6 +20326,7 @@ fn safetyPanic(
         .integer_part_out_of_bounds => "integer part of floating point value out of bounds",
         .corrupt_switch => "switch on corrupt value",
         .shift_rhs_too_big => "shift amount is greater than the type size",
+        .invalid_enum_value => "invalid enum value",
     };
 
     const msg_inst = msg_inst: {

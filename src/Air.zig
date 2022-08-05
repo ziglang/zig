@@ -660,6 +660,10 @@ pub const Inst = struct {
         /// Uses the `pl_op` field with payload `AtomicRmw`. Operand is `ptr`.
         atomic_rmw,
 
+        /// Returns true if enum tag value has a name.
+        /// Uses the `un_op` field.
+        is_named_enum_value,
+
         /// Given an enum tag value, returns the tag name. The enum type may be non-exhaustive.
         /// Result type is always `[:0]const u8`.
         /// Uses the `un_op` field.
@@ -1057,6 +1061,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .is_non_err,
         .is_err_ptr,
         .is_non_err_ptr,
+        .is_named_enum_value,
         => return Type.bool,
 
         .const_ty => return Type.type,
