@@ -19682,6 +19682,8 @@ fn explainWhyTypeIsComptime(
 ) CompileError!void {
     var type_set = TypeSet{};
     defer type_set.deinit(sema.gpa);
+
+    try sema.resolveTypeFully(block, src, ty);
     return sema.explainWhyTypeIsComptimeInner(block, src, msg, src_loc, ty, &type_set);
 }
 
