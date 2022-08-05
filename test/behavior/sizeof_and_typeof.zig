@@ -105,6 +105,8 @@ test "@offsetOf" {
 }
 
 test "@offsetOf packed struct, array length not power of 2 or multiple of native pointer width in bytes" {
+    // Stage2 has different packed struct semantics.
+    if (builtin.zig_backend != .stage1) return error.SkipZigTest;
     const p3a_len = 3;
     const P3 = packed struct {
         a: [p3a_len]u8,

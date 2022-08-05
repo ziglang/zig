@@ -3548,6 +3548,12 @@ pub const Inst = struct {
         ty: Ref,
         init_count: u32,
     };
+
+    pub const Src = struct {
+        node: i32,
+        line: u32,
+        column: u32,
+    };
 };
 
 pub const SpecialProng = enum { none, @"else", under };

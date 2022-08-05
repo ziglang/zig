@@ -768,12 +768,12 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
         .if_simple => return ifExpr(gz, scope, rl.br(), node, tree.ifSimple(node)),
         .@"if" => return ifExpr(gz, scope, rl.br(), node, tree.ifFull(node)),
 
-        .while_simple => return whileExpr(gz, scope, rl.br(), node, tree.whileSimple(node)),
-        .while_cont => return whileExpr(gz, scope, rl.br(), node, tree.whileCont(node)),
-        .@"while" => return whileExpr(gz, scope, rl.br(), node, tree.whileFull(node)),
+        .while_simple => return whileExpr(gz, scope, rl.br(), node, tree.whileSimple(node), false),
+        .while_cont => return whileExpr(gz, scope, rl.br(), node, tree.whileCont(node), false),
+        .@"while" => return whileExpr(gz, scope, rl.br(), node, tree.whileFull(node), false),
 
-        .for_simple => return forExpr(gz, scope, rl.br(), node, tree.forSimple(node)),
-        .@"for" => return forExpr(gz, scope, rl.br(), node, tree.forFull(node)),
+        .for_simple => return forExpr(gz, scope, rl.br(), node, tree.forSimple(node), false),
+        .@"for" => return forExpr(gz, scope, rl.br(), node, tree.forFull(node), false),
 
         .slice_open => {
             const lhs = try expr(gz, scope, .ref, node_datas[node].lhs);
@@ -1899,6 +1899,17 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
             .namespace => break,
             .defer_normal, .defer_error => scope = scope.cast(Scope.Defer).?.parent,
+            .defer_gen => {
+                const defer_gen = scope.cast(Scope.DeferGen).?;
+
+                return astgen.failNodeNotes(node, "cannot break out of defer expression", .{}, &.{
+                    try astgen.errNoteNode(
+                        defer_gen.defer_node,
+                        "defer expression here",
+                        .{},
+                    ),
+                });
+            },
             .top => unreachable,
         }
     }
@@ -1958,6 +1969,17 @@ fn continueExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) 
                 try unusedResultDeferExpr(parent_gz, defer_scope, defer_scope.parent, expr_node);
             },
             .defer_error => scope = scope.cast(Scope.Defer).?.parent,
+            .defer_gen => {
+                const defer_gen = scope.cast(Scope.DeferGen).?;
+
+                return astgen.failNodeNotes(node, "cannot continue out of defer expression", .{}, &.{
+                    try astgen.errNoteNode(
+                        defer_gen.defer_node,
+                        "defer expression here",
+                        .{},
+                    ),
+                });
+            },
             .namespace => break,
             .top => unreachable,
         }
@@ -2022,6 +2044,7 @@ fn checkLabelRedefinition(astgen: *AstGen, parent_scope: *Scope, label: Ast.Toke
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
             .defer_normal, .defer_error => scope = scope.cast(Scope.Defer).?.parent,
+            .defer_gen => scope = scope.cast(Scope.DeferGen).?.parent,
             .namespace => break,
             .top => unreachable,
         }
@@ -2129,6 +2152,7 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const node_tags = tree.nodes.items(.tag);
+    const node_data = tree.nodes.items(.data);
 
     if (statements.len == 0) return;
 
@@ -2155,8 +2179,10 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
                 },
             );
         }
-        switch (node_tags[statement]) {
-            // zig fmt: off
+        var inner_node = statement;
+        while (true) {
+            switch (node_tags[inner_node]) {
+                // zig fmt: off
             .global_var_decl  => scope = try varDecl(gz, scope, statement, block_arena_allocator, tree.globalVarDecl(statement)),
             .local_var_decl   => scope = try varDecl(gz, scope, statement, block_arena_allocator, tree.localVarDecl(statement)),
             .simple_var_decl  => scope = try varDecl(gz, scope, statement, block_arena_allocator, tree.simpleVarDecl(statement)),
@@ -2181,9 +2207,23 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
             .assign_add_wrap => try assignOp(gz, scope, statement, .addwrap),
             .assign_mul      => try assignOp(gz, scope, statement, .mul),
             .assign_mul_wrap => try assignOp(gz, scope, statement, .mulwrap),
+            
+            .grouped_expression => {
+                inner_node = node_data[statement].lhs;
+                continue;
+            },
 
-            else => noreturn_src_node = try unusedResultExpr(gz, scope, statement),
+            .while_simple => _ = try whileExpr(gz, scope, .discard, inner_node, tree.whileSimple(inner_node), true),
+            .while_cont => _ = try whileExpr(gz, scope, .discard, inner_node, tree.whileCont(inner_node), true),
+            .@"while" => _ = try whileExpr(gz, scope, .discard, inner_node, tree.whileFull(inner_node), true),
+
+            .for_simple => _ = try forExpr(gz, scope, .discard, inner_node, tree.forSimple(inner_node), true),
+            .@"for" => _ = try forExpr(gz, scope, .discard, inner_node, tree.forFull(inner_node), true),
+
+            else => noreturn_src_node = try unusedResultExpr(gz, scope, inner_node),
             // zig fmt: on
+            }
+            break;
         }
     }
 
@@ -2206,7 +2246,13 @@ fn unusedResultDeferExpr(gz: *GenZir, defer_scope: *Scope.Defer, expr_scope: *Sc
     astgen.source_offset = defer_scope.source_offset;
     astgen.source_line = defer_scope.source_line;
     astgen.source_column = defer_scope.source_column;
-    _ = try unusedResultExpr(gz, expr_scope, expr_node);
+
+    var defer_gen: Scope.DeferGen = .{
+        .parent = expr_scope,
+        .defer_node = defer_scope.defer_node,
+    };
+
+    _ = try unusedResultExpr(gz, &defer_gen.base, expr_node);
 }
 
 /// Returns AST source node of the thing that is noreturn if the statement is
@@ -2216,6 +2262,10 @@ fn unusedResultExpr(gz: *GenZir, scope: *Scope, statement: Ast.Node.Index) Inner
     // We need to emit an error if the result is not `noreturn` or `void`, but
     // we want to avoid adding the ZIR instruction if possible for performance.
     const maybe_unused_result = try expr(gz, scope, .none, statement);
+    return addEnsureResult(gz, maybe_unused_result, statement);
+}
+
+fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: Ast.Node.Index) InnerError!Ast.Node.Index {
     var noreturn_src_node: Ast.Node.Index = 0;
     const elide_check = if (refToIndex(maybe_unused_result)) |inst| b: {
         // Note that this array becomes invalid after appending more items to it
@@ -2553,6 +2603,7 @@ fn countDefers(astgen: *AstGen, outer_scope: *Scope, inner_scope: *Scope) struct
             .gen_zir => scope = scope.cast(GenZir).?.parent,
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
+            .defer_gen => scope = scope.cast(Scope.DeferGen).?.parent,
             .defer_normal => {
                 const defer_scope = scope.cast(Scope.Defer).?;
                 scope = defer_scope.parent;
@@ -2602,6 +2653,7 @@ fn genDefers(
             .gen_zir => scope = scope.cast(GenZir).?.parent,
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
+            .defer_gen => scope = scope.cast(Scope.DeferGen).?.parent,
             .defer_normal => {
                 const defer_scope = scope.cast(Scope.Defer).?;
                 scope = defer_scope.parent;
@@ -2644,6 +2696,7 @@ fn genDefers(
                             break :blk &local_val_scope.base;
                         };
                         try unusedResultDeferExpr(gz, defer_scope, sub_scope, expr_node);
+                        try checkUsed(gz, scope, sub_scope);
                         try gz.addDbgBlockEnd();
                     },
                     .normal_only => continue,
@@ -2681,6 +2734,7 @@ fn checkUsed(
                 scope = s.parent;
             },
             .defer_normal, .defer_error => scope = scope.cast(Scope.Defer).?.parent,
+            .defer_gen => scope = scope.cast(Scope.DeferGen).?.parent,
             .namespace => unreachable,
             .top => unreachable,
         }
@@ -4040,6 +4094,7 @@ fn testDecl(
                 .local_val, .local_ptr => unreachable, // a test cannot be in a local scope
                 .gen_zir => s = s.cast(GenZir).?.parent,
                 .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
+                .defer_gen => s = s.cast(Scope.DeferGen).?.parent,
                 .namespace => {
                     const ns = s.cast(Scope.Namespace).?;
                     if (ns.decls.get(name_str_index)) |i| {
@@ -5330,7 +5385,7 @@ fn ifExpr(
             const tag: Zir.Inst.Tag = if (payload_is_ref) .is_non_err_ptr else .is_non_err;
             break :c .{
                 .inst = err_union,
-                .bool_bit = try block_scope.addUnNode(tag, err_union, node),
+                .bool_bit = try block_scope.addUnNode(tag, err_union, if_full.ast.cond_expr),
             };
         } else if (if_full.payload_token) |_| {
             const cond_rl: ResultLoc = if (payload_is_ref) .ref else .none;
@@ -5338,7 +5393,7 @@ fn ifExpr(
             const tag: Zir.Inst.Tag = if (payload_is_ref) .is_non_null_ptr else .is_non_null;
             break :c .{
                 .inst = optional,
-                .bool_bit = try block_scope.addUnNode(tag, optional, node),
+                .bool_bit = try block_scope.addUnNode(tag, optional, if_full.ast.cond_expr),
             };
         } else {
             const cond = try expr(&block_scope, &block_scope.base, bool_rl, if_full.ast.cond_expr);
@@ -5369,7 +5424,7 @@ fn ifExpr(
                     .err_union_payload_unsafe_ptr
                 else
                     .err_union_payload_unsafe;
-                const payload_inst = try then_scope.addUnNode(tag, cond.inst, node);
+                const payload_inst = try then_scope.addUnNode(tag, cond.inst, if_full.ast.then_expr);
                 const token_name_index = payload_token + @boolToInt(payload_is_ref);
                 const ident_name = try astgen.identAsString(token_name_index);
                 const token_name_str = tree.tokenSlice(token_name_index);
@@ -5398,7 +5453,7 @@ fn ifExpr(
             const ident_bytes = tree.tokenSlice(ident_token);
             if (mem.eql(u8, "_", ident_bytes))
                 break :s &then_scope.base;
-            const payload_inst = try then_scope.addUnNode(tag, cond.inst, node);
+            const payload_inst = try then_scope.addUnNode(tag, cond.inst, if_full.ast.then_expr);
             const ident_name = try astgen.identAsString(ident_token);
             try astgen.detectLocalShadowing(&then_scope.base, ident_name, ident_token, ident_bytes);
             payload_val_scope = .{
@@ -5441,7 +5496,7 @@ fn ifExpr(
                     .err_union_code_ptr
                 else
                     .err_union_code;
-                const payload_inst = try else_scope.addUnNode(tag, cond.inst, node);
+                const payload_inst = try else_scope.addUnNode(tag, cond.inst, if_full.ast.cond_expr);
                 const ident_name = try astgen.identAsString(error_token);
                 const error_token_str = tree.tokenSlice(error_token);
                 if (mem.eql(u8, "_", error_token_str))
@@ -5615,6 +5670,7 @@ fn whileExpr(
     rl: ResultLoc,
     node: Ast.Node.Index,
     while_full: Ast.full.While,
+    is_statement: bool,
 ) InnerError!Zir.Inst.Ref {
     const astgen = parent_gz.astgen;
     const tree = astgen.tree;
@@ -5654,7 +5710,7 @@ fn whileExpr(
             const tag: Zir.Inst.Tag = if (payload_is_ref) .is_non_err_ptr else .is_non_err;
             break :c .{
                 .inst = err_union,
-                .bool_bit = try continue_scope.addUnNode(tag, err_union, node),
+                .bool_bit = try continue_scope.addUnNode(tag, err_union, while_full.ast.then_expr),
             };
         } else if (while_full.payload_token) |_| {
             const cond_rl: ResultLoc = if (payload_is_ref) .ref else .none;
@@ -5662,7 +5718,7 @@ fn whileExpr(
             const tag: Zir.Inst.Tag = if (payload_is_ref) .is_non_null_ptr else .is_non_null;
             break :c .{
                 .inst = optional,
-                .bool_bit = try continue_scope.addUnNode(tag, optional, node),
+                .bool_bit = try continue_scope.addUnNode(tag, optional, while_full.ast.then_expr),
             };
         } else {
             const cond = try expr(&continue_scope, &continue_scope.base, bool_rl, while_full.ast.cond_expr);
@@ -5700,7 +5756,7 @@ fn whileExpr(
                 else
                     .err_union_payload_unsafe;
                 // will add this instruction to then_scope.instructions below
-                payload_inst = try then_scope.makeUnNode(tag, cond.inst, node);
+                payload_inst = try then_scope.makeUnNode(tag, cond.inst, while_full.ast.cond_expr);
                 const ident_token = if (payload_is_ref) payload_token + 1 else payload_token;
                 const ident_bytes = tree.tokenSlice(ident_token);
                 if (mem.eql(u8, "_", ident_bytes))
@@ -5729,7 +5785,7 @@ fn whileExpr(
             else
                 .optional_payload_unsafe;
             // will add this instruction to then_scope.instructions below
-            payload_inst = try then_scope.makeUnNode(tag, cond.inst, node);
+            payload_inst = try then_scope.makeUnNode(tag, cond.inst, while_full.ast.cond_expr);
             const ident_name = try astgen.identAsString(ident_token);
             const ident_bytes = tree.tokenSlice(ident_token);
             if (mem.eql(u8, "_", ident_bytes))
@@ -5785,6 +5841,8 @@ fn whileExpr(
         try then_scope.addDbgVar(.dbg_var_val, some, dbg_var_inst);
     }
     const then_result = try expr(&then_scope, then_sub_scope, loop_scope.break_result_loc, while_full.ast.then_expr);
+    _ = try addEnsureResult(&then_scope, then_result, while_full.ast.then_expr);
+
     try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
     try then_scope.addDbgBlockEnd();
 
@@ -5803,7 +5861,7 @@ fn whileExpr(
                     .err_union_code_ptr
                 else
                     .err_union_code;
-                const else_payload_inst = try else_scope.addUnNode(tag, cond.inst, node);
+                const else_payload_inst = try else_scope.addUnNode(tag, cond.inst, while_full.ast.cond_expr);
                 const ident_name = try astgen.identAsString(error_token);
                 const ident_bytes = tree.tokenSlice(error_token);
                 if (mem.eql(u8, ident_bytes, "_"))
@@ -5827,7 +5885,11 @@ fn whileExpr(
         // control flow apply to outer loops; not this one.
         loop_scope.continue_block = 0;
         loop_scope.break_block = 0;
-        const e = try expr(&else_scope, sub_scope, loop_scope.break_result_loc, else_node);
+        const else_result = try expr(&else_scope, sub_scope, loop_scope.break_result_loc, else_node);
+        if (is_statement) {
+            _ = try addEnsureResult(&else_scope, else_result, else_node);
+        }
+
         if (!else_scope.endsWithNoReturn()) {
             loop_scope.break_count += 1;
         }
@@ -5835,7 +5897,7 @@ fn whileExpr(
         try else_scope.addDbgBlockEnd();
         break :blk .{
             .src = else_node,
-            .result = e,
+            .result = else_result,
         };
     } else .{
         .src = while_full.ast.then_expr,
@@ -5848,7 +5910,7 @@ fn whileExpr(
         }
     }
     const break_tag: Zir.Inst.Tag = if (is_inline) .break_inline else .@"break";
-    return finishThenElseBlock(
+    const result = try finishThenElseBlock(
         parent_gz,
         rl,
         node,
@@ -5863,6 +5925,10 @@ fn whileExpr(
         cond_block,
         break_tag,
     );
+    if (is_statement) {
+        _ = try parent_gz.addUnNode(.ensure_result_used, result, node);
+    }
+    return result;
 }
 
 fn forExpr(
@@ -5871,6 +5937,7 @@ fn forExpr(
     rl: ResultLoc,
     node: Ast.Node.Index,
     for_full: Ast.full.While,
+    is_statement: bool,
 ) InnerError!Zir.Inst.Ref {
     const astgen = parent_gz.astgen;
 
@@ -6014,6 +6081,8 @@ fn forExpr(
     };
 
     const then_result = try expr(&then_scope, then_sub_scope, loop_scope.break_result_loc, for_full.ast.then_expr);
+    _ = try addEnsureResult(&then_scope, then_result, for_full.ast.then_expr);
+
     try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
     try then_scope.addDbgBlockEnd();
 
@@ -6031,6 +6100,10 @@ fn forExpr(
         loop_scope.continue_block = 0;
         loop_scope.break_block = 0;
         const else_result = try expr(&else_scope, sub_scope, loop_scope.break_result_loc, else_node);
+        if (is_statement) {
+            _ = try addEnsureResult(&else_scope, else_result, else_node);
+        }
+
         if (!else_scope.endsWithNoReturn()) {
             loop_scope.break_count += 1;
         }
@@ -6049,7 +6122,7 @@ fn forExpr(
         }
     }
     const break_tag: Zir.Inst.Tag = if (is_inline) .break_inline else .@"break";
-    return finishThenElseBlock(
+    const result = try finishThenElseBlock(
         parent_gz,
         rl,
         node,
@@ -6064,6 +6137,10 @@ fn forExpr(
         cond_block,
         break_tag,
     );
+    if (is_statement) {
+        _ = try parent_gz.addUnNode(.ensure_result_used, result, node);
+    }
+    return result;
 }
 
 fn switchExpr(
@@ -6730,6 +6807,7 @@ fn localVarRef(
         },
         .gen_zir => s = s.cast(GenZir).?.parent,
         .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
+        .defer_gen => s = s.cast(Scope.DeferGen).?.parent,
         .namespace => {
             const ns = s.cast(Scope.Namespace).?;
             if (ns.decls.get(name_str_index)) |i| {
@@ -7351,6 +7429,7 @@ fn builtinCall(
                         },
                         .gen_zir => s = s.cast(GenZir).?.parent,
                         .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
+                        .defer_gen => s = s.cast(Scope.DeferGen).?.parent,
                         .namespace => {
                             const ns = s.cast(Scope.Namespace).?;
                             if (ns.decls.get(decl_name)) |i| {
@@ -7424,7 +7503,8 @@ fn builtinCall(
             const token_starts = tree.tokens.items(.start);
             const node_start = token_starts[tree.firstToken(node)];
             astgen.advanceSourceCursor(node_start);
-            const result = try gz.addExtendedPayload(.builtin_src, Zir.Inst.LineColumn{
+            const result = try gz.addExtendedPayload(.builtin_src, Zir.Inst.Src{
+                .node = gz.nodeIndexToRelative(node),
                 .line = astgen.source_line,
                 .column = astgen.source_column,
             });
@@ -9807,6 +9887,7 @@ const Scope = struct {
         local_ptr,
         defer_normal,
         defer_error,
+        defer_gen,
         namespace,
         top,
     };
@@ -9903,6 +9984,13 @@ const Scope = struct {
     const Top = struct {
         const base_tag: Scope.Tag = .top;
         base: Scope = Scope{ .tag = base_tag },
+    };
+
+    const DeferGen = struct {
+        const base_tag: Scope.Tag = .defer_gen;
+        base: Scope = Scope{ .tag = base_tag },
+        parent: *Scope,
+        defer_node: Ast.Node.Index,
     };
 };
 
@@ -11414,6 +11502,7 @@ fn detectLocalShadowing(
         },
         .gen_zir => s = s.cast(GenZir).?.parent,
         .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
+        .defer_gen => s = s.cast(Scope.DeferGen).?.parent,
         .top => break,
     };
 }

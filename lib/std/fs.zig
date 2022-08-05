@@ -595,6 +595,19 @@ pub const IterableDir = struct {
             /// Memory such as file names referenced in this returned entry becomes invalid
             /// with subsequent calls to `next`, as well as when this `Dir` is deinitialized.
             pub fn next(self: *Self) Error!?Entry {
+                return self.nextLinux() catch |err| switch (err) {
+                    // To be consistent across platforms, iteration ends if the directory being iterated is deleted during iteration.
+                    // This matches the behavior of non-Linux UNIX platforms.
+                    error.DirNotFound => null,
+                    else => |e| return e,
+                };
+            }
+
+            pub const ErrorLinux = error{DirNotFound} || IteratorError;
+
+            /// Implementation of `next` that can return `error.DirNotFound` if the directory being
+            /// iterated was deleted during iteration (this error is Linux specific).
+            pub fn nextLinux(self: *Self) ErrorLinux!?Entry {
                 start_over: while (true) {
                     if (self.index >= self.end_index) {
                         if (self.first_iter) {
@@ -607,7 +620,7 @@ pub const IterableDir = struct {
                             .BADF => unreachable, // Dir is invalid or was opened without iteration ability
                             .FAULT => unreachable,
                             .NOTDIR => unreachable,
-                            .NOENT => return null, // The directory being iterated was deleted during iteration.
+                            .NOENT => return error.DirNotFound, // The directory being iterated was deleted during iteration.
                             .INVAL => return error.Unexpected, // Linux may in some cases return EINVAL when reading /proc/$PID/net.
                             else => |err| return os.unexpectedErrno(err),
                         }
@@ -729,6 +742,20 @@ pub const IterableDir = struct {
             /// Memory such as file names referenced in this returned entry becomes invalid
             /// with subsequent calls to `next`, as well as when this `Dir` is deinitialized.
             pub fn next(self: *Self) Error!?Entry {
+                return self.nextWasi() catch |err| switch (err) {
+                    // To be consistent across platforms, iteration ends if the directory being iterated is deleted during iteration.
+                    // This matches the behavior of non-Linux UNIX platforms.
+                    error.DirNotFound => null,
+                    else => |e| return e,
+                };
+            }
+
+            pub const ErrorWasi = error{DirNotFound} || IteratorError;
+
+            /// Implementation of `next` that can return platform-dependent errors depending on the host platform.
+            /// When the host platform is Linux, `error.DirNotFound` can be returned if the directory being
+            /// iterated was deleted during iteration.
+            pub fn nextWasi(self: *Self) ErrorWasi!?Entry {
                 // We intentinally use fd_readdir even when linked with libc,
                 // since its implementation is exactly the same as below,
                 // and we avoid the code complexity here.
@@ -742,7 +769,7 @@ pub const IterableDir = struct {
                             .FAULT => unreachable,
                             .NOTDIR => unreachable,
                             .INVAL => unreachable,
-                            .NOENT => return null, // The directory being iterated was deleted during iteration.
+                            .NOENT => return error.DirNotFound, // The directory being iterated was deleted during iteration.
                             .NOTCAPABLE => return error.AccessDenied,
                             else => |err| return os.unexpectedErrno(err),
                         }

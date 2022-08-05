@@ -9,4 +9,4 @@ export fn entry() void {
 // target=native
 //
 // :3:24: error: cannot @bitCast to 'tmp.entry.E'
-// :3:24: note: use @intToEnum for type coercion
+// :3:24: note: use @intToEnum to cast from 'u32'

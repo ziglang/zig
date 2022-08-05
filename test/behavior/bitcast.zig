@@ -90,22 +90,6 @@ test "nested bitcast" {
     comptime try S.foo(42);
 }
 
-test "@bitCast enum to its integer type" {
-    const SOCK = enum(c_int) {
-        A,
-        B,
-
-        fn testBitCastExternEnum() !void {
-            var SOCK_DGRAM = @This().B;
-            var sock_dgram = @bitCast(c_int, SOCK_DGRAM);
-            try expect(sock_dgram == 1);
-        }
-    };
-
-    try SOCK.testBitCastExternEnum();
-    comptime try SOCK.testBitCastExternEnum();
-}
-
 // issue #3010: compiler segfault
 test "bitcast literal [4]u8 param to u32" {
     const ip = @bitCast(u32, [_]u8{ 255, 255, 255, 255 });

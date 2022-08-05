@@ -283,7 +283,14 @@ fn make(step: *Step) !void {
 
     const gpa = self.builder.allocator;
     const src_path = self.source.getPath(self.builder);
-    const contents = try fs.cwd().readFileAlloc(gpa, src_path, self.max_bytes);
+    const contents = try fs.cwd().readFileAllocOptions(
+        gpa,
+        src_path,
+        self.max_bytes,
+        null,
+        @alignOf(u64),
+        null,
+    );
 
     const output = switch (self.obj_format) {
         .macho => try MachODumper.parseAndDump(contents, .{
@@ -370,9 +377,10 @@ const Opts = struct {
 };
 
 const MachODumper = struct {
+    const LoadCommandIterator = macho.LoadCommandIterator;
     const symtab_label = "symtab";
 
-    fn parseAndDump(bytes: []const u8, opts: Opts) ![]const u8 {
+    fn parseAndDump(bytes: []align(@alignOf(u64)) const u8, opts: Opts) ![]const u8 {
         const gpa = opts.gpa orelse unreachable; // MachO dumper requires an allocator
         var stream = std.io.fixedBufferStream(bytes);
         const reader = stream.reader();
@@ -385,55 +393,54 @@ const MachODumper = struct {
         var output = std.ArrayList(u8).init(gpa);
         const writer = output.writer();
 
-        var load_commands = std.ArrayList(macho.LoadCommand).init(gpa);
-        try load_commands.ensureTotalCapacity(hdr.ncmds);
+        var symtab: []const macho.nlist_64 = undefined;
+        var strtab: []const u8 = undefined;
+        var sections = std.ArrayList(macho.section_64).init(gpa);
+        var imports = std.ArrayList([]const u8).init(gpa);
 
-        var sections = std.ArrayList(struct { seg: u16, sect: u16 }).init(gpa);
-        var imports = std.ArrayList(u16).init(gpa);
-
-        var symtab_cmd: ?u16 = null;
-        var i: u16 = 0;
-        while (i < hdr.ncmds) : (i += 1) {
-            var cmd = try macho.LoadCommand.read(gpa, reader);
-            load_commands.appendAssumeCapacity(cmd);
-
+        var it = LoadCommandIterator{
+            .ncmds = hdr.ncmds,
+            .buffer = bytes[@sizeOf(macho.mach_header_64)..][0..hdr.sizeofcmds],
+        };
+        var i: usize = 0;
+        while (it.next()) |cmd| {
             switch (cmd.cmd()) {
                 .SEGMENT_64 => {
-                    const seg = cmd.segment;
-                    for (seg.sections.items) |_, j| {
-                        try sections.append(.{ .seg = i, .sect = @intCast(u16, j) });
+                    const seg = cmd.cast(macho.segment_command_64).?;
+                    try sections.ensureUnusedCapacity(seg.nsects);
+                    for (cmd.getSections()) |sect| {
+                        sections.appendAssumeCapacity(sect);
                     }
                 },
-                .SYMTAB => {
-                    symtab_cmd = i;
+                .SYMTAB => if (opts.dump_symtab) {
+                    const lc = cmd.cast(macho.symtab_command).?;
+                    symtab = @ptrCast(
+                        [*]const macho.nlist_64,
+                        @alignCast(@alignOf(macho.nlist_64), &bytes[lc.symoff]),
+                    )[0..lc.nsyms];
+                    strtab = bytes[lc.stroff..][0..lc.strsize];
                 },
                 .LOAD_DYLIB,
                 .LOAD_WEAK_DYLIB,
                 .REEXPORT_DYLIB,
                 => {
-                    try imports.append(i);
+                    try imports.append(cmd.getDylibPathName());
                 },
                 else => {},
             }
 
             try dumpLoadCommand(cmd, i, writer);
             try writer.writeByte('\n');
+
+            i += 1;
         }
 
         if (opts.dump_symtab) {
-            const cmd = load_commands.items[symtab_cmd.?].symtab;
-            try writer.writeAll(symtab_label ++ "\n");
-            const strtab = bytes[cmd.stroff..][0..cmd.strsize];
-            const raw_symtab = bytes[cmd.symoff..][0 .. cmd.nsyms * @sizeOf(macho.nlist_64)];
-            const symtab = mem.bytesAsSlice(macho.nlist_64, raw_symtab);
-
             for (symtab) |sym| {
                 if (sym.stab()) continue;
                 const sym_name = mem.sliceTo(@ptrCast([*:0]const u8, strtab.ptr + sym.n_strx), 0);
                 if (sym.sect()) {
-                    const map = sections.items[sym.n_sect - 1];
-                    const seg = load_commands.items[map.seg].segment;
-                    const sect = seg.sections.items[map.sect];
+                    const sect = sections.items[sym.n_sect - 1];
                     try writer.print("{x} ({s},{s})", .{
                         sym.n_value,
                         sect.segName(),
@@ -455,9 +462,7 @@ const MachODumper = struct {
                                 break :blk "flat lookup";
                             unreachable;
                         }
-                        const import_id = imports.items[@bitCast(u16, ordinal) - 1];
-                        const import = load_commands.items[import_id].dylib;
-                        const full_path = mem.sliceTo(import.data, 0);
+                        const full_path = imports.items[@bitCast(u16, ordinal) - 1];
                         const basename = fs.path.basename(full_path);
                         assert(basename.len > 0);
                         const ext = mem.lastIndexOfScalar(u8, basename, '.') orelse basename.len;
@@ -481,7 +486,7 @@ const MachODumper = struct {
         return output.toOwnedSlice();
     }
 
-    fn dumpLoadCommand(lc: macho.LoadCommand, index: u16, writer: anytype) !void {
+    fn dumpLoadCommand(lc: macho.LoadCommandIterator.LoadCommand, index: usize, writer: anytype) !void {
         // print header first
         try writer.print(
             \\LC {d}
@@ -491,8 +496,7 @@ const MachODumper = struct {
 
         switch (lc.cmd()) {
             .SEGMENT_64 => {
-                // TODO dump section headers
-                const seg = lc.segment.inner;
+                const seg = lc.cast(macho.segment_command_64).?;
                 try writer.writeByte('\n');
                 try writer.print(
                     \\segname {s}
@@ -508,7 +512,7 @@ const MachODumper = struct {
                     seg.filesize,
                 });
 
-                for (lc.segment.sections.items) |sect| {
+                for (lc.getSections()) |sect| {
                     try writer.writeByte('\n');
                     try writer.print(
                         \\sectname {s}
@@ -531,7 +535,7 @@ const MachODumper = struct {
             .LOAD_WEAK_DYLIB,
             .REEXPORT_DYLIB,
             => {
-                const dylib = lc.dylib.inner.dylib;
+                const dylib = lc.cast(macho.dylib_command).?;
                 try writer.writeByte('\n');
                 try writer.print(
                     \\name {s}
@@ -539,19 +543,20 @@ const MachODumper = struct {
                     \\current version {x}
                     \\compatibility version {x}
                 , .{
-                    mem.sliceTo(lc.dylib.data, 0),
-                    dylib.timestamp,
-                    dylib.current_version,
-                    dylib.compatibility_version,
+                    lc.getDylibPathName(),
+                    dylib.dylib.timestamp,
+                    dylib.dylib.current_version,
+                    dylib.dylib.compatibility_version,
                 });
             },
 
             .MAIN => {
+                const main = lc.cast(macho.entry_point_command).?;
                 try writer.writeByte('\n');
                 try writer.print(
                     \\entryoff {x}
                     \\stacksize {x}
-                , .{ lc.main.entryoff, lc.main.stacksize });
+                , .{ main.entryoff, main.stacksize });
             },
 
             .RPATH => {
@@ -559,7 +564,7 @@ const MachODumper = struct {
                 try writer.print(
                     \\path {s}
                 , .{
-                    mem.sliceTo(lc.rpath.data, 0),
+                    lc.getRpathPathName(),
                 });
             },
 

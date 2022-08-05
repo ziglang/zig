@@ -46,7 +46,9 @@ pub fn getLibraryOffset(reader: anytype, cpu_arch: std.Target.Cpu.Arch) !u64 {
             return fat_arch.offset;
         }
     } else {
-        log.err("Could not find matching cpu architecture in fat library: expected {}", .{cpu_arch});
+        log.err("Could not find matching cpu architecture in fat library: expected {s}", .{
+            @tagName(cpu_arch),
+        });
         return error.MismatchedCpuArchitecture;
     }
 }
