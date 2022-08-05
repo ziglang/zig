@@ -267,7 +267,7 @@ pub fn zeroes(comptime T: type) T {
             return null;
         },
         .Struct => |struct_info| {
-            if (@sizeOf(T) == 0) return T{};
+            if (@sizeOf(T) == 0) return undefined;
             if (struct_info.layout == .Extern) {
                 var item: T = undefined;
                 set(u8, asBytes(&item), 0);
@@ -424,6 +424,9 @@ test "zeroes" {
 
     comptime var comptime_union = zeroes(C_union);
     try testing.expectEqual(@as(u8, 0), comptime_union.a);
+
+    // Ensure zero sized struct with fields is initialized correctly.
+    _ = zeroes(struct { handle: void });
 }
 
 /// Initializes all fields of the struct with their default value, or zero values if no default value is present.
