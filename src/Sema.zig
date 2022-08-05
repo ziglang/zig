@@ -5506,7 +5506,7 @@ const GenericCallAdapter = struct {
             const this_is_comptime = this_arg.val.tag() != .generic_poison;
             const other_is_comptime = other_arg.val.tag() != .generic_poison;
             const this_is_anytype = this_arg.ty.tag() != .generic_poison;
-            const other_is_anytype = other_key.anytype_args[i];
+            const other_is_anytype = other_key.isAnytypeParam(ctx.module, @intCast(u32, i));
 
             if (other_is_anytype != this_is_anytype) return false;
             if (other_is_comptime != this_is_comptime) return false;
@@ -6386,12 +6386,9 @@ fn instantiateGenericCall(
         errdefer new_func.deinit(gpa);
         assert(new_func == new_module_func);
 
-        const anytype_args = try new_decl_arena_allocator.alloc(bool, func_ty_info.param_types.len);
-        new_func.anytype_args = anytype_args.ptr;
         arg_i = 0;
         for (fn_info.param_body) |inst| {
             var is_comptime = false;
-            var is_anytype = false;
             switch (zir_tags[inst]) {
                 .param => {
                     is_comptime = func_ty_info.paramIsComptime(arg_i);
@@ -6400,11 +6397,9 @@ fn instantiateGenericCall(
                     is_comptime = true;
                 },
                 .param_anytype => {
-                    is_anytype = true;
                     is_comptime = func_ty_info.paramIsComptime(arg_i);
                 },
                 .param_anytype_comptime => {
-                    is_anytype = true;
                     is_comptime = true;
                 },
                 else => continue,
@@ -6412,10 +6407,9 @@ fn instantiateGenericCall(
 
             // We populate the Type here regardless because it is needed by
             // `GenericCallAdapter.eql` as well as function body analysis.
-            // Whether it is anytype is communicated by `anytype_args`.
+            // Whether it is anytype is communicated by `isAnytypeParam`.
             const arg = child_sema.inst_map.get(inst).?;
             const copied_arg_ty = try child_sema.typeOf(arg).copy(new_decl_arena_allocator);
-            anytype_args[arg_i] = is_anytype;
 
             if (try sema.typeRequiresComptime(block, .unneeded, copied_arg_ty)) {
                 is_comptime = true;
@@ -7760,11 +7754,6 @@ fn funcCommon(
         break :blk if (sema.comptime_args.len == 0) null else sema.comptime_args.ptr;
     } else null;
 
-    const param_names = try sema.gpa.alloc([:0]const u8, block.params.items.len);
-    for (param_names) |*param_name, i| {
-        param_name.* = try sema.gpa.dupeZ(u8, block.params.items[i].name);
-    }
-
     const hash = new_func.hash;
     const fn_payload = try sema.arena.create(Value.Payload.Function);
     new_func.* = .{
@@ -7772,13 +7761,11 @@ fn funcCommon(
         .zir_body_inst = func_inst,
         .owner_decl = sema.owner_decl_index,
         .comptime_args = comptime_args,
-        .anytype_args = undefined,
         .hash = hash,
         .lbrace_line = src_locs.lbrace_line,
         .rbrace_line = src_locs.rbrace_line,
         .lbrace_column = @truncate(u16, src_locs.columns),
         .rbrace_column = @truncate(u16, src_locs.columns >> 16),
-        .param_names = param_names,
         .branch_quota = default_branch_quota,
         .is_noinline = is_noinline,
     };

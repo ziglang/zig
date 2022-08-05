@@ -1464,20 +1464,8 @@ pub const Fn = struct {
     /// These never have .generic_poison for the Type
     /// because the Type is needed to pass to `Type.eql` and for inserting comptime arguments
     /// into the inst_map when analyzing the body of a generic function instantiation.
-    /// Instead, the is_anytype knowledge is communicated via `anytype_args`.
+    /// Instead, the is_anytype knowledge is communicated via `isAnytypeParam`.
     comptime_args: ?[*]TypedValue,
-    /// When comptime_args is null, this is undefined. Otherwise, this flags each
-    /// parameter and tells whether it is anytype.
-    /// TODO apply the same enhancement for param_names below to this field.
-    anytype_args: [*]bool,
-
-    /// Prefer to use `getParamName` to access this because of the future improvement
-    /// we want to do mentioned in the TODO below.
-    /// Stored in gpa.
-    /// TODO: change param ZIR instructions to be embedded inside the function
-    /// ZIR instruction instead of before it, so that `zir_body_inst` can be used to
-    /// determine param names rather than redundantly storing them here.
-    param_names: []const [:0]const u8,
 
     /// Precomputed hash for monomorphed_funcs.
     /// This is important because it may be accessed when resizing monomorphed_funcs
@@ -1590,18 +1578,43 @@ pub const Fn = struct {
             gpa.destroy(node);
             it = next;
         }
-
-        for (func.param_names) |param_name| {
-            gpa.free(param_name);
-        }
-        gpa.free(func.param_names);
     }
 
-    pub fn getParamName(func: Fn, index: u32) [:0]const u8 {
-        // TODO rework ZIR of parameters so that this function looks up
-        // param names in ZIR instead of redundantly saving them into Fn.
-        // const zir = func.owner_decl.getFileScope().zir;
-        return func.param_names[index];
+    pub fn isAnytypeParam(func: Fn, mod: *Module, index: u32) bool {
+        const file = mod.declPtr(func.owner_decl).getFileScope();
+
+        const tags = file.zir.instructions.items(.tag);
+
+        const param_body = file.zir.getParamBody(func.zir_body_inst);
+        const param = param_body[index];
+
+        return switch (tags[param]) {
+            .param, .param_comptime => false,
+            .param_anytype, .param_anytype_comptime => true,
+            else => unreachable,
+        };
+    }
+
+    pub fn getParamName(func: Fn, mod: *Module, index: u32) [:0]const u8 {
+        const file = mod.declPtr(func.owner_decl).getFileScope();
+
+        const tags = file.zir.instructions.items(.tag);
+        const data = file.zir.instructions.items(.data);
+
+        const param_body = file.zir.getParamBody(func.zir_body_inst);
+        const param = param_body[index];
+
+        return switch (tags[param]) {
+            .param, .param_comptime => blk: {
+                const extra = file.zir.extraData(Zir.Inst.Param, data[param].pl_tok.payload_index);
+                break :blk file.zir.nullTerminatedString(extra.data.name);
+            },
+            .param_anytype, .param_anytype_comptime => blk: {
+                const param_data = data[param].str_tok;
+                break :blk param_data.get(file.zir);
+            },
+            else => unreachable,
+        };
     }
 
     pub fn hasInferredErrorSet(func: Fn, mod: *Module) bool {

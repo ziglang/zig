@@ -1991,7 +1991,7 @@ fn airArg(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     switch (self.debug_output) {
         .dwarf => |dwarf| {
             // TODO: Get the original arg index rather than wasm arg index
-            const name = self.mod_fn.getParamName(arg_index);
+            const name = self.mod_fn.getParamName(self.bin_file.base.options.module.?, arg_index);
             const leb_size = link.File.Wasm.getULEB128Size(arg.local);
             const dbg_info = &dwarf.dbg_info;
             try dbg_info.ensureUnusedCapacity(3 + leb_size + 5 + name.len + 1);
