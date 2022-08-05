@@ -199,24 +199,36 @@ namespace std {
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__availability>
 #include <__config>
 #include <__functional/hash.h>
+#include <__functional/operations.h>
+#include <__functional/unary_function.h>
 #include <__tuple>
 #include <__utility/forward.h>
+#include <__utility/in_place.h>
+#include <__utility/move.h>
+#include <__utility/swap.h>
 #include <__variant/monostate.h>
-#include <compare>
 #include <exception>
 #include <initializer_list>
 #include <limits>
 #include <new>
 #include <tuple>
 #include <type_traits>
-#include <utility>
 #include <version>
 
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <typeinfo>
+#  include <utility>
+#endif
+
+// standard-mandated includes
+#include <compare>
+
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -533,7 +545,7 @@ private:
     template <class _Fp, class... _Vs>
     inline _LIBCPP_INLINE_VISIBILITY
     static constexpr decltype(auto) __dispatch(_Fp __f, _Vs... __vs) {
-        return _VSTD::__invoke_constexpr(
+        return _VSTD::__invoke(
             static_cast<_Fp>(__f),
             __access::__base::__get_alt<_Is>(static_cast<_Vs>(__vs))...);
     }
@@ -549,7 +561,7 @@ private:
   inline _LIBCPP_INLINE_VISIBILITY
   static constexpr auto __make_fdiagonal_impl() {
     return __make_dispatch<_Fp, _Vs...>(
-        index_sequence<((void)__identity<_Vs>{}, _Ip)...>{});
+        index_sequence<((void)__type_identity<_Vs>{}, _Ip)...>{});
   }
 
   template <class _Fp, class... _Vs, size_t... _Is>
@@ -653,8 +665,8 @@ private:
       __std_visit_exhaustive_visitor_check<
           _Visitor,
           decltype((_VSTD::forward<_Alts>(__alts).__value))...>();
-      return _VSTD::__invoke_constexpr(_VSTD::forward<_Visitor>(__visitor),
-                                _VSTD::forward<_Alts>(__alts).__value...);
+      return _VSTD::__invoke(_VSTD::forward<_Visitor>(__visitor),
+                             _VSTD::forward<_Alts>(__alts).__value...);
     }
     _Visitor&& __visitor;
   };
@@ -669,12 +681,12 @@ private:
           _Visitor,
           decltype((_VSTD::forward<_Alts>(__alts).__value))...>();
       if constexpr (is_void_v<_Rp>) {
-        _VSTD::__invoke_constexpr(_VSTD::forward<_Visitor>(__visitor),
-                                  _VSTD::forward<_Alts>(__alts).__value...);
+        _VSTD::__invoke(_VSTD::forward<_Visitor>(__visitor),
+                        _VSTD::forward<_Alts>(__alts).__value...);
       }
       else {
-        return _VSTD::__invoke_constexpr(_VSTD::forward<_Visitor>(__visitor),
-                                         _VSTD::forward<_Alts>(__alts).__value...);
+        return _VSTD::__invoke(_VSTD::forward<_Visitor>(__visitor),
+                               _VSTD::forward<_Alts>(__alts).__value...);
       }
     }
 
@@ -765,8 +777,8 @@ public:
   using __index_t = __variant_index_t<sizeof...(_Types)>;
 
   inline _LIBCPP_INLINE_VISIBILITY
-  explicit constexpr __base(__valueless_t tag) noexcept
-      : __data(tag), __index(__variant_npos<__index_t>) {}
+  explicit constexpr __base(__valueless_t __tag) noexcept
+      : __data(__tag), __index(__variant_npos<__index_t>) {}
 
   template <size_t _Ip, class... _Args>
   inline _LIBCPP_INLINE_VISIBILITY
@@ -1121,8 +1133,11 @@ class _LIBCPP_TEMPLATE_VIS __impl
   using __base_type = __copy_assignment<__traits<_Types...>>;
 
 public:
-  using __base_type::__base_type;
-  using __base_type::operator=;
+  using __base_type::__base_type; // get in_place_index_t constructor & friends
+  __impl(__impl const&) = default;
+  __impl(__impl&&) = default;
+  __impl& operator=(__impl const&) = default;
+  __impl& operator=(__impl&&) = default;
 
   template <size_t _Ip, class _Arg>
   inline _LIBCPP_INLINE_VISIBILITY
@@ -1186,12 +1201,12 @@ private:
 
 struct __no_narrowing_check {
   template <class _Dest, class _Source>
-  using _Apply = __identity<_Dest>;
+  using _Apply = __type_identity<_Dest>;
 };
 
 struct __narrowing_check {
   template <class _Dest>
-  static auto __test_impl(_Dest (&&)[1]) -> __identity<_Dest>;
+  static auto __test_impl(_Dest (&&)[1]) -> __type_identity<_Dest>;
   template <class _Dest, class _Source>
   using _Apply _LIBCPP_NODEBUG = decltype(__test_impl<_Dest>({declval<_Source>()}));
 };
@@ -1217,7 +1232,7 @@ template <class _Tp, size_t>
 struct __overload_bool  {
   template <class _Up, class _Ap = __uncvref_t<_Up>>
   auto operator()(bool, _Up&&) const
-      -> enable_if_t<is_same_v<_Ap, bool>, __identity<_Tp>>;
+      -> enable_if_t<is_same_v<_Ap, bool>, __type_identity<_Tp>>;
 };
 
 template <size_t _Idx>

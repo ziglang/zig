@@ -186,20 +186,24 @@ template<class Callable, class ...Args>
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__mutex_base>
 #include <__threading_support>
 #include <__utility/forward.h>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #ifndef _LIBCPP_CXX03_LANG
 # include <tuple>
 #endif
 #include <version>
 
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <functional>
+#endif
+
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS

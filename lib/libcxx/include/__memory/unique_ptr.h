@@ -13,20 +13,16 @@
 #include <__config>
 #include <__functional/hash.h>
 #include <__functional/operations.h>
-#include <__functional_base>
 #include <__memory/allocator_traits.h> // __pointer
+#include <__memory/auto_ptr.h>
 #include <__memory/compressed_pair.h>
 #include <__utility/forward.h>
+#include <__utility/move.h>
 #include <cstddef>
 #include <type_traits>
-#include <utility>
-
-#if _LIBCPP_STD_VER <= 14 || defined(_LIBCPP_ENABLE_CXX17_REMOVED_AUTO_PTR)
-#   include <__memory/auto_ptr.h>
-#endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -47,10 +43,8 @@ struct _LIBCPP_TEMPLATE_VIS default_delete {
                      0) _NOEXCEPT {}
 
   _LIBCPP_INLINE_VISIBILITY void operator()(_Tp* __ptr) const _NOEXCEPT {
-    static_assert(sizeof(_Tp) > 0,
-                  "default_delete can not delete incomplete type");
-    static_assert(!is_void<_Tp>::value,
-                  "default_delete can not delete incomplete type");
+    static_assert(sizeof(_Tp) >= 0, "cannot delete an incomplete type");
+    static_assert(!is_void<_Tp>::value, "cannot delete an incomplete type");
     delete __ptr;
   }
 };
@@ -78,10 +72,7 @@ public:
   _LIBCPP_INLINE_VISIBILITY
   typename _EnableIfConvertible<_Up>::type
   operator()(_Up* __ptr) const _NOEXCEPT {
-    static_assert(sizeof(_Tp) > 0,
-                  "default_delete can not delete incomplete type");
-    static_assert(!is_void<_Tp>::value,
-                  "default_delete can not delete void type");
+    static_assert(sizeof(_Up) >= 0, "cannot delete an incomplete type");
     delete[] __ptr;
   }
 };
@@ -144,7 +135,7 @@ private:
       typename __dependent_type<_DeleterSFINAE, _Dummy>::__bad_rval_ref_type;
 
   template <bool _Dummy, class _Deleter = typename __dependent_type<
-                             __identity<deleter_type>, _Dummy>::type>
+                             __type_identity<deleter_type>, _Dummy>::type>
   using _EnableIfDeleterDefaultConstructible _LIBCPP_NODEBUG =
       typename enable_if<is_default_constructible<_Deleter>::value &&
                          !is_pointer<_Deleter>::value>::type;
@@ -264,7 +255,6 @@ public:
   unique_ptr& operator=(unique_ptr const&) = delete;
 #endif
 
-
   _LIBCPP_INLINE_VISIBILITY
   ~unique_ptr() { reset(); }
 
@@ -359,7 +349,7 @@ private:
       typename __dependent_type<_DeleterSFINAE, _Dummy>::__bad_rval_ref_type;
 
   template <bool _Dummy, class _Deleter = typename __dependent_type<
-                             __identity<deleter_type>, _Dummy>::type>
+                             __type_identity<deleter_type>, _Dummy>::type>
   using _EnableIfDeleterDefaultConstructible _LIBCPP_NODEBUG =
       typename enable_if<is_default_constructible<_Deleter>::value &&
                          !is_pointer<_Deleter>::value>::type;
@@ -486,7 +476,6 @@ public:
   unique_ptr(unique_ptr const&) = delete;
   unique_ptr& operator=(unique_ptr const&) = delete;
 #endif
-
 public:
   _LIBCPP_INLINE_VISIBILITY
   ~unique_ptr() { reset(); }

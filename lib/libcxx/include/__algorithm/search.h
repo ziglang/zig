@@ -11,41 +11,59 @@
 #define _LIBCPP___ALGORITHM_SEARCH_H
 
 #include <__algorithm/comp.h>
+#include <__algorithm/iterator_operations.h>
 #include <__config>
+#include <__functional/identity.h>
+#include <__iterator/advance.h>
+#include <__iterator/concepts.h>
 #include <__iterator/iterator_traits.h>
-#include <utility>
+#include <__type_traits/is_callable.h>
+#include <__utility/pair.h>
+#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <class _BinaryPredicate, class _ForwardIterator1, class _ForwardIterator2>
-pair<_ForwardIterator1, _ForwardIterator1>
-    _LIBCPP_CONSTEXPR_AFTER_CXX11 __search(_ForwardIterator1 __first1, _ForwardIterator1 __last1,
-                                           _ForwardIterator2 __first2, _ForwardIterator2 __last2,
-                                           _BinaryPredicate __pred, forward_iterator_tag, forward_iterator_tag) {
+template <class _AlgPolicy,
+          class _Iter1, class _Sent1,
+          class _Iter2, class _Sent2,
+          class _Pred,
+          class _Proj1,
+          class _Proj2>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11
+pair<_Iter1, _Iter1> __search_forward_impl(_Iter1 __first1, _Sent1 __last1,
+                                           _Iter2 __first2, _Sent2 __last2,
+                                           _Pred& __pred,
+                                           _Proj1& __proj1,
+                                           _Proj2& __proj2) {
   if (__first2 == __last2)
-    return _VSTD::make_pair(__first1, __first1); // Everything matches an empty sequence
+    return std::make_pair(__first1, __first1); // Everything matches an empty sequence
   while (true) {
     // Find first element in sequence 1 that matchs *__first2, with a mininum of loop checks
     while (true) {
-      if (__first1 == __last1) // return __last1 if no element matches *__first2
-        return _VSTD::make_pair(__last1, __last1);
-      if (__pred(*__first1, *__first2))
+      if (__first1 == __last1) { // return __last1 if no element matches *__first2
+        _IterOps<_AlgPolicy>::__advance_to(__first1, __last1);
+        return std::make_pair(__first1, __first1);
+      }
+      if (std::__invoke(__pred, std::__invoke(__proj1, *__first1), std::__invoke(__proj2, *__first2)))
         break;
       ++__first1;
     }
     // *__first1 matches *__first2, now match elements after here
-    _ForwardIterator1 __m1 = __first1;
-    _ForwardIterator2 __m2 = __first2;
+    _Iter1 __m1 = __first1;
+    _Iter2 __m2 = __first2;
     while (true) {
       if (++__m2 == __last2) // If pattern exhausted, __first1 is the answer (works for 1 element pattern)
-        return _VSTD::make_pair(__first1, __m1);
-      if (++__m1 == __last1) // Otherwise if source exhaused, pattern not found
-        return _VSTD::make_pair(__last1, __last1);
-      if (!__pred(*__m1, *__m2)) // if there is a mismatch, restart with a new __first1
+        return std::make_pair(__first1, ++__m1);
+      if (++__m1 == __last1) { // Otherwise if source exhaused, pattern not found
+        return std::make_pair(__m1, __m1);
+      }
+
+      // if there is a mismatch, restart with a new __first1
+      if (!std::__invoke(__pred, std::__invoke(__proj1, *__m1), std::__invoke(__proj2, *__m2)))
       {
         ++__first1;
         break;
@@ -54,38 +72,42 @@ pair<_ForwardIterator1, _ForwardIterator1>
   }
 }
 
-template <class _BinaryPredicate, class _RandomAccessIterator1, class _RandomAccessIterator2>
-_LIBCPP_CONSTEXPR_AFTER_CXX11 pair<_RandomAccessIterator1, _RandomAccessIterator1>
-__search(_RandomAccessIterator1 __first1, _RandomAccessIterator1 __last1, _RandomAccessIterator2 __first2,
-         _RandomAccessIterator2 __last2, _BinaryPredicate __pred, random_access_iterator_tag,
-         random_access_iterator_tag) {
-  typedef typename iterator_traits<_RandomAccessIterator1>::difference_type _D1;
-  typedef typename iterator_traits<_RandomAccessIterator2>::difference_type _D2;
-  // Take advantage of knowing source and pattern lengths.  Stop short when source is smaller than pattern
-  const _D2 __len2 = __last2 - __first2;
-  if (__len2 == 0)
-    return _VSTD::make_pair(__first1, __first1);
-  const _D1 __len1 = __last1 - __first1;
-  if (__len1 < __len2)
-    return _VSTD::make_pair(__last1, __last1);
-  const _RandomAccessIterator1 __s = __last1 - _D1(__len2 - 1); // Start of pattern match can't go beyond here
+template <class _AlgPolicy,
+          class _Iter1, class _Sent1,
+          class _Iter2, class _Sent2,
+          class _Pred,
+          class _Proj1,
+          class _Proj2,
+          class _DiffT1,
+          class _DiffT2>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11
+pair<_Iter1, _Iter1> __search_random_access_impl(_Iter1 __first1, _Sent1 __last1,
+                                                 _Iter2 __first2, _Sent2 __last2,
+                                                 _Pred& __pred,
+                                                 _Proj1& __proj1,
+                                                 _Proj2& __proj2,
+                                                 _DiffT1 __size1,
+                                                 _DiffT2 __size2) {
+  const _Iter1 __s = __first1 + __size1 - _DiffT1(__size2 - 1); // Start of pattern match can't go beyond here
 
   while (true) {
     while (true) {
-      if (__first1 == __s)
-        return _VSTD::make_pair(__last1, __last1);
-      if (__pred(*__first1, *__first2))
+      if (__first1 == __s) {
+        _IterOps<_AlgPolicy>::__advance_to(__first1, __last1);
+        return std::make_pair(__first1, __first1);
+      }
+      if (std::__invoke(__pred, std::__invoke(__proj1, *__first1), std::__invoke(__proj2, *__first2)))
         break;
       ++__first1;
     }
 
-    _RandomAccessIterator1 __m1 = __first1;
-    _RandomAccessIterator2 __m2 = __first2;
+    _Iter1 __m1 = __first1;
+    _Iter2 __m2 = __first2;
     while (true) {
       if (++__m2 == __last2)
-        return _VSTD::make_pair(__first1, __first1 + _D1(__len2));
+        return std::make_pair(__first1, __first1 + _DiffT1(__size2));
       ++__m1; // no need to check range on __m1 because __s guarantees we have enough source
-      if (!__pred(*__m1, *__m2)) {
+      if (!std::__invoke(__pred, std::__invoke(__proj1, *__m1), std::__invoke(__proj2, *__m2))) {
         ++__first1;
         break;
       }
@@ -93,22 +115,78 @@ __search(_RandomAccessIterator1 __first1, _RandomAccessIterator1 __last1, _Rando
   }
 }
 
+template <class _Iter1, class _Sent1,
+          class _Iter2, class _Sent2,
+          class _Pred,
+          class _Proj1,
+          class _Proj2>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11
+pair<_Iter1, _Iter1> __search_impl(_Iter1 __first1, _Sent1 __last1,
+                                   _Iter2 __first2, _Sent2 __last2,
+                                   _Pred& __pred,
+                                   _Proj1& __proj1,
+                                   _Proj2& __proj2,
+                                   __enable_if_t<__is_cpp17_random_access_iterator<_Iter1>::value
+                                              && __is_cpp17_random_access_iterator<_Iter2>::value>* = nullptr) {
+
+  auto __size2 = __last2 - __first2;
+  if (__size2 == 0)
+    return std::make_pair(__first1, __first1);
+
+  auto __size1 = __last1 - __first1;
+  if (__size1 < __size2) {
+    return std::make_pair(__last1, __last1);
+  }
+
+  return std::__search_random_access_impl<_ClassicAlgPolicy>(__first1, __last1,
+                                                             __first2, __last2,
+                                                             __pred,
+                                                             __proj1,
+                                                             __proj2,
+                                                             __size1,
+                                                             __size2);
+}
+
+template <class _Iter1, class _Sent1,
+          class _Iter2, class _Sent2,
+          class _Pred,
+          class _Proj1,
+          class _Proj2>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11
+pair<_Iter1, _Iter1> __search_impl(_Iter1 __first1, _Sent1 __last1,
+                                   _Iter2 __first2, _Sent2 __last2,
+                                   _Pred& __pred,
+                                   _Proj1& __proj1,
+                                   _Proj2& __proj2,
+                                   __enable_if_t<__is_cpp17_forward_iterator<_Iter1>::value
+                                              && __is_cpp17_forward_iterator<_Iter2>::value
+                                              && !(__is_cpp17_random_access_iterator<_Iter1>::value
+                                                && __is_cpp17_random_access_iterator<_Iter2>::value)>* = nullptr) {
+  return std::__search_forward_impl<_ClassicAlgPolicy>(__first1, __last1,
+                                                       __first2, __last2,
+                                                       __pred,
+                                                       __proj1,
+                                                       __proj2);
+}
+
 template <class _ForwardIterator1, class _ForwardIterator2, class _BinaryPredicate>
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17 _ForwardIterator1
-search(_ForwardIterator1 __first1, _ForwardIterator1 __last1, _ForwardIterator2 __first2, _ForwardIterator2 __last2,
-       _BinaryPredicate __pred) {
-  return _VSTD::__search<_BinaryPredicate&>(
-             __first1, __last1, __first2, __last2, __pred,
-             typename iterator_traits<_ForwardIterator1>::iterator_category(),
-             typename iterator_traits<_ForwardIterator2>::iterator_category()).first;
+_LIBCPP_NODISCARD_EXT inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
+_ForwardIterator1 search(_ForwardIterator1 __first1, _ForwardIterator1 __last1,
+                         _ForwardIterator2 __first2, _ForwardIterator2 __last2,
+                         _BinaryPredicate __pred) {
+  static_assert(__is_callable<_BinaryPredicate, decltype(*__first1), decltype(*__first2)>::value,
+                "BinaryPredicate has to be callable");
+  auto __proj = __identity();
+  return std::__search_impl(__first1, __last1, __first2, __last2, __pred, __proj, __proj).first;
 }
 
 template <class _ForwardIterator1, class _ForwardIterator2>
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17 _ForwardIterator1
-search(_ForwardIterator1 __first1, _ForwardIterator1 __last1, _ForwardIterator2 __first2, _ForwardIterator2 __last2) {
-  typedef typename iterator_traits<_ForwardIterator1>::value_type __v1;
-  typedef typename iterator_traits<_ForwardIterator2>::value_type __v2;
-  return _VSTD::search(__first1, __last1, __first2, __last2, __equal_to<__v1, __v2>());
+_LIBCPP_NODISCARD_EXT inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
+_ForwardIterator1 search(_ForwardIterator1 __first1, _ForwardIterator1 __last1,
+                         _ForwardIterator2 __first2, _ForwardIterator2 __last2) {
+  using __v1 = typename iterator_traits<_ForwardIterator1>::value_type;
+  using __v2 = typename iterator_traits<_ForwardIterator2>::value_type;
+  return std::search(__first1, __last1, __first2, __last2, __equal_to<__v1, __v2>());
 }
 
 #if _LIBCPP_STD_VER > 14

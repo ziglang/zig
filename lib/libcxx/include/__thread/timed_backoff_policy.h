@@ -13,11 +13,11 @@
 
 #ifndef _LIBCPP_HAS_NO_THREADS
 
-#include <__threading_support>
-#include <chrono>
+#  include <__chrono/duration.h>
+#  include <__threading_support>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD

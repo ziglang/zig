@@ -14,12 +14,12 @@
 #include <__utility/forward.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#if _LIBCPP_STD_VER > 17
 
 // [concepts.booleantestable]
 
@@ -31,7 +31,7 @@ concept __boolean_testable = __boolean_testable_impl<_Tp> && requires(_Tp&& __t)
   { !_VSTD::forward<_Tp>(__t) } -> __boolean_testable_impl;
 };
 
-#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#endif // _LIBCPP_STD_VER > 17
 
 _LIBCPP_END_NAMESPACE_STD
 

@@ -6,143 +6,33 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "charconv"
+#include <charconv>
 #include <string.h>
 
-#include "include/ryu/digit_table.h"
 #include "include/to_chars_floating_point.h"
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
+#ifndef _LIBCPP_ABI_DO_NOT_EXPORT_TO_CHARS_BASE_10
+
 namespace __itoa
 {
 
-template <typename T>
-inline _LIBCPP_INLINE_VISIBILITY char*
-append1(char* buffer, T i) noexcept
-{
-    *buffer = '0' + static_cast<char>(i);
-    return buffer + 1;
-}
-
-template <typename T>
-inline _LIBCPP_INLINE_VISIBILITY char*
-append2(char* buffer, T i) noexcept
-{
-    memcpy(buffer, &__DIGIT_TABLE[(i)*2], 2);
-    return buffer + 2;
-}
-
-template <typename T>
-inline _LIBCPP_INLINE_VISIBILITY char*
-append3(char* buffer, T i) noexcept
-{
-    return append2(append1(buffer, (i) / 100), (i) % 100);
-}
-
-template <typename T>
-inline _LIBCPP_INLINE_VISIBILITY char*
-append4(char* buffer, T i) noexcept
-{
-    return append2(append2(buffer, (i) / 100), (i) % 100);
-}
-
-template <typename T>
-inline _LIBCPP_INLINE_VISIBILITY char*
-append2_no_zeros(char* buffer, T v) noexcept
-{
-    if (v < 10)
-        return append1(buffer, v);
-    else
-        return append2(buffer, v);
-}
-
-template <typename T>
-inline _LIBCPP_INLINE_VISIBILITY char*
-append4_no_zeros(char* buffer, T v) noexcept
-{
-    if (v < 100)
-        return append2_no_zeros(buffer, v);
-    else if (v < 1000)
-        return append3(buffer, v);
-    else
-        return append4(buffer, v);
-}
-
-template <typename T>
-inline _LIBCPP_INLINE_VISIBILITY char*
-append8_no_zeros(char* buffer, T v) noexcept
-{
-    if (v < 10000)
-    {
-        buffer = append4_no_zeros(buffer, v);
-    }
-    else
-    {
-        buffer = append4_no_zeros(buffer, v / 10000);
-        buffer = append4(buffer, v % 10000);
-    }
-    return buffer;
-}
-
-char*
+_LIBCPP_FUNC_VIS char*
 __u32toa(uint32_t value, char* buffer) noexcept
 {
-    if (value < 100000000)
-    {
-        buffer = append8_no_zeros(buffer, value);
-    }
-    else
-    {
-        // value = aabbbbcccc in decimal
-        const uint32_t a = value / 100000000;  // 1 to 42
-        value %= 100000000;
-
-        buffer = append2_no_zeros(buffer, a);
-        buffer = append4(buffer, value / 10000);
-        buffer = append4(buffer, value % 10000);
-    }
-
-    return buffer;
+	return __base_10_u32(buffer, value);
 }
 
-char*
+_LIBCPP_FUNC_VIS char*
 __u64toa(uint64_t value, char* buffer) noexcept
 {
-    if (value < 100000000)
-    {
-        uint32_t v = static_cast<uint32_t>(value);
-        buffer = append8_no_zeros(buffer, v);
-    }
-    else if (value < 10000000000000000)
-    {
-        const uint32_t v0 = static_cast<uint32_t>(value / 100000000);
-        const uint32_t v1 = static_cast<uint32_t>(value % 100000000);
-
-        buffer = append8_no_zeros(buffer, v0);
-        buffer = append4(buffer, v1 / 10000);
-        buffer = append4(buffer, v1 % 10000);
-    }
-    else
-    {
-        const uint32_t a =
-            static_cast<uint32_t>(value / 10000000000000000);  // 1 to 1844
-        value %= 10000000000000000;
-
-        buffer = append4_no_zeros(buffer, a);
-
-        const uint32_t v0 = static_cast<uint32_t>(value / 100000000);
-        const uint32_t v1 = static_cast<uint32_t>(value % 100000000);
-        buffer = append4(buffer, v0 / 10000);
-        buffer = append4(buffer, v0 % 10000);
-        buffer = append4(buffer, v1 / 10000);
-        buffer = append4(buffer, v1 % 10000);
-    }
-
-    return buffer;
+	return __base_10_u64(buffer, value);
 }
 
 }  // namespace __itoa
+
+#endif // _LIBCPP_ABI_DO_NOT_EXPORT_TO_CHARS_BASE_10
 
 // The original version of floating-point to_chars was written by Microsoft and
 // contributed with the following license.

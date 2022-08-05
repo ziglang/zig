@@ -12,7 +12,8 @@
 
 #include <time.h>
 
-static inline int gettimeofdayMonotonic(struct timespec64* Output) {
+inline _LIBCPP_HIDE_FROM_ABI int
+gettimeofdayMonotonic(struct timespec64* Output) {
 
   // The POSIX gettimeofday() function is not available on z/OS. Therefore,
   // we will call stcke and other hardware instructions in implement equivalent.

@@ -86,6 +86,7 @@ void  operator delete[](void* ptr, void*) noexcept;
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__availability>
 #include <__config>
 #include <cstddef>
@@ -99,7 +100,7 @@ void  operator delete[](void* ptr, void*) noexcept;
 #endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 #if !defined(__cpp_sized_deallocation) || __cpp_sized_deallocation  < 201309L
@@ -358,6 +359,17 @@ constexpr _Tp* launder(_Tp* __p) noexcept
     return _VSTD::__launder(__p);
 }
 #endif
+
+#if _LIBCPP_STD_VER > 14
+
+#if defined(__GCC_DESTRUCTIVE_SIZE) && defined(__GCC_CONSTRUCTIVE_SIZE)
+
+inline constexpr size_t hardware_destructive_interference_size = __GCC_DESTRUCTIVE_SIZE;
+inline constexpr size_t hardware_constructive_interference_size = __GCC_CONSTRUCTIVE_SIZE;
+
+#endif // defined(__GCC_DESTRUCTIVE_SIZE) && defined(__GCC_CONSTRUCTIVE_SIZE)
+
+#endif // _LIBCPP_STD_VER > 14
 
 _LIBCPP_END_NAMESPACE_STD
 

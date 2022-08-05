@@ -20,12 +20,12 @@
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if !defined(_LIBCPP_HAS_NO_CONCEPTS) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 // CRTP base that one can derive from in order to be considered a range adaptor closure
 // by the library. When deriving from this class, a pipe operator will be provided to
@@ -39,7 +39,7 @@ struct __range_adaptor_closure;
 // i.e. something that can be called via the `x | f` notation.
 template <class _Fn>
 struct __range_adaptor_closure_t : _Fn, __range_adaptor_closure<__range_adaptor_closure_t<_Fn>> {
-    constexpr explicit __range_adaptor_closure_t(_Fn&& __f) : _Fn(_VSTD::move(__f)) { }
+    constexpr explicit __range_adaptor_closure_t(_Fn&& __f) : _Fn(std::move(__f)) { }
 };
 
 template <class _Tp>
@@ -53,7 +53,7 @@ struct __range_adaptor_closure {
     [[nodiscard]] _LIBCPP_HIDE_FROM_ABI
     friend constexpr decltype(auto) operator|(_View&& __view, _Closure&& __closure)
         noexcept(is_nothrow_invocable_v<_Closure, _View>)
-    { return _VSTD::invoke(_VSTD::forward<_Closure>(__closure), _VSTD::forward<_View>(__view)); }
+    { return std::invoke(std::forward<_Closure>(__closure), std::forward<_View>(__view)); }
 
     template <_RangeAdaptorClosure _Closure, _RangeAdaptorClosure _OtherClosure>
         requires same_as<_Tp, remove_cvref_t<_Closure>> &&
@@ -63,10 +63,10 @@ struct __range_adaptor_closure {
     friend constexpr auto operator|(_Closure&& __c1, _OtherClosure&& __c2)
         noexcept(is_nothrow_constructible_v<decay_t<_Closure>, _Closure> &&
                  is_nothrow_constructible_v<decay_t<_OtherClosure>, _OtherClosure>)
-    { return __range_adaptor_closure_t(_VSTD::__compose(_VSTD::forward<_OtherClosure>(__c2), _VSTD::forward<_Closure>(__c1))); }
+    { return __range_adaptor_closure_t(std::__compose(std::forward<_OtherClosure>(__c2), std::forward<_Closure>(__c1))); }
 };
 
-#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 _LIBCPP_END_NAMESPACE_STD
 

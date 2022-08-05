@@ -77,6 +77,7 @@ typedef ratio<1000000000000000000000000, 1> yotta;  // not supported
 }
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <climits>
 #include <cstdint>
@@ -84,7 +85,7 @@ typedef ratio<1000000000000000000000000, 1> yotta;  // not supported
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -416,11 +417,11 @@ struct _LIBCPP_TEMPLATE_VIS ratio_subtract
 
 template <class _R1, class _R2>
 struct _LIBCPP_TEMPLATE_VIS ratio_equal
-    : public _LIBCPP_BOOL_CONSTANT((_R1::num == _R2::num && _R1::den == _R2::den)) {};
+    : _BoolConstant<(_R1::num == _R2::num && _R1::den == _R2::den)> {};
 
 template <class _R1, class _R2>
 struct _LIBCPP_TEMPLATE_VIS ratio_not_equal
-    : public _LIBCPP_BOOL_CONSTANT((!ratio_equal<_R1, _R2>::value)) {};
+    : _BoolConstant<!ratio_equal<_R1, _R2>::value> {};
 
 // ratio_less
 
@@ -479,19 +480,19 @@ struct __ratio_less<_R1, _R2, -1LL, -1LL>
 
 template <class _R1, class _R2>
 struct _LIBCPP_TEMPLATE_VIS ratio_less
-    : public _LIBCPP_BOOL_CONSTANT((__ratio_less<_R1, _R2>::value)) {};
+    : _BoolConstant<__ratio_less<_R1, _R2>::value> {};
 
 template <class _R1, class _R2>
 struct _LIBCPP_TEMPLATE_VIS ratio_less_equal
-    : public _LIBCPP_BOOL_CONSTANT((!ratio_less<_R2, _R1>::value)) {};
+    : _BoolConstant<!ratio_less<_R2, _R1>::value> {};
 
 template <class _R1, class _R2>
 struct _LIBCPP_TEMPLATE_VIS ratio_greater
-    : public _LIBCPP_BOOL_CONSTANT((ratio_less<_R2, _R1>::value)) {};
+    : _BoolConstant<ratio_less<_R2, _R1>::value> {};
 
 template <class _R1, class _R2>
 struct _LIBCPP_TEMPLATE_VIS ratio_greater_equal
-    : public _LIBCPP_BOOL_CONSTANT((!ratio_less<_R1, _R2>::value)) {};
+    : _BoolConstant<!ratio_less<_R1, _R2>::value> {};
 
 template <class _R1, class _R2>
 struct __ratio_gcd

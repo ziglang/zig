@@ -179,18 +179,43 @@ template <class T, class Allocator, class Predicate>
 
 */
 
+#include <__algorithm/comp.h>
+#include <__algorithm/lexicographical_compare.h>
+#include <__algorithm/min.h>
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
+#include <__iterator/distance.h>
+#include <__iterator/iterator_traits.h>
+#include <__iterator/move_iterator.h>
+#include <__iterator/next.h>
+#include <__memory/swap_allocator.h>
 #include <__utility/forward.h>
-#include <algorithm>
-#include <initializer_list>
-#include <iterator>
 #include <limits>
 #include <memory>
 #include <type_traits>
 #include <version>
 
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <algorithm>
+#  include <functional>
+#  include <iterator>
+#endif
+
+// standard-mandated includes
+
+// [iterator.range]
+#include <__iterator/access.h>
+#include <__iterator/data.h>
+#include <__iterator/empty.h>
+#include <__iterator/reverse_access.h>
+#include <__iterator/size.h>
+
+// [forward.list.syn]
+#include <compare>
+#include <initializer_list>
+
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -679,17 +704,13 @@ public:
 
     template <class _InputIterator>
         forward_list(_InputIterator __f, _InputIterator __l,
-                     typename enable_if<
-                       __is_cpp17_input_iterator<_InputIterator>::value
-                     >::type* = nullptr);
+                     __enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value>* = nullptr);
     template <class _InputIterator>
         forward_list(_InputIterator __f, _InputIterator __l,
                      const allocator_type& __a,
-                     typename enable_if<
-                       __is_cpp17_input_iterator<_InputIterator>::value
-                     >::type* = nullptr);
+                     __enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value>* = nullptr);
     forward_list(const forward_list& __x);
-    forward_list(const forward_list& __x, const __identity_t<allocator_type>& __a);
+    forward_list(const forward_list& __x, const __type_identity_t<allocator_type>& __a);
 
     forward_list& operator=(const forward_list& __x);
 
@@ -698,7 +719,7 @@ public:
     forward_list(forward_list&& __x)
         _NOEXCEPT_(is_nothrow_move_constructible<base>::value)
         : base(_VSTD::move(__x)) {}
-    forward_list(forward_list&& __x, const __identity_t<allocator_type>& __a);
+    forward_list(forward_list&& __x, const __type_identity_t<allocator_type>& __a);
 
     forward_list(initializer_list<value_type> __il);
     forward_list(initializer_list<value_type> __il, const allocator_type& __a);
@@ -719,11 +740,7 @@ public:
     // ~forward_list() = default;
 
     template <class _InputIterator>
-        typename enable_if
-        <
-            __is_cpp17_input_iterator<_InputIterator>::value,
-            void
-        >::type
+    __enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value, void>
         assign(_InputIterator __f, _InputIterator __l);
     void assign(size_type __n, const value_type& __v);
 
@@ -799,12 +816,8 @@ public:
     iterator insert_after(const_iterator __p, const value_type& __v);
     iterator insert_after(const_iterator __p, size_type __n, const value_type& __v);
     template <class _InputIterator>
-        _LIBCPP_INLINE_VISIBILITY
-        typename enable_if
-        <
-            __is_cpp17_input_iterator<_InputIterator>::value,
-            iterator
-        >::type
+    _LIBCPP_INLINE_VISIBILITY
+    __enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value, iterator>
         insert_after(const_iterator __p, _InputIterator __f, _InputIterator __l);
 
     iterator erase_after(const_iterator __p);
@@ -953,9 +966,7 @@ forward_list<_Tp, _Alloc>::forward_list(size_type __n, const value_type& __v)
 template <class _Tp, class _Alloc>
 template <class _InputIterator>
 forward_list<_Tp, _Alloc>::forward_list(_InputIterator __f, _InputIterator __l,
-                                        typename enable_if<
-                                          __is_cpp17_input_iterator<_InputIterator>::value
-                                        >::type*)
+                                        __enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value>*)
 {
     insert_after(cbefore_begin(), __f, __l);
 }
@@ -964,9 +975,7 @@ template <class _Tp, class _Alloc>
 template <class _InputIterator>
 forward_list<_Tp, _Alloc>::forward_list(_InputIterator __f, _InputIterator __l,
                                         const allocator_type& __a,
-                                        typename enable_if<
-                                          __is_cpp17_input_iterator<_InputIterator>::value
-                                        >::type*)
+                                        __enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value>*)
     : base(__a)
 {
     insert_after(cbefore_begin(), __f, __l);
@@ -981,7 +990,7 @@ forward_list<_Tp, _Alloc>::forward_list(const forward_list& __x)
 
 template <class _Tp, class _Alloc>
 forward_list<_Tp, _Alloc>::forward_list(const forward_list& __x,
-                                        const __identity_t<allocator_type>& __a)
+                                        const __type_identity_t<allocator_type>& __a)
     : base(__a)
 {
     insert_after(cbefore_begin(), __x.begin(), __x.end());
@@ -1002,7 +1011,7 @@ forward_list<_Tp, _Alloc>::operator=(const forward_list& __x)
 #ifndef _LIBCPP_CXX03_LANG
 template <class _Tp, class _Alloc>
 forward_list<_Tp, _Alloc>::forward_list(forward_list&& __x,
-                                        const __identity_t<allocator_type>& __a)
+                                        const __type_identity_t<allocator_type>& __a)
     : base(_VSTD::move(__x), __a)
 {
     if (base::__alloc() != __x.__alloc())
@@ -1076,11 +1085,7 @@ forward_list<_Tp, _Alloc>::operator=(initializer_list<value_type> __il)
 
 template <class _Tp, class _Alloc>
 template <class _InputIterator>
-typename enable_if
-<
-    __is_cpp17_input_iterator<_InputIterator>::value,
-    void
->::type
+__enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value, void>
 forward_list<_Tp, _Alloc>::assign(_InputIterator __f, _InputIterator __l)
 {
     iterator __i = before_begin();
@@ -1272,11 +1277,7 @@ forward_list<_Tp, _Alloc>::insert_after(const_iterator __p, size_type __n,
 
 template <class _Tp, class _Alloc>
 template <class _InputIterator>
-typename enable_if
-<
-    __is_cpp17_input_iterator<_InputIterator>::value,
-    typename forward_list<_Tp, _Alloc>::iterator
->::type
+__enable_if_t<__is_cpp17_input_iterator<_InputIterator>::value, typename forward_list<_Tp, _Alloc>::iterator>
 forward_list<_Tp, _Alloc>::insert_after(const_iterator __p,
                                         _InputIterator __f, _InputIterator __l)
 {

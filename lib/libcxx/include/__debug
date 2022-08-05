@@ -7,79 +7,36 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef _LIBCPP_DEBUG_H
-#define _LIBCPP_DEBUG_H
+#ifndef _LIBCPP___DEBUG
+#define _LIBCPP___DEBUG
 
+#include <__assert>
 #include <__config>
-#include <iosfwd>
+#include <cstddef>
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
-#if defined(_LIBCPP_HAS_NO_NULLPTR)
-# include <cstddef>
+// Catch invalid uses of the legacy _LIBCPP_DEBUG toggle.
+#if defined(_LIBCPP_DEBUG) && _LIBCPP_DEBUG != 0 && !defined(_LIBCPP_ENABLE_DEBUG_MODE)
+#   error "Enabling the debug mode now requires having configured the library with support for the debug mode"
 #endif
 
-#if _LIBCPP_DEBUG_LEVEL >= 1 || defined(_LIBCPP_BUILDING_LIBRARY)
-#   include <cstddef>
-#   include <cstdio>
-#   include <cstdlib>
+#if defined(_LIBCPP_ENABLE_DEBUG_MODE) && !defined(_LIBCPP_CXX03_LANG) && !defined(_LIBCPP_DEBUG_RANDOMIZE_UNSPECIFIED_STABILITY)
+# define _LIBCPP_DEBUG_RANDOMIZE_UNSPECIFIED_STABILITY
 #endif
 
-#if _LIBCPP_DEBUG_LEVEL == 0
-#   define _LIBCPP_DEBUG_ASSERT(x, m) ((void)0)
-#   define _LIBCPP_ASSERT_IMPL(x, m) ((void)0)
-#elif _LIBCPP_DEBUG_LEVEL == 1
-#   define _LIBCPP_DEBUG_ASSERT(x, m) ((void)0)
-#   define _LIBCPP_ASSERT_IMPL(x, m) ((x) ? (void)0 : _VSTD::__libcpp_debug_function(_VSTD::__libcpp_debug_info(__FILE__, __LINE__, #x, m)))
-#elif _LIBCPP_DEBUG_LEVEL == 2
-#   define _LIBCPP_DEBUG_ASSERT(x, m) _LIBCPP_ASSERT(__libcpp_is_constant_evaluated() || (x), m)
-#   define _LIBCPP_ASSERT_IMPL(x, m) ((x) ? (void)0 : _VSTD::__libcpp_debug_function(_VSTD::__libcpp_debug_info(__FILE__, __LINE__, #x, m)))
+#ifdef _LIBCPP_ENABLE_DEBUG_MODE
+#   define _LIBCPP_DEBUG_ASSERT(x, m) _LIBCPP_ASSERT(::std::__libcpp_is_constant_evaluated() || (x), m)
 #else
-#   error _LIBCPP_DEBUG_LEVEL must be one of 0, 1, 2
+#   define _LIBCPP_DEBUG_ASSERT(x, m) ((void)0)
 #endif
 
-#if !defined(_LIBCPP_ASSERT)
-#   define _LIBCPP_ASSERT(x, m) _LIBCPP_ASSERT_IMPL(x, m)
-#endif
+#if defined(_LIBCPP_ENABLE_DEBUG_MODE) || defined(_LIBCPP_BUILDING_LIBRARY)
 
 _LIBCPP_BEGIN_NAMESPACE_STD
-
-struct _LIBCPP_TEMPLATE_VIS __libcpp_debug_info {
-  _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
-  __libcpp_debug_info()
-      : __file_(nullptr), __line_(-1), __pred_(nullptr), __msg_(nullptr) {}
-  _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
-  __libcpp_debug_info(const char* __f, int __l, const char* __p, const char* __m)
-    : __file_(__f), __line_(__l), __pred_(__p), __msg_(__m) {}
-
-  _LIBCPP_FUNC_VIS string what() const;
-
-  const char* __file_;
-  int __line_;
-  const char* __pred_;
-  const char* __msg_;
-};
-
-/// __libcpp_debug_function_type - The type of the assertion failure handler.
-typedef void(*__libcpp_debug_function_type)(__libcpp_debug_info const&);
-
-/// __libcpp_debug_function - The handler function called when a _LIBCPP_ASSERT
-///    fails.
-extern _LIBCPP_EXPORTED_FROM_ABI __libcpp_debug_function_type __libcpp_debug_function;
-
-/// __libcpp_abort_debug_function - A debug handler that aborts when called.
-_LIBCPP_NORETURN _LIBCPP_FUNC_VIS
-void __libcpp_abort_debug_function(__libcpp_debug_info const&);
-
-/// __libcpp_set_debug_function - Set the debug handler to the specified
-///    function.
-_LIBCPP_FUNC_VIS
-bool __libcpp_set_debug_function(__libcpp_debug_function_type __func);
-
-#if _LIBCPP_DEBUG_LEVEL == 2 || defined(_LIBCPP_BUILDING_LIBRARY)
 
 struct _LIBCPP_TYPE_VIS __c_node;
 
@@ -89,15 +46,9 @@ struct _LIBCPP_TYPE_VIS __i_node
     __i_node* __next_;
     __c_node* __c_;
 
-#ifndef _LIBCPP_CXX03_LANG
     __i_node(const __i_node&) = delete;
     __i_node& operator=(const __i_node&) = delete;
-#else
-private:
-    __i_node(const __i_node&);
-    __i_node& operator=(const __i_node&);
-public:
-#endif
+
     _LIBCPP_INLINE_VISIBILITY
     __i_node(void* __i, __i_node* __next, __c_node* __c)
         : __i_(__i), __next_(__next), __c_(__c) {}
@@ -112,17 +63,11 @@ struct _LIBCPP_TYPE_VIS __c_node
     __i_node** end_;
     __i_node** cap_;
 
-#ifndef _LIBCPP_CXX03_LANG
     __c_node(const __c_node&) = delete;
     __c_node& operator=(const __c_node&) = delete;
-#else
-private:
-    __c_node(const __c_node&);
-    __c_node& operator=(const __c_node&);
-public:
-#endif
+
     _LIBCPP_INLINE_VISIBILITY
-    __c_node(void* __c, __c_node* __next)
+    explicit __c_node(void* __c, __c_node* __next)
         : __c_(__c), __next_(__next), beg_(nullptr), end_(nullptr), cap_(nullptr) {}
     virtual ~__c_node();
 
@@ -139,7 +84,7 @@ template <class _Cont>
 struct _C_node
     : public __c_node
 {
-    _C_node(void* __c, __c_node* __n)
+    explicit _C_node(void* __c, __c_node* __n)
         : __c_node(__c, __n) {}
 
     virtual bool __dereferenceable(const void*) const;
@@ -197,17 +142,11 @@ class _LIBCPP_TYPE_VIS __libcpp_db
     __i_node** __iend_;
     size_t   __isz_;
 
-    __libcpp_db();
+    explicit __libcpp_db();
 public:
-#ifndef _LIBCPP_CXX03_LANG
     __libcpp_db(const __libcpp_db&) = delete;
     __libcpp_db& operator=(const __libcpp_db&) = delete;
-#else
-private:
-    __libcpp_db(const __libcpp_db&);
-    __libcpp_db& operator=(const __libcpp_db&);
-public:
-#endif
+
     ~__libcpp_db();
 
     class __db_c_iterator;
@@ -266,12 +205,15 @@ private:
 _LIBCPP_FUNC_VIS __libcpp_db* __get_db();
 _LIBCPP_FUNC_VIS const __libcpp_db* __get_const_db();
 
+_LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_DEBUG_LEVEL == 2 || defined(_LIBCPP_BUILDING_LIBRARY)
+#endif // defined(_LIBCPP_ENABLE_DEBUG_MODE) || defined(_LIBCPP_BUILDING_LIBRARY)
+
+_LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11 inline void __debug_db_insert_c(_Tp* __c) {
-#if _LIBCPP_DEBUG_LEVEL == 2
+#ifdef _LIBCPP_ENABLE_DEBUG_MODE
     if (!__libcpp_is_constant_evaluated())
         __get_db()->__insert_c(__c);
 #else
@@ -281,7 +223,7 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11 inline void __debug_db_inser
 
 template <class _Tp>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11 inline void __debug_db_insert_i(_Tp* __i) {
-#if _LIBCPP_DEBUG_LEVEL == 2
+#ifdef _LIBCPP_ENABLE_DEBUG_MODE
     if (!__libcpp_is_constant_evaluated())
         __get_db()->__insert_i(__i);
 #else
@@ -289,6 +231,37 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11 inline void __debug_db_inser
 #endif
 }
 
+template <class _Tp>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11 inline void __debug_db_erase_c(_Tp* __c) {
+#ifdef _LIBCPP_ENABLE_DEBUG_MODE
+    if (!__libcpp_is_constant_evaluated())
+        __get_db()->__erase_c(__c);
+#else
+    (void)(__c);
+#endif
+}
+
+template <class _Tp>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11 inline void __debug_db_swap(_Tp* __lhs, _Tp* __rhs) {
+#ifdef _LIBCPP_ENABLE_DEBUG_MODE
+    if (!__libcpp_is_constant_evaluated())
+        __get_db()->swap(__lhs, __rhs);
+#else
+    (void)(__lhs);
+    (void)(__rhs);
+#endif
+}
+
+template <class _Tp>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11 inline void __debug_db_invalidate_all(_Tp* __c) {
+#ifdef _LIBCPP_ENABLE_DEBUG_MODE
+    if (!__libcpp_is_constant_evaluated())
+        __get_db()->__invalidate_all(__c);
+#else
+    (void)(__c);
+#endif
+}
+
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_DEBUG_H
+#endif // _LIBCPP___DEBUG

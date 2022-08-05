@@ -15,7 +15,7 @@
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -71,13 +71,12 @@ template <class _Tp, class _Up>
 struct __has_rebind
 {
 private:
-    struct __two {char __lx; char __lxx;};
-    template <class _Xp> static __two __test(...);
+    template <class _Xp> static false_type __test(...);
     _LIBCPP_SUPPRESS_DEPRECATED_PUSH
-    template <class _Xp> static char __test(typename _Xp::template rebind<_Up>* = 0);
+    template <class _Xp> static true_type __test(typename _Xp::template rebind<_Up>* = 0);
     _LIBCPP_SUPPRESS_DEPRECATED_POP
 public:
-    static const bool value = sizeof(__test<_Tp>(0)) == 1;
+    static const bool value = decltype(__test<_Tp>(0))::value;
 };
 
 template <class _Tp, class _Up, bool = __has_rebind<_Tp, _Up>::value>
@@ -123,7 +122,7 @@ struct _LIBCPP_TEMPLATE_VIS pointer_traits
 private:
     struct __nat {};
 public:
-    _LIBCPP_INLINE_VISIBILITY
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
     static pointer pointer_to(typename conditional<is_void<element_type>::value,
                                            __nat, element_type>::type& __r)
         {return pointer::pointer_to(__r);}

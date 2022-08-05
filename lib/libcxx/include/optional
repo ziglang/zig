@@ -93,11 +93,11 @@ namespace std {
     template <class U, class... Args>
       constexpr explicit optional(in_place_t, initializer_list<U>, Args &&...);
     template <class U = T>
-      constexpr EXPLICIT optional(U &&);
+      constexpr explicit(see-below) optional(U &&);
     template <class U>
-      EXPLICIT optional(const optional<U> &);   // constexpr in C++20
+      explicit(see-below) optional(const optional<U> &);         // constexpr in C++20
     template <class U>
-      EXPLICIT optional(optional<U> &&);        // constexpr in C++20
+      explicit(see-below) optional(optional<U> &&);              // constexpr in C++20
 
     // 23.6.3.2, destructor
     ~optional(); // constexpr in C++20
@@ -158,22 +158,45 @@ template<class T>
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__availability>
 #include <__concepts/invocable.h>
 #include <__config>
-#include <__debug>
-#include <__functional_base>
-#include <compare>
-#include <functional>
+#include <__functional/hash.h>
+#include <__functional/invoke.h>
+#include <__functional/unary_function.h>
+#include <__memory/construct_at.h>
+#include <__tuple>
+#include <__utility/forward.h>
+#include <__utility/in_place.h>
+#include <__utility/move.h>
+#include <__utility/swap.h>
 #include <initializer_list>
 #include <new>
 #include <stdexcept>
 #include <type_traits>
-#include <utility>
 #include <version>
 
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <atomic>
+#  include <chrono>
+#  include <climits>
+#  include <concepts>
+#  include <ctime>
+#  include <iterator>
+#  include <memory>
+#  include <ratio>
+#  include <tuple>
+#  include <typeinfo>
+#  include <utility>
+#  include <variant>
+#endif
+
+// standard-mandated includes
+#include <compare>
+
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 namespace std  // purposefully not using versioning namespace
@@ -382,9 +405,9 @@ struct __optional_storage_base : __optional_destruct_base<_Tp>
     }
 };
 
-// optional<T&> is currently required ill-formed, however it may to be in the
-// future. For this reason it has already been implemented to ensure we can
-// make the change in an ABI compatible manner.
+// optional<T&> is currently required to be ill-formed. However, it may
+// be allowed in the future. For this reason, it has already been implemented
+// to ensure we can make the change in an ABI-compatible manner.
 template <class _Tp>
 struct __optional_storage_base<_Tp, true>
 {
@@ -1039,7 +1062,7 @@ public:
 
 #if _LIBCPP_STD_VER > 20
   template<class _Func>
-  _LIBCPP_HIDE_FROM_ABI
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_THROW_BAD_OPTIONAL_ACCESS
   constexpr auto and_then(_Func&& __f) & {
     using _Up = invoke_result_t<_Func, value_type&>;
     static_assert(__is_std_optional<remove_cvref_t<_Up>>::value,
@@ -1050,7 +1073,7 @@ public:
   }
 
   template<class _Func>
-  _LIBCPP_HIDE_FROM_ABI
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_THROW_BAD_OPTIONAL_ACCESS
   constexpr auto and_then(_Func&& __f) const& {
     using _Up = invoke_result_t<_Func, const value_type&>;
     static_assert(__is_std_optional<remove_cvref_t<_Up>>::value,
@@ -1061,7 +1084,7 @@ public:
   }
 
   template<class _Func>
-  _LIBCPP_HIDE_FROM_ABI
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_THROW_BAD_OPTIONAL_ACCESS
   constexpr auto and_then(_Func&& __f) && {
     using _Up = invoke_result_t<_Func, value_type&&>;
     static_assert(__is_std_optional<remove_cvref_t<_Up>>::value,
@@ -1083,7 +1106,7 @@ public:
   }
 
   template<class _Func>
-  _LIBCPP_HIDE_FROM_ABI
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_THROW_BAD_OPTIONAL_ACCESS
   constexpr auto transform(_Func&& __f) & {
     using _Up = remove_cv_t<invoke_result_t<_Func, value_type&>>;
     static_assert(!is_array_v<_Up>, "Result of f(value()) should not be an Array");
@@ -1098,7 +1121,7 @@ public:
   }
 
   template<class _Func>
-  _LIBCPP_HIDE_FROM_ABI
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_THROW_BAD_OPTIONAL_ACCESS
   constexpr auto transform(_Func&& __f) const& {
     using _Up = remove_cv_t<invoke_result_t<_Func, const value_type&>>;
     static_assert(!is_array_v<_Up>, "Result of f(value()) should not be an Array");
@@ -1113,7 +1136,7 @@ public:
   }
 
   template<class _Func>
-  _LIBCPP_HIDE_FROM_ABI
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_THROW_BAD_OPTIONAL_ACCESS
   constexpr auto transform(_Func&& __f) && {
     using _Up = remove_cv_t<invoke_result_t<_Func, value_type&&>>;
     static_assert(!is_array_v<_Up>, "Result of f(std::move(value())) should not be an Array");
@@ -1128,7 +1151,7 @@ public:
   }
 
   template<class _Func>
-  _LIBCPP_HIDE_FROM_ABI
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_THROW_BAD_OPTIONAL_ACCESS
   constexpr auto transform(_Func&& __f) const&& {
     using _Up = remove_cvref_t<invoke_result_t<_Func, const value_type&&>>;
     static_assert(!is_array_v<_Up>, "Result of f(std::move(value())) should not be an Array");

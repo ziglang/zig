@@ -459,20 +459,41 @@ template <class Value, class Hash, class Pred, class Alloc>
 
 */
 
+#include <__algorithm/is_permutation.h>
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__debug>
 #include <__functional/is_transparent.h>
+#include <__functional/operations.h>
 #include <__hash_table>
+#include <__iterator/distance.h>
+#include <__iterator/erase_if_container.h>
+#include <__iterator/iterator_traits.h>
 #include <__memory/addressof.h>
 #include <__node_handle>
 #include <__utility/forward.h>
-#include <compare>
-#include <functional>
-#include <iterator> // __libcpp_erase_if_container
 #include <version>
 
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <functional>
+#  include <iterator>
+#endif
+
+// standard-mandated includes
+
+// [iterator.range]
+#include <__iterator/access.h>
+#include <__iterator/data.h>
+#include <__iterator/empty.h>
+#include <__iterator/reverse_access.h>
+#include <__iterator/size.h>
+
+// [unord.set.syn]
+#include <compare>
+#include <initializer_list>
+
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -488,9 +509,9 @@ public:
     // types
     typedef _Value                                                     key_type;
     typedef key_type                                                   value_type;
-    typedef __identity_t<_Hash>                                        hasher;
-    typedef __identity_t<_Pred>                                        key_equal;
-    typedef __identity_t<_Alloc>                                       allocator_type;
+    typedef __type_identity_t<_Hash>                                   hasher;
+    typedef __type_identity_t<_Pred>                                   key_equal;
+    typedef __type_identity_t<_Alloc>                                  allocator_type;
     typedef value_type&                                                reference;
     typedef const value_type&                                          const_reference;
     static_assert((is_same<value_type, typename allocator_type::value_type>::value),
@@ -637,36 +658,27 @@ public:
         pair<iterator, bool> emplace(_Args&&... __args)
             {return __table_.__emplace_unique(_VSTD::forward<_Args>(__args)...);}
     template <class... _Args>
-        _LIBCPP_INLINE_VISIBILITY
-#if _LIBCPP_DEBUG_LEVEL == 2
-        iterator emplace_hint(const_iterator __p, _Args&&... __args)
-        {
-            _LIBCPP_ASSERT(__get_const_db()->__find_c_from_i(_VSTD::addressof(__p)) == this,
-                "unordered_set::emplace_hint(const_iterator, args...) called with an iterator not"
-                " referring to this unordered_set");
-            return __table_.__emplace_unique(_VSTD::forward<_Args>(__args)...).first;
-        }
-#else
-        iterator emplace_hint(const_iterator, _Args&&... __args)
-            {return __table_.__emplace_unique(_VSTD::forward<_Args>(__args)...).first;}
-#endif
+    _LIBCPP_INLINE_VISIBILITY
+    iterator emplace_hint(const_iterator __p, _Args&&... __args) {
+        _LIBCPP_DEBUG_ASSERT(__get_const_db()->__find_c_from_i(std::addressof(__p)) == this,
+            "unordered_set::emplace_hint(const_iterator, args...) called with an iterator not"
+            " referring to this unordered_set");
+        (void)__p;
+        return __table_.__emplace_unique(std::forward<_Args>(__args)...).first;
+    }
 
     _LIBCPP_INLINE_VISIBILITY
     pair<iterator, bool> insert(value_type&& __x)
         {return __table_.__insert_unique(_VSTD::move(__x));}
     _LIBCPP_INLINE_VISIBILITY
-#if _LIBCPP_DEBUG_LEVEL == 2
-    iterator insert(const_iterator __p, value_type&& __x)
-        {
-            _LIBCPP_ASSERT(__get_const_db()->__find_c_from_i(_VSTD::addressof(__p)) == this,
-                "unordered_set::insert(const_iterator, value_type&&) called with an iterator not"
-                " referring to this unordered_set");
-            return insert(_VSTD::move(__x)).first;
-        }
-#else
-    iterator insert(const_iterator, value_type&& __x)
-        {return insert(_VSTD::move(__x)).first;}
-#endif
+    iterator insert(const_iterator __p, value_type&& __x) {
+        _LIBCPP_DEBUG_ASSERT(__get_const_db()->__find_c_from_i(std::addressof(__p)) == this,
+            "unordered_set::insert(const_iterator, value_type&&) called with an iterator not"
+            " referring to this unordered_set");
+        (void)__p;
+        return insert(std::move(__x)).first;
+    }
+
     _LIBCPP_INLINE_VISIBILITY
     void insert(initializer_list<value_type> __il)
         {insert(__il.begin(), __il.end());}
@@ -676,18 +688,13 @@ public:
         {return __table_.__insert_unique(__x);}
 
     _LIBCPP_INLINE_VISIBILITY
-#if _LIBCPP_DEBUG_LEVEL == 2
-    iterator insert(const_iterator __p, const value_type& __x)
-        {
-            _LIBCPP_ASSERT(__get_const_db()->__find_c_from_i(_VSTD::addressof(__p)) == this,
-                "unordered_set::insert(const_iterator, const value_type&) called with an iterator not"
-                " referring to this unordered_set");
-            return insert(__x).first;
-        }
-#else
-    iterator insert(const_iterator, const value_type& __x)
-        {return insert(__x).first;}
-#endif
+    iterator insert(const_iterator __p, const value_type& __x) {
+        _LIBCPP_DEBUG_ASSERT(__get_const_db()->__find_c_from_i(std::addressof(__p)) == this,
+            "unordered_set::insert(const_iterator, const value_type&) called with an iterator not"
+            " referring to this unordered_set");
+        (void)__p;
+        return insert(__x).first;
+    }
     template <class _InputIterator>
         _LIBCPP_INLINE_VISIBILITY
         void insert(_InputIterator __first, _InputIterator __last);
@@ -851,11 +858,11 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     void max_load_factor(float __mlf) {__table_.max_load_factor(__mlf);}
     _LIBCPP_INLINE_VISIBILITY
-    void rehash(size_type __n) {__table_.rehash(__n);}
+    void rehash(size_type __n) {__table_.__rehash_unique(__n);}
     _LIBCPP_INLINE_VISIBILITY
-    void reserve(size_type __n) {__table_.reserve(__n);}
+    void reserve(size_type __n) {__table_.__reserve_unique(__n);}
 
-#if _LIBCPP_DEBUG_LEVEL == 2
+#ifdef _LIBCPP_ENABLE_DEBUG_MODE
 
     bool __dereferenceable(const const_iterator* __i) const
         {return __table_.__dereferenceable(__i);}
@@ -866,7 +873,7 @@ public:
     bool __subscriptable(const const_iterator* __i, ptrdiff_t __n) const
         {return __table_.__addable(__i, __n);}
 
-#endif // _LIBCPP_DEBUG_LEVEL == 2
+#endif // _LIBCPP_ENABLE_DEBUG_MODE
 
 };
 
@@ -935,7 +942,7 @@ unordered_set<_Value, _Hash, _Pred, _Alloc>::unordered_set(size_type __n,
     : __table_(__hf, __eql)
 {
     _VSTD::__debug_db_insert_c(this);
-    __table_.rehash(__n);
+    __table_.__rehash_unique(__n);
 }
 
 template <class _Value, class _Hash, class _Pred, class _Alloc>
@@ -944,7 +951,7 @@ unordered_set<_Value, _Hash, _Pred, _Alloc>::unordered_set(size_type __n,
     : __table_(__hf, __eql, __a)
 {
     _VSTD::__debug_db_insert_c(this);
-    __table_.rehash(__n);
+    __table_.__rehash_unique(__n);
 }
 
 template <class _Value, class _Hash, class _Pred, class _Alloc>
@@ -964,7 +971,7 @@ unordered_set<_Value, _Hash, _Pred, _Alloc>::unordered_set(
     : __table_(__hf, __eql)
 {
     _VSTD::__debug_db_insert_c(this);
-    __table_.rehash(__n);
+    __table_.__rehash_unique(__n);
     insert(__first, __last);
 }
 
@@ -976,7 +983,7 @@ unordered_set<_Value, _Hash, _Pred, _Alloc>::unordered_set(
     : __table_(__hf, __eql, __a)
 {
     _VSTD::__debug_db_insert_c(this);
-    __table_.rehash(__n);
+    __table_.__rehash_unique(__n);
     insert(__first, __last);
 }
 
@@ -995,7 +1002,7 @@ unordered_set<_Value, _Hash, _Pred, _Alloc>::unordered_set(
     : __table_(__u.__table_)
 {
     _VSTD::__debug_db_insert_c(this);
-    __table_.rehash(__u.bucket_count());
+    __table_.__rehash_unique(__u.bucket_count());
     insert(__u.begin(), __u.end());
 }
 
@@ -1005,7 +1012,7 @@ unordered_set<_Value, _Hash, _Pred, _Alloc>::unordered_set(
     : __table_(__u.__table_, __a)
 {
     _VSTD::__debug_db_insert_c(this);
-    __table_.rehash(__u.bucket_count());
+    __table_.__rehash_unique(__u.bucket_count());
     insert(__u.begin(), __u.end());
 }
 
@@ -1019,9 +1026,7 @@ unordered_set<_Value, _Hash, _Pred, _Alloc>::unordered_set(
     : __table_(_VSTD::move(__u.__table_))
 {
     _VSTD::__debug_db_insert_c(this);
-#if _LIBCPP_DEBUG_LEVEL == 2
-    __get_db()->swap(this, _VSTD::addressof(__u));
-#endif
+    std::__debug_db_swap(this, std::addressof(__u));
 }
 
 template <class _Value, class _Hash, class _Pred, class _Alloc>
@@ -1036,10 +1041,8 @@ unordered_set<_Value, _Hash, _Pred, _Alloc>::unordered_set(
         while (__u.size() != 0)
             __table_.__insert_unique(_VSTD::move(__u.__table_.remove(__i++)->__value_));
     }
-#if _LIBCPP_DEBUG_LEVEL == 2
     else
-        __get_db()->swap(this, _VSTD::addressof(__u));
-#endif
+        std::__debug_db_swap(this, std::addressof(__u));
 }
 
 template <class _Value, class _Hash, class _Pred, class _Alloc>
@@ -1057,7 +1060,7 @@ unordered_set<_Value, _Hash, _Pred, _Alloc>::unordered_set(
     : __table_(__hf, __eql)
 {
     _VSTD::__debug_db_insert_c(this);
-    __table_.rehash(__n);
+    __table_.__rehash_unique(__n);
     insert(__il.begin(), __il.end());
 }
 
@@ -1068,7 +1071,7 @@ unordered_set<_Value, _Hash, _Pred, _Alloc>::unordered_set(
     : __table_(__hf, __eql, __a)
 {
     _VSTD::__debug_db_insert_c(this);
-    __table_.rehash(__n);
+    __table_.__rehash_unique(__n);
     insert(__il.begin(), __il.end());
 }
 
@@ -1162,9 +1165,9 @@ public:
     // types
     typedef _Value                                                     key_type;
     typedef key_type                                                   value_type;
-    typedef __identity_t<_Hash>                                        hasher;
-    typedef __identity_t<_Pred>                                        key_equal;
-    typedef __identity_t<_Alloc>                                       allocator_type;
+    typedef __type_identity_t<_Hash>                                   hasher;
+    typedef __type_identity_t<_Pred>                                   key_equal;
+    typedef __type_identity_t<_Alloc>                                  allocator_type;
     typedef value_type&                                                reference;
     typedef const value_type&                                          const_reference;
     static_assert((is_same<value_type, typename allocator_type::value_type>::value),
@@ -1493,11 +1496,11 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     void max_load_factor(float __mlf) {__table_.max_load_factor(__mlf);}
     _LIBCPP_INLINE_VISIBILITY
-    void rehash(size_type __n) {__table_.rehash(__n);}
+    void rehash(size_type __n) {__table_.__rehash_multi(__n);}
     _LIBCPP_INLINE_VISIBILITY
-    void reserve(size_type __n) {__table_.reserve(__n);}
+    void reserve(size_type __n) {__table_.__reserve_multi(__n);}
 
-#if _LIBCPP_DEBUG_LEVEL == 2
+#ifdef _LIBCPP_ENABLE_DEBUG_MODE
 
     bool __dereferenceable(const const_iterator* __i) const
         {return __table_.__dereferenceable(__i);}
@@ -1508,7 +1511,7 @@ public:
     bool __subscriptable(const const_iterator* __i, ptrdiff_t __n) const
         {return __table_.__addable(__i, __n);}
 
-#endif // _LIBCPP_DEBUG_LEVEL == 2
+#endif // _LIBCPP_ENABLE_DEBUG_MODE
 
 };
 
@@ -1575,7 +1578,7 @@ unordered_multiset<_Value, _Hash, _Pred, _Alloc>::unordered_multiset(
     : __table_(__hf, __eql)
 {
     _VSTD::__debug_db_insert_c(this);
-    __table_.rehash(__n);
+    __table_.__rehash_multi(__n);
 }
 
 template <class _Value, class _Hash, class _Pred, class _Alloc>
@@ -1585,7 +1588,7 @@ unordered_multiset<_Value, _Hash, _Pred, _Alloc>::unordered_multiset(
     : __table_(__hf, __eql, __a)
 {
     _VSTD::__debug_db_insert_c(this);
-    __table_.rehash(__n);
+    __table_.__rehash_multi(__n);
 }
 
 template <class _Value, class _Hash, class _Pred, class _Alloc>
@@ -1605,7 +1608,7 @@ unordered_multiset<_Value, _Hash, _Pred, _Alloc>::unordered_multiset(
     : __table_(__hf, __eql)
 {
     _VSTD::__debug_db_insert_c(this);
-    __table_.rehash(__n);
+    __table_.__rehash_multi(__n);
     insert(__first, __last);
 }
 
@@ -1617,7 +1620,7 @@ unordered_multiset<_Value, _Hash, _Pred, _Alloc>::unordered_multiset(
     : __table_(__hf, __eql, __a)
 {
     _VSTD::__debug_db_insert_c(this);
-    __table_.rehash(__n);
+    __table_.__rehash_multi(__n);
     insert(__first, __last);
 }
 
@@ -1636,7 +1639,7 @@ unordered_multiset<_Value, _Hash, _Pred, _Alloc>::unordered_multiset(
     : __table_(__u.__table_)
 {
     _VSTD::__debug_db_insert_c(this);
-    __table_.rehash(__u.bucket_count());
+    __table_.__rehash_multi(__u.bucket_count());
     insert(__u.begin(), __u.end());
 }
 
@@ -1646,7 +1649,7 @@ unordered_multiset<_Value, _Hash, _Pred, _Alloc>::unordered_multiset(
     : __table_(__u.__table_, __a)
 {
     _VSTD::__debug_db_insert_c(this);
-    __table_.rehash(__u.bucket_count());
+    __table_.__rehash_multi(__u.bucket_count());
     insert(__u.begin(), __u.end());
 }
 
@@ -1660,9 +1663,7 @@ unordered_multiset<_Value, _Hash, _Pred, _Alloc>::unordered_multiset(
     : __table_(_VSTD::move(__u.__table_))
 {
     _VSTD::__debug_db_insert_c(this);
-#if _LIBCPP_DEBUG_LEVEL == 2
-    __get_db()->swap(this, _VSTD::addressof(__u));
-#endif
+    std::__debug_db_swap(this, std::addressof(__u));
 }
 
 template <class _Value, class _Hash, class _Pred, class _Alloc>
@@ -1677,10 +1678,8 @@ unordered_multiset<_Value, _Hash, _Pred, _Alloc>::unordered_multiset(
         while (__u.size() != 0)
             __table_.__insert_multi(_VSTD::move(__u.__table_.remove(__i++)->__value_));
     }
-#if _LIBCPP_DEBUG_LEVEL == 2
     else
-        __get_db()->swap(this, _VSTD::addressof(__u));
-#endif
+        std::__debug_db_swap(this, std::addressof(__u));
 }
 
 template <class _Value, class _Hash, class _Pred, class _Alloc>
@@ -1698,7 +1697,7 @@ unordered_multiset<_Value, _Hash, _Pred, _Alloc>::unordered_multiset(
     : __table_(__hf, __eql)
 {
     _VSTD::__debug_db_insert_c(this);
-    __table_.rehash(__n);
+    __table_.__rehash_multi(__n);
     insert(__il.begin(), __il.end());
 }
 
@@ -1709,7 +1708,7 @@ unordered_multiset<_Value, _Hash, _Pred, _Alloc>::unordered_multiset(
     : __table_(__hf, __eql, __a)
 {
     _VSTD::__debug_db_insert_c(this);
-    __table_.rehash(__n);
+    __table_.__rehash_multi(__n);
     insert(__il.begin(), __il.end());
 }
 

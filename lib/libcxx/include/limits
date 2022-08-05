@@ -101,6 +101,8 @@ template<> class numeric_limits<cv long double>;
 }  // std
 
 */
+
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <type_traits>
 
@@ -108,12 +110,8 @@ template<> class numeric_limits<cv long double>;
 #include "__support/win32/limits_msvc_win32.h"
 #endif // _LIBCPP_MSVCRT
 
-#if defined(__IBMCPP__)
-#include "__support/ibm/limits.h"
-#endif // __IBMCPP__
-
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -339,7 +337,11 @@ protected:
     static _LIBCPP_CONSTEXPR const bool is_modulo = false;
 
     static _LIBCPP_CONSTEXPR const bool traps = false;
+#if (defined(__arm__) || defined(__aarch64__))
+    static _LIBCPP_CONSTEXPR const bool tinyness_before = true;
+#else
     static _LIBCPP_CONSTEXPR const bool tinyness_before = false;
+#endif
     static _LIBCPP_CONSTEXPR const float_round_style round_style = round_to_nearest;
 };
 
@@ -385,7 +387,11 @@ protected:
     static _LIBCPP_CONSTEXPR const bool is_modulo = false;
 
     static _LIBCPP_CONSTEXPR const bool traps = false;
+#if (defined(__arm__) || defined(__aarch64__))
+    static _LIBCPP_CONSTEXPR const bool tinyness_before = true;
+#else
     static _LIBCPP_CONSTEXPR const bool tinyness_before = false;
+#endif
     static _LIBCPP_CONSTEXPR const float_round_style round_style = round_to_nearest;
 };
 
@@ -435,7 +441,11 @@ protected:
     static _LIBCPP_CONSTEXPR const bool is_modulo = false;
 
     static _LIBCPP_CONSTEXPR const bool traps = false;
+#if (defined(__arm__) || defined(__aarch64__))
+    static _LIBCPP_CONSTEXPR const bool tinyness_before = true;
+#else
     static _LIBCPP_CONSTEXPR const bool tinyness_before = false;
+#endif
     static _LIBCPP_CONSTEXPR const float_round_style round_style = round_to_nearest;
 };
 

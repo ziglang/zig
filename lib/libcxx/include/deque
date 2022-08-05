@@ -160,22 +160,52 @@ template <class T, class Allocator, class Predicate>
 
 */
 
+#include <__algorithm/copy.h>
+#include <__algorithm/copy_backward.h>
+#include <__algorithm/equal.h>
+#include <__algorithm/fill_n.h>
+#include <__algorithm/lexicographical_compare.h>
+#include <__algorithm/min.h>
+#include <__algorithm/remove.h>
+#include <__algorithm/remove_if.h>
+#include <__algorithm/unwrap_iter.h>
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
-#include <__debug>
+#include <__format/enable_insertable.h>
 #include <__iterator/iterator_traits.h>
+#include <__iterator/next.h>
+#include <__iterator/prev.h>
+#include <__iterator/reverse_iterator.h>
 #include <__split_buffer>
 #include <__utility/forward.h>
-#include <algorithm>
-#include <compare>
-#include <initializer_list>
-#include <iterator>
+#include <__utility/move.h>
+#include <__utility/swap.h>
 #include <limits>
 #include <stdexcept>
 #include <type_traits>
 #include <version>
 
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <algorithm>
+#  include <functional>
+#  include <iterator>
+#endif
+
+// standard-mandated includes
+
+// [iterator.range]
+#include <__iterator/access.h>
+#include <__iterator/data.h>
+#include <__iterator/empty.h>
+#include <__iterator/reverse_access.h>
+#include <__iterator/size.h>
+
+// [deque.syn]
+#include <compare>
+#include <initializer_list>
+
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -442,7 +472,7 @@ public:
         {return !(__x < __y);}
 
 private:
-    _LIBCPP_INLINE_VISIBILITY __deque_iterator(__map_iterator __m, pointer __p) _NOEXCEPT
+    _LIBCPP_INLINE_VISIBILITY explicit __deque_iterator(__map_iterator __m, pointer __p) _NOEXCEPT
         : __m_iter_(__m), __ptr_(__p) {}
 
     template <class _Tp, class _Ap> friend class __deque_base;
@@ -1304,7 +1334,7 @@ public:
         deque(_InputIter __f, _InputIter __l, const allocator_type& __a,
               typename enable_if<__is_cpp17_input_iterator<_InputIter>::value>::type* = 0);
     deque(const deque& __c);
-    deque(const deque& __c, const __identity_t<allocator_type>& __a);
+    deque(const deque& __c, const __type_identity_t<allocator_type>& __a);
 
     deque& operator=(const deque& __c);
 
@@ -1318,7 +1348,7 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     deque(deque&& __c) _NOEXCEPT_(is_nothrow_move_constructible<__base>::value);
     _LIBCPP_INLINE_VISIBILITY
-    deque(deque&& __c, const __identity_t<allocator_type>& __a);
+    deque(deque&& __c, const __type_identity_t<allocator_type>& __a);
     _LIBCPP_INLINE_VISIBILITY
     deque& operator=(deque&& __c)
         _NOEXCEPT_(__alloc_traits::propagate_on_container_move_assignment::value &&
@@ -1434,12 +1464,10 @@ public:
     iterator insert(const_iterator __p, size_type __n, const value_type& __v);
     template <class _InputIter>
         iterator insert(const_iterator __p, _InputIter __f, _InputIter __l,
-                         typename enable_if<__is_cpp17_input_iterator<_InputIter>::value
-                                         &&!__is_cpp17_forward_iterator<_InputIter>::value>::type* = 0);
+                         typename enable_if<__is_exactly_cpp17_input_iterator<_InputIter>::value>::type* = 0);
     template <class _ForwardIterator>
         iterator insert(const_iterator __p, _ForwardIterator __f, _ForwardIterator __l,
-                               typename enable_if<__is_cpp17_forward_iterator<_ForwardIterator>::value
-                                         &&!__is_cpp17_bidirectional_iterator<_ForwardIterator>::value>::type* = 0);
+                        typename enable_if<__is_exactly_cpp17_forward_iterator<_ForwardIterator>::value>::type* = 0);
     template <class _BiIter>
         iterator insert(const_iterator __p, _BiIter __f, _BiIter __l,
                          typename enable_if<__is_cpp17_bidirectional_iterator<_BiIter>::value>::type* = 0);
@@ -1526,8 +1554,7 @@ public:
 
     template <class _InpIter>
         void __append(_InpIter __f, _InpIter __l,
-                 typename enable_if<__is_cpp17_input_iterator<_InpIter>::value &&
-                                   !__is_cpp17_forward_iterator<_InpIter>::value>::type* = 0);
+                 typename enable_if<__is_exactly_cpp17_input_iterator<_InpIter>::value>::type* = 0);
     template <class _ForIter>
         void __append(_ForIter __f, _ForIter __l,
                       typename enable_if<__is_cpp17_forward_iterator<_ForIter>::value>::type* = 0);
@@ -1640,7 +1667,7 @@ deque<_Tp, _Allocator>::deque(const deque& __c)
 }
 
 template <class _Tp, class _Allocator>
-deque<_Tp, _Allocator>::deque(const deque& __c, const __identity_t<allocator_type>& __a)
+deque<_Tp, _Allocator>::deque(const deque& __c, const __type_identity_t<allocator_type>& __a)
     : __base(__a)
 {
     __append(__c.begin(), __c.end());
@@ -1683,7 +1710,7 @@ deque<_Tp, _Allocator>::deque(deque&& __c)
 
 template <class _Tp, class _Allocator>
 inline
-deque<_Tp, _Allocator>::deque(deque&& __c, const __identity_t<allocator_type>& __a)
+deque<_Tp, _Allocator>::deque(deque&& __c, const __type_identity_t<allocator_type>& __a)
     : __base(_VSTD::move(__c), __a)
 {
     if (__a != __c.__alloc())
@@ -2236,8 +2263,7 @@ template <class _Tp, class _Allocator>
 template <class _InputIter>
 typename deque<_Tp, _Allocator>::iterator
 deque<_Tp, _Allocator>::insert(const_iterator __p, _InputIter __f, _InputIter __l,
-                               typename enable_if<__is_cpp17_input_iterator<_InputIter>::value
-                                               &&!__is_cpp17_forward_iterator<_InputIter>::value>::type*)
+                               typename enable_if<__is_exactly_cpp17_input_iterator<_InputIter>::value>::type*)
 {
     __split_buffer<value_type, allocator_type&> __buf(__base::__alloc());
     __buf.__construct_at_end(__f, __l);
@@ -2249,8 +2275,7 @@ template <class _Tp, class _Allocator>
 template <class _ForwardIterator>
 typename deque<_Tp, _Allocator>::iterator
 deque<_Tp, _Allocator>::insert(const_iterator __p, _ForwardIterator __f, _ForwardIterator __l,
-                               typename enable_if<__is_cpp17_forward_iterator<_ForwardIterator>::value
-                                               &&!__is_cpp17_bidirectional_iterator<_ForwardIterator>::value>::type*)
+                               typename enable_if<__is_exactly_cpp17_forward_iterator<_ForwardIterator>::value>::type*)
 {
     size_type __n = _VSTD::distance(__f, __l);
     __split_buffer<value_type, allocator_type&> __buf(__n, 0, __base::__alloc());
@@ -2332,8 +2357,7 @@ template <class _Tp, class _Allocator>
 template <class _InpIter>
 void
 deque<_Tp, _Allocator>::__append(_InpIter __f, _InpIter __l,
-                                 typename enable_if<__is_cpp17_input_iterator<_InpIter>::value &&
-                                                   !__is_cpp17_forward_iterator<_InpIter>::value>::type*)
+                                 typename enable_if<__is_exactly_cpp17_input_iterator<_InpIter>::value>::type*)
 {
     for (; __f != __l; ++__f)
 #ifdef _LIBCPP_CXX03_LANG
@@ -3019,8 +3043,15 @@ erase_if(deque<_Tp, _Allocator>& __c, _Predicate __pred) {
   __c.erase(_VSTD::remove_if(__c.begin(), __c.end(), __pred), __c.end());
   return __old_size - __c.size();
 }
+
+template <>
+inline constexpr bool __format::__enable_insertable<std::deque<char>> = true;
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+template <>
+inline constexpr bool __format::__enable_insertable<std::deque<wchar_t>> = true;
 #endif
 
+#endif // _LIBCPP_STD_VER > 17
 
 _LIBCPP_END_NAMESPACE_STD
 

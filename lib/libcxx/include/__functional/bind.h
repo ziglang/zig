@@ -18,16 +18,16 @@
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template<class _Tp>
 struct is_bind_expression : _If<
-    _IsSame<_Tp, typename __uncvref<_Tp>::type>::value,
+    _IsSame<_Tp, __uncvref_t<_Tp> >::value,
     false_type,
-    is_bind_expression<typename __uncvref<_Tp>::type>
+    is_bind_expression<__uncvref_t<_Tp> >
 > {};
 
 #if _LIBCPP_STD_VER > 14
@@ -37,9 +37,9 @@ inline constexpr size_t is_bind_expression_v = is_bind_expression<_Tp>::value;
 
 template<class _Tp>
 struct is_placeholder : _If<
-    _IsSame<_Tp, typename __uncvref<_Tp>::type>::value,
+    _IsSame<_Tp, __uncvref_t<_Tp> >::value,
     integral_constant<int, 0>,
-    is_placeholder<typename __uncvref<_Tp>::type>
+    is_placeholder<__uncvref_t<_Tp> >
 > {};
 
 #if _LIBCPP_STD_VER > 14
@@ -264,10 +264,7 @@ __apply_functor(_Fp& __f, _BoundArgs& __bound_args, __tuple_indices<_Indx...>,
 }
 
 template<class _Fp, class ..._BoundArgs>
-class __bind
-#if _LIBCPP_STD_VER <= 17 || !defined(_LIBCPP_ABI_NO_BINDER_BASES)
-    : public __weak_result_type<typename decay<_Fp>::type>
-#endif
+class __bind : public __weak_result_type<typename decay<_Fp>::type>
 {
 protected:
     typedef typename decay<_Fp>::type _Fd;

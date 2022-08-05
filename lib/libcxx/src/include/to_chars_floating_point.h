@@ -17,16 +17,19 @@
 // Avoid formatting to keep the changes with the original code minimal.
 // clang-format off
 
-#include "__algorithm/find.h"
-#include "__algorithm/find_if.h"
-#include "__algorithm/lower_bound.h"
-#include "__algorithm/min.h"
-#include "__config"
-#include "__iterator/access.h"
-#include "__iterator/size.h"
-#include "bit"
-#include "cfloat"
-#include "climits"
+#include <__algorithm/find.h>
+#include <__algorithm/find_if.h>
+#include <__algorithm/lower_bound.h>
+#include <__algorithm/min.h>
+#include <__assert>
+#include <__config>
+#include <__functional/operations.h>
+#include <__iterator/access.h>
+#include <__iterator/size.h>
+#include <bit>
+#include <cfloat>
+#include <climits>
+
 #include "include/ryu/ryu.h"
 
 _LIBCPP_BEGIN_NAMESPACE_STD

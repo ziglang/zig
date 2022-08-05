@@ -15,36 +15,38 @@
 #include <__utility/move.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 namespace ranges {
 
-template <class _I1, class _I2>
+template <class _InIter1, class _InIter2>
 struct in_in_result {
-  [[no_unique_address]] _I1 in1;
-  [[no_unique_address]] _I2 in2;
+  _LIBCPP_NO_UNIQUE_ADDRESS _InIter1 in1;
+  _LIBCPP_NO_UNIQUE_ADDRESS _InIter2 in2;
 
-  template <class _II1, class _II2>
-    requires convertible_to<const _I1&, _II1> && convertible_to<const _I2&, _II2>
+  template <class _InIter3, class _InIter4>
+    requires convertible_to<const _InIter1&, _InIter3> && convertible_to<const _InIter2&, _InIter4>
    _LIBCPP_HIDE_FROM_ABI constexpr
-   operator in_in_result<_II1, _II2>() const & {
+   operator in_in_result<_InIter3, _InIter4>() const & {
     return {in1, in2};
   }
 
-  template <class _II1, class _II2>
-    requires convertible_to<_I1, _II1> && convertible_to<_I2, _II2>
+  template <class _InIter3, class _InIter4>
+    requires convertible_to<_InIter1, _InIter3> && convertible_to<_InIter2, _InIter4>
   _LIBCPP_HIDE_FROM_ABI constexpr
-  operator in_in_result<_II1, _II2>() && { return {_VSTD::move(in1), _VSTD::move(in2)}; }
+  operator in_in_result<_InIter3, _InIter4>() && {
+    return {std::move(in1), std::move(in2)};
+  }
 };
 
 } // namespace ranges
 
-#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 _LIBCPP_END_NAMESPACE_STD
 

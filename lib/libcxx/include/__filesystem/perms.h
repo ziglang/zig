@@ -13,6 +13,10 @@
 #include <__availability>
 #include <__config>
 
+#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#  pragma GCC system_header
+#endif
+
 #ifndef _LIBCPP_CXX03_LANG
 
 _LIBCPP_BEGIN_NAMESPACE_FILESYSTEM
@@ -51,36 +55,36 @@ enum class _LIBCPP_ENUM_VIS perms : unsigned {
 };
 
 _LIBCPP_INLINE_VISIBILITY
-inline constexpr perms operator&(perms _LHS, perms _RHS) {
-  return static_cast<perms>(static_cast<unsigned>(_LHS) &
-                            static_cast<unsigned>(_RHS));
+inline constexpr perms operator&(perms __lhs, perms __rhs) {
+  return static_cast<perms>(static_cast<unsigned>(__lhs) &
+                            static_cast<unsigned>(__rhs));
 }
 
 _LIBCPP_INLINE_VISIBILITY
-inline constexpr perms operator|(perms _LHS, perms _RHS) {
-  return static_cast<perms>(static_cast<unsigned>(_LHS) |
-                            static_cast<unsigned>(_RHS));
+inline constexpr perms operator|(perms __lhs, perms __rhs) {
+  return static_cast<perms>(static_cast<unsigned>(__lhs) |
+                            static_cast<unsigned>(__rhs));
 }
 
 _LIBCPP_INLINE_VISIBILITY
-inline constexpr perms operator^(perms _LHS, perms _RHS) {
-  return static_cast<perms>(static_cast<unsigned>(_LHS) ^
-                            static_cast<unsigned>(_RHS));
+inline constexpr perms operator^(perms __lhs, perms __rhs) {
+  return static_cast<perms>(static_cast<unsigned>(__lhs) ^
+                            static_cast<unsigned>(__rhs));
 }
 
 _LIBCPP_INLINE_VISIBILITY
-inline constexpr perms operator~(perms _LHS) {
-  return static_cast<perms>(~static_cast<unsigned>(_LHS));
+inline constexpr perms operator~(perms __lhs) {
+  return static_cast<perms>(~static_cast<unsigned>(__lhs));
 }
 
 _LIBCPP_INLINE_VISIBILITY
-inline perms& operator&=(perms& _LHS, perms _RHS) { return _LHS = _LHS & _RHS; }
+inline perms& operator&=(perms& __lhs, perms __rhs) { return __lhs = __lhs & __rhs; }
 
 _LIBCPP_INLINE_VISIBILITY
-inline perms& operator|=(perms& _LHS, perms _RHS) { return _LHS = _LHS | _RHS; }
+inline perms& operator|=(perms& __lhs, perms __rhs) { return __lhs = __lhs | __rhs; }
 
 _LIBCPP_INLINE_VISIBILITY
-inline perms& operator^=(perms& _LHS, perms _RHS) { return _LHS = _LHS ^ _RHS; }
+inline perms& operator^=(perms& __lhs, perms __rhs) { return __lhs = __lhs ^ __rhs; }
 
 _LIBCPP_AVAILABILITY_FILESYSTEM_POP
 

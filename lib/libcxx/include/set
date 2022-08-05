@@ -471,21 +471,40 @@ erase_if(multiset<Key, Compare, Allocator>& c, Predicate pred);  // C++20
 
 */
 
+#include <__algorithm/equal.h>
+#include <__algorithm/lexicographical_compare.h>
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
-#include <__debug>
 #include <__functional/is_transparent.h>
+#include <__functional/operations.h>
+#include <__iterator/erase_if_container.h>
 #include <__iterator/iterator_traits.h>
+#include <__iterator/reverse_iterator.h>
 #include <__node_handle>
 #include <__tree>
 #include <__utility/forward.h>
-#include <compare>
-#include <functional>
-#include <initializer_list>
-#include <iterator> // __libcpp_erase_if_container
 #include <version>
 
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <functional>
+#  include <iterator>
+#endif
+
+// standard-mandated includes
+
+// [iterator.range]
+#include <__iterator/access.h>
+#include <__iterator/data.h>
+#include <__iterator/empty.h>
+#include <__iterator/reverse_access.h>
+#include <__iterator/size.h>
+
+// [associative.set.syn]
+#include <compare>
+#include <initializer_list>
+
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -501,9 +520,9 @@ public:
     // types:
     typedef _Key                                     key_type;
     typedef key_type                                 value_type;
-    typedef __identity_t<_Compare>                   key_compare;
+    typedef __type_identity_t<_Compare>              key_compare;
     typedef key_compare                              value_compare;
-    typedef __identity_t<_Allocator>                 allocator_type;
+    typedef __type_identity_t<_Allocator>            allocator_type;
     typedef value_type&                              reference;
     typedef const value_type&                        const_reference;
 
@@ -1034,9 +1053,9 @@ public:
     // types:
     typedef _Key                                     key_type;
     typedef key_type                                 value_type;
-    typedef __identity_t<_Compare>                   key_compare;
+    typedef __type_identity_t<_Compare>              key_compare;
     typedef key_compare                              value_compare;
-    typedef __identity_t<_Allocator>                 allocator_type;
+    typedef __type_identity_t<_Allocator>            allocator_type;
     typedef value_type&                              reference;
     typedef const value_type&                        const_reference;
 

@@ -11,6 +11,7 @@
 
 #include <__bits>
 #include <__config>
+#include <__random/is_valid.h>
 #include <__random/log2.h>
 #include <bit>
 #include <cstddef>
@@ -20,7 +21,7 @@
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -155,9 +156,10 @@ __independent_bits_engine<_Engine, _UIntType>::__eval(true_type)
     return _Sp;
 }
 
-template<class _IntType = int> // __int128_t is also supported as an extension here
+template<class _IntType = int>
 class uniform_int_distribution
 {
+    static_assert(__libcpp_random_is_valid_inttype<_IntType>::value, "IntType must be a supported integer type");
 public:
     // types
     typedef _IntType result_type;
@@ -230,6 +232,7 @@ typename uniform_int_distribution<_IntType>::result_type
 uniform_int_distribution<_IntType>::operator()(_URNG& __g, const param_type& __p)
 _LIBCPP_DISABLE_UBSAN_UNSIGNED_INTEGER_CHECK
 {
+    static_assert(__libcpp_random_is_valid_urng<_URNG>::value, "");
     typedef typename conditional<sizeof(result_type) <= sizeof(uint32_t), uint32_t,
                                  typename make_unsigned<result_type>::type>::type _UIntType;
     const _UIntType _Rp = _UIntType(__p.b()) - _UIntType(__p.a()) + _UIntType(1);

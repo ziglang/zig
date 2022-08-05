@@ -19,12 +19,12 @@
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if !defined(_LIBCPP_HAS_NO_CONCEPTS) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 // __copyable_box allows turning a type that is copy-constructible (but maybe not copy-assignable) into
 // a type that is both copy-constructible and copy-assignable. It does that by introducing an empty state
@@ -41,7 +41,7 @@ namespace ranges {
   // Primary template - uses std::optional and introduces an empty state in case assignment fails.
   template<__copy_constructible_object _Tp>
   class __copyable_box {
-    [[no_unique_address]] optional<_Tp> __val_;
+    _LIBCPP_NO_UNIQUE_ADDRESS optional<_Tp> __val_;
 
   public:
     template<class ..._Args>
@@ -49,7 +49,7 @@ namespace ranges {
     _LIBCPP_HIDE_FROM_ABI
     constexpr explicit __copyable_box(in_place_t, _Args&& ...__args)
       noexcept(is_nothrow_constructible_v<_Tp, _Args...>)
-      : __val_(in_place, _VSTD::forward<_Args>(__args)...)
+      : __val_(in_place, std::forward<_Args>(__args)...)
     { }
 
     _LIBCPP_HIDE_FROM_ABI
@@ -65,7 +65,7 @@ namespace ranges {
     constexpr __copyable_box& operator=(__copyable_box const& __other)
       noexcept(is_nothrow_copy_constructible_v<_Tp>)
     {
-      if (this != _VSTD::addressof(__other)) {
+      if (this != std::addressof(__other)) {
         if (__other.__has_value()) __val_.emplace(*__other);
         else                       __val_.reset();
       }
@@ -79,8 +79,8 @@ namespace ranges {
     constexpr __copyable_box& operator=(__copyable_box&& __other)
       noexcept(is_nothrow_move_constructible_v<_Tp>)
     {
-      if (this != _VSTD::addressof(__other)) {
-        if (__other.__has_value()) __val_.emplace(_VSTD::move(*__other));
+      if (this != std::addressof(__other)) {
+        if (__other.__has_value()) __val_.emplace(std::move(*__other));
         else                       __val_.reset();
       }
       return *this;
@@ -116,7 +116,7 @@ namespace ranges {
   template<__copy_constructible_object _Tp>
     requires __doesnt_need_empty_state_for_copy<_Tp> && __doesnt_need_empty_state_for_move<_Tp>
   class __copyable_box<_Tp> {
-    [[no_unique_address]] _Tp __val_;
+    _LIBCPP_NO_UNIQUE_ADDRESS _Tp __val_;
 
   public:
     template<class ..._Args>
@@ -124,7 +124,7 @@ namespace ranges {
     _LIBCPP_HIDE_FROM_ABI
     constexpr explicit __copyable_box(in_place_t, _Args&& ...__args)
       noexcept(is_nothrow_constructible_v<_Tp, _Args...>)
-      : __val_(_VSTD::forward<_Args>(__args)...)
+      : __val_(std::forward<_Args>(__args)...)
     { }
 
     _LIBCPP_HIDE_FROM_ABI
@@ -144,9 +144,9 @@ namespace ranges {
     _LIBCPP_HIDE_FROM_ABI
     constexpr __copyable_box& operator=(__copyable_box const& __other) noexcept {
       static_assert(is_nothrow_copy_constructible_v<_Tp>);
-      if (this != _VSTD::addressof(__other)) {
-        _VSTD::destroy_at(_VSTD::addressof(__val_));
-        _VSTD::construct_at(_VSTD::addressof(__val_), __other.__val_);
+      if (this != std::addressof(__other)) {
+        std::destroy_at(std::addressof(__val_));
+        std::construct_at(std::addressof(__val_), __other.__val_);
       }
       return *this;
     }
@@ -154,9 +154,9 @@ namespace ranges {
     _LIBCPP_HIDE_FROM_ABI
     constexpr __copyable_box& operator=(__copyable_box&& __other) noexcept {
       static_assert(is_nothrow_move_constructible_v<_Tp>);
-      if (this != _VSTD::addressof(__other)) {
-        _VSTD::destroy_at(_VSTD::addressof(__val_));
-        _VSTD::construct_at(_VSTD::addressof(__val_), _VSTD::move(__other.__val_));
+      if (this != std::addressof(__other)) {
+        std::destroy_at(std::addressof(__val_));
+        std::construct_at(std::addressof(__val_), std::move(__other.__val_));
       }
       return *this;
     }
@@ -164,14 +164,14 @@ namespace ranges {
     _LIBCPP_HIDE_FROM_ABI constexpr _Tp const& operator*() const noexcept { return __val_; }
     _LIBCPP_HIDE_FROM_ABI constexpr _Tp& operator*() noexcept { return __val_; }
 
-    _LIBCPP_HIDE_FROM_ABI constexpr const _Tp *operator->() const noexcept { return _VSTD::addressof(__val_); }
-    _LIBCPP_HIDE_FROM_ABI constexpr _Tp *operator->() noexcept { return _VSTD::addressof(__val_); }
+    _LIBCPP_HIDE_FROM_ABI constexpr const _Tp *operator->() const noexcept { return std::addressof(__val_); }
+    _LIBCPP_HIDE_FROM_ABI constexpr _Tp *operator->() noexcept { return std::addressof(__val_); }
 
     _LIBCPP_HIDE_FROM_ABI constexpr bool __has_value() const noexcept { return true; }
   };
 } // namespace ranges
 
-#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 _LIBCPP_END_NAMESPACE_STD
 

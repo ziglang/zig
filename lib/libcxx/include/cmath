@@ -304,13 +304,14 @@ constexpr long double lerp(long double a, long double b, long double t) noexcept
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <math.h>
 #include <type_traits>
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -529,9 +530,9 @@ using ::tgammal _LIBCPP_USING_IF_EXISTS;
 using ::truncl _LIBCPP_USING_IF_EXISTS;
 
 #if _LIBCPP_STD_VER > 14
-inline _LIBCPP_INLINE_VISIBILITY float       hypot(       float x,       float y,       float z ) { return sqrt(x*x + y*y + z*z); }
-inline _LIBCPP_INLINE_VISIBILITY double      hypot(      double x,      double y,      double z ) { return sqrt(x*x + y*y + z*z); }
-inline _LIBCPP_INLINE_VISIBILITY long double hypot( long double x, long double y, long double z ) { return sqrt(x*x + y*y + z*z); }
+inline _LIBCPP_INLINE_VISIBILITY float       hypot(       float __x,       float __y,       float __z ) { return sqrt(__x*__x + __y*__y + __z*__z); }
+inline _LIBCPP_INLINE_VISIBILITY double      hypot(      double __x,      double __y,      double __z ) { return sqrt(__x*__x + __y*__y + __z*__z); }
+inline _LIBCPP_INLINE_VISIBILITY long double hypot( long double __x, long double __y, long double __z ) { return sqrt(__x*__x + __y*__y + __z*__z); }
 
 template <class _A1, class _A2, class _A3>
 inline _LIBCPP_INLINE_VISIBILITY

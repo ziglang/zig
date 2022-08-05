@@ -13,6 +13,8 @@
 /*
     chrono synopsis
 
+#include <compare> // C++20
+
 namespace std
 {
 namespace chrono
@@ -325,11 +327,7 @@ struct last_spec;
 
 class day;
 constexpr bool operator==(const day& x, const day& y) noexcept;
-constexpr bool operator!=(const day& x, const day& y) noexcept;
-constexpr bool operator< (const day& x, const day& y) noexcept;
-constexpr bool operator> (const day& x, const day& y) noexcept;
-constexpr bool operator<=(const day& x, const day& y) noexcept;
-constexpr bool operator>=(const day& x, const day& y) noexcept;
+constexpr strong_ordering operator<=>(const day& x, const day& y) noexcept;
 constexpr day  operator+(const day&  x, const days& y) noexcept;
 constexpr day  operator+(const days& x, const day&  y) noexcept;
 constexpr day  operator-(const day&  x, const days& y) noexcept;
@@ -694,20 +692,34 @@ constexpr chrono::year                                  operator ""y(unsigned lo
 }  // std
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__chrono/calendar.h>
 #include <__chrono/convert_to_timespec.h>
+#include <__chrono/day.h>
 #include <__chrono/duration.h>
 #include <__chrono/file_clock.h>
+#include <__chrono/hh_mm_ss.h>
 #include <__chrono/high_resolution_clock.h>
+#include <__chrono/literals.h>
+#include <__chrono/month.h>
+#include <__chrono/month_weekday.h>
+#include <__chrono/monthday.h>
 #include <__chrono/steady_clock.h>
 #include <__chrono/system_clock.h>
 #include <__chrono/time_point.h>
+#include <__chrono/weekday.h>
+#include <__chrono/year.h>
+#include <__chrono/year_month.h>
+#include <__chrono/year_month_day.h>
+#include <__chrono/year_month_weekday.h>
 #include <__config>
-#include <compare>
 #include <version>
 
+// standard-mandated includes
+#include <compare>
+
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 #endif // _LIBCPP_CHRONO

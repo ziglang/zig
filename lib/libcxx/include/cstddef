@@ -33,52 +33,26 @@ Types:
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
+#include <__type_traits/enable_if.h>
+#include <__type_traits/integral_constant.h>
+#include <__type_traits/is_integral.h>
+#include <stddef.h>
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
-
-// Don't include our own <stddef.h>; we don't want to declare ::nullptr_t.
-#include_next <stddef.h>
-#include <__nullptr>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
+using ::nullptr_t;
 using ::ptrdiff_t _LIBCPP_USING_IF_EXISTS;
 using ::size_t _LIBCPP_USING_IF_EXISTS;
 
 #if !defined(_LIBCPP_CXX03_LANG)
 using ::max_align_t _LIBCPP_USING_IF_EXISTS;
-#endif
-
-template <class _Tp> struct __libcpp_is_integral                     { enum { value = 0 }; };
-template <>          struct __libcpp_is_integral<bool>               { enum { value = 1 }; };
-template <>          struct __libcpp_is_integral<char>               { enum { value = 1 }; };
-template <>          struct __libcpp_is_integral<signed char>        { enum { value = 1 }; };
-template <>          struct __libcpp_is_integral<unsigned char>      { enum { value = 1 }; };
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-template <>          struct __libcpp_is_integral<wchar_t>            { enum { value = 1 }; };
-#endif
-#ifndef _LIBCPP_HAS_NO_CHAR8_T
-template <>          struct __libcpp_is_integral<char8_t>            { enum { value = 1 }; };
-#endif
-#ifndef _LIBCPP_HAS_NO_UNICODE_CHARS
-template <>          struct __libcpp_is_integral<char16_t>           { enum { value = 1 }; };
-template <>          struct __libcpp_is_integral<char32_t>           { enum { value = 1 }; };
-#endif
-template <>          struct __libcpp_is_integral<short>              { enum { value = 1 }; };
-template <>          struct __libcpp_is_integral<unsigned short>     { enum { value = 1 }; };
-template <>          struct __libcpp_is_integral<int>                { enum { value = 1 }; };
-template <>          struct __libcpp_is_integral<unsigned int>       { enum { value = 1 }; };
-template <>          struct __libcpp_is_integral<long>               { enum { value = 1 }; };
-template <>          struct __libcpp_is_integral<unsigned long>      { enum { value = 1 }; };
-template <>          struct __libcpp_is_integral<long long>          { enum { value = 1 }; };
-template <>          struct __libcpp_is_integral<unsigned long long> { enum { value = 1 }; };
-#ifndef _LIBCPP_HAS_NO_INT128
-template <>          struct __libcpp_is_integral<__int128_t>         { enum { value = 1 }; };
-template <>          struct __libcpp_is_integral<__uint128_t>        { enum { value = 1 }; };
 #endif
 
 _LIBCPP_END_NAMESPACE_STD
@@ -87,11 +61,6 @@ _LIBCPP_END_NAMESPACE_STD
 namespace std  // purposefully not versioned
 {
 enum class byte : unsigned char {};
-
-
-template <bool> struct __enable_if_integral_imp {};
-template <> struct __enable_if_integral_imp<true> { using type = byte; };
-template <class _Tp> using _EnableByteOverload = typename __enable_if_integral_imp<__libcpp_is_integral<_Tp>::value>::type;
 
 constexpr byte  operator| (byte  __lhs, byte __rhs) noexcept
 {
@@ -133,6 +102,10 @@ constexpr byte  operator~ (byte __b) noexcept
         ~static_cast<unsigned int>(__b)
     ));
 }
+
+template <class _Tp>
+using _EnableByteOverload = __enable_if_t<is_integral<_Tp>::value, byte>;
+
 template <class _Integer>
   constexpr _EnableByteOverload<_Integer> &
   operator<<=(byte& __lhs, _Integer __shift) noexcept

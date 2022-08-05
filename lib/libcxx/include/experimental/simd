@@ -649,14 +649,20 @@ public:
 
 */
 
-#include <algorithm>
+#include <__assert> // all public C++ headers provide the assertion handler
+#include <__functional/operations.h>
 #include <array>
 #include <cstddef>
 #include <experimental/__config>
-#include <functional>
+#include <tuple>
+
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <algorithm>
+#  include <functional>
+#endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -1236,32 +1242,32 @@ _Tp reduce(const simd<_Tp, _Abi>&, _BinaryOp = _BinaryOp());
 template <class _MaskType, class _SimdType, class _BinaryOp>
 typename _SimdType::value_type
 reduce(const const_where_expression<_MaskType, _SimdType>&,
-       typename _SimdType::value_type neutral_element, _BinaryOp binary_op);
+       typename _SimdType::value_type __neutral_element, _BinaryOp);
 
 template <class _MaskType, class _SimdType>
 typename _SimdType::value_type
 reduce(const const_where_expression<_MaskType, _SimdType>&,
-       plus<typename _SimdType::value_type> binary_op = {});
+       plus<typename _SimdType::value_type> = {});
 
 template <class _MaskType, class _SimdType>
 typename _SimdType::value_type
 reduce(const const_where_expression<_MaskType, _SimdType>&,
-       multiplies<typename _SimdType::value_type> binary_op);
+       multiplies<typename _SimdType::value_type>);
 
 template <class _MaskType, class _SimdType>
 typename _SimdType::value_type
 reduce(const const_where_expression<_MaskType, _SimdType>&,
-       bit_and<typename _SimdType::value_type> binary_op);
+       bit_and<typename _SimdType::value_type>);
 
 template <class _MaskType, class _SimdType>
 typename _SimdType::value_type
 reduce(const const_where_expression<_MaskType, _SimdType>&,
-       bit_or<typename _SimdType::value_type> binary_op);
+       bit_or<typename _SimdType::value_type>);
 
 template <class _MaskType, class _SimdType>
 typename _SimdType::value_type
 reduce(const const_where_expression<_MaskType, _SimdType>&,
-       bit_xor<typename _SimdType::value_type> binary_op);
+       bit_xor<typename _SimdType::value_type>);
 
 template <class _Tp, class _Abi>
 _Tp hmin(const simd<_Tp, _Abi>&);
@@ -1471,6 +1477,7 @@ public:
   simd operator+() const;
   simd operator-() const;
 
+#if 0
   // binary operators [simd.binary]
   friend simd operator+(const simd&, const simd&);
   friend simd operator-(const simd&, const simd&);
@@ -1507,6 +1514,7 @@ public:
   friend mask_type operator<=(const simd&, const simd&);
   friend mask_type operator>(const simd&, const simd&);
   friend mask_type operator<(const simd&, const simd&);
+#endif
 };
 
 // [simd.mask.class]
@@ -1546,6 +1554,7 @@ public:
   // unary operators [simd.mask.unary]
   simd_mask operator!() const noexcept;
 
+#if 0
   // simd_mask binary operators [simd.mask.binary]
   friend simd_mask operator&&(const simd_mask&, const simd_mask&) noexcept;
   friend simd_mask operator||(const simd_mask&, const simd_mask&) noexcept;
@@ -1561,6 +1570,7 @@ public:
   // simd_mask compares [simd.mask.comparison]
   friend simd_mask operator==(const simd_mask&, const simd_mask&) noexcept;
   friend simd_mask operator!=(const simd_mask&, const simd_mask&) noexcept;
+#endif
 };
 
 #endif // _LIBCPP_STD_VER >= 17

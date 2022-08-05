@@ -217,20 +217,30 @@ template <class T, class Container, class Compare>
 
 */
 
+#include <__algorithm/make_heap.h>
+#include <__algorithm/pop_heap.h>
+#include <__algorithm/push_heap.h>
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
+#include <__functional/operations.h>
 #include <__iterator/iterator_traits.h>
 #include <__memory/uses_allocator.h>
 #include <__utility/forward.h>
-#include <algorithm>
-#include <compare>
 #include <deque>
-#include <functional>
 #include <type_traits>
 #include <vector>
 #include <version>
 
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <functional>
+#endif
+
+// standard-mandated includes
+#include <compare>
+#include <initializer_list>
+
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD

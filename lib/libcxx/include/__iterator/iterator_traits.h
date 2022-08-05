@@ -17,31 +17,31 @@
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#if _LIBCPP_STD_VER > 17
 
 template <class _Tp>
 using __with_reference = _Tp&;
 
 template <class _Tp>
-concept __referenceable = requires {
+concept __can_reference = requires {
   typename __with_reference<_Tp>;
 };
 
 template <class _Tp>
 concept __dereferenceable = requires(_Tp& __t) {
-  { *__t } -> __referenceable; // not required to be equality-preserving
+  { *__t } -> __can_reference; // not required to be equality-preserving
 };
 
 // [iterator.traits]
 template<__dereferenceable _Tp>
 using iter_reference_t = decltype(*declval<_Tp&>());
 
-#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#endif // _LIBCPP_STD_VER > 17
 
 template <class _Iter>
 struct _LIBCPP_TEMPLATE_VIS iterator_traits;
@@ -105,15 +105,14 @@ template <class _Tp>
 struct __has_iterator_typedefs
 {
 private:
-    struct __two {char __lx; char __lxx;};
-    template <class _Up> static __two __test(...);
-    template <class _Up> static char __test(typename __void_t<typename _Up::iterator_category>::type* = 0,
-                                            typename __void_t<typename _Up::difference_type>::type* = 0,
-                                            typename __void_t<typename _Up::value_type>::type* = 0,
-                                            typename __void_t<typename _Up::reference>::type* = 0,
-                                            typename __void_t<typename _Up::pointer>::type* = 0);
+    template <class _Up> static false_type __test(...);
+    template <class _Up> static true_type __test(typename __void_t<typename _Up::iterator_category>::type* = 0,
+                                                 typename __void_t<typename _Up::difference_type>::type* = 0,
+                                                 typename __void_t<typename _Up::value_type>::type* = 0,
+                                                 typename __void_t<typename _Up::reference>::type* = 0,
+                                                 typename __void_t<typename _Up::pointer>::type* = 0);
 public:
-    static const bool value = sizeof(__test<_Tp>(0,0,0,0,0)) == 1;
+    static const bool value = decltype(__test<_Tp>(0,0,0,0,0))::value;
 };
 
 
@@ -121,35 +120,34 @@ template <class _Tp>
 struct __has_iterator_category
 {
 private:
-    struct __two {char __lx; char __lxx;};
-    template <class _Up> static __two __test(...);
-    template <class _Up> static char __test(typename _Up::iterator_category* = nullptr);
+    template <class _Up> static false_type __test(...);
+    template <class _Up> static true_type __test(typename _Up::iterator_category* = nullptr);
 public:
-    static const bool value = sizeof(__test<_Tp>(nullptr)) == 1;
+    static const bool value = decltype(__test<_Tp>(nullptr))::value;
 };
 
 template <class _Tp>
 struct __has_iterator_concept
 {
 private:
-    struct __two {char __lx; char __lxx;};
-    template <class _Up> static __two __test(...);
-    template <class _Up> static char __test(typename _Up::iterator_concept* = nullptr);
+    template <class _Up> static false_type __test(...);
+    template <class _Up> static true_type __test(typename _Up::iterator_concept* = nullptr);
 public:
-    static const bool value = sizeof(__test<_Tp>(nullptr)) == 1;
+    static const bool value = decltype(__test<_Tp>(nullptr))::value;
 };
 
-#if !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#if _LIBCPP_STD_VER > 17
 
-// The `cpp17-*-iterator` exposition-only concepts are easily confused with the Cpp17*Iterator tables,
-// so they've been banished to a namespace that makes it obvious they have a niche use-case.
+// The `cpp17-*-iterator` exposition-only concepts have very similar names to the `Cpp17*Iterator` named requirements
+// from `[iterator.cpp17]`. To avoid confusion between the two, the exposition-only concepts have been banished to
+// a "detail" namespace indicating they have a niche use-case.
 namespace __iterator_traits_detail {
 template<class _Ip>
 concept __cpp17_iterator =
   requires(_Ip __i) {
-    {   *__i } -> __referenceable;
+    {   *__i } -> __can_reference;
     {  ++__i } -> same_as<_Ip&>;
-    { *__i++ } -> __referenceable;
+    { *__i++ } -> __can_reference;
   } &&
   copyable<_Ip>;
 
@@ -198,7 +196,7 @@ concept __cpp17_random_access_iterator =
     { __i +  __n } -> same_as<_Ip>;
     { __n +  __i } -> same_as<_Ip>;
     { __i -  __n } -> same_as<_Ip>;
-    { __i -  __i } -> same_as<decltype(__n)>;
+    { __i -  __i } -> same_as<decltype(__n)>; // NOLINT(misc-redundant-expression) ; This is llvm.org/PR54114
     {  __i[__n]  } -> convertible_to<iter_reference_t<_Ip>>;
   };
 } // namespace __iterator_traits_detail
@@ -362,7 +360,7 @@ struct iterator_traits : __iterator_traits<_Ip> {
   using __primary_template = iterator_traits;
 };
 
-#else // !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#else // _LIBCPP_STD_VER > 17
 
 template <class _Iter, bool> struct __iterator_traits {};
 
@@ -399,10 +397,10 @@ struct _LIBCPP_TEMPLATE_VIS iterator_traits
 
   using __primary_template = iterator_traits;
 };
-#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#endif // _LIBCPP_STD_VER > 17
 
 template<class _Tp>
-#if !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#if _LIBCPP_STD_VER > 17
 requires is_object_v<_Tp>
 #endif
 struct _LIBCPP_TEMPLATE_VIS iterator_traits<_Tp*>
@@ -468,27 +466,46 @@ template <class _Up>
 struct __is_cpp17_contiguous_iterator<_Up*> : true_type {};
 
 
+template <class _Iter>
+class __wrap_iter;
+
 template <class _Tp>
 struct __is_exactly_cpp17_input_iterator
     : public integral_constant<bool,
          __has_iterator_category_convertible_to<_Tp, input_iterator_tag>::value &&
         !__has_iterator_category_convertible_to<_Tp, forward_iterator_tag>::value> {};
 
-#if _LIBCPP_STD_VER >= 17
+template <class _Tp>
+struct __is_exactly_cpp17_forward_iterator
+    : public integral_constant<bool,
+         __has_iterator_category_convertible_to<_Tp, forward_iterator_tag>::value &&
+        !__has_iterator_category_convertible_to<_Tp, bidirectional_iterator_tag>::value> {};
+
+template <class _Tp>
+struct __is_exactly_cpp17_bidirectional_iterator
+    : public integral_constant<bool,
+         __has_iterator_category_convertible_to<_Tp, bidirectional_iterator_tag>::value &&
+        !__has_iterator_category_convertible_to<_Tp, random_access_iterator_tag>::value> {};
+
 template<class _InputIterator>
 using __iter_value_type = typename iterator_traits<_InputIterator>::value_type;
 
 template<class _InputIterator>
-using __iter_key_type = remove_const_t<typename iterator_traits<_InputIterator>::value_type::first_type>;
+using __iter_key_type = typename remove_const<typename iterator_traits<_InputIterator>::value_type::first_type>::type;
 
 template<class _InputIterator>
 using __iter_mapped_type = typename iterator_traits<_InputIterator>::value_type::second_type;
 
 template<class _InputIterator>
 using __iter_to_alloc_type = pair<
-    add_const_t<typename iterator_traits<_InputIterator>::value_type::first_type>,
+    typename add_const<typename iterator_traits<_InputIterator>::value_type::first_type>::type,
     typename iterator_traits<_InputIterator>::value_type::second_type>;
-#endif // _LIBCPP_STD_VER >= 17
+
+template <class _Iter>
+using __iterator_category_type = typename iterator_traits<_Iter>::iterator_category;
+
+template <class _Iter>
+using __iterator_pointer_type = typename iterator_traits<_Iter>::pointer;
 
 _LIBCPP_END_NAMESPACE_STD
 

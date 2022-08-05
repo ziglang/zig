@@ -82,17 +82,15 @@ void sleep_for(const chrono::duration<Rep, Period>& rel_time);
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
-#include <__debug>
-#include <__functional_base>
+#include <__functional/hash.h>
 #include <__mutex_base>
 #include <__thread/poll_with_backoff.h>
 #include <__thread/timed_backoff_policy.h>
 #include <__threading_support>
 #include <__utility/forward.h>
-#include <chrono>
 #include <cstddef>
-#include <functional>
 #include <iosfwd>
 #include <memory>
 #include <system_error>
@@ -100,16 +98,24 @@ void sleep_for(const chrono::duration<Rep, Period>& rel_time);
 #include <type_traits>
 #include <version>
 
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <chrono>
+#  include <functional>
+#endif
+
+// standard-mandated includes
+#include <compare>
+
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
 #include <__undef_macros>
 
 #ifdef _LIBCPP_HAS_NO_THREADS
-#error <thread> is not supported on this single threaded system
-#else // !_LIBCPP_HAS_NO_THREADS
+# error "<thread> is not supported since libc++ has been configured without support for threads."
+#endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -200,7 +206,7 @@ __thread_specific_ptr<_Tp>::set_pointer(pointer __p)
 
 template<>
 struct _LIBCPP_TEMPLATE_VIS hash<__thread_id>
-    : public unary_function<__thread_id, size_t>
+    : public __unary_function<__thread_id, size_t>
 {
     _LIBCPP_INLINE_VISIBILITY
     size_t operator()(__thread_id __v) const _NOEXCEPT
@@ -229,11 +235,7 @@ public:
     thread() _NOEXCEPT : __t_(_LIBCPP_NULL_THREAD) {}
 #ifndef _LIBCPP_CXX03_LANG
     template <class _Fp, class ..._Args,
-              class = typename enable_if
-              <
-                   !is_same<typename __uncvref<_Fp>::type, thread>::value
-              >::type
-             >
+              class = __enable_if_t<!is_same<__uncvref_t<_Fp>, thread>::value> >
         _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS
         explicit thread(_Fp&& __f, _Args&&... __args);
 #else  // _LIBCPP_CXX03_LANG
@@ -407,8 +409,6 @@ void yield() _NOEXCEPT {__libcpp_thread_yield();}
 } // namespace this_thread
 
 _LIBCPP_END_NAMESPACE_STD
-
-#endif // !_LIBCPP_HAS_NO_THREADS
 
 _LIBCPP_POP_MACROS
 

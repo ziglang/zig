@@ -19,12 +19,12 @@
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#if _LIBCPP_STD_VER > 17
 
 // [range.prim.data]
 
@@ -60,8 +60,8 @@ namespace __data {
     template<__ranges_begin_invocable _Tp>
     _LIBCPP_HIDE_FROM_ABI
     constexpr auto operator()(_Tp&& __t) const
-        noexcept(noexcept(_VSTD::to_address(ranges::begin(__t)))) {
-      return _VSTD::to_address(ranges::begin(__t));
+        noexcept(noexcept(std::to_address(ranges::begin(__t)))) {
+      return std::to_address(ranges::begin(__t));
     }
   };
 } // namespace __data
@@ -99,7 +99,7 @@ inline namespace __cpo {
 } // namespace __cpo
 } // namespace ranges
 
-#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#endif // _LIBCPP_STD_VER > 17
 
 _LIBCPP_END_NAMESPACE_STD
 

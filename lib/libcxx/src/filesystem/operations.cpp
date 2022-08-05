@@ -6,14 +6,16 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "filesystem"
-#include "array"
-#include "iterator"
-#include "string_view"
-#include "type_traits"
-#include "vector"
-#include "cstdlib"
-#include "climits"
+#include <__assert>
+#include <__utility/unreachable.h>
+#include <array>
+#include <climits>
+#include <cstdlib>
+#include <filesystem>
+#include <iterator>
+#include <string_view>
+#include <type_traits>
+#include <vector>
 
 #include "filesystem_common.h"
 
@@ -39,7 +41,7 @@
 # include <copyfile.h>
 # define _LIBCPP_FILESYSTEM_USE_COPYFILE
 #else
-# include "fstream"
+# include <fstream>
 # define _LIBCPP_FILESYSTEM_USE_FSTREAM
 #endif
 
@@ -154,7 +156,7 @@ public:
       return makeState(PS_AtEnd);
 
     case PS_AtEnd:
-      _LIBCPP_UNREACHABLE();
+      __libcpp_unreachable();
     }
   }
 
@@ -202,7 +204,7 @@ public:
       return makeState(PS_InRootName, Path.data(), RStart + 1);
     case PS_InRootName:
     case PS_BeforeBegin:
-      _LIBCPP_UNREACHABLE();
+      __libcpp_unreachable();
     }
   }
 
@@ -212,19 +214,19 @@ public:
     switch (State) {
     case PS_BeforeBegin:
     case PS_AtEnd:
-      return PS("");
+      return PATHSTR("");
     case PS_InRootDir:
       if (RawEntry[0] == '\\')
-        return PS("\\");
+        return PATHSTR("\\");
       else
-        return PS("/");
+        return PATHSTR("/");
     case PS_InTrailingSep:
-      return PS("");
+      return PATHSTR("");
     case PS_InRootName:
     case PS_InFilenames:
       return RawEntry;
     }
-    _LIBCPP_UNREACHABLE();
+    __libcpp_unreachable();
   }
 
   explicit operator bool() const noexcept {
@@ -285,7 +287,7 @@ private:
     case PS_AtEnd:
       return getAfterBack();
     }
-    _LIBCPP_UNREACHABLE();
+    __libcpp_unreachable();
   }
 
   /// \brief Return a pointer to the first character in the currently lexed
@@ -302,7 +304,7 @@ private:
     case PS_AtEnd:
       return &Path.back() + 1;
     }
-    _LIBCPP_UNREACHABLE();
+    __libcpp_unreachable();
   }
 
   // Consume all consecutive separators.
@@ -385,8 +387,8 @@ private:
 };
 
 string_view_pair separate_filename(string_view_t const& s) {
-  if (s == PS(".") || s == PS("..") || s.empty())
-    return string_view_pair{s, PS("")};
+  if (s == PATHSTR(".") || s == PATHSTR("..") || s.empty())
+    return string_view_pair{s, PATHSTR("")};
   auto pos = s.find_last_of('.');
   if (pos == string_view_t::npos || pos == 0)
     return string_view_pair{s, string_view_t{}};
@@ -681,7 +683,7 @@ void filesystem_error::__create_what(int __num_paths) {
       return detail::format_string("filesystem error: %s [" PATH_CSTR_FMT "] [" PATH_CSTR_FMT "]",
                                    derived_what, path1().c_str(), path2().c_str());
     }
-    _LIBCPP_UNREACHABLE();
+    __libcpp_unreachable();
   }();
 }
 
@@ -1188,7 +1190,7 @@ bool __fs_is_empty(const path& p, error_code* ec) {
   } else if (is_regular_file(st))
     return static_cast<uintmax_t>(pst.st_size) == 0;
 
-  _LIBCPP_UNREACHABLE();
+  __libcpp_unreachable();
 }
 
 static file_time_type __extract_last_write_time(const path& p, const StatT& st,
@@ -1614,7 +1616,7 @@ path& path::replace_extension(path const& replacement) {
   }
   if (!replacement.empty()) {
     if (replacement.native()[0] != '.') {
-      __pn_ += PS(".");
+      __pn_ += PATHSTR(".");
     }
     __pn_.append(replacement.__pn_);
   }
@@ -1736,14 +1738,14 @@ enum PathPartKind : unsigned char {
 static PathPartKind ClassifyPathPart(string_view_t Part) {
   if (Part.empty())
     return PK_TrailingSep;
-  if (Part == PS("."))
+  if (Part == PATHSTR("."))
     return PK_Dot;
-  if (Part == PS(".."))
+  if (Part == PATHSTR(".."))
     return PK_DotDot;
-  if (Part == PS("/"))
+  if (Part == PATHSTR("/"))
     return PK_RootSep;
 #if defined(_LIBCPP_WIN32API)
-  if (Part == PS("\\"))
+  if (Part == PATHSTR("\\"))
     return PK_RootSep;
 #endif
   return PK_Filename;
@@ -1793,7 +1795,7 @@ path path::lexically_normal() const {
         NewPathSize -= Parts.back().first.size();
         Parts.pop_back();
       } else if (LastKind != PK_RootSep)
-        AddPart(PK_DotDot, PS(".."));
+        AddPart(PK_DotDot, PATHSTR(".."));
       MaybeNeedTrailingSep = LastKind == PK_Filename;
       break;
     }
@@ -1803,12 +1805,12 @@ path path::lexically_normal() const {
       break;
     }
     case PK_None:
-      _LIBCPP_UNREACHABLE();
+      __libcpp_unreachable();
     }
   }
   // [fs.path.generic]p6.8: If the path is empty, add a dot.
   if (Parts.empty())
-    return PS(".");
+    return PATHSTR(".");
 
   // [fs.path.generic]p6.7: If the last filename is dot-dot, remove any
   // trailing directory-separator.
@@ -1820,7 +1822,7 @@ path path::lexically_normal() const {
     Result /= PK.first;
 
   if (NeedTrailingSep)
-    Result /= PS("");
+    Result /= PATHSTR("");
 
   Result.make_preferred();
   return Result;
@@ -1830,9 +1832,9 @@ static int DetermineLexicalElementCount(PathParser PP) {
   int Count = 0;
   for (; PP; ++PP) {
     auto Elem = *PP;
-    if (Elem == PS(".."))
+    if (Elem == PATHSTR(".."))
       --Count;
-    else if (Elem != PS(".") && Elem != PS(""))
+    else if (Elem != PATHSTR(".") && Elem != PATHSTR(""))
       ++Count;
   }
   return Count;
@@ -1879,15 +1881,15 @@ path path::lexically_relative(const path& base) const {
     return {};
 
   // if n == 0 and (a == end() || a->empty()), returns path("."); otherwise
-  if (ElemCount == 0 && (PP.atEnd() || *PP == PS("")))
-    return PS(".");
+  if (ElemCount == 0 && (PP.atEnd() || *PP == PATHSTR("")))
+    return PATHSTR(".");
 
-  // return a path constructed with 'n' dot-dot elements, followed by the the
+  // return a path constructed with 'n' dot-dot elements, followed by the
   // elements of '*this' after the mismatch.
   path Result;
   // FIXME: Reserve enough room in Result that it won't have to re-allocate.
   while (ElemCount--)
-    Result /= PS("..");
+    Result /= PATHSTR("..");
   for (; PP; ++PP)
     Result /= *PP;
   return Result;
@@ -1900,7 +1902,7 @@ static int CompareRootName(PathParser *LHS, PathParser *RHS) {
     return 0;
 
   auto GetRootName = [](PathParser *Parser) -> string_view_t {
-    return Parser->inRootName() ? **Parser : PS("");
+    return Parser->inRootName() ? **Parser : PATHSTR("");
   };
   int res = GetRootName(LHS).compare(GetRootName(RHS));
   ConsumeRootName(LHS);

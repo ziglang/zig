@@ -211,17 +211,27 @@ storage-class-specifier const error_category& iostream_category() noexcept;
 */
 
 #include <__config>
+
+#if defined(_LIBCPP_HAS_NO_LOCALIZATION)
+#   error "The iostreams library is not supported since libc++ has been configured without support for localization."
+#endif
+
+#include <__assert> // all public C++ headers provide the assertion handler
+#include <__ios/fpos.h>
 #include <__locale>
-#include <iosfwd>
+#include <__utility/swap.h>
 #include <system_error>
 #include <version>
+
+// standard-mandated includes
+#include <iosfwd>
 
 #if !defined(_LIBCPP_HAS_NO_ATOMIC_HEADER)
 #include <atomic>     // for __xindex_
 #endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -402,7 +412,7 @@ _LIBCPP_DECLARE_STRONG_ENUM_EPILOG(io_errc)
 template <>
 struct _LIBCPP_TEMPLATE_VIS is_error_code_enum<io_errc> : public true_type { };
 
-#ifdef _LIBCPP_HAS_NO_STRONG_ENUMS
+#ifdef _LIBCPP_CXX03_LANG
 template <>
 struct _LIBCPP_TEMPLATE_VIS is_error_code_enum<io_errc::__lx> : public true_type { };
 #endif
@@ -780,6 +790,8 @@ inline _LIBCPP_INLINE_VISIBILITY
 _CharT
 basic_ios<_CharT, _Traits>::fill(char_type __ch)
 {
+    if (traits_type::eq_int_type(traits_type::eof(), __fill_))
+        __fill_ = widen(' ');
     char_type __r = __fill_;
     __fill_ = __ch;
     return __r;

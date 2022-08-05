@@ -11,7 +11,8 @@
 #define _LIBCPP_STRING_VIEW
 
 /*
-string_view synopsis
+
+    string_view synopsis
 
 namespace std {
 
@@ -195,25 +196,48 @@ namespace std {
 
 */
 
+#include <__algorithm/min.h>
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
-#include <__debug>
+#include <__functional/hash.h>
+#include <__functional/unary_function.h>
+#include <__fwd/string_view.h>
+#include <__iterator/concepts.h>
+#include <__iterator/readable_traits.h>
+#include <__iterator/reverse_iterator.h>
+#include <__memory/pointer_traits.h>
 #include <__ranges/concepts.h>
 #include <__ranges/data.h>
 #include <__ranges/enable_borrowed_range.h>
 #include <__ranges/enable_view.h>
 #include <__ranges/size.h>
-#include <__string>
-#include <algorithm>
-#include <compare>
+#include <__string/char_traits.h>
 #include <iosfwd>
-#include <iterator>
 #include <limits>
 #include <stdexcept>
 #include <type_traits>
 #include <version>
 
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <algorithm>
+#  include <functional>
+#  include <iterator>
+#endif
+
+// standard-mandated includes
+
+// [iterator.range]
+#include <__iterator/access.h>
+#include <__iterator/data.h>
+#include <__iterator/empty.h>
+#include <__iterator/reverse_access.h>
+#include <__iterator/size.h>
+
+// [string.view.synop]
+#include <compare>
+
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -222,18 +246,14 @@ _LIBCPP_PUSH_MACROS
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template<class _CharT, class _Traits = char_traits<_CharT> >
-    class _LIBCPP_TEMPLATE_VIS basic_string_view;
-
-typedef basic_string_view<char>     string_view;
-#ifndef _LIBCPP_HAS_NO_CHAR8_T
-typedef basic_string_view<char8_t>  u8string_view;
-#endif
-typedef basic_string_view<char16_t> u16string_view;
-typedef basic_string_view<char32_t> u32string_view;
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-typedef basic_string_view<wchar_t>  wstring_view;
-#endif
+// TODO: This is a workaround for some vendors to carry a downstream diff to accept `nullptr` in
+//       string_view constructors. This can be refactored when this exact form isn't needed anymore.
+template <class _Traits>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR
+inline size_t __char_traits_length_checked(const typename _Traits::char_type* __s) _NOEXCEPT {
+  // This needs to be a single statement for C++11 constexpr
+  return _LIBCPP_ASSERT(__s != nullptr, "null pointer passed to non-null argument of char_traits<...>::length"), _Traits::length(__s);
+}
 
 template<class _CharT, class _Traits>
 class
@@ -286,7 +306,7 @@ public:
 #endif
     }
 
-#if !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#if _LIBCPP_STD_VER > 17
     template <contiguous_iterator _It, sized_sentinel_for<_It> _End>
       requires (is_same_v<iter_value_t<_It>, _CharT> && !is_convertible_v<_End, size_type>)
     constexpr _LIBCPP_HIDE_FROM_ABI basic_string_view(_It __begin, _End __end)
@@ -294,9 +314,9 @@ public:
     {
       _LIBCPP_ASSERT((__end - __begin) >= 0, "std::string_view::string_view(iterator, sentinel) received invalid range");
     }
-#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#endif // _LIBCPP_STD_VER > 17
 
-#if _LIBCPP_STD_VER > 20 && !defined(_LIBCPP_HAS_NO_CONCEPTS) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 20 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
     template <class _Range>
       requires (
         !is_same_v<remove_cvref_t<_Range>, basic_string_view> &&
@@ -304,8 +324,8 @@ public:
         ranges::sized_range<_Range> &&
         is_same_v<ranges::range_value_t<_Range>, _CharT> &&
         !is_convertible_v<_Range, const _CharT*> &&
-        (!requires(remove_cvref_t<_Range>& d) {
-          d.operator _VSTD::basic_string_view<_CharT, _Traits>();
+        (!requires(remove_cvref_t<_Range>& __d) {
+          __d.operator _VSTD::basic_string_view<_CharT, _Traits>();
         }) &&
         (!requires {
          typename remove_reference_t<_Range>::traits_type;
@@ -313,7 +333,7 @@ public:
       )
     constexpr _LIBCPP_HIDE_FROM_ABI
     basic_string_view(_Range&& __r) : __data(ranges::data(__r)), __size(ranges::size(__r)) {}
-#endif
+#endif // _LIBCPP_STD_VER > 20 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
     _LIBCPP_CONSTEXPR _LIBCPP_INLINE_VISIBILITY
     basic_string_view(const _CharT* __s)
@@ -707,26 +727,26 @@ private:
     size_type           __size;
 };
 
-#if !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#if _LIBCPP_STD_VER > 17
 template <class _CharT, class _Traits>
 inline constexpr bool ranges::enable_view<basic_string_view<_CharT, _Traits>> = true;
 
 template <class _CharT, class _Traits>
 inline constexpr bool ranges::enable_borrowed_range<basic_string_view<_CharT, _Traits> > = true;
-#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#endif // _LIBCPP_STD_VER > 17
 
 // [string.view.deduct]
 
-#if !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#if _LIBCPP_STD_VER > 17
 template <contiguous_iterator _It, sized_sentinel_for<_It> _End>
   basic_string_view(_It, _End) -> basic_string_view<iter_value_t<_It>>;
-#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#endif // _LIBCPP_STD_VER > 17
 
 
-#if _LIBCPP_STD_VER > 20 && !defined(_LIBCPP_HAS_NO_CONCEPTS) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 20 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 template <ranges::contiguous_range _Range>
   basic_string_view(_Range) -> basic_string_view<ranges::range_value_t<_Range>>;
-#endif
+#endif // _LIBCPP_STD_VER > 20 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 // [string.view.comparison]
 // operator ==
@@ -900,14 +920,13 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
 // [string.view.hash]
 template<class _CharT>
 struct _LIBCPP_TEMPLATE_VIS hash<basic_string_view<_CharT, char_traits<_CharT> > >
-    : public unary_function<basic_string_view<_CharT, char_traits<_CharT> >, size_t>
+    : public __unary_function<basic_string_view<_CharT, char_traits<_CharT> >, size_t>
 {
     _LIBCPP_INLINE_VISIBILITY
     size_t operator()(const basic_string_view<_CharT, char_traits<_CharT> > __val) const _NOEXCEPT {
         return __do_string_hash(__val.data(), __val.data() + __val.size());
     }
 };
-
 
 #if _LIBCPP_STD_VER > 11
 inline namespace literals

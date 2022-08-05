@@ -36,12 +36,12 @@
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if !defined(_LIBCPP_HAS_NO_CONCEPTS) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 namespace ranges {
 
@@ -53,7 +53,7 @@ template<class _View, class _Fn>
 concept __transform_view_constraints =
   view<_View> && is_object_v<_Fn> &&
   regular_invocable<_Fn&, range_reference_t<_View>> &&
-  __referenceable<invoke_result_t<_Fn&, range_reference_t<_View>>>;
+  __can_reference<invoke_result_t<_Fn&, range_reference_t<_View>>>;
 
 template<input_range _View, copy_constructible _Fn>
   requires __transform_view_constraints<_View, _Fn>
@@ -61,8 +61,8 @@ class transform_view : public view_interface<transform_view<_View, _Fn>> {
   template<bool> class __iterator;
   template<bool> class __sentinel;
 
-  [[no_unique_address]] __copyable_box<_Fn> __func_;
-  [[no_unique_address]] _View __base_ = _View();
+  _LIBCPP_NO_UNIQUE_ADDRESS __copyable_box<_Fn> __func_;
+  _LIBCPP_NO_UNIQUE_ADDRESS _View __base_ = _View();
 
 public:
   _LIBCPP_HIDE_FROM_ABI
@@ -71,12 +71,12 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI
   constexpr transform_view(_View __base, _Fn __func)
-    : __func_(_VSTD::in_place, _VSTD::move(__func)), __base_(_VSTD::move(__base)) {}
+    : __func_(std::in_place, std::move(__func)), __base_(std::move(__base)) {}
 
   _LIBCPP_HIDE_FROM_ABI
   constexpr _View base() const& requires copy_constructible<_View> { return __base_; }
   _LIBCPP_HIDE_FROM_ABI
-  constexpr _View base() && { return _VSTD::move(__base_); }
+  constexpr _View base() && { return std::move(__base_); }
 
   _LIBCPP_HIDE_FROM_ABI
   constexpr __iterator<false> begin() {
@@ -183,7 +183,7 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI
   constexpr __iterator(_Parent& __parent, iterator_t<_Base> __current)
-    : __parent_(_VSTD::addressof(__parent)), __current_(_VSTD::move(__current)) {}
+    : __parent_(std::addressof(__parent)), __current_(std::move(__current)) {}
 
   // Note: `__i` should always be `__iterator<false>`, but directly using
   // `__iterator<false>` is ill-formed when `_Const` is false
@@ -191,7 +191,7 @@ public:
   _LIBCPP_HIDE_FROM_ABI
   constexpr __iterator(__iterator<!_Const> __i)
     requires _Const && convertible_to<iterator_t<_View>, iterator_t<_Base>>
-    : __parent_(__i.__parent_), __current_(_VSTD::move(__i.__current_)) {}
+    : __parent_(__i.__parent_), __current_(std::move(__i.__current_)) {}
 
   _LIBCPP_HIDE_FROM_ABI
   constexpr const iterator_t<_Base>& base() const& noexcept {
@@ -200,14 +200,14 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI
   constexpr iterator_t<_Base> base() && {
-    return _VSTD::move(__current_);
+    return std::move(__current_);
   }
 
   _LIBCPP_HIDE_FROM_ABI
   constexpr decltype(auto) operator*() const
-    noexcept(noexcept(_VSTD::invoke(*__parent_->__func_, *__current_)))
+    noexcept(noexcept(std::invoke(*__parent_->__func_, *__current_)))
   {
-    return _VSTD::invoke(*__parent_->__func_, *__current_);
+    return std::invoke(*__parent_->__func_, *__current_);
   }
 
   _LIBCPP_HIDE_FROM_ABI
@@ -263,10 +263,10 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI
   constexpr decltype(auto) operator[](difference_type __n) const
-    noexcept(noexcept(_VSTD::invoke(*__parent_->__func_, __current_[__n])))
+    noexcept(noexcept(std::invoke(*__parent_->__func_, __current_[__n])))
     requires random_access_range<_Base>
   {
-    return _VSTD::invoke(*__parent_->__func_, __current_[__n]);
+    return std::invoke(*__parent_->__func_, __current_[__n]);
   }
 
   _LIBCPP_HIDE_FROM_ABI
@@ -344,7 +344,7 @@ public:
     noexcept(noexcept(*__i))
   {
     if constexpr (is_lvalue_reference_v<decltype(*__i)>)
-      return _VSTD::move(*__i);
+      return std::move(*__i);
     else
       return *__i;
   }
@@ -378,7 +378,7 @@ public:
   _LIBCPP_HIDE_FROM_ABI
   constexpr __sentinel(__sentinel<!_Const> __i)
     requires _Const && convertible_to<sentinel_t<_View>, sentinel_t<_Base>>
-    : __end_(_VSTD::move(__i.__end_)) {}
+    : __end_(std::move(__i.__end_)) {}
 
   _LIBCPP_HIDE_FROM_ABI
   constexpr sentinel_t<_Base> base() const { return __end_; }
@@ -413,16 +413,16 @@ namespace __transform {
     template<class _Range, class _Fn>
     [[nodiscard]] _LIBCPP_HIDE_FROM_ABI
     constexpr auto operator()(_Range&& __range, _Fn&& __f) const
-      noexcept(noexcept(transform_view(_VSTD::forward<_Range>(__range), _VSTD::forward<_Fn>(__f))))
-      -> decltype(      transform_view(_VSTD::forward<_Range>(__range), _VSTD::forward<_Fn>(__f)))
-      { return          transform_view(_VSTD::forward<_Range>(__range), _VSTD::forward<_Fn>(__f)); }
+      noexcept(noexcept(transform_view(std::forward<_Range>(__range), std::forward<_Fn>(__f))))
+      -> decltype(      transform_view(std::forward<_Range>(__range), std::forward<_Fn>(__f)))
+      { return          transform_view(std::forward<_Range>(__range), std::forward<_Fn>(__f)); }
 
     template<class _Fn>
       requires constructible_from<decay_t<_Fn>, _Fn>
     [[nodiscard]] _LIBCPP_HIDE_FROM_ABI
     constexpr auto operator()(_Fn&& __f) const
       noexcept(is_nothrow_constructible_v<decay_t<_Fn>, _Fn>)
-    { return __range_adaptor_closure_t(_VSTD::__bind_back(*this, _VSTD::forward<_Fn>(__f))); }
+    { return __range_adaptor_closure_t(std::__bind_back(*this, std::forward<_Fn>(__f))); }
   };
 } // namespace __transform
 
@@ -433,7 +433,7 @@ inline namespace __cpo {
 
 } // namespace ranges
 
-#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 _LIBCPP_END_NAMESPACE_STD
 

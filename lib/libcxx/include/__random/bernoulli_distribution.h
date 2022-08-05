@@ -10,11 +10,12 @@
 #define _LIBCPP___RANDOM_BERNOULLI_DISTRIBUTION_H
 
 #include <__config>
+#include <__random/is_valid.h>
 #include <__random/uniform_real_distribution.h>
 #include <iosfwd>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -103,6 +104,7 @@ inline
 bernoulli_distribution::result_type
 bernoulli_distribution::operator()(_URNG& __g, const param_type& __p)
 {
+    static_assert(__libcpp_random_is_valid_urng<_URNG>::value, "");
     uniform_real_distribution<double> __gen;
     return __gen(__g) < __p.p();
 }

@@ -10,19 +10,20 @@
 #ifndef _LIBCPP___ITERATOR_ADVANCE_H
 #define _LIBCPP___ITERATOR_ADVANCE_H
 
+#include <__assert>
 #include <__config>
-#include <__debug>
 #include <__iterator/concepts.h>
 #include <__iterator/incrementable_traits.h>
 #include <__iterator/iterator_traits.h>
 #include <__utility/move.h>
+#include <__utility/unreachable.h>
 #include <concepts>
 #include <cstdlib>
 #include <limits>
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -64,7 +65,7 @@ void advance(_InputIter& __i, _Distance __orig_n) {
   _VSTD::__advance(__i, __n, typename iterator_traits<_InputIter>::iterator_category());
 }
 
-#if !defined(_LIBCPP_HAS_NO_CONCEPTS) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 // [range.iter.op.advance]
 
@@ -116,47 +117,46 @@ public:
     }
   }
 
-  // Preconditions: Either `assignable_from<I&, S> || sized_sentinel_for<S, I>` is modeled, or [i, bound) denotes a range.
+  // Preconditions: Either `assignable_from<I&, S> || sized_sentinel_for<S, I>` is modeled, or [i, bound_sentinel) denotes a range.
   template <input_or_output_iterator _Ip, sentinel_for<_Ip> _Sp>
-  _LIBCPP_HIDE_FROM_ABI
-  constexpr void operator()(_Ip& __i, _Sp __bound) const {
-    // If `I` and `S` model `assignable_from<I&, S>`, equivalent to `i = std::move(bound)`.
+  _LIBCPP_HIDE_FROM_ABI constexpr void operator()(_Ip& __i, _Sp __bound_sentinel) const {
+    // If `I` and `S` model `assignable_from<I&, S>`, equivalent to `i = std::move(bound_sentinel)`.
     if constexpr (assignable_from<_Ip&, _Sp>) {
-      __i = _VSTD::move(__bound);
+      __i = _VSTD::move(__bound_sentinel);
     }
-    // Otherwise, if `S` and `I` model `sized_sentinel_for<S, I>`, equivalent to `ranges::advance(i, bound - i)`.
+    // Otherwise, if `S` and `I` model `sized_sentinel_for<S, I>`, equivalent to `ranges::advance(i, bound_sentinel - i)`.
     else if constexpr (sized_sentinel_for<_Sp, _Ip>) {
-      (*this)(__i, __bound - __i);
+      (*this)(__i, __bound_sentinel - __i);
     }
-    // Otherwise, while `bool(i != bound)` is true, increments `i`.
+    // Otherwise, while `bool(i != bound_sentinel)` is true, increments `i`.
     else {
-      while (__i != __bound) {
+      while (__i != __bound_sentinel) {
         ++__i;
       }
     }
   }
 
   // Preconditions:
-  //   * If `n > 0`, [i, bound) denotes a range.
-  //   * If `n == 0`, [i, bound) or [bound, i) denotes a range.
-  //   * If `n < 0`, [bound, i) denotes a range, `I` models `bidirectional_iterator`, and `I` and `S` model `same_as<I, S>`.
-  // Returns: `n - M`, where `M` is the difference between the the ending and starting position.
+  //   * If `n > 0`, [i, bound_sentinel) denotes a range.
+  //   * If `n == 0`, [i, bound_sentinel) or [bound_sentinel, i) denotes a range.
+  //   * If `n < 0`, [bound_sentinel, i) denotes a range, `I` models `bidirectional_iterator`, and `I` and `S` model `same_as<I, S>`.
+  // Returns: `n - M`, where `M` is the difference between the ending and starting position.
   template <input_or_output_iterator _Ip, sentinel_for<_Ip> _Sp>
-  _LIBCPP_HIDE_FROM_ABI
-  constexpr iter_difference_t<_Ip> operator()(_Ip& __i, iter_difference_t<_Ip> __n, _Sp __bound) const {
+  _LIBCPP_HIDE_FROM_ABI constexpr iter_difference_t<_Ip> operator()(_Ip& __i, iter_difference_t<_Ip> __n,
+                                                                    _Sp __bound_sentinel) const {
     _LIBCPP_ASSERT((__n >= 0) || (bidirectional_iterator<_Ip> && same_as<_Ip, _Sp>),
                    "If `n < 0`, then `bidirectional_iterator<I> && same_as<I, S>` must be true.");
     // If `S` and `I` model `sized_sentinel_for<S, I>`:
     if constexpr (sized_sentinel_for<_Sp, _Ip>) {
-      // If |n| >= |bound - i|, equivalent to `ranges::advance(i, bound)`.
+      // If |n| >= |bound_sentinel - i|, equivalent to `ranges::advance(i, bound_sentinel)`.
       // __magnitude_geq(a, b) returns |a| >= |b|, assuming they have the same sign.
       auto __magnitude_geq = [](auto __a, auto __b) {
         return __a == 0 ? __b == 0 :
                __a > 0  ? __a >= __b :
                           __a <= __b;
       };
-      if (const auto __M = __bound - __i; __magnitude_geq(__n, __M)) {
-        (*this)(__i, __bound);
+      if (const auto __M = __bound_sentinel - __i; __magnitude_geq(__n, __M)) {
+        (*this)(__i, __bound_sentinel);
         return __n - __M;
       }
 
@@ -164,16 +164,16 @@ public:
       (*this)(__i, __n);
       return 0;
     } else {
-      // Otherwise, if `n` is non-negative, while `bool(i != bound)` is true, increments `i` but at
+      // Otherwise, if `n` is non-negative, while `bool(i != bound_sentinel)` is true, increments `i` but at
       // most `n` times.
-      while (__i != __bound && __n > 0) {
+      while (__i != __bound_sentinel && __n > 0) {
         ++__i;
         --__n;
       }
 
-      // Otherwise, while `bool(i != bound)` is true, decrements `i` but at most `-n` times.
+      // Otherwise, while `bool(i != bound_sentinel)` is true, decrements `i` but at most `-n` times.
       if constexpr (bidirectional_iterator<_Ip> && same_as<_Ip, _Sp>) {
-        while (__i != __bound && __n < 0) {
+        while (__i != __bound_sentinel && __n < 0) {
           --__i;
           ++__n;
         }
@@ -181,7 +181,7 @@ public:
       return __n;
     }
 
-    _LIBCPP_UNREACHABLE();
+    __libcpp_unreachable();
   }
 };
 
@@ -192,7 +192,7 @@ inline namespace __cpo {
 } // namespace __cpo
 } // namespace ranges
 
-#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 _LIBCPP_END_NAMESPACE_STD
 

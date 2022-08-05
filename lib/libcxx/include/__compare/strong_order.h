@@ -21,7 +21,7 @@
 #include <type_traits>
 
 #ifndef _LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -29,7 +29,7 @@ _LIBCPP_PUSH_MACROS
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#if _LIBCPP_STD_VER > 17
 
 // [cmp.alg]
 namespace __strong_order {
@@ -127,7 +127,7 @@ inline namespace __cpo {
     inline constexpr auto strong_order = __strong_order::__fn{};
 } // namespace __cpo
 
-#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#endif // _LIBCPP_STD_VER > 17
 
 _LIBCPP_END_NAMESPACE_STD
 

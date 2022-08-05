@@ -54,6 +54,7 @@ const libcxx_files = [_][]const u8{
     "src/ios.cpp",
     "src/ios.instantiations.cpp",
     "src/iostream.cpp",
+    "src/legacy_debug_handler.cpp",
     "src/legacy_pointer_safety.cpp",
     "src/locale.cpp",
     "src/memory.cpp",
@@ -85,6 +86,7 @@ const libcxx_files = [_][]const u8{
     "src/valarray.cpp",
     "src/variant.cpp",
     "src/vector.cpp",
+    "src/verbose_abort.cpp",
 };
 
 pub fn buildLibCXX(comp: *Compilation) !void {

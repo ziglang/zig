@@ -14,7 +14,7 @@
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -26,15 +26,10 @@ move(_Tp&& __t) _NOEXCEPT {
   return static_cast<_Up&&>(__t);
 }
 
-#ifndef _LIBCPP_CXX03_LANG
 template <class _Tp>
 using __move_if_noexcept_result_t =
     typename conditional<!is_nothrow_move_constructible<_Tp>::value && is_copy_constructible<_Tp>::value, const _Tp&,
                          _Tp&&>::type;
-#else // _LIBCPP_CXX03_LANG
-template <class _Tp>
-using __move_if_noexcept_result_t = const _Tp&;
-#endif
 
 template <class _Tp>
 _LIBCPP_NODISCARD_EXT inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11 __move_if_noexcept_result_t<_Tp>

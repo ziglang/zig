@@ -108,19 +108,42 @@ template <size_t I, class T, size_t N> const T&& get(const array<T, N>&&) noexce
 
 */
 
+#include <__algorithm/equal.h>
+#include <__algorithm/fill_n.h>
+#include <__algorithm/lexicographical_compare.h>
+#include <__algorithm/swap_ranges.h>
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
-#include <__debug>
+#include <__iterator/reverse_iterator.h>
 #include <__tuple>
-#include <algorithm>
-#include <cstdlib> // for _LIBCPP_UNREACHABLE
-#include <iterator>
+#include <__utility/integer_sequence.h>
+#include <__utility/move.h>
+#include <__utility/unreachable.h>
 #include <stdexcept>
 #include <type_traits>
-#include <utility>
 #include <version>
 
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <algorithm>
+#  include <iterator>
+#  include <utility>
+#endif
+
+// standard-mandated includes
+
+// [iterator.range]
+#include <__iterator/access.h>
+#include <__iterator/data.h>
+#include <__iterator/empty.h>
+#include <__iterator/reverse_access.h>
+#include <__iterator/size.h>
+
+// [array.syn]
+#include <compare>
+#include <initializer_list>
+
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -309,54 +332,54 @@ struct _LIBCPP_TEMPLATE_VIS array<_Tp, 0>
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
     reference operator[](size_type) _NOEXCEPT {
       _LIBCPP_ASSERT(false, "cannot call array<T, 0>::operator[] on a zero-sized array");
-      _LIBCPP_UNREACHABLE();
+      __libcpp_unreachable();
     }
 
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
     const_reference operator[](size_type) const _NOEXCEPT {
       _LIBCPP_ASSERT(false, "cannot call array<T, 0>::operator[] on a zero-sized array");
-      _LIBCPP_UNREACHABLE();
+      __libcpp_unreachable();
     }
 
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
     reference at(size_type) {
       __throw_out_of_range("array<T, 0>::at");
-      _LIBCPP_UNREACHABLE();
+      __libcpp_unreachable();
     }
 
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
     const_reference at(size_type) const {
       __throw_out_of_range("array<T, 0>::at");
-      _LIBCPP_UNREACHABLE();
+      __libcpp_unreachable();
     }
 
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
     reference front() _NOEXCEPT {
       _LIBCPP_ASSERT(false, "cannot call array<T, 0>::front() on a zero-sized array");
-      _LIBCPP_UNREACHABLE();
+      __libcpp_unreachable();
     }
 
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
     const_reference front() const _NOEXCEPT {
       _LIBCPP_ASSERT(false, "cannot call array<T, 0>::front() on a zero-sized array");
-      _LIBCPP_UNREACHABLE();
+      __libcpp_unreachable();
     }
 
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
     reference back() _NOEXCEPT {
       _LIBCPP_ASSERT(false, "cannot call array<T, 0>::back() on a zero-sized array");
-      _LIBCPP_UNREACHABLE();
+      __libcpp_unreachable();
     }
 
     _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
     const_reference back() const _NOEXCEPT {
       _LIBCPP_ASSERT(false, "cannot call array<T, 0>::back() on a zero-sized array");
-      _LIBCPP_UNREACHABLE();
+      __libcpp_unreachable();
     }
 };
 
 
-#if _LIBCPP_STD_VER >= 17
+#if _LIBCPP_STD_VER > 14
 template<class _Tp, class... _Args,
          class = enable_if_t<__all<_IsSame<_Tp, _Args>::value...>::value>
          >
@@ -415,12 +438,7 @@ operator>=(const array<_Tp, _Size>& __x, const array<_Tp, _Size>& __y)
 
 template <class _Tp, size_t _Size>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
-typename enable_if
-<
-    _Size == 0 ||
-    __is_swappable<_Tp>::value,
-    void
->::type
+__enable_if_t<_Size == 0 || __is_swappable<_Tp>::value, void>
 swap(array<_Tp, _Size>& __x, array<_Tp, _Size>& __y)
                                   _NOEXCEPT_(noexcept(__x.swap(__y)))
 {

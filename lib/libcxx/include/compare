@@ -140,6 +140,7 @@ namespace std {
 }
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__compare/common_comparison_category.h>
 #include <__compare/compare_partial_order_fallback.h>
 #include <__compare/compare_strong_order_fallback.h>
@@ -156,7 +157,7 @@ namespace std {
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 #endif // _LIBCPP_COMPARE

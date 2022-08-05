@@ -10,16 +10,22 @@
 #ifndef _LIBCPP___TREE
 #define _LIBCPP___TREE
 
+#include <__algorithm/min.h>
+#include <__assert>
 #include <__config>
+#include <__debug>
+#include <__iterator/distance.h>
+#include <__iterator/iterator_traits.h>
+#include <__iterator/next.h>
+#include <__memory/swap_allocator.h>
 #include <__utility/forward.h>
-#include <algorithm>
-#include <iterator>
+#include <__utility/swap.h>
 #include <limits>
 #include <memory>
 #include <stdexcept>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -28,12 +34,10 @@ _LIBCPP_PUSH_MACROS
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if defined(__GNUC__) && !defined(__clang__) // gcc.gnu.org/PR37804
 template <class, class, class, class> class _LIBCPP_TEMPLATE_VIS map;
 template <class, class, class, class> class _LIBCPP_TEMPLATE_VIS multimap;
 template <class, class, class> class _LIBCPP_TEMPLATE_VIS set;
 template <class, class, class> class _LIBCPP_TEMPLATE_VIS multiset;
-#endif
 
 template <class _Tp, class _Compare, class _Allocator> class __tree;
 template <class _Tp, class _NodePtr, class _DiffType>
@@ -140,35 +144,35 @@ __tree_invariant(_NodePtr __root)
 }
 
 // Returns:  pointer to the left-most node under __x.
-// Precondition:  __x != nullptr.
 template <class _NodePtr>
 inline _LIBCPP_INLINE_VISIBILITY
 _NodePtr
 __tree_min(_NodePtr __x) _NOEXCEPT
 {
+    _LIBCPP_ASSERT(__x != nullptr, "Root node shouldn't be null");
     while (__x->__left_ != nullptr)
         __x = __x->__left_;
     return __x;
 }
 
 // Returns:  pointer to the right-most node under __x.
-// Precondition:  __x != nullptr.
 template <class _NodePtr>
 inline _LIBCPP_INLINE_VISIBILITY
 _NodePtr
 __tree_max(_NodePtr __x) _NOEXCEPT
 {
+    _LIBCPP_ASSERT(__x != nullptr, "Root node shouldn't be null");
     while (__x->__right_ != nullptr)
         __x = __x->__right_;
     return __x;
 }
 
 // Returns:  pointer to the next in-order node after __x.
-// Precondition:  __x != nullptr.
 template <class _NodePtr>
 _NodePtr
 __tree_next(_NodePtr __x) _NOEXCEPT
 {
+    _LIBCPP_ASSERT(__x != nullptr, "node shouldn't be null");
     if (__x->__right_ != nullptr)
         return _VSTD::__tree_min(__x->__right_);
     while (!_VSTD::__tree_is_left_child(__x))
@@ -181,6 +185,7 @@ inline _LIBCPP_INLINE_VISIBILITY
 _EndNodePtr
 __tree_next_iter(_NodePtr __x) _NOEXCEPT
 {
+    _LIBCPP_ASSERT(__x != nullptr, "node shouldn't be null");
     if (__x->__right_ != nullptr)
         return static_cast<_EndNodePtr>(_VSTD::__tree_min(__x->__right_));
     while (!_VSTD::__tree_is_left_child(__x))
@@ -189,13 +194,13 @@ __tree_next_iter(_NodePtr __x) _NOEXCEPT
 }
 
 // Returns:  pointer to the previous in-order node before __x.
-// Precondition:  __x != nullptr.
 // Note: __x may be the end node.
 template <class _NodePtr, class _EndNodePtr>
 inline _LIBCPP_INLINE_VISIBILITY
 _NodePtr
 __tree_prev_iter(_EndNodePtr __x) _NOEXCEPT
 {
+    _LIBCPP_ASSERT(__x != nullptr, "node shouldn't be null");
     if (__x->__left_ != nullptr)
         return _VSTD::__tree_max(__x->__left_);
     _NodePtr __xx = static_cast<_NodePtr>(__x);
@@ -205,11 +210,11 @@ __tree_prev_iter(_EndNodePtr __x) _NOEXCEPT
 }
 
 // Returns:  pointer to a node which has no children
-// Precondition:  __x != nullptr.
 template <class _NodePtr>
 _NodePtr
 __tree_leaf(_NodePtr __x) _NOEXCEPT
 {
+    _LIBCPP_ASSERT(__x != nullptr, "node shouldn't be null");
     while (true)
     {
         if (__x->__left_ != nullptr)
@@ -229,11 +234,12 @@ __tree_leaf(_NodePtr __x) _NOEXCEPT
 
 // Effects:  Makes __x->__right_ the subtree root with __x as its left child
 //           while preserving in-order order.
-// Precondition:  __x->__right_ != nullptr
 template <class _NodePtr>
 void
 __tree_left_rotate(_NodePtr __x) _NOEXCEPT
 {
+    _LIBCPP_ASSERT(__x != nullptr, "node shouldn't be null");
+    _LIBCPP_ASSERT(__x->__right_ != nullptr, "node should have a right child");
     _NodePtr __y = __x->__right_;
     __x->__right_ = __y->__left_;
     if (__x->__right_ != nullptr)
@@ -249,11 +255,12 @@ __tree_left_rotate(_NodePtr __x) _NOEXCEPT
 
 // Effects:  Makes __x->__left_ the subtree root with __x as its right child
 //           while preserving in-order order.
-// Precondition:  __x->__left_ != nullptr
 template <class _NodePtr>
 void
 __tree_right_rotate(_NodePtr __x) _NOEXCEPT
 {
+    _LIBCPP_ASSERT(__x != nullptr, "node shouldn't be null");
+    _LIBCPP_ASSERT(__x->__left_ != nullptr, "node should have a left child");
     _NodePtr __y = __x->__left_;
     __x->__left_ = __y->__right_;
     if (__x->__left_ != nullptr)
@@ -268,8 +275,7 @@ __tree_right_rotate(_NodePtr __x) _NOEXCEPT
 }
 
 // Effects:  Rebalances __root after attaching __x to a leaf.
-// Precondition:  __root != nulptr && __x != nullptr.
-//                __x has no children.
+// Precondition:  __x has no children.
 //                __x == __root or == a direct or indirect child of __root.
 //                If __x were to be unlinked from __root (setting __root to
 //                  nullptr if __root == __x), __tree_invariant(__root) == true.
@@ -279,6 +285,8 @@ template <class _NodePtr>
 void
 __tree_balance_after_insert(_NodePtr __root, _NodePtr __x) _NOEXCEPT
 {
+    _LIBCPP_ASSERT(__root != nullptr, "Root of the tree shouldn't be null");
+    _LIBCPP_ASSERT(__x != nullptr, "Can't attach null node to a leaf");
     __x->__is_black_ = __x == __root;
     while (__x != __root && !__x->__parent_unsafe()->__is_black_)
     {
@@ -338,9 +346,7 @@ __tree_balance_after_insert(_NodePtr __root, _NodePtr __x) _NOEXCEPT
     }
 }
 
-// Precondition:  __root != nullptr && __z != nullptr.
-//                __tree_invariant(__root) == true.
-//                __z == __root or == a direct or indirect child of __root.
+// Precondition:  __z == __root or == a direct or indirect child of __root.
 // Effects:  unlinks __z from the tree rooted at __root, rebalancing as needed.
 // Postcondition: __tree_invariant(end_node->__left_) == true && end_node->__left_
 //                nor any of its children refer to __z.  end_node->__left_
@@ -349,6 +355,9 @@ template <class _NodePtr>
 void
 __tree_remove(_NodePtr __root, _NodePtr __z) _NOEXCEPT
 {
+    _LIBCPP_ASSERT(__root != nullptr, "Root node should not be null");
+    _LIBCPP_ASSERT(__z != nullptr, "The node to remove should not be null");
+    _LIBCPP_DEBUG_ASSERT(__tree_invariant(__root), "The tree invariants should hold");
     // __z will be removed from the tree.  Client still needs to destruct/deallocate it
     // __y is either __z, or if __z has two children, __tree_next(__z).
     // __y will have at most one child.
@@ -545,7 +554,7 @@ template <class ..._Args>
 struct __is_tree_value_type : false_type {};
 
 template <class _One>
-struct __is_tree_value_type<_One> : __is_tree_value_type_imp<typename __uncvref<_One>::type> {};
+struct __is_tree_value_type<_One> : __is_tree_value_type_imp<__uncvref_t<_One> > {};
 
 template <class _Tp>
 struct __tree_key_value_types {
@@ -589,8 +598,7 @@ struct __tree_key_value_types<__value_type<_Key, _Tp> > {
 
   template <class _Up>
   _LIBCPP_INLINE_VISIBILITY
-  static typename enable_if<__is_same_uncvref<_Up, __container_value_type>::value,
-      key_type const&>::type
+  static __enable_if_t<__is_same_uncvref<_Up, __container_value_type>::value, key_type const&>
   __get_key(_Up& __t) {
     return __t.first;
   }
@@ -603,8 +611,7 @@ struct __tree_key_value_types<__value_type<_Key, _Tp> > {
 
   template <class _Up>
   _LIBCPP_INLINE_VISIBILITY
-  static typename enable_if<__is_same_uncvref<_Up, __container_value_type>::value,
-      __container_value_type const&>::type
+  static __enable_if_t<__is_same_uncvref<_Up, __container_value_type>::value, __container_value_type const&>
   __get_value(_Up& __t) {
     return __t;
   }
@@ -1167,10 +1174,8 @@ public:
 
     template <class _First, class _Second>
     _LIBCPP_INLINE_VISIBILITY
-    typename enable_if<
-        __can_extract_map_key<_First, key_type, __container_value_type>::value,
-        pair<iterator, bool>
-    >::type __emplace_unique(_First&& __f, _Second&& __s) {
+    __enable_if_t<__can_extract_map_key<_First, key_type, __container_value_type>::value, pair<iterator, bool> >
+    __emplace_unique(_First&& __f, _Second&& __s) {
         return __emplace_unique_key_args(__f, _VSTD::forward<_First>(__f),
                                               _VSTD::forward<_Second>(__s));
     }
@@ -1211,10 +1216,8 @@ public:
 
     template <class _First, class _Second>
     _LIBCPP_INLINE_VISIBILITY
-    typename enable_if<
-        __can_extract_map_key<_First, key_type, __container_value_type>::value,
-        iterator
-    >::type __emplace_hint_unique(const_iterator __p, _First&& __f, _Second&& __s) {
+    __enable_if_t<__can_extract_map_key<_First, key_type, __container_value_type>::value, iterator>
+    __emplace_hint_unique(const_iterator __p, _First&& __f, _Second&& __s) {
         return __emplace_hint_unique_key_args(__p, __f,
                                               _VSTD::forward<_First>(__f),
                                               _VSTD::forward<_Second>(__s)).first;
@@ -1267,21 +1270,15 @@ public:
         return __emplace_hint_unique_key_args(__p, _NodeTypes::__get_key(__v), _VSTD::move(__v)).first;
     }
 
-    template <class _Vp, class = typename enable_if<
-            !is_same<typename __unconstref<_Vp>::type,
-                     __container_value_type
-            >::value
-        >::type>
+    template <class _Vp,
+              class = __enable_if_t<!is_same<typename __unconstref<_Vp>::type, __container_value_type>::value> >
     _LIBCPP_INLINE_VISIBILITY
     pair<iterator, bool> __insert_unique(_Vp&& __v) {
         return __emplace_unique(_VSTD::forward<_Vp>(__v));
     }
 
-    template <class _Vp, class = typename enable_if<
-            !is_same<typename __unconstref<_Vp>::type,
-                     __container_value_type
-            >::value
-        >::type>
+    template <class _Vp,
+              class = __enable_if_t<!is_same<typename __unconstref<_Vp>::type, __container_value_type>::value> >
     _LIBCPP_INLINE_VISIBILITY
     iterator __insert_unique(const_iterator __p, _Vp&& __v) {
         return __emplace_hint_unique(__p, _VSTD::forward<_Vp>(__v));

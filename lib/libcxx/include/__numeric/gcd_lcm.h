@@ -10,8 +10,8 @@
 #ifndef _LIBCPP___NUMERIC_GCD_LCM_H
 #define _LIBCPP___NUMERIC_GCD_LCM_H
 
+#include <__assert>
 #include <__config>
-#include <__debug>
 #include <limits>
 #include <type_traits>
 

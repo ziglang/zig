@@ -231,6 +231,7 @@ template<class T> complex<T> tanh (const complex<T>&);
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <cmath>
 #include <iosfwd>
@@ -243,7 +244,7 @@ template<class T> complex<T> tanh (const complex<T>&);
 #endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD

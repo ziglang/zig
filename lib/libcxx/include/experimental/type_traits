@@ -68,6 +68,7 @@ inline namespace fundamentals_v1 {
 
  */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <experimental/__config>
 
 #if _LIBCPP_STD_VER > 11
@@ -76,7 +77,7 @@ inline namespace fundamentals_v1 {
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_LFTS

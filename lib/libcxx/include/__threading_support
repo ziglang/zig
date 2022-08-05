@@ -7,13 +7,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef _LIBCPP_THREADING_SUPPORT
-#define _LIBCPP_THREADING_SUPPORT
+#ifndef _LIBCPP___THREADING_SUPPORT
+#define _LIBCPP___THREADING_SUPPORT
 
 #include <__availability>
+#include <__chrono/convert_to_timespec.h>
+#include <__chrono/duration.h>
 #include <__config>
 #include <__thread/poll_with_backoff.h>
-#include <chrono>
 #include <errno.h>
 #include <iosfwd>
 #include <limits>
@@ -23,7 +24,7 @@
 #endif
 
 #ifndef _LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 #if defined(_LIBCPP_HAS_THREAD_API_EXTERNAL)
@@ -200,15 +201,15 @@ int __libcpp_condvar_destroy(__libcpp_condvar_t* __cv);
 
 // Execute once
 _LIBCPP_THREAD_ABI_VISIBILITY
-int __libcpp_execute_once(__libcpp_exec_once_flag *flag,
-                          void (*init_routine)());
+int __libcpp_execute_once(__libcpp_exec_once_flag *__flag,
+                          void (*__init_routine)());
 
 // Thread id
 _LIBCPP_THREAD_ABI_VISIBILITY
-bool __libcpp_thread_id_equal(__libcpp_thread_id t1, __libcpp_thread_id t2);
+bool __libcpp_thread_id_equal(__libcpp_thread_id __t1, __libcpp_thread_id __t2);
 
 _LIBCPP_THREAD_ABI_VISIBILITY
-bool __libcpp_thread_id_less(__libcpp_thread_id t1, __libcpp_thread_id t2);
+bool __libcpp_thread_id_less(__libcpp_thread_id __t1, __libcpp_thread_id __t2);
 
 // Thread
 _LIBCPP_THREAD_ABI_VISIBILITY
@@ -346,22 +347,22 @@ int __libcpp_condvar_destroy(__libcpp_condvar_t *__cv)
 }
 
 // Execute once
-int __libcpp_execute_once(__libcpp_exec_once_flag *flag,
-                          void (*init_routine)()) {
-  return pthread_once(flag, init_routine);
+int __libcpp_execute_once(__libcpp_exec_once_flag *__flag,
+                          void (*__init_routine)()) {
+  return pthread_once(__flag, __init_routine);
 }
 
 // Thread id
 // Returns non-zero if the thread ids are equal, otherwise 0
-bool __libcpp_thread_id_equal(__libcpp_thread_id t1, __libcpp_thread_id t2)
+bool __libcpp_thread_id_equal(__libcpp_thread_id __t1, __libcpp_thread_id __t2)
 {
-  return t1 == t2;
+  return __t1 == __t2;
 }
 
 // Returns non-zero if t1 < t2, otherwise 0
-bool __libcpp_thread_id_less(__libcpp_thread_id t1, __libcpp_thread_id t2)
+bool __libcpp_thread_id_less(__libcpp_thread_id __t1, __libcpp_thread_id __t2)
 {
-  return t1 < t2;
+  return __t1 < __t2;
 }
 
 // Thread
@@ -673,4 +674,4 @@ get_id() _NOEXCEPT
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_THREADING_SUPPORT
+#endif // _LIBCPP___THREADING_SUPPORT

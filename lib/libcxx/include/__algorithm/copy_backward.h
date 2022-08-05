@@ -9,69 +9,51 @@
 #ifndef _LIBCPP___ALGORITHM_COPY_BACKWARD_H
 #define _LIBCPP___ALGORITHM_COPY_BACKWARD_H
 
+#include <__algorithm/copy.h>
+#include <__algorithm/iterator_operations.h>
+#include <__algorithm/ranges_copy.h>
 #include <__algorithm/unwrap_iter.h>
+#include <__concepts/same_as.h>
 #include <__config>
 #include <__iterator/iterator_traits.h>
+#include <__iterator/reverse_iterator.h>
+#include <__ranges/subrange.h>
+#include <__utility/move.h>
+#include <__utility/pair.h>
 #include <cstring>
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <class _BidirectionalIterator, class _OutputIterator>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
-_OutputIterator
-__copy_backward_constexpr(_BidirectionalIterator __first, _BidirectionalIterator __last, _OutputIterator __result)
-{
-    while (__first != __last)
-        *--__result = *--__last;
-    return __result;
+template <class _AlgPolicy, class _InputIterator, class _OutputIterator,
+          __enable_if_t<is_same<_AlgPolicy, _ClassicAlgPolicy>::value, int> = 0>
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11 pair<_InputIterator, _OutputIterator>
+__copy_backward(_InputIterator __first, _InputIterator __last, _OutputIterator __result) {
+  auto __ret = std::__copy(
+      __unconstrained_reverse_iterator<_InputIterator>(__last),
+      __unconstrained_reverse_iterator<_InputIterator>(__first),
+      __unconstrained_reverse_iterator<_OutputIterator>(__result));
+  return pair<_InputIterator, _OutputIterator>(__ret.first.base(), __ret.second.base());
 }
 
-template <class _BidirectionalIterator, class _OutputIterator>
-inline _LIBCPP_INLINE_VISIBILITY
-_OutputIterator
-__copy_backward(_BidirectionalIterator __first, _BidirectionalIterator __last, _OutputIterator __result)
-{
-    return _VSTD::__copy_backward_constexpr(__first, __last, __result);
+#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+template <class _AlgPolicy, class _Iter1, class _Sent1, class _Iter2,
+          __enable_if_t<is_same<_AlgPolicy, _RangeAlgPolicy>::value, int> = 0>
+_LIBCPP_HIDE_FROM_ABI constexpr pair<_Iter1, _Iter2> __copy_backward(_Iter1 __first, _Sent1 __last, _Iter2 __result) {
+  auto __reverse_range = std::__reverse_range(std::ranges::subrange(std::move(__first), std::move(__last)));
+  auto __ret           = ranges::copy(std::move(__reverse_range), std::make_reverse_iterator(__result));
+  return std::make_pair(__ret.in.base(), __ret.out.base());
 }
-
-template <class _Tp, class _Up>
-inline _LIBCPP_INLINE_VISIBILITY
-typename enable_if
-<
-    is_same<typename remove_const<_Tp>::type, _Up>::value &&
-    is_trivially_copy_assignable<_Up>::value,
-    _Up*
->::type
-__copy_backward(_Tp* __first, _Tp* __last, _Up* __result)
-{
-    const size_t __n = static_cast<size_t>(__last - __first);
-    if (__n > 0)
-    {
-        __result -= __n;
-        _VSTD::memmove(__result, __first, __n * sizeof(_Up));
-    }
-    return __result;
-}
+#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 template <class _BidirectionalIterator1, class _BidirectionalIterator2>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
-_BidirectionalIterator2
-copy_backward(_BidirectionalIterator1 __first, _BidirectionalIterator1 __last,
-              _BidirectionalIterator2 __result)
-{
-    if (__libcpp_is_constant_evaluated()) {
-        return _VSTD::__copy_backward_constexpr(__first, __last, __result);
-    } else {
-        return _VSTD::__rewrap_iter(__result,
-            _VSTD::__copy_backward(_VSTD::__unwrap_iter(__first),
-                                   _VSTD::__unwrap_iter(__last),
-                                   _VSTD::__unwrap_iter(__result)));
-    }
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17 _BidirectionalIterator2
+copy_backward(_BidirectionalIterator1 __first, _BidirectionalIterator1 __last, _BidirectionalIterator2 __result) {
+  return std::__copy_backward<_ClassicAlgPolicy>(__first, __last, __result).second;
 }
 
 _LIBCPP_END_NAMESPACE_STD

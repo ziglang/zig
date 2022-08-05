@@ -9,23 +9,28 @@
 #ifndef _LIBCPP___ALGORITHM_STABLE_PARTITION_H
 #define _LIBCPP___ALGORITHM_STABLE_PARTITION_H
 
+#include <__algorithm/iterator_operations.h>
 #include <__algorithm/rotate.h>
 #include <__config>
+#include <__iterator/advance.h>
+#include <__iterator/distance.h>
 #include <__iterator/iterator_traits.h>
-#include <__utility/swap.h>
 #include <memory>
+#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <class _Predicate, class _ForwardIterator, class _Distance, class _Pair>
+template <class _AlgPolicy, class _Predicate, class _ForwardIterator, class _Distance, class _Pair>
 _ForwardIterator
-__stable_partition(_ForwardIterator __first, _ForwardIterator __last, _Predicate __pred,
+__stable_partition_impl(_ForwardIterator __first, _ForwardIterator __last, _Predicate __pred,
                    _Distance __len, _Pair __p, forward_iterator_tag __fit)
 {
+    using _Ops = _IterOps<_AlgPolicy>;
+
     // *__first is known to be false
     // __len >= 1
     if (__len == 1)
@@ -35,7 +40,7 @@ __stable_partition(_ForwardIterator __first, _ForwardIterator __last, _Predicate
         _ForwardIterator __m = __first;
         if (__pred(*++__m))
         {
-            swap(*__first, *__m);
+            _Ops::iter_swap(__first, __m);
             return __m;
         }
         return __first;
@@ -48,7 +53,7 @@ __stable_partition(_ForwardIterator __first, _ForwardIterator __last, _Predicate
         // Move the falses into the temporary buffer, and the trues to the front of the line
         // Update __first to always point to the end of the trues
         value_type* __t = __p.first;
-        ::new ((void*)__t) value_type(_VSTD::move(*__first));
+        ::new ((void*)__t) value_type(_Ops::__iter_move(__first));
         __d.template __incr<value_type>();
         ++__t;
         _ForwardIterator __i = __first;
@@ -56,12 +61,12 @@ __stable_partition(_ForwardIterator __first, _ForwardIterator __last, _Predicate
         {
             if (__pred(*__i))
             {
-                *__first = _VSTD::move(*__i);
+                *__first = _Ops::__iter_move(__i);
                 ++__first;
             }
             else
             {
-                ::new ((void*)__t) value_type(_VSTD::move(*__i));
+                ::new ((void*)__t) value_type(_Ops::__iter_move(__i));
                 __d.template __incr<value_type>();
                 ++__t;
             }
@@ -70,7 +75,7 @@ __stable_partition(_ForwardIterator __first, _ForwardIterator __last, _Predicate
         // Move falses back into range, but don't mess up __first which points to first false
         __i = __first;
         for (value_type* __t2 = __p.first; __t2 < __t; ++__t2, (void) ++__i)
-            *__i = _VSTD::move(*__t2);
+            *__i = _Ops::__iter_move(__t2);
         // __h destructs moved-from values out of the temp buffer, but doesn't deallocate buffer
         return __first;
     }
@@ -78,11 +83,12 @@ __stable_partition(_ForwardIterator __first, _ForwardIterator __last, _Predicate
     // __len >= 3
     _ForwardIterator __m = __first;
     _Distance __len2 = __len / 2;  // __len2 >= 2
-    _VSTD::advance(__m, __len2);
+    _Ops::advance(__m, __len2);
     // recurse on [__first, __m), *__first know to be false
     // F?????????????????
     // f       m         l
-    _ForwardIterator __first_false = _VSTD::__stable_partition<_Predicate&>(__first, __m, __pred, __len2, __p, __fit);
+    _ForwardIterator __first_false = std::__stable_partition_impl<_AlgPolicy, _Predicate&>(
+        __first, __m, __pred, __len2, __p, __fit);
     // TTTFFFFF??????????
     // f  ff   m         l
     // recurse on [__m, __last], except increase __m until *(__m) is false, *__last know to be true
@@ -97,18 +103,19 @@ __stable_partition(_ForwardIterator __first, _ForwardIterator __last, _Predicate
     }
     // TTTFFFFFTTTF??????
     // f  ff   m  m1     l
-    __second_false = _VSTD::__stable_partition<_Predicate&>(__m1, __last, __pred, __len_half, __p, __fit);
+    __second_false = std::__stable_partition_impl<_AlgPolicy, _Predicate&>(
+        __m1, __last, __pred, __len_half, __p, __fit);
 __second_half_done:
     // TTTFFFFFTTTTTFFFFF
     // f  ff   m    sf   l
-    return _VSTD::rotate(__first_false, __m, __second_false);
+    return std::__rotate<_AlgPolicy>(__first_false, __m, __second_false, __fit);
     // TTTTTTTTFFFFFFFFFF
     //         |
 }
 
-template <class _Predicate, class _ForwardIterator>
+template <class _AlgPolicy, class _Predicate, class _ForwardIterator>
 _ForwardIterator
-__stable_partition(_ForwardIterator __first, _ForwardIterator __last, _Predicate __pred,
+__stable_partition_impl(_ForwardIterator __first, _ForwardIterator __last, _Predicate __pred,
                    forward_iterator_tag)
 {
     const unsigned __alloc_limit = 3;  // might want to make this a function of trivial assignment
@@ -125,28 +132,34 @@ __stable_partition(_ForwardIterator __first, _ForwardIterator __last, _Predicate
     // *__first is known to be false
     typedef typename iterator_traits<_ForwardIterator>::difference_type difference_type;
     typedef typename iterator_traits<_ForwardIterator>::value_type value_type;
-    difference_type __len = _VSTD::distance(__first, __last);
+    difference_type __len = _IterOps<_AlgPolicy>::distance(__first, __last);
     pair<value_type*, ptrdiff_t> __p(0, 0);
     unique_ptr<value_type, __return_temporary_buffer> __h;
     if (__len >= __alloc_limit)
     {
+// TODO: Remove the use of std::get_temporary_buffer
+_LIBCPP_SUPPRESS_DEPRECATED_PUSH
         __p = _VSTD::get_temporary_buffer<value_type>(__len);
+_LIBCPP_SUPPRESS_DEPRECATED_POP
         __h.reset(__p.first);
     }
-    return _VSTD::__stable_partition<_Predicate&>(__first, __last, __pred, __len, __p, forward_iterator_tag());
+    return std::__stable_partition_impl<_AlgPolicy, _Predicate&>(
+        std::move(__first), std::move(__last), __pred, __len, __p, forward_iterator_tag());
 }
 
-template <class _Predicate, class _BidirectionalIterator, class _Distance, class _Pair>
+template <class _AlgPolicy, class _Predicate, class _BidirectionalIterator, class _Distance, class _Pair>
 _BidirectionalIterator
-__stable_partition(_BidirectionalIterator __first, _BidirectionalIterator __last, _Predicate __pred,
+__stable_partition_impl(_BidirectionalIterator __first, _BidirectionalIterator __last, _Predicate __pred,
                    _Distance __len, _Pair __p, bidirectional_iterator_tag __bit)
 {
+    using _Ops = _IterOps<_AlgPolicy>;
+
     // *__first is known to be false
     // *__last is known to be true
     // __len >= 2
     if (__len == 2)
     {
-        swap(*__first, *__last);
+        _Ops::iter_swap(__first, __last);
         return __last;
     }
     if (__len == 3)
@@ -154,12 +167,12 @@ __stable_partition(_BidirectionalIterator __first, _BidirectionalIterator __last
         _BidirectionalIterator __m = __first;
         if (__pred(*++__m))
         {
-            swap(*__first, *__m);
-            swap(*__m, *__last);
+            _Ops::iter_swap(__first, __m);
+            _Ops::iter_swap(__m, __last);
             return __last;
         }
-        swap(*__m, *__last);
-        swap(*__first, *__m);
+        _Ops::iter_swap(__m, __last);
+        _Ops::iter_swap(__first, __m);
         return __m;
     }
     if (__len <= __p.second)
@@ -170,7 +183,7 @@ __stable_partition(_BidirectionalIterator __first, _BidirectionalIterator __last
         // Move the falses into the temporary buffer, and the trues to the front of the line
         // Update __first to always point to the end of the trues
         value_type* __t = __p.first;
-        ::new ((void*)__t) value_type(_VSTD::move(*__first));
+        ::new ((void*)__t) value_type(_Ops::__iter_move(__first));
         __d.template __incr<value_type>();
         ++__t;
         _BidirectionalIterator __i = __first;
@@ -178,23 +191,23 @@ __stable_partition(_BidirectionalIterator __first, _BidirectionalIterator __last
         {
             if (__pred(*__i))
             {
-                *__first = _VSTD::move(*__i);
+                *__first = _Ops::__iter_move(__i);
                 ++__first;
             }
             else
             {
-                ::new ((void*)__t) value_type(_VSTD::move(*__i));
+                ::new ((void*)__t) value_type(_Ops::__iter_move(__i));
                 __d.template __incr<value_type>();
                 ++__t;
             }
         }
         // move *__last, known to be true
-        *__first = _VSTD::move(*__i);
+        *__first = _Ops::__iter_move(__i);
         __i = ++__first;
         // All trues now at start of range, all falses in buffer
         // Move falses back into range, but don't mess up __first which points to first false
         for (value_type* __t2 = __p.first; __t2 < __t; ++__t2, (void) ++__i)
-            *__i = _VSTD::move(*__t2);
+            *__i = _Ops::__iter_move(__t2);
         // __h destructs moved-from values out of the temp buffer, but doesn't deallocate buffer
         return __first;
     }
@@ -202,7 +215,7 @@ __stable_partition(_BidirectionalIterator __first, _BidirectionalIterator __last
     // __len >= 4
     _BidirectionalIterator __m = __first;
     _Distance __len2 = __len / 2;  // __len2 >= 2
-    _VSTD::advance(__m, __len2);
+    _Ops::advance(__m, __len2);
     // recurse on [__first, __m-1], except reduce __m-1 until *(__m-1) is true, *__first know to be false
     // F????????????????T
     // f       m        l
@@ -217,7 +230,8 @@ __stable_partition(_BidirectionalIterator __first, _BidirectionalIterator __last
     }
     // F???TFFF?????????T
     // f   m1  m        l
-    __first_false = _VSTD::__stable_partition<_Predicate&>(__first, __m1, __pred, __len_half, __p, __bit);
+    __first_false = std::__stable_partition_impl<_AlgPolicy, _Predicate&>(
+        __first, __m1, __pred, __len_half, __p, __bit);
 __first_half_done:
     // TTTFFFFF?????????T
     // f  ff   m        l
@@ -234,18 +248,19 @@ __first_half_done:
     }
     // TTTFFFFFTTTF?????T
     // f  ff   m  m1    l
-    __second_false = _VSTD::__stable_partition<_Predicate&>(__m1, __last, __pred, __len_half, __p, __bit);
+    __second_false = std::__stable_partition_impl<_AlgPolicy, _Predicate&>(
+        __m1, __last, __pred, __len_half, __p, __bit);
 __second_half_done:
     // TTTFFFFFTTTTTFFFFF
     // f  ff   m    sf  l
-    return _VSTD::rotate(__first_false, __m, __second_false);
+    return std::__rotate<_AlgPolicy>(__first_false, __m, __second_false, __bit);
     // TTTTTTTTFFFFFFFFFF
     //         |
 }
 
-template <class _Predicate, class _BidirectionalIterator>
+template <class _AlgPolicy, class _Predicate, class _BidirectionalIterator>
 _BidirectionalIterator
-__stable_partition(_BidirectionalIterator __first, _BidirectionalIterator __last, _Predicate __pred,
+__stable_partition_impl(_BidirectionalIterator __first, _BidirectionalIterator __last, _Predicate __pred,
                    bidirectional_iterator_tag)
 {
     typedef typename iterator_traits<_BidirectionalIterator>::difference_type difference_type;
@@ -271,15 +286,27 @@ __stable_partition(_BidirectionalIterator __first, _BidirectionalIterator __last
     // *__first is known to be false
     // *__last is known to be true
     // __len >= 2
-    difference_type __len = _VSTD::distance(__first, __last) + 1;
+    difference_type __len = _IterOps<_AlgPolicy>::distance(__first, __last) + 1;
     pair<value_type*, ptrdiff_t> __p(0, 0);
     unique_ptr<value_type, __return_temporary_buffer> __h;
     if (__len >= __alloc_limit)
     {
+// TODO: Remove the use of std::get_temporary_buffer
+_LIBCPP_SUPPRESS_DEPRECATED_PUSH
         __p = _VSTD::get_temporary_buffer<value_type>(__len);
+_LIBCPP_SUPPRESS_DEPRECATED_POP
         __h.reset(__p.first);
     }
-    return _VSTD::__stable_partition<_Predicate&>(__first, __last, __pred, __len, __p, bidirectional_iterator_tag());
+    return std::__stable_partition_impl<_AlgPolicy, _Predicate&>(
+        std::move(__first), std::move(__last), __pred, __len, __p, bidirectional_iterator_tag());
+}
+
+template <class _AlgPolicy, class _Predicate, class _ForwardIterator, class _IterCategory>
+_LIBCPP_HIDE_FROM_ABI
+_ForwardIterator __stable_partition(
+    _ForwardIterator __first, _ForwardIterator __last, _Predicate&& __pred, _IterCategory __iter_category) {
+  return std::__stable_partition_impl<_AlgPolicy, __uncvref_t<_Predicate>&>(
+      std::move(__first), std::move(__last), __pred, __iter_category);
 }
 
 template <class _ForwardIterator, class _Predicate>
@@ -287,7 +314,9 @@ inline _LIBCPP_INLINE_VISIBILITY
 _ForwardIterator
 stable_partition(_ForwardIterator __first, _ForwardIterator __last, _Predicate __pred)
 {
-    return _VSTD::__stable_partition<_Predicate&>(__first, __last, __pred, typename iterator_traits<_ForwardIterator>::iterator_category());
+  using _IterCategory = typename iterator_traits<_ForwardIterator>::iterator_category;
+  return std::__stable_partition<_ClassicAlgPolicy, _Predicate&>(
+      std::move(__first), std::move(__last), __pred, _IterCategory());
 }
 
 _LIBCPP_END_NAMESPACE_STD

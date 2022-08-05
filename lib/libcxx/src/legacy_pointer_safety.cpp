@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "__config"
+#include <__config>
 #include <memory>
 
 // Support for garbage collection was removed in C++23 by https://wg21.link/P2186R2. Libc++ implements

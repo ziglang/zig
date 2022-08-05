@@ -19,142 +19,142 @@
 extern "C" {
 #endif
 
-inline _LIBCPP_INLINE_VISIBILITY int isalnum_l(int c, locale_t) {
-  return ::isalnum(c);
+inline _LIBCPP_HIDE_FROM_ABI int isalnum_l(int __c, locale_t) {
+  return ::isalnum(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int isalpha_l(int c, locale_t) {
-  return ::isalpha(c);
+inline _LIBCPP_HIDE_FROM_ABI int isalpha_l(int __c, locale_t) {
+  return ::isalpha(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int isblank_l(int c, locale_t) {
-  return ::isblank(c);
+inline _LIBCPP_HIDE_FROM_ABI int isblank_l(int __c, locale_t) {
+  return ::isblank(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int iscntrl_l(int c, locale_t) {
-  return ::iscntrl(c);
+inline _LIBCPP_HIDE_FROM_ABI int iscntrl_l(int __c, locale_t) {
+  return ::iscntrl(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int isdigit_l(int c, locale_t) {
-  return ::isdigit(c);
+inline _LIBCPP_HIDE_FROM_ABI int isdigit_l(int __c, locale_t) {
+  return ::isdigit(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int isgraph_l(int c, locale_t) {
-  return ::isgraph(c);
+inline _LIBCPP_HIDE_FROM_ABI int isgraph_l(int __c, locale_t) {
+  return ::isgraph(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int islower_l(int c, locale_t) {
-  return ::islower(c);
+inline _LIBCPP_HIDE_FROM_ABI int islower_l(int __c, locale_t) {
+  return ::islower(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int isprint_l(int c, locale_t) {
-  return ::isprint(c);
+inline _LIBCPP_HIDE_FROM_ABI int isprint_l(int __c, locale_t) {
+  return ::isprint(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int ispunct_l(int c, locale_t) {
-  return ::ispunct(c);
+inline _LIBCPP_HIDE_FROM_ABI int ispunct_l(int __c, locale_t) {
+  return ::ispunct(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int isspace_l(int c, locale_t) {
-  return ::isspace(c);
+inline _LIBCPP_HIDE_FROM_ABI int isspace_l(int __c, locale_t) {
+  return ::isspace(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int isupper_l(int c, locale_t) {
-  return ::isupper(c);
+inline _LIBCPP_HIDE_FROM_ABI int isupper_l(int __c, locale_t) {
+  return ::isupper(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int isxdigit_l(int c, locale_t) {
-  return ::isxdigit(c);
+inline _LIBCPP_HIDE_FROM_ABI int isxdigit_l(int __c, locale_t) {
+  return ::isxdigit(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int iswalnum_l(wint_t c, locale_t) {
-  return ::iswalnum(c);
+inline _LIBCPP_HIDE_FROM_ABI int iswalnum_l(wint_t __c, locale_t) {
+  return ::iswalnum(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int iswalpha_l(wint_t c, locale_t) {
-  return ::iswalpha(c);
+inline _LIBCPP_HIDE_FROM_ABI int iswalpha_l(wint_t __c, locale_t) {
+  return ::iswalpha(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int iswblank_l(wint_t c, locale_t) {
-  return ::iswblank(c);
+inline _LIBCPP_HIDE_FROM_ABI int iswblank_l(wint_t __c, locale_t) {
+  return ::iswblank(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int iswcntrl_l(wint_t c, locale_t) {
-  return ::iswcntrl(c);
+inline _LIBCPP_HIDE_FROM_ABI int iswcntrl_l(wint_t __c, locale_t) {
+  return ::iswcntrl(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int iswdigit_l(wint_t c, locale_t) {
-  return ::iswdigit(c);
+inline _LIBCPP_HIDE_FROM_ABI int iswdigit_l(wint_t __c, locale_t) {
+  return ::iswdigit(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int iswgraph_l(wint_t c, locale_t) {
-  return ::iswgraph(c);
+inline _LIBCPP_HIDE_FROM_ABI int iswgraph_l(wint_t __c, locale_t) {
+  return ::iswgraph(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int iswlower_l(wint_t c, locale_t) {
-  return ::iswlower(c);
+inline _LIBCPP_HIDE_FROM_ABI int iswlower_l(wint_t __c, locale_t) {
+  return ::iswlower(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int iswprint_l(wint_t c, locale_t) {
-  return ::iswprint(c);
+inline _LIBCPP_HIDE_FROM_ABI int iswprint_l(wint_t __c, locale_t) {
+  return ::iswprint(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int iswpunct_l(wint_t c, locale_t) {
-  return ::iswpunct(c);
+inline _LIBCPP_HIDE_FROM_ABI int iswpunct_l(wint_t __c, locale_t) {
+  return ::iswpunct(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int iswspace_l(wint_t c, locale_t) {
-  return ::iswspace(c);
+inline _LIBCPP_HIDE_FROM_ABI int iswspace_l(wint_t __c, locale_t) {
+  return ::iswspace(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int iswupper_l(wint_t c, locale_t) {
-  return ::iswupper(c);
+inline _LIBCPP_HIDE_FROM_ABI int iswupper_l(wint_t __c, locale_t) {
+  return ::iswupper(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int iswxdigit_l(wint_t c, locale_t) {
-  return ::iswxdigit(c);
+inline _LIBCPP_HIDE_FROM_ABI int iswxdigit_l(wint_t __c, locale_t) {
+  return ::iswxdigit(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int toupper_l(int c, locale_t) {
-  return ::toupper(c);
+inline _LIBCPP_HIDE_FROM_ABI int toupper_l(int __c, locale_t) {
+  return ::toupper(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int tolower_l(int c, locale_t) {
-  return ::tolower(c);
+inline _LIBCPP_HIDE_FROM_ABI int tolower_l(int __c, locale_t) {
+  return ::tolower(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY wint_t towupper_l(wint_t c, locale_t) {
-  return ::towupper(c);
+inline _LIBCPP_HIDE_FROM_ABI wint_t towupper_l(wint_t __c, locale_t) {
+  return ::towupper(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY wint_t towlower_l(wint_t c, locale_t) {
-  return ::towlower(c);
+inline _LIBCPP_HIDE_FROM_ABI wint_t towlower_l(wint_t __c, locale_t) {
+  return ::towlower(__c);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int strcoll_l(const char *s1, const char *s2,
-                                               locale_t) {
-  return ::strcoll(s1, s2);
+inline _LIBCPP_HIDE_FROM_ABI int
+strcoll_l(const char *__s1, const char *__s2, locale_t) {
+  return ::strcoll(__s1, __s2);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY size_t strxfrm_l(char *dest, const char *src,
-                                                  size_t n, locale_t) {
-  return ::strxfrm(dest, src, n);
+inline _LIBCPP_HIDE_FROM_ABI size_t
+strxfrm_l(char *__dest, const char *__src, size_t __n, locale_t) {
+  return ::strxfrm(__dest, __src, __n);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY size_t strftime_l(char *s, size_t max,
-                                                   const char *format,
-                                                   const struct tm *tm, locale_t) {
-  return ::strftime(s, max, format, tm);
+inline _LIBCPP_HIDE_FROM_ABI size_t
+strftime_l(char *__s, size_t __max, const char *__format, const struct tm *__tm,
+           locale_t) {
+  return ::strftime(__s, __max, __format, __tm);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY int wcscoll_l(const wchar_t *ws1,
-                                               const wchar_t *ws2, locale_t) {
-  return ::wcscoll(ws1, ws2);
+inline _LIBCPP_HIDE_FROM_ABI int
+wcscoll_l(const wchar_t *__ws1, const wchar_t *__ws2, locale_t) {
+  return ::wcscoll(__ws1, __ws2);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY size_t wcsxfrm_l(wchar_t *dest, const wchar_t *src,
-                                                  size_t n, locale_t) {
-  return ::wcsxfrm(dest, src, n);
+inline _LIBCPP_HIDE_FROM_ABI size_t
+wcsxfrm_l(wchar_t *__dest, const wchar_t *__src, size_t __n, locale_t) {
+  return ::wcsxfrm(__dest, __src, __n);
 }
 
 #ifdef __cplusplus

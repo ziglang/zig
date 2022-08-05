@@ -10,10 +10,22 @@
 #ifndef _LIBCPP___FILESYSTEM_U8PATH_H
 #define _LIBCPP___FILESYSTEM_U8PATH_H
 
+#include <__algorithm/unwrap_iter.h>
 #include <__availability>
 #include <__config>
 #include <__filesystem/path.h>
+#include <string>
 #include <type_traits>
+
+// Only required on Windows for __widen_from_utf8, and included conservatively
+// because it requires support for localization.
+#if defined(_LIBCPP_WIN32API)
+# include <locale>
+#endif
+
+#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#  pragma GCC system_header
+#endif
 
 #ifndef _LIBCPP_CXX03_LANG
 

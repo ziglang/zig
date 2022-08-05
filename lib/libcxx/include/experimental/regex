@@ -9,6 +9,7 @@
 
 #ifndef _LIBCPP_EXPERIMENTAL_REGEX
 #define _LIBCPP_EXPERIMENTAL_REGEX
+
 /*
     experimental/regex synopsis
 
@@ -35,13 +36,14 @@ namespace pmr {
 
  */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <experimental/__config>
 #include <experimental/memory_resource>
 #include <experimental/string>
 #include <regex>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_LFTS_PMR

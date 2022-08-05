@@ -12,69 +12,71 @@
 #include <__algorithm/comp.h>
 #include <__algorithm/comp_ref_type.h>
 #include <__algorithm/half_positive.h>
+#include <__algorithm/iterator_operations.h>
 #include <__algorithm/lower_bound.h>
 #include <__algorithm/upper_bound.h>
 #include <__config>
-#include <iterator>
+#include <__functional/identity.h>
+#include <__functional/invoke.h>
+#include <__iterator/advance.h>
+#include <__iterator/distance.h>
+#include <__iterator/iterator_traits.h>
+#include <__iterator/next.h>
+#include <__type_traits/is_callable.h>
+#include <__type_traits/is_copy_constructible.h>
+#include <__utility/move.h>
+#include <__utility/pair.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <class _Compare, class _ForwardIterator, class _Tp>
-_LIBCPP_CONSTEXPR_AFTER_CXX17 pair<_ForwardIterator, _ForwardIterator>
-__equal_range(_ForwardIterator __first, _ForwardIterator __last, const _Tp& __value_, _Compare __comp)
-{
-    typedef typename iterator_traits<_ForwardIterator>::difference_type difference_type;
-    difference_type __len = _VSTD::distance(__first, __last);
-    while (__len != 0)
-    {
-        difference_type __l2 = _VSTD::__half_positive(__len);
-        _ForwardIterator __m = __first;
-        _VSTD::advance(__m, __l2);
-        if (__comp(*__m, __value_))
-        {
-            __first = ++__m;
-            __len -= __l2 + 1;
-        }
-        else if (__comp(__value_, *__m))
-        {
-            __last = __m;
-            __len = __l2;
-        }
-        else
-        {
-            _ForwardIterator __mp1 = __m;
-            return pair<_ForwardIterator, _ForwardIterator>
-                   (
-                      _VSTD::__lower_bound<_Compare>(__first, __m, __value_, __comp),
-                      _VSTD::__upper_bound<_Compare>(++__mp1, __last, __value_, __comp)
-                   );
-        }
+template <class _AlgPolicy, class _Compare, class _Iter, class _Sent, class _Tp, class _Proj>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17 pair<_Iter, _Iter>
+__equal_range(_Iter __first, _Sent __last, const _Tp& __value, _Compare&& __comp, _Proj&& __proj) {
+  auto __len  = _IterOps<_AlgPolicy>::distance(__first, __last);
+  _Iter __end = _IterOps<_AlgPolicy>::next(__first, __last);
+  while (__len != 0) {
+    auto __half_len = std::__half_positive(__len);
+    _Iter __mid     = _IterOps<_AlgPolicy>::next(__first, __half_len);
+    if (std::__invoke(__comp, std::__invoke(__proj, *__mid), __value)) {
+      __first = ++__mid;
+      __len -= __half_len + 1;
+    } else if (std::__invoke(__comp, __value, std::__invoke(__proj, *__mid))) {
+      __end = __mid;
+      __len = __half_len;
+    } else {
+      _Iter __mp1 = __mid;
+      return pair<_Iter, _Iter>(
+          std::__lower_bound_impl<_AlgPolicy>(__first, __mid, __value, __comp, __proj),
+          std::__upper_bound<_AlgPolicy>(++__mp1, __end, __value, __comp, __proj));
     }
-    return pair<_ForwardIterator, _ForwardIterator>(__first, __first);
+  }
+  return pair<_Iter, _Iter>(__first, __first);
 }
 
 template <class _ForwardIterator, class _Tp, class _Compare>
-_LIBCPP_NODISCARD_EXT inline
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
-pair<_ForwardIterator, _ForwardIterator>
-equal_range(_ForwardIterator __first, _ForwardIterator __last, const _Tp& __value_, _Compare __comp)
-{
-    typedef typename __comp_ref_type<_Compare>::type _Comp_ref;
-    return _VSTD::__equal_range<_Comp_ref>(__first, __last, __value_, __comp);
+_LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17 pair<_ForwardIterator, _ForwardIterator>
+equal_range(_ForwardIterator __first, _ForwardIterator __last, const _Tp& __value, _Compare __comp) {
+  static_assert(__is_callable<_Compare, decltype(*__first), const _Tp&>::value,
+                "The comparator has to be callable");
+  static_assert(is_copy_constructible<_ForwardIterator>::value,
+                "Iterator has to be copy constructible");
+  typedef typename __comp_ref_type<_Compare>::type _Comp_ref;
+  return std::__equal_range<_ClassicAlgPolicy>(
+      std::move(__first), std::move(__last), __value, static_cast<_Comp_ref>(__comp), std::__identity());
 }
 
 template <class _ForwardIterator, class _Tp>
-_LIBCPP_NODISCARD_EXT inline
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
-pair<_ForwardIterator, _ForwardIterator>
-equal_range(_ForwardIterator __first, _ForwardIterator __last, const _Tp& __value_)
-{
-    return _VSTD::equal_range(__first, __last, __value_,
-                             __less<typename iterator_traits<_ForwardIterator>::value_type, _Tp>());
+_LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17 pair<_ForwardIterator, _ForwardIterator>
+equal_range(_ForwardIterator __first, _ForwardIterator __last, const _Tp& __value) {
+  return std::equal_range(
+      std::move(__first),
+      std::move(__last),
+      __value,
+      __less<typename iterator_traits<_ForwardIterator>::value_type, _Tp>());
 }
 
 _LIBCPP_END_NAMESPACE_STD

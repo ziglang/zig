@@ -17,7 +17,7 @@
 #include <vector>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -109,39 +109,63 @@ seed_seq::generate(_RandomAccessIterator __first, _RandomAccessIterator __last)
             __first[__q] += __r;
             __first[0] = __r;
         }
+        // Initialize indexing terms used with if statements as an optimization to
+        // avoid calculating modulo n on every loop iteration for each term.
+        size_t __kmodn = 0;          // __k % __n
+        size_t __k1modn = __n - 1;   // (__k - 1) % __n
+        size_t __kpmodn = __p % __n; // (__k + __p) % __n
+        size_t __kqmodn = __q % __n; // (__k + __q) % __n
+
         for (size_t __k = 1; __k <= __s; ++__k)
         {
-            const size_t __kmodn = __k % __n;
-            const size_t __kpmodn = (__k + __p) % __n;
-            result_type __r = 1664525 * _Tp(__first[__kmodn] ^ __first[__kpmodn]
-                                           ^ __first[(__k - 1) % __n]);
-            __first[__kpmodn] += __r;
-            __r +=  __kmodn + __v_[__k-1];
-            __first[(__k + __q) % __n] += __r;
-            __first[__kmodn] = __r;
+          if (++__kmodn == __n)
+            __kmodn = 0;
+          if (++__k1modn == __n)
+            __k1modn = 0;
+          if (++__kpmodn == __n)
+            __kpmodn = 0;
+          if (++__kqmodn == __n)
+            __kqmodn = 0;
+
+          result_type __r = 1664525 * _Tp(__first[__kmodn] ^ __first[__kpmodn] ^ __first[__k1modn]);
+          __first[__kpmodn] += __r;
+          __r += __kmodn + __v_[__k - 1];
+          __first[__kqmodn] += __r;
+          __first[__kmodn] = __r;
         }
         for (size_t __k = __s + 1; __k < __m; ++__k)
         {
-            const size_t __kmodn = __k % __n;
-            const size_t __kpmodn = (__k + __p) % __n;
-            result_type __r = 1664525 * _Tp(__first[__kmodn] ^ __first[__kpmodn]
-                                           ^ __first[(__k - 1) % __n]);
-            __first[__kpmodn] += __r;
-            __r +=  __kmodn;
-            __first[(__k + __q) % __n] += __r;
-            __first[__kmodn] = __r;
+          if (++__kmodn == __n)
+            __kmodn = 0;
+          if (++__k1modn == __n)
+            __k1modn = 0;
+          if (++__kpmodn == __n)
+            __kpmodn = 0;
+          if (++__kqmodn == __n)
+            __kqmodn = 0;
+
+          result_type __r = 1664525 * _Tp(__first[__kmodn] ^ __first[__kpmodn] ^ __first[__k1modn]);
+          __first[__kpmodn] += __r;
+          __r += __kmodn;
+          __first[__kqmodn] += __r;
+          __first[__kmodn] = __r;
         }
         for (size_t __k = __m; __k < __m + __n; ++__k)
         {
-            const size_t __kmodn = __k % __n;
-            const size_t __kpmodn = (__k + __p) % __n;
-            result_type __r = 1566083941 * _Tp(__first[__kmodn] +
-                                              __first[__kpmodn] +
-                                              __first[(__k - 1) % __n]);
-            __first[__kpmodn] ^= __r;
-            __r -= __kmodn;
-            __first[(__k + __q) % __n] ^= __r;
-            __first[__kmodn] = __r;
+          if (++__kmodn == __n)
+            __kmodn = 0;
+          if (++__k1modn == __n)
+            __k1modn = 0;
+          if (++__kpmodn == __n)
+            __kpmodn = 0;
+          if (++__kqmodn == __n)
+            __kqmodn = 0;
+
+          result_type __r = 1566083941 * _Tp(__first[__kmodn] + __first[__kpmodn] + __first[__k1modn]);
+          __first[__kpmodn] ^= __r;
+          __r -= __kmodn;
+          __first[__kqmodn] ^= __r;
+          __first[__kmodn] = __r;
         }
     }
 }

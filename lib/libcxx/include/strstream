@@ -129,13 +129,14 @@ private:
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <istream>
 #include <ostream>
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -265,8 +266,8 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     istrstream& operator=(istrstream&& __rhs)
     {
-        istream::operator=(_VSTD::move(__rhs));
         __sb_ = _VSTD::move(__rhs.__sb_);
+        istream::operator=(_VSTD::move(__rhs));
         return *this;
     }
 #endif // _LIBCPP_CXX03_LANG
@@ -314,8 +315,8 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     ostrstream& operator=(ostrstream&& __rhs)
     {
-        ostream::operator=(_VSTD::move(__rhs));
         __sb_ = _VSTD::move(__rhs.__sb_);
+        ostream::operator=(_VSTD::move(__rhs));
         return *this;
     }
 #endif // _LIBCPP_CXX03_LANG
@@ -374,8 +375,8 @@ public:
     _LIBCPP_INLINE_VISIBILITY
     strstream& operator=(strstream&& __rhs)
     {
-        iostream::operator=(_VSTD::move(__rhs));
         __sb_ = _VSTD::move(__rhs.__sb_);
+        iostream::operator=(_VSTD::move(__rhs));
         return *this;
     }
 #endif // _LIBCPP_CXX03_LANG

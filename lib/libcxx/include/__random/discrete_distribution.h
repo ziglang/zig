@@ -11,6 +11,7 @@
 
 #include <__algorithm/upper_bound.h>
 #include <__config>
+#include <__random/is_valid.h>
 #include <__random/uniform_real_distribution.h>
 #include <cstddef>
 #include <iosfwd>
@@ -18,7 +19,7 @@
 #include <vector>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -29,6 +30,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 template<class _IntType = int>
 class _LIBCPP_TEMPLATE_VIS discrete_distribution
 {
+    static_assert(__libcpp_random_is_valid_inttype<_IntType>::value, "IntType must be a supported integer type");
 public:
     // types
     typedef _IntType result_type;
@@ -211,6 +213,7 @@ template<class _URNG>
 _IntType
 discrete_distribution<_IntType>::operator()(_URNG& __g, const param_type& __p)
 {
+    static_assert(__libcpp_random_is_valid_urng<_URNG>::value, "");
     uniform_real_distribution<double> __gen;
     return static_cast<_IntType>(
            _VSTD::upper_bound(__p.__p_.begin(), __p.__p_.end(), __gen(__g)) -

@@ -40,17 +40,19 @@ namespace std
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__availability>
 #include <__config>
 #include <atomic>
+#include <limits>
 #include <version>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 #ifdef _LIBCPP_HAS_NO_THREADS
-# error <latch> is not supported on this single threaded system
+# error "<latch> is not supported since libc++ has been configured without support for threads."
 #endif
 
 _LIBCPP_PUSH_MACROS
@@ -91,10 +93,9 @@ public:
     inline _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     void wait() const
     {
-        auto const __test_fn = [=]() -> bool {
+        __cxx_atomic_wait(&__a.__a_, [&]() -> bool {
             return try_wait();
-        };
-        __cxx_atomic_wait(&__a.__a_, __test_fn);
+        });
     }
     inline _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     void arrive_and_wait(ptrdiff_t __update = 1)

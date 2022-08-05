@@ -122,6 +122,7 @@ template <class Mutex>
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__availability>
 #include <__config>
 #include <version>
@@ -135,12 +136,12 @@ _LIBCPP_PUSH_MACROS
 #include <__mutex_base>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 #ifdef _LIBCPP_HAS_NO_THREADS
-#error <shared_mutex> is not supported on this single threaded system
-#else // !_LIBCPP_HAS_NO_THREADS
+# error "<shared_mutex> is not supported since libc++ has been configured without support for threads."
+#endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -399,9 +400,9 @@ public:
     void lock();
     bool try_lock();
     template <class Rep, class Period>
-        bool try_lock_for(const chrono::duration<Rep, Period>& rel_time);
+        bool try_lock_for(const chrono::duration<Rep, Period>& __rel_time);
     template <class Clock, class Duration>
-        bool try_lock_until(const chrono::time_point<Clock, Duration>& abs_time);
+        bool try_lock_until(const chrono::time_point<Clock, Duration>& __abs_time);
     void unlock();
 
     // Setters
@@ -499,8 +500,6 @@ swap(shared_lock<_Mutex>& __x, shared_lock<_Mutex>& __y) _NOEXCEPT
     {__x.swap(__y);}
 
 _LIBCPP_END_NAMESPACE_STD
-
-#endif // !_LIBCPP_HAS_NO_THREADS
 
 #endif // _LIBCPP_STD_VER > 11
 

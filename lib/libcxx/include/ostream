@@ -130,20 +130,53 @@ template <class charT, class traits>
 template <class Stream, class T>
   Stream&& operator<<(Stream&& os, const T& x);
 
+template<class traits>
+basic_ostream<char, traits>& operator<<(basic_ostream<char, traits>&, wchar_t) = delete;               // since C++20
+template<class traits>
+basic_ostream<char, traits>& operator<<(basic_ostream<char, traits>&, char8_t) = delete;               // since C++20
+template<class traits>
+basic_ostream<char, traits>& operator<<(basic_ostream<char, traits>&, char16_t) = delete;              // since C++20
+template<class traits>
+basic_ostream<char, traits>& operator<<(basic_ostream<char, traits>&, char32_t) = delete;              // since C++20
+template<class traits>
+basic_ostream<wchar_t, traits>& operator<<(basic_ostream<wchar_t, traits>&, char8_t) = delete;         // since C++20
+template<class traits>
+basic_ostream<wchar_t, traits>& operator<<(basic_ostream<wchar_t, traits>&, char16_t) = delete;        // since C++20
+template<class traits>
+basic_ostream<wchar_t, traits>& operator<<(basic_ostream<wchar_t, traits>&, char32_t) = delete;        // since C++20
+template<class traits>
+basic_ostream<char, traits>& operator<<(basic_ostream<char, traits>&, const wchar_t*) = delete;        // since C++20
+template<class traits>
+basic_ostream<char, traits>& operator<<(basic_ostream<char, traits>&, const char8_t*) = delete;        // since C++20
+template<class traits>
+basic_ostream<char, traits>& operator<<(basic_ostream<char, traits>&, const char16_t*) = delete;       // since C++20
+template<class traits>
+basic_ostream<char, traits>& operator<<(basic_ostream<char, traits>&, const char32_t*) = delete;       // since C++20
+template<class traits>
+basic_ostream<wchar_t, traits>& operator<<(basic_ostream<wchar_t, traits>&, const char8_t*) = delete;  // since C++20
+template<class traits>
+basic_ostream<wchar_t, traits>& operator<<(basic_ostream<wchar_t, traits>&, const char16_t*) = delete; // since C++20
+template<class traits>
+basic_ostream<wchar_t, traits>& operator<<(basic_ostream<wchar_t, traits>&, const char32_t*) = delete; // since C++20
+
 }  // std
 
 */
 
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <bitset>
 #include <ios>
-#include <iterator>
 #include <locale>
 #include <streambuf>
 #include <version>
 
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <iterator>
+#endif
+
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -221,9 +254,13 @@ public:
 
     basic_ostream& operator<<(basic_streambuf<char_type, traits_type>* __sb);
 
+#if _LIBCPP_STD_VER > 14
+// LWG 2221 - nullptr. This is not backported to older standards modes.
+// See https://reviews.llvm.org/D127033 for more info on the rationale.
     _LIBCPP_INLINE_VISIBILITY
     basic_ostream& operator<<(nullptr_t)
     { return *this << "nullptr"; }
+#endif
 
     // 27.7.2.7 Unformatted output:
     basic_ostream& put(char_type __c);
@@ -1094,9 +1131,60 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, const bitset<_Size>& __x)
                          use_facet<ctype<_CharT> >(__os.getloc()).widen('1'));
 }
 
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ostream<char>)
+#if _LIBCPP_STD_VER > 17
+
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-_LIBCPP_EXTERN_TEMPLATE(class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ostream<wchar_t>)
+template <class _Traits>
+basic_ostream<char, _Traits>& operator<<(basic_ostream<char, _Traits>&, wchar_t) = delete;
+
+template <class _Traits>
+basic_ostream<char, _Traits>& operator<<(basic_ostream<char, _Traits>&, const wchar_t*) = delete;
+
+template <class _Traits>
+basic_ostream<wchar_t, _Traits>& operator<<(basic_ostream<wchar_t, _Traits>&, char16_t) = delete;
+
+template <class _Traits>
+basic_ostream<wchar_t, _Traits>& operator<<(basic_ostream<wchar_t, _Traits>&, char32_t) = delete;
+
+template <class _Traits>
+basic_ostream<wchar_t, _Traits>& operator<<(basic_ostream<wchar_t, _Traits>&, const char16_t*) = delete;
+
+template <class _Traits>
+basic_ostream<wchar_t, _Traits>& operator<<(basic_ostream<wchar_t, _Traits>&, const char32_t*) = delete;
+
+#endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
+
+#ifndef _LIBCPP_HAS_NO_CHAR8_T
+template <class _Traits>
+basic_ostream<char, _Traits>& operator<<(basic_ostream<char, _Traits>&, char8_t) = delete;
+
+template <class _Traits>
+basic_ostream<wchar_t, _Traits>& operator<<(basic_ostream<wchar_t, _Traits>&, char8_t) = delete;
+
+template <class _Traits>
+basic_ostream<char, _Traits>& operator<<(basic_ostream<char, _Traits>&, const char8_t*) = delete;
+
+template <class _Traits>
+basic_ostream<wchar_t, _Traits>& operator<<(basic_ostream<wchar_t, _Traits>&, const char8_t*) = delete;
+#endif
+
+template <class _Traits>
+basic_ostream<char, _Traits>& operator<<(basic_ostream<char, _Traits>&, char16_t) = delete;
+
+template <class _Traits>
+basic_ostream<char, _Traits>& operator<<(basic_ostream<char, _Traits>&, char32_t) = delete;
+
+template <class _Traits>
+basic_ostream<char, _Traits>& operator<<(basic_ostream<char, _Traits>&, const char16_t*) = delete;
+
+template <class _Traits>
+basic_ostream<char, _Traits>& operator<<(basic_ostream<char, _Traits>&, const char32_t*) = delete;
+
+#endif // _LIBCPP_STD_VER > 17
+
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ostream<char>;
+#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ostream<wchar_t>;
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

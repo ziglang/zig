@@ -18,17 +18,18 @@
 #include <__algorithm/rotate.h>
 #include <__algorithm/transform.h>
 #include <__concepts/arithmetic.h>
+#include <__concepts/same_as.h>
 #include <__config>
-#include <__debug>
-#include <__format/format_error.h>
 #include <__format/format_fwd.h>
-#include <__format/format_string.h>
+#include <__format/format_parse_context.h>
 #include <__format/formatter.h>
 #include <__format/formatter_integral.h>
+#include <__format/formatter_output.h>
 #include <__format/parser_std_format_spec.h>
+#include <__memory/allocator.h>
 #include <__utility/move.h>
+#include <__utility/unreachable.h>
 #include <charconv>
-#include <cmath>
 
 #ifndef _LIBCPP_HAS_NO_LOCALIZATION
 #  include <locale>
@@ -45,13 +46,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 #if _LIBCPP_STD_VER > 17
 
-// TODO FMT Remove this once we require compilers with proper C++20 support.
-// If the compiler has no concepts support, the format header will be disabled.
-// Without concepts support enable_if needs to be used and that too much effort
-// to support compilers with partial C++20 support.
-#  if !defined(_LIBCPP_HAS_NO_CONCEPTS)
-
-namespace __format_spec {
+namespace __formatter {
 
 template <floating_point _Tp>
 _LIBCPP_HIDE_FROM_ABI char* __to_buffer(char* __first, char* __last, _Tp __value) {
@@ -167,7 +162,7 @@ public:
       __precision_ = _Traits::__max_fractional;
     }
 
-    __size_ = __format_spec::__float_buffer_size<_Fp>(__precision_);
+    __size_ = __formatter::__float_buffer_size<_Fp>(__precision_);
     if (__size_ > _Traits::__stack_buffer_size)
       // The allocated buffer's contents don't need initialization.
       __begin_ = allocator<char>{}.allocate(__size_);
@@ -236,9 +231,9 @@ _LIBCPP_HIDE_FROM_ABI __float_result __format_buffer_default(const __float_buffe
                                                              char* __integral) {
   __float_result __result;
   __result.__integral = __integral;
-  __result.__last = __format_spec::__to_buffer(__integral, __buffer.end(), __value);
+  __result.__last     = __formatter::__to_buffer(__integral, __buffer.end(), __value);
 
-  __result.__exponent = __format_spec::__find_exponent(__result.__integral, __result.__last);
+  __result.__exponent = __formatter::__find_exponent(__result.__integral, __result.__last);
 
   // Constrains:
   // - There's at least one decimal digit before the radix point.
@@ -267,9 +262,9 @@ _LIBCPP_HIDE_FROM_ABI __float_result __format_buffer_hexadecimal_lower_case(cons
   __float_result __result;
   __result.__integral = __integral;
   if (__precision == -1)
-    __result.__last = __format_spec::__to_buffer(__integral, __buffer.end(), __value, chars_format::hex);
+    __result.__last = __formatter::__to_buffer(__integral, __buffer.end(), __value, chars_format::hex);
   else
-    __result.__last = __format_spec::__to_buffer(__integral, __buffer.end(), __value, chars_format::hex, __precision);
+    __result.__last = __formatter::__to_buffer(__integral, __buffer.end(), __value, chars_format::hex, __precision);
 
   // H = one or more hex-digits
   // S = sign
@@ -318,7 +313,7 @@ _LIBCPP_HIDE_FROM_ABI __float_result __format_buffer_hexadecimal_upper_case(cons
                                                                             _Tp __value, int __precision,
                                                                             char* __integral) {
   __float_result __result =
-      __format_spec::__format_buffer_hexadecimal_lower_case(__buffer, __value, __precision, __integral);
+      __formatter::__format_buffer_hexadecimal_lower_case(__buffer, __value, __precision, __integral);
   _VSTD::transform(__result.__integral, __result.__exponent, __result.__integral, __hex_to_upper);
   *__result.__exponent = 'P';
   return __result;
@@ -331,13 +326,13 @@ _LIBCPP_HIDE_FROM_ABI __float_result __format_buffer_scientific_lower_case(const
   __float_result __result;
   __result.__integral = __integral;
   __result.__last =
-      __format_spec::__to_buffer(__integral, __buffer.end(), __value, chars_format::scientific, __precision);
+      __formatter::__to_buffer(__integral, __buffer.end(), __value, chars_format::scientific, __precision);
 
   char* __first = __integral + 1;
   _LIBCPP_ASSERT(__first != __result.__last, "No exponent present");
   if (*__first == '.') {
     __result.__radix_point = __first;
-    __result.__exponent = __format_spec::__find_exponent(__first + 1, __result.__last);
+    __result.__exponent    = __formatter::__find_exponent(__first + 1, __result.__last);
   } else {
     __result.__radix_point = __result.__last;
     __result.__exponent = __first;
@@ -357,7 +352,7 @@ _LIBCPP_HIDE_FROM_ABI __float_result __format_buffer_scientific_upper_case(const
                                                                            _Tp __value, int __precision,
                                                                            char* __integral) {
   __float_result __result =
-      __format_spec::__format_buffer_scientific_lower_case(__buffer, __value, __precision, __integral);
+      __formatter::__format_buffer_scientific_lower_case(__buffer, __value, __precision, __integral);
   *__result.__exponent = 'E';
   return __result;
 }
@@ -367,7 +362,7 @@ _LIBCPP_HIDE_FROM_ABI __float_result __format_buffer_fixed(const __float_buffer<
                                                            int __precision, char* __integral) {
   __float_result __result;
   __result.__integral = __integral;
-  __result.__last = __format_spec::__to_buffer(__integral, __buffer.end(), __value, chars_format::fixed, __precision);
+  __result.__last     = __formatter::__to_buffer(__integral, __buffer.end(), __value, chars_format::fixed, __precision);
 
   // When there's no precision there's no radix point.
   // Else the radix point is placed at __precision + 1 from the end.
@@ -393,14 +388,14 @@ _LIBCPP_HIDE_FROM_ABI __float_result __format_buffer_general_lower_case(__float_
 
   __float_result __result;
   __result.__integral = __integral;
-  __result.__last = __format_spec::__to_buffer(__integral, __buffer.end(), __value, chars_format::general, __precision);
+  __result.__last = __formatter::__to_buffer(__integral, __buffer.end(), __value, chars_format::general, __precision);
 
   char* __first = __integral + 1;
   if (__first == __result.__last) {
     __result.__radix_point = __result.__last;
     __result.__exponent = __result.__last;
   } else {
-    __result.__exponent = __format_spec::__find_exponent(__first, __result.__last);
+    __result.__exponent = __formatter::__find_exponent(__first, __result.__last);
     if (__result.__exponent != __result.__last)
       // In scientific mode if there's a radix point it will always be after
       // the first digit. (This is the position __first points at).
@@ -426,19 +421,79 @@ _LIBCPP_HIDE_FROM_ABI __float_result __format_buffer_general_lower_case(__float_
 template <class _Fp, class _Tp>
 _LIBCPP_HIDE_FROM_ABI __float_result __format_buffer_general_upper_case(__float_buffer<_Fp>& __buffer, _Tp __value,
                                                                         int __precision, char* __integral) {
-  __float_result __result =
-      __format_spec::__format_buffer_general_lower_case(__buffer, __value, __precision, __integral);
+  __float_result __result = __formatter::__format_buffer_general_lower_case(__buffer, __value, __precision, __integral);
   if (__result.__exponent != __result.__last)
     *__result.__exponent = 'E';
   return __result;
 }
 
-#    ifndef _LIBCPP_HAS_NO_LOCALIZATION
+/// Fills the buffer with the data based on the requested formatting.
+///
+/// This function, when needed, turns the characters to upper case and
+/// determines the "interesting" locations which are returned to the caller.
+///
+/// This means the caller never has to convert the contents of the buffer to
+/// upper case or search for radix points and the location of the exponent.
+/// This gives a bit of overhead. The original code didn't do that, but due
+/// to the number of possible additional work needed to turn this number to
+/// the proper output the code was littered with tests for upper cases and
+/// searches for radix points and exponents.
+/// - When a precision larger than the type's precision is selected
+///   additional zero characters need to be written before the exponent.
+/// - alternate form needs to add a radix point when not present.
+/// - localization needs to do grouping in the integral part.
+template <class _Fp, class _Tp>
+// TODO FMT _Fp should just be _Tp when to_chars has proper long double support.
+_LIBCPP_HIDE_FROM_ABI __float_result __format_buffer(
+    __float_buffer<_Fp>& __buffer,
+    _Tp __value,
+    bool __negative,
+    bool __has_precision,
+    __format_spec::__sign __sign,
+    __format_spec::__type __type) {
+  char* __first = __formatter::__insert_sign(__buffer.begin(), __negative, __sign);
+  switch (__type) {
+  case __format_spec::__type::__default:
+    return __formatter::__format_buffer_default(__buffer, __value, __first);
+
+  case __format_spec::__type::__hexfloat_lower_case:
+    return __formatter::__format_buffer_hexadecimal_lower_case(
+        __buffer, __value, __has_precision ? __buffer.__precision() : -1, __first);
+
+  case __format_spec::__type::__hexfloat_upper_case:
+    return __formatter::__format_buffer_hexadecimal_upper_case(
+        __buffer, __value, __has_precision ? __buffer.__precision() : -1, __first);
+
+  case __format_spec::__type::__scientific_lower_case:
+    return __formatter::__format_buffer_scientific_lower_case(__buffer, __value, __buffer.__precision(), __first);
+
+  case __format_spec::__type::__scientific_upper_case:
+    return __formatter::__format_buffer_scientific_upper_case(__buffer, __value, __buffer.__precision(), __first);
+
+  case __format_spec::__type::__fixed_lower_case:
+  case __format_spec::__type::__fixed_upper_case:
+    return __formatter::__format_buffer_fixed(__buffer, __value, __buffer.__precision(), __first);
+
+  case __format_spec::__type::__general_lower_case:
+    return __formatter::__format_buffer_general_lower_case(__buffer, __value, __buffer.__precision(), __first);
+
+  case __format_spec::__type::__general_upper_case:
+    return __formatter::__format_buffer_general_upper_case(__buffer, __value, __buffer.__precision(), __first);
+
+  default:
+    _LIBCPP_ASSERT(false, "The parser should have validated the type");
+    __libcpp_unreachable();
+  }
+}
+
+#  ifndef _LIBCPP_HAS_NO_LOCALIZATION
 template <class _OutIt, class _Fp, class _CharT>
-_LIBCPP_HIDE_FROM_ABI _OutIt __format_locale_specific_form(_OutIt __out_it, const __float_buffer<_Fp>& __buffer,
-                                                           const __float_result& __result, _VSTD::locale __loc,
-                                                           size_t __width, _Flags::_Alignment __alignment,
-                                                           _CharT __fill) {
+_LIBCPP_HIDE_FROM_ABI _OutIt __format_locale_specific_form(
+    _OutIt __out_it,
+    const __float_buffer<_Fp>& __buffer,
+    const __float_result& __result,
+    _VSTD::locale __loc,
+    __format_spec::__parsed_specifications<_CharT> __specs) {
   const auto& __np = use_facet<numpunct<_CharT>>(__loc);
   string __grouping = __np.grouping();
   char* __first = __result.__integral;
@@ -450,29 +505,30 @@ _LIBCPP_HIDE_FROM_ABI _OutIt __format_locale_specific_form(_OutIt __out_it, cons
     if (__digits <= __grouping[0])
       __grouping.clear();
     else
-      __grouping = __determine_grouping(__digits, __grouping);
+      __grouping = __formatter::__determine_grouping(__digits, __grouping);
   }
 
-  size_t __size = __result.__last - __buffer.begin() + // Formatted string
-                  __buffer.__num_trailing_zeros() +    // Not yet rendered zeros
-                  __grouping.size() -                  // Grouping contains one
-                  !__grouping.empty();                 // additional character
+  ptrdiff_t __size =
+      __result.__last - __buffer.begin() + // Formatted string
+      __buffer.__num_trailing_zeros() +    // Not yet rendered zeros
+      __grouping.size() -                  // Grouping contains one
+      !__grouping.empty();                 // additional character
 
-  __formatter::__padding_size_result __padding = {0, 0};
-  bool __zero_padding = __alignment == _Flags::_Alignment::__default;
-  if (__size < __width) {
+  __formatter::__padding_size_result __padding    = {0, 0};
+  bool __zero_padding                             = __specs.__alignment_ == __format_spec::__alignment::__zero_padding;
+  if (__size < __specs.__width_) {
     if (__zero_padding) {
-      __alignment = _Flags::_Alignment::__right;
-      __fill = _CharT('0');
+      __specs.__alignment_ = __format_spec::__alignment::__right;
+      __specs.__fill_      = _CharT('0');
     }
 
-    __padding = __formatter::__padding_size(__size, __width, __alignment);
+    __padding = __formatter::__padding_size(__size, __specs.__width_, __specs.__alignment_);
   }
 
   // sign and (zero padding or alignment)
   if (__zero_padding && __first != __buffer.begin())
     *__out_it++ = *__buffer.begin();
-  __out_it = _VSTD::fill_n(_VSTD::move(__out_it), __padding.__before, __fill);
+  __out_it = _VSTD::fill_n(_VSTD::move(__out_it), __padding.__before_, __specs.__fill_);
   if (!__zero_padding && __first != __buffer.begin())
     *__out_it++ = *__buffer.begin();
 
@@ -513,200 +569,148 @@ _LIBCPP_HIDE_FROM_ABI _OutIt __format_locale_specific_form(_OutIt __out_it, cons
     __out_it = _VSTD::copy(__result.__exponent, __result.__last, _VSTD::move(__out_it));
 
   // alignment
-  return _VSTD::fill_n(_VSTD::move(__out_it), __padding.__after, __fill);
+  return _VSTD::fill_n(_VSTD::move(__out_it), __padding.__after_, __specs.__fill_);
+}
+#  endif // _LIBCPP_HAS_NO_LOCALIZATION
+
+template <class _OutIt, class _CharT>
+_LIBCPP_HIDE_FROM_ABI _OutIt __format_floating_point_non_finite(
+    _OutIt __out_it, __format_spec::__parsed_specifications<_CharT> __specs, bool __negative, bool __isnan) {
+  char __buffer[4];
+  char* __last = __formatter::__insert_sign(__buffer, __negative, __specs.__std_.__sign_);
+
+  // to_chars can return inf, infinity, nan, and nan(n-char-sequence).
+  // The format library requires inf and nan.
+  // All in one expression to avoid dangling references.
+  bool __upper_case =
+      __specs.__std_.__type_ == __format_spec::__type::__hexfloat_upper_case ||
+      __specs.__std_.__type_ == __format_spec::__type::__scientific_upper_case ||
+      __specs.__std_.__type_ == __format_spec::__type::__fixed_upper_case ||
+      __specs.__std_.__type_ == __format_spec::__type::__general_upper_case;
+  __last = _VSTD::copy_n(&("infnanINFNAN"[6 * __upper_case + 3 * __isnan]), 3, __last);
+
+  // [format.string.std]/13
+  // A zero (0) character preceding the width field pads the field with
+  // leading zeros (following any indication of sign or base) to the field
+  // width, except when applied to an infinity or NaN.
+  if (__specs.__alignment_ == __format_spec::__alignment::__zero_padding)
+    __specs.__alignment_ = __format_spec::__alignment::__right;
+
+  return __formatter::__write(__buffer, __last, _VSTD::move(__out_it), __specs);
 }
 
-#    endif // _LIBCPP_HAS_NO_LOCALIZATION
+template <floating_point _Tp, class _CharT>
+_LIBCPP_HIDE_FROM_ABI auto
+__format_floating_point(_Tp __value, auto& __ctx, __format_spec::__parsed_specifications<_CharT> __specs)
+    -> decltype(__ctx.out()) {
+  bool __negative = _VSTD::signbit(__value);
+
+  if (!_VSTD::isfinite(__value)) [[unlikely]]
+    return __formatter::__format_floating_point_non_finite(__ctx.out(), __specs, __negative, _VSTD::isnan(__value));
+
+  // Depending on the std-format-spec string the sign and the value
+  // might not be outputted together:
+  // - zero-padding may insert additional '0' characters.
+  // Therefore the value is processed as a non negative value.
+  // The function @ref __insert_sign will insert a '-' when the value was
+  // negative.
+
+  if (__negative)
+    __value = -__value;
+
+  // TODO FMT _Fp should just be _Tp when to_chars has proper long double support.
+  using _Fp = conditional_t<same_as<_Tp, long double>, double, _Tp>;
+  // Force the type of the precision to avoid -1 to become an unsigned value.
+  __float_buffer<_Fp> __buffer(__specs.__precision_);
+  __float_result __result = __formatter::__format_buffer(
+      __buffer, __value, __negative, (__specs.__has_precision()), __specs.__std_.__sign_, __specs.__std_.__type_);
+
+  if (__specs.__std_.__alternate_form_ && __result.__radix_point == __result.__last) {
+    *__result.__last++ = '.';
+
+    // When there is an exponent the point needs to be moved before the
+    // exponent. When there's no exponent the rotate does nothing. Since
+    // rotate tests whether the operation is a nop, call it unconditionally.
+    _VSTD::rotate(__result.__exponent, __result.__last - 1, __result.__last);
+    __result.__radix_point = __result.__exponent;
+
+    // The radix point is always placed before the exponent.
+    // - No exponent needs to point to the new last.
+    // - An exponent needs to move one position to the right.
+    // So it's safe to increment the value unconditionally.
+    ++__result.__exponent;
+  }
+
+#  ifndef _LIBCPP_HAS_NO_LOCALIZATION
+  if (__specs.__std_.__locale_specific_form_)
+    return __formatter::__format_locale_specific_form(__ctx.out(), __buffer, __result, __ctx.locale(), __specs);
+#  endif
+
+  ptrdiff_t __size         = __result.__last - __buffer.begin();
+  int __num_trailing_zeros = __buffer.__num_trailing_zeros();
+  if (__size + __num_trailing_zeros >= __specs.__width_) {
+    if (__num_trailing_zeros && __result.__exponent != __result.__last)
+      // Insert trailing zeros before exponent character.
+      return _VSTD::copy(
+          __result.__exponent,
+          __result.__last,
+          _VSTD::fill_n(
+              _VSTD::copy(__buffer.begin(), __result.__exponent, __ctx.out()), __num_trailing_zeros, _CharT('0')));
+
+    return _VSTD::fill_n(
+        _VSTD::copy(__buffer.begin(), __result.__last, __ctx.out()), __num_trailing_zeros, _CharT('0'));
+  }
+
+  auto __out_it = __ctx.out();
+  char* __first = __buffer.begin();
+  if (__specs.__alignment_ == __format_spec::__alignment ::__zero_padding) {
+    // When there is a sign output it before the padding. Note the __size
+    // doesn't need any adjustment, regardless whether the sign is written
+    // here or in __formatter::__write.
+    if (__first != __result.__integral)
+      *__out_it++ = *__first++;
+    // After the sign is written, zero padding is the same a right alignment
+    // with '0'.
+    __specs.__alignment_ = __format_spec::__alignment::__right;
+    __specs.__fill_      = _CharT('0');
+  }
+
+  if (__num_trailing_zeros)
+    return __formatter::__write_using_trailing_zeros(
+        __first, __result.__last, _VSTD::move(__out_it), __specs, __size, __result.__exponent, __num_trailing_zeros);
+
+  return __formatter::__write(__first, __result.__last, _VSTD::move(__out_it), __specs, __size);
+}
+
+} // namespace __formatter
 
 template <__formatter::__char_type _CharT>
-class _LIBCPP_TEMPLATE_VIS __formatter_floating_point : public __parser_floating_point<_CharT> {
+struct _LIBCPP_TEMPLATE_VIS __formatter_floating_point {
 public:
+  _LIBCPP_HIDE_FROM_ABI constexpr auto
+  parse(basic_format_parse_context<_CharT>& __parse_ctx) -> decltype(__parse_ctx.begin()) {
+    auto __result = __parser_.__parse(__parse_ctx, __format_spec::__fields_floating_point);
+    __format_spec::__process_parsed_floating_point(__parser_);
+    return __result;
+  }
+
   template <floating_point _Tp>
-  _LIBCPP_HIDE_FROM_ABI auto format(_Tp __value, auto& __ctx) -> decltype(__ctx.out()) {
-    if (this->__width_needs_substitution())
-      this->__substitute_width_arg_id(__ctx.arg(this->__width));
-
-    bool __negative = _VSTD::signbit(__value);
-
-    if (!_VSTD::isfinite(__value)) [[unlikely]]
-      return __format_non_finite(__ctx.out(), __negative, _VSTD::isnan(__value));
-
-    bool __has_precision = this->__has_precision_field();
-    if (this->__precision_needs_substitution())
-      this->__substitute_precision_arg_id(__ctx.arg(this->__precision));
-
-    // Depending on the std-format-spec string the sign and the value
-    // might not be outputted together:
-    // - zero-padding may insert additional '0' characters.
-    // Therefore the value is processed as a non negative value.
-    // The function @ref __insert_sign will insert a '-' when the value was
-    // negative.
-
-    if (__negative)
-      __value = _VSTD::copysign(__value, +1.0);
-
-    // TODO FMT _Fp should just be _Tp when to_chars has proper long double support.
-    using _Fp = conditional_t<same_as<_Tp, long double>, double, _Tp>;
-    // Force the type of the precision to avoid -1 to become an unsigned value.
-    __float_buffer<_Fp> __buffer(__has_precision ? int(this->__precision) : -1);
-    __float_result __result = __format_buffer(__buffer, __value, __negative, __has_precision);
-
-    if (this->__alternate_form && __result.__radix_point == __result.__last) {
-      *__result.__last++ = '.';
-
-      // When there is an exponent the point needs to be moved before the
-      // exponent. When there's no exponent the rotate does nothing. Since
-      // rotate tests whether the operation is a nop, call it unconditionally.
-      _VSTD::rotate(__result.__exponent, __result.__last - 1, __result.__last);
-      __result.__radix_point = __result.__exponent;
-
-      // The radix point is always placed before the exponent.
-      // - No exponent needs to point to the new last.
-      // - An exponent needs to move one position to the right.
-      // So it's safe to increment the value unconditionally.
-      ++__result.__exponent;
-    }
-
-#    ifndef _LIBCPP_HAS_NO_LOCALIZATION
-    if (this->__locale_specific_form)
-      return __format_spec::__format_locale_specific_form(__ctx.out(), __buffer, __result, __ctx.locale(),
-                                                          this->__width, this->__alignment, this->__fill);
-#    endif
-
-    ptrdiff_t __size = __result.__last - __buffer.begin();
-    int __num_trailing_zeros = __buffer.__num_trailing_zeros();
-    if (__size + __num_trailing_zeros >= this->__width) {
-      if (__num_trailing_zeros && __result.__exponent != __result.__last)
-        // Insert trailing zeros before exponent character.
-        return _VSTD::copy(__result.__exponent, __result.__last,
-                           _VSTD::fill_n(_VSTD::copy(__buffer.begin(), __result.__exponent, __ctx.out()),
-                                         __num_trailing_zeros, _CharT('0')));
-
-      return _VSTD::fill_n(_VSTD::copy(__buffer.begin(), __result.__last, __ctx.out()), __num_trailing_zeros,
-                           _CharT('0'));
-    }
-
-    auto __out_it = __ctx.out();
-    char* __first = __buffer.begin();
-    if (this->__alignment == _Flags::_Alignment::__default) {
-      // When there is a sign output it before the padding. Note the __size
-      // doesn't need any adjustment, regardless whether the sign is written
-      // here or in __formatter::__write.
-      if (__first != __result.__integral)
-        *__out_it++ = *__first++;
-      // After the sign is written, zero padding is the same a right alignment
-      // with '0'.
-      this->__alignment = _Flags::_Alignment::__right;
-      this->__fill = _CharT('0');
-    }
-
-    if (__num_trailing_zeros)
-      return __formatter::__write(_VSTD::move(__out_it), __first, __result.__last, __size, this->__width, this->__fill,
-                                  this->__alignment, __result.__exponent, __num_trailing_zeros);
-
-    return __formatter::__write(_VSTD::move(__out_it), __first, __result.__last, __size, this->__width, this->__fill,
-                                this->__alignment);
+  _LIBCPP_HIDE_FROM_ABI auto format(_Tp __value, auto& __ctx) const -> decltype(__ctx.out()) {
+    return __formatter::__format_floating_point(__value, __ctx, __parser_.__get_parsed_std_specifications(__ctx));
   }
 
-private:
-  template <class _OutIt>
-  _LIBCPP_HIDE_FROM_ABI _OutIt __format_non_finite(_OutIt __out_it, bool __negative, bool __isnan) {
-    char __buffer[4];
-    char* __last = __insert_sign(__buffer, __negative, this->__sign);
-
-    // to_char can return inf, infinity, nan, and nan(n-char-sequence).
-    // The format library requires inf and nan.
-    // All in one expression to avoid dangling references.
-    __last = _VSTD::copy_n(&("infnanINFNAN"[6 * (this->__type == _Flags::_Type::__float_hexadecimal_upper_case ||
-                                                 this->__type == _Flags::_Type::__scientific_upper_case ||
-                                                 this->__type == _Flags::_Type::__fixed_upper_case ||
-                                                 this->__type == _Flags::_Type::__general_upper_case) +
-                                            3 * __isnan]),
-                           3, __last);
-
-    // [format.string.std]/13
-    // A zero (0) character preceding the width field pads the field with
-    // leading zeros (following any indication of sign or base) to the field
-    // width, except when applied to an infinity or NaN.
-    if (this->__alignment == _Flags::_Alignment::__default)
-      this->__alignment = _Flags::_Alignment::__right;
-
-    ptrdiff_t __size = __last - __buffer;
-    if (__size >= this->__width)
-      return _VSTD::copy_n(__buffer, __size, _VSTD::move(__out_it));
-
-    return __formatter::__write(_VSTD::move(__out_it), __buffer, __last, __size, this->__width, this->__fill,
-                                this->__alignment);
-  }
-
-  /// Fills the buffer with the data based on the requested formatting.
-  ///
-  /// This function, when needed, turns the characters to upper case and
-  /// determines the "interesting" locations which are returned to the caller.
-  ///
-  /// This means the caller never has to convert the contents of the buffer to
-  /// upper case or search for radix points and the location of the exponent.
-  /// This gives a bit of overhead. The original code didn't do that, but due
-  /// to the number of possible additional work needed to turn this number to
-  /// the proper output the code was littered with tests for upper cases and
-  /// searches for radix points and exponents.
-  /// - When a precision larger than the type's precision is selected
-  ///   additional zero characters need to be written before the exponent.
-  /// - alternate form needs to add a radix point when not present.
-  /// - localization needs to do grouping in the integral part.
-  template <class _Fp, class _Tp>
-  // TODO FMT _Fp should just be _Tp when to_chars has proper long double support.
-  _LIBCPP_HIDE_FROM_ABI __float_result __format_buffer(__float_buffer<_Fp>& __buffer, _Tp __value, bool __negative,
-                                                       bool __has_precision) {
-    char* __first = __insert_sign(__buffer.begin(), __negative, this->__sign);
-    switch (this->__type) {
-    case _Flags::_Type::__default:
-      return __format_spec::__format_buffer_default(__buffer, __value, __first);
-
-    case _Flags::_Type::__float_hexadecimal_lower_case:
-      return __format_spec::__format_buffer_hexadecimal_lower_case(
-          __buffer, __value, __has_precision ? __buffer.__precision() : -1, __first);
-
-    case _Flags::_Type::__float_hexadecimal_upper_case:
-      return __format_spec::__format_buffer_hexadecimal_upper_case(
-          __buffer, __value, __has_precision ? __buffer.__precision() : -1, __first);
-
-    case _Flags::_Type::__scientific_lower_case:
-      return __format_spec::__format_buffer_scientific_lower_case(__buffer, __value, __buffer.__precision(), __first);
-
-    case _Flags::_Type::__scientific_upper_case:
-      return __format_spec::__format_buffer_scientific_upper_case(__buffer, __value, __buffer.__precision(), __first);
-
-    case _Flags::_Type::__fixed_lower_case:
-    case _Flags::_Type::__fixed_upper_case:
-      return __format_spec::__format_buffer_fixed(__buffer, __value, __buffer.__precision(), __first);
-
-    case _Flags::_Type::__general_lower_case:
-      return __format_spec::__format_buffer_general_lower_case(__buffer, __value, __buffer.__precision(), __first);
-
-    case _Flags::_Type::__general_upper_case:
-      return __format_spec::__format_buffer_general_upper_case(__buffer, __value, __buffer.__precision(), __first);
-
-    default:
-      _LIBCPP_ASSERT(false, "The parser should have validated the type");
-      _LIBCPP_UNREACHABLE();
-    }
-  }
+  __format_spec::__parser<_CharT> __parser_;
 };
-
-} //namespace __format_spec
 
 template <__formatter::__char_type _CharT>
 struct _LIBCPP_TEMPLATE_VIS _LIBCPP_AVAILABILITY_FORMAT formatter<float, _CharT>
-    : public __format_spec::__formatter_floating_point<_CharT> {};
+    : public __formatter_floating_point<_CharT> {};
 template <__formatter::__char_type _CharT>
 struct _LIBCPP_TEMPLATE_VIS _LIBCPP_AVAILABILITY_FORMAT formatter<double, _CharT>
-    : public __format_spec::__formatter_floating_point<_CharT> {};
+    : public __formatter_floating_point<_CharT> {};
 template <__formatter::__char_type _CharT>
 struct _LIBCPP_TEMPLATE_VIS _LIBCPP_AVAILABILITY_FORMAT formatter<long double, _CharT>
-    : public __format_spec::__formatter_floating_point<_CharT> {};
-
-#  endif // !defined(_LIBCPP_HAS_NO_CONCEPTS)
+    : public __formatter_floating_point<_CharT> {};
 
 #endif //_LIBCPP_STD_VER > 17
 

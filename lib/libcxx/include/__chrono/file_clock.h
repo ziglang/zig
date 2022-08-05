@@ -18,7 +18,7 @@
 #include <ratio>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#pragma GCC system_header
+#  pragma GCC system_header
 #endif
 
 #ifndef _LIBCPP_CXX03_LANG
