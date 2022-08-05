@@ -92,20 +92,28 @@ pub const Inst = struct {
         load_memory_ptr_direct,
         /// Load Pair of Registers
         ldp,
+        /// Pseudo-instruction: Load pointer to stack argument
+        ldr_ptr_stack_argument,
         /// Pseudo-instruction: Load from stack
         ldr_stack,
+        /// Pseudo-instruction: Load from stack argument
+        ldr_stack_argument,
         /// Load Register (immediate)
         ldr_immediate,
         /// Load Register (register)
         ldr_register,
         /// Pseudo-instruction: Load byte from stack
         ldrb_stack,
+        /// Pseudo-instruction: Load byte from stack argument
+        ldrb_stack_argument,
         /// Load Register Byte (immediate)
         ldrb_immediate,
         /// Load Register Byte (register)
         ldrb_register,
         /// Pseudo-instruction: Load halfword from stack
         ldrh_stack,
+        /// Pseudo-instruction: Load halfword from stack argument
+        ldrh_stack_argument,
         /// Load Register Halfword (immediate)
         ldrh_immediate,
         /// Load Register Halfword (register)
@@ -114,10 +122,14 @@ pub const Inst = struct {
         ldrsb_immediate,
         /// Pseudo-instruction: Load signed byte from stack
         ldrsb_stack,
+        /// Pseudo-instruction: Load signed byte from stack argument
+        ldrsb_stack_argument,
         /// Load Register Signed Halfword (immediate)
         ldrsh_immediate,
         /// Pseudo-instruction: Load signed halfword from stack
         ldrsh_stack,
+        /// Pseudo-instruction: Load signed halfword from stack argument
+        ldrsh_stack_argument,
         /// Load Register Signed Word (immediate)
         ldrsw_immediate,
         /// Logical Shift Left (immediate)
@@ -136,6 +148,8 @@ pub const Inst = struct {
         movk,
         /// Move wide with zero
         movz,
+        /// Multiply-subtract
+        msub,
         /// Multiply
         mul,
         /// Bitwise NOT
@@ -152,6 +166,8 @@ pub const Inst = struct {
         ret,
         /// Signed bitfield extract
         sbfx,
+        /// Signed divide
+        sdiv,
         /// Signed multiply high
         smulh,
         /// Signed multiply long
@@ -200,6 +216,8 @@ pub const Inst = struct {
         tst_immediate,
         /// Unsigned bitfield extract
         ubfx,
+        /// Unsigned divide
+        udiv,
         /// Unsigned multiply high
         umulh,
         /// Unsigned multiply long
@@ -429,6 +447,15 @@ pub const Inst = struct {
             rt2: Register,
             rn: Register,
             offset: bits.Instruction.LoadStorePairOffset,
+        },
+        /// Four registers
+        ///
+        /// Used by e.g. msub
+        rrrr: struct {
+            rd: Register,
+            rn: Register,
+            rm: Register,
+            ra: Register,
         },
         /// Debug info: line and column
         ///

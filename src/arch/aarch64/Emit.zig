@@ -27,14 +27,21 @@ code: *std.ArrayList(u8),
 
 prev_di_line: u32,
 prev_di_column: u32,
+
 /// Relative to the beginning of `code`.
 prev_di_pc: usize,
 
+/// The amount of stack space consumed by the saved callee-saved
+/// registers in bytes
+saved_regs_stack_space: u32,
+
 /// The branch type of every branch
 branch_types: std.AutoHashMapUnmanaged(Mir.Inst.Index, BranchType) = .{},
+
 /// For every forward branch, maps the target instruction to a list of
 /// branches which branch to this target instruction
 branch_forward_origins: std.AutoHashMapUnmanaged(Mir.Inst.Index, std.ArrayListUnmanaged(Mir.Inst.Index)) = .{},
+
 /// For backward branches: stores the code offset of the target
 /// instruction
 ///
@@ -42,6 +49,8 @@ branch_forward_origins: std.AutoHashMapUnmanaged(Mir.Inst.Index, std.ArrayListUn
 /// instruction
 code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .{},
 
+/// The final stack frame size of the function (already aligned to the
+/// respective stack alignment). Does not include prologue stack space.
 stack_size: u32,
 
 const InnerError = error{
@@ -82,9 +91,11 @@ pub fn emitMir(
             .sub_immediate => try emit.mirAddSubtractImmediate(inst),
             .subs_immediate => try emit.mirAddSubtractImmediate(inst),
 
-            .asr_register => try emit.mirShiftRegister(inst),
-            .lsl_register => try emit.mirShiftRegister(inst),
-            .lsr_register => try emit.mirShiftRegister(inst),
+            .asr_register => try emit.mirDataProcessing2Source(inst),
+            .lsl_register => try emit.mirDataProcessing2Source(inst),
+            .lsr_register => try emit.mirDataProcessing2Source(inst),
+            .sdiv => try emit.mirDataProcessing2Source(inst),
+            .udiv => try emit.mirDataProcessing2Source(inst),
 
             .asr_immediate => try emit.mirShiftImmediate(inst),
             .lsl_immediate => try emit.mirShiftImmediate(inst),
@@ -148,6 +159,13 @@ pub fn emitMir(
             .strb_stack => try emit.mirLoadStoreStack(inst),
             .strh_stack => try emit.mirLoadStoreStack(inst),
 
+            .ldr_stack_argument => try emit.mirLoadStackArgument(inst),
+            .ldr_ptr_stack_argument => try emit.mirLoadStackArgument(inst),
+            .ldrb_stack_argument => try emit.mirLoadStackArgument(inst),
+            .ldrh_stack_argument => try emit.mirLoadStackArgument(inst),
+            .ldrsb_stack_argument => try emit.mirLoadStackArgument(inst),
+            .ldrsh_stack_argument => try emit.mirLoadStackArgument(inst),
+
             .ldr_register => try emit.mirLoadStoreRegisterRegister(inst),
             .ldrb_register => try emit.mirLoadStoreRegisterRegister(inst),
             .ldrh_register => try emit.mirLoadStoreRegisterRegister(inst),
@@ -172,6 +190,7 @@ pub fn emitMir(
             .movk => try emit.mirMoveWideImmediate(inst),
             .movz => try emit.mirMoveWideImmediate(inst),
 
+            .msub => try emit.mirDataProcessing3Source(inst),
             .mul => try emit.mirDataProcessing3Source(inst),
             .smulh => try emit.mirDataProcessing3Source(inst),
             .smull => try emit.mirDataProcessing3Source(inst),
@@ -504,7 +523,7 @@ fn mirAddSubtractImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
     }
 }
 
-fn mirShiftRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
+fn mirDataProcessing2Source(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const rrr = emit.mir.instructions.items(.data)[inst].rrr;
     const rd = rrr.rd;
@@ -515,6 +534,8 @@ fn mirShiftRegister(emit: *Emit, inst: Mir.Inst.Index) !void {
         .asr_register => try emit.writeInstruction(Instruction.asrRegister(rd, rn, rm)),
         .lsl_register => try emit.writeInstruction(Instruction.lslRegister(rd, rn, rm)),
         .lsr_register => try emit.writeInstruction(Instruction.lsrRegister(rd, rn, rm)),
+        .sdiv => try emit.writeInstruction(Instruction.sdiv(rd, rn, rm)),
+        .udiv => try emit.writeInstruction(Instruction.udiv(rd, rn, rm)),
         else => unreachable,
     }
 }
@@ -920,6 +941,67 @@ fn mirLoadStoreRegisterPair(emit: *Emit, inst: Mir.Inst.Index) !void {
     }
 }
 
+fn mirLoadStackArgument(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const load_store_stack = emit.mir.instructions.items(.data)[inst].load_store_stack;
+    const rt = load_store_stack.rt;
+
+    const raw_offset = emit.stack_size + emit.saved_regs_stack_space + load_store_stack.offset;
+    switch (tag) {
+        .ldr_ptr_stack_argument => {
+            const offset = if (math.cast(u12, raw_offset)) |imm| imm else {
+                return emit.fail("TODO load stack argument ptr with larger offset", .{});
+            };
+
+            switch (tag) {
+                .ldr_ptr_stack_argument => try emit.writeInstruction(Instruction.add(rt, .sp, offset, false)),
+                else => unreachable,
+            }
+        },
+        .ldrb_stack_argument, .ldrsb_stack_argument => {
+            const offset = if (math.cast(u12, raw_offset)) |imm| Instruction.LoadStoreOffset.imm(imm) else {
+                return emit.fail("TODO load stack argument byte with larger offset", .{});
+            };
+
+            switch (tag) {
+                .ldrb_stack_argument => try emit.writeInstruction(Instruction.ldrb(rt, .sp, offset)),
+                .ldrsb_stack_argument => try emit.writeInstruction(Instruction.ldrsb(rt, .sp, offset)),
+                else => unreachable,
+            }
+        },
+        .ldrh_stack_argument, .ldrsh_stack_argument => {
+            assert(std.mem.isAlignedGeneric(u32, raw_offset, 2)); // misaligned stack entry
+            const offset = if (math.cast(u12, @divExact(raw_offset, 2))) |imm| Instruction.LoadStoreOffset.imm(imm) else {
+                return emit.fail("TODO load stack argument halfword with larger offset", .{});
+            };
+
+            switch (tag) {
+                .ldrh_stack_argument => try emit.writeInstruction(Instruction.ldrh(rt, .sp, offset)),
+                .ldrsh_stack_argument => try emit.writeInstruction(Instruction.ldrsh(rt, .sp, offset)),
+                else => unreachable,
+            }
+        },
+        .ldr_stack_argument => {
+            const alignment: u32 = switch (rt.size()) {
+                32 => 4,
+                64 => 8,
+                else => unreachable,
+            };
+
+            assert(std.mem.isAlignedGeneric(u32, raw_offset, alignment)); // misaligned stack entry
+            const offset = if (math.cast(u12, @divExact(raw_offset, alignment))) |imm| Instruction.LoadStoreOffset.imm(imm) else {
+                return emit.fail("TODO load stack argument with larger offset", .{});
+            };
+
+            switch (tag) {
+                .ldr_stack_argument => try emit.writeInstruction(Instruction.ldr(rt, .sp, offset)),
+                else => unreachable,
+            }
+        },
+        else => unreachable,
+    }
+}
+
 fn mirLoadStoreStack(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const load_store_stack = emit.mir.instructions.items(.data)[inst].load_store_stack;
@@ -1059,14 +1141,31 @@ fn mirMoveWideImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
 
 fn mirDataProcessing3Source(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
-    const rrr = emit.mir.instructions.items(.data)[inst].rrr;
 
     switch (tag) {
-        .mul => try emit.writeInstruction(Instruction.mul(rrr.rd, rrr.rn, rrr.rm)),
-        .smulh => try emit.writeInstruction(Instruction.smulh(rrr.rd, rrr.rn, rrr.rm)),
-        .smull => try emit.writeInstruction(Instruction.smull(rrr.rd, rrr.rn, rrr.rm)),
-        .umulh => try emit.writeInstruction(Instruction.umulh(rrr.rd, rrr.rn, rrr.rm)),
-        .umull => try emit.writeInstruction(Instruction.umull(rrr.rd, rrr.rn, rrr.rm)),
+        .mul,
+        .smulh,
+        .smull,
+        .umulh,
+        .umull,
+        => {
+            const rrr = emit.mir.instructions.items(.data)[inst].rrr;
+            switch (tag) {
+                .mul => try emit.writeInstruction(Instruction.mul(rrr.rd, rrr.rn, rrr.rm)),
+                .smulh => try emit.writeInstruction(Instruction.smulh(rrr.rd, rrr.rn, rrr.rm)),
+                .smull => try emit.writeInstruction(Instruction.smull(rrr.rd, rrr.rn, rrr.rm)),
+                .umulh => try emit.writeInstruction(Instruction.umulh(rrr.rd, rrr.rn, rrr.rm)),
+                .umull => try emit.writeInstruction(Instruction.umull(rrr.rd, rrr.rn, rrr.rm)),
+                else => unreachable,
+            }
+        },
+        .msub => {
+            const rrrr = emit.mir.instructions.items(.data)[inst].rrrr;
+            switch (tag) {
+                .msub => try emit.writeInstruction(Instruction.msub(rrrr.rd, rrrr.rn, rrrr.rm, rrrr.ra)),
+                else => unreachable,
+            }
+        },
         else => unreachable,
     }
 }
