@@ -425,7 +425,7 @@ test "zeroes" {
     comptime var comptime_union = zeroes(C_union);
     try testing.expectEqual(@as(u8, 0), comptime_union.a);
 
-    // https://github.com/ziglang/zig/pull/12246
+    // Ensure zero sized struct with fields is initialized correctly.
     _ = zeroes(struct { handle: void });
 }
 
