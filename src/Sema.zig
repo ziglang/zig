@@ -25569,6 +25569,11 @@ fn analyzeSlice(
         const new_ptr_val = opt_new_ptr_val orelse {
             const result = try block.addBitCast(return_ty, new_ptr);
             if (block.wantSafety()) {
+                // requirement: slicing C ptr is non-null
+                if (ptr_ptr_child_ty.isCPtr()) {
+                    const is_non_null = try sema.analyzeIsNull(block, ptr_src, ptr, true);
+                    try sema.addSafetyCheck(block, is_non_null, .unwrap_null);
+                }
                 // requirement: result[new_len] == slice_sentinel
                 try sema.panicSentinelMismatch(block, src, slice_sentinel, elem_ty, result, new_len);
             }

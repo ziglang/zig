@@ -10,7 +10,8 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noretur
 
 pub fn main() !void {
     var ptr: [*c]const u32 = null;
-    var slice = ptr[0..3];
+    var len: usize = 3;
+    var slice = ptr[0..len];
     _ = slice;
     return error.TestFailed;
 }
