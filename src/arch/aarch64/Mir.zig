@@ -148,6 +148,8 @@ pub const Inst = struct {
         movk,
         /// Move wide with zero
         movz,
+        /// Multiply-subtract
+        msub,
         /// Multiply
         mul,
         /// Bitwise NOT
@@ -445,6 +447,15 @@ pub const Inst = struct {
             rt2: Register,
             rn: Register,
             offset: bits.Instruction.LoadStorePairOffset,
+        },
+        /// Four registers
+        ///
+        /// Used by e.g. msub
+        rrrr: struct {
+            rd: Register,
+            rn: Register,
+            rm: Register,
+            ra: Register,
         },
         /// Debug info: line and column
         ///

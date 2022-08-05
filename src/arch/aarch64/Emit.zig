@@ -190,6 +190,7 @@ pub fn emitMir(
             .movk => try emit.mirMoveWideImmediate(inst),
             .movz => try emit.mirMoveWideImmediate(inst),
 
+            .msub => try emit.mirDataProcessing3Source(inst),
             .mul => try emit.mirDataProcessing3Source(inst),
             .smulh => try emit.mirDataProcessing3Source(inst),
             .smull => try emit.mirDataProcessing3Source(inst),
@@ -1140,14 +1141,31 @@ fn mirMoveWideImmediate(emit: *Emit, inst: Mir.Inst.Index) !void {
 
 fn mirDataProcessing3Source(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
-    const rrr = emit.mir.instructions.items(.data)[inst].rrr;
 
     switch (tag) {
-        .mul => try emit.writeInstruction(Instruction.mul(rrr.rd, rrr.rn, rrr.rm)),
-        .smulh => try emit.writeInstruction(Instruction.smulh(rrr.rd, rrr.rn, rrr.rm)),
-        .smull => try emit.writeInstruction(Instruction.smull(rrr.rd, rrr.rn, rrr.rm)),
-        .umulh => try emit.writeInstruction(Instruction.umulh(rrr.rd, rrr.rn, rrr.rm)),
-        .umull => try emit.writeInstruction(Instruction.umull(rrr.rd, rrr.rn, rrr.rm)),
+        .mul,
+        .smulh,
+        .smull,
+        .umulh,
+        .umull,
+        => {
+            const rrr = emit.mir.instructions.items(.data)[inst].rrr;
+            switch (tag) {
+                .mul => try emit.writeInstruction(Instruction.mul(rrr.rd, rrr.rn, rrr.rm)),
+                .smulh => try emit.writeInstruction(Instruction.smulh(rrr.rd, rrr.rn, rrr.rm)),
+                .smull => try emit.writeInstruction(Instruction.smull(rrr.rd, rrr.rn, rrr.rm)),
+                .umulh => try emit.writeInstruction(Instruction.umulh(rrr.rd, rrr.rn, rrr.rm)),
+                .umull => try emit.writeInstruction(Instruction.umull(rrr.rd, rrr.rn, rrr.rm)),
+                else => unreachable,
+            }
+        },
+        .msub => {
+            const rrrr = emit.mir.instructions.items(.data)[inst].rrrr;
+            switch (tag) {
+                .msub => try emit.writeInstruction(Instruction.msub(rrrr.rd, rrrr.rn, rrrr.rm, rrrr.ra)),
+                else => unreachable,
+            }
+        },
         else => unreachable,
     }
 }

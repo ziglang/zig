@@ -1038,6 +1038,7 @@ fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
     const operand_info = operand_ty.intInfo(self.target.*);
 
     const dest_ty = self.air.typeOfIndex(inst);
+    const dest_abi_size = dest_ty.abiSize(self.target.*);
     const dest_info = dest_ty.intInfo(self.target.*);
 
     const result: MCValue = result: {
@@ -1047,16 +1048,21 @@ fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
         };
         defer if (operand_lock) |lock| self.register_manager.unlockReg(lock);
 
+        const truncated: MCValue = switch (operand_mcv) {
+            .register => |r| MCValue{ .register = registerAlias(r, dest_abi_size) },
+            else => operand_mcv,
+        };
+
         if (dest_info.bits > operand_info.bits) {
             const dest_mcv = try self.allocRegOrMem(inst, true);
-            try self.setRegOrMem(self.air.typeOfIndex(inst), dest_mcv, operand_mcv);
+            try self.setRegOrMem(self.air.typeOfIndex(inst), dest_mcv, truncated);
             break :result dest_mcv;
         } else {
-            if (self.reuseOperand(inst, operand, 0, operand_mcv)) {
-                break :result operand_mcv;
+            if (self.reuseOperand(inst, operand, 0, truncated)) {
+                break :result truncated;
             } else {
                 const dest_mcv = try self.allocRegOrMem(inst, true);
-                try self.setRegOrMem(self.air.typeOfIndex(inst), dest_mcv, operand_mcv);
+                try self.setRegOrMem(self.air.typeOfIndex(inst), dest_mcv, truncated);
                 break :result dest_mcv;
             }
         }
@@ -1145,7 +1151,7 @@ fn trunc(
 
         return MCValue{ .register = dest_reg };
     } else {
-        return self.fail("TODO: truncate to ints > 32 bits", .{});
+        return self.fail("TODO: truncate to ints > 64 bits", .{});
     }
 }
 
@@ -1679,14 +1685,67 @@ fn binOp(
                 .Int => {
                     assert(lhs_ty.eql(rhs_ty, mod));
                     const int_info = lhs_ty.intInfo(self.target.*);
-                    if (int_info.bits <= 32) {
-                        switch (int_info.signedness) {
-                            .signed => {
-                                return self.fail("TODO rem/mod on signed integers", .{});
-                            },
-                            .unsigned => {
-                                return self.fail("TODO rem/mod on unsigned integers", .{});
-                            },
+                    if (int_info.bits <= 64) {
+                        if (int_info.signedness == .signed and tag == .mod) {
+                            return self.fail("TODO mod on signed integers", .{});
+                        } else {
+                            const lhs_is_register = lhs == .register;
+                            const rhs_is_register = rhs == .register;
+
+                            const lhs_lock: ?RegisterLock = if (lhs_is_register)
+                                self.register_manager.lockReg(lhs.register)
+                            else
+                                null;
+                            defer if (lhs_lock) |reg| self.register_manager.unlockReg(reg);
+
+                            const lhs_reg = if (lhs_is_register)
+                                lhs.register
+                            else
+                                try self.register_manager.allocReg(null, gp);
+                            const new_lhs_lock = self.register_manager.lockReg(lhs_reg);
+                            defer if (new_lhs_lock) |reg| self.register_manager.unlockReg(reg);
+
+                            const rhs_reg = if (rhs_is_register)
+                                rhs.register
+                            else
+                                try self.register_manager.allocReg(null, gp);
+                            const new_rhs_lock = self.register_manager.lockReg(rhs_reg);
+                            defer if (new_rhs_lock) |reg| self.register_manager.unlockReg(reg);
+
+                            const dest_regs = try self.register_manager.allocRegs(2, .{ null, null }, gp);
+                            const dest_regs_locks = self.register_manager.lockRegsAssumeUnused(2, dest_regs);
+                            defer for (dest_regs_locks) |reg| {
+                                self.register_manager.unlockReg(reg);
+                            };
+                            const quotient_reg = dest_regs[0];
+                            const remainder_reg = dest_regs[1];
+
+                            if (!lhs_is_register) try self.genSetReg(lhs_ty, lhs_reg, lhs);
+                            if (!rhs_is_register) try self.genSetReg(rhs_ty, rhs_reg, rhs);
+
+                            _ = try self.addInst(.{
+                                .tag = switch (int_info.signedness) {
+                                    .signed => .sdiv,
+                                    .unsigned => .udiv,
+                                },
+                                .data = .{ .rrr = .{
+                                    .rd = quotient_reg,
+                                    .rn = lhs_reg,
+                                    .rm = rhs_reg,
+                                } },
+                            });
+
+                            _ = try self.addInst(.{
+                                .tag = .msub,
+                                .data = .{ .rrrr = .{
+                                    .rd = remainder_reg,
+                                    .rn = quotient_reg,
+                                    .rm = rhs_reg,
+                                    .ra = lhs_reg,
+                                } },
+                            });
+
+                            return MCValue{ .register = remainder_reg };
                         }
                     } else {
                         return self.fail("TODO rem/mod for integers with bits > 64", .{});
