@@ -1314,6 +1314,9 @@ fn binOpRegister(
     const lhs_is_register = lhs == .register;
     const rhs_is_register = rhs == .register;
 
+    if (lhs_is_register) assert(lhs.register == registerAlias(lhs.register, lhs_ty.abiSize(self.target.*)));
+    if (rhs_is_register) assert(rhs.register == registerAlias(rhs.register, rhs_ty.abiSize(self.target.*)));
+
     const lhs_lock: ?RegisterLock = if (lhs_is_register)
         self.register_manager.lockReg(lhs.register)
     else
@@ -1343,13 +1346,22 @@ fn binOpRegister(
     const new_lhs_lock = self.register_manager.lockReg(lhs_reg);
     defer if (new_lhs_lock) |reg| self.register_manager.unlockReg(reg);
 
-    const rhs_reg = if (rhs_is_register) rhs.register else blk: {
+    const rhs_reg = if (rhs_is_register)
+        // lhs is almost always equal to rhs, except in shifts. In
+        // order to guarantee that registers will have equal sizes, we
+        // use the register alias of rhs corresponding to the size of
+        // lhs.
+        registerAlias(rhs.register, lhs_ty.abiSize(self.target.*))
+    else blk: {
         const track_inst: ?Air.Inst.Index = if (metadata) |md| inst: {
             break :inst Air.refToIndex(md.rhs).?;
         } else null;
 
         const raw_reg = try self.register_manager.allocReg(track_inst, gp);
-        const reg = registerAlias(raw_reg, rhs_ty.abiAlignment(self.target.*));
+
+        // Here, we deliberately use lhs as lhs and rhs may differ in
+        // the case of shifts. See comment above.
+        const reg = registerAlias(raw_reg, lhs_ty.abiSize(self.target.*));
 
         if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
 
@@ -1457,6 +1469,8 @@ fn binOpImmediate(
     metadata: ?BinOpMetadata,
 ) !MCValue {
     const lhs_is_register = lhs == .register;
+
+    if (lhs_is_register) assert(lhs.register == registerAlias(lhs.register, lhs_ty.abiSize(self.target.*)));
 
     const lhs_lock: ?RegisterLock = if (lhs_is_register)
         self.register_manager.lockReg(lhs.register)
@@ -1698,21 +1712,52 @@ fn binOp(
                                 null;
                             defer if (lhs_lock) |reg| self.register_manager.unlockReg(reg);
 
-                            const lhs_reg = if (lhs_is_register)
-                                lhs.register
+                            const rhs_lock: ?RegisterLock = if (rhs_is_register)
+                                self.register_manager.lockReg(rhs.register)
                             else
-                                try self.register_manager.allocReg(null, gp);
+                                null;
+                            defer if (rhs_lock) |reg| self.register_manager.unlockReg(reg);
+
+                            const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+
+                            const lhs_reg = if (lhs_is_register) lhs.register else blk: {
+                                const track_inst: ?Air.Inst.Index = if (metadata) |md| inst: {
+                                    break :inst Air.refToIndex(md.lhs).?;
+                                } else null;
+
+                                const raw_reg = try self.register_manager.allocReg(track_inst, gp);
+                                const reg = registerAlias(raw_reg, lhs_ty.abiSize(self.target.*));
+
+                                if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
+
+                                break :blk reg;
+                            };
                             const new_lhs_lock = self.register_manager.lockReg(lhs_reg);
                             defer if (new_lhs_lock) |reg| self.register_manager.unlockReg(reg);
 
-                            const rhs_reg = if (rhs_is_register)
-                                rhs.register
-                            else
-                                try self.register_manager.allocReg(null, gp);
+                            const rhs_reg = if (rhs_is_register) rhs.register else blk: {
+                                const track_inst: ?Air.Inst.Index = if (metadata) |md| inst: {
+                                    break :inst Air.refToIndex(md.rhs).?;
+                                } else null;
+
+                                const raw_reg = try self.register_manager.allocReg(track_inst, gp);
+                                const reg = registerAlias(raw_reg, rhs_ty.abiAlignment(self.target.*));
+
+                                if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
+
+                                break :blk reg;
+                            };
                             const new_rhs_lock = self.register_manager.lockReg(rhs_reg);
                             defer if (new_rhs_lock) |reg| self.register_manager.unlockReg(reg);
 
-                            const dest_regs = try self.register_manager.allocRegs(2, .{ null, null }, gp);
+                            const dest_regs: [2]Register = blk: {
+                                const raw_regs = try self.register_manager.allocRegs(2, .{ null, null }, gp);
+                                const abi_size = lhs_ty.abiSize(self.target.*);
+                                break :blk .{
+                                    registerAlias(raw_regs[0], abi_size),
+                                    registerAlias(raw_regs[1], abi_size),
+                                };
+                            };
                             const dest_regs_locks = self.register_manager.lockRegsAssumeUnused(2, dest_regs);
                             defer for (dest_regs_locks) |reg| {
                                 self.register_manager.unlockReg(reg);
@@ -2037,7 +2082,7 @@ fn airOverflow(self: *Self, inst: Air.Inst.Index) !void {
                         try self.truncRegister(dest_reg, truncated_reg, int_info.signedness, int_info.bits);
 
                         // cmp dest, truncated
-                        _ = try self.binOp(.cmp_eq, dest, .{ .register = truncated_reg }, Type.usize, Type.usize, null);
+                        _ = try self.binOp(.cmp_eq, dest, .{ .register = truncated_reg }, lhs_ty, lhs_ty, null);
 
                         try self.genSetStack(lhs_ty, stack_offset, .{ .register = truncated_reg });
                         try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{ .condition_flags = .ne });
@@ -2753,7 +2798,15 @@ fn airPtrElemVal(self: *Self, inst: Air.Inst.Index) !void {
 fn airPtrElemPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement ptr_elem_ptr for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const ptr_mcv = try self.resolveInst(extra.lhs);
+        const index_mcv = try self.resolveInst(extra.rhs);
+
+        const ptr_ty = self.air.typeOf(extra.lhs);
+
+        const addr = try self.binOp(.ptr_add, ptr_mcv, index_mcv, ptr_ty, Type.usize, null);
+        break :result addr;
+    };
     return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
 }
 
@@ -3219,6 +3272,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const mcv = try self.resolveInst(operand);
         const struct_ty = self.air.typeOf(operand);
+        const struct_field_ty = struct_ty.structFieldType(index);
         const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, self.target.*));
 
         switch (mcv) {
@@ -3250,8 +3304,9 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                     break :result field;
                 } else {
                     // Copy to new register
-                    const dest_reg = try self.register_manager.allocReg(null, gp);
-                    try self.genSetReg(struct_ty.structFieldType(index), dest_reg, field);
+                    const raw_dest_reg = try self.register_manager.allocReg(null, gp);
+                    const dest_reg = registerAlias(raw_dest_reg, struct_field_ty.abiSize(self.target.*));
+                    try self.genSetReg(struct_field_ty, dest_reg, field);
 
                     break :result MCValue{ .register = dest_reg };
                 }
