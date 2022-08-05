@@ -9692,7 +9692,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     }
 
     var final_else_body: []const Air.Inst.Index = &.{};
-    if (special.body.len != 0 or !is_first) {
+    if (special.body.len != 0 or !is_first or case_block.wantSafety()) {
         var wip_captures = try WipCaptureScope.init(gpa, sema.perm_arena, child_block.wip_capture_scope);
         defer wip_captures.deinit();
 
@@ -9715,9 +9715,11 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         } else {
             // We still need a terminator in this block, but we have proven
             // that it is unreachable.
-            // TODO this should be a special safety panic other than unreachable, something
-            // like "panic: switch operand had corrupt value not allowed by the type"
-            try case_block.addUnreachable(src, true);
+            if (case_block.wantSafety()) {
+                _ = try sema.safetyPanic(&case_block, src, .corrupt_switch);
+            } else {
+                _ = try case_block.addNoOp(.unreach);
+            }
         }
 
         try wip_captures.finalize();
@@ -19970,6 +19972,7 @@ pub const PanicId = enum {
     /// TODO make this call `std.builtin.panicInactiveUnionField`.
     inactive_union_field,
     integer_part_out_of_bounds,
+    corrupt_switch,
 };
 
 fn addSafetyCheck(
@@ -20265,6 +20268,7 @@ fn safetyPanic(
         .exact_division_remainder => "exact division produced remainder",
         .inactive_union_field => "access of inactive union field",
         .integer_part_out_of_bounds => "integer part of floating point value out of bounds",
+        .corrupt_switch => "switch on corrupt value",
     };
 
     const msg_inst = msg_inst: {
