@@ -2523,16 +2523,7 @@ pub const DeclGen = struct {
                 if (ptr_info.host_size != 0) {
                     return dg.context.intType(ptr_info.host_size * 8).pointerType(llvm_addrspace);
                 }
-                const elem_ty = ptr_info.pointee_type;
-                const lower_elem_ty = switch (elem_ty.zigTypeTag()) {
-                    .Opaque, .Fn => true,
-                    .Array => elem_ty.childType().hasRuntimeBitsIgnoreComptime(),
-                    else => elem_ty.hasRuntimeBitsIgnoreComptime(),
-                };
-                const llvm_elem_ty = if (lower_elem_ty)
-                    try dg.lowerType(elem_ty)
-                else
-                    dg.context.intType(8);
+                const llvm_elem_ty = try dg.lowerPtrElemTy(ptr_info.pointee_type);
                 return llvm_elem_ty.pointerType(llvm_addrspace);
             },
             .Opaque => switch (t.tag()) {
@@ -2915,6 +2906,23 @@ pub const DeclGen = struct {
             @intCast(c_uint, llvm_params.items.len),
             llvm.Bool.fromBool(fn_info.is_var_args),
         );
+    }
+
+    /// Use this instead of lowerType when you want to handle correctly the case of elem_ty
+    /// being a zero bit type, but it should still be lowered as an i8 in such case.
+    /// There are other similar cases handled here as well.
+    fn lowerPtrElemTy(dg: *DeclGen, elem_ty: Type) Allocator.Error!*const llvm.Type {
+        const lower_elem_ty = switch (elem_ty.zigTypeTag()) {
+            .Opaque, .Fn => true,
+            .Array => elem_ty.childType().hasRuntimeBitsIgnoreComptime(),
+            else => elem_ty.hasRuntimeBitsIgnoreComptime(),
+        };
+        const llvm_elem_ty = if (lower_elem_ty)
+            try dg.lowerType(elem_ty)
+        else
+            dg.context.intType(8);
+
+        return llvm_elem_ty;
     }
 
     fn lowerValue(dg: *DeclGen, tv: TypedValue) Error!*const llvm.Value {
@@ -4674,8 +4682,8 @@ pub const FuncGen = struct {
                 _ = self.builder.buildBr(end_block);
 
                 self.builder.positionBuilderAtEnd(both_pl_block);
-                const lhs_payload = self.optPayloadHandle(opt_llvm_ty, lhs, scalar_ty);
-                const rhs_payload = self.optPayloadHandle(opt_llvm_ty, rhs, scalar_ty);
+                const lhs_payload = try self.optPayloadHandle(opt_llvm_ty, lhs, scalar_ty);
+                const rhs_payload = try self.optPayloadHandle(opt_llvm_ty, rhs, scalar_ty);
                 const payload_cmp = try self.cmp(lhs_payload, rhs_payload, payload_ty, op);
                 _ = self.builder.buildBr(end_block);
                 const both_pl_block_end = self.builder.getInsertBlock();
@@ -5133,7 +5141,8 @@ pub const FuncGen = struct {
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const slice_ptr = try self.resolveInst(ty_op.operand);
-        const slice_llvm_ty = try self.dg.lowerType(self.air.typeOf(ty_op.operand).childType());
+        const slice_ptr_ty = self.air.typeOf(ty_op.operand);
+        const slice_llvm_ty = try self.dg.lowerPtrElemTy(slice_ptr_ty.childType());
 
         return self.builder.buildStructGEP(slice_llvm_ty, slice_ptr, index, "");
     }
@@ -5145,7 +5154,7 @@ pub const FuncGen = struct {
 
         const slice = try self.resolveInst(bin_op.lhs);
         const index = try self.resolveInst(bin_op.rhs);
-        const llvm_elem_ty = try self.dg.lowerType(slice_ty.childType());
+        const llvm_elem_ty = try self.dg.lowerPtrElemTy(slice_ty.childType());
         const base_ptr = self.builder.buildExtractValue(slice, 0, "");
         const indices: [1]*const llvm.Value = .{index};
         const ptr = self.builder.buildInBoundsGEP(llvm_elem_ty, base_ptr, &indices, indices.len, "");
@@ -5160,7 +5169,7 @@ pub const FuncGen = struct {
 
         const slice = try self.resolveInst(bin_op.lhs);
         const index = try self.resolveInst(bin_op.rhs);
-        const llvm_elem_ty = try self.dg.lowerType(slice_ty.childType());
+        const llvm_elem_ty = try self.dg.lowerPtrElemTy(slice_ty.childType());
         const base_ptr = self.builder.buildExtractValue(slice, 0, "");
         const indices: [1]*const llvm.Value = .{index};
         return self.builder.buildInBoundsGEP(llvm_elem_ty, base_ptr, &indices, indices.len, "");
@@ -5195,9 +5204,10 @@ pub const FuncGen = struct {
         const ptr_ty = self.air.typeOf(bin_op.lhs);
         if (!ptr_ty.isVolatilePtr() and self.liveness.isUnused(inst)) return null;
 
-        const llvm_elem_ty = try self.dg.lowerType(ptr_ty.childType());
+        const llvm_elem_ty = try self.dg.lowerPtrElemTy(ptr_ty.childType());
         const base_ptr = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
+        // TODO: when we go fully opaque pointers in LLVM 16 we can remove this branch
         const ptr = if (ptr_ty.isSinglePointer()) ptr: {
             // If this is a single-item pointer to an array, we need another index in the GEP.
             const indices: [2]*const llvm.Value = .{ self.context.intType(32).constNull(), rhs };
@@ -5220,7 +5230,7 @@ pub const FuncGen = struct {
 
         const base_ptr = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
-        const llvm_elem_ty = try self.dg.lowerType(elem_ty);
+        const llvm_elem_ty = try self.dg.lowerPtrElemTy(elem_ty);
         if (ptr_ty.isSinglePointer()) {
             // If this is a single-item pointer to an array, we need another index in the GEP.
             const indices: [2]*const llvm.Value = .{ self.context.intType(32).constNull(), rhs };
@@ -5555,7 +5565,9 @@ pub const FuncGen = struct {
         const max_param_count = inputs.len + outputs.len;
         const llvm_param_types = try arena.alloc(*const llvm.Type, max_param_count);
         const llvm_param_values = try arena.alloc(*const llvm.Value, max_param_count);
-        const llvm_param_attrs = try arena.alloc(bool, max_param_count);
+        // This stores whether we need to add an elementtype attribute and
+        // if so, the element type itself.
+        const llvm_param_attrs = try arena.alloc(?*const llvm.Type, max_param_count);
         const target = self.dg.module.getTarget();
 
         var llvm_ret_i: usize = 0;
@@ -5573,7 +5585,7 @@ pub const FuncGen = struct {
             // for the string, we still use the next u32 for the null terminator.
             extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
-            try llvm_constraints.ensureUnusedCapacity(self.gpa, constraint.len + 1);
+            try llvm_constraints.ensureUnusedCapacity(self.gpa, constraint.len + 3);
             if (total_i != 0) {
                 llvm_constraints.appendAssumeCapacity(',');
             }
@@ -5582,8 +5594,10 @@ pub const FuncGen = struct {
             // Pass any non-return outputs indirectly, if the constraint accepts a memory location
             llvm_ret_indirect[i] = (output != .none) and constraintAllowsMemory(constraint);
             if (output != .none) {
-                try llvm_constraints.ensureUnusedCapacity(self.gpa, llvm_constraints.capacity + 1);
                 const output_inst = try self.resolveInst(output);
+                const output_ty = self.air.typeOf(output);
+                assert(output_ty.zigTypeTag() == .Pointer);
+                const elem_llvm_ty = try self.dg.lowerPtrElemTy(output_ty.childType());
 
                 if (llvm_ret_indirect[i]) {
                     // Pass the result by reference as an indirect output (e.g. "=*m")
@@ -5591,11 +5605,11 @@ pub const FuncGen = struct {
 
                     llvm_param_values[llvm_param_i] = output_inst;
                     llvm_param_types[llvm_param_i] = output_inst.typeOf();
-                    llvm_param_attrs[llvm_param_i] = true;
+                    llvm_param_attrs[llvm_param_i] = elem_llvm_ty;
                     llvm_param_i += 1;
                 } else {
                     // Pass the result directly (e.g. "=r")
-                    llvm_ret_types[llvm_ret_i] = output_inst.typeOf().getElementType();
+                    llvm_ret_types[llvm_ret_i] = elem_llvm_ty;
                     llvm_ret_i += 1;
                 }
             } else {
@@ -5633,7 +5647,9 @@ pub const FuncGen = struct {
 
             const arg_llvm_value = try self.resolveInst(input);
             const arg_ty = self.air.typeOf(input);
+            var llvm_elem_ty: ?*const llvm.Type = null;
             if (isByRef(arg_ty)) {
+                llvm_elem_ty = try self.dg.lowerPtrElemTy(arg_ty);
                 if (constraintAllowsMemory(constraint)) {
                     llvm_param_values[llvm_param_i] = arg_llvm_value;
                     llvm_param_types[llvm_param_i] = arg_llvm_value.typeOf();
@@ -5677,7 +5693,12 @@ pub const FuncGen = struct {
 
             // In the case of indirect inputs, LLVM requires the callsite to have
             // an elementtype(<ty>) attribute.
-            llvm_param_attrs[llvm_param_i] = constraint[0] == '*';
+            if (constraint[0] == '*') {
+                llvm_param_attrs[llvm_param_i] = llvm_elem_ty orelse
+                    try self.dg.lowerPtrElemTy(arg_ty.childType());
+            } else {
+                llvm_param_attrs[llvm_param_i] = null;
+            }
 
             llvm_param_i += 1;
             total_i += 1;
@@ -5812,10 +5833,9 @@ pub const FuncGen = struct {
             .Auto,
             "",
         );
-        for (llvm_param_attrs[0..param_count]) |need_elem_ty, i| {
-            if (need_elem_ty) {
-                const elem_ty = llvm_param_types[i].getElementType();
-                llvm.setCallElemTypeAttr(call, i, elem_ty);
+        for (llvm_param_attrs[0..param_count]) |llvm_elem_ty, i| {
+            if (llvm_elem_ty) |llvm_ty| {
+                llvm.setCallElemTypeAttr(call, i, llvm_ty);
             }
         }
 
@@ -6558,7 +6578,7 @@ pub const FuncGen = struct {
         const base_ptr = try self.resolveInst(bin_op.lhs);
         const offset = try self.resolveInst(bin_op.rhs);
         const ptr_ty = self.air.typeOf(bin_op.lhs);
-        const llvm_elem_ty = try self.dg.lowerType(ptr_ty.childType());
+        const llvm_elem_ty = try self.dg.lowerPtrElemTy(ptr_ty.childType());
         if (ptr_ty.ptrSize() == .One) {
             // It's a pointer to an array, so according to LLVM we need an extra GEP index.
             const indices: [2]*const llvm.Value = .{
@@ -6580,7 +6600,7 @@ pub const FuncGen = struct {
         const offset = try self.resolveInst(bin_op.rhs);
         const negative_offset = self.builder.buildNeg(offset, "");
         const ptr_ty = self.air.typeOf(bin_op.lhs);
-        const llvm_elem_ty = try self.dg.lowerType(ptr_ty.childType());
+        const llvm_elem_ty = try self.dg.lowerPtrElemTy(ptr_ty.childType());
         if (ptr_ty.ptrSize() == .One) {
             // It's a pointer to an array, so according to LLVM we need an extra GEP index.
             const indices: [2]*const llvm.Value = .{
@@ -7564,7 +7584,7 @@ pub const FuncGen = struct {
         if (self.liveness.isUnused(inst)) return null;
 
         const llvm_i32 = self.context.intType(32);
-        const llvm_fn_name = "llvm.frameaddress.p0i8";
+        const llvm_fn_name = "llvm.frameaddress.p0";
         const llvm_fn = self.dg.object.llvm_module.getNamedFunction(llvm_fn_name) orelse blk: {
             const llvm_p0i8 = self.context.intType(8).pointerType(0);
             const param_types = [_]*const llvm.Type{llvm_i32};
@@ -7694,20 +7714,31 @@ pub const FuncGen = struct {
         const atomic_load = self.air.instructions.items(.data)[inst].atomic_load;
         const ptr = try self.resolveInst(atomic_load.ptr);
         const ptr_ty = self.air.typeOf(atomic_load.ptr);
-        if (!ptr_ty.isVolatilePtr() and self.liveness.isUnused(inst))
+        const ptr_info = ptr_ty.ptrInfo().data;
+        if (!ptr_info.@"volatile" and self.liveness.isUnused(inst))
+            return null;
+        const elem_ty = ptr_info.pointee_type;
+        if (!elem_ty.hasRuntimeBitsIgnoreComptime())
             return null;
         const ordering = toLlvmAtomicOrdering(atomic_load.order);
-        const operand_ty = ptr_ty.elemType();
-        const opt_abi_ty = self.dg.getAtomicAbiType(operand_ty, false);
+        const opt_abi_llvm_ty = self.dg.getAtomicAbiType(elem_ty, false);
+        const target = self.dg.module.getTarget();
+        const ptr_alignment = ptr_info.alignment(target);
+        const ptr_volatile = llvm.Bool.fromBool(ptr_info.@"volatile");
+        const elem_llvm_ty = try self.dg.lowerType(elem_ty);
 
-        if (opt_abi_ty) |abi_ty| {
+        if (opt_abi_llvm_ty) |abi_llvm_ty| {
             // operand needs widening and truncating
-            const casted_ptr = self.builder.buildBitCast(ptr, abi_ty.pointerType(0), "");
-            const load_inst = (try self.load(casted_ptr, ptr_ty)).?;
+            const casted_ptr = self.builder.buildBitCast(ptr, abi_llvm_ty.pointerType(0), "");
+            const load_inst = self.builder.buildLoad(abi_llvm_ty, casted_ptr, "");
+            load_inst.setAlignment(ptr_alignment);
+            load_inst.setVolatile(ptr_volatile);
             load_inst.setOrdering(ordering);
-            return self.builder.buildTrunc(load_inst, try self.dg.lowerType(operand_ty), "");
+            return self.builder.buildTrunc(load_inst, elem_llvm_ty, "");
         }
-        const load_inst = (try self.load(ptr, ptr_ty)).?;
+        const load_inst = self.builder.buildLoad(elem_llvm_ty, ptr, "");
+        load_inst.setAlignment(ptr_alignment);
+        load_inst.setVolatile(ptr_volatile);
         load_inst.setOrdering(ordering);
         return load_inst;
     }
@@ -8508,7 +8539,7 @@ pub const FuncGen = struct {
         const llvm_ptr_u8 = llvm_u8.pointerType(0);
         const llvm_u32 = self.context.intType(32);
 
-        const llvm_fn_name = "llvm.prefetch.p0i8";
+        const llvm_fn_name = "llvm.prefetch.p0";
         const fn_val = self.dg.object.llvm_module.getNamedFunction(llvm_fn_name) orelse blk: {
             // declare void @llvm.prefetch(i8*, i32, i32, i32)
             const llvm_void = self.context.voidType();
@@ -8660,7 +8691,7 @@ pub const FuncGen = struct {
         opt_llvm_ty: *const llvm.Type,
         opt_handle: *const llvm.Value,
         opt_ty: Type,
-    ) *const llvm.Value {
+    ) !*const llvm.Value {
         var buf: Type.Payload.ElemType = undefined;
         const payload_ty = opt_ty.optionalChild(&buf);
 
@@ -8673,7 +8704,8 @@ pub const FuncGen = struct {
             }
             const target = fg.dg.module.getTarget();
             const payload_alignment = payload_ty.abiAlignment(target);
-            const load_inst = fg.builder.buildLoad(payload_ptr.getGEPResultElementType(), payload_ptr, "");
+            const payload_llvm_ty = try fg.dg.lowerType(payload_ty);
+            const load_inst = fg.builder.buildLoad(payload_llvm_ty, payload_ptr, "");
             load_inst.setAlignment(payload_alignment);
             return load_inst;
         }
@@ -8758,7 +8790,7 @@ pub const FuncGen = struct {
                     return self.builder.buildBitCast(new_ptr, result_llvm_ty, "");
                 },
                 else => {
-                    const struct_llvm_ty = try self.dg.lowerType(struct_ty);
+                    const struct_llvm_ty = try self.dg.lowerPtrElemTy(struct_ty);
 
                     var ty_buf: Type.Payload.Pointer = undefined;
                     if (llvmFieldIndex(struct_ty, field_index, target, &ty_buf)) |llvm_field_index| {
@@ -8815,7 +8847,7 @@ pub const FuncGen = struct {
         if (!info.pointee_type.hasRuntimeBitsIgnoreComptime()) return null;
 
         const target = self.dg.module.getTarget();
-        const ptr_alignment = ptr_ty.ptrAlignment(target);
+        const ptr_alignment = info.alignment(target);
         const ptr_volatile = llvm.Bool.fromBool(ptr_ty.isVolatilePtr());
         if (info.host_size == 0) {
             const elem_llvm_ty = try self.dg.lowerType(info.pointee_type);

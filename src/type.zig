@@ -6229,6 +6229,11 @@ pub const Type = extern union {
                 mutable: bool = true, // TODO rename this to const, not mutable
                 @"volatile": bool = false,
                 size: std.builtin.Type.Pointer.Size = .One,
+
+                pub fn alignment(data: Data, target: Target) u32 {
+                    if (data.@"align" != 0) return data.@"align";
+                    return abiAlignment(data.pointee_type, target);
+                }
             };
         };
 
