@@ -22,6 +22,15 @@
 #include "private_typeinfo.h"
 #include "unwind.h"
 
+// TODO: This is a temporary workaround for libc++abi to recognize that it's being
+// built against LLVM's libunwind. LLVM's libunwind started reporting _LIBUNWIND_VERSION
+// in LLVM 15 -- we can remove this workaround after shipping LLVM 17. Once we remove
+// this workaround, it won't be possible to build libc++abi against libunwind headers
+// from LLVM 14 and before anymore.
+#if defined(____LIBUNWIND_CONFIG_H__) && !defined(_LIBUNWIND_VERSION)
+#   define _LIBUNWIND_VERSION
+#endif
+
 #if defined(__SEH__) && !defined(__USING_SJLJ_EXCEPTIONS__)
 #include <windows.h>
 #include <winnt.h>
@@ -613,7 +622,7 @@ static void scan_eh_tab(scan_results &results, _Unwind_Action actions,
         results.reason = _URC_FATAL_PHASE1_ERROR;
         return;
     }
-    // Start scan by getting exception table address
+    // Start scan by getting exception table address.
     const uint8_t *lsda = (const uint8_t *)_Unwind_GetLanguageSpecificData(context);
     if (lsda == 0)
     {
@@ -903,6 +912,8 @@ static _Unwind_Reason_Code __gxx_personality_imp
 _LIBCXXABI_FUNC_VIS _Unwind_Reason_Code
 #ifdef __USING_SJLJ_EXCEPTIONS__
 __gxx_personality_sj0
+#elif defined(__MVS__)
+__zos_cxx_personality_v2
 #else
 __gxx_personality_v0
 #endif
@@ -1015,7 +1026,7 @@ static _Unwind_Reason_Code continue_unwind(_Unwind_Exception* unwind_exception,
 }
 
 // ARM register names
-#if !defined(LIBCXXABI_USE_LLVM_UNWINDER)
+#if !defined(_LIBUNWIND_VERSION)
 static const uint32_t REG_UCB = 12;  // Register to save _Unwind_Control_Block
 #endif
 static const uint32_t REG_SP = 13;
@@ -1050,7 +1061,7 @@ __gxx_personality_v0(_Unwind_State state,
 
     bool native_exception = __isOurExceptionClass(unwind_exception);
 
-#if !defined(LIBCXXABI_USE_LLVM_UNWINDER)
+#if !defined(_LIBUNWIND_VERSION)
     // Copy the address of _Unwind_Control_Block to r12 so that
     // _Unwind_GetLanguageSpecificData() and _Unwind_GetRegionStart() can
     // return correct address.
@@ -1112,7 +1123,7 @@ __gxx_personality_v0(_Unwind_State state,
         }
 
         // Either we didn't do a phase 1 search (due to forced unwinding), or
-        //  phase 1 reported no catching-handlers.
+        // phase 1 reported no catching-handlers.
         // Search for a (non-catching) cleanup
         if (is_force_unwinding)
           scan_eh_tab(
@@ -1296,3 +1307,9 @@ _LIBCXXABI_FUNC_VIS _Unwind_Reason_Code __xlcxx_personality_v1(
 }  // extern "C"
 
 }  // __cxxabiv1
+
+#if defined(_AIX)
+// Include implementation of the personality and helper functions for the
+// state table based EH used by IBM legacy compilers xlC and xlclang++ on AIX.
+#  include "aix_state_tab_eh.inc"
+#endif

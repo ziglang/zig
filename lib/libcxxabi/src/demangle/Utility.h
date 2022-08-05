@@ -33,43 +33,50 @@ class OutputBuffer {
   size_t CurrentPosition = 0;
   size_t BufferCapacity = 0;
 
-  // Ensure there is at least n more positions in buffer.
+  // Ensure there are at least N more positions in the buffer.
   void grow(size_t N) {
-    if (N + CurrentPosition >= BufferCapacity) {
+    size_t Need = N + CurrentPosition;
+    if (Need > BufferCapacity) {
+      // Reduce the number of reallocations, with a bit of hysteresis. The
+      // number here is chosen so the first allocation will more-than-likely not
+      // allocate more than 1K.
+      Need += 1024 - 32;
       BufferCapacity *= 2;
-      if (BufferCapacity < N + CurrentPosition)
-        BufferCapacity = N + CurrentPosition;
+      if (BufferCapacity < Need)
+        BufferCapacity = Need;
       Buffer = static_cast<char *>(std::realloc(Buffer, BufferCapacity));
       if (Buffer == nullptr)
         std::terminate();
     }
   }
 
-  void writeUnsigned(uint64_t N, bool isNeg = false) {
-    // Handle special case...
-    if (N == 0) {
-      *this << '0';
-      return;
-    }
-
+  OutputBuffer &writeUnsigned(uint64_t N, bool isNeg = false) {
     std::array<char, 21> Temp;
     char *TempPtr = Temp.data() + Temp.size();
 
-    while (N) {
+    // Output at least one character.
+    do {
       *--TempPtr = char('0' + N % 10);
       N /= 10;
-    }
+    } while (N);
 
-    // Add negative sign...
+    // Add negative sign.
     if (isNeg)
       *--TempPtr = '-';
-    this->operator<<(StringView(TempPtr, Temp.data() + Temp.size()));
+
+    return operator+=(StringView(TempPtr, Temp.data() + Temp.size()));
   }
 
 public:
   OutputBuffer(char *StartBuf, size_t Size)
       : Buffer(StartBuf), CurrentPosition(0), BufferCapacity(Size) {}
   OutputBuffer() = default;
+  // Non-copyable
+  OutputBuffer(const OutputBuffer &) = delete;
+  OutputBuffer &operator=(const OutputBuffer &) = delete;
+
+  operator StringView() const { return StringView(Buffer, CurrentPosition); }
+
   void reset(char *Buffer_, size_t BufferCapacity_) {
     CurrentPosition = 0;
     Buffer = Buffer_;
@@ -81,13 +88,27 @@ public:
   unsigned CurrentPackIndex = std::numeric_limits<unsigned>::max();
   unsigned CurrentPackMax = std::numeric_limits<unsigned>::max();
 
+  /// When zero, we're printing template args and '>' needs to be parenthesized.
+  /// Use a counter so we can simply increment inside parentheses.
+  unsigned GtIsGt = 1;
+
+  bool isGtInsideTemplateArgs() const { return GtIsGt == 0; }
+
+  void printOpen(char Open = '(') {
+    GtIsGt++;
+    *this += Open;
+  }
+  void printClose(char Close = ')') {
+    GtIsGt--;
+    *this += Close;
+  }
+
   OutputBuffer &operator+=(StringView R) {
-    size_t Size = R.size();
-    if (Size == 0)
-      return *this;
-    grow(Size);
-    std::memmove(Buffer + CurrentPosition, R.begin(), Size);
-    CurrentPosition += Size;
+    if (size_t Size = R.size()) {
+      grow(Size);
+      std::memcpy(Buffer + CurrentPosition, R.begin(), Size);
+      CurrentPosition += Size;
+    }
     return *this;
   }
 
@@ -97,9 +118,7 @@ public:
     return *this;
   }
 
-  OutputBuffer &operator<<(StringView R) { return (*this += R); }
-
-  OutputBuffer prepend(StringView R) {
+  OutputBuffer &prepend(StringView R) {
     size_t Size = R.size();
 
     grow(Size);
@@ -110,19 +129,16 @@ public:
     return *this;
   }
 
+  OutputBuffer &operator<<(StringView R) { return (*this += R); }
+
   OutputBuffer &operator<<(char C) { return (*this += C); }
 
   OutputBuffer &operator<<(long long N) {
-    if (N < 0)
-      writeUnsigned(static_cast<unsigned long long>(-N), true);
-    else
-      writeUnsigned(static_cast<unsigned long long>(N));
-    return *this;
+    return writeUnsigned(static_cast<unsigned long long>(std::abs(N)), N < 0);
   }
 
   OutputBuffer &operator<<(unsigned long long N) {
-    writeUnsigned(N, false);
-    return *this;
+    return writeUnsigned(N, false);
   }
 
   OutputBuffer &operator<<(long N) {
@@ -155,7 +171,8 @@ public:
   void setCurrentPosition(size_t NewPos) { CurrentPosition = NewPos; }
 
   char back() const {
-    return CurrentPosition ? Buffer[CurrentPosition - 1] : '\0';
+    assert(CurrentPosition);
+    return Buffer[CurrentPosition - 1];
   }
 
   bool empty() const { return CurrentPosition == 0; }
@@ -165,35 +182,20 @@ public:
   size_t getBufferCapacity() const { return BufferCapacity; }
 };
 
-template <class T> class SwapAndRestore {
-  T &Restore;
-  T OriginalValue;
-  bool ShouldRestore = true;
+template <class T> class ScopedOverride {
+  T &Loc;
+  T Original;
 
 public:
-  SwapAndRestore(T &Restore_) : SwapAndRestore(Restore_, Restore_) {}
+  ScopedOverride(T &Loc_) : ScopedOverride(Loc_, Loc_) {}
 
-  SwapAndRestore(T &Restore_, T NewVal)
-      : Restore(Restore_), OriginalValue(Restore) {
-    Restore = std::move(NewVal);
+  ScopedOverride(T &Loc_, T NewVal) : Loc(Loc_), Original(Loc_) {
+    Loc_ = std::move(NewVal);
   }
-  ~SwapAndRestore() {
-    if (ShouldRestore)
-      Restore = std::move(OriginalValue);
-  }
+  ~ScopedOverride() { Loc = std::move(Original); }
 
-  void shouldRestore(bool ShouldRestore_) { ShouldRestore = ShouldRestore_; }
-
-  void restoreNow(bool Force) {
-    if (!Force && !ShouldRestore)
-      return;
-
-    Restore = std::move(OriginalValue);
-    ShouldRestore = false;
-  }
-
-  SwapAndRestore(const SwapAndRestore &) = delete;
-  SwapAndRestore &operator=(const SwapAndRestore &) = delete;
+  ScopedOverride(const ScopedOverride &) = delete;
+  ScopedOverride &operator=(const ScopedOverride &) = delete;
 };
 
 inline bool initializeOutputBuffer(char *Buf, size_t *N, OutputBuffer &OB,

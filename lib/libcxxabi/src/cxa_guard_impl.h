@@ -619,7 +619,7 @@ struct GlobalStatic {
   static T instance;
 };
 template <class T>
-_LIBCPP_SAFE_STATIC T GlobalStatic<T>::instance = {};
+_LIBCPP_CONSTINIT T GlobalStatic<T>::instance = {};
 
 enum class Implementation { NoThreads, GlobalMutex, Futex };
 
