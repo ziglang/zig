@@ -33,17 +33,6 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         .directory = null, // Put it in the cache directory.
         .basename = basename,
     };
-    const unwind_src_list = [_][]const u8{
-        "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "libunwind.cpp",
-        "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "Unwind-EHABI.cpp",
-        "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "Unwind-seh.cpp",
-        "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindLevel1.c",
-        "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindLevel1-gcc-ext.c",
-        "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "Unwind-sjlj.c",
-        "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindRegistersRestore.S",
-        "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindRegistersSave.S",
-        "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "gcc_personality_v0.c",
-    };
     var c_source_files: [unwind_src_list.len]Compilation.CSourceFile = undefined;
     for (unwind_src_list) |unwind_src, i| {
         var cflags = std.ArrayList([]const u8).init(arena);
@@ -150,3 +139,16 @@ pub fn buildStaticLib(comp: *Compilation) !void {
         .lock = sub_compilation.bin_file.toOwnedLock(),
     };
 }
+
+const unwind_src_list = [_][]const u8{
+    "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "libunwind.cpp",
+    "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "Unwind-EHABI.cpp",
+    "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "Unwind-seh.cpp",
+    "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindLevel1.c",
+    "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindLevel1-gcc-ext.c",
+    "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "Unwind-sjlj.c",
+    "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindRegistersRestore.S",
+    "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindRegistersSave.S",
+    "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "Unwind_AIXExtras.cpp",
+    "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "gcc_personality_v0.c",
+};

@@ -104,7 +104,7 @@ _GCC_specific_handler(PEXCEPTION_RECORD ms_exc, PVOID frame, PCONTEXT ms_ctx,
   if (!ctx) {
     __unw_init_seh(&cursor, disp->ContextRecord);
     __unw_seh_set_disp_ctx(&cursor, disp);
-    __unw_set_reg(&cursor, UNW_REG_IP, disp->ControlPc - 1);
+    __unw_set_reg(&cursor, UNW_REG_IP, disp->ControlPc);
     ctx = (struct _Unwind_Context *)&cursor;
 
     if (!IS_UNWINDING(ms_exc->ExceptionFlags)) {
@@ -255,8 +255,8 @@ unwind_phase2_forced(unw_context_t *uc,
           (frameInfo.start_ip + offset > frameInfo.end_ip))
         functionName = ".anonymous.";
       _LIBUNWIND_TRACE_UNWINDING(
-          "unwind_phase2_forced(ex_ojb=%p): start_ip=0x%" PRIx64
-          ", func=%s, lsda=0x%" PRIx64 ", personality=0x%" PRIx64,
+          "unwind_phase2_forced(ex_ojb=%p): start_ip=0x%" PRIxPTR
+          ", func=%s, lsda=0x%" PRIxPTR ", personality=0x%" PRIxPTR,
           (void *)exception_object, frameInfo.start_ip, functionName,
           frameInfo.lsda, frameInfo.handler);
     }

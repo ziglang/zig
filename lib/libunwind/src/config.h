@@ -43,6 +43,9 @@
   // For ARM EHABI, Bionic didn't implement dl_iterate_phdr until API 21. After
   // API 21, dl_iterate_phdr exists, but dl_unwind_find_exidx is much faster.
   #define _LIBUNWIND_USE_DL_UNWIND_FIND_EXIDX 1
+#elif defined(_AIX)
+// The traceback table at the end of each function is used for unwinding.
+#define _LIBUNWIND_SUPPORT_TBTAB_UNWIND 1
 #else
   // Assume an ELF system with a dl_iterate_phdr function.
   #define _LIBUNWIND_USE_DL_ITERATE_PHDR 1
@@ -57,7 +60,7 @@
   #define _LIBUNWIND_EXPORT
   #define _LIBUNWIND_HIDDEN
 #else
-  #if !defined(__ELF__) && !defined(__MACH__)
+  #if !defined(__ELF__) && !defined(__MACH__) && !defined(_AIX)
     #define _LIBUNWIND_EXPORT __declspec(dllexport)
     #define _LIBUNWIND_HIDDEN
   #else
@@ -80,7 +83,7 @@
   __asm__(".globl " SYMBOL_NAME(aliasname));                                   \
   __asm__(SYMBOL_NAME(aliasname) " = " SYMBOL_NAME(name));                     \
   _LIBUNWIND_ALIAS_VISIBILITY(SYMBOL_NAME(aliasname))
-#elif defined(__ELF__)
+#elif defined(__ELF__) || defined(_AIX)
 #define _LIBUNWIND_WEAK_ALIAS(name, aliasname)                                 \
   extern "C" _LIBUNWIND_EXPORT __typeof(name) aliasname                        \
       __attribute__((weak, alias(#name)));
@@ -112,7 +115,7 @@
 #if defined(__i386__) || defined(__x86_64__) || defined(__powerpc__) ||        \
     (!defined(__APPLE__) && defined(__arm__)) || defined(__aarch64__) ||       \
     defined(__mips__) || defined(__riscv) || defined(__hexagon__) ||           \
-    defined(__sparc__)
+    defined(__sparc__) || defined(__s390x__)
 #if !defined(_LIBUNWIND_BUILD_SJLJ_APIS)
 #define _LIBUNWIND_BUILD_ZERO_COST_APIS
 #endif
@@ -188,9 +191,9 @@
   #ifdef __cplusplus
     extern "C" {
   #endif
-    extern  bool logAPIs();
-    extern  bool logUnwinding();
-    extern  bool logDWARF();
+    extern  bool logAPIs(void);
+    extern  bool logUnwinding(void);
+    extern  bool logDWARF(void);
   #ifdef __cplusplus
     }
   #endif

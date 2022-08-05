@@ -59,11 +59,14 @@ _Unwind_Resume_or_Rethrow(_Unwind_Exception *exception_object) {
 /// relative encodings.
 _LIBUNWIND_EXPORT uintptr_t
 _Unwind_GetDataRelBase(struct _Unwind_Context *context) {
-  (void)context;
   _LIBUNWIND_TRACE_API("_Unwind_GetDataRelBase(context=%p)", (void *)context);
+#if defined(_AIX)
+  return unw_get_data_rel_base((unw_cursor_t *)context);
+#else
+  (void)context;
   _LIBUNWIND_ABORT("_Unwind_GetDataRelBase() not implemented");
+#endif
 }
-
 
 /// Called by personality handler during phase 2 to get base address for text
 /// relative encodings.

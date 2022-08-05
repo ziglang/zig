@@ -44,7 +44,11 @@
 // directly jump to __libunwind_Registerts_x86/x86_64_jumpto instead of using
 // a regular function call to avoid pushing to CET shadow stack again.
 #if !defined(_LIBUNWIND_USE_CET)
-#define __unw_phase2_resume(cursor, fn) __unw_resume((cursor))
+#define __unw_phase2_resume(cursor, fn)                                        \
+  do {                                                                         \
+    (void)fn;                                                                  \
+    __unw_resume((cursor));                                                    \
+  } while (0)
 #elif defined(_LIBUNWIND_TARGET_I386)
 #define __unw_phase2_resume(cursor, fn)                                        \
   do {                                                                         \
@@ -480,11 +484,13 @@ _Unwind_GetLanguageSpecificData(struct _Unwind_Context *context) {
   _LIBUNWIND_TRACE_API(
       "_Unwind_GetLanguageSpecificData(context=%p) => 0x%" PRIxPTR,
       (void *)context, result);
+#if !defined(_LIBUNWIND_SUPPORT_TBTAB_UNWIND)
   if (result != 0) {
     if (*((uint8_t *)result) != 0xFF)
       _LIBUNWIND_DEBUG_LOG("lsda at 0x%" PRIxPTR " does not start with 0xFF",
                            result);
   }
+#endif
   return result;
 }
 
