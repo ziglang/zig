@@ -3252,7 +3252,7 @@ fn airIsNull(
 
     const ty = f.air.typeOf(un_op);
     var opt_buf: Type.Payload.ElemType = undefined;
-    const payload_ty = if (ty.zigTypeTag() == .Pointer)
+    const payload_ty = if (deref_suffix[0] != 0)
         ty.childType().optionalChild(&opt_buf)
     else
         ty.optionalChild(&opt_buf);
