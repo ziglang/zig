@@ -170,6 +170,7 @@ const Writer = struct {
             .bool_to_int,
             .ret,
             .ret_load,
+            .is_named_enum_value,
             .tag_name,
             .error_name,
             .sqrt,

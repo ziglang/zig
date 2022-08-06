@@ -1578,8 +1578,7 @@ pub fn setupErrorReturnTrace(sema: *Sema, block: *Block, last_arg_index: usize) 
 
     // st.index = 0;
     const index_field_ptr = try sema.fieldPtr(&err_trace_block, src, st_ptr, "index", src, true);
-    const zero = try sema.addConstant(Type.usize, Value.zero);
-    try sema.storePtr2(&err_trace_block, src, index_field_ptr, src, zero, src, .store);
+    try sema.storePtr2(&err_trace_block, src, index_field_ptr, src, .zero_usize, src, .store);
 
     // @errorReturnTrace() = &st;
     _ = try err_trace_block.addUnOp(.set_err_return_trace, st_ptr);
@@ -6949,8 +6948,12 @@ fn zirIntToEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     }
 
     try sema.requireRuntimeBlock(block, src, operand_src);
-    // TODO insert safety check to make sure the value matches an enum value
-    return block.addTyOp(.intcast, dest_ty, operand);
+    const result = try block.addTyOp(.intcast, dest_ty, operand);
+    if (block.wantSafety() and !dest_ty.isNonexhaustiveEnum() and sema.mod.comp.bin_file.options.use_llvm) {
+        const ok = try block.addUnOp(.is_named_enum_value, result);
+        try sema.addSafetyCheck(block, ok, .invalid_enum_value);
+    }
+    return result;
 }
 
 /// Pointer in, pointer out.
@@ -9707,7 +9710,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     }
 
     var final_else_body: []const Air.Inst.Index = &.{};
-    if (special.body.len != 0 or !is_first) {
+    if (special.body.len != 0 or !is_first or case_block.wantSafety()) {
         var wip_captures = try WipCaptureScope.init(gpa, sema.perm_arena, child_block.wip_capture_scope);
         defer wip_captures.deinit();
 
@@ -9730,9 +9733,11 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         } else {
             // We still need a terminator in this block, but we have proven
             // that it is unreachable.
-            // TODO this should be a special safety panic other than unreachable, something
-            // like "panic: switch operand had corrupt value not allowed by the type"
-            try case_block.addUnreachable(src, true);
+            if (case_block.wantSafety()) {
+                _ = try sema.safetyPanic(&case_block, src, .corrupt_switch);
+            } else {
+                _ = try case_block.addNoOp(.unreach);
+            }
         }
 
         try wip_captures.finalize();
@@ -10241,34 +10246,57 @@ fn zirShl(
     } else rhs;
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
-    if (block.wantSafety() and air_tag == .shl_exact) {
-        const op_ov_tuple_ty = try sema.overflowArithmeticTupleType(lhs_ty);
-        const op_ov = try block.addInst(.{
-            .tag = .shl_with_overflow,
-            .data = .{ .ty_pl = .{
-                .ty = try sema.addType(op_ov_tuple_ty),
-                .payload = try sema.addExtra(Air.Bin{
-                    .lhs = lhs,
-                    .rhs = rhs,
-                }),
-            } },
-        });
-        const ov_bit = try sema.tupleFieldValByIndex(block, src, op_ov, 1, op_ov_tuple_ty);
-        const any_ov_bit = if (lhs_ty.zigTypeTag() == .Vector)
-            try block.addInst(.{
-                .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
-                .data = .{ .reduce = .{
-                    .operand = ov_bit,
-                    .operation = .Or,
-                } },
-            })
-        else
-            ov_bit;
-        const zero_ov = try sema.addConstant(Type.@"u1", Value.zero);
-        const no_ov = try block.addBinOp(.cmp_eq, any_ov_bit, zero_ov);
+    if (block.wantSafety()) {
+        const bit_count = scalar_ty.intInfo(target).bits;
+        if (!std.math.isPowerOfTwo(bit_count)) {
+            const bit_count_val = try Value.Tag.int_u64.create(sema.arena, bit_count);
 
-        try sema.addSafetyCheck(block, no_ov, .shl_overflow);
-        return sema.tupleFieldValByIndex(block, src, op_ov, 0, op_ov_tuple_ty);
+            const ok = if (rhs_ty.zigTypeTag() == .Vector) ok: {
+                const bit_count_inst = try sema.addConstant(rhs_ty, try Value.Tag.repeated.create(sema.arena, bit_count_val));
+                const lt = try block.addCmpVector(rhs, bit_count_inst, .lt, try sema.addType(rhs_ty));
+                break :ok try block.addInst(.{
+                    .tag = .reduce,
+                    .data = .{ .reduce = .{
+                        .operand = lt,
+                        .operation = .And,
+                    } },
+                });
+            } else ok: {
+                const bit_count_inst = try sema.addConstant(rhs_ty, bit_count_val);
+                break :ok try block.addBinOp(.cmp_lt, rhs, bit_count_inst);
+            };
+            try sema.addSafetyCheck(block, ok, .shift_rhs_too_big);
+        }
+
+        if (air_tag == .shl_exact) {
+            const op_ov_tuple_ty = try sema.overflowArithmeticTupleType(lhs_ty);
+            const op_ov = try block.addInst(.{
+                .tag = .shl_with_overflow,
+                .data = .{ .ty_pl = .{
+                    .ty = try sema.addType(op_ov_tuple_ty),
+                    .payload = try sema.addExtra(Air.Bin{
+                        .lhs = lhs,
+                        .rhs = rhs,
+                    }),
+                } },
+            });
+            const ov_bit = try sema.tupleFieldValByIndex(block, src, op_ov, 1, op_ov_tuple_ty);
+            const any_ov_bit = if (lhs_ty.zigTypeTag() == .Vector)
+                try block.addInst(.{
+                    .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
+                    .data = .{ .reduce = .{
+                        .operand = ov_bit,
+                        .operation = .Or,
+                    } },
+                })
+            else
+                ov_bit;
+            const zero_ov = try sema.addConstant(Type.@"u1", Value.zero);
+            const no_ov = try block.addBinOp(.cmp_eq, any_ov_bit, zero_ov);
+
+            try sema.addSafetyCheck(block, no_ov, .shl_overflow);
+            return sema.tupleFieldValByIndex(block, src, op_ov, 0, op_ov_tuple_ty);
+        }
     }
     return block.addBinOp(air_tag, lhs, new_rhs);
 }
@@ -10347,20 +10375,43 @@ fn zirShr(
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
     const result = try block.addBinOp(air_tag, lhs, rhs);
-    if (block.wantSafety() and air_tag == .shr_exact) {
-        const back = try block.addBinOp(.shl, result, rhs);
+    if (block.wantSafety()) {
+        const bit_count = scalar_ty.intInfo(target).bits;
+        if (!std.math.isPowerOfTwo(bit_count)) {
+            const bit_count_val = try Value.Tag.int_u64.create(sema.arena, bit_count);
 
-        const ok = if (rhs_ty.zigTypeTag() == .Vector) ok: {
-            const eql = try block.addCmpVector(lhs, back, .eq, try sema.addType(rhs_ty));
-            break :ok try block.addInst(.{
-                .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
-                .data = .{ .reduce = .{
-                    .operand = eql,
-                    .operation = .And,
-                } },
-            });
-        } else try block.addBinOp(.cmp_eq, lhs, back);
-        try sema.addSafetyCheck(block, ok, .shr_overflow);
+            const ok = if (rhs_ty.zigTypeTag() == .Vector) ok: {
+                const bit_count_inst = try sema.addConstant(rhs_ty, try Value.Tag.repeated.create(sema.arena, bit_count_val));
+                const lt = try block.addCmpVector(rhs, bit_count_inst, .lt, try sema.addType(rhs_ty));
+                break :ok try block.addInst(.{
+                    .tag = .reduce,
+                    .data = .{ .reduce = .{
+                        .operand = lt,
+                        .operation = .And,
+                    } },
+                });
+            } else ok: {
+                const bit_count_inst = try sema.addConstant(rhs_ty, bit_count_val);
+                break :ok try block.addBinOp(.cmp_lt, rhs, bit_count_inst);
+            };
+            try sema.addSafetyCheck(block, ok, .shift_rhs_too_big);
+        }
+
+        if (air_tag == .shr_exact) {
+            const back = try block.addBinOp(.shl, result, rhs);
+
+            const ok = if (rhs_ty.zigTypeTag() == .Vector) ok: {
+                const eql = try block.addCmpVector(lhs, back, .eq, try sema.addType(rhs_ty));
+                break :ok try block.addInst(.{
+                    .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
+                    .data = .{ .reduce = .{
+                        .operand = eql,
+                        .operation = .And,
+                    } },
+                });
+            } else try block.addBinOp(.cmp_eq, lhs, back);
+            try sema.addSafetyCheck(block, ok, .shr_overflow);
+        }
     }
     return result;
 }
@@ -15961,6 +16012,11 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         const field_name = enum_ty.enumFieldName(field_index);
         return sema.addStrLit(block, field_name);
     }
+    try sema.requireRuntimeBlock(block, src, operand_src);
+    if (block.wantSafety() and sema.mod.comp.bin_file.options.use_llvm) {
+        const ok = try block.addUnOp(.is_named_enum_value, casted_operand);
+        try sema.addSafetyCheck(block, ok, .invalid_enum_value);
+    }
     // In case the value is runtime-known, we have an AIR instruction for this instead
     // of trying to lower it in Sema because an optimization pass may result in the operand
     // being comptime-known, which would let us elide the `tag_name` AIR instruction.
@@ -16942,7 +16998,7 @@ fn zirIntToPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     }
 
     try sema.requireRuntimeBlock(block, src, operand_src);
-    if (block.wantSafety()) {
+    if (block.wantSafety() and try sema.typeHasRuntimeBits(block, sema.src, type_res.elemType2())) {
         if (!type_res.isAllowzeroPtr()) {
             const is_non_zero = try block.addBinOp(.cmp_neq, operand_coerced, .zero_usize);
             try sema.addSafetyCheck(block, is_non_zero, .cast_to_null);
@@ -17234,7 +17290,9 @@ fn zirAlignCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     }
 
     try sema.requireRuntimeBlock(block, inst_data.src(), ptr_src);
-    if (block.wantSafety() and dest_align > 1) {
+    if (block.wantSafety() and dest_align > 1 and
+        try sema.typeHasRuntimeBits(block, sema.src, dest_ty.elemType2()))
+    {
         const val_payload = try sema.arena.create(Value.Payload.U64);
         val_payload.* = .{
             .base = .{ .tag = .int_u64 },
@@ -17253,7 +17311,7 @@ fn zirAlignCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         const is_aligned = try block.addBinOp(.cmp_eq, remainder, .zero_usize);
         const ok = if (ptr_ty.isSlice()) ok: {
             const len = try sema.analyzeSliceLen(block, ptr_src, ptr);
-            const len_zero = try block.addBinOp(.cmp_eq, len, try sema.addConstant(Type.usize, Value.zero));
+            const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
             break :ok try block.addBinOp(.bit_or, len_zero, is_aligned);
         } else is_aligned;
         try sema.addSafetyCheck(block, ok, .incorrect_alignment);
@@ -20114,6 +20172,9 @@ pub const PanicId = enum {
     /// TODO make this call `std.builtin.panicInactiveUnionField`.
     inactive_union_field,
     integer_part_out_of_bounds,
+    corrupt_switch,
+    shift_rhs_too_big,
+    invalid_enum_value,
 };
 
 fn addSafetyCheck(
@@ -20408,6 +20469,9 @@ fn safetyPanic(
         .exact_division_remainder => "exact division produced remainder",
         .inactive_union_field => "access of inactive union field",
         .integer_part_out_of_bounds => "integer part of floating point value out of bounds",
+        .corrupt_switch => "switch on corrupt value",
+        .shift_rhs_too_big => "shift amount is greater than the type size",
+        .invalid_enum_value => "invalid enum value",
     };
 
     const msg_inst = msg_inst: {
@@ -22096,7 +22160,6 @@ fn coerceExtra(
                     .ok => {},
                     else => break :src_c_ptr,
                 }
-                // TODO add safety check for null pointer
                 return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
             }
 
@@ -24569,6 +24632,24 @@ fn coerceCompatiblePtrs(
         return sema.addConstant(dest_ty, val);
     }
     try sema.requireRuntimeBlock(block, inst_src, null);
+    const inst_ty = sema.typeOf(inst);
+    const inst_allows_zero = (inst_ty.zigTypeTag() == .Pointer and inst_ty.ptrAllowsZero()) or true;
+    if (block.wantSafety() and inst_allows_zero and !dest_ty.ptrAllowsZero() and
+        try sema.typeHasRuntimeBits(block, sema.src, dest_ty.elemType2()))
+    {
+        const actual_ptr = if (inst_ty.isSlice())
+            try sema.analyzeSlicePtr(block, inst_src, inst, inst_ty)
+        else
+            inst;
+        const ptr_int = try block.addUnOp(.ptrtoint, actual_ptr);
+        const is_non_zero = try block.addBinOp(.cmp_neq, ptr_int, .zero_usize);
+        const ok = if (inst_ty.isSlice()) ok: {
+            const len = try sema.analyzeSliceLen(block, inst_src, inst);
+            const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
+            break :ok try block.addBinOp(.bit_or, len_zero, is_non_zero);
+        } else is_non_zero;
+        try sema.addSafetyCheck(block, ok, .cast_to_null);
+    }
     return sema.bitCast(block, dest_ty, inst, inst_src);
 }
 
@@ -25708,6 +25789,27 @@ fn analyzeSlice(
         const new_ptr_val = opt_new_ptr_val orelse {
             const result = try block.addBitCast(return_ty, new_ptr);
             if (block.wantSafety()) {
+                // requirement: slicing C ptr is non-null
+                if (ptr_ptr_child_ty.isCPtr()) {
+                    const is_non_null = try sema.analyzeIsNull(block, ptr_src, ptr, true);
+                    try sema.addSafetyCheck(block, is_non_null, .unwrap_null);
+                }
+
+                if (slice_ty.isSlice()) {
+                    const slice_len_inst = try block.addTyOp(.slice_len, Type.usize, ptr_or_slice);
+                    const actual_len = if (slice_ty.sentinel() == null)
+                        slice_len_inst
+                    else
+                        try sema.analyzeArithmetic(block, .add, slice_len_inst, .one, src, end_src, end_src);
+
+                    const actual_end = if (slice_sentinel != null)
+                        try sema.analyzeArithmetic(block, .add, end, .one, src, end_src, end_src)
+                    else
+                        end;
+
+                    try sema.panicIndexOutOfBounds(block, src, actual_end, actual_len, .cmp_lte);
+                }
+
                 // requirement: result[new_len] == slice_sentinel
                 try sema.panicSentinelMismatch(block, src, slice_sentinel, elem_ty, result, new_len);
             }
@@ -25769,7 +25871,11 @@ fn analyzeSlice(
             break :blk try sema.analyzeArithmetic(block, .add, slice_len_inst, .one, src, end_src, end_src);
         } else null;
         if (opt_len_inst) |len_inst| {
-            try sema.panicIndexOutOfBounds(block, src, end, len_inst, .cmp_lte);
+            const actual_end = if (slice_sentinel != null)
+                try sema.analyzeArithmetic(block, .add, end, .one, src, end_src, end_src)
+            else
+                end;
+            try sema.panicIndexOutOfBounds(block, src, actual_end, len_inst, .cmp_lte);
         }
 
         // requirement: start <= end

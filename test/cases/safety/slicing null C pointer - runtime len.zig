@@ -2,26 +2,19 @@ const std = @import("std");
 
 pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noreturn {
     _ = stack_trace;
-    if (std.mem.eql(u8, message, "switch on corrupt value")) {
+    if (std.mem.eql(u8, message, "attempt to use null value")) {
         std.process.exit(0);
     }
     std.process.exit(1);
 }
 
-const U = union(enum(u32)) {
-    X: u8,
-    Y: i8,
-};
-
 pub fn main() !void {
-    var u: U = undefined;
-    @memset(@ptrCast([*]u8, &u), 0x55, @sizeOf(U));
-    switch (u) {
-        .X, .Y => @breakpoint(),
-    }
+    var ptr: [*c]const u32 = null;
+    var len: usize = 3;
+    var slice = ptr[0..len];
+    _ = slice;
     return error.TestFailed;
 }
-
 // run
 // backend=llvm
 // target=native

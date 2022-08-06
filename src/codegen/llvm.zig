@@ -201,6 +201,8 @@ pub const Object = struct {
     /// * it works for functions not all globals.
     /// Therefore, this table keeps track of the mapping.
     decl_map: std.AutoHashMapUnmanaged(Module.Decl.Index, *const llvm.Value),
+    /// Serves the same purpose as `decl_map` but only used for the `is_named_enum_value` instruction.
+    named_enum_map: std.AutoHashMapUnmanaged(Module.Decl.Index, *const llvm.Value),
     /// Maps Zig types to LLVM types. The table memory itself is backed by the GPA of
     /// the compiler, but the Type/Value memory here is backed by `type_map_arena`.
     /// TODO we need to remove entries from this map in response to incremental compilation
@@ -377,6 +379,7 @@ pub const Object = struct {
             .target_data = target_data,
             .target = options.target,
             .decl_map = .{},
+            .named_enum_map = .{},
             .type_map = .{},
             .type_map_arena = std.heap.ArenaAllocator.init(gpa),
             .di_type_map = .{},
@@ -396,6 +399,7 @@ pub const Object = struct {
         self.llvm_module.dispose();
         self.context.dispose();
         self.decl_map.deinit(gpa);
+        self.named_enum_map.deinit(gpa);
         self.type_map.deinit(gpa);
         self.type_map_arena.deinit();
         self.extern_collisions.deinit(gpa);
@@ -4180,6 +4184,8 @@ pub const FuncGen = struct {
                 .union_init     => try self.airUnionInit(inst),
                 .prefetch       => try self.airPrefetch(inst),
 
+                .is_named_enum_value => try self.airIsNamedEnumValue(inst),
+
                 .reduce           => try self.airReduce(inst, false),
                 .reduce_optimized => try self.airReduce(inst, true),
 
@@ -7880,6 +7886,87 @@ pub const FuncGen = struct {
         } else {
             return wrong_size_result;
         }
+    }
+
+    fn airIsNamedEnumValue(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const un_op = self.air.instructions.items(.data)[inst].un_op;
+        const operand = try self.resolveInst(un_op);
+        const enum_ty = self.air.typeOf(un_op);
+
+        const llvm_fn = try self.getIsNamedEnumValueFunction(enum_ty);
+        const params = [_]*const llvm.Value{operand};
+        return self.builder.buildCall(llvm_fn, &params, params.len, .Fast, .Auto, "");
+    }
+
+    fn getIsNamedEnumValueFunction(self: *FuncGen, enum_ty: Type) !*const llvm.Value {
+        const enum_decl = enum_ty.getOwnerDecl();
+
+        // TODO: detect when the type changes and re-emit this function.
+        const gop = try self.dg.object.named_enum_map.getOrPut(self.dg.gpa, enum_decl);
+        if (gop.found_existing) return gop.value_ptr.*;
+        errdefer assert(self.dg.object.named_enum_map.remove(enum_decl));
+
+        var arena_allocator = std.heap.ArenaAllocator.init(self.gpa);
+        defer arena_allocator.deinit();
+        const arena = arena_allocator.allocator();
+
+        const mod = self.dg.module;
+        const llvm_fn_name = try std.fmt.allocPrintZ(arena, "__zig_is_named_enum_value_{s}", .{
+            try mod.declPtr(enum_decl).getFullyQualifiedName(mod),
+        });
+
+        var int_tag_type_buffer: Type.Payload.Bits = undefined;
+        const int_tag_ty = enum_ty.intTagType(&int_tag_type_buffer);
+        const param_types = [_]*const llvm.Type{try self.dg.lowerType(int_tag_ty)};
+
+        const llvm_ret_ty = try self.dg.lowerType(Type.bool);
+        const fn_type = llvm.functionType(llvm_ret_ty, &param_types, param_types.len, .False);
+        const fn_val = self.dg.object.llvm_module.addFunction(llvm_fn_name, fn_type);
+        fn_val.setLinkage(.Internal);
+        fn_val.setFunctionCallConv(.Fast);
+        self.dg.addCommonFnAttributes(fn_val);
+        gop.value_ptr.* = fn_val;
+
+        const prev_block = self.builder.getInsertBlock();
+        const prev_debug_location = self.builder.getCurrentDebugLocation2();
+        defer {
+            self.builder.positionBuilderAtEnd(prev_block);
+            if (self.di_scope != null) {
+                self.builder.setCurrentDebugLocation2(prev_debug_location);
+            }
+        }
+
+        const entry_block = self.dg.context.appendBasicBlock(fn_val, "Entry");
+        self.builder.positionBuilderAtEnd(entry_block);
+        self.builder.clearCurrentDebugLocation();
+
+        const fields = enum_ty.enumFields();
+        const named_block = self.dg.context.appendBasicBlock(fn_val, "Named");
+        const unnamed_block = self.dg.context.appendBasicBlock(fn_val, "Unnamed");
+        const tag_int_value = fn_val.getParam(0);
+        const switch_instr = self.builder.buildSwitch(tag_int_value, unnamed_block, @intCast(c_uint, fields.count()));
+
+        for (fields.keys()) |_, field_index| {
+            const this_tag_int_value = int: {
+                var tag_val_payload: Value.Payload.U32 = .{
+                    .base = .{ .tag = .enum_field_index },
+                    .data = @intCast(u32, field_index),
+                };
+                break :int try self.dg.lowerValue(.{
+                    .ty = enum_ty,
+                    .val = Value.initPayload(&tag_val_payload.base),
+                });
+            };
+            switch_instr.addCase(this_tag_int_value, named_block);
+        }
+        self.builder.positionBuilderAtEnd(named_block);
+        _ = self.builder.buildRet(self.dg.context.intType(1).constInt(1, .False));
+
+        self.builder.positionBuilderAtEnd(unnamed_block);
+        _ = self.builder.buildRet(self.dg.context.intType(1).constInt(0, .False));
+        return fn_val;
     }
 
     fn airTagName(self: *FuncGen, inst: Air.Inst.Index) !?*const llvm.Value {
