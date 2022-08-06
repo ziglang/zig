@@ -25,6 +25,7 @@
         --search-bg-color-focus: #ffffff;
         --search-sh-color: rgba(0, 0, 0, 0.18);
         --help-sh-color: rgba(0, 0, 0, 0.75);
+        --help-bg-color: #aaa;
       }
 
       html, body { margin: 0; padding: 0; height: 100%; }
@@ -314,7 +315,7 @@
         overflow: auto;
         font-size: 1rem;
         color: #fff;
-        background-color: #333;
+        background-color: var(--help-bg-color);
         border: 0.125rem solid #000;
         box-shadow: 0 0.5rem 2.5rem 0.3rem var(--help-sh-color);
       }
@@ -407,6 +408,7 @@
           --search-bg-color-focus: #000;
           --search-sh-color: rgba(255, 255, 255, 0.28);
           --help-sh-color: rgba(142, 142, 142, 0.5);
+          --help-bg-color: #333;
         }
 
         .docs pre {
