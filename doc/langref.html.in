@@ -2613,6 +2613,7 @@ test "Conversion between vectors, arrays, and slices" {
               <li>Supports index syntax: {#syntax#}ptr[i]{#endsyntax#}</li>
               <li>Supports slice syntax: {#syntax#}ptr[start..end]{#endsyntax#}</li>
               <li>Supports pointer arithmetic: {#syntax#}ptr + x{#endsyntax#}, {#syntax#}ptr - x{#endsyntax#}</li>
+              <li>{#syntax#}[*] const T{#endsyntax#} - many-item pointer to unknown number of constant items.</li>
               <li>{#syntax#}T{#endsyntax#} must have a known size, which means that it cannot be
               {#syntax#}anyopaque{#endsyntax#} or any other {#link|opaque type|opaque#}.</li>
             </ul>
