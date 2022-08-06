@@ -332,7 +332,7 @@ pub fn generate(
     };
 
     for (function.dbg_arg_relocs.items) |reloc| {
-        try function.genArgDbgInfo(reloc.inst, reloc.index, call_info.stack_byte_count);
+        try function.genArgDbgInfo(reloc.inst, reloc.index);
     }
 
     var mir = Mir{
@@ -351,7 +351,8 @@ pub fn generate(
         .prev_di_pc = 0,
         .prev_di_line = module_fn.lbrace_line,
         .prev_di_column = module_fn.lbrace_column,
-        .prologue_stack_space = call_info.stack_byte_count + function.saved_regs_stack_space,
+        .stack_size = function.max_end_stack,
+        .saved_regs_stack_space = function.saved_regs_stack_space,
     };
     defer emit.deinit();
 
@@ -464,6 +465,7 @@ fn gen(self: *Self) !void {
         const total_stack_size = self.max_end_stack + self.saved_regs_stack_space;
         const aligned_total_stack_end = mem.alignForwardGeneric(u32, total_stack_size, self.stack_align);
         const stack_size = aligned_total_stack_end - self.saved_regs_stack_space;
+        self.max_end_stack = stack_size;
         if (Instruction.Operand.fromU32(stack_size)) |op| {
             self.mir_instructions.set(sub_reloc, .{
                 .tag = .sub,
@@ -1812,7 +1814,7 @@ fn errUnionErr(self: *Self, error_union_mcv: MCValue, error_union_ty: Type) !MCV
     switch (error_union_mcv) {
         .register => return self.fail("TODO errUnionErr for registers", .{}),
         .stack_argument_offset => |off| {
-            return MCValue{ .stack_argument_offset = off - err_offset };
+            return MCValue{ .stack_argument_offset = off + err_offset };
         },
         .stack_offset => |off| {
             return MCValue{ .stack_offset = off - err_offset };
@@ -1849,7 +1851,7 @@ fn errUnionPayload(self: *Self, error_union_mcv: MCValue, error_union_ty: Type) 
     switch (error_union_mcv) {
         .register => return self.fail("TODO errUnionPayload for registers", .{}),
         .stack_argument_offset => |off| {
-            return MCValue{ .stack_argument_offset = off - payload_offset };
+            return MCValue{ .stack_argument_offset = off + payload_offset };
         },
         .stack_offset => |off| {
             return MCValue{ .stack_offset = off - payload_offset };
@@ -1983,7 +1985,7 @@ fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
             .dead, .unreach => unreachable,
             .register => unreachable, // a slice doesn't fit in one register
             .stack_argument_offset => |off| {
-                break :result MCValue{ .stack_argument_offset = off - 4 };
+                break :result MCValue{ .stack_argument_offset = off + 4 };
             },
             .stack_offset => |off| {
                 break :result MCValue{ .stack_offset = off - 4 };
@@ -2507,7 +2509,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
         switch (mcv) {
             .dead, .unreach => unreachable,
             .stack_argument_offset => |off| {
-                break :result MCValue{ .stack_argument_offset = off - struct_field_offset };
+                break :result MCValue{ .stack_argument_offset = off + struct_field_offset };
             },
             .stack_offset => |off| {
                 break :result MCValue{ .stack_offset = off - struct_field_offset };
@@ -3369,9 +3371,7 @@ fn addDbgInfoTypeReloc(self: *Self, ty: Type) error{OutOfMemory}!void {
     }
 }
 
-fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, arg_index: u32, stack_byte_count: u32) error{OutOfMemory}!void {
-    const prologue_stack_space = stack_byte_count + self.saved_regs_stack_space;
-
+fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, arg_index: u32) error{OutOfMemory}!void {
     const mcv = self.args[arg_index];
     const ty = self.air.instructions.items(.data)[inst].ty;
     const name = self.mod_fn.getParamName(self.bin_file.options.module.?, arg_index);
@@ -3404,7 +3404,7 @@ fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, arg_index: u32, stack_byte_c
                     // const abi_size = @intCast(u32, ty.abiSize(self.target.*));
                     const adjusted_stack_offset = switch (mcv) {
                         .stack_offset => |offset| -@intCast(i32, offset),
-                        .stack_argument_offset => |offset| @intCast(i32, prologue_stack_space - offset),
+                        .stack_argument_offset => |offset| @intCast(i32, self.saved_regs_stack_space + offset),
                         else => unreachable,
                     };
 
@@ -3559,7 +3559,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
             .stack_offset => unreachable,
             .stack_argument_offset => |offset| try self.genSetStackArgument(
                 arg_ty,
-                info.stack_byte_count - offset,
+                offset,
                 arg_mcv,
             ),
             else => unreachable,
@@ -5653,8 +5653,8 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                     if (ty.abiAlignment(self.target.*) == 8)
                         nsaa = std.mem.alignForwardGeneric(u32, nsaa, 8);
 
-                    nsaa += param_size;
                     result.args[i] = .{ .stack_argument_offset = nsaa };
+                    nsaa += param_size;
                 }
             }
 
@@ -5687,9 +5687,11 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             for (param_types) |ty, i| {
                 if (ty.abiSize(self.target.*) > 0) {
                     const param_size = @intCast(u32, ty.abiSize(self.target.*));
+                    const param_alignment = ty.abiAlignment(self.target.*);
 
-                    stack_offset = std.mem.alignForwardGeneric(u32, stack_offset, ty.abiAlignment(self.target.*)) + param_size;
+                    stack_offset = std.mem.alignForwardGeneric(u32, stack_offset, param_alignment);
                     result.args[i] = .{ .stack_argument_offset = stack_offset };
+                    stack_offset += param_size;
                 } else {
                     result.args[i] = .{ .none = {} };
                 }
