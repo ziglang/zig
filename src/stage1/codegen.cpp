@@ -2379,8 +2379,8 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
                     for (uint32_t i = 0; i < number_of_regs; i += 1) {
                         LLVMValueRef adjusted_ptr_to_struct = LLVMBuildStructGEP2(g->builder,
                                 abi_type, abi_ptr_to_struct, i, "");
-                        LLVMValueRef loaded = LLVMBuildLoad2(g->builder,
-                                ZigLLVMGetGEPResultElementType(adjusted_ptr_to_struct),
+                        LLVMTypeRef field_llvm_ty = LLVMStructGetTypeAtIndex(abi_type, i);
+                        LLVMValueRef loaded = LLVMBuildLoad2(g->builder, field_llvm_ty,
                                 adjusted_ptr_to_struct, "");
                         fn_walk->data.call.gen_param_values->append(loaded);
                     }
