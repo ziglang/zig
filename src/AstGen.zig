@@ -859,7 +859,12 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
         },
         .enum_literal => return simpleStrTok(gz, rl, main_tokens[node], node, .enum_literal),
         .error_value => return simpleStrTok(gz, rl, node_datas[node].rhs, node, .error_value),
-        .anyframe_literal => return rvalue(gz, rl, .anyframe_type, node),
+        // TODO restore this when implementing https://github.com/ziglang/zig/issues/6025
+        // .anyframe_literal => return rvalue(gz, rl, .anyframe_type, node),
+        .anyframe_literal => {
+            const result = try gz.addUnNode(.anyframe_type, .void_type, node);
+            return rvalue(gz, rl, result, node);
+        },
         .anyframe_type => {
             const return_type = try typeExpr(gz, scope, node_datas[node].rhs);
             const result = try gz.addUnNode(.anyframe_type, return_type, node);

@@ -1827,6 +1827,17 @@ fn failWithInvalidComptimeFieldStore(sema: *Sema, block: *Block, init_src: LazyS
     return sema.failWithOwnedErrorMsg(msg);
 }
 
+fn failWithUseOfAsync(sema: *Sema, block: *Block, src: LazySrcLoc) CompileError {
+    const msg = msg: {
+        const msg = try sema.errMsg(block, src, "async has not been implemented in the self-hosted compiler yet", .{});
+        errdefer msg.destroy(sema.gpa);
+
+        try sema.errNote(block, src, msg, "to use async enable the stage1 compiler with either '-fstage1' or by setting '.use_stage1 = true` in your 'build.zig' script", .{});
+        break :msg msg;
+    };
+    return sema.failWithOwnedErrorMsg(msg);
+}
+
 /// We don't return a pointer to the new error note because the pointer
 /// becomes invalid when you add another one.
 fn errNote(
@@ -4775,7 +4786,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
 fn zirSuspendBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
-    return sema.fail(parent_block, src, "TODO: implement Sema.zirSuspendBlock", .{});
+    return sema.failWithUseOfAsync(parent_block, src);
 }
 
 fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -5612,7 +5623,7 @@ fn analyzeCall(
         .never_inline => Air.Inst.Tag.call_never_inline,
         .always_tail => Air.Inst.Tag.call_always_tail,
 
-        .async_kw => return sema.fail(block, call_src, "TODO implement async call", .{}),
+        .async_kw => return sema.failWithUseOfAsync(block, call_src),
     };
 
     if (modifier == .never_inline and func_ty_info.cc == .Inline) {
@@ -6656,6 +6667,9 @@ fn zirAnyframeType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    if (true) {
+        return sema.failWithUseOfAsync(block, inst_data.src());
+    }
     const operand_src: LazySrcLoc = .{ .node_offset_anyframe_type = inst_data.src_node };
     const return_type = try sema.resolveType(block, operand_src, inst_data.operand);
     const anyframe_type = try Type.Tag.anyframe_T.create(sema.arena, return_type);
@@ -14034,8 +14048,8 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             );
         },
         .BoundFn => @panic("TODO remove this type from the language and compiler"),
-        .Frame => return sema.fail(block, src, "TODO: implement zirTypeInfo for Frame", .{}),
-        .AnyFrame => return sema.fail(block, src, "TODO: implement zirTypeInfo for AnyFrame", .{}),
+        .Frame => return sema.failWithUseOfAsync(block, src),
+        .AnyFrame => return sema.failWithUseOfAsync(block, src),
     }
 }
 
@@ -15680,7 +15694,7 @@ fn zirFrame(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const src = LazySrcLoc.nodeOffset(@bitCast(i32, extended.operand));
-    return sema.fail(block, src, "TODO: Sema.zirFrame", .{});
+    return sema.failWithUseOfAsync(block, src);
 }
 
 fn zirAlignOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -15869,7 +15883,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
         .ComptimeInt => return Air.Inst.Ref.comptime_int_type,
         .Undefined => return Air.Inst.Ref.undefined_type,
         .Null => return Air.Inst.Ref.null_type,
-        .AnyFrame => return Air.Inst.Ref.anyframe_type,
+        .AnyFrame => return sema.failWithUseOfAsync(block, src),
         .EnumLiteral => return Air.Inst.Ref.enum_literal_type,
         .Int => {
             const struct_val = union_val.val.castTag(.aggregate).?.data;
@@ -16521,7 +16535,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             return sema.addType(ty);
         },
         .BoundFn => @panic("TODO delete BoundFn from the language"),
-        .Frame => @panic("TODO implement https://github.com/ziglang/zig/issues/10710"),
+        .Frame => return sema.failWithUseOfAsync(block, src),
     }
 }
 
@@ -16723,13 +16737,13 @@ fn zirTypeName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 fn zirFrameType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirFrameType", .{});
+    return sema.failWithUseOfAsync(block, src);
 }
 
 fn zirFrameSize(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirFrameSize", .{});
+    return sema.failWithUseOfAsync(block, src);
 }
 
 fn zirFloatToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -18960,13 +18974,13 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
 fn zirBuiltinAsyncCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirBuiltinAsyncCall", .{});
+    return sema.failWithUseOfAsync(block, src);
 }
 
 fn zirResume(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirResume", .{});
+    return sema.failWithUseOfAsync(block, src);
 }
 
 fn zirAwait(
@@ -18977,7 +18991,7 @@ fn zirAwait(
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
 
-    return sema.fail(block, src, "TODO: Sema.zirAwait", .{});
+    return sema.failWithUseOfAsync(block, src);
 }
 
 fn zirAwaitNosuspend(
@@ -18988,7 +19002,7 @@ fn zirAwaitNosuspend(
     const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
     const src = LazySrcLoc.nodeOffset(extra.node);
 
-    return sema.fail(block, src, "TODO: Sema.zirAwaitNosuspend", .{});
+    return sema.failWithUseOfAsync(block, src);
 }
 
 fn zirVarExtended(
