@@ -1896,7 +1896,7 @@ pub const LibExeObjStep = struct {
     /// When a binary cannot be ran through emulation or the option is disabled, a warning
     /// will be printed and the binary will *NOT* be ran.
     pub fn runEmulatable(exe: *LibExeObjStep) *EmulatableRunStep {
-        assert(exe.kind == .exe or exe.kind == .text_exe);
+        assert(exe.kind == .exe or exe.kind == .test_exe);
 
         const run_step = EmulatableRunStep.create(exe.builder.fmt("run {s}", .{exe.step.name}), exe);
         if (exe.vcpkg_bin_path) |path| {
