@@ -4425,7 +4425,7 @@ pub const FuncGen = struct {
                 .cmp_lt  => try self.airCmp(inst, .lt, false),
                 .cmp_lte => try self.airCmp(inst, .lte, false),
                 .cmp_neq => try self.airCmp(inst, .neq, false),
-                
+
                 .cmp_eq_optimized  => try self.airCmp(inst, .eq, true),
                 .cmp_gt_optimized  => try self.airCmp(inst, .gt, true),
                 .cmp_gte_optimized => try self.airCmp(inst, .gte, true),
@@ -9805,6 +9805,10 @@ fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: std.Target) llvm.Ca
         .Win64 => .Win64,
         .PtxKernel => return switch (target.cpu.arch) {
             .nvptx, .nvptx64 => .PTX_Kernel,
+            else => unreachable,
+        },
+        .AmdgpuKernel => return switch (target.cpu.arch) {
+            .amdgcn => .AMDGPU_KERNEL,
             else => unreachable,
         },
     };

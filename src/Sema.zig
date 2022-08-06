@@ -8141,6 +8141,10 @@ fn funcCommon(
                 .nvptx, .nvptx64 => null,
                 else => @as([]const u8, "nvptx and nvptx64"),
             },
+            .AmdgpuKernel => switch (arch) {
+                .amdgcn => null,
+                else => @as([]const u8, "amdgcn"),
+            },
         }) |allowed_platform| {
             return sema.fail(block, cc_src, "callconv '{s}' is only available on {s}, not {s}", .{
                 @tagName(cc_workaround),

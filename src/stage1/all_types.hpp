@@ -85,7 +85,8 @@ enum CallingConvention {
     CallingConventionAAPCSVFP,
     CallingConventionSysV,
     CallingConventionWin64,
-    CallingConventionPtxKernel
+    CallingConventionPtxKernel,
+    CallingConventionAmdgpuKernel
 };
 
 // Stage 1 supports only the generic address space

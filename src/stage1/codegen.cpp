@@ -216,6 +216,9 @@ static ZigLLVM_CallingConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
             assert(g->zig_target->arch == ZigLLVM_nvptx ||
                 g->zig_target->arch == ZigLLVM_nvptx64);
                 return ZigLLVM_PTX_Kernel;
+        case CallingConventionAmdgpuKernel:
+            assert(g->zig_target->arch == ZigLLVM_amdgcn);
+            return ZigLLVM_AMDGPU_KERNEL;
 
     }
     zig_unreachable();
@@ -364,6 +367,7 @@ static bool cc_want_sret_attr(CallingConvention cc) {
         case CallingConventionSysV:
         case CallingConventionWin64:
         case CallingConventionPtxKernel:
+        case CallingConventionAmdgpuKernel:
             return true;
         case CallingConventionAsync:
         case CallingConventionUnspecified:
@@ -3515,7 +3519,7 @@ static LLVMValueRef gen_soft_float_to_int_op(CodeGen *g, LLVMValueRef value_ref,
 
     // Handle integers of non-pot bitsize by shortening them on the output
     if (result_type != wider_type) {
-        result = gen_widen_or_shorten(g, false, wider_type, result_type, result); 
+        result = gen_widen_or_shorten(g, false, wider_type, result_type, result);
     }
 
     return result;

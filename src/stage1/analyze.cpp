@@ -993,6 +993,7 @@ const char *calling_convention_name(CallingConvention cc) {
         case CallingConventionSysV: return "SysV";
         case CallingConventionWin64: return "Win64";
         case CallingConventionPtxKernel: return "PtxKernel";
+        case CallingConventionAmdgpuKernel: return "AmdgpuKernel";
     }
     zig_unreachable();
 }
@@ -1017,6 +1018,7 @@ bool calling_convention_allows_zig_types(CallingConvention cc) {
         case CallingConventionAAPCSVFP:
         case CallingConventionSysV:
         case CallingConventionWin64:
+        case CallingConventionAmdgpuKernel:
             return false;
     }
     zig_unreachable();
@@ -2019,6 +2021,9 @@ Error emit_error_unless_callconv_allowed_for_target(CodeGen *g, AstNode *source_
                 allowed_platforms = "nvptx and nvptx64";
             }
             break;
+      case CallingConventionAmdgpuKernel:
+          if (g->zig_target->arch != ZigLLVM_amdgcn)
+              allowed_platforms = "amdgcn and amdpal";
 
     }
     if (allowed_platforms != nullptr) {
@@ -3857,6 +3862,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
                 case CallingConventionSysV:
                 case CallingConventionWin64:
                 case CallingConventionPtxKernel:
+                case CallingConventionAmdgpuKernel:
                     add_fn_export(g, fn_table_entry, buf_ptr(&fn_table_entry->symbol_name),
                                   GlobalLinkageIdStrong, fn_cc);
                     break;
@@ -6012,7 +6018,7 @@ Error type_has_bits2(CodeGen *g, ZigType *type_entry, bool *result) {
 
 bool fn_returns_c_abi_small_struct(FnTypeId *fn_type_id) {
     ZigType *type = fn_type_id->return_type;
-    return !calling_convention_allows_zig_types(fn_type_id->cc) && 
+    return !calling_convention_allows_zig_types(fn_type_id->cc) &&
         type->id == ZigTypeIdStruct && type->abi_size <= 16;
 }
 
@@ -8698,7 +8704,7 @@ static LLVMTypeRef llvm_int_for_size(size_t size) {
 static LLVMTypeRef llvm_sse_for_size(size_t size) {
     if (size > 4)
         return LLVMDoubleType();
-    else 
+    else
         return LLVMFloatType();
 }
 
@@ -8756,7 +8762,7 @@ static Error resolve_llvm_c_abi_type(CodeGen *g, ZigType *ty) {
 
             LLVMTypeRef return_elem_types[] = {
                 LLVMVoidType(),
-                LLVMVoidType(), 
+                LLVMVoidType(),
             };
             for (uint32_t i = 0; i <= eightbyte_index; i += 1) {
                 if (type_classes[i] == X64CABIClass_INTEGER) {
