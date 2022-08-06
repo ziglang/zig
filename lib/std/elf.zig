@@ -406,7 +406,7 @@ pub const Header = struct {
     }
 };
 
-pub fn ProgramHeaderIterator(ParseSource: anytype) type {
+pub fn ProgramHeaderIterator(comptime ParseSource: anytype) type {
     return struct {
         elf_header: Header,
         parse_source: ParseSource,
@@ -456,7 +456,7 @@ pub fn ProgramHeaderIterator(ParseSource: anytype) type {
     };
 }
 
-pub fn SectionHeaderIterator(ParseSource: anytype) type {
+pub fn SectionHeaderIterator(comptime ParseSource: anytype) type {
     return struct {
         elf_header: Header,
         parse_source: ParseSource,

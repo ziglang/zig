@@ -745,7 +745,7 @@ fn setAttribute(attr: Attribute) void {
     _ = attr;
 }
 
-fn Setter(attr: Attribute) type {
+fn Setter(comptime attr: Attribute) type {
     return struct {
         fn set() void {
             setAttribute(attr);

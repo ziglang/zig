@@ -7816,19 +7816,17 @@ fn funcCommon(
             };
         }
 
-        var is_comptime_ret = false;
-        const ret_poison = if (!is_generic) rp: {
-            if (sema.typeRequiresComptime(block, ret_ty_src, bare_return_type)) |ret_comptime| {
-                is_comptime_ret = ret_comptime;
-                break :rp bare_return_type.tag() == .generic_poison;
-            } else |err| switch (err) {
-                error.GenericPoison => {
-                    is_generic = true;
-                    break :rp true;
-                },
-                else => |e| return e,
-            }
-        } else bare_return_type.tag() == .generic_poison;
+        var ret_ty_requires_comptime = false;
+        const ret_poison = if (sema.typeRequiresComptime(block, ret_ty_src, bare_return_type)) |ret_comptime| rp: {
+            ret_ty_requires_comptime = ret_comptime;
+            break :rp bare_return_type.tag() == .generic_poison;
+        } else |err| switch (err) {
+            error.GenericPoison => rp: {
+                is_generic = true;
+                break :rp true;
+            },
+            else => |e| return e,
+        };
 
         const return_type = if (!inferred_error_set or ret_poison)
             bare_return_type
@@ -7870,6 +7868,41 @@ fn funcCommon(
                 try sema.addDeclaredHereNote(msg, return_type);
                 break :msg msg;
             };
+            return sema.failWithOwnedErrorMsg(msg);
+        }
+
+        // If the return type is comptime only but not dependent on parameters then all parameter types also need to be comptime
+        if (!sema.is_generic_instantiation and has_body and ret_ty_requires_comptime) comptime_check: {
+            for (block.params.items) |param| {
+                if (!param.is_comptime) break;
+            } else break :comptime_check;
+
+            const msg = try sema.errMsg(
+                block,
+                ret_ty_src,
+                "function with comptime only return type '{}' requires all parameters to be comptime",
+                .{return_type.fmt(sema.mod)},
+            );
+            try sema.explainWhyTypeIsComptime(block, ret_ty_src, msg, ret_ty_src.toSrcLoc(sema.owner_decl), return_type);
+
+            const tags = sema.code.instructions.items(.tag);
+            const data = sema.code.instructions.items(.data);
+            const param_body = sema.code.getParamBody(func_inst);
+            for (block.params.items) |param, i| {
+                if (!param.is_comptime) {
+                    const param_index = param_body[i];
+                    const param_src = switch (tags[param_index]) {
+                        .param => data[param_index].pl_tok.src(),
+                        .param_anytype => data[param_index].str_tok.src(),
+                        else => unreachable,
+                    };
+                    if (param.name.len != 0) {
+                        try sema.errNote(block, param_src, msg, "param '{s}' is required to be comptime", .{param.name});
+                    } else {
+                        try sema.errNote(block, param_src, msg, "param is required to be comptime", .{});
+                    }
+                }
+            }
             return sema.failWithOwnedErrorMsg(msg);
         }
 
@@ -7917,7 +7950,7 @@ fn funcCommon(
         }
         if (is_generic and sema.no_partial_func_ty) return error.GenericPoison;
         for (comptime_params) |ct| is_generic = is_generic or ct;
-        is_generic = is_generic or is_comptime_ret;
+        is_generic = is_generic or ret_ty_requires_comptime;
 
         break :fn_ty try Type.Tag.function.create(sema.arena, .{
             .param_types = param_types,
