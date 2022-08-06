@@ -243,11 +243,13 @@ pub const DeclState = struct {
             .Pointer => {
                 if (ty.isSlice()) {
                     // Slices are structs: struct { .ptr = *, .len = N }
+                    const ptr_bits = target.cpu.arch.ptrBitWidth();
+                    const ptr_bytes = @intCast(u8, @divExact(ptr_bits, 8));
                     // DW.AT.structure_type
                     try dbg_info_buffer.ensureUnusedCapacity(2);
                     dbg_info_buffer.appendAssumeCapacity(@enumToInt(AbbrevKind.struct_type));
                     // DW.AT.byte_size, DW.FORM.sdata
-                    dbg_info_buffer.appendAssumeCapacity(@sizeOf(usize) * 2);
+                    dbg_info_buffer.appendAssumeCapacity(ptr_bytes * 2);
                     // DW.AT.name, DW.FORM.string
                     try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(module)});
                     // DW.AT.member
@@ -276,7 +278,7 @@ pub const DeclState = struct {
                     try self.addTypeRelocGlobal(atom, Type.usize, @intCast(u32, index));
                     // DW.AT.data_member_location, DW.FORM.sdata
                     try dbg_info_buffer.ensureUnusedCapacity(2);
-                    dbg_info_buffer.appendAssumeCapacity(@sizeOf(usize));
+                    dbg_info_buffer.appendAssumeCapacity(ptr_bytes);
                     // DW.AT.structure_type delimit children
                     dbg_info_buffer.appendAssumeCapacity(0);
                 } else {
