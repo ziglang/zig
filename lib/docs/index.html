@@ -190,11 +190,11 @@
         box-shadow: 0 0.3em 1em 0.125em var(--search-sh-color);
       }
 
-      .docs .search::placeholder {
-        font-size: 1rem;
-        font-family: var(--ui);
-        color: var(--tx-color);
-        opacity: 0.5;
+      #searchPlaceholder {
+        position: absolute;
+        pointer-events: none;
+        top: 5px;
+        left: 5px;
       }
 
       .docs a {
@@ -334,7 +334,7 @@
         margin-right: 0.5em;
       }
 
-      .help-modal kbd {
+      kbd {
         display: inline-block;
         padding: 0.3em 0.2em;
         font-size: 1.2em;
@@ -614,7 +614,10 @@
       <div class="flex-right">
         <div class="wrap">
           <section class="docs">
-            <input type="search" class="search" id="search" autocomplete="off" spellcheck="false" placeholder="`s` to search, `?` to see more options">
+            <div style="position: relative">
+              <span id="searchPlaceholder"><kbd>S</kbd> to search, <kbd>?</kbd> for more options</span>
+              <input type="search" class="search" id="search" autocomplete="off" spellcheck="false">
+            </div>
             <p id="status">Loading...</p>
             <div id="sectNav" class="hidden"><ul id="listNav"></ul></div>
             <div id="fnProto" class="hidden">
