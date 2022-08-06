@@ -459,7 +459,7 @@ pub fn MultiArrayList(comptime S: type) type {
             return self.bytes[0..capacityInBytes(self.capacity)];
         }
 
-        fn FieldType(field: Field) type {
+        fn FieldType(comptime field: Field) type {
             return meta.fieldInfo(S, field).field_type;
         }
 
