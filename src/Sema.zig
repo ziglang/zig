@@ -5897,7 +5897,7 @@ fn analyzeCall(
             },
             else => {},
         }
-        return sema.fail(block, func_src, "type '{}' not a function", .{callee_ty.fmt(sema.mod)});
+        return sema.fail(block, func_src, "type '{}' is not a function", .{callee_ty.fmt(sema.mod)});
     };
 
     const func_ty_info = func_ty.fnInfo();
