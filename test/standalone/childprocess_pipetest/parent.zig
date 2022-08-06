@@ -8,7 +8,6 @@ pub fn main() !void {
     defer it.deinit(); // no-op unless WASI or Windows
     _ = it.next() orelse unreachable; // skip binary name
     const zig_compiler = it.next() orelse unreachable;
-    std.debug.print("zig_compiler: {s}\n", .{zig_compiler});
     var child_process = std.ChildProcess.init(
         &[_][]const u8{ zig_compiler, "fmt", "--stdin" },
         gpa,
