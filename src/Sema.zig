@@ -16877,7 +16877,7 @@ fn zirIntToPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     }
 
     try sema.requireRuntimeBlock(block, src, operand_src);
-    if (block.wantSafety()) {
+    if (block.wantSafety() and try sema.typeHasRuntimeBits(block, sema.src, type_res.elemType2())) {
         if (!type_res.isAllowzeroPtr()) {
             const is_non_zero = try block.addBinOp(.cmp_neq, operand_coerced, .zero_usize);
             try sema.addSafetyCheck(block, is_non_zero, .cast_to_null);
@@ -17169,7 +17169,9 @@ fn zirAlignCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     }
 
     try sema.requireRuntimeBlock(block, inst_data.src(), ptr_src);
-    if (block.wantSafety() and dest_align > 1) {
+    if (block.wantSafety() and dest_align > 1 and
+        try sema.typeHasRuntimeBits(block, sema.src, dest_ty.elemType2()))
+    {
         const val_payload = try sema.arena.create(Value.Payload.U64);
         val_payload.* = .{
             .base = .{ .tag = .int_u64 },
@@ -24489,7 +24491,9 @@ fn coerceCompatiblePtrs(
     try sema.requireRuntimeBlock(block, inst_src, null);
     const inst_ty = sema.typeOf(inst);
     const inst_allows_zero = (inst_ty.zigTypeTag() == .Pointer and inst_ty.ptrAllowsZero()) or true;
-    if (block.wantSafety() and inst_allows_zero and !dest_ty.ptrAllowsZero()) {
+    if (block.wantSafety() and inst_allows_zero and !dest_ty.ptrAllowsZero() and
+        try sema.typeHasRuntimeBits(block, sema.src, dest_ty.elemType2()))
+    {
         const actual_ptr = if (inst_ty.isSlice())
             try sema.analyzeSlicePtr(block, inst_src, inst, inst_ty)
         else
