@@ -100,6 +100,15 @@ cd "$SRCTARBALLDIR/ci/srht"
 CIDIR="$(pwd)"
 
 cd "$HOME"
+
+# Upload new stdlib autodocs 
+mkdir -p docs_to_upload/documentation/master/std/
+cp "$ZIGDIR/docs/std/index.html" docs_to_upload/documentation/master/std/index.html
+cp "$ZIGDIR/docs/std/data.js" docs_to_upload/documentation/master/std/data.js
+cp "$ZIGDIR/docs/std/main.js" docs_to_upload/documentation/master/std/main.js
+cp "$LANGREF" docs_to_upload/documentation/master/index.html
+$S3CMD put -P --no-mime-magic --recursive --add-header="Cache-Control: max-age=0, must-revalidate" "docs_to_upload/" s3://ziglang.org/
+
 git clone --depth 1 git@github.com:ziglang/www.ziglang.org.git
 cd www.ziglang.org
 WWWDIR="$(pwd)"
@@ -108,12 +117,6 @@ $S3CMD put -P --no-mime-magic --add-header="cache-control: public, max-age=31536
 
 cd "$WWWDIR"
 cp "$CIDIR/out/index.json" data/releases.json
-mkdir -p content/documentation/master/std
-cp "$LANGREF" content/documentation/master/index.html
-cp "$ZIGDIR/docs/std/index.html" content/documentation/master/std/index.html
-cp "$ZIGDIR/docs/std/data.js" content/documentation/master/std/data.js
-cp "$ZIGDIR/docs/std/main.js" content/documentation/master/std/main.js
 git add data/releases.json
-git add content/
-git commit -m "CI: update releases and docs"
+git commit -m "CI: update releases"
 git push origin master
