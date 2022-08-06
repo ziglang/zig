@@ -6728,6 +6728,13 @@ pub const CType = enum {
                 },
             },
 
+            .amdhsa, .amdpal => switch (self) {
+                .short, .ushort => return 16,
+                .int, .uint => return 32,
+                .long, .ulong, .longlong, .ulonglong => return 64,
+                .longdouble => return 128,
+            },
+
             .cloudabi,
             .kfreebsd,
             .lv2,
@@ -6737,13 +6744,11 @@ pub const CType = enum {
             .aix,
             .cuda,
             .nvcl,
-            .amdhsa,
             .ps4,
             .ps5,
             .elfiamcu,
             .mesa3d,
             .contiki,
-            .amdpal,
             .hermit,
             .hurd,
             .opencl,
