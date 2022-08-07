@@ -84,10 +84,10 @@ test "math.acosh64" {
 
 test "math.acosh32.special" {
     try expect(math.isNan(acosh32(math.nan(f32))));
-    try expect(math.isSignalNan(acosh32(0.5)));
+    try expect(math.isNan(acosh32(0.5)));
 }
 
 test "math.acosh64.special" {
     try expect(math.isNan(acosh64(math.nan(f64))));
-    try expect(math.isSignalNan(acosh64(0.5)));
+    try expect(math.isNan(acosh64(0.5)));
 }

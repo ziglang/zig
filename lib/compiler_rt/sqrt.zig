@@ -36,7 +36,7 @@ pub fn sqrtf(x: f32) callconv(.C) f32 {
             return x; // sqrt (+-0) = +-0
         }
         if (ix < 0) {
-            return math.snan(f32);
+            return math.nan(f32);
         }
     }
 
@@ -119,7 +119,7 @@ pub fn sqrt(x: f64) callconv(.C) f64 {
     }
     // sqrt(-ve) = snan
     if (ix0 & sign != 0) {
-        return math.snan(f64);
+        return math.nan(f64);
     }
 
     // normalize x
