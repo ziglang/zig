@@ -322,10 +322,10 @@ fn benchmarkPwhash(
     comptime count: comptime_int,
 ) !f64 {
     const password = "testpass" ** 2;
-    var buffer: [1024]u8 = undefined;
-    var fixed = std.heap.FixedBufferAllocator.init(buffer[0..]);
+     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+     defer arena.deinit();
     
-    const opts = .{ .allocator = fixed.allocator(), .params = @ptrCast(*const ty.Params, params).*, .encoding = .phc };
+    const opts = .{ .allocator = arena.allocator(), .params = @ptrCast(*const ty.Params, params).*, .encoding = .phc };
     var buf: [256]u8 = undefined;
 
     var timer = try Timer.start();
