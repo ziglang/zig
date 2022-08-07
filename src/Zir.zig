@@ -490,14 +490,6 @@ pub const Inst = struct {
         /// Merge two error sets into one, `E1 || E2`.
         /// Uses the `pl_node` field with payload `Bin`.
         merge_error_sets,
-        /// Given a reference to a function and a parameter index, returns the
-        /// type of the parameter. The only usage of this instruction is for the
-        /// result location of parameters of function calls. In the case of a function's
-        /// parameter type being `anytype`, it is the type coercion's job to detect this
-        /// scenario and skip the coercion, so that semantic analysis of this instruction
-        /// is not in a position where it must create an invalid type.
-        /// Uses the `param_type` union field.
-        param_type,
         /// Turns an R-Value into a const L-Value. In other words, it takes a value,
         /// stores it in a memory location, and returns a const pointer to it. If the value
         /// is `comptime`, the memory location is global static constant data. Otherwise,
@@ -1095,7 +1087,6 @@ pub const Inst = struct {
                 .mul,
                 .mulwrap,
                 .mul_sat,
-                .param_type,
                 .ref,
                 .shl,
                 .shl_sat,
@@ -1397,7 +1388,6 @@ pub const Inst = struct {
                 .mul,
                 .mulwrap,
                 .mul_sat,
-                .param_type,
                 .ref,
                 .shl,
                 .shl_sat,
@@ -1569,7 +1559,6 @@ pub const Inst = struct {
                 .mulwrap = .pl_node,
                 .mul_sat = .pl_node,
 
-                .param_type = .param_type,
                 .param = .pl_tok,
                 .param_comptime = .pl_tok,
                 .param_anytype = .str_tok,
@@ -2540,10 +2529,6 @@ pub const Inst = struct {
             /// Points to a `Block`.
             payload_index: u32,
         },
-        param_type: struct {
-            callee: Ref,
-            param_index: u32,
-        },
         @"unreachable": struct {
             /// Offset from Decl AST node index.
             /// `Tag` determines which kind of AST node this points to.
@@ -2614,7 +2599,6 @@ pub const Inst = struct {
             ptr_type,
             int_type,
             bool_br,
-            param_type,
             @"unreachable",
             @"break",
             switch_capture,
@@ -2794,7 +2778,9 @@ pub const Inst = struct {
     };
 
     /// Stored inside extra, with trailing arguments according to `args_len`.
-    /// Each argument is a `Ref`.
+    /// Implicit 0. arg_0_start: u32, // always same as `args_len`
+    /// 1. arg_end: u32, // for each `args_len`
+    /// arg_N_start is the same as arg_N-1_end
     pub const Call = struct {
         // Note: Flags *must* come first so that unusedResultExpr
         // can find it when it goes to modify them.
