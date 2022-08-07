@@ -13,6 +13,10 @@ const tc32 = Tc32.init;
 const Tc64 = Testcase(math.exp, "exp", f64);
 const tc64 = Tc64.init;
 
+// in -> out
+// [-inf,   0] -> [0,   1]
+// [   0, inf] -> [1, inf]
+
 // Special-case tests shared between different float sizes, see genTests().
 const special_tests = .{
     // zig fmt: off
