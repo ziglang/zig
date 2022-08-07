@@ -99,7 +99,11 @@ pub inline fn inf(comptime T: type) T {
 
 /// Returns the value NaN for floating point type T.
 pub inline fn nan(comptime T: type) T {
-    return reconstructFloat(T, floatExponentMax(T) + 1, 1 << (floatMantissaBits(T) - 1));
+    return reconstructFloat(
+        T,
+        floatExponentMax(T) + 1,
+        mantissaOne(T) | 1 << (floatFractionalBits(T) - 1),
+    );
 }
 
 test "float bits" {
