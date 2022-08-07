@@ -74,10 +74,8 @@ pub const Ed25519 = struct {
         }
     };
 
-    /// Sign a message using a key pair, and optional random noise.
-    /// Having noise creates non-standard, non-deterministic signatures,
-    /// but has been proven to increase resilience against fault attacks.
-    pub fn sign(msg: []const u8, key_pair: KeyPair, noise: ?[noise_length]u8) (IdentityElementError || WeakPublicKeyError || KeyMismatchError)![signature_length]u8 {
+    /// Identical to sign function except msg may be segmented.
+    pub fn signSegmented(msgs: []const []const u8, key_pair: KeyPair, noise: ?[noise_length]u8) (IdentityElementError || WeakPublicKeyError || KeyMismatchError)![signature_length]u8 {
         const seed = key_pair.secret_key[0..seed_length];
         const public_key = key_pair.secret_key[seed_length..];
         if (!mem.eql(u8, public_key, &key_pair.public_key)) {
@@ -93,7 +91,9 @@ pub const Ed25519 = struct {
             h.update(z);
         }
         h.update(az[32..]);
-        h.update(msg);
+        for (msgs) |msg| {
+            h.update(msg);
+        }
         var nonce64: [64]u8 = undefined;
         h.final(&nonce64);
         const nonce = Curve.scalar.reduce64(nonce64);
@@ -104,7 +104,9 @@ pub const Ed25519 = struct {
         mem.copy(u8, sig[32..], public_key);
         h = Sha512.init(.{});
         h.update(&sig);
-        h.update(msg);
+        for (msgs) |msg| {
+            h.update(msg);
+        }
         var hram64: [Sha512.digest_length]u8 = undefined;
         h.final(&hram64);
         const hram = Curve.scalar.reduce64(hram64);
@@ -114,6 +116,13 @@ pub const Ed25519 = struct {
         const s = Curve.scalar.mulAdd(hram, x.*, nonce);
         mem.copy(u8, sig[32..], s[0..]);
         return sig;
+    }
+
+    /// Sign a message using a key pair, and optional random noise.
+    /// Having noise creates non-standard, non-deterministic signatures,
+    /// but has been proven to increase resilience against fault attacks.
+    pub fn sign(msg: []const u8, key_pair: KeyPair, noise: ?[noise_length]u8) (IdentityElementError || WeakPublicKeyError || KeyMismatchError)![signature_length]u8 {
+        return signSegmented(&.{msg}, key_pair, noise);
     }
 
     /// Verify an Ed25519 signature given a message and a public key.
@@ -324,6 +333,18 @@ test "ed25519 signature" {
     const key_pair = try Ed25519.KeyPair.create(seed);
 
     const sig = try Ed25519.sign("test", key_pair, null);
+    var buf: [128]u8 = undefined;
+    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&sig)}), "10A442B4A80CC4225B154F43BEF28D2472CA80221951262EB8E0DF9091575E2687CC486E77263C3418C757522D54F84B0359236ABBBD4ACD20DC297FDCA66808");
+    try Ed25519.verify(sig, "test", key_pair.public_key);
+    try std.testing.expectError(error.SignatureVerificationFailed, Ed25519.verify(sig, "TEST", key_pair.public_key));
+}
+
+test "ed25519 signature segmented" {
+    var seed: [32]u8 = undefined;
+    _ = try fmt.hexToBytes(seed[0..], "8052030376d47112be7f73ed7a019293dd12ad910b654455798b4667d73de166");
+    const key_pair = try Ed25519.KeyPair.create(seed);
+
+    const sig = try Ed25519.signSegmented(&.{ "te", "st" }, key_pair, null);
     var buf: [128]u8 = undefined;
     try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&sig)}), "10A442B4A80CC4225B154F43BEF28D2472CA80221951262EB8E0DF9091575E2687CC486E77263C3418C757522D54F84B0359236ABBBD4ACD20DC297FDCA66808");
     try Ed25519.verify(sig, "test", key_pair.public_key);
