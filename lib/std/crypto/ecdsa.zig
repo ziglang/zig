@@ -88,29 +88,9 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             /// Return IdentityElement or NonCanonical if the public key or signature are not in the expected range,
             /// or SignatureVerificationError if the signature is invalid for the given message and key.
             pub fn verify(self: Signature, msg: []const u8, public_key: PublicKey) (IdentityElementError || NonCanonicalError || SignatureVerificationError)!void {
-                const r = try Curve.scalar.Scalar.fromBytes(self.r, .Big);
-                const s = try Curve.scalar.Scalar.fromBytes(self.s, .Big);
-                if (r.isZero() or s.isZero()) return error.IdentityElement;
-
-                var h: [Hash.digest_length]u8 = undefined;
-                Hash.hash(msg, &h, .{});
-
-                const ht = Curve.scalar.encoded_length;
-                const z = reduceToScalar(ht, h[0..ht].*);
-                if (z.isZero()) {
-                    return error.SignatureVerificationFailed;
-                }
-
-                const s_inv = s.invert();
-                const v1 = z.mul(s_inv).toBytes(.Little);
-                const v2 = r.mul(s_inv).toBytes(.Little);
-                const v1g = try Curve.basePoint.mulPublic(v1, .Little);
-                const v2pk = try public_key.p.mulPublic(v2, .Little);
-                const vxs = v1g.add(v2pk).affineCoordinates().x.toBytes(.Big);
-                const vr = reduceToScalar(Curve.Fe.encoded_length, vxs);
-                if (!r.equivalent(vr)) {
-                    return error.SignatureVerificationFailed;
-                }
+                var verifier = try Verifier.init(&self, public_key);
+                verifier.update(msg);
+                return verifier.final();
             }
 
             /// Return the raw signature (r, s) in big-endian format.
@@ -190,6 +170,57 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             }
         };
 
+        /// Lower level access to the verification process which permits incrementally feeding message chunks.
+        /// It must not live longer than the referenced `Signature`.
+        /// Refer to `Signature.verify` for more information.
+        pub const Verifier = struct {
+            signature: *const Signature,
+            public_key: PublicKey,
+            r: Curve.scalar.Scalar,
+            s: Curve.scalar.Scalar,
+            hasher: Hash,
+
+            pub fn init(signature: *const Signature, public_key: PublicKey) (NonCanonicalError || IdentityElementError)!Verifier {
+                const r = try Curve.scalar.Scalar.fromBytes(signature.r, .Big);
+                const s = try Curve.scalar.Scalar.fromBytes(signature.s, .Big);
+                if (r.isZero() or s.isZero()) return error.IdentityElement;
+                return Verifier{
+                    .signature = signature,
+                    .public_key = public_key,
+                    .r = r,
+                    .s = s,
+                    .hasher = Hash.init(.{}),
+                };
+            }
+
+            /// Feed a message chunk into the hasher.
+            pub fn update(self: *Verifier, chunk: []const u8) void {
+                self.hasher.update(chunk);
+            }
+
+            pub fn final(self: *Verifier) (SignatureVerificationError || IdentityElementError)!void {
+                var h: [Hash.digest_length]u8 = undefined;
+                self.hasher.final(&h);
+
+                const ht = Curve.scalar.encoded_length;
+                const z = reduceToScalar(ht, h[0..ht].*);
+                if (z.isZero()) {
+                    return error.SignatureVerificationFailed;
+                }
+
+                const s_inv = self.s.invert();
+                const v1 = z.mul(s_inv).toBytes(.Little);
+                const v2 = self.r.mul(s_inv).toBytes(.Little);
+                const v1g = try Curve.basePoint.mulPublic(v1, .Little);
+                const v2pk = try self.public_key.p.mulPublic(v2, .Little);
+                const vxs = v1g.add(v2pk).affineCoordinates().x.toBytes(.Big);
+                const vr = reduceToScalar(Curve.Fe.encoded_length, vxs);
+                if (!self.r.equivalent(vr)) {
+                    return error.SignatureVerificationFailed;
+                }
+            }
+        };
+
         /// An ECDSA key pair.
         pub const KeyPair = struct {
             /// Length (in bytes) of a seed required to create a key pair.
@@ -226,16 +257,42 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             /// If deterministic signatures are not required, the noise should be randomly generated instead.
             /// This helps defend against fault attacks.
             pub fn sign(key_pair: KeyPair, msg: []const u8, noise: ?[noise_length]u8) (IdentityElementError || NonCanonicalError)!Signature {
-                const secret_key = key_pair.secret_key;
+                var signer = try Signer.init(&key_pair, noise);
+                signer.update(msg);
+                return signer.final();
+            }
+        };
 
+        /// Lower level access to the signing process which permits incrementally feeding message chunks.
+        /// It must not live longer than the referenced `KeyPair`.
+        /// Refer to `KeyPair.sign` for more information.
+        pub const Signer = struct {
+            key_pair: *const KeyPair,
+            noise: ?[noise_length]u8,
+            hasher: Hash,
+
+            pub fn init(key_pair: *const KeyPair, noise: ?[noise_length]u8) error{}!Signer {
+                return Signer{
+                    .key_pair = key_pair,
+                    .noise = noise,
+                    .hasher = Hash.init(.{}),
+                };
+            }
+
+            /// Feed a message chunk into the hasher.
+            pub fn update(self: *Signer, chunk: []const u8) void {
+                self.hasher.update(chunk);
+            }
+
+            pub fn final(self: *Signer) (IdentityElementError || NonCanonicalError)!Signature {
                 var h: [Hash.digest_length]u8 = undefined;
-                Hash.hash(msg, &h, .{});
+                self.hasher.final(&h);
 
                 const scalar_encoded_length = Curve.scalar.encoded_length;
                 std.debug.assert(h.len >= scalar_encoded_length);
                 const z = reduceToScalar(scalar_encoded_length, h[0..scalar_encoded_length].*);
 
-                const k = deterministicScalar(h, secret_key.bytes, noise);
+                const k = deterministicScalar(h, self.key_pair.secret_key.bytes, self.noise);
 
                 const p = try Curve.basePoint.mul(k.toBytes(.Big), .Big);
                 const xs = p.affineCoordinates().x.toBytes(.Big);
@@ -243,7 +300,7 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
                 if (r.isZero()) return error.IdentityElement;
 
                 const k_inv = k.invert();
-                const zrs = z.add(r.mul(try Curve.scalar.Scalar.fromBytes(secret_key.bytes, .Big)));
+                const zrs = z.add(r.mul(try Curve.scalar.Scalar.fromBytes(self.key_pair.secret_key.bytes, .Big)));
                 const s = k_inv.mul(zrs);
                 if (s.isZero()) return error.IdentityElement;
 
