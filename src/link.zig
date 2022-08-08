@@ -279,7 +279,7 @@ pub const File = struct {
             return &(try MachO.openPath(allocator, options)).base;
         }
 
-        const use_stage1 = build_options.is_stage1 and options.use_stage1;
+        const use_stage1 = build_options.have_stage1 and options.use_stage1;
         if (use_stage1 or options.emit == null) {
             return switch (options.target.ofmt) {
                 .coff => &(try Coff.createEmpty(allocator, options)).base,
@@ -817,7 +817,7 @@ pub const File = struct {
         // If there is no Zig code to compile, then we should skip flushing the output file
         // because it will not be part of the linker line anyway.
         const module_obj_path: ?[]const u8 = if (base.options.module) |module| blk: {
-            const use_stage1 = build_options.is_stage1 and base.options.use_stage1;
+            const use_stage1 = build_options.have_stage1 and base.options.use_stage1;
             if (use_stage1) {
                 const obj_basename = try std.zig.binNameAlloc(arena, .{
                     .root_name = base.options.root_name,

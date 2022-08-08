@@ -356,7 +356,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Wasm {
     }
 
     const use_llvm = build_options.have_llvm and options.use_llvm;
-    const use_stage1 = build_options.is_stage1 and options.use_stage1;
+    const use_stage1 = build_options.have_stage1 and options.use_stage1;
     if (use_llvm and !use_stage1) {
         self.llvm_object = try LlvmObject.create(gpa, options);
     }
@@ -2593,7 +2593,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
     const module_obj_path: ?[]const u8 = if (self.base.options.module) |mod| blk: {
-        const use_stage1 = build_options.is_stage1 and self.base.options.use_stage1;
+        const use_stage1 = build_options.have_stage1 and self.base.options.use_stage1;
         if (use_stage1) {
             const obj_basename = try std.zig.binNameAlloc(arena, .{
                 .root_name = self.base.options.root_name,
@@ -2803,7 +2803,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
             if (self.base.options.module) |mod| {
                 // when we use stage1, we use the exports that stage1 provided us.
                 // For stage2, we can directly retrieve them from the module.
-                const use_stage1 = build_options.is_stage1 and self.base.options.use_stage1;
+                const use_stage1 = build_options.have_stage1 and self.base.options.use_stage1;
                 if (use_stage1) {
                     for (comp.export_symbol_names.items) |symbol_name| {
                         try argv.append(try std.fmt.allocPrint(arena, "--export={s}", .{symbol_name}));

@@ -38,10 +38,11 @@ cmake .. \
     -GNinja
 samu install
 
-# TODO ld.lld: error: undefined symbol: main
-# >>> referenced by crt1_c.c:75 (/usr/src/lib/csu/amd64/crt1_c.c:75)
-# >>>               /usr/lib/crt1.o:(_start)
-#release/bin/zig test ../test/behavior.zig -fno-stage1 -fLLVM -I ../test
+# Here we rebuild zig but this time using the Zig binary we just now produced to
+# build zig1.o rather than relying on the one built with stage0. This makes it
+# a stage3 build rather than a stage2 build.
+cmake .. -DZIG_EXECUTABLE="$PREFIX/bin/zig"
+samu install
 
 # Here we skip some tests to save time.
 release/bin/zig build test -Dskip-stage1 -Dskip-non-native

@@ -25,7 +25,7 @@ const skip_stage1 = builtin.zig_backend != .stage1 or build_options.skip_stage1;
 const hr = "=" ** 80;
 
 test {
-    if (build_options.is_stage1) {
+    if (build_options.have_stage1) {
         @import("stage1.zig").os_init();
     }
 

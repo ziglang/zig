@@ -1188,6 +1188,7 @@ test "this will be skipped" {
         (The evented IO mode is enabled using the <kbd>--test-evented-io</kbd> command line parameter.)
       </p>
       {#code_begin|test|async_skip#}
+      {#backend_stage1#}
 const std = @import("std");
 
 test "async skip test" {
@@ -2768,7 +2769,7 @@ test "comptime @intToPtr" {
     }
 }
       {#code_end#}
-      {#see_also|Optional Pointers|@intToPtr|@ptrToInt|C Pointers|Pointers to Zero Bit Types#}
+      {#see_also|Optional Pointers|@intToPtr|@ptrToInt|C Pointers#}
       {#header_open|volatile#}
       <p>Loads and stores are assumed to not have side effects. If a given load or store
       should have side effects, such as Memory Mapped Input/Output (MMIO), use {#syntax#}volatile{#endsyntax#}.
@@ -2862,19 +2863,22 @@ var foo: u8 align(4) = 100;
 test "global variable alignment" {
     try expect(@typeInfo(@TypeOf(&foo)).Pointer.alignment == 4);
     try expect(@TypeOf(&foo) == *align(4) u8);
-    const as_pointer_to_array: *[1]u8 = &foo;
-    const as_slice: []u8 = as_pointer_to_array;
-    try expect(@TypeOf(as_slice) == []align(4) u8);
+    const as_pointer_to_array: *align(4) [1]u8 = &foo;
+    const as_slice: []align(4) u8 = as_pointer_to_array;
+    const as_unaligned_slice: []u8 = as_slice;
+    try expect(as_unaligned_slice[0] == 100);
 }
 
-fn derp() align(@sizeOf(usize) * 2) i32 { return 1234; }
+fn derp() align(@sizeOf(usize) * 2) i32 {
+    return 1234;
+}
 fn noop1() align(1) void {}
 fn noop4() align(4) void {}
 
 test "function alignment" {
     try expect(derp() == 1234);
-    try expect(@TypeOf(noop1) == fn() align(1) void);
-    try expect(@TypeOf(noop4) == fn() align(4) void);
+    try expect(@TypeOf(noop1) == fn () align(1) void);
+    try expect(@TypeOf(noop4) == fn () align(4) void);
     noop1();
     noop4();
 }
@@ -3336,6 +3340,7 @@ fn doTheTest() !void {
       Zig allows the address to be taken of a non-byte-aligned field:
       </p>
       {#code_begin|test|pointer_to_non-byte_aligned_field#}
+      {#backend_stage1#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -3391,7 +3396,8 @@ fn bar(x: *const u3) u3 {
       <p>
       Pointers to non-ABI-aligned fields share the same address as the other fields within their host integer:
       </p>
-      {#code_begin|test|pointer_to_non-bit_aligned_field#}
+      {#code_begin|test|packed_struct_field_addrs#}
+      {#backend_stage1#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -3407,7 +3413,7 @@ var bit_field = BitField{
     .c = 3,
 };
 
-test "pointer to non-bit-aligned field" {
+test "pointers of sub-byte-aligned fields share addresses" {
     try expect(@ptrToInt(&bit_field.a) == @ptrToInt(&bit_field.b));
     try expect(@ptrToInt(&bit_field.a) == @ptrToInt(&bit_field.c));
 }
@@ -3438,20 +3444,22 @@ test "pointer to non-bit-aligned field" {
 }
       {#code_end#}
       <p>
-      Packed structs have 1-byte alignment. However if you have an overaligned pointer to a packed struct,
-      Zig should correctly understand the alignment of fields. However there is
-      <a href="https://github.com/ziglang/zig/issues/1994">a bug</a>:
+      Packed structs have the same alignment as their backing integer, however, overaligned
+      pointers to packed structs can override this:
       </p>
-      {#code_begin|test_err|expected type '*u32', found '*align(1) u32'#}
+      {#code_begin|test|overaligned_packed_struct#}
+const std = @import("std");
+const expect = std.testing.expect;
+
 const S = packed struct {
     a: u32,
     b: u32,
 };
 test "overaligned pointer to packed struct" {
-    var foo: S align(4) = undefined;
+    var foo: S align(4) = .{ .a = 1, .b = 2 };
     const ptr: *align(4) S = &foo;
     const ptr_to_b: *u32 = &ptr.b;
-    _ = ptr_to_b;
+    try expect(ptr_to_b.* == 2);
 }
       {#code_end#}
       <p>When this bug is fixed, the above test in the documentation will unexpectedly pass, which will
@@ -3698,7 +3706,7 @@ test "@tagName" {
       <p>
       By default, enums are not guaranteed to be compatible with the C ABI:
       </p>
-      {#code_begin|obj_err|parameter of type 'Foo' not allowed in function with calling convention 'C'#}
+      {#code_begin|obj_err|parameter of type 'test.Foo' not allowed in function with calling convention 'C'#}
 const Foo = enum { a, b, c };
 export fn entry(foo: Foo) void { _ = foo; }
       {#code_end#}
@@ -4004,7 +4012,7 @@ fn makeNumber() Number {
       This is typically used for type safety when interacting with C code that does not expose struct details.
       Example:
       </p>
-      {#code_begin|test_err|expected type '*Derp', found '*Wat'#}
+      {#code_begin|test_err|expected type '*test.Derp', found '*test.Wat'#}
 const Derp = opaque {};
 const Wat = opaque {};
 
@@ -4203,7 +4211,7 @@ test "switch on tagged union" {
       When a {#syntax#}switch{#endsyntax#} expression does not have an {#syntax#}else{#endsyntax#} clause,
       it must exhaustively list all the possible values. Failure to do so is a compile error:
       </p>
-      {#code_begin|test_err|not handled in switch#}
+      {#code_begin|test_err|unhandled enumeration value#}
 const Color = enum {
     auto,
     off,
@@ -5026,17 +5034,9 @@ test "function" {
     try expect(do_op(sub2, 5, 6) == -1);
 }
       {#code_end#}
-      <p>Function values are like pointers:</p>
-      {#code_begin|obj#}
-const assert = @import("std").debug.assert;
-
-comptime {
-    assert(@TypeOf(foo) == fn()void);
-    assert(@sizeOf(fn()void) == @sizeOf(?fn()void));
-}
-
-fn foo() void { }
-      {#code_end#}
+      <p>There is a difference between a function <em>body</em> and a function <em>pointer</em>.
+      Function bodies are {#link|comptime#}-only types while function {#link|Pointers#} may be
+      runtime-known.</p>
       {#header_open|Pass-by-value Parameters#}
       <p>
       Primitive types such as {#link|Integers#} and {#link|Floats#} passed as parameters
@@ -6123,10 +6123,11 @@ test "float widening" {
       two choices about the coercion.
       </p>
       <ul>
-        <li> Cast {#syntax#}54.0{#endsyntax#} to {#syntax#}comptime_int{#endsyntax#} resulting in {#syntax#}@as(comptime_int, 10){#endsyntax#}, which is casted to {#syntax#}@as(f32, 10){#endsyntax#}</li>
-        <li> Cast {#syntax#}5{#endsyntax#} to {#syntax#}comptime_float{#endsyntax#} resulting in {#syntax#}@as(comptime_float, 10.8){#endsyntax#}, which is casted to {#syntax#}@as(f32, 10.8){#endsyntax#}</li>
+        <li>Cast {#syntax#}54.0{#endsyntax#} to {#syntax#}comptime_int{#endsyntax#} resulting in {#syntax#}@as(comptime_int, 10){#endsyntax#}, which is casted to {#syntax#}@as(f32, 10){#endsyntax#}</li>
+        <li>Cast {#syntax#}5{#endsyntax#} to {#syntax#}comptime_float{#endsyntax#} resulting in {#syntax#}@as(comptime_float, 10.8){#endsyntax#}, which is casted to {#syntax#}@as(f32, 10.8){#endsyntax#}</li>
       </ul>
       {#code_begin|test_err#}
+      {#backend_stage1#}
 // Compile time coercion of float to int
 test "implicit cast to comptime_int" {
     var f: f32 = 54.0 / 5;
@@ -6302,19 +6303,6 @@ test "coercion between unions and enums" {
       {#code_end#}
       {#see_also|union|enum#}
       {#header_close#}
-      {#header_open|Type Coercion: Zero Bit Types#}
-      <p>{#link|Zero Bit Types#} may be coerced to single-item {#link|Pointers#},
-      regardless of const.</p>
-      <p>TODO document the reasoning for this</p>
-      <p>TODO document whether vice versa should work and why</p>
-      {#code_begin|test|coerce_zero_bit_types#}
-test "coercion of zero bit types" {
-    var x: void = {};
-    var y: *void = x;
-    _ = y;
-}
-      {#code_end#}
-      {#header_close#}
       {#header_open|Type Coercion: undefined#}
       <p>{#link|undefined#} can be cast to any type.</p>
       {#header_close#}
@@ -6467,7 +6455,6 @@ test "peer type resolution: *const T and ?*T" {
           <li>An {#link|enum#} with only 1 tag.</li>
           <li>A {#link|struct#} with all fields being zero bit types.</li>
           <li>A {#link|union#} with only 1 field which is a zero bit type.</li>
-          <li>{#link|Pointers to Zero Bit Types#} are themselves zero bit types.</li>
       </ul>
       <p>
       These types can only ever have one possible value, and thus
@@ -6527,7 +6514,7 @@ test "turn HashMap into a set with void" {
       <p>
       Expressions of type {#syntax#}void{#endsyntax#} are the only ones whose value can be ignored. For example:
       </p>
-      {#code_begin|test_err|expression value is ignored#}
+      {#code_begin|test_err|ignored#}
 test "ignoring expression value" {
     foo();
 }
@@ -6550,37 +6537,6 @@ fn returnsVoid() void {}
 
 fn foo() i32 {
     return 1234;
-}
-      {#code_end#}
-      {#header_close#}
-
-      {#header_open|Pointers to Zero Bit Types#}
-      <p>Pointers to zero bit types also have zero bits. They always compare equal to each other:</p>
-      {#code_begin|test|pointers_to_zero_bits#}
-const std = @import("std");
-const expect = std.testing.expect;
-
-test "pointer to empty struct" {
-    const Empty = struct {};
-    var a = Empty{};
-    var b = Empty{};
-    var ptr_a = &a;
-    var ptr_b = &b;
-    comptime try expect(ptr_a == ptr_b);
-}
-      {#code_end#}
-      <p>The type being pointed to can only ever be one value; therefore loads and stores are
-      never generated. {#link|ptrToInt#} and {#link|intToPtr#} are not allowed:</p>
-      {#code_begin|test_err#}
-const Empty = struct {};
-
-test "@ptrToInt for pointer to zero bit type" {
-    var a = Empty{};
-    _ = @ptrToInt(&a);
-}
-
-test "@intToPtr for pointer to zero bit type" {
-    _ = @intToPtr(*Empty, 0x1);
 }
       {#code_end#}
       {#header_close#}
@@ -6666,7 +6622,7 @@ fn gimmeTheBiggerInteger(a: u64, b: u64) u64 {
       <p>
       For example, if we were to introduce another function to the above snippet:
       </p>
-      {#code_begin|test_err|values of type 'type' must be comptime known#}
+      {#code_begin|test_err|value with comptime only type 'type' depends on runtime control flow#}
 fn max(comptime T: type, a: T, b: T) T {
     return if (a > b) a else b;
 }
@@ -6692,7 +6648,7 @@ fn foo(condition: bool) void {
       <p>
       For example:
       </p>
-      {#code_begin|test_err|operator not allowed for type 'bool'#}
+      {#code_begin|test_err|operator > not allowed for type 'bool'#}
 fn max(comptime T: type, a: T, b: T) T {
     return if (a > b) a else b;
 }
@@ -6837,7 +6793,7 @@ fn performFn(start_value: i32) i32 {
       use a {#syntax#}comptime{#endsyntax#} expression to guarantee that the expression will be evaluated at compile-time.
       If this cannot be accomplished, the compiler will emit an error. For example:
       </p>
-      {#code_begin|test_err|unable to evaluate constant expression#}
+      {#code_begin|test_err|comptime call of extern function#}
 extern fn exit() noreturn;
 
 test "foo" {
@@ -6889,7 +6845,7 @@ test "fibonacci" {
       <p>
       Imagine if we had forgotten the base case of the recursive function and tried to run the tests:
       </p>
-      {#code_begin|test_err|operation caused overflow#}
+      {#code_begin|test_err|overflow of integer type#}
 const expect = @import("std").testing.expect;
 
 fn fibonacci(index: u32) u32 {
@@ -6913,7 +6869,8 @@ test "fibonacci" {
       But what would have happened if we used a signed integer?
       </p>
       {#code_begin|test_err|evaluation exceeded 1000 backwards branches#}
-const expect = @import("std").testing.expect;
+      {#backend_stage1#}
+const assert = @import("std").debug.assert;
 
 fn fibonacci(index: i32) i32 {
     //if (index < 2) return index;
@@ -6922,7 +6879,7 @@ fn fibonacci(index: i32) i32 {
 
 test "fibonacci" {
     comptime {
-        try expect(fibonacci(7) == 13);
+        try assert(fibonacci(7) == 13);
     }
 }
       {#code_end#}
@@ -6935,8 +6892,8 @@ test "fibonacci" {
       <p>
       What if we fix the base case, but put the wrong value in the {#syntax#}expect{#endsyntax#} line?
       </p>
-      {#code_begin|test_err|test "fibonacci"... FAIL (TestUnexpectedResult)#}
-const expect = @import("std").testing.expect;
+      {#code_begin|test_err|reached unreachable#}
+const assert = @import("std").debug.assert;
 
 fn fibonacci(index: i32) i32 {
     if (index < 2) return index;
@@ -6945,16 +6902,10 @@ fn fibonacci(index: i32) i32 {
 
 test "fibonacci" {
     comptime {
-        try expect(fibonacci(7) == 99999);
+        try assert(fibonacci(7) == 99999);
     }
 }
       {#code_end#}
-      <p>
-      What happened is Zig started interpreting the {#syntax#}expect{#endsyntax#} function with the
-          parameter {#syntax#}ok{#endsyntax#} set to {#syntax#}false{#endsyntax#}. When the interpreter hit
-                  {#syntax#}@panic{#endsyntax#} it emitted a compile error because a panic during compile
-      causes a compile error if it is detected at compile-time.
-      </p>
 
       <p>
       At container level (outside of any function), all expressions are implicitly
@@ -7280,6 +7231,7 @@ pub fn main() void {
       </p>
       {#code_begin|exe#}
       {#target_linux_x86_64#}
+      {#backend_stage1#}
 pub fn main() noreturn {
     const msg = "hello world\n";
     _ = syscall3(SYS_write, STDOUT_FILENO, @ptrToInt(msg), msg.len);
@@ -7497,6 +7449,7 @@ test "global assembly" {
       or resumer (in the case of subsequent suspensions).
       </p>
       {#code_begin|test|suspend_no_resume#}
+      {#backend_stage1#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -7524,6 +7477,7 @@ fn func() void {
       {#link|@frame#} provides access to the async function frame pointer.
       </p>
       {#code_begin|test|async_suspend_block#}
+      {#backend_stage1#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -7562,6 +7516,7 @@ fn testSuspendBlock() void {
       never returns to its resumer and continues executing.
       </p>
       {#code_begin|test|resume_from_suspend#}
+      {#backend_stage1#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -7598,6 +7553,7 @@ fn testResumeFromSuspend(my_result: *i32) void {
       and the return value of the async function would be lost.
       </p>
       {#code_begin|test|async_await#}
+      {#backend_stage1#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -7642,6 +7598,7 @@ fn func() void {
       return value directly from the target function's frame.
       </p>
       {#code_begin|test|async_await_sequence#}
+      {#backend_stage1#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -7695,6 +7652,7 @@ fn seq(c: u8) void {
       {#syntax#}async{#endsyntax#}/{#syntax#}await{#endsyntax#} usage:
       </p>
       {#code_begin|exe|async#}
+      {#backend_stage1#}
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
@@ -7773,6 +7731,7 @@ fn readFile(allocator: Allocator, filename: []const u8) ![]u8 {
       observe the same behavior, with one tiny difference:
       </p>
       {#code_begin|exe|blocking#}
+      {#backend_stage1#}
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
@@ -7910,6 +7869,7 @@ comptime {
       {#syntax#}await{#endsyntax#} will copy the result from {#syntax#}result_ptr{#endsyntax#}.
       </p>
       {#code_begin|test|async_struct_field_fn_pointer#}
+      {#backend_stage1#}
 const std = @import("std");
 const expect = std.testing.expect;
 
@@ -8677,6 +8637,7 @@ test "decl access by string" {
       allows one to, for example, heap-allocate an async function frame:
       </p>
       {#code_begin|test|heap_allocated_frame#}
+      {#backend_stage1#}
 const std = @import("std");
 
 test "heap allocated frame" {
@@ -9423,12 +9384,6 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 test "vector @reduce" {
-    // This test regressed with LLVM 14:
-    // https://github.com/llvm/llvm-project/issues/55522
-    // We'll skip this test unless the self-hosted compiler is being used.
-    // After LLVM 15 is released we can delete this line.
-    if (@import("builtin").zig_backend == .stage1) return;
-
     const value = @Vector(4, i32){ 1, -1, 1, -1 };
     const result = value > @splat(4, @as(i32, 0));
     // result is { true, false, true, false };
@@ -9938,7 +9893,7 @@ pub fn main() void {
       {#header_close#}
       {#header_open|Index out of Bounds#}
       <p>At compile-time:</p>
-      {#code_begin|test_err|index 5 outside array of size 5#}
+      {#code_begin|test_err|index 5 outside array of length 5#}
 comptime {
     const array: [5]u8 = "hello".*;
     const garbage = array[5];
@@ -9959,9 +9914,9 @@ fn foo(x: []const u8) u8 {
       {#header_close#}
       {#header_open|Cast Negative Number to Unsigned Integer#}
       <p>At compile-time:</p>
-      {#code_begin|test_err|attempt to cast negative value to unsigned integer#}
+      {#code_begin|test_err|type 'u32' cannot represent integer value '-1'#}
 comptime {
-    const value: i32 = -1;
+    var value: i32 = -1;
     const unsigned = @intCast(u32, value);
     _ = unsigned;
 }
@@ -9982,7 +9937,7 @@ pub fn main() void {
       {#header_close#}
       {#header_open|Cast Truncates Data#}
       <p>At compile-time:</p>
-      {#code_begin|test_err|cast from 'u16' to 'u8' truncates bits#}
+      {#code_begin|test_err|type 'u8' cannot represent integer value '300'#}
 comptime {
     const spartan_count: u16 = 300;
     const byte = @intCast(u8, spartan_count);
@@ -10017,7 +9972,7 @@ pub fn main() void {
         <li>{#link|@divExact#} (division)</li>
       </ul>
       <p>Example with addition at compile-time:</p>
-      {#code_begin|test_err|operation caused overflow#}
+      {#code_begin|test_err|overflow of integer type 'u8' with value '256'#}
 comptime {
     var byte: u8 = 255;
     byte += 1;
@@ -10118,6 +10073,7 @@ test "wraparound addition and subtraction" {
       {#header_open|Exact Left Shift Overflow#}
       <p>At compile-time:</p>
       {#code_begin|test_err|operation caused overflow#}
+      {#backend_stage1#}
 comptime {
     const x = @shlExact(@as(u8, 0b01010101), 2);
     _ = x;
@@ -10137,6 +10093,7 @@ pub fn main() void {
       {#header_open|Exact Right Shift Overflow#}
       <p>At compile-time:</p>
       {#code_begin|test_err|exact shift shifted out 1 bits#}
+      {#backend_stage1#}
 comptime {
     const x = @shrExact(@as(u8, 0b10101010), 2);
     _ = x;
@@ -10200,6 +10157,7 @@ pub fn main() void {
       {#header_open|Exact Division Remainder#}
       <p>At compile-time:</p>
       {#code_begin|test_err|exact division had a remainder#}
+      {#backend_stage1#}
 comptime {
     const a: u32 = 10;
     const b: u32 = 3;
@@ -10302,7 +10260,7 @@ fn getNumberOrFail() !i32 {
       {#header_close#}
       {#header_open|Invalid Error Code#}
       <p>At compile-time:</p>
-      {#code_begin|test_err|integer value 11 represents no error#}
+      {#code_begin|test_err|integer value '11' represents no error#}
 comptime {
     const err = error.AnError;
     const number = @errorToInt(err) + 10;
@@ -10324,7 +10282,7 @@ pub fn main() void {
       {#header_close#}
       {#header_open|Invalid Enum Cast#}
       <p>At compile-time:</p>
-      {#code_begin|test_err|has no tag matching integer value 3#}
+      {#code_begin|test_err|enum 'test.Foo' has no tag with value '3'#}
 const Foo = enum {
     a,
     b,
@@ -10356,7 +10314,7 @@ pub fn main() void {
 
       {#header_open|Invalid Error Set Cast#}
       <p>At compile-time:</p>
-      {#code_begin|test_err|error.B not a member of error set 'Set2'#}
+      {#code_begin|test_err|'error.B' not a member of error set 'error{A,C}'#}
 const Set1 = error{
     A,
     B,
@@ -10417,7 +10375,7 @@ fn foo(bytes: []u8) u32 {
       {#header_close#}
       {#header_open|Wrong Union Field Access#}
       <p>At compile-time:</p>
-      {#code_begin|test_err|accessing union field 'float' while field 'int' is set#}
+      {#code_begin|test_err|access of union field 'float' while field 'int' is active#}
 comptime {
     var f = Foo{ .int = 42 };
     f.float = 12.34;
@@ -10509,6 +10467,7 @@ fn bar(f: *Foo) void {
       </p>
       <p>At compile-time:</p>
       {#code_begin|test_err|null pointer casted to type#}
+      {#backend_stage1#}
 comptime {
     const opt_ptr: ?*i32 = null;
     const ptr = @ptrCast(*i32, opt_ptr);
@@ -10551,7 +10510,8 @@ const expect = std.testing.expect;
 
 test "using an allocator" {
     var buffer: [100]u8 = undefined;
-    const allocator = std.heap.FixedBufferAllocator.init(&buffer).allocator();
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    const allocator = fba.allocator();
     const result = try concat(allocator, "foo", "bar");
     try expect(std.mem.eql(u8, "foobar", result));
 }
@@ -10647,7 +10607,7 @@ pub fn main() !void {
       <p>String literals such as {#syntax#}"foo"{#endsyntax#} are in the global constant data section.
       This is why it is an error to pass a string literal to a mutable slice, like this:
       </p>
-      {#code_begin|test_err|cannot cast pointer to array literal to slice type '[]u8'#}
+      {#code_begin|test_err|expected type '[]u8', found '*const [5:0]u8'#}
 fn foo(s: []u8) void {
     _ = s;
 }

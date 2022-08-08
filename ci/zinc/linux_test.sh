@@ -33,41 +33,39 @@ unset CXX
 
 ninja install
 
-STAGE1_ZIG="$DEBUG_STAGING/bin/zig"
-
 # Here we rebuild zig but this time using the Zig binary we just now produced to
 # build zig1.o rather than relying on the one built with stage0. See
 # https://github.com/ziglang/zig/issues/6830 for more details.
-cmake .. -DZIG_EXECUTABLE="$STAGE1_ZIG"
+cmake .. -DZIG_EXECUTABLE="$DEBUG_STAGING/bin/zig"
 ninja install
 
 cd $WORKSPACE
 
+"$DEBUG_STAGING/bin/zig" build -p stage3 -Denable-stage1 -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
+
+# simultaneously test building self-hosted without LLVM and with 32-bit arm
+stage3/bin/zig build -Dtarget=arm-linux-musleabihf
+
 echo "Looking for non-conforming code formatting..."
 echo "Formatting errors can be fixed by running 'zig fmt' on the files printed here."
-$STAGE1_ZIG fmt --check . --exclude test/cases/
+stage3/bin/zig fmt --check . --exclude test/cases/
 
-$STAGE1_ZIG    build -p stage2 -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
-stage2/bin/zig build -p stage3 -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
-stage3/bin/zig build # test building self-hosted without LLVM
-stage3/bin/zig build -Dtarget=arm-linux-musleabihf # test building self-hosted for 32-bit arm
-
-stage3/bin/zig build test-compiler-rt      -fqemu -fwasmtime -Denable-llvm
-stage3/bin/zig build test-behavior         -fqemu -fwasmtime -Denable-llvm
-stage3/bin/zig build test-std              -fqemu -fwasmtime -Denable-llvm
-stage3/bin/zig build test-universal-libc   -fqemu -fwasmtime -Denable-llvm
-stage3/bin/zig build test-compare-output   -fqemu -fwasmtime -Denable-llvm
-stage3/bin/zig build test-asm-link         -fqemu -fwasmtime -Denable-llvm
-stage3/bin/zig build test-fmt              -fqemu -fwasmtime -Denable-llvm
-stage3/bin/zig build test-translate-c      -fqemu -fwasmtime -Denable-llvm
-stage3/bin/zig build test-run-translated-c -fqemu -fwasmtime -Denable-llvm
-stage3/bin/zig build test-standalone       -fqemu -fwasmtime -Denable-llvm
-stage3/bin/zig build test-cli              -fqemu -fwasmtime -Denable-llvm
+stage3/bin/zig build test-compiler-rt      -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
+stage3/bin/zig build test-behavior         -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
+stage3/bin/zig build test-std              -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
+stage3/bin/zig build test-universal-libc   -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
+stage3/bin/zig build test-compare-output   -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
+stage3/bin/zig build test-asm-link         -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
+stage3/bin/zig build test-fmt              -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
+stage3/bin/zig build test-translate-c      -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
+stage3/bin/zig build test-run-translated-c -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
+stage3/bin/zig build test-standalone       -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
+stage3/bin/zig build test-cli              -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
 stage3/bin/zig build test-cases            -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
-stage3/bin/zig build test-link             -fqemu -fwasmtime -Denable-llvm
+stage3/bin/zig build test-link             -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
+stage3/bin/zig build docs                  -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
 
-$STAGE1_ZIG build test-stack-traces     -fqemu -fwasmtime
-$STAGE1_ZIG build docs                  -fqemu -fwasmtime
+stage3/bin/zig build test-stack-traces -fqemu -fwasmtime -fstage1
 
 # Produce the experimental std lib documentation.
 mkdir -p "$RELEASE_STAGING/docs/std"
@@ -87,7 +85,7 @@ stage3/bin/zig build \
   -Drelease \
   -Dstrip \
   -Dtarget="$TARGET" \
-  -Dstage1
+  -Denable-stage1
 
 # Explicit exit helps show last command duration.
 exit

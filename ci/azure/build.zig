@@ -37,9 +37,9 @@ pub fn build(b: *Builder) !void {
     const docs_step = b.step("docs", "Build documentation");
     docs_step.dependOn(&docgen_cmd.step);
 
-    const is_stage1 = b.option(bool, "stage1", "Build the stage1 compiler, put stage2 behind a feature flag") orelse false;
+    const have_stage1 = b.option(bool, "enable-stage1", "Include the stage1 compiler behind a feature flag") orelse false;
     const static_llvm = b.option(bool, "static-llvm", "Disable integration with system-installed LLVM, Clang, LLD, and libc++") orelse false;
-    const enable_llvm = b.option(bool, "enable-llvm", "Build self-hosted compiler with LLVM backend enabled") orelse (is_stage1 or static_llvm);
+    const enable_llvm = b.option(bool, "enable-llvm", "Build self-hosted compiler with LLVM backend enabled") orelse (have_stage1 or static_llvm);
     const llvm_has_m68k = b.option(
         bool,
         "llvm-has-m68k",
@@ -101,7 +101,7 @@ pub fn build(b: *Builder) !void {
         break :blk 4;
     };
 
-    const main_file: ?[]const u8 = if (is_stage1) null else "src/main.zig";
+    const main_file: ?[]const u8 = if (have_stage1) null else "src/main.zig";
 
     const exe = b.addExecutable("zig", main_file);
     exe.strip = strip;
@@ -190,7 +190,7 @@ pub fn build(b: *Builder) !void {
     if (enable_llvm) {
         const cmake_cfg = if (static_llvm) null else findAndParseConfigH(b, config_h_path_option);
 
-        if (is_stage1) {
+        if (have_stage1) {
             const softfloat = b.addStaticLibrary("softfloat", null);
             softfloat.setBuildMode(.ReleaseFast);
             softfloat.setTarget(target);
@@ -298,7 +298,7 @@ pub fn build(b: *Builder) !void {
     exe_options.addOption(bool, "enable_tracy_callstack", tracy_callstack);
     exe_options.addOption(bool, "enable_tracy_allocation", tracy_allocation);
     exe_options.addOption(bool, "value_tracing", value_tracing);
-    exe_options.addOption(bool, "is_stage1", is_stage1);
+    exe_options.addOption(bool, "have_stage1", have_stage1);
     if (tracy) |tracy_path| {
         const client_cpp = fs.path.join(
             b.allocator,

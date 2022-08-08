@@ -601,7 +601,6 @@ pub fn addPkgTests(
     skip_libc: bool,
     skip_stage1: bool,
     skip_stage2: bool,
-    is_stage1: bool,
 ) *build.Step {
     const step = b.step(b.fmt("test-{s}", .{name}), desc);
 
@@ -630,7 +629,7 @@ pub fn addPkgTests(
         if (test_target.backend) |backend| switch (backend) {
             .stage1 => if (skip_stage1) continue,
             else => if (skip_stage2) continue,
-        } else if (is_stage1 and skip_stage1) continue;
+        } else if (skip_stage2) continue;
 
         const want_this_mode = for (modes) |m| {
             if (m == test_target.mode) break true;
