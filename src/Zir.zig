@@ -839,8 +839,6 @@ pub const Inst = struct {
         round,
         /// Implement builtin `@tagName`. Uses `un_node`.
         tag_name,
-        /// Implement builtin `@Type`. Uses `un_node`.
-        reify,
         /// Implement builtin `@typeName`. Uses `un_node`.
         type_name,
         /// Implement builtin `@Frame`. Uses `un_node`.
@@ -1197,7 +1195,6 @@ pub const Inst = struct {
                 .trunc,
                 .round,
                 .tag_name,
-                .reify,
                 .type_name,
                 .frame_type,
                 .frame_size,
@@ -1484,7 +1481,6 @@ pub const Inst = struct {
                 .trunc,
                 .round,
                 .tag_name,
-                .reify,
                 .type_name,
                 .frame_type,
                 .frame_size,
@@ -1759,7 +1755,6 @@ pub const Inst = struct {
                 .trunc = .un_node,
                 .round = .un_node,
                 .tag_name = .un_node,
-                .reify = .un_node,
                 .type_name = .un_node,
                 .frame_type = .un_node,
                 .frame_size = .un_node,
@@ -1980,6 +1975,10 @@ pub const Inst = struct {
         /// Implement builtin `@intToError`.
         /// `operand` is payload index to `UnNode`.
         int_to_error,
+        /// Implement builtin `@Type`.
+        /// `operand` is payload index to `UnNode`.
+        /// `small` contains `NameStrategy
+        reify,
 
         pub const InstData = struct {
             opcode: Extended,

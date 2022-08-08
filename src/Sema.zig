@@ -816,7 +816,6 @@ fn analyzeBodyInner(
             .embed_file                   => try sema.zirEmbedFile(block, inst),
             .error_name                   => try sema.zirErrorName(block, inst),
             .tag_name                     => try sema.zirTagName(block, inst),
-            .reify                        => try sema.zirReify(block, inst),
             .type_name                    => try sema.zirTypeName(block, inst),
             .frame_type                   => try sema.zirFrameType(block, inst),
             .frame_size                   => try sema.zirFrameSize(block, inst),
@@ -951,6 +950,7 @@ fn analyzeBodyInner(
                     .select                => try sema.zirSelect(            block, extended),
                     .error_to_int          => try sema.zirErrorToInt(        block, extended),
                     .int_to_error          => try sema.zirIntToError(        block, extended),
+                    .reify                 => try sema.zirReify(             block, extended, inst),
                     // zig fmt: on
                     .fence => {
                         try sema.zirFence(block, extended);
@@ -16023,13 +16023,14 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     return block.addUnOp(.tag_name, casted_operand);
 }
 
-fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
+    const name_strategy = @intToEnum(Zir.Inst.NameStrategy, extended.small);
+    const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
+    const src = LazySrcLoc.nodeOffset(extra.node);
     const type_info_ty = try sema.resolveBuiltinTypeFields(block, src, "Type");
-    const uncasted_operand = try sema.resolveInst(inst_data.operand);
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const uncasted_operand = try sema.resolveInst(extra.operand);
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
     const type_info = try sema.coerce(block, type_info_ty, uncasted_operand, operand_src);
     const val = try sema.resolveConstValue(block, operand_src, type_info, "operand to @Type must be comptime known");
     const union_val = val.cast(Value.Payload.Union).?.data;
@@ -16289,7 +16290,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             return if (is_tuple_val.toBool())
                 try sema.reifyTuple(block, src, fields_val)
             else
-                try sema.reifyStruct(block, inst, src, layout_val, fields_val);
+                try sema.reifyStruct(block, inst, src, layout_val, fields_val, name_strategy);
         },
         .Enum => {
             const struct_val = union_val.val.castTag(.aggregate).?.data;
@@ -16338,7 +16339,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
                 .ty = Type.type,
                 .val = enum_val,
-            }, .anon, "enum", null);
+            }, name_strategy, "enum", inst);
             const new_decl = mod.declPtr(new_decl_index);
             new_decl.owns_tv = true;
             errdefer mod.abortAnonDecl(new_decl_index);
@@ -16435,7 +16436,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
                 .ty = Type.type,
                 .val = opaque_val,
-            }, .anon, "opaque", null);
+            }, name_strategy, "opaque", inst);
             const new_decl = mod.declPtr(new_decl_index);
             new_decl.owns_tv = true;
             errdefer mod.abortAnonDecl(new_decl_index);
@@ -16494,7 +16495,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
                 .ty = Type.type,
                 .val = new_union_val,
-            }, .anon, "union", null);
+            }, name_strategy, "union", inst);
             const new_decl = mod.declPtr(new_decl_index);
             new_decl.owns_tv = true;
             errdefer mod.abortAnonDecl(new_decl_index);
@@ -16787,6 +16788,7 @@ fn reifyStruct(
     src: LazySrcLoc,
     layout_val: Value,
     fields_val: Value,
+    name_strategy: Zir.Inst.NameStrategy,
 ) CompileError!Air.Inst.Ref {
     var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
     errdefer new_decl_arena.deinit();
@@ -16799,7 +16801,7 @@ fn reifyStruct(
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
         .ty = Type.type,
         .val = new_struct_val,
-    }, .anon, "struct", null);
+    }, name_strategy, "struct", inst);
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);

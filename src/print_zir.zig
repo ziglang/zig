@@ -214,7 +214,6 @@ const Writer = struct {
             .trunc,
             .round,
             .tag_name,
-            .reify,
             .type_name,
             .frame_type,
             .frame_size,
@@ -500,6 +499,7 @@ const Writer = struct {
             .wasm_memory_size,
             .error_to_int,
             .int_to_error,
+            .reify,
             => {
                 const inst_data = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;
                 const src = LazySrcLoc.nodeOffset(inst_data.node);
