@@ -4763,8 +4763,6 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         \\/// feature detection (i.e. with `@hasDecl` or `@hasField`) over version checks.
         \\pub const zig_version = std.SemanticVersion.parse("{s}") catch unreachable;
         \\pub const zig_backend = std.builtin.CompilerBackend.{};
-        \\/// Temporary until self-hosted supports the `cpu.arch` value.
-        \\pub const stage2_arch: std.Target.Cpu.Arch = .{};
         \\
         \\pub const output_mode = std.builtin.OutputMode.{};
         \\pub const link_mode = std.builtin.LinkMode.{};
@@ -4779,7 +4777,6 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
     , .{
         build_options.version,
         std.zig.fmtId(@tagName(zig_backend)),
-        std.zig.fmtId(@tagName(target.cpu.arch)),
         std.zig.fmtId(@tagName(comp.bin_file.options.output_mode)),
         std.zig.fmtId(@tagName(comp.bin_file.options.link_mode)),
         comp.bin_file.options.is_test,

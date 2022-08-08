@@ -1,7 +1,7 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 
-pub const syscall_bits = switch (builtin.stage2_arch) {
+pub const syscall_bits = switch (builtin.cpu.arch) {
     .x86_64 => @import("plan9/x86_64.zig"),
     else => @compileError("more plan9 syscall implementations (needs more inline asm in stage2"),
 };
