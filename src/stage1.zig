@@ -18,7 +18,7 @@ const target_util = @import("target.zig");
 
 comptime {
     assert(builtin.link_libc);
-    assert(build_options.is_stage1);
+    assert(build_options.have_stage1);
     assert(build_options.have_llvm);
     if (!builtin.is_test) {
         @export(main, .{ .name = "main" });

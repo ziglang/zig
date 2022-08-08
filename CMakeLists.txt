@@ -12,7 +12,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 if(NOT CMAKE_INSTALL_PREFIX)
-    set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/stage1" CACHE STRING
+    set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/stage2" CACHE STRING
       "Directory to install zig to" FORCE)
 endif()
 

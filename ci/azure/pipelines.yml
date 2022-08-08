@@ -68,9 +68,7 @@ jobs:
       & "${ZIGPREFIXPATH}/bin/zig.exe" build `
         --prefix "$ZIGINSTALLDIR" `
         --search-prefix "$ZIGPREFIXPATH" `
-        -Dstage1 `
-        <# stage2 is omitted until we resolve https://github.com/ziglang/zig/issues/6485 #> `
-        -Domit-stage2 `
+        -Denable-stage1 `
         -Dstatic-llvm `
         -Drelease `
         -Dstrip `

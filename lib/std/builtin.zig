@@ -866,7 +866,7 @@ pub fn panicUnwrapError(st: ?*StackTrace, err: anyerror) noreturn {
 
 pub fn panicOutOfBounds(index: usize, len: usize) noreturn {
     @setCold(true);
-    std.debug.panic("attempt to index out of bound: index {d}, len {d}", .{ index, len });
+    std.debug.panic("index out of bounds: index {d}, len {d}", .{ index, len });
 }
 
 pub noinline fn returnError(st: *StackTrace) void {

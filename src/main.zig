@@ -2989,7 +2989,7 @@ fn buildOutputType(
         return std.io.getStdOut().writeAll(try comp.generateBuiltinZigSource(arena));
     }
     if (arg_mode == .translate_c) {
-        const stage1_mode = use_stage1 orelse build_options.is_stage1;
+        const stage1_mode = use_stage1 orelse false;
         return cmdTranslateC(comp, arena, have_enable_cache, stage1_mode);
     }
 

@@ -272,7 +272,7 @@ pub const Export = struct {
 pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
     assert(options.target.ofmt == .macho);
 
-    const use_stage1 = build_options.is_stage1 and options.use_stage1;
+    const use_stage1 = build_options.have_stage1 and options.use_stage1;
     if (use_stage1 or options.emit == null) {
         return createEmpty(allocator, options);
     }
@@ -363,7 +363,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
     const cpu_arch = options.target.cpu.arch;
     const page_size: u16 = if (cpu_arch == .aarch64) 0x4000 else 0x1000;
     const use_llvm = build_options.have_llvm and options.use_llvm;
-    const use_stage1 = build_options.is_stage1 and options.use_stage1;
+    const use_stage1 = build_options.have_stage1 and options.use_stage1;
 
     const self = try gpa.create(MachO);
     errdefer gpa.destroy(self);
