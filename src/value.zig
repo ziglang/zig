@@ -1194,6 +1194,16 @@ pub const Value = extern union {
         return switch (self.tag()) {
             .bool_true, .one => true,
             .bool_false, .zero => false,
+            .int_u64 => switch (self.castTag(.int_u64).?.data) {
+                0 => false,
+                1 => true,
+                else => unreachable,
+            },
+            .int_i64 => switch (self.castTag(.int_i64).?.data) {
+                0 => false,
+                1 => true,
+                else => unreachable,
+            },
             else => unreachable,
         };
     }
