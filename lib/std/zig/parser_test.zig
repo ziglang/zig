@@ -3064,6 +3064,13 @@ test "zig fmt: struct declaration" {
         \\    c: u8,
         \\};
         \\
+        \\const Ps = packed struct(u32) {
+        \\    a: u1,
+        \\    b: u2,
+        \\
+        \\    c: u29,
+        \\};
+        \\
         \\const Es = extern struct {
         \\    a: u8,
         \\    b: u8,

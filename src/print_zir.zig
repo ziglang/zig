@@ -1245,9 +1245,28 @@ const Writer = struct {
 
         try self.writeFlag(stream, "known_non_opv, ", small.known_non_opv);
         try self.writeFlag(stream, "known_comptime_only, ", small.known_comptime_only);
-        try stream.print("{s}, {s}, ", .{
-            @tagName(small.name_strategy), @tagName(small.layout),
-        });
+
+        try stream.print("{s}, ", .{@tagName(small.name_strategy)});
+
+        if (small.layout == .Packed and small.has_backing_int) {
+            const backing_int_body_len = self.code.extra[extra_index];
+            extra_index += 1;
+            try stream.writeAll("Packed(");
+            if (backing_int_body_len == 0) {
+                const backing_int_ref = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
+                extra_index += 1;
+                try self.writeInstRef(stream, backing_int_ref);
+            } else {
+                const body = self.code.extra[extra_index..][0..backing_int_body_len];
+                extra_index += backing_int_body_len;
+                self.indent += 2;
+                try self.writeBracedDecl(stream, body);
+                self.indent -= 2;
+            }
+            try stream.writeAll("), ");
+        } else {
+            try stream.print("{s}, ", .{@tagName(small.layout)});
+        }
 
         if (decls_len == 0) {
             try stream.writeAll("{}, ");

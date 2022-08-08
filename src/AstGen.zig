@@ -152,6 +152,7 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
         0,
         tree.containerDeclRoot(),
         .Auto,
+        0,
     )) |struct_decl_ref| {
         assert(refToIndex(struct_decl_ref).? == 0);
     } else |err| switch (err) {
@@ -4223,15 +4224,18 @@ fn structDeclInner(
     node: Ast.Node.Index,
     container_decl: Ast.full.ContainerDecl,
     layout: std.builtin.Type.ContainerLayout,
+    backing_int_node: Ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
     const decl_inst = try gz.reserveInstructionIndex();
 
-    if (container_decl.ast.members.len == 0) {
+    if (container_decl.ast.members.len == 0 and backing_int_node == 0) {
         try gz.setStruct(decl_inst, .{
             .src_node = node,
             .layout = layout,
             .fields_len = 0,
             .decls_len = 0,
+            .backing_int_ref = .none,
+            .backing_int_body_len = 0,
             .known_non_opv = false,
             .known_comptime_only = false,
         });
@@ -4265,6 +4269,35 @@ fn structDeclInner(
         .instructions_top = gz.instructions.items.len,
     };
     defer block_scope.unstack();
+
+    const scratch_top = astgen.scratch.items.len;
+    defer astgen.scratch.items.len = scratch_top;
+
+    var backing_int_body_len: usize = 0;
+    const backing_int_ref: Zir.Inst.Ref = blk: {
+        if (backing_int_node != 0) {
+            if (layout != .Packed) {
+                return astgen.failNode(backing_int_node, "non-packed struct does not support backing integer type", .{});
+            } else {
+                const backing_int_ref = try typeExpr(&block_scope, &namespace.base, backing_int_node);
+                if (!block_scope.isEmpty()) {
+                    if (!block_scope.endsWithNoReturn()) {
+                        _ = try block_scope.addBreak(.break_inline, decl_inst, backing_int_ref);
+                    }
+
+                    const body = block_scope.instructionsSlice();
+                    const old_scratch_len = astgen.scratch.items.len;
+                    try astgen.scratch.ensureUnusedCapacity(gpa, countBodyLenAfterFixups(astgen, body));
+                    appendBodyWithFixupsArrayList(astgen, &astgen.scratch, body);
+                    backing_int_body_len = astgen.scratch.items.len - old_scratch_len;
+                    block_scope.instructions.items.len = block_scope.instructions_top;
+                }
+                break :blk backing_int_ref;
+            }
+        } else {
+            break :blk .none;
+        }
+    };
 
     const decl_count = try astgen.scanDecls(&namespace, container_decl.ast.members);
     const field_count = @intCast(u32, container_decl.ast.members.len - decl_count);
@@ -4378,6 +4411,8 @@ fn structDeclInner(
         .layout = layout,
         .fields_len = field_count,
         .decls_len = decl_count,
+        .backing_int_ref = backing_int_ref,
+        .backing_int_body_len = @intCast(u32, backing_int_body_len),
         .known_non_opv = known_non_opv,
         .known_comptime_only = known_comptime_only,
     });
@@ -4386,7 +4421,9 @@ fn structDeclInner(
     const decls_slice = wip_members.declsSlice();
     const fields_slice = wip_members.fieldsSlice();
     const bodies_slice = astgen.scratch.items[bodies_start..];
-    try astgen.extra.ensureUnusedCapacity(gpa, decls_slice.len + fields_slice.len + bodies_slice.len);
+    try astgen.extra.ensureUnusedCapacity(gpa, backing_int_body_len +
+        decls_slice.len + fields_slice.len + bodies_slice.len);
+    astgen.extra.appendSliceAssumeCapacity(astgen.scratch.items[scratch_top..][0..backing_int_body_len]);
     astgen.extra.appendSliceAssumeCapacity(decls_slice);
     astgen.extra.appendSliceAssumeCapacity(fields_slice);
     astgen.extra.appendSliceAssumeCapacity(bodies_slice);
@@ -4582,9 +4619,7 @@ fn containerDecl(
                 else => unreachable,
             } else std.builtin.Type.ContainerLayout.Auto;
 
-            assert(container_decl.ast.arg == 0);
-
-            const result = try structDeclInner(gz, scope, node, container_decl, layout);
+            const result = try structDeclInner(gz, scope, node, container_decl, layout, container_decl.ast.arg);
             return rvalue(gz, rl, result, node);
         },
         .keyword_union => {
@@ -11254,6 +11289,8 @@ const GenZir = struct {
         src_node: Ast.Node.Index,
         fields_len: u32,
         decls_len: u32,
+        backing_int_ref: Zir.Inst.Ref,
+        backing_int_body_len: u32,
         layout: std.builtin.Type.ContainerLayout,
         known_non_opv: bool,
         known_comptime_only: bool,
@@ -11261,7 +11298,7 @@ const GenZir = struct {
         const astgen = gz.astgen;
         const gpa = astgen.gpa;
 
-        try astgen.extra.ensureUnusedCapacity(gpa, 4);
+        try astgen.extra.ensureUnusedCapacity(gpa, 6);
         const payload_index = @intCast(u32, astgen.extra.items.len);
 
         if (args.src_node != 0) {
@@ -11274,6 +11311,12 @@ const GenZir = struct {
         if (args.decls_len != 0) {
             astgen.extra.appendAssumeCapacity(args.decls_len);
         }
+        if (args.backing_int_ref != .none) {
+            astgen.extra.appendAssumeCapacity(args.backing_int_body_len);
+            if (args.backing_int_body_len == 0) {
+                astgen.extra.appendAssumeCapacity(@enumToInt(args.backing_int_ref));
+            }
+        }
         astgen.instructions.set(inst, .{
             .tag = .extended,
             .data = .{ .extended = .{
@@ -11282,6 +11325,7 @@ const GenZir = struct {
                     .has_src_node = args.src_node != 0,
                     .has_fields_len = args.fields_len != 0,
                     .has_decls_len = args.decls_len != 0,
+                    .has_backing_int = args.backing_int_ref != .none,
                     .known_non_opv = args.known_non_opv,
                     .known_comptime_only = args.known_comptime_only,
                     .name_strategy = gz.anon_name_strategy,
