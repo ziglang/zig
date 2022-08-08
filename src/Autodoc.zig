@@ -1220,7 +1220,6 @@ fn walkInstruction(
         .trunc,
         .round,
         .tag_name,
-        .reify,
         .type_name,
         .frame_type,
         .frame_size,
@@ -2605,6 +2604,7 @@ fn walkInstruction(
                 },
                 .error_to_int,
                 .int_to_error,
+                .reify,
                 => {
                     const extra = file.zir.extraData(Zir.Inst.UnNode, extended.operand).data;
                     const bin_index = self.exprs.items.len;

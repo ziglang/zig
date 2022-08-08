@@ -2454,7 +2454,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .trunc,
             .round,
             .tag_name,
-            .reify,
             .type_name,
             .frame_type,
             .frame_size,
@@ -7553,7 +7552,6 @@ fn builtinCall(
         .trunc                 => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .trunc),
         .round                 => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .round),
         .tag_name              => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .tag_name),
-        .Type                  => return simpleUnOp(gz, scope, rl, node, .{ .coerced_ty = .type_info_type },  params[0], .reify),
         .type_name             => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .type_name),
         .Frame                 => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .frame_type),
         .frame_size            => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .frame_size),
@@ -7568,6 +7566,30 @@ fn builtinCall(
         .truncate     => return typeCast(gz, scope, rl, node, params[0], params[1], .truncate),
         // zig fmt: on
 
+        .Type => {
+            const operand = try expr(gz, scope, .{ .coerced_ty = .type_info_type }, params[0]);
+
+            const gpa = gz.astgen.gpa;
+
+            try gz.instructions.ensureUnusedCapacity(gpa, 1);
+            try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
+
+            const payload_index = try gz.astgen.addExtra(Zir.Inst.UnNode{
+                .node = gz.nodeIndexToRelative(node),
+                .operand = operand,
+            });
+            const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
+            gz.astgen.instructions.appendAssumeCapacity(.{
+                .tag = .extended,
+                .data = .{ .extended = .{
+                    .opcode = .reify,
+                    .small = @enumToInt(gz.anon_name_strategy),
+                    .operand = payload_index,
+                } },
+            });
+            gz.instructions.appendAssumeCapacity(new_index);
+            return indexToRef(new_index);
+        },
         .panic => {
             try emitDbgNode(gz, node);
             return simpleUnOp(gz, scope, rl, node, .{ .ty = .const_slice_u8_type }, params[0], if (gz.force_comptime) .panic_comptime else .panic);
