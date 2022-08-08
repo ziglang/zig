@@ -38,7 +38,6 @@ pub fn build(b: *Builder) !void {
     docs_step.dependOn(&docgen_cmd.step);
 
     const is_stage1 = b.option(bool, "stage1", "Build the stage1 compiler, put stage2 behind a feature flag") orelse false;
-    const omit_stage2 = b.option(bool, "omit-stage2", "Do not include stage2 behind a feature flag inside stage1") orelse false;
     const static_llvm = b.option(bool, "static-llvm", "Disable integration with system-installed LLVM, Clang, LLD, and libc++") orelse false;
     const enable_llvm = b.option(bool, "enable-llvm", "Build self-hosted compiler with LLVM backend enabled") orelse (is_stage1 or static_llvm);
     const llvm_has_m68k = b.option(
@@ -300,7 +299,6 @@ pub fn build(b: *Builder) !void {
     exe_options.addOption(bool, "enable_tracy_allocation", tracy_allocation);
     exe_options.addOption(bool, "value_tracing", value_tracing);
     exe_options.addOption(bool, "is_stage1", is_stage1);
-    exe_options.addOption(bool, "omit_stage2", omit_stage2);
     if (tracy) |tracy_path| {
         const client_cpp = fs.path.join(
             b.allocator,

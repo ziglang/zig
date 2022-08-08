@@ -65,7 +65,6 @@ pub fn build(b: *Builder) !void {
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
 
     const is_stage1 = b.option(bool, "stage1", "Build the stage1 compiler, put stage2 behind a feature flag") orelse false;
-    const omit_stage2 = b.option(bool, "omit-stage2", "Do not include stage2 behind a feature flag inside stage1") orelse false;
     const static_llvm = b.option(bool, "static-llvm", "Disable integration with system-installed LLVM, Clang, LLD, and libc++") orelse false;
     const enable_llvm = b.option(bool, "enable-llvm", "Build self-hosted compiler with LLVM backend enabled") orelse (is_stage1 or static_llvm);
     const llvm_has_m68k = b.option(
@@ -361,7 +360,6 @@ pub fn build(b: *Builder) !void {
     exe_options.addOption(bool, "enable_tracy_allocation", tracy_allocation);
     exe_options.addOption(bool, "value_tracing", value_tracing);
     exe_options.addOption(bool, "is_stage1", is_stage1);
-    exe_options.addOption(bool, "omit_stage2", omit_stage2);
     if (tracy) |tracy_path| {
         const client_cpp = fs.path.join(
             b.allocator,
@@ -397,7 +395,6 @@ pub fn build(b: *Builder) !void {
     test_cases_options.addOption(bool, "skip_non_native", skip_non_native);
     test_cases_options.addOption(bool, "skip_stage1", skip_stage1);
     test_cases_options.addOption(bool, "is_stage1", is_stage1);
-    test_cases_options.addOption(bool, "omit_stage2", omit_stage2);
     test_cases_options.addOption(bool, "have_llvm", enable_llvm);
     test_cases_options.addOption(bool, "llvm_has_m68k", llvm_has_m68k);
     test_cases_options.addOption(bool, "llvm_has_csky", llvm_has_csky);
@@ -457,7 +454,7 @@ pub fn build(b: *Builder) !void {
         skip_non_native,
         skip_libc,
         skip_stage1,
-        omit_stage2,
+        false,
         is_stage1,
     ));
 
@@ -472,7 +469,7 @@ pub fn build(b: *Builder) !void {
         skip_non_native,
         true, // skip_libc
         skip_stage1,
-        omit_stage2 or true, // TODO get these all passing
+        true, // TODO get these all passing
         is_stage1,
     ));
 
@@ -487,7 +484,7 @@ pub fn build(b: *Builder) !void {
         skip_non_native,
         true, // skip_libc
         skip_stage1,
-        omit_stage2 or true, // TODO get these all passing
+        true, // TODO get these all passing
         is_stage1,
     ));
 
@@ -499,14 +496,13 @@ pub fn build(b: *Builder) !void {
         skip_non_native,
         enable_macos_sdk,
         target,
-        omit_stage2,
         b.enable_darling,
         b.enable_qemu,
         b.enable_rosetta,
         b.enable_wasmtime,
         b.enable_wine,
     ));
-    toolchain_step.dependOn(tests.addLinkTests(b, test_filter, modes, enable_macos_sdk, omit_stage2));
+    toolchain_step.dependOn(tests.addLinkTests(b, test_filter, modes, enable_macos_sdk));
     toolchain_step.dependOn(tests.addStackTraceTests(b, test_filter, modes));
     toolchain_step.dependOn(tests.addCliTests(b, test_filter, modes));
     toolchain_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));
@@ -528,7 +524,7 @@ pub fn build(b: *Builder) !void {
         skip_non_native,
         skip_libc,
         skip_stage1,
-        omit_stage2 or true, // TODO get these all passing
+        true, // TODO get these all passing
         is_stage1,
     );
 
