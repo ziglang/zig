@@ -275,7 +275,7 @@ test "BoundedArray" {
     try testing.expectEqualSlices(u8, &x, a.constSlice());
 
     var a2 = a;
-    try testing.expectEqualSlices(u8, a.constSlice(), a.constSlice());
+    try testing.expectEqualSlices(u8, a.constSlice(), a2.constSlice());
     a2.set(0, 0);
     try testing.expect(a.get(0) != a2.get(0));
 
