@@ -386,11 +386,15 @@ const known_options = [_]KnownOpt{
     },
     .{
         .name = "MM",
-        .ident = "dep_file_mm",
+        .ident = "dep_file_to_stdout",
+    },
+    .{
+        .name = "M",
+        .ident = "dep_file_to_stdout",
     },
     .{
         .name = "user-dependencies",
-        .ident = "dep_file_mm",
+        .ident = "dep_file_to_stdout",
     },
     .{
         .name = "MMD",

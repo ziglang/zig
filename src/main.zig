@@ -1657,7 +1657,8 @@ fn buildOutputType(
                         disable_c_depfile = true;
                         try clang_argv.appendSlice(it.other_args);
                     },
-                    .dep_file_mm => { // -MM
+                    .dep_file_to_stdout => { // -M, -MM
+                        // "Like -MD, but also implies -E and writes to stdout by default"
                         // "Like -MMD, but also implies -E and writes to stdout by default"
                         c_out_mode = .preprocessor;
                         disable_c_depfile = true;
@@ -4652,7 +4653,7 @@ pub const ClangArgIterator = struct {
         lib_dir,
         mcpu,
         dep_file,
-        dep_file_mm,
+        dep_file_to_stdout,
         framework_dir,
         framework,
         nostdlibinc,
