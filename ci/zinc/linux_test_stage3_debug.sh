@@ -10,13 +10,13 @@ MCPU="baseline"
 # This will affect the cmake command below.
 git config core.abbrev 9
 
-echo "building debug zig with zig version $($OLD_ZIG version)"
+echo "building stage3-debug with zig version $($OLD_ZIG version)"
 
 export CC="$OLD_ZIG cc -target $TARGET -mcpu=$MCPU"
 export CXX="$OLD_ZIG c++ -target $TARGET -mcpu=$MCPU"
 
-mkdir _debug
-cd _debug
+mkdir build-debug
+cd build-debug
 cmake .. \
   -DCMAKE_INSTALL_PREFIX="$DEBUG_STAGING" \
   -DCMAKE_PREFIX_PATH="$DEPS_LOCAL" \
@@ -63,29 +63,8 @@ stage3/bin/zig build test-standalone       -fqemu -fwasmtime -Dstatic-llvm -Dtar
 stage3/bin/zig build test-cli              -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
 stage3/bin/zig build test-cases            -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
 stage3/bin/zig build test-link             -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
+stage3/bin/zig build test-stack-traces     -fqemu -fwasmtime -fstage1
 stage3/bin/zig build docs                  -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
-
-stage3/bin/zig build test-stack-traces -fqemu -fwasmtime -fstage1
-
-# Produce the experimental std lib documentation.
-mkdir -p "$RELEASE_STAGING/docs/std"
-stage3/bin/zig test lib/std/std.zig \
-  --zig-lib-dir lib \
-  -femit-docs=$RELEASE_STAGING/docs/std \
-  -fno-emit-bin
-
-# Look for HTML errors.
-tidy --drop-empty-elements no -qe zig-cache/langref.html
-
-# Build release zig.
-stage3/bin/zig build \
-  --prefix "$RELEASE_STAGING" \
-  --search-prefix "$DEPS_LOCAL" \
-  -Dstatic-llvm \
-  -Drelease \
-  -Dstrip \
-  -Dtarget="$TARGET" \
-  -Denable-stage1
 
 # Explicit exit helps show last command duration.
 exit
