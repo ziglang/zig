@@ -25,9 +25,10 @@
         --search-bg-color-focus: #ffffff;
         --search-sh-color: rgba(0, 0, 0, 0.18);
         --help-sh-color: rgba(0, 0, 0, 0.75);
+        --help-bg-color: #aaa;
       }
 
-      html, body { margin: 0; padding:0; height: 100%; }
+      html, body { margin: 0; padding: 0; height: 100%; }
 
       a {
         text-decoration: none;
@@ -190,11 +191,11 @@
         box-shadow: 0 0.3em 1em 0.125em var(--search-sh-color);
       }
 
-      .docs .search::placeholder {
-        font-size: 1rem;
-        font-family: var(--ui);
-        color: var(--tx-color);
-        opacity: 0.5;
+      #searchPlaceholder {
+        position: absolute;
+        pointer-events: none;
+        top: 5px;
+        left: 5px;
       }
 
       .docs a {
@@ -207,9 +208,9 @@
 
       .docs pre {
         font-family: var(--mono);
-        font-size:1em;
-        background-color:#F5F5F5;
-        padding:1em;
+        font-size: 1em;
+        background-color: #F5F5F5;
+        padding: 1em;
         overflow-x: auto;
       }
 
@@ -225,7 +226,7 @@
         border-bottom: 0.0625rem dashed;
       }
 
-      .docs  h2 {
+      .docs h2 {
         font-size: 1.3em;
         margin: 0.5em 0;
         padding: 0;
@@ -294,7 +295,7 @@
         padding: 1px 1em;
       }
 
-      /* help dialog */
+      /* help modal */
       .help-modal {
         display: flex;
         width: 100%;
@@ -308,13 +309,13 @@
         backdrop-filter: blur(0.3em);
       }
 
-      .help-modal > .dialog {
+      .help-modal > .modal {
         max-width: 97vw;
         max-height: 97vh;
         overflow: auto;
         font-size: 1rem;
         color: #fff;
-        background-color: #333;
+        background-color: var(--help-bg-color);
         border: 0.125rem solid #000;
         box-shadow: 0 0.5rem 2.5rem 0.3rem var(--help-sh-color);
       }
@@ -335,7 +336,7 @@
         margin-right: 0.5em;
       }
 
-      .help-modal kbd {
+      kbd {
         display: inline-block;
         padding: 0.3em 0.2em;
         font-size: 1.2em;
@@ -348,16 +349,16 @@
         border-bottom-color: #c6cbd1;
         border: solid 0.0625em;
         border-radius: 0.1875em;
-        box-shadow: inset 0 -0.0625em 0 #c6cbd1;
+        box-shadow: inset 0 -0.2em 0 #c6cbd1;
         cursor: default;
       }
 
-	  #listFns dt {
-		  font-family: var(--mono);
-	  }
-	  .argBreaker {
-		  display: none;
-	  }
+      #listFns dt {
+        font-family: var(--mono);
+      }
+      .argBreaker {
+        display: none;
+      }
 
       /* tokens */
       .tok-kw {
@@ -391,7 +392,6 @@
 
       /* dark mode */
       @media (prefers-color-scheme: dark) {
-
         :root {
           --tx-color: #bbb;
           --bg-color: #111;
@@ -408,6 +408,7 @@
           --search-bg-color-focus: #000;
           --search-sh-color: rgba(255, 255, 255, 0.28);
           --help-sh-color: rgba(142, 142, 142, 0.5);
+          --help-bg-color: #333;
         }
 
         .docs pre {
@@ -457,7 +458,6 @@
         .tok-type {
             color: #68f;
         }
-
       }
 
       @media only screen and (max-width: 750px) {
@@ -544,7 +544,7 @@
   <body class="canvas">
     <div class="banner">
       This is a beta autodoc build; expect bugs and missing information.
-      <a href="https://github.com/ziglang/zig/wiki/How-to-contribute-to-Autodoc">Report an Issue</a>, 
+      <a href="https://github.com/ziglang/zig/wiki/How-to-contribute-to-Autodoc">Report an Issue</a>,
       <a href="https://github.com/ziglang/zig/wiki/How-to-contribute-to-Autodoc">Contribute</a>,
       <a href="https://github.com/ziglang/zig/wiki/How-to-read-the-standard-library-source-code">Learn more about stdlib source code</a>.
     </div>
@@ -555,43 +555,43 @@
           <div class="logo">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 140">
             <g fill="#F7A41D">
-            	<g>
-            		<polygon points="46,22 28,44 19,30"/>
-            		<polygon points="46,22 33,33 28,44 22,44 22,95 31,95 20,100 12,117 0,117 0,22" shape-rendering="crispEdges"/>
-            		<polygon points="31,95 12,117 4,106"/>
-            	</g>
-            	<g>
-            		<polygon points="56,22 62,36 37,44"/>
-            		<polygon points="56,22 111,22 111,44 37,44 56,32" shape-rendering="crispEdges"/>
-            		<polygon points="116,95 97,117 90,104"/>
-            		<polygon points="116,95 100,104 97,117 42,117 42,95" shape-rendering="crispEdges"/>
-            		<polygon points="150,0 52,117 3,140 101,22"/>
-            	</g>
-            	<g>
-            		<polygon points="141,22 140,40 122,45"/>
-            		<polygon points="153,22 153,117 106,117 120,105 125,95 131,95 131,45 122,45 132,36 141,22" shape-rendering="crispEdges"/>
-            		<polygon points="125,95 130,110 106,117"/>
-            	</g>
+              <g>
+                <polygon points="46,22 28,44 19,30"/>
+                <polygon points="46,22 33,33 28,44 22,44 22,95 31,95 20,100 12,117 0,117 0,22" shape-rendering="crispEdges"/>
+                <polygon points="31,95 12,117 4,106"/>
+              </g>
+              <g>
+                <polygon points="56,22 62,36 37,44"/>
+                <polygon points="56,22 111,22 111,44 37,44 56,32" shape-rendering="crispEdges"/>
+                <polygon points="116,95 97,117 90,104"/>
+                <polygon points="116,95 100,104 97,117 42,117 42,95" shape-rendering="crispEdges"/>
+                <polygon points="150,0 52,117 3,140 101,22"/>
+              </g>
+              <g>
+                <polygon points="141,22 140,40 122,45"/>
+                <polygon points="153,22 153,117 106,117 120,105 125,95 131,95 131,45 122,45 132,36 141,22" shape-rendering="crispEdges"/>
+                <polygon points="125,95 130,110 106,117"/>
+              </g>
             </g>
             <style>
             #text { fill: #121212 }
             @media (prefers-color-scheme: dark) { #text { fill: #f2f2f2 } }
             </style>
             <g id="text">
-            	<g>
-            		<polygon points="260,22 260,37 229,40 177,40 177,22" shape-rendering="crispEdges"/>
-            		<polygon points="260,37 207,99 207,103 176,103 229,40 229,37"/>
-            		<polygon points="261,99 261,117 176,117 176,103 206,99" shape-rendering="crispEdges"/>
-            	</g>
-            	<rect x="272" y="22" shape-rendering="crispEdges" width="22" height="95"/>
-            	<g>
-            		<polygon points="394,67 394,106 376,106 376,81 360,70 346,67" shape-rendering="crispEdges"/>
-            		<polygon points="360,68 376,81 346,67"/>
-            		<path d="M394,106c-10.2,7.3-24,12-37.7,12c-29,0-51.1-20.8-51.1-48.3c0-27.3,22.5-48.1,52-48.1    c14.3,0,29.2,5.5,38.9,14l-13,15c-7.1-6.3-16.8-10-25.9-10c-17,0-30.2,12.9-30.2,29.5c0,16.8,13.3,29.6,30.3,29.6    c5.7,0,12.8-2.3,19-5.5L394,106z"/>
-            	</g>
+              <g>
+                <polygon points="260,22 260,37 229,40 177,40 177,22" shape-rendering="crispEdges"/>
+                <polygon points="260,37 207,99 207,103 176,103 229,40 229,37"/>
+                <polygon points="261,99 261,117 176,117 176,103 206,99" shape-rendering="crispEdges"/>
+              </g>
+              <rect x="272" y="22" shape-rendering="crispEdges" width="22" height="95"/>
+              <g>
+                <polygon points="394,67 394,106 376,106 376,81 360,70 346,67" shape-rendering="crispEdges"/>
+                <polygon points="360,68 376,81 346,67"/>
+                <path d="M394,106c-10.2,7.3-24,12-37.7,12c-29,0-51.1-20.8-51.1-48.3c0-27.3,22.5-48.1,52-48.1    c14.3,0,29.2,5.5,38.9,14l-13,15c-7.1-6.3-16.8-10-25.9-10c-17,0-30.2,12.9-30.2,29.5c0,16.8,13.3,29.6,30.3,29.6    c5.7,0,12.8-2.3,19-5.5L394,106z"/>
+              </g>
             </g>
             </svg>
-         </div>
+          </div>
           <div id="sectMainPkg" class="hidden">
             <h2><span>Main Package</span></h2>
             <ul class="packages">
@@ -606,16 +606,19 @@
             <h2><span>Zig Version</span></h2>
             <p class="str" id="tdZigVer"></p>
           </div>
-		  <div>
-			  <input id="privDeclsBox" type="checkbox"/>
-        <label for="privDeclsBox">Internal Doc Mode</label>
-		  </div>
+          <div>
+            <input id="privDeclsBox" type="checkbox"/>
+            <label for="privDeclsBox">Internal Doc Mode</label>
+          </div>
         </nav>
       </div>
       <div class="flex-right">
         <div class="wrap">
           <section class="docs">
-            <input type="search" class="search" id="search" autocomplete="off" spellcheck="false" placeholder="`s` to search, `?` to see more options">
+            <div style="position: relative">
+              <span id="searchPlaceholder"><kbd>S</kbd> to search, <kbd>?</kbd> for more options</span>
+              <input type="search" class="search" id="search" autocomplete="off" spellcheck="false" disabled>
+            </div>
             <p id="status">Loading...</p>
             <div id="sectNav" class="hidden"><ul id="listNav"></ul></div>
             <div id="fnProto" class="hidden">
@@ -703,17 +706,17 @@
                 </table>
               </div>
             </div>
-		  </section>
+          </section>
         </div>
         <div class="flex-filler"></div>
       </div>
     </div>
-    <div id="helpDialog" class="hidden">
+    <div id="helpModal" class="hidden">
       <div class="help-modal">
-        <div class="dialog">
+        <div class="modal">
           <h1>Keyboard Shortcuts</h1>
-          <dl><dt><kbd>?</kbd></dt><dd>Show this help dialog</dd></dl>
-          <dl><dt><kbd>Esc</kbd></dt><dd>Clear focus; close this dialog</dd></dl>
+          <dl><dt><kbd>?</kbd></dt><dd>Show this help modal</dd></dl>
+          <dl><dt><kbd>Esc</kbd></dt><dd>Clear focus; close this modal</dd></dl>
           <dl><dt><kbd>s</kbd></dt><dd>Focus the search field</dd></dl>
           <dl><dt><kbd>↑</kbd></dt><dd>Move up in search results</dd></dl>
           <dl><dt><kbd>↓</kbd></dt><dd>Move down in search results</dd></dl>
