@@ -579,6 +579,7 @@ pub fn parseDwarfInfo(self: Object) error{Overflow}!dwarf.DwarfInfo {
         .debug_info = &[0]u8{},
         .debug_abbrev = &[0]u8{},
         .debug_str = &[0]u8{},
+        .debug_str_offsets = null,
         .debug_line = &[0]u8{},
         .debug_line_str = &[0]u8{},
         .debug_ranges = &[0]u8{},
