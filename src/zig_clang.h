@@ -1418,4 +1418,5 @@ ZIG_EXTERN_C const struct ZigClangRecordDecl *ZigClangFieldDecl_getParent(const 
 ZIG_EXTERN_C unsigned ZigClangFieldDecl_getFieldIndex(const struct ZigClangFieldDecl *);
 
 ZIG_EXTERN_C const struct ZigClangAPSInt *ZigClangEnumConstantDecl_getInitVal(const struct ZigClangEnumConstantDecl *);
+ZIG_EXTERN_C bool ZigClangIsLLVMUsingSeparateLibcxx();
 #endif

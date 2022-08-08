@@ -7,4 +7,4 @@ comptime {
 // backend=stage2
 // target=native
 //
-// :2:31: error: index 2 outside array of length 2
+// :2:24: error: expected 2 array elements; found 3

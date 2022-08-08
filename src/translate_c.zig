@@ -2688,15 +2688,25 @@ fn transInitListExprVector(
 ) TransError!Node {
     _ = ty;
     const qt = getExprQualType(c, @ptrCast(*const clang.Expr, expr));
-    const vector_type = try transQualType(c, scope, qt, loc);
+    const vector_ty = @ptrCast(*const clang.VectorType, qualTypeCanon(qt));
+
     const init_count = expr.getNumInits();
+    const num_elements = vector_ty.getNumElements();
+    const element_qt = vector_ty.getElementType();
 
     if (init_count == 0) {
-        return Tag.container_init.create(c.arena, .{
-            .lhs = vector_type,
-            .inits = try c.arena.alloc(ast.Payload.ContainerInit.Initializer, 0),
+        const zero_node = try Tag.as.create(c.arena, .{
+            .lhs = try transQualType(c, scope, element_qt, loc),
+            .rhs = Tag.zero_literal.init(),
+        });
+
+        return Tag.vector_zero_init.create(c.arena, .{
+            .lhs = try transCreateNodeNumber(c, num_elements, .int),
+            .rhs = zero_node,
         });
     }
+
+    const vector_type = try transQualType(c, scope, qt, loc);
 
     var block_scope = try Scope.Block.init(c, scope, true);
     defer block_scope.deinit();
@@ -2716,11 +2726,15 @@ fn transInitListExprVector(
         try block_scope.statements.append(tmp_decl_node);
     }
 
-    const init_list = try c.arena.alloc(Node, init_count);
+    const init_list = try c.arena.alloc(Node, num_elements);
     for (init_list) |*init, init_index| {
-        const tmp_decl = block_scope.statements.items[init_index];
-        const name = tmp_decl.castTag(.var_simple).?.data.name;
-        init.* = try Tag.identifier.create(c.arena, name);
+        if (init_index < init_count) {
+            const tmp_decl = block_scope.statements.items[init_index];
+            const name = tmp_decl.castTag(.var_simple).?.data.name;
+            init.* = try Tag.identifier.create(c.arena, name);
+        } else {
+            init.* = Tag.undefined_literal.init();
+        }
     }
 
     const array_init = try Tag.array_init.create(c.arena, .{
@@ -3987,8 +4001,7 @@ fn transCPtrCast(
             // For opaque types a ptrCast is enough
             expr
         else blk: {
-            const child_type_node = try transQualType(c, scope, child_type, loc);
-            const alignof = try Tag.std_meta_alignment.create(c.arena, child_type_node);
+            const alignof = try Tag.std_meta_alignment.create(c.arena, dst_type_node);
             const align_cast = try Tag.align_cast.create(c.arena, .{ .lhs = alignof, .rhs = expr });
             break :blk align_cast;
         };

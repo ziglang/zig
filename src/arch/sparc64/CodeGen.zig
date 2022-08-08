@@ -705,6 +705,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .float_to_int_optimized,
             => @panic("TODO implement optimized float mode"),
 
+            .is_named_enum_value => @panic("TODO implement is_named_enum_value"),
+
             .wasm_memory_size => unreachable,
             .wasm_memory_grow => unreachable,
             // zig fmt: on
@@ -2959,7 +2961,7 @@ fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Live
 
 fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, mcv: MCValue, arg_index: u32) !void {
     const ty = self.air.instructions.items(.data)[inst].ty;
-    const name = self.mod_fn.getParamName(arg_index);
+    const name = self.mod_fn.getParamName(self.bin_file.options.module.?, arg_index);
     const name_with_null = name.ptr[0 .. name.len + 1];
 
     switch (mcv) {

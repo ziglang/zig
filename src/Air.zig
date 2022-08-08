@@ -111,8 +111,9 @@ pub const Inst = struct {
         div_floor,
         /// Same as `div_floor` with optimized float mode.
         div_floor_optimized,
-        /// Integer or float division. Guaranteed no remainder.
-        /// For integers, wrapping is undefined behavior.
+        /// Integer or float division.
+        /// If a remainder would be produced, undefined behavior occurs.
+        /// For integers, overflow is undefined behavior.
         /// Both operands are guaranteed to be the same type, and the result type
         /// is the same as both operands.
         /// Uses the `bin_op` field.
@@ -659,6 +660,10 @@ pub const Inst = struct {
         /// Uses the `pl_op` field with payload `AtomicRmw`. Operand is `ptr`.
         atomic_rmw,
 
+        /// Returns true if enum tag value has a name.
+        /// Uses the `un_op` field.
+        is_named_enum_value,
+
         /// Given an enum tag value, returns the tag name. The enum type may be non-exhaustive.
         /// Result type is always `[:0]const u8`.
         /// Uses the `un_op` field.
@@ -1056,6 +1061,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .is_non_err,
         .is_err_ptr,
         .is_non_err_ptr,
+        .is_named_enum_value,
         => return Type.bool,
 
         .const_ty => return Type.type,

@@ -3432,3 +3432,31 @@ const struct ZigClangAPSInt *ZigClangEnumConstantDecl_getInitVal(const struct Zi
     const llvm::APSInt *result = &casted->getInitVal();
     return reinterpret_cast<const ZigClangAPSInt *>(result);
 }
+
+// Get a pointer to a static variable in libc++ from LLVM and make sure that
+// it matches our own.
+//
+// This check is needed because if static/dynamic linking is mixed incorrectly,
+// it's possible for Clang and LLVM to end up with duplicate "copies" of libc++.
+//
+// This is not benign: Static variables are not shared, so equality comparisons
+// that depend on pointers to static variables will fail. One such failure is
+// std::generic_category(), which causes POSIX error codes to compare as unequal
+// when passed between LLVM and Clang.
+//
+// See also: https://github.com/ziglang/zig/issues/11168
+bool ZigClangIsLLVMUsingSeparateLibcxx() {
+
+    // Temporarily create an InMemoryFileSystem, so that we can perform a file 
+    // lookup that is guaranteed to fail.
+    auto FS = new llvm::vfs::InMemoryFileSystem(true);
+    auto StatusOrErr = FS->status("foo.txt");
+    delete FS;
+
+    // This should return a POSIX (generic_category) error code, but if LLVM has
+    // its own copy of libc++ this will actually be a separate category instance.
+    assert(!StatusOrErr);
+    auto EC = StatusOrErr.getError();
+    return EC.category() != std::generic_category();
+}
+

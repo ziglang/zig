@@ -603,7 +603,7 @@ stack_alignment: u32 = 16,
 
 const InnerError = error{
     OutOfMemory,
-    /// An error occured when trying to lower AIR to MIR.
+    /// An error occurred when trying to lower AIR to MIR.
     CodegenFail,
     /// Can occur when dereferencing a pointer that points to a `Decl` of which the analysis has failed
     AnalysisFail,
@@ -1621,6 +1621,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .tag_name,
         .err_return_trace,
         .set_err_return_trace,
+        .is_named_enum_value,
         => |tag| return self.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
 
         .add_optimized,
@@ -1991,7 +1992,7 @@ fn airArg(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     switch (self.debug_output) {
         .dwarf => |dwarf| {
             // TODO: Get the original arg index rather than wasm arg index
-            const name = self.mod_fn.getParamName(arg_index);
+            const name = self.mod_fn.getParamName(self.bin_file.base.options.module.?, arg_index);
             const leb_size = link.File.Wasm.getULEB128Size(arg.local);
             const dbg_info = &dwarf.dbg_info;
             try dbg_info.ensureUnusedCapacity(3 + leb_size + 5 + name.len + 1);
@@ -4410,7 +4411,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
     }
 
     // We store the bit if it's overflowed or not in this. As it's zero-initialized
-    // we only need to update it if an overflow (or underflow) occured.
+    // we only need to update it if an overflow (or underflow) occurred.
     const overflow_bit = try self.allocLocal(Type.initTag(.u1));
     const int_info = lhs_ty.intInfo(self.target);
     const wasm_bits = toWasmBits(int_info.bits) orelse {

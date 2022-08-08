@@ -2292,25 +2292,13 @@ pub const Value = extern union {
                 }
             },
             .Struct => {
-                if (ty.isTupleOrAnonStruct()) {
-                    const fields = ty.tupleFields();
-                    for (fields.values) |field_val, i| {
-                        field_val.hash(fields.types[i], hasher, mod);
-                    }
-                    return;
-                }
-                const fields = ty.structFields().values();
-                if (fields.len == 0) return;
                 switch (val.tag()) {
-                    .empty_struct_value => {
-                        for (fields) |field| {
-                            field.default_val.hash(field.ty, hasher, mod);
-                        }
-                    },
+                    .empty_struct_value => {},
                     .aggregate => {
                         const field_values = val.castTag(.aggregate).?.data;
                         for (field_values) |field_val, i| {
-                            field_val.hash(fields[i].ty, hasher, mod);
+                            const field_ty = ty.structFieldType(i);
+                            field_val.hash(field_ty, hasher, mod);
                         }
                     },
                     else => unreachable,
@@ -2664,6 +2652,26 @@ pub const Value = extern union {
         }
     }
 
+    /// Returns true if a Value is backed by a variable
+    pub fn isVariable(
+        val: Value,
+        mod: *Module,
+    ) bool {
+        return switch (val.tag()) {
+            .slice => val.castTag(.slice).?.data.ptr.isVariable(mod),
+            .comptime_field_ptr => val.castTag(.comptime_field_ptr).?.data.field_val.isVariable(mod),
+            .elem_ptr => val.castTag(.elem_ptr).?.data.array_ptr.isVariable(mod),
+            .field_ptr => val.castTag(.field_ptr).?.data.container_ptr.isVariable(mod),
+            .eu_payload_ptr => val.castTag(.eu_payload_ptr).?.data.container_ptr.isVariable(mod),
+            .opt_payload_ptr => val.castTag(.opt_payload_ptr).?.data.container_ptr.isVariable(mod),
+            .decl_ref => mod.declPtr(val.castTag(.decl_ref).?.data).val.isVariable(mod),
+            .decl_ref_mut => mod.declPtr(val.castTag(.decl_ref_mut).?.data.decl_index).val.isVariable(mod),
+
+            .variable => true,
+            else => false,
+        };
+    }
+
     // Asserts that the provided start/end are in-bounds.
     pub fn sliceArray(
         val: Value,
@@ -2775,6 +2783,19 @@ pub const Value = extern union {
     /// values are marked undef, or struct that is not marked undef but all fields are marked
     /// undef, etc.
     pub fn isUndefDeep(self: Value) bool {
+        return self.isUndef();
+    }
+
+    /// Returns true if any value contained in `self` is undefined.
+    /// TODO: check for cases such as array that is not marked undef but all the element
+    /// values are marked undef, or struct that is not marked undef but all fields are marked
+    /// undef, etc.
+    pub fn anyUndef(self: Value) bool {
+        if (self.castTag(.aggregate)) |aggregate| {
+            for (aggregate.data) |val| {
+                if (val.anyUndef()) return true;
+            }
+        }
         return self.isUndef();
     }
 

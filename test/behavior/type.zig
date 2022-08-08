@@ -247,26 +247,17 @@ fn add(a: i32, b: i32) i32 {
 }
 
 test "Type.ErrorSet" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
     try testing.expect(@Type(.{ .ErrorSet = null }) == anyerror);
 
     // error sets don't compare equal so just check if they compile
-    _ = @Type(@typeInfo(error{}));
-    _ = @Type(@typeInfo(error{A}));
-    _ = @Type(@typeInfo(error{ A, B, C }));
-    _ = @Type(.{
-        .ErrorSet = &[_]Type.Error{
-            .{ .name = "A" },
-            .{ .name = "B" },
-            .{ .name = "C" },
-        },
-    });
-    _ = @Type(.{
-        .ErrorSet = &.{
-            .{ .name = "C" },
-            .{ .name = "B" },
-            .{ .name = "A" },
-        },
-    });
+    inline for (.{ error{}, error{A}, error{ A, B, C } }) |T| {
+        const info = @typeInfo(T);
+        const T2 = @Type(info);
+        try testing.expect(T == T2);
+    }
 }
 
 test "Type.Struct" {
@@ -516,4 +507,36 @@ test "Type.Union from regular enum" {
     });
     _ = T;
     _ = @typeInfo(T).Union;
+}
+
+test "Type.Fn" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+
+    const some_opaque = opaque {};
+    const some_ptr = *some_opaque;
+    const T = fn (c_int, some_ptr) callconv(.C) void;
+
+    {
+        const fn_info = std.builtin.Type{ .Fn = .{
+            .calling_convention = .C,
+            .alignment = 0,
+            .is_generic = false,
+            .is_var_args = false,
+            .return_type = void,
+            .args = &.{
+                .{ .is_generic = false, .is_noalias = false, .arg_type = c_int },
+                .{ .is_generic = false, .is_noalias = false, .arg_type = some_ptr },
+            },
+        } };
+
+        const fn_type = @Type(fn_info);
+        try std.testing.expectEqual(T, fn_type);
+    }
+
+    {
+        const fn_info = @typeInfo(T);
+        const fn_type = @Type(fn_info);
+        try std.testing.expectEqual(T, fn_type);
+    }
 }

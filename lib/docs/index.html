@@ -284,6 +284,16 @@
         overflow-x: hidden;
       }
 
+      .fieldHasDocs {
+        margin-bottom: 0;
+      }
+
+      .fieldDocs {
+        border: 1px solid #2A2A2A;
+        border-top: 0px;
+        padding: 1px 1em;
+      }
+
       /* help dialog */
       .help-modal {
         display: flex;
@@ -637,6 +647,7 @@
             <div id="sectSearchResults" class="hidden">
               <h2>Search Results</h2>
               <ul id="listSearchResults"></ul>
+              <p id="sectSearchAllResultsLink" class="hidden"><a href="">show all results</a></p>
             </div>
             <div id="sectSearchNoResults" class="hidden">
               <h2>No Results Found</h2>

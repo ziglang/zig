@@ -238,7 +238,15 @@ pub fn build(b: *Builder) !void {
     exe_options.addOption([:0]const u8, "version", try b.allocator.dupeZ(u8, version));
 
     if (enable_llvm) {
-        const cmake_cfg = if (static_llvm) null else findAndParseConfigH(b, config_h_path_option);
+        const cmake_cfg = if (static_llvm) null else blk: {
+            if (findConfigH(b, config_h_path_option)) |config_h_path| {
+                const file_contents = fs.cwd().readFileAlloc(b.allocator, config_h_path, max_config_h_bytes) catch unreachable;
+                break :blk parseConfigH(b, file_contents);
+            } else {
+                std.log.warn("config.h could not be located automatically. Consider providing it explicitly via \"-Dconfig_h\"", .{});
+                break :blk null;
+            }
+        };
 
         if (is_stage1) {
             const softfloat = b.addStaticLibrary("softfloat", null);
@@ -565,13 +573,17 @@ fn addCmakeCfgOptionsToExe(
         exe.linkLibCpp();
     } else {
         const need_cpp_includes = true;
+        const lib_suffix = switch (cfg.llvm_linkage) {
+            .static => exe.target.staticLibSuffix()[1..],
+            .dynamic => exe.target.dynamicLibSuffix()[1..],
+        };
 
         // System -lc++ must be used because in this code path we are attempting to link
         // against system-provided LLVM, Clang, LLD.
         if (exe.target.getOsTag() == .linux) {
-            // First we try to static link against gcc libstdc++. If that doesn't work,
-            // we fall back to -lc++ and cross our fingers.
-            addCxxKnownPath(b, cfg, exe, "libstdc++.a", "", need_cpp_includes) catch |err| switch (err) {
+            // First we try to link against gcc libstdc++. If that doesn't work, we fall
+            // back to -lc++ and cross our fingers.
+            addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), "", need_cpp_includes) catch |err| switch (err) {
                 error.RequiredLibraryNotFound => {
                     exe.linkSystemLibrary("c++");
                 },
@@ -579,11 +591,11 @@ fn addCmakeCfgOptionsToExe(
             };
             exe.linkSystemLibrary("unwind");
         } else if (exe.target.isFreeBSD()) {
-            try addCxxKnownPath(b, cfg, exe, "libc++.a", null, need_cpp_includes);
+            try addCxxKnownPath(b, cfg, exe, b.fmt("libc++.{s}", .{lib_suffix}), null, need_cpp_includes);
             exe.linkSystemLibrary("pthread");
         } else if (exe.target.getOsTag() == .openbsd) {
-            try addCxxKnownPath(b, cfg, exe, "libc++.a", null, need_cpp_includes);
-            try addCxxKnownPath(b, cfg, exe, "libc++abi.a", null, need_cpp_includes);
+            try addCxxKnownPath(b, cfg, exe, b.fmt("libc++.{s}", .{lib_suffix}), null, need_cpp_includes);
+            try addCxxKnownPath(b, cfg, exe, b.fmt("libc++abi.{s}", .{lib_suffix}), null, need_cpp_includes);
         } else if (exe.target.isDarwin()) {
             exe.linkSystemLibrary("c++");
         }
@@ -689,31 +701,53 @@ const CMakeConfig = struct {
 
 const max_config_h_bytes = 1 * 1024 * 1024;
 
-fn findAndParseConfigH(b: *Builder, config_h_path_option: ?[]const u8) ?CMakeConfig {
-    const config_h_text: []const u8 = if (config_h_path_option) |config_h_path| blk: {
-        break :blk fs.cwd().readFileAlloc(b.allocator, config_h_path, max_config_h_bytes) catch unreachable;
-    } else blk: {
-        // TODO this should stop looking for config.h once it detects we hit the
-        // zig source root directory.
-        var check_dir = fs.path.dirname(b.zig_exe).?;
-        while (true) {
-            var dir = fs.cwd().openDir(check_dir, .{}) catch unreachable;
-            defer dir.close();
+fn findConfigH(b: *Builder, config_h_path_option: ?[]const u8) ?[]const u8 {
+    if (config_h_path_option) |path| {
+        var config_h_or_err = fs.cwd().openFile(path, .{});
+        if (config_h_or_err) |*file| {
+            file.close();
+            return path;
+        } else |_| {
+            std.log.err("Could not open provided config.h: \"{s}\"", .{path});
+            std.os.exit(1);
+        }
+    }
 
-            break :blk dir.readFileAlloc(b.allocator, "config.h", max_config_h_bytes) catch |err| switch (err) {
-                error.FileNotFound => {
-                    const new_check_dir = fs.path.dirname(check_dir);
-                    if (new_check_dir == null or mem.eql(u8, new_check_dir.?, check_dir)) {
-                        return null;
-                    }
-                    check_dir = new_check_dir.?;
-                    continue;
-                },
-                else => unreachable,
-            };
-        } else unreachable; // TODO should not need `else unreachable`.
-    };
+    var check_dir = fs.path.dirname(b.zig_exe).?;
+    while (true) {
+        var dir = fs.cwd().openDir(check_dir, .{}) catch unreachable;
+        defer dir.close();
 
+        // Check if config.h is present in dir
+        var config_h_or_err = dir.openFile("config.h", .{});
+        if (config_h_or_err) |*file| {
+            file.close();
+            return fs.path.join(
+                b.allocator,
+                &[_][]const u8{ check_dir, "config.h" },
+            ) catch unreachable;
+        } else |e| switch (e) {
+            error.FileNotFound => {},
+            else => unreachable,
+        }
+
+        // Check if we reached the source root by looking for .git, and bail if so
+        var git_dir_or_err = dir.openDir(".git", .{});
+        if (git_dir_or_err) |*git_dir| {
+            git_dir.close();
+            return null;
+        } else |_| {}
+
+        // Otherwise, continue search in the parent directory
+        const new_check_dir = fs.path.dirname(check_dir);
+        if (new_check_dir == null or mem.eql(u8, new_check_dir.?, check_dir)) {
+            return null;
+        }
+        check_dir = new_check_dir.?;
+    } else unreachable; // TODO should not need `else unreachable`.
+}
+
+fn parseConfigH(b: *Builder, config_h_text: []const u8) ?CMakeConfig {
     var ctx: CMakeConfig = .{
         .llvm_linkage = undefined,
         .cmake_binary_dir = undefined,

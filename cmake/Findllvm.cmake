@@ -10,6 +10,7 @@
 
 
 if(ZIG_USE_LLVM_CONFIG)
+  set(LLVM_CONFIG_ERROR_MESSAGES "")
   while(1)
     unset(LLVM_CONFIG_EXE CACHE)
     find_program(LLVM_CONFIG_EXE
@@ -21,7 +22,8 @@ if(ZIG_USE_LLVM_CONFIG)
             "C:/Libraries/llvm-14.0.0/bin")
 
     if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
-      if (DEFINED LLVM_CONFIG_ERROR_MESSAGE)
+      if (NOT LLVM_CONFIG_ERROR_MESSAGES STREQUAL "")
+        list(JOIN LLVM_CONFIG_ERROR_MESSAGES "\n" LLVM_CONFIG_ERROR_MESSAGE)
         message(FATAL_ERROR ${LLVM_CONFIG_ERROR_MESSAGE})
       else()
         message(FATAL_ERROR "unable to find llvm-config")
@@ -37,7 +39,7 @@ if(ZIG_USE_LLVM_CONFIG)
     get_filename_component(LLVM_CONFIG_DIR "${LLVM_CONFIG_EXE}" DIRECTORY)
     if("${LLVM_CONFIG_VERSION}" VERSION_LESS 14 OR "${LLVM_CONFIG_VERSION}" VERSION_EQUAL 15 OR "${LLVM_CONFIG_VERSION}" VERSION_GREATER 15)
       # Save the error message, in case this is the last llvm-config we find
-      set(LLVM_CONFIG_ERROR_MESSAGE "expected LLVM 14.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+      list(APPEND LLVM_CONFIG_ERROR_MESSAGES "expected LLVM 14.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
 
       # Ignore this directory and try the search again
       list(APPEND CMAKE_IGNORE_PATH "${LLVM_CONFIG_DIR}")
@@ -61,9 +63,9 @@ if(ZIG_USE_LLVM_CONFIG)
       if (LLVM_CONFIG_ERROR) 
         # Save the error message, in case this is the last llvm-config we find
         if (ZIG_SHARED_LLVM)
-          set(LLVM_CONFIG_ERROR_MESSAGE "LLVM 14.x found at ${LLVM_CONFIG_EXE} does not support linking as a shared library")
+          list(APPEND LLVM_CONFIG_ERROR_MESSAGES "LLVM 14.x found at ${LLVM_CONFIG_EXE} does not support linking as a shared library")
         else()
-          set(LLVM_CONFIG_ERROR_MESSAGE "LLVM 14.x found at ${LLVM_CONFIG_EXE} does not support linking as a static library")
+          list(APPEND LLVM_CONFIG_ERROR_MESSAGES "LLVM 14.x found at ${LLVM_CONFIG_EXE} does not support linking as a static library")
         endif()
 
         # Ignore this directory and try the search again
@@ -81,7 +83,7 @@ if(ZIG_USE_LLVM_CONFIG)
       list (FIND LLVM_TARGETS_BUILT "${TARGET_NAME}" _index)
       if (${_index} EQUAL -1)
         # Save the error message, in case this is the last llvm-config we find
-        set(LLVM_CONFIG_ERROR_MESSAGE "LLVM (according to ${LLVM_CONFIG_EXE}) is missing target ${TARGET_NAME}. Zig requires LLVM to be built with all default targets enabled.")
+        list(APPEND LLVM_CONFIG_ERROR_MESSAGES "LLVM (according to ${LLVM_CONFIG_EXE}) is missing target ${TARGET_NAME}. Zig requires LLVM to be built with all default targets enabled.")
 
         # Ignore this directory and try the search again
         list(APPEND CMAKE_IGNORE_PATH "${LLVM_CONFIG_DIR}")

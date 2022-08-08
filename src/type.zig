@@ -5201,10 +5201,20 @@ pub const Type = extern union {
         };
     }
 
+    // Works for vectors and vectors of integers.
+    pub fn minInt(ty: Type, arena: Allocator, target: Target) !Value {
+        const scalar = try minIntScalar(ty.scalarType(), arena, target);
+        if (ty.zigTypeTag() == .Vector) {
+            return Value.Tag.repeated.create(arena, scalar);
+        } else {
+            return scalar;
+        }
+    }
+
     /// Asserts that self.zigTypeTag() == .Int.
-    pub fn minInt(self: Type, arena: Allocator, target: Target) !Value {
-        assert(self.zigTypeTag() == .Int);
-        const info = self.intInfo(target);
+    pub fn minIntScalar(ty: Type, arena: Allocator, target: Target) !Value {
+        assert(ty.zigTypeTag() == .Int);
+        const info = ty.intInfo(target);
 
         if (info.signedness == .unsigned) {
             return Value.zero;
@@ -6520,6 +6530,11 @@ pub const CType = enum {
                     .long, .ulong => return 32,
                     .longlong, .ulonglong, .longdouble => return 64,
                 },
+                .avr => switch (self) {
+                    .short, .ushort, .int, .uint => return 16,
+                    .long, .ulong, .longdouble => return 32,
+                    .longlong, .ulonglong => return 64,
+                },
                 else => switch (self) {
                     .short, .ushort => return 16,
                     .int, .uint => return 32,
@@ -6558,31 +6573,42 @@ pub const CType = enum {
             .emscripten,
             .plan9,
             .solaris,
-            => switch (self) {
-                .short, .ushort => return 16,
-                .int, .uint => return 32,
-                .long, .ulong => return target.cpu.arch.ptrBitWidth(),
-                .longlong, .ulonglong => return 64,
-                .longdouble => switch (target.cpu.arch) {
-                    .i386, .x86_64 => return 80,
+            .haiku,
+            .ananas,
+            .fuchsia,
+            .minix,
+            => switch (target.cpu.arch) {
+                .avr => switch (self) {
+                    .short, .ushort, .int, .uint => return 16,
+                    .long, .ulong, .longdouble => return 32,
+                    .longlong, .ulonglong => return 64,
+                },
+                else => switch (self) {
+                    .short, .ushort => return 16,
+                    .int, .uint => return 32,
+                    .long, .ulong => return target.cpu.arch.ptrBitWidth(),
+                    .longlong, .ulonglong => return 64,
+                    .longdouble => switch (target.cpu.arch) {
+                        .i386, .x86_64 => return 80,
 
-                    .riscv64,
-                    .aarch64,
-                    .aarch64_be,
-                    .aarch64_32,
-                    .s390x,
-                    .mips64,
-                    .mips64el,
-                    .sparc,
-                    .sparc64,
-                    .sparcel,
-                    .powerpc,
-                    .powerpcle,
-                    .powerpc64,
-                    .powerpc64le,
-                    => return 128,
+                        .riscv64,
+                        .aarch64,
+                        .aarch64_be,
+                        .aarch64_32,
+                        .s390x,
+                        .mips64,
+                        .mips64el,
+                        .sparc,
+                        .sparc64,
+                        .sparcel,
+                        .powerpc,
+                        .powerpcle,
+                        .powerpc64,
+                        .powerpc64le,
+                        => return 128,
 
-                    else => return 64,
+                        else => return 64,
+                    },
                 },
             },
 
@@ -6602,14 +6628,10 @@ pub const CType = enum {
                 },
             },
 
-            .ananas,
             .cloudabi,
-            .fuchsia,
             .kfreebsd,
             .lv2,
             .zos,
-            .haiku,
-            .minix,
             .rtems,
             .nacl,
             .aix,

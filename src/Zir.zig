@@ -280,6 +280,9 @@ pub const Inst = struct {
         /// break instruction in a block, and the target block is the parent.
         /// Uses the `break` union field.
         break_inline,
+        /// Checks that comptime control flow does not happen inside a runtime block.
+        /// Uses the `node` union field.
+        check_comptime_control_flow,
         /// Function call.
         /// Uses the `pl_node` union field with payload `Call`.
         /// AST node is the function call.
@@ -1266,6 +1269,7 @@ pub const Inst = struct {
                 .repeat_inline,
                 .panic,
                 .panic_comptime,
+                .check_comptime_control_flow,
                 => true,
             };
         }
@@ -1315,6 +1319,7 @@ pub const Inst = struct {
                 .set_runtime_safety,
                 .memcpy,
                 .memset,
+                .check_comptime_control_flow,
                 => true,
 
                 .param,
@@ -1595,6 +1600,7 @@ pub const Inst = struct {
                 .bool_br_or = .bool_br,
                 .@"break" = .@"break",
                 .break_inline = .@"break",
+                .check_comptime_control_flow = .node,
                 .call = .pl_node,
                 .cmp_lt = .pl_node,
                 .cmp_lte = .pl_node,
@@ -1703,7 +1709,7 @@ pub const Inst = struct {
                 .switch_capture_multi_ref = .switch_capture,
                 .array_base_ptr = .un_node,
                 .field_base_ptr = .un_node,
-                .validate_array_init_ty = .un_node,
+                .validate_array_init_ty = .pl_node,
                 .validate_struct_init_ty = .un_node,
                 .validate_struct_init = .pl_node,
                 .validate_struct_init_comptime = .pl_node,
@@ -3537,6 +3543,17 @@ pub const Inst = struct {
         line: u32,
         column: u32,
     };
+
+    pub const ArrayInit = struct {
+        ty: Ref,
+        init_count: u32,
+    };
+
+    pub const Src = struct {
+        node: i32,
+        line: u32,
+        column: u32,
+    };
 };
 
 pub const SpecialProng = enum { none, @"else", under };
@@ -3897,6 +3914,27 @@ pub const FnInfo = struct {
     ret_ty_ref: Zir.Inst.Ref,
     total_params_len: u32,
 };
+
+pub fn getParamBody(zir: Zir, fn_inst: Inst.Index) []const u32 {
+    const tags = zir.instructions.items(.tag);
+    const datas = zir.instructions.items(.data);
+    const inst_data = datas[fn_inst].pl_node;
+
+    const param_block_index = switch (tags[fn_inst]) {
+        .func, .func_inferred => blk: {
+            const extra = zir.extraData(Inst.Func, inst_data.payload_index);
+            break :blk extra.data.param_block;
+        },
+        .func_fancy => blk: {
+            const extra = zir.extraData(Inst.FuncFancy, inst_data.payload_index);
+            break :blk extra.data.param_block;
+        },
+        else => unreachable,
+    };
+
+    const param_block = zir.extraData(Inst.Block, datas[param_block_index].pl_node.payload_index);
+    return zir.extra[param_block.end..][0..param_block.data.body_len];
+}
 
 pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
     const tags = zir.instructions.items(.tag);

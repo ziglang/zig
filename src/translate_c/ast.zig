@@ -154,6 +154,8 @@ pub const Node = extern union {
         div_exact,
         /// @offsetOf(lhs, rhs)
         offset_of,
+        /// @splat(lhs, rhs)
+        vector_zero_init,
         /// @shuffle(type, a, b, mask)
         shuffle,
 
@@ -328,6 +330,7 @@ pub const Node = extern union {
                 .div_exact,
                 .offset_of,
                 .helpers_cast,
+                .vector_zero_init,
                 => Payload.BinOp,
 
                 .integer_literal,
@@ -1829,6 +1832,10 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const type_expr = try renderNode(c, payload.cond);
             return renderArrayInit(c, type_expr, payload.cases);
         },
+        .vector_zero_init => {
+            const payload = node.castTag(.vector_zero_init).?.data;
+            return renderBuiltinCall(c, "@splat", &.{ payload.lhs, payload.rhs });
+        },
         .field_access => {
             const payload = node.castTag(.field_access).?.data;
             const lhs = try renderNodeGrouped(c, payload.lhs);
@@ -2305,6 +2312,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .@"struct",
         .@"union",
         .array_init,
+        .vector_zero_init,
         .tuple,
         .container_init,
         .container_init_dot,

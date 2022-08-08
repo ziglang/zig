@@ -243,11 +243,13 @@ pub const DeclState = struct {
             .Pointer => {
                 if (ty.isSlice()) {
                     // Slices are structs: struct { .ptr = *, .len = N }
+                    const ptr_bits = target.cpu.arch.ptrBitWidth();
+                    const ptr_bytes = @intCast(u8, @divExact(ptr_bits, 8));
                     // DW.AT.structure_type
                     try dbg_info_buffer.ensureUnusedCapacity(2);
                     dbg_info_buffer.appendAssumeCapacity(@enumToInt(AbbrevKind.struct_type));
                     // DW.AT.byte_size, DW.FORM.sdata
-                    dbg_info_buffer.appendAssumeCapacity(@sizeOf(usize) * 2);
+                    dbg_info_buffer.appendAssumeCapacity(ptr_bytes * 2);
                     // DW.AT.name, DW.FORM.string
                     try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(module)});
                     // DW.AT.member
@@ -276,7 +278,7 @@ pub const DeclState = struct {
                     try self.addTypeRelocGlobal(atom, Type.usize, @intCast(u32, index));
                     // DW.AT.data_member_location, DW.FORM.sdata
                     try dbg_info_buffer.ensureUnusedCapacity(2);
-                    dbg_info_buffer.appendAssumeCapacity(@sizeOf(usize));
+                    dbg_info_buffer.appendAssumeCapacity(ptr_bytes);
                     // DW.AT.structure_type delimit children
                     dbg_info_buffer.appendAssumeCapacity(0);
                 } else {
@@ -853,8 +855,7 @@ pub fn commitDeclState(
                             .macho => {
                                 const macho_file = file.cast(File.MachO).?;
                                 const d_sym = &macho_file.d_sym.?;
-                                const dwarf_segment = &d_sym.load_commands.items[d_sym.dwarf_segment_cmd_index.?].segment;
-                                const debug_line_sect = &dwarf_segment.sections.items[d_sym.debug_line_section_index.?];
+                                const debug_line_sect = &d_sym.sections.items[d_sym.debug_line_section_index.?];
                                 const file_pos = debug_line_sect.offset + src_fn.off;
                                 try pwriteDbgLineNops(d_sym.file, file_pos, 0, &[0]u8{}, src_fn.len);
                             },
@@ -933,8 +934,8 @@ pub fn commitDeclState(
                 .macho => {
                     const macho_file = file.cast(File.MachO).?;
                     const d_sym = &macho_file.d_sym.?;
-                    const dwarf_segment = &d_sym.load_commands.items[d_sym.dwarf_segment_cmd_index.?].segment;
-                    const debug_line_sect = &dwarf_segment.sections.items[d_sym.debug_line_section_index.?];
+                    const dwarf_segment = d_sym.segments.items[d_sym.dwarf_segment_cmd_index.?];
+                    const debug_line_sect = &d_sym.sections.items[d_sym.debug_line_section_index.?];
                     if (needed_size != debug_line_sect.size) {
                         if (needed_size > d_sym.allocatedSize(debug_line_sect.offset)) {
                             const new_offset = d_sym.findFreeSpace(needed_size, 1);
@@ -955,10 +956,9 @@ pub fn commitDeclState(
                             );
 
                             debug_line_sect.offset = @intCast(u32, new_offset);
-                            debug_line_sect.addr = dwarf_segment.inner.vmaddr + new_offset - dwarf_segment.inner.fileoff;
+                            debug_line_sect.addr = dwarf_segment.vmaddr + new_offset - dwarf_segment.fileoff;
                         }
                         debug_line_sect.size = needed_size;
-                        d_sym.load_commands_dirty = true; // TODO look into making only the one section dirty
                         d_sym.debug_line_header_dirty = true;
                     }
                     const file_pos = debug_line_sect.offset + src_fn.off;
@@ -1137,8 +1137,7 @@ fn updateDeclDebugInfoAllocation(self: *Dwarf, file: *File, atom: *Atom, len: u3
                     .macho => {
                         const macho_file = file.cast(File.MachO).?;
                         const d_sym = &macho_file.d_sym.?;
-                        const dwarf_segment = &d_sym.load_commands.items[d_sym.dwarf_segment_cmd_index.?].segment;
-                        const debug_info_sect = &dwarf_segment.sections.items[d_sym.debug_info_section_index.?];
+                        const debug_info_sect = &d_sym.sections.items[d_sym.debug_info_section_index.?];
                         const file_pos = debug_info_sect.offset + atom.off;
                         try pwriteDbgInfoNops(d_sym.file, file_pos, 0, &[0]u8{}, atom.len, false);
                     },
@@ -1235,8 +1234,8 @@ fn writeDeclDebugInfo(self: *Dwarf, file: *File, atom: *Atom, dbg_info_buf: []co
         .macho => {
             const macho_file = file.cast(File.MachO).?;
             const d_sym = &macho_file.d_sym.?;
-            const dwarf_segment = &d_sym.load_commands.items[d_sym.dwarf_segment_cmd_index.?].segment;
-            const debug_info_sect = &dwarf_segment.sections.items[d_sym.debug_info_section_index.?];
+            const dwarf_segment = d_sym.segments.items[d_sym.dwarf_segment_cmd_index.?];
+            const debug_info_sect = &d_sym.sections.items[d_sym.debug_info_section_index.?];
             if (needed_size != debug_info_sect.size) {
                 if (needed_size > d_sym.allocatedSize(debug_info_sect.offset)) {
                     const new_offset = d_sym.findFreeSpace(needed_size, 1);
@@ -1257,10 +1256,9 @@ fn writeDeclDebugInfo(self: *Dwarf, file: *File, atom: *Atom, dbg_info_buf: []co
                     );
 
                     debug_info_sect.offset = @intCast(u32, new_offset);
-                    debug_info_sect.addr = dwarf_segment.inner.vmaddr + new_offset - dwarf_segment.inner.fileoff;
+                    debug_info_sect.addr = dwarf_segment.vmaddr + new_offset - dwarf_segment.fileoff;
                 }
                 debug_info_sect.size = needed_size;
-                d_sym.load_commands_dirty = true; // TODO look into making only the one section dirty
                 d_sym.debug_line_header_dirty = true;
             }
             const file_pos = debug_info_sect.offset + atom.off;
@@ -1330,8 +1328,7 @@ pub fn updateDeclLineNumber(self: *Dwarf, file: *File, decl: *const Module.Decl)
         .macho => {
             const macho_file = file.cast(File.MachO).?;
             const d_sym = macho_file.d_sym.?;
-            const dwarf_seg = d_sym.load_commands.items[d_sym.dwarf_segment_cmd_index.?].segment;
-            const sect = dwarf_seg.sections.items[d_sym.debug_line_section_index.?];
+            const sect = d_sym.sections.items[d_sym.debug_line_section_index.?];
             const file_pos = sect.offset + decl.fn_link.macho.off + self.getRelocDbgLineOff();
             try d_sym.file.pwriteAll(&data, file_pos);
         },
@@ -1557,14 +1554,14 @@ pub fn writeDbgAbbrev(self: *Dwarf, file: *File) !void {
         .macho => {
             const macho_file = file.cast(File.MachO).?;
             const d_sym = &macho_file.d_sym.?;
-            const dwarf_segment = &d_sym.load_commands.items[d_sym.dwarf_segment_cmd_index.?].segment;
-            const debug_abbrev_sect = &dwarf_segment.sections.items[d_sym.debug_abbrev_section_index.?];
+            const dwarf_segment = d_sym.segments.items[d_sym.dwarf_segment_cmd_index.?];
+            const debug_abbrev_sect = &d_sym.sections.items[d_sym.debug_abbrev_section_index.?];
             const allocated_size = d_sym.allocatedSize(debug_abbrev_sect.offset);
             if (needed_size > allocated_size) {
                 debug_abbrev_sect.size = 0; // free the space
                 const offset = d_sym.findFreeSpace(needed_size, 1);
                 debug_abbrev_sect.offset = @intCast(u32, offset);
-                debug_abbrev_sect.addr = dwarf_segment.inner.vmaddr + offset - dwarf_segment.inner.fileoff;
+                debug_abbrev_sect.addr = dwarf_segment.vmaddr + offset - dwarf_segment.fileoff;
             }
             debug_abbrev_sect.size = needed_size;
             log.debug("__debug_abbrev start=0x{x} end=0x{x}", .{
@@ -1681,8 +1678,7 @@ pub fn writeDbgInfoHeader(self: *Dwarf, file: *File, module: *Module, low_pc: u6
         .macho => {
             const macho_file = file.cast(File.MachO).?;
             const d_sym = &macho_file.d_sym.?;
-            const dwarf_seg = d_sym.load_commands.items[d_sym.dwarf_segment_cmd_index.?].segment;
-            const debug_info_sect = dwarf_seg.sections.items[d_sym.debug_info_section_index.?];
+            const debug_info_sect = d_sym.sections.items[d_sym.debug_info_section_index.?];
             const file_pos = debug_info_sect.offset;
             try pwriteDbgInfoNops(d_sym.file, file_pos, 0, di_buf.items, jmp_amt, false);
         },
@@ -1998,13 +1994,13 @@ pub fn writeDbgAranges(self: *Dwarf, file: *File, addr: u64, size: u64) !void {
         .macho => {
             const macho_file = file.cast(File.MachO).?;
             const d_sym = &macho_file.d_sym.?;
-            const dwarf_seg = &d_sym.load_commands.items[d_sym.dwarf_segment_cmd_index.?].segment;
-            const debug_aranges_sect = &dwarf_seg.sections.items[d_sym.debug_aranges_section_index.?];
+            const dwarf_seg = d_sym.segments.items[d_sym.dwarf_segment_cmd_index.?];
+            const debug_aranges_sect = &d_sym.sections.items[d_sym.debug_aranges_section_index.?];
             const allocated_size = d_sym.allocatedSize(debug_aranges_sect.offset);
             if (needed_size > allocated_size) {
                 debug_aranges_sect.size = 0; // free the space
                 const new_offset = d_sym.findFreeSpace(needed_size, 16);
-                debug_aranges_sect.addr = dwarf_seg.inner.vmaddr + new_offset - dwarf_seg.inner.fileoff;
+                debug_aranges_sect.addr = dwarf_seg.vmaddr + new_offset - dwarf_seg.fileoff;
                 debug_aranges_sect.offset = @intCast(u32, new_offset);
             }
             debug_aranges_sect.size = needed_size;
@@ -2134,8 +2130,7 @@ pub fn writeDbgLineHeader(self: *Dwarf, file: *File, module: *Module) !void {
         .macho => {
             const macho_file = file.cast(File.MachO).?;
             const d_sym = &macho_file.d_sym.?;
-            const dwarf_seg = d_sym.load_commands.items[d_sym.dwarf_segment_cmd_index.?].segment;
-            const debug_line_sect = dwarf_seg.sections.items[d_sym.debug_line_section_index.?];
+            const debug_line_sect = d_sym.sections.items[d_sym.debug_line_section_index.?];
             const file_pos = debug_line_sect.offset;
             try pwriteDbgLineNops(d_sym.file, file_pos, 0, di_buf.items, jmp_amt);
         },
@@ -2264,8 +2259,7 @@ pub fn flushModule(self: *Dwarf, file: *File, module: *Module) !void {
                 .macho => {
                     const macho_file = file.cast(File.MachO).?;
                     const d_sym = &macho_file.d_sym.?;
-                    const dwarf_segment = &d_sym.load_commands.items[d_sym.dwarf_segment_cmd_index.?].segment;
-                    const debug_info_sect = &dwarf_segment.sections.items[d_sym.debug_info_section_index.?];
+                    const debug_info_sect = &d_sym.sections.items[d_sym.debug_info_section_index.?];
                     break :blk debug_info_sect.offset;
                 },
                 // for wasm, the offset is always 0 as we write to memory first

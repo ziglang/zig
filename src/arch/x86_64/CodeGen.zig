@@ -775,6 +775,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .float_to_int_optimized,
             => return self.fail("TODO implement optimized float mode", .{}),
 
+            .is_named_enum_value => return self.fail("TODO implement is_named_enum_value", .{}),
+
             .wasm_memory_size => unreachable,
             .wasm_memory_grow => unreachable,
             // zig fmt: on
@@ -3789,7 +3791,7 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
 
     const ty = self.air.typeOfIndex(inst);
     const mcv = self.args[arg_index];
-    const name = self.mod_fn.getParamName(arg_index);
+    const name = self.mod_fn.getParamName(self.bin_file.options.module.?, arg_index);
     const name_with_null = name.ptr[0 .. name.len + 1];
 
     if (self.liveness.isUnused(inst))

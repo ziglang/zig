@@ -1494,30 +1494,13 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 );
                 errdefer test_pkg.destroy(gpa);
 
-                try test_pkg.add(gpa, "builtin", builtin_pkg);
-                try test_pkg.add(gpa, "root", test_pkg);
-                try test_pkg.add(gpa, "std", std_pkg);
-
                 break :root_pkg test_pkg;
             } else main_pkg;
             errdefer if (options.is_test) root_pkg.destroy(gpa);
 
-            var other_pkg_iter = main_pkg.table.valueIterator();
-            while (other_pkg_iter.next()) |pkg| {
-                try pkg.*.add(gpa, "builtin", builtin_pkg);
-                try pkg.*.add(gpa, "std", std_pkg);
-            }
-
             try main_pkg.addAndAdopt(gpa, "builtin", builtin_pkg);
             try main_pkg.add(gpa, "root", root_pkg);
             try main_pkg.addAndAdopt(gpa, "std", std_pkg);
-
-            try std_pkg.add(gpa, "builtin", builtin_pkg);
-            try std_pkg.add(gpa, "root", root_pkg);
-            try std_pkg.add(gpa, "std", std_pkg);
-
-            try builtin_pkg.add(gpa, "std", std_pkg);
-            try builtin_pkg.add(gpa, "builtin", builtin_pkg);
 
             const main_pkg_in_std = m: {
                 const std_path = try std.fs.path.resolve(arena, &[_][]const u8{
@@ -4780,8 +4763,6 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         \\/// feature detection (i.e. with `@hasDecl` or `@hasField`) over version checks.
         \\pub const zig_version = std.SemanticVersion.parse("{s}") catch unreachable;
         \\pub const zig_backend = std.builtin.CompilerBackend.{};
-        \\/// Temporary until self-hosted supports the `cpu.arch` value.
-        \\pub const stage2_arch: std.Target.Cpu.Arch = .{};
         \\
         \\pub const output_mode = std.builtin.OutputMode.{};
         \\pub const link_mode = std.builtin.LinkMode.{};
@@ -4796,7 +4777,6 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
     , .{
         build_options.version,
         std.zig.fmtId(@tagName(zig_backend)),
-        std.zig.fmtId(@tagName(target.cpu.arch)),
         std.zig.fmtId(@tagName(comp.bin_file.options.output_mode)),
         std.zig.fmtId(@tagName(comp.bin_file.options.link_mode)),
         comp.bin_file.options.is_test,

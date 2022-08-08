@@ -14,8 +14,6 @@
 
 AstNode * ast_parse(Buf *buf, ZigType *owner, ErrColor err_color);
 
-void ast_print(AstNode *node, int indent);
-
 void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *context), void *context);
 
 Buf *node_identifier_buf(AstNode *node);
