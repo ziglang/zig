@@ -386,11 +386,15 @@ const known_options = [_]KnownOpt{
     },
     .{
         .name = "MM",
-        .ident = "dep_file_mm",
+        .ident = "dep_file_to_stdout",
+    },
+    .{
+        .name = "M",
+        .ident = "dep_file_to_stdout",
     },
     .{
         .name = "user-dependencies",
-        .ident = "dep_file_mm",
+        .ident = "dep_file_to_stdout",
     },
     .{
         .name = "MMD",
@@ -497,7 +501,7 @@ const cpu_targets = struct {
     pub const riscv = std.Target.riscv;
     pub const sparc = std.Target.sparc;
     pub const spirv = std.Target.spirv;
-    pub const systemz = std.Target.systemz;
+    pub const s390x = std.Target.s390x;
     pub const ve = std.Target.ve;
     pub const wasm = std.Target.wasm;
     pub const x86 = std.Target.x86;
@@ -647,9 +651,9 @@ pub fn main() anyerror!void {
                 \\    .name = "{s}",
                 \\    .syntax = {s},
                 \\    .zig_equivalent = .{s},
-                \\    .pd1 = {s},
-                \\    .pd2 = {s},
-                \\    .psl = {s},
+                \\    .pd1 = {},
+                \\    .pd2 = {},
+                \\    .psl = {},
                 \\}},
                 \\
             , .{ name, final_syntax, ident, pd1, pd2, pslash });
@@ -677,9 +681,9 @@ pub fn main() anyerror!void {
                 \\    .name = "{s}",
                 \\    .syntax = {s},
                 \\    .zig_equivalent = .other,
-                \\    .pd1 = {s},
-                \\    .pd2 = {s},
-                \\    .psl = {s},
+                \\    .pd1 = {},
+                \\    .pd2 = {},
+                \\    .psl = {},
                 \\}},
                 \\
             , .{ name, syntax, pd1, pd2, pslash });
