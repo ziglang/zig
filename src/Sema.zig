@@ -14492,6 +14492,20 @@ fn zirBoolBr(
     const rhs_result = try sema.resolveBody(rhs_block, body, inst);
     _ = try rhs_block.addBr(block_inst, rhs_result);
 
+    return finishCondBr(sema, parent_block, &child_block, &then_block, &else_block, lhs, block_inst);
+}
+
+fn finishCondBr(
+    sema: *Sema,
+    parent_block: *Block,
+    child_block: *Block,
+    then_block: *Block,
+    else_block: *Block,
+    cond: Air.Inst.Ref,
+    block_inst: Air.Inst.Index,
+) !Air.Inst.Ref {
+    const gpa = sema.gpa;
+
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).Struct.fields.len +
         then_block.instructions.items.len + else_block.instructions.items.len +
         @typeInfo(Air.Block).Struct.fields.len + child_block.instructions.items.len + 1);
@@ -14504,7 +14518,7 @@ fn zirBoolBr(
     sema.air_extra.appendSliceAssumeCapacity(else_block.instructions.items);
 
     _ = try child_block.addInst(.{ .tag = .cond_br, .data = .{ .pl_op = .{
-        .operand = lhs,
+        .operand = cond,
         .payload = cond_br_payload,
     } } });
 
@@ -14901,6 +14915,8 @@ fn analyzeRet(
     uncasted_operand: Air.Inst.Ref,
     src: LazySrcLoc,
 ) CompileError!Zir.Inst.Index {
+    const gpa = sema.gpa;
+
     // Special case for returning an error to an inferred error set; we need to
     // add the error tag to the inferred error set of the in-scope function, so
     // that the coercion below works correctly.
@@ -14918,10 +14934,12 @@ fn analyzeRet(
             return error.ComptimeReturn;
         }
         // We are inlining a function call; rewrite the `ret` as a `break`.
-        try inlining.merges.results.append(sema.gpa, operand);
+        try inlining.merges.results.append(gpa, operand);
         _ = try block.addBr(inlining.merges.block_inst, operand);
         return always_noreturn;
     }
+
+    try sema.resolveTypeLayout(block, src, sema.fn_ret_ty);
 
     // TODO implement this feature in all the backends and then delete this check.
     const backend_supports_error_return_tracing =
@@ -14931,19 +14949,52 @@ fn analyzeRet(
         sema.mod.comp.bin_file.options.error_return_tracing and
         backend_supports_error_return_tracing)
     ret_err: {
-        if (try sema.resolveMaybeUndefVal(block, src, operand)) |ret_val| {
-            if (ret_val.tag() != .@"error") break :ret_err;
-        }
-        const return_err_fn = try sema.getBuiltin(block, src, "returnError");
+        // Avoid adding a frame to the error return trace in case the value is comptime-known
+        // to be not an error.
+        const is_non_err = try sema.analyzeIsNonErrComptimeOnly(block, src, operand);
+        const need_check = switch (is_non_err) {
+            .bool_true => break :ret_err,
+            .bool_false => false,
+            else => true,
+        };
+
         const unresolved_stack_trace_ty = try sema.getBuiltinType(block, src, "StackTrace");
         const stack_trace_ty = try sema.resolveTypeFields(block, src, unresolved_stack_trace_ty);
-        const ptr_stack_trace_ty = try Type.Tag.optional_single_mut_pointer.create(sema.arena, stack_trace_ty);
+        const ptr_stack_trace_ty = try Type.Tag.single_mut_pointer.create(sema.arena, stack_trace_ty);
         const err_return_trace = try block.addTy(.err_return_trace, ptr_stack_trace_ty);
+        const return_err_fn = try sema.getBuiltin(block, src, "returnError");
         const args: [1]Air.Inst.Ref = .{err_return_trace};
+
+        if (!need_check) {
+            _ = try sema.analyzeCall(block, return_err_fn, src, src, .never_inline, false, &args, null);
+            break :ret_err;
+        }
+
+        const block_inst = @intCast(Air.Inst.Index, sema.air_instructions.len);
+        try sema.air_instructions.append(gpa, .{
+            .tag = .block,
+            .data = .{ .ty_pl = .{
+                .ty = .void_type,
+                .payload = undefined,
+            } },
+        });
+
+        var child_block = block.makeSubBlock();
+        defer child_block.instructions.deinit(gpa);
+
+        var then_block = child_block.makeSubBlock();
+        defer then_block.instructions.deinit(gpa);
+        _ = try then_block.addUnOp(.ret, operand);
+
+        var else_block = child_block.makeSubBlock();
+        defer else_block.instructions.deinit(gpa);
         _ = try sema.analyzeCall(block, return_err_fn, src, src, .never_inline, false, &args, null);
+        _ = try else_block.addUnOp(.ret, operand);
+
+        _ = try finishCondBr(sema, block, &child_block, &then_block, &else_block, is_non_err, block_inst);
+        return always_noreturn;
     }
 
-    try sema.resolveTypeLayout(block, src, sema.fn_ret_ty);
     _ = try block.addUnOp(.ret, operand);
     return always_noreturn;
 }
@@ -25436,10 +25487,16 @@ fn analyzeIsNonErrComptimeOnly(
     assert(ot == .ErrorUnion);
 
     if (Air.refToIndex(operand)) |operand_inst| {
-        const air_tags = sema.air_instructions.items(.tag);
-        if (air_tags[operand_inst] == .wrap_errunion_payload) {
-            return Air.Inst.Ref.bool_true;
+        switch (sema.air_instructions.items(.tag)[operand_inst]) {
+            .wrap_errunion_payload => return Air.Inst.Ref.bool_true,
+            .wrap_errunion_err => return Air.Inst.Ref.bool_false,
+            else => {},
         }
+    } else if (operand == .undef) {
+        return sema.addConstUndef(Type.bool);
+    } else {
+        // None of the ref tags can be errors.
+        return Air.Inst.Ref.bool_true;
     }
 
     const maybe_operand_val = try sema.resolveMaybeUndefVal(block, src, operand);

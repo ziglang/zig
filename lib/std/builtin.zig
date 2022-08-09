@@ -867,10 +867,9 @@ pub fn panicOutOfBounds(index: usize, len: usize) noreturn {
     std.debug.panic("attempt to index out of bound: index {d}, len {d}", .{ index, len });
 }
 
-pub noinline fn returnError(maybe_st: ?*StackTrace) void {
+pub noinline fn returnError(st: *StackTrace) void {
     @setCold(true);
     @setRuntimeSafety(false);
-    const st = maybe_st orelse return;
     addErrRetTraceAddr(st, @returnAddress());
 }
 
