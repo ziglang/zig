@@ -290,7 +290,10 @@ const Die = struct {
         return switch (form_value.*) {
             FormValue.String => |value| value,
             FormValue.StrPtr => |offset| di.getString(offset),
-            FormValue.StrOffset => |index| di.getLineString(try di.getStringOffset(index, is_64)),
+            FormValue.StrOffset => |index| blk: {
+                const base_offset = self.getAttrSecOffset(AT.str_offsets_base) catch 0;
+                break :blk di.getLineString(try di.getStringOffset(base_offset + index, is_64));
+            },
             FormValue.LineStrPtr => |offset| di.getLineString(offset),
             else => error.InvalidDebugInfo,
         };
