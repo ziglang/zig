@@ -10269,16 +10269,14 @@ fn zirShl(
 
         const val = switch (air_tag) {
             .shl_exact => val: {
-                const shifted = try lhs_val.shl(rhs_val, lhs_ty, sema.arena, target);
+                const shifted = try lhs_val.shlWithOverflow(rhs_val, lhs_ty, sema.arena, target);
                 if (scalar_ty.zigTypeTag() == .ComptimeInt) {
-                    break :val shifted;
+                    break :val shifted.wrapped_result;
                 }
-                const int_info = scalar_ty.intInfo(target);
-                const truncated = try shifted.intTrunc(lhs_ty, sema.arena, int_info.signedness, int_info.bits, target);
-                if (try sema.compare(block, src, truncated, .eq, shifted, lhs_ty)) {
-                    break :val shifted;
+                if (shifted.overflowed.compareWithZero(.eq)) {
+                    break :val shifted.wrapped_result;
                 }
-                return sema.addConstUndef(lhs_ty);
+                return sema.fail(block, src, "operation caused overflow", .{});
             },
 
             .shl_sat => if (scalar_ty.zigTypeTag() == .ComptimeInt)
