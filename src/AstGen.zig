@@ -6573,6 +6573,16 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
 
     if (gz.in_defer) return astgen.failNode(node, "cannot return from defer expression", .{});
 
+    // Ensure debug line/column information is emitted for this return expression.
+    // Then we will save the line/column so that we can emit another one that goes
+    // "backwards" because we want to evaluate the operand, but then put the debug
+    // info back at the return keyword for error return tracing.
+    if (!gz.force_comptime) {
+        try emitDbgNode(gz, node);
+    }
+    const ret_line = astgen.source_line - gz.decl_line;
+    const ret_column = astgen.source_column;
+
     const defer_outer = &astgen.fn_block.?.base;
 
     const operand_node = node_datas[node].lhs;
@@ -6591,11 +6601,13 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
         const defer_counts = countDefers(astgen, defer_outer, scope);
         if (!defer_counts.need_err_code) {
             try genDefers(gz, defer_outer, scope, .both_sans_err);
+            try emitRetDbgStmt(gz, ret_line, ret_column);
             _ = try gz.addStrTok(.ret_err_value, err_name_str_index, ident_token);
             return Zir.Inst.Ref.unreachable_value;
         }
         const err_code = try gz.addStrTok(.ret_err_value_code, err_name_str_index, ident_token);
         try genDefers(gz, defer_outer, scope, .{ .both = err_code });
+        try emitRetDbgStmt(gz, ret_line, ret_column);
         _ = try gz.addUnNode(.ret_node, err_code, node);
         return Zir.Inst.Ref.unreachable_value;
     }
@@ -6614,6 +6626,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
         .never => {
             // Returning a value that cannot be an error; skip error defers.
             try genDefers(gz, defer_outer, scope, .normal_only);
+            try emitRetDbgStmt(gz, ret_line, ret_column);
             try gz.addRet(rl, operand, node);
             return Zir.Inst.Ref.unreachable_value;
         },
@@ -6621,6 +6634,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
             // Value is always an error. Emit both error defers and regular defers.
             const err_code = if (rl == .ptr) try gz.addUnNode(.load, rl.ptr, node) else operand;
             try genDefers(gz, defer_outer, scope, .{ .both = err_code });
+            try emitRetDbgStmt(gz, ret_line, ret_column);
             try gz.addRet(rl, operand, node);
             return Zir.Inst.Ref.unreachable_value;
         },
@@ -6629,6 +6643,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
             if (!defer_counts.have_err) {
                 // Only regular defers; no branch needed.
                 try genDefers(gz, defer_outer, scope, .normal_only);
+                try emitRetDbgStmt(gz, ret_line, ret_column);
                 try gz.addRet(rl, operand, node);
                 return Zir.Inst.Ref.unreachable_value;
             }
@@ -6642,6 +6657,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
             defer then_scope.unstack();
 
             try genDefers(&then_scope, defer_outer, scope, .normal_only);
+            try emitRetDbgStmt(gz, ret_line, ret_column);
             try then_scope.addRet(rl, operand, node);
 
             var else_scope = gz.makeSubBlock(scope);
@@ -6651,6 +6667,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
                 .both = try else_scope.addUnNode(.err_union_code, result, node),
             };
             try genDefers(&else_scope, defer_outer, scope, which_ones);
+            try emitRetDbgStmt(gz, ret_line, ret_column);
             try else_scope.addRet(rl, operand, node);
 
             try setCondBrPayload(condbr, is_non_err, &then_scope, 0, &else_scope, 0);
@@ -11666,4 +11683,15 @@ fn countBodyLenAfterFixups(astgen: *AstGen, body: []const Zir.Inst.Index) u32 {
         }
     }
     return @intCast(u32, count);
+}
+
+fn emitRetDbgStmt(gz: *GenZir, line: u32, column: u32) !void {
+    if (gz.force_comptime) return;
+
+    _ = try gz.add(.{ .tag = .dbg_stmt, .data = .{
+        .dbg_stmt = .{
+            .line = line,
+            .column = column,
+        },
+    } });
 }
