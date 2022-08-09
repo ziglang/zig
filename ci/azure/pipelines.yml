@@ -41,6 +41,13 @@ jobs:
       Set-Variable -Name ZIGINSTALLDIR -Value "${ZIGBUILDDIR}\dist"
       Set-Variable -Name ZIGPREFIXPATH -Value "$(Get-Location)\$(ZIG_LLVM_CLANG_LLD_NAME)"
 
+      function CheckLastExitCode {
+        if (!$?) {
+          exit 1
+        }
+        return 0
+      }
+
       # Make the `zig version` number consistent.
       # This will affect the `zig build` command below which uses `git describe`.
       git config core.abbrev 9
@@ -69,6 +76,7 @@ jobs:
         -Dstrip `
         -Duse-zig-libcxx `
         -Dtarget=$(TARGET)
+      CheckLastExitCode
 
       cd -
 
@@ -83,19 +91,37 @@ jobs:
   - pwsh: |
       Set-Variable -Name ZIGINSTALLDIR -Value "$(Get-Location)\build\dist"
 
+      function CheckLastExitCode {
+        if (!$?) {
+          exit 1
+        }
+        return 0
+      }
+
       # Sadly, stage2 is omitted from this build to save memory on the CI server. Once self-hosted is
       # built with itself and does not gobble as much memory, we can enable these tests.
       #& "$ZIGINSTALLDIR\bin\zig.exe" test "..\test\behavior.zig" -fno-stage1 -fLLVM -I "..\test" 2>&1
+      #CheckLastExitCode
 
       & "$ZIGINSTALLDIR\bin\zig.exe" build test-toolchain -Dskip-non-native -Dskip-stage2-tests 2>&1
+      CheckLastExitCode
       & "$ZIGINSTALLDIR\bin\zig.exe" build test-std -Dskip-non-native  2>&1
+      CheckLastExitCode
     name: test
     displayName: 'Test'
 
   - pwsh: |
       Set-Variable -Name ZIGINSTALLDIR -Value "$(Get-Location)\build\dist"
 
+      function CheckLastExitCode {
+        if (!$?) {
+          exit 1
+        }
+        return 0
+      }
+
       & "$ZIGINSTALLDIR\bin\zig.exe" build docs
+      CheckLastExitCode
     timeoutInMinutes: 60
     name: doc
     displayName: 'Documentation'
