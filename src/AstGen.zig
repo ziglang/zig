@@ -3071,6 +3071,19 @@ fn emitDbgNode(gz: *GenZir, node: Ast.Node.Index) !void {
     const line = astgen.source_line - gz.decl_line;
     const column = astgen.source_column;
 
+    if (gz.instructions.items.len > 0) {
+        const last = gz.instructions.items[gz.instructions.items.len - 1];
+        const zir_tags = astgen.instructions.items(.tag);
+        if (zir_tags[last] == .dbg_stmt) {
+            const zir_datas = astgen.instructions.items(.data);
+            zir_datas[last].dbg_stmt = .{
+                .line = line,
+                .column = column,
+            };
+            return;
+        }
+    }
+
     _ = try gz.add(.{ .tag = .dbg_stmt, .data = .{
         .dbg_stmt = .{
             .line = line,
