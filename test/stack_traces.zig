@@ -22,6 +22,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         .ReleaseSafe = .{
             .exclude_os = .{
                 .windows, // segfault
+                .linux, // defeated by aggressive inlining
             },
             .expect = 
             \\error: TheSkyIsFalling
