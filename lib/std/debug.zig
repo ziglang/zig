@@ -68,6 +68,7 @@ pub const SymbolInfo = struct {
         }
     }
 };
+
 const PdbOrDwarf = union(enum) {
     pdb: pdb.Pdb,
     dwarf: DW.DwarfInfo,
@@ -121,18 +122,19 @@ pub fn getSelfDebugInfo() !*DebugInfo {
 pub fn detectTTYConfig() TTY.Config {
     if (process.hasEnvVarConstant("ZIG_DEBUG_COLOR")) {
         return .escape_codes;
-    } else if (process.hasEnvVarConstant("NO_COLOR")) {
-        return .no_color;
-    } else {
-        const stderr_file = io.getStdErr();
-        if (stderr_file.supportsAnsiEscapeCodes()) {
-            return .escape_codes;
-        } else if (native_os == .windows and stderr_file.isTty()) {
-            return .windows_api;
-        } else {
-            return .no_color;
-        }
     }
+    if (process.hasEnvVarConstant("NO_COLOR")) {
+        return .no_color;
+    }
+
+    const stderr_file = io.getStdErr();
+    if (stderr_file.supportsAnsiEscapeCodes()) {
+        return .escape_codes;
+    }
+    if (native_os == .windows and stderr_file.isTty()) {
+        return .windows_api;
+    }
+    return .no_color;
 }
 
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
