@@ -5409,6 +5409,19 @@ fn lookupInNamespace(
     return null;
 }
 
+fn funcDeclSrc(sema: *Sema, block: *Block, src: LazySrcLoc, func_inst: Air.Inst.Ref) !?Module.SrcLoc {
+    const func_val = (try sema.resolveMaybeUndefVal(block, src, func_inst)) orelse return null;
+    if (func_val.isUndef()) return null;
+    const owner_decl_index = switch (func_val.tag()) {
+        .extern_fn => func_val.castTag(.extern_fn).?.data.owner_decl,
+        .function => func_val.castTag(.function).?.data.owner_decl,
+        .decl_ref => sema.mod.declPtr(func_val.castTag(.decl_ref).?.data).val.castTag(.function).?.data.owner_decl,
+        else => return null,
+    };
+    const owner_decl = sema.mod.declPtr(owner_decl_index);
+    return owner_decl.srcLoc();
+}
+
 fn zirCall(
     sema: *Sema,
     block: *Block,
@@ -5464,41 +5477,35 @@ fn zirCall(
     const func_ty_info = func_ty.fnInfo();
 
     const fn_params_len = func_ty_info.param_types.len;
-    if (func_ty_info.is_var_args) {
-        assert(func_ty_info.cc == .C);
-        if (total_args < fn_params_len) {
-            // TODO add error note: declared here
-            if (bound_arg_src != null) {
-                return sema.fail(
-                    block,
-                    call_src,
-                    "member function expected at least {d} argument(s), found {d}",
-                    .{ fn_params_len - 1, args_len },
-                );
-            }
-            return sema.fail(
+    check_args: {
+        if (func_ty_info.is_var_args) {
+            assert(func_ty_info.cc == .C);
+            if (total_args >= fn_params_len) break :check_args;
+        } else if (fn_params_len == total_args) {
+            break :check_args;
+        }
+
+        const decl_src = try sema.funcDeclSrc(block, func_src, func);
+        const member_str = if (bound_arg_src != null) "member function " else "";
+        const variadic_str = if (func_ty_info.is_var_args) "at least " else "";
+        const msg = msg: {
+            const msg = try sema.errMsg(
                 block,
                 func_src,
-                "expected at least {d} argument(s), found {d}",
-                .{ fn_params_len, args_len },
+                "{s}expected {s}{d} argument(s), found {d}",
+                .{
+                    member_str,
+                    variadic_str,
+                    fn_params_len - @boolToInt(bound_arg_src != null),
+                    args_len,
+                },
             );
-        }
-    } else if (fn_params_len != total_args) {
-        // TODO add error note: declared here
-        if (bound_arg_src != null) {
-            return sema.fail(
-                block,
-                call_src,
-                "member function expected {d} argument(s), found {d}",
-                .{ fn_params_len - 1, args_len },
-            );
-        }
-        return sema.fail(
-            block,
-            call_src,
-            "expected {d} argument(s), found {d}",
-            .{ fn_params_len, args_len },
-        );
+            errdefer msg.destroy(sema.gpa);
+
+            if (decl_src) |some| try sema.mod.errNoteNonLazy(some, msg, "function declared here", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
     }
 
     const args_body = sema.code.extra[extra.end..];
@@ -5625,13 +5632,20 @@ fn analyzeCall(
     const func_ty_info = func_ty.fnInfo();
     const cc = func_ty_info.cc;
     if (cc == .Naked) {
-        // TODO add error note: declared here
-        return sema.fail(
-            block,
-            func_src,
-            "unable to call function with naked calling convention",
-            .{},
-        );
+        const decl_src = try sema.funcDeclSrc(block, func_src, func);
+        const msg = msg: {
+            const msg = try sema.errMsg(
+                block,
+                func_src,
+                "unable to call function with naked calling convention",
+                .{},
+            );
+            errdefer msg.destroy(sema.gpa);
+
+            if (decl_src) |some| try sema.mod.errNoteNonLazy(some, msg, "function declared here", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
     }
     const fn_params_len = func_ty_info.param_types.len;
     if (func_ty_info.is_var_args) {
