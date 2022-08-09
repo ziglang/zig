@@ -50,21 +50,12 @@ echo "Looking for non-conforming code formatting..."
 echo "Formatting errors can be fixed by running 'zig fmt' on the files printed here."
 stage3/bin/zig fmt --check . --exclude test/cases/
 
-stage3/bin/zig build test-compiler-rt      -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
-stage3/bin/zig build test-behavior         -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
-stage3/bin/zig build test-std              -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
-stage3/bin/zig build test-universal-libc   -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
-stage3/bin/zig build test-compare-output   -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
-stage3/bin/zig build test-asm-link         -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
-stage3/bin/zig build test-fmt              -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
-stage3/bin/zig build test-translate-c      -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
-stage3/bin/zig build test-run-translated-c -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
-stage3/bin/zig build test-standalone       -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
-stage3/bin/zig build test-cli              -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
-stage3/bin/zig build test-cases            -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
-stage3/bin/zig build test-link             -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
-stage3/bin/zig build test-stack-traces     -fqemu -fwasmtime -fstage1
-stage3/bin/zig build docs                  -fqemu -fwasmtime -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
+stage3/bin/zig build test \
+  -fqemu \
+  -fwasmtime \
+  -Dstatic-llvm \
+  -Dtarget=native-native-musl \
+  --search-prefix "$DEPS_LOCAL"
 
 # Explicit exit helps show last command duration.
 exit

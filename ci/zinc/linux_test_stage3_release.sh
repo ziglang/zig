@@ -58,19 +58,7 @@ cd $WORKSPACE
 
 ZIG="$RELEASE_STAGING/bin/zig"
 
-$ZIG build \
-  test-compiler-rt \
-  test-behavior \
-  test-std \
-  test-universal-libc \
-  test-compare-output \
-  test-asm-link \
-  test-translate-c \
-  test-run-translated-c \
-  test-standalone \
-  test-cli \
-  test-cases \
-  test-link \
+$ZIG build test \
   -fqemu \
   -fwasmtime \
   -Dstatic-llvm \
@@ -84,8 +72,11 @@ $ZIG test lib/std/std.zig \
   -femit-docs=$RELEASE_STAGING/docs/std \
   -fno-emit-bin
 
+cp LICENSE $RELEASE_STAGING/
+cp zig-cache/langref.html $RELEASE_STAGING/docs/
+
 # Look for HTML errors.
-tidy --drop-empty-elements no -qe zig-cache/langref.html
+tidy --drop-empty-elements no -qe $RELEASE_STAGING/docs/langref.html
 
 # Explicit exit helps show last command duration.
 exit
