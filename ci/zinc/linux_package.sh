@@ -2,9 +2,6 @@
 
 . ./ci/zinc/linux_base.sh
 
-cp LICENSE $RELEASE_STAGING/
-cp zig-cache/langref.html $RELEASE_STAGING/docs/
-
 # Remove the unnecessary bin dir in $prefix/bin/zig
 mv $RELEASE_STAGING/bin/zig $RELEASE_STAGING/
 rmdir $RELEASE_STAGING/bin
