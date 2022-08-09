@@ -21397,7 +21397,12 @@ fn validateExternType(
         },
         .Fn => {
             if (position != .other) return false;
-            return !Type.fnCallingConventionAllowsZigTypes(ty.fnCallingConvention());
+            return switch (ty.fnCallingConvention()) {
+                // For now we want to authorize PTX kernel to use zig objects, even if we end up exposing the ABI.
+                // The goal is to experiment with more integrated CPU/GPU code.
+                .PtxKernel => true,
+                else => !Type.fnCallingConventionAllowsZigTypes(ty.fnCallingConvention()),
+            };
         },
         .Enum => {
             var buf: Type.Payload.Bits = undefined;
