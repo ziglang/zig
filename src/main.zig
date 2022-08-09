@@ -188,7 +188,7 @@ fn verifyLibcxxCorrectlyLinked() void {
 pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     if (args.len <= 1) {
         std.log.info("{s}", .{usage});
-        fatal("expected command argument", .{});
+        return;
     }
 
     if (std.process.can_execv and std.os.getenvZ("ZIG_IS_DETECTING_LIBC_PATHS") != null) {
