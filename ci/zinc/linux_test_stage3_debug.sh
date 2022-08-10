@@ -12,6 +12,12 @@ git config core.abbrev 9
 
 echo "building stage3-debug with zig version $($OLD_ZIG version)"
 
+# Override the cache directories so that we don't clobber with the release
+# testing script which is running concurrently and in the same directory.
+# Normally we want processes to cooperate, but in this case we want them isolated.
+export ZIG_LOCAL_CACHE_DIR="$(pwd)/zig-cache-local-debug"
+export ZIG_GLOBAL_CACHE_DIR="$(pwd)/zig-cache-global-debug"
+
 export CC="$OLD_ZIG cc -target $TARGET -mcpu=$MCPU"
 export CXX="$OLD_ZIG c++ -target $TARGET -mcpu=$MCPU"
 
