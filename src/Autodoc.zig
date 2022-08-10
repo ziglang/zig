@@ -2536,6 +2536,17 @@ fn walkInstruction(
                         break :blk decls_len;
                     } else 0;
 
+                    // TODO: Expose explicit backing integer types in some way.
+                    if (small.has_backing_int) {
+                        const backing_int_body_len = file.zir.extra[extra_index];
+                        extra_index += 1; // backing_int_body_len
+                        if (backing_int_body_len == 0) {
+                            extra_index += 1; // backing_int_ref
+                        } else {
+                            extra_index += backing_int_body_len; // backing_int_body_inst
+                        }
+                    }
+
                     var decl_indexes: std.ArrayListUnmanaged(usize) = .{};
                     var priv_decl_indexes: std.ArrayListUnmanaged(usize) = .{};
 

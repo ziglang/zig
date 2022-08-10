@@ -294,6 +294,8 @@ pub const Type = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const Struct = struct {
         layout: ContainerLayout,
+        /// Only valid if layout is .Packed
+        backing_integer: ?type = null,
         fields: []const StructField,
         decls: []const Declaration,
         is_tuple: bool,

@@ -3000,9 +3000,17 @@ pub const Type = extern union {
                     .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
                 };
                 if (struct_obj.layout == .Packed) {
-                    var buf: Type.Payload.Bits = undefined;
-                    const int_ty = struct_obj.packedIntegerType(target, &buf);
-                    return AbiAlignmentAdvanced{ .scalar = int_ty.abiAlignment(target) };
+                    switch (strat) {
+                        .sema_kit => |sk| try sk.sema.resolveTypeLayout(sk.block, sk.src, ty),
+                        .lazy => |arena| {
+                            if (!struct_obj.haveLayout()) {
+                                return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) };
+                            }
+                        },
+                        .eager => {},
+                    }
+                    assert(struct_obj.haveLayout());
+                    return AbiAlignmentAdvanced{ .scalar = struct_obj.backing_int_ty.abiAlignment(target) };
                 }
 
                 const fields = ty.structFields();
@@ -3192,17 +3200,16 @@ pub const Type = extern union {
                 .Packed => {
                     const struct_obj = ty.castTag(.@"struct").?.data;
                     switch (strat) {
-                        .sema_kit => |sk| _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty),
+                        .sema_kit => |sk| try sk.sema.resolveTypeLayout(sk.block, sk.src, ty),
                         .lazy => |arena| {
-                            if (!struct_obj.haveFieldTypes()) {
+                            if (!struct_obj.haveLayout()) {
                                 return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) };
                             }
                         },
                         .eager => {},
                     }
-                    var buf: Type.Payload.Bits = undefined;
-                    const int_ty = struct_obj.packedIntegerType(target, &buf);
-                    return AbiSizeAdvanced{ .scalar = int_ty.abiSize(target) };
+                    assert(struct_obj.haveLayout());
+                    return AbiSizeAdvanced{ .scalar = struct_obj.backing_int_ty.abiSize(target) };
                 },
                 else => {
                     switch (strat) {

@@ -1683,8 +1683,7 @@ pub const Object = struct {
                 if (ty.castTag(.@"struct")) |payload| {
                     const struct_obj = payload.data;
                     if (struct_obj.layout == .Packed) {
-                        var buf: Type.Payload.Bits = undefined;
-                        const info = struct_obj.packedIntegerType(target, &buf).intInfo(target);
+                        const info = struct_obj.backing_int_ty.intInfo(target);
                         const dwarf_encoding: c_uint = switch (info.signedness) {
                             .signed => DW.ATE.signed,
                             .unsigned => DW.ATE.unsigned,
@@ -2679,9 +2678,7 @@ pub const DeclGen = struct {
                 const struct_obj = t.castTag(.@"struct").?.data;
 
                 if (struct_obj.layout == .Packed) {
-                    var buf: Type.Payload.Bits = undefined;
-                    const int_ty = struct_obj.packedIntegerType(target, &buf);
-                    const int_llvm_ty = try dg.lowerType(int_ty);
+                    const int_llvm_ty = try dg.lowerType(struct_obj.backing_int_ty);
                     gop.value_ptr.* = int_llvm_ty;
                     return int_llvm_ty;
                 }
@@ -3330,8 +3327,8 @@ pub const DeclGen = struct {
                 const struct_obj = tv.ty.castTag(.@"struct").?.data;
 
                 if (struct_obj.layout == .Packed) {
-                    const big_bits = struct_obj.packedIntegerBits(target);
-                    const int_llvm_ty = dg.context.intType(big_bits);
+                    const big_bits = struct_obj.backing_int_ty.bitSize(target);
+                    const int_llvm_ty = dg.context.intType(@intCast(c_uint, big_bits));
                     const fields = struct_obj.fields.values();
                     comptime assert(Type.packed_struct_layout_version == 2);
                     var running_int: *const llvm.Value = int_llvm_ty.constNull();
@@ -8243,8 +8240,8 @@ pub const FuncGen = struct {
             .Struct => {
                 if (result_ty.containerLayout() == .Packed) {
                     const struct_obj = result_ty.castTag(.@"struct").?.data;
-                    const big_bits = struct_obj.packedIntegerBits(target);
-                    const int_llvm_ty = self.dg.context.intType(big_bits);
+                    const big_bits = struct_obj.backing_int_ty.bitSize(target);
+                    const int_llvm_ty = self.dg.context.intType(@intCast(c_uint, big_bits));
                     const fields = struct_obj.fields.values();
                     comptime assert(Type.packed_struct_layout_version == 2);
                     var running_int: *const llvm.Value = int_llvm_ty.constNull();

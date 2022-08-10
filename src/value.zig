@@ -3472,44 +3472,6 @@ pub const Value = extern union {
         return fromBigInt(allocator, result_q.toConst());
     }
 
-    pub fn intRem(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, target: Target) !Value {
-        if (ty.zigTypeTag() == .Vector) {
-            const result_data = try allocator.alloc(Value, ty.vectorLen());
-            for (result_data) |*scalar, i| {
-                scalar.* = try intRemScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), allocator, target);
-            }
-            return Value.Tag.aggregate.create(allocator, result_data);
-        }
-        return intRemScalar(lhs, rhs, allocator, target);
-    }
-
-    pub fn intRemScalar(lhs: Value, rhs: Value, allocator: Allocator, target: Target) !Value {
-        // TODO is this a performance issue? maybe we should try the operation without
-        // resorting to BigInt first.
-        var lhs_space: Value.BigIntSpace = undefined;
-        var rhs_space: Value.BigIntSpace = undefined;
-        const lhs_bigint = lhs.toBigInt(&lhs_space, target);
-        const rhs_bigint = rhs.toBigInt(&rhs_space, target);
-        const limbs_q = try allocator.alloc(
-            std.math.big.Limb,
-            lhs_bigint.limbs.len,
-        );
-        const limbs_r = try allocator.alloc(
-            std.math.big.Limb,
-            // TODO: consider reworking Sema to re-use Values rather than
-            // always producing new Value objects.
-            rhs_bigint.limbs.len,
-        );
-        const limbs_buffer = try allocator.alloc(
-            std.math.big.Limb,
-            std.math.big.int.calcDivLimbsBufferLen(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
-        );
-        var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
-        var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
-        result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buffer);
-        return fromBigInt(allocator, result_r.toConst());
-    }
-
     pub fn intMod(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, target: Target) !Value {
         if (ty.zigTypeTag() == .Vector) {
             const result_data = try allocator.alloc(Value, ty.vectorLen());

@@ -895,6 +895,11 @@ pub const Struct = struct {
     zir_index: Zir.Inst.Index,
 
     layout: std.builtin.Type.ContainerLayout,
+    /// If the layout is not packed, this is the noreturn type.
+    /// If the layout is packed, this is the backing integer type of the packed struct.
+    /// Whether zig chooses this type or the user specifies it, it is stored here.
+    /// This will be set to the noreturn type until status is `have_layout`.
+    backing_int_ty: Type = Type.initTag(.noreturn),
     status: enum {
         none,
         field_types_wip,
@@ -1025,7 +1030,7 @@ pub const Struct = struct {
 
     pub fn packedFieldBitOffset(s: Struct, target: Target, index: usize) u16 {
         assert(s.layout == .Packed);
-        assert(s.haveFieldTypes());
+        assert(s.haveLayout());
         var bit_sum: u64 = 0;
         for (s.fields.values()) |field, i| {
             if (i == index) {
@@ -1033,19 +1038,7 @@ pub const Struct = struct {
             }
             bit_sum += field.ty.bitSize(target);
         }
-        return @intCast(u16, bit_sum);
-    }
-
-    pub fn packedIntegerBits(s: Struct, target: Target) u16 {
-        return s.packedFieldBitOffset(target, s.fields.count());
-    }
-
-    pub fn packedIntegerType(s: Struct, target: Target, buf: *Type.Payload.Bits) Type {
-        buf.* = .{
-            .base = .{ .tag = .int_unsigned },
-            .data = s.packedIntegerBits(target),
-        };
-        return Type.initPayload(&buf.base);
+        unreachable; // index out of bounds
     }
 };
 

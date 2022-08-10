@@ -3085,13 +3085,16 @@ pub const Inst = struct {
     /// 0. src_node: i32, // if has_src_node
     /// 1. fields_len: u32, // if has_fields_len
     /// 2. decls_len: u32, // if has_decls_len
-    /// 3. decl_bits: u32 // for every 8 decls
+    /// 3. backing_int_body_len: u32, // if has_backing_int
+    /// 4. backing_int_ref: Ref, // if has_backing_int and backing_int_body_len is 0
+    /// 5. backing_int_body_inst: Inst, // if has_backing_int and backing_int_body_len is > 0
+    /// 6. decl_bits: u32 // for every 8 decls
     ///    - sets of 4 bits:
     ///      0b000X: whether corresponding decl is pub
     ///      0b00X0: whether corresponding decl is exported
     ///      0b0X00: whether corresponding decl has an align expression
     ///      0bX000: whether corresponding decl has a linksection or an address space expression
-    /// 4. decl: { // for every decls_len
+    /// 7. decl: { // for every decls_len
     ///        src_hash: [4]u32, // hash of source bytes
     ///        line: u32, // line number of decl, relative to parent
     ///        name: u32, // null terminated string index
@@ -3109,13 +3112,13 @@ pub const Inst = struct {
     ///            address_space: Ref,
     ///        }
     ///    }
-    /// 5. flags: u32 // for every 8 fields
+    /// 8. flags: u32 // for every 8 fields
     ///    - sets of 4 bits:
     ///      0b000X: whether corresponding field has an align expression
     ///      0b00X0: whether corresponding field has a default expression
     ///      0b0X00: whether corresponding field is comptime
     ///      0bX000: whether corresponding field has a type expression
-    /// 6. fields: { // for every fields_len
+    /// 9. fields: { // for every fields_len
     ///        field_name: u32,
     ///        doc_comment: u32, // 0 if no doc comment
     ///        field_type: Ref, // if corresponding bit is not set. none means anytype.
@@ -3123,7 +3126,7 @@ pub const Inst = struct {
     ///        align_body_len: u32, // if corresponding bit is set
     ///        init_body_len: u32, // if corresponding bit is set
     ///    }
-    /// 7. bodies: { // for every fields_len
+    /// 10. bodies: { // for every fields_len
     ///        field_type_body_inst: Inst, // for each field_type_body_len
     ///        align_body_inst: Inst, // for each align_body_len
     ///        init_body_inst: Inst, // for each init_body_len
@@ -3133,11 +3136,12 @@ pub const Inst = struct {
             has_src_node: bool,
             has_fields_len: bool,
             has_decls_len: bool,
+            has_backing_int: bool,
             known_non_opv: bool,
             known_comptime_only: bool,
             name_strategy: NameStrategy,
             layout: std.builtin.Type.ContainerLayout,
-            _: u7 = undefined,
+            _: u6 = undefined,
         };
     };
 
