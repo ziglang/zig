@@ -6,10 +6,6 @@ OLD_ZIG="$DEPS_LOCAL/bin/zig"
 TARGET="${ARCH}-linux-musl"
 MCPU="baseline"
 
-# Make the `zig version` number consistent.
-# This will affect the cmake command below.
-git config core.abbrev 9
-
 echo "building stage3-release with zig version $($OLD_ZIG version)"
 
 export CC="$OLD_ZIG cc -target $TARGET -mcpu=$MCPU"

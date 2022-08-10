@@ -6,10 +6,6 @@ OLD_ZIG="$DEPS_LOCAL/bin/zig"
 TARGET="${ARCH}-linux-musl"
 MCPU="baseline"
 
-# Make the `zig version` number consistent.
-# This will affect the cmake command below.
-git config core.abbrev 9
-
 echo "building stage3-debug with zig version $($OLD_ZIG version)"
 
 # Override the cache directories so that we don't clobber with the release
@@ -53,8 +49,12 @@ cd $WORKSPACE
 stage3/bin/zig build -Dtarget=arm-linux-musleabihf
 
 echo "Looking for non-conforming code formatting..."
-echo "Formatting errors can be fixed by running 'zig fmt' on the files printed here."
-stage3/bin/zig fmt --check . --exclude test/cases/
+stage3/bin/zig fmt --check . \
+  --exclude test/cases/ \
+  --exclude build-debug \
+  --exclude build-release \
+  --exclude "$ZIG_LOCAL_CACHE_DIR" \
+  --exclude "$ZIG_GLOBAL_CACHE_DIR"
 
 stage3/bin/zig build test \
   -fqemu \
