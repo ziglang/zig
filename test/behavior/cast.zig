@@ -1431,6 +1431,11 @@ test "coerce between pointers of compatible differently-named floats" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
+    if (builtin.os.tag == .windows) {
+        // https://github.com/ziglang/zig/issues/12396
+        return error.SkipZigTest;
+    }
+
     const F = switch (@typeInfo(c_longdouble).Float.bits) {
         16 => f16,
         32 => f32,
