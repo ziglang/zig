@@ -722,6 +722,10 @@ pub const Object = struct {
             dg.addFnAttrString(llvm_func, "no-stack-arg-probe", "");
         }
 
+        if (decl.@"linksection") |section| {
+            llvm_func.setSection(section);
+        }
+
         // Remove all the basic blocks of a function in order to start over, generating
         // LLVM IR from an empty function body.
         while (llvm_func.getFirstBasicBlock()) |bb| {
@@ -1106,6 +1110,11 @@ pub const Object = struct {
                 .default => llvm_global.setVisibility(.Default),
                 .hidden => llvm_global.setVisibility(.Hidden),
                 .protected => llvm_global.setVisibility(.Protected),
+            }
+            if (exports[0].options.section) |section| {
+                const section_z = try module.gpa.dupeZ(u8, section);
+                defer module.gpa.free(section_z);
+                llvm_global.setSection(section_z);
             }
             if (decl.val.castTag(.variable)) |variable| {
                 if (variable.data.is_threadlocal) {
@@ -2183,6 +2192,7 @@ pub const DeclGen = struct {
             const target = dg.module.getTarget();
             var global = try dg.resolveGlobalDecl(decl_index);
             global.setAlignment(decl.getAlignment(target));
+            if (decl.@"linksection") |section| global.setSection(section);
             assert(decl.has_tv);
             const init_val = if (decl.val.castTag(.variable)) |payload| init_val: {
                 const variable = payload.data;
@@ -2216,6 +2226,7 @@ pub const DeclGen = struct {
                     new_global.setLinkage(global.getLinkage());
                     new_global.setUnnamedAddr(global.getUnnamedAddress());
                     new_global.setAlignment(global.getAlignment());
+                    if (decl.@"linksection") |section| new_global.setSection(section);
                     new_global.setInitializer(llvm_init);
                     // replaceAllUsesWith requires the type to be unchanged. So we bitcast
                     // the new global to the old type and use that as the thing to replace

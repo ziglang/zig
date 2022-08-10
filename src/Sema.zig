@@ -6351,6 +6351,7 @@ fn instantiateGenericCall(
         new_decl.is_exported = fn_owner_decl.is_exported;
         new_decl.has_align = fn_owner_decl.has_align;
         new_decl.has_linksection_or_addrspace = fn_owner_decl.has_linksection_or_addrspace;
+        new_decl.@"linksection" = fn_owner_decl.@"linksection";
         new_decl.@"addrspace" = fn_owner_decl.@"addrspace";
         new_decl.zir_decl_index = fn_owner_decl.zir_decl_index;
         new_decl.alive = true; // This Decl is called at runtime.

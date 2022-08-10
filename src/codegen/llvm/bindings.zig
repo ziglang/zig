@@ -126,6 +126,9 @@ pub const Value = opaque {
     pub const setThreadLocalMode = LLVMSetThreadLocalMode;
     extern fn LLVMSetThreadLocalMode(Global: *const Value, Mode: ThreadLocalMode) void;
 
+    pub const setSection = LLVMSetSection;
+    extern fn LLVMSetSection(Global: *const Value, Section: [*:0]const u8) void;
+
     pub const deleteGlobal = LLVMDeleteGlobal;
     extern fn LLVMDeleteGlobal(GlobalVar: *const Value) void;
 
