@@ -1293,3 +1293,20 @@ test "mutate through pointer-like optional at comptime" {
         try expect(payload_ptr.*.* == 16);
     }
 }
+
+test "repeated value is correctly expanded" {
+    const S = struct { x: [4]i8 = std.mem.zeroes([4]i8) };
+    const M = struct { x: [4]S = std.mem.zeroes([4]S) };
+
+    comptime {
+        var res = M{};
+        for (.{ 1, 2, 3 }) |i| res.x[i].x[i] = i;
+
+        try expectEqual(M{ .x = .{
+            .{ .x = .{ 0, 0, 0, 0 } },
+            .{ .x = .{ 0, 1, 0, 0 } },
+            .{ .x = .{ 0, 0, 2, 0 } },
+            .{ .x = .{ 0, 0, 0, 3 } },
+        } }, res);
+    }
+}
