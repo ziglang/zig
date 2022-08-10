@@ -78,6 +78,7 @@ post_hoc_blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, *LabeledBlock) = .{},
 err: ?*Module.ErrorMsg = null,
 
 const std = @import("std");
+const math = std.math;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
@@ -11824,7 +11825,7 @@ fn zirModRem(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
                     return sema.failWithDivideByZero(block, rhs_src);
                 }
                 if (maybe_lhs_val) |lhs_val| {
-                    const rem_result = try lhs_val.intRem(rhs_val, resolved_type, sema.arena, target);
+                    const rem_result = try sema.intRem(block, resolved_type, lhs_val, lhs_src, rhs_val, rhs_src);
                     // If this answer could possibly be different by doing `intMod`,
                     // we must emit a compile error. Otherwise, it's OK.
                     if ((try rhs_val.compareWithZeroAdvanced(.lt, sema.kit(block, src))) != (try lhs_val.compareWithZeroAdvanced(.lt, sema.kit(block, src))) and
@@ -11884,6 +11885,60 @@ fn zirModRem(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
 
     const air_tag = airTag(block, is_int, .rem, .rem_optimized);
     return block.addBinOp(air_tag, casted_lhs, casted_rhs);
+}
+
+fn intRem(
+    sema: *Sema,
+    block: *Block,
+    ty: Type,
+    lhs: Value,
+    lhs_src: LazySrcLoc,
+    rhs: Value,
+    rhs_src: LazySrcLoc,
+) CompileError!Value {
+    if (ty.zigTypeTag() == .Vector) {
+        const result_data = try sema.arena.alloc(Value, ty.vectorLen());
+        for (result_data) |*scalar, i| {
+            scalar.* = try sema.intRemScalar(block, lhs.indexVectorlike(i), lhs_src, rhs.indexVectorlike(i), rhs_src);
+        }
+        return Value.Tag.aggregate.create(sema.arena, result_data);
+    }
+    return sema.intRemScalar(block, lhs, lhs_src, rhs, rhs_src);
+}
+
+fn intRemScalar(
+    sema: *Sema,
+    block: *Block,
+    lhs: Value,
+    lhs_src: LazySrcLoc,
+    rhs: Value,
+    rhs_src: LazySrcLoc,
+) CompileError!Value {
+    const target = sema.mod.getTarget();
+    // TODO is this a performance issue? maybe we should try the operation without
+    // resorting to BigInt first.
+    var lhs_space: Value.BigIntSpace = undefined;
+    var rhs_space: Value.BigIntSpace = undefined;
+    const lhs_bigint = try lhs.toBigIntAdvanced(&lhs_space, target, sema.kit(block, lhs_src));
+    const rhs_bigint = try rhs.toBigIntAdvanced(&rhs_space, target, sema.kit(block, rhs_src));
+    const limbs_q = try sema.arena.alloc(
+        math.big.Limb,
+        lhs_bigint.limbs.len,
+    );
+    const limbs_r = try sema.arena.alloc(
+        math.big.Limb,
+        // TODO: consider reworking Sema to re-use Values rather than
+        // always producing new Value objects.
+        rhs_bigint.limbs.len,
+    );
+    const limbs_buffer = try sema.arena.alloc(
+        math.big.Limb,
+        math.big.int.calcDivLimbsBufferLen(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+    );
+    var result_q = math.big.int.Mutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
+    var result_r = math.big.int.Mutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
+    result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buffer);
+    return Value.fromBigInt(sema.arena, result_r.toConst());
 }
 
 fn zirMod(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -12050,7 +12105,7 @@ fn zirRem(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
                 if (maybe_lhs_val) |lhs_val| {
                     return sema.addConstant(
                         resolved_type,
-                        try lhs_val.intRem(rhs_val, resolved_type, sema.arena, target),
+                        try sema.intRem(block, resolved_type, lhs_val, lhs_src, rhs_val, rhs_src),
                     );
                 }
                 break :rs lhs_src;
