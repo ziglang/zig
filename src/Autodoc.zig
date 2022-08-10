@@ -2078,14 +2078,19 @@ fn walkInstruction(
 
             const args_len = extra.data.flags.args_len;
             var args = try self.arena.alloc(DocData.Expr, args_len);
-            const arg_refs = file.zir.refSlice(extra.end, args_len);
-            for (arg_refs) |ref, idx| {
+            const body = file.zir.extra[extra.end..];
+
+            var i: usize = 0;
+            while (i < args_len) : (i += 1) {
+                const arg_end = file.zir.extra[extra.end + i];
+                const break_index = body[arg_end - 1];
+                const ref = data[break_index].@"break".operand;
                 // TODO: consider toggling need_type to true if we ever want
                 //       to show discrepancies between the types of provided
                 //       arguments and the types declared in the function
                 //       signature for its parameters.
                 const wr = try self.walkRef(file, parent_scope, ref, false);
-                args[idx] = wr.expr;
+                args[i] = wr.expr;
             }
 
             const cte_slot_index = self.comptime_exprs.items.len;

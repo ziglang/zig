@@ -2500,7 +2500,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .closure_get,
             .array_base_ptr,
             .field_base_ptr,
-            .param_type,
             .ret_ptr,
             .ret_type,
             .@"try",
@@ -8228,6 +8227,33 @@ fn callExpr(
     assert(callee != .none);
     assert(node != 0);
 
+    const call_index = @intCast(Zir.Inst.Index, astgen.instructions.len);
+    const call_inst = Zir.indexToRef(call_index);
+    try gz.astgen.instructions.append(astgen.gpa, undefined);
+    try gz.instructions.append(astgen.gpa, call_index);
+
+    const scratch_top = astgen.scratch.items.len;
+    defer astgen.scratch.items.len = scratch_top;
+
+    var scratch_index = scratch_top;
+    try astgen.scratch.resize(astgen.gpa, scratch_top + call.ast.params.len);
+
+    for (call.ast.params) |param_node| {
+        var arg_block = gz.makeSubBlock(scope);
+        defer arg_block.unstack();
+
+        // `call_inst` is reused to provide the param type.
+        const arg_ref = try expr(&arg_block, &arg_block.base, .{ .coerced_ty = call_inst }, param_node);
+        _ = try arg_block.addBreak(.break_inline, call_index, arg_ref);
+
+        const body = arg_block.instructionsSlice();
+        try astgen.scratch.ensureUnusedCapacity(astgen.gpa, countBodyLenAfterFixups(astgen, body));
+        appendBodyWithFixupsArrayList(astgen, &astgen.scratch, body);
+
+        astgen.scratch.items[scratch_index] = @intCast(u32, astgen.scratch.items.len - scratch_top);
+        scratch_index += 1;
+    }
+
     const payload_index = try addExtra(astgen, Zir.Inst.Call{
         .callee = callee,
         .flags = .{
@@ -8235,22 +8261,16 @@ fn callExpr(
             .args_len = @intCast(Zir.Inst.Call.Flags.PackedArgsLen, call.ast.params.len),
         },
     });
-    var extra_index = try reserveExtra(astgen, call.ast.params.len);
-
-    for (call.ast.params) |param_node, i| {
-        const param_type = try gz.add(.{
-            .tag = .param_type,
-            .data = .{ .param_type = .{
-                .callee = callee,
-                .param_index = @intCast(u32, i),
-            } },
-        });
-        const arg_ref = try expr(gz, scope, .{ .coerced_ty = param_type }, param_node);
-        astgen.extra.items[extra_index] = @enumToInt(arg_ref);
-        extra_index += 1;
+    if (call.ast.params.len != 0) {
+        try astgen.extra.appendSlice(astgen.gpa, astgen.scratch.items[scratch_top..]);
     }
-
-    const call_inst = try gz.addPlNodePayloadIndex(.call, node, payload_index);
+    gz.astgen.instructions.set(call_index, .{
+        .tag = .call,
+        .data = .{ .pl_node = .{
+            .src_node = gz.nodeIndexToRelative(node),
+            .payload_index = payload_index,
+        } },
+    });
     return rvalue(gz, rl, call_inst, node); // TODO function call with result location
 }
 

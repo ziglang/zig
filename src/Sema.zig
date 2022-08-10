@@ -772,7 +772,6 @@ fn analyzeBodyInner(
             .optional_payload_unsafe      => try sema.zirOptionalPayload(block, inst, false),
             .optional_payload_unsafe_ptr  => try sema.zirOptionalPayloadPtr(block, inst, false),
             .optional_type                => try sema.zirOptionalType(block, inst),
-            .param_type                   => try sema.zirParamType(block, inst),
             .ptr_type                     => try sema.zirPtrType(block, inst),
             .overflow_arithmetic_ptr      => try sema.zirOverflowArithmeticPtr(block, inst),
             .ref                          => try sema.zirRef(block, inst),
@@ -4441,43 +4440,6 @@ fn zirStoreNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!v
     return sema.storePtr2(block, src, ptr, src, operand, src, if (is_ret) .ret_ptr else .store);
 }
 
-fn zirParamType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const callee_src = sema.src;
-
-    const inst_data = sema.code.instructions.items(.data)[inst].param_type;
-    const callee = try sema.resolveInst(inst_data.callee);
-    const callee_ty = sema.typeOf(callee);
-    var param_index = inst_data.param_index;
-
-    const fn_ty = if (callee_ty.tag() == .bound_fn) fn_ty: {
-        const bound_fn_val = try sema.resolveConstValue(block, .unneeded, callee, undefined);
-        const bound_fn = bound_fn_val.castTag(.bound_fn).?.data;
-        const fn_ty = sema.typeOf(bound_fn.func_inst);
-        param_index += 1;
-        break :fn_ty fn_ty;
-    } else callee_ty;
-
-    const fn_info = if (fn_ty.zigTypeTag() == .Pointer)
-        fn_ty.childType().fnInfo()
-    else
-        fn_ty.fnInfo();
-
-    if (param_index >= fn_info.param_types.len) {
-        if (fn_info.is_var_args) {
-            return sema.addType(Type.initTag(.var_args_param));
-        }
-        // TODO implement begin_call/end_call Zir instructions and check
-        // argument count before casting arguments to parameter types.
-        return sema.fail(block, callee_src, "wrong number of arguments", .{});
-    }
-
-    if (fn_info.param_types[param_index].tag() == .generic_poison) {
-        return sema.addType(Type.initTag(.var_args_param));
-    }
-
-    return sema.addType(fn_info.param_types[param_index]);
-}
-
 fn zirStr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -5447,6 +5409,19 @@ fn lookupInNamespace(
     return null;
 }
 
+fn funcDeclSrc(sema: *Sema, block: *Block, src: LazySrcLoc, func_inst: Air.Inst.Ref) !?Module.SrcLoc {
+    const func_val = (try sema.resolveMaybeUndefVal(block, src, func_inst)) orelse return null;
+    if (func_val.isUndef()) return null;
+    const owner_decl_index = switch (func_val.tag()) {
+        .extern_fn => func_val.castTag(.extern_fn).?.data.owner_decl,
+        .function => func_val.castTag(.function).?.data.owner_decl,
+        .decl_ref => sema.mod.declPtr(func_val.castTag(.decl_ref).?.data).val.castTag(.function).?.data.owner_decl,
+        else => return null,
+    };
+    const owner_decl = sema.mod.declPtr(owner_decl_index);
+    return owner_decl.srcLoc();
+}
+
 fn zirCall(
     sema: *Sema,
     block: *Block,
@@ -5459,13 +5434,14 @@ fn zirCall(
     const func_src: LazySrcLoc = .{ .node_offset_call_func = inst_data.src_node };
     const call_src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.Call, inst_data.payload_index);
-    const args = sema.code.refSlice(extra.end, extra.data.flags.args_len);
+    const args_len = extra.data.flags.args_len;
 
     const modifier = @intToEnum(std.builtin.CallOptions.Modifier, extra.data.flags.packed_modifier);
     const ensure_result_used = extra.data.flags.ensure_result_used;
 
     var func = try sema.resolveInst(extra.data.callee);
     var resolved_args: []Air.Inst.Ref = undefined;
+    var arg_index: u32 = 0;
 
     const func_type = sema.typeOf(func);
 
@@ -5476,16 +5452,93 @@ fn zirCall(
         const bound_func = try sema.resolveValue(block, .unneeded, func, undefined);
         const bound_data = &bound_func.cast(Value.Payload.BoundFn).?.data;
         func = bound_data.func_inst;
-        resolved_args = try sema.arena.alloc(Air.Inst.Ref, args.len + 1);
-        resolved_args[0] = bound_data.arg0_inst;
-        for (args) |zir_arg, i| {
-            resolved_args[i + 1] = try sema.resolveInst(zir_arg);
-        }
+        resolved_args = try sema.arena.alloc(Air.Inst.Ref, args_len + 1);
+        resolved_args[arg_index] = bound_data.arg0_inst;
+        arg_index += 1;
     } else {
-        resolved_args = try sema.arena.alloc(Air.Inst.Ref, args.len);
-        for (args) |zir_arg, i| {
-            resolved_args[i] = try sema.resolveInst(zir_arg);
+        resolved_args = try sema.arena.alloc(Air.Inst.Ref, args_len);
+    }
+    const total_args = args_len + @boolToInt(bound_arg_src != null);
+
+    const callee_ty = sema.typeOf(func);
+    const func_ty = func_ty: {
+        switch (callee_ty.zigTypeTag()) {
+            .Fn => break :func_ty callee_ty,
+            .Pointer => {
+                const ptr_info = callee_ty.ptrInfo().data;
+                if (ptr_info.size == .One and ptr_info.pointee_type.zigTypeTag() == .Fn) {
+                    break :func_ty ptr_info.pointee_type;
+                }
+            },
+            else => {},
         }
+        return sema.fail(block, func_src, "type '{}' not a function", .{callee_ty.fmt(sema.mod)});
+    };
+    const func_ty_info = func_ty.fnInfo();
+
+    const fn_params_len = func_ty_info.param_types.len;
+    check_args: {
+        if (func_ty_info.is_var_args) {
+            assert(func_ty_info.cc == .C);
+            if (total_args >= fn_params_len) break :check_args;
+        } else if (fn_params_len == total_args) {
+            break :check_args;
+        }
+
+        const decl_src = try sema.funcDeclSrc(block, func_src, func);
+        const member_str = if (bound_arg_src != null) "member function " else "";
+        const variadic_str = if (func_ty_info.is_var_args) "at least " else "";
+        const msg = msg: {
+            const msg = try sema.errMsg(
+                block,
+                func_src,
+                "{s}expected {s}{d} argument(s), found {d}",
+                .{
+                    member_str,
+                    variadic_str,
+                    fn_params_len - @boolToInt(bound_arg_src != null),
+                    args_len,
+                },
+            );
+            errdefer msg.destroy(sema.gpa);
+
+            if (decl_src) |some| try sema.mod.errNoteNonLazy(some, msg, "function declared here", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    }
+
+    const args_body = sema.code.extra[extra.end..];
+
+    const parent_comptime = block.is_comptime;
+    // `extra_index` and `arg_index` are separate since the bound function is passed as the first argument.
+    var extra_index: usize = 0;
+    var arg_start: u32 = args_len;
+    while (extra_index < args_len) : ({
+        extra_index += 1;
+        arg_index += 1;
+    }) {
+        const arg_end = sema.code.extra[extra.end + extra_index];
+        defer arg_start = arg_end;
+
+        const param_ty = if (arg_index >= fn_params_len or
+            func_ty_info.param_types[arg_index].tag() == .generic_poison)
+            Type.initTag(.var_args_param)
+        else
+            func_ty_info.param_types[arg_index];
+
+        const old_comptime = block.is_comptime;
+        defer block.is_comptime = old_comptime;
+        // Generate args to comptime params in comptime block.
+        block.is_comptime = parent_comptime;
+        if (arg_index < fn_params_len and func_ty_info.comptime_params[arg_index]) {
+            block.is_comptime = true;
+        }
+
+        const param_ty_inst = try sema.addType(param_ty);
+        try sema.inst_map.put(sema.gpa, inst, param_ty_inst);
+
+        resolved_args[arg_index] = try sema.resolveBody(block, args_body[arg_start..arg_end], inst);
     }
 
     return sema.analyzeCall(block, func, func_src, call_src, modifier, ensure_result_used, resolved_args, bound_arg_src);
@@ -5579,13 +5632,20 @@ fn analyzeCall(
     const func_ty_info = func_ty.fnInfo();
     const cc = func_ty_info.cc;
     if (cc == .Naked) {
-        // TODO add error note: declared here
-        return sema.fail(
-            block,
-            func_src,
-            "unable to call function with naked calling convention",
-            .{},
-        );
+        const decl_src = try sema.funcDeclSrc(block, func_src, func);
+        const msg = msg: {
+            const msg = try sema.errMsg(
+                block,
+                func_src,
+                "unable to call function with naked calling convention",
+                .{},
+            );
+            errdefer msg.destroy(sema.gpa);
+
+            if (decl_src) |some| try sema.mod.errNoteNonLazy(some, msg, "function declared here", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
     }
     const fn_params_len = func_ty_info.param_types.len;
     if (func_ty_info.is_var_args) {
@@ -5964,7 +6024,18 @@ fn analyzeCall(
                     else => |e| return e,
                 };
             } else {
-                args[i] = uncasted_arg;
+                args[i] = sema.coerceVarArgParam(block, uncasted_arg, .unneeded) catch |err| switch (err) {
+                    error.NeededSourceLocation => {
+                        const decl = sema.mod.declPtr(block.src_decl);
+                        _ = try sema.coerceVarArgParam(
+                            block,
+                            uncasted_arg,
+                            Module.argSrc(call_src.node_offset.x, sema.gpa, decl, i, bound_arg_src),
+                        );
+                        return error.AnalysisFail;
+                    },
+                    else => |e| return e,
+                };
             }
         }
 
@@ -23534,7 +23605,10 @@ fn coerceVarArgParam(
     inst_src: LazySrcLoc,
 ) !Air.Inst.Ref {
     const inst_ty = sema.typeOf(inst);
+    if (block.is_typeof) return inst;
+
     switch (inst_ty.zigTypeTag()) {
+        // TODO consider casting to c_int/f64 if they fit
         .ComptimeInt, .ComptimeFloat => return sema.fail(block, inst_src, "integer and float literals in var args function must be casted", .{}),
         else => {},
     }
