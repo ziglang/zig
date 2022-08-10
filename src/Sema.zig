@@ -11202,6 +11202,22 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
     const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(block, lhs_src, casted_lhs);
     const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(block, rhs_src, casted_rhs);
 
+    if ((lhs_ty.tag() == .comptime_float and rhs_ty.tag() == .comptime_int) or
+        (lhs_ty.tag() == .comptime_int and rhs_ty.tag() == .comptime_float))
+    {
+        // If it makes a difference whether we coerce to ints or floats before doing the division, error.
+        // If lhs % rhs is 0, it doesn't matter.
+        var lhs_val = maybe_lhs_val orelse unreachable;
+        var rhs_val = maybe_rhs_val orelse unreachable;
+        var rem = lhs_val.floatRem(rhs_val, resolved_type, sema.arena, target) catch unreachable;
+        var float_rem = rem.toFloat(f32);
+        if (float_rem != 0.0) {
+            return sema.fail(block, src, "ambiguous coercion of division operands: '{s}' and '{s}': division has non-zero reminder: {d}", .{
+                @tagName(lhs_ty.tag()), @tagName(rhs_ty.tag()), float_rem,
+            });
+        }
+    }
+
     // TODO: emit compile error when .div is used on integers and there would be an
     // ambiguous result between div_floor and div_trunc.
 
