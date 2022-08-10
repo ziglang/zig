@@ -23990,7 +23990,10 @@ fn beginComptimePtrMutation(
                                 const array_len_including_sentinel =
                                     try sema.usizeCast(block, src, parent.ty.arrayLenIncludingSentinel());
                                 const elems = try arena.alloc(Value, array_len_including_sentinel);
-                                mem.set(Value, elems, repeated_val);
+                                if (elems.len > 0) elems[0] = repeated_val;
+                                for (elems[1..]) |*elem| {
+                                    elem.* = try repeated_val.copy(arena);
+                                }
 
                                 val_ptr.* = try Value.Tag.aggregate.create(arena, elems);
 
