@@ -40,7 +40,7 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     }
     // C ABI compatibility issue: https://github.com/ziglang/zig/issues/1481
     if (builtin.cpu.arch == .x86_64) {
-        if (builtin.zig_backend == .stage1) { // https://github.com/ziglang/zig/issues/12222
+        if (builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) { // https://github.com/ziglang/zig/issues/12222
             cases.addBuildFile("test/c_abi/build.zig", .{});
         }
     }

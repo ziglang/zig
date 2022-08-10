@@ -917,6 +917,40 @@ pub const Object = struct {
                     };
                     try args.append(loaded);
                 },
+                .multiple_llvm_float => {
+                    const llvm_floats = it.llvm_types_buffer[0..it.llvm_types_len];
+                    const param_ty = fn_info.param_types[it.zig_index - 1];
+                    const param_llvm_ty = try dg.lowerType(param_ty);
+                    const param_alignment = param_ty.abiAlignment(target);
+                    const arg_ptr = buildAllocaInner(builder, llvm_func, false, param_llvm_ty);
+                    arg_ptr.setAlignment(param_alignment);
+                    var field_types_buf: [8]*const llvm.Type = undefined;
+                    const field_types = field_types_buf[0..llvm_floats.len];
+                    for (llvm_floats) |float_bits, i| {
+                        switch (float_bits) {
+                            64 => field_types[i] = dg.context.doubleType(),
+                            80 => field_types[i] = dg.context.x86FP80Type(),
+                            else => {},
+                        }
+                    }
+                    const ints_llvm_ty = dg.context.structType(field_types.ptr, @intCast(c_uint, field_types.len), .False);
+                    const casted_ptr = builder.buildBitCast(arg_ptr, ints_llvm_ty.pointerType(0), "");
+                    for (llvm_floats) |_, i_usize| {
+                        const i = @intCast(c_uint, i_usize);
+                        const param = llvm_func.getParam(i);
+                        const field_ptr = builder.buildStructGEP(casted_ptr, i, "");
+                        const store_inst = builder.buildStore(param, field_ptr);
+                        store_inst.setAlignment(target.cpu.arch.ptrBitWidth() / 8);
+                    }
+
+                    const is_by_ref = isByRef(param_ty);
+                    const loaded = if (is_by_ref) arg_ptr else l: {
+                        const load_inst = builder.buildLoad(arg_ptr, "");
+                        load_inst.setAlignment(param_alignment);
+                        break :l load_inst;
+                    };
+                    try args.append(loaded);
+                },
                 .as_u16 => {
                     const param = llvm_func.getParam(llvm_arg_i);
                     llvm_arg_i += 1;
@@ -2331,6 +2365,14 @@ pub const DeclGen = struct {
             dg.addFnAttr(llvm_fn, "noreturn");
         }
 
+        var llvm_arg_i = @as(c_uint, @boolToInt(sret)) + @boolToInt(err_return_tracing);
+        var it = iterateParamTypes(dg, fn_info);
+        while (it.next()) |_| : (llvm_arg_i += 1) {
+            if (!it.byval_attr) continue;
+            const param = llvm_fn.getParam(llvm_arg_i);
+            llvm_fn.addByValAttr(llvm_arg_i, param.typeOf().getElementType());
+        }
+
         return llvm_fn;
     }
 
@@ -2884,6 +2926,18 @@ pub const DeclGen = struct {
                 for (llvm_ints) |int_bits| {
                     const big_int_ty = dg.context.intType(int_bits);
                     llvm_params.appendAssumeCapacity(big_int_ty);
+                }
+            },
+            .multiple_llvm_float => {
+                const llvm_ints = it.llvm_types_buffer[0..it.llvm_types_len];
+                try llvm_params.ensureUnusedCapacity(it.llvm_types_len);
+                for (llvm_ints) |float_bits| {
+                    const float_ty = switch (float_bits) {
+                        64 => dg.context.doubleType(),
+                        80 => dg.context.x86FP80Type(),
+                        else => unreachable,
+                    };
+                    llvm_params.appendAssumeCapacity(float_ty);
                 }
             },
             .as_u16 => {
@@ -4387,6 +4441,39 @@ pub const FuncGen = struct {
                 const casted_ptr = self.builder.buildBitCast(arg_ptr, ints_llvm_ty.pointerType(0), "");
                 try llvm_args.ensureUnusedCapacity(it.llvm_types_len);
                 for (llvm_ints) |_, i_usize| {
+                    const i = @intCast(c_uint, i_usize);
+                    const field_ptr = self.builder.buildStructGEP(casted_ptr, i, "");
+                    const load_inst = self.builder.buildLoad(field_ptr, "");
+                    load_inst.setAlignment(target.cpu.arch.ptrBitWidth() / 8);
+                    llvm_args.appendAssumeCapacity(load_inst);
+                }
+            },
+            .multiple_llvm_float => {
+                const arg = args[it.zig_index - 1];
+                const param_ty = self.air.typeOf(arg);
+                const llvm_floats = it.llvm_types_buffer[0..it.llvm_types_len];
+                const llvm_arg = try self.resolveInst(arg);
+                const is_by_ref = isByRef(param_ty);
+                const arg_ptr = if (is_by_ref) llvm_arg else p: {
+                    const p = self.buildAlloca(llvm_arg.typeOf());
+                    const store_inst = self.builder.buildStore(llvm_arg, p);
+                    store_inst.setAlignment(param_ty.abiAlignment(target));
+                    break :p p;
+                };
+
+                var field_types_buf: [8]*const llvm.Type = undefined;
+                const field_types = field_types_buf[0..llvm_floats.len];
+                for (llvm_floats) |float_bits, i| {
+                    switch (float_bits) {
+                        64 => field_types[i] = self.dg.context.doubleType(),
+                        80 => field_types[i] = self.dg.context.x86FP80Type(),
+                        else => {},
+                    }
+                }
+                const ints_llvm_ty = self.dg.context.structType(field_types.ptr, @intCast(c_uint, field_types.len), .False);
+                const casted_ptr = self.builder.buildBitCast(arg_ptr, ints_llvm_ty.pointerType(0), "");
+                try llvm_args.ensureUnusedCapacity(it.llvm_types_len);
+                for (llvm_floats) |_, i_usize| {
                     const i = @intCast(c_uint, i_usize);
                     const field_ptr = self.builder.buildStructGEP(casted_ptr, i, "");
                     const load_inst = self.builder.buildLoad(field_ptr, "");
@@ -9359,16 +9446,20 @@ fn lowerFnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*const llvm.
                                     llvm_types_index += 1;
                                 },
                                 .sse => {
-                                    @panic("TODO");
+                                    llvm_types_buffer[llvm_types_index] = dg.context.doubleType();
+                                    llvm_types_index += 1;
                                 },
                                 .sseup => {
-                                    @panic("TODO");
+                                    llvm_types_buffer[llvm_types_index] = dg.context.doubleType();
+                                    llvm_types_index += 1;
                                 },
                                 .x87 => {
-                                    @panic("TODO");
+                                    llvm_types_buffer[llvm_types_index] = dg.context.x86FP80Type();
+                                    llvm_types_index += 1;
                                 },
                                 .x87up => {
-                                    @panic("TODO");
+                                    llvm_types_buffer[llvm_types_index] = dg.context.x86FP80Type();
+                                    llvm_types_index += 1;
                                 },
                                 .complex_x87 => {
                                     @panic("TODO");
@@ -9414,6 +9505,7 @@ const ParamTypeIterator = struct {
     target: std.Target,
     llvm_types_len: u32,
     llvm_types_buffer: [8]u16,
+    byval_attr: bool,
 
     const Lowering = enum {
         no_bits,
@@ -9421,6 +9513,7 @@ const ParamTypeIterator = struct {
         byref,
         abi_sized_int,
         multiple_llvm_ints,
+        multiple_llvm_float,
         slice,
         as_u16,
     };
@@ -9428,6 +9521,7 @@ const ParamTypeIterator = struct {
     pub fn next(it: *ParamTypeIterator) ?Lowering {
         if (it.zig_index >= it.fn_info.param_types.len) return null;
         const ty = it.fn_info.param_types[it.zig_index];
+        it.byval_attr = false;
         return nextInner(it, ty);
     }
 
@@ -9513,6 +9607,7 @@ const ParamTypeIterator = struct {
                             .memory => {
                                 it.zig_index += 1;
                                 it.llvm_index += 1;
+                                it.byval_attr = true;
                                 return .byref;
                             },
                             .sse => {
@@ -9532,6 +9627,7 @@ const ParamTypeIterator = struct {
                             if (classes[0] == .memory) {
                                 it.zig_index += 1;
                                 it.llvm_index += 1;
+                                it.byval_attr = true;
                                 return .byref;
                             }
                             var llvm_types_buffer: [8]u16 = undefined;
@@ -9543,16 +9639,20 @@ const ParamTypeIterator = struct {
                                         llvm_types_index += 1;
                                     },
                                     .sse => {
-                                        @panic("TODO");
+                                        llvm_types_buffer[llvm_types_index] = 64;
+                                        llvm_types_index += 1;
                                     },
                                     .sseup => {
-                                        @panic("TODO");
+                                        llvm_types_buffer[llvm_types_index] = 64;
+                                        llvm_types_index += 1;
                                     },
                                     .x87 => {
-                                        @panic("TODO");
+                                        llvm_types_buffer[llvm_types_index] = 80;
+                                        llvm_types_index += 1;
                                     },
                                     .x87up => {
-                                        @panic("TODO");
+                                        llvm_types_buffer[llvm_types_index] = 80;
+                                        llvm_types_index += 1;
                                     },
                                     .complex_x87 => {
                                         @panic("TODO");
@@ -9566,11 +9666,16 @@ const ParamTypeIterator = struct {
                                 it.llvm_index += 1;
                                 return .abi_sized_int;
                             }
+                            if (classes[0] == .sse and classes[1] == .none) {
+                                it.zig_index += 1;
+                                it.llvm_index += 1;
+                                return .byval;
+                            }
                             it.llvm_types_buffer = llvm_types_buffer;
                             it.llvm_types_len = llvm_types_index;
                             it.llvm_index += llvm_types_index;
                             it.zig_index += 1;
-                            return .multiple_llvm_ints;
+                            return if (classes[0] == .integer) .multiple_llvm_ints else .multiple_llvm_float;
                         },
                     },
                     .wasm32 => {
@@ -9611,6 +9716,7 @@ fn iterateParamTypes(dg: *DeclGen, fn_info: Type.Payload.Function.Data) ParamTyp
         .target = dg.module.getTarget(),
         .llvm_types_buffer = undefined,
         .llvm_types_len = 0,
+        .byval_attr = false,
     };
 }
 
