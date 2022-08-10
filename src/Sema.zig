@@ -17274,6 +17274,15 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     else
         operand;
 
+    if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |operand_val| {
+        if (!dest_ty.ptrAllowsZero() and operand_val.isUndef()) {
+            return sema.failWithUseOfUndef(block, operand_src);
+        }
+        if (!dest_ty.ptrAllowsZero() and operand_val.isNull()) {
+            return sema.fail(block, operand_src, "null pointer casted to type {}", .{dest_ty.fmt(sema.mod)});
+        }
+    }
+
     const dest_elem_ty = dest_ty.elemType2();
     try sema.resolveTypeLayout(block, dest_ty_src, dest_elem_ty);
     const dest_align = dest_ty.ptrAlignment(target);
