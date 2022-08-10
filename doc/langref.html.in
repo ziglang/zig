@@ -6622,7 +6622,7 @@ fn gimmeTheBiggerInteger(a: u64, b: u64) u64 {
       <p>
       For example, if we were to introduce another function to the above snippet:
       </p>
-      {#code_begin|test_err|value with comptime only type 'type' depends on runtime control flow#}
+      {#code_begin|test_err|unable to resolve comptime value#}
 fn max(comptime T: type, a: T, b: T) T {
     return if (a > b) a else b;
 }
