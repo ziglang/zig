@@ -1845,7 +1845,7 @@ pub const Mutable = struct {
     /// [1, 2, 3, 4, 0] -> [1, 2, 3, 4]
     /// [1, 2, 0, 0, 0] -> [1, 2]
     /// [0, 0, 0, 0, 0] -> [0]
-    fn normalize(r: *Mutable, length: usize) void {
+    pub fn normalize(r: *Mutable, length: usize) void {
         r.len = llnormalize(r.limbs[0..length]);
     }
 };
