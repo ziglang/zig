@@ -673,6 +673,10 @@ pub const Inst = struct {
         /// Uses the `un_op` field.
         error_name,
 
+        /// Returns true if error set has error with value.
+        /// Uses the `ty_op` field.
+        error_set_has_value,
+
         /// Constructs a vector, tuple, struct, or array value out of runtime-known elements.
         /// Some of the elements may be comptime-known.
         /// Uses the `ty_pl` field, payload is index of an array of elements, each of which
@@ -1062,6 +1066,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .is_err_ptr,
         .is_non_err_ptr,
         .is_named_enum_value,
+        .error_set_has_value,
         => return Type.bool,
 
         .const_ty => return Type.type,
