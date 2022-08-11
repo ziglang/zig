@@ -10441,7 +10441,7 @@ fn zirShr(
                 // Detect if any ones would be shifted out.
                 const truncated = try lhs_val.intTruncBitsAsValue(lhs_ty, sema.arena, .unsigned, rhs_val, target);
                 if (!(try truncated.compareWithZeroAdvanced(.eq, sema.kit(block, src)))) {
-                    return sema.addConstUndef(lhs_ty);
+                    return sema.fail(block, src, "exact shift shifted out 1 bits", .{});
                 }
             }
             const val = try lhs_val.shr(rhs_val, lhs_ty, sema.arena, target);
