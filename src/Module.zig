@@ -84,7 +84,6 @@ string_literal_bytes: std.ArrayListUnmanaged(u8) = .{},
 /// The set of all the generic function instantiations. This is used so that when a generic
 /// function is called twice with the same comptime parameter arguments, both calls dispatch
 /// to the same function.
-/// TODO: remove functions from this set when they are destroyed.
 monomorphed_funcs: MonomorphedFuncsSet = .{},
 /// The set of all comptime function calls that have been cached so that future calls
 /// with the same parameters will get the same return value.
@@ -92,7 +91,6 @@ memoized_calls: MemoizedCallSet = .{},
 /// Contains the values from `@setAlignStack`. A sparse table is used here
 /// instead of a field of `Fn` because usage of `@setAlignStack` is rare, while
 /// functions are many.
-/// TODO: remove functions from this set when they are destroyed.
 align_stack_fns: std.AutoHashMapUnmanaged(*const Fn, SetAlignStack) = .{},
 
 /// We optimize memory usage for a compilation with no compile errors by storing the
@@ -560,6 +558,8 @@ pub const Decl = struct {
             gpa.destroy(extern_fn);
         }
         if (decl.getFunction()) |func| {
+            _ = mod.align_stack_fns.remove(func);
+            _ = mod.monomorphed_funcs.remove(func);
             func.deinit(gpa);
             gpa.destroy(func);
         }
@@ -4094,6 +4094,12 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
             // The exports this Decl performs will be re-discovered, so we remove them here
             // prior to re-analysis.
             mod.deleteDeclExports(decl_index);
+
+            // Similarly, `@setAlignStack` invocations will be re-discovered.
+            if (decl.getFunction()) |func| {
+                _ = mod.align_stack_fns.remove(func);
+            }
+
             // Dependencies will be re-discovered, so we remove them here prior to re-analysis.
             for (decl.dependencies.keys()) |dep_index| {
                 const dep = mod.declPtr(dep_index);
