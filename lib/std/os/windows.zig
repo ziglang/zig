@@ -517,6 +517,9 @@ pub const WriteFileError = error{
     OperationAborted,
     BrokenPipe,
     NotOpenForWriting,
+    /// The process cannot access the file because another process has locked
+    /// a portion of the file.
+    LockViolation,
     Unexpected,
 };
 
@@ -597,6 +600,7 @@ pub fn WriteFile(
                 .IO_PENDING => unreachable,
                 .BROKEN_PIPE => return error.BrokenPipe,
                 .INVALID_HANDLE => return error.NotOpenForWriting,
+                .LOCK_VIOLATION => return error.LockViolation,
                 else => |err| return unexpectedError(err),
             }
         }
