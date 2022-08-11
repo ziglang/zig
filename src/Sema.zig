@@ -11342,6 +11342,10 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             if (maybe_rhs_val) |rhs_val| {
                 if (is_int) {
                     // TODO: emit compile error if there is a remainder
+                    const modulus_val = try lhs_val.intMod(rhs_val, resolved_type, sema.arena, target);
+                    if (modulus_val.compareWithZero(.neq)) {
+                        return sema.fail(block, src, "denominator does not exactly divide numerator", .{});
+                    }
                     return sema.addConstant(
                         resolved_type,
                         try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, target),
