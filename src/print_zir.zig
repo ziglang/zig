@@ -9,10 +9,10 @@ const Module = @import("Module.zig");
 const LazySrcLoc = Module.LazySrcLoc;
 
 /// Write human-readable, debug formatted ZIR code to a file.
-pub fn renderAsTextToFile(
+pub fn renderAsTextToFileWriter(
     gpa: Allocator,
     scope_file: *Module.File,
-    fs_file: std.fs.File,
+    file_writer: anytype,
 ) !void {
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();

@@ -775,6 +775,23 @@ fn calcUtf16LeLen(utf8: []const u8) usize {
     return dest_len;
 }
 
+pub fn getClampedUtf8SizeForUtf16LeSize(utf8: []const u8, utf16le_size: usize) !usize {
+    var src_i: usize = 0;
+    var dest_len: usize = 0;
+    while (src_i < utf8.len) {
+        const n = try utf8ByteSequenceLength(utf8[src_i]);
+        const next_src_i = src_i + n;
+        const codepoint = try utf8Decode(utf8[src_i..next_src_i]);
+
+        const u16_len: usize = if (codepoint < 0x10000) 1 else 2;
+        if (dest_len + u16_len > utf16le_size) return src_i;
+        dest_len += u16_len;
+        src_i = next_src_i;
+    }
+
+    return src_i;
+}
+
 /// Print the given `utf16le` string
 fn formatUtf16le(
     utf16le: []const u16,

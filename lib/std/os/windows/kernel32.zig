@@ -57,6 +57,7 @@ const UCHAR = windows.UCHAR;
 const FARPROC = windows.FARPROC;
 const INIT_ONCE_FN = windows.INIT_ONCE_FN;
 const PMEMORY_BASIC_INFORMATION = windows.PMEMORY_BASIC_INFORMATION;
+const CONSOLE_READCONSOLE_CONTROL = windows.CONSOLE_READCONSOLE_CONTROL;
 
 pub extern "kernel32" fn AddVectoredExceptionHandler(First: c_ulong, Handler: ?VECTORED_EXCEPTION_HANDLER) callconv(WINAPI) ?*anyopaque;
 pub extern "kernel32" fn RemoveVectoredExceptionHandler(Handle: HANDLE) callconv(WINAPI) c_ulong;
@@ -284,6 +285,14 @@ pub extern "kernel32" fn ReadFile(
     in_out_lpOverlapped: ?*OVERLAPPED,
 ) callconv(WINAPI) BOOL;
 
+pub extern "kernel32" fn ReadConsoleW(
+    in_hFile: HANDLE,
+    out_lpBuffer: [*]u16,
+    in_nNumberOfBytesToRead: DWORD,
+    out_lpNumberOfBytesRead: ?*DWORD,
+    in_pInputControl: ?*CONSOLE_READCONSOLE_CONTROL,
+) callconv(WINAPI) BOOL;
+
 pub extern "kernel32" fn RemoveDirectoryW(lpPathName: [*:0]const u16) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn SetConsoleTextAttribute(hConsoleOutput: HANDLE, wAttributes: WORD) callconv(WINAPI) BOOL;
@@ -346,6 +355,14 @@ pub extern "kernel32" fn WriteFile(
     in_nNumberOfBytesToWrite: DWORD,
     out_lpNumberOfBytesWritten: ?*DWORD,
     in_out_lpOverlapped: ?*OVERLAPPED,
+) callconv(WINAPI) BOOL;
+
+pub extern "kernel32" fn WriteConsoleW(
+    in_hConsoleOutput: HANDLE,
+    in_lpBuffer: [*]const u16,
+    in_nNumberOfCharsToWrite: DWORD,
+    out_lpNumberOfCharsWritten: ?*DWORD,
+    reserved_lpReserved: ?LPVOID,
 ) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn WriteFileEx(hFile: HANDLE, lpBuffer: [*]const u8, nNumberOfBytesToWrite: DWORD, lpOverlapped: *OVERLAPPED, lpCompletionRoutine: LPOVERLAPPED_COMPLETION_ROUTINE) callconv(WINAPI) BOOL;

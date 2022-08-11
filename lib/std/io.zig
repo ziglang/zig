@@ -46,14 +46,20 @@ fn getStdOutHandle() os.fd_t {
     return os.STDOUT_FILENO;
 }
 
+pub const StdOutType = if (builtin.os.tag == .windows) ConsoleWriter(4096) else File;
+
 /// TODO: async stdout on windows without a dedicated thread.
 /// https://github.com/ziglang/zig/pull/4816#issuecomment-604521023
-pub fn getStdOut() File {
-    return File{
-        .handle = getStdOutHandle(),
-        .capable_io_mode = .blocking,
-        .intended_io_mode = default_mode,
-    };
+pub fn getStdOut() StdOutType {
+    if (builtin.os.tag == .windows) {
+        return .{ .handle = getStdOutHandle() };
+    } else {
+        return File{
+            .handle = getStdOutHandle(),
+            .capable_io_mode = .blocking,
+            .intended_io_mode = default_mode,
+        };
+    }
 }
 
 fn getStdErrHandle() os.fd_t {
@@ -68,14 +74,20 @@ fn getStdErrHandle() os.fd_t {
     return os.STDERR_FILENO;
 }
 
+pub const StdErrType = if (builtin.os.tag == .windows) ConsoleWriter(4096) else File;
+
 /// This returns a `File` that is configured to block with every write, in order
 /// to facilitate better debugging. This can be changed by modifying the `intended_io_mode` field.
-pub fn getStdErr() File {
-    return File{
-        .handle = getStdErrHandle(),
-        .capable_io_mode = .blocking,
-        .intended_io_mode = .blocking,
-    };
+pub fn getStdErr() StdErrType {
+    if (builtin.os.tag == .windows) {
+        return .{ .handle = getStdErrHandle() };
+    } else {
+        return File{
+            .handle = getStdErrHandle(),
+            .capable_io_mode = .blocking,
+            .intended_io_mode = .blocking,
+        };
+    }
 }
 
 fn getStdInHandle() os.fd_t {
@@ -90,14 +102,20 @@ fn getStdInHandle() os.fd_t {
     return os.STDIN_FILENO;
 }
 
+pub const StdInType = if (builtin.os.tag == .windows) ConsoleReader(4096) else File;
+
 /// TODO: async stdin on windows without a dedicated thread.
 /// https://github.com/ziglang/zig/pull/4816#issuecomment-604521023
-pub fn getStdIn() File {
-    return File{
-        .handle = getStdInHandle(),
-        .capable_io_mode = .blocking,
-        .intended_io_mode = default_mode,
-    };
+pub fn getStdIn() StdInType {
+    if (builtin.os.tag == .windows) {
+        return .{ .handle = getStdInHandle() };
+    } else {
+        return File{
+            .handle = getStdInHandle(),
+            .capable_io_mode = .blocking,
+            .intended_io_mode = default_mode,
+        };
+    }
 }
 
 pub const Reader = @import("io/reader.zig").Reader;
@@ -148,6 +166,9 @@ pub const findByteOutStream = @compileError("deprecated; use `findByteWriter`");
 pub const BufferedAtomicFile = @import("io/buffered_atomic_file.zig").BufferedAtomicFile;
 
 pub const StreamSource = @import("io/stream_source.zig").StreamSource;
+
+pub const ConsoleReader = @import("io/console_reader.zig").ConsoleReader;
+pub const ConsoleWriter = @import("io/console_writer.zig").ConsoleWriter;
 
 /// A Writer that doesn't write to anything.
 pub const null_writer = @as(NullWriter, .{ .context = {} });

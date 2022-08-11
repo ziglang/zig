@@ -512,6 +512,21 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64, io_mode: std.io.Mo
     }
 }
 
+pub fn ReadConsoleW(in_hFile: HANDLE, buffer: []u16, control: ?*CONSOLE_READCONSOLE_CONTROL) ReadFileError!usize {
+    const want_read_count = @intCast(DWORD, math.min(@as(DWORD, maxInt(DWORD)), buffer.len));
+    var amt_read: DWORD = undefined;
+
+    if (kernel32.ReadConsoleW(in_hFile, buffer.ptr, want_read_count, &amt_read, control) == 0) {
+        switch (kernel32.GetLastError()) {
+            .BROKEN_PIPE => return 0,
+            .HANDLE_EOF => return 0,
+            else => |err| return unexpectedError(err),
+        }
+    }
+
+    return amt_read;
+}
+
 pub const WriteFileError = error{
     SystemResources,
     OperationAborted,
@@ -602,6 +617,23 @@ pub fn WriteFile(
         }
         return bytes_written;
     }
+}
+
+pub fn WriteConsoleW(handle: HANDLE, buffer: []const u16) WriteFileError!usize {
+    var written: DWORD = undefined;
+    if (kernel32.WriteConsoleW(handle, buffer.ptr, @intCast(u32, buffer.len), &written, null) == 0) {
+        switch (kernel32.GetLastError()) {
+            .INVALID_USER_BUFFER => return error.SystemResources,
+            .NOT_ENOUGH_MEMORY => return error.SystemResources,
+            .OPERATION_ABORTED => return error.OperationAborted,
+            .NOT_ENOUGH_QUOTA => return error.SystemResources,
+            .IO_PENDING => unreachable,
+            .BROKEN_PIPE => return error.BrokenPipe,
+            .INVALID_HANDLE => return error.NotOpenForWriting,
+            else => |err| return unexpectedError(err),
+        }
+    }
+    return written;
 }
 
 pub const SetCurrentDirectoryError = error{
@@ -3721,4 +3753,11 @@ pub const CTRL_SHUTDOWN_EVENT: DWORD = 6;
 pub const HANDLER_ROUTINE = switch (builtin.zig_backend) {
     .stage1 => fn (dwCtrlType: DWORD) callconv(.C) BOOL,
     else => *const fn (dwCtrlType: DWORD) callconv(.C) BOOL,
+};
+
+pub const CONSOLE_READCONSOLE_CONTROL = extern struct {
+    nLength: ULONG,
+    nInitialChars: ULONG,
+    dwCtrlWakeupMask: ULONG,
+    dwControlKeyState: ULONG,
 };

@@ -95,6 +95,44 @@ pub fn Reader(
             return array_list.toOwnedSlice();
         }
 
+        /// Reads all the bytes from the current position to the end of the file.
+        /// On success, caller owns returned buffer.
+        /// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
+        /// If `size_hint` is specified the initial buffer size is calculated using
+        /// that value, otherwise an arbitrary value is used instead.
+        /// Allows specifying alignment and a sentinel value.
+        pub fn readToEndAllocOptions(
+            self: Self,
+            allocator: mem.Allocator,
+            max_bytes: usize,
+            size_hint: ?usize,
+            comptime alignment: u29,
+            comptime optional_sentinel: ?u8,
+        ) !(if (optional_sentinel) |s| [:s]align(alignment) u8 else []align(alignment) u8) {
+            // If no size hint is provided fall back to the size=0 code path
+            const size = size_hint orelse 0;
+
+            // The file size returned by stat is used as hint to set the buffer
+            // size. If the reported size is zero, as it happens on Linux for files
+            // in /proc, a small buffer is allocated instead.
+            const initial_cap = (if (size > 0) size else 1024) + @boolToInt(optional_sentinel != null);
+            var array_list = try std.ArrayListAligned(u8, alignment).initCapacity(allocator, initial_cap);
+            defer array_list.deinit();
+
+            self.readAllArrayListAligned(alignment, &array_list, max_bytes) catch |err| switch (err) {
+                error.StreamTooLong => return error.FileTooBig,
+                else => |e| return e,
+            };
+
+            if (optional_sentinel) |sentinel| {
+                try array_list.append(sentinel);
+                const buf = array_list.toOwnedSlice();
+                return buf[0 .. buf.len - 1 :sentinel];
+            } else {
+                return array_list.toOwnedSlice();
+            }
+        }
+
         /// Replaces the `std.ArrayList` contents by reading from the stream until `delimiter` is found.
         /// Does not include the delimiter in the result.
         /// If the `std.ArrayList` length would exceed `max_size`, `error.StreamTooLong` is returned and the

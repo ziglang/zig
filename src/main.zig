@@ -3964,10 +3964,10 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
 
 fn readSourceFileToEndAlloc(
     allocator: mem.Allocator,
-    input: *const fs.File,
+    input_reader: anytype,
     size_hint: ?usize,
 ) ![:0]u8 {
-    const source_code = input.readToEndAllocOptions(
+    const source_code = input_reader.readToEndAllocOptions(
         allocator,
         max_src_size,
         size_hint,
@@ -4096,8 +4096,8 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
             fatal("cannot use --stdin with positional arguments", .{});
         }
 
-        const stdin = io.getStdIn();
-        const source_code = readSourceFileToEndAlloc(gpa, &stdin, null) catch |err| {
+        const stdin = io.getStdIn().reader();
+        const source_code = readSourceFileToEndAlloc(gpa, stdin, null) catch |err| {
             fatal("unable to read stdin: {}", .{err});
         };
         defer gpa.free(source_code);
@@ -4227,7 +4227,7 @@ const FmtError = error{
     NotOpenForWriting,
     UnsupportedEncoding,
     ConnectionResetByPeer,
-} || fs.File.OpenError;
+} || fs.File.OpenError || io.StdErrType.Error;
 
 fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) FmtError!void {
     fmtPathFile(fmt, file_path, check_mode, dir, sub_path) catch |err| switch (err) {
@@ -5033,8 +5033,8 @@ pub fn cmdAstCheck(
             .mtime = stat.mtime,
         };
     } else {
-        const stdin = io.getStdIn();
-        const source = readSourceFileToEndAlloc(arena, &stdin, null) catch |err| {
+        const stdin = io.getStdIn().reader();
+        const source = readSourceFileToEndAlloc(arena, stdin, null) catch |err| {
             fatal("unable to read stdin: {}", .{err});
         };
         file.sub_file_path = "<stdin>";
@@ -5094,10 +5094,10 @@ pub fn cmdAstCheck(
         const extra_bytes = file.zir.extra.len * @sizeOf(u32);
         const total_bytes = @sizeOf(Zir) + instruction_bytes + extra_bytes +
             file.zir.string_bytes.len * @sizeOf(u8);
-        const stdout = io.getStdOut();
+        const stdout = io.getStdOut().writer();
         const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
         // zig fmt: off
-        try stdout.writer().print(
+        try stdout.print(
             \\# Source bytes:       {}
             \\# Tokens:             {} ({})
             \\# AST Nodes:          {} ({})
@@ -5118,7 +5118,7 @@ pub fn cmdAstCheck(
         // zig fmt: on
     }
 
-    return @import("print_zir.zig").renderAsTextToFile(gpa, &file, io.getStdOut());
+    return @import("print_zir.zig").renderAsTextToFileWriter(gpa, &file, io.getStdOut().writer());
 }
 
 /// This is only enabled for debug builds.

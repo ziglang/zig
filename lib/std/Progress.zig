@@ -15,7 +15,7 @@ const Progress = @This();
 
 /// `null` if the current node (and its children) should
 /// not print on update()
-terminal: ?std.fs.File = undefined,
+terminal: ?std.io.StdErrType = undefined,
 
 /// Is this a windows API terminal (note: this is not the same as being run on windows
 /// because other terminals exist like MSYS/git-bash)
@@ -143,7 +143,7 @@ pub const Node = struct {
 /// API to return Progress rather than accept it as a parameter.
 /// `estimated_total_items` value of 0 means unknown.
 pub fn start(self: *Progress, name: []const u8, estimated_total_items: usize) *Node {
-    const stderr = std.io.getStdErr();
+    var stderr: std.io.StdErrType = std.io.getStdErr();
     self.terminal = null;
     if (stderr.supportsAnsiEscapeCodes()) {
         self.terminal = stderr;
@@ -196,7 +196,7 @@ fn refreshWithHeldLock(self: *Progress) void {
     const is_dumb = !self.supports_ansi_escape_codes and !self.is_windows_terminal;
     if (is_dumb and self.dont_print_on_dumb) return;
 
-    const file = self.terminal orelse return;
+    var file = self.terminal orelse return;
 
     var end: usize = 0;
     if (self.columns_written > 0) {
@@ -297,7 +297,7 @@ fn refreshWithHeldLock(self: *Progress) void {
 }
 
 pub fn log(self: *Progress, comptime format: []const u8, args: anytype) void {
-    const file = self.terminal orelse {
+    var file = self.terminal orelse {
         std.debug.print(format, args);
         return;
     };
