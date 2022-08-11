@@ -6804,11 +6804,10 @@ fn zirErrorToInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
     const uncasted_operand = try sema.resolveInst(extra.operand);
     const operand = try sema.coerce(block, Type.anyerror, uncasted_operand, operand_src);
-    const result_ty = Type.u16;
 
     if (try sema.resolveMaybeUndefVal(block, src, operand)) |val| {
         if (val.isUndef()) {
-            return sema.addConstUndef(result_ty);
+            return sema.addConstUndef(Type.err_int);
         }
         switch (val.tag()) {
             .@"error" => {
@@ -6817,14 +6816,14 @@ fn zirErrorToInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
                     .base = .{ .tag = .int_u64 },
                     .data = (try sema.mod.getErrorValue(val.castTag(.@"error").?.data.name)).value,
                 };
-                return sema.addConstant(result_ty, Value.initPayload(&payload.base));
+                return sema.addConstant(Type.err_int, Value.initPayload(&payload.base));
             },
 
             // This is not a valid combination with the type `anyerror`.
             .the_only_possible_value => unreachable,
 
             // Assume it's already encoded as an integer.
-            else => return sema.addConstant(result_ty, val),
+            else => return sema.addConstant(Type.err_int, val),
         }
     }
 
@@ -6833,14 +6832,14 @@ fn zirErrorToInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     if (!op_ty.isAnyError()) {
         const names = op_ty.errorSetNames();
         switch (names.len) {
-            0 => return sema.addConstant(result_ty, Value.zero),
-            1 => return sema.addIntUnsigned(result_ty, sema.mod.global_error_set.get(names[0]).?),
+            0 => return sema.addConstant(Type.err_int, Value.zero),
+            1 => return sema.addIntUnsigned(Type.err_int, sema.mod.global_error_set.get(names[0]).?),
             else => {},
         }
     }
 
     try sema.requireRuntimeBlock(block, src, operand_src);
-    return block.addBitCast(result_ty, operand);
+    return block.addBitCast(Type.err_int, operand);
 }
 
 fn zirIntToError(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
@@ -6851,7 +6850,7 @@ fn zirIntToError(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     const src = LazySrcLoc.nodeOffset(extra.node);
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
     const uncasted_operand = try sema.resolveInst(extra.operand);
-    const operand = try sema.coerce(block, Type.u16, uncasted_operand, operand_src);
+    const operand = try sema.coerce(block, Type.err_int, uncasted_operand, operand_src);
     const target = sema.mod.getTarget();
 
     if (try sema.resolveDefinedValue(block, operand_src, operand)) |value| {
@@ -6868,7 +6867,10 @@ fn zirIntToError(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     try sema.requireRuntimeBlock(block, src, operand_src);
     if (block.wantSafety()) {
         const is_lt_len = try block.addUnOp(.cmp_lt_errors_len, operand);
-        try sema.addSafetyCheck(block, is_lt_len, .invalid_error_code);
+        const zero_val = try sema.addConstant(Type.err_int, Value.zero);
+        const is_non_zero = try block.addBinOp(.cmp_neq, operand, zero_val);
+        const ok = try block.addBinOp(.bit_and, is_lt_len, is_non_zero);
+        try sema.addSafetyCheck(block, ok, .invalid_error_code);
     }
     return block.addInst(.{
         .tag = .bitcast,
@@ -17360,7 +17362,7 @@ fn zirErrSetCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
 
     try sema.requireRuntimeBlock(block, src, operand_src);
     if (block.wantSafety() and !dest_ty.isAnyError() and sema.mod.comp.bin_file.options.use_llvm) {
-        const err_int_inst = try block.addBitCast(Type.u16, operand);
+        const err_int_inst = try block.addBitCast(Type.err_int, operand);
         const ok = try block.addTyOp(.error_set_has_value, dest_ty, err_int_inst);
         try sema.addSafetyCheck(block, ok, .invalid_error_code);
     }

@@ -8005,7 +8005,7 @@ pub const FuncGen = struct {
                     .data = err_int,
                 };
                 break :int try self.dg.lowerValue(.{
-                    .ty = Type.u16,
+                    .ty = Type.err_int,
                     .val = Value.initPayload(&tag_val_payload.base),
                 });
             };
