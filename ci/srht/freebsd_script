@@ -7,7 +7,7 @@ sudo pkg update -fq
 sudo pkg install -y cmake py39-s3cmd wget curl jq samurai
 
 ZIGDIR="$(pwd)"
-CACHE_BASENAME="zig+llvm+lld+clang-x86_64-freebsd-gnu-0.10.0-dev.2931+bdf3fa12f"
+CACHE_BASENAME="zig+llvm+lld+clang-x86_64-freebsd-gnu-0.10.0-dev.3524+74673b7f6"
 PREFIX="$HOME/$CACHE_BASENAME"
 
 cd $HOME
@@ -45,7 +45,11 @@ cmake .. -DZIG_EXECUTABLE="$PREFIX/bin/zig"
 samu install
 
 # Here we skip some tests to save time.
-release/bin/zig build test docs -Dskip-stage1 -Dskip-non-native
+release/bin/zig build test docs \
+  --search-prefix "$PREFIX" \
+  -Dstatic-llvm \
+  -Dskip-stage1 \
+  -Dskip-non-native
 
 if [ -f ~/.s3cfg ]; then
   mv ../LICENSE release/
