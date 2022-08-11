@@ -1787,7 +1787,7 @@ fn resetSegfaultHandler() void {
         return;
     }
     var act = os.Sigaction{
-        .handler = .{ .sigaction = os.SIG.DFL },
+        .handler = .{ .handler = os.SIG.DFL },
         .mask = os.empty_sigset,
         .flags = 0,
     };

@@ -475,7 +475,7 @@ pub fn abort() noreturn {
 
         // Install default handler so that the tkill below will terminate.
         const sigact = Sigaction{
-            .handler = .{ .sigaction = SIG.DFL },
+            .handler = .{ .handler = SIG.DFL },
             .mask = empty_sigset,
             .flags = 0,
         };
