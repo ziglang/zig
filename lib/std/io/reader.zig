@@ -247,6 +247,27 @@ pub fn Reader(
             return bytes;
         }
 
+        /// Reads bytes into the bounded array, until
+        /// the bounded array is full, or the stream ends.
+        pub fn readIntoBoundedBytes(
+            self: Self,
+            comptime num_bytes: usize,
+            bounded: *std.BoundedArray(u8, num_bytes),
+        ) !void {
+            while (bounded.len < num_bytes) {
+                const bytes_read = try self.read(bounded.unusedCapacitySlice());
+                if (bytes_read == 0) return;
+                bounded.len += bytes_read;
+            }
+        }
+
+        /// Reads at most `num_bytes` and returns as a bounded array.
+        pub fn readBoundedBytes(self: Self, comptime num_bytes: usize) !std.BoundedArray(u8, num_bytes) {
+            var result = std.BoundedArray(u8, num_bytes){};
+            try self.readIntoBoundedBytes(num_bytes, &result);
+            return result;
+        }
+
         /// Reads a native-endian integer
         pub fn readIntNative(self: Self, comptime T: type) !T {
             const bytes = try self.readBytesNoEof((@typeInfo(T).Int.bits + 7) / 8);
