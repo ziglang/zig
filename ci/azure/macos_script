@@ -34,13 +34,11 @@ git fetch --tags
 mkdir build
 cd build
 cmake .. \
-  -DCMAKE_INSTALL_PREFIX="$(pwd)/stage2" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_BUILD_TYPE=Release \
   -DZIG_TARGET_TRIPLE="$TARGET" \
   -DZIG_TARGET_MCPU="$MCPU" \
-  -DZIG_STATIC=ON \
-  -DZIG_OMIT_STAGE2=ON
+  -DZIG_STATIC=ON
 
 # Now cmake will use zig as the C/C++ compiler. We reset the environment variables
 # so that installation and testing do not get affected by them.
@@ -49,13 +47,8 @@ unset CXX
 
 make $JOBS install
 
-# Here we rebuild zig but this time using the Zig binary we just now produced to
-# build zig1.o rather than relying on the one built with stage0. See
-# https://github.com/ziglang/zig/issues/6830 for more details.
-cmake .. -DZIG_EXECUTABLE="$(pwd)/stage2/bin/zig"
-make $JOBS install
-
-stage2/bin/zig build -p release \
+stage2/bin/zig build \
+  --prefix stage3-release \
   --search-prefix "$PREFIX" \
   -Dstatic-llvm \
   -Drelease \
@@ -63,21 +56,21 @@ stage2/bin/zig build -p release \
   -Dtarget="$TARGET" \
   -Denable-stage1
 
-release/bin/zig build test docs \
+stage3-release/bin/zig build test docs \
   -Denable-macos-sdk \
   -Dstatic-llvm \
   --search-prefix "$PREFIX"
 
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
-  mv ../LICENSE release/
-  mv ../zig-cache/langref.html release/
-  mv release/bin/zig release/
-  rmdir release/bin
+  mv ../LICENSE stage3-release/
+  mv ../zig-cache/langref.html stage3-release/
+  mv stage3-release/bin/zig stage3-release/
+  rmdir stage3-release/bin
 
-  VERSION=$(release/zig version)
+  VERSION=$(stage3-release/zig version)
   DIRNAME="zig-macos-$ARCH-$VERSION"
   TARBALL="$DIRNAME.tar.xz"
-  mv release "$DIRNAME"
+  mv stage3-release "$DIRNAME"
   tar cfJ "$TARBALL" "$DIRNAME"
 
   mv "$DOWNLOADSECUREFILE_SECUREFILEPATH" "$HOME/.s3cfg"

@@ -7,7 +7,9 @@ sudo pkg update -fq
 sudo pkg install -y cmake py39-s3cmd wget curl jq samurai
 
 ZIGDIR="$(pwd)"
-CACHE_BASENAME="zig+llvm+lld+clang-x86_64-freebsd-gnu-0.10.0-dev.3524+74673b7f6"
+TARGET="x86_64-freebsd-gnu"
+MCPU="baseline"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.10.0-dev.3524+74673b7f6"
 PREFIX="$HOME/$CACHE_BASENAME"
 
 cd $HOME
@@ -30,38 +32,46 @@ export TERM=dumb
 mkdir build
 cd build
 cmake .. \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_PREFIX_PATH=$PREFIX \
-    "-DCMAKE_INSTALL_PREFIX=$(pwd)/release" \
-    -DZIG_STATIC=ON \
-    -DZIG_TARGET_TRIPLE=x86_64-freebsd-gnu \
-    -GNinja
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH=$PREFIX \
+  -DZIG_TARGET_TRIPLE="$TARGET" \
+  -DZIG_TARGET_MCPU="$MCPU" \
+  -DZIG_STATIC=ON \
+  -GNinja
 samu install
 
-# Here we rebuild zig but this time using the Zig binary we just now produced to
-# build zig1.o rather than relying on the one built with stage0. This makes it
-# a stage3 build rather than a stage2 build.
-cmake .. -DZIG_EXECUTABLE="$PREFIX/bin/zig"
-samu install
+# TODO: eliminate this workaround. Without this, zig does not end up passing
+# -isystem /usr/include when building libc++, resulting in #include <sys/endian.h>
+# "file not found" errors.
+stage2/bin/zig libc >libc.txt
 
-# Here we skip some tests to save time.
-release/bin/zig build test docs \
+ZIG_LIBC=libc.txt stage2/bin/zig build \
+  --prefix stage3-release \
   --search-prefix "$PREFIX" \
   -Dstatic-llvm \
+  -Drelease \
+  -Dstrip \
+  -Dtarget="$TARGET" \
+  -Denable-stage1
+
+# Here we skip some tests to save time.
+stage3-release/bin/zig build test docs \
+  -Dstatic-llvm \
+  --search-prefix "$PREFIX" \
   -Dskip-stage1 \
   -Dskip-non-native
 
 if [ -f ~/.s3cfg ]; then
-  mv ../LICENSE release/
-  mv ../zig-cache/langref.html release/
-  mv release/bin/zig release/
-  rmdir release/bin
+  mv ../LICENSE stage3-release/
+  mv ../zig-cache/langref.html stage3-release/
+  mv stage3-release/bin/zig stage3-release/
+  rmdir stage3-release/bin
 
   GITBRANCH=$(basename $GITHUB_REF)
-  VERSION=$(release/zig version)
+  VERSION=$(stage3-release/zig version)
   DIRNAME="zig-freebsd-x86_64-$VERSION"
   TARBALL="$DIRNAME.tar.xz"
-  mv release "$DIRNAME"
+  mv stage3-release "$DIRNAME"
   tar cfJ "$TARBALL" "$DIRNAME"
 
   s3cmd put -P --add-header="cache-control: public, max-age=31536000, immutable" "$TARBALL" s3://ziglang.org/builds/
