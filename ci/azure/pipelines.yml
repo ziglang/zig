@@ -56,12 +56,6 @@ jobs:
         git fetch --unshallow # `git describe` won't work on a shallow repo
       }
 
-      # The dev kit zip file that we have here is old, and may be incompatible with
-      # the build.zig script of master branch. So we keep an old version of build.zig
-      # here in the CI directory.
-      mv build.zig build.zig.master
-      mv ci/azure/build.zig build.zig
-
       mkdir $ZIGBUILDDIR
       cd $ZIGBUILDDIR
 
@@ -73,16 +67,11 @@ jobs:
         -Drelease `
         -Dstrip `
         -Duse-zig-libcxx `
-        -Dtarget=$(TARGET)
+        -Dtarget=$(TARGET) `
+        -fno-stage1
       CheckLastExitCode
 
       cd -
-
-      # Now that we have built an up-to-date zig.exe, we restore the original
-      # build script from master branch.
-      rm build.zig
-      mv build.zig.master build.zig
-
     name: build
     displayName: 'Build'
 
@@ -96,15 +85,12 @@ jobs:
         return 0
       }
 
-      # Sadly, stage2 is omitted from this build to save memory on the CI server. Once self-hosted is
-      # built with itself and does not gobble as much memory, we can enable these tests.
-      #& "$ZIGINSTALLDIR\bin\zig.exe" test "..\test\behavior.zig" -fno-stage1 -fLLVM -I "..\test" 2>&1
-      #CheckLastExitCode
+      & "$ZIGINSTALLDIR\bin\zig.exe" build test `
+        --search-prefix "$ZIGPREFIXPATH" `
+        -Dstatic-llvm `
+        -Dskip-non-native
+      CheckLastExitCode
 
-      & "$ZIGINSTALLDIR\bin\zig.exe" build test-toolchain -Dskip-non-native -Dskip-stage2-tests -Domit-stage2 2>&1
-      CheckLastExitCode
-      & "$ZIGINSTALLDIR\bin\zig.exe" build test-std -Dskip-non-native  2>&1
-      CheckLastExitCode
     name: test
     displayName: 'Test'
 
