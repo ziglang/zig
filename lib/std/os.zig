@@ -953,6 +953,10 @@ pub const WriteError = error{
     OperationAborted,
     NotOpenForWriting,
 
+    /// The process cannot access the file because another process has locked
+    /// a portion of the file. Windows-only.
+    LockViolation,
+
     /// This error occurs when no global event loop is configured,
     /// and reading from the file descriptor would block.
     WouldBlock,

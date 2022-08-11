@@ -435,6 +435,7 @@ pub const File = struct {
         EmitFail,
         NameTooLong,
         CurrentWorkingDirectoryUnlinked,
+        LockViolation,
     };
 
     /// Called from within the CodeGen to lower a local variable instantion as an unnamed
