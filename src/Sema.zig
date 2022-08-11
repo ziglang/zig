@@ -11344,13 +11344,17 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     // TODO: emit compile error if there is a remainder
                     const modulus_val = try lhs_val.intMod(rhs_val, resolved_type, sema.arena, target);
                     if (modulus_val.compareWithZero(.neq)) {
-                        return sema.fail(block, src, "denominator does not exactly divide numerator", .{});
+                        return sema.fail(block, src, "exact division produced remainder", .{});
                     }
                     return sema.addConstant(
                         resolved_type,
                         try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, target),
                     );
                 } else {
+                    const modulus_val = try lhs_val.floatMod(rhs_val, resolved_type, sema.arena, target);
+                    if (modulus_val.compareWithZero(.neq)) {
+                        return sema.fail(block, src, "exact division produced remainder", .{});
+                    }
                     // TODO: emit compile error if there is a remainder
                     return sema.addConstant(
                         resolved_type,

@@ -1,5 +1,5 @@
 comptime {
-    const x = @divExact(10, 3);
+    const x = @divExact(10.0, 3.0);
     _ = x;
 }
 
