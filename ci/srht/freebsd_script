@@ -45,7 +45,7 @@ cmake .. -DZIG_EXECUTABLE="$PREFIX/bin/zig"
 samu install
 
 # Here we skip some tests to save time.
-release/bin/zig build test -Dskip-stage1 -Dskip-non-native
+release/bin/zig build test docs -Dskip-stage1 -Dskip-non-native
 
 if [ -f ~/.s3cfg ]; then
   mv ../LICENSE release/
