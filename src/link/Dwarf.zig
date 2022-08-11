@@ -1259,7 +1259,7 @@ fn writeDeclDebugInfo(self: *Dwarf, file: *File, atom: *Atom, dbg_info_buf: []co
                     debug_info_sect.addr = dwarf_segment.vmaddr + new_offset - dwarf_segment.fileoff;
                 }
                 debug_info_sect.size = needed_size;
-                d_sym.debug_line_header_dirty = true;
+                d_sym.debug_info_header_dirty = true;
             }
             const file_pos = debug_info_sect.offset + atom.off;
             try pwriteDbgInfoNops(

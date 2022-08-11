@@ -63,17 +63,16 @@ pub const Reloc = struct {
 pub fn populateMissingMetadata(self: *DebugSymbols, allocator: Allocator) !void {
     if (self.linkedit_segment_cmd_index == null) {
         self.linkedit_segment_cmd_index = @intCast(u8, self.segments.items.len);
-        log.debug("found __LINKEDIT segment free space 0x{x} to 0x{x}", .{
-            self.base.page_size,
-            self.base.page_size * 2,
-        });
+        const fileoff = @intCast(u64, self.base.page_size);
+        const needed_size = @intCast(u64, self.base.page_size) * 2;
+        log.debug("found __LINKEDIT segment free space 0x{x} to 0x{x}", .{ fileoff, needed_size });
         // TODO this needs reworking
         try self.segments.append(allocator, .{
             .segname = makeStaticString("__LINKEDIT"),
-            .vmaddr = self.base.page_size,
-            .vmsize = self.base.page_size,
-            .fileoff = self.base.page_size,
-            .filesize = self.base.page_size,
+            .vmaddr = fileoff,
+            .vmsize = needed_size,
+            .fileoff = fileoff,
+            .filesize = needed_size,
             .maxprot = macho.PROT.READ,
             .initprot = macho.PROT.READ,
             .cmdsize = @sizeOf(macho.segment_command_64),
@@ -284,6 +283,7 @@ pub fn flushModule(self: *DebugSymbols, allocator: Allocator, options: link.Opti
     const lc_writer = lc_buffer.writer();
     var ncmds: u32 = 0;
 
+    self.updateDwarfSegment();
     try self.writeLinkeditSegmentData(&ncmds, lc_writer);
     self.updateDwarfSegment();
 
