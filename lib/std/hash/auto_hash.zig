@@ -193,8 +193,8 @@ fn typeContainsSlice(comptime K: type) bool {
 pub fn autoHash(hasher: anytype, key: anytype) void {
     const Key = @TypeOf(key);
     if (comptime typeContainsSlice(Key)) {
-        @compileError("std.auto_hash.autoHash does not allow slices as well as unions and structs containing slices here (" ++ @typeName(Key) ++
-            ") because the intent is unclear. Consider using std.auto_hash.hash or providing your own hash function instead.");
+        @compileError("std.hash.autoHash does not allow slices as well as unions and structs containing slices here (" ++ @typeName(Key) ++
+            ") because the intent is unclear. Consider using std.hash.autoHashStrat or providing your own hash function instead.");
     }
 
     hash(hasher, key, .Shallow);
