@@ -54,7 +54,7 @@ cd $WORKSPACE
 
 ZIG="$RELEASE_STAGING/bin/zig"
 
-$ZIG build test \
+$ZIG build test docs \
   -fqemu \
   -fwasmtime \
   -Dstatic-llvm \

@@ -527,7 +527,6 @@ pub fn build(b: *Builder) !void {
     const test_step = b.step("test", "Run all the tests");
     test_step.dependOn(toolchain_step);
     test_step.dependOn(std_step);
-    test_step.dependOn(docs_step);
 }
 
 const exe_cflags = [_][]const u8{
