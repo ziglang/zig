@@ -24,7 +24,7 @@ mtime: u64,
 contents: []align(@alignOf(u64)) const u8,
 
 header: macho.mach_header_64 = undefined,
-in_symtab: []const macho.nlist_64 = undefined,
+in_symtab: []align(1) const macho.nlist_64 = undefined,
 in_strtab: []const u8 = undefined,
 
 symtab: std.ArrayListUnmanaged(macho.nlist_64) = .{},
@@ -99,12 +99,13 @@ pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch)
             },
             .SYMTAB => {
                 const symtab = cmd.cast(macho.symtab_command).?;
+                // Sadly, SYMTAB may be at an unaligned offset within the object file.
                 self.in_symtab = @ptrCast(
-                    [*]const macho.nlist_64,
-                    @alignCast(@alignOf(macho.nlist_64), &self.contents[symtab.symoff]),
+                    [*]align(1) const macho.nlist_64,
+                    self.contents.ptr + symtab.symoff,
                 )[0..symtab.nsyms];
                 self.in_strtab = self.contents[symtab.stroff..][0..symtab.strsize];
-                try self.symtab.appendSlice(allocator, self.in_symtab);
+                try self.symtab.appendUnalignedSlice(allocator, self.in_symtab);
             },
             else => {},
         }
@@ -196,10 +197,10 @@ fn filterSymbolsByAddress(
 }
 
 fn filterRelocs(
-    relocs: []const macho.relocation_info,
+    relocs: []align(1) const macho.relocation_info,
     start_addr: u64,
     end_addr: u64,
-) []const macho.relocation_info {
+) []align(1) const macho.relocation_info {
     const Predicate = struct {
         addr: u64,
 
@@ -303,8 +304,8 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
 
         // Read section's list of relocations
         const relocs = @ptrCast(
-            [*]const macho.relocation_info,
-            @alignCast(@alignOf(macho.relocation_info), &self.contents[sect.reloff]),
+            [*]align(1) const macho.relocation_info,
+            self.contents.ptr + sect.reloff,
         )[0..sect.nreloc];
 
         // Symbols within this section only.
@@ -472,7 +473,7 @@ fn createAtomFromSubsection(
     size: u64,
     alignment: u32,
     code: ?[]const u8,
-    relocs: []const macho.relocation_info,
+    relocs: []align(1) const macho.relocation_info,
     indexes: []const SymbolAtIndex,
     match: u8,
     sect: macho.section_64,
@@ -538,7 +539,7 @@ pub fn getSourceSection(self: Object, index: u16) macho.section_64 {
     return self.sections.items[index];
 }
 
-pub fn parseDataInCode(self: Object) ?[]const macho.data_in_code_entry {
+pub fn parseDataInCode(self: Object) ?[]align(1) const macho.data_in_code_entry {
     var it = LoadCommandIterator{
         .ncmds = self.header.ncmds,
         .buffer = self.contents[@sizeOf(macho.mach_header_64)..][0..self.header.sizeofcmds],
@@ -549,8 +550,8 @@ pub fn parseDataInCode(self: Object) ?[]const macho.data_in_code_entry {
                 const dice = cmd.cast(macho.linkedit_data_command).?;
                 const ndice = @divExact(dice.datasize, @sizeOf(macho.data_in_code_entry));
                 return @ptrCast(
-                    [*]const macho.data_in_code_entry,
-                    @alignCast(@alignOf(macho.data_in_code_entry), &self.contents[dice.dataoff]),
+                    [*]align(1) const macho.data_in_code_entry,
+                    self.contents.ptr + dice.dataoff,
                 )[0..ndice];
             },
             else => {},

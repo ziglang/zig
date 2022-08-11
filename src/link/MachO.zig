@@ -5315,10 +5315,10 @@ fn writeFunctionStarts(self: *MachO, ncmds: *u32, lc_writer: anytype) !void {
 }
 
 fn filterDataInCode(
-    dices: []const macho.data_in_code_entry,
+    dices: []align(1) const macho.data_in_code_entry,
     start_addr: u64,
     end_addr: u64,
-) []const macho.data_in_code_entry {
+) []align(1) const macho.data_in_code_entry {
     const Predicate = struct {
         addr: u64,
 
@@ -5825,7 +5825,7 @@ pub fn getEntryPoint(self: MachO) error{MissingMainEntrypoint}!SymbolWithLoc {
     return global;
 }
 
-pub fn findFirst(comptime T: type, haystack: []const T, start: usize, predicate: anytype) usize {
+pub fn findFirst(comptime T: type, haystack: []align(1) const T, start: usize, predicate: anytype) usize {
     if (!@hasDecl(@TypeOf(predicate), "predicate"))
         @compileError("Predicate is required to define fn predicate(@This(), T) bool");
 
