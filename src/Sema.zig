@@ -11262,7 +11262,7 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
     }
 
     const air_tag = if (is_int) blk: {
-        if (lhs_ty.isSignedInt() != rhs_ty.isSignedInt()) {
+        if (lhs_ty.isSignedInt() or rhs_ty.isSignedInt()) {
             return sema.fail(block, src, "division with '{s}' and '{s}': signed integers must use @divTrunc, @divFloor, or @divExact", .{ @tagName(lhs_ty.tag()), @tagName(rhs_ty.tag()) });
         }
         break :blk Air.Inst.Tag.div_trunc;
