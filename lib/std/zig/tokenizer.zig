@@ -1485,7 +1485,7 @@ test "line comment followed by top-level comptime" {
     });
 }
 
-test "tokenizer - unknown length pointer and then c pointer" {
+test "unknown length pointer and then c pointer" {
     try testTokenize(
         \\[*]u8
         \\[*c]u8
@@ -1502,7 +1502,7 @@ test "tokenizer - unknown length pointer and then c pointer" {
     });
 }
 
-test "tokenizer - code point literal with hex escape" {
+test "code point literal with hex escape" {
     try testTokenize(
         \\'\x1b'
     , &.{.char_literal});
@@ -1511,21 +1511,21 @@ test "tokenizer - code point literal with hex escape" {
     , &.{ .invalid, .invalid });
 }
 
-test "tokenizer - newline in char literal" {
+test "newline in char literal" {
     try testTokenize(
         \\'
         \\'
     , &.{ .invalid, .invalid });
 }
 
-test "tokenizer - newline in string literal" {
+test "newline in string literal" {
     try testTokenize(
         \\"
         \\"
     , &.{ .invalid, .string_literal });
 }
 
-test "tokenizer - code point literal with unicode escapes" {
+test "code point literal with unicode escapes" {
     // Valid unicode escapes
     try testTokenize(
         \\'\u{3}'
@@ -1575,13 +1575,13 @@ test "tokenizer - code point literal with unicode escapes" {
     , &.{ .invalid, .integer_literal, .invalid });
 }
 
-test "tokenizer - code point literal with unicode code point" {
+test "code point literal with unicode code point" {
     try testTokenize(
         \\'💩'
     , &.{.char_literal});
 }
 
-test "tokenizer - float literal e exponent" {
+test "float literal e exponent" {
     try testTokenize("a = 4.94065645841246544177e-324;\n", &.{
         .identifier,
         .equal,
@@ -1590,7 +1590,7 @@ test "tokenizer - float literal e exponent" {
     });
 }
 
-test "tokenizer - float literal p exponent" {
+test "float literal p exponent" {
     try testTokenize("a = 0x1.a827999fcef32p+1022;\n", &.{
         .identifier,
         .equal,
@@ -1599,11 +1599,11 @@ test "tokenizer - float literal p exponent" {
     });
 }
 
-test "tokenizer - chars" {
+test "chars" {
     try testTokenize("'c'", &.{.char_literal});
 }
 
-test "tokenizer - invalid token characters" {
+test "invalid token characters" {
     try testTokenize("#", &.{.invalid});
     try testTokenize("`", &.{.invalid});
     try testTokenize("'c", &.{.invalid});
@@ -1611,7 +1611,7 @@ test "tokenizer - invalid token characters" {
     try testTokenize("''", &.{ .invalid, .invalid });
 }
 
-test "tokenizer - invalid literal/comment characters" {
+test "invalid literal/comment characters" {
     try testTokenize("\"\x00\"", &.{
         .string_literal,
         .invalid,
@@ -1627,12 +1627,12 @@ test "tokenizer - invalid literal/comment characters" {
     });
 }
 
-test "tokenizer - utf8" {
+test "utf8" {
     try testTokenize("//\xc2\x80", &.{});
     try testTokenize("//\xf4\x8f\xbf\xbf", &.{});
 }
 
-test "tokenizer - invalid utf8" {
+test "invalid utf8" {
     try testTokenize("//\x80", &.{
         .invalid,
     });
@@ -1659,7 +1659,7 @@ test "tokenizer - invalid utf8" {
     });
 }
 
-test "tokenizer - illegal unicode codepoints" {
+test "illegal unicode codepoints" {
     // unicode newline characters.U+0085, U+2028, U+2029
     try testTokenize("//\xc2\x84", &.{});
     try testTokenize("//\xc2\x85", &.{
@@ -1676,7 +1676,7 @@ test "tokenizer - illegal unicode codepoints" {
     try testTokenize("//\xe2\x80\xaa", &.{});
 }
 
-test "tokenizer - string identifier and builtin fns" {
+test "string identifier and builtin fns" {
     try testTokenize(
         \\const @"if" = @import("std");
     , &.{
@@ -1691,7 +1691,7 @@ test "tokenizer - string identifier and builtin fns" {
     });
 }
 
-test "tokenizer - multiline string literal with literal tab" {
+test "multiline string literal with literal tab" {
     try testTokenize(
         \\\\foo	bar
     , &.{
@@ -1699,7 +1699,7 @@ test "tokenizer - multiline string literal with literal tab" {
     });
 }
 
-test "tokenizer - comments with literal tab" {
+test "comments with literal tab" {
     try testTokenize(
         \\//foo	bar
         \\//!foo	bar
@@ -1715,14 +1715,14 @@ test "tokenizer - comments with literal tab" {
     });
 }
 
-test "tokenizer - pipe and then invalid" {
+test "pipe and then invalid" {
     try testTokenize("||=", &.{
         .pipe_pipe,
         .equal,
     });
 }
 
-test "tokenizer - line comment and doc comment" {
+test "line comment and doc comment" {
     try testTokenize("//", &.{});
     try testTokenize("// a / b", &.{});
     try testTokenize("// /", &.{});
@@ -1733,7 +1733,7 @@ test "tokenizer - line comment and doc comment" {
     try testTokenize("//!!", &.{.container_doc_comment});
 }
 
-test "tokenizer - line comment followed by identifier" {
+test "line comment followed by identifier" {
     try testTokenize(
         \\    Unexpected,
         \\    // another
@@ -1746,7 +1746,7 @@ test "tokenizer - line comment followed by identifier" {
     });
 }
 
-test "tokenizer - UTF-8 BOM is recognized and skipped" {
+test "UTF-8 BOM is recognized and skipped" {
     try testTokenize("\xEF\xBB\xBFa;\n", &.{
         .identifier,
         .semicolon,
@@ -1788,7 +1788,7 @@ test "correctly parse pointer dereference followed by asterisk" {
     });
 }
 
-test "tokenizer - range literals" {
+test "range literals" {
     try testTokenize("0...9", &.{ .integer_literal, .ellipsis3, .integer_literal });
     try testTokenize("'0'...'9'", &.{ .char_literal, .ellipsis3, .char_literal });
     try testTokenize("0x00...0x09", &.{ .integer_literal, .ellipsis3, .integer_literal });
@@ -1796,7 +1796,7 @@ test "tokenizer - range literals" {
     try testTokenize("0o00...0o11", &.{ .integer_literal, .ellipsis3, .integer_literal });
 }
 
-test "tokenizer - number literals decimal" {
+test "number literals decimal" {
     try testTokenize("0", &.{.integer_literal});
     try testTokenize("1", &.{.integer_literal});
     try testTokenize("2", &.{.integer_literal});
@@ -1863,7 +1863,7 @@ test "tokenizer - number literals decimal" {
     try testTokenize("1.0e0_+", &.{ .invalid, .plus });
 }
 
-test "tokenizer - number literals binary" {
+test "number literals binary" {
     try testTokenize("0b0", &.{.integer_literal});
     try testTokenize("0b1", &.{.integer_literal});
     try testTokenize("0b2", &.{ .invalid, .integer_literal });
@@ -1902,7 +1902,7 @@ test "tokenizer - number literals binary" {
     try testTokenize("0b1_,", &.{ .invalid, .comma });
 }
 
-test "tokenizer - number literals octal" {
+test "number literals octal" {
     try testTokenize("0o0", &.{.integer_literal});
     try testTokenize("0o1", &.{.integer_literal});
     try testTokenize("0o2", &.{.integer_literal});
@@ -1941,7 +1941,7 @@ test "tokenizer - number literals octal" {
     try testTokenize("0o_,", &.{ .invalid, .identifier, .comma });
 }
 
-test "tokenizer - number literals hexadecimal" {
+test "number literals hexadecimal" {
     try testTokenize("0x0", &.{.integer_literal});
     try testTokenize("0x1", &.{.integer_literal});
     try testTokenize("0x2", &.{.integer_literal});
@@ -2029,22 +2029,22 @@ test "tokenizer - number literals hexadecimal" {
     try testTokenize("0x0.0p0_", &.{ .invalid, .eof });
 }
 
-test "tokenizer - multi line string literal with only 1 backslash" {
+test "multi line string literal with only 1 backslash" {
     try testTokenize("x \\\n;", &.{ .identifier, .invalid, .semicolon });
 }
 
-test "tokenizer - invalid builtin identifiers" {
+test "invalid builtin identifiers" {
     try testTokenize("@()", &.{ .invalid, .l_paren, .r_paren });
     try testTokenize("@0()", &.{ .invalid, .integer_literal, .l_paren, .r_paren });
 }
 
-test "tokenizer - invalid token with unfinished escape right before eof" {
+test "invalid token with unfinished escape right before eof" {
     try testTokenize("\"\\", &.{.invalid});
     try testTokenize("'\\", &.{.invalid});
     try testTokenize("'\\u", &.{.invalid});
 }
 
-test "tokenizer - saturating" {
+test "saturating" {
     try testTokenize("<<", &.{.angle_bracket_angle_bracket_left});
     try testTokenize("<<|", &.{.angle_bracket_angle_bracket_left_pipe});
     try testTokenize("<<|=", &.{.angle_bracket_angle_bracket_left_pipe_equal});
