@@ -247,6 +247,31 @@ const BigTomb = struct {
             log.debug("%{d} => {}", .{ bt.inst, result });
             const branch = &bt.function.branch_stack.items[bt.function.branch_stack.items.len - 1];
             branch.inst_table.putAssumeCapacityNoClobber(bt.inst, result);
+
+            switch (result) {
+                .register => |reg| {
+                    // In some cases (such as bitcast), an operand
+                    // may be the same MCValue as the result. If
+                    // that operand died and was a register, it
+                    // was freed by processDeath. We have to
+                    // "re-allocate" the register.
+                    if (bt.function.register_manager.isRegFree(reg)) {
+                        bt.function.register_manager.getRegAssumeFree(reg, bt.inst);
+                    }
+                },
+                .register_c_flag,
+                .register_v_flag,
+                => |reg| {
+                    if (bt.function.register_manager.isRegFree(reg)) {
+                        bt.function.register_manager.getRegAssumeFree(reg, bt.inst);
+                    }
+                    bt.function.cpsr_flags_inst = bt.inst;
+                },
+                .cpsr_flags => {
+                    bt.function.cpsr_flags_inst = bt.inst;
+                },
+                else => {},
+            }
         }
         bt.function.finishAirBookkeeping();
     }
@@ -3524,7 +3549,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
         try self.register_manager.getReg(reg, null);
     }
 
-    if (info.return_value == .stack_offset) {
+    // If returning by reference, r0 will contain the address of where
+    // to put the result into. In that case, make sure that r0 remains
+    // untouched by the parameter passing code
+    const r0_lock: ?RegisterLock = if (info.return_value == .stack_offset) blk: {
         log.debug("airCall: return by reference", .{});
         const ret_ty = fn_ty.fnReturnType();
         const ret_abi_size = @intCast(u32, ret_ty.abiSize(self.target.*));
@@ -3540,7 +3568,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
         try self.genSetReg(ptr_ty, .r0, .{ .ptr_stack_offset = stack_offset });
 
         info.return_value = .{ .stack_offset = stack_offset };
-    }
+
+        break :blk self.register_manager.lockRegAssumeUnused(.r0);
+    } else null;
+    defer if (r0_lock) |reg| self.register_manager.unlockReg(reg);
 
     // Make space for the arguments passed via the stack
     self.max_end_stack += info.stack_byte_count;
