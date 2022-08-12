@@ -641,6 +641,13 @@ pub fn addPkgTests(
         } else false;
         if (!want_this_mode) continue;
 
+        if (test_target.backend) |backend| {
+            if (backend == .stage2_c and builtin.os.tag == .windows) {
+                // https://github.com/ziglang/zig/issues/12415
+                continue;
+            }
+        }
+
         const libc_prefix = if (test_target.target.getOs().requiresLibC())
             ""
         else if (test_target.link_libc)

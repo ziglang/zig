@@ -34,7 +34,10 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     if (builtin.zig_backend == .stage1) { // https://github.com/ziglang/zig/issues/12194
         cases.addBuildFile("test/standalone/issue_9812/build.zig", .{});
     }
-    cases.addBuildFile("test/standalone/issue_11595/build.zig", .{});
+    if (builtin.os.tag != .windows) {
+        // https://github.com/ziglang/zig/issues/12419
+        cases.addBuildFile("test/standalone/issue_11595/build.zig", .{});
+    }
     if (builtin.os.tag != .wasi) {
         cases.addBuildFile("test/standalone/load_dynamic_library/build.zig", .{});
     }
