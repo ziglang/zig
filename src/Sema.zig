@@ -1925,6 +1925,7 @@ fn failWithOwnedErrorMsg(sema: *Sema, err_msg: *Module.ErrorMsg) CompileError {
     const gop = mod.failed_decls.getOrPutAssumeCapacity(sema.owner_decl_index);
     if (gop.found_existing) {
         // If there are multiple errors for the same Decl, prefer the first one added.
+        sema.err = null;
         err_msg.destroy(mod.gpa);
     } else {
         gop.value_ptr.* = err_msg;
