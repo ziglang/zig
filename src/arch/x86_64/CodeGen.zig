@@ -4370,6 +4370,7 @@ fn genVarDbgInfo(
         .dwarf => |dw| {
             const dbg_info = &dw.dbg_info;
             try dbg_info.append(@enumToInt(link.File.Dwarf.AbbrevKind.variable));
+            const endian = self.target.cpu.arch.endian();
 
             switch (mcv) {
                 .register => |reg| {
@@ -4390,7 +4391,6 @@ fn genVarDbgInfo(
                     dbg_info.items[fixup] += @intCast(u8, dbg_info.items.len - fixup - 2);
                 },
                 .memory, .got_load, .direct_load => {
-                    const endian = self.target.cpu.arch.endian();
                     const ptr_width = @intCast(u8, @divExact(self.target.cpu.arch.ptrBitWidth(), 8));
                     const is_ptr = switch (tag) {
                         .dbg_var_ptr => true,
@@ -4425,7 +4425,53 @@ fn genVarDbgInfo(
                         else => {},
                     }
                 },
+                .immediate => |x| {
+                    const signedness: std.builtin.Signedness = blk: {
+                        if (ty.zigTypeTag() != .Int) break :blk .unsigned;
+                        break :blk ty.intInfo(self.target.*).signedness;
+                    };
+                    try dbg_info.ensureUnusedCapacity(2);
+                    const fixup = dbg_info.items.len;
+                    dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
+                        1,
+                        switch (signedness) {
+                            .signed => DW.OP.consts,
+                            .unsigned => DW.OP.constu,
+                        },
+                    });
+                    switch (signedness) {
+                        .signed => try leb128.writeILEB128(dbg_info.writer(), @bitCast(i64, x)),
+                        .unsigned => try leb128.writeULEB128(dbg_info.writer(), x),
+                    }
+                    try dbg_info.append(DW.OP.stack_value);
+                    dbg_info.items[fixup] += @intCast(u8, dbg_info.items.len - fixup - 2);
+                },
+                .undef => {
+                    // DW.AT.location, DW.FORM.exprloc
+                    // uleb128(exprloc_len)
+                    // DW.OP.implicit_value uleb128(len_of_bytes) bytes
+                    const abi_size = @intCast(u32, ty.abiSize(self.target.*));
+                    var implicit_value_len = std.ArrayList(u8).init(self.gpa);
+                    defer implicit_value_len.deinit();
+                    try leb128.writeULEB128(implicit_value_len.writer(), abi_size);
+                    const total_exprloc_len = 1 + implicit_value_len.items.len + abi_size;
+                    try leb128.writeULEB128(dbg_info.writer(), total_exprloc_len);
+                    try dbg_info.ensureUnusedCapacity(total_exprloc_len);
+                    dbg_info.appendAssumeCapacity(DW.OP.implicit_value);
+                    dbg_info.appendSliceAssumeCapacity(implicit_value_len.items);
+                    dbg_info.appendNTimesAssumeCapacity(0xaa, abi_size);
+                },
+                .none => {
+                    try dbg_info.ensureUnusedCapacity(3);
+                    dbg_info.appendSliceAssumeCapacity(&[3]u8{ // DW.AT.location, DW.FORM.exprloc
+                        2, DW.OP.lit0, DW.OP.stack_value,
+                    });
+                },
                 else => {
+                    try dbg_info.ensureUnusedCapacity(2);
+                    dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
+                        1, DW.OP.nop,
+                    });
                     log.debug("TODO generate debug info for {}", .{mcv});
                 },
             }
