@@ -1224,10 +1224,6 @@ pub const TestContext = struct {
         try aux_thread_pool.init(self.gpa);
         defer aux_thread_pool.deinit();
 
-        var case_thread_pool: ThreadPool = undefined;
-        try case_thread_pool.init(self.gpa);
-        defer case_thread_pool.deinit();
-
         // Use the same global cache dir for all the tests, such that we for example don't have to
         // rebuild musl libc for every case (when LLVM backend is enabled).
         var global_tmp = std.testing.tmpDir(.{});
@@ -1245,9 +1241,6 @@ pub const TestContext = struct {
         defer self.gpa.free(global_cache_directory.path.?);
 
         {
-            var wait_group: WaitGroup = .{};
-            defer wait_group.wait();
-
             for (self.cases.items) |*case| {
                 if (build_options.skip_non_native) {
                     if (case.target.getCpuArch() != builtin.cpu.arch)
@@ -1267,17 +1260,19 @@ pub const TestContext = struct {
                     if (std.mem.indexOf(u8, case.name, test_filter) == null) continue;
                 }
 
-                wait_group.start();
-                try case_thread_pool.spawn(workerRunOneCase, .{
+                var prg_node = root_node.start(case.name, case.updates.items.len);
+                prg_node.activate();
+                defer prg_node.end();
+
+                case.result = runOneCase(
                     self.gpa,
-                    root_node,
-                    case,
+                    &prg_node,
+                    case.*,
                     zig_lib_directory,
                     &aux_thread_pool,
                     global_cache_directory,
                     host,
-                    &wait_group,
-                });
+                );
             }
         }
 
@@ -1293,33 +1288,6 @@ pub const TestContext = struct {
             print("{d} tests failed\n", .{fail_count});
             return error.TestFailed;
         }
-    }
-
-    fn workerRunOneCase(
-        gpa: Allocator,
-        root_node: *std.Progress.Node,
-        case: *Case,
-        zig_lib_directory: Compilation.Directory,
-        thread_pool: *ThreadPool,
-        global_cache_directory: Compilation.Directory,
-        host: std.zig.system.NativeTargetInfo,
-        wait_group: *WaitGroup,
-    ) void {
-        defer wait_group.finish();
-
-        var prg_node = root_node.start(case.name, case.updates.items.len);
-        prg_node.activate();
-        defer prg_node.end();
-
-        case.result = runOneCase(
-            gpa,
-            &prg_node,
-            case.*,
-            zig_lib_directory,
-            thread_pool,
-            global_cache_directory,
-            host,
-        );
     }
 
     fn runOneCase(

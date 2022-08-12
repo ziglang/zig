@@ -34,13 +34,16 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     if (builtin.zig_backend == .stage1) { // https://github.com/ziglang/zig/issues/12194
         cases.addBuildFile("test/standalone/issue_9812/build.zig", .{});
     }
-    cases.addBuildFile("test/standalone/issue_11595/build.zig", .{});
+    if (builtin.os.tag != .windows) {
+        // https://github.com/ziglang/zig/issues/12419
+        cases.addBuildFile("test/standalone/issue_11595/build.zig", .{});
+    }
     if (builtin.os.tag != .wasi) {
         cases.addBuildFile("test/standalone/load_dynamic_library/build.zig", .{});
     }
     // C ABI compatibility issue: https://github.com/ziglang/zig/issues/1481
     if (builtin.cpu.arch == .x86_64) {
-        if (builtin.zig_backend == .stage1) { // https://github.com/ziglang/zig/issues/12222
+        if (builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) { // https://github.com/ziglang/zig/issues/12222
             cases.addBuildFile("test/c_abi/build.zig", .{});
         }
     }

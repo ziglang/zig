@@ -4227,7 +4227,8 @@ const FmtError = error{
     NotOpenForWriting,
     UnsupportedEncoding,
     ConnectionResetByPeer,
-} || fs.File.OpenError || io.StdErrType.Error;
+    LockViolation,
+} || fs.File.OpenError;
 
 fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) FmtError!void {
     fmtPathFile(fmt, file_path, check_mode, dir, sub_path) catch |err| switch (err) {

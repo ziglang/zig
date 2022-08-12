@@ -218,7 +218,7 @@ const RelocContext = struct {
     base_offset: i32 = 0,
 };
 
-pub fn parseRelocs(self: *Atom, relocs: []const macho.relocation_info, context: RelocContext) !void {
+pub fn parseRelocs(self: *Atom, relocs: []align(1) const macho.relocation_info, context: RelocContext) !void {
     const tracy = trace(@src());
     defer tracy.end();
 

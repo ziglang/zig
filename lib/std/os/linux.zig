@@ -1945,9 +1945,9 @@ pub const SIG = if (is_mips) struct {
     pub const SYS = 31;
     pub const UNUSED = SIG.SYS;
 
-    pub const ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
-    pub const DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
-    pub const IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
+    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
+    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
+    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
 } else if (is_sparc) struct {
     pub const BLOCK = 1;
     pub const UNBLOCK = 2;
@@ -1989,9 +1989,9 @@ pub const SIG = if (is_mips) struct {
     pub const PWR = LOST;
     pub const IO = SIG.POLL;
 
-    pub const ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
-    pub const DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
-    pub const IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
+    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
+    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
+    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
 } else struct {
     pub const BLOCK = 0;
     pub const UNBLOCK = 1;
@@ -2032,9 +2032,9 @@ pub const SIG = if (is_mips) struct {
     pub const SYS = 31;
     pub const UNUSED = SIG.SYS;
 
-    pub const ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
-    pub const DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
-    pub const IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
+    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
+    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
+    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
 };
 
 pub const kernel_rwf = u32;

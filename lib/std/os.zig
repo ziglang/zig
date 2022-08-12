@@ -475,10 +475,9 @@ pub fn abort() noreturn {
 
         // Install default handler so that the tkill below will terminate.
         const sigact = Sigaction{
-            .handler = .{ .sigaction = SIG.DFL },
-            .mask = undefined,
-            .flags = undefined,
-            .restorer = undefined,
+            .handler = .{ .handler = SIG.DFL },
+            .mask = empty_sigset,
+            .flags = 0,
         };
         sigaction(SIG.ABRT, &sigact, null) catch |err| switch (err) {
             error.OperationNotSupported => unreachable,
@@ -952,6 +951,10 @@ pub const WriteError = error{
     SystemResources,
     OperationAborted,
     NotOpenForWriting,
+
+    /// The process cannot access the file because another process has locked
+    /// a portion of the file. Windows-only.
+    LockViolation,
 
     /// This error occurs when no global event loop is configured,
     /// and reading from the file descriptor would block.

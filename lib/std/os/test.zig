@@ -785,7 +785,7 @@ test "sigaction" {
     try testing.expect(signal_test_failed == false);
     // Check if the handler has been correctly reset to SIG_DFL
     try os.sigaction(os.SIG.USR1, null, &old_sa);
-    try testing.expectEqual(os.SIG.DFL, old_sa.handler.sigaction);
+    try testing.expectEqual(os.SIG.DFL, old_sa.handler.handler);
 }
 
 test "dup & dup2" {
