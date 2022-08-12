@@ -1,0 +1,8 @@
+#!/bin/sh
+
+. ./ci/drone/linux_script_base
+
+./build/zig build test-behavior    -Dskip-non-native
+./build/zig build test-compiler-rt -Dskip-non-native
+./build/zig build test-fmt
+./build/zig build docs

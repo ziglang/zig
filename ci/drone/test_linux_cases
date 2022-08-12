@@ -1,0 +1,6 @@
+#!/bin/sh
+
+. ./ci/drone/linux_script_base
+
+./build/zig build -Dskip-non-native # test building self-hosted without LLVM
+./build/zig build -Dskip-non-native test-cases
