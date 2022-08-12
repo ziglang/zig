@@ -1469,8 +1469,8 @@ pub const Tokenizer = struct {
     }
 };
 
-test "tokenizer" {
-    try testTokenize("test", &.{.keyword_test});
+test "keywords" {
+    try testTokenize("test const else", &.{ .keyword_test, .keyword_const, .keyword_else });
 }
 
 test "line comment followed by top-level comptime" {
@@ -2044,7 +2044,7 @@ test "invalid token with unfinished escape right before eof" {
     try testTokenize("'\\u", &.{.invalid});
 }
 
-test "saturating" {
+test "saturating operators" {
     try testTokenize("<<", &.{.angle_bracket_angle_bracket_left});
     try testTokenize("<<|", &.{.angle_bracket_angle_bracket_left_pipe});
     try testTokenize("<<|=", &.{.angle_bracket_angle_bracket_left_pipe_equal});
