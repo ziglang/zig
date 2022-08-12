@@ -3,6 +3,11 @@ const builtin = @import("builtin");
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.StandaloneContext) void {
+    if (builtin.os.tag == .windows) {
+        // https://github.com/ziglang/zig/issues/12421
+        return;
+    }
+
     cases.addBuildFile("test/link/bss/build.zig", .{
         .build_modes = false, // we only guarantee zerofill for undefined in Debug
     });
