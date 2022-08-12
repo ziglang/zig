@@ -42,7 +42,6 @@ git fetch --tags
 mkdir build
 cd build
 cmake .. \
-  -DCMAKE_INSTALL_PREFIX="$DISTDIR" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_AR="$PREFIX/bin/ar" \
@@ -58,8 +57,11 @@ unset CC
 unset CXX
 samu install
 
-# Here we rebuild Zig but this time using the Zig binary we just now produced to
-# build zig1.o rather than relying on the one built with stage0. See
-# https://github.com/ziglang/zig/issues/6830 for more details.
-cmake .. -DZIG_EXECUTABLE="$DISTDIR/bin/zig"
-samu install
+stage2/bin/zig build \
+  --prefix "$DISTDIR" \
+  --search-prefix "$PREFIX" \
+  -Dstatic-llvm \
+  -Drelease \
+  -Dstrip \
+  -Dtarget="$TARGET" \
+  -Denable-stage1
