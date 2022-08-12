@@ -1,5 +1,4 @@
 const std = @import("../std.zig");
-const mem = std.mem;
 
 pub const Token = struct {
     tag: Tag,
@@ -350,7 +349,7 @@ pub const Tokenizer = struct {
 
     pub fn init(buffer: [:0]const u8) Tokenizer {
         // Skip the UTF-8 BOM if present
-        const src_start = if (mem.startsWith(u8, buffer, "\xEF\xBB\xBF")) 3 else @as(usize, 0);
+        const src_start: usize = if (std.mem.startsWith(u8, buffer, "\xEF\xBB\xBF")) 3 else 0;
         return Tokenizer{
             .buffer = buffer,
             .index = src_start,
@@ -1433,8 +1432,8 @@ pub const Tokenizer = struct {
 
     fn getInvalidCharacterLength(self: *Tokenizer) u3 {
         const c0 = self.buffer[self.index];
-        if (c0 < 0x80) {
-            if (c0 < 0x20 or c0 == 0x7f) {
+        if (std.ascii.isASCII(c0)) {
+            if (std.ascii.isCntrl(c0)) {
                 // ascii control codes are never allowed
                 // (note that \n was checked before we got here)
                 return 1;
