@@ -7676,7 +7676,8 @@ fn builtinCall(
                 } },
             });
             gz.instructions.appendAssumeCapacity(new_index);
-            return indexToRef(new_index);
+            const result = indexToRef(new_index);
+            return rvalue(gz, rl, result, node);
         },
         .panic => {
             try emitDbgNode(gz, node);
