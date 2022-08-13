@@ -247,6 +247,31 @@ const BigTomb = struct {
             log.debug("%{d} => {}", .{ bt.inst, result });
             const branch = &bt.function.branch_stack.items[bt.function.branch_stack.items.len - 1];
             branch.inst_table.putAssumeCapacityNoClobber(bt.inst, result);
+
+            switch (result) {
+                .register => |reg| {
+                    // In some cases (such as bitcast), an operand
+                    // may be the same MCValue as the result. If
+                    // that operand died and was a register, it
+                    // was freed by processDeath. We have to
+                    // "re-allocate" the register.
+                    if (bt.function.register_manager.isRegFree(reg)) {
+                        bt.function.register_manager.getRegAssumeFree(reg, bt.inst);
+                    }
+                },
+                .register_c_flag,
+                .register_v_flag,
+                => |reg| {
+                    if (bt.function.register_manager.isRegFree(reg)) {
+                        bt.function.register_manager.getRegAssumeFree(reg, bt.inst);
+                    }
+                    bt.function.cpsr_flags_inst = bt.inst;
+                },
+                .cpsr_flags => {
+                    bt.function.cpsr_flags_inst = bt.inst;
+                },
+                else => {},
+            }
         }
         bt.function.finishAirBookkeeping();
     }
@@ -332,7 +357,7 @@ pub fn generate(
     };
 
     for (function.dbg_arg_relocs.items) |reloc| {
-        try function.genArgDbgInfo(reloc.inst, reloc.index, call_info.stack_byte_count);
+        try function.genArgDbgInfo(reloc.inst, reloc.index);
     }
 
     var mir = Mir{
@@ -351,7 +376,8 @@ pub fn generate(
         .prev_di_pc = 0,
         .prev_di_line = module_fn.lbrace_line,
         .prev_di_column = module_fn.lbrace_column,
-        .prologue_stack_space = call_info.stack_byte_count + function.saved_regs_stack_space,
+        .stack_size = function.max_end_stack,
+        .saved_regs_stack_space = function.saved_regs_stack_space,
     };
     defer emit.deinit();
 
@@ -464,6 +490,7 @@ fn gen(self: *Self) !void {
         const total_stack_size = self.max_end_stack + self.saved_regs_stack_space;
         const aligned_total_stack_end = mem.alignForwardGeneric(u32, total_stack_size, self.stack_align);
         const stack_size = aligned_total_stack_end - self.saved_regs_stack_space;
+        self.max_end_stack = stack_size;
         if (Instruction.Operand.fromU32(stack_size)) |op| {
             self.mir_instructions.set(sub_reloc, .{
                 .tag = .sub,
@@ -1812,7 +1839,7 @@ fn errUnionErr(self: *Self, error_union_mcv: MCValue, error_union_ty: Type) !MCV
     switch (error_union_mcv) {
         .register => return self.fail("TODO errUnionErr for registers", .{}),
         .stack_argument_offset => |off| {
-            return MCValue{ .stack_argument_offset = off - err_offset };
+            return MCValue{ .stack_argument_offset = off + err_offset };
         },
         .stack_offset => |off| {
             return MCValue{ .stack_offset = off - err_offset };
@@ -1849,7 +1876,7 @@ fn errUnionPayload(self: *Self, error_union_mcv: MCValue, error_union_ty: Type) 
     switch (error_union_mcv) {
         .register => return self.fail("TODO errUnionPayload for registers", .{}),
         .stack_argument_offset => |off| {
-            return MCValue{ .stack_argument_offset = off - payload_offset };
+            return MCValue{ .stack_argument_offset = off + payload_offset };
         },
         .stack_offset => |off| {
             return MCValue{ .stack_offset = off - payload_offset };
@@ -1983,7 +2010,7 @@ fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
             .dead, .unreach => unreachable,
             .register => unreachable, // a slice doesn't fit in one register
             .stack_argument_offset => |off| {
-                break :result MCValue{ .stack_argument_offset = off - 4 };
+                break :result MCValue{ .stack_argument_offset = off + 4 };
             },
             .stack_offset => |off| {
                 break :result MCValue{ .stack_offset = off - 4 };
@@ -2259,16 +2286,17 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         .register_c_flag,
         .register_v_flag,
         => unreachable, // cannot hold an address
-        .immediate => |imm| try self.setRegOrMem(elem_ty, dst_mcv, .{ .memory = imm }),
-        .ptr_stack_offset => |off| try self.setRegOrMem(elem_ty, dst_mcv, .{ .stack_offset = off }),
+        .immediate => |imm| {
+            try self.setRegOrMem(elem_ty, dst_mcv, .{ .memory = imm });
+        },
+        .ptr_stack_offset => |off| {
+            try self.setRegOrMem(elem_ty, dst_mcv, .{ .stack_offset = off });
+        },
         .register => |reg| {
             const reg_lock = self.register_manager.lockReg(reg);
             defer if (reg_lock) |reg_locked| self.register_manager.unlockReg(reg_locked);
 
             switch (dst_mcv) {
-                .dead => unreachable,
-                .undef => unreachable,
-                .cpsr_flags => unreachable,
                 .register => |dst_reg| {
                     try self.genLdrRegister(dst_reg, reg, elem_ty);
                 },
@@ -2304,7 +2332,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                         try self.genInlineMemcpy(src_reg, dst_reg, len_reg, count_reg, tmp_reg);
                     }
                 },
-                else => return self.fail("TODO load from register into {}", .{dst_mcv}),
+                else => unreachable, // attempting to load into non-register or non-stack MCValue
             }
         },
         .memory,
@@ -2401,7 +2429,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                                 // sub src_reg, fp, #off
                                 try self.genSetReg(ptr_ty, src_reg, .{ .ptr_stack_offset = off });
                             },
-                            .memory => |addr| try self.genSetReg(Type.usize, src_reg, .{ .immediate = @intCast(u32, addr) }),
+                            .memory => |addr| try self.genSetReg(ptr_ty, src_reg, .{ .immediate = @intCast(u32, addr) }),
                             .stack_argument_offset => |off| {
                                 _ = try self.addInst(.{
                                     .tag = .ldr_ptr_stack_argument,
@@ -2507,7 +2535,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
         switch (mcv) {
             .dead, .unreach => unreachable,
             .stack_argument_offset => |off| {
-                break :result MCValue{ .stack_argument_offset = off - struct_field_offset };
+                break :result MCValue{ .stack_argument_offset = off + struct_field_offset };
             },
             .stack_offset => |off| {
                 break :result MCValue{ .stack_offset = off - struct_field_offset };
@@ -3347,6 +3375,102 @@ fn genInlineMemcpy(
     // end:
 }
 
+fn genInlineMemset(
+    self: *Self,
+    dst: MCValue,
+    val: MCValue,
+    len: MCValue,
+) !void {
+    const dst_reg = switch (dst) {
+        .register => |r| r,
+        else => try self.copyToTmpRegister(Type.initTag(.manyptr_u8), dst),
+    };
+    const dst_reg_lock = self.register_manager.lockReg(dst_reg);
+    defer if (dst_reg_lock) |lock| self.register_manager.unlockReg(lock);
+
+    const val_reg = switch (val) {
+        .register => |r| r,
+        else => try self.copyToTmpRegister(Type.initTag(.u8), val),
+    };
+    const val_reg_lock = self.register_manager.lockReg(val_reg);
+    defer if (val_reg_lock) |lock| self.register_manager.unlockReg(lock);
+
+    const len_reg = switch (len) {
+        .register => |r| r,
+        else => try self.copyToTmpRegister(Type.usize, len),
+    };
+    const len_reg_lock = self.register_manager.lockReg(len_reg);
+    defer if (len_reg_lock) |lock| self.register_manager.unlockReg(lock);
+
+    const count_reg = try self.register_manager.allocReg(null, gp);
+
+    try self.genInlineMemsetCode(dst_reg, val_reg, len_reg, count_reg);
+}
+
+fn genInlineMemsetCode(
+    self: *Self,
+    dst: Register,
+    val: Register,
+    len: Register,
+    count: Register,
+) !void {
+    // mov count, #0
+    _ = try self.addInst(.{
+        .tag = .mov,
+        .data = .{ .rr_op = .{
+            .rd = count,
+            .rn = .r0,
+            .op = Instruction.Operand.imm(0, 0),
+        } },
+    });
+
+    // loop:
+    // cmp count, len
+    _ = try self.addInst(.{
+        .tag = .cmp,
+        .data = .{ .rr_op = .{
+            .rd = .r0,
+            .rn = count,
+            .op = Instruction.Operand.reg(len, Instruction.Operand.Shift.none),
+        } },
+    });
+
+    // bge end
+    _ = try self.addInst(.{
+        .tag = .b,
+        .cond = .ge,
+        .data = .{ .inst = @intCast(u32, self.mir_instructions.len + 4) },
+    });
+
+    // strb val, [src, count]
+    _ = try self.addInst(.{
+        .tag = .strb,
+        .data = .{ .rr_offset = .{
+            .rt = val,
+            .rn = dst,
+            .offset = .{ .offset = Instruction.Offset.reg(count, .none) },
+        } },
+    });
+
+    // add count, count, #1
+    _ = try self.addInst(.{
+        .tag = .add,
+        .data = .{ .rr_op = .{
+            .rd = count,
+            .rn = count,
+            .op = Instruction.Operand.imm(1, 0),
+        } },
+    });
+
+    // b loop
+    _ = try self.addInst(.{
+        .tag = .b,
+        .data = .{ .inst = @intCast(u32, self.mir_instructions.len - 4) },
+    });
+
+    // end:
+}
+
 /// Adds a Type to the .debug_info at the current position. The bytes will be populated later,
 /// after codegen for this symbol is done.
 fn addDbgInfoTypeReloc(self: *Self, ty: Type) error{OutOfMemory}!void {
@@ -3369,9 +3493,7 @@ fn addDbgInfoTypeReloc(self: *Self, ty: Type) error{OutOfMemory}!void {
     }
 }
 
-fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, arg_index: u32, stack_byte_count: u32) error{OutOfMemory}!void {
-    const prologue_stack_space = stack_byte_count + self.saved_regs_stack_space;
-
+fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, arg_index: u32) error{OutOfMemory}!void {
     const mcv = self.args[arg_index];
     const ty = self.air.instructions.items(.data)[inst].ty;
     const name = self.mod_fn.getParamName(self.bin_file.options.module.?, arg_index);
@@ -3404,7 +3526,7 @@ fn genArgDbgInfo(self: *Self, inst: Air.Inst.Index, arg_index: u32, stack_byte_c
                     // const abi_size = @intCast(u32, ty.abiSize(self.target.*));
                     const adjusted_stack_offset = switch (mcv) {
                         .stack_offset => |offset| -@intCast(i32, offset),
-                        .stack_argument_offset => |offset| @intCast(i32, prologue_stack_space - offset),
+                        .stack_argument_offset => |offset| @intCast(i32, self.saved_regs_stack_space + offset),
                         else => unreachable,
                     };
 
@@ -3524,7 +3646,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
         try self.register_manager.getReg(reg, null);
     }
 
-    if (info.return_value == .stack_offset) {
+    // If returning by reference, r0 will contain the address of where
+    // to put the result into. In that case, make sure that r0 remains
+    // untouched by the parameter passing code
+    const r0_lock: ?RegisterLock = if (info.return_value == .stack_offset) blk: {
         log.debug("airCall: return by reference", .{});
         const ret_ty = fn_ty.fnReturnType();
         const ret_abi_size = @intCast(u32, ret_ty.abiSize(self.target.*));
@@ -3540,7 +3665,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
         try self.genSetReg(ptr_ty, .r0, .{ .ptr_stack_offset = stack_offset });
 
         info.return_value = .{ .stack_offset = stack_offset };
-    }
+
+        break :blk self.register_manager.lockRegAssumeUnused(.r0);
+    } else null;
+    defer if (r0_lock) |reg| self.register_manager.unlockReg(reg);
 
     // Make space for the arguments passed via the stack
     self.max_end_stack += info.stack_byte_count;
@@ -3559,7 +3687,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
             .stack_offset => unreachable,
             .stack_argument_offset => |offset| try self.genSetStackArgument(
                 arg_ty,
-                info.stack_byte_count - offset,
+                offset,
                 arg_mcv,
             ),
             else => unreachable,
@@ -4621,11 +4749,15 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             if (!self.wantSafety())
                 return; // The already existing value will do just fine.
             // TODO Upgrade this to a memset call when we have that available.
-            switch (ty.abiSize(self.target.*)) {
-                1 => return self.genSetStack(ty, stack_offset, .{ .immediate = 0xaa }),
-                2 => return self.genSetStack(ty, stack_offset, .{ .immediate = 0xaaaa }),
-                4 => return self.genSetStack(ty, stack_offset, .{ .immediate = 0xaaaaaaaa }),
-                else => return self.fail("TODO implement memset", .{}),
+            switch (abi_size) {
+                1 => try self.genSetStack(ty, stack_offset, .{ .immediate = 0xaa }),
+                2 => try self.genSetStack(ty, stack_offset, .{ .immediate = 0xaaaa }),
+                4 => try self.genSetStack(ty, stack_offset, .{ .immediate = 0xaaaaaaaa }),
+                else => try self.genInlineMemset(
+                    .{ .ptr_stack_offset = stack_offset },
+                    .{ .immediate = 0xaa },
+                    .{ .immediate = abi_size },
+                ),
             }
         },
         .cpsr_flags,
@@ -5037,9 +5169,9 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                 return; // The already existing value will do just fine.
             // TODO Upgrade this to a memset call when we have that available.
             switch (abi_size) {
-                1 => return self.genSetStackArgument(ty, stack_offset, .{ .immediate = 0xaa }),
-                2 => return self.genSetStackArgument(ty, stack_offset, .{ .immediate = 0xaaaa }),
-                4 => return self.genSetStackArgument(ty, stack_offset, .{ .immediate = 0xaaaaaaaa }),
+                1 => try self.genSetStackArgument(ty, stack_offset, .{ .immediate = 0xaa }),
+                2 => try self.genSetStackArgument(ty, stack_offset, .{ .immediate = 0xaaaa }),
+                4 => try self.genSetStackArgument(ty, stack_offset, .{ .immediate = 0xaaaaaaaa }),
                 else => return self.fail("TODO implement memset", .{}),
             }
         },
@@ -5653,8 +5785,8 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                     if (ty.abiAlignment(self.target.*) == 8)
                         nsaa = std.mem.alignForwardGeneric(u32, nsaa, 8);
 
-                    nsaa += param_size;
                     result.args[i] = .{ .stack_argument_offset = nsaa };
+                    nsaa += param_size;
                 }
             }
 
@@ -5687,9 +5819,11 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             for (param_types) |ty, i| {
                 if (ty.abiSize(self.target.*) > 0) {
                     const param_size = @intCast(u32, ty.abiSize(self.target.*));
+                    const param_alignment = ty.abiAlignment(self.target.*);
 
-                    stack_offset = std.mem.alignForwardGeneric(u32, stack_offset, ty.abiAlignment(self.target.*)) + param_size;
+                    stack_offset = std.mem.alignForwardGeneric(u32, stack_offset, param_alignment);
                     result.args[i] = .{ .stack_argument_offset = stack_offset };
+                    stack_offset += param_size;
                 } else {
                     result.args[i] = .{ .none = {} };
                 }
