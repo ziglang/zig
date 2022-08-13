@@ -2286,16 +2286,17 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
         .register_c_flag,
         .register_v_flag,
         => unreachable, // cannot hold an address
-        .immediate => |imm| try self.setRegOrMem(elem_ty, dst_mcv, .{ .memory = imm }),
-        .ptr_stack_offset => |off| try self.setRegOrMem(elem_ty, dst_mcv, .{ .stack_offset = off }),
+        .immediate => |imm| {
+            try self.setRegOrMem(elem_ty, dst_mcv, .{ .memory = imm });
+        },
+        .ptr_stack_offset => |off| {
+            try self.setRegOrMem(elem_ty, dst_mcv, .{ .stack_offset = off });
+        },
         .register => |reg| {
             const reg_lock = self.register_manager.lockReg(reg);
             defer if (reg_lock) |reg_locked| self.register_manager.unlockReg(reg_locked);
 
             switch (dst_mcv) {
-                .dead => unreachable,
-                .undef => unreachable,
-                .cpsr_flags => unreachable,
                 .register => |dst_reg| {
                     try self.genLdrRegister(dst_reg, reg, elem_ty);
                 },
@@ -2331,7 +2332,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                         try self.genInlineMemcpy(src_reg, dst_reg, len_reg, count_reg, tmp_reg);
                     }
                 },
-                else => return self.fail("TODO load from register into {}", .{dst_mcv}),
+                else => unreachable, // attempting to load into non-register or non-stack MCValue
             }
         },
         .memory,
@@ -2428,7 +2429,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                                 // sub src_reg, fp, #off
                                 try self.genSetReg(ptr_ty, src_reg, .{ .ptr_stack_offset = off });
                             },
-                            .memory => |addr| try self.genSetReg(Type.usize, src_reg, .{ .immediate = @intCast(u32, addr) }),
+                            .memory => |addr| try self.genSetReg(ptr_ty, src_reg, .{ .immediate = @intCast(u32, addr) }),
                             .stack_argument_offset => |off| {
                                 _ = try self.addInst(.{
                                     .tag = .ldr_ptr_stack_argument,
@@ -3369,6 +3370,102 @@ fn genInlineMemcpy(
     _ = try self.addInst(.{
         .tag = .b,
         .data = .{ .inst = @intCast(u32, self.mir_instructions.len - 5) },
+    });
+
+    // end:
+}
+
+fn genInlineMemset(
+    self: *Self,
+    dst: MCValue,
+    val: MCValue,
+    len: MCValue,
+) !void {
+    const dst_reg = switch (dst) {
+        .register => |r| r,
+        else => try self.copyToTmpRegister(Type.initTag(.manyptr_u8), dst),
+    };
+    const dst_reg_lock = self.register_manager.lockReg(dst_reg);
+    defer if (dst_reg_lock) |lock| self.register_manager.unlockReg(lock);
+
+    const val_reg = switch (val) {
+        .register => |r| r,
+        else => try self.copyToTmpRegister(Type.initTag(.u8), val),
+    };
+    const val_reg_lock = self.register_manager.lockReg(val_reg);
+    defer if (val_reg_lock) |lock| self.register_manager.unlockReg(lock);
+
+    const len_reg = switch (len) {
+        .register => |r| r,
+        else => try self.copyToTmpRegister(Type.usize, len),
+    };
+    const len_reg_lock = self.register_manager.lockReg(len_reg);
+    defer if (len_reg_lock) |lock| self.register_manager.unlockReg(lock);
+
+    const count_reg = try self.register_manager.allocReg(null, gp);
+
+    try self.genInlineMemsetCode(dst_reg, val_reg, len_reg, count_reg);
+}
+
+fn genInlineMemsetCode(
+    self: *Self,
+    dst: Register,
+    val: Register,
+    len: Register,
+    count: Register,
+) !void {
+    // mov count, #0
+    _ = try self.addInst(.{
+        .tag = .mov,
+        .data = .{ .rr_op = .{
+            .rd = count,
+            .rn = .r0,
+            .op = Instruction.Operand.imm(0, 0),
+        } },
+    });
+
+    // loop:
+    // cmp count, len
+    _ = try self.addInst(.{
+        .tag = .cmp,
+        .data = .{ .rr_op = .{
+            .rd = .r0,
+            .rn = count,
+            .op = Instruction.Operand.reg(len, Instruction.Operand.Shift.none),
+        } },
+    });
+
+    // bge end
+    _ = try self.addInst(.{
+        .tag = .b,
+        .cond = .ge,
+        .data = .{ .inst = @intCast(u32, self.mir_instructions.len + 4) },
+    });
+
+    // strb val, [src, count]
+    _ = try self.addInst(.{
+        .tag = .strb,
+        .data = .{ .rr_offset = .{
+            .rt = val,
+            .rn = dst,
+            .offset = .{ .offset = Instruction.Offset.reg(count, .none) },
+        } },
+    });
+
+    // add count, count, #1
+    _ = try self.addInst(.{
+        .tag = .add,
+        .data = .{ .rr_op = .{
+            .rd = count,
+            .rn = count,
+            .op = Instruction.Operand.imm(1, 0),
+        } },
+    });
+
+    // b loop
+    _ = try self.addInst(.{
+        .tag = .b,
+        .data = .{ .inst = @intCast(u32, self.mir_instructions.len - 4) },
     });
 
     // end:
@@ -4652,11 +4749,15 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             if (!self.wantSafety())
                 return; // The already existing value will do just fine.
             // TODO Upgrade this to a memset call when we have that available.
-            switch (ty.abiSize(self.target.*)) {
-                1 => return self.genSetStack(ty, stack_offset, .{ .immediate = 0xaa }),
-                2 => return self.genSetStack(ty, stack_offset, .{ .immediate = 0xaaaa }),
-                4 => return self.genSetStack(ty, stack_offset, .{ .immediate = 0xaaaaaaaa }),
-                else => return self.fail("TODO implement memset", .{}),
+            switch (abi_size) {
+                1 => try self.genSetStack(ty, stack_offset, .{ .immediate = 0xaa }),
+                2 => try self.genSetStack(ty, stack_offset, .{ .immediate = 0xaaaa }),
+                4 => try self.genSetStack(ty, stack_offset, .{ .immediate = 0xaaaaaaaa }),
+                else => try self.genInlineMemset(
+                    .{ .ptr_stack_offset = stack_offset },
+                    .{ .immediate = 0xaa },
+                    .{ .immediate = abi_size },
+                ),
             }
         },
         .cpsr_flags,
@@ -5068,9 +5169,9 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                 return; // The already existing value will do just fine.
             // TODO Upgrade this to a memset call when we have that available.
             switch (abi_size) {
-                1 => return self.genSetStackArgument(ty, stack_offset, .{ .immediate = 0xaa }),
-                2 => return self.genSetStackArgument(ty, stack_offset, .{ .immediate = 0xaaaa }),
-                4 => return self.genSetStackArgument(ty, stack_offset, .{ .immediate = 0xaaaaaaaa }),
+                1 => try self.genSetStackArgument(ty, stack_offset, .{ .immediate = 0xaa }),
+                2 => try self.genSetStackArgument(ty, stack_offset, .{ .immediate = 0xaaaa }),
+                4 => try self.genSetStackArgument(ty, stack_offset, .{ .immediate = 0xaaaaaaaa }),
                 else => return self.fail("TODO implement memset", .{}),
             }
         },
