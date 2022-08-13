@@ -4088,6 +4088,13 @@ fn testDecl(
                             true => .signed,
                             false => .unsigned,
                         };
+                        if (ident_name_raw.len >= 3 and ident_name_raw[1] == '0') {
+                            return astgen.failTok(
+                                test_name_token,
+                                "primitive integer type '{s}' has leading zero",
+                                .{ident_name_raw},
+                            );
+                        }
                         _ = parseBitCount(ident_name_raw[1..]) catch |err| switch (err) {
                             error.Overflow => return astgen.failTok(
                                 test_name_token,
@@ -6800,6 +6807,13 @@ fn identifier(
                     true => .signed,
                     false => .unsigned,
                 };
+                if (ident_name_raw.len >= 3 and ident_name_raw[1] == '0') {
+                    return astgen.failNode(
+                        ident,
+                        "primitive integer type '{s}' has leading zero",
+                        .{ident_name_raw},
+                    );
+                }
                 const bit_count = parseBitCount(ident_name_raw[1..]) catch |err| switch (err) {
                     error.Overflow => return astgen.failNode(
                         ident,
@@ -7053,6 +7067,10 @@ fn integerLiteral(gz: *GenZir, rl: ResultLoc, node: Ast.Node.Index) InnerError!Z
     } else if (mem.startsWith(u8, prefixed_bytes, "0b")) {
         base = 2;
         non_prefixed = prefixed_bytes[2..];
+    }
+
+    if (base == 10 and prefixed_bytes.len >= 2 and prefixed_bytes[0] == '0') {
+        return astgen.failNode(node, "integer literal '{s}' has leading zero", .{prefixed_bytes});
     }
 
     const gpa = astgen.gpa;

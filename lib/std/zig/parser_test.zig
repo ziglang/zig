@@ -4254,10 +4254,10 @@ test "zig fmt: integer literals with underscore separators" {
         \\const
         \\ x     =
         \\ 1_234_567
-        \\ + (0b0_1-0o7_0+0xff_FF ) +  0_0;
+        \\ + (0b0_1-0o7_0+0xff_FF ) +  1_0;
     ,
         \\const x =
-        \\    1_234_567 + (0b0_1 - 0o7_0 + 0xff_FF) + 0_0;
+        \\    1_234_567 + (0b0_1 - 0o7_0 + 0xff_FF) + 1_0;
         \\
     );
 }
@@ -4266,7 +4266,7 @@ test "zig fmt: hex literals with underscore separators" {
     try testTransform(
         \\pub fn orMask(a: [ 1_000 ]u64, b: [  1_000]  u64) [1_000]u64 {
         \\    var c: [1_000]u64 =  [1]u64{ 0xFFFF_FFFF_FFFF_FFFF}**1_000;
-        \\    for (c [ 0_0 .. ]) |_, i| {
+        \\    for (c [ 1_0 .. ]) |_, i| {
         \\        c[i] = (a[i] | b[i]) & 0xCCAA_CCAA_CCAA_CCAA;
         \\    }
         \\    return c;
@@ -4276,7 +4276,7 @@ test "zig fmt: hex literals with underscore separators" {
     ,
         \\pub fn orMask(a: [1_000]u64, b: [1_000]u64) [1_000]u64 {
         \\    var c: [1_000]u64 = [1]u64{0xFFFF_FFFF_FFFF_FFFF} ** 1_000;
-        \\    for (c[0_0..]) |_, i| {
+        \\    for (c[1_0..]) |_, i| {
         \\        c[i] = (a[i] | b[i]) & 0xCCAA_CCAA_CCAA_CCAA;
         \\    }
         \\    return c;
@@ -4288,14 +4288,14 @@ test "zig fmt: hex literals with underscore separators" {
 test "zig fmt: decimal float literals with underscore separators" {
     try testTransform(
         \\pub fn main() void {
-        \\    const a:f64=(10.0e-0+(10.0e+0))+10_00.00_00e-2+00_00.00_10e+4;
-        \\    const b:f64=010.0--0_10.0+0_1_0.0_0+1e2;
+        \\    const a:f64=(10.0e-0+(10.0e+0))+10_00.00_00e-2+20_00.00_10e+4;
+        \\    const b:f64=1_0.0--10_10.0+1_0_0.0_0+1e2;
         \\    std.debug.warn("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
         \\}
     ,
         \\pub fn main() void {
-        \\    const a: f64 = (10.0e-0 + (10.0e+0)) + 10_00.00_00e-2 + 00_00.00_10e+4;
-        \\    const b: f64 = 010.0 - -0_10.0 + 0_1_0.0_0 + 1e2;
+        \\    const a: f64 = (10.0e-0 + (10.0e+0)) + 10_00.00_00e-2 + 20_00.00_10e+4;
+        \\    const b: f64 = 1_0.0 - -10_10.0 + 1_0_0.0_0 + 1e2;
         \\    std.debug.warn("a: {}, b: {} -> a+b: {}\n", .{ a, b, a + b });
         \\}
         \\
