@@ -2061,17 +2061,14 @@ test "saturating operators" {
     try testTokenize("-|=", &.{.minus_pipe_equal});
 }
 
-fn testTokenize(source: [:0]const u8, expected_tokens: []const Token.Tag) !void {
+fn testTokenize(source: [:0]const u8, expected_token_tags: []const Token.Tag) !void {
     var tokenizer = Tokenizer.init(source);
-    for (expected_tokens) |expected_token_id| {
+    for (expected_token_tags) |expected_token_tag| {
         const token = tokenizer.next();
-        if (token.tag != expected_token_id) {
-            std.debug.panic("expected {s}, found {s}\n", .{
-                @tagName(expected_token_id), @tagName(token.tag),
-            });
-        }
+        try std.testing.expectEqual(expected_token_tag, token.tag);
     }
     const last_token = tokenizer.next();
     try std.testing.expectEqual(Token.Tag.eof, last_token.tag);
     try std.testing.expectEqual(source.len, last_token.loc.start);
+    try std.testing.expectEqual(source.len, last_token.loc.end);
 }
