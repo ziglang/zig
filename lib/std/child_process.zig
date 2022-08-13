@@ -656,7 +656,94 @@ pub const ChildProcess = struct {
         }
     }
 
+    pub const Forked = struct {
+        child: *ChildProcess,
+        stdin_pipe: [2]os.fd_t,
+        stdout_pipe: [2]os.fd_t,
+        stderr_pipe: [2]os.fd_t,
+        dev_null_fd: os.fd_t,
+        err_pipe_write: os.fd_t,
+        argv_buf: [:null]?[*:0]u8,
+        envp: [*:null]?[*:0]u8,
+
+        pub fn reportError(self: Forked, err: ChildProcess.SpawnError) noreturn {
+            forkChildErrReport(self.err_pipe_write, err);
+        }
+
+        pub fn setup(self: Forked) !void {
+            try setUpChildIo(self.child.stdin_behavior, self.stdin_pipe[0], os.STDIN_FILENO, self.dev_null_fd);
+            try setUpChildIo(self.child.stdout_behavior, self.stdout_pipe[1], os.STDOUT_FILENO, self.dev_null_fd);
+            try setUpChildIo(self.child.stderr_behavior, self.stderr_pipe[1], os.STDERR_FILENO, self.dev_null_fd);
+
+            if (self.child.stdin_behavior == .Pipe) {
+                os.close(self.stdin_pipe[0]);
+                os.close(self.stdin_pipe[1]);
+            }
+            if (self.child.stdout_behavior == .Pipe) {
+                os.close(self.stdout_pipe[0]);
+                os.close(self.stdout_pipe[1]);
+            }
+            if (self.child.stderr_behavior == .Pipe) {
+                os.close(self.stderr_pipe[0]);
+                os.close(self.stderr_pipe[1]);
+            }
+
+            if (self.child.cwd_dir) |cwd| {
+                try os.fchdir(cwd.fd);
+            } else if (self.child.cwd) |cwd| {
+                try os.chdir(cwd);
+            }
+
+            if (self.child.gid) |gid| {
+                try os.setregid(gid, gid);
+            }
+
+            if (self.child.uid) |uid| {
+                try os.setreuid(uid, uid);
+            }
+        }
+
+        pub fn exec(self: Forked) os.ExecveError {
+            return switch (self.child.expand_arg0) {
+                .expand => os.execvpeZ_expandArg0(.expand, self.argv_buf.ptr[0].?, self.argv_buf.ptr, self.envp),
+                .no_expand => os.execvpeZ_expandArg0(.no_expand, self.argv_buf.ptr[0].?, self.argv_buf.ptr, self.envp),
+            };
+        }
+    };
+
+    /// fork off the child process.  Calling fork is equivalent to spawn except it will return
+    /// in the child process before calling setup/exec.  This provides an opportunity for the
+    /// caller to perform additional setup in the child process before calling setup/exec.
+    ///
+    /// This API does not support resource cleanup in the child process after fork returns.
+    /// The caller is only mean to perform setup and then call exec or exit afterwards.
+    ///
+    /// Note there are limitations on what can be done in the child process after fork returns.
+    /// For example, calling malloc from libc may cause deadlock.
+    pub fn fork(self: *ChildProcess) SpawnError!?Forked {
+        if (!std.process.can_spawn) {
+            @compileError("the target operating system cannot spawn nor fork processes");
+        }
+
+        if (comptime builtin.target.isDarwin()) {
+            @compileError("splitting up spawn into fork/exec is not implemented on Darwin");
+        }
+
+        if (builtin.os.tag == .windows) {
+            @compileError("Windows does not support fork, use spawn");
+        } else {
+            return self.forkPosix();
+        }
+    }
+
     fn spawnPosix(self: *ChildProcess) SpawnError!void {
+        if (try self.fork()) |forked| {
+            forked.setup() catch |err| forked.reportError(err);
+            forked.reportError(forked.exec());
+        }
+    }
+
+    fn forkPosix(self: *ChildProcess) SpawnError!?Forked {
         const pipe_flags = if (io.is_async) os.O.NONBLOCK else 0;
         const stdin_pipe = if (self.stdin_behavior == StdIo.Pipe) try os.pipe2(pipe_flags) else undefined;
         errdefer if (self.stdin_behavior == StdIo.Pipe) {
@@ -673,6 +760,7 @@ pub const ChildProcess = struct {
             destroyPipe(stderr_pipe);
         };
 
+        var in_child_process = false;
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
         const dev_null_fd = if (any_ignore)
             os.openZ("/dev/null", os.O.RDWR, 0) catch |err| switch (err) {
@@ -689,11 +777,11 @@ pub const ChildProcess = struct {
         else
             undefined;
         defer {
-            if (any_ignore) os.close(dev_null_fd);
+            if (any_ignore and !in_child_process) os.close(dev_null_fd);
         }
 
         var arena_allocator = std.heap.ArenaAllocator.init(self.allocator);
-        defer arena_allocator.deinit();
+        defer if (!in_child_process) arena_allocator.deinit();
         const arena = arena_allocator.allocator();
 
         // The POSIX standard does not allow malloc() between fork() and execve(),
@@ -740,43 +828,17 @@ pub const ChildProcess = struct {
 
         const pid_result = try os.fork();
         if (pid_result == 0) {
-            // we are the child
-            setUpChildIo(self.stdin_behavior, stdin_pipe[0], os.STDIN_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
-            setUpChildIo(self.stdout_behavior, stdout_pipe[1], os.STDOUT_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
-            setUpChildIo(self.stderr_behavior, stderr_pipe[1], os.STDERR_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
-
-            if (self.stdin_behavior == .Pipe) {
-                os.close(stdin_pipe[0]);
-                os.close(stdin_pipe[1]);
-            }
-            if (self.stdout_behavior == .Pipe) {
-                os.close(stdout_pipe[0]);
-                os.close(stdout_pipe[1]);
-            }
-            if (self.stderr_behavior == .Pipe) {
-                os.close(stderr_pipe[0]);
-                os.close(stderr_pipe[1]);
-            }
-
-            if (self.cwd_dir) |cwd| {
-                os.fchdir(cwd.fd) catch |err| forkChildErrReport(err_pipe[1], err);
-            } else if (self.cwd) |cwd| {
-                os.chdir(cwd) catch |err| forkChildErrReport(err_pipe[1], err);
-            }
-
-            if (self.gid) |gid| {
-                os.setregid(gid, gid) catch |err| forkChildErrReport(err_pipe[1], err);
-            }
-
-            if (self.uid) |uid| {
-                os.setreuid(uid, uid) catch |err| forkChildErrReport(err_pipe[1], err);
-            }
-
-            const err = switch (self.expand_arg0) {
-                .expand => os.execvpeZ_expandArg0(.expand, argv_buf.ptr[0].?, argv_buf.ptr, envp),
-                .no_expand => os.execvpeZ_expandArg0(.no_expand, argv_buf.ptr[0].?, argv_buf.ptr, envp),
+            in_child_process = true;
+            return Forked{
+                .child = self,
+                .stdin_pipe = stdin_pipe,
+                .stdout_pipe = stdout_pipe,
+                .stderr_pipe = stderr_pipe,
+                .dev_null_fd = dev_null_fd,
+                .err_pipe_write = err_pipe[1],
+                .argv_buf = argv_buf,
+                .envp = envp,
             };
-            forkChildErrReport(err_pipe[1], err);
         }
 
         // we are the parent
@@ -810,6 +872,7 @@ pub const ChildProcess = struct {
         if (self.stderr_behavior == StdIo.Pipe) {
             os.close(stderr_pipe[1]);
         }
+        return null;
     }
 
     fn spawnWindows(self: *ChildProcess) SpawnError!void {
