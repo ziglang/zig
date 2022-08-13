@@ -385,20 +385,44 @@ fn dbgAdvancePCAndLine(self: *Emit, line: u32, column: u32) !void {
 fn mirDataProcessing(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const cond = emit.mir.instructions.items(.cond)[inst];
-    const rr_op = emit.mir.instructions.items(.data)[inst].rr_op;
 
     switch (tag) {
-        .add => try emit.writeInstruction(Instruction.add(cond, rr_op.rd, rr_op.rn, rr_op.op)),
-        .adds => try emit.writeInstruction(Instruction.adds(cond, rr_op.rd, rr_op.rn, rr_op.op)),
-        .@"and" => try emit.writeInstruction(Instruction.@"and"(cond, rr_op.rd, rr_op.rn, rr_op.op)),
-        .cmp => try emit.writeInstruction(Instruction.cmp(cond, rr_op.rn, rr_op.op)),
-        .eor => try emit.writeInstruction(Instruction.eor(cond, rr_op.rd, rr_op.rn, rr_op.op)),
-        .mov => try emit.writeInstruction(Instruction.mov(cond, rr_op.rd, rr_op.op)),
-        .mvn => try emit.writeInstruction(Instruction.mvn(cond, rr_op.rd, rr_op.op)),
-        .orr => try emit.writeInstruction(Instruction.orr(cond, rr_op.rd, rr_op.rn, rr_op.op)),
-        .rsb => try emit.writeInstruction(Instruction.rsb(cond, rr_op.rd, rr_op.rn, rr_op.op)),
-        .sub => try emit.writeInstruction(Instruction.sub(cond, rr_op.rd, rr_op.rn, rr_op.op)),
-        .subs => try emit.writeInstruction(Instruction.subs(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+        .add,
+        .adds,
+        .@"and",
+        .eor,
+        .orr,
+        .rsb,
+        .sub,
+        .subs,
+        => {
+            const rr_op = emit.mir.instructions.items(.data)[inst].rr_op;
+            switch (tag) {
+                .add => try emit.writeInstruction(Instruction.add(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+                .adds => try emit.writeInstruction(Instruction.adds(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+                .@"and" => try emit.writeInstruction(Instruction.@"and"(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+                .eor => try emit.writeInstruction(Instruction.eor(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+                .orr => try emit.writeInstruction(Instruction.orr(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+                .rsb => try emit.writeInstruction(Instruction.rsb(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+                .sub => try emit.writeInstruction(Instruction.sub(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+                .subs => try emit.writeInstruction(Instruction.subs(cond, rr_op.rd, rr_op.rn, rr_op.op)),
+                else => unreachable,
+            }
+        },
+        .cmp => {
+            const r_op_cmp = emit.mir.instructions.items(.data)[inst].r_op_cmp;
+            try emit.writeInstruction(Instruction.cmp(cond, r_op_cmp.rn, r_op_cmp.op));
+        },
+        .mov,
+        .mvn,
+        => {
+            const r_op_mov = emit.mir.instructions.items(.data)[inst].r_op_mov;
+            switch (tag) {
+                .mov => try emit.writeInstruction(Instruction.mov(cond, r_op_mov.rd, r_op_mov.op)),
+                .mvn => try emit.writeInstruction(Instruction.mvn(cond, r_op_mov.rd, r_op_mov.op)),
+                else => unreachable,
+            }
+        },
         else => unreachable,
     }
 }

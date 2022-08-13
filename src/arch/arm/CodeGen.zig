@@ -438,9 +438,8 @@ fn gen(self: *Self) !void {
         // mov fp, sp
         _ = try self.addInst(.{
             .tag = .mov,
-            .data = .{ .rr_op = .{
+            .data = .{ .r_op_mov = .{
                 .rd = .fp,
-                .rn = .r0,
                 .op = Instruction.Operand.reg(.sp, Instruction.Operand.Shift.none),
             } },
         });
@@ -531,9 +530,8 @@ fn gen(self: *Self) !void {
         // mov sp, fp
         _ = try self.addInst(.{
             .tag = .mov,
-            .data = .{ .rr_op = .{
+            .data = .{ .r_op_mov = .{
                 .rd = .sp,
-                .rn = .r0,
                 .op = Instruction.Operand.reg(.fp, Instruction.Operand.Shift.none),
             } },
         });
@@ -1240,9 +1238,8 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
 
                             _ = try self.addInst(.{
                                 .tag = .mvn,
-                                .data = .{ .rr_op = .{
+                                .data = .{ .r_op_mov = .{
                                     .rd = dest_reg,
-                                    .rn = undefined,
                                     .op = Instruction.Operand.reg(op_reg, Instruction.Operand.Shift.none),
                                 } },
                             });
@@ -1337,9 +1334,8 @@ fn minMax(
                     _ = try self.addInst(.{
                         .tag = .mov,
                         .cond = cond_choose_lhs,
-                        .data = .{ .rr_op = .{
+                        .data = .{ .r_op_mov = .{
                             .rd = dest_reg,
-                            .rn = .r0,
                             .op = Instruction.Operand.reg(lhs_reg, Instruction.Operand.Shift.none),
                         } },
                     });
@@ -1348,9 +1344,8 @@ fn minMax(
                     _ = try self.addInst(.{
                         .tag = .mov,
                         .cond = cond_choose_rhs,
-                        .data = .{ .rr_op = .{
+                        .data = .{ .r_op_mov = .{
                             .rd = dest_reg,
-                            .rn = .r0,
                             .op = Instruction.Operand.reg(rhs_reg, Instruction.Operand.Shift.none),
                         } },
                     });
@@ -1682,9 +1677,8 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     // mov rdlo, #0
                     _ = try self.addInst(.{
                         .tag = .mov,
-                        .data = .{ .rr_op = .{
+                        .data = .{ .r_op_mov = .{
                             .rd = rdlo,
-                            .rn = .r0,
                             .op = Instruction.Operand.fromU32(0).?,
                         } },
                     });
@@ -1693,9 +1687,8 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     _ = try self.addInst(.{
                         .tag = .mov,
                         .cond = .ne,
-                        .data = .{ .rr_op = .{
+                        .data = .{ .r_op_mov = .{
                             .rd = rdlo,
-                            .rn = .r0,
                             .op = Instruction.Operand.fromU32(1).?,
                         } },
                     });
@@ -1707,9 +1700,8 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     _ = try self.addInst(.{
                         .tag = .mov,
                         .cond = .ne,
-                        .data = .{ .rr_op = .{
+                        .data = .{ .r_op_mov = .{
                             .rd = rdlo,
-                            .rn = .r0,
                             .op = Instruction.Operand.fromU32(1).?,
                         } },
                     });
@@ -2670,7 +2662,7 @@ fn binOpRegister(
     defer if (new_rhs_lock) |reg| self.register_manager.unlockReg(reg);
 
     const dest_reg = switch (mir_tag) {
-        .cmp => .r0, // cmp has no destination regardless
+        .cmp => undefined, // cmp has no destination regardless
         else => if (metadata) |md| blk: {
             if (lhs_is_register and self.reuseOperand(md.inst, md.lhs, 0, lhs)) {
                 break :blk lhs_reg;
@@ -2690,12 +2682,15 @@ fn binOpRegister(
         .adds,
         .sub,
         .subs,
-        .cmp,
         .@"and",
         .orr,
         .eor,
         => .{ .rr_op = .{
             .rd = dest_reg,
+            .rn = lhs_reg,
+            .op = Instruction.Operand.reg(rhs_reg, Instruction.Operand.Shift.none),
+        } },
+        .cmp => .{ .r_op_cmp = .{
             .rn = lhs_reg,
             .op = Instruction.Operand.reg(rhs_reg, Instruction.Operand.Shift.none),
         } },
@@ -2767,7 +2762,7 @@ fn binOpImmediate(
     defer if (new_lhs_lock) |reg| self.register_manager.unlockReg(reg);
 
     const dest_reg = switch (mir_tag) {
-        .cmp => .r0, // cmp has no destination reg
+        .cmp => undefined, // cmp has no destination reg
         else => if (metadata) |md| blk: {
             if (lhs_is_register and self.reuseOperand(
                 md.inst,
@@ -2789,12 +2784,15 @@ fn binOpImmediate(
         .adds,
         .sub,
         .subs,
-        .cmp,
         .@"and",
         .orr,
         .eor,
         => .{ .rr_op = .{
             .rd = dest_reg,
+            .rn = lhs_reg,
+            .op = Instruction.Operand.fromU32(rhs.immediate).?,
+        } },
+        .cmp => .{ .r_op_cmp = .{
             .rn = lhs_reg,
             .op = Instruction.Operand.fromU32(rhs.immediate).?,
         } },
@@ -3312,9 +3310,8 @@ fn genInlineMemcpy(
     // mov count, #0
     _ = try self.addInst(.{
         .tag = .mov,
-        .data = .{ .rr_op = .{
+        .data = .{ .r_op_mov = .{
             .rd = count,
-            .rn = .r0,
             .op = Instruction.Operand.imm(0, 0),
         } },
     });
@@ -3323,8 +3320,7 @@ fn genInlineMemcpy(
     // cmp count, len
     _ = try self.addInst(.{
         .tag = .cmp,
-        .data = .{ .rr_op = .{
-            .rd = .r0,
+        .data = .{ .r_op_cmp = .{
             .rn = count,
             .op = Instruction.Operand.reg(len, Instruction.Operand.Shift.none),
         } },
@@ -3418,9 +3414,8 @@ fn genInlineMemsetCode(
     // mov count, #0
     _ = try self.addInst(.{
         .tag = .mov,
-        .data = .{ .rr_op = .{
+        .data = .{ .r_op_mov = .{
             .rd = count,
-            .rn = .r0,
             .op = Instruction.Operand.imm(0, 0),
         } },
     });
@@ -3429,8 +3424,7 @@ fn genInlineMemsetCode(
     // cmp count, len
     _ = try self.addInst(.{
         .tag = .cmp,
-        .data = .{ .rr_op = .{
-            .rd = .r0,
+        .data = .{ .r_op_cmp = .{
             .rn = count,
             .op = Instruction.Operand.reg(len, Instruction.Operand.Shift.none),
         } },
@@ -4020,9 +4014,7 @@ fn condBr(self: *Self, condition: MCValue) !Mir.Inst.Index {
             // bne ...
             _ = try self.addInst(.{
                 .tag = .cmp,
-                .cond = .al,
-                .data = .{ .rr_op = .{
-                    .rd = .r0,
+                .data = .{ .r_op_cmp = .{
                     .rn = reg,
                     .op = Instruction.Operand.imm(1, 0),
                 } },
@@ -4196,8 +4188,7 @@ fn isNull(self: *Self, ty: Type, operand: MCValue) !MCValue {
 
         _ = try self.addInst(.{
             .tag = .cmp,
-            .data = .{ .rr_op = .{
-                .rd = undefined,
+            .data = .{ .r_op_cmp = .{
                 .rn = reg_mcv.register,
                 .op = Instruction.Operand.fromU32(0).?,
             } },
@@ -4832,9 +4823,8 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                     .register_v_flag => .vs,
                     else => unreachable,
                 },
-                .data = .{ .rr_op = .{
+                .data = .{ .r_op_mov = .{
                     .rd = cond_reg,
-                    .rn = .r0,
                     .op = Instruction.Operand.fromU32(1).?,
                 } },
             });
@@ -4935,9 +4925,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             // mov reg, 0
             _ = try self.addInst(.{
                 .tag = .mov,
-                .data = .{ .rr_op = .{
+                .data = .{ .r_op_mov = .{
                     .rd = reg,
-                    .rn = .r0,
                     .op = zero,
                 } },
             });
@@ -4946,9 +4935,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             _ = try self.addInst(.{
                 .tag = .mov,
                 .cond = condition,
-                .data = .{ .rr_op = .{
+                .data = .{ .r_op_mov = .{
                     .rd = reg,
-                    .rn = .r0,
                     .op = one,
                 } },
             });
@@ -4957,18 +4945,16 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             if (Instruction.Operand.fromU32(x)) |op| {
                 _ = try self.addInst(.{
                     .tag = .mov,
-                    .data = .{ .rr_op = .{
+                    .data = .{ .r_op_mov = .{
                         .rd = reg,
-                        .rn = .r0,
                         .op = op,
                     } },
                 });
             } else if (Instruction.Operand.fromU32(~x)) |op| {
                 _ = try self.addInst(.{
                     .tag = .mvn,
-                    .data = .{ .rr_op = .{
+                    .data = .{ .r_op_mov = .{
                         .rd = reg,
-                        .rn = .r0,
                         .op = op,
                     } },
                 });
@@ -4984,9 +4970,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 } else {
                     _ = try self.addInst(.{
                         .tag = .mov,
-                        .data = .{ .rr_op = .{
+                        .data = .{ .r_op_mov = .{
                             .rd = reg,
-                            .rn = .r0,
                             .op = Instruction.Operand.imm(@truncate(u8, x), 0),
                         } },
                     });
@@ -5028,9 +5013,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     // orr reg, reg, #0xdd, 8
                     _ = try self.addInst(.{
                         .tag = .mov,
-                        .data = .{ .rr_op = .{
+                        .data = .{ .r_op_mov = .{
                             .rd = reg,
-                            .rn = .r0,
                             .op = Instruction.Operand.imm(@truncate(u8, x), 0),
                         } },
                     });
@@ -5069,9 +5053,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             // mov reg, src_reg
             _ = try self.addInst(.{
                 .tag = .mov,
-                .data = .{ .rr_op = .{
+                .data = .{ .r_op_mov = .{
                     .rd = reg,
-                    .rn = .r0,
                     .op = Instruction.Operand.reg(src_reg, Instruction.Operand.Shift.none),
                 } },
             });

@@ -166,6 +166,20 @@ pub const Inst = struct {
             rd: Register,
             imm16: u16,
         },
+        /// A register and an operand
+        ///
+        /// Used by mov and mvn
+        r_op_mov: struct {
+            rd: Register,
+            op: bits.Instruction.Operand,
+        },
+        /// A register and an operand
+        ///
+        /// Used by cmp
+        r_op_cmp: struct {
+            rn: Register,
+            op: bits.Instruction.Operand,
+        },
         /// Two registers and a shift amount
         ///
         /// Used by e.g. lsl
