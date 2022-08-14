@@ -222,16 +222,31 @@ fn inTable(c: u8, t: tIndex) bool {
     return (combinedTable[c] & (@as(u8, 1) << @enumToInt(t))) != 0;
 }
 
-pub fn isAlNum(c: u8) bool {
+// remove all decls marked as DEPRECATED after 0.10.0
+
+/// DEPRECATED: use `isAlphanumeric`
+pub const isAlNum = isAlphanumeric;
+/// DEPRECATED: use `isAlpha`
+pub const isAlpha = isAlphabetic;
+/// DEPRECATED: use `isAlpha`
+pub const isCntrl = isControl;
+/// DEPRECATED: use `isWhitespace`.
+pub const isSpace = isWhitespace;
+/// DEPRECATED: use `whitespace`.
+pub const spaces = whitespace;
+/// DEPRECATED: use `isHex`.
+pub const isXDigit = isHex;
+
+pub fn isAlphanumeric(c: u8) bool {
     return (combinedTable[c] & ((@as(u8, 1) << @enumToInt(tIndex.Alpha)) |
         @as(u8, 1) << @enumToInt(tIndex.Digit))) != 0;
 }
 
-pub fn isAlpha(c: u8) bool {
+pub fn isAlphabetic(c: u8) bool {
     return inTable(c, tIndex.Alpha);
 }
 
-pub fn isCntrl(c: u8) bool {
+pub fn isControl(c: u8) bool {
     return c <= control_code.us or c == control_code.del;
 }
 
@@ -256,21 +271,21 @@ pub fn isPunct(c: u8) bool {
     return inTable(c, tIndex.Punct);
 }
 
-pub fn isSpace(c: u8) bool {
+pub fn isWhitespace(c: u8) bool {
     return inTable(c, tIndex.Space);
 }
 
-/// All the values for which isSpace() returns true. This may be used with
-/// e.g. std.mem.trim() to trim whiteSpace.
-pub const spaces = [_]u8{ ' ', '\t', '\n', '\r', control_code.VT, control_code.FF };
+/// Whitespace for general use.
+/// This may be used with e.g. `std.mem.trim` to trim whitespace.
+/// See also: `isSpace`.
+pub const whitespace = [_]u8{ ' ', '\t', '\n', '\r', control_code.vt, control_code.ff };
 
-test "spaces" {
-    const testing = std.testing;
-    for (spaces) |space| try testing.expect(isSpace(space));
+test "whitespace" {
+    for (whitespace) |char| try std.testing.expect(isWhitespace(char));
 
     var i: u8 = 0;
     while (isASCII(i)) : (i += 1) {
-        if (isSpace(i)) try testing.expect(std.mem.indexOfScalar(u8, &spaces, i) != null);
+        if (isWhitespace(i)) try std.testing.expect(std.mem.indexOfScalar(u8, &whitespace, i) != null);
     }
 }
 
@@ -278,7 +293,7 @@ pub fn isUpper(c: u8) bool {
     return inTable(c, tIndex.Upper);
 }
 
-pub fn isXDigit(c: u8) bool {
+pub fn isHex(c: u8) bool {
     return inTable(c, tIndex.Hex);
 }
 
@@ -286,7 +301,7 @@ pub fn isASCII(c: u8) bool {
     return c < 128;
 }
 
-/// DEPRECATED: use `c == ' ' or c == '\x09'` or try `isWhitespace`
+/// DEPRECATED: use `c == ' ' or c == '\t'` or try `isWhitespace`
 pub fn isBlank(c: u8) bool {
     return (c == ' ') or (c == '\x09');
 }
