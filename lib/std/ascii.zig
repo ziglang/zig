@@ -239,6 +239,7 @@ pub fn isDigit(c: u8) bool {
     return inTable(c, tIndex.Digit);
 }
 
+/// DEPRECATED: use `isPrint(c) and c != ' '` instead
 pub fn isGraph(c: u8) bool {
     return inTable(c, tIndex.Graph);
 }
@@ -285,6 +286,7 @@ pub fn isASCII(c: u8) bool {
     return c < 128;
 }
 
+/// DEPRECATED: use `c == ' ' or c == '\x09'` or try `isWhitespace`
 pub fn isBlank(c: u8) bool {
     return (c == ' ') or (c == '\x09');
 }
