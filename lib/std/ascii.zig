@@ -78,13 +78,14 @@ pub const control_code = struct {
     pub const rs = 0x1E;
     /// Unit separator.
     pub const us = 0x1F;
+
     /// Delete.
     pub const del = 0x7F;
 
     /// An alias to `dc1`.
     pub const xon = dc1;
     /// An alias to `dc3`.
-    pub const xff = dc3;
+    pub const xoff = dc3;
 };
 
 const tIndex = enum(u3) {
