@@ -1058,6 +1058,9 @@ test "walker" {
             std.debug.print("found unexpected path: {s}\n", .{std.fmt.fmtSliceEscapeLower(entry.path)});
             return err;
         };
+        // make sure that the entry.dir is the containing dir
+        var entry_dir = try entry.dir.openDir(entry.basename, .{});
+        defer entry_dir.close();
         num_walked += 1;
     }
     try testing.expectEqual(expected_paths.kvs.len, num_walked);
