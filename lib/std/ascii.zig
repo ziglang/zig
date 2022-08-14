@@ -1,16 +1,18 @@
-// Does NOT look at the locale the way C89's toupper(3), isspace() et cetera does.
-// I could have taken only a u7 to make this clear, but it would be slower
-// It is my opinion that encodings other than UTF-8 should not be supported.
-//
-// (and 128 bytes is not much to pay).
-// Also does not handle Unicode character classes.
-//
-// https://upload.wikimedia.org/wikipedia/commons/thumb/c/cf/USASCII_code_chart.png/1200px-USASCII_code_chart.png
+//! The 7-bit [ASCII](https://en.wikipedia.org/wiki/ASCII) character encoding standard.
+//!
+//! This is not to be confused with the 8-bit [extended ASCII](https://en.wikipedia.org/wiki/Extended_ASCII) character encoding.
+//!
+//! Even though this module concerns itself with 7-bit ASCII,
+//! functions use `u8` as the type instead of `u7` for convenience and compatibility.
+//! Characters outside of the 7-bit range are gracefully handled (e.g. by returning `false`).
+//!
+//! See also: https://en.wikipedia.org/wiki/ASCII#Character_set
 
 const std = @import("std");
 
-/// Contains constants for the C0 control codes of the ASCII encoding.
-/// https://en.wikipedia.org/wiki/C0_and_C1_control_codes
+/// The C0 control codes of the ASCII encoding.
+///
+/// See also: https://en.wikipedia.org/wiki/C0_and_C1_control_codes and `is_control`.
 pub const control_code = struct {
     /// Null.
     pub const nul = 0x00;
@@ -237,15 +239,20 @@ pub const spaces = whitespace;
 /// DEPRECATED: use `isHex`.
 pub const isXDigit = isHex;
 
+/// Returns whether the character is alphanumeric. This is case-insensitive.
 pub fn isAlphanumeric(c: u8) bool {
     return (combinedTable[c] & ((@as(u8, 1) << @enumToInt(tIndex.Alpha)) |
         @as(u8, 1) << @enumToInt(tIndex.Digit))) != 0;
 }
 
+/// Returns whether the character is alphabetic. This is case-insensitive.
 pub fn isAlphabetic(c: u8) bool {
     return inTable(c, tIndex.Alpha);
 }
 
+/// Returns whether the character is a control character.
+///
+/// See also: `control_code`.
 pub fn isControl(c: u8) bool {
     return c <= control_code.us or c == control_code.del;
 }
@@ -259,10 +266,13 @@ pub fn isGraph(c: u8) bool {
     return inTable(c, tIndex.Graph);
 }
 
+/// Returns whether the character is lowercased.
 pub fn isLower(c: u8) bool {
     return inTable(c, tIndex.Lower);
 }
 
+/// Returns whether the character has some graphical representation and can be printed.
+/// This also returns `true` for the space character.
 pub fn isPrint(c: u8) bool {
     return inTable(c, tIndex.Graph) or c == ' ';
 }
@@ -271,6 +281,7 @@ pub fn isPunct(c: u8) bool {
     return inTable(c, tIndex.Punct);
 }
 
+/// Returns whether this character is included in `whitespace`.
 pub fn isWhitespace(c: u8) bool {
     return inTable(c, tIndex.Space);
 }
@@ -289,10 +300,12 @@ test "whitespace" {
     }
 }
 
+/// Returns whether the character is uppercased.
 pub fn isUpper(c: u8) bool {
     return inTable(c, tIndex.Upper);
 }
 
+/// Returns whether the character is a hexadecimal digit. This is case-insensitive.
 pub fn isHex(c: u8) bool {
     return inTable(c, tIndex.Hex);
 }
@@ -306,6 +319,7 @@ pub fn isBlank(c: u8) bool {
     return (c == ' ') or (c == '\x09');
 }
 
+/// Upper-cases the character and returns it as-is if it's already upper-cased.
 pub fn toUpper(c: u8) u8 {
     if (isLower(c)) {
         return c & 0b11011111;
@@ -314,6 +328,7 @@ pub fn toUpper(c: u8) u8 {
     }
 }
 
+/// Lower-cases the character and returns it as-is if it's already lower-cased.
 pub fn toLower(c: u8) u8 {
     if (isUpper(c)) {
         return c | 0b00100000;
@@ -392,7 +407,7 @@ test "allocUpperString" {
     try std.testing.expectEqualStrings("ABCDEFGHIJKLMNOPQRST0234+💩!", result);
 }
 
-/// Compares strings `a` and `b` case insensitively and returns whether they are equal.
+/// Compares strings `a` and `b` case-insensitively and returns whether they are equal.
 pub fn eqlIgnoreCase(a: []const u8, b: []const u8) bool {
     if (a.len != b.len) return false;
     for (a) |a_c, i| {
