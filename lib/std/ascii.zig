@@ -1,6 +1,6 @@
 //! The 7-bit [ASCII](https://en.wikipedia.org/wiki/ASCII) character encoding standard.
 //!
-//! This is not to be confused with the 8-bit [Extended ASCII](https://en.wikipedia.org/wiki/Extended_ASCII).
+//! This is not to be confused with the 8-bit [extended ASCII](https://en.wikipedia.org/wiki/Extended_ASCII) character encoding.
 //!
 //! Even though this module concerns itself with 7-bit ASCII,
 //! functions use `u8` as the type instead of `u7` for convenience and compatibility.
@@ -260,6 +260,7 @@ pub fn isBlank(c: u8) bool {
     return (c == ' ') or (c == '\x09');
 }
 
+/// Upper-cases the character and returns it as-is if it's already upper-cased.
 pub fn toUpper(c: u8) u8 {
     if (isLower(c)) {
         return c & 0b11011111;
@@ -268,6 +269,7 @@ pub fn toUpper(c: u8) u8 {
     }
 }
 
+/// Lower-cases the character and returns it as-is if it's already lower-cased.
 pub fn toLower(c: u8) u8 {
     if (isUpper(c)) {
         return c | 0b00100000;
