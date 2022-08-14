@@ -320,7 +320,7 @@ pub fn isBlank(c: u8) bool {
     return (c == ' ') or (c == '\x09');
 }
 
-/// Upper-cases the character and returns it as-is if it's already upper-cased.
+/// Uppercases the character and returns it as-is if it's already uppercased.
 pub fn toUpper(c: u8) u8 {
     if (isLower(c)) {
         return c & 0b11011111;
@@ -329,7 +329,7 @@ pub fn toUpper(c: u8) u8 {
     }
 }
 
-/// Lower-cases the character and returns it as-is if it's already lower-cased.
+/// Lowercases the character and returns it as-is if it's already lowercased.
 pub fn toLower(c: u8) u8 {
     if (isUpper(c)) {
         return c | 0b00100000;
