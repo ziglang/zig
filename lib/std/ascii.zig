@@ -340,13 +340,50 @@ pub fn toLower(c: u8) u8 {
 test "ascii character classes" {
     const testing = std.testing;
 
+    try testing.expect(!isControl('a'));
+    try testing.expect(!isControl('z'));
+    try testing.expect(isControl(control_code.nul));
+    try testing.expect(isControl(control_code.ff));
+    try testing.expect(isControl(control_code.us));
+
     try testing.expect('C' == toUpper('c'));
     try testing.expect(':' == toUpper(':'));
     try testing.expect('\xab' == toUpper('\xab'));
+    try testing.expect(!isUpper('z'));
+
     try testing.expect('c' == toLower('C'));
+    try testing.expect(':' == toLower(':'));
+    try testing.expect('\xab' == toLower('\xab'));
+    try testing.expect(!isLower('Z'));
+
+    try testing.expect(isAlphanumeric('Z'));
+    try testing.expect(isAlphanumeric('z'));
+    try testing.expect(isAlphanumeric('5'));
+    try testing.expect(isAlphanumeric('5'));
+    try testing.expect(!isAlphanumeric('!'));
+
+    try testing.expect(!isAlpha('5'));
     try testing.expect(isAlpha('c'));
     try testing.expect(!isAlpha('5'));
-    try testing.expect(isSpace(' '));
+
+    try testing.expect(isWhitespace(' '));
+    try testing.expect(isWhitespace('\t'));
+    try testing.expect(isWhitespace('\r'));
+    try testing.expect(isWhitespace('\n'));
+    try testing.expect(!isWhitespace('.'));
+
+    try testing.expect(!isHex('g'));
+    try testing.expect(isHex('b'));
+    try testing.expect(isHex('9'));
+
+    try testing.expect(!isDigit('~'));
+    try testing.expect(isDigit('0'));
+    try testing.expect(isDigit('9'));
+
+    try testing.expect(isPrint(' '));
+    try testing.expect(isPrint('@'));
+    try testing.expect(isPrint('~'));
+    try testing.expect(!isPrint(control_code.esc));
 }
 
 /// Writes a lower case copy of `ascii_string` to `output`.
@@ -463,7 +500,6 @@ test "indexOfIgnoreCase" {
     try std.testing.expect(indexOfIgnoreCase("one two three FouR", "gOur") == null);
     try std.testing.expect(indexOfIgnoreCase("foO", "Foo").? == 0);
     try std.testing.expect(indexOfIgnoreCase("foo", "fool") == null);
-
     try std.testing.expect(indexOfIgnoreCase("FOO foo", "fOo").? == 0);
 }
 
