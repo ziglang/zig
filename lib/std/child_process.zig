@@ -670,6 +670,7 @@ pub const ChildProcess = struct {
             forkChildErrReport(self.err_pipe_write, err);
         }
 
+        /// Performs setup in the child process, i.e. std pipes, cwd, gid, uid.
         pub fn setup(self: Forked) !void {
             try setUpChildIo(self.child.stdin_behavior, self.stdin_pipe[0], os.STDIN_FILENO, self.dev_null_fd);
             try setUpChildIo(self.child.stdout_behavior, self.stdout_pipe[1], os.STDOUT_FILENO, self.dev_null_fd);
@@ -711,12 +712,13 @@ pub const ChildProcess = struct {
         }
     };
 
-    /// fork off the child process.  Calling fork is equivalent to spawn except it will return
+    /// fork off the child process.  Returns `null` for the current process and `Forked` for
+    /// the child process.  Calling fork is equivalent to spawn except it will return
     /// in the child process before calling setup/exec.  This provides an opportunity for the
     /// caller to perform additional setup in the child process before calling setup/exec.
     ///
     /// This API does not support resource cleanup in the child process after fork returns.
-    /// The caller is only mean to perform setup and then call exec or exit afterwards.
+    /// The caller is only meant to perform setup and then call exec or exit afterwards.
     ///
     /// Note there are limitations on what can be done in the child process after fork returns.
     /// For example, calling malloc from libc may cause deadlock.
