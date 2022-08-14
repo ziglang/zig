@@ -278,6 +278,7 @@ pub fn isPrint(c: u8) bool {
     return inTable(c, tIndex.Graph) or c == ' ';
 }
 
+/// DEPRECATED: create your own function based on your needs and what you want to do.
 pub fn isPunct(c: u8) bool {
     return inTable(c, tIndex.Punct);
 }
