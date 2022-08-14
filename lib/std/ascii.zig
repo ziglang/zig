@@ -232,7 +232,7 @@ pub fn isAlpha(c: u8) bool {
 }
 
 pub fn isCntrl(c: u8) bool {
-    return c < 0x20 or c == 127; //DEL
+    return c <= control_code.us or c == control_code.del;
 }
 
 pub fn isDigit(c: u8) bool {
