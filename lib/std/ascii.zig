@@ -12,43 +12,77 @@ const std = @import("std");
 /// Contains constants for the C0 control codes of the ASCII encoding.
 /// https://en.wikipedia.org/wiki/C0_and_C1_control_codes
 pub const control_code = struct {
-    pub const NUL = 0x00;
-    pub const SOH = 0x01;
-    pub const STX = 0x02;
-    pub const ETX = 0x03;
-    pub const EOT = 0x04;
-    pub const ENQ = 0x05;
-    pub const ACK = 0x06;
-    pub const BEL = 0x07;
-    pub const BS = 0x08;
-    pub const TAB = 0x09;
-    pub const LF = 0x0A;
-    pub const VT = 0x0B;
-    pub const FF = 0x0C;
-    pub const CR = 0x0D;
-    pub const SO = 0x0E;
-    pub const SI = 0x0F;
-    pub const DLE = 0x10;
-    pub const DC1 = 0x11;
-    pub const DC2 = 0x12;
-    pub const DC3 = 0x13;
-    pub const DC4 = 0x14;
-    pub const NAK = 0x15;
-    pub const SYN = 0x16;
-    pub const ETB = 0x17;
-    pub const CAN = 0x18;
-    pub const EM = 0x19;
-    pub const SUB = 0x1A;
-    pub const ESC = 0x1B;
-    pub const FS = 0x1C;
-    pub const GS = 0x1D;
-    pub const RS = 0x1E;
-    pub const US = 0x1F;
+    /// Null.
+    pub const nul = 0x00;
+    /// Start of Heading.
+    pub const soh = 0x01;
+    /// Start of Text.
+    pub const stx = 0x02;
+    /// End of Text.
+    pub const etx = 0x03;
+    /// End of Transmission.
+    pub const eot = 0x04;
+    /// Enquiry.
+    pub const enq = 0x05;
+    /// Acknowledge.
+    pub const ack = 0x06;
+    /// Bell, Alert.
+    pub const bel = 0x07;
+    /// Backspace.
+    pub const bs = 0x08;
+    /// Horizontal Tab, Tab ('\t').
+    pub const ht = 0x09;
+    /// Line Feed, Newline ('\n').
+    pub const lf = 0x0A;
+    /// Vertical Tab.
+    pub const vt = 0x0B;
+    /// Form Feed.
+    pub const ff = 0x0C;
+    /// Carriage Return ('\r').
+    pub const cr = 0x0D;
+    /// Shift Out.
+    pub const so = 0x0E;
+    /// Shift In.
+    pub const si = 0x0F;
+    /// Data Link Escape.
+    pub const dle = 0x10;
+    /// Device Control One (XON).
+    pub const dc1 = 0x11;
+    /// Device Control Two.
+    pub const dc2 = 0x12;
+    /// Device Control Three (XOFF).
+    pub const dc3 = 0x13;
+    /// Device Control Four.
+    pub const dc4 = 0x14;
+    /// Negative Acknowledge.
+    pub const nak = 0x15;
+    /// Synchronous Idle.
+    pub const syn = 0x16;
+    /// End of Transmission Block
+    pub const etb = 0x17;
+    /// Cancel.
+    pub const can = 0x18;
+    /// End of Medium.
+    pub const em = 0x19;
+    /// Substitute.
+    pub const sub = 0x1A;
+    /// Escape.
+    pub const esc = 0x1B;
+    /// File separator.
+    pub const fs = 0x1C;
+    /// Group Separator.
+    pub const gs = 0x1D;
+    /// Record Separator.
+    pub const rs = 0x1E;
+    /// Unit separator.
+    pub const us = 0x1F;
+    /// Delete.
+    pub const del = 0x7F;
 
-    pub const DEL = 0x7F;
-
-    pub const XON = 0x11;
-    pub const XOFF = 0x13;
+    /// An alias to `dc1`.
+    pub const xon = dc1;
+    /// An alias to `dc3`.
+    pub const xff = dc3;
 };
 
 const tIndex = enum(u3) {
