@@ -7044,17 +7044,6 @@ fn integerLiteral(gz: *GenZir, rl: ResultLoc, node: Ast.Node.Index) InnerError!Z
     const main_tokens = tree.nodes.items(.main_token);
     const int_token = main_tokens[node];
     const prefixed_bytes = tree.tokenSlice(int_token);
-    if (std.fmt.parseInt(u64, prefixed_bytes, 0)) |small_int| {
-        const result: Zir.Inst.Ref = switch (small_int) {
-            0 => .zero,
-            1 => .one,
-            else => try gz.addInt(small_int),
-        };
-        return rvalue(gz, rl, result, node);
-    } else |err| switch (err) {
-        error.InvalidCharacter => unreachable, // Caught by the parser.
-        error.Overflow => {},
-    }
 
     var base: u8 = 10;
     var non_prefixed: []const u8 = prefixed_bytes;
@@ -7070,7 +7059,21 @@ fn integerLiteral(gz: *GenZir, rl: ResultLoc, node: Ast.Node.Index) InnerError!Z
     }
 
     if (base == 10 and prefixed_bytes.len >= 2 and prefixed_bytes[0] == '0') {
-        return astgen.failNode(node, "integer literal '{s}' has leading zero", .{prefixed_bytes});
+        return astgen.failNodeNotes(node, "integer literal '{s}' has leading zero", .{prefixed_bytes}, &.{
+            try astgen.errNoteNode(node, "use '0o' prefix for octal literals", .{}),
+        });
+    }
+
+    if (std.fmt.parseUnsigned(u64, non_prefixed, base)) |small_int| {
+        const result: Zir.Inst.Ref = switch (small_int) {
+            0 => .zero,
+            1 => .one,
+            else => try gz.addInt(small_int),
+        };
+        return rvalue(gz, rl, result, node);
+    } else |err| switch (err) {
+        error.InvalidCharacter => unreachable, // Caught by the parser.
+        error.Overflow => {},
     }
 
     const gpa = astgen.gpa;
