@@ -6303,6 +6303,8 @@ pub const Type = extern union {
     pub const @"anyopaque" = initTag(.anyopaque);
     pub const @"null" = initTag(.@"null");
 
+    pub const err_int = Type.u16;
+
     pub fn ptr(arena: Allocator, mod: *Module, data: Payload.Pointer.Data) !Type {
         const target = mod.getTarget();
 

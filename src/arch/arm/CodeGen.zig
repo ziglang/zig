@@ -796,6 +796,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             => return self.fail("TODO implement optimized float mode", .{}),
 
             .is_named_enum_value => return self.fail("TODO implement is_named_enum_value", .{}),
+            .error_set_has_value => return self.fail("TODO implement error_set_has_value", .{}),
 
             .wasm_memory_size => unreachable,
             .wasm_memory_grow => unreachable,
