@@ -3608,6 +3608,16 @@ pub fn declIterator(zir: Zir, decl_inst: u32) DeclIterator {
                         break :decls_len decls_len;
                     } else 0;
 
+                    if (small.has_backing_int) {
+                        const backing_int_body_len = zir.extra[extra_index];
+                        extra_index += 1; // backing_int_body_len
+                        if (backing_int_body_len == 0) {
+                            extra_index += 1; // backing_int_ref
+                        } else {
+                            extra_index += backing_int_body_len; // backing_int_body_inst
+                        }
+                    }
+
                     return declIteratorInner(zir, extra_index, decls_len);
                 },
                 .enum_decl => {
