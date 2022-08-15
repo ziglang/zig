@@ -169,8 +169,8 @@
         width: 100%;
         margin-bottom: 0.8rem;
         padding: 0.5rem;
-        font-size: 1rem;
         font-family: var(--ui);
+        font-size: 1rem;
         color: var(--tx-color);
         background-color: var(--search-bg-color);
         border-top: 0;
@@ -339,8 +339,8 @@
       kbd {
         display: inline-block;
         padding: 0.3em 0.2em;
-        font-size: 1.2em;
-        font-size: var(--mono);
+        font-family: var(--mono);
+        font-size: 1em;
         line-height: 0.8em;
         vertical-align: middle;
         color: #000;
@@ -612,7 +612,7 @@
           </div>
         </nav>
       </div>
-      <div class="flex-right">
+      <div id="docs" class="flex-right">
         <div class="wrap">
           <section class="docs">
             <div style="position: relative">
@@ -654,7 +654,13 @@
             </div>
             <div id="sectSearchNoResults" class="hidden">
               <h2>No Results Found</h2>
-              <p>Press escape to exit search and then '?' to see more options.</p>
+              <p>Here are some things you can try:</p>
+              <ul>
+                <li>Check out the <a id="langRefLink">Language Reference</a> for the language itself.</li>
+                <li>Check out the <a href="https://ziglang.org/learn/">Learn page</a> for other helpful resources for learning Zig.</li>
+                <li>Use your search engine.</li>
+              </ul>
+              <p>Press <kbd>?</kbd> to see keyboard shortcuts and <kbd>Esc</kbd> to return.</p>
             </div>
             <div id="sectFields" class="hidden">
               <h2>Fields</h2>
@@ -716,11 +722,13 @@
         <div class="modal">
           <h1>Keyboard Shortcuts</h1>
           <dl><dt><kbd>?</kbd></dt><dd>Show this help modal</dd></dl>
-          <dl><dt><kbd>Esc</kbd></dt><dd>Clear focus; close this modal</dd></dl>
           <dl><dt><kbd>s</kbd></dt><dd>Focus the search field</dd></dl>
-          <dl><dt><kbd>↑</kbd></dt><dd>Move up in search results</dd></dl>
-          <dl><dt><kbd>↓</kbd></dt><dd>Move down in search results</dd></dl>
-          <dl><dt><kbd>⏎</kbd></dt><dd>Go to active search result</dd></dl>
+          <div style="margin-left: 1em">
+            <dl><dt><kbd>↑</kbd></dt><dd>Move up in search results</dd></dl>
+            <dl><dt><kbd>↓</kbd></dt><dd>Move down in search results</dd></dl>
+            <dl><dt><kbd>⏎</kbd></dt><dd>Go to active search result</dd></dl>
+          </div>
+          <dl><dt><kbd>Esc</kbd></dt><dd>Clear focus; close this modal</dd></dl>
         </div>
       </div>
     </div>
