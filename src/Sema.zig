@@ -10441,7 +10441,7 @@ fn zirShr(
                 // Detect if any ones would be shifted out.
                 const truncated = try lhs_val.intTruncBitsAsValue(lhs_ty, sema.arena, .unsigned, rhs_val, target);
                 if (!(try truncated.compareWithZeroAdvanced(.eq, sema.kit(block, src)))) {
-                    return sema.addConstUndef(lhs_ty);
+                    return sema.fail(block, src, "exact shift shifted out 1 bits", .{});
                 }
             }
             const val = try lhs_val.shr(rhs_val, lhs_ty, sema.arena, target);
@@ -11346,13 +11346,19 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         if (maybe_lhs_val) |lhs_val| {
             if (maybe_rhs_val) |rhs_val| {
                 if (is_int) {
-                    // TODO: emit compile error if there is a remainder
+                    const modulus_val = try lhs_val.intMod(rhs_val, resolved_type, sema.arena, target);
+                    if (modulus_val.compareWithZero(.neq)) {
+                        return sema.fail(block, src, "exact division produced remainder", .{});
+                    }
                     return sema.addConstant(
                         resolved_type,
                         try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, target),
                     );
                 } else {
-                    // TODO: emit compile error if there is a remainder
+                    const modulus_val = try lhs_val.floatMod(rhs_val, resolved_type, sema.arena, target);
+                    if (modulus_val.compareWithZero(.neq)) {
+                        return sema.fail(block, src, "exact division produced remainder", .{});
+                    }
                     return sema.addConstant(
                         resolved_type,
                         try lhs_val.floatDiv(rhs_val, resolved_type, sema.arena, target),

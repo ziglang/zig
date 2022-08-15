@@ -4,7 +4,7 @@ comptime {
 }
 
 // error
-// backend=stage1
+// backend=llvm
 // target=native
 //
-// tmp.zig:2:15: error: exact shift shifted out 1 bits
+// :2:15: error: exact shift shifted out 1 bits
