@@ -5384,6 +5384,17 @@ fn lookupInNamespace(
             }
         }
 
+        {
+            var i: usize = 0;
+            while (i < candidates.items.len) {
+                if (candidates.items[i] == sema.owner_decl_index) {
+                    _ = candidates.orderedRemove(i);
+                } else {
+                    i += 1;
+                }
+            }
+        }
+
         switch (candidates.items.len) {
             0 => {},
             1 => {
