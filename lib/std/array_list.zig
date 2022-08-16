@@ -221,6 +221,30 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             mem.copy(T, self.items[old_len..], items);
         }
 
+        /// Append an unaligned slice of items to the list. Allocates more
+        /// memory as necessary. Only call this function if calling
+        /// `appendSlice` instead would be a compile error.
+        pub fn appendUnalignedSlice(self: *Self, items: []align(1) const T) Allocator.Error!void {
+            try self.ensureUnusedCapacity(items.len);
+            self.appendUnalignedSliceAssumeCapacity(items);
+        }
+
+        /// Append the slice of items to the list, asserting the capacity is already
+        /// enough to store the new items. **Does not** invalidate pointers.
+        /// Only call this function if calling `appendSliceAssumeCapacity` instead
+        /// would be a compile error.
+        pub fn appendUnalignedSliceAssumeCapacity(self: *Self, items: []align(1) const T) void {
+            const old_len = self.items.len;
+            const new_len = old_len + items.len;
+            assert(new_len <= self.capacity);
+            self.items.len = new_len;
+            @memcpy(
+                @ptrCast([*]align(@alignOf(T)) u8, self.items.ptr + old_len),
+                @ptrCast([*]const u8, items.ptr),
+                items.len * @sizeOf(T),
+            );
+        }
+
         pub const Writer = if (T != u8)
             @compileError("The Writer interface is only defined for ArrayList(u8) " ++
                 "but the given type is ArrayList(" ++ @typeName(T) ++ ")")
@@ -592,6 +616,29 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             mem.copy(T, self.items[old_len..], items);
         }
 
+        /// Append the slice of items to the list. Allocates more
+        /// memory as necessary. Only call this function if a call to `appendSlice` instead would
+        /// be a compile error.
+        pub fn appendUnalignedSlice(self: *Self, allocator: Allocator, items: []align(1) const T) Allocator.Error!void {
+            try self.ensureUnusedCapacity(allocator, items.len);
+            self.appendUnalignedSliceAssumeCapacity(items);
+        }
+
+        /// Append an unaligned slice of items to the list, asserting the capacity is enough
+        /// to store the new items. Only call this function if a call to `appendSliceAssumeCapacity`
+        /// instead would be a compile error.
+        pub fn appendUnalignedSliceAssumeCapacity(self: *Self, items: []align(1) const T) void {
+            const old_len = self.items.len;
+            const new_len = old_len + items.len;
+            assert(new_len <= self.capacity);
+            self.items.len = new_len;
+            @memcpy(
+                @ptrCast([*]align(@alignOf(T)) u8, self.items.ptr + old_len),
+                @ptrCast([*]const u8, items.ptr),
+                items.len * @sizeOf(T),
+            );
+        }
+
         pub const WriterContext = struct {
             self: *Self,
             allocator: Allocator,
@@ -899,6 +946,14 @@ test "std.ArrayList/ArrayListUnmanaged.basic" {
         try testing.expect(list.pop() == 1);
         try testing.expect(list.items.len == 9);
 
+        var unaligned: [3]i32 align(1) = [_]i32{ 4, 5, 6 };
+        list.appendUnalignedSlice(&unaligned) catch unreachable;
+        try testing.expect(list.items.len == 12);
+        try testing.expect(list.pop() == 6);
+        try testing.expect(list.pop() == 5);
+        try testing.expect(list.pop() == 4);
+        try testing.expect(list.items.len == 9);
+
         list.appendSlice(&[_]i32{}) catch unreachable;
         try testing.expect(list.items.len == 9);
 
@@ -939,6 +994,14 @@ test "std.ArrayList/ArrayListUnmanaged.basic" {
         try testing.expect(list.pop() == 3);
         try testing.expect(list.pop() == 2);
         try testing.expect(list.pop() == 1);
+        try testing.expect(list.items.len == 9);
+
+        var unaligned: [3]i32 align(1) = [_]i32{ 4, 5, 6 };
+        list.appendUnalignedSlice(a, &unaligned) catch unreachable;
+        try testing.expect(list.items.len == 12);
+        try testing.expect(list.pop() == 6);
+        try testing.expect(list.pop() == 5);
+        try testing.expect(list.pop() == 4);
         try testing.expect(list.items.len == 9);
 
         list.appendSlice(a, &[_]i32{}) catch unreachable;

@@ -797,6 +797,10 @@ pub const Tokenizer = struct {
                         remaining_code_units = 3;
                         state = .char_literal_unicode;
                     },
+                    '\n' => {
+                        result.tag = .invalid;
+                        break;
+                    },
                     else => {
                         state = .char_literal_end;
                     },
@@ -1505,6 +1509,20 @@ test "tokenizer - code point literal with hex escape" {
     try testTokenize(
         \\'\x1'
     , &.{ .invalid, .invalid });
+}
+
+test "tokenizer - newline in char literal" {
+    try testTokenize(
+        \\'
+        \\'
+    , &.{ .invalid, .invalid });
+}
+
+test "tokenizer - newline in string literal" {
+    try testTokenize(
+        \\"
+        \\"
+    , &.{ .invalid, .string_literal });
 }
 
 test "tokenizer - code point literal with unicode escapes" {

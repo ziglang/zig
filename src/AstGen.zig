@@ -152,6 +152,7 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
         0,
         tree.containerDeclRoot(),
         .Auto,
+        0,
     )) |struct_decl_ref| {
         assert(refToIndex(struct_decl_ref).? == 0);
     } else |err| switch (err) {
@@ -2454,7 +2455,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .trunc,
             .round,
             .tag_name,
-            .reify,
             .type_name,
             .frame_type,
             .frame_size,
@@ -2501,7 +2501,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .closure_get,
             .array_base_ptr,
             .field_base_ptr,
-            .param_type,
             .ret_ptr,
             .ret_type,
             .@"try",
@@ -3070,6 +3069,19 @@ fn emitDbgNode(gz: *GenZir, node: Ast.Node.Index) !void {
     astgen.advanceSourceCursorToNode(node);
     const line = astgen.source_line - gz.decl_line;
     const column = astgen.source_column;
+
+    if (gz.instructions.items.len > 0) {
+        const last = gz.instructions.items[gz.instructions.items.len - 1];
+        const zir_tags = astgen.instructions.items(.tag);
+        if (zir_tags[last] == .dbg_stmt) {
+            const zir_datas = astgen.instructions.items(.data);
+            zir_datas[last].dbg_stmt = .{
+                .line = line,
+                .column = column,
+            };
+            return;
+        }
+    }
 
     _ = try gz.add(.{ .tag = .dbg_stmt, .data = .{
         .dbg_stmt = .{
@@ -4212,15 +4224,18 @@ fn structDeclInner(
     node: Ast.Node.Index,
     container_decl: Ast.full.ContainerDecl,
     layout: std.builtin.Type.ContainerLayout,
+    backing_int_node: Ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
     const decl_inst = try gz.reserveInstructionIndex();
 
-    if (container_decl.ast.members.len == 0) {
+    if (container_decl.ast.members.len == 0 and backing_int_node == 0) {
         try gz.setStruct(decl_inst, .{
             .src_node = node,
             .layout = layout,
             .fields_len = 0,
             .decls_len = 0,
+            .backing_int_ref = .none,
+            .backing_int_body_len = 0,
             .known_non_opv = false,
             .known_comptime_only = false,
         });
@@ -4255,6 +4270,35 @@ fn structDeclInner(
     };
     defer block_scope.unstack();
 
+    const scratch_top = astgen.scratch.items.len;
+    defer astgen.scratch.items.len = scratch_top;
+
+    var backing_int_body_len: usize = 0;
+    const backing_int_ref: Zir.Inst.Ref = blk: {
+        if (backing_int_node != 0) {
+            if (layout != .Packed) {
+                return astgen.failNode(backing_int_node, "non-packed struct does not support backing integer type", .{});
+            } else {
+                const backing_int_ref = try typeExpr(&block_scope, &namespace.base, backing_int_node);
+                if (!block_scope.isEmpty()) {
+                    if (!block_scope.endsWithNoReturn()) {
+                        _ = try block_scope.addBreak(.break_inline, decl_inst, backing_int_ref);
+                    }
+
+                    const body = block_scope.instructionsSlice();
+                    const old_scratch_len = astgen.scratch.items.len;
+                    try astgen.scratch.ensureUnusedCapacity(gpa, countBodyLenAfterFixups(astgen, body));
+                    appendBodyWithFixupsArrayList(astgen, &astgen.scratch, body);
+                    backing_int_body_len = astgen.scratch.items.len - old_scratch_len;
+                    block_scope.instructions.items.len = block_scope.instructions_top;
+                }
+                break :blk backing_int_ref;
+            }
+        } else {
+            break :blk .none;
+        }
+    };
+
     const decl_count = try astgen.scanDecls(&namespace, container_decl.ast.members);
     const field_count = @intCast(u32, container_decl.ast.members.len - decl_count);
 
@@ -4279,7 +4323,7 @@ fn structDeclInner(
     var known_non_opv = false;
     var known_comptime_only = false;
     for (container_decl.ast.members) |member_node| {
-        const member = switch (try containerMember(gz, &namespace.base, &wip_members, member_node)) {
+        const member = switch (try containerMember(&block_scope, &namespace.base, &wip_members, member_node)) {
             .decl => continue,
             .field => |field| field,
         };
@@ -4367,6 +4411,8 @@ fn structDeclInner(
         .layout = layout,
         .fields_len = field_count,
         .decls_len = decl_count,
+        .backing_int_ref = backing_int_ref,
+        .backing_int_body_len = @intCast(u32, backing_int_body_len),
         .known_non_opv = known_non_opv,
         .known_comptime_only = known_comptime_only,
     });
@@ -4375,7 +4421,9 @@ fn structDeclInner(
     const decls_slice = wip_members.declsSlice();
     const fields_slice = wip_members.fieldsSlice();
     const bodies_slice = astgen.scratch.items[bodies_start..];
-    try astgen.extra.ensureUnusedCapacity(gpa, decls_slice.len + fields_slice.len + bodies_slice.len);
+    try astgen.extra.ensureUnusedCapacity(gpa, backing_int_body_len +
+        decls_slice.len + fields_slice.len + bodies_slice.len);
+    astgen.extra.appendSliceAssumeCapacity(astgen.scratch.items[scratch_top..][0..backing_int_body_len]);
     astgen.extra.appendSliceAssumeCapacity(decls_slice);
     astgen.extra.appendSliceAssumeCapacity(fields_slice);
     astgen.extra.appendSliceAssumeCapacity(bodies_slice);
@@ -4446,7 +4494,7 @@ fn unionDeclInner(
     defer wip_members.deinit();
 
     for (members) |member_node| {
-        const member = switch (try containerMember(gz, &namespace.base, &wip_members, member_node)) {
+        const member = switch (try containerMember(&block_scope, &namespace.base, &wip_members, member_node)) {
             .decl => continue,
             .field => |field| field,
         };
@@ -4571,9 +4619,7 @@ fn containerDecl(
                 else => unreachable,
             } else std.builtin.Type.ContainerLayout.Auto;
 
-            assert(container_decl.ast.arg == 0);
-
-            const result = try structDeclInner(gz, scope, node, container_decl, layout);
+            const result = try structDeclInner(gz, scope, node, container_decl, layout, container_decl.ast.arg);
             return rvalue(gz, rl, result, node);
         },
         .keyword_union => {
@@ -4733,7 +4779,7 @@ fn containerDecl(
             for (container_decl.ast.members) |member_node| {
                 if (member_node == counts.nonexhaustive_node)
                     continue;
-                const member = switch (try containerMember(gz, &namespace.base, &wip_members, member_node)) {
+                const member = switch (try containerMember(&block_scope, &namespace.base, &wip_members, member_node)) {
                     .decl => continue,
                     .field => |field| field,
                 };
@@ -4811,13 +4857,26 @@ fn containerDecl(
             };
             defer namespace.deinit(gpa);
 
+            astgen.advanceSourceCursorToNode(node);
+            var block_scope: GenZir = .{
+                .parent = &namespace.base,
+                .decl_node_index = node,
+                .decl_line = astgen.source_line,
+                .astgen = astgen,
+                .force_comptime = true,
+                .in_defer = false,
+                .instructions = gz.instructions,
+                .instructions_top = gz.instructions.items.len,
+            };
+            defer block_scope.unstack();
+
             const decl_count = try astgen.scanDecls(&namespace, container_decl.ast.members);
 
             var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, 0, 0, 0);
             defer wip_members.deinit();
 
             for (container_decl.ast.members) |member_node| {
-                const res = try containerMember(gz, &namespace.base, &wip_members, member_node);
+                const res = try containerMember(&block_scope, &namespace.base, &wip_members, member_node);
                 if (res == .field) {
                     return astgen.failNode(member_node, "opaque types cannot have fields", .{});
                 }
@@ -5038,6 +5097,16 @@ fn tryExpr(
 
     if (parent_gz.in_defer) return astgen.failNode(node, "'try' not allowed inside defer expression", .{});
 
+    // Ensure debug line/column information is emitted for this try expression.
+    // Then we will save the line/column so that we can emit another one that goes
+    // "backwards" because we want to evaluate the operand, but then put the debug
+    // info back at the try keyword for error return tracing.
+    if (!parent_gz.force_comptime) {
+        try emitDbgNode(parent_gz, node);
+    }
+    const try_line = astgen.source_line - parent_gz.decl_line;
+    const try_column = astgen.source_column;
+
     const operand_rl: ResultLoc = switch (rl) {
         .ref => .ref,
         else => .none,
@@ -5067,6 +5136,7 @@ fn tryExpr(
     };
     const err_code = try else_scope.addUnNode(err_tag, operand, node);
     try genDefers(&else_scope, &fn_block.base, scope, .{ .both = err_code });
+    try emitDbgStmt(&else_scope, try_line, try_column);
     _ = try else_scope.addUnNode(.ret_node, err_code, node);
 
     try else_scope.setTryBody(try_inst, operand);
@@ -6573,6 +6643,16 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
 
     if (gz.in_defer) return astgen.failNode(node, "cannot return from defer expression", .{});
 
+    // Ensure debug line/column information is emitted for this return expression.
+    // Then we will save the line/column so that we can emit another one that goes
+    // "backwards" because we want to evaluate the operand, but then put the debug
+    // info back at the return keyword for error return tracing.
+    if (!gz.force_comptime) {
+        try emitDbgNode(gz, node);
+    }
+    const ret_line = astgen.source_line - gz.decl_line;
+    const ret_column = astgen.source_column;
+
     const defer_outer = &astgen.fn_block.?.base;
 
     const operand_node = node_datas[node].lhs;
@@ -6591,11 +6671,13 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
         const defer_counts = countDefers(astgen, defer_outer, scope);
         if (!defer_counts.need_err_code) {
             try genDefers(gz, defer_outer, scope, .both_sans_err);
+            try emitDbgStmt(gz, ret_line, ret_column);
             _ = try gz.addStrTok(.ret_err_value, err_name_str_index, ident_token);
             return Zir.Inst.Ref.unreachable_value;
         }
         const err_code = try gz.addStrTok(.ret_err_value_code, err_name_str_index, ident_token);
         try genDefers(gz, defer_outer, scope, .{ .both = err_code });
+        try emitDbgStmt(gz, ret_line, ret_column);
         _ = try gz.addUnNode(.ret_node, err_code, node);
         return Zir.Inst.Ref.unreachable_value;
     }
@@ -6614,6 +6696,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
         .never => {
             // Returning a value that cannot be an error; skip error defers.
             try genDefers(gz, defer_outer, scope, .normal_only);
+            try emitDbgStmt(gz, ret_line, ret_column);
             try gz.addRet(rl, operand, node);
             return Zir.Inst.Ref.unreachable_value;
         },
@@ -6621,6 +6704,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
             // Value is always an error. Emit both error defers and regular defers.
             const err_code = if (rl == .ptr) try gz.addUnNode(.load, rl.ptr, node) else operand;
             try genDefers(gz, defer_outer, scope, .{ .both = err_code });
+            try emitDbgStmt(gz, ret_line, ret_column);
             try gz.addRet(rl, operand, node);
             return Zir.Inst.Ref.unreachable_value;
         },
@@ -6629,6 +6713,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
             if (!defer_counts.have_err) {
                 // Only regular defers; no branch needed.
                 try genDefers(gz, defer_outer, scope, .normal_only);
+                try emitDbgStmt(gz, ret_line, ret_column);
                 try gz.addRet(rl, operand, node);
                 return Zir.Inst.Ref.unreachable_value;
             }
@@ -6642,6 +6727,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
             defer then_scope.unstack();
 
             try genDefers(&then_scope, defer_outer, scope, .normal_only);
+            try emitDbgStmt(&then_scope, ret_line, ret_column);
             try then_scope.addRet(rl, operand, node);
 
             var else_scope = gz.makeSubBlock(scope);
@@ -6651,6 +6737,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
                 .both = try else_scope.addUnNode(.err_union_code, result, node),
             };
             try genDefers(&else_scope, defer_outer, scope, which_ones);
+            try emitDbgStmt(&else_scope, ret_line, ret_column);
             try else_scope.addRet(rl, operand, node);
 
             try setCondBrPayload(condbr, is_non_err, &then_scope, 0, &else_scope, 0);
@@ -7553,7 +7640,6 @@ fn builtinCall(
         .trunc                 => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .trunc),
         .round                 => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .round),
         .tag_name              => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .tag_name),
-        .Type                  => return simpleUnOp(gz, scope, rl, node, .{ .coerced_ty = .type_info_type },  params[0], .reify),
         .type_name             => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .type_name),
         .Frame                 => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .frame_type),
         .frame_size            => return simpleUnOp(gz, scope, rl, node, .none,                               params[0], .frame_size),
@@ -7568,6 +7654,31 @@ fn builtinCall(
         .truncate     => return typeCast(gz, scope, rl, node, params[0], params[1], .truncate),
         // zig fmt: on
 
+        .Type => {
+            const operand = try expr(gz, scope, .{ .coerced_ty = .type_info_type }, params[0]);
+
+            const gpa = gz.astgen.gpa;
+
+            try gz.instructions.ensureUnusedCapacity(gpa, 1);
+            try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
+
+            const payload_index = try gz.astgen.addExtra(Zir.Inst.UnNode{
+                .node = gz.nodeIndexToRelative(node),
+                .operand = operand,
+            });
+            const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
+            gz.astgen.instructions.appendAssumeCapacity(.{
+                .tag = .extended,
+                .data = .{ .extended = .{
+                    .opcode = .reify,
+                    .small = @enumToInt(gz.anon_name_strategy),
+                    .operand = payload_index,
+                } },
+            });
+            gz.instructions.appendAssumeCapacity(new_index);
+            const result = indexToRef(new_index);
+            return rvalue(gz, rl, result, node);
+        },
         .panic => {
             try emitDbgNode(gz, node);
             return simpleUnOp(gz, scope, rl, node, .{ .ty = .const_slice_u8_type }, params[0], if (gz.force_comptime) .panic_comptime else .panic);
@@ -8152,6 +8263,33 @@ fn callExpr(
     assert(callee != .none);
     assert(node != 0);
 
+    const call_index = @intCast(Zir.Inst.Index, astgen.instructions.len);
+    const call_inst = Zir.indexToRef(call_index);
+    try gz.astgen.instructions.append(astgen.gpa, undefined);
+    try gz.instructions.append(astgen.gpa, call_index);
+
+    const scratch_top = astgen.scratch.items.len;
+    defer astgen.scratch.items.len = scratch_top;
+
+    var scratch_index = scratch_top;
+    try astgen.scratch.resize(astgen.gpa, scratch_top + call.ast.params.len);
+
+    for (call.ast.params) |param_node| {
+        var arg_block = gz.makeSubBlock(scope);
+        defer arg_block.unstack();
+
+        // `call_inst` is reused to provide the param type.
+        const arg_ref = try expr(&arg_block, &arg_block.base, .{ .coerced_ty = call_inst }, param_node);
+        _ = try arg_block.addBreak(.break_inline, call_index, arg_ref);
+
+        const body = arg_block.instructionsSlice();
+        try astgen.scratch.ensureUnusedCapacity(astgen.gpa, countBodyLenAfterFixups(astgen, body));
+        appendBodyWithFixupsArrayList(astgen, &astgen.scratch, body);
+
+        astgen.scratch.items[scratch_index] = @intCast(u32, astgen.scratch.items.len - scratch_top);
+        scratch_index += 1;
+    }
+
     const payload_index = try addExtra(astgen, Zir.Inst.Call{
         .callee = callee,
         .flags = .{
@@ -8159,22 +8297,16 @@ fn callExpr(
             .args_len = @intCast(Zir.Inst.Call.Flags.PackedArgsLen, call.ast.params.len),
         },
     });
-    var extra_index = try reserveExtra(astgen, call.ast.params.len);
-
-    for (call.ast.params) |param_node, i| {
-        const param_type = try gz.add(.{
-            .tag = .param_type,
-            .data = .{ .param_type = .{
-                .callee = callee,
-                .param_index = @intCast(u32, i),
-            } },
-        });
-        const arg_ref = try expr(gz, scope, .{ .coerced_ty = param_type }, param_node);
-        astgen.extra.items[extra_index] = @enumToInt(arg_ref);
-        extra_index += 1;
+    if (call.ast.params.len != 0) {
+        try astgen.extra.appendSlice(astgen.gpa, astgen.scratch.items[scratch_top..]);
     }
-
-    const call_inst = try gz.addPlNodePayloadIndex(.call, node, payload_index);
+    gz.astgen.instructions.set(call_index, .{
+        .tag = .call,
+        .data = .{ .pl_node = .{
+            .src_node = gz.nodeIndexToRelative(node),
+            .payload_index = payload_index,
+        } },
+    });
     return rvalue(gz, rl, call_inst, node); // TODO function call with result location
 }
 
@@ -11158,6 +11290,8 @@ const GenZir = struct {
         src_node: Ast.Node.Index,
         fields_len: u32,
         decls_len: u32,
+        backing_int_ref: Zir.Inst.Ref,
+        backing_int_body_len: u32,
         layout: std.builtin.Type.ContainerLayout,
         known_non_opv: bool,
         known_comptime_only: bool,
@@ -11165,7 +11299,7 @@ const GenZir = struct {
         const astgen = gz.astgen;
         const gpa = astgen.gpa;
 
-        try astgen.extra.ensureUnusedCapacity(gpa, 4);
+        try astgen.extra.ensureUnusedCapacity(gpa, 6);
         const payload_index = @intCast(u32, astgen.extra.items.len);
 
         if (args.src_node != 0) {
@@ -11178,6 +11312,12 @@ const GenZir = struct {
         if (args.decls_len != 0) {
             astgen.extra.appendAssumeCapacity(args.decls_len);
         }
+        if (args.backing_int_ref != .none) {
+            astgen.extra.appendAssumeCapacity(args.backing_int_body_len);
+            if (args.backing_int_body_len == 0) {
+                astgen.extra.appendAssumeCapacity(@enumToInt(args.backing_int_ref));
+            }
+        }
         astgen.instructions.set(inst, .{
             .tag = .extended,
             .data = .{ .extended = .{
@@ -11186,6 +11326,7 @@ const GenZir = struct {
                     .has_src_node = args.src_node != 0,
                     .has_fields_len = args.fields_len != 0,
                     .has_decls_len = args.decls_len != 0,
+                    .has_backing_int = args.backing_int_ref != .none,
                     .known_non_opv = args.known_non_opv,
                     .known_comptime_only = args.known_comptime_only,
                     .name_strategy = gz.anon_name_strategy,
@@ -11666,4 +11807,15 @@ fn countBodyLenAfterFixups(astgen: *AstGen, body: []const Zir.Inst.Index) u32 {
         }
     }
     return @intCast(u32, count);
+}
+
+fn emitDbgStmt(gz: *GenZir, line: u32, column: u32) !void {
+    if (gz.force_comptime) return;
+
+    _ = try gz.add(.{ .tag = .dbg_stmt, .data = .{
+        .dbg_stmt = .{
+            .line = line,
+            .column = column,
+        },
+    } });
 }

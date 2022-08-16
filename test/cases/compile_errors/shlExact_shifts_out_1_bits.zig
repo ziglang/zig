@@ -4,7 +4,7 @@ comptime {
 }
 
 // error
-// backend=stage1
+// backend=llvm
 // target=native
 //
-// tmp.zig:2:15: error: operation caused overflow
+// :2:15: error: operation caused overflow

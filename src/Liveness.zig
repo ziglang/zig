@@ -267,6 +267,7 @@ pub fn categorizeOperand(
         .byte_swap,
         .bit_reverse,
         .splat,
+        .error_set_has_value,
         => {
             const o = air_datas[inst].ty_op;
             if (o.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
@@ -842,6 +843,7 @@ fn analyzeInst(
         .byte_swap,
         .bit_reverse,
         .splat,
+        .error_set_has_value,
         => {
             const o = inst_datas[inst].ty_op;
             return trackOperands(a, new_set, inst, main_tomb, .{ o.operand, .none, .none });

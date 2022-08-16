@@ -1220,7 +1220,6 @@ fn walkInstruction(
         .trunc,
         .round,
         .tag_name,
-        .reify,
         .type_name,
         .frame_type,
         .frame_size,
@@ -2079,14 +2078,19 @@ fn walkInstruction(
 
             const args_len = extra.data.flags.args_len;
             var args = try self.arena.alloc(DocData.Expr, args_len);
-            const arg_refs = file.zir.refSlice(extra.end, args_len);
-            for (arg_refs) |ref, idx| {
+            const body = file.zir.extra[extra.end..];
+
+            var i: usize = 0;
+            while (i < args_len) : (i += 1) {
+                const arg_end = file.zir.extra[extra.end + i];
+                const break_index = body[arg_end - 1];
+                const ref = data[break_index].@"break".operand;
                 // TODO: consider toggling need_type to true if we ever want
                 //       to show discrepancies between the types of provided
                 //       arguments and the types declared in the function
                 //       signature for its parameters.
                 const wr = try self.walkRef(file, parent_scope, ref, false);
-                args[idx] = wr.expr;
+                args[i] = wr.expr;
             }
 
             const cte_slot_index = self.comptime_exprs.items.len;
@@ -2532,6 +2536,17 @@ fn walkInstruction(
                         break :blk decls_len;
                     } else 0;
 
+                    // TODO: Expose explicit backing integer types in some way.
+                    if (small.has_backing_int) {
+                        const backing_int_body_len = file.zir.extra[extra_index];
+                        extra_index += 1; // backing_int_body_len
+                        if (backing_int_body_len == 0) {
+                            extra_index += 1; // backing_int_ref
+                        } else {
+                            extra_index += backing_int_body_len; // backing_int_body_inst
+                        }
+                    }
+
                     var decl_indexes: std.ArrayListUnmanaged(usize) = .{};
                     var priv_decl_indexes: std.ArrayListUnmanaged(usize) = .{};
 
@@ -2605,6 +2620,7 @@ fn walkInstruction(
                 },
                 .error_to_int,
                 .int_to_error,
+                .reify,
                 => {
                     const extra = file.zir.extraData(Zir.Inst.UnNode, extended.operand).data;
                     const bin_index = self.exprs.items.len;

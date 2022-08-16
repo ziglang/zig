@@ -214,7 +214,6 @@ const Writer = struct {
             .trunc,
             .round,
             .tag_name,
-            .reify,
             .type_name,
             .frame_type,
             .frame_size,
@@ -247,7 +246,6 @@ const Writer = struct {
 
             .validate_array_init_ty => try self.writeValidateArrayInitTy(stream, inst),
             .array_type_sentinel => try self.writeArrayTypeSentinel(stream, inst),
-            .param_type => try self.writeParamType(stream, inst),
             .ptr_type => try self.writePtrType(stream, inst),
             .int => try self.writeInt(stream, inst),
             .int_big => try self.writeIntBig(stream, inst),
@@ -500,6 +498,7 @@ const Writer = struct {
             .wasm_memory_size,
             .error_to_int,
             .int_to_error,
+            .reify,
             => {
                 const inst_data = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;
                 const src = LazySrcLoc.nodeOffset(inst_data.node);
@@ -603,16 +602,6 @@ const Writer = struct {
         try self.writeInstRef(stream, extra.elem_type);
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
-    }
-
-    fn writeParamType(
-        self: *Writer,
-        stream: anytype,
-        inst: Zir.Inst.Index,
-    ) (@TypeOf(stream).Error || error{OutOfMemory})!void {
-        const inst_data = self.code.instructions.items(.data)[inst].param_type;
-        try self.writeInstRef(stream, inst_data.callee);
-        try stream.print(", {d})", .{inst_data.param_index});
     }
 
     fn writePtrType(
@@ -1158,7 +1147,8 @@ const Writer = struct {
     fn writeCall(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const extra = self.code.extraData(Zir.Inst.Call, inst_data.payload_index);
-        const args = self.code.refSlice(extra.end, extra.data.flags.args_len);
+        const args_len = extra.data.flags.args_len;
+        const body = self.code.extra[extra.end..];
 
         if (extra.data.flags.ensure_result_used) {
             try stream.writeAll("nodiscard ");
@@ -1166,10 +1156,27 @@ const Writer = struct {
         try stream.print(".{s}, ", .{@tagName(@intToEnum(std.builtin.CallOptions.Modifier, extra.data.flags.packed_modifier))});
         try self.writeInstRef(stream, extra.data.callee);
         try stream.writeAll(", [");
-        for (args) |arg, i| {
-            if (i != 0) try stream.writeAll(", ");
-            try self.writeInstRef(stream, arg);
+
+        self.indent += 2;
+        if (args_len != 0) {
+            try stream.writeAll("\n");
         }
+        var i: usize = 0;
+        var arg_start: u32 = args_len;
+        while (i < args_len) : (i += 1) {
+            try stream.writeByteNTimes(' ', self.indent);
+            const arg_end = self.code.extra[extra.end + i];
+            defer arg_start = arg_end;
+            const arg_body = body[arg_start..arg_end];
+            try self.writeBracedBody(stream, arg_body);
+
+            try stream.writeAll(",\n");
+        }
+        self.indent -= 2;
+        if (args_len != 0) {
+            try stream.writeByteNTimes(' ', self.indent);
+        }
+
         try stream.writeAll("]) ");
         try self.writeSrc(stream, inst_data.src());
     }
@@ -1238,13 +1245,36 @@ const Writer = struct {
 
         try self.writeFlag(stream, "known_non_opv, ", small.known_non_opv);
         try self.writeFlag(stream, "known_comptime_only, ", small.known_comptime_only);
-        try stream.print("{s}, {s}, ", .{
-            @tagName(small.name_strategy), @tagName(small.layout),
-        });
+
+        try stream.print("{s}, ", .{@tagName(small.name_strategy)});
+
+        if (small.layout == .Packed and small.has_backing_int) {
+            const backing_int_body_len = self.code.extra[extra_index];
+            extra_index += 1;
+            try stream.writeAll("Packed(");
+            if (backing_int_body_len == 0) {
+                const backing_int_ref = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
+                extra_index += 1;
+                try self.writeInstRef(stream, backing_int_ref);
+            } else {
+                const body = self.code.extra[extra_index..][0..backing_int_body_len];
+                extra_index += backing_int_body_len;
+                self.indent += 2;
+                try self.writeBracedDecl(stream, body);
+                self.indent -= 2;
+            }
+            try stream.writeAll("), ");
+        } else {
+            try stream.print("{s}, ", .{@tagName(small.layout)});
+        }
 
         if (decls_len == 0) {
             try stream.writeAll("{}, ");
         } else {
+            const prev_parent_decl_node = self.parent_decl_node;
+            if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
+            defer self.parent_decl_node = prev_parent_decl_node;
+
             try stream.writeAll("{\n");
             self.indent += 2;
             extra_index = try self.writeDecls(stream, decls_len, extra_index);
@@ -1415,6 +1445,10 @@ const Writer = struct {
         if (decls_len == 0) {
             try stream.writeAll("{}, ");
         } else {
+            const prev_parent_decl_node = self.parent_decl_node;
+            if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
+            defer self.parent_decl_node = prev_parent_decl_node;
+
             try stream.writeAll("{\n");
             self.indent += 2;
             extra_index = try self.writeDecls(stream, decls_len, extra_index);
@@ -1662,6 +1696,10 @@ const Writer = struct {
         if (decls_len == 0) {
             try stream.writeAll("{}, ");
         } else {
+            const prev_parent_decl_node = self.parent_decl_node;
+            if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
+            defer self.parent_decl_node = prev_parent_decl_node;
+
             try stream.writeAll("{\n");
             self.indent += 2;
             extra_index = try self.writeDecls(stream, decls_len, extra_index);
@@ -1755,6 +1793,10 @@ const Writer = struct {
         if (decls_len == 0) {
             try stream.writeAll("{})");
         } else {
+            const prev_parent_decl_node = self.parent_decl_node;
+            if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
+            defer self.parent_decl_node = prev_parent_decl_node;
+
             try stream.writeAll("{\n");
             self.indent += 2;
             _ = try self.writeDecls(stream, decls_len, extra_index);

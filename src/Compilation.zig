@@ -1041,6 +1041,10 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 }
             }
 
+            // If LLVM does not support the target, then we can't use it.
+            if (!target_util.hasLlvmSupport(options.target, ofmt))
+                break :blk false;
+
             break :blk build_options.is_stage1;
         };
 

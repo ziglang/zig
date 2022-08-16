@@ -126,6 +126,9 @@ pub const Value = opaque {
     pub const setThreadLocalMode = LLVMSetThreadLocalMode;
     extern fn LLVMSetThreadLocalMode(Global: *const Value, Mode: ThreadLocalMode) void;
 
+    pub const setSection = LLVMSetSection;
+    extern fn LLVMSetSection(Global: *const Value, Section: [*:0]const u8) void;
+
     pub const deleteGlobal = LLVMDeleteGlobal;
     extern fn LLVMDeleteGlobal(GlobalVar: *const Value) void;
 
@@ -245,6 +248,9 @@ pub const Value = opaque {
 
     pub const addFunctionAttr = ZigLLVMAddFunctionAttr;
     extern fn ZigLLVMAddFunctionAttr(Fn: *const Value, attr_name: [*:0]const u8, attr_value: [*:0]const u8) void;
+
+    pub const addByValAttr = ZigLLVMAddByValAttr;
+    extern fn ZigLLVMAddByValAttr(Fn: *const Value, ArgNo: c_uint, type: *const Type) void;
 };
 
 pub const Type = opaque {

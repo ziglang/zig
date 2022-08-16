@@ -30,13 +30,15 @@ pub fn hashPointer(hasher: anytype, key: anytype, comptime strat: HashStrategy) 
             .DeepRecursive => hash(hasher, key.*, .DeepRecursive),
         },
 
-        .Slice => switch (strat) {
-            .Shallow => {
-                hashPointer(hasher, key.ptr, .Shallow);
-                hash(hasher, key.len, .Shallow);
-            },
-            .Deep => hashArray(hasher, key, .Shallow),
-            .DeepRecursive => hashArray(hasher, key, .DeepRecursive),
+        .Slice => {
+            switch (strat) {
+                .Shallow => {
+                    hashPointer(hasher, key.ptr, .Shallow);
+                },
+                .Deep => hashArray(hasher, key, .Shallow),
+                .DeepRecursive => hashArray(hasher, key, .DeepRecursive),
+            }
+            hash(hasher, key.len, .Shallow);
         },
 
         .Many,
@@ -53,17 +55,8 @@ pub fn hashPointer(hasher: anytype, key: anytype, comptime strat: HashStrategy) 
 
 /// Helper function to hash a set of contiguous objects, from an array or slice.
 pub fn hashArray(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
-    switch (strat) {
-        .Shallow => {
-            for (key) |element| {
-                hash(hasher, element, .Shallow);
-            }
-        },
-        else => {
-            for (key) |element| {
-                hash(hasher, element, strat);
-            }
-        },
+    for (key) |element| {
+        hash(hasher, element, strat);
     }
 }
 
@@ -193,8 +186,8 @@ fn typeContainsSlice(comptime K: type) bool {
 pub fn autoHash(hasher: anytype, key: anytype) void {
     const Key = @TypeOf(key);
     if (comptime typeContainsSlice(Key)) {
-        @compileError("std.auto_hash.autoHash does not allow slices as well as unions and structs containing slices here (" ++ @typeName(Key) ++
-            ") because the intent is unclear. Consider using std.auto_hash.hash or providing your own hash function instead.");
+        @compileError("std.hash.autoHash does not allow slices as well as unions and structs containing slices here (" ++ @typeName(Key) ++
+            ") because the intent is unclear. Consider using std.hash.autoHashStrat or providing your own hash function instead.");
     }
 
     hash(hasher, key, .Shallow);
@@ -357,6 +350,12 @@ test "testHash array" {
     autoHash(&hasher, @as(u32, 2));
     autoHash(&hasher, @as(u32, 3));
     try testing.expectEqual(h, hasher.final());
+}
+
+test "testHash multi-dimensional array" {
+    const a = [_][]const u32{ &.{ 1, 2, 3 }, &.{ 4, 5 } };
+    const b = [_][]const u32{ &.{ 1, 2 }, &.{ 3, 4, 5 } };
+    try testing.expect(testHash(a) != testHash(b));
 }
 
 test "testHash struct" {

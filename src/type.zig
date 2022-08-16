@@ -3000,9 +3000,17 @@ pub const Type = extern union {
                     .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
                 };
                 if (struct_obj.layout == .Packed) {
-                    var buf: Type.Payload.Bits = undefined;
-                    const int_ty = struct_obj.packedIntegerType(target, &buf);
-                    return AbiAlignmentAdvanced{ .scalar = int_ty.abiAlignment(target) };
+                    switch (strat) {
+                        .sema_kit => |sk| try sk.sema.resolveTypeLayout(sk.block, sk.src, ty),
+                        .lazy => |arena| {
+                            if (!struct_obj.haveLayout()) {
+                                return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) };
+                            }
+                        },
+                        .eager => {},
+                    }
+                    assert(struct_obj.haveLayout());
+                    return AbiAlignmentAdvanced{ .scalar = struct_obj.backing_int_ty.abiAlignment(target) };
                 }
 
                 const fields = ty.structFields();
@@ -3192,17 +3200,16 @@ pub const Type = extern union {
                 .Packed => {
                     const struct_obj = ty.castTag(.@"struct").?.data;
                     switch (strat) {
-                        .sema_kit => |sk| _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty),
+                        .sema_kit => |sk| try sk.sema.resolveTypeLayout(sk.block, sk.src, ty),
                         .lazy => |arena| {
-                            if (!struct_obj.haveFieldTypes()) {
+                            if (!struct_obj.haveLayout()) {
                                 return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) };
                             }
                         },
                         .eager => {},
                     }
-                    var buf: Type.Payload.Bits = undefined;
-                    const int_ty = struct_obj.packedIntegerType(target, &buf);
-                    return AbiSizeAdvanced{ .scalar = int_ty.abiSize(target) };
+                    assert(struct_obj.haveLayout());
+                    return AbiSizeAdvanced{ .scalar = struct_obj.backing_int_ty.abiSize(target) };
                 },
                 else => {
                     switch (strat) {
@@ -5771,50 +5778,6 @@ pub const Type = extern union {
         }
     }
 
-    pub fn getNodeOffset(ty: Type) i32 {
-        switch (ty.tag()) {
-            .enum_full, .enum_nonexhaustive => {
-                const enum_full = ty.cast(Payload.EnumFull).?.data;
-                return enum_full.node_offset;
-            },
-            .enum_numbered => return ty.castTag(.enum_numbered).?.data.node_offset,
-            .enum_simple => {
-                const enum_simple = ty.castTag(.enum_simple).?.data;
-                return enum_simple.node_offset;
-            },
-            .@"struct" => {
-                const struct_obj = ty.castTag(.@"struct").?.data;
-                return struct_obj.node_offset;
-            },
-            .error_set => {
-                const error_set = ty.castTag(.error_set).?.data;
-                return error_set.node_offset;
-            },
-            .@"union", .union_safety_tagged, .union_tagged => {
-                const union_obj = ty.cast(Payload.Union).?.data;
-                return union_obj.node_offset;
-            },
-            .@"opaque" => {
-                const opaque_obj = ty.cast(Payload.Opaque).?.data;
-                return opaque_obj.node_offset;
-            },
-            .atomic_order,
-            .atomic_rmw_op,
-            .calling_convention,
-            .address_space,
-            .float_mode,
-            .reduce_op,
-            .call_options,
-            .prefetch_options,
-            .export_options,
-            .extern_options,
-            .type_info,
-            => unreachable, // These need to be resolved earlier.
-
-            else => unreachable,
-        }
-    }
-
     /// This enum does not directly correspond to `std.builtin.TypeId` because
     /// it has extra enum tags in it, as a way of using less memory. For example,
     /// even though Zig recognizes `*align(10) i32` and `*i32` both as Pointer types
@@ -6339,6 +6302,8 @@ pub const Type = extern union {
     pub const @"anyerror" = initTag(.anyerror);
     pub const @"anyopaque" = initTag(.anyopaque);
     pub const @"null" = initTag(.@"null");
+
+    pub const err_int = Type.u16;
 
     pub fn ptr(arena: Allocator, mod: *Module, data: Payload.Pointer.Data) !Type {
         const target = mod.getTarget();

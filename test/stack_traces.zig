@@ -3,6 +3,11 @@ const os = std.os;
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.StackTracesContext) void {
+    if (@import("builtin").os.tag == .windows) {
+        // https://github.com/ziglang/zig/issues/12422
+        return;
+    }
+
     cases.addCase(.{
         .name = "return",
         .source = 
@@ -22,6 +27,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         .ReleaseSafe = .{
             .exclude_os = .{
                 .windows, // segfault
+                .linux, // defeated by aggressive inlining
             },
             .expect = 
             \\error: TheSkyIsFalling

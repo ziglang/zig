@@ -807,6 +807,23 @@ test "vector reduce operation" {
     comptime try S.doTheTest();
 }
 
+test "vector @reduce comptime" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const value = @Vector(4, i32){ 1, -1, 1, -1 };
+    const result = value > @splat(4, @as(i32, 0));
+    // result is { true, false, true, false };
+    comptime try expect(@TypeOf(result) == @Vector(4, bool));
+    const is_all_true = @reduce(.And, result);
+    comptime try expect(@TypeOf(is_all_true) == bool);
+    try expect(is_all_true == false);
+}
+
 test "mask parameter of @shuffle is comptime scope" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO

@@ -2902,16 +2902,25 @@ static AstNode *ast_parse_container_decl_auto(ParseContext *pc) {
 }
 
 // ContainerDeclType
-//     <- KEYWORD_struct
+//     <- KEYWORD_struct (LPAREN Expr RPAREN)?
 //      / KEYWORD_enum (LPAREN Expr RPAREN)?
 //      / KEYWORD_union (LPAREN (KEYWORD_enum (LPAREN Expr RPAREN)? / Expr) RPAREN)?
 //      / KEYWORD_opaque
 static AstNode *ast_parse_container_decl_type(ParseContext *pc) {
     TokenIndex first = eat_token_if(pc, TokenIdKeywordStruct);
     if (first != 0) {
+        bool explicit_backing_int = false;
+        if (eat_token_if(pc, TokenIdLParen) != 0) {
+            explicit_backing_int = true;
+            ast_expect(pc, ast_parse_expr);
+            expect_token(pc, TokenIdRParen);
+        }
         AstNode *res = ast_create_node(pc, NodeTypeContainerDecl, first);
         res->data.container_decl.init_arg_expr = nullptr;
         res->data.container_decl.kind = ContainerKindStruct;
+        // We want this to be an error in semantic analysis not parsing to make sharing
+        // the test suite between stage1 and self hosted easier.
+        res->data.container_decl.unsupported_explicit_backing_int = explicit_backing_int;
         return res;
     }
 
