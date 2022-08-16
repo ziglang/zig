@@ -171,6 +171,7 @@ fn printLiteral(out: anytype, val: anytype, indent: u8) !void {
         .Void,
         .Bool,
         .Int,
+        .ComptimeInt,
         .Float,
         .Null,
         => try out.print("{any}", .{val}),
@@ -302,6 +303,7 @@ test "OptionsStep" {
     options.addOption(usize, "option1", 1);
     options.addOption(?usize, "option2", null);
     options.addOption(?usize, "option3", 3);
+    options.addOption(comptime_int, "option4", 4);
     options.addOption([]const u8, "string", "zigisthebest");
     options.addOption(?[]const u8, "optional_string", null);
     options.addOption([2][2]u16, "nested_array", nested_array);
@@ -314,6 +316,7 @@ test "OptionsStep" {
         \\pub const option1: usize = 1;
         \\pub const option2: ?usize = null;
         \\pub const option3: ?usize = 3;
+        \\pub const option4: comptime_int = 4;
         \\pub const string: []const u8 = "zigisthebest";
         \\pub const optional_string: ?[]const u8 = null;
         \\pub const nested_array: [2][2]u16 = [2][2]u16 {
