@@ -11751,6 +11751,46 @@ fn scanDecls(astgen: *AstGen, namespace: *Scope.Namespace, members: []const Ast.
                 error.OutOfMemory => return error.OutOfMemory,
             }
         }
+
+        // const index_name = try astgen.identAsString(index_token);
+        var s = namespace.parent;
+        while (true) switch (s.tag) {
+            .local_val => {
+                const local_val = s.cast(Scope.LocalVal).?;
+                if (local_val.name == name_str_index) {
+                    return astgen.failTokNotes(name_token, "redeclaration of {s} '{s}'", .{
+                        @tagName(local_val.id_cat), token_bytes,
+                    }, &[_]u32{
+                        try astgen.errNoteTok(
+                            local_val.token_src,
+                            "previous declaration here",
+                            .{},
+                        ),
+                    });
+                }
+                s = local_val.parent;
+            },
+            .local_ptr => {
+                const local_ptr = s.cast(Scope.LocalPtr).?;
+                if (local_ptr.name == name_str_index) {
+                    return astgen.failTokNotes(name_token, "redeclaration of {s} '{s}'", .{
+                        @tagName(local_ptr.id_cat), token_bytes,
+                    }, &[_]u32{
+                        try astgen.errNoteTok(
+                            local_ptr.token_src,
+                            "previous declaration here",
+                            .{},
+                        ),
+                    });
+                }
+                s = local_ptr.parent;
+            },
+            .namespace => s = s.cast(Scope.Namespace).?.parent,
+            .gen_zir => s = s.cast(GenZir).?.parent,
+            .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
+            .defer_gen => s = s.cast(Scope.DeferGen).?.parent,
+            .top => break,
+        };
         gop.value_ptr.* = member_node;
     }
     return decl_count;

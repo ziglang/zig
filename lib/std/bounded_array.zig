@@ -15,16 +15,16 @@ const testing = std.testing;
 /// var slice = a.slice(); // a slice of the 64-byte array
 /// var a_clone = a; // creates a copy - the structure doesn't use any internal pointers
 /// ```
-pub fn BoundedArray(comptime T: type, comptime capacity: usize) type {
+pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
     return struct {
         const Self = @This();
-        buffer: [capacity]T = undefined,
+        buffer: [buffer_capacity]T = undefined,
         len: usize = 0,
 
         /// Set the actual length of the slice.
         /// Returns error.Overflow if it exceeds the length of the backing array.
         pub fn init(len: usize) error{Overflow}!Self {
-            if (len > capacity) return error.Overflow;
+            if (len > buffer_capacity) return error.Overflow;
             return Self{ .len = len };
         }
 
@@ -41,7 +41,7 @@ pub fn BoundedArray(comptime T: type, comptime capacity: usize) type {
         /// Adjust the slice's length to `len`.
         /// Does not initialize added items if any.
         pub fn resize(self: *Self, len: usize) error{Overflow}!void {
-            if (len > capacity) return error.Overflow;
+            if (len > buffer_capacity) return error.Overflow;
             self.len = len;
         }
 
@@ -69,7 +69,7 @@ pub fn BoundedArray(comptime T: type, comptime capacity: usize) type {
 
         /// Check that the slice can hold at least `additional_count` items.
         pub fn ensureUnusedCapacity(self: Self, additional_count: usize) error{Overflow}!void {
-            if (self.len + additional_count > capacity) {
+            if (self.len + additional_count > buffer_capacity) {
                 return error.Overflow;
             }
         }
@@ -83,7 +83,7 @@ pub fn BoundedArray(comptime T: type, comptime capacity: usize) type {
         /// Increase length by 1, returning pointer to the new item.
         /// Asserts that there is space for the new item.
         pub fn addOneAssumeCapacity(self: *Self) *T {
-            assert(self.len < capacity);
+            assert(self.len < buffer_capacity);
             self.len += 1;
             return &self.slice()[self.len - 1];
         }
@@ -236,7 +236,7 @@ pub fn BoundedArray(comptime T: type, comptime capacity: usize) type {
         pub fn appendNTimesAssumeCapacity(self: *Self, value: T, n: usize) void {
             const old_len = self.len;
             self.len += n;
-            assert(self.len <= capacity);
+            assert(self.len <= buffer_capacity);
             mem.set(T, self.slice()[old_len..self.len], value);
         }
 
