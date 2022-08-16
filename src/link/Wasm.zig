@@ -463,8 +463,6 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
             continue;
         }
 
-        // TODO: Store undefined symbols so we can verify at the end if they've all been found
-        // if not, emit an error (unless --allow-undefined is enabled).
         const maybe_existing = try self.globals.getOrPut(self.base.allocator, sym_name_index);
         if (!maybe_existing.found_existing) {
             maybe_existing.value_ptr.* = location;
@@ -483,8 +481,15 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
             break :blk self.objects.items[file].name;
         } else self.name;
 
-        if (!existing_sym.isUndefined()) {
-            if (!symbol.isUndefined()) {
+        if (!existing_sym.isUndefined()) outer: {
+            if (!symbol.isUndefined()) inner: {
+                if (symbol.isWeak()) {
+                    break :inner; // ignore the new symbol (discard it)
+                }
+                if (existing_sym.isWeak()) {
+                    break :outer; // existing is weak, while new one isn't. Replace it.
+                }
+                // both are defined and weak, we have a symbol collision.
                 log.err("symbol '{s}' defined multiple times", .{sym_name});
                 log.err("  first definition in '{s}'", .{existing_file_path});
                 log.err("  next definition in '{s}'", .{object.name});
@@ -500,6 +505,53 @@ fn resolveSymbolsInObject(self: *Wasm, object_index: u16) !void {
             log.err("  first definition in '{s}'", .{existing_file_path});
             log.err("  next definition in '{s}'", .{object.name});
             return error.SymbolMismatchingType;
+        }
+
+        if (existing_sym.isUndefined() and symbol.isUndefined()) {
+            const existing_name = if (existing_loc.file) |file_index| blk: {
+                const obj = self.objects.items[file_index];
+                const name_index = obj.findImport(symbol.tag.externalType(), existing_sym.index).module_name;
+                break :blk obj.string_table.get(name_index);
+            } else blk: {
+                const name_index = self.imports.get(existing_loc).?.module_name;
+                break :blk self.string_table.get(name_index);
+            };
+
+            const module_index = object.findImport(symbol.tag.externalType(), symbol.index).module_name;
+            const module_name = object.string_table.get(module_index);
+            if (!mem.eql(u8, existing_name, module_name)) {
+                log.err("symbol '{s}' module name mismatch. Expected '{s}', but found '{s}'", .{
+                    sym_name,
+                    existing_name,
+                    module_name,
+                });
+                log.err("  first definition in '{s}'", .{existing_file_path});
+                log.err("  next definition in '{s}'", .{object.name});
+                return error.ModuleNameMismatch;
+            }
+        }
+
+        if (existing_sym.tag == .global) {
+            const existing_ty = self.getGlobalType(existing_loc);
+            const new_ty = self.getGlobalType(location);
+            if (existing_ty.mutable != new_ty.mutable or existing_ty.valtype != new_ty.valtype) {
+                log.err("symbol '{s}' mismatching global types", .{sym_name});
+                log.err("  first definition in '{s}'", .{existing_file_path});
+                log.err("  next definition in '{s}'", .{object.name});
+                return error.GlobalTypeMismatch;
+            }
+        }
+
+        if (existing_sym.tag == .function) {
+            const existing_ty = self.getFunctionSignature(existing_loc);
+            const new_ty = self.getFunctionSignature(location);
+            if (!existing_ty.eql(new_ty)) {
+                log.err("symbol '{s}' mismatching function signatures.", .{sym_name});
+                log.err("  expected signature {}, but found signature {}", .{ existing_ty, new_ty });
+                log.err("  first definition in '{s}'", .{existing_file_path});
+                log.err("  next definition in '{s}'", .{object.name});
+                return error.FunctionSignatureMismatch;
+            }
         }
 
         // when both symbols are weak, we skip overwriting
@@ -795,6 +847,46 @@ fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, code: []const u8) !void {
     try atom.code.appendSlice(self.base.allocator, code);
 
     try self.resolved_symbols.put(self.base.allocator, atom.symbolLoc(), {});
+}
+
+/// From a given symbol location, returns its `wasm.GlobalType`.
+/// Asserts the Symbol represents a global.
+fn getGlobalType(self: *const Wasm, loc: SymbolLoc) wasm.GlobalType {
+    const symbol = loc.getSymbol(self);
+    assert(symbol.tag == .global);
+    const is_undefined = symbol.isUndefined();
+    if (loc.file) |file_index| {
+        const obj: Object = self.objects.items[file_index];
+        if (is_undefined) {
+            return obj.findImport(.global, symbol.index).kind.global;
+        }
+        return obj.globals[symbol.index].global_type;
+    }
+    if (is_undefined) {
+        return self.imports.get(loc).?.kind.global;
+    }
+    return self.wasm_globals.items[symbol.index].global_type;
+}
+
+/// From a given symbol location, returns its `wasm.Type`.
+/// Asserts the Symbol represents a function.
+fn getFunctionSignature(self: *const Wasm, loc: SymbolLoc) wasm.Type {
+    const symbol = loc.getSymbol(self);
+    assert(symbol.tag == .function);
+    const is_undefined = symbol.isUndefined();
+    if (loc.file) |file_index| {
+        const obj: Object = self.objects.items[file_index];
+        if (is_undefined) {
+            const ty_index = obj.findImport(.function, symbol.index).kind.function;
+            return obj.func_types[ty_index];
+        }
+        return obj.func_types[obj.functions[symbol.index].type_index];
+    }
+    if (is_undefined) {
+        const ty_index = self.imports.get(loc).?.kind.function;
+        return self.func_types.items[ty_index];
+    }
+    return self.func_types.items[self.functions.get(.{ .file = loc.file, .index = loc.index }).?.type_index];
 }
 
 /// Lowers a constant typed value to a local symbol and atom.
