@@ -12,7 +12,7 @@ const std = @import("std");
 
 /// The C0 control codes of the ASCII encoding.
 ///
-/// See also: https://en.wikipedia.org/wiki/C0_and_C1_control_codes and `is_control`.
+/// See also: https://en.wikipedia.org/wiki/C0_and_C1_control_codes and `isControl`.
 pub const control_code = struct {
     /// Null.
     pub const nul = 0x00;
@@ -240,24 +240,26 @@ pub const spaces = whitespace;
 /// DEPRECATED: use `isHex`.
 pub const isXDigit = isHex;
 
-/// Returns whether the character is alphanumeric. This is case-insensitive.
+/// Returns whether the character is alphanumeric.
 pub fn isAlphanumeric(c: u8) bool {
     return (combinedTable[c] & ((@as(u8, 1) << @enumToInt(tIndex.Alpha)) |
         @as(u8, 1) << @enumToInt(tIndex.Digit))) != 0;
 }
 
-/// Returns whether the character is alphabetic. This is case-insensitive.
+/// Returns whether the character is alphabetic.
 pub fn isAlphabetic(c: u8) bool {
     return inTable(c, tIndex.Alpha);
 }
 
 /// Returns whether the character is a control character.
+/// This is the same as `!isPrint(c)`.
 ///
 /// See also: `control_code`.
 pub fn isControl(c: u8) bool {
     return c <= control_code.us or c == control_code.del;
 }
 
+/// Returns whether the character is a digit.
 pub fn isDigit(c: u8) bool {
     return inTable(c, tIndex.Digit);
 }
@@ -267,13 +269,14 @@ pub fn isGraph(c: u8) bool {
     return inTable(c, tIndex.Graph);
 }
 
-/// Returns whether the character is lowercased.
+/// Returns whether the character is a lowercased letter.
 pub fn isLower(c: u8) bool {
     return inTable(c, tIndex.Lower);
 }
 
 /// Returns whether the character has some graphical representation and can be printed.
 /// This also returns `true` for the space character.
+/// This is the same as `!isControl(c)`.
 pub fn isPrint(c: u8) bool {
     return inTable(c, tIndex.Graph) or c == ' ';
 }
@@ -290,7 +293,8 @@ pub fn isWhitespace(c: u8) bool {
 
 /// Whitespace for general use.
 /// This may be used with e.g. `std.mem.trim` to trim whitespace.
-/// See also: `isSpace`.
+///
+/// See also: `isWhitespace`.
 pub const whitespace = [_]u8{ ' ', '\t', '\n', '\r', control_code.vt, control_code.ff };
 
 test "whitespace" {
@@ -302,7 +306,7 @@ test "whitespace" {
     }
 }
 
-/// Returns whether the character is uppercased.
+/// Returns whether the character is an uppercased letter.
 pub fn isUpper(c: u8) bool {
     return inTable(c, tIndex.Upper);
 }
@@ -312,6 +316,7 @@ pub fn isHex(c: u8) bool {
     return inTable(c, tIndex.Hex);
 }
 
+/// Returns whether the character is a 7-bit ASCII character.
 pub fn isASCII(c: u8) bool {
     return c < 128;
 }
@@ -321,7 +326,7 @@ pub fn isBlank(c: u8) bool {
     return (c == ' ') or (c == '\x09');
 }
 
-/// Uppercases the character and returns it as-is if it's already uppercased.
+/// Uppercases the character and returns it as-is if it's already uppercased or not a letter.
 pub fn toUpper(c: u8) u8 {
     if (isLower(c)) {
         return c & 0b11011111;
@@ -330,7 +335,7 @@ pub fn toUpper(c: u8) u8 {
     }
 }
 
-/// Lowercases the character and returns it as-is if it's already lowercased.
+/// Lowercases the character and returns it as-is if it's already lowercased or not a letter.
 pub fn toLower(c: u8) u8 {
     if (isUpper(c)) {
         return c | 0b00100000;
@@ -505,7 +510,7 @@ test "indexOfIgnoreCase" {
     try std.testing.expect(indexOfIgnoreCase("FOO foo", "fOo").? == 0);
 }
 
-/// Compares two slices of numbers lexicographically. O(n).
+/// Returns the lexicographical order of two slices. O(n).
 pub fn orderIgnoreCase(lhs: []const u8, rhs: []const u8) std.math.Order {
     const n = std.math.min(lhs.len, rhs.len);
     var i: usize = 0;
@@ -519,7 +524,7 @@ pub fn orderIgnoreCase(lhs: []const u8, rhs: []const u8) std.math.Order {
     return std.math.order(lhs.len, rhs.len);
 }
 
-/// Returns whether `lhs` < `rhs`.
+/// Returns whether the lexicographical order of `lhs` is lower than `rhs`.
 pub fn lessThanIgnoreCase(lhs: []const u8, rhs: []const u8) bool {
     return orderIgnoreCase(lhs, rhs) == .lt;
 }
