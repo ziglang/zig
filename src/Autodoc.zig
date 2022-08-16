@@ -2824,8 +2824,8 @@ fn walkDecls(
         const ast_node_index = idx: {
             const idx = self.ast_nodes.items.len;
             try self.ast_nodes.append(self.arena, .{
-                .file = 0,
-                .line = line,
+                .file = self.files.getIndex(file) orelse unreachable,
+                .line = line, // TODO: calculate absolute line
                 .col = 0,
                 .docs = doc_comment,
                 .fields = null, // walkInstruction will fill `fields` if necessary
@@ -3902,13 +3902,13 @@ fn cteTodo(self: *Autodoc, msg: []const u8) error{OutOfMemory}!DocData.WalkResul
 }
 
 fn writeFileTableToJson(map: std.AutoArrayHashMapUnmanaged(*File, usize), jsw: anytype) !void {
-    try jsw.beginObject();
+    try jsw.beginArray();
     var it = map.iterator();
     while (it.next()) |entry| {
-        try jsw.objectField(entry.key_ptr.*.sub_file_path);
-        try jsw.emitNumber(entry.value_ptr.*);
+        try jsw.arrayElem();
+        try jsw.emitString(entry.key_ptr.*.sub_file_path);
     }
-    try jsw.endObject();
+    try jsw.endArray();
 }
 
 fn writePackageTableToJson(
