@@ -1947,7 +1947,7 @@ noinline fn showMyTrace() usize {
 /// For more advanced usage, see `ConfigurableTrace`.
 pub const Trace = ConfigurableTrace(2, 4, builtin.mode == .Debug);
 
-pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize, comptime enabled: bool) type {
+pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize, comptime is_enabled: bool) type {
     return struct {
         addrs: [actual_size][stack_frame_count]usize = undefined,
         notes: [actual_size][]const u8 = undefined,
@@ -1956,7 +1956,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
         const actual_size = if (enabled) size else 0;
         const Index = if (enabled) usize else u0;
 
-        pub const enabled = enabled;
+        pub const enabled = is_enabled;
 
         pub const add = if (enabled) addNoInline else addNoOp;
 
