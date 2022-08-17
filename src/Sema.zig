@@ -8979,6 +8979,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     var seen_union_fields: []?Module.SwitchProngSrc = &.{};
     defer gpa.free(seen_union_fields);
 
+    var empty_enum = false;
+
     const operand_ty = sema.typeOf(operand);
 
     var else_error_ty: ?Type = null;
@@ -9012,6 +9014,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         .Union => unreachable, // handled in zirSwitchCond
         .Enum => {
             var seen_fields = try gpa.alloc(?Module.SwitchProngSrc, operand_ty.enumFieldCount());
+            empty_enum = seen_fields.len == 0 and !operand_ty.isNonexhaustiveEnum();
             defer if (!union_originally) gpa.free(seen_fields);
             if (union_originally) seen_union_fields = seen_fields;
             mem.set(?Module.SwitchProngSrc, seen_fields, null);
@@ -9607,6 +9610,9 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     }
 
     if (scalar_cases_len + multi_cases_len == 0) {
+        if (empty_enum) {
+            return Air.Inst.Ref.void_value;
+        }
         if (special_prong == .none) {
             return sema.fail(block, src, "switch must handle all possibilities", .{});
         }
@@ -16690,43 +16696,39 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
 
             // Fields
             const fields_len = try sema.usizeCast(block, src, fields_val.sliceLen(mod));
-            if (fields_len > 0) {
-                try enum_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
-                try enum_obj.values.ensureTotalCapacityContext(new_decl_arena_allocator, fields_len, .{
+            try enum_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
+            try enum_obj.values.ensureTotalCapacityContext(new_decl_arena_allocator, fields_len, .{
+                .ty = enum_obj.tag_ty,
+                .mod = mod,
+            });
+
+            var i: usize = 0;
+            while (i < fields_len) : (i += 1) {
+                const elem_val = try fields_val.elemValue(sema.mod, sema.arena, i);
+                const field_struct_val = elem_val.castTag(.aggregate).?.data;
+                // TODO use reflection instead of magic numbers here
+                // name: []const u8
+                const name_val = field_struct_val[0];
+                // value: comptime_int
+                const value_val = field_struct_val[1];
+
+                const field_name = try name_val.toAllocatedBytes(
+                    Type.initTag(.const_slice_u8),
+                    new_decl_arena_allocator,
+                    sema.mod,
+                );
+
+                const gop = enum_obj.fields.getOrPutAssumeCapacity(field_name);
+                if (gop.found_existing) {
+                    // TODO: better source location
+                    return sema.fail(block, src, "duplicate enum tag {s}", .{field_name});
+                }
+
+                const copied_tag_val = try value_val.copy(new_decl_arena_allocator);
+                enum_obj.values.putAssumeCapacityNoClobberContext(copied_tag_val, {}, .{
                     .ty = enum_obj.tag_ty,
                     .mod = mod,
                 });
-
-                var i: usize = 0;
-                while (i < fields_len) : (i += 1) {
-                    const elem_val = try fields_val.elemValue(sema.mod, sema.arena, i);
-                    const field_struct_val = elem_val.castTag(.aggregate).?.data;
-                    // TODO use reflection instead of magic numbers here
-                    // name: []const u8
-                    const name_val = field_struct_val[0];
-                    // value: comptime_int
-                    const value_val = field_struct_val[1];
-
-                    const field_name = try name_val.toAllocatedBytes(
-                        Type.initTag(.const_slice_u8),
-                        new_decl_arena_allocator,
-                        sema.mod,
-                    );
-
-                    const gop = enum_obj.fields.getOrPutAssumeCapacity(field_name);
-                    if (gop.found_existing) {
-                        // TODO: better source location
-                        return sema.fail(block, src, "duplicate enum tag {s}", .{field_name});
-                    }
-
-                    const copied_tag_val = try value_val.copy(new_decl_arena_allocator);
-                    enum_obj.values.putAssumeCapacityNoClobberContext(copied_tag_val, {}, .{
-                        .ty = enum_obj.tag_ty,
-                        .mod = mod,
-                    });
-                }
-            } else {
-                return sema.fail(block, src, "enums must have at least one field", .{});
             }
 
             try new_decl.finalizeNewArena(&new_decl_arena);
@@ -16851,58 +16853,54 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
             }
 
             // Fields
-            if (fields_len > 0) {
-                try union_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
+            try union_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
 
-                var i: usize = 0;
-                while (i < fields_len) : (i += 1) {
-                    const elem_val = try fields_val.elemValue(sema.mod, sema.arena, i);
-                    const field_struct_val = elem_val.castTag(.aggregate).?.data;
-                    // TODO use reflection instead of magic numbers here
-                    // name: []const u8
-                    const name_val = field_struct_val[0];
-                    // field_type: type,
-                    const field_type_val = field_struct_val[1];
-                    // alignment: comptime_int,
-                    const alignment_val = field_struct_val[2];
+            var i: usize = 0;
+            while (i < fields_len) : (i += 1) {
+                const elem_val = try fields_val.elemValue(sema.mod, sema.arena, i);
+                const field_struct_val = elem_val.castTag(.aggregate).?.data;
+                // TODO use reflection instead of magic numbers here
+                // name: []const u8
+                const name_val = field_struct_val[0];
+                // field_type: type,
+                const field_type_val = field_struct_val[1];
+                // alignment: comptime_int,
+                const alignment_val = field_struct_val[2];
 
-                    const field_name = try name_val.toAllocatedBytes(
-                        Type.initTag(.const_slice_u8),
-                        new_decl_arena_allocator,
-                        sema.mod,
-                    );
+                const field_name = try name_val.toAllocatedBytes(
+                    Type.initTag(.const_slice_u8),
+                    new_decl_arena_allocator,
+                    sema.mod,
+                );
 
-                    if (enum_field_names) |set| {
-                        set.putAssumeCapacity(field_name, {});
-                    }
-
-                    if (tag_ty_field_names) |*names| {
-                        const enum_has_field = names.orderedRemove(field_name);
-                        if (!enum_has_field) {
-                            const msg = msg: {
-                                const msg = try sema.errMsg(block, src, "no field named '{s}' in enum '{}'", .{ field_name, union_obj.tag_ty.fmt(sema.mod) });
-                                errdefer msg.destroy(sema.gpa);
-                                try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
-                                break :msg msg;
-                            };
-                            return sema.failWithOwnedErrorMsg(msg);
-                        }
-                    }
-
-                    const gop = union_obj.fields.getOrPutAssumeCapacity(field_name);
-                    if (gop.found_existing) {
-                        // TODO: better source location
-                        return sema.fail(block, src, "duplicate union field {s}", .{field_name});
-                    }
-
-                    var buffer: Value.ToTypeBuffer = undefined;
-                    gop.value_ptr.* = .{
-                        .ty = try field_type_val.toType(&buffer).copy(new_decl_arena_allocator),
-                        .abi_align = @intCast(u32, alignment_val.toUnsignedInt(target)),
-                    };
+                if (enum_field_names) |set| {
+                    set.putAssumeCapacity(field_name, {});
                 }
-            } else {
-                return sema.fail(block, src, "unions must have at least one field", .{});
+
+                if (tag_ty_field_names) |*names| {
+                    const enum_has_field = names.orderedRemove(field_name);
+                    if (!enum_has_field) {
+                        const msg = msg: {
+                            const msg = try sema.errMsg(block, src, "no field named '{s}' in enum '{}'", .{ field_name, union_obj.tag_ty.fmt(sema.mod) });
+                            errdefer msg.destroy(sema.gpa);
+                            try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
+                            break :msg msg;
+                        };
+                        return sema.failWithOwnedErrorMsg(msg);
+                    }
+                }
+
+                const gop = union_obj.fields.getOrPutAssumeCapacity(field_name);
+                if (gop.found_existing) {
+                    // TODO: better source location
+                    return sema.fail(block, src, "duplicate union field {s}", .{field_name});
+                }
+
+                var buffer: Value.ToTypeBuffer = undefined;
+                gop.value_ptr.* = .{
+                    .ty = try field_type_val.toType(&buffer).copy(new_decl_arena_allocator),
+                    .abi_align = @intCast(u32, alignment_val.toUnsignedInt(target)),
+                };
             }
 
             if (tag_ty_field_names) |names| {
@@ -28146,10 +28144,6 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
     extra_index = decls_it.extra_index;
 
     const body = zir.extra[extra_index..][0..body_len];
-    if (fields_len == 0) {
-        assert(body.len == 0);
-        return;
-    }
     extra_index += body.len;
 
     const decl = mod.declPtr(decl_index);
@@ -28235,6 +28229,10 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         // untagged is represented by the Type tag (union vs union_tagged).
         union_obj.tag_ty = try sema.generateUnionTagTypeSimple(&block_scope, fields_len, union_obj);
         enum_field_names = &union_obj.tag_ty.castTag(.enum_simple).?.data.fields;
+    }
+
+    if (fields_len == 0) {
+        return;
     }
 
     const bits_per_field = 4;
@@ -28772,7 +28770,9 @@ pub fn typeHasOnePossibleValue(
             const union_obj = resolved_ty.cast(Type.Payload.Union).?.data;
             const tag_val = (try sema.typeHasOnePossibleValue(block, src, union_obj.tag_ty)) orelse
                 return null;
-            const only_field = union_obj.fields.values()[0];
+            const fields = union_obj.fields.values();
+            if (fields.len == 0) return Value.initTag(.empty_struct_value);
+            const only_field = fields[0];
             if (only_field.ty.eql(resolved_ty, sema.mod)) {
                 const msg = try Module.ErrorMsg.create(
                     sema.gpa,
