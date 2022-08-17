@@ -11211,7 +11211,7 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
         const rhs_val = maybe_rhs_val orelse unreachable;
         const rem = lhs_val.floatRem(rhs_val, resolved_type, sema.arena, target) catch unreachable;
         if (rem.compareWithZero(.neq)) {
-            return sema.fail(block, src, "ambiguous coercion of division operands '{s}' and '{s}'; division has non-zero reminder '{}'", .{
+            return sema.fail(block, src, "ambiguous coercion of division operands '{s}' and '{s}'; non-zero remainder '{}'", .{
                 @tagName(lhs_ty.tag()), @tagName(rhs_ty.tag()), rem.fmtValue(resolved_type, sema.mod),
             });
         }
