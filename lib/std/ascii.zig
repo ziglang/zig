@@ -10,6 +10,8 @@
 
 const std = @import("std");
 
+// TODO: remove all decls marked as DEPRECATED after 0.10.0's release
+
 /// The C0 control codes of the ASCII encoding.
 ///
 /// See also: https://en.wikipedia.org/wiki/C0_and_C1_control_codes and `isControl`.
@@ -141,13 +143,13 @@ pub const control_code = struct {
     pub const sub = 0x1A;
     /// Escape.
     pub const esc = 0x1B;
-    /// File separator.
+    /// File Separator.
     pub const fs = 0x1C;
     /// Group Separator.
     pub const gs = 0x1D;
     /// Record Separator.
     pub const rs = 0x1E;
-    /// Unit separator.
+    /// Unit Separator.
     pub const us = 0x1F;
 
     /// Delete.
@@ -295,8 +297,6 @@ const combinedTable = init: {
 fn inTable(c: u8, t: tIndex) bool {
     return (combinedTable[c] & (@as(u8, 1) << @enumToInt(t))) != 0;
 }
-
-// remove all decls marked as DEPRECATED after 0.10.0
 
 /// DEPRECATED: use `isAlphanumeric`
 pub const isAlNum = isAlphanumeric;
