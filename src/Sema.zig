@@ -6684,8 +6684,13 @@ fn zirOptionalType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
-    const child_type = try sema.resolveType(block, src, inst_data.operand);
+    const operand_src: LazySrcLoc = .{ .node_offset_un_op = inst_data.src_node };
+    const child_type = try sema.resolveType(block, operand_src, inst_data.operand);
+    if (child_type.zigTypeTag() == .Opaque) {
+        return sema.fail(block, operand_src, "opaque type '{}' cannot be optional", .{child_type.fmt(sema.mod)});
+    } else if (child_type.zigTypeTag() == .Null) {
+        return sema.fail(block, operand_src, "type '{}' cannot be optional", .{child_type.fmt(sema.mod)});
+    }
     const opt_type = try Type.optional(sema.arena, child_type);
 
     return sema.addType(opt_type);
@@ -25713,6 +25718,12 @@ fn analyzeIsNull(
         } else {
             return Air.Inst.Ref.bool_false;
         }
+    }
+
+    const operand_ty = sema.typeOf(operand);
+    var buf: Type.Payload.ElemType = undefined;
+    if (operand_ty.zigTypeTag() == .Optional and operand_ty.optionalChild(&buf).zigTypeTag() == .NoReturn) {
+        return Air.Inst.Ref.bool_true;
     }
     try sema.requireRuntimeBlock(block, src, null);
     const air_tag: Air.Inst.Tag = if (invert_logic) .is_non_null else .is_null;
