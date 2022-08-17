@@ -103,7 +103,7 @@ jobs:
       #& "$ZIGINSTALLDIR\bin\zig.exe" test "..\test\behavior.zig" -fno-stage1 -fLLVM -I "..\test" 2>&1
       #CheckLastExitCode
 
-      & "$ZIGINSTALLDIR\bin\zig.exe" build test-toolchain -Dskip-non-native -Dskip-stage2-tests 2>&1
+      & "$ZIGINSTALLDIR\bin\zig.exe" build test-toolchain -Dskip-non-native -Dskip-stage2-tests -Domit-stage2 2>&1
       CheckLastExitCode
       & "$ZIGINSTALLDIR\bin\zig.exe" build test-std -Dskip-non-native  2>&1
       CheckLastExitCode
