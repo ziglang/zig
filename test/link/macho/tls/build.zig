@@ -1,4 +1,5 @@
-const Builder = @import("std").build.Builder;
+const std = @import("std");
+const Builder = std.build.Builder;
 
 pub fn build(b: *Builder) void {
     const mode = b.standardReleaseOptions();
@@ -6,11 +7,13 @@ pub fn build(b: *Builder) void {
 
     const lib = b.addSharedLibrary("a", null, b.version(1, 0, 0));
     lib.setBuildMode(mode);
+    lib.setTarget(target);
     lib.addCSourceFile("a.c", &.{});
     lib.linkLibC();
 
     const test_exe = b.addTest("main.zig");
     test_exe.setBuildMode(mode);
+    test_exe.setTarget(target);
     test_exe.linkLibrary(lib);
     test_exe.linkLibC();
 

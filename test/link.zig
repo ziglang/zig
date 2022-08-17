@@ -23,7 +23,12 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
         .build_modes = true,
     });
 
-    cases.addBuildFile("test/link/wasm/type/build.zig", .{
+    addWasmCases(cases);
+    addMachOCases(cases);
+}
+
+fn addWasmCases(cases: *tests.StandaloneContext) void {
+    cases.addBuildFile("test/link/wasm/bss/build.zig", .{
         .build_modes = true,
         .requires_stage2 = true,
     });
@@ -38,23 +43,13 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
         .requires_stage2 = true,
     });
 
-    cases.addBuildFile("test/link/wasm/bss/build.zig", .{
+    cases.addBuildFile("test/link/wasm/type/build.zig", .{
         .build_modes = true,
         .requires_stage2 = true,
     });
+}
 
-    cases.addBuildFile("test/link/macho/entry/build.zig", .{
-        .build_modes = true,
-    });
-
-    cases.addBuildFile("test/link/macho/pagezero/build.zig", .{
-        .build_modes = false,
-    });
-
-    cases.addBuildFile("test/link/macho/dylib/build.zig", .{
-        .build_modes = true,
-    });
-
+fn addMachOCases(cases: *tests.StandaloneContext) void {
     cases.addBuildFile("test/link/macho/dead_strip/build.zig", .{
         .build_modes = false,
     });
@@ -64,41 +59,11 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
         .requires_macos_sdk = true,
     });
 
-    cases.addBuildFile("test/link/macho/needed_library/build.zig", .{
+    cases.addBuildFile("test/link/macho/dylib/build.zig", .{
         .build_modes = true,
     });
 
-    cases.addBuildFile("test/link/macho/weak_library/build.zig", .{
-        .build_modes = true,
-    });
-
-    cases.addBuildFile("test/link/macho/needed_framework/build.zig", .{
-        .build_modes = true,
-        .requires_macos_sdk = true,
-    });
-
-    cases.addBuildFile("test/link/macho/weak_framework/build.zig", .{
-        .build_modes = true,
-        .requires_macos_sdk = true,
-    });
-
-    // Try to build and run an Objective-C executable.
-    cases.addBuildFile("test/link/macho/objc/build.zig", .{
-        .build_modes = true,
-        .requires_macos_sdk = true,
-    });
-
-    // Try to build and run an Objective-C++ executable.
-    cases.addBuildFile("test/link/macho/objcpp/build.zig", .{
-        .build_modes = true,
-        .requires_macos_sdk = true,
-    });
-
-    cases.addBuildFile("test/link/macho/stack_size/build.zig", .{
-        .build_modes = true,
-    });
-
-    cases.addBuildFile("test/link/macho/search_strategy/build.zig", .{
+    cases.addBuildFile("test/link/macho/entry/build.zig", .{
         .build_modes = true,
     });
 
@@ -107,7 +72,47 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
         .requires_macos_sdk = true,
     });
 
+    cases.addBuildFile("test/link/macho/needed_framework/build.zig", .{
+        .build_modes = true,
+        .requires_macos_sdk = true,
+    });
+
+    cases.addBuildFile("test/link/macho/needed_library/build.zig", .{
+        .build_modes = true,
+    });
+
+    cases.addBuildFile("test/link/macho/objc/build.zig", .{
+        .build_modes = true,
+        .requires_macos_sdk = true,
+    });
+
+    cases.addBuildFile("test/link/macho/objcpp/build.zig", .{
+        .build_modes = true,
+        .requires_macos_sdk = true,
+    });
+
+    cases.addBuildFile("test/link/macho/pagezero/build.zig", .{
+        .build_modes = false,
+    });
+
+    cases.addBuildFile("test/link/macho/search_strategy/build.zig", .{
+        .build_modes = true,
+    });
+
+    cases.addBuildFile("test/link/macho/stack_size/build.zig", .{
+        .build_modes = true,
+    });
+
     cases.addBuildFile("test/link/macho/tls/build.zig", .{
         .build_modes = true,
+    });
+
+    cases.addBuildFile("test/link/macho/weak_library/build.zig", .{
+        .build_modes = true,
+    });
+
+    cases.addBuildFile("test/link/macho/weak_framework/build.zig", .{
+        .build_modes = true,
+        .requires_macos_sdk = true,
     });
 }

@@ -1,17 +1,17 @@
 const std = @import("std");
 const Builder = std.build.Builder;
 const LibExeObjectStep = std.build.LibExeObjStep;
-const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 
 pub fn build(b: *Builder) void {
     const mode = b.standardReleaseOptions();
+    const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 
     const test_step = b.step("test", "Test");
     test_step.dependOn(b.getInstallStep());
 
     {
         // -search_dylibs_first
-        const exe = createScenario(b, mode);
+        const exe = createScenario(b, mode, target);
         exe.search_strategy = .dylibs_first;
 
         const check = exe.checkObject(.macho);
@@ -26,7 +26,7 @@ pub fn build(b: *Builder) void {
 
     {
         // -search_paths_first
-        const exe = createScenario(b, mode);
+        const exe = createScenario(b, mode, target);
         exe.search_strategy = .paths_first;
 
         const run = std.build.EmulatableRunStep.create(b, "run", exe);
@@ -36,7 +36,7 @@ pub fn build(b: *Builder) void {
     }
 }
 
-fn createScenario(b: *Builder, mode: std.builtin.Mode) *LibExeObjectStep {
+fn createScenario(b: *Builder, mode: std.builtin.Mode, target: std.zig.CrossTarget) *LibExeObjectStep {
     const static = b.addStaticLibrary("a", null);
     static.setTarget(target);
     static.setBuildMode(mode);
