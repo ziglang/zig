@@ -27,7 +27,7 @@ jobs:
     vmImage: 'windows-2019'
   variables:
     TARGET: 'x86_64-windows-gnu'
-    ZIG_LLVM_CLANG_LLD_NAME: 'zig+llvm+lld+clang-${{ variables.TARGET }}-0.10.0-dev.3524+74673b7f6'
+    ZIG_LLVM_CLANG_LLD_NAME: 'zig+llvm+lld+clang-${{ variables.TARGET }}-0.10.0-dev.3619+21f5d73cf'
     ZIG_LLVM_CLANG_LLD_URL: 'https://ziglang.org/deps/${{ variables.ZIG_LLVM_CLANG_LLD_NAME }}.zip'
   steps:
   - pwsh: |
@@ -59,16 +59,16 @@ jobs:
       mkdir $ZIGBUILDDIR
       cd $ZIGBUILDDIR
 
-      & "${ZIGPREFIXPATH}/bin/zig.exe" build `
+      & "$ZIGPREFIXPATH\bin\zig.exe" build `
         --prefix "$ZIGINSTALLDIR" `
         --search-prefix "$ZIGPREFIXPATH" `
+        --zig-lib-dir "..\lib" `
         -Denable-stage1 `
         -Dstatic-llvm `
         -Drelease `
         -Dstrip `
         -Duse-zig-libcxx `
-        -Dtarget=$(TARGET) `
-        -fno-stage1
+        -Dtarget=$(TARGET)
       CheckLastExitCode
 
       cd -
