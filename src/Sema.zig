@@ -6789,6 +6789,15 @@ fn zirErrorUnionType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
             error_set.fmt(sema.mod),
         });
     }
+    if (payload.zigTypeTag() == .Opaque) {
+        return sema.fail(block, rhs_src, "error union with payload of opaque type '{}' not allowed", .{
+            payload.fmt(sema.mod),
+        });
+    } else if (payload.zigTypeTag() == .ErrorSet) {
+        return sema.fail(block, rhs_src, "error union with payload of error set type '{}' not allowed", .{
+            payload.fmt(sema.mod),
+        });
+    }
     const err_union_ty = try Type.errorUnion(sema.arena, error_set, payload, sema.mod);
     return sema.addType(err_union_ty);
 }
@@ -25762,6 +25771,11 @@ fn analyzeIsNonErrComptimeOnly(
     if (ot != .ErrorSet and ot != .ErrorUnion) return Air.Inst.Ref.bool_true;
     if (ot == .ErrorSet) return Air.Inst.Ref.bool_false;
     assert(ot == .ErrorUnion);
+
+    const payload_ty = operand_ty.errorUnionPayload();
+    if (payload_ty.zigTypeTag() == .NoReturn) {
+        return Air.Inst.Ref.bool_false;
+    }
 
     if (Air.refToIndex(operand)) |operand_inst| {
         switch (sema.air_instructions.items(.tag)[operand_inst]) {

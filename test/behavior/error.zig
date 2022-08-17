@@ -725,7 +725,7 @@ test "simple else prong allowed even when all errors handled" {
     try expect(value == 255);
 }
 
-test {
+test "pointer to error union payload" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
@@ -735,4 +735,64 @@ test {
 
     const payload_ptr = &(err_union catch unreachable);
     try expect(payload_ptr.* == 15);
+}
+
+const NoReturn = struct {
+    var a: u32 = undefined;
+    fn someData() bool {
+        a -= 1;
+        return a == 0;
+    }
+    fn loop() !noreturn {
+        while (true) {
+            if (someData())
+                return error.GenericFailure;
+        }
+    }
+    fn testTry() anyerror {
+        try loop();
+    }
+    fn testCatch() anyerror {
+        loop() catch return error.OtherFailure;
+        @compileError("bad");
+    }
+};
+
+test "error union of noreturn used with if" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    NoReturn.a = 64;
+    if (NoReturn.loop()) {
+        @compileError("bad");
+    } else |err| {
+        try expect(err == error.GenericFailure);
+    }
+}
+
+test "error union of noreturn used with try" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    NoReturn.a = 64;
+    const err = NoReturn.testTry();
+    try expect(err == error.GenericFailure);
+}
+
+test "error union of noreturn used with catch" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    NoReturn.a = 64;
+    const err = NoReturn.testCatch();
+    try expect(err == error.OtherFailure);
 }
