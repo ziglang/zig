@@ -2,6 +2,7 @@ const Builder = @import("std").build.Builder;
 
 pub fn build(b: *Builder) void {
     const mode = b.standardReleaseOptions();
+    const target: std.zig.CrossTarget = .{ .os_tag = .macos };
 
     const lib = b.addSharedLibrary("a", null, b.version(1, 0, 0));
     lib.setBuildMode(mode);

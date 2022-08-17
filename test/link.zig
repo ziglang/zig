@@ -3,11 +3,6 @@ const builtin = @import("builtin");
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: *tests.StandaloneContext) void {
-    if (builtin.os.tag == .windows) {
-        // https://github.com/ziglang/zig/issues/12421
-        return;
-    }
-
     cases.addBuildFile("test/link/bss/build.zig", .{
         .build_modes = false, // we only guarantee zerofill for undefined in Debug
     });
@@ -25,10 +20,6 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     });
 
     cases.addBuildFile("test/link/static_lib_as_system_lib/build.zig", .{
-        .build_modes = true,
-    });
-
-    cases.addBuildFile("test/link/tls/build.zig", .{
         .build_modes = true,
     });
 
@@ -114,5 +105,9 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.addBuildFile("test/link/macho/headerpad/build.zig", .{
         .build_modes = true,
         .requires_macos_sdk = true,
+    });
+
+    cases.addBuildFile("test/link/macho/tls/build.zig", .{
+        .build_modes = true,
     });
 }
