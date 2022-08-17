@@ -3995,7 +3995,7 @@ pub const FuncGen = struct {
     /// Stack of locations where a call was inlined.
     dbg_inlined: std.ArrayListUnmanaged(DbgState) = .{},
 
-    /// Stack of `DILexicalBlock`s. dbg_block instructions cannot happend accross
+    /// Stack of `DILexicalBlock`s. dbg_block instructions cannot happened accross
     /// dbg_inline instructions so no special handling there is required.
     dbg_block_stack: std.ArrayListUnmanaged(*llvm.DIScope) = .{},
 
