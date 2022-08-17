@@ -14,6 +14,77 @@ const std = @import("std");
 ///
 /// See also: https://en.wikipedia.org/wiki/C0_and_C1_control_codes and `isControl`.
 pub const control_code = struct {
+    // DEPRECATED: use the lowercase variant
+    pub const NUL = 0x00;
+    // DEPRECATED: use the lowercase variant
+    pub const SOH = 0x01;
+    // DEPRECATED: use the lowercase variant
+    pub const STX = 0x02;
+    // DEPRECATED: use the lowercase variant
+    pub const ETX = 0x03;
+    // DEPRECATED: use the lowercase variant
+    pub const EOT = 0x04;
+    // DEPRECATED: use the lowercase variant
+    pub const ENQ = 0x05;
+    // DEPRECATED: use the lowercase variant
+    pub const ACK = 0x06;
+    // DEPRECATED: use the lowercase variant
+    pub const BEL = 0x07;
+    // DEPRECATED: use the lowercase variant
+    pub const BS = 0x08;
+    // DEPRECATED: use `ht`
+    pub const TAB = 0x09;
+    // DEPRECATED: use the lowercase variant
+    pub const LF = 0x0A;
+    // DEPRECATED: use the lowercase variant
+    pub const VT = 0x0B;
+    // DEPRECATED: use the lowercase variant
+    pub const FF = 0x0C;
+    // DEPRECATED: use the lowercase variant
+    pub const CR = 0x0D;
+    // DEPRECATED: use the lowercase variant
+    pub const SO = 0x0E;
+    // DEPRECATED: use the lowercase variant
+    pub const SI = 0x0F;
+    // DEPRECATED: use the lowercase variant
+    pub const DLE = 0x10;
+    // DEPRECATED: use the lowercase variant
+    pub const DC1 = 0x11;
+    // DEPRECATED: use the lowercase variant
+    pub const DC2 = 0x12;
+    // DEPRECATED: use the lowercase variant
+    pub const DC3 = 0x13;
+    // DEPRECATED: use the lowercase variant
+    pub const DC4 = 0x14;
+    // DEPRECATED: use the lowercase variant
+    pub const NAK = 0x15;
+    // DEPRECATED: use the lowercase variant
+    pub const SYN = 0x16;
+    // DEPRECATED: use the lowercase variant
+    pub const ETB = 0x17;
+    // DEPRECATED: use the lowercase variant
+    pub const CAN = 0x18;
+    // DEPRECATED: use the lowercase variant
+    pub const EM = 0x19;
+    // DEPRECATED: use the lowercase variant
+    pub const SUB = 0x1A;
+    // DEPRECATED: use the lowercase variant
+    pub const ESC = 0x1B;
+    // DEPRECATED: use the lowercase variant
+    pub const FS = 0x1C;
+    // DEPRECATED: use the lowercase variant
+    pub const GS = 0x1D;
+    // DEPRECATED: use the lowercase variant
+    pub const RS = 0x1E;
+    // DEPRECATED: use the lowercase variant
+    pub const US = 0x1F;
+    // DEPRECATED: use the lowercase variant
+    pub const DEL = 0x7F;
+    // DEPRECATED: use the lowercase variant
+    pub const XON = 0x11;
+    // DEPRECATED: use the lowercase variant
+    pub const XOFF = 0x13;
+
     /// Null.
     pub const nul = 0x00;
     /// Start of Heading.
