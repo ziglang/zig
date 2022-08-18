@@ -383,7 +383,7 @@ const OptionalHeader = struct {
     image_base: u64,
 };
 
-const DebugDirectoryEntry = packed struct {
+const DebugDirectoryEntry = extern struct {
     characteristiccs: u32,
     time_date_stamp: u32,
     major_version: u16,
