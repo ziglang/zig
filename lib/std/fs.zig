@@ -2798,8 +2798,17 @@ fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t) CopyFileRawError!void {
     }
 
     if (builtin.os.tag == .linux) {
-        // Try copy_file_range first as that works at the FS level and is the
-        // most efficient method (if available).
+        // Try reflink first, as it's O(1). As of Linux 5.19 this works on
+        // btrfs, cifs, nfs, ocfs2, overlayfs and xfs; source and destination
+        // have to be logically on the same partition.
+        //
+        // `cp --reflink=auto` is the default in coreutils 9.0+:
+        // https://lists.gnu.org/archive/html/info-gnu/2021-09/msg00010.html
+        if (os.linux.clone_file(fd_in, fd_out) == 0)
+            return;
+
+        // copy_file_range works at the FS level and is the second most
+        // efficient method (if kernel is new enough).
         var offset: u64 = 0;
         cfr_loop: while (true) {
             // The kernel checks the u64 value `offset+count` for overflow, use

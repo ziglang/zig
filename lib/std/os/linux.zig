@@ -1522,6 +1522,12 @@ pub fn signalfd(fd: fd_t, mask: *const sigset_t, flags: u32) usize {
     return syscall4(.signalfd4, @bitCast(usize, @as(isize, fd)), @ptrToInt(mask), NSIG / 8, flags);
 }
 
+pub fn clone_file(fd_in: fd_t, fd_out: fd_t) usize {
+    assert(fd_in >= 0);
+    assert(fd_out >= 0);
+    return ioctl(fd_out, T.FICLONE, @bitCast(usize, @as(isize, fd_in)));
+}
+
 pub fn copy_file_range(fd_in: fd_t, off_in: ?*i64, fd_out: fd_t, off_out: ?*i64, len: usize, flags: u32) usize {
     return syscall6(
         .copy_file_range,
@@ -2816,6 +2822,7 @@ pub const T = struct {
     pub const IOCGPKT = IOCTL.IOR('T', 0x38, c_int);
     pub const IOCGPTLCK = IOCTL.IOR('T', 0x39, c_int);
     pub const IOCGEXCL = IOCTL.IOR('T', 0x40, c_int);
+    pub const FICLONE = IOCTL.IOW(0x94, 9, c_int);
 };
 
 pub const EPOLL = struct {
