@@ -1802,7 +1802,7 @@ pub const PathSpace = struct {
     data: [PATH_MAX_WIDE:0]u16,
     len: usize,
 
-    pub fn span(self: PathSpace) [:0]const u16 {
+    pub fn span(self: *const PathSpace) [:0]const u16 {
         return self.data[0..self.len :0];
     }
 };
