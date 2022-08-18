@@ -5035,7 +5035,7 @@ pub fn cmdAstCheck(
         };
     } else {
         const stdin = io.getStdIn();
-        const source = readSourceFileToEndAlloc(arena, stdin, null) catch |err| {
+        const source = readSourceFileToEndAlloc(arena, &stdin, null) catch |err| {
             fatal("unable to read stdin: {}", .{err});
         };
         file.sub_file_path = "<stdin>";
@@ -5119,7 +5119,7 @@ pub fn cmdAstCheck(
         // zig fmt: on
     }
 
-    return @import("print_zir.zig").renderAsTextToFileWriter(gpa, &file, io.getStdOut().writer());
+    return @import("print_zir.zig").renderAsTextToFile(gpa, &file, io.getStdOut());
 }
 
 /// This is only enabled for debug builds.

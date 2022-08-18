@@ -70,7 +70,7 @@ fn getStdErrHandle() os.fd_t {
 
 /// This returns a `File` that is configured to block with every write, in order
 /// to facilitate better debugging. This can be changed by modifying the `intended_io_mode` field.
-pub fn getStdErr() StdErrType {
+pub fn getStdErr() File {
     return File{
         .handle = getStdErrHandle(),
         .capable_io_mode = .blocking,
@@ -92,7 +92,7 @@ fn getStdInHandle() os.fd_t {
 
 /// TODO: async stdin on windows without a dedicated thread.
 /// https://github.com/ziglang/zig/pull/4816#issuecomment-604521023
-pub fn getStdIn() StdInType {
+pub fn getStdIn() File {
     return File{
         .handle = getStdInHandle(),
         .capable_io_mode = .blocking,
