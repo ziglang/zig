@@ -9,7 +9,7 @@ const print = std.debug.print;
 const mem = std.mem;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
-const Module = @import("Module.zig");
+const Module = @import("../Module.zig");
 
 pub fn genHtml(
     allocator: Allocator,
@@ -33,7 +33,6 @@ pub fn genHtml(
         \\        line-height: 1.5;
         \\      }
         \\
-        \\      @media screen and (min-width: 1025px) {
         \\      pre > code {
         \\        display: block;
         \\        overflow: auto;

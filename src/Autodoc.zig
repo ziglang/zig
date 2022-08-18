@@ -9,7 +9,7 @@ const Package = @import("Package.zig");
 const Zir = @import("Zir.zig");
 const Ref = Zir.Inst.Ref;
 const log = std.log.scoped(.autodoc);
-const Docgen = @import("Docgen.zig");
+const Docgen = @import("autodoc/render_source.zig");
 
 module: *Module,
 doc_location: Compilation.EmitLoc,
@@ -243,6 +243,7 @@ pub fn generateZirData(self: *Autodoc) !void {
         try d.handle.openDir(self.doc_location.basename, .{})
     else
         try self.module.zig_cache_artifact_directory.handle.openDir(self.doc_location.basename, .{});
+
     {
         const data_js_f = try output_dir.createFile("data.js", .{});
         defer data_js_f.close();
@@ -267,25 +268,27 @@ pub fn generateZirData(self: *Autodoc) !void {
         try buffer.flush();
     }
 
-    output_dir.makeDir("src-viewer") catch |e| switch (e) {
-        error.PathAlreadyExists => {},
-        else => |err| return err,
-    };
-    const html_dir = try output_dir.openDir("src-viewer", .{});
+    {
+        output_dir.makeDir("src") catch |e| switch (e) {
+            error.PathAlreadyExists => {},
+            else => |err| return err,
+        };
+        const html_dir = try output_dir.openDir("src", .{});
 
-    var files_iterator = self.files.iterator();
+        var files_iterator = self.files.iterator();
 
-    while (files_iterator.next()) |entry| {
-        const new_html_path = entry.key_ptr.*.sub_file_path;
+        while (files_iterator.next()) |entry| {
+            const new_html_path = entry.key_ptr.*.sub_file_path;
 
-        const html_file = try createFromPath(html_dir, new_html_path);
-        defer html_file.close();
-        var buffer = std.io.bufferedWriter(html_file.writer());
+            const html_file = try createFromPath(html_dir, new_html_path);
+            defer html_file.close();
+            var buffer = std.io.bufferedWriter(html_file.writer());
 
-        const out = buffer.writer();
+            const out = buffer.writer();
 
-        try Docgen.genHtml(self.module.gpa, entry.key_ptr.*, out);
-        try buffer.flush();
+            try Docgen.genHtml(self.module.gpa, entry.key_ptr.*, out);
+            try buffer.flush();
+        }
     }
 
     // copy main.js, index.html
