@@ -1495,7 +1495,8 @@ pub fn resolveInst(sema: *Sema, zir_ref: Zir.Inst.Ref) !Air.Inst.Ref {
 
     // Finally, the last section of indexes refers to the map of ZIR=>AIR.
     const inst = sema.inst_map.get(@intCast(u32, i)).?;
-    if (sema.typeOf(inst).tag() == .generic_poison) return error.GenericPoison;
+    const ty = sema.typeOf(inst);
+    if (ty.tag() == .generic_poison) return error.GenericPoison;
     return inst;
 }
 
@@ -5570,10 +5571,14 @@ const GenericCallAdapter = struct {
     generic_fn: *Module.Fn,
     precomputed_hash: u64,
     func_ty_info: Type.Payload.Function.Data,
-    /// Unlike comptime_args, the Type here is not always present.
-    /// .generic_poison is used to communicate non-anytype parameters.
-    comptime_tvs: []const TypedValue,
+    args: []const Arg,
     module: *Module,
+
+    const Arg = struct {
+        ty: Type,
+        val: Value,
+        is_anytype: bool,
+    };
 
     pub fn eql(ctx: @This(), adapted_key: void, other_key: *Module.Fn) bool {
         _ = adapted_key;
@@ -5585,10 +5590,10 @@ const GenericCallAdapter = struct {
 
         const other_comptime_args = other_key.comptime_args.?;
         for (other_comptime_args[0..ctx.func_ty_info.param_types.len]) |other_arg, i| {
-            const this_arg = ctx.comptime_tvs[i];
+            const this_arg = ctx.args[i];
             const this_is_comptime = this_arg.val.tag() != .generic_poison;
             const other_is_comptime = other_arg.val.tag() != .generic_poison;
-            const this_is_anytype = this_arg.ty.tag() != .generic_poison;
+            const this_is_anytype = this_arg.is_anytype;
             const other_is_anytype = other_key.isAnytypeParam(ctx.module, @intCast(u32, i));
 
             if (other_is_anytype != this_is_anytype) return false;
@@ -5607,7 +5612,17 @@ const GenericCallAdapter = struct {
                 }
             } else if (this_is_comptime) {
                 // Both are comptime parameters but not anytype parameters.
-                if (!this_arg.val.eql(other_arg.val, other_arg.ty, ctx.module)) {
+                // We assert no error is possible here because any lazy values must be resolved
+                // before inserting into the generic function hash map.
+                const is_eql = Value.eqlAdvanced(
+                    this_arg.val,
+                    this_arg.ty,
+                    other_arg.val,
+                    other_arg.ty,
+                    ctx.module,
+                    null,
+                ) catch unreachable;
+                if (!is_eql) {
                     return false;
                 }
             }
@@ -6258,8 +6273,7 @@ fn instantiateGenericCall(
     var hasher = std.hash.Wyhash.init(0);
     std.hash.autoHash(&hasher, @ptrToInt(module_fn));
 
-    const comptime_tvs = try sema.arena.alloc(TypedValue, func_ty_info.param_types.len);
-
+    const generic_args = try sema.arena.alloc(GenericCallAdapter.Arg, func_ty_info.param_types.len);
     {
         var i: usize = 0;
         for (fn_info.param_body) |inst| {
@@ -6283,8 +6297,9 @@ fn instantiateGenericCall(
                 else => continue,
             }
 
+            const arg_ty = sema.typeOf(uncasted_args[i]);
+
             if (is_comptime) {
-                const arg_ty = sema.typeOf(uncasted_args[i]);
                 const arg_val = sema.analyzeGenericCallArgVal(block, .unneeded, uncasted_args[i]) catch |err| switch (err) {
                     error.NeededSourceLocation => {
                         const decl = sema.mod.declPtr(block.src_decl);
@@ -6297,27 +6312,30 @@ fn instantiateGenericCall(
                 arg_val.hash(arg_ty, &hasher, mod);
                 if (is_anytype) {
                     arg_ty.hashWithHasher(&hasher, mod);
-                    comptime_tvs[i] = .{
+                    generic_args[i] = .{
                         .ty = arg_ty,
                         .val = arg_val,
+                        .is_anytype = true,
                     };
                 } else {
-                    comptime_tvs[i] = .{
-                        .ty = Type.initTag(.generic_poison),
+                    generic_args[i] = .{
+                        .ty = arg_ty,
                         .val = arg_val,
+                        .is_anytype = false,
                     };
                 }
             } else if (is_anytype) {
-                const arg_ty = sema.typeOf(uncasted_args[i]);
                 arg_ty.hashWithHasher(&hasher, mod);
-                comptime_tvs[i] = .{
+                generic_args[i] = .{
                     .ty = arg_ty,
                     .val = Value.initTag(.generic_poison),
+                    .is_anytype = true,
                 };
             } else {
-                comptime_tvs[i] = .{
-                    .ty = Type.initTag(.generic_poison),
+                generic_args[i] = .{
+                    .ty = arg_ty,
                     .val = Value.initTag(.generic_poison),
+                    .is_anytype = false,
                 };
             }
 
@@ -6331,7 +6349,7 @@ fn instantiateGenericCall(
         .generic_fn = module_fn,
         .precomputed_hash = precomputed_hash,
         .func_ty_info = func_ty_info,
-        .comptime_tvs = comptime_tvs,
+        .args = generic_args,
         .module = mod,
     };
     const gop = try mod.monomorphed_funcs.getOrPutAdapted(gpa, {}, adapter);
@@ -11183,6 +11201,21 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
     const target = mod.getTarget();
     const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(block, lhs_src, casted_lhs);
     const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(block, rhs_src, casted_rhs);
+
+    if ((lhs_ty.zigTypeTag() == .ComptimeFloat and rhs_ty.zigTypeTag() == .ComptimeInt) or
+        (lhs_ty.zigTypeTag() == .ComptimeInt and rhs_ty.zigTypeTag() == .ComptimeFloat))
+    {
+        // If it makes a difference whether we coerce to ints or floats before doing the division, error.
+        // If lhs % rhs is 0, it doesn't matter.
+        const lhs_val = maybe_lhs_val orelse unreachable;
+        const rhs_val = maybe_rhs_val orelse unreachable;
+        const rem = lhs_val.floatRem(rhs_val, resolved_type, sema.arena, target) catch unreachable;
+        if (rem.compareWithZero(.neq)) {
+            return sema.fail(block, src, "ambiguous coercion of division operands '{s}' and '{s}'; non-zero remainder '{}'", .{
+                @tagName(lhs_ty.tag()), @tagName(rhs_ty.tag()), rem.fmtValue(resolved_type, sema.mod),
+            });
+        }
+    }
 
     // TODO: emit compile error when .div is used on integers and there would be an
     // ambiguous result between div_floor and div_trunc.
@@ -30124,7 +30157,7 @@ fn valuesEqual(
     rhs: Value,
     ty: Type,
 ) CompileError!bool {
-    return Value.eqlAdvanced(lhs, rhs, ty, sema.mod, sema.kit(block, src));
+    return Value.eqlAdvanced(lhs, ty, rhs, ty, sema.mod, sema.kit(block, src));
 }
 
 /// Asserts the values are comparable vectors of type `ty`.

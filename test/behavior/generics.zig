@@ -323,3 +323,22 @@ test "generic function instantiation non-duplicates" {
     S.copy(u8, &buffer, "hello");
     S.copy(u8, &buffer, "hello2");
 }
+
+test "generic instantiation of tagged union with only one field" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    const S = struct {
+        const U = union(enum) {
+            s: []const u8,
+        };
+
+        fn foo(comptime u: U) usize {
+            return u.s.len;
+        }
+    };
+
+    try expect(S.foo(.{ .s = "a" }) == 1);
+    try expect(S.foo(.{ .s = "ab" }) == 2);
+}
