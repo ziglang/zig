@@ -6529,3 +6529,7 @@ pub fn addGlobalAssembly(mod: *Module, decl_index: Decl.Index, source: []const u
 
     mod.global_assembly.putAssumeCapacityNoClobber(decl_index, duped_source);
 }
+
+pub fn wantDllExports(mod: Module) bool {
+    return mod.comp.bin_file.options.dll_export_fns and mod.getTarget().os.tag == .windows;
+}
