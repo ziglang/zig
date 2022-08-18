@@ -1694,6 +1694,7 @@ fn genInst(self: *Self, inst: Air.Inst.Index) !WValue {
         .err_return_trace,
         .set_err_return_trace,
         .is_named_enum_value,
+        .error_set_has_value,
         => |tag| return self.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
 
         .add_optimized,
@@ -4105,7 +4106,6 @@ fn fpext(self: *Self, operand: WValue, given: Type, wanted: Type) InnerError!WVa
             return f32_result;
         }
         if (wanted_bits == 64) {
-            try self.emitWValue(f32_result);
             try self.addTag(.f64_promote_f32);
             return WValue{ .stack = {} };
         }
@@ -4627,7 +4627,6 @@ fn airMulAdd(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
             Type.f32,
             &.{ rhs_ext, lhs_ext, addend_ext },
         );
-        defer result.free(self);
         return try (try self.fptrunc(result, Type.f32, ty)).toLocal(self, ty);
     }
 
@@ -5352,6 +5351,7 @@ fn airShlSat(self: *Self, inst: Air.Inst.Index) InnerError!WValue {
 /// This function call assumes the C-ABI.
 /// Asserts arguments are not stack values when the return value is
 /// passed as the first parameter.
+/// May leave the return value on the stack.
 fn callIntrinsic(
     self: *Self,
     name: []const u8,
@@ -5397,8 +5397,6 @@ fn callIntrinsic(
     } else if (want_sret_param) {
         return sret;
     } else {
-        const result_local = try self.allocLocal(return_type);
-        try self.addLabel(.local_set, result_local.local);
-        return result_local;
+        return WValue{ .stack = {} };
     }
 }

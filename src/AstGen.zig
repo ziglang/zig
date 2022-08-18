@@ -4088,6 +4088,13 @@ fn testDecl(
                             true => .signed,
                             false => .unsigned,
                         };
+                        if (ident_name_raw.len >= 3 and ident_name_raw[1] == '0') {
+                            return astgen.failTok(
+                                test_name_token,
+                                "primitive integer type '{s}' has leading zero",
+                                .{ident_name_raw},
+                            );
+                        }
                         _ = parseBitCount(ident_name_raw[1..]) catch |err| switch (err) {
                             error.Overflow => return astgen.failTok(
                                 test_name_token,
@@ -4557,9 +4564,6 @@ fn unionDeclInner(
             wip_members.appendToField(@enumToInt(tag_value));
         }
     }
-    if (field_count == 0) {
-        return astgen.failNode(node, "union declarations must have at least one tag", .{});
-    }
 
     if (!block_scope.isEmpty()) {
         _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
@@ -4715,12 +4719,6 @@ fn containerDecl(
                     .nonexhaustive_node = nonexhaustive_node,
                 };
             };
-            if (counts.total_fields == 0 and counts.nonexhaustive_node == 0) {
-                // One can construct an enum with no tags, and it functions the same as `noreturn`. But
-                // this is only useful for generic code; when explicitly using `enum {}` syntax, there
-                // must be at least one tag.
-                try astgen.appendErrorNode(node, "enum declarations must have at least one tag", .{});
-            }
             if (counts.nonexhaustive_node != 0 and container_decl.ast.arg == 0) {
                 try astgen.appendErrorNodeNotes(
                     node,
@@ -6800,6 +6798,13 @@ fn identifier(
                     true => .signed,
                     false => .unsigned,
                 };
+                if (ident_name_raw.len >= 3 and ident_name_raw[1] == '0') {
+                    return astgen.failNode(
+                        ident,
+                        "primitive integer type '{s}' has leading zero",
+                        .{ident_name_raw},
+                    );
+                }
                 const bit_count = parseBitCount(ident_name_raw[1..]) catch |err| switch (err) {
                     error.Overflow => return astgen.failNode(
                         ident,
@@ -7030,17 +7035,6 @@ fn integerLiteral(gz: *GenZir, rl: ResultLoc, node: Ast.Node.Index) InnerError!Z
     const main_tokens = tree.nodes.items(.main_token);
     const int_token = main_tokens[node];
     const prefixed_bytes = tree.tokenSlice(int_token);
-    if (std.fmt.parseInt(u64, prefixed_bytes, 0)) |small_int| {
-        const result: Zir.Inst.Ref = switch (small_int) {
-            0 => .zero,
-            1 => .one,
-            else => try gz.addInt(small_int),
-        };
-        return rvalue(gz, rl, result, node);
-    } else |err| switch (err) {
-        error.InvalidCharacter => unreachable, // Caught by the parser.
-        error.Overflow => {},
-    }
 
     var base: u8 = 10;
     var non_prefixed: []const u8 = prefixed_bytes;
@@ -7053,6 +7047,24 @@ fn integerLiteral(gz: *GenZir, rl: ResultLoc, node: Ast.Node.Index) InnerError!Z
     } else if (mem.startsWith(u8, prefixed_bytes, "0b")) {
         base = 2;
         non_prefixed = prefixed_bytes[2..];
+    }
+
+    if (base == 10 and prefixed_bytes.len >= 2 and prefixed_bytes[0] == '0') {
+        return astgen.failNodeNotes(node, "integer literal '{s}' has leading zero", .{prefixed_bytes}, &.{
+            try astgen.errNoteNode(node, "use '0o' prefix for octal literals", .{}),
+        });
+    }
+
+    if (std.fmt.parseUnsigned(u64, non_prefixed, base)) |small_int| {
+        const result: Zir.Inst.Ref = switch (small_int) {
+            0 => .zero,
+            1 => .one,
+            else => try gz.addInt(small_int),
+        };
+        return rvalue(gz, rl, result, node);
+    } else |err| switch (err) {
+        error.InvalidCharacter => unreachable, // Caught by the parser.
+        error.Overflow => {},
     }
 
     const gpa = astgen.gpa;
@@ -7676,7 +7688,8 @@ fn builtinCall(
                 } },
             });
             gz.instructions.appendAssumeCapacity(new_index);
-            return indexToRef(new_index);
+            const result = indexToRef(new_index);
+            return rvalue(gz, rl, result, node);
         },
         .panic => {
             try emitDbgNode(gz, node);
@@ -11750,6 +11763,46 @@ fn scanDecls(astgen: *AstGen, namespace: *Scope.Namespace, members: []const Ast.
                 error.OutOfMemory => return error.OutOfMemory,
             }
         }
+
+        // const index_name = try astgen.identAsString(index_token);
+        var s = namespace.parent;
+        while (true) switch (s.tag) {
+            .local_val => {
+                const local_val = s.cast(Scope.LocalVal).?;
+                if (local_val.name == name_str_index) {
+                    return astgen.failTokNotes(name_token, "redeclaration of {s} '{s}'", .{
+                        @tagName(local_val.id_cat), token_bytes,
+                    }, &[_]u32{
+                        try astgen.errNoteTok(
+                            local_val.token_src,
+                            "previous declaration here",
+                            .{},
+                        ),
+                    });
+                }
+                s = local_val.parent;
+            },
+            .local_ptr => {
+                const local_ptr = s.cast(Scope.LocalPtr).?;
+                if (local_ptr.name == name_str_index) {
+                    return astgen.failTokNotes(name_token, "redeclaration of {s} '{s}'", .{
+                        @tagName(local_ptr.id_cat), token_bytes,
+                    }, &[_]u32{
+                        try astgen.errNoteTok(
+                            local_ptr.token_src,
+                            "previous declaration here",
+                            .{},
+                        ),
+                    });
+                }
+                s = local_ptr.parent;
+            },
+            .namespace => s = s.cast(Scope.Namespace).?.parent,
+            .gen_zir => s = s.cast(GenZir).?.parent,
+            .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
+            .defer_gen => s = s.cast(Scope.DeferGen).?.parent,
+            .top => break,
+        };
         gop.value_ptr.* = member_node;
     }
     return decl_count;

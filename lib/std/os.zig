@@ -2651,6 +2651,7 @@ pub fn renameatW(
         .creation = windows.FILE_OPEN,
         .io_mode = .blocking,
         .filter = .any, // This function is supposed to rename both files and directories.
+        .follow_symlinks = false,
     }) catch |err| switch (err) {
         error.WouldBlock => unreachable, // Not possible without `.share_access_nonblocking = true`.
         else => |e| return e,

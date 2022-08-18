@@ -1443,7 +1443,7 @@ const Writer = struct {
         try self.writeFlag(stream, "autoenum, ", small.auto_enum_tag);
 
         if (decls_len == 0) {
-            try stream.writeAll("{}, ");
+            try stream.writeAll("{}");
         } else {
             const prev_parent_decl_node = self.parent_decl_node;
             if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
@@ -1454,15 +1454,20 @@ const Writer = struct {
             extra_index = try self.writeDecls(stream, decls_len, extra_index);
             self.indent -= 2;
             try stream.writeByteNTimes(' ', self.indent);
-            try stream.writeAll("}, ");
+            try stream.writeAll("}");
         }
-
-        assert(fields_len != 0);
 
         if (tag_type_ref != .none) {
-            try self.writeInstRef(stream, tag_type_ref);
             try stream.writeAll(", ");
+            try self.writeInstRef(stream, tag_type_ref);
         }
+
+        if (fields_len == 0) {
+            try stream.writeAll("})");
+            try self.writeSrcNode(stream, src_node);
+            return;
+        }
+        try stream.writeAll(", ");
 
         const body = self.code.extra[extra_index..][0..body_len];
         extra_index += body.len;

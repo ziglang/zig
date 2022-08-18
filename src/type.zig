@@ -2488,7 +2488,7 @@ pub const Type = extern union {
             },
             .union_safety_tagged, .union_tagged => {
                 const union_obj = ty.cast(Payload.Union).?.data;
-                if (try union_obj.tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit)) {
+                if (union_obj.fields.count() > 0 and try union_obj.tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit)) {
                     return true;
                 }
                 if (sema_kit) |sk| {
@@ -3113,6 +3113,9 @@ pub const Type = extern union {
             .sema_kit => unreachable, // handled above
             .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
         };
+        if (union_obj.fields.count() == 0) {
+            return AbiAlignmentAdvanced{ .scalar = @boolToInt(union_obj.layout == .Extern) };
+        }
 
         var max_align: u32 = 0;
         if (have_tag) max_align = union_obj.tag_ty.abiAlignment(target);
@@ -6302,6 +6305,8 @@ pub const Type = extern union {
     pub const @"anyerror" = initTag(.anyerror);
     pub const @"anyopaque" = initTag(.anyopaque);
     pub const @"null" = initTag(.@"null");
+
+    pub const err_int = Type.u16;
 
     pub fn ptr(arena: Allocator, mod: *Module, data: Payload.Pointer.Data) !Type {
         const target = mod.getTarget();

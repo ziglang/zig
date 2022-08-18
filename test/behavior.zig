@@ -84,6 +84,7 @@ test {
     _ = @import("behavior/bugs/11213.zig");
     _ = @import("behavior/bugs/12003.zig");
     _ = @import("behavior/bugs/12033.zig");
+    _ = @import("behavior/bugs/12430.zig");
     _ = @import("behavior/byteswap.zig");
     _ = @import("behavior/byval_arg_var.zig");
     _ = @import("behavior/call.zig");
@@ -166,6 +167,7 @@ test {
     if (builtin.zig_backend != .stage1) {
         _ = @import("behavior/decltest.zig");
         _ = @import("behavior/packed_struct_explicit_backing_int.zig");
+        _ = @import("behavior/empty_union.zig");
     }
 
     if (builtin.os.tag != .wasi) {
