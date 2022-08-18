@@ -37,8 +37,8 @@ jobs:
     displayName: 'Install ZIG/LLVM/CLANG/LLD'
 
   - pwsh: |
-      Set-Variable -Name ZIGBUILDDIR -Value "$(Get-Location)\build"
-      Set-Variable -Name ZIGINSTALLDIR -Value "${ZIGBUILDDIR}\dist"
+      Set-Variable -Name ZIGLIBDIR -Value "$(Get-Location)\lib"
+      Set-Variable -Name ZIGINSTALLDIR -Value "$(Get-Location)\stage3-release"
       Set-Variable -Name ZIGPREFIXPATH -Value "$(Get-Location)\$(ZIG_LLVM_CLANG_LLD_NAME)"
 
       function CheckLastExitCode {
@@ -56,13 +56,10 @@ jobs:
         git fetch --unshallow # `git describe` won't work on a shallow repo
       }
 
-      mkdir $ZIGBUILDDIR
-      cd $ZIGBUILDDIR
-
       & "$ZIGPREFIXPATH\bin\zig.exe" build `
         --prefix "$ZIGINSTALLDIR" `
         --search-prefix "$ZIGPREFIXPATH" `
-        --zig-lib-dir "..\lib" `
+        --zig-lib-dir "$ZIGLIBDIR" `
         -Denable-stage1 `
         -Dstatic-llvm `
         -Drelease `
@@ -70,13 +67,11 @@ jobs:
         -Duse-zig-libcxx `
         -Dtarget=$(TARGET)
       CheckLastExitCode
-
-      cd -
     name: build
     displayName: 'Build'
 
   - pwsh: |
-      Set-Variable -Name ZIGINSTALLDIR -Value "$(Get-Location)\build\dist"
+      Set-Variable -Name ZIGINSTALLDIR -Value "$(Get-Location)\stage3-release"
 
       function CheckLastExitCode {
         if (!$?) {
@@ -85,31 +80,14 @@ jobs:
         return 0
       }
 
-      & "$ZIGINSTALLDIR\bin\zig.exe" build test `
+      & "$ZIGINSTALLDIR\bin\zig.exe" build test docs `
         --search-prefix "$ZIGPREFIXPATH" `
         -Dstatic-llvm `
         -Dskip-non-native `
         -Dskip-stage2-tests
       CheckLastExitCode
-
     name: test
     displayName: 'Test'
-
-  - pwsh: |
-      Set-Variable -Name ZIGINSTALLDIR -Value "$(Get-Location)\build\dist"
-
-      function CheckLastExitCode {
-        if (!$?) {
-          exit 1
-        }
-        return 0
-      }
-
-      & "$ZIGINSTALLDIR\bin\zig.exe" build docs
-      CheckLastExitCode
-    timeoutInMinutes: 60
-    name: doc
-    displayName: 'Documentation'
 
   - task: DownloadSecureFile@1
     inputs:
@@ -117,7 +95,6 @@ jobs:
       secureFile: aws_credentials
 
   - pwsh: |
-      Set-Variable -Name ZIGBUILDDIR -Value "$(Get-Location)\build"
       $Env:AWS_SHARED_CREDENTIALS_FILE = "$Env:DOWNLOADSECUREFILE_SECUREFILEPATH"
 
       # Workaround Azure networking issue
@@ -125,21 +102,20 @@ jobs:
       $Env:AWS_EC2_METADATA_DISABLED = "true"
       $Env:AWS_REGION = "us-west-2"
 
-      cd "$ZIGBUILDDIR"
-      mv ../LICENSE dist/
-      mv ../zig-cache/langref.html dist/
-      mv dist/bin/zig.exe dist/
-      rmdir dist/bin
+      mv LICENSE stage3-release/
+      mv zig-cache/langref.html stage3-release/
+      mv stage3-release/bin/zig.exe stage3-release/
+      rmdir stage3-release/bin
 
       # Remove the unnecessary zig dir in $prefix/lib/zig/std/std.zig
-      mv dist/lib/zig dist/lib2
-      rmdir dist/lib
-      mv dist/lib2 dist/lib
+      mv stage3-release/lib/zig stage3-release/lib2
+      rmdir stage3-release/lib
+      mv stage3-release/lib2 stage3-release/lib
 
-      Set-Variable -Name VERSION -Value $(./dist/zig.exe version)
+      Set-Variable -Name VERSION -Value $(./stage3-release/zig.exe version)
       Set-Variable -Name DIRNAME -Value "zig-windows-x86_64-$VERSION"
       Set-Variable -Name TARBALL -Value "$DIRNAME.zip"
-      mv dist "$DIRNAME"
+      mv stage3-release "$DIRNAME"
       7z a "$TARBALL" "$DIRNAME"
 
       aws s3 cp `
