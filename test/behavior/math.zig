@@ -239,10 +239,9 @@ test "quad hex float literal parsing in range" {
 }
 
 test "underscore separator parsing" {
-    try expect(0_0_0_0 == 0);
     try expect(1_234_567 == 1234567);
-    try expect(001_234_567 == 1234567);
-    try expect(0_0_1_2_3_4_5_6_7 == 1234567);
+    try expect(1_234_567 == 1234567);
+    try expect(1_2_3_4_5_6_7 == 1234567);
 
     try expect(0b0_0_0_0 == 0);
     try expect(0b1010_1010 == 0b10101010);
@@ -260,7 +259,7 @@ test "underscore separator parsing" {
     try expect(0x1_0_1_0_1_0_1_0 == 0x10101010);
 
     try expect(123_456.789_000e1_0 == 123456.789000e10);
-    try expect(0_1_2_3_4_5_6.7_8_9_0_0_0e0_0_1_0 == 123456.789000e10);
+    try expect(1_2_3_4_5_6.7_8_9_0_0_0e0_0_1_0 == 123456.789000e10);
 
     try expect(0x1234_5678.9ABC_DEF0p-1_0 == 0x12345678.9ABCDEF0p-10);
     try expect(0x1_2_3_4_5_6_7_8.9_A_B_C_D_E_F_0p-0_0_0_1_0 == 0x12345678.9ABCDEF0p-10);
