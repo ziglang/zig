@@ -1407,18 +1407,50 @@ pub const Dir = struct {
     /// If supported by the OS, this operation is atomic. It is not atomic on
     /// all operating systems.
     pub fn makeOpenPath(self: Dir, sub_path: []const u8, open_dir_options: OpenDirOptions) !Dir {
-        // TODO improve this implementation on Windows; we can avoid 1 call to NtClose
-        try self.makePath(sub_path);
-        return self.openDir(sub_path, open_dir_options);
+        if (builtin.os.tag == .windows) {
+            const w = os.windows;
+            const sub_path_w = try w.sliceToPrefixedFileW(sub_path);
+
+            const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
+                w.SYNCHRONIZE | w.FILE_TRAVERSE;
+            return self.openDirAccessMaskW(sub_path_w.span().ptr, base_flags, .{
+                .no_follow = open_dir_options.no_follow,
+                .create = true,
+            });
+        }
+
+        if (self.openDir(sub_path, open_dir_options)) |dir| {
+            return dir;
+        } else |_| {
+            try self.makePath(sub_path);
+            return self.openDir(sub_path, open_dir_options);
+        }
     }
 
     /// This function performs `makePath`, followed by `openIterableDir`.
     /// If supported by the OS, this operation is atomic. It is not atomic on
     /// all operating systems.
     pub fn makeOpenPathIterable(self: Dir, sub_path: []const u8, open_dir_options: OpenDirOptions) !IterableDir {
-        // TODO improve this implementation on Windows; we can avoid 1 call to NtClose
-        try self.makePath(sub_path);
-        return self.openIterableDir(sub_path, open_dir_options);
+        if (builtin.os.tag == .windows) {
+            const w = os.windows;
+            const sub_path_w = try w.sliceToPrefixedFileW(sub_path);
+
+            const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
+                w.SYNCHRONIZE | w.FILE_TRAVERSE | w.FILE_LIST_DIRECTORY;
+            return IterableDir{
+                .dir = try self.openDirAccessMaskW(sub_path_w.span().ptr, base_flags, .{
+                    .no_follow = open_dir_options.no_follow,
+                    .create = true,
+                }),
+            };
+        }
+
+        if (self.openIterableDir(sub_path, open_dir_options)) |dir| {
+            return dir;
+        } else |_| {
+            try self.makePath(sub_path);
+            return self.openIterableDir(sub_path, open_dir_options);
+        }
     }
 
     ///  This function returns the canonicalized absolute pathname of
@@ -1677,7 +1709,10 @@ pub const Dir = struct {
         const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
             w.SYNCHRONIZE | w.FILE_TRAVERSE;
         const flags: u32 = if (iterable) base_flags | w.FILE_LIST_DIRECTORY else base_flags;
-        var dir = try self.openDirAccessMaskW(sub_path_w, flags, args.no_follow);
+        var dir = try self.openDirAccessMaskW(sub_path_w, flags, .{
+            .no_follow = args.no_follow,
+            .create = false,
+        });
         return dir;
     }
 
@@ -1700,7 +1735,12 @@ pub const Dir = struct {
         return Dir{ .fd = fd };
     }
 
-    fn openDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u32, no_follow: bool) OpenError!Dir {
+    const OpenDirAccessMaskWOptions = struct {
+        no_follow: bool,
+        create: bool,
+    };
+
+    fn openDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u32, flags: OpenDirAccessMaskWOptions) OpenError!Dir {
         const w = os.windows;
 
         var result = Dir{
@@ -1721,7 +1761,7 @@ pub const Dir = struct {
             .SecurityDescriptor = null,
             .SecurityQualityOfService = null,
         };
-        const open_reparse_point: w.DWORD = if (no_follow) w.FILE_OPEN_REPARSE_POINT else 0x0;
+        const open_reparse_point: w.DWORD = if (flags.no_follow) w.FILE_OPEN_REPARSE_POINT else 0x0;
         var io: w.IO_STATUS_BLOCK = undefined;
         const rc = w.ntdll.NtCreateFile(
             &result.fd,
@@ -1731,7 +1771,7 @@ pub const Dir = struct {
             null,
             0,
             w.FILE_SHARE_READ | w.FILE_SHARE_WRITE,
-            w.FILE_OPEN,
+            if (flags.create) w.FILE_OPEN_IF else w.FILE_OPEN,
             w.FILE_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT | w.FILE_OPEN_FOR_BACKUP_INTENT | open_reparse_point,
             null,
             0,
