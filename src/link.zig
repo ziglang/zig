@@ -772,12 +772,15 @@ pub const File = struct {
                     error.FileNotFound => {},
                     else => |e| return e,
                 }
-                try std.fs.rename(
+                std.fs.rename(
                     cache_directory.handle,
                     tmp_dir_sub_path,
                     cache_directory.handle,
                     o_sub_path,
-                );
+                ) catch |err| switch (err) {
+                    error.AccessDenied => unreachable, // We are most likely trying to move a dir with open handles to its resources
+                    else => |e| return e,
+                };
                 break;
             } else {
                 std.fs.rename(
