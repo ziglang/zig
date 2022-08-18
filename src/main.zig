@@ -3964,10 +3964,10 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
 
 fn readSourceFileToEndAlloc(
     allocator: mem.Allocator,
-    input_reader: anytype,
+    input: *const fs.File,
     size_hint: ?usize,
 ) ![:0]u8 {
-    const source_code = input_reader.readToEndAllocOptions(
+    const source_code = input.readToEndAllocOptions(
         allocator,
         max_src_size,
         size_hint,
@@ -4096,8 +4096,8 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
             fatal("cannot use --stdin with positional arguments", .{});
         }
 
-        const stdin = io.getStdIn().reader();
-        const source_code = readSourceFileToEndAlloc(gpa, stdin, null) catch |err| {
+        const stdin = io.getStdIn();
+        const source_code = readSourceFileToEndAlloc(gpa, &stdin, null) catch |err| {
             fatal("unable to read stdin: {}", .{err});
         };
         defer gpa.free(source_code);
@@ -5034,7 +5034,7 @@ pub fn cmdAstCheck(
             .mtime = stat.mtime,
         };
     } else {
-        const stdin = io.getStdIn().reader();
+        const stdin = io.getStdIn();
         const source = readSourceFileToEndAlloc(arena, stdin, null) catch |err| {
             fatal("unable to read stdin: {}", .{err});
         };
@@ -5095,10 +5095,10 @@ pub fn cmdAstCheck(
         const extra_bytes = file.zir.extra.len * @sizeOf(u32);
         const total_bytes = @sizeOf(Zir) + instruction_bytes + extra_bytes +
             file.zir.string_bytes.len * @sizeOf(u8);
-        const stdout = io.getStdOut().writer();
+        const stdout = io.getStdOut();
         const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
         // zig fmt: off
-        try stdout.print(
+        try stdout.writer().print(
             \\# Source bytes:       {}
             \\# Tokens:             {} ({})
             \\# AST Nodes:          {} ({})

@@ -381,8 +381,8 @@ pub const AllErrors = struct {
         pub fn renderToStdErr(msg: Message, ttyconf: std.debug.TTY.Config) void {
             std.debug.getStderrMutex().lock();
             defer std.debug.getStderrMutex().unlock();
-            const stderr = std.io.getStdErr().writer();
-            return msg.renderToWriter(ttyconf, stderr, "error", .Red, 0) catch return;
+            const stderr = std.io.getStdErr();
+            return msg.renderToWriter(ttyconf, stderr.writer(), "error", .Red, 0) catch return;
         }
 
         pub fn renderToWriter(

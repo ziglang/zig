@@ -8,7 +8,12 @@ const assert = std.debug.assert;
 const windows = os.windows;
 const Os = std.builtin.Os;
 const maxInt = std.math.maxInt;
+const FifoType = std.fifo.LinearFifo(u8, std.fifo.LinearFifoBufferType{ .Static = 4 });
 const is_windows = builtin.os.tag == .windows;
+
+threadlocal var win_surrogate: ?u16 = null;
+threadlocal var win_fifo_utf8: FifoType = FifoType.init();
+const win_u16_buffer_size = 4096;
 
 pub const File = struct {
     /// The OS-specific file descriptor or file handle.
@@ -968,7 +973,11 @@ pub const File = struct {
 
     pub fn read(self: File, buffer: []u8) ReadError!usize {
         if (is_windows) {
-            return windows.ReadFile(self.handle, buffer, null, self.intended_io_mode);
+            if (!self.isTty()) {
+                return windows.ReadFile(self.handle, buffer, null, self.intended_io_mode);
+            }
+
+            return readWindowsConsole(self, buffer);
         }
 
         if (self.intended_io_mode == .blocking) {
@@ -976,6 +985,68 @@ pub const File = struct {
         } else {
             return std.event.Loop.instance.?.read(self.handle, buffer, self.capable_io_mode != self.intended_io_mode);
         }
+    }
+
+    /// readWindowsConsole reads a Windows console (cmd, powershell, etc) handle in a wide char format (utf16le) and converts to utf8.
+    /// It relies on a set of threadlocal vars to convert utf16le chars to utf8 for when the u8 buffer is too small.
+    fn readWindowsConsole(self: File, buffer: []u8) ReadError!usize {
+        var dest_index: usize = 0;
+        while (dest_index < buffer.len) {
+            // Read from a utf8 buffer for any potential missing bytes needed for a codepoint
+            const written = win_fifo_utf8.read(buffer[dest_index..]);
+            if (written != 0) {
+                dest_index += written;
+                continue;
+            }
+            const delta_len = buffer.len - dest_index;
+            if (delta_len < 4) {
+                // Not enough room is left in the destination buffer to handle larger codepoint lengths
+                // Read a character at a time and place the encoding utf8 bytes into a fifo buffer
+                win_fifo_utf8.realign();
+                const n = try self.readWindowsConsoleToUtf8(win_fifo_utf8.writableSlice(0), 1);
+                if (n == 0) return dest_index;
+                win_fifo_utf8.update(n);
+            } else {
+                const n = try self.readWindowsConsoleToUtf8(buffer[delta_len..], win_u16_buffer_size);
+                if (n == 0) return dest_index;
+                dest_index += n;
+            }
+        }
+        return buffer.len;
+    }
+
+    fn readWindowsConsoleToUtf8(self: File, dest: []u8, comptime u16_buffer_size: usize) ReadError!usize {
+        var utf16_buffer: [u16_buffer_size]u16 = undefined;
+        const end = if (u16_buffer_size > 1) math.min(dest.len / 3, u16_buffer_size) else u16_buffer_size;
+
+        const n = try self.readWindowsConsoleW(utf16_buffer[0..end]);
+        if (n == 0) return n;
+
+        return std.unicode.utf16leToUtf8(dest, utf16_buffer[0..n]) catch return ReadError.Unexpected;
+    }
+
+    fn readWindowsConsoleW(self: File, buffer: []u16) ReadError!usize {
+        if (buffer.len == 0) return 0;
+        var start: usize = 0;
+
+        // If we stored a surrogate half, place it back at the beginning of this buffer
+        if (win_surrogate != null) {
+            buffer[0] = win_surrogate.?;
+            win_surrogate = null;
+            start = 1;
+        }
+
+        var n = try os.windows.ReadConsoleW(self.handle, buffer[start..], null);
+
+        // Remove and store incomplete surrogate at end of buffer
+        if (n > 0) {
+            const last_char = buffer[n - 1];
+            if (0xd800 <= last_char and last_char <= 0xdfff) {
+                win_surrogate = last_char;
+                n -= 1;
+            }
+        }
+        return n;
     }
 
     /// Returns the number of bytes read. If the number read is smaller than `buffer.len`, it
@@ -1105,7 +1176,11 @@ pub const File = struct {
 
     pub fn write(self: File, bytes: []const u8) WriteError!usize {
         if (is_windows) {
-            return windows.WriteFile(self.handle, bytes, null, self.intended_io_mode);
+            if (!self.isTty()) {
+                return windows.WriteFile(self.handle, bytes, null, self.intended_io_mode);
+            }
+
+            return writeWindowsConsole(self, bytes);
         }
 
         if (self.intended_io_mode == .blocking) {
@@ -1113,6 +1188,21 @@ pub const File = struct {
         } else {
             return std.event.Loop.instance.?.write(self.handle, bytes, self.capable_io_mode != self.intended_io_mode);
         }
+    }
+
+    /// writeWindowsConsole writes to a Windows console (cmd, powershell, etc) handle with utf8 input to a wide char format (utf16le).
+    fn writeWindowsConsole(self: File, bytes: []const u8) WriteError!usize {
+        var utf16 = [_]u16{0} ** win_u16_buffer_size;
+        const max_data_len = std.unicode.getClampedUtf8SizeForUtf16LeSize(bytes, utf16.len) catch return WriteError.Unexpected;
+        const n = std.unicode.utf8ToUtf16Le(utf16[0..], bytes[0..max_data_len]) catch return WriteError.Unexpected;
+        const m = try os.windows.WriteConsoleW(self.handle, utf16[0..n]);
+
+        if (n != m) {
+            // If the number of u16s don't match between converted utf8 chars and what's written to console,
+            //   we need to calculate the number of bytes written provided from Windows.
+            return std.unicode.getClampedUtf8SizeForUtf16LeSize(bytes, m) catch unreachable;
+        }
+        return max_data_len;
     }
 
     pub fn writeAll(self: File, bytes: []const u8) WriteError!void {
