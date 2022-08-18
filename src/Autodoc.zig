@@ -308,7 +308,7 @@ fn createFromPath(base_dir: std.fs.Dir, path: []const u8) !std.fs.File {
         } else {
             return dir.createFile(toc, .{}) catch |e| switch (e) {
                 error.PathAlreadyExists => try dir.openFile(toc, .{}),
-                else => |e| return e,
+                else => |err| return err,
             };
         }
     }
