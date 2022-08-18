@@ -276,21 +276,13 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
     if (use_stage1 or options.emit == null) {
         return createEmpty(allocator, options);
     }
-    const emit = options.emit.?;
-    const file = try emit.directory.handle.createFile(emit.sub_path, .{
-        .truncate = false,
-        .read = true,
-        .mode = link.determineMode(options),
-    });
-    errdefer file.close();
 
+    const emit = options.emit.?;
     const self = try createEmpty(allocator, options);
     errdefer {
         self.base.file = null;
         self.base.destroy();
     }
-
-    self.base.file = file;
 
     if (build_options.have_llvm and options.use_llvm and options.module != null) {
         // TODO this intermediary_basename isn't enough; in the case of `zig build-exe`,
@@ -306,6 +298,14 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
     {
         return self;
     }
+
+    const file = try emit.directory.handle.createFile(emit.sub_path, .{
+        .truncate = false,
+        .read = true,
+        .mode = link.determineMode(options),
+    });
+    errdefer file.close();
+    self.base.file = file;
 
     if (!options.strip and options.module != null) blk: {
         // TODO once I add support for converting (and relocating) DWARF info from relocatable
