@@ -301,8 +301,8 @@ pub fn supportsStackProbing(target: std.Target) bool {
 }
 
 pub fn supportsStackProtector(target: std.Target) bool {
-    _ = target;
-    return true;
+    // TODO: investigate whether stack-protector works on wasm
+    return !target.isWasm();
 }
 
 pub fn libcProvidesStackProtector(target: std.Target) bool {
