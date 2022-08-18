@@ -15,6 +15,7 @@ const stack_size = 32 * 1024 * 1024;
 
 pub fn build(b: *Builder) !void {
     b.setPreferredReleaseMode(.ReleaseFast);
+    const test_step = b.step("test", "Run all the tests");
     const mode = b.standardReleaseOptions();
     const target = b.standardTargetOptions(.{});
     const single_threaded = b.option(bool, "single-threaded", "Build artifacts that run in single threaded mode");
@@ -38,8 +39,6 @@ pub fn build(b: *Builder) !void {
 
     const docs_step = b.step("docs", "Build documentation");
     docs_step.dependOn(&docgen_cmd.step);
-
-    const toolchain_step = b.step("test-toolchain", "Run the tests for the toolchain");
 
     var test_cases = b.addTest("src/test.zig");
     test_cases.stack_size = stack_size;
@@ -149,7 +148,7 @@ pub fn build(b: *Builder) !void {
     exe.setBuildMode(mode);
     exe.setTarget(target);
     if (!skip_stage2_tests) {
-        toolchain_step.dependOn(&exe.step);
+        test_step.dependOn(&exe.step);
     }
 
     b.default_step.dependOn(&exe.step);
@@ -415,7 +414,7 @@ pub fn build(b: *Builder) !void {
     const test_cases_step = b.step("test-cases", "Run the main compiler test cases");
     test_cases_step.dependOn(&test_cases.step);
     if (!skip_stage2_tests) {
-        toolchain_step.dependOn(test_cases_step);
+        test_step.dependOn(test_cases_step);
     }
 
     var chosen_modes: [4]builtin.Mode = undefined;
@@ -439,11 +438,11 @@ pub fn build(b: *Builder) !void {
     const modes = chosen_modes[0..chosen_mode_index];
 
     // run stage1 `zig fmt` on this build.zig file just to make sure it works
-    toolchain_step.dependOn(&fmt_build_zig.step);
+    test_step.dependOn(&fmt_build_zig.step);
     const fmt_step = b.step("test-fmt", "Run zig fmt against build.zig to make sure it works");
     fmt_step.dependOn(&fmt_build_zig.step);
 
-    toolchain_step.dependOn(tests.addPkgTests(
+    test_step.dependOn(tests.addPkgTests(
         b,
         test_filter,
         "test/behavior.zig",
@@ -454,10 +453,10 @@ pub fn build(b: *Builder) !void {
         skip_non_native,
         skip_libc,
         skip_stage1,
-        false,
+        skip_stage2_tests,
     ));
 
-    toolchain_step.dependOn(tests.addPkgTests(
+    test_step.dependOn(tests.addPkgTests(
         b,
         test_filter,
         "lib/compiler_rt.zig",
@@ -468,10 +467,10 @@ pub fn build(b: *Builder) !void {
         skip_non_native,
         true, // skip_libc
         skip_stage1,
-        true, // TODO get these all passing
+        skip_stage2_tests or true, // TODO get these all passing
     ));
 
-    toolchain_step.dependOn(tests.addPkgTests(
+    test_step.dependOn(tests.addPkgTests(
         b,
         test_filter,
         "lib/c.zig",
@@ -482,35 +481,36 @@ pub fn build(b: *Builder) !void {
         skip_non_native,
         true, // skip_libc
         skip_stage1,
-        true, // TODO get these all passing
+        skip_stage2_tests or true, // TODO get these all passing
     ));
 
-    toolchain_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
-    toolchain_step.dependOn(tests.addStandaloneTests(
+    test_step.dependOn(tests.addCompareOutputTests(b, test_filter, modes));
+    test_step.dependOn(tests.addStandaloneTests(
         b,
         test_filter,
         modes,
         skip_non_native,
         enable_macos_sdk,
         target,
+        skip_stage2_tests,
         b.enable_darling,
         b.enable_qemu,
         b.enable_rosetta,
         b.enable_wasmtime,
         b.enable_wine,
     ));
-    toolchain_step.dependOn(tests.addLinkTests(b, test_filter, modes, enable_macos_sdk));
-    toolchain_step.dependOn(tests.addStackTraceTests(b, test_filter, modes));
-    toolchain_step.dependOn(tests.addCliTests(b, test_filter, modes));
-    toolchain_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));
-    toolchain_step.dependOn(tests.addTranslateCTests(b, test_filter));
+    test_step.dependOn(tests.addLinkTests(b, test_filter, modes, enable_macos_sdk, skip_stage2_tests));
+    test_step.dependOn(tests.addStackTraceTests(b, test_filter, modes));
+    test_step.dependOn(tests.addCliTests(b, test_filter, modes));
+    test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));
+    test_step.dependOn(tests.addTranslateCTests(b, test_filter));
     if (!skip_run_translated_c) {
-        toolchain_step.dependOn(tests.addRunTranslatedCTests(b, test_filter, target));
+        test_step.dependOn(tests.addRunTranslatedCTests(b, test_filter, target));
     }
     // tests for this feature are disabled until we have the self-hosted compiler available
-    // toolchain_step.dependOn(tests.addGenHTests(b, test_filter));
+    // test_step.dependOn(tests.addGenHTests(b, test_filter));
 
-    const std_step = tests.addPkgTests(
+    test_step.dependOn(tests.addPkgTests(
         b,
         test_filter,
         "lib/std/std.zig",
@@ -522,11 +522,7 @@ pub fn build(b: *Builder) !void {
         skip_libc,
         skip_stage1,
         true, // TODO get these all passing
-    );
-
-    const test_step = b.step("test", "Run all the tests");
-    test_step.dependOn(toolchain_step);
-    test_step.dependOn(std_step);
+    ));
 }
 
 const exe_cflags = [_][]const u8{

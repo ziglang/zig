@@ -462,6 +462,7 @@ pub fn addStandaloneTests(
     skip_non_native: bool,
     enable_macos_sdk: bool,
     target: std.zig.CrossTarget,
+    omit_stage2: bool,
     enable_darling: bool,
     enable_qemu: bool,
     enable_rosetta: bool,
@@ -478,6 +479,7 @@ pub fn addStandaloneTests(
         .skip_non_native = skip_non_native,
         .enable_macos_sdk = enable_macos_sdk,
         .target = target,
+        .omit_stage2 = omit_stage2,
         .enable_darling = enable_darling,
         .enable_qemu = enable_qemu,
         .enable_rosetta = enable_rosetta,
@@ -495,6 +497,7 @@ pub fn addLinkTests(
     test_filter: ?[]const u8,
     modes: []const Mode,
     enable_macos_sdk: bool,
+    omit_stage2: bool,
 ) *build.Step {
     const cases = b.allocator.create(StandaloneContext) catch unreachable;
     cases.* = StandaloneContext{
@@ -506,6 +509,7 @@ pub fn addLinkTests(
         .skip_non_native = true,
         .enable_macos_sdk = enable_macos_sdk,
         .target = .{},
+        .omit_stage2 = omit_stage2,
     };
     link.addCases(cases);
     return cases.step;
@@ -973,6 +977,7 @@ pub const StandaloneContext = struct {
     skip_non_native: bool,
     enable_macos_sdk: bool,
     target: std.zig.CrossTarget,
+    omit_stage2: bool,
     enable_darling: bool = false,
     enable_qemu: bool = false,
     enable_rosetta: bool = false,
@@ -997,6 +1002,7 @@ pub const StandaloneContext = struct {
         const b = self.b;
 
         if (features.requires_macos_sdk and !self.enable_macos_sdk) return;
+        if (features.requires_stage2 and self.omit_stage2) return;
 
         const annotated_case_name = b.fmt("build {s}", .{build_file});
         if (self.test_filter) |filter| {
