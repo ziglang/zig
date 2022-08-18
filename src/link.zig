@@ -90,6 +90,9 @@ pub const Options = struct {
     entry: ?[]const u8,
     stack_size_override: ?u64,
     image_base_override: ?u64,
+    /// 0 means no stack protector
+    /// other value means stack protector with that buffer size.
+    stack_protector: u32,
     cache_mode: CacheMode,
     include_compiler_rt: bool,
     /// Set to `true` to omit debug info.

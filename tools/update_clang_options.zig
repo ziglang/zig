@@ -353,6 +353,26 @@ const known_options = [_]KnownOpt{
         .ident = "no_stack_check",
     },
     .{
+        .name = "stack-protector",
+        .ident = "stack_protector",
+    },
+    .{
+        .name = "fstack-protector",
+        .ident = "stack_protector",
+    },
+    .{
+        .name = "fno-stack-protector",
+        .ident = "no_stack_protector",
+    },
+    .{
+        .name = "fstack-protector-strong",
+        .ident = "stack_protector",
+    },
+    .{
+        .name = "fstack-protector-all",
+        .ident = "stack_protector",
+    },
+    .{
         .name = "MD",
         .ident = "dep_file",
     },
