@@ -1103,6 +1103,7 @@ pub const Object = struct {
             }
             llvm_global.setUnnamedAddr(.False);
             llvm_global.setLinkage(.External);
+            if (module.wantDllExports()) llvm_global.setDLLStorageClass(.Default);
             if (self.di_map.get(decl)) |di_node| {
                 if (try decl.isFunction()) {
                     const di_func = @ptrCast(*llvm.DISubprogram, di_node);
@@ -1128,6 +1129,7 @@ pub const Object = struct {
             const exp_name = exports[0].options.name;
             llvm_global.setValueName2(exp_name.ptr, exp_name.len);
             llvm_global.setUnnamedAddr(.False);
+            if (module.wantDllExports()) llvm_global.setDLLStorageClass(.DLLExport);
             if (self.di_map.get(decl)) |di_node| {
                 if (try decl.isFunction()) {
                     const di_func = @ptrCast(*llvm.DISubprogram, di_node);
@@ -1187,6 +1189,7 @@ pub const Object = struct {
             defer module.gpa.free(fqn);
             llvm_global.setValueName2(fqn.ptr, fqn.len);
             llvm_global.setLinkage(.Internal);
+            if (module.wantDllExports()) llvm_global.setDLLStorageClass(.Default);
             llvm_global.setUnnamedAddr(.True);
             if (decl.val.castTag(.variable)) |variable| {
                 const single_threaded = module.comp.bin_file.options.single_threaded;
