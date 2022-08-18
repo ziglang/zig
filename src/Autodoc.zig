@@ -9,6 +9,7 @@ const Package = @import("Package.zig");
 const Zir = @import("Zir.zig");
 const Ref = Zir.Inst.Ref;
 const log = std.log.scoped(.autodoc);
+const Docgen = @import("Docgen.zig");
 
 module: *Module,
 doc_location: Compilation.EmitLoc,
@@ -266,11 +267,52 @@ pub fn generateZirData(self: *Autodoc) !void {
         try buffer.flush();
     }
 
+    output_dir.makeDir("src-viewer") catch |e| switch (e) {
+        error.PathAlreadyExists => {},
+        else => |err| return err,
+    };
+    const html_dir = try output_dir.openDir("src-viewer", .{});
+
+    var files_iterator = self.files.iterator();
+
+    while (files_iterator.next()) |entry| {
+        const new_html_path = entry.key_ptr.*.sub_file_path;
+
+        const html_file = try createFromPath(html_dir, new_html_path);
+        defer html_file.close();
+        var buffer = std.io.bufferedWriter(html_file.writer());
+
+        const out = buffer.writer();
+
+        try Docgen.genHtml(self.module.gpa, entry.key_ptr.*, out);
+        try buffer.flush();
+    }
+
     // copy main.js, index.html
     var docs_dir = try self.module.comp.zig_lib_directory.handle.openDir("docs", .{});
     defer docs_dir.close();
     try docs_dir.copyFile("main.js", output_dir, "main.js", .{});
     try docs_dir.copyFile("index.html", output_dir, "index.html", .{});
+}
+
+fn createFromPath(base_dir: std.fs.Dir, path: []const u8) !std.fs.File {
+    var path_tokens = std.mem.tokenize(u8, path, std.fs.path.sep_str);
+    var dir = base_dir;
+    while (path_tokens.next()) |toc| {
+        if (path_tokens.peek() != null) {
+            dir.makeDir(toc) catch |e| switch (e) {
+                error.PathAlreadyExists => {},
+                else => |err| return err,
+            };
+            dir = try dir.openDir(toc, .{});
+        } else {
+            return dir.createFile(toc, .{}) catch |e| switch (e) {
+                error.PathAlreadyExists => try dir.openFile(toc, .{}),
+                else => |e| return e,
+            };
+        }
+    }
+    return error.EmptyPath;
 }
 
 /// Represents a chain of scopes, used to resolve decl references to the
