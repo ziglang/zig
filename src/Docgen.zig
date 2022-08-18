@@ -24,7 +24,8 @@ pub fn genHtml(
         \\    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     );
     try out.print("    <title>{s} - source view</title>\n", .{src.sub_file_path});
-    try out.writeAll(\\    <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAgklEQVR4AWMYWuD7EllJIM4G4g4g5oIJ/odhOJ8wToOxSTXgNxDHoeiBMfA4+wGShjyYOCkG/IGqWQziEzYAoUAeiF9D5U+DxEg14DRU7jWIT5IBIOdCxf+A+CQZAAoopEB7QJwBCBwHiip8UYmRdrAlDpIMgApwQZNnNii5Dq0MBgCxxycBnwEd+wAAAABJRU5ErkJggg=="/>
+    try out.writeAll(
+        \\    <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAgklEQVR4AWMYWuD7EllJIM4G4g4g5oIJ/odhOJ8wToOxSTXgNxDHoeiBMfA4+wGShjyYOCkG/IGqWQziEzYAoUAeiF9D5U+DxEg14DRU7jWIT5IBIOdCxf+A+CQZAAoopEB7QJwBCBwHiip8UYmRdrAlDpIMgApwQZNnNii5Dq0MBgCxxycBnwEd+wAAAABJRU5ErkJggg=="/>
         \\    <style>
         \\      body{
         \\        font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
@@ -123,16 +124,16 @@ pub fn genHtml(
 
     const source = try src.getSource(allocator);
     try tokenizeAndPrintRaw(allocator, out, source.bytes);
-    try out.writeAll(\\</body>
-    \\</html>
+    try out.writeAll(
+        \\</body>
+        \\</html>
     );
 }
 
 const start_line = "<span class=\"line\" id=\"L{d}\">";
 const end_line = "</span>\n";
 
-
-    var line_counter: usize = 1;
+var line_counter: usize = 1;
 
 pub fn tokenizeAndPrintRaw(
     allocator: Allocator,
