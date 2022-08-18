@@ -167,6 +167,7 @@ test {
     if (builtin.zig_backend != .stage1) {
         _ = @import("behavior/decltest.zig");
         _ = @import("behavior/packed_struct_explicit_backing_int.zig");
+        _ = @import("behavior/empty_union.zig");
     }
 
     if (builtin.os.tag != .wasi) {

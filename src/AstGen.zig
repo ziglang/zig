@@ -4557,9 +4557,6 @@ fn unionDeclInner(
             wip_members.appendToField(@enumToInt(tag_value));
         }
     }
-    if (field_count == 0) {
-        return astgen.failNode(node, "union declarations must have at least one tag", .{});
-    }
 
     if (!block_scope.isEmpty()) {
         _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
@@ -4715,12 +4712,6 @@ fn containerDecl(
                     .nonexhaustive_node = nonexhaustive_node,
                 };
             };
-            if (counts.total_fields == 0 and counts.nonexhaustive_node == 0) {
-                // One can construct an enum with no tags, and it functions the same as `noreturn`. But
-                // this is only useful for generic code; when explicitly using `enum {}` syntax, there
-                // must be at least one tag.
-                try astgen.appendErrorNode(node, "enum declarations must have at least one tag", .{});
-            }
             if (counts.nonexhaustive_node != 0 and container_decl.ast.arg == 0) {
                 try astgen.appendErrorNodeNotes(
                     node,

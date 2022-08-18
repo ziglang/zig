@@ -3773,6 +3773,7 @@ fn validateStructInit(
     }
 
     var root_msg: ?*Module.ErrorMsg = null;
+    errdefer if (root_msg) |msg| msg.destroy(sema.gpa);
 
     const struct_ptr = try sema.resolveInst(struct_ptr_zir_ref);
     if ((is_comptime or block.is_comptime) and
@@ -3948,6 +3949,7 @@ fn validateStructInit(
     }
 
     if (root_msg) |msg| {
+        root_msg = null;
         if (struct_ty.castTag(.@"struct")) |struct_obj| {
             const fqn = try struct_obj.data.getFullyQualifiedName(sema.mod);
             defer gpa.free(fqn);
@@ -4006,6 +4008,8 @@ fn zirValidateArrayInit(
     if (instrs.len != array_len and array_ty.isTuple()) {
         const struct_obj = array_ty.castTag(.tuple).?.data;
         var root_msg: ?*Module.ErrorMsg = null;
+        errdefer if (root_msg) |msg| msg.destroy(sema.gpa);
+
         for (struct_obj.values) |default_val, i| {
             if (i < instrs.len) continue;
 
@@ -4020,6 +4024,7 @@ fn zirValidateArrayInit(
         }
 
         if (root_msg) |msg| {
+            root_msg = null;
             return sema.failWithOwnedErrorMsg(msg);
         }
     }
@@ -6702,8 +6707,13 @@ fn zirOptionalType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
-    const child_type = try sema.resolveType(block, src, inst_data.operand);
+    const operand_src: LazySrcLoc = .{ .node_offset_un_op = inst_data.src_node };
+    const child_type = try sema.resolveType(block, operand_src, inst_data.operand);
+    if (child_type.zigTypeTag() == .Opaque) {
+        return sema.fail(block, operand_src, "opaque type '{}' cannot be optional", .{child_type.fmt(sema.mod)});
+    } else if (child_type.zigTypeTag() == .Null) {
+        return sema.fail(block, operand_src, "type '{}' cannot be optional", .{child_type.fmt(sema.mod)});
+    }
     const opt_type = try Type.optional(sema.arena, child_type);
 
     return sema.addType(opt_type);
@@ -6800,6 +6810,15 @@ fn zirErrorUnionType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
     if (error_set.zigTypeTag() != .ErrorSet) {
         return sema.fail(block, lhs_src, "expected error set type, found '{}'", .{
             error_set.fmt(sema.mod),
+        });
+    }
+    if (payload.zigTypeTag() == .Opaque) {
+        return sema.fail(block, rhs_src, "error union with payload of opaque type '{}' not allowed", .{
+            payload.fmt(sema.mod),
+        });
+    } else if (payload.zigTypeTag() == .ErrorSet) {
+        return sema.fail(block, rhs_src, "error union with payload of error set type '{}' not allowed", .{
+            payload.fmt(sema.mod),
         });
     }
     const err_union_ty = try Type.errorUnion(sema.arena, error_set, payload, sema.mod);
@@ -8968,12 +8987,17 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         },
     };
 
-    const union_originally = blk: {
+    const maybe_union_ty = blk: {
         const zir_data = sema.code.instructions.items(.data);
         const cond_index = Zir.refToIndex(extra.data.operand).?;
         const raw_operand = sema.resolveInst(zir_data[cond_index].un_node.operand) catch unreachable;
-        break :blk sema.typeOf(raw_operand).zigTypeTag() == .Union;
+        break :blk sema.typeOf(raw_operand);
     };
+    const union_originally = maybe_union_ty.zigTypeTag() == .Union;
+    var seen_union_fields: []?Module.SwitchProngSrc = &.{};
+    defer gpa.free(seen_union_fields);
+
+    var empty_enum = false;
 
     const operand_ty = sema.typeOf(operand);
 
@@ -9008,7 +9032,9 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         .Union => unreachable, // handled in zirSwitchCond
         .Enum => {
             var seen_fields = try gpa.alloc(?Module.SwitchProngSrc, operand_ty.enumFieldCount());
-            defer gpa.free(seen_fields);
+            empty_enum = seen_fields.len == 0 and !operand_ty.isNonexhaustiveEnum();
+            defer if (!union_originally) gpa.free(seen_fields);
+            if (union_originally) seen_union_fields = seen_fields;
             mem.set(?Module.SwitchProngSrc, seen_fields, null);
 
             // This is used for non-exhaustive enum values that do not correspond to any tags.
@@ -9602,6 +9628,9 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     }
 
     if (scalar_cases_len + multi_cases_len == 0) {
+        if (empty_enum) {
+            return Air.Inst.Ref.void_value;
+        }
         if (special_prong == .none) {
             return sema.fail(block, src, "switch must handle all possibilities", .{});
         }
@@ -9641,18 +9670,28 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         const item = try sema.resolveInst(item_ref);
         // `item` is already guaranteed to be constant known.
 
-        _ = sema.analyzeBodyInner(&case_block, body) catch |err| switch (err) {
-            error.ComptimeBreak => {
-                const zir_datas = sema.code.instructions.items(.data);
-                const break_data = zir_datas[sema.comptime_break_inst].@"break";
-                try sema.addRuntimeBreak(&case_block, .{
-                    .block_inst = break_data.block_inst,
-                    .operand = break_data.operand,
-                    .inst = sema.comptime_break_inst,
-                });
-            },
-            else => |e| return e,
-        };
+        const analyze_body = if (union_originally) blk: {
+            const item_val = sema.resolveConstValue(block, .unneeded, item, undefined) catch unreachable;
+            const field_ty = maybe_union_ty.unionFieldType(item_val, sema.mod);
+            break :blk field_ty.zigTypeTag() != .NoReturn;
+        } else true;
+
+        if (analyze_body) {
+            _ = sema.analyzeBodyInner(&case_block, body) catch |err| switch (err) {
+                error.ComptimeBreak => {
+                    const zir_datas = sema.code.instructions.items(.data);
+                    const break_data = zir_datas[sema.comptime_break_inst].@"break";
+                    try sema.addRuntimeBreak(&case_block, .{
+                        .block_inst = break_data.block_inst,
+                        .operand = break_data.operand,
+                        .inst = sema.comptime_break_inst,
+                    });
+                },
+                else => |e| return e,
+            };
+        } else {
+            _ = try case_block.addNoOp(.unreach);
+        }
 
         try wip_captures.finalize();
 
@@ -9693,20 +9732,34 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         if (ranges_len == 0) {
             cases_len += 1;
 
+            const analyze_body = if (union_originally)
+                for (items) |item_ref| {
+                    const item = try sema.resolveInst(item_ref);
+                    const item_val = sema.resolveConstValue(block, .unneeded, item, undefined) catch unreachable;
+                    const field_ty = maybe_union_ty.unionFieldType(item_val, sema.mod);
+                    if (field_ty.zigTypeTag() != .NoReturn) break true;
+                } else false
+            else
+                true;
+
             const body = sema.code.extra[extra_index..][0..body_len];
             extra_index += body_len;
-            _ = sema.analyzeBodyInner(&case_block, body) catch |err| switch (err) {
-                error.ComptimeBreak => {
-                    const zir_datas = sema.code.instructions.items(.data);
-                    const break_data = zir_datas[sema.comptime_break_inst].@"break";
-                    try sema.addRuntimeBreak(&case_block, .{
-                        .block_inst = break_data.block_inst,
-                        .operand = break_data.operand,
-                        .inst = sema.comptime_break_inst,
-                    });
-                },
-                else => |e| return e,
-            };
+            if (analyze_body) {
+                _ = sema.analyzeBodyInner(&case_block, body) catch |err| switch (err) {
+                    error.ComptimeBreak => {
+                        const zir_datas = sema.code.instructions.items(.data);
+                        const break_data = zir_datas[sema.comptime_break_inst].@"break";
+                        try sema.addRuntimeBreak(&case_block, .{
+                            .block_inst = break_data.block_inst,
+                            .operand = break_data.operand,
+                            .inst = sema.comptime_break_inst,
+                        });
+                    },
+                    else => |e| return e,
+                };
+            } else {
+                _ = try case_block.addNoOp(.unreach);
+            }
 
             try cases_extra.ensureUnusedCapacity(gpa, 2 + items.len +
                 case_block.instructions.items.len);
@@ -9828,7 +9881,17 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         case_block.instructions.shrinkRetainingCapacity(0);
         case_block.wip_capture_scope = wip_captures.scope;
 
-        if (special.body.len != 0) {
+        const analyze_body = if (union_originally)
+            for (seen_union_fields) |seen_field, index| {
+                if (seen_field != null) continue;
+                const union_obj = maybe_union_ty.cast(Type.Payload.Union).?.data;
+                const field_ty = union_obj.fields.values()[index].ty;
+                if (field_ty.zigTypeTag() != .NoReturn) break true;
+            } else false
+        else
+            true;
+
+        if (special.body.len != 0 and analyze_body) {
             _ = sema.analyzeBodyInner(&case_block, special.body) catch |err| switch (err) {
                 error.ComptimeBreak => {
                     const zir_datas = sema.code.instructions.items(.data);
@@ -13244,6 +13307,14 @@ fn analyzeCmpUnionTag(
     const coerced_tag = try sema.coerce(block, union_tag_ty, tag, tag_src);
     const coerced_union = try sema.coerce(block, union_tag_ty, un, un_src);
 
+    if (try sema.resolveMaybeUndefVal(block, tag_src, coerced_tag)) |enum_val| {
+        if (enum_val.isUndef()) return sema.addConstUndef(Type.bool);
+        const field_ty = union_ty.unionFieldType(enum_val, sema.mod);
+        if (field_ty.zigTypeTag() == .NoReturn) {
+            return Air.Inst.Ref.bool_false;
+        }
+    }
+
     return sema.cmpSelf(block, src, coerced_union, coerced_tag, op, un_src, tag_src);
 }
 
@@ -15598,6 +15669,8 @@ fn finishStructInit(
     const gpa = sema.gpa;
 
     var root_msg: ?*Module.ErrorMsg = null;
+    errdefer if (root_msg) |msg| msg.destroy(sema.gpa);
+
     if (struct_ty.isAnonStruct()) {
         const struct_obj = struct_ty.castTag(.anon_struct).?.data;
         for (struct_obj.values) |default_val, i| {
@@ -15653,6 +15726,7 @@ fn finishStructInit(
     }
 
     if (root_msg) |msg| {
+        root_msg = null;
         if (struct_ty.castTag(.@"struct")) |struct_obj| {
             const fqn = try struct_obj.data.getFullyQualifiedName(sema.mod);
             defer gpa.free(fqn);
@@ -16655,43 +16729,39 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
 
             // Fields
             const fields_len = try sema.usizeCast(block, src, fields_val.sliceLen(mod));
-            if (fields_len > 0) {
-                try enum_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
-                try enum_obj.values.ensureTotalCapacityContext(new_decl_arena_allocator, fields_len, .{
+            try enum_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
+            try enum_obj.values.ensureTotalCapacityContext(new_decl_arena_allocator, fields_len, .{
+                .ty = enum_obj.tag_ty,
+                .mod = mod,
+            });
+
+            var i: usize = 0;
+            while (i < fields_len) : (i += 1) {
+                const elem_val = try fields_val.elemValue(sema.mod, sema.arena, i);
+                const field_struct_val = elem_val.castTag(.aggregate).?.data;
+                // TODO use reflection instead of magic numbers here
+                // name: []const u8
+                const name_val = field_struct_val[0];
+                // value: comptime_int
+                const value_val = field_struct_val[1];
+
+                const field_name = try name_val.toAllocatedBytes(
+                    Type.initTag(.const_slice_u8),
+                    new_decl_arena_allocator,
+                    sema.mod,
+                );
+
+                const gop = enum_obj.fields.getOrPutAssumeCapacity(field_name);
+                if (gop.found_existing) {
+                    // TODO: better source location
+                    return sema.fail(block, src, "duplicate enum tag {s}", .{field_name});
+                }
+
+                const copied_tag_val = try value_val.copy(new_decl_arena_allocator);
+                enum_obj.values.putAssumeCapacityNoClobberContext(copied_tag_val, {}, .{
                     .ty = enum_obj.tag_ty,
                     .mod = mod,
                 });
-
-                var i: usize = 0;
-                while (i < fields_len) : (i += 1) {
-                    const elem_val = try fields_val.elemValue(sema.mod, sema.arena, i);
-                    const field_struct_val = elem_val.castTag(.aggregate).?.data;
-                    // TODO use reflection instead of magic numbers here
-                    // name: []const u8
-                    const name_val = field_struct_val[0];
-                    // value: comptime_int
-                    const value_val = field_struct_val[1];
-
-                    const field_name = try name_val.toAllocatedBytes(
-                        Type.initTag(.const_slice_u8),
-                        new_decl_arena_allocator,
-                        sema.mod,
-                    );
-
-                    const gop = enum_obj.fields.getOrPutAssumeCapacity(field_name);
-                    if (gop.found_existing) {
-                        // TODO: better source location
-                        return sema.fail(block, src, "duplicate enum tag {s}", .{field_name});
-                    }
-
-                    const copied_tag_val = try value_val.copy(new_decl_arena_allocator);
-                    enum_obj.values.putAssumeCapacityNoClobberContext(copied_tag_val, {}, .{
-                        .ty = enum_obj.tag_ty,
-                        .mod = mod,
-                    });
-                }
-            } else {
-                return sema.fail(block, src, "enums must have at least one field", .{});
             }
 
             try new_decl.finalizeNewArena(&new_decl_arena);
@@ -16816,58 +16886,54 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
             }
 
             // Fields
-            if (fields_len > 0) {
-                try union_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
+            try union_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
 
-                var i: usize = 0;
-                while (i < fields_len) : (i += 1) {
-                    const elem_val = try fields_val.elemValue(sema.mod, sema.arena, i);
-                    const field_struct_val = elem_val.castTag(.aggregate).?.data;
-                    // TODO use reflection instead of magic numbers here
-                    // name: []const u8
-                    const name_val = field_struct_val[0];
-                    // field_type: type,
-                    const field_type_val = field_struct_val[1];
-                    // alignment: comptime_int,
-                    const alignment_val = field_struct_val[2];
+            var i: usize = 0;
+            while (i < fields_len) : (i += 1) {
+                const elem_val = try fields_val.elemValue(sema.mod, sema.arena, i);
+                const field_struct_val = elem_val.castTag(.aggregate).?.data;
+                // TODO use reflection instead of magic numbers here
+                // name: []const u8
+                const name_val = field_struct_val[0];
+                // field_type: type,
+                const field_type_val = field_struct_val[1];
+                // alignment: comptime_int,
+                const alignment_val = field_struct_val[2];
 
-                    const field_name = try name_val.toAllocatedBytes(
-                        Type.initTag(.const_slice_u8),
-                        new_decl_arena_allocator,
-                        sema.mod,
-                    );
+                const field_name = try name_val.toAllocatedBytes(
+                    Type.initTag(.const_slice_u8),
+                    new_decl_arena_allocator,
+                    sema.mod,
+                );
 
-                    if (enum_field_names) |set| {
-                        set.putAssumeCapacity(field_name, {});
-                    }
-
-                    if (tag_ty_field_names) |*names| {
-                        const enum_has_field = names.orderedRemove(field_name);
-                        if (!enum_has_field) {
-                            const msg = msg: {
-                                const msg = try sema.errMsg(block, src, "no field named '{s}' in enum '{}'", .{ field_name, union_obj.tag_ty.fmt(sema.mod) });
-                                errdefer msg.destroy(sema.gpa);
-                                try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
-                                break :msg msg;
-                            };
-                            return sema.failWithOwnedErrorMsg(msg);
-                        }
-                    }
-
-                    const gop = union_obj.fields.getOrPutAssumeCapacity(field_name);
-                    if (gop.found_existing) {
-                        // TODO: better source location
-                        return sema.fail(block, src, "duplicate union field {s}", .{field_name});
-                    }
-
-                    var buffer: Value.ToTypeBuffer = undefined;
-                    gop.value_ptr.* = .{
-                        .ty = try field_type_val.toType(&buffer).copy(new_decl_arena_allocator),
-                        .abi_align = @intCast(u32, alignment_val.toUnsignedInt(target)),
-                    };
+                if (enum_field_names) |set| {
+                    set.putAssumeCapacity(field_name, {});
                 }
-            } else {
-                return sema.fail(block, src, "unions must have at least one field", .{});
+
+                if (tag_ty_field_names) |*names| {
+                    const enum_has_field = names.orderedRemove(field_name);
+                    if (!enum_has_field) {
+                        const msg = msg: {
+                            const msg = try sema.errMsg(block, src, "no field named '{s}' in enum '{}'", .{ field_name, union_obj.tag_ty.fmt(sema.mod) });
+                            errdefer msg.destroy(sema.gpa);
+                            try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
+                            break :msg msg;
+                        };
+                        return sema.failWithOwnedErrorMsg(msg);
+                    }
+                }
+
+                const gop = union_obj.fields.getOrPutAssumeCapacity(field_name);
+                if (gop.found_existing) {
+                    // TODO: better source location
+                    return sema.fail(block, src, "duplicate union field {s}", .{field_name});
+                }
+
+                var buffer: Value.ToTypeBuffer = undefined;
+                gop.value_ptr.* = .{
+                    .ty = try field_type_val.toType(&buffer).copy(new_decl_arena_allocator),
+                    .abi_align = @intCast(u32, alignment_val.toUnsignedInt(target)),
+                };
             }
 
             if (tag_ty_field_names) |names| {
@@ -21701,6 +21767,18 @@ fn unionFieldPtr(
         .@"addrspace" = union_ptr_ty.ptrAddressSpace(),
     });
 
+    if (initializing and field.ty.zigTypeTag() == .NoReturn) {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, src, "cannot initialize 'noreturn' field of union", .{});
+            errdefer msg.destroy(sema.gpa);
+
+            try sema.addFieldErrNote(block, union_ty, field_index, msg, "field '{s}' declared here", .{field_name});
+            try sema.addDeclaredHereNote(msg, union_ty);
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    }
+
     if (try sema.resolveDefinedValue(block, src, union_ptr)) |union_ptr_val| ct: {
         switch (union_obj.layout) {
             .Auto => if (!initializing) {
@@ -21752,6 +21830,10 @@ fn unionFieldPtr(
         const active_tag = try block.addTyOp(.get_union_tag, enum_ty, union_val);
         const ok = try block.addBinOp(.cmp_eq, active_tag, wanted_tag);
         try sema.addSafetyCheck(block, ok, .inactive_union_field);
+    }
+    if (field.ty.zigTypeTag() == .NoReturn) {
+        _ = try block.addNoOp(.unreach);
+        return Air.Inst.Ref.unreachable_value;
     }
     return block.addStructFieldPtr(union_ptr, field_index, ptr_field_ty);
 }
@@ -21820,6 +21902,10 @@ fn unionFieldVal(
         const active_tag = try block.addTyOp(.get_union_tag, enum_ty, union_byval);
         const ok = try block.addBinOp(.cmp_eq, active_tag, wanted_tag);
         try sema.addSafetyCheck(block, ok, .inactive_union_field);
+    }
+    if (field.ty.zigTypeTag() == .NoReturn) {
+        _ = try block.addNoOp(.unreach);
+        return Air.Inst.Ref.unreachable_value;
     }
     return block.addStructFieldVal(union_byval, field_index, field.ty);
 }
@@ -25021,6 +25107,18 @@ fn coerceEnumToUnion(
         };
         const field = union_obj.fields.values()[field_index];
         const field_ty = try sema.resolveTypeFields(block, inst_src, field.ty);
+        if (field_ty.zigTypeTag() == .NoReturn) {
+            const msg = msg: {
+                const msg = try sema.errMsg(block, inst_src, "cannot initialize 'noreturn' field of union", .{});
+                errdefer msg.destroy(sema.gpa);
+
+                const field_name = union_obj.fields.keys()[field_index];
+                try sema.addFieldErrNote(block, union_ty, field_index, msg, "field '{s}' declared here", .{field_name});
+                try sema.addDeclaredHereNote(msg, union_ty);
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(msg);
+        }
         const opv = (try sema.typeHasOnePossibleValue(block, inst_src, field_ty)) orelse {
             const msg = msg: {
                 const field_name = union_obj.fields.keys()[field_index];
@@ -25056,13 +25154,37 @@ fn coerceEnumToUnion(
         return sema.failWithOwnedErrorMsg(msg);
     }
 
+    const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+    {
+        var msg: ?*Module.ErrorMsg = null;
+        errdefer if (msg) |some| some.destroy(sema.gpa);
+
+        for (union_obj.fields.values()) |field, i| {
+            if (field.ty.zigTypeTag() == .NoReturn) {
+                const err_msg = msg orelse try sema.errMsg(
+                    block,
+                    inst_src,
+                    "runtime coercion from enum '{}' to union '{}' which has a 'noreturn' field",
+                    .{ tag_ty.fmt(sema.mod), union_ty.fmt(sema.mod) },
+                );
+                msg = err_msg;
+
+                try sema.addFieldErrNote(block, union_ty, i, err_msg, "'noreturn' field here", .{});
+            }
+        }
+        if (msg) |some| {
+            msg = null;
+            try sema.addDeclaredHereNote(some, union_ty);
+            return sema.failWithOwnedErrorMsg(some);
+        }
+    }
+
     // If the union has all fields 0 bits, the union value is just the enum value.
     if (union_ty.unionHasAllZeroBitFieldTypes()) {
         return block.addBitCast(union_ty, enum_tag);
     }
 
     const msg = msg: {
-        const union_obj = union_ty.cast(Type.Payload.Union).?.data;
         const msg = try sema.errMsg(
             block,
             inst_src,
@@ -25073,11 +25195,11 @@ fn coerceEnumToUnion(
 
         var it = union_obj.fields.iterator();
         var field_index: usize = 0;
-        while (it.next()) |field| {
+        while (it.next()) |field| : (field_index += 1) {
             const field_name = field.key_ptr.*;
             const field_ty = field.value_ptr.ty;
+            if (!field_ty.hasRuntimeBits()) continue;
             try sema.addFieldErrNote(block, union_ty, field_index, msg, "field '{s}' has type '{}'", .{ field_name, field_ty.fmt(sema.mod) });
-            field_index += 1;
         }
         try sema.addDeclaredHereNote(msg, union_ty);
         break :msg msg;
@@ -25380,6 +25502,7 @@ fn coerceTupleToStruct(
 
     // Populate default field values and report errors for missing fields.
     var root_msg: ?*Module.ErrorMsg = null;
+    errdefer if (root_msg) |msg| msg.destroy(sema.gpa);
 
     for (field_refs) |*field_ref, i| {
         if (field_ref.* != .none) continue;
@@ -25405,6 +25528,7 @@ fn coerceTupleToStruct(
     }
 
     if (root_msg) |msg| {
+        root_msg = null;
         try sema.addDeclaredHereNote(msg, struct_ty);
         return sema.failWithOwnedErrorMsg(msg);
     }
@@ -25474,6 +25598,7 @@ fn coerceTupleToTuple(
 
     // Populate default field values and report errors for missing fields.
     var root_msg: ?*Module.ErrorMsg = null;
+    errdefer if (root_msg) |msg| msg.destroy(sema.gpa);
 
     for (field_refs) |*field_ref, i| {
         if (field_ref.* != .none) continue;
@@ -25509,6 +25634,7 @@ fn coerceTupleToTuple(
     }
 
     if (root_msg) |msg| {
+        root_msg = null;
         try sema.addDeclaredHereNote(msg, tuple_ty);
         return sema.failWithOwnedErrorMsg(msg);
     }
@@ -25747,6 +25873,12 @@ fn analyzeIsNull(
             return Air.Inst.Ref.bool_false;
         }
     }
+
+    const operand_ty = sema.typeOf(operand);
+    var buf: Type.Payload.ElemType = undefined;
+    if (operand_ty.zigTypeTag() == .Optional and operand_ty.optionalChild(&buf).zigTypeTag() == .NoReturn) {
+        return Air.Inst.Ref.bool_true;
+    }
     try sema.requireRuntimeBlock(block, src, null);
     const air_tag: Air.Inst.Tag = if (invert_logic) .is_non_null else .is_null;
     return block.addUnOp(air_tag, operand);
@@ -25784,6 +25916,11 @@ fn analyzeIsNonErrComptimeOnly(
     if (ot != .ErrorSet and ot != .ErrorUnion) return Air.Inst.Ref.bool_true;
     if (ot == .ErrorSet) return Air.Inst.Ref.bool_false;
     assert(ot == .ErrorUnion);
+
+    const payload_ty = operand_ty.errorUnionPayload();
+    if (payload_ty.zigTypeTag() == .NoReturn) {
+        return Air.Inst.Ref.bool_false;
+    }
 
     if (Air.refToIndex(operand)) |operand_inst| {
         switch (sema.air_instructions.items(.tag)[operand_inst]) {
@@ -27922,6 +28059,18 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
             };
             return sema.failWithOwnedErrorMsg(msg);
         }
+        if (field_ty.zigTypeTag() == .NoReturn) {
+            const msg = msg: {
+                const tree = try sema.getAstTree(&block_scope);
+                const field_src = enumFieldSrcLoc(decl, tree.*, 0, i);
+                const msg = try sema.errMsg(&block_scope, field_src, "struct fields cannot be 'noreturn'", .{});
+                errdefer msg.destroy(sema.gpa);
+
+                try sema.addDeclaredHereNote(msg, field_ty);
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(msg);
+        }
         if (struct_obj.layout == .Extern and !sema.validateExternType(field.ty, .other)) {
             const msg = msg: {
                 const tree = try sema.getAstTree(&block_scope);
@@ -28028,10 +28177,6 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
     extra_index = decls_it.extra_index;
 
     const body = zir.extra[extra_index..][0..body_len];
-    if (fields_len == 0) {
-        assert(body.len == 0);
-        return;
-    }
     extra_index += body.len;
 
     const decl = mod.declPtr(decl_index);
@@ -28117,6 +28262,10 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         // untagged is represented by the Type tag (union vs union_tagged).
         union_obj.tag_ty = try sema.generateUnionTagTypeSimple(&block_scope, fields_len, union_obj);
         enum_field_names = &union_obj.tag_ty.castTag(.enum_simple).?.data.fields;
+    }
+
+    if (fields_len == 0) {
+        return;
     }
 
     const bits_per_field = 4;
@@ -28654,7 +28803,9 @@ pub fn typeHasOnePossibleValue(
             const union_obj = resolved_ty.cast(Type.Payload.Union).?.data;
             const tag_val = (try sema.typeHasOnePossibleValue(block, src, union_obj.tag_ty)) orelse
                 return null;
-            const only_field = union_obj.fields.values()[0];
+            const fields = union_obj.fields.values();
+            if (fields.len == 0) return Value.initTag(.empty_struct_value);
+            const only_field = fields[0];
             if (only_field.ty.eql(resolved_ty, sema.mod)) {
                 const msg = try Module.ErrorMsg.create(
                     sema.gpa,
@@ -28732,6 +28883,16 @@ fn enumFieldSrcLoc(
         .container_decl_arg,
         .container_decl_arg_trailing,
         => tree.containerDeclArg(enum_node),
+
+        .tagged_union,
+        .tagged_union_trailing,
+        => tree.taggedUnion(enum_node),
+        .tagged_union_two,
+        .tagged_union_two_trailing,
+        => tree.taggedUnionTwo(&buffer, enum_node),
+        .tagged_union_enum_tag,
+        .tagged_union_enum_tag_trailing,
+        => tree.taggedUnionEnumTag(enum_node),
 
         // Container was constructed with `@Type`.
         else => return LazySrcLoc.nodeOffset(0),
@@ -29383,7 +29544,9 @@ fn unionFieldAlignment(
     src: LazySrcLoc,
     field: Module.Union.Field,
 ) !u32 {
-    if (field.abi_align == 0) {
+    if (field.ty.zigTypeTag() == .NoReturn) {
+        return @as(u32, 0);
+    } else if (field.abi_align == 0) {
         return sema.typeAbiAlignment(block, src, field.ty);
     } else {
         return field.abi_align;

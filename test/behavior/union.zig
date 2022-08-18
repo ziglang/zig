@@ -1256,3 +1256,48 @@ test "return an extern union from C calling convention" {
     });
     try expect(u.d == 4.0);
 }
+
+test "noreturn field in union" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    const U = union(enum) {
+        a: u32,
+        b: noreturn,
+        c: noreturn,
+    };
+    var a = U{ .a = 1 };
+    var count: u32 = 0;
+    if (a == .b) @compileError("bad");
+    switch (a) {
+        .a => count += 1,
+        .b => |val| {
+            _ = val;
+            @compileError("bad");
+        },
+        .c => @compileError("bad"),
+    }
+    switch (a) {
+        .a => count += 1,
+        .b, .c => @compileError("bad"),
+    }
+    switch (a) {
+        .a, .b, .c => {
+            count += 1;
+            try expect(a == .a);
+        },
+    }
+    switch (a) {
+        .a => count += 1,
+        else => @compileError("bad"),
+    }
+    switch (a) {
+        else => {
+            count += 1;
+            try expect(a == .a);
+        },
+    }
+    try expect(count == 5);
+}

@@ -369,3 +369,39 @@ test "optional pointer to zero bit error union payload" {
         some.foo();
     } else |_| {}
 }
+
+const NoReturn = struct {
+    var a: u32 = undefined;
+    fn someData() bool {
+        a -= 1;
+        return a == 0;
+    }
+    fn loop() ?noreturn {
+        while (true) {
+            if (someData()) return null;
+        }
+    }
+    fn testOrelse() u32 {
+        loop() orelse return 123;
+        @compileError("bad");
+    }
+};
+
+test "optional of noreturn used with if" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
+    NoReturn.a = 64;
+    if (NoReturn.loop()) |_| {
+        @compileError("bad");
+    } else {
+        try expect(true);
+    }
+}
+
+test "optional of noreturn used with orelse" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
+    NoReturn.a = 64;
+    const val = NoReturn.testOrelse();
+    try expect(val == 123);
+}
