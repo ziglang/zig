@@ -466,8 +466,8 @@ test "Random dice" {
         const approxEq = std.math.approxEq;
         // Define "roughly" to be within 10%
         const tolerance = n_trials / 10;
-        try expect(approxEq(counts[0], counts[1] * 2, tolerance));
-        try expect(approxEq(counts[1], counts[2], tolerance));
-        try expect(approxEq(counts[3] * 2, counts[4], tolerance));
+        try expect(approxEq(T, counts[0], counts[1] * 2, tolerance));
+        try expect(approxEq(T, counts[1], counts[2], tolerance));
+        try expect(approxEq(T, counts[3] * 2, counts[4], tolerance));
     }
 }
