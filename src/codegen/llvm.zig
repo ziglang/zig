@@ -711,9 +711,14 @@ pub const Object = struct {
             DeclGen.removeFnAttr(llvm_func, "noinline");
         }
 
-        // TODO: port these over from stage1
-        // addLLVMFnAttr(llvm_fn, "sspstrong");
-        // addLLVMFnAttrStr(llvm_fn, "stack-protector-buffer-size", "4");
+        // TODO: disable this if safety is off for the function scope
+        const ssp_buf_size = module.comp.bin_file.options.stack_protector;
+        if (ssp_buf_size != 0) {
+            var buf: [12]u8 = undefined;
+            const arg = std.fmt.bufPrintZ(&buf, "{d}", .{ssp_buf_size}) catch unreachable;
+            dg.addFnAttr(llvm_func, "sspstrong");
+            dg.addFnAttrString(llvm_func, "stack-protector-buffer-size", arg);
+        }
 
         // TODO: disable this if safety is off for the function scope
         if (module.comp.bin_file.options.stack_check) {

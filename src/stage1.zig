@@ -416,7 +416,7 @@ export fn stage2_add_link_lib(
     const target = comp.getTarget();
     const is_libc = target_util.is_libc_lib_name(target, lib_name);
     if (is_libc) {
-        if (!comp.bin_file.options.link_libc) {
+        if (!comp.bin_file.options.link_libc and !comp.bin_file.options.parent_compilation_link_libc) {
             return "dependency on libc must be explicitly specified in the build command";
         }
         return null;

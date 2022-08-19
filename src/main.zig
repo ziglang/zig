@@ -378,6 +378,8 @@ const usage_build_generic =
     \\  -fno-lto                  Force-disable Link Time Optimization
     \\  -fstack-check             Enable stack probing in unsafe builds
     \\  -fno-stack-check          Disable stack probing in safe builds
+    \\  -fstack-protector         Enable stack protection in unsafe builds
+    \\  -fno-stack-protector      Disable stack protection in safe builds
     \\  -fsanitize-c              Enable C undefined behavior detection in unsafe builds
     \\  -fno-sanitize-c           Disable C undefined behavior detection in safe builds
     \\  -fvalgrind                Include valgrind client requests in release builds
@@ -668,6 +670,7 @@ fn buildOutputType(
     var want_unwind_tables: ?bool = null;
     var want_sanitize_c: ?bool = null;
     var want_stack_check: ?bool = null;
+    var want_stack_protector: ?u32 = null;
     var want_red_zone: ?bool = null;
     var omit_frame_pointer: ?bool = null;
     var want_valgrind: ?bool = null;
@@ -1168,6 +1171,10 @@ fn buildOutputType(
                         want_stack_check = true;
                     } else if (mem.eql(u8, arg, "-fno-stack-check")) {
                         want_stack_check = false;
+                    } else if (mem.eql(u8, arg, "-fstack-protector")) {
+                        want_stack_protector = Compilation.default_stack_protector_buffer_size;
+                    } else if (mem.eql(u8, arg, "-fno-stack-protector")) {
+                        want_stack_protector = 0;
                     } else if (mem.eql(u8, arg, "-mred-zone")) {
                         want_red_zone = true;
                     } else if (mem.eql(u8, arg, "-mno-red-zone")) {
@@ -1521,6 +1528,12 @@ fn buildOutputType(
                     .no_color_diagnostics => color = .off,
                     .stack_check => want_stack_check = true,
                     .no_stack_check => want_stack_check = false,
+                    .stack_protector => {
+                        if (want_stack_protector == null) {
+                            want_stack_protector = Compilation.default_stack_protector_buffer_size;
+                        }
+                    },
+                    .no_stack_protector => want_stack_protector = 0,
                     .unwind_tables => want_unwind_tables = true,
                     .no_unwind_tables => want_unwind_tables = false,
                     .nostdlib => ensure_libc_on_non_freestanding = false,
@@ -2859,6 +2872,7 @@ fn buildOutputType(
         .want_unwind_tables = want_unwind_tables,
         .want_sanitize_c = want_sanitize_c,
         .want_stack_check = want_stack_check,
+        .want_stack_protector = want_stack_protector,
         .want_red_zone = want_red_zone,
         .omit_frame_pointer = omit_frame_pointer,
         .want_valgrind = want_valgrind,
@@ -4663,6 +4677,8 @@ pub const ClangArgIterator = struct {
         no_color_diagnostics,
         stack_check,
         no_stack_check,
+        stack_protector,
+        no_stack_protector,
         strip,
         exec_model,
         emit_llvm,

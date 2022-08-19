@@ -7567,10 +7567,11 @@ fn handleExternLibName(
 ) CompileError![:0]u8 {
     blk: {
         const mod = sema.mod;
+        const comp = mod.comp;
         const target = mod.getTarget();
         log.debug("extern fn symbol expected in lib '{s}'", .{lib_name});
         if (target_util.is_libc_lib_name(target, lib_name)) {
-            if (!mod.comp.bin_file.options.link_libc) {
+            if (!comp.bin_file.options.link_libc and !comp.bin_file.options.parent_compilation_link_libc) {
                 return sema.fail(
                     block,
                     src_loc,
@@ -7578,11 +7579,11 @@ fn handleExternLibName(
                     .{},
                 );
             }
-            mod.comp.bin_file.options.link_libc = true;
+            comp.bin_file.options.link_libc = true;
             break :blk;
         }
         if (target_util.is_libcpp_lib_name(target, lib_name)) {
-            if (!mod.comp.bin_file.options.link_libcpp) {
+            if (!comp.bin_file.options.link_libcpp) {
                 return sema.fail(
                     block,
                     src_loc,
@@ -7590,14 +7591,14 @@ fn handleExternLibName(
                     .{},
                 );
             }
-            mod.comp.bin_file.options.link_libcpp = true;
+            comp.bin_file.options.link_libcpp = true;
             break :blk;
         }
         if (mem.eql(u8, lib_name, "unwind")) {
-            mod.comp.bin_file.options.link_libunwind = true;
+            comp.bin_file.options.link_libunwind = true;
             break :blk;
         }
-        if (!target.isWasm() and !mod.comp.bin_file.options.pic) {
+        if (!target.isWasm() and !comp.bin_file.options.pic) {
             return sema.fail(
                 block,
                 src_loc,
@@ -7605,7 +7606,7 @@ fn handleExternLibName(
                 .{ lib_name, lib_name },
             );
         }
-        mod.comp.stage1AddLinkLib(lib_name) catch |err| {
+        comp.stage1AddLinkLib(lib_name) catch |err| {
             return sema.fail(block, src_loc, "unable to add link lib '{s}': {s}", .{
                 lib_name, @errorName(err),
             });

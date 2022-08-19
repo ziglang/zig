@@ -300,6 +300,15 @@ pub fn supportsStackProbing(target: std.Target) bool {
         (target.cpu.arch == .i386 or target.cpu.arch == .x86_64);
 }
 
+pub fn supportsStackProtector(target: std.Target) bool {
+    // TODO: investigate whether stack-protector works on wasm
+    return !target.isWasm();
+}
+
+pub fn libcProvidesStackProtector(target: std.Target) bool {
+    return !target.isMinGW() and target.os.tag != .wasi;
+}
+
 pub fn supportsReturnAddress(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .wasm32, .wasm64 => target.os.tag == .emscripten,
