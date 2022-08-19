@@ -453,7 +453,7 @@ test "Random dice" {
         const random = prng.random();
 
         var proportions = [_]T{ 2, 1, 1, 2 };
-        var counts = [_]u64{ 0, 0, 0, 0 };
+        var counts = [_]f64{ 0, 0, 0, 0 };
 
         const n_trials: u64 = 10_000;
         var i: usize = 0;
@@ -463,11 +463,11 @@ test "Random dice" {
         }
 
         // We expect the first and last counts to be roughly 2x the second and third
-        const approxEq = std.math.approxEq;
+        const approxEqRel = std.math.approxEqRel;
         // Define "roughly" to be within 10%
-        const tolerance = n_trials / 10;
-        try expect(approxEq(T, counts[0], counts[1] * 2, tolerance));
-        try expect(approxEq(T, counts[1], counts[2], tolerance));
-        try expect(approxEq(T, counts[3] * 2, counts[4], tolerance));
+        const tolerance = 0.1;
+        try std.testing.expect(approxEqRel(f64, counts[0], counts[1] * 2, tolerance));
+        try std.testing.expect(approxEqRel(f64, counts[1], counts[2], tolerance));
+        try std.testing.expect(approxEqRel(f64, counts[2] * 2, counts[3], tolerance));
     }
 }
