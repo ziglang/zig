@@ -10,12 +10,12 @@ workspace:
 
 steps:
 - name: test_stage3_debug
-  image: ci/debian-amd64:11.1-6
+  image: ci/debian-amd64:11.1-7
   commands:
   - ./ci/zinc/linux_test_stage3_debug.sh
 
 - name: test_stage3_release
-  image: ci/debian-amd64:11.1-6
+  image: ci/debian-amd64:11.1-7
   commands:
   - ./ci/zinc/linux_test_stage3_release.sh
 
@@ -28,7 +28,7 @@ steps:
       - master
     event:
       - push
-  image: ci/debian-amd64:11.1-6
+  image: ci/debian-amd64:11.1-7
   environment:
     AWS_ACCESS_KEY_ID:
       from_secret: AWS_ACCESS_KEY_ID
