@@ -20654,7 +20654,7 @@ fn panicWithMsg(
     const arena = sema.arena;
 
     const this_feature_is_implemented_in_the_backend =
-        mod.comp.bin_file.options.object_format == .c or
+        mod.comp.bin_file.options.target.ofmt == .c or
         mod.comp.bin_file.options.use_llvm;
     if (!this_feature_is_implemented_in_the_backend) {
         // TODO implement this feature in all the backends and then delete this branch

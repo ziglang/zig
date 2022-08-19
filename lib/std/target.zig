@@ -9,6 +9,7 @@ pub const Target = struct {
     cpu: Cpu,
     os: Os,
     abi: Abi,
+    ofmt: ObjectFormat,
 
     pub const Os = struct {
         tag: Tag,
@@ -592,6 +593,20 @@ pub const Target = struct {
                 .raw => ".bin",
                 .plan9 => plan9Ext(cpu_arch),
                 .nvptx => ".ptx",
+            };
+        }
+
+        pub fn default(os_tag: Os.Tag, cpu_arch: Cpu.Arch) ObjectFormat {
+            return switch (os_tag) {
+                .windows, .uefi => .coff,
+                .ios, .macos, .watchos, .tvos => .macho,
+                .plan9 => .plan9,
+                else => return switch (cpu_arch) {
+                    .wasm32, .wasm64 => .wasm,
+                    .spirv32, .spirv64 => .spirv,
+                    .nvptx, .nvptx64 => .nvptx,
+                    else => .elf,
+                },
             };
         }
     };
@@ -1379,24 +1394,6 @@ pub const Target = struct {
 
     pub fn libPrefix(self: Target) [:0]const u8 {
         return libPrefix_os_abi(self.os.tag, self.abi);
-    }
-
-    pub fn getObjectFormatSimple(os_tag: Os.Tag, cpu_arch: Cpu.Arch) ObjectFormat {
-        return switch (os_tag) {
-            .windows, .uefi => .coff,
-            .ios, .macos, .watchos, .tvos => .macho,
-            .plan9 => .plan9,
-            else => return switch (cpu_arch) {
-                .wasm32, .wasm64 => .wasm,
-                .spirv32, .spirv64 => .spirv,
-                .nvptx, .nvptx64 => .nvptx,
-                else => .elf,
-            },
-        };
-    }
-
-    pub fn getObjectFormat(self: Target) ObjectFormat {
-        return getObjectFormatSimple(self.os.tag, self.cpu.arch);
     }
 
     pub fn isMinGW(self: Target) bool {

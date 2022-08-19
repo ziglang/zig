@@ -282,7 +282,7 @@ pub const StringTable = struct {
 };
 
 pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*Wasm {
-    assert(options.object_format == .wasm);
+    assert(options.target.ofmt == .wasm);
 
     if (build_options.have_llvm and options.use_llvm) {
         return createEmpty(allocator, options);

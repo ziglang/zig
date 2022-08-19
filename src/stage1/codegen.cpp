@@ -10082,6 +10082,7 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
         "    .cpu = cpu,\n"
         "    .os = os,\n"
         "    .abi = abi,\n"
+        "    .ofmt = object_format,\n"
         "};\n"
     );
 

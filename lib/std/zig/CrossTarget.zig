@@ -42,6 +42,9 @@ abi: ?Target.Abi = null,
 /// based on the `os_tag`.
 dynamic_linker: DynamicLinker = DynamicLinker{},
 
+/// `null` means default for the cpu/arch/os combo.
+ofmt: ?Target.ObjectFormat = null,
+
 pub const CpuModel = union(enum) {
     /// Always native
     native,
@@ -168,6 +171,7 @@ pub fn toTarget(self: CrossTarget) Target {
         .cpu = self.getCpu(),
         .os = self.getOs(),
         .abi = self.getAbi(),
+        .ofmt = self.getObjectFormat(),
     };
 }
 
@@ -196,6 +200,8 @@ pub const ParseOptions = struct {
     /// Absolute path to dynamic linker, to override the default, which is either a natively
     /// detected path, or a standard path.
     dynamic_linker: ?[]const u8 = null,
+
+    object_format: ?[]const u8 = null,
 
     /// If this is provided, the function will populate some information about parsing failures,
     /// so that user-friendly error messages can be delivered.
@@ -319,6 +325,11 @@ pub fn parse(args: ParseOptions) !CrossTarget {
                 return error.UnknownCpuFeature;
             }
         }
+    }
+
+    if (args.object_format) |ofmt_name| {
+        result.ofmt = std.meta.stringToEnum(Target.ObjectFormat, ofmt_name) orelse
+            return error.UnknownObjectFormat;
     }
 
     return result;
@@ -620,7 +631,7 @@ pub fn setGnuLibCVersion(self: *CrossTarget, major: u32, minor: u32, patch: u32)
 }
 
 pub fn getObjectFormat(self: CrossTarget) Target.ObjectFormat {
-    return Target.getObjectFormatSimple(self.getOsTag(), self.getCpuArch());
+    return self.ofmt orelse Target.ObjectFormat.default(self.getOsTag(), self.getCpuArch());
 }
 
 pub fn updateCpuFeatures(self: CrossTarget, set: *Target.Cpu.Feature.Set) void {

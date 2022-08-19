@@ -128,7 +128,7 @@ pub const TextBlock = struct {
 pub const SrcFn = void;
 
 pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*Coff {
-    assert(options.object_format == .coff);
+    assert(options.target.ofmt == .coff);
 
     if (build_options.have_llvm and options.use_llvm) {
         return createEmpty(allocator, options);

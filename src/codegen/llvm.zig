@@ -273,7 +273,7 @@ pub const Object = struct {
         var di_compile_unit: ?*llvm.DICompileUnit = null;
 
         if (!options.strip) {
-            switch (options.object_format) {
+            switch (options.target.ofmt) {
                 .coff => llvm_module.addModuleCodeViewFlag(),
                 else => llvm_module.addModuleDebugInfoFlag(),
             }
