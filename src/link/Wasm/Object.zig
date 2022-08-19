@@ -105,14 +105,33 @@ pub const InitError = error{NotObjectFile} || ParseError || std.fs.File.ReadErro
 
 /// Initializes a new `Object` from a wasm object file.
 /// This also parses and verifies the object file.
-pub fn create(gpa: Allocator, file: std.fs.File, name: []const u8) InitError!Object {
+/// When a max size is given, will only parse up to the given size,
+/// else will read until the end of the file.
+pub fn create(gpa: Allocator, file: std.fs.File, name: []const u8, maybe_max_size: ?usize) InitError!Object {
     var object: Object = .{
         .file = file,
         .name = try gpa.dupe(u8, name),
     };
 
     var is_object_file: bool = false;
-    try object.parse(gpa, file.reader(), &is_object_file);
+    const size = maybe_max_size orelse size: {
+        errdefer gpa.free(object.name);
+        const stat = try file.stat();
+        break :size @intCast(usize, stat.size);
+    };
+
+    const file_contents = try gpa.alloc(u8, size);
+    defer gpa.free(file_contents);
+    var file_reader = file.reader();
+    var read: usize = 0;
+    while (read < size) {
+        const n = try file_reader.read(file_contents[read..]);
+        std.debug.assert(n != 0);
+        read += n;
+    }
+    var fbs = std.io.fixedBufferStream(file_contents);
+
+    try object.parse(gpa, fbs.reader(), &is_object_file);
     errdefer object.deinit(gpa);
     if (!is_object_file) return error.NotObjectFile;
 
