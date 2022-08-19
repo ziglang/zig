@@ -2374,6 +2374,10 @@ pub const Type = extern union {
             .error_union,
             .error_set,
             .error_set_merged,
+            => return true,
+
+            // Pointers to zero-bit types still have a runtime address; however, pointers
+            // to comptime-only types do not, with the exception of function pointers.
             .anyframe_T,
             .optional_single_mut_pointer,
             .optional_single_const_pointer,
@@ -2386,7 +2390,17 @@ pub const Type = extern union {
             .const_slice,
             .mut_slice,
             .pointer,
-            => return true,
+            => {
+                if (ignore_comptime_only) {
+                    return true;
+                } else if (ty.childType().zigTypeTag() == .Fn) {
+                    return true;
+                } else if (sema_kit) |sk| {
+                    return !(try sk.sema.typeRequiresComptime(sk.block, sk.src, ty));
+                } else {
+                    return !comptimeOnly(ty);
+                }
+            },
 
             // These are false because they are comptime-only types.
             .single_const_pointer_to_comptime_int,
