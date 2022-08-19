@@ -5643,6 +5643,37 @@ const GenericCallAdapter = struct {
     }
 };
 
+fn addComptimeReturnTypeNote(
+    sema: *Sema,
+    block: *Block,
+    func: Air.Inst.Ref,
+    func_src: LazySrcLoc,
+    return_ty: Type,
+    parent: *Module.ErrorMsg,
+    requires_comptime: bool,
+) !void {
+    if (!requires_comptime) return;
+
+    const src_loc = if (try sema.funcDeclSrc(block, func_src, func)) |capture| blk: {
+        var src_loc = capture;
+        src_loc.lazy = .{ .node_offset_fn_type_ret_ty = 0 };
+        break :blk src_loc;
+    } else blk: {
+        const src_decl = sema.mod.declPtr(block.src_decl);
+        break :blk func_src.toSrcLoc(src_decl);
+    };
+    if (return_ty.tag() == .generic_poison) {
+        return sema.mod.errNoteNonLazy(src_loc, parent, "generic function is instantiated with a comptime only return type", .{});
+    }
+    try sema.mod.errNoteNonLazy(
+        src_loc,
+        parent,
+        "function is being called at comptime because it returns a comptime only type '{}'",
+        .{return_ty.fmt(sema.mod)},
+    );
+    try sema.explainWhyTypeIsComptime(block, func_src, parent, src_loc, return_ty);
+}
+
 fn analyzeCall(
     sema: *Sema,
     block: *Block,
@@ -5733,9 +5764,11 @@ fn analyzeCall(
 
     var is_generic_call = func_ty_info.is_generic;
     var is_comptime_call = block.is_comptime or modifier == .compile_time;
+    var comptime_only_ret_ty = false;
     if (!is_comptime_call) {
         if (sema.typeRequiresComptime(block, func_src, func_ty_info.return_type)) |ct| {
             is_comptime_call = ct;
+            comptime_only_ret_ty = ct;
         } else |err| switch (err) {
             error.GenericPoison => is_generic_call = true,
             else => |e| return e,
@@ -5764,6 +5797,7 @@ fn analyzeCall(
             error.ComptimeReturn => {
                 is_inline_call = true;
                 is_comptime_call = true;
+                comptime_only_ret_ty = true;
             },
             else => |e| return e,
         }
@@ -5774,8 +5808,12 @@ fn analyzeCall(
     }
 
     const result: Air.Inst.Ref = if (is_inline_call) res: {
-        // TODO explain why function is being called at comptime
-        const func_val = try sema.resolveConstValue(block, func_src, func, "function being called at comptime must be comptime known");
+        const func_val = sema.resolveConstValue(block, func_src, func, "function being called at comptime must be comptime known") catch |err| {
+            if (err == error.AnalysisFail and sema.err != null) {
+                try sema.addComptimeReturnTypeNote(block, func, func_src, func_ty_info.return_type, sema.err.?, comptime_only_ret_ty);
+            }
+            return err;
+        };
         const module_fn = switch (func_val.tag()) {
             .decl_ref => mod.declPtr(func_val.castTag(.decl_ref).?.data).val.castTag(.function).?.data,
             .function => func_val.castTag(.function).?.data,
@@ -5887,6 +5925,11 @@ fn analyzeCall(
                 is_comptime_call,
                 &should_memoize,
                 memoized_call_key,
+                // last 4 arguments are only used when reporting errors
+                undefined,
+                undefined,
+                undefined,
+                undefined,
             ) catch |err| switch (err) {
                 error.NeededSourceLocation => {
                     sema.inst_map.clearRetainingCapacity();
@@ -5904,6 +5947,10 @@ fn analyzeCall(
                         is_comptime_call,
                         &should_memoize,
                         memoized_call_key,
+                        func,
+                        func_src,
+                        func_ty_info.return_type,
+                        comptime_only_ret_ty,
                     );
                     return error.AnalysisFail;
                 },
@@ -6119,6 +6166,10 @@ fn analyzeInlineCallArg(
     is_comptime_call: bool,
     should_memoize: *bool,
     memoized_call_key: Module.MemoizedCall.Key,
+    func: Air.Inst.Ref,
+    func_src: LazySrcLoc,
+    ret_ty: Type,
+    comptime_only_ret_ty: bool,
 ) !void {
     const zir_tags = sema.code.instructions.items(.tag);
     switch (zir_tags[inst]) {
@@ -6134,14 +6185,23 @@ fn analyzeInlineCallArg(
             new_fn_info.param_types[arg_i.*] = param_ty;
             const uncasted_arg = uncasted_args[arg_i.*];
             if (try sema.typeRequiresComptime(arg_block, arg_src, param_ty)) {
-                _ = try sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "argument to parameter with comptime only type must be comptime known");
+                _ = sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "argument to parameter with comptime only type must be comptime known") catch |err| {
+                    if (err == error.AnalysisFail and sema.err != null) {
+                        try sema.addComptimeReturnTypeNote(arg_block, func, func_src, ret_ty, sema.err.?, comptime_only_ret_ty);
+                    }
+                    return err;
+                };
             }
             const casted_arg = try sema.coerce(arg_block, param_ty, uncasted_arg, arg_src);
             try sema.inst_map.putNoClobber(sema.gpa, inst, casted_arg);
 
             if (is_comptime_call) {
-                // TODO explain why function is being called at comptime
-                const arg_val = try sema.resolveConstMaybeUndefVal(arg_block, arg_src, casted_arg, "argument to function being called at comptime must be comptime known");
+                const arg_val = sema.resolveConstMaybeUndefVal(arg_block, arg_src, casted_arg, "argument to function being called at comptime must be comptime known") catch |err| {
+                    if (err == error.AnalysisFail and sema.err != null) {
+                        try sema.addComptimeReturnTypeNote(arg_block, func, func_src, ret_ty, sema.err.?, comptime_only_ret_ty);
+                    }
+                    return err;
+                };
                 switch (arg_val.tag()) {
                     .generic_poison, .generic_poison_type => {
                         // This function is currently evaluated as part of an as-of-yet unresolvable
@@ -6171,8 +6231,12 @@ fn analyzeInlineCallArg(
             try sema.inst_map.putNoClobber(sema.gpa, inst, uncasted_arg);
 
             if (is_comptime_call) {
-                // TODO explain why function is being called at comptime
-                const arg_val = try sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "argument to function being called at comptime must be comptime known");
+                const arg_val = sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "argument to function being called at comptime must be comptime known") catch |err| {
+                    if (err == error.AnalysisFail and sema.err != null) {
+                        try sema.addComptimeReturnTypeNote(arg_block, func, func_src, ret_ty, sema.err.?, comptime_only_ret_ty);
+                    }
+                    return err;
+                };
                 switch (arg_val.tag()) {
                     .generic_poison, .generic_poison_type => {
                         // This function is currently evaluated as part of an as-of-yet unresolvable
