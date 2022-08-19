@@ -5647,7 +5647,7 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!Node {
     switch (m.list[m.i].id) {
         .IntegerLiteral => |suffix| {
             var radix: []const u8 = "decimal";
-            if (lit_bytes.len > 2 and lit_bytes[0] == '0') {
+            if (lit_bytes.len >= 2 and lit_bytes[0] == '0') {
                 switch (lit_bytes[1]) {
                     '0'...'7' => {
                         // Octal
