@@ -2805,7 +2805,7 @@ fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t) CopyFileRawError!void {
             // The kernel checks the u64 value `offset+count` for overflow, use
             // a 32 bit value so that the syscall won't return EINVAL except for
             // impossibly large files (> 2^64-1 - 2^32-1).
-            const amt = try os.copy_file_range(fd_in, offset, fd_out, offset, math.maxInt(u32), 0);
+            const amt = try os.copy_file_range(fd_in, offset, fd_out, offset, math.maxInt(u32));
             // Terminate when no data was copied
             if (amt == 0) break :cfr_loop;
             offset += amt;

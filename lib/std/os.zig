@@ -6260,32 +6260,64 @@ pub const CopyFileRangeError = error{
 
 var has_copy_file_range_syscall = std.atomic.Atomic(bool).init(true);
 
-/// Transfer data between file descriptors at specified offsets.
-/// Returns the number of bytes written, which can less than requested.
+/// Transfer data between file descriptors at specified offsets. Returns the
+/// number of bytes written, which can be less than requested.
+/// The `copy_file_range` call copies `len` bytes from one file descriptor to
+/// another. When possible, this is done within the operating system kernel,
+/// which can provide better performance characteristics than transferring data
+/// from kernel to user space and back.
 ///
-/// The `copy_file_range` call copies `len` bytes from one file descriptor to another. When possible,
-/// this is done within the operating system kernel, which can provide better performance
-/// characteristics than transferring data from kernel to user space and back, such as with
-/// `pread` and `pwrite` calls.
+/// `fd_in` must be a file descriptor opened for reading, and `fd_out` must be
+/// a file descriptor opened for writing. They may be any kind of file
+/// descriptor; however, if `fd_in` is not a regular file system file, it may
+/// cause this function to fall back to calling `pread` and `pwrite`, in which
+/// case atomicity guarantees no longer apply.
 ///
-/// `fd_in` must be a file descriptor opened for reading, and `fd_out` must be a file descriptor
-/// opened for writing. They may be any kind of file descriptor; however, if `fd_in` is not a regular
-/// file system file, it may cause this function to fall back to calling `pread` and `pwrite`, in which case
-/// atomicity guarantees no longer apply.
+/// If `fd_in` and `fd_out` are the same, source and target ranges must not
+/// overlap. The file descriptor seek positions are ignored and not updated.
+/// When `off_in` is past the end of the input file, it successfully reads 0
+/// bytes.
 ///
-/// If `fd_in` and `fd_out` are the same, source and target ranges must not overlap.
-/// The file descriptor seek positions are ignored and not updated.
-/// When `off_in` is past the end of the input file, it successfully reads 0 bytes.
+/// Depending on the system, a few mechanisms are tried:
 ///
-/// `flags` has different meanings per operating system; refer to the respective man pages.
-///
-/// These systems support in-kernel data copying:
-/// * Linux 4.5 (cross-filesystem 5.3)
-///
-/// Other systems fall back to calling `pread` / `pwrite`.
+/// * Linux 4.5+: ioctl.FICLONERANGE: atomic, O(1), the fastest method. Uses
+///   copy-on-write, therefore saves disk space and time. As of Linux 5.19,
+///   available on btrfs, cifs, nfs, ocfs2, overlayfs and xfs. The source and
+///   destination must be on the same file system.
+/// * Linux 4.5+: `copy_file_range(2)` via a libc wrapper (if libc is linked)
+///   or a syscall. This works at the block layer, so cross-filesystem
+///   in-kernel copying (Linux 5.3+) is possible.
+/// * Everything else: `pread`/`pwrite`.
 ///
 /// Maximum offsets on Linux are `math.maxInt(i64)`.
-pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len: usize, flags: u32) CopyFileRangeError!usize {
+pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len: usize) CopyFileRangeError!usize {
+    const ficlone_range = comptime builtin.os.isAtLeast(.linux, .{ .major = 4, .minor = 5 }) orelse true;
+
+    if (ficlone_range) {
+        const arg = linux.FICLONERANGE_arg{
+            .src_fd = fd_in,
+            .src_offset = off_in,
+            .src_length = len,
+            .dest_offset = off_out,
+        };
+        while (true) {
+            const rc = system.ioctl(fd_out, linux.T.FICLONERANGE, @ptrToInt(&arg));
+            switch (system.getErrno(rc)) {
+                .SUCCESS => return @intCast(usize, rc),
+                .INTR => continue,
+                .BADF => return error.FilesOpenedWithWrongFlags,
+                // may not be regular files, try fallback
+                .INVAL => break,
+                .ISDIR => return error.IsDir,
+                // not regular files or FS does not support reflinking; fallback worthy
+                .OPNOTSUPP => break,
+                .PERM => return error.PermissionDenied,
+                .TXTBSY => return error.FileBusy,
+                else => |err| return unexpectedErrno(err),
+            }
+        }
+    }
+
     const call_cfr = comptime if (builtin.os.tag == .wasi)
         // WASI-libc doesn't have copy_file_range.
         false
@@ -6298,7 +6330,7 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
         var off_in_copy = @bitCast(i64, off_in);
         var off_out_copy = @bitCast(i64, off_out);
 
-        const rc = system.copy_file_range(fd_in, &off_in_copy, fd_out, &off_out_copy, len, flags);
+        const rc = system.copy_file_range(fd_in, &off_in_copy, fd_out, &off_out_copy, len, 0);
         switch (system.getErrno(rc)) {
             .SUCCESS => return @intCast(usize, rc),
             .BADF => return error.FilesOpenedWithWrongFlags,

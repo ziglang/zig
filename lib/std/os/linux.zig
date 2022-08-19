@@ -2760,6 +2760,13 @@ pub const DT = struct {
     pub const WHT = 14;
 };
 
+pub const FICLONERANGE_arg = extern struct {
+    src_fd: i64,
+    src_offset: u64,
+    src_length: u64,
+    dest_offset: u64,
+};
+
 pub const T = struct {
     pub const CGETS = if (is_mips) 0x540D else 0x5401;
     pub const CSETS = 0x5402;
@@ -2794,6 +2801,7 @@ pub const T = struct {
     pub const IOCGSERIAL = 0x541E;
     pub const IOCSSERIAL = 0x541F;
     pub const IOCPKT = 0x5420;
+    pub const FICLONERANGE = IOCTL.IOW(0x94, 13, FICLONERANGE_arg);
     pub const FIONBIO = 0x5421;
     pub const IOCNOTTY = 0x5422;
     pub const IOCSETD = 0x5423;

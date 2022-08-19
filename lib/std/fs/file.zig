@@ -1219,7 +1219,7 @@ pub const File = struct {
 
     pub fn copyRange(in: File, in_offset: u64, out: File, out_offset: u64, len: u64) CopyRangeError!u64 {
         const adjusted_len = math.cast(usize, len) orelse math.maxInt(usize);
-        const result = try os.copy_file_range(in.handle, in_offset, out.handle, out_offset, adjusted_len, 0);
+        const result = try os.copy_file_range(in.handle, in_offset, out.handle, out_offset, adjusted_len);
         return result;
     }
 
