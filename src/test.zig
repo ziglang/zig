@@ -606,7 +606,6 @@ pub const TestContext = struct {
         output_mode: std.builtin.OutputMode,
         optimize_mode: std.builtin.Mode = .Debug,
         updates: std.ArrayList(Update),
-        object_format: ?std.Target.ObjectFormat = null,
         emit_h: bool = false,
         is_test: bool = false,
         expect_exact: bool = false,
@@ -782,12 +781,13 @@ pub const TestContext = struct {
     pub fn exeFromCompiledC(ctx: *TestContext, name: []const u8, target: CrossTarget) *Case {
         const prefixed_name = std.fmt.allocPrint(ctx.arena, "CBE: {s}", .{name}) catch
             @panic("out of memory");
+        var target_adjusted = target;
+        target_adjusted.ofmt = std.Target.ObjectFormat.c;
         ctx.cases.append(Case{
             .name = prefixed_name,
-            .target = target,
+            .target = target_adjusted,
             .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Exe,
-            .object_format = .c,
             .files = std.ArrayList(File).init(ctx.arena),
         }) catch @panic("out of memory");
         return &ctx.cases.items[ctx.cases.items.len - 1];
@@ -851,12 +851,13 @@ pub const TestContext = struct {
 
     /// Adds a test case for Zig or ZIR input, producing C code.
     pub fn addC(ctx: *TestContext, name: []const u8, target: CrossTarget) *Case {
+        var target_adjusted = target;
+        target_adjusted.ofmt = std.Target.ObjectFormat.c;
         ctx.cases.append(Case{
             .name = name,
-            .target = target,
+            .target = target_adjusted,
             .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Obj,
-            .object_format = .c,
             .files = std.ArrayList(File).init(ctx.arena),
         }) catch @panic("out of memory");
         return &ctx.cases.items[ctx.cases.items.len - 1];
@@ -1501,7 +1502,6 @@ pub const TestContext = struct {
             .root_name = "test_case",
             .target = target,
             .output_mode = case.output_mode,
-            .object_format = case.object_format,
         });
 
         const emit_directory: Compilation.Directory = .{
@@ -1537,7 +1537,6 @@ pub const TestContext = struct {
             .emit_h = emit_h,
             .main_pkg = &main_pkg,
             .keep_source_files_loaded = true,
-            .object_format = case.object_format,
             .is_native_os = case.target.isNativeOs(),
             .is_native_abi = case.target.isNativeAbi(),
             .dynamic_linker = target_info.dynamic_linker.get(),
@@ -1782,7 +1781,7 @@ pub const TestContext = struct {
                             ".." ++ ss ++ "{s}" ++ ss ++ "{s}",
                             .{ &tmp.sub_path, bin_name },
                         );
-                        if (case.object_format != null and case.object_format.? == .c) {
+                        if (case.target.ofmt != null and case.target.ofmt.? == .c) {
                             if (host.getExternalExecutor(target_info, .{ .link_libc = true }) != .native) {
                                 // We wouldn't be able to run the compiled C code.
                                 continue :update; // Pass test.
