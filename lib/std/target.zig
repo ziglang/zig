@@ -1808,20 +1808,23 @@ pub const Target = struct {
             // 1. Different machine code instruction when loading into SIMD register.
             // 2. The C ABI wants 16 for extern structs.
             // 3. 16-byte cmpxchg needs 16-byte alignment.
-            // Same logic for riscv64, powerpc64, mips64, sparc64.
+            // Same logic for powerpc64, mips64, sparc64.
             .x86_64,
-            .riscv64,
             .powerpc64,
             .powerpc64le,
             .mips64,
             .mips64el,
             .sparc64,
-            => 8,
+            => return switch (target.ofmt) {
+                .c => 16,
+                else => 8,
+            },
 
             // Even LLVMABIAlignmentOfType(i128) agrees on these targets.
             .aarch64,
             .aarch64_be,
             .aarch64_32,
+            .riscv64,
             .bpfel,
             .bpfeb,
             .nvptx,

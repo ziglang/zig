@@ -100,8 +100,8 @@ test "alignment and size of structs with 128-bit fields" {
             .a_align = 8,
             .a_size = 16,
 
-            .b_align = 8,
-            .b_size = 24,
+            .b_align = 16,
+            .b_size = 32,
 
             .u128_align = 8,
             .u128_size = 16,
@@ -114,8 +114,8 @@ test "alignment and size of structs with 128-bit fields" {
                 .a_align = 8,
                 .a_size = 16,
 
-                .b_align = 8,
-                .b_size = 24,
+                .b_align = 16,
+                .b_size = 32,
 
                 .u128_align = 8,
                 .u128_size = 16,
@@ -126,8 +126,8 @@ test "alignment and size of structs with 128-bit fields" {
                 .a_align = 4,
                 .a_size = 16,
 
-                .b_align = 4,
-                .b_size = 20,
+                .b_align = 16,
+                .b_size = 32,
 
                 .u128_align = 4,
                 .u128_size = 16,
@@ -140,25 +140,39 @@ test "alignment and size of structs with 128-bit fields" {
         .mips64el,
         .powerpc64,
         .powerpc64le,
-        .riscv64,
         .sparc64,
         .x86_64,
-        => .{
-            .a_align = 8,
-            .a_size = 16,
+        => switch (builtin.object_format) {
+            .c => .{
+                .a_align = 16,
+                .a_size = 16,
 
-            .b_align = 16,
-            .b_size = 32,
+                .b_align = 16,
+                .b_size = 32,
 
-            .u128_align = 8,
-            .u128_size = 16,
-            .u129_align = 8,
-            .u129_size = 24,
+                .u128_align = 16,
+                .u128_size = 16,
+                .u129_align = 16,
+                .u129_size = 32,
+            },
+            else => .{
+                .a_align = 8,
+                .a_size = 16,
+
+                .b_align = 16,
+                .b_size = 32,
+
+                .u128_align = 8,
+                .u128_size = 16,
+                .u129_align = 8,
+                .u129_size = 24,
+            },
         },
 
         .aarch64,
         .aarch64_be,
         .aarch64_32,
+        .riscv64,
         .bpfel,
         .bpfeb,
         .nvptx,

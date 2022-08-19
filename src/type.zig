@@ -3019,7 +3019,7 @@ pub const Type = extern union {
                     big_align = @maximum(big_align, field_align);
 
                     // This logic is duplicated in Module.Struct.Field.alignment.
-                    if (struct_obj.layout == .Extern) {
+                    if (struct_obj.layout == .Extern or target.ofmt == .c) {
                         if (field.ty.isAbiInt() and field.ty.intInfo(target).bits >= 128) {
                             // The C ABI requires 128 bit integer fields of structs
                             // to be 16-bytes aligned.
@@ -3348,7 +3348,13 @@ pub const Type = extern union {
             .f128 => return AbiSizeAdvanced{ .scalar = 16 },
 
             .f80 => switch (target.cpu.arch) {
-                .i386 => return AbiSizeAdvanced{ .scalar = 12 },
+                .i386 => switch (target.os.tag) {
+                    .windows => switch (target.abi) {
+                        .msvc => return AbiSizeAdvanced{ .scalar = 16 },
+                        else => return AbiSizeAdvanced{ .scalar = 12 },
+                    },
+                    else => return AbiSizeAdvanced{ .scalar = 12 },
+                },
                 .x86_64 => return AbiSizeAdvanced{ .scalar = 16 },
                 else => {
                     var payload: Payload.Bits = .{
@@ -4558,6 +4564,12 @@ pub const Type = extern union {
             },
 
             .vector => ty = ty.castTag(.vector).?.data.elem_type,
+
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                assert(struct_obj.layout == .Packed);
+                ty = struct_obj.backing_int_ty;
+            },
 
             else => unreachable,
         };

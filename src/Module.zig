@@ -948,20 +948,28 @@ pub const Struct = struct {
 
             switch (layout) {
                 .Packed => return 0,
-                .Auto => return field.ty.abiAlignment(target),
-                .Extern => {
-                    // This logic is duplicated in Type.abiAlignmentAdvanced.
-                    const ty_abi_align = field.ty.abiAlignment(target);
-
-                    if (field.ty.isAbiInt() and field.ty.intInfo(target).bits >= 128) {
-                        // The C ABI requires 128 bit integer fields of structs
-                        // to be 16-bytes aligned.
-                        return @maximum(ty_abi_align, 16);
+                .Auto => {
+                    if (target.ofmt == .c) {
+                        return alignmentExtern(field, target);
+                    } else {
+                        return field.ty.abiAlignment(target);
                     }
-
-                    return ty_abi_align;
                 },
+                .Extern => return alignmentExtern(field, target),
             }
+        }
+
+        pub fn alignmentExtern(field: Field, target: Target) u32 {
+            // This logic is duplicated in Type.abiAlignmentAdvanced.
+            const ty_abi_align = field.ty.abiAlignment(target);
+
+            if (field.ty.isAbiInt() and field.ty.intInfo(target).bits >= 128) {
+                // The C ABI requires 128 bit integer fields of structs
+                // to be 16-bytes aligned.
+                return @maximum(ty_abi_align, 16);
+            }
+
+            return ty_abi_align;
         }
     };
 
