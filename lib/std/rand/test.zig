@@ -445,3 +445,29 @@ test "CSPRNG" {
     const c = random.int(u64);
     try expect(a ^ b ^ c != 0);
 }
+
+test "Random dice" {
+    // Make sure dice works for various integers and floats
+    inline for (.{u64, i4, f32, f64}) |T| {
+        var prng = DefaultPrng.init(0);
+        const random = prng.random();
+
+        var proportions = [_]T{ 2, 1, 1, 2 };
+        var counts    = [_]u64{ 0, 0, 0, 0};
+
+        const n_trials: u64 = 10_000;
+        var i: usize = 0;
+        while (i < n_trials) : (i += 1) {
+            const pick = random.dice(T, &proportions);
+            counts[pick] += 1;
+        }
+
+        // We expect the first and last counts to be roughly 2x the second and third
+        const approxEq = std.math.approxEq;
+        // Define "roughly" to be within 10%
+        const tolerance = n_trials / 10;
+        try expect(approxEq(counts[0],     counts[1] * 2, tolerance));
+        try expect(approxEq(counts[1],     counts[2],     tolerance));
+        try expect(approxEq(counts[3] * 2, counts[4],     tolerance));
+    }
+}
