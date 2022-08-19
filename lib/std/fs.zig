@@ -2562,7 +2562,7 @@ pub const Dir = struct {
         var atomic_file = try dest_dir.atomicFile(dest_path, .{ .mode = mode });
         defer atomic_file.deinit();
 
-        try copy_file(in_file.handle, atomic_file.file.handle);
+        try copy_file(in_file.handle, atomic_file.file.handle, size);
         try atomic_file.finish();
     }
 
@@ -3041,7 +3041,7 @@ const CopyFileRawError = error{SystemResources} || os.CopyFileRangeError || os.S
 // Transfer all the data between two file descriptors in the most efficient way.
 // The copy starts at offset 0, the initial offsets are preserved.
 // No metadata is transferred over.
-fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t) CopyFileRawError!void {
+fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t, maybe_size: ?u64) CopyFileRawError!void {
     if (comptime builtin.target.isDarwin()) {
         const rc = os.system.fcopyfile(fd_in, fd_out, null, os.system.COPYFILE_DATA);
         switch (os.errno(rc)) {
@@ -3064,7 +3064,10 @@ fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t) CopyFileRawError!void {
             // a 32 bit value so that the syscall won't return EINVAL except for
             // impossibly large files (> 2^64-1 - 2^32-1).
             const amt = try os.copy_file_range(fd_in, offset, fd_out, offset, math.maxInt(u32), 0);
-            // Terminate when no data was copied
+            // Terminate as soon as we have copied size bytes or no bytes
+            if (maybe_size) |s| {
+                if (s == amt) break :cfr_loop;
+            }
             if (amt == 0) break :cfr_loop;
             offset += amt;
         }
@@ -3077,7 +3080,10 @@ fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t) CopyFileRawError!void {
     var offset: u64 = 0;
     sendfile_loop: while (true) {
         const amt = try os.sendfile(fd_out, fd_in, offset, 0, &empty_iovec, &empty_iovec, 0);
-        // Terminate when no data was copied
+        // Terminate as soon as we have copied size bytes or no bytes
+        if (maybe_size) |s| {
+            if (s == amt) break :sendfile_loop;
+        }
         if (amt == 0) break :sendfile_loop;
         offset += amt;
     }
