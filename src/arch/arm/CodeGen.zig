@@ -2232,7 +2232,13 @@ fn airUnaryMath(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
-fn reuseOperand(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, op_index: Liveness.OperandInt, mcv: MCValue) bool {
+fn reuseOperand(
+    self: *Self,
+    inst: Air.Inst.Index,
+    operand: Air.Inst.Ref,
+    op_index: Liveness.OperandInt,
+    mcv: MCValue,
+) bool {
     if (!self.liveness.operandDies(inst, op_index))
         return false;
 
@@ -2580,39 +2586,206 @@ fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
-/// Allocates a new register. If Inst in non-null, additionally tracks
-/// this register and the corresponding int and removes all previous
-/// tracking. Does not do the actual moving (that is handled by
-/// genSetReg).
-fn prepareNewRegForMoving(
+/// An argument to a Mir instruction which is read (and possibly also
+/// written to) by the respective instruction
+const ReadArg = struct {
+    ty: Type,
+    bind: Bind,
+    class: RegisterManager.RegisterBitSet,
+    reg: *Register,
+
+    const Bind = union(enum) {
+        inst: Air.Inst.Ref,
+        mcv: MCValue,
+
+        fn resolveToMcv(bind: Bind, function: *Self) InnerError!MCValue {
+            return switch (bind) {
+                .inst => |inst| try function.resolveInst(inst),
+                .mcv => |mcv| mcv,
+            };
+        }
+    };
+};
+
+/// An argument to a Mir instruction which is written to (but not read
+/// from) by the respective instruction
+const WriteArg = struct {
+    ty: Type,
+    bind: Bind,
+    class: RegisterManager.RegisterBitSet,
+    reg: *Register,
+
+    const Bind = union(enum) {
+        reg: Register,
+        none: void,
+    };
+};
+
+/// Holds all data necessary for enabling the potential reuse of
+/// operand registers as destinations
+const ReuseMetadata = struct {
+    corresponding_inst: Air.Inst.Index,
+
+    /// Maps every element index of read_args to the corresponding
+    /// index in the Air instruction
+    ///
+    /// When the order of read_args corresponds exactly to the order
+    /// of the inputs of the Air instruction, this would be e.g.
+    /// &.{ 0, 1 }. However, when the order is not the same or some
+    /// inputs to the Air instruction are omitted (e.g. when they can
+    /// be represented as immediates to the Mir instruction),
+    /// operand_mapping should reflect that fact.
+    operand_mapping: []const Liveness.OperandInt,
+};
+
+/// Allocate a set of registers for use as arguments for a Mir
+/// instruction
+///
+/// If the Mir instruction these registers are allocated for
+/// corresponds exactly to a single Air instruction, populate
+/// reuse_metadata in order to enable potential reuse of an operand as
+/// the destination (provided that that operand dies in this
+/// instruction).
+///
+/// Reusing an operand register as destination is the only time two
+/// arguments may share the same register. In all other cases,
+/// allocRegs guarantees that a register will never be allocated to
+/// more than one argument.
+///
+/// Furthermore, allocReg guarantees that all arguments which are
+/// already bound to registers before calling allocRegs will not
+/// change their register binding. This is done by locking these
+/// registers.
+fn allocRegs(
     self: *Self,
-    track_inst: ?Air.Inst.Index,
-    register_class: RegisterManager.RegisterBitSet,
-    mcv: MCValue,
-) !Register {
-    const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
-    const reg = try self.register_manager.allocReg(track_inst, register_class);
+    read_args: []const ReadArg,
+    write_args: []const WriteArg,
+    reuse_metadata: ?ReuseMetadata,
+) InnerError!void {
+    // Air instructions have either one output or none (cmp)
+    assert(!(reuse_metadata != null and write_args.len > 1)); // see note above
 
-    if (track_inst) |inst| {
-        // Overwrite the MCValue associated with this inst
-        branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
+    // The operand mapping is a 1:1 mapping of read args to their
+    // corresponding operand index in the Air instruction
+    assert(!(reuse_metadata != null and reuse_metadata.?.operand_mapping.len != read_args.len)); // see note above
 
-        // If the previous MCValue occupied some space we track, we
-        // need to make sure it is marked as free now.
-        switch (mcv) {
-            .cpsr_flags => {
-                assert(self.cpsr_flags_inst.? == inst);
-                self.cpsr_flags_inst = null;
-            },
-            .register => |prev_reg| {
-                assert(!self.register_manager.isRegFree(prev_reg));
-                self.register_manager.freeReg(prev_reg);
-            },
-            else => {},
+    const locks = try self.gpa.alloc(?RegisterLock, read_args.len + write_args.len);
+    defer self.gpa.free(locks);
+    const read_locks = locks[0..read_args.len];
+    const write_locks = locks[read_args.len..];
+
+    std.mem.set(?RegisterLock, locks, null);
+    defer for (locks) |lock| {
+        if (lock) |locked_reg| self.register_manager.unlockReg(locked_reg);
+    };
+
+    // When we reuse a read_arg as a destination, the corresponding
+    // MCValue of the read_arg will be set to .dead. In that case, we
+    // skip allocating this read_arg.
+    var reused_read_arg: ?usize = null;
+
+    // Lock all args which are already allocated to registers
+    for (read_args) |arg, i| {
+        const mcv = try arg.bind.resolveToMcv(self);
+        if (mcv == .register) {
+            read_locks[i] = self.register_manager.lockReg(mcv.register);
         }
     }
 
-    return reg;
+    for (write_args) |arg, i| {
+        if (arg.bind == .reg) {
+            write_locks[i] = self.register_manager.lockReg(arg.bind.reg);
+        }
+    }
+
+    // Allocate registers for all args which aren't allocated to
+    // registers yet
+    for (read_args) |arg, i| {
+        const mcv = try arg.bind.resolveToMcv(self);
+        if (mcv == .register) {
+            arg.reg.* = mcv.register;
+        } else {
+            const track_inst: ?Air.Inst.Index = switch (arg.bind) {
+                .inst => |inst| Air.refToIndex(inst).?,
+                else => null,
+            };
+            arg.reg.* = try self.register_manager.allocReg(track_inst, arg.class);
+            read_locks[i] = self.register_manager.lockReg(arg.reg.*);
+        }
+    }
+
+    if (reuse_metadata != null and write_args.len > 0) {
+        const inst = reuse_metadata.?.corresponding_inst;
+        const operand_mapping = reuse_metadata.?.operand_mapping;
+        const arg = write_args[0];
+        if (arg.bind == .reg) {
+            arg.reg.* = arg.bind.reg;
+        } else {
+            reuse_operand: for (read_args) |read_arg, i| {
+                if (read_arg.bind == .inst) {
+                    const operand = read_arg.bind.inst;
+                    const mcv = try self.resolveInst(operand);
+                    if (mcv == .register and
+                        std.meta.eql(arg.class, read_arg.class) and
+                        self.reuseOperand(inst, operand, operand_mapping[i], mcv))
+                    {
+                        arg.reg.* = mcv.register;
+                        write_locks[0] = null;
+                        reused_read_arg = i;
+                        break :reuse_operand;
+                    }
+                }
+            } else {
+                arg.reg.* = try self.register_manager.allocReg(inst, arg.class);
+                write_locks[0] = self.register_manager.lockReg(arg.reg.*);
+            }
+        }
+    } else {
+        for (write_args) |arg, i| {
+            if (arg.bind == .reg) {
+                arg.reg.* = arg.bind.reg;
+            } else {
+                arg.reg.* = try self.register_manager.allocReg(null, arg.class);
+                write_locks[i] = self.register_manager.lockReg(arg.reg.*);
+            }
+        }
+    }
+
+    // For all read_args which need to be moved from non-register to
+    // register, perform the move
+    for (read_args) |arg, i| {
+        if (reused_read_arg) |j| {
+            // Check whether this read_arg was reused
+            if (i == j) continue;
+        }
+
+        const mcv = try arg.bind.resolveToMcv(self);
+        if (mcv != .register) {
+            if (arg.bind == .inst) {
+                const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+                const inst = Air.refToIndex(arg.bind.inst).?;
+
+                // Overwrite the MCValue associated with this inst
+                branch.inst_table.putAssumeCapacity(inst, .{ .register = arg.reg.* });
+
+                // If the previous MCValue occupied some space we track, we
+                // need to make sure it is marked as free now.
+                switch (mcv) {
+                    .cpsr_flags => {
+                        assert(self.cpsr_flags_inst.? == inst);
+                        self.cpsr_flags_inst = null;
+                    },
+                    .register => |prev_reg| {
+                        assert(!self.register_manager.isRegFree(prev_reg));
+                        self.register_manager.freeReg(prev_reg);
+                    },
+                    else => {},
+                }
+            }
+
+            try self.genSetReg(arg.ty, arg.reg.*, mcv);
+        }
+    }
 }
 
 /// Don't call this function directly. Use binOp instead.
@@ -2632,50 +2805,33 @@ fn binOpRegister(
     rhs_ty: Type,
     metadata: ?BinOpMetadata,
 ) !MCValue {
-    const lhs_is_register = lhs == .register;
-    const rhs_is_register = rhs == .register;
+    var lhs_reg: Register = undefined;
+    var rhs_reg: Register = undefined;
+    var dest_reg: Register = undefined;
 
-    const lhs_lock: ?RegisterLock = if (lhs_is_register)
-        self.register_manager.lockReg(lhs.register)
+    const lhs_bind = if (metadata) |md|
+        ReadArg.Bind{ .inst = md.lhs }
     else
-        null;
-    defer if (lhs_lock) |reg| self.register_manager.unlockReg(reg);
-
-    const lhs_reg = if (lhs_is_register) lhs.register else blk: {
-        const track_inst: ?Air.Inst.Index = if (metadata) |md| inst: {
-            break :inst Air.refToIndex(md.lhs).?;
-        } else null;
-
-        break :blk try self.prepareNewRegForMoving(track_inst, gp, lhs);
+        ReadArg.Bind{ .mcv = lhs };
+    const rhs_bind = if (metadata) |md|
+        ReadArg.Bind{ .inst = md.rhs }
+    else
+        ReadArg.Bind{ .mcv = rhs };
+    const read_args = [_]ReadArg{
+        .{ .ty = lhs_ty, .bind = lhs_bind, .class = gp, .reg = &lhs_reg },
+        .{ .ty = rhs_ty, .bind = rhs_bind, .class = gp, .reg = &rhs_reg },
     };
-    const new_lhs_lock = self.register_manager.lockReg(lhs_reg);
-    defer if (new_lhs_lock) |reg| self.register_manager.unlockReg(reg);
-
-    const rhs_reg = if (rhs_is_register) rhs.register else blk: {
-        const track_inst: ?Air.Inst.Index = if (metadata) |md| inst: {
-            break :inst Air.refToIndex(md.rhs).?;
-        } else null;
-
-        break :blk try self.prepareNewRegForMoving(track_inst, gp, rhs);
+    const write_args = [_]WriteArg{
+        .{ .ty = lhs_ty, .bind = .none, .class = gp, .reg = &dest_reg },
     };
-    const new_rhs_lock = self.register_manager.lockReg(rhs_reg);
-    defer if (new_rhs_lock) |reg| self.register_manager.unlockReg(reg);
-
-    const dest_reg = switch (mir_tag) {
-        .cmp => undefined, // cmp has no destination regardless
-        else => if (metadata) |md| blk: {
-            if (lhs_is_register and self.reuseOperand(md.inst, md.lhs, 0, lhs)) {
-                break :blk lhs_reg;
-            } else if (rhs_is_register and self.reuseOperand(md.inst, md.rhs, 1, rhs)) {
-                break :blk rhs_reg;
-            } else {
-                break :blk try self.register_manager.allocReg(md.inst, gp);
-            }
-        } else try self.register_manager.allocReg(null, gp),
-    };
-
-    if (!lhs_is_register) try self.genSetReg(lhs_ty, lhs_reg, lhs);
-    if (!rhs_is_register) try self.genSetReg(rhs_ty, rhs_reg, rhs);
+    try self.allocRegs(
+        &read_args,
+        if (mir_tag == .cmp) &.{} else &write_args,
+        if (metadata) |md| .{
+            .corresponding_inst = md.inst,
+            .operand_mapping = &.{ 0, 1 },
+        } else null,
+    );
 
     const mir_data: Mir.Inst.Data = switch (mir_tag) {
         .add,
@@ -2741,43 +2897,33 @@ fn binOpImmediate(
     lhs_and_rhs_swapped: bool,
     metadata: ?BinOpMetadata,
 ) !MCValue {
-    const lhs_is_register = lhs == .register;
+    var lhs_reg: Register = undefined;
+    var dest_reg: Register = undefined;
 
-    const lhs_lock: ?RegisterLock = if (lhs_is_register)
-        self.register_manager.lockReg(lhs.register)
-    else
-        null;
-    defer if (lhs_lock) |reg| self.register_manager.unlockReg(reg);
-
-    const lhs_reg = if (lhs_is_register) lhs.register else blk: {
-        const track_inst: ?Air.Inst.Index = if (metadata) |md| inst: {
-            break :inst Air.refToIndex(
-                if (lhs_and_rhs_swapped) md.rhs else md.lhs,
-            ).?;
-        } else null;
-
-        break :blk try self.prepareNewRegForMoving(track_inst, gp, lhs);
-    };
-    const new_lhs_lock = self.register_manager.lockReg(lhs_reg);
-    defer if (new_lhs_lock) |reg| self.register_manager.unlockReg(reg);
-
-    const dest_reg = switch (mir_tag) {
-        .cmp => undefined, // cmp has no destination reg
-        else => if (metadata) |md| blk: {
-            if (lhs_is_register and self.reuseOperand(
-                md.inst,
-                if (lhs_and_rhs_swapped) md.rhs else md.lhs,
-                if (lhs_and_rhs_swapped) 1 else 0,
-                lhs,
-            )) {
-                break :blk lhs_reg;
-            } else {
-                break :blk try self.register_manager.allocReg(md.inst, gp);
-            }
-        } else try self.register_manager.allocReg(null, gp),
+    const lhs_bind = blk: {
+        if (metadata) |md| {
+            const inst = if (lhs_and_rhs_swapped) md.rhs else md.lhs;
+            break :blk ReadArg.Bind{ .inst = inst };
+        } else {
+            break :blk ReadArg.Bind{ .mcv = lhs };
+        }
     };
 
-    if (!lhs_is_register) try self.genSetReg(lhs_ty, lhs_reg, lhs);
+    const read_args = [_]ReadArg{
+        .{ .ty = lhs_ty, .bind = lhs_bind, .class = gp, .reg = &lhs_reg },
+    };
+    const write_args = [_]WriteArg{
+        .{ .ty = lhs_ty, .bind = .none, .class = gp, .reg = &dest_reg },
+    };
+    const operand_mapping: []const Liveness.OperandInt = if (lhs_and_rhs_swapped) &.{1} else &.{0};
+    try self.allocRegs(
+        &read_args,
+        if (mir_tag == .cmp) &.{} else &write_args,
+        if (metadata) |md| .{
+            .corresponding_inst = md.inst,
+            .operand_mapping = operand_mapping,
+        } else null,
+    );
 
     const mir_data: Mir.Inst.Data = switch (mir_tag) {
         .add,
@@ -2983,33 +3129,27 @@ fn binOp(
                                         if (std.math.isPowerOfTwo(imm)) {
                                             const log2 = std.math.log2_int(u32, imm);
 
-                                            const lhs_is_register = lhs == .register;
+                                            var lhs_reg: Register = undefined;
+                                            var dest_reg: Register = undefined;
 
-                                            const lhs_lock: ?RegisterLock = if (lhs_is_register)
-                                                self.register_manager.lockReg(lhs.register)
+                                            const lhs_bind = if (metadata) |md|
+                                                ReadArg.Bind{ .inst = md.lhs }
                                             else
-                                                null;
-                                            defer if (lhs_lock) |reg| self.register_manager.unlockReg(reg);
-
-                                            const lhs_reg = if (lhs_is_register) lhs.register else blk: {
-                                                const track_inst: ?Air.Inst.Index = if (metadata) |md| inst: {
-                                                    break :inst Air.refToIndex(md.lhs).?;
-                                                } else null;
-
-                                                break :blk try self.prepareNewRegForMoving(track_inst, gp, lhs);
+                                                ReadArg.Bind{ .mcv = lhs };
+                                            const read_args = [_]ReadArg{
+                                                .{ .ty = lhs_ty, .bind = lhs_bind, .class = gp, .reg = &lhs_reg },
                                             };
-                                            const new_lhs_lock = self.register_manager.lockReg(lhs_reg);
-                                            defer if (new_lhs_lock) |reg| self.register_manager.unlockReg(reg);
-
-                                            const dest_reg = if (metadata) |md| blk: {
-                                                if (lhs_is_register and self.reuseOperand(md.inst, md.lhs, 0, lhs)) {
-                                                    break :blk lhs_reg;
-                                                } else {
-                                                    break :blk try self.register_manager.allocReg(md.inst, gp);
-                                                }
-                                            } else try self.register_manager.allocReg(null, gp);
-
-                                            if (!lhs_is_register) try self.genSetReg(lhs_ty, lhs_reg, lhs);
+                                            const write_args = [_]WriteArg{
+                                                .{ .ty = lhs_ty, .bind = .none, .class = gp, .reg = &dest_reg },
+                                            };
+                                            try self.allocRegs(
+                                                &read_args,
+                                                &write_args,
+                                                if (metadata) |md| .{
+                                                    .corresponding_inst = md.inst,
+                                                    .operand_mapping = &.{0},
+                                                } else null,
+                                            );
 
                                             try self.truncRegister(lhs_reg, dest_reg, int_info.signedness, log2);
                                             return MCValue{ .register = dest_reg };
