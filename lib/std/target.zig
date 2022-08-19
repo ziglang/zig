@@ -9,6 +9,7 @@ pub const Target = struct {
     cpu: Cpu,
     os: Os,
     abi: Abi,
+    ofmt: ObjectFormat,
 
     pub const Os = struct {
         tag: Tag,
@@ -592,6 +593,20 @@ pub const Target = struct {
                 .raw => ".bin",
                 .plan9 => plan9Ext(cpu_arch),
                 .nvptx => ".ptx",
+            };
+        }
+
+        pub fn default(os_tag: Os.Tag, cpu_arch: Cpu.Arch) ObjectFormat {
+            return switch (os_tag) {
+                .windows, .uefi => .coff,
+                .ios, .macos, .watchos, .tvos => .macho,
+                .plan9 => .plan9,
+                else => return switch (cpu_arch) {
+                    .wasm32, .wasm64 => .wasm,
+                    .spirv32, .spirv64 => .spirv,
+                    .nvptx, .nvptx64 => .nvptx,
+                    else => .elf,
+                },
             };
         }
     };
@@ -1381,24 +1396,6 @@ pub const Target = struct {
         return libPrefix_os_abi(self.os.tag, self.abi);
     }
 
-    pub fn getObjectFormatSimple(os_tag: Os.Tag, cpu_arch: Cpu.Arch) ObjectFormat {
-        return switch (os_tag) {
-            .windows, .uefi => .coff,
-            .ios, .macos, .watchos, .tvos => .macho,
-            .plan9 => .plan9,
-            else => return switch (cpu_arch) {
-                .wasm32, .wasm64 => .wasm,
-                .spirv32, .spirv64 => .spirv,
-                .nvptx, .nvptx64 => .nvptx,
-                else => .elf,
-            },
-        };
-    }
-
-    pub fn getObjectFormat(self: Target) ObjectFormat {
-        return getObjectFormatSimple(self.os.tag, self.cpu.arch);
-    }
-
     pub fn isMinGW(self: Target) bool {
         return self.os.tag == .windows and self.isGnu();
     }
@@ -1806,24 +1803,28 @@ pub const Target = struct {
                 else => 4,
             },
 
-            // For x86_64, LLVMABIAlignmentOfType(i128) reports 8. However I think 16
-            // is a better number for two reasons:
-            // 1. Better machine code when loading into SIMD register.
+            // For these, LLVMABIAlignmentOfType(i128) reports 8. Note that 16
+            // is a relevant number in three cases:
+            // 1. Different machine code instruction when loading into SIMD register.
             // 2. The C ABI wants 16 for extern structs.
             // 3. 16-byte cmpxchg needs 16-byte alignment.
-            // Same logic for riscv64, powerpc64, mips64, sparc64.
+            // Same logic for powerpc64, mips64, sparc64.
             .x86_64,
-            .riscv64,
             .powerpc64,
             .powerpc64le,
             .mips64,
             .mips64el,
             .sparc64,
+            => return switch (target.ofmt) {
+                .c => 16,
+                else => 8,
+            },
 
             // Even LLVMABIAlignmentOfType(i128) agrees on these targets.
             .aarch64,
             .aarch64_be,
             .aarch64_32,
+            .riscv64,
             .bpfel,
             .bpfeb,
             .nvptx,

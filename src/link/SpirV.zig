@@ -99,7 +99,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*SpirV {
 }
 
 pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*SpirV {
-    assert(options.object_format == .spirv);
+    assert(options.target.ofmt == .spirv);
 
     if (options.use_llvm) return error.LLVM_BackendIsTODO_ForSpirV; // TODO: LLVM Doesn't support SpirV at all.
     if (options.use_lld) return error.LLD_LinkingIsTODO_ForSpirV; // TODO: LLD Doesn't support SpirV at all.

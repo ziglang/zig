@@ -249,7 +249,7 @@ pub const Export = struct {
 };
 
 pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*Elf {
-    assert(options.object_format == .elf);
+    assert(options.target.ofmt == .elf);
 
     if (build_options.have_llvm and options.use_llvm) {
         return createEmpty(allocator, options);

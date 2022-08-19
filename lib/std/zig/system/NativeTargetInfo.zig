@@ -276,6 +276,7 @@ fn detectAbiAndDynamicLinker(
     };
     var ld_info_list_buffer: [all_abis.len]LdInfo = undefined;
     var ld_info_list_len: usize = 0;
+    const ofmt = cross_target.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch);
 
     for (all_abis) |abi| {
         // This may be a nonsensical parameter. We detect this with error.UnknownDynamicLinkerPath and
@@ -284,6 +285,7 @@ fn detectAbiAndDynamicLinker(
             .cpu = cpu,
             .os = os,
             .abi = abi,
+            .ofmt = ofmt,
         };
         const ld = target.standardDynamicLinkerPath();
         if (ld.get() == null) continue;
@@ -346,6 +348,7 @@ fn detectAbiAndDynamicLinker(
                 .cpu = cpu,
                 .os = os_adjusted,
                 .abi = cross_target.abi orelse found_ld_info.abi,
+                .ofmt = cross_target.ofmt orelse Target.ObjectFormat.default(os_adjusted.tag, cpu.arch),
             },
             .dynamic_linker = if (cross_target.dynamic_linker.get() == null)
                 DynamicLinker.init(found_ld_path)
@@ -539,6 +542,7 @@ pub fn abiAndDynamicLinkerFromFile(
             .cpu = cpu,
             .os = os,
             .abi = cross_target.abi orelse Target.Abi.default(cpu.arch, os),
+            .ofmt = cross_target.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch),
         },
         .dynamic_linker = cross_target.dynamic_linker,
     };
@@ -829,6 +833,7 @@ fn defaultAbiAndDynamicLinker(cpu: Target.Cpu, os: Target.Os, cross_target: Cros
         .cpu = cpu,
         .os = os,
         .abi = cross_target.abi orelse Target.Abi.default(cpu.arch, os),
+        .ofmt = cross_target.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch),
     };
     return NativeTargetInfo{
         .target = target,

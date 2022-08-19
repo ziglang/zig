@@ -57,7 +57,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*NvPtx {
 pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*NvPtx {
     if (!build_options.have_llvm) @panic("nvptx target requires a zig compiler with llvm enabled.");
     if (!options.use_llvm) return error.PtxArchNotSupported;
-    assert(options.object_format == .nvptx);
+    assert(options.target.ofmt == .nvptx);
 
     const nvptx = try createEmpty(allocator, options);
     log.info("Opening .ptx target file {s}", .{sub_path});

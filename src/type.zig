@@ -2376,6 +2376,32 @@ pub const Type = extern union {
             .error_set_merged,
             => return true,
 
+            // Pointers to zero-bit types still have a runtime address; however, pointers
+            // to comptime-only types do not, with the exception of function pointers.
+            .anyframe_T,
+            .optional_single_mut_pointer,
+            .optional_single_const_pointer,
+            .single_const_pointer,
+            .single_mut_pointer,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .const_slice,
+            .mut_slice,
+            .pointer,
+            => {
+                if (ignore_comptime_only) {
+                    return true;
+                } else if (ty.childType().zigTypeTag() == .Fn) {
+                    return true;
+                } else if (sema_kit) |sk| {
+                    return !(try sk.sema.typeRequiresComptime(sk.block, sk.src, ty));
+                } else {
+                    return !comptimeOnly(ty);
+                }
+            },
+
             // These are false because they are comptime-only types.
             .single_const_pointer_to_comptime_int,
             .void,
@@ -2398,30 +2424,6 @@ pub const Type = extern union {
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
             => return false,
-
-            // These types have more than one possible value, so the result is the same as
-            // asking whether they are comptime-only types.
-            .anyframe_T,
-            .optional_single_mut_pointer,
-            .optional_single_const_pointer,
-            .single_const_pointer,
-            .single_mut_pointer,
-            .many_const_pointer,
-            .many_mut_pointer,
-            .c_const_pointer,
-            .c_mut_pointer,
-            .const_slice,
-            .mut_slice,
-            .pointer,
-            => {
-                if (ignore_comptime_only) {
-                    return true;
-                } else if (sema_kit) |sk| {
-                    return !(try sk.sema.typeRequiresComptime(sk.block, sk.src, ty));
-                } else {
-                    return !comptimeOnly(ty);
-                }
-            },
 
             .optional => {
                 var buf: Payload.ElemType = undefined;
@@ -3029,6 +3031,15 @@ pub const Type = extern union {
                         },
                     };
                     big_align = @maximum(big_align, field_align);
+
+                    // This logic is duplicated in Module.Struct.Field.alignment.
+                    if (struct_obj.layout == .Extern or target.ofmt == .c) {
+                        if (field.ty.isAbiInt() and field.ty.intInfo(target).bits >= 128) {
+                            // The C ABI requires 128 bit integer fields of structs
+                            // to be 16-bytes aligned.
+                            big_align = @maximum(big_align, 16);
+                        }
+                    }
                 }
                 return AbiAlignmentAdvanced{ .scalar = big_align };
             },
@@ -3263,8 +3274,8 @@ pub const Type = extern union {
 
             .array_u8 => return AbiSizeAdvanced{ .scalar = ty.castTag(.array_u8).?.data },
             .array_u8_sentinel_0 => return AbiSizeAdvanced{ .scalar = ty.castTag(.array_u8_sentinel_0).?.data + 1 },
-            .array, .vector => {
-                const payload = ty.cast(Payload.Array).?.data;
+            .array => {
+                const payload = ty.castTag(.array).?.data;
                 switch (try payload.elem_type.abiSizeAdvanced(target, strat)) {
                     .scalar => |elem_size| return AbiSizeAdvanced{ .scalar = payload.len * elem_size },
                     .val => switch (strat) {
@@ -3284,6 +3295,28 @@ pub const Type = extern union {
                         .lazy => |arena| return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) },
                     },
                 }
+            },
+
+            .vector => {
+                const payload = ty.castTag(.vector).?.data;
+                const sema_kit = switch (strat) {
+                    .sema_kit => |sk| sk,
+                    .eager => null,
+                    .lazy => |arena| return AbiSizeAdvanced{
+                        .val = try Value.Tag.lazy_size.create(arena, ty),
+                    },
+                };
+                const elem_bits = try payload.elem_type.bitSizeAdvanced(target, sema_kit);
+                const total_bits = elem_bits * payload.len;
+                const total_bytes = (total_bits + 7) / 8;
+                const alignment = switch (try ty.abiAlignmentAdvanced(target, strat)) {
+                    .scalar => |x| x,
+                    .val => return AbiSizeAdvanced{
+                        .val = try Value.Tag.lazy_size.create(strat.lazy, ty),
+                    },
+                };
+                const result = std.mem.alignForwardGeneric(u64, total_bytes, alignment);
+                return AbiSizeAdvanced{ .scalar = result };
             },
 
             .isize,
@@ -3329,7 +3362,13 @@ pub const Type = extern union {
             .f128 => return AbiSizeAdvanced{ .scalar = 16 },
 
             .f80 => switch (target.cpu.arch) {
-                .i386 => return AbiSizeAdvanced{ .scalar = 12 },
+                .i386 => switch (target.os.tag) {
+                    .windows => switch (target.abi) {
+                        .msvc => return AbiSizeAdvanced{ .scalar = 16 },
+                        else => return AbiSizeAdvanced{ .scalar = 12 },
+                    },
+                    else => return AbiSizeAdvanced{ .scalar = 12 },
+                },
                 .x86_64 => return AbiSizeAdvanced{ .scalar = 16 },
                 else => {
                     var payload: Payload.Bits = .{
@@ -4540,6 +4579,12 @@ pub const Type = extern union {
 
             .vector => ty = ty.castTag(.vector).?.data.elem_type,
 
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                assert(struct_obj.layout == .Packed);
+                ty = struct_obj.backing_int_ty;
+            },
+
             else => unreachable,
         };
     }
@@ -5502,7 +5547,7 @@ pub const Type = extern union {
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
                 assert(struct_obj.layout != .Packed);
-                return struct_obj.fields.values()[index].normalAlignment(target);
+                return struct_obj.fields.values()[index].alignment(target, struct_obj.layout);
             },
             .@"union", .union_safety_tagged, .union_tagged => {
                 const union_obj = ty.cast(Payload.Union).?.data;
@@ -5609,7 +5654,7 @@ pub const Type = extern union {
             if (!field.ty.hasRuntimeBits() or field.is_comptime)
                 return FieldOffset{ .field = it.field, .offset = it.offset };
 
-            const field_align = field.normalAlignment(it.target);
+            const field_align = field.alignment(it.target, it.struct_obj.layout);
             it.big_align = @maximum(it.big_align, field_align);
             it.offset = std.mem.alignForwardGeneric(u64, it.offset, field_align);
             defer it.offset += field.ty.abiSize(it.target);

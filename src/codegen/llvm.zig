@@ -273,7 +273,7 @@ pub const Object = struct {
         var di_compile_unit: ?*llvm.DICompileUnit = null;
 
         if (!options.strip) {
-            switch (options.object_format) {
+            switch (options.target.ofmt) {
                 .coff => llvm_module.addModuleCodeViewFlag(),
                 else => llvm_module.addModuleDebugInfoFlag(),
             }
@@ -1841,6 +1841,7 @@ pub const Object = struct {
                 }
 
                 const fields = ty.structFields();
+                const layout = ty.containerLayout();
 
                 var di_fields: std.ArrayListUnmanaged(*llvm.DIType) = .{};
                 defer di_fields.deinit(gpa);
@@ -1854,7 +1855,7 @@ pub const Object = struct {
                     if (field.is_comptime or !field.ty.hasRuntimeBitsIgnoreComptime()) continue;
 
                     const field_size = field.ty.abiSize(target);
-                    const field_align = field.normalAlignment(target);
+                    const field_align = field.alignment(target, layout);
                     const field_offset = std.mem.alignForwardGeneric(u64, offset, field_align);
                     offset = field_offset + field_size;
 
@@ -2757,7 +2758,7 @@ pub const DeclGen = struct {
                 for (struct_obj.fields.values()) |field| {
                     if (field.is_comptime or !field.ty.hasRuntimeBitsIgnoreComptime()) continue;
 
-                    const field_align = field.normalAlignment(target);
+                    const field_align = field.alignment(target, struct_obj.layout);
                     const field_ty_align = field.ty.abiAlignment(target);
                     any_underaligned_fields = any_underaligned_fields or
                         field_align < field_ty_align;
@@ -3433,7 +3434,7 @@ pub const DeclGen = struct {
                 for (struct_obj.fields.values()) |field, i| {
                     if (field.is_comptime or !field.ty.hasRuntimeBitsIgnoreComptime()) continue;
 
-                    const field_align = field.normalAlignment(target);
+                    const field_align = field.alignment(target, struct_obj.layout);
                     big_align = @maximum(big_align, field_align);
                     const prev_offset = offset;
                     offset = std.mem.alignForwardGeneric(u64, offset, field_align);
@@ -9376,13 +9377,14 @@ fn llvmFieldIndex(
         }
         return null;
     }
-    assert(ty.containerLayout() != .Packed);
+    const layout = ty.containerLayout();
+    assert(layout != .Packed);
 
     var llvm_field_index: c_uint = 0;
     for (ty.structFields().values()) |field, i| {
         if (field.is_comptime or !field.ty.hasRuntimeBitsIgnoreComptime()) continue;
 
-        const field_align = field.normalAlignment(target);
+        const field_align = field.alignment(target, layout);
         big_align = @maximum(big_align, field_align);
         const prev_offset = offset;
         offset = std.mem.alignForwardGeneric(u64, offset, field_align);

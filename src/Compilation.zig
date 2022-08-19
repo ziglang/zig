@@ -810,7 +810,6 @@ pub const InitOptions = struct {
     /// this flag would be set to disable this machinery to avoid false positives.
     disable_lld_caching: bool = false,
     cache_mode: CacheMode = .incremental,
-    object_format: ?std.Target.ObjectFormat = null,
     optimize_mode: std.builtin.Mode = .Debug,
     keep_source_files_loaded: bool = false,
     clang_argv: []const []const u8 = &[0][]const u8{},
@@ -1027,8 +1026,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const comp = try arena.create(Compilation);
         const root_name = try arena.dupeZ(u8, options.root_name);
 
-        const ofmt = options.object_format orelse options.target.getObjectFormat();
-
         const use_stage1 = options.use_stage1 orelse blk: {
             // Even though we may have no Zig code to compile (depending on `options.main_pkg`),
             // we may need to use stage1 for building compiler-rt and other dependencies.
@@ -1042,7 +1039,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             }
 
             // If LLVM does not support the target, then we can't use it.
-            if (!target_util.hasLlvmSupport(options.target, ofmt))
+            if (!target_util.hasLlvmSupport(options.target, options.target.ofmt))
                 break :blk false;
 
             break :blk build_options.is_stage1;
@@ -1072,7 +1069,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 break :blk true;
 
             // If LLVM does not support the target, then we can't use it.
-            if (!target_util.hasLlvmSupport(options.target, ofmt))
+            if (!target_util.hasLlvmSupport(options.target, options.target.ofmt))
                 break :blk false;
 
             // Prefer LLVM for release builds.
@@ -1115,7 +1112,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             if (!build_options.have_llvm)
                 break :blk false;
 
-            if (ofmt == .c)
+            if (options.target.ofmt == .c)
                 break :blk false;
 
             if (options.want_lto) |lto| {
@@ -1374,7 +1371,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         cache.hash.add(options.target.os.getVersionRange());
         cache.hash.add(options.is_native_os);
         cache.hash.add(options.target.abi);
-        cache.hash.add(ofmt);
+        cache.hash.add(options.target.ofmt);
         cache.hash.add(pic);
         cache.hash.add(pie);
         cache.hash.add(lto);
@@ -1682,7 +1679,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .sysroot = sysroot,
             .output_mode = options.output_mode,
             .link_mode = link_mode,
-            .object_format = ofmt,
             .optimize_mode = options.optimize_mode,
             .use_lld = use_lld,
             .use_llvm = use_llvm,
@@ -1841,7 +1837,9 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
     const have_bin_emit = comp.bin_file.options.emit != null or comp.whole_bin_sub_path != null;
 
-    if (have_bin_emit and !comp.bin_file.options.skip_linker_dependencies) {
+    if (have_bin_emit and !comp.bin_file.options.skip_linker_dependencies and
+        options.target.ofmt != .c)
+    {
         if (comp.getTarget().isDarwin()) {
             switch (comp.getTarget().abi) {
                 .none,
@@ -3739,7 +3737,8 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
     else
         c_source_basename[0 .. c_source_basename.len - std.fs.path.extension(c_source_basename).len];
 
-    const o_ext = comp.bin_file.options.object_format.fileExt(comp.bin_file.options.target.cpu.arch);
+    const target = comp.getTarget();
+    const o_ext = target.ofmt.fileExt(target.cpu.arch);
     const digest = if (!comp.disable_c_depfile and try man.hit()) man.final() else blk: {
         var argv = std.ArrayList([]const u8).init(comp.gpa);
         defer argv.deinit();
@@ -4092,7 +4091,7 @@ pub fn addCCArgs(
 
             if (!comp.bin_file.options.strip) {
                 try argv.append("-g");
-                switch (comp.bin_file.options.object_format) {
+                switch (target.ofmt) {
                     .coff => try argv.append("-gcodeview"),
                     else => {},
                 }
@@ -4660,7 +4659,7 @@ fn wantBuildLibCFromSource(comp: Compilation) bool {
     };
     return comp.bin_file.options.link_libc and is_exe_or_dyn_lib and
         comp.bin_file.options.libc_installation == null and
-        comp.bin_file.options.object_format != .c;
+        comp.bin_file.options.target.ofmt != .c;
 }
 
 fn wantBuildGLibCFromSource(comp: Compilation) bool {
@@ -4688,7 +4687,7 @@ fn wantBuildLibUnwindFromSource(comp: *Compilation) bool {
         .Exe => true,
     };
     return is_exe_or_dyn_lib and comp.bin_file.options.link_libunwind and
-        comp.bin_file.options.object_format != .c;
+        comp.bin_file.options.target.ofmt != .c;
 }
 
 fn setAllocFailure(comp: *Compilation) void {
@@ -4747,7 +4746,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
     const zig_backend: std.builtin.CompilerBackend = blk: {
         if (use_stage1) break :blk .stage1;
         if (build_options.have_llvm and comp.bin_file.options.use_llvm) break :blk .stage2_llvm;
-        if (comp.bin_file.options.object_format == .c) break :blk .stage2_c;
+        if (target.ofmt == .c) break :blk .stage2_c;
         break :blk switch (target.cpu.arch) {
             .wasm32, .wasm64 => std.builtin.CompilerBackend.stage2_wasm,
             .arm, .armeb, .thumb, .thumbeb => .stage2_arm,
@@ -4895,6 +4894,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         \\    .cpu = cpu,
         \\    .os = os,
         \\    .abi = abi,
+        \\    .ofmt = object_format,
         \\}};
         \\pub const object_format = std.Target.ObjectFormat.{};
         \\pub const mode = std.builtin.Mode.{};
@@ -4909,7 +4909,7 @@ pub fn generateBuiltinZigSource(comp: *Compilation, allocator: Allocator) Alloca
         \\pub const code_model = std.builtin.CodeModel.{};
         \\
     , .{
-        std.zig.fmtId(@tagName(comp.bin_file.options.object_format)),
+        std.zig.fmtId(@tagName(target.ofmt)),
         std.zig.fmtId(@tagName(comp.bin_file.options.optimize_mode)),
         link_libc,
         comp.bin_file.options.link_libcpp,

@@ -103,7 +103,6 @@ pub const BinNameOptions = struct {
     target: std.Target,
     output_mode: std.builtin.OutputMode,
     link_mode: ?std.builtin.LinkMode = null,
-    object_format: ?std.Target.ObjectFormat = null,
     version: ?std.builtin.Version = null,
 };
 
@@ -111,8 +110,7 @@ pub const BinNameOptions = struct {
 pub fn binNameAlloc(allocator: std.mem.Allocator, options: BinNameOptions) error{OutOfMemory}![]u8 {
     const root_name = options.root_name;
     const target = options.target;
-    const ofmt = options.object_format orelse target.getObjectFormat();
-    switch (ofmt) {
+    switch (target.ofmt) {
         .coff => switch (options.output_mode) {
             .Exe => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, target.exeFileExt() }),
             .Lib => {
@@ -186,8 +184,12 @@ pub fn binNameAlloc(allocator: std.mem.Allocator, options: BinNameOptions) error
         .raw => return std.fmt.allocPrint(allocator, "{s}.bin", .{root_name}),
         .plan9 => switch (options.output_mode) {
             .Exe => return allocator.dupe(u8, root_name),
-            .Obj => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, ofmt.fileExt(target.cpu.arch) }),
-            .Lib => return std.fmt.allocPrint(allocator, "{s}{s}.a", .{ target.libPrefix(), root_name }),
+            .Obj => return std.fmt.allocPrint(allocator, "{s}{s}", .{
+                root_name, target.ofmt.fileExt(target.cpu.arch),
+            }),
+            .Lib => return std.fmt.allocPrint(allocator, "{s}{s}.a", .{
+                target.libPrefix(), root_name,
+            }),
         },
         .nvptx => return std.fmt.allocPrint(allocator, "{s}", .{root_name}),
     }

@@ -48,7 +48,7 @@ const DeclBlock = struct {
 };
 
 pub fn openPath(gpa: Allocator, sub_path: []const u8, options: link.Options) !*C {
-    assert(options.object_format == .c);
+    assert(options.target.ofmt == .c);
 
     if (options.use_llvm) return error.LLVMHasNoCBackend;
     if (options.use_lld) return error.LLDHasNoCBackend;

@@ -657,7 +657,7 @@ pub const base_tag = .plan9;
 pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*Plan9 {
     if (options.use_llvm)
         return error.LLVMBackendDoesNotSupportPlan9;
-    assert(options.object_format == .plan9);
+    assert(options.target.ofmt == .plan9);
 
     const self = try createEmpty(allocator, options);
     errdefer self.base.destroy();

@@ -14380,10 +14380,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     else
                         field.default_val;
                     const default_val_ptr = try sema.optRefValue(block, src, field.ty, opt_default_val);
-                    const alignment = switch (layout) {
-                        .Auto, .Extern => field.normalAlignment(target),
-                        .Packed => 0,
-                    };
+                    const alignment = field.alignment(target, layout);
 
                     struct_field_fields.* = .{
                         // name: []const u8,
@@ -20657,7 +20654,7 @@ fn panicWithMsg(
     const arena = sema.arena;
 
     const this_feature_is_implemented_in_the_backend =
-        mod.comp.bin_file.options.object_format == .c or
+        mod.comp.bin_file.options.target.ofmt == .c or
         mod.comp.bin_file.options.use_llvm;
     if (!this_feature_is_implemented_in_the_backend) {
         // TODO implement this feature in all the backends and then delete this branch
