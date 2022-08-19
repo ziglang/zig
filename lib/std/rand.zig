@@ -360,7 +360,8 @@ pub const Random = struct {
         else if (comptime std.meta.trait.isFloat(T))
             // take care that imprecision doesn't lead to a value slightly greater than sum
             std.math.min(r.float(T) * sum, sum - std.math.epsilon(T))
-        else @compileError("dice does not support proportions of type "++@typeName(T));
+        else
+            @compileError("dice does not support proportions of type " ++ @typeName(T));
 
         std.debug.assert(point < sum);
 
