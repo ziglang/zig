@@ -4041,7 +4041,22 @@ test "access variable after block scope" {
     x += 1;
 }
       {#code_end#}
-      <p>Blocks are expressions. When labeled, {#syntax#}break{#endsyntax#} can be used
+      <p>Blocks are expressions and by default they are a void literal:</p>
+      {#code_begin|test|test_block_void_literal#}
+const std = @import("std");
+const expect = std.testing.expect;
+
+test "evaluates to void" {
+
+    const x = {
+        var y: i32 = 123;
+        y += 1;
+    };
+    try expect(@TypeOf(x) == void);
+}
+      {#code_end#}
+
+      <p>When the block is labeled, {#syntax#}break{#endsyntax#} can be used
       to return a value from the block:
       </p>
       {#code_begin|test|test_labeled_break#}
