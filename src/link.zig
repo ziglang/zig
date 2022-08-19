@@ -418,7 +418,7 @@ pub const File = struct {
         NoSpaceLeft,
         Unseekable,
         PermissionDenied,
-        FileBusy,
+        SwapFile,
         SystemResources,
         OperationAborted,
         BrokenPipe,

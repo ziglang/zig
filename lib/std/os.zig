@@ -6255,7 +6255,7 @@ pub const CopyFileRangeError = error{
     NoSpaceLeft,
     Unseekable,
     PermissionDenied,
-    FileBusy,
+    SwapFile,
 } || PReadError || PWriteError || UnexpectedError;
 
 var has_copy_file_range_syscall = std.atomic.Atomic(bool).init(true);
@@ -6309,7 +6309,7 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
             .NOSPC => return error.NoSpaceLeft,
             .OVERFLOW => return error.Unseekable,
             .PERM => return error.PermissionDenied,
-            .TXTBSY => return error.FileBusy,
+            .TXTBSY => return error.SwapFile,
             // these may not be regular files, try fallback
             .INVAL => {},
             // support for cross-filesystem copy added in Linux 5.3, use fallback
