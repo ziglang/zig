@@ -218,6 +218,10 @@ pub const Options = struct {
     /// (Darwin) remove dylibs that are unreachable by the entry point or exported symbols
     dead_strip_dylibs: bool = false,
 
+    /// (Windows) PDB source path prefix to instruct the linker how to resolve relative
+    /// paths when consolidating CodeView streams into a single PDB file.
+    pdb_source_path: ?[]const u8 = null,
+
     pub fn effectiveOutputMode(options: Options) std.builtin.OutputMode {
         return if (options.use_lld) .Obj else options.output_mode;
     }
