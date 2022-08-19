@@ -218,6 +218,7 @@ pub fn parseObject(archive: Archive, allocator: Allocator, file_offset: u32) !Ob
     const object_file = try std.fs.cwd().openFile(archive.name, .{});
     errdefer object_file.close();
 
+    const object_file_size = try header.size();
     try object_file.seekTo(current_offset);
-    return Object.create(allocator, object_file, name);
+    return Object.create(allocator, object_file, name, object_file_size);
 }
