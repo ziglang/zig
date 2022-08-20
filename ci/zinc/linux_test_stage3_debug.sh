@@ -35,12 +35,6 @@ unset CXX
 
 ninja install
 
-# Here we rebuild zig but this time using the Zig binary we just now produced to
-# build zig1.o rather than relying on the one built with stage0. See
-# https://github.com/ziglang/zig/issues/6830 for more details.
-cmake .. -DZIG_EXECUTABLE="$DEBUG_STAGING/bin/zig"
-ninja install
-
 cd $WORKSPACE
 
 "$DEBUG_STAGING/bin/zig" build -p stage3 -Denable-stage1 -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
