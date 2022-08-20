@@ -16128,9 +16128,10 @@ fn fieldType(
     field_src: LazySrcLoc,
     ty_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
-    const resolved_ty = try sema.resolveTypeFields(block, ty_src, aggregate_ty);
-    var cur_ty = resolved_ty;
+    var cur_ty = aggregate_ty;
     while (true) {
+        const resolved_ty = try sema.resolveTypeFields(block, ty_src, cur_ty);
+        cur_ty = resolved_ty;
         switch (cur_ty.zigTypeTag()) {
             .Struct => {
                 if (cur_ty.isAnonStruct()) {
