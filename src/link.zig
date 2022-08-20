@@ -147,6 +147,7 @@ pub const Options = struct {
     omit_frame_pointer: bool,
     single_threaded: bool,
     verbose_link: bool,
+    linker_verbose_flag: bool,
     dll_export_fns: bool,
     error_return_tracing: bool,
     skip_linker_dependencies: bool,

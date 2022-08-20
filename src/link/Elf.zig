@@ -1779,10 +1779,15 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append("-Bsymbolic");
         }
 
+        if (self.base.options.linker_verbose_flag) {
+            try argv.append("-verbose");
+        }
+        
         if (self.base.options.verbose_link) {
             // Skip over our own name so that the LLD linker name is the first argv item.
             Compilation.dump_argv(argv.items[1..]);
         }
+
 
         if (std.process.can_spawn) {
             // If possible, we run LLD as a child process because it does not always

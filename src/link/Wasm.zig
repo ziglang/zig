@@ -2925,6 +2925,10 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
             try argv.append(p);
         }
 
+        if (self.base.options.linker_verbose_flag) {
+            try argv.append("-verbose");
+        }
+
         if (self.base.options.verbose_link) {
             // Skip over our own name so that the LLD linker name is the first argv item.
             Compilation.dump_argv(argv.items[1..]);

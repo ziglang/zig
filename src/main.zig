@@ -701,6 +701,7 @@ fn buildOutputType(
     var linker_nxcompat = false;
     var linker_dynamicbase = false;
     var linker_optimization: ?u8 = null;
+    var linker_verbose_flag = false;
     var test_evented_io = false;
     var test_no_exec = false;
     var entry: ?[]const u8 = null;
@@ -2086,6 +2087,9 @@ fn buildOutputType(
                             next_arg,
                         });
                     };
+                } else if (mem.eql(u8, arg, "-verbose") or
+                    mem.eql(u8, arg, "--verbose")) {
+                    linker_verbose_flag = true;
                 } else {
                     warn("unsupported linker arg: {s}", .{arg});
                 }
@@ -2910,6 +2914,7 @@ fn buildOutputType(
         .linker_dynamicbase = linker_dynamicbase,
         .linker_optimization = linker_optimization,
         .linker_compress_debug_sections = linker_compress_debug_sections,
+        .linker_verbose_flag = linker_verbose_flag,
         .major_subsystem_version = major_subsystem_version,
         .minor_subsystem_version = minor_subsystem_version,
         .link_eh_frame_hdr = link_eh_frame_hdr,
