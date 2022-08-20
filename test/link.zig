@@ -47,6 +47,11 @@ fn addWasmCases(cases: *tests.StandaloneContext) void {
         .build_modes = true,
         .requires_stage2 = true,
     });
+
+    cases.addBuildFile("test/link/wasm/archive/build.zig", .{
+        .build_modes = true,
+        .requires_stage2 = true,
+    });
 }
 
 fn addMachOCases(cases: *tests.StandaloneContext) void {
