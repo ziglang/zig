@@ -2659,6 +2659,14 @@ pub const DeclGen = struct {
                 .local => llvm.address_space.nvptx.local,
                 else => unreachable,
             },
+            .amdgcn => switch (address_space) {
+                .generic => llvm.address_space.flat,
+                .global => llvm.address_space.amdgpu.global,
+                .constant => llvm.address_space.amdgpu.constant,
+                .shared => llvm.address_space.amdgpu.local,
+                .local => llvm.address_space.amdgpu.private,
+                else => unreachable,
+            }.
             else => switch (address_space) {
                 .generic => llvm.address_space.default,
                 else => unreachable,

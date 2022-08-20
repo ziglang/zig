@@ -30303,13 +30303,15 @@ pub fn analyzeAddrspace(
     const address_space = addrspace_tv.val.toEnum(std.builtin.AddressSpace);
     const target = sema.mod.getTarget();
     const arch = target.cpu.arch;
-    const is_gpu = arch == .nvptx or arch == .nvptx64;
+    const is_nv = arch == .nvptx or arch == .nvptx64;
+    const is_gpu = is_nv or arch == .amdgcn;
 
     const supported = switch (address_space) {
         .generic => true,
         .gs, .fs, .ss => (arch == .i386 or arch == .x86_64) and ctx == .pointer,
         // TODO: check that .shared and .local are left uninitialized
-        .global, .param, .shared, .local => is_gpu,
+        .param => is_nv,
+        .global, .shared, .local => is_gpu,
         .constant => is_gpu and (ctx == .constant),
     };
 
