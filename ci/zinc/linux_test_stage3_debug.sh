@@ -20,12 +20,11 @@ export CXX="$OLD_ZIG c++ -target $TARGET -mcpu=$MCPU"
 mkdir build-debug
 cd build-debug
 cmake .. \
-  -DCMAKE_INSTALL_PREFIX="$DEBUG_STAGING" \
+  -DCMAKE_INSTALL_PREFIX="$(pwd)/stage3" \
   -DCMAKE_PREFIX_PATH="$DEPS_LOCAL" \
   -DCMAKE_BUILD_TYPE=Debug \
-  -DZIG_TARGET_TRIPLE="$TARGET" \
-  -DZIG_TARGET_MCPU="$MCPU" \
   -DZIG_STATIC=ON \
+  -DZIG_USE_LLVM_CONFIG=OFF \
   -GNinja
 
 # Now cmake will use zig as the C/C++ compiler. We reset the environment variables
@@ -35,20 +34,16 @@ unset CXX
 
 ninja install
 
-cd $WORKSPACE
-
-"$DEBUG_STAGING/bin/zig" build -p stage3 -Denable-stage1 -Dstatic-llvm -Dtarget=native-native-musl --search-prefix "$DEPS_LOCAL"
+echo "Looking for non-conforming code formatting..."
+stage3/bin/zig fmt --check .. \
+  --exclude ../test/cases/ \
+  --exclude ../build-debug \
+  --exclude ../build-release \
+  --exclude "$ZIG_LOCAL_CACHE_DIR" \
+  --exclude "$ZIG_GLOBAL_CACHE_DIR"
 
 # simultaneously test building self-hosted without LLVM and with 32-bit arm
 stage3/bin/zig build -Dtarget=arm-linux-musleabihf
-
-echo "Looking for non-conforming code formatting..."
-stage3/bin/zig fmt --check . \
-  --exclude test/cases/ \
-  --exclude build-debug \
-  --exclude build-release \
-  --exclude "$ZIG_LOCAL_CACHE_DIR" \
-  --exclude "$ZIG_GLOBAL_CACHE_DIR"
 
 stage3/bin/zig build test \
   -fqemu \
