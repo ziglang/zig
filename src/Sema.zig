@@ -27705,6 +27705,10 @@ fn cmpNumeric(
             }
             lhs_bits = bigint.toConst().bitCountTwosComp();
         } else {
+            if (lhs_val.tag() == .lazy_size and rhs_is_signed) {
+                const ty = lhs_val.castTag(.lazy_size).?.data;
+                try sema.resolveTypeLayout(block, src, ty);
+            }
             lhs_bits = lhs_val.intBitCountTwosComp(target);
         }
         lhs_bits += @boolToInt(!lhs_is_signed and dest_int_is_signed);
@@ -27751,6 +27755,10 @@ fn cmpNumeric(
             }
             rhs_bits = bigint.toConst().bitCountTwosComp();
         } else {
+            if (rhs_val.tag() == .lazy_size and lhs_is_signed) {
+                const ty = rhs_val.castTag(.lazy_size).?.data;
+                try sema.resolveTypeLayout(block, src, ty);
+            }
             rhs_bits = rhs_val.intBitCountTwosComp(target);
         }
         rhs_bits += @boolToInt(!rhs_is_signed and dest_int_is_signed);

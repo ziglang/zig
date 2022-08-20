@@ -51,6 +51,17 @@ test "lazy @sizeOf result is checked for definedness" {
     _ = fn1;
 }
 
+const S2 = struct {
+    a: usize,
+};
+
+test "lazy @sizeOf can be compared with signed runtime value" {
+    var rhs: i32 = 100;
+    if (@sizeOf(S2) > rhs) {
+        @panic("bad");
+    }
+}
+
 const A = struct {
     a: u8,
     b: u32,
