@@ -273,7 +273,7 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
     assert(options.target.ofmt == .macho);
 
     const use_stage1 = build_options.have_stage1 and options.use_stage1;
-    if (use_stage1 or options.emit == null) {
+    if (use_stage1 or options.emit == null or options.module == null) {
         return createEmpty(allocator, options);
     }
 
@@ -293,11 +293,11 @@ pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
         });
     }
 
-    if (options.output_mode == .Lib and
-        options.link_mode == .Static and self.base.intermediary_basename != null)
-    {
-        return self;
-    }
+    if (self.base.intermediary_basename != null) switch (options.output_mode) {
+        .Obj => return self,
+        .Lib => if (options.link_mode == .Static) return self,
+        else => {},
+    };
 
     const file = try emit.directory.handle.createFile(emit.sub_path, .{
         .truncate = false,
