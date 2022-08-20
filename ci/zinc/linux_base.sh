@@ -25,3 +25,7 @@ DEBUG_STAGING="$WORKSPACE/_debug/staging"
 RELEASE_STAGING="$WORKSPACE/_release/staging"
 
 export PATH=$DEPS_LOCAL/bin:$PATH
+
+# Make the `zig version` number consistent.
+# This will affect the cmake commands that follow.
+git config core.abbrev 9

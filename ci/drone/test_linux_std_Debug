@@ -1,0 +1,5 @@
+#!/bin/sh
+
+. ./ci/drone/linux_script_base
+
+./build/zig build test-std -Dskip-release-safe -Dskip-release-fast -Dskip-release-small -Dskip-non-native

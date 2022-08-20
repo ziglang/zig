@@ -223,6 +223,9 @@ pub const Value = opaque {
     pub const setInitializer = LLVMSetInitializer;
     extern fn LLVMSetInitializer(GlobalVar: *const Value, ConstantVal: *const Value) void;
 
+    pub const setDLLStorageClass = LLVMSetDLLStorageClass;
+    extern fn LLVMSetDLLStorageClass(Global: *const Value, Class: DLLStorageClass) void;
+
     pub const addCase = LLVMAddCase;
     extern fn LLVMAddCase(Switch: *const Value, OnVal: *const Value, Dest: *const BasicBlock) void;
 
@@ -1480,6 +1483,12 @@ pub const CallAttr = enum(c_int) {
     NeverInline,
     AlwaysTail,
     AlwaysInline,
+};
+
+pub const DLLStorageClass = enum(c_uint) {
+    Default,
+    DLLImport,
+    DLLExport,
 };
 
 pub const address_space = struct {

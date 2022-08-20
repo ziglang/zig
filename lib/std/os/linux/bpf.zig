@@ -458,7 +458,7 @@ pub const Insn = packed struct {
         else
             ImmOrReg{ .imm = src };
 
-        const src_type = switch (imm_or_reg) {
+        const src_type: u8 = switch (imm_or_reg) {
             .imm => K,
             .reg => X,
         };

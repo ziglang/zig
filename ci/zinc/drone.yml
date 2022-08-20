@@ -9,20 +9,26 @@ workspace:
   path: /workspace
 
 steps:
-- name: test
-  image: ci/debian-amd64:11.1-6
+- name: test_stage3_debug
+  image: ci/debian-amd64:11.1-7
   commands:
-  - ./ci/zinc/linux_test.sh
+  - ./ci/zinc/linux_test_stage3_debug.sh
+
+- name: test_stage3_release
+  image: ci/debian-amd64:11.1-7
+  commands:
+  - ./ci/zinc/linux_test_stage3_release.sh
 
 - name: package
   depends_on:
-  - test
+  - test_stage3_debug
+  - test_stage3_release
   when:
     branch:
       - master
     event:
       - push
-  image: ci/debian-amd64:11.1-6
+  image: ci/debian-amd64:11.1-7
   environment:
     AWS_ACCESS_KEY_ID:
       from_secret: AWS_ACCESS_KEY_ID

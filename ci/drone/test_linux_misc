@@ -1,0 +1,11 @@
+#!/bin/sh
+
+. ./ci/drone/linux_script_base
+
+./build/zig build test-universal-libc -Dskip-non-native
+./build/zig build test-compare-output -Dskip-non-native
+./build/zig build test-standalone     -Dskip-non-native -Dskip-release-safe
+./build/zig build test-stack-traces   -Dskip-non-native
+./build/zig build test-cli            -Dskip-non-native
+./build/zig build test-asm-link       -Dskip-non-native
+./build/zig build test-translate-c    -Dskip-non-native
