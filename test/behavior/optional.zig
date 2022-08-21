@@ -405,3 +405,10 @@ test "optional of noreturn used with orelse" {
     const val = NoReturn.testOrelse();
     try expect(val == 123);
 }
+
+test "orelse on C pointer" {
+    // TODO https://github.com/ziglang/zig/issues/6597
+    const foo: [*c]const u8 = "hey";
+    const d = foo orelse @compileError("bad");
+    try expectEqual([*c]const u8, @TypeOf(d));
+}

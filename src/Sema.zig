@@ -7261,6 +7261,8 @@ fn zirOptionalPayload(
             if (operand_ty.ptrSize() != .C) {
                 return sema.failWithExpectedOptionalType(block, src, operand_ty);
             }
+            // TODO https://github.com/ziglang/zig/issues/6597
+            if (true) break :t operand_ty;
             const ptr_info = operand_ty.ptrInfo().data;
             break :t try Type.ptr(sema.arena, sema.mod, .{
                 .pointee_type = try ptr_info.pointee_type.copy(sema.arena),
