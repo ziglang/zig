@@ -3087,7 +3087,7 @@ fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
 
             const candidate = block.instructions.items[search_index];
             switch (air_tags[candidate]) {
-                .dbg_stmt => continue,
+                .dbg_stmt, .dbg_block_begin, .dbg_block_end => continue,
                 .store => break candidate,
                 else => break :ct,
             }
@@ -3099,7 +3099,7 @@ fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
 
             const candidate = block.instructions.items[search_index];
             switch (air_tags[candidate]) {
-                .dbg_stmt => continue,
+                .dbg_stmt, .dbg_block_begin, .dbg_block_end => continue,
                 .alloc => {
                     if (Air.indexToRef(candidate) != alloc) break :ct;
                     break;
@@ -3317,7 +3317,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
 
                     const candidate = block.instructions.items[search_index];
                     switch (air_tags[candidate]) {
-                        .dbg_stmt => continue,
+                        .dbg_stmt, .dbg_block_begin, .dbg_block_end => continue,
                         .store => break candidate,
                         else => break :ct,
                     }
@@ -3329,7 +3329,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
 
                     const candidate = block.instructions.items[search_index];
                     switch (air_tags[candidate]) {
-                        .dbg_stmt => continue,
+                        .dbg_stmt, .dbg_block_begin, .dbg_block_end => continue,
                         .bitcast => break candidate,
                         else => break :ct,
                     }
@@ -3341,7 +3341,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
 
                     const candidate = block.instructions.items[search_index];
                     switch (air_tags[candidate]) {
-                        .dbg_stmt => continue,
+                        .dbg_stmt, .dbg_block_begin, .dbg_block_end => continue,
                         .constant => break candidate,
                         else => break :ct,
                     }
@@ -3615,8 +3615,6 @@ fn validateUnionInit(
     union_ptr: Air.Inst.Ref,
     is_comptime: bool,
 ) CompileError!void {
-    const union_obj = union_ty.cast(Type.Payload.Union).?.data;
-
     if (instrs.len != 1) {
         const msg = msg: {
             const msg = try sema.errMsg(
@@ -3650,7 +3648,8 @@ fn validateUnionInit(
     const field_src: LazySrcLoc = .{ .node_offset_initializer = field_ptr_data.src_node };
     const field_ptr_extra = sema.code.extraData(Zir.Inst.Field, field_ptr_data.payload_index).data;
     const field_name = sema.code.nullTerminatedString(field_ptr_extra.field_name_start);
-    const field_index = try sema.unionFieldIndex(block, union_ty, field_name, field_src);
+    // Validate the field access but ignore the index since we want the tag enum field index.
+    _ = try sema.unionFieldIndex(block, union_ty, field_name, field_src);
     const air_tags = sema.air_instructions.items(.tag);
     const air_datas = sema.air_instructions.items(.data);
     const field_ptr_air_ref = sema.inst_map.get(field_ptr).?;
@@ -3709,7 +3708,9 @@ fn validateUnionInit(
         break;
     }
 
-    const tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
+    const tag_ty = union_ty.unionTagTypeHypothetical();
+    const enum_field_index = @intCast(u32, tag_ty.enumFieldIndex(field_name).?);
+    const tag_val = try Value.Tag.enum_field_index.create(sema.arena, enum_field_index);
 
     if (init_val) |val| {
         // Our task is to delete all the `field_ptr` and `store` instructions, and insert
@@ -3726,7 +3727,7 @@ fn validateUnionInit(
     }
 
     try sema.requireFunctionBlock(block, init_src);
-    const new_tag = try sema.addConstant(union_obj.tag_ty, tag_val);
+    const new_tag = try sema.addConstant(tag_ty, tag_val);
     _ = try block.addBinOp(.set_union_tag, union_ptr, new_tag);
 }
 
@@ -5643,6 +5644,37 @@ const GenericCallAdapter = struct {
     }
 };
 
+fn addComptimeReturnTypeNote(
+    sema: *Sema,
+    block: *Block,
+    func: Air.Inst.Ref,
+    func_src: LazySrcLoc,
+    return_ty: Type,
+    parent: *Module.ErrorMsg,
+    requires_comptime: bool,
+) !void {
+    if (!requires_comptime) return;
+
+    const src_loc = if (try sema.funcDeclSrc(block, func_src, func)) |capture| blk: {
+        var src_loc = capture;
+        src_loc.lazy = .{ .node_offset_fn_type_ret_ty = 0 };
+        break :blk src_loc;
+    } else blk: {
+        const src_decl = sema.mod.declPtr(block.src_decl);
+        break :blk func_src.toSrcLoc(src_decl);
+    };
+    if (return_ty.tag() == .generic_poison) {
+        return sema.mod.errNoteNonLazy(src_loc, parent, "generic function is instantiated with a comptime only return type", .{});
+    }
+    try sema.mod.errNoteNonLazy(
+        src_loc,
+        parent,
+        "function is being called at comptime because it returns a comptime only type '{}'",
+        .{return_ty.fmt(sema.mod)},
+    );
+    try sema.explainWhyTypeIsComptime(block, func_src, parent, src_loc, return_ty);
+}
+
 fn analyzeCall(
     sema: *Sema,
     block: *Block,
@@ -5733,9 +5765,11 @@ fn analyzeCall(
 
     var is_generic_call = func_ty_info.is_generic;
     var is_comptime_call = block.is_comptime or modifier == .compile_time;
+    var comptime_only_ret_ty = false;
     if (!is_comptime_call) {
         if (sema.typeRequiresComptime(block, func_src, func_ty_info.return_type)) |ct| {
             is_comptime_call = ct;
+            comptime_only_ret_ty = ct;
         } else |err| switch (err) {
             error.GenericPoison => is_generic_call = true,
             else => |e| return e,
@@ -5764,6 +5798,7 @@ fn analyzeCall(
             error.ComptimeReturn => {
                 is_inline_call = true;
                 is_comptime_call = true;
+                comptime_only_ret_ty = true;
             },
             else => |e| return e,
         }
@@ -5774,8 +5809,12 @@ fn analyzeCall(
     }
 
     const result: Air.Inst.Ref = if (is_inline_call) res: {
-        // TODO explain why function is being called at comptime
-        const func_val = try sema.resolveConstValue(block, func_src, func, "function being called at comptime must be comptime known");
+        const func_val = sema.resolveConstValue(block, func_src, func, "function being called at comptime must be comptime known") catch |err| {
+            if (err == error.AnalysisFail and sema.err != null) {
+                try sema.addComptimeReturnTypeNote(block, func, func_src, func_ty_info.return_type, sema.err.?, comptime_only_ret_ty);
+            }
+            return err;
+        };
         const module_fn = switch (func_val.tag()) {
             .decl_ref => mod.declPtr(func_val.castTag(.decl_ref).?.data).val.castTag(.function).?.data,
             .function => func_val.castTag(.function).?.data,
@@ -5887,6 +5926,11 @@ fn analyzeCall(
                 is_comptime_call,
                 &should_memoize,
                 memoized_call_key,
+                // last 4 arguments are only used when reporting errors
+                undefined,
+                undefined,
+                undefined,
+                undefined,
             ) catch |err| switch (err) {
                 error.NeededSourceLocation => {
                     sema.inst_map.clearRetainingCapacity();
@@ -5904,6 +5948,10 @@ fn analyzeCall(
                         is_comptime_call,
                         &should_memoize,
                         memoized_call_key,
+                        func,
+                        func_src,
+                        func_ty_info.return_type,
+                        comptime_only_ret_ty,
                     );
                     return error.AnalysisFail;
                 },
@@ -6119,6 +6167,10 @@ fn analyzeInlineCallArg(
     is_comptime_call: bool,
     should_memoize: *bool,
     memoized_call_key: Module.MemoizedCall.Key,
+    func: Air.Inst.Ref,
+    func_src: LazySrcLoc,
+    ret_ty: Type,
+    comptime_only_ret_ty: bool,
 ) !void {
     const zir_tags = sema.code.instructions.items(.tag);
     switch (zir_tags[inst]) {
@@ -6134,14 +6186,23 @@ fn analyzeInlineCallArg(
             new_fn_info.param_types[arg_i.*] = param_ty;
             const uncasted_arg = uncasted_args[arg_i.*];
             if (try sema.typeRequiresComptime(arg_block, arg_src, param_ty)) {
-                _ = try sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "argument to parameter with comptime only type must be comptime known");
+                _ = sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "argument to parameter with comptime only type must be comptime known") catch |err| {
+                    if (err == error.AnalysisFail and sema.err != null) {
+                        try sema.addComptimeReturnTypeNote(arg_block, func, func_src, ret_ty, sema.err.?, comptime_only_ret_ty);
+                    }
+                    return err;
+                };
             }
             const casted_arg = try sema.coerce(arg_block, param_ty, uncasted_arg, arg_src);
             try sema.inst_map.putNoClobber(sema.gpa, inst, casted_arg);
 
             if (is_comptime_call) {
-                // TODO explain why function is being called at comptime
-                const arg_val = try sema.resolveConstMaybeUndefVal(arg_block, arg_src, casted_arg, "argument to function being called at comptime must be comptime known");
+                const arg_val = sema.resolveConstMaybeUndefVal(arg_block, arg_src, casted_arg, "argument to function being called at comptime must be comptime known") catch |err| {
+                    if (err == error.AnalysisFail and sema.err != null) {
+                        try sema.addComptimeReturnTypeNote(arg_block, func, func_src, ret_ty, sema.err.?, comptime_only_ret_ty);
+                    }
+                    return err;
+                };
                 switch (arg_val.tag()) {
                     .generic_poison, .generic_poison_type => {
                         // This function is currently evaluated as part of an as-of-yet unresolvable
@@ -6171,8 +6232,12 @@ fn analyzeInlineCallArg(
             try sema.inst_map.putNoClobber(sema.gpa, inst, uncasted_arg);
 
             if (is_comptime_call) {
-                // TODO explain why function is being called at comptime
-                const arg_val = try sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "argument to function being called at comptime must be comptime known");
+                const arg_val = sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "argument to function being called at comptime must be comptime known") catch |err| {
+                    if (err == error.AnalysisFail and sema.err != null) {
+                        try sema.addComptimeReturnTypeNote(arg_block, func, func_src, ret_ty, sema.err.?, comptime_only_ret_ty);
+                    }
+                    return err;
+                };
                 switch (arg_val.tag()) {
                     .generic_poison, .generic_poison_type => {
                         // This function is currently evaluated as part of an as-of-yet unresolvable
@@ -8774,13 +8839,11 @@ fn zirSwitchCapture(
     switch (operand_ty.zigTypeTag()) {
         .Union => {
             const union_obj = operand_ty.cast(Type.Payload.Union).?.data;
-            const enum_ty = union_obj.tag_ty;
-
             const first_item = try sema.resolveInst(items[0]);
             // Previous switch validation ensured this will succeed
             const first_item_val = sema.resolveConstValue(block, .unneeded, first_item, undefined) catch unreachable;
 
-            const first_field_index = @intCast(u32, enum_ty.enumTagFieldIndex(first_item_val, sema.mod).?);
+            const first_field_index = @intCast(u32, operand_ty.unionTagFieldIndex(first_item_val, sema.mod).?);
             const first_field = union_obj.fields.values()[first_field_index];
 
             for (items[1..]) |item, i| {
@@ -8788,7 +8851,7 @@ fn zirSwitchCapture(
                 // Previous switch validation ensured this will succeed
                 const item_val = sema.resolveConstValue(block, .unneeded, item_ref, undefined) catch unreachable;
 
-                const field_index = enum_ty.enumTagFieldIndex(item_val, sema.mod).?;
+                const field_index = operand_ty.unionTagFieldIndex(item_val, sema.mod).?;
                 const field = union_obj.fields.values()[field_index];
                 if (!field.ty.eql(first_field.ty, sema.mod)) {
                     const msg = msg: {
@@ -15521,7 +15584,9 @@ fn unionInit(
     const init = try sema.coerce(block, field.ty, uncasted_init, init_src);
 
     if (try sema.resolveMaybeUndefVal(block, init_src, init)) |init_val| {
-        const tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
+        const tag_ty = union_ty.unionTagTypeHypothetical();
+        const enum_field_index = @intCast(u32, tag_ty.enumFieldIndex(field_name).?);
+        const tag_val = try Value.Tag.enum_field_index.create(sema.arena, enum_field_index);
         return sema.addConstant(union_ty, try Value.Tag.@"union".create(sema.arena, .{
             .tag = tag_val,
             .val = init_val,
@@ -15619,7 +15684,9 @@ fn zirStructInit(
         const field_type_extra = sema.code.extraData(Zir.Inst.FieldType, field_type_data.payload_index).data;
         const field_name = sema.code.nullTerminatedString(field_type_extra.name_start);
         const field_index = try sema.unionFieldIndex(block, resolved_ty, field_name, field_src);
-        const tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
+        const tag_ty = resolved_ty.unionTagTypeHypothetical();
+        const enum_field_index = @intCast(u32, tag_ty.enumFieldIndex(field_name).?);
+        const tag_val = try Value.Tag.enum_field_index.create(sema.arena, enum_field_index);
 
         const init_inst = try sema.resolveInst(item.data.init);
         if (try sema.resolveMaybeUndefVal(block, field_src, init_inst)) |val| {
@@ -16384,9 +16451,8 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
     const type_info = try sema.coerce(block, type_info_ty, uncasted_operand, operand_src);
     const val = try sema.resolveConstValue(block, operand_src, type_info, "operand to @Type must be comptime known");
     const union_val = val.cast(Value.Payload.Union).?.data;
-    const tag_ty = type_info_ty.unionTagType().?;
     const target = mod.getTarget();
-    const tag_index = tag_ty.enumTagFieldIndex(union_val.tag, mod).?;
+    const tag_index = type_info_ty.unionTagFieldIndex(union_val.tag, mod).?;
     if (union_val.val.anyUndef()) return sema.failWithUseOfUndef(block, src);
     switch (@intToEnum(std.builtin.TypeId, tag_index)) {
         .Type => return Air.Inst.Ref.type_type,
@@ -25091,8 +25157,7 @@ fn coerceEnumToUnion(
 
     const enum_tag = try sema.coerce(block, tag_ty, inst, inst_src);
     if (try sema.resolveDefinedValue(block, inst_src, enum_tag)) |val| {
-        const union_obj = union_ty.cast(Type.Payload.Union).?.data;
-        const field_index = union_obj.tag_ty.enumTagFieldIndex(val, sema.mod) orelse {
+        const field_index = union_ty.unionTagFieldIndex(val, sema.mod) orelse {
             const msg = msg: {
                 const msg = try sema.errMsg(block, inst_src, "union '{}' has no tag with value '{}'", .{
                     union_ty.fmt(sema.mod), val.fmtValue(tag_ty, sema.mod),
@@ -25103,6 +25168,8 @@ fn coerceEnumToUnion(
             };
             return sema.failWithOwnedErrorMsg(msg);
         };
+
+        const union_obj = union_ty.cast(Type.Payload.Union).?.data;
         const field = union_obj.fields.values()[field_index];
         const field_ty = try sema.resolveTypeFields(block, inst_src, field.ty);
         if (field_ty.zigTypeTag() == .NoReturn) {

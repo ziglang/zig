@@ -835,7 +835,6 @@ pub const DeclGen = struct {
             },
             .Union => {
                 const union_obj = val.castTag(.@"union").?.data;
-                const union_ty = ty.cast(Type.Payload.Union).?.data;
                 const layout = ty.unionGetLayout(target);
 
                 try writer.writeAll("(");
@@ -851,7 +850,7 @@ pub const DeclGen = struct {
                     try writer.writeAll(".payload = {");
                 }
 
-                const index = union_ty.tag_ty.enumTagFieldIndex(union_obj.tag, dg.module).?;
+                const index = ty.unionTagFieldIndex(union_obj.tag, dg.module).?;
                 const field_ty = ty.unionFields().values()[index].ty;
                 const field_name = ty.unionFields().keys()[index];
                 if (field_ty.hasRuntimeBits()) {

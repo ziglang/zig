@@ -3502,7 +3502,7 @@ pub const DeclGen = struct {
                     });
                 }
                 const union_obj = tv.ty.cast(Type.Payload.Union).?.data;
-                const field_index = union_obj.tag_ty.enumTagFieldIndex(tag_and_val.tag, dg.module).?;
+                const field_index = tv.ty.unionTagFieldIndex(tag_and_val.tag, dg.module).?;
                 assert(union_obj.haveFieldTypes());
 
                 // Sometimes we must make an unnamed struct because LLVM does

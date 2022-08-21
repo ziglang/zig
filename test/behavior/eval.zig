@@ -1310,3 +1310,18 @@ test "repeated value is correctly expanded" {
         } }, res);
     }
 }
+
+test "value in if block is comptime known" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
+    const first = blk: {
+        const s = if (false) "a" else "b";
+        break :blk "foo" ++ s;
+    };
+    const second = blk: {
+        const S = struct { str: []const u8 };
+        const s = if (false) S{ .str = "a" } else S{ .str = "b" };
+        break :blk "foo" ++ s.str;
+    };
+    comptime try expect(std.mem.eql(u8, first, second));
+}
