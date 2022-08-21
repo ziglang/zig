@@ -27909,7 +27909,9 @@ fn resolveInferredErrorSetTy(
 fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void {
     const gpa = mod.gpa;
     const decl_index = struct_obj.owner_decl;
-    const zir = struct_obj.namespace.file_scope.zir;
+    const file_scope = struct_obj.namespace.file_scope;
+    if (file_scope.status != .success_zir) return error.AnalysisFail;
+    const zir = file_scope.zir;
     const extended = zir.instructions.items(.data)[struct_obj.zir_index].extended;
     assert(extended.opcode == .struct_decl);
     const small = @bitCast(Zir.Inst.StructDecl.Small, extended.small);
