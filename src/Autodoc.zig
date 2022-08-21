@@ -69,6 +69,8 @@ pub fn generateZirData(self: *Autodoc) !void {
         }
     }
 
+    log.debug("Ref map size: {}", .{Ref.typed_value_map.len});
+
     const root_src_dir = self.module.main_pkg.root_src_directory;
     const root_src_path = self.module.main_pkg.root_src_path;
     const joined_src_path = try root_src_dir.join(self.arena, &.{root_src_path});
@@ -158,6 +160,9 @@ pub fn generateZirData(self: *Autodoc) !void {
                     },
                     .void_type => .{
                         .Void = .{ .name = tmpbuf.toOwnedSlice() },
+                    },
+                    .type_info_type => .{
+                        .Unanalyzed = .{},
                     },
                     .type_type => .{
                         .Type = .{ .name = tmpbuf.toOwnedSlice() },
@@ -608,6 +613,7 @@ const DocData = struct {
         type: usize, // index in `types`
         this: usize, // index in `types`
         declRef: usize, // index in `decls`
+        builtinField: enum { len, ptr },
         fieldRef: FieldRef,
         refPath: []Expr,
         int: struct {
@@ -697,20 +703,26 @@ const DocData = struct {
             var jsw = std.json.writeStream(w, 15);
             try jsw.beginObject();
             try jsw.objectField(@tagName(active_tag));
-            inline for (comptime std.meta.fields(Expr)) |case| {
-                if (@field(Expr, case.name) == active_tag) {
-                    switch (active_tag) {
-                        .int => {
-                            if (self.int.negated) try w.writeAll("-");
-                            try jsw.emitNumber(self.int.value);
-                        },
-                        .int_big => {
+            switch (self) {
+                .int => {
+                    if (self.int.negated) try w.writeAll("-");
+                    try jsw.emitNumber(self.int.value);
+                },
+                .int_big => {
 
-                            //@panic("TODO: json serialization of big ints!");
-                            //if (v.negated) try w.writeAll("-");
-                            //try jsw.emitNumber(v.value);
-                        },
-                        else => {
+                    //@panic("TODO: json serialization of big ints!");
+                    //if (v.negated) try w.writeAll("-");
+                    //try jsw.emitNumber(v.value);
+                },
+                .builtinField => {
+                    try jsw.emitString(@tagName(self.builtinField));
+                },
+                else => {
+                    inline for (comptime std.meta.fields(Expr)) |case| {
+                        // TODO: this is super ugly, fix once `inline else` is a thing
+                        if (comptime std.mem.eql(u8, case.name, "builtinField"))
+                            continue;
+                        if (@field(Expr, case.name) == active_tag) {
                             try std.json.stringify(@field(self, case.name), opt, w);
                             jsw.state_index -= 1;
                             // TODO: we should not reach into the state of the
@@ -719,9 +731,9 @@ const DocData = struct {
                             //       would be nice to have a proper integration
                             //       between the json writer and the generic
                             //       std.json.stringify implementation
-                        },
+                        }
                     }
-                }
+                },
             }
             try jsw.endObject();
         }
@@ -1907,31 +1919,38 @@ fn walkInstruction(
             const extra = file.zir.extraData(Zir.Inst.Field, pl_node.payload_index);
 
             var path: std.ArrayListUnmanaged(DocData.Expr) = .{};
-            var lhs = @enumToInt(extra.data.lhs) - Ref.typed_value_map.len; // underflow = need to handle Refs
-
             try path.append(self.arena, .{
                 .string = file.zir.nullTerminatedString(extra.data.field_name_start),
             });
-            // Put inside path the starting index of each decl name that
-            // we encounter as we navigate through all the field_vals
-            while (tags[lhs] == .field_val or
-                tags[lhs] == .field_call_bind or
-                tags[lhs] == .field_ptr or
-                tags[lhs] == .field_type)
-            {
-                const lhs_extra = file.zir.extraData(
-                    Zir.Inst.Field,
-                    data[lhs].pl_node.payload_index,
-                );
 
-                try path.append(self.arena, .{
-                    .string = file.zir.nullTerminatedString(lhs_extra.data.field_name_start),
-                });
-                lhs = @enumToInt(lhs_extra.data.lhs) - Ref.typed_value_map.len; // underflow = need to handle Refs
-            }
+            // Put inside path the starting index of each decl name that
+            // we encounter as we navigate through all the field_*s
+            const lhs_ref = blk: {
+                var lhs_extra = extra;
+                while (true) {
+                    if (@enumToInt(lhs_extra.data.lhs) < Ref.typed_value_map.len) {
+                        break :blk lhs_extra.data.lhs;
+                    }
+
+                    const lhs = @enumToInt(lhs_extra.data.lhs) - Ref.typed_value_map.len;
+                    if (tags[lhs] != .field_val and
+                        tags[lhs] != .field_call_bind and
+                        tags[lhs] != .field_ptr and
+                        tags[lhs] != .field_type) break :blk lhs_extra.data.lhs;
+
+                    lhs_extra = file.zir.extraData(
+                        Zir.Inst.Field,
+                        data[lhs].pl_node.payload_index,
+                    );
+
+                    try path.append(self.arena, .{
+                        .string = file.zir.nullTerminatedString(lhs_extra.data.field_name_start),
+                    });
+                }
+            };
 
             // TODO: double check that we really don't need type info here
-            const wr = try self.walkInstruction(file, parent_scope, lhs, false);
+            const wr = try self.walkRef(file, parent_scope, lhs_ref, false);
             try path.append(self.arena, wr.expr);
 
             // This way the data in `path` has the same ordering that the ref
@@ -1950,7 +1969,7 @@ fn walkInstruction(
             // - (2) Paths can sometimes never resolve fully. This means that
             //       any value that depends on that will have to become a
             //       comptimeExpr.
-            try self.tryResolveRefPath(file, lhs, path.items);
+            try self.tryResolveRefPath(file, inst_index, path.items);
             return DocData.WalkResult{ .expr = .{ .refPath = path.items } };
         },
         .int_type => {
@@ -2054,6 +2073,46 @@ fn walkInstruction(
                 .{@tagName(tags[inst_index])},
             );
             return self.cteTodo(@tagName(tags[inst_index]));
+        },
+        .struct_init_anon => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.StructInitAnon, pl_node.payload_index);
+
+            const field_vals = try self.arena.alloc(
+                DocData.Expr.FieldVal,
+                extra.data.fields_len,
+            );
+
+            log.debug("number of fields: {}", .{extra.data.fields_len});
+            var idx = extra.end;
+            for (field_vals) |*fv| {
+                const init_extra = file.zir.extraData(Zir.Inst.StructInitAnon.Item, idx);
+                const field_name = file.zir.nullTerminatedString(init_extra.data.field_name);
+                fv.* = .{
+                    .name = field_name,
+                    .val = DocData.WalkResult{
+                        .expr = .{ .comptimeExpr = 0 },
+                    },
+                };
+                // printWithContext(
+                //     file,
+                //     inst_index,
+                //     "analyzing field [{}] %{} `{s}`",
+                //     .{ i, init_extra.data.init, field_name },
+                // );
+                // const value = try self.walkRef(
+                //     file,
+                //     parent_scope,
+                //     init_extra.data.init,
+                //     need_type,
+                // );
+                // fv.* = .{ .name = field_name, .val = value };
+                // idx = init_extra.end;
+            }
+
+            return DocData.WalkResult{
+                .expr = .{ .@"struct" = field_vals },
+            };
         },
         .error_set_decl => {
             const pl_node = data[inst_index].pl_node;
@@ -3096,6 +3155,20 @@ fn tryResolveRefPath(
 
                     return;
                 },
+                .Array => {
+                    if (std.mem.eql(u8, child_string, "len")) {
+                        path[i + 1] = .{
+                            .builtinField = .len,
+                        };
+                    } else {
+                        panicWithContext(
+                            file,
+                            inst_index,
+                            "TODO: handle `{s}` in tryResolveDeclPath.type.Array\nInfo: {}",
+                            .{ child_string, resolved_parent },
+                        );
+                    }
+                },
                 .Enum => |t_enum| {
                     for (t_enum.pubDecls) |d| {
                         // TODO: this could be improved a lot
@@ -3822,9 +3895,12 @@ fn walkRef(
     } else if (enum_value < Ref.typed_value_map.len) {
         switch (ref) {
             else => {
-                std.debug.panic("TODO: handle {s} in `walkRef`\n", .{
-                    @tagName(ref),
-                });
+                panicWithContext(
+                    file,
+                    0,
+                    "TODO: handle {s} in walkRef",
+                    .{@tagName(ref)},
+                );
             },
             .undef => {
                 return DocData.WalkResult{ .expr = .@"undefined" };
