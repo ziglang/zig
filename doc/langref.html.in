@@ -5024,8 +5024,8 @@ fn shiftLeftOne(a: u32) callconv(.Inline) u32 {
 // Another file can use @import and call sub2
 pub fn sub2(a: i8, b: i8) i8 { return a - b; }
 
-// Functions can be used as values and are equivalent to pointers.
-const call2_op = fn (a: i8, b: i8) i8;
+// Function pointers are prefixed with `*const `.
+const call2_op = *const fn (a: i8, b: i8) i8;
 fn do_op(fn_call: call2_op, op1: i8, op2: i8) i8 {
     return fn_call(op1, op2);
 }

@@ -76,6 +76,8 @@ types_to_resolve: std.ArrayListUnmanaged(Air.Inst.Ref) = .{},
 post_hoc_blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, *LabeledBlock) = .{},
 /// Populated with the last compile error created.
 err: ?*Module.ErrorMsg = null,
+/// True when analyzing a generic instantiation. Used to suppress some errors.
+is_generic_instantiation: bool = false,
 
 const std = @import("std");
 const math = std.math;
@@ -6495,6 +6497,7 @@ fn instantiateGenericCall(
             .comptime_args = try new_decl_arena_allocator.alloc(TypedValue, uncasted_args.len),
             .comptime_args_fn_inst = module_fn.zir_body_inst,
             .preallocated_new_func = new_module_func,
+            .is_generic_instantiation = true,
         };
         defer child_sema.deinit();
 
@@ -7789,6 +7792,7 @@ fn funcCommon(
                 &is_generic,
                 is_extern,
                 cc_workaround,
+                has_body,
             ) catch |err| switch (err) {
                 error.NeededSourceLocation => {
                     const decl = sema.mod.declPtr(block.src_decl);
@@ -7802,6 +7806,7 @@ fn funcCommon(
                         &is_generic,
                         is_extern,
                         cc_workaround,
+                        has_body,
                     );
                     return error.AnalysisFail;
                 },
@@ -8005,6 +8010,7 @@ fn analyzeParameter(
     is_generic: *bool,
     is_extern: bool,
     cc: std.builtin.CallingConvention,
+    has_body: bool,
 ) !void {
     const requires_comptime = try sema.typeRequiresComptime(block, param_src, param.ty);
     comptime_params[i] = param.is_comptime or requires_comptime;
@@ -8053,9 +8059,9 @@ fn analyzeParameter(
         };
         return sema.failWithOwnedErrorMsg(msg);
     }
-    if (requires_comptime and !param.is_comptime) {
+    if (!sema.is_generic_instantiation and requires_comptime and !param.is_comptime and has_body) {
         const msg = msg: {
-            const msg = try sema.errMsg(block, param_src, "parametter of type '{}' must be declared comptime", .{
+            const msg = try sema.errMsg(block, param_src, "parameter of type '{}' must be declared comptime", .{
                 param.ty.fmt(sema.mod),
             });
             errdefer msg.destroy(sema.gpa);
@@ -8153,7 +8159,7 @@ fn zirParam(
 
     try block.params.append(sema.gpa, .{
         .ty = param_ty,
-        .is_comptime = is_comptime,
+        .is_comptime = comptime_syntax,
         .name = param_name,
     });
     const result = try sema.addConstant(param_ty, Value.initTag(.generic_poison));
@@ -16318,7 +16324,7 @@ fn zirUnaryMath(
     block: *Block,
     inst: Zir.Inst.Index,
     air_tag: Air.Inst.Tag,
-    eval: fn (Value, Type, Allocator, std.Target) Allocator.Error!Value,
+    comptime eval: fn (Value, Type, Allocator, std.Target) Allocator.Error!Value,
 ) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -17777,7 +17783,7 @@ fn zirBitCount(
     block: *Block,
     inst: Zir.Inst.Index,
     air_tag: Air.Inst.Tag,
-    comptimeOp: fn (val: Value, ty: Type, target: std.Target) u64,
+    comptime comptimeOp: fn (val: Value, ty: Type, target: std.Target) u64,
 ) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
@@ -29491,7 +29497,7 @@ pub fn typeRequiresComptime(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Typ
         => {
             const child_ty = ty.childType();
             if (child_ty.zigTypeTag() == .Fn) {
-                return false;
+                return child_ty.fnInfo().is_generic;
             } else {
                 return sema.typeRequiresComptime(block, src, child_ty);
             }

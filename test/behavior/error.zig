@@ -168,7 +168,7 @@ fn entryPtr() void {
     fooPtr(ptr);
 }
 
-fn foo2(f: fn () anyerror!void) void {
+fn foo2(comptime f: fn () anyerror!void) void {
     const x = f();
     x catch {
         @panic("fail");
