@@ -607,7 +607,7 @@ pub fn generateSymbol(
 
             const union_ty = typed_value.ty.cast(Type.Payload.Union).?.data;
             const mod = bin_file.options.module.?;
-            const field_index = union_ty.tag_ty.enumTagFieldIndex(union_obj.tag, mod).?;
+            const field_index = typed_value.ty.unionTagFieldIndex(union_obj.tag, mod).?;
             assert(union_ty.haveFieldTypes());
             const field_ty = union_ty.fields.values()[field_index].ty;
             if (!field_ty.hasRuntimeBits()) {
