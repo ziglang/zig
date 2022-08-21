@@ -3087,7 +3087,7 @@ fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
 
             const candidate = block.instructions.items[search_index];
             switch (air_tags[candidate]) {
-                .dbg_stmt => continue,
+                .dbg_stmt, .dbg_block_begin, .dbg_block_end => continue,
                 .store => break candidate,
                 else => break :ct,
             }
@@ -3099,7 +3099,7 @@ fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
 
             const candidate = block.instructions.items[search_index];
             switch (air_tags[candidate]) {
-                .dbg_stmt => continue,
+                .dbg_stmt, .dbg_block_begin, .dbg_block_end => continue,
                 .alloc => {
                     if (Air.indexToRef(candidate) != alloc) break :ct;
                     break;
@@ -3317,7 +3317,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
 
                     const candidate = block.instructions.items[search_index];
                     switch (air_tags[candidate]) {
-                        .dbg_stmt => continue,
+                        .dbg_stmt, .dbg_block_begin, .dbg_block_end => continue,
                         .store => break candidate,
                         else => break :ct,
                     }
@@ -3329,7 +3329,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
 
                     const candidate = block.instructions.items[search_index];
                     switch (air_tags[candidate]) {
-                        .dbg_stmt => continue,
+                        .dbg_stmt, .dbg_block_begin, .dbg_block_end => continue,
                         .bitcast => break candidate,
                         else => break :ct,
                     }
@@ -3341,7 +3341,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
 
                     const candidate = block.instructions.items[search_index];
                     switch (air_tags[candidate]) {
-                        .dbg_stmt => continue,
+                        .dbg_stmt, .dbg_block_begin, .dbg_block_end => continue,
                         .constant => break candidate,
                         else => break :ct,
                     }
