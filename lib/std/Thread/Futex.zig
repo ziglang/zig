@@ -73,6 +73,8 @@ else if (builtin.os.tag == .openbsd)
     OpenbsdImpl
 else if (builtin.os.tag == .dragonfly)
     DragonflyImpl
+else if (builtin.os.tag == .haiku)
+    SingleThreadedImpl
 else if (std.Thread.use_pthreads)
     PosixImpl
 else
