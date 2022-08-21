@@ -1,13 +1,17 @@
+const SomeEnum = union(enum) {
+    EnumVariant: u8,
+};
+
+const SomeStruct = struct {
+    struct_field: u8,
+};
+
 const OptEnum = struct {
     opt_enum: ?SomeEnum,
 };
 
 const ErrEnum = struct {
     err_enum: anyerror!SomeEnum,
-};
-
-const SomeEnum = union(enum) {
-    EnumVariant: u8,
 };
 
 const OptStruct = struct {
@@ -18,11 +22,7 @@ const ErrStruct = struct {
     err_struct: anyerror!SomeStruct,
 };
 
-const SomeStruct = struct {
-    struct_field: u8,
-};
-
-pub fn main() void {
+test {
     _ = OptEnum{
         .opt_enum = .{
             .EnumVariant = 1,
@@ -47,5 +47,3 @@ pub fn main() void {
         },
     };
 }
-
-// run
