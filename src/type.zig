@@ -4285,9 +4285,16 @@ pub const Type = extern union {
 
     pub fn unionFieldType(ty: Type, enum_tag: Value, mod: *Module) Type {
         const union_obj = ty.cast(Payload.Union).?.data;
-        const index = union_obj.tag_ty.enumTagFieldIndex(enum_tag, mod).?;
+        const index = ty.unionTagFieldIndex(enum_tag, mod).?;
         assert(union_obj.haveFieldTypes());
         return union_obj.fields.values()[index].ty;
+    }
+
+    pub fn unionTagFieldIndex(ty: Type, enum_tag: Value, mod: *Module) ?usize {
+        const union_obj = ty.cast(Payload.Union).?.data;
+        const index = union_obj.tag_ty.enumTagFieldIndex(enum_tag, mod) orelse return null;
+        const name = union_obj.tag_ty.enumFieldName(index);
+        return union_obj.fields.getIndex(name);
     }
 
     pub fn unionHasAllZeroBitFieldTypes(ty: Type) bool {
