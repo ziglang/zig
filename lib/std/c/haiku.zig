@@ -27,6 +27,10 @@ pub extern "c" fn _kern_read_stat(fd: c_int, path_ptr: [*]u8, traverse_link: boo
 
 pub extern "c" fn _kern_get_current_team() i32;
 
+pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*anyopaque) c_int;
+
+pub const dl_iterate_phdr_callback = fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
+
 pub const sem_t = extern struct {
     type: i32,
     u: extern union {
