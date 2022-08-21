@@ -9,6 +9,7 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     if (builtin.zig_backend == .stage1) { // https://github.com/ziglang/zig/issues/6025
         cases.add("test/standalone/issue_9693/main.zig");
     }
+    cases.add("test/standalone/issue_12471/main.zig");
     cases.add("test/standalone/guess_number/main.zig");
     cases.add("test/standalone/main_return_error/error_u8.zig");
     cases.add("test/standalone/main_return_error/error_u8_non_zero.zig");
