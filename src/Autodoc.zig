@@ -638,7 +638,7 @@ const DocData = struct {
         sizeOf: usize, // index in `exprs`
         bitSizeOf: usize, // index in `exprs`
         enumToInt: usize, // index in `exprs`
-        compileError: []const u8,
+        compileError: usize, //index in `exprs`
         errorSets: usize,
         string: []const u8, // direct value
         sliceIndex: usize,
@@ -1039,13 +1039,11 @@ fn walkInstruction(
                 false,
             );
 
+            const operand_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, operand.expr);
+
             return DocData.WalkResult{
-                .expr = .{
-                    .compileError = switch (operand.expr) {
-                        .string => |s| s,
-                        else => "TODO: non-string @compileError arguments",
-                    },
-                },
+                .expr = .{ .compileError = operand_index },
             };
         },
         .enum_literal => {
