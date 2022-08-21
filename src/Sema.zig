@@ -1698,7 +1698,10 @@ fn resolveMaybeUndefValIntable(
         .elem_ptr => check = check.castTag(.elem_ptr).?.data.array_ptr,
         .eu_payload_ptr, .opt_payload_ptr => check = check.cast(Value.Payload.PayloadPtr).?.data.container_ptr,
         .generic_poison => return error.GenericPoison,
-        else => return val,
+        else => {
+            try sema.resolveLazyValue(block, src, val);
+            return val;
+        },
     };
 }
 
