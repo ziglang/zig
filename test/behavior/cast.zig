@@ -1281,7 +1281,7 @@ test "*const [N]null u8 to ?[]const u8" {
 test "cast between [*c]T and ?[*:0]T on fn parameter" {
     const S = struct {
         const Handler = ?fn ([*c]const u8) callconv(.C) void;
-        fn addCallback(handler: Handler) void {
+        fn addCallback(comptime handler: Handler) void {
             _ = handler;
         }
 

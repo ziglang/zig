@@ -1548,7 +1548,7 @@ test "boolMask" {
 }
 
 /// Return the mod of `num` with the smallest integer type
-pub fn comptimeMod(num: anytype, denom: comptime_int) IntFittingRange(0, denom - 1) {
+pub fn comptimeMod(num: anytype, comptime denom: comptime_int) IntFittingRange(0, denom - 1) {
     return @intCast(IntFittingRange(0, denom - 1), @mod(num, denom));
 }
 

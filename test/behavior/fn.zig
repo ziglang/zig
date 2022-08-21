@@ -137,7 +137,7 @@ test "implicit cast function unreachable return" {
     wantsFnWithVoid(fnWithUnreachable);
 }
 
-fn wantsFnWithVoid(f: fn () void) void {
+fn wantsFnWithVoid(comptime f: fn () void) void {
     _ = f;
 }
 
