@@ -144,39 +144,10 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     });
     self.base.file = file;
 
-    // TODO Write object specific relocations, COFF symbol table, then enable object file output.
-    switch (options.output_mode) {
-        .Exe => {},
-        .Obj => return error.TODOImplementWritingObjFiles,
-        .Lib => return error.TODOImplementWritingLibFiles,
-    }
-
-    var coff_file_header_offset: u32 = 0;
-    if (options.output_mode == .Exe) {
-        // Write the MS-DOS stub and the PE signature
-        try self.base.file.?.pwriteAll(msdos_stub ++ "PE\x00\x00", 0);
-        coff_file_header_offset = msdos_stub.len + 4;
-    }
-
-    // COFF file header
+    const coff_file_header_offset: u32 = if (options.output_mode == .Exe) msdos_stub.len + 4 else 0;
+    const default_offset_table_size = file_alignment;
     const data_directory_count = 0;
-    var hdr_data: [112 + data_directory_count * 8 + section_table_size]u8 = undefined;
-    var index: usize = 0;
-
-    const machine = self.base.options.target.cpu.arch.toCoffMachine();
-    if (machine == .Unknown) {
-        return error.UnsupportedCOFFArchitecture;
-    }
-    mem.writeIntLittle(u16, hdr_data[0..2], @enumToInt(machine));
-    index += 2;
-
-    // Number of sections (we only use .got, .text)
-    mem.writeIntLittle(u16, hdr_data[index..][0..2], 2);
-    index += 2;
-    // TimeDateStamp (u32), PointerToSymbolTable (u32), NumberOfSymbols (u32)
-    mem.set(u8, hdr_data[index..][0..12], 0);
-    index += 12;
-
+    const default_size_of_code = 0;
     const optional_header_size = switch (options.output_mode) {
         .Exe => data_directory_count * 8 + switch (self.ptr_width) {
             .p32 => @as(u16, 96),
@@ -184,217 +155,14 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
         },
         else => 0,
     };
-
     const section_table_offset = coff_file_header_offset + 20 + optional_header_size;
-    const default_offset_table_size = file_alignment;
-    const default_size_of_code = 0;
-
-    self.section_data_offset = mem.alignForwardGeneric(u32, self.section_table_offset + section_table_size, file_alignment);
-    const section_data_relative_virtual_address = mem.alignForwardGeneric(u32, self.section_table_offset + section_table_size, section_alignment);
+    self.section_data_offset = mem.alignForwardGeneric(u32, section_table_offset + section_table_size, file_alignment);
+    const section_data_relative_virtual_address = mem.alignForwardGeneric(u32, section_table_offset + section_table_size, section_alignment);
     self.offset_table_virtual_address = default_image_base + section_data_relative_virtual_address;
     self.offset_table_size = default_offset_table_size;
     self.section_table_offset = section_table_offset;
     self.text_section_virtual_address = default_image_base + section_data_relative_virtual_address + section_alignment;
     self.text_section_size = default_size_of_code;
-
-    // Size of file when loaded in memory
-    const size_of_image = mem.alignForwardGeneric(u32, self.text_section_virtual_address - default_image_base + default_size_of_code, section_alignment);
-
-    mem.writeIntLittle(u16, hdr_data[index..][0..2], optional_header_size);
-    index += 2;
-
-    // Characteristics
-    var characteristics: std.coff.CoffHeaderFlags = .{
-        .DEBUG_STRIPPED = 1, // TODO remove debug info stripped flag when necessary
-        .RELOCS_STRIPPED = 1,
-    };
-    if (options.output_mode == .Exe) {
-        characteristics.EXECUTABLE_IMAGE = 1;
-    }
-    switch (self.ptr_width) {
-        .p32 => characteristics.@"32BIT_MACHINE" = 1,
-        .p64 => characteristics.LARGE_ADDRESS_AWARE = 1,
-    }
-    mem.writeIntLittle(u16, hdr_data[index..][0..2], @bitCast(u16, characteristics));
-    index += 2;
-
-    assert(index == 20);
-    try self.base.file.?.pwriteAll(hdr_data[0..index], coff_file_header_offset);
-
-    if (options.output_mode == .Exe) {
-        self.optional_header_offset = coff_file_header_offset + 20;
-        // Optional header
-        index = 0;
-        mem.writeIntLittle(u16, hdr_data[0..2], switch (self.ptr_width) {
-            .p32 => @as(u16, 0x10b),
-            .p64 => 0x20b,
-        });
-        index += 2;
-
-        // Linker version (u8 + u8)
-        mem.set(u8, hdr_data[index..][0..2], 0);
-        index += 2;
-
-        // SizeOfCode (UNUSED, u32), SizeOfInitializedData (u32), SizeOfUninitializedData (u32), AddressOfEntryPoint (u32), BaseOfCode (UNUSED, u32)
-        mem.set(u8, hdr_data[index..][0..20], 0);
-        index += 20;
-
-        if (self.ptr_width == .p32) {
-            // Base of data relative to the image base (UNUSED)
-            mem.set(u8, hdr_data[index..][0..4], 0);
-            index += 4;
-
-            // Image base address
-            mem.writeIntLittle(u32, hdr_data[index..][0..4], default_image_base);
-            index += 4;
-        } else {
-            // Image base address
-            mem.writeIntLittle(u64, hdr_data[index..][0..8], default_image_base);
-            index += 8;
-        }
-
-        // Section alignment
-        mem.writeIntLittle(u32, hdr_data[index..][0..4], section_alignment);
-        index += 4;
-        // File alignment
-        mem.writeIntLittle(u32, hdr_data[index..][0..4], file_alignment);
-        index += 4;
-        // Required OS version, 6.0 is vista
-        mem.writeIntLittle(u16, hdr_data[index..][0..2], 6);
-        index += 2;
-        mem.writeIntLittle(u16, hdr_data[index..][0..2], 0);
-        index += 2;
-        // Image version
-        mem.set(u8, hdr_data[index..][0..4], 0);
-        index += 4;
-        // Required subsystem version, same as OS version
-        mem.writeIntLittle(u16, hdr_data[index..][0..2], 6);
-        index += 2;
-        mem.writeIntLittle(u16, hdr_data[index..][0..2], 0);
-        index += 2;
-        // Reserved zeroes (u32)
-        mem.set(u8, hdr_data[index..][0..4], 0);
-        index += 4;
-        mem.writeIntLittle(u32, hdr_data[index..][0..4], size_of_image);
-        index += 4;
-        mem.writeIntLittle(u32, hdr_data[index..][0..4], self.section_data_offset);
-        index += 4;
-        // CheckSum (u32)
-        mem.set(u8, hdr_data[index..][0..4], 0);
-        index += 4;
-        // Subsystem, TODO: Let users specify the subsystem, always CUI for now
-        mem.writeIntLittle(u16, hdr_data[index..][0..2], 3);
-        index += 2;
-        // DLL characteristics
-        mem.writeIntLittle(u16, hdr_data[index..][0..2], 0x0);
-        index += 2;
-
-        switch (self.ptr_width) {
-            .p32 => {
-                // Size of stack reserve + commit
-                mem.writeIntLittle(u32, hdr_data[index..][0..4], 0x1_000_000);
-                index += 4;
-                mem.writeIntLittle(u32, hdr_data[index..][0..4], 0x1_000);
-                index += 4;
-                // Size of heap reserve + commit
-                mem.writeIntLittle(u32, hdr_data[index..][0..4], 0x100_000);
-                index += 4;
-                mem.writeIntLittle(u32, hdr_data[index..][0..4], 0x1_000);
-                index += 4;
-            },
-            .p64 => {
-                // Size of stack reserve + commit
-                mem.writeIntLittle(u64, hdr_data[index..][0..8], 0x1_000_000);
-                index += 8;
-                mem.writeIntLittle(u64, hdr_data[index..][0..8], 0x1_000);
-                index += 8;
-                // Size of heap reserve + commit
-                mem.writeIntLittle(u64, hdr_data[index..][0..8], 0x100_000);
-                index += 8;
-                mem.writeIntLittle(u64, hdr_data[index..][0..8], 0x1_000);
-                index += 8;
-            },
-        }
-
-        // Reserved zeroes
-        mem.set(u8, hdr_data[index..][0..4], 0);
-        index += 4;
-
-        // Number of data directories
-        mem.writeIntLittle(u32, hdr_data[index..][0..4], data_directory_count);
-        index += 4;
-        // Initialize data directories to zero
-        mem.set(u8, hdr_data[index..][0 .. data_directory_count * 8], 0);
-        index += data_directory_count * 8;
-
-        assert(index == optional_header_size);
-    }
-
-    // Write section table.
-    // First, the .got section
-    hdr_data[index..][0..8].* = ".got\x00\x00\x00\x00".*;
-    index += 8;
-    if (options.output_mode == .Exe) {
-        // Virtual size (u32)
-        mem.writeIntLittle(u32, hdr_data[index..][0..4], default_offset_table_size);
-        index += 4;
-        // Virtual address (u32)
-        mem.writeIntLittle(u32, hdr_data[index..][0..4], self.offset_table_virtual_address - default_image_base);
-        index += 4;
-    } else {
-        mem.set(u8, hdr_data[index..][0..8], 0);
-        index += 8;
-    }
-    // Size of raw data (u32)
-    mem.writeIntLittle(u32, hdr_data[index..][0..4], default_offset_table_size);
-    index += 4;
-    // File pointer to the start of the section
-    mem.writeIntLittle(u32, hdr_data[index..][0..4], self.section_data_offset);
-    index += 4;
-    // Pointer to relocations (u32), PointerToLinenumbers (u32), NumberOfRelocations (u16), NumberOfLinenumbers (u16)
-    mem.set(u8, hdr_data[index..][0..12], 0);
-    index += 12;
-    // Section flags
-    mem.writeIntLittle(u32, hdr_data[index..][0..4], @bitCast(u32, std.coff.SectionHeaderFlags{
-        .CNT_INITIALIZED_DATA = 1,
-        .MEM_READ = 1,
-    }));
-    index += 4;
-    // Then, the .text section
-    hdr_data[index..][0..8].* = ".text\x00\x00\x00".*;
-    index += 8;
-    if (options.output_mode == .Exe) {
-        // Virtual size (u32)
-        mem.writeIntLittle(u32, hdr_data[index..][0..4], default_size_of_code);
-        index += 4;
-        // Virtual address (u32)
-        mem.writeIntLittle(u32, hdr_data[index..][0..4], self.text_section_virtual_address - default_image_base);
-        index += 4;
-    } else {
-        mem.set(u8, hdr_data[index..][0..8], 0);
-        index += 8;
-    }
-    // Size of raw data (u32)
-    mem.writeIntLittle(u32, hdr_data[index..][0..4], default_size_of_code);
-    index += 4;
-    // File pointer to the start of the section
-    mem.writeIntLittle(u32, hdr_data[index..][0..4], self.section_data_offset + default_offset_table_size);
-    index += 4;
-    // Pointer to relocations (u32), PointerToLinenumbers (u32), NumberOfRelocations (u16), NumberOfLinenumbers (u16)
-    mem.set(u8, hdr_data[index..][0..12], 0);
-    index += 12;
-    // Section flags
-    mem.writeIntLittle(u32, hdr_data[index..][0..4], @bitCast(u32, std.coff.SectionHeaderFlags{
-        .CNT_CODE = 1,
-        .MEM_EXECUTE = 1,
-        .MEM_READ = 1,
-        .MEM_WRITE = 1,
-    }));
-    index += 4;
-
-    assert(index == optional_header_size + section_table_size);
-    try self.base.file.?.pwriteAll(hdr_data[0..index], self.optional_header_offset);
-    try self.base.file.?.setEndPos(self.section_data_offset + default_offset_table_size + default_size_of_code);
 
     return self;
 }
@@ -728,6 +496,12 @@ pub fn updateDecl(self: *Coff, module: *Module, decl_index: Module.Decl.Index) !
     if (decl.val.tag() == .extern_fn) {
         return; // TODO Should we do more when front-end analyzed extern decl?
     }
+    if (decl.val.castTag(.variable)) |payload| {
+        const variable = payload.data;
+        if (variable.is_extern) {
+            return; // TODO Should we do more when front-end analyzed extern decl?
+        }
+    }
 
     // TODO COFF/PE debug information
     // TODO Implement exports
@@ -735,9 +509,10 @@ pub fn updateDecl(self: *Coff, module: *Module, decl_index: Module.Decl.Index) !
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
+    const decl_val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
         .ty = decl.ty,
-        .val = decl.val,
+        .val = decl_val,
     }, &code_buffer, .none, .{
         .parent_atom_index = 0,
     });
@@ -862,15 +637,14 @@ pub fn updateDeclExports(
                 continue;
             }
         }
-        if (mem.eql(u8, exp.options.name, "_start")) {
+        if (mem.eql(u8, exp.options.name, "wWinMainCRTStartup")) {
             self.entry_addr = decl.link.coff.getVAddr(self.*) - default_image_base;
         } else {
             try module.failed_exports.ensureUnusedCapacity(module.gpa, 1);
             module.failed_exports.putAssumeCapacityNoClobber(
                 exp,
-                try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: Exports other than '_start'", .{}),
+                try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: Exports other than 'wWinMainCRTStartup'", .{}),
             );
-            continue;
         }
     }
 }
@@ -884,14 +658,13 @@ pub fn flush(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) !vo
         }
         return;
     }
-    if (build_options.have_llvm and self.base.options.use_lld) {
+    const use_lld = build_options.have_llvm and self.base.options.use_lld;
+    if (use_lld) {
         return self.linkWithLLD(comp, prog_node);
-    } else {
-        switch (self.base.options.effectiveOutputMode()) {
-            .Exe, .Obj => {},
-            .Lib => return error.TODOImplementWritingLibFiles,
-        }
-        return self.flushModule(comp, prog_node);
+    }
+    switch (self.base.options.output_mode) {
+        .Exe, .Obj => return self.flushModule(comp, prog_node),
+        .Lib => return error.TODOImplementWritingLibFiles,
     }
 }
 
@@ -908,6 +681,238 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     var sub_prog_node = prog_node.start("COFF Flush", 0);
     sub_prog_node.activate();
     defer sub_prog_node.end();
+
+    const output_mode = self.base.options.output_mode;
+    log.debug("in flushModule with {}", .{output_mode});
+
+    var coff_file_header_offset: u32 = 0;
+    if (output_mode == .Exe) {
+        // Write the MS-DOS stub and the PE signature
+        try self.base.file.?.pwriteAll(msdos_stub ++ "PE\x00\x00", 0);
+        coff_file_header_offset = msdos_stub.len + 4;
+    }
+
+    // COFF file header
+    const data_directory_count = 0;
+    var hdr_data: [112 + data_directory_count * 8 + section_table_size]u8 = undefined;
+    var index: usize = 0;
+
+    const machine = self.base.options.target.cpu.arch.toCoffMachine();
+    if (machine == .Unknown) {
+        return error.UnsupportedCOFFArchitecture;
+    }
+    mem.writeIntLittle(u16, hdr_data[0..2], @enumToInt(machine));
+    index += 2;
+
+    // Number of sections (we only use .got, .text)
+    mem.writeIntLittle(u16, hdr_data[index..][0..2], 2);
+    index += 2;
+    // TimeDateStamp (u32), PointerToSymbolTable (u32), NumberOfSymbols (u32)
+    mem.set(u8, hdr_data[index..][0..12], 0);
+    index += 12;
+
+    const optional_header_size = switch (output_mode) {
+        .Exe => data_directory_count * 8 + switch (self.ptr_width) {
+            .p32 => @as(u16, 96),
+            .p64 => 112,
+        },
+        else => 0,
+    };
+
+    const default_offset_table_size = file_alignment;
+    const default_size_of_code = 0;
+
+    // Size of file when loaded in memory
+    const size_of_image = mem.alignForwardGeneric(u32, self.text_section_virtual_address - default_image_base + default_size_of_code, section_alignment);
+
+    mem.writeIntLittle(u16, hdr_data[index..][0..2], optional_header_size);
+    index += 2;
+
+    // Characteristics
+    var characteristics: u16 = std.coff.IMAGE_FILE_DEBUG_STRIPPED | std.coff.IMAGE_FILE_RELOCS_STRIPPED; // TODO Remove debug info stripped flag when necessary
+    if (output_mode == .Exe) {
+        characteristics |= std.coff.IMAGE_FILE_EXECUTABLE_IMAGE;
+    }
+    switch (self.ptr_width) {
+        .p32 => characteristics |= std.coff.IMAGE_FILE_32BIT_MACHINE,
+        .p64 => characteristics |= std.coff.IMAGE_FILE_LARGE_ADDRESS_AWARE,
+    }
+    mem.writeIntLittle(u16, hdr_data[index..][0..2], characteristics);
+    index += 2;
+
+    assert(index == 20);
+    try self.base.file.?.pwriteAll(hdr_data[0..index], coff_file_header_offset);
+
+    if (output_mode == .Exe) {
+        self.optional_header_offset = coff_file_header_offset + 20;
+        // Optional header
+        index = 0;
+        mem.writeIntLittle(u16, hdr_data[0..2], switch (self.ptr_width) {
+            .p32 => @as(u16, 0x10b),
+            .p64 => 0x20b,
+        });
+        index += 2;
+
+        // Linker version (u8 + u8)
+        mem.set(u8, hdr_data[index..][0..2], 0);
+        index += 2;
+
+        // SizeOfCode (UNUSED, u32), SizeOfInitializedData (u32), SizeOfUninitializedData (u32), AddressOfEntryPoint (u32), BaseOfCode (UNUSED, u32)
+        mem.set(u8, hdr_data[index..][0..20], 0);
+        index += 20;
+
+        if (self.ptr_width == .p32) {
+            // Base of data relative to the image base (UNUSED)
+            mem.set(u8, hdr_data[index..][0..4], 0);
+            index += 4;
+
+            // Image base address
+            mem.writeIntLittle(u32, hdr_data[index..][0..4], default_image_base);
+            index += 4;
+        } else {
+            // Image base address
+            mem.writeIntLittle(u64, hdr_data[index..][0..8], default_image_base);
+            index += 8;
+        }
+
+        // Section alignment
+        mem.writeIntLittle(u32, hdr_data[index..][0..4], section_alignment);
+        index += 4;
+        // File alignment
+        mem.writeIntLittle(u32, hdr_data[index..][0..4], file_alignment);
+        index += 4;
+        // Required OS version, 6.0 is vista
+        mem.writeIntLittle(u16, hdr_data[index..][0..2], 6);
+        index += 2;
+        mem.writeIntLittle(u16, hdr_data[index..][0..2], 0);
+        index += 2;
+        // Image version
+        mem.set(u8, hdr_data[index..][0..4], 0);
+        index += 4;
+        // Required subsystem version, same as OS version
+        mem.writeIntLittle(u16, hdr_data[index..][0..2], 6);
+        index += 2;
+        mem.writeIntLittle(u16, hdr_data[index..][0..2], 0);
+        index += 2;
+        // Reserved zeroes (u32)
+        mem.set(u8, hdr_data[index..][0..4], 0);
+        index += 4;
+        mem.writeIntLittle(u32, hdr_data[index..][0..4], size_of_image);
+        index += 4;
+        mem.writeIntLittle(u32, hdr_data[index..][0..4], self.section_data_offset);
+        index += 4;
+        // CheckSum (u32)
+        mem.set(u8, hdr_data[index..][0..4], 0);
+        index += 4;
+        // Subsystem, TODO: Let users specify the subsystem, always CUI for now
+        mem.writeIntLittle(u16, hdr_data[index..][0..2], 3);
+        index += 2;
+        // DLL characteristics
+        mem.writeIntLittle(u16, hdr_data[index..][0..2], 0x0);
+        index += 2;
+
+        switch (self.ptr_width) {
+            .p32 => {
+                // Size of stack reserve + commit
+                mem.writeIntLittle(u32, hdr_data[index..][0..4], 0x1_000_000);
+                index += 4;
+                mem.writeIntLittle(u32, hdr_data[index..][0..4], 0x1_000);
+                index += 4;
+                // Size of heap reserve + commit
+                mem.writeIntLittle(u32, hdr_data[index..][0..4], 0x100_000);
+                index += 4;
+                mem.writeIntLittle(u32, hdr_data[index..][0..4], 0x1_000);
+                index += 4;
+            },
+            .p64 => {
+                // Size of stack reserve + commit
+                mem.writeIntLittle(u64, hdr_data[index..][0..8], 0x1_000_000);
+                index += 8;
+                mem.writeIntLittle(u64, hdr_data[index..][0..8], 0x1_000);
+                index += 8;
+                // Size of heap reserve + commit
+                mem.writeIntLittle(u64, hdr_data[index..][0..8], 0x100_000);
+                index += 8;
+                mem.writeIntLittle(u64, hdr_data[index..][0..8], 0x1_000);
+                index += 8;
+            },
+        }
+
+        // Reserved zeroes
+        mem.set(u8, hdr_data[index..][0..4], 0);
+        index += 4;
+
+        // Number of data directories
+        mem.writeIntLittle(u32, hdr_data[index..][0..4], data_directory_count);
+        index += 4;
+        // Initialize data directories to zero
+        mem.set(u8, hdr_data[index..][0 .. data_directory_count * 8], 0);
+        index += data_directory_count * 8;
+
+        assert(index == optional_header_size);
+    }
+
+    // Write section table.
+    // First, the .got section
+    hdr_data[index..][0..8].* = ".got\x00\x00\x00\x00".*;
+    index += 8;
+    if (output_mode == .Exe) {
+        // Virtual size (u32)
+        mem.writeIntLittle(u32, hdr_data[index..][0..4], default_offset_table_size);
+        index += 4;
+        // Virtual address (u32)
+        mem.writeIntLittle(u32, hdr_data[index..][0..4], self.offset_table_virtual_address - default_image_base);
+        index += 4;
+    } else {
+        mem.set(u8, hdr_data[index..][0..8], 0);
+        index += 8;
+    }
+    // Size of raw data (u32)
+    mem.writeIntLittle(u32, hdr_data[index..][0..4], default_offset_table_size);
+    index += 4;
+    // File pointer to the start of the section
+    mem.writeIntLittle(u32, hdr_data[index..][0..4], self.section_data_offset);
+    index += 4;
+    // Pointer to relocations (u32), PointerToLinenumbers (u32), NumberOfRelocations (u16), NumberOfLinenumbers (u16)
+    mem.set(u8, hdr_data[index..][0..12], 0);
+    index += 12;
+    // Section flags
+    mem.writeIntLittle(u32, hdr_data[index..][0..4], std.coff.IMAGE_SCN_CNT_INITIALIZED_DATA | std.coff.IMAGE_SCN_MEM_READ);
+    index += 4;
+    // Then, the .text section
+    hdr_data[index..][0..8].* = ".text\x00\x00\x00".*;
+    index += 8;
+    if (output_mode == .Exe) {
+        // Virtual size (u32)
+        mem.writeIntLittle(u32, hdr_data[index..][0..4], default_size_of_code);
+        index += 4;
+        // Virtual address (u32)
+        mem.writeIntLittle(u32, hdr_data[index..][0..4], self.text_section_virtual_address - default_image_base);
+        index += 4;
+    } else {
+        mem.set(u8, hdr_data[index..][0..8], 0);
+        index += 8;
+    }
+    // Size of raw data (u32)
+    mem.writeIntLittle(u32, hdr_data[index..][0..4], default_size_of_code);
+    index += 4;
+    // File pointer to the start of the section
+    mem.writeIntLittle(u32, hdr_data[index..][0..4], self.section_data_offset + default_offset_table_size);
+    index += 4;
+    // Pointer to relocations (u32), PointerToLinenumbers (u32), NumberOfRelocations (u16), NumberOfLinenumbers (u16)
+    mem.set(u8, hdr_data[index..][0..12], 0);
+    index += 12;
+    // Section flags
+    mem.writeIntLittle(
+        u32,
+        hdr_data[index..][0..4],
+        std.coff.IMAGE_SCN_CNT_CODE | std.coff.IMAGE_SCN_MEM_EXECUTE | std.coff.IMAGE_SCN_MEM_READ | std.coff.IMAGE_SCN_MEM_WRITE,
+    );
+    index += 4;
+
+    assert(index == optional_header_size + section_table_size);
+    try self.base.file.?.pwriteAll(hdr_data[0..index], self.optional_header_offset);
+    try self.base.file.?.setEndPos(self.section_data_offset + default_offset_table_size + default_size_of_code);
 
     if (self.text_section_size_dirty) {
         // Write the new raw size in the .text header
