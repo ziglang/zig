@@ -1898,7 +1898,11 @@ pub const LibExeObjStep = struct {
     pub fn runEmulatable(exe: *LibExeObjStep) *EmulatableRunStep {
         assert(exe.kind == .exe or exe.kind == .test_exe);
 
-        return EmulatableRunStep.create(exe.builder, exe.builder.fmt("run {s}", .{exe.step.name}), exe);
+        const run_step = EmulatableRunStep.create(exe.builder, exe.builder.fmt("run {s}", .{exe.step.name}), exe);
+        if (exe.vcpkg_bin_path) |path| {
+            RunStep.addPathDirInternal(&run_step.step, exe.builder, path);
+        }
+        return run_step;
     }
 
     pub fn checkObject(self: *LibExeObjStep, obj_format: std.Target.ObjectFormat) *CheckObjectStep {
