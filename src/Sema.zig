@@ -975,8 +975,9 @@ fn analyzeBodyInner(
                     .reify                 => try sema.zirReify(             block, extended, inst),
                     .builtin_async_call    => try sema.zirBuiltinAsyncCall(  block, extended),
                     .cmpxchg               => try sema.zirCmpxchg(           block, extended),
-
+                    .addrspace_cast        => try sema.zirAddrSpaceCast(     block, extended),
                     // zig fmt: on
+
                     .fence => {
                         try sema.zirFence(block, extended);
                         i += 1;
@@ -16250,7 +16251,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const address_space = if (inst_data.flags.has_addrspace) blk: {
         const ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_i]);
         extra_i += 1;
-        break :blk try sema.analyzeAddrspace(block, addrspace_src, ref, .pointer);
+        break :blk try sema.analyzeAddressSpace(block, addrspace_src, ref, .pointer);
     } else .generic;
 
     const bit_offset = if (inst_data.flags.has_bit_range) blk: {
@@ -18168,6 +18169,53 @@ fn reifyStruct(
 
     try new_decl.finalizeNewArena(&new_decl_arena);
     return sema.analyzeDeclVal(block, src, new_decl_index);
+}
+
+fn zirAddrSpaceCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+    const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
+    const src = LazySrcLoc.nodeOffset(extra.node);
+    const addrspace_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const ptr_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
+
+    const dest_addrspace = try sema.analyzeAddressSpace(block, addrspace_src, extra.lhs, .pointer);
+    const ptr = try sema.resolveInst(extra.rhs);
+    const ptr_ty = sema.typeOf(ptr);
+
+    // TODO in addition to pointers, this instruction is supposed to work for
+    // pointer-like optionals and slices.
+    try sema.checkPtrOperand(block, ptr_src, ptr_ty);
+
+    // TODO check address space cast validity.
+    const src_addrspace = ptr_ty.ptrAddressSpace();
+    _ = src_addrspace;
+
+    const ptr_info = ptr_ty.ptrInfo().data;
+    const dest_ty = try Type.ptr(sema.arena, sema.mod, .{
+        .pointee_type = ptr_info.pointee_type,
+        .@"align" = ptr_info.@"align",
+        .@"addrspace" = dest_addrspace,
+        .mutable = ptr_info.mutable,
+        .@"allowzero" = ptr_info.@"allowzero",
+        .@"volatile" = ptr_info.@"volatile",
+        .size = ptr_info.size,
+    });
+
+    if (try sema.resolveMaybeUndefVal(block, ptr_src, ptr)) |val| {
+        // Pointer value should compatible with both address spaces.
+        // TODO: Figure out why this generates an invalid bitcast.
+        return sema.addConstant(dest_ty, val);
+    }
+
+    try sema.requireRuntimeBlock(block, src, ptr_src);
+    // TODO: Address space cast safety?
+
+    return block.addInst(.{
+        .tag = .addrspace_cast,
+        .data = .{ .ty_op = .{
+            .ty = try sema.addType(dest_ty),
+            .operand = ptr,
+        } },
+    });
 }
 
 fn zirTypeName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -30292,7 +30340,7 @@ pub const AddressSpaceContext = enum {
     pointer,
 };
 
-pub fn analyzeAddrspace(
+pub fn analyzeAddressSpace(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,

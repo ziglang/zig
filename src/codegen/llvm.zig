@@ -4512,6 +4512,7 @@ pub const FuncGen = struct {
                 .aggregate_init => try self.airAggregateInit(inst),
                 .union_init     => try self.airUnionInit(inst),
                 .prefetch       => try self.airPrefetch(inst),
+                .addrspace_cast => try self.airAddrSpaceCast(inst),
 
                 .is_named_enum_value => try self.airIsNamedEnumValue(inst),
                 .error_set_has_value => try self.airErrorSetHasValue(inst),
@@ -9043,6 +9044,17 @@ pub const FuncGen = struct {
         };
         _ = self.builder.buildCall(fn_val.globalGetValueType(), fn_val, &params, params.len, .C, .Auto, "");
         return null;
+    }
+
+    fn airAddrSpaceCast(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const inst_ty = self.air.typeOfIndex(inst);
+        const operand = try self.resolveInst(ty_op.operand);
+
+        const llvm_dest_ty = try self.dg.lowerType(inst_ty);
+        return self.builder.buildAddrSpaceCast(operand, llvm_dest_ty, "");
     }
 
     fn softF80TruncOrExt(

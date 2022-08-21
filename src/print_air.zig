@@ -244,6 +244,7 @@ const Writer = struct {
             .byte_swap,
             .bit_reverse,
             .error_set_has_value,
+            .addrspace_cast,
             => try w.writeTyOp(s, inst),
 
             .block,

@@ -1871,6 +1871,7 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .aggregate_init   => try airAggregateInit(f, inst),
             .union_init       => try airUnionInit(f, inst),
             .prefetch         => try airPrefetch(f, inst),
+            .addrspace_cast   => return f.fail("TODO: C backend: implement addrspace_cast", .{}),
 
             .@"try"  => try airTry(f, inst),
             .try_ptr => try airTryPtr(f, inst),

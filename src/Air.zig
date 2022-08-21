@@ -729,6 +729,10 @@ pub const Inst = struct {
         /// Sets the operand as the current error return trace,
         set_err_return_trace,
 
+        /// Convert the address space of a pointer.
+        /// Uses the `ty_op` field.
+        addrspace_cast,
+
         pub fn fromCmpOp(op: std.math.CompareOperator, optimized: bool) Tag {
             switch (op) {
                 .lt => return if (optimized) .cmp_lt_optimized else .cmp_lt,
@@ -1138,6 +1142,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .popcount,
         .byte_swap,
         .bit_reverse,
+        .addrspace_cast,
         => return air.getRefType(datas[inst].ty_op.ty),
 
         .loop,
