@@ -5447,11 +5447,7 @@ pub fn toPosixPath(file_path: []const u8) ![MAX_PATH_BYTES - 1:0]u8 {
 /// if this happens the fix is to add the error code to the corresponding
 /// switch expression, possibly introduce a new error in the error set, and
 /// send a patch to Zig.
-/// The self-hosted compiler is not fully capable of handle the related code.
-/// Until then, unexpected error tracing is disabled for the self-hosted compiler.
-/// TODO remove this once self-hosted is capable enough to handle printing and
-/// stack trace dumping.
-pub const unexpected_error_tracing = builtin.zig_backend == .stage1 and builtin.mode == .Debug;
+pub const unexpected_error_tracing = (builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and builtin.mode == .Debug;
 
 pub const UnexpectedError = error{
     /// The Operating System returned an undocumented error code.
