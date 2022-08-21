@@ -13032,7 +13032,7 @@ fn analyzePtrArithmetic(
         // The resulting pointer is aligned to the lcd between the offset (an
         // arbitrary number) and the alignment factor (always a power of two,
         // non zero).
-        const new_align = @as(u32, 1) << @intCast(u5, @ctz(u64, addend | ptr_info.@"align"));
+        const new_align = @as(u32, 1) << @intCast(u5, @ctz(addend | ptr_info.@"align"));
 
         break :t try Type.ptr(sema.arena, sema.mod, .{
             .pointee_type = ptr_info.pointee_type,
@@ -17781,7 +17781,7 @@ fn zirBitCount(
 ) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const operand = try sema.resolveInst(inst_data.operand);
     const operand_ty = sema.typeOf(operand);
     _ = try checkIntOrVector(sema, block, operand, operand_src);
@@ -17833,17 +17833,16 @@ fn zirBitCount(
 fn zirByteSwap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const operand = try sema.resolveInst(inst_data.operand);
     const operand_ty = sema.typeOf(operand);
-    const scalar_ty = try sema.checkIntOrVectorAllowComptime(block, operand_ty, operand_src);
+    const scalar_ty = try sema.checkIntOrVector(block, operand, operand_src);
     const target = sema.mod.getTarget();
     const bits = scalar_ty.intInfo(target).bits;
     if (bits % 8 != 0) {
         return sema.fail(
             block,
-            ty_src,
+            operand_src,
             "@byteSwap requires the number of bits to be evenly divisible by 8, but {} has {} bits",
             .{ scalar_ty.fmt(sema.mod), bits },
         );
@@ -17854,7 +17853,7 @@ fn zirByteSwap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     }
 
     switch (operand_ty.zigTypeTag()) {
-        .Int, .ComptimeInt => {
+        .Int => {
             const runtime_src = if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
                 if (val.isUndef()) return sema.addConstUndef(operand_ty);
                 const result_val = try val.byteSwap(operand_ty, target, sema.arena);
@@ -17892,7 +17891,7 @@ fn zirByteSwap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 fn zirBitReverse(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const operand = try sema.resolveInst(inst_data.operand);
     const operand_ty = sema.typeOf(operand);
     _ = try sema.checkIntOrVectorAllowComptime(block, operand_ty, operand_src);
@@ -21656,7 +21655,7 @@ fn structFieldPtrByIndex(
             const elem_size_bits = ptr_ty_data.pointee_type.bitSize(target);
             if (elem_size_bytes * 8 == elem_size_bits) {
                 const byte_offset = ptr_ty_data.bit_offset / 8;
-                const new_align = @as(u32, 1) << @intCast(u5, @ctz(u64, byte_offset | parent_align));
+                const new_align = @as(u32, 1) << @intCast(u5, @ctz(byte_offset | parent_align));
                 ptr_ty_data.bit_offset = 0;
                 ptr_ty_data.host_size = 0;
                 ptr_ty_data.@"align" = new_align;
@@ -30426,7 +30425,7 @@ fn elemPtrType(sema: *Sema, ptr_ty: Type, offset: ?usize) !Type {
         // The resulting pointer is aligned to the lcd between the offset (an
         // arbitrary number) and the alignment factor (always a power of two,
         // non zero).
-        const new_align = @as(u32, 1) << @intCast(u5, @ctz(u64, addend | ptr_info.@"align"));
+        const new_align = @as(u32, 1) << @intCast(u5, @ctz(addend | ptr_info.@"align"));
         break :a new_align;
     };
     return try Type.ptr(sema.arena, sema.mod, .{

@@ -2,7 +2,7 @@ const math = @import("std").math;
 
 // Reverse bit-by-bit a N-bit code.
 pub fn bitReverse(comptime T: type, value: T, N: usize) T {
-    const r = @bitReverse(T, value);
+    const r = @bitReverse(value);
     return r >> @intCast(math.Log2Int(T), @typeInfo(T).Int.bits - N);
 }
 

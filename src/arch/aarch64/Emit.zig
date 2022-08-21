@@ -277,7 +277,7 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
         => return 2 * 4,
         .pop_regs, .push_regs => {
             const reg_list = emit.mir.instructions.items(.data)[inst].reg_list;
-            const number_of_regs = @popCount(u32, reg_list);
+            const number_of_regs = @popCount(reg_list);
             const number_of_insts = std.math.divCeil(u6, number_of_regs, 2) catch unreachable;
             return number_of_insts * 4;
         },
@@ -1183,7 +1183,7 @@ fn mirPushPopRegs(emit: *Emit, inst: Mir.Inst.Index) !void {
     // sp must be aligned at all times, so we only use stp and ldp
     // instructions for minimal instruction count. However, if we do
     // not have an even number of registers, we use str and ldr
-    const number_of_regs = @popCount(u32, reg_list);
+    const number_of_regs = @popCount(reg_list);
 
     switch (tag) {
         .pop_regs => {

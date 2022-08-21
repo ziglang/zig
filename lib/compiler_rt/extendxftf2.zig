@@ -38,7 +38,7 @@ fn __extendxftf2(a: f80) callconv(.C) f128 {
         // a is denormal
         // renormalize the significand and clear the leading bit and integer part,
         // then insert the correct adjusted exponent in the destination type.
-        const scale: u32 = @clz(u64, a_rep.fraction);
+        const scale: u32 = @clz(a_rep.fraction);
         abs_result = @as(u128, a_rep.fraction) << @intCast(u7, dst_sig_bits - src_sig_bits + scale + 1);
         abs_result ^= dst_min_normal;
         abs_result |= @as(u128, scale + 1) << dst_sig_bits;

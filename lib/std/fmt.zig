@@ -195,7 +195,7 @@ pub fn format(
     }
 
     if (comptime arg_state.hasUnusedArgs()) {
-        const missing_count = arg_state.args_len - @popCount(ArgSetType, arg_state.used_args);
+        const missing_count = arg_state.args_len - @popCount(arg_state.used_args);
         switch (missing_count) {
             0 => unreachable,
             1 => @compileError("unused argument in '" ++ fmt ++ "'"),
@@ -380,7 +380,7 @@ const ArgState = struct {
     args_len: usize,
 
     fn hasUnusedArgs(self: *@This()) bool {
-        return @popCount(ArgSetType, self.used_args) != self.args_len;
+        return @popCount(self.used_args) != self.args_len;
     }
 
     fn nextArg(self: *@This(), arg_index: ?usize) ?usize {

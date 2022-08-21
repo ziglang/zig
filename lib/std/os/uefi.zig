@@ -55,9 +55,9 @@ pub const Guid = extern struct {
         if (f.len == 0) {
             const fmt = std.fmt.fmtSliceHexLower;
 
-            const time_low = @byteSwap(u32, self.time_low);
-            const time_mid = @byteSwap(u16, self.time_mid);
-            const time_high_and_version = @byteSwap(u16, self.time_high_and_version);
+            const time_low = @byteSwap(self.time_low);
+            const time_mid = @byteSwap(self.time_mid);
+            const time_high_and_version = @byteSwap(self.time_high_and_version);
 
             return std.fmt.format(writer, "{:0>8}-{:0>4}-{:0>4}-{:0>2}{:0>2}-{:0>12}", .{
                 fmt(std.mem.asBytes(&time_low)),

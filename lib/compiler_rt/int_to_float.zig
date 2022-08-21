@@ -23,7 +23,7 @@ pub fn intToFloat(comptime T: type, x: anytype) T {
     var result: uT = sign_bit;
 
     // Compute significand
-    var exp = int_bits - @clz(Z, abs_val) - 1;
+    var exp = int_bits - @clz(abs_val) - 1;
     if (int_bits <= fractional_bits or exp <= fractional_bits) {
         const shift_amt = fractional_bits - @intCast(math.Log2Int(uT), exp);
 
@@ -32,7 +32,7 @@ pub fn intToFloat(comptime T: type, x: anytype) T {
         result ^= implicit_bit; // Remove implicit integer bit
     } else {
         var shift_amt = @intCast(math.Log2Int(Z), exp - fractional_bits);
-        const exact_tie: bool = @ctz(Z, abs_val) == shift_amt - 1;
+        const exact_tie: bool = @ctz(abs_val) == shift_amt - 1;
 
         // Shift down result and remove implicit integer bit
         result = @intCast(uT, (abs_val >> (shift_amt - 1))) ^ (implicit_bit << 1);

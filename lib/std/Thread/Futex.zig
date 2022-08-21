@@ -703,7 +703,7 @@ const PosixImpl = struct {
             const max_multiplier_bits = @bitSizeOf(usize);
             const fibonacci_multiplier = 0x9E3779B97F4A7C15 >> (64 - max_multiplier_bits);
 
-            const max_bucket_bits = @ctz(usize, buckets.len);
+            const max_bucket_bits = @ctz(buckets.len);
             comptime assert(std.math.isPowerOfTwo(buckets.len));
 
             const index = (address *% fibonacci_multiplier) >> (max_multiplier_bits - max_bucket_bits);
@@ -721,7 +721,7 @@ const PosixImpl = struct {
             // then cut off the zero bits from the alignment to get the unique address.
             const addr = @ptrToInt(ptr);
             assert(addr & (alignment - 1) == 0);
-            return addr >> @ctz(usize, alignment);
+            return addr >> @ctz(alignment);
         }
     };
 

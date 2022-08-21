@@ -66,7 +66,7 @@ fn AesOcb(comptime Aes: anytype) type {
             var offset = [_]u8{0} ** 16;
             var i: usize = 0;
             while (i < full_blocks) : (i += 1) {
-                xorWith(&offset, lt[@ctz(usize, i + 1)]);
+                xorWith(&offset, lt[@ctz(i + 1)]);
                 var e = xorBlocks(offset, a[i * 16 ..][0..16].*);
                 aes_enc_ctx.encrypt(&e, &e);
                 xorWith(&sum, e);
@@ -129,7 +129,7 @@ fn AesOcb(comptime Aes: anytype) type {
                 var es: [16 * wb]u8 align(16) = undefined;
                 var j: usize = 0;
                 while (j < wb) : (j += 1) {
-                    xorWith(&offset, lt[@ctz(usize, i + 1 + j)]);
+                    xorWith(&offset, lt[@ctz(i + 1 + j)]);
                     offsets[j] = offset;
                     const p = m[(i + j) * 16 ..][0..16].*;
                     mem.copy(u8, es[j * 16 ..][0..16], &xorBlocks(p, offsets[j]));
@@ -143,7 +143,7 @@ fn AesOcb(comptime Aes: anytype) type {
                 }
             }
             while (i < full_blocks) : (i += 1) {
-                xorWith(&offset, lt[@ctz(usize, i + 1)]);
+                xorWith(&offset, lt[@ctz(i + 1)]);
                 const p = m[i * 16 ..][0..16].*;
                 var e = xorBlocks(p, offset);
                 aes_enc_ctx.encrypt(&e, &e);
@@ -193,7 +193,7 @@ fn AesOcb(comptime Aes: anytype) type {
                 var es: [16 * wb]u8 align(16) = undefined;
                 var j: usize = 0;
                 while (j < wb) : (j += 1) {
-                    xorWith(&offset, lt[@ctz(usize, i + 1 + j)]);
+                    xorWith(&offset, lt[@ctz(i + 1 + j)]);
                     offsets[j] = offset;
                     const q = c[(i + j) * 16 ..][0..16].*;
                     mem.copy(u8, es[j * 16 ..][0..16], &xorBlocks(q, offsets[j]));
@@ -207,7 +207,7 @@ fn AesOcb(comptime Aes: anytype) type {
                 }
             }
             while (i < full_blocks) : (i += 1) {
-                xorWith(&offset, lt[@ctz(usize, i + 1)]);
+                xorWith(&offset, lt[@ctz(i + 1)]);
                 const q = c[i * 16 ..][0..16].*;
                 var e = xorBlocks(q, offset);
                 aes_dec_ctx.decrypt(&e, &e);
