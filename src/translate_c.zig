@@ -439,6 +439,24 @@ pub fn translate(
     return ast.render(gpa, context.global_scope.nodes.items);
 }
 
+/// Determines whether macro is of the form: `#define FOO FOO` (Possibly with trailing tokens)
+/// Macros of this form will not be translated.
+fn isSelfDefinedMacro(unit: *const clang.ASTUnit, c: *const Context, macro: *const clang.MacroDefinitionRecord) bool {
+    const source = getMacroText(unit, c, macro);
+    var tokenizer = std.c.Tokenizer{
+        .buffer = source,
+    };
+    const name_tok = tokenizer.next();
+    const name = source[name_tok.start..name_tok.end];
+
+    const first_tok = tokenizer.next();
+    // We do not just check for `.Identifier` below because keyword tokens are preferentially matched first by
+    // the tokenizer.
+    // In other words we would miss `#define inline inline` (`inline` is a valid c89 identifier)
+    if (first_tok.id == .Eof) return false;
+    return mem.eql(u8, name, source[first_tok.start..first_tok.end]);
+}
+
 fn prepopulateGlobalNameTable(ast_unit: *clang.ASTUnit, c: *Context) !void {
     if (!ast_unit.visitLocalTopLevelDecls(c, declVisitorNamesOnlyC)) {
         return error.OutOfMemory;
@@ -455,7 +473,10 @@ fn prepopulateGlobalNameTable(ast_unit: *clang.ASTUnit, c: *Context) !void {
                 const macro = @ptrCast(*clang.MacroDefinitionRecord, entity);
                 const raw_name = macro.getName_getNameStart();
                 const name = try c.str(raw_name);
-                try c.global_names.put(c.gpa, name, {});
+
+                if (!isSelfDefinedMacro(ast_unit, c, macro)) {
+                    try c.global_names.put(c.gpa, name, {});
+                }
             },
             else => {},
         }
@@ -5446,6 +5467,16 @@ fn tokenizeMacro(source: []const u8, tok_list: *std.ArrayList(CToken)) Error!voi
     }
 }
 
+fn getMacroText(unit: *const clang.ASTUnit, c: *const Context, macro: *const clang.MacroDefinitionRecord) []const u8 {
+    const begin_loc = macro.getSourceRange_getBegin();
+    const end_loc = clang.Lexer.getLocForEndOfToken(macro.getSourceRange_getEnd(), c.source_manager, unit);
+
+    const begin_c = c.source_manager.getCharacterData(begin_loc);
+    const end_c = c.source_manager.getCharacterData(end_loc);
+    const slice_len = @ptrToInt(end_c) - @ptrToInt(begin_c);
+    return begin_c[0..slice_len];
+}
+
 fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
     // TODO if we see #undef, delete it from the table
     var it = unit.getLocalPreprocessingEntities_begin();
@@ -5462,22 +5493,18 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
                 const macro = @ptrCast(*clang.MacroDefinitionRecord, entity);
                 const raw_name = macro.getName_getNameStart();
                 const begin_loc = macro.getSourceRange_getBegin();
-                const end_loc = clang.Lexer.getLocForEndOfToken(macro.getSourceRange_getEnd(), c.source_manager, unit);
 
                 const name = try c.str(raw_name);
                 if (scope.containsNow(name)) {
                     continue;
                 }
 
-                const begin_c = c.source_manager.getCharacterData(begin_loc);
-                const end_c = c.source_manager.getCharacterData(end_loc);
-                const slice_len = @ptrToInt(end_c) - @ptrToInt(begin_c);
-                const slice = begin_c[0..slice_len];
+                const source = getMacroText(unit, c, macro);
 
-                try tokenizeMacro(slice, &tok_list);
+                try tokenizeMacro(source, &tok_list);
 
                 var macro_ctx = MacroCtx{
-                    .source = slice,
+                    .source = source,
                     .list = tok_list.items,
                     .name = name,
                     .loc = begin_loc,
@@ -5490,7 +5517,8 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
                         // if it equals itself, ignore. for example, from stdio.h:
                         // #define stdin stdin
                         const tok = macro_ctx.list[1];
-                        if (mem.eql(u8, name, slice[tok.start..tok.end])) {
+                        if (mem.eql(u8, name, source[tok.start..tok.end])) {
+                            assert(!c.global_names.contains(source[tok.start..tok.end]));
                             continue;
                         }
                     },
