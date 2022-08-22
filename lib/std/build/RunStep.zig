@@ -101,7 +101,7 @@ pub fn addPathDir(self: *RunStep, search_path: []const u8) void {
 }
 
 /// For internal use only, users of `RunStep` should use `addPathDir` directly.
-fn addPathDirInternal(step: *Step, builder: *Builder, search_path: []const u8) void {
+pub fn addPathDirInternal(step: *Step, builder: *Builder, search_path: []const u8) void {
     const env_map = getEnvMapInternal(step, builder.allocator);
 
     const key = "PATH";

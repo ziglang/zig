@@ -378,7 +378,7 @@ fn parseObjectFile(self: *Wasm, path: []const u8) !bool {
     const file = try fs.cwd().openFile(path, .{});
     errdefer file.close();
 
-    var object = Object.create(self.base.allocator, file, path) catch |err| switch (err) {
+    var object = Object.create(self.base.allocator, file, path, null) catch |err| switch (err) {
         error.InvalidMagicByte, error.NotObjectFile => return false,
         else => |e| return e,
     };
@@ -595,8 +595,8 @@ fn resolveSymbolsInArchives(self: *Wasm) !void {
             // Parse object and and resolve symbols again before we check remaining
             // undefined symbols.
             const object_file_index = @intCast(u16, self.objects.items.len);
-            const object = try self.objects.addOne(self.base.allocator);
-            object.* = try archive.parseObject(self.base.allocator, offset.items[0]);
+            var object = try archive.parseObject(self.base.allocator, offset.items[0]);
+            try self.objects.append(self.base.allocator, object);
             try self.resolveSymbolsInObject(object_file_index);
 
             // continue loop for any remaining undefined symbols that still exist
@@ -860,7 +860,8 @@ fn getGlobalType(self: *const Wasm, loc: SymbolLoc) wasm.GlobalType {
         if (is_undefined) {
             return obj.findImport(.global, symbol.index).kind.global;
         }
-        return obj.globals[symbol.index].global_type;
+        const import_global_count = obj.importedCountByKind(.global);
+        return obj.globals[symbol.index - import_global_count].global_type;
     }
     if (is_undefined) {
         return self.imports.get(loc).?.kind.global;
@@ -880,7 +881,9 @@ fn getFunctionSignature(self: *const Wasm, loc: SymbolLoc) wasm.Type {
             const ty_index = obj.findImport(.function, symbol.index).kind.function;
             return obj.func_types[ty_index];
         }
-        return obj.func_types[obj.functions[symbol.index].type_index];
+        const import_function_count = obj.importedCountByKind(.function);
+        const type_index = obj.functions[symbol.index - import_function_count].type_index;
+        return obj.func_types[type_index];
     }
     if (is_undefined) {
         const ty_index = self.imports.get(loc).?.kind.function;
