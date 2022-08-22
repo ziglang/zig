@@ -434,3 +434,15 @@ test "@ptrToInt on a packed struct field" {
     };
     try expect(@ptrToInt(&S.p0.z) - @ptrToInt(&S.p0.x) == 2);
 }
+
+test "optional pointer in packed struct" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    const T = packed struct { ptr: ?*const u8 };
+    var n: u8 = 0;
+    const x = T{ .ptr = &n };
+    try expect(x.ptr.? == &n);
+}
