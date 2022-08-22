@@ -96,13 +96,6 @@ pub fn main() void {
                 test_node.end();
             },
         }
-        // Workaround issue #1923 by clearing error stack traces between tests
-        //
-        // This is not a true fix, but helps isolate errors to the tests where they
-        // originate instead of confusing them all together
-        if (@errorReturnTrace()) |trace| {
-            trace.index = 0;
-        }
     }
     root_node.end();
     if (ok_count == test_fn_list.len) {
