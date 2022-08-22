@@ -1521,7 +1521,8 @@ fn divide(a: i32, b: i32) i32 {
       Zig supports arbitrary bit-width integers, referenced by using
       an identifier of <code>i</code> or <code>u</code> followed by digits. For example, the identifier
       {#syntax#}i7{#endsyntax#} refers to a signed 7-bit integer. The maximum allowed bit-width of an
-      integer type is {#syntax#}65535{#endsyntax#}.
+      integer type is {#syntax#}65535{#endsyntax#}. For signed integer types, Zig uses a
+      <a href="https://en.wikipedia.org/wiki/Two's_complement">two's complement</a> representation.
       </p>
       {#see_also|Wrapping Operations#}
       {#header_close#}
