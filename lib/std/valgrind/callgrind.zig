@@ -2,7 +2,7 @@ const std = @import("../std.zig");
 const valgrind = std.valgrind;
 
 pub const CallgrindClientRequest = enum(usize) {
-    DumpStats = valgrind.ToolBase("CT"),
+    DumpStats = valgrind.ToolBase("CT".*),
     ZeroStats,
     ToggleCollect,
     DumpStatsAt,
