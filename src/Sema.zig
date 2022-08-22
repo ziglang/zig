@@ -22564,7 +22564,7 @@ fn coerceExtra(
             // Function body to function pointer.
             if (inst_ty.zigTypeTag() == .Fn) {
                 const fn_val = try sema.resolveConstValue(block, .unneeded, inst, undefined);
-                const fn_decl = fn_val.castTag(.function).?.data.owner_decl;
+                const fn_decl = fn_val.pointerDecl().?;
                 const inst_as_ptr = try sema.analyzeDeclRef(fn_decl);
                 return sema.coerce(block, dest_ty, inst_as_ptr, inst_src);
             }
