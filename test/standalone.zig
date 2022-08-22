@@ -31,6 +31,7 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.addBuildFile("test/standalone/empty_env/build.zig", .{});
     cases.addBuildFile("test/standalone/issue_7030/build.zig", .{});
     cases.addBuildFile("test/standalone/install_raw_hex/build.zig", .{});
+    cases.addBuildFile("test/standalone/child_process/build.zig", .{});
     if (builtin.zig_backend == .stage1) { // https://github.com/ziglang/zig/issues/12194
         cases.addBuildFile("test/standalone/issue_9812/build.zig", .{});
     }

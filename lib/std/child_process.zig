@@ -91,10 +91,16 @@ pub const ChildProcess = struct {
     };
 
     pub const StdIo = enum {
+        /// The child process will inherit the same std stream as the current process.
         Inherit,
+        /// Ignore all child process output. On posix systems this is equivalent to redirecting the stream to /dev/null.
         Ignore,
+        /// ChildProcess will create a pipe that the current process can write to (for stdin) or read from (for stdout/stderr).
         Pipe,
+        /// Close the stream in the child process.
         Close,
+        /// Use the provided file (i.e. stdin/stdout/stderr) for this stream in the ChildProcess.
+        Provided,
     };
 
     /// First argument in argv is the executable.
@@ -583,9 +589,9 @@ pub const ChildProcess = struct {
         var actions = try os.posix_spawn.Actions.init();
         defer actions.deinit();
 
-        try setUpChildIoPosixSpawn(self.stdin_behavior, &actions, stdin_pipe, os.STDIN_FILENO, dev_null_fd);
-        try setUpChildIoPosixSpawn(self.stdout_behavior, &actions, stdout_pipe, os.STDOUT_FILENO, dev_null_fd);
-        try setUpChildIoPosixSpawn(self.stderr_behavior, &actions, stderr_pipe, os.STDERR_FILENO, dev_null_fd);
+        try setUpChildIoPosixSpawn(self.stdin_behavior, &actions, stdin_pipe, os.STDIN_FILENO, dev_null_fd, self.stdin);
+        try setUpChildIoPosixSpawn(self.stdout_behavior, &actions, stdout_pipe, os.STDOUT_FILENO, dev_null_fd, self.stdout);
+        try setUpChildIoPosixSpawn(self.stderr_behavior, &actions, stderr_pipe, os.STDERR_FILENO, dev_null_fd, self.stderr);
 
         if (self.cwd_dir) |cwd| {
             try actions.fchdir(cwd.fd);
@@ -643,7 +649,14 @@ pub const ChildProcess = struct {
         pipe_fd: [2]i32,
         std_fileno: i32,
         dev_null_fd: i32,
+        std_file: ?File,
     ) !void {
+        const use_std_file = switch (stdio) {
+            .Provided => true,
+            else => false,
+        };
+        const have_std_file = std_file != null;
+        assert(use_std_file == have_std_file);
         switch (stdio) {
             .Pipe => {
                 const idx: usize = if (std_fileno == 0) 0 else 1;
@@ -653,6 +666,7 @@ pub const ChildProcess = struct {
             .Close => try actions.close(std_fileno),
             .Inherit => {},
             .Ignore => try actions.dup2(dev_null_fd, std_fileno),
+            .Provided => try actions.dup2(std_file.?.handle, std_fileno),
         }
     }
 
@@ -741,9 +755,9 @@ pub const ChildProcess = struct {
         const pid_result = try os.fork();
         if (pid_result == 0) {
             // we are the child
-            setUpChildIo(self.stdin_behavior, stdin_pipe[0], os.STDIN_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
-            setUpChildIo(self.stdout_behavior, stdout_pipe[1], os.STDOUT_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
-            setUpChildIo(self.stderr_behavior, stderr_pipe[1], os.STDERR_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
+            setUpChildIo(self.stdin_behavior, stdin_pipe[0], os.STDIN_FILENO, dev_null_fd, self.stdin) catch |err| forkChildErrReport(err_pipe[1], err);
+            setUpChildIo(self.stdout_behavior, stdout_pipe[1], os.STDOUT_FILENO, dev_null_fd, self.stdout) catch |err| forkChildErrReport(err_pipe[1], err);
+            setUpChildIo(self.stderr_behavior, stderr_pipe[1], os.STDERR_FILENO, dev_null_fd, self.stderr) catch |err| forkChildErrReport(err_pipe[1], err);
 
             if (self.stdin_behavior == .Pipe) {
                 os.close(stdin_pipe[0]);
@@ -1041,12 +1055,19 @@ pub const ChildProcess = struct {
         }
     }
 
-    fn setUpChildIo(stdio: StdIo, pipe_fd: i32, std_fileno: i32, dev_null_fd: i32) !void {
+    fn setUpChildIo(stdio: StdIo, pipe_fd: i32, std_fileno: i32, dev_null_fd: i32, std_file: ?File) !void {
+        const use_std_file = switch (stdio) {
+            .Provided => true,
+            else => false,
+        };
+        const have_std_file = std_file != null;
+        assert(use_std_file == have_std_file);
         switch (stdio) {
             .Pipe => try os.dup2(pipe_fd, std_fileno),
             .Close => os.close(std_fileno),
             .Inherit => {},
             .Ignore => try os.dup2(dev_null_fd, std_fileno),
+            .Provided => try os.dup2(std_file.?.handle, std_fileno),
         }
     }
 };
