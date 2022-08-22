@@ -816,11 +816,11 @@ pub fn openSelfDebugInfo(allocator: mem.Allocator) anyerror!DebugInfo {
 /// TODO it's weird to take ownership even on error, rework this code.
 fn readCoffDebugInfo(allocator: mem.Allocator, coff_file: File) !ModuleDebugInfo {
     nosuspend {
-        errdefer coff_file.close();
+        defer coff_file.close();
 
         const coff_obj = try allocator.create(coff.Coff);
         errdefer allocator.destroy(coff_obj);
-        coff_obj.* = coff.Coff.init(allocator, coff_file);
+        coff_obj.* = .{ .allocator = allocator };
 
         var di = ModuleDebugInfo{
             .base_address = undefined,
@@ -828,18 +828,21 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_file: File) !ModuleDebugInfo
             .debug_data = undefined,
         };
 
-        try di.coff.loadHeader();
-        try di.coff.loadSections();
-        if (di.coff.getSection(".debug_info")) |sec| {
+        // TODO convert to Windows' memory-mapped file API
+        const file_len = math.cast(usize, try coff_file.getEndPos()) orelse math.maxInt(usize);
+        const data = try coff_file.readToEndAlloc(allocator, file_len);
+        try di.coff.parse(data);
+
+        if (di.coff.getSectionByName(".debug_info")) |sec| {
             // This coff file has embedded DWARF debug info
             _ = sec;
             // TODO: free the section data slices
-            const debug_info_data = di.coff.getSectionData(".debug_info", allocator) catch null;
-            const debug_abbrev_data = di.coff.getSectionData(".debug_abbrev", allocator) catch null;
-            const debug_str_data = di.coff.getSectionData(".debug_str", allocator) catch null;
-            const debug_line_data = di.coff.getSectionData(".debug_line", allocator) catch null;
-            const debug_line_str_data = di.coff.getSectionData(".debug_line_str", allocator) catch null;
-            const debug_ranges_data = di.coff.getSectionData(".debug_ranges", allocator) catch null;
+            const debug_info_data = di.coff.getSectionDataAlloc(".debug_info", allocator) catch null;
+            const debug_abbrev_data = di.coff.getSectionDataAlloc(".debug_abbrev", allocator) catch null;
+            const debug_str_data = di.coff.getSectionDataAlloc(".debug_str", allocator) catch null;
+            const debug_line_data = di.coff.getSectionDataAlloc(".debug_line", allocator) catch null;
+            const debug_line_str_data = di.coff.getSectionDataAlloc(".debug_line_str", allocator) catch null;
+            const debug_ranges_data = di.coff.getSectionDataAlloc(".debug_ranges", allocator) catch null;
 
             var dwarf = DW.DwarfInfo{
                 .endian = native_endian,
@@ -1628,7 +1631,7 @@ pub const ModuleDebugInfo = switch (native_os) {
 
             switch (self.debug_data) {
                 .dwarf => |*dwarf| {
-                    const dwarf_address = relocated_address + self.coff.pe_header.image_base;
+                    const dwarf_address = relocated_address + self.coff.getImageBase();
                     return getSymbolFromDwarf(allocator, dwarf_address, dwarf);
                 },
                 .pdb => {
@@ -1636,13 +1639,14 @@ pub const ModuleDebugInfo = switch (native_os) {
                 },
             }
 
-            var coff_section: *coff.Section = undefined;
+            var coff_section: *align(1) const coff.SectionHeader = undefined;
             const mod_index = for (self.debug_data.pdb.sect_contribs) |sect_contrib| {
-                if (sect_contrib.Section > self.coff.sections.items.len) continue;
+                const sections = self.coff.getSectionHeaders();
+                if (sect_contrib.Section > sections.len) continue;
                 // Remember that SectionContribEntry.Section is 1-based.
-                coff_section = &self.coff.sections.items[sect_contrib.Section - 1];
+                coff_section = &sections[sect_contrib.Section - 1];
 
-                const vaddr_start = coff_section.header.virtual_address + sect_contrib.Offset;
+                const vaddr_start = coff_section.virtual_address + sect_contrib.Offset;
                 const vaddr_end = vaddr_start + sect_contrib.Size;
                 if (relocated_address >= vaddr_start and relocated_address < vaddr_end) {
                     break sect_contrib.ModuleIndex;
@@ -1658,11 +1662,11 @@ pub const ModuleDebugInfo = switch (native_os) {
 
             const symbol_name = self.debug_data.pdb.getSymbolName(
                 module,
-                relocated_address - coff_section.header.virtual_address,
+                relocated_address - coff_section.virtual_address,
             ) orelse "???";
             const opt_line_info = try self.debug_data.pdb.getLineNumberInfo(
                 module,
-                relocated_address - coff_section.header.virtual_address,
+                relocated_address - coff_section.virtual_address,
             );
 
             return SymbolInfo{
