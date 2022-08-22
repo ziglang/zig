@@ -6072,17 +6072,17 @@ pub fn paramSrc(
         else => unreachable,
     };
     var it = full.iterate(tree);
-    while (true) {
-        if (it.param_i == param_i) {
-            const param = it.next().?;
+    var i: usize = 0;
+    while (it.next()) |param| : (i += 1) {
+        if (i == param_i) {
             if (param.anytype_ellipsis3) |some| {
                 const main_token = tree.nodes.items(.main_token)[decl.src_node];
                 return .{ .token_offset_param = @bitCast(i32, some) - @bitCast(i32, main_token) };
             }
             return .{ .node_offset_param = decl.nodeIndexToRelative(param.type_expr) };
         }
-        _ = it.next();
     }
+    unreachable;
 }
 
 pub fn argSrc(

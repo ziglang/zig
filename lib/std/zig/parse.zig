@@ -3670,7 +3670,7 @@ const Parser = struct {
     }
 
     /// KEYWORD_if LPAREN Expr RPAREN PtrPayload? Body (KEYWORD_else Payload? Body)?
-    fn parseIf(p: *Parser, bodyParseFn: fn (p: *Parser) Error!Node.Index) !Node.Index {
+    fn parseIf(p: *Parser, comptime bodyParseFn: fn (p: *Parser) Error!Node.Index) !Node.Index {
         const if_token = p.eatToken(.keyword_if) orelse return null_node;
         _ = try p.expectToken(.l_paren);
         const condition = try p.expectExpr();

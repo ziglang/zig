@@ -76,6 +76,8 @@ types_to_resolve: std.ArrayListUnmanaged(Air.Inst.Ref) = .{},
 post_hoc_blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, *LabeledBlock) = .{},
 /// Populated with the last compile error created.
 err: ?*Module.ErrorMsg = null,
+/// True when analyzing a generic instantiation. Used to suppress some errors.
+is_generic_instantiation: bool = false,
 
 const std = @import("std");
 const math = std.math;
@@ -1696,7 +1698,10 @@ fn resolveMaybeUndefValIntable(
         .elem_ptr => check = check.castTag(.elem_ptr).?.data.array_ptr,
         .eu_payload_ptr, .opt_payload_ptr => check = check.cast(Value.Payload.PayloadPtr).?.data.container_ptr,
         .generic_poison => return error.GenericPoison,
-        else => return val,
+        else => {
+            try sema.resolveLazyValue(block, src, val);
+            return val;
+        },
     };
 }
 
@@ -6495,6 +6500,7 @@ fn instantiateGenericCall(
             .comptime_args = try new_decl_arena_allocator.alloc(TypedValue, uncasted_args.len),
             .comptime_args_fn_inst = module_fn.zir_body_inst,
             .preallocated_new_func = new_module_func,
+            .is_generic_instantiation = true,
         };
         defer child_sema.deinit();
 
@@ -7255,6 +7261,8 @@ fn zirOptionalPayload(
             if (operand_ty.ptrSize() != .C) {
                 return sema.failWithExpectedOptionalType(block, src, operand_ty);
             }
+            // TODO https://github.com/ziglang/zig/issues/6597
+            if (true) break :t operand_ty;
             const ptr_info = operand_ty.ptrInfo().data;
             break :t try Type.ptr(sema.arena, sema.mod, .{
                 .pointee_type = try ptr_info.pointee_type.copy(sema.arena),
@@ -7789,6 +7797,7 @@ fn funcCommon(
                 &is_generic,
                 is_extern,
                 cc_workaround,
+                has_body,
             ) catch |err| switch (err) {
                 error.NeededSourceLocation => {
                     const decl = sema.mod.declPtr(block.src_decl);
@@ -7802,6 +7811,7 @@ fn funcCommon(
                         &is_generic,
                         is_extern,
                         cc_workaround,
+                        has_body,
                     );
                     return error.AnalysisFail;
                 },
@@ -8005,6 +8015,7 @@ fn analyzeParameter(
     is_generic: *bool,
     is_extern: bool,
     cc: std.builtin.CallingConvention,
+    has_body: bool,
 ) !void {
     const requires_comptime = try sema.typeRequiresComptime(block, param_src, param.ty);
     comptime_params[i] = param.is_comptime or requires_comptime;
@@ -8053,9 +8064,9 @@ fn analyzeParameter(
         };
         return sema.failWithOwnedErrorMsg(msg);
     }
-    if (requires_comptime and !param.is_comptime) {
+    if (!sema.is_generic_instantiation and requires_comptime and !param.is_comptime and has_body) {
         const msg = msg: {
-            const msg = try sema.errMsg(block, param_src, "parametter of type '{}' must be declared comptime", .{
+            const msg = try sema.errMsg(block, param_src, "parameter of type '{}' must be declared comptime", .{
                 param.ty.fmt(sema.mod),
             });
             errdefer msg.destroy(sema.gpa);
@@ -8153,7 +8164,7 @@ fn zirParam(
 
     try block.params.append(sema.gpa, .{
         .ty = param_ty,
-        .is_comptime = is_comptime,
+        .is_comptime = comptime_syntax,
         .name = param_name,
     });
     const result = try sema.addConstant(param_ty, Value.initTag(.generic_poison));
@@ -16318,7 +16329,7 @@ fn zirUnaryMath(
     block: *Block,
     inst: Zir.Inst.Index,
     air_tag: Air.Inst.Tag,
-    eval: fn (Value, Type, Allocator, std.Target) Allocator.Error!Value,
+    comptime eval: fn (Value, Type, Allocator, std.Target) Allocator.Error!Value,
 ) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -17777,7 +17788,7 @@ fn zirBitCount(
     block: *Block,
     inst: Zir.Inst.Index,
     air_tag: Air.Inst.Tag,
-    comptimeOp: fn (val: Value, ty: Type, target: std.Target) u64,
+    comptime comptimeOp: fn (val: Value, ty: Type, target: std.Target) u64,
 ) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
@@ -20554,8 +20565,8 @@ fn validatePackedType(ty: Type) bool {
         .AnyFrame,
         .Fn,
         .Array,
-        .Optional,
         => return false,
+        .Optional => return ty.isPtrLikeOptional(),
         .Void,
         .Bool,
         .Float,
@@ -21383,14 +21394,30 @@ fn fieldCallBind(
         switch (concrete_ty.zigTypeTag()) {
             .Struct => {
                 const struct_ty = try sema.resolveTypeFields(block, src, concrete_ty);
-                const struct_obj = struct_ty.castTag(.@"struct").?.data;
+                if (struct_ty.castTag(.@"struct")) |struct_obj| {
+                    const field_index_usize = struct_obj.data.fields.getIndex(field_name) orelse
+                        break :find_field;
+                    const field_index = @intCast(u32, field_index_usize);
+                    const field = struct_obj.data.fields.values()[field_index];
 
-                const field_index_usize = struct_obj.fields.getIndex(field_name) orelse
-                    break :find_field;
-                const field_index = @intCast(u32, field_index_usize);
-                const field = struct_obj.fields.values()[field_index];
-
-                return finishFieldCallBind(sema, block, src, ptr_ty, field.ty, field_index, object_ptr);
+                    return finishFieldCallBind(sema, block, src, ptr_ty, field.ty, field_index, object_ptr);
+                } else if (struct_ty.isTuple()) {
+                    if (mem.eql(u8, field_name, "len")) {
+                        return sema.addIntUnsigned(Type.usize, struct_ty.structFieldCount());
+                    }
+                    if (std.fmt.parseUnsigned(u32, field_name, 10)) |field_index| {
+                        if (field_index >= struct_ty.structFieldCount()) break :find_field;
+                        return finishFieldCallBind(sema, block, src, ptr_ty, struct_ty.structFieldType(field_index), field_index, object_ptr);
+                    } else |_| {}
+                } else {
+                    const max = struct_ty.structFieldCount();
+                    var i: u32 = 0;
+                    while (i < max) : (i += 1) {
+                        if (mem.eql(u8, struct_ty.structFieldName(i), field_name)) {
+                            return finishFieldCallBind(sema, block, src, ptr_ty, struct_ty.structFieldType(i), i, object_ptr);
+                        }
+                    }
+                }
             },
             .Union => {
                 const union_ty = try sema.resolveTypeFields(block, src, concrete_ty);
@@ -22553,7 +22580,7 @@ fn coerceExtra(
             // Function body to function pointer.
             if (inst_ty.zigTypeTag() == .Fn) {
                 const fn_val = try sema.resolveConstValue(block, .unneeded, inst, undefined);
-                const fn_decl = fn_val.castTag(.function).?.data.owner_decl;
+                const fn_decl = fn_val.pointerDecl().?;
                 const inst_as_ptr = try sema.analyzeDeclRef(fn_decl);
                 return sema.coerce(block, dest_ty, inst_as_ptr, inst_src);
             }
@@ -27909,7 +27936,9 @@ fn resolveInferredErrorSetTy(
 fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void {
     const gpa = mod.gpa;
     const decl_index = struct_obj.owner_decl;
-    const zir = struct_obj.namespace.file_scope.zir;
+    const file_scope = struct_obj.namespace.file_scope;
+    if (file_scope.status != .success_zir) return error.AnalysisFail;
+    const zir = file_scope.zir;
     const extended = zir.instructions.items(.data)[struct_obj.zir_index].extended;
     assert(extended.opcode == .struct_decl);
     const small = @bitCast(Zir.Inst.StructDecl.Small, extended.small);
@@ -29489,7 +29518,7 @@ pub fn typeRequiresComptime(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Typ
         => {
             const child_ty = ty.childType();
             if (child_ty.zigTypeTag() == .Fn) {
-                return false;
+                return child_ty.fnInfo().is_generic;
             } else {
                 return sema.typeRequiresComptime(block, src, child_ty);
             }

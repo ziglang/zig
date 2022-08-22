@@ -147,7 +147,7 @@ test "fn call of struct field" {
             return 13;
         }
 
-        fn callStructField(foo: Foo) i32 {
+        fn callStructField(comptime foo: Foo) i32 {
             return foo.ptr();
         }
     };

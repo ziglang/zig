@@ -2394,7 +2394,7 @@ pub const Type = extern union {
                 if (ignore_comptime_only) {
                     return true;
                 } else if (ty.childType().zigTypeTag() == .Fn) {
-                    return true;
+                    return !ty.childType().fnInfo().is_generic;
                 } else if (sema_kit) |sk| {
                     return !(try sk.sema.typeRequiresComptime(sk.block, sk.src, ty));
                 } else {
