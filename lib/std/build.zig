@@ -1495,6 +1495,7 @@ pub const LibExeObjStep = struct {
     emit_h: bool = false,
     bundle_compiler_rt: ?bool = null,
     single_threaded: ?bool = null,
+    stack_protector: ?bool = null,
     disable_stack_probing: bool,
     disable_sanitize_c: bool,
     sanitize_thread: bool,
@@ -2824,6 +2825,13 @@ pub const LibExeObjStep = struct {
         }
         if (self.disable_stack_probing) {
             try zig_args.append("-fno-stack-check");
+        }
+        if (self.stack_protector) |stack_protector| {
+            if (stack_protector) {
+                try zig_args.append("-fstack-protector");
+            } else {
+                try zig_args.append("-fno-stack-protector");
+            }
         }
         if (self.red_zone) |red_zone| {
             if (red_zone) {
