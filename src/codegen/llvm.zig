@@ -4019,6 +4019,9 @@ pub const FuncGen = struct {
     /// Note that this can disagree with isByRef for the return type in the case
     /// of C ABI functions.
     ret_ptr: ?*const llvm.Value,
+    /// Any function that needs to perform Valgrind client requests needs an array alloca
+    /// instruction, however a maximum of one per function is needed.
+    valgrind_client_request_array: ?*const llvm.Value = null,
     /// These fields are used to refer to the LLVM value of the function parameters
     /// in an Arg instruction.
     /// This list may be shorter than the list according to the zig type system;
@@ -7530,8 +7533,7 @@ pub const FuncGen = struct {
             const len = usize_llvm_ty.constInt(operand_size, .False);
             _ = self.builder.buildMemSet(dest_ptr_u8, fill_char, len, dest_ptr_align, ptr_ty.isVolatilePtr());
             if (self.dg.module.comp.bin_file.options.valgrind) {
-                // TODO generate valgrind client request to mark byte range as undefined
-                // see gen_valgrind_undef() in codegen.cpp
+                self.valgrindMarkUndef(dest_ptr, len);
             }
         } else {
             const src_operand = try self.resolveInst(bin_op.rhs);
@@ -7790,8 +7792,7 @@ pub const FuncGen = struct {
         _ = self.builder.buildMemSet(dest_ptr_u8, fill_char, len, dest_ptr_align, ptr_ty.isVolatilePtr());
 
         if (val_is_undef and self.dg.module.comp.bin_file.options.valgrind) {
-            // TODO generate valgrind client request to mark byte range as undefined
-            // see gen_valgrind_undef() in codegen.cpp
+            self.valgrindMarkUndef(dest_ptr_u8, len);
         }
         return null;
     }
@@ -9097,6 +9098,89 @@ pub const FuncGen = struct {
             self.context.intType(Type.usize.intInfo(target).bits).constInt(size_bytes, .False),
             info.@"volatile",
         );
+    }
+
+    fn valgrindMarkUndef(fg: *FuncGen, ptr: *const llvm.Value, len: *const llvm.Value) void {
+        const VG_USERREQ__MAKE_MEM_UNDEFINED = 1296236545;
+        const target = fg.dg.module.getTarget();
+        const usize_llvm_ty = fg.context.intType(target.cpu.arch.ptrBitWidth());
+        const zero = usize_llvm_ty.constInt(0, .False);
+        const req = usize_llvm_ty.constInt(VG_USERREQ__MAKE_MEM_UNDEFINED, .False);
+        const ptr_as_usize = fg.builder.buildPtrToInt(ptr, usize_llvm_ty, "");
+        _ = valgrindClientRequest(fg, zero, req, ptr_as_usize, len, zero, zero, zero);
+    }
+
+    fn valgrindClientRequest(
+        fg: *FuncGen,
+        default_value: *const llvm.Value,
+        request: *const llvm.Value,
+        a1: *const llvm.Value,
+        a2: *const llvm.Value,
+        a3: *const llvm.Value,
+        a4: *const llvm.Value,
+        a5: *const llvm.Value,
+    ) *const llvm.Value {
+        const target = fg.dg.module.getTarget();
+        if (!target_util.hasValgrindSupport(target)) return default_value;
+
+        const usize_llvm_ty = fg.context.intType(target.cpu.arch.ptrBitWidth());
+        const usize_alignment = @intCast(c_uint, Type.usize.abiSize(target));
+
+        switch (target.cpu.arch) {
+            .x86_64 => {
+                const array_ptr = fg.valgrind_client_request_array orelse a: {
+                    const array_ptr = fg.buildAlloca(usize_llvm_ty.arrayType(6));
+                    array_ptr.setAlignment(usize_alignment);
+                    fg.valgrind_client_request_array = array_ptr;
+                    break :a array_ptr;
+                };
+                const array_elements = [_]*const llvm.Value{ request, a1, a2, a3, a4, a5 };
+                const zero = usize_llvm_ty.constInt(0, .False);
+                for (array_elements) |elem, i| {
+                    const indexes = [_]*const llvm.Value{
+                        zero, usize_llvm_ty.constInt(@intCast(c_uint, i), .False),
+                    };
+                    const elem_ptr = fg.builder.buildInBoundsGEP(array_ptr, &indexes, indexes.len, "");
+                    const store_inst = fg.builder.buildStore(elem, elem_ptr);
+                    store_inst.setAlignment(usize_alignment);
+                }
+
+                const asm_template =
+                    \\rolq $$3,  %rdi ; rolq $$13, %rdi
+                    \\rolq $$61, %rdi ; rolq $$51, %rdi
+                    \\xchgq %rbx,%rbx
+                ;
+
+                const asm_constraints = "={rdx},{rax},0,~{cc},~{memory}";
+
+                const array_ptr_as_usize = fg.builder.buildPtrToInt(array_ptr, usize_llvm_ty, "");
+                const args = [_]*const llvm.Value{ array_ptr_as_usize, default_value };
+                const param_types = [_]*const llvm.Type{ usize_llvm_ty, usize_llvm_ty };
+                const fn_llvm_ty = llvm.functionType(usize_llvm_ty, &param_types, args.len, .False);
+                const asm_fn = llvm.getInlineAsm(
+                    fn_llvm_ty,
+                    asm_template,
+                    asm_template.len,
+                    asm_constraints,
+                    asm_constraints.len,
+                    .True, // has side effects
+                    .False, // alignstack
+                    .ATT,
+                    .False,
+                );
+
+                const call = fg.builder.buildCall(
+                    asm_fn,
+                    &args,
+                    args.len,
+                    .C,
+                    .Auto,
+                    "",
+                );
+                return call;
+            },
+            else => unreachable,
+        }
     }
 };
 
