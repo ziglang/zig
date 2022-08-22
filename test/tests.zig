@@ -632,8 +632,9 @@ pub fn addPkgTests(
 
         if (test_target.backend) |backend| switch (backend) {
             .stage1 => if (skip_stage1) continue,
+            .stage2_llvm => {},
             else => if (skip_stage2) continue,
-        } else if (skip_stage2) continue;
+        };
 
         const want_this_mode = for (modes) |m| {
             if (m == test_target.mode) break true;
