@@ -1512,6 +1512,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             var opt_debug_info: ?macho.section_64 = null;
             var opt_debug_abbrev: ?macho.section_64 = null;
             var opt_debug_str: ?macho.section_64 = null;
+            var opt_debug_str_offsets: ?macho.section_64 = null;
             var opt_debug_line_str: ?macho.section_64 = null;
             var opt_debug_ranges: ?macho.section_64 = null;
             var opt_debug_loclists: ?macho.section_64 = null;
@@ -1530,6 +1531,8 @@ pub const ModuleDebugInfo = switch (native_os) {
                     opt_debug_abbrev = sect;
                 } else if (mem.eql(u8, name, "__debug_str")) {
                     opt_debug_str = sect;
+                } else if (mem.eql(u8, name, "__debug_str_offsets")) {
+                    opt_debug_str_offsets = sect;
                 } else if (mem.eql(u8, name, "__debug_line_str")) {
                     opt_debug_line_str = sect;
                 } else if (mem.eql(u8, name, "__debug_ranges")) {
@@ -1561,7 +1564,10 @@ pub const ModuleDebugInfo = switch (native_os) {
                 .debug_info = try chopSlice(mapped_mem, debug_info.offset, debug_info.size),
                 .debug_abbrev = try chopSlice(mapped_mem, debug_abbrev.offset, debug_abbrev.size),
                 .debug_str = try chopSlice(mapped_mem, debug_str.offset, debug_str.size),
-                .debug_str_offsets = null,
+                .debug_str_offsets = if (opt_debug_str_offsets) |debug_str_offsets|
+                    try chopSlice(mapped_mem, debug_str_offsets.offset, debug_str_offsets.size)
+                else
+                    null,
                 .debug_line = try chopSlice(mapped_mem, debug_line.offset, debug_line.size),
                 .debug_line_str = if (opt_debug_line_str) |debug_line_str|
                     try chopSlice(mapped_mem, debug_line_str.offset, debug_line_str.size)
@@ -1571,11 +1577,26 @@ pub const ModuleDebugInfo = switch (native_os) {
                     try chopSlice(mapped_mem, debug_ranges.offset, debug_ranges.size)
                 else
                     null,
-                .debug_loclists = opt_debug_loclists,
-                .debug_rnglists = opt_debug_rnglists,
-                .debug_addr = opt_debug_addr,
-                .debug_names = opt_debug_names,
-                .debug_frame = opt_debug_frame,
+                .debug_loclists = if (opt_debug_loclists) |debug_loclists|
+                    try chopSlice(mapped_mem, debug_loclists.offset, debug_loclists.size)
+                else
+                    null,
+                .debug_rnglists = if (opt_debug_rnglists) |debug_rnglists|
+                    try chopSlice(mapped_mem, debug_rnglists.offset, debug_rnglists.size)
+                else
+                    null,
+                .debug_addr = if (opt_debug_addr) |debug_addr|
+                    try chopSlice(mapped_mem, debug_addr.offset, debug_addr.size)
+                else
+                    null,
+                .debug_names = if (opt_debug_names) |debug_names|
+                    try chopSlice(mapped_mem, debug_names.offset, debug_names.size)
+                else
+                    null,
+                .debug_frame = if (opt_debug_frame) |debug_frame|
+                    try chopSlice(mapped_mem, debug_frame.offset, debug_frame.size)
+                else
+                    null,
             };
 
             try DW.openDwarfDebugInfo(&di, allocator);
@@ -1630,7 +1651,7 @@ pub const ModuleDebugInfo = switch (native_os) {
                         .compile_unit_name = compile_unit.die.getAttrString(
                             o_file_di,
                             DW.AT.name,
-                            self.di.debug_str,
+                            o_file_di.debug_str,
                         ) catch |err| switch (err) {
                             error.MissingDebugInfo, error.InvalidDebugInfo => "???",
                         },
