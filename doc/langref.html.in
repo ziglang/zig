@@ -535,8 +535,8 @@ const Timestamp = struct {
       {#header_close#}
       {#header_open|Top-Level Doc Comments#}
       <p>User documentation that doesn't belong to whatever
-      immediately follows it, like container level documentation, goes
-      in top level doc comments. A top level doc comment is one that
+      immediately follows it, like container-level documentation, goes
+      in top-level doc comments. A top-level doc comment is one that
       begins with two slashes and an exclamation point:
       {#syntax#}//!{#endsyntax#}.</p>
       {#code_begin|syntax|tldoc_comments#}
