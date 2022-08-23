@@ -580,7 +580,7 @@ pub fn parseDwarfInfo(self: Object) error{Overflow}!dwarf.DwarfInfo {
         .debug_info = &[0]u8{},
         .debug_abbrev = &[0]u8{},
         .debug_str = &[0]u8{},
-        .debug_str_offsets = null,
+        .debug_str_offsets = &[0]u8{},
         .debug_line = &[0]u8{},
         .debug_line_str = &[0]u8{},
         .debug_ranges = &[0]u8{},
@@ -600,6 +600,8 @@ pub fn parseDwarfInfo(self: Object) error{Overflow}!dwarf.DwarfInfo {
                 di.debug_abbrev = try self.getSectionContents(sect);
             } else if (mem.eql(u8, sectname, "__debug_str")) {
                 di.debug_str = try self.getSectionContents(sect);
+            } else if (mem.eql(u8, sectname, "__debug_str_offsets")) {
+                di.debug_str_offsets = try self.getSectionContents(sect);
             } else if (mem.eql(u8, sectname, "__debug_line")) {
                 di.debug_line = try self.getSectionContents(sect);
             } else if (mem.eql(u8, sectname, "__debug_line_str")) {
