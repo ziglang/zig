@@ -1119,25 +1119,10 @@ pub usingnamespace switch (builtin.cpu.arch) {
             sc_rsp: c_long,
             sc_ss: c_long,
 
-            sc_fpstate: fxsave64,
+            sc_fpstate: *anyopaque, // struct fxsave64 *
             __sc_unused: c_int,
             sc_mask: c_int,
             sc_cookie: c_long,
-        };
-
-        pub const fxsave64 = packed struct {
-            fx_fcw: u16,
-            fx_fsw: u16,
-            fx_ftw: u8,
-            fx_unused1: u8,
-            fx_fop: u16,
-            fx_rip: u64,
-            fx_rdp: u64,
-            fx_mxcsr: u32,
-            fx_mxcsr_mask: u32,
-            fx_st: [8][2]u64,
-            fx_xmm: [16][2]u64,
-            fx_unused3: [96]u8,
         };
     },
     else => struct {},
