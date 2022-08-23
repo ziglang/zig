@@ -263,7 +263,11 @@ const PThreadForkFn = if (builtin.zig_backend == .stage1)
     fn () callconv(.C) void
 else
     *const fn () callconv(.C) void;
-pub extern "c" fn pthread_key_create(key: *c.pthread_key_t, destructor: ?fn (value: *anyopaque) callconv(.C) void) c.E;
+pub extern "c" fn pthread_key_create(key: *c.pthread_key_t, destructor: ?PThreadKeyCreateFn) c.E;
+const PThreadKeyCreateFn = if (builtin.zig_backend == .stage1)
+    fn (value: *anyopaque) callconv(.C) void
+else
+    *const fn (value: *anyopaque) callconv(.C) void;
 pub extern "c" fn pthread_key_delete(key: c.pthread_key_t) c.E;
 pub extern "c" fn pthread_getspecific(key: c.pthread_key_t) ?*anyopaque;
 pub extern "c" fn pthread_setspecific(key: c.pthread_key_t, value: ?*anyopaque) c_int;
