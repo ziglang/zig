@@ -840,19 +840,30 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_file: File) !ModuleDebugInfo
             const debug_info_data = di.coff.getSectionDataAlloc(".debug_info", allocator) catch null;
             const debug_abbrev_data = di.coff.getSectionDataAlloc(".debug_abbrev", allocator) catch null;
             const debug_str_data = di.coff.getSectionDataAlloc(".debug_str", allocator) catch null;
+            const debug_str_offsets = di.coff.getSectionDataAlloc(".debug_str_offsets", allocator) catch null;
             const debug_line_data = di.coff.getSectionDataAlloc(".debug_line", allocator) catch null;
             const debug_line_str_data = di.coff.getSectionDataAlloc(".debug_line_str", allocator) catch null;
-            const debug_ranges_data = di.coff.getSectionDataAlloc(".debug_ranges", allocator) catch null;
+            const debug_ranges = di.coff.getSectionDataAlloc(".debug_ranges", allocator) catch null;
+            const debug_loclists = di.coff.getSectionDataAlloc(".debug_loclists", allocator) catch null;
+            const debug_rnglists = di.coff.getSectionDataAlloc(".debug_rnglists", allocator) catch null;
+            const debug_addr = di.coff.getSectionDataAlloc(".debug_addr", allocator) catch null;
+            const debug_names = di.coff.getSectionDataAlloc(".debug_names", allocator) catch null;
+            const debug_frame = di.coff.getSectionDataAlloc(".debug_frame", allocator) catch null;
 
             var dwarf = DW.DwarfInfo{
                 .endian = native_endian,
                 .debug_info = debug_info_data orelse return error.MissingDebugInfo,
                 .debug_abbrev = debug_abbrev_data orelse return error.MissingDebugInfo,
                 .debug_str = debug_str_data orelse return error.MissingDebugInfo,
-                .debug_str_offsets = null,
+                .debug_str_offsets = debug_str_offsets,
                 .debug_line = debug_line_data orelse return error.MissingDebugInfo,
                 .debug_line_str = debug_line_str_data,
-                .debug_ranges = debug_ranges_data,
+                .debug_ranges = debug_ranges,
+                .debug_loclists = debug_loclists,
+                .debug_rnglists = debug_rnglists,
+                .debug_addr = debug_addr,
+                .debug_names = debug_names,
+                .debug_frame = debug_frame,
             };
             try DW.openDwarfDebugInfo(&dwarf, allocator);
             di.debug_data = PdbOrDwarf{ .dwarf = dwarf };
