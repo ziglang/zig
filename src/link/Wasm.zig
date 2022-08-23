@@ -2836,24 +2836,19 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
             try argv.append(entry);
         }
 
-        if (self.base.options.output_mode == .Exe) {
-            // Increase the default stack size to a more reasonable value of 1MB instead of
-            // the default of 1 Wasm page being 64KB, unless overridden by the user.
-            try argv.append("-z");
-            const stack_size = self.base.options.stack_size_override orelse 1048576;
-            const arg = try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size});
-            try argv.append(arg);
+        // Increase the default stack size to a more reasonable value of 1MB instead of
+        // the default of 1 Wasm page being 64KB, unless overridden by the user.
+        try argv.append("-z");
+        const stack_size = self.base.options.stack_size_override orelse wasm.page_size * 16;
+        const arg = try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size});
+        try argv.append(arg);
 
+        if (self.base.options.output_mode == .Exe) {
             if (self.base.options.wasi_exec_model == .reactor) {
                 // Reactor execution model does not have _start so lld doesn't look for it.
                 try argv.append("--no-entry");
             }
-        } else {
-            if (self.base.options.stack_size_override) |stack_size| {
-                try argv.append("-z");
-                const arg = try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size});
-                try argv.append(arg);
-            }
+        } else if (self.base.options.entry == null) {
             try argv.append("--no-entry"); // So lld doesn't look for _start.
         }
         try argv.appendSlice(&[_][]const u8{
