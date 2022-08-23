@@ -5,15 +5,15 @@ const debug_mode = @import("builtin").mode == .Debug;
 pub const MemoryPoolError = error{OutOfMemory};
 
 /// A memory pool that can allocate objects of a single type very quickly.
-/// Use this instead of a general purpose allocator when you need to allocate a lot of objects
-/// of the same type, as a memory pool outperforms general purpose allocators.
+/// Use this when you need to allocate a lot of objects of the same type,
+/// because It outperforms general purpose allocators.
 pub fn MemoryPool(comptime Item: type) type {
     return MemoryPoolAligned(Item, @alignOf(Item));
 }
 
 /// A memory pool that can allocate objects of a single type very quickly.
-/// Use this instead of a general purpose allocator when you need to allocate a lot of objects
-/// of the same type, as a memory pool outperforms general purpose allocators.
+/// Use this when you need to allocate a lot of objects of the same type,
+/// because It outperforms general purpose allocators.
 pub fn MemoryPoolAligned(comptime Item: type, comptime alignment: u29) type {
     if (@alignOf(Item) == alignment) {
         return MemoryPoolExtra(Item, .{});
@@ -32,20 +32,18 @@ pub const Options = struct {
 };
 
 /// A memory pool that can allocate objects of a single type very quickly.
-/// Use this instead of a general purpose allocator when you need to allocate a lot of objects
-/// of the same type, as a memory pool outperforms general purpose allocators.
+/// Use this when you need to allocate a lot of objects of the same type,
+/// because It outperforms general purpose allocators.
 pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type {
     return struct {
         const Pool = @This();
 
-        /// Size of the memory pool items. This is not necessarily
-        /// the same as `@sizeOf(Item)` as the pool also uses the items for internal
-        /// means.
+        /// Size of the memory pool items. This is not necessarily the same
+        /// as `@sizeOf(Item)` as the pool also uses the items for internal means.
         pub const item_size = std.math.max(@sizeOf(Node), @sizeOf(Item));
 
-        /// Alignment of the memory pool items. This is not necessarily
-        /// the same as `@alignOf(Item)` as the pool also uses the items for internal
-        /// means.
+        /// Alignment of the memory pool items. This is not necessarily the same
+        /// as `@alignOf(Item)` as the pool also uses the items for internal means.
         pub const item_alignment = std.math.max(@alignOf(Node), pool_options.alignment orelse 0);
 
         const Node = struct {
