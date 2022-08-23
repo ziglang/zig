@@ -3753,22 +3753,64 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
         };
         const o_basename = try std.fmt.allocPrint(arena, "{s}{s}", .{ o_basename_noext, out_ext });
 
+        try argv.appendSlice(&[_][]const u8{
+            self_exe_path,
+            "clang",
+            c_object.src.src_path,
+        });
+        try argv.appendSlice(c_object.src.extra_flags);
+
+        const ext = classifyFileExt(c_object.src.src_path);
+
+        // When all these flags are true, it means that the entire purpose of
+        // this compilation is to perform a single zig cc operation. This means
+        // that we could "tail call" clang by doing an execve, and any use of
+        // the caching system would actually be problematic since the user is
+        // presumably doing their own caching by using dep file flags.
+        if (comp.disable_c_depfile and comp.clang_passthrough_mode and std.process.can_execv and direct_o) {
+            try comp.addCCArgs(arena, &argv, ext, null);
+
+            const out_obj_path = if (comp.bin_file.options.emit) |emit|
+                try emit.directory.join(arena, &.{emit.sub_path})
+            else
+                "/dev/null";
+
+            try argv.ensureUnusedCapacity(5);
+            switch (comp.clang_preprocessor_mode) {
+                .no => argv.appendSliceAssumeCapacity(&[_][]const u8{ "-c", "-o", out_obj_path }),
+                .yes => argv.appendSliceAssumeCapacity(&[_][]const u8{ "-E", "-o", out_obj_path }),
+                .stdout => argv.appendAssumeCapacity("-E"),
+            }
+
+            if (comp.emit_asm != null) {
+                argv.appendAssumeCapacity("-S");
+            } else if (comp.emit_llvm_ir != null) {
+                argv.appendSliceAssumeCapacity(&[_][]const u8{ "-emit-llvm", "-S" });
+            } else if (comp.emit_llvm_bc != null) {
+                argv.appendAssumeCapacity("-emit-llvm");
+            }
+
+            if (comp.verbose_cc) {
+                dump_argv(argv.items);
+            }
+
+            const err = std.process.execv(arena, argv.items);
+            fatal("unable to execv clang: {s}", .{@errorName(err)});
+        }
+
         // We can't know the digest until we do the C compiler invocation,
         // so we need a temporary filename.
         const out_obj_path = try comp.tmpFilePath(arena, o_basename);
         var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
         defer zig_cache_tmp_dir.close();
 
-        try argv.appendSlice(&[_][]const u8{ self_exe_path, "clang" });
-
-        const ext = classifyFileExt(c_object.src.src_path);
         const out_dep_path: ?[]const u8 = if (comp.disable_c_depfile or !ext.clangSupportsDepFile())
             null
         else
             try std.fmt.allocPrint(arena, "{s}.d", .{out_obj_path});
         try comp.addCCArgs(arena, &argv, ext, out_dep_path);
 
-        try argv.ensureUnusedCapacity(6 + c_object.src.extra_flags.len);
+        try argv.ensureUnusedCapacity(5);
         switch (comp.clang_preprocessor_mode) {
             .no => argv.appendSliceAssumeCapacity(&[_][]const u8{ "-c", "-o", out_obj_path }),
             .yes => argv.appendSliceAssumeCapacity(&[_][]const u8{ "-E", "-o", out_obj_path }),
@@ -3783,8 +3825,6 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
                 argv.appendAssumeCapacity("-emit-llvm");
             }
         }
-        argv.appendAssumeCapacity(c_object.src.src_path);
-        argv.appendSliceAssumeCapacity(c_object.src.extra_flags);
 
         if (comp.verbose_cc) {
             dump_argv(argv.items);
