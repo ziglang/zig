@@ -446,8 +446,8 @@ test "CSPRNG" {
     try expect(a ^ b ^ c != 0);
 }
 
-test "Random dice" {
-    // Make sure dice works for various integers and floats
+test "Random weightedIndex" {
+    // Make sure weightedIndex works for various integers and floats
     inline for (.{ u64, i4, f32, f64 }) |T| {
         var prng = DefaultPrng.init(0);
         const random = prng.random();
@@ -458,7 +458,7 @@ test "Random dice" {
         const n_trials: u64 = 10_000;
         var i: usize = 0;
         while (i < n_trials) : (i += 1) {
-            const pick = random.dice(T, &proportions);
+            const pick = random.weightedIndex(T, &proportions);
             counts[pick] += 1;
         }
 
