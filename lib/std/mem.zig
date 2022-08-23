@@ -3252,13 +3252,13 @@ test "sliceAsBytes preserves pointer attributes" {
     try testing.expectEqual(in.alignment, out.alignment);
 }
 
-/// Round an address up to the nearest aligned address
+/// Round an address up to the next (or current) aligned address.
 /// The alignment must be a power of 2 and greater than 0.
 pub fn alignForward(addr: usize, alignment: usize) usize {
     return alignForwardGeneric(usize, addr, alignment);
 }
 
-/// Round an address up to the nearest aligned address
+/// Round an address up to the next (or current) aligned address.
 /// The alignment must be a power of 2 and greater than 0.
 pub fn alignForwardGeneric(comptime T: type, addr: T, alignment: T) T {
     return alignBackwardGeneric(T, addr + (alignment - 1), alignment);
@@ -3290,7 +3290,7 @@ test "alignForward" {
     try testing.expect(alignForward(17, 8) == 24);
 }
 
-/// Round an address up to the previous aligned address
+/// Round an address down to the previous (or current) aligned address.
 /// Unlike `alignBackward`, `alignment` can be any positive number, not just a power of 2.
 pub fn alignBackwardAnyAlign(i: usize, alignment: usize) usize {
     if (@popCount(alignment) == 1)
@@ -3299,13 +3299,13 @@ pub fn alignBackwardAnyAlign(i: usize, alignment: usize) usize {
     return i - @mod(i, alignment);
 }
 
-/// Round an address up to the previous aligned address
+/// Round an address down to the previous (or current) aligned address.
 /// The alignment must be a power of 2 and greater than 0.
 pub fn alignBackward(addr: usize, alignment: usize) usize {
     return alignBackwardGeneric(usize, addr, alignment);
 }
 
-/// Round an address up to the previous aligned address
+/// Round an address down to the previous (or current) aligned address.
 /// The alignment must be a power of 2 and greater than 0.
 pub fn alignBackwardGeneric(comptime T: type, addr: T, alignment: T) T {
     assert(@popCount(alignment) == 1);
