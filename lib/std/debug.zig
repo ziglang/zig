@@ -846,6 +846,7 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_file: File) !ModuleDebugInfo
                 .debug_info = debug_info_data orelse return error.MissingDebugInfo,
                 .debug_abbrev = debug_abbrev_data orelse return error.MissingDebugInfo,
                 .debug_str = debug_str_data orelse return error.MissingDebugInfo,
+                .debug_str_offsets = null,
                 .debug_line = debug_line_data orelse return error.MissingDebugInfo,
                 .debug_line_str = debug_line_str_data,
                 .debug_ranges = debug_ranges_data,
@@ -912,6 +913,7 @@ pub fn readElfDebugInfo(allocator: mem.Allocator, elf_file: File) !ModuleDebugIn
         var opt_debug_info: ?[]const u8 = null;
         var opt_debug_abbrev: ?[]const u8 = null;
         var opt_debug_str: ?[]const u8 = null;
+        var opt_debug_str_offsets: ?[]const u8 = null;
         var opt_debug_line: ?[]const u8 = null;
         var opt_debug_line_str: ?[]const u8 = null;
         var opt_debug_ranges: ?[]const u8 = null;
@@ -926,6 +928,8 @@ pub fn readElfDebugInfo(allocator: mem.Allocator, elf_file: File) !ModuleDebugIn
                 opt_debug_abbrev = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
             } else if (mem.eql(u8, name, ".debug_str")) {
                 opt_debug_str = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+            } else if (mem.eql(u8, name, ".debug_str_offsets")) {
+                opt_debug_str_offsets = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
             } else if (mem.eql(u8, name, ".debug_line")) {
                 opt_debug_line = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
             } else if (mem.eql(u8, name, ".debug_line_str")) {
@@ -940,6 +944,7 @@ pub fn readElfDebugInfo(allocator: mem.Allocator, elf_file: File) !ModuleDebugIn
             .debug_info = opt_debug_info orelse return error.MissingDebugInfo,
             .debug_abbrev = opt_debug_abbrev orelse return error.MissingDebugInfo,
             .debug_str = opt_debug_str orelse return error.MissingDebugInfo,
+            .debug_str_offsets = opt_debug_str_offsets,
             .debug_line = opt_debug_line orelse return error.MissingDebugInfo,
             .debug_line_str = opt_debug_line_str,
             .debug_ranges = opt_debug_ranges,
@@ -1515,6 +1520,7 @@ pub const ModuleDebugInfo = switch (native_os) {
                 .debug_info = try chopSlice(mapped_mem, debug_info.offset, debug_info.size),
                 .debug_abbrev = try chopSlice(mapped_mem, debug_abbrev.offset, debug_abbrev.size),
                 .debug_str = try chopSlice(mapped_mem, debug_str.offset, debug_str.size),
+                .debug_str_offsets = null,
                 .debug_line = try chopSlice(mapped_mem, debug_line.offset, debug_line.size),
                 .debug_line_str = if (opt_debug_line_str) |debug_line_str|
                     try chopSlice(mapped_mem, debug_line_str.offset, debug_line_str.size)
@@ -1578,6 +1584,7 @@ pub const ModuleDebugInfo = switch (native_os) {
                         .compile_unit_name = compile_unit.die.getAttrString(
                             o_file_di,
                             DW.AT.name,
+                            compile_unit.is_64,
                         ) catch |err| switch (err) {
                             error.MissingDebugInfo, error.InvalidDebugInfo => "???",
                         },
@@ -1698,7 +1705,7 @@ fn getSymbolFromDwarf(allocator: mem.Allocator, address: u64, di: *DW.DwarfInfo)
     if (nosuspend di.findCompileUnit(address)) |compile_unit| {
         return SymbolInfo{
             .symbol_name = nosuspend di.getSymbolName(address) orelse "???",
-            .compile_unit_name = compile_unit.die.getAttrString(di, DW.AT.name) catch |err| switch (err) {
+            .compile_unit_name = compile_unit.die.getAttrString(di, DW.AT.name, compile_unit.is_64) catch |err| switch (err) {
                 error.MissingDebugInfo, error.InvalidDebugInfo => "???",
             },
             .line_info = nosuspend di.getLineNumberInfo(allocator, compile_unit.*, address) catch |err| switch (err) {
