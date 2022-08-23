@@ -206,5 +206,7 @@ pub fn __divxf3(a: f80, b: f80) callconv(.C) f80 {
 }
 
 test {
+    if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .windows) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/12603
+
     _ = @import("divxf3_test.zig");
 }
