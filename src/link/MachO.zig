@@ -5862,8 +5862,8 @@ pub fn generateSymbolStabs(
         else => |e| return e,
     };
 
-    const tu_name = try compile_unit.die.getAttrString(&debug_info, dwarf.AT.name, compile_unit.is_64);
-    const tu_comp_dir = try compile_unit.die.getAttrString(&debug_info, dwarf.AT.comp_dir, compile_unit.is_64);
+    const tu_name = try compile_unit.die.getAttrString(&debug_info, dwarf.AT.name, debug_info.debug_str);
+    const tu_comp_dir = try compile_unit.die.getAttrString(&debug_info, dwarf.AT.comp_dir, debug_info.debug_str);
 
     // Open scope
     try locals.ensureUnusedCapacity(3);

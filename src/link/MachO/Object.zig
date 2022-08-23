@@ -584,6 +584,11 @@ pub fn parseDwarfInfo(self: Object) error{Overflow}!dwarf.DwarfInfo {
         .debug_line = &[0]u8{},
         .debug_line_str = &[0]u8{},
         .debug_ranges = &[0]u8{},
+        .debug_loclists = &[0]u8{},
+        .debug_rnglists = &[0]u8{},
+        .debug_addr = &[0]u8{},
+        .debug_names = &[0]u8{},
+        .debug_frame = &[0]u8{},
     };
     for (self.sections.items) |sect| {
         const segname = sect.segName();
@@ -601,6 +606,16 @@ pub fn parseDwarfInfo(self: Object) error{Overflow}!dwarf.DwarfInfo {
                 di.debug_line_str = try self.getSectionContents(sect);
             } else if (mem.eql(u8, sectname, "__debug_ranges")) {
                 di.debug_ranges = try self.getSectionContents(sect);
+            } else if (mem.eql(u8, sectname, "__debug_loclists")) {
+                di.debug_loclists = try self.getSectionContents(sect);
+            } else if (mem.eql(u8, sectname, "__debug_rnglists")) {
+                di.debug_rnglists = try self.getSectionContents(sect);
+            } else if (mem.eql(u8, sectname, "__debug_addr")) {
+                di.debug_addr = try self.getSectionContents(sect);
+            } else if (mem.eql(u8, sectname, "__debug_names")) {
+                di.debug_names = try self.getSectionContents(sect);
+            } else if (mem.eql(u8, sectname, "__debug_frame")) {
+                di.debug_frame = try self.getSectionContents(sect);
             }
         }
     }

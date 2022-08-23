@@ -205,6 +205,7 @@ const AbbrevAttr = struct {
 
 const FormValue = union(enum) {
     Address: u64,
+    AddrOffset: u64,
     Block: []u8,
     Const: Constant,
     ExprLoc: []u8,
@@ -216,14 +217,35 @@ const FormValue = union(enum) {
     StrPtr: u64,
     StrOffset: u64,
     LineStrPtr: u64,
+    LocListOffset: u64,
+    RangeListOffset: u64,
+
+    fn getString(fv: FormValue, di: DwarfInfo) ![]const u8 {
+        switch (fv) {
+            .String => |s| return s,
+            .StrPtr => |off| return di.getString(off),
+            .LineStrPtr => |off| return di.getLineString(off),
+            else => return badDwarf(),
+        }
+    }
+
+    fn getUInt(fv: FormValue, comptime U: type) !U {
+        switch (fv) {
+            .Const => |c| {
+                const int = try c.asUnsignedLe();
+                return math.cast(U, int) orelse return badDwarf();
+            },
+            else => return badDwarf(),
+        }
+    }
 };
 
 const Constant = struct {
     payload: u64,
     signed: bool,
 
-    fn asUnsignedLe(self: *const Constant) !u64 {
-        if (self.signed) return error.InvalidDebugInfo;
+    fn asUnsignedLe(self: Constant) !u64 {
+        if (self.signed) return badDwarf();
         return self.payload;
     }
 };
@@ -252,16 +274,57 @@ const Die = struct {
         return null;
     }
 
-    fn getAttrAddr(self: *const Die, id: u64) !u64 {
-        const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
+    fn getAttrAddr(self: *const Die, di: *DwarfInfo, id: u64) error{ InvalidDebugInfo, MissingDebugInfo }!u64 {
+        const form_value = self.getAttr(id) orelse return missingDwarf();
         return switch (form_value.*) {
             FormValue.Address => |value| value,
+            FormValue.AddrOffset => |index| {
+                const debug_addr = di.debug_addr orelse return badDwarf();
+                if (debug_addr.len < 8) return badDwarf();
+                const first_32_bits = mem.readInt(u32, debug_addr[0..4], di.endian);
+                const is_64 = first_32_bits == 0xffffffff;
+                var off: usize = undefined;
+                const length: u64 = l: {
+                    if (is_64) {
+                        if (debug_addr.len < 16) return badDwarf();
+                        off = 12;
+                        break :l mem.readInt(u64, debug_addr[4..12], di.endian);
+                    } else {
+                        if (debug_addr.len < 8) return badDwarf();
+                        if (first_32_bits >= 0xfffffff0) return badDwarf();
+                        off = 4;
+                        break :l first_32_bits;
+                    }
+                };
+                if (index > length) return badDwarf();
+
+                const version = mem.readInt(u16, debug_addr[off..][0..2], di.endian);
+                off += 2;
+                if (version < 5) return badDwarf();
+
+                const addr_size = debug_addr[off];
+                off += 1;
+
+                const seg_size = debug_addr[off];
+                off += 1;
+
+                const base_offset = self.getAttrSecOffset(AT.addr_base) catch off;
+                const byte_offset = base_offset + (addr_size + seg_size) * index;
+                if (byte_offset + addr_size > debug_addr.len) return badDwarf();
+                switch (addr_size) {
+                    1 => return debug_addr[byte_offset],
+                    2 => return mem.readInt(u16, debug_addr[byte_offset..][0..2], di.endian),
+                    4 => return mem.readInt(u32, debug_addr[byte_offset..][0..4], di.endian),
+                    8 => return mem.readInt(u64, debug_addr[byte_offset..][0..8], di.endian),
+                    else => return badDwarf(),
+                }
+            },
             else => error.InvalidDebugInfo,
         };
     }
 
     fn getAttrSecOffset(self: *const Die, id: u64) !u64 {
-        const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
+        const form_value = self.getAttr(id) orelse return missingDwarf();
         return switch (form_value.*) {
             FormValue.Const => |value| value.asUnsignedLe(),
             FormValue.SecOffset => |value| value,
@@ -270,7 +333,7 @@ const Die = struct {
     }
 
     fn getAttrUnsignedLe(self: *const Die, id: u64) !u64 {
-        const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
+        const form_value = self.getAttr(id) orelse return missingDwarf();
         return switch (form_value.*) {
             FormValue.Const => |value| value.asUnsignedLe(),
             else => error.InvalidDebugInfo,
@@ -278,33 +341,67 @@ const Die = struct {
     }
 
     fn getAttrRef(self: *const Die, id: u64) !u64 {
-        const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
+        const form_value = self.getAttr(id) orelse return missingDwarf();
         return switch (form_value.*) {
             FormValue.Ref => |value| value,
             else => error.InvalidDebugInfo,
         };
     }
 
-    pub fn getAttrString(self: *const Die, di: *DwarfInfo, id: u64, is_64: bool) ![]const u8 {
-        const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
-        return switch (form_value.*) {
-            FormValue.String => |value| value,
-            FormValue.StrPtr => |offset| di.getString(offset),
-            FormValue.StrOffset => |index| blk: {
-                const base_offset = self.getAttrSecOffset(AT.str_offsets_base) catch 0;
-                break :blk di.getLineString(try di.getStringOffset(base_offset + index, is_64));
+    pub fn getAttrString(self: *const Die, di: *DwarfInfo, id: u64, opt_str: ?[]const u8) error{ InvalidDebugInfo, MissingDebugInfo }![]const u8 {
+        const form_value = self.getAttr(id) orelse return missingDwarf();
+        switch (form_value.*) {
+            FormValue.String => |value| return value,
+            FormValue.StrPtr => |offset| return di.getString(offset),
+            FormValue.StrOffset => |index| {
+                const debug_str_offsets = di.debug_str_offsets orelse return badDwarf();
+                if (debug_str_offsets.len < 8) return badDwarf();
+                const first_32_bits = mem.readInt(u32, debug_str_offsets[0..4], di.endian);
+                const is_64 = first_32_bits == 0xffffffff;
+                var off: usize = undefined;
+                const length: u64 = l: {
+                    if (is_64) {
+                        if (debug_str_offsets.len < 16) return badDwarf();
+                        off = 12;
+                        break :l mem.readInt(u64, debug_str_offsets[4..12], di.endian);
+                    } else {
+                        if (debug_str_offsets.len < 8) return badDwarf();
+                        if (first_32_bits >= 0xfffffff0) return badDwarf();
+                        off = 4;
+                        break :l first_32_bits;
+                    }
+                };
+                if (index > length) return badDwarf();
+
+                const version = mem.readInt(u16, debug_str_offsets[off..][0..2], di.endian);
+                off += 2;
+                if (version < 5) return badDwarf();
+
+                off += 2; // reserved
+
+                const base_offset = self.getAttrSecOffset(AT.str_offsets_base) catch off;
+                if (is_64) {
+                    const byte_offset = base_offset + 8 * index;
+                    const offset = mem.readInt(u64, debug_str_offsets[byte_offset..][0..8], di.endian);
+                    return getStringGeneric(opt_str, offset);
+                } else {
+                    const byte_offset = base_offset + 4 * index;
+                    const offset = mem.readInt(u32, debug_str_offsets[byte_offset..][0..4], di.endian);
+                    return getStringGeneric(opt_str, offset);
+                }
             },
-            FormValue.LineStrPtr => |offset| di.getLineString(offset),
-            else => error.InvalidDebugInfo,
-        };
+            FormValue.LineStrPtr => |offset| return di.getLineString(offset),
+            else => return badDwarf(),
+        }
     }
 };
 
 const FileEntry = struct {
-    file_name: []const u8,
-    dir_index: usize,
-    mtime: usize,
-    len_bytes: usize,
+    path: []const u8,
+    dir_index: u32 = 0,
+    mtime: u64 = 0,
+    size: u64 = 0,
+    md5: u128 = 0,
 };
 
 const LineNumberProgram = struct {
@@ -312,13 +409,14 @@ const LineNumberProgram = struct {
     file: usize,
     line: i64,
     column: u64,
+    version: u16,
     is_stmt: bool,
     basic_block: bool,
     end_sequence: bool,
 
     default_is_stmt: bool,
     target_address: u64,
-    include_dirs: []const []const u8,
+    include_dirs: []const FileEntry,
 
     prev_valid: bool,
     prev_address: u64,
@@ -349,12 +447,18 @@ const LineNumberProgram = struct {
         self.prev_end_sequence = undefined;
     }
 
-    pub fn init(is_stmt: bool, include_dirs: []const []const u8, target_address: u64) LineNumberProgram {
+    pub fn init(
+        is_stmt: bool,
+        include_dirs: []const FileEntry,
+        target_address: u64,
+        version: u16,
+    ) LineNumberProgram {
         return LineNumberProgram{
             .address = 0,
             .file = 1,
             .line = 1,
             .column = 0,
+            .version = version,
             .is_stmt = is_stmt,
             .basic_block = false,
             .end_sequence = false,
@@ -377,18 +481,24 @@ const LineNumberProgram = struct {
         allocator: mem.Allocator,
         file_entries: []const FileEntry,
     ) !?debug.LineInfo {
-        if (self.prev_valid and self.target_address >= self.prev_address and self.target_address < self.address) {
-            const file_entry = if (self.prev_file == 0) {
-                return error.MissingDebugInfo;
-            } else if (self.prev_file - 1 >= file_entries.len) {
-                return error.InvalidDebugInfo;
-            } else &file_entries[self.prev_file - 1];
+        if (self.prev_valid and
+            self.target_address >= self.prev_address and
+            self.target_address < self.address)
+        {
+            const file_index = if (self.version >= 5) self.prev_file else i: {
+                if (self.prev_file == 0) return missingDwarf();
+                break :i self.prev_file - 1;
+            };
 
-            const dir_name = if (file_entry.dir_index >= self.include_dirs.len) {
-                return error.InvalidDebugInfo;
-            } else self.include_dirs[file_entry.dir_index];
+            if (file_index >= file_entries.len) return badDwarf();
+            const file_entry = &file_entries[file_index];
 
-            const file_name = try fs.path.join(allocator, &[_][]const u8{ dir_name, file_entry.file_name });
+            if (file_entry.dir_index >= self.include_dirs.len) return badDwarf();
+            const dir_name = self.include_dirs[file_entry.dir_index].path;
+
+            const file_name = try fs.path.join(allocator, &[_][]const u8{
+                dir_name, file_entry.path,
+            });
 
             return debug.LineInfo{
                 .line = if (self.prev_line >= 0) @intCast(u64, self.prev_line) else 0,
@@ -415,7 +525,7 @@ fn readUnitLength(in_stream: anytype, endian: std.builtin.Endian, is_64: *bool) 
     if (is_64.*) {
         return in_stream.readInt(u64, endian);
     } else {
-        if (first_32_bits >= 0xfffffff0) return error.InvalidDebugInfo;
+        if (first_32_bits >= 0xfffffff0) return badDwarf();
         // TODO this cast should not be needed
         return @as(u64, first_32_bits);
     }
@@ -492,6 +602,12 @@ fn parseFormValueRef(in_stream: anytype, endian: std.builtin.Endian, size: i32) 
 fn parseFormValue(allocator: mem.Allocator, in_stream: anytype, form_id: u64, endian: std.builtin.Endian, is_64: bool) anyerror!FormValue {
     return switch (form_id) {
         FORM.addr => FormValue{ .Address = try readAddress(in_stream, endian, @sizeOf(usize) == 8) },
+        FORM.addrx1 => return FormValue{ .AddrOffset = try in_stream.readInt(u8, endian) },
+        FORM.addrx2 => return FormValue{ .AddrOffset = try in_stream.readInt(u16, endian) },
+        FORM.addrx3 => return FormValue{ .AddrOffset = try in_stream.readInt(u24, endian) },
+        FORM.addrx4 => return FormValue{ .AddrOffset = try in_stream.readInt(u32, endian) },
+        FORM.addrx => return FormValue{ .AddrOffset = try nosuspend leb.readULEB128(u64, in_stream) },
+
         FORM.block1 => parseFormValueBlock(allocator, in_stream, endian, 1),
         FORM.block2 => parseFormValueBlock(allocator, in_stream, endian, 2),
         FORM.block4 => parseFormValueBlock(allocator, in_stream, endian, 4),
@@ -527,10 +643,11 @@ fn parseFormValue(allocator: mem.Allocator, in_stream: anytype, form_id: u64, en
 
         FORM.string => FormValue{ .String = try in_stream.readUntilDelimiterAlloc(allocator, 0, math.maxInt(usize)) },
         FORM.strp => FormValue{ .StrPtr = try readAddress(in_stream, endian, is_64) },
-        FORM.strx1 => return FormValue{ .StrOffset = @intCast(u64, try in_stream.readInt(u8, endian)) },
-        FORM.strx2 => return FormValue{ .StrOffset = @intCast(u64, try in_stream.readInt(u16, endian)) },
-        FORM.strx3 => return FormValue{ .StrOffset = @intCast(u64, try in_stream.readInt(u24, endian)) },
-        FORM.strx4 => return FormValue{ .StrOffset = @intCast(u64, try in_stream.readInt(u32, endian)) },
+        FORM.strx1 => return FormValue{ .StrOffset = try in_stream.readInt(u8, endian) },
+        FORM.strx2 => return FormValue{ .StrOffset = try in_stream.readInt(u16, endian) },
+        FORM.strx3 => return FormValue{ .StrOffset = try in_stream.readInt(u24, endian) },
+        FORM.strx4 => return FormValue{ .StrOffset = try in_stream.readInt(u32, endian) },
+        FORM.strx => return FormValue{ .StrOffset = try nosuspend leb.readULEB128(u64, in_stream) },
         FORM.line_strp => FormValue{ .LineStrPtr = try readAddress(in_stream, endian, is_64) },
         FORM.indirect => {
             const child_form_id = try nosuspend leb.readULEB128(u64, in_stream);
@@ -543,9 +660,11 @@ fn parseFormValue(allocator: mem.Allocator, in_stream: anytype, form_id: u64, en
             return await @asyncCall(frame, {}, parseFormValue, .{ allocator, in_stream, child_form_id, endian, is_64 });
         },
         FORM.implicit_const => FormValue{ .Const = Constant{ .signed = true, .payload = undefined } },
-
+        FORM.loclistx => return FormValue{ .LocListOffset = try nosuspend leb.readULEB128(u64, in_stream) },
+        FORM.rnglistx => return FormValue{ .RangeListOffset = try nosuspend leb.readULEB128(u64, in_stream) },
         else => {
-            return error.InvalidDebugInfo;
+            std.debug.print("unrecognized form id: {x}\n", .{form_id});
+            return badDwarf();
         },
     };
 }
@@ -567,6 +686,11 @@ pub const DwarfInfo = struct {
     debug_line: []const u8,
     debug_line_str: ?[]const u8,
     debug_ranges: ?[]const u8,
+    debug_loclists: ?[]const u8,
+    debug_rnglists: ?[]const u8,
+    debug_addr: ?[]const u8,
+    debug_names: ?[]const u8,
+    debug_frame: ?[]const u8,
     // Filled later by the initializer
     abbrev_table_list: std.ArrayListUnmanaged(AbbrevTableHeader) = .{},
     compile_unit_list: std.ArrayListUnmanaged(CompileUnit) = .{},
@@ -602,7 +726,7 @@ pub const DwarfInfo = struct {
 
     fn scanAllFunctions(di: *DwarfInfo, allocator: mem.Allocator) !void {
         var stream = io.fixedBufferStream(di.debug_info);
-        const in = &stream.reader();
+        const in = stream.reader();
         const seekable = &stream.seekableStream();
         var this_unit_offset: u64 = 0;
 
@@ -619,29 +743,26 @@ pub const DwarfInfo = struct {
             const next_offset = unit_length + (if (is_64) @as(usize, 12) else @as(usize, 4));
 
             const version = try in.readInt(u16, di.endian);
-            if (version < 2 or version > 5) return error.InvalidDebugInfo;
+            if (version < 2 or version > 5) return badDwarf();
 
             var address_size: u8 = undefined;
             var debug_abbrev_offset: u64 = undefined;
-            switch (version) {
-                5 => {
-                    const unit_type = try in.readInt(u8, di.endian);
-                    if (unit_type != UT.compile) return error.InvalidDebugInfo;
-                    address_size = try in.readByte();
-                    debug_abbrev_offset = if (is_64)
-                        try in.readInt(u64, di.endian)
-                    else
-                        try in.readInt(u32, di.endian);
-                },
-                else => {
-                    debug_abbrev_offset = if (is_64)
-                        try in.readInt(u64, di.endian)
-                    else
-                        try in.readInt(u32, di.endian);
-                    address_size = try in.readByte();
-                },
+            if (version >= 5) {
+                const unit_type = try in.readInt(u8, di.endian);
+                if (unit_type != UT.compile) return badDwarf();
+                address_size = try in.readByte();
+                debug_abbrev_offset = if (is_64)
+                    try in.readInt(u64, di.endian)
+                else
+                    try in.readInt(u32, di.endian);
+            } else {
+                debug_abbrev_offset = if (is_64)
+                    try in.readInt(u64, di.endian)
+                else
+                    try in.readInt(u32, di.endian);
+                address_size = try in.readByte();
             }
-            if (address_size != @sizeOf(usize)) return error.InvalidDebugInfo;
+            if (address_size != @sizeOf(usize)) return badDwarf();
 
             const compile_unit_pos = try seekable.getPos();
             const abbrev_table = try di.getAbbrevTable(allocator, debug_abbrev_offset);
@@ -662,30 +783,30 @@ pub const DwarfInfo = struct {
                             // Prevent endless loops
                             while (depth > 0) : (depth -= 1) {
                                 if (this_die_obj.getAttr(AT.name)) |_| {
-                                    const name = try this_die_obj.getAttrString(di, AT.name, is_64);
+                                    const name = try this_die_obj.getAttrString(di, AT.name, di.debug_str);
                                     break :x try allocator.dupe(u8, name);
                                 } else if (this_die_obj.getAttr(AT.abstract_origin)) |_| {
                                     // Follow the DIE it points to and repeat
                                     const ref_offset = try this_die_obj.getAttrRef(AT.abstract_origin);
-                                    if (ref_offset > next_offset) return error.InvalidDebugInfo;
+                                    if (ref_offset > next_offset) return badDwarf();
                                     try seekable.seekTo(this_unit_offset + ref_offset);
                                     this_die_obj = (try di.parseDie(
                                         arena,
                                         in,
                                         abbrev_table,
                                         is_64,
-                                    )) orelse return error.InvalidDebugInfo;
+                                    )) orelse return badDwarf();
                                 } else if (this_die_obj.getAttr(AT.specification)) |_| {
                                     // Follow the DIE it points to and repeat
                                     const ref_offset = try this_die_obj.getAttrRef(AT.specification);
-                                    if (ref_offset > next_offset) return error.InvalidDebugInfo;
+                                    if (ref_offset > next_offset) return badDwarf();
                                     try seekable.seekTo(this_unit_offset + ref_offset);
                                     this_die_obj = (try di.parseDie(
                                         arena,
                                         in,
                                         abbrev_table,
                                         is_64,
-                                    )) orelse return error.InvalidDebugInfo;
+                                    )) orelse return badDwarf();
                                 } else {
                                     break :x null;
                                 }
@@ -695,7 +816,7 @@ pub const DwarfInfo = struct {
                         };
 
                         const pc_range = x: {
-                            if (die_obj.getAttrAddr(AT.low_pc)) |low_pc| {
+                            if (die_obj.getAttrAddr(di, AT.low_pc)) |low_pc| {
                                 if (die_obj.getAttr(AT.high_pc)) |high_pc_value| {
                                     const pc_end = switch (high_pc_value.*) {
                                         FormValue.Address => |value| value,
@@ -703,7 +824,7 @@ pub const DwarfInfo = struct {
                                             const offset = try value.asUnsignedLe();
                                             break :b (low_pc + offset);
                                         },
-                                        else => return error.InvalidDebugInfo,
+                                        else => return badDwarf(),
                                     };
                                     break :x PcRange{
                                         .start = low_pc,
@@ -748,14 +869,14 @@ pub const DwarfInfo = struct {
             const next_offset = unit_length + (if (is_64) @as(usize, 12) else @as(usize, 4));
 
             const version = try in.readInt(u16, di.endian);
-            if (version < 2 or version > 5) return error.InvalidDebugInfo;
+            if (version < 2 or version > 5) return badDwarf();
 
             var address_size: u8 = undefined;
             var debug_abbrev_offset: u64 = undefined;
             switch (version) {
                 5 => {
                     const unit_type = try in.readInt(u8, di.endian);
-                    if (unit_type != UT.compile) return error.InvalidDebugInfo;
+                    if (unit_type != UT.compile) return badDwarf();
                     address_size = try in.readByte();
                     debug_abbrev_offset = if (is_64)
                         try in.readInt(u64, di.endian)
@@ -770,7 +891,7 @@ pub const DwarfInfo = struct {
                     address_size = try in.readByte();
                 },
             }
-            if (address_size != @sizeOf(usize)) return error.InvalidDebugInfo;
+            if (address_size != @sizeOf(usize)) return badDwarf();
 
             const compile_unit_pos = try seekable.getPos();
             const abbrev_table = try di.getAbbrevTable(allocator, debug_abbrev_offset);
@@ -780,12 +901,12 @@ pub const DwarfInfo = struct {
             const compile_unit_die = try allocator.create(Die);
             errdefer allocator.destroy(compile_unit_die);
             compile_unit_die.* = (try di.parseDie(allocator, in, abbrev_table, is_64)) orelse
-                return error.InvalidDebugInfo;
+                return badDwarf();
 
-            if (compile_unit_die.tag_id != TAG.compile_unit) return error.InvalidDebugInfo;
+            if (compile_unit_die.tag_id != TAG.compile_unit) return badDwarf();
 
             const pc_range = x: {
-                if (compile_unit_die.getAttrAddr(AT.low_pc)) |low_pc| {
+                if (compile_unit_die.getAttrAddr(di, AT.low_pc)) |low_pc| {
                     if (compile_unit_die.getAttr(AT.high_pc)) |high_pc_value| {
                         const pc_end = switch (high_pc_value.*) {
                             FormValue.Address => |value| value,
@@ -793,7 +914,7 @@ pub const DwarfInfo = struct {
                                 const offset = try value.asUnsignedLe();
                                 break :b (low_pc + offset);
                             },
-                            else => return error.InvalidDebugInfo,
+                            else => return badDwarf(),
                         };
                         break :x PcRange{
                             .start = low_pc,
@@ -834,7 +955,7 @@ pub const DwarfInfo = struct {
                     // specified by DW_AT.low_pc or to some other value encoded
                     // in the list itself.
                     // If no starting value is specified use zero.
-                    var base_address = compile_unit.die.getAttrAddr(AT.low_pc) catch |err| switch (err) {
+                    var base_address = compile_unit.die.getAttrAddr(di, AT.low_pc) catch |err| switch (err) {
                         error.MissingDebugInfo => @as(u64, 0), // TODO https://github.com/ziglang/zig/issues/11135
                         else => return err,
                     };
@@ -862,7 +983,7 @@ pub const DwarfInfo = struct {
                 }
             }
         }
-        return error.MissingDebugInfo;
+        return missingDwarf();
     }
 
     /// Gets an already existing AbbrevTable given the abbrev_offset, or if not found,
@@ -929,7 +1050,7 @@ pub const DwarfInfo = struct {
     ) !?Die {
         const abbrev_code = try leb.readULEB128(u64, in_stream);
         if (abbrev_code == 0) return null;
-        const table_entry = getAbbrevTableEntry(abbrev_table, abbrev_code) orelse return error.InvalidDebugInfo;
+        const table_entry = getAbbrevTableEntry(abbrev_table, abbrev_code) orelse return badDwarf();
 
         var result = Die{
             // Lives as long as the Die.
@@ -966,7 +1087,7 @@ pub const DwarfInfo = struct {
         const in = &stream.reader();
         const seekable = &stream.seekableStream();
 
-        const compile_unit_cwd = try compile_unit.die.getAttrString(di, AT.comp_dir, compile_unit.is_64);
+        const compile_unit_cwd = try compile_unit.die.getAttrString(di, AT.comp_dir, di.debug_line_str);
         const line_info_offset = try compile_unit.die.getAttrSecOffset(AT.stmt_list);
 
         try seekable.seekTo(line_info_offset);
@@ -974,18 +1095,25 @@ pub const DwarfInfo = struct {
         var is_64: bool = undefined;
         const unit_length = try readUnitLength(in, di.endian, &is_64);
         if (unit_length == 0) {
-            return error.MissingDebugInfo;
+            return missingDwarf();
         }
         const next_offset = unit_length + (if (is_64) @as(usize, 12) else @as(usize, 4));
 
         const version = try in.readInt(u16, di.endian);
-        if (version < 2 or version > 4) return error.InvalidDebugInfo;
+        if (version < 2) return badDwarf();
+
+        var addr_size: u8 = if (is_64) 8 else 4;
+        var seg_size: u8 = 0;
+        if (version >= 5) {
+            addr_size = try in.readByte();
+            seg_size = try in.readByte();
+        }
 
         const prologue_length = if (is_64) try in.readInt(u64, di.endian) else try in.readInt(u32, di.endian);
         const prog_start_offset = (try seekable.getPos()) + prologue_length;
 
         const minimum_instruction_length = try in.readByte();
-        if (minimum_instruction_length == 0) return error.InvalidDebugInfo;
+        if (minimum_instruction_length == 0) return badDwarf();
 
         if (version >= 4) {
             // maximum_operations_per_instruction
@@ -996,7 +1124,7 @@ pub const DwarfInfo = struct {
         const line_base = try in.readByteSigned();
 
         const line_range = try in.readByte();
-        if (line_range == 0) return error.InvalidDebugInfo;
+        if (line_range == 0) return badDwarf();
 
         const opcode_base = try in.readByte();
 
@@ -1014,35 +1142,119 @@ pub const DwarfInfo = struct {
         defer tmp_arena.deinit();
         const arena = tmp_arena.allocator();
 
-        var include_directories = std.ArrayList([]const u8).init(arena);
-        try include_directories.append(compile_unit_cwd);
+        var include_directories = std.ArrayList(FileEntry).init(arena);
+        var file_entries = std.ArrayList(FileEntry).init(arena);
 
-        while (true) {
-            const dir = try in.readUntilDelimiterAlloc(arena, 0, math.maxInt(usize));
-            if (dir.len == 0) break;
-            try include_directories.append(dir);
+        if (version < 5) {
+            try include_directories.append(.{ .path = compile_unit_cwd });
+
+            while (true) {
+                const dir = try in.readUntilDelimiterAlloc(arena, 0, math.maxInt(usize));
+                if (dir.len == 0) break;
+                try include_directories.append(.{ .path = dir });
+            }
+
+            while (true) {
+                const file_name = try in.readUntilDelimiterAlloc(arena, 0, math.maxInt(usize));
+                if (file_name.len == 0) break;
+                const dir_index = try leb.readULEB128(u32, in);
+                const mtime = try leb.readULEB128(u64, in);
+                const size = try leb.readULEB128(u64, in);
+                try file_entries.append(FileEntry{
+                    .path = file_name,
+                    .dir_index = dir_index,
+                    .mtime = mtime,
+                    .size = size,
+                });
+            }
+        } else {
+            const FileEntFmt = struct {
+                content_type_code: u8,
+                form_code: u16,
+            };
+            {
+                var dir_ent_fmt_buf: [10]FileEntFmt = undefined;
+                const directory_entry_format_count = try in.readByte();
+                if (directory_entry_format_count > dir_ent_fmt_buf.len) return badDwarf();
+                for (dir_ent_fmt_buf[0..directory_entry_format_count]) |*ent_fmt| {
+                    ent_fmt.* = .{
+                        .content_type_code = try leb.readULEB128(u8, in),
+                        .form_code = try leb.readULEB128(u16, in),
+                    };
+                }
+
+                const directories_count = try leb.readULEB128(usize, in);
+                try include_directories.ensureUnusedCapacity(directories_count);
+                {
+                    var i: usize = 0;
+                    while (i < directories_count) : (i += 1) {
+                        var e: FileEntry = .{ .path = &.{} };
+                        for (dir_ent_fmt_buf[0..directory_entry_format_count]) |ent_fmt| {
+                            const form_value = try parseFormValue(
+                                arena,
+                                in,
+                                ent_fmt.form_code,
+                                di.endian,
+                                is_64,
+                            );
+                            switch (ent_fmt.content_type_code) {
+                                LNCT.path => e.path = try form_value.getString(di.*),
+                                LNCT.directory_index => e.dir_index = try form_value.getUInt(u32),
+                                LNCT.timestamp => e.mtime = try form_value.getUInt(u64),
+                                LNCT.size => e.size = try form_value.getUInt(u64),
+                                LNCT.MD5 => e.md5 = try form_value.getUInt(u128),
+                                else => continue,
+                            }
+                        }
+                        include_directories.appendAssumeCapacity(e);
+                    }
+                }
+            }
+
+            var file_ent_fmt_buf: [10]FileEntFmt = undefined;
+            const file_name_entry_format_count = try in.readByte();
+            if (file_name_entry_format_count > file_ent_fmt_buf.len) return badDwarf();
+            for (file_ent_fmt_buf[0..file_name_entry_format_count]) |*ent_fmt| {
+                ent_fmt.* = .{
+                    .content_type_code = try leb.readULEB128(u8, in),
+                    .form_code = try leb.readULEB128(u16, in),
+                };
+            }
+
+            const file_names_count = try leb.readULEB128(usize, in);
+            try file_entries.ensureUnusedCapacity(file_names_count);
+            {
+                var i: usize = 0;
+                while (i < file_names_count) : (i += 1) {
+                    var e: FileEntry = .{ .path = &.{} };
+                    for (file_ent_fmt_buf[0..file_name_entry_format_count]) |ent_fmt| {
+                        const form_value = try parseFormValue(
+                            arena,
+                            in,
+                            ent_fmt.form_code,
+                            di.endian,
+                            is_64,
+                        );
+                        switch (ent_fmt.content_type_code) {
+                            LNCT.path => e.path = try form_value.getString(di.*),
+                            LNCT.directory_index => e.dir_index = try form_value.getUInt(u32),
+                            LNCT.timestamp => e.mtime = try form_value.getUInt(u64),
+                            LNCT.size => e.size = try form_value.getUInt(u64),
+                            LNCT.MD5 => e.md5 = try form_value.getUInt(u128),
+                            else => continue,
+                        }
+                    }
+                    file_entries.appendAssumeCapacity(e);
+                }
+            }
         }
 
-        var file_entries = std.ArrayList(FileEntry).init(arena);
         var prog = LineNumberProgram.init(
             default_is_stmt,
             include_directories.items,
             target_address,
+            version,
         );
-
-        while (true) {
-            const file_name = try in.readUntilDelimiterAlloc(arena, 0, math.maxInt(usize));
-            if (file_name.len == 0) break;
-            const dir_index = try leb.readULEB128(usize, in);
-            const mtime = try leb.readULEB128(usize, in);
-            const len_bytes = try leb.readULEB128(usize, in);
-            try file_entries.append(FileEntry{
-                .file_name = file_name,
-                .dir_index = dir_index,
-                .mtime = mtime,
-                .len_bytes = len_bytes,
-            });
-        }
 
         try seekable.seekTo(prog_start_offset);
 
@@ -1053,7 +1265,7 @@ pub const DwarfInfo = struct {
 
             if (opcode == LNS.extended_op) {
                 const op_size = try leb.readULEB128(u64, in);
-                if (op_size < 1) return error.InvalidDebugInfo;
+                if (op_size < 1) return badDwarf();
                 var sub_op = try in.readByte();
                 switch (sub_op) {
                     LNE.end_sequence => {
@@ -1066,19 +1278,19 @@ pub const DwarfInfo = struct {
                         prog.address = addr;
                     },
                     LNE.define_file => {
-                        const file_name = try in.readUntilDelimiterAlloc(arena, 0, math.maxInt(usize));
-                        const dir_index = try leb.readULEB128(usize, in);
-                        const mtime = try leb.readULEB128(usize, in);
-                        const len_bytes = try leb.readULEB128(usize, in);
+                        const path = try in.readUntilDelimiterAlloc(arena, 0, math.maxInt(usize));
+                        const dir_index = try leb.readULEB128(u32, in);
+                        const mtime = try leb.readULEB128(u64, in);
+                        const size = try leb.readULEB128(u64, in);
                         try file_entries.append(FileEntry{
-                            .file_name = file_name,
+                            .path = path,
                             .dir_index = dir_index,
                             .mtime = mtime,
-                            .len_bytes = len_bytes,
+                            .size = size,
                         });
                     },
                     else => {
-                        const fwd_amt = math.cast(isize, op_size - 1) orelse return error.InvalidDebugInfo;
+                        const fwd_amt = math.cast(isize, op_size - 1) orelse return badDwarf();
                         try seekable.seekBy(fwd_amt);
                     },
                 }
@@ -1129,7 +1341,7 @@ pub const DwarfInfo = struct {
                     },
                     LNS.set_prologue_end => {},
                     else => {
-                        if (opcode - 1 >= standard_opcode_lengths.len) return error.InvalidDebugInfo;
+                        if (opcode - 1 >= standard_opcode_lengths.len) return badDwarf();
                         const len_bytes = standard_opcode_lengths[opcode - 1];
                         try seekable.seekBy(len_bytes);
                     },
@@ -1137,50 +1349,15 @@ pub const DwarfInfo = struct {
             }
         }
 
-        return error.MissingDebugInfo;
+        return missingDwarf();
     }
 
-    fn getString(di: *DwarfInfo, offset: u64) ![]const u8 {
-        if (offset > di.debug_str.len)
-            return error.InvalidDebugInfo;
-        const casted_offset = math.cast(usize, offset) orelse
-            return error.InvalidDebugInfo;
-
-        // Valid strings always have a terminating zero byte
-        if (mem.indexOfScalarPos(u8, di.debug_str, casted_offset, 0)) |last| {
-            return di.debug_str[casted_offset..last];
-        }
-
-        return error.InvalidDebugInfo;
+    fn getString(di: DwarfInfo, offset: u64) ![]const u8 {
+        return getStringGeneric(di.debug_str, offset);
     }
 
-    fn getStringOffset(di: *DwarfInfo, offset: u64, is_64: bool) !u64 {
-        if (di.debug_str_offsets) |debug_str_offsets| {
-            if (offset >= debug_str_offsets.len) {
-                return error.InvalidDebugInfo;
-            }
-            const offset_casted = @intCast(usize, offset);
-            if (is_64) {
-                return std.mem.readIntSlice(u64, debug_str_offsets[offset_casted .. offset_casted + 8], di.endian);
-            }
-            return @intCast(u64, std.mem.readIntSlice(u32, debug_str_offsets[offset_casted .. offset_casted + 4], di.endian));
-        }
-        return error.InvalidDebugInfo;
-    }
-
-    fn getLineString(di: *DwarfInfo, offset: u64) ![]const u8 {
-        const debug_line_str = di.debug_line_str orelse return error.InvalidDebugInfo;
-        if (offset > debug_line_str.len)
-            return error.InvalidDebugInfo;
-        const casted_offset = math.cast(usize, offset) orelse
-            return error.InvalidDebugInfo;
-
-        // Valid strings always have a terminating zero byte
-        if (mem.indexOfScalarPos(u8, debug_line_str, casted_offset, 0)) |last| {
-            return debug_line_str[casted_offset..last];
-        }
-
-        return error.InvalidDebugInfo;
+    fn getLineString(di: DwarfInfo, offset: u64) ![]const u8 {
+        return getStringGeneric(di.debug_line_str, offset);
     }
 };
 
@@ -1189,4 +1366,25 @@ pub const DwarfInfo = struct {
 pub fn openDwarfDebugInfo(di: *DwarfInfo, allocator: mem.Allocator) !void {
     try di.scanAllFunctions(allocator);
     try di.scanAllCompileUnits(allocator);
+}
+
+/// This function is to make it handy to comment out the return and make it
+/// into a crash when working on this file.
+inline fn badDwarf() error{InvalidDebugInfo} {
+    //std.os.abort(); // can be handy to uncomment when working on this file
+    return error.InvalidDebugInfo;
+}
+
+inline fn missingDwarf() error{MissingDebugInfo} {
+    //std.os.abort(); // can be handy to uncomment when working on this file
+    return error.MissingDebugInfo;
+}
+
+fn getStringGeneric(opt_str: ?[]const u8, offset: u64) ![:0]const u8 {
+    const str = opt_str orelse return badDwarf();
+    if (offset > str.len) return badDwarf();
+    const casted_offset = math.cast(usize, offset) orelse return badDwarf();
+    // Valid strings always have a terminating zero byte
+    const last = mem.indexOfScalarPos(u8, str, casted_offset, 0) orelse return badDwarf();
+    return str[casted_offset..last :0];
 }

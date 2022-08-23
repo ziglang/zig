@@ -923,6 +923,11 @@ pub fn readElfDebugInfo(allocator: mem.Allocator, elf_file: File) !ModuleDebugIn
         var opt_debug_line: ?[]const u8 = null;
         var opt_debug_line_str: ?[]const u8 = null;
         var opt_debug_ranges: ?[]const u8 = null;
+        var opt_debug_loclists: ?[]const u8 = null;
+        var opt_debug_rnglists: ?[]const u8 = null;
+        var opt_debug_addr: ?[]const u8 = null;
+        var opt_debug_names: ?[]const u8 = null;
+        var opt_debug_frame: ?[]const u8 = null;
 
         for (shdrs) |*shdr| {
             if (shdr.sh_type == elf.SHT_NULL) continue;
@@ -942,6 +947,16 @@ pub fn readElfDebugInfo(allocator: mem.Allocator, elf_file: File) !ModuleDebugIn
                 opt_debug_line_str = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
             } else if (mem.eql(u8, name, ".debug_ranges")) {
                 opt_debug_ranges = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+            } else if (mem.eql(u8, name, ".debug_loclists")) {
+                opt_debug_loclists = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+            } else if (mem.eql(u8, name, ".debug_rnglists")) {
+                opt_debug_rnglists = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+            } else if (mem.eql(u8, name, ".debug_addr")) {
+                opt_debug_addr = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+            } else if (mem.eql(u8, name, ".debug_names")) {
+                opt_debug_names = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+            } else if (mem.eql(u8, name, ".debug_frame")) {
+                opt_debug_frame = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
             }
         }
 
@@ -954,6 +969,11 @@ pub fn readElfDebugInfo(allocator: mem.Allocator, elf_file: File) !ModuleDebugIn
             .debug_line = opt_debug_line orelse return error.MissingDebugInfo,
             .debug_line_str = opt_debug_line_str,
             .debug_ranges = opt_debug_ranges,
+            .debug_loclists = opt_debug_loclists,
+            .debug_rnglists = opt_debug_rnglists,
+            .debug_addr = opt_debug_addr,
+            .debug_names = opt_debug_names,
+            .debug_frame = opt_debug_frame,
         };
 
         try DW.openDwarfDebugInfo(&di, allocator);
@@ -1494,6 +1514,11 @@ pub const ModuleDebugInfo = switch (native_os) {
             var opt_debug_str: ?macho.section_64 = null;
             var opt_debug_line_str: ?macho.section_64 = null;
             var opt_debug_ranges: ?macho.section_64 = null;
+            var opt_debug_loclists: ?macho.section_64 = null;
+            var opt_debug_rnglists: ?macho.section_64 = null;
+            var opt_debug_addr: ?macho.section_64 = null;
+            var opt_debug_names: ?macho.section_64 = null;
+            var opt_debug_frame: ?macho.section_64 = null;
 
             for (segcmd.?.getSections()) |sect| {
                 const name = sect.sectName();
@@ -1509,6 +1534,16 @@ pub const ModuleDebugInfo = switch (native_os) {
                     opt_debug_line_str = sect;
                 } else if (mem.eql(u8, name, "__debug_ranges")) {
                     opt_debug_ranges = sect;
+                } else if (mem.eql(u8, name, "__debug_loclists")) {
+                    opt_debug_loclists = sect;
+                } else if (mem.eql(u8, name, "__debug_rnglists")) {
+                    opt_debug_rnglists = sect;
+                } else if (mem.eql(u8, name, "__debug_addr")) {
+                    opt_debug_addr = sect;
+                } else if (mem.eql(u8, name, "__debug_names")) {
+                    opt_debug_names = sect;
+                } else if (mem.eql(u8, name, "__debug_frame")) {
+                    opt_debug_frame = sect;
                 }
             }
 
@@ -1536,6 +1571,11 @@ pub const ModuleDebugInfo = switch (native_os) {
                     try chopSlice(mapped_mem, debug_ranges.offset, debug_ranges.size)
                 else
                     null,
+                .debug_loclists = opt_debug_loclists,
+                .debug_rnglists = opt_debug_rnglists,
+                .debug_addr = opt_debug_addr,
+                .debug_names = opt_debug_names,
+                .debug_frame = opt_debug_frame,
             };
 
             try DW.openDwarfDebugInfo(&di, allocator);
@@ -1590,7 +1630,7 @@ pub const ModuleDebugInfo = switch (native_os) {
                         .compile_unit_name = compile_unit.die.getAttrString(
                             o_file_di,
                             DW.AT.name,
-                            compile_unit.is_64,
+                            self.di.debug_str,
                         ) catch |err| switch (err) {
                             error.MissingDebugInfo, error.InvalidDebugInfo => "???",
                         },
@@ -1712,7 +1752,7 @@ fn getSymbolFromDwarf(allocator: mem.Allocator, address: u64, di: *DW.DwarfInfo)
     if (nosuspend di.findCompileUnit(address)) |compile_unit| {
         return SymbolInfo{
             .symbol_name = nosuspend di.getSymbolName(address) orelse "???",
-            .compile_unit_name = compile_unit.die.getAttrString(di, DW.AT.name, compile_unit.is_64) catch |err| switch (err) {
+            .compile_unit_name = compile_unit.die.getAttrString(di, DW.AT.name, di.debug_str) catch |err| switch (err) {
                 error.MissingDebugInfo, error.InvalidDebugInfo => "???",
             },
             .line_info = nosuspend di.getLineNumberInfo(allocator, compile_unit.*, address) catch |err| switch (err) {
