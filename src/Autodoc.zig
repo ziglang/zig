@@ -162,7 +162,7 @@ pub fn generateZirData(self: *Autodoc) !void {
                         .Void = .{ .name = tmpbuf.toOwnedSlice() },
                     },
                     .type_info_type => .{
-                        .Unanalyzed = .{},
+                        .ComptimeExpr = .{ .name = tmpbuf.toOwnedSlice() },
                     },
                     .type_type => .{
                         .Type = .{ .name = tmpbuf.toOwnedSlice() },
@@ -1076,7 +1076,7 @@ fn walkInstruction(
                 "TODO: implement `{s}` for walkInstruction\n\n",
                 .{@tagName(tags[inst_index])},
             );
-            return self.cteTodo(@tagName(tags[inst_index]));
+            return self.cteTodo("<" + @tagName(tags[inst_index]) + ">");
         },
 
         .slice_start => {
@@ -1947,8 +1947,30 @@ fn walkInstruction(
                 }
             };
 
+            // If the lhs is a `call` instruction, it means that we're inside
+            // a function call and we're referring to one of its arguments.
+            // We can't just blindly analyze the instruction or we will
+            // start recursing forever.
+            // TODO: add proper resolution of the container type for `calls`
+            // TODO: we're like testing lhs as an instruction twice
+            //       (above and below) this todo, maybe a cleaer solution woul
+            //       avoid that.
             // TODO: double check that we really don't need type info here
-            const wr = try self.walkRef(file, parent_scope, lhs_ref, false);
+
+            const wr = blk: {
+                if (@enumToInt(lhs_ref) >= Ref.typed_value_map.len) {
+                    const lhs_inst = @enumToInt(lhs_ref) - Ref.typed_value_map.len;
+                    if (tags[lhs_inst] == .call) {
+                        break :blk DocData.WalkResult{
+                            .expr = .{
+                                .comptimeExpr = 0,
+                            },
+                        };
+                    }
+                }
+
+                break :blk try self.walkRef(file, parent_scope, lhs_ref, false);
+            };
             try path.append(self.arena, wr.expr);
 
             // This way the data in `path` has the same ordering that the ref
@@ -2081,31 +2103,18 @@ fn walkInstruction(
                 extra.data.fields_len,
             );
 
-            log.debug("number of fields: {}", .{extra.data.fields_len});
             var idx = extra.end;
             for (field_vals) |*fv| {
                 const init_extra = file.zir.extraData(Zir.Inst.StructInitAnon.Item, idx);
                 const field_name = file.zir.nullTerminatedString(init_extra.data.field_name);
-                fv.* = .{
-                    .name = field_name,
-                    .val = DocData.WalkResult{
-                        .expr = .{ .comptimeExpr = 0 },
-                    },
-                };
-                // printWithContext(
-                //     file,
-                //     inst_index,
-                //     "analyzing field [{}] %{} `{s}`",
-                //     .{ i, init_extra.data.init, field_name },
-                // );
-                // const value = try self.walkRef(
-                //     file,
-                //     parent_scope,
-                //     init_extra.data.init,
-                //     need_type,
-                // );
-                // fv.* = .{ .name = field_name, .val = value };
-                // idx = init_extra.end;
+                const value = try self.walkRef(
+                    file,
+                    parent_scope,
+                    init_extra.data.init,
+                    need_type,
+                );
+                fv.* = .{ .name = field_name, .val = value };
+                idx = init_extra.end;
             }
 
             return DocData.WalkResult{
@@ -3130,6 +3139,10 @@ fn tryResolveRefPath(
                         "TODO: handle `{s}` in tryResolveDeclPath.type\nInfo: {}",
                         .{ @tagName(self.types.items[t_index]), resolved_parent },
                     );
+                },
+                .ComptimeExpr => {
+                    // Same as the comptimeExpr branch above
+                    break :outer;
                 },
                 .Unanalyzed => {
                     // This decl path is pending completion
