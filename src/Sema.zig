@@ -5941,10 +5941,9 @@ fn analyzeCall(
                 undefined,
             ) catch |err| switch (err) {
                 error.NeededSourceLocation => {
-                    sema.inst_map.clearRetainingCapacity();
+                    _ = sema.inst_map.remove(inst);
                     const decl = sema.mod.declPtr(block.src_decl);
                     child_block.src_decl = block.src_decl;
-                    arg_i = 0;
                     try sema.analyzeInlineCallArg(
                         block,
                         &child_block,
