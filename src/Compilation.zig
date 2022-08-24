@@ -4085,10 +4085,10 @@ pub fn addCCArgs(
             }
 
             if (!comp.bin_file.options.strip) {
-                try argv.append("-g");
                 switch (target.ofmt) {
                     .coff => try argv.append("-gcodeview"),
-                    else => {},
+                    .elf, .macho => try argv.append("-gdwarf-4"),
+                    else => try argv.append("-g"),
                 }
             }
 
