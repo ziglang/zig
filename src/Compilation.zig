@@ -3767,7 +3767,9 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
         // that we could "tail call" clang by doing an execve, and any use of
         // the caching system would actually be problematic since the user is
         // presumably doing their own caching by using dep file flags.
-        if (comp.disable_c_depfile and comp.clang_passthrough_mode and std.process.can_execv and direct_o) {
+        if (std.process.can_execv and direct_o and
+            comp.disable_c_depfile and comp.clang_passthrough_mode)
+        {
             try comp.addCCArgs(arena, &argv, ext, null);
 
             const out_obj_path = if (comp.bin_file.options.emit) |emit|
