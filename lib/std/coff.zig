@@ -915,25 +915,25 @@ pub const Coff = struct {
     }
 
     pub fn getCoffHeader(self: Coff) CoffHeader {
-        return @ptrCast(*align(1) CoffHeader, self.data[self.coff_header_offset..][0..@sizeOf(CoffHeader)]).*;
+        return @ptrCast(*align(1) const CoffHeader, self.data[self.coff_header_offset..][0..@sizeOf(CoffHeader)]).*;
     }
 
     pub fn getOptionalHeader(self: Coff) OptionalHeader {
         assert(self.is_image);
         const offset = self.coff_header_offset + @sizeOf(CoffHeader);
-        return @ptrCast(*align(1) OptionalHeader, self.data[offset..][0..@sizeOf(OptionalHeader)]).*;
+        return @ptrCast(*align(1) const OptionalHeader, self.data[offset..][0..@sizeOf(OptionalHeader)]).*;
     }
 
     pub fn getOptionalHeader32(self: Coff) OptionalHeaderPE32 {
         assert(self.is_image);
         const offset = self.coff_header_offset + @sizeOf(CoffHeader);
-        return @ptrCast(*align(1) OptionalHeaderPE32, self.data[offset..][0..@sizeOf(OptionalHeaderPE32)]).*;
+        return @ptrCast(*align(1) const OptionalHeaderPE32, self.data[offset..][0..@sizeOf(OptionalHeaderPE32)]).*;
     }
 
     pub fn getOptionalHeader64(self: Coff) OptionalHeaderPE64 {
         assert(self.is_image);
         const offset = self.coff_header_offset + @sizeOf(CoffHeader);
-        return @ptrCast(*align(1) OptionalHeaderPE64, self.data[offset..][0..@sizeOf(OptionalHeaderPE64)]).*;
+        return @ptrCast(*align(1) const OptionalHeaderPE64, self.data[offset..][0..@sizeOf(OptionalHeaderPE64)]).*;
     }
 
     pub fn getImageBase(self: Coff) u64 {
@@ -962,7 +962,7 @@ pub const Coff = struct {
             else => unreachable, // We assume we have validated the header already
         };
         const offset = self.coff_header_offset + @sizeOf(CoffHeader) + size;
-        return @ptrCast([*]align(1) ImageDataDirectory, self.data[offset..])[0..self.getNumberOfDataDirectories()];
+        return @ptrCast([*]align(1) const ImageDataDirectory, self.data[offset..])[0..self.getNumberOfDataDirectories()];
     }
 
     pub fn getSymtab(self: *const Coff) ?Symtab {
@@ -980,13 +980,13 @@ pub const Coff = struct {
 
         const offset = coff_header.pointer_to_symbol_table + Symbol.sizeOf() * coff_header.number_of_symbols;
         const size = mem.readIntLittle(u32, self.data[offset..][0..4]);
-        return .{ .buffer = self.data[offset..][0..size] };
+        return Strtab{ .buffer = self.data[offset..][0..size] };
     }
 
     pub fn getSectionHeaders(self: *const Coff) []align(1) const SectionHeader {
         const coff_header = self.getCoffHeader();
         const offset = self.coff_header_offset + @sizeOf(CoffHeader) + coff_header.size_of_optional_header;
-        return @ptrCast([*]align(1) SectionHeader, self.data.ptr + offset)[0..coff_header.number_of_sections];
+        return @ptrCast([*]align(1) const SectionHeader, self.data.ptr + offset)[0..coff_header.number_of_sections];
     }
 
     pub fn getSectionName(self: *const Coff, sect_hdr: *align(1) const SectionHeader) []const u8 {
