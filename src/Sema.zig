@@ -78,6 +78,9 @@ post_hoc_blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, *LabeledBlock) = .{},
 err: ?*Module.ErrorMsg = null,
 /// True when analyzing a generic instantiation. Used to suppress some errors.
 is_generic_instantiation: bool = false,
+/// Set to true when analyzing a func type instruction so that nested generic
+/// function types will emit generic poison instead of a partial type.
+no_partial_func_ty: bool = false,
 
 const std = @import("std");
 const math = std.math;
@@ -7917,6 +7920,7 @@ fn funcCommon(
         if (cc_workaround == .Inline and is_noinline) {
             return sema.fail(block, cc_src, "'noinline' function cannot have callconv 'Inline'", .{});
         }
+        if (is_generic and sema.no_partial_func_ty) return error.GenericPoison;
 
         break :fn_ty try Type.Tag.function.create(sema.arena, .{
             .param_types = param_types,
@@ -8097,25 +8101,19 @@ fn zirParam(
             // Make sure any nested param instructions don't clobber our work.
             const prev_params = block.params;
             const prev_preallocated_new_func = sema.preallocated_new_func;
+            const prev_no_partial_func_type = sema.no_partial_func_ty;
             block.params = .{};
             sema.preallocated_new_func = null;
+            sema.no_partial_func_ty = true;
             defer {
                 block.params.deinit(sema.gpa);
                 block.params = prev_params;
                 sema.preallocated_new_func = prev_preallocated_new_func;
+                sema.no_partial_func_ty = prev_no_partial_func_type;
             }
 
             if (sema.resolveBody(block, body, inst)) |param_ty_inst| {
                 if (sema.analyzeAsType(block, src, param_ty_inst)) |param_ty| {
-                    if (param_ty.zigTypeTag() == .Fn and param_ty.fnInfo().is_generic) {
-                        // zirFunc will not emit error.GenericPoison to build a
-                        // partial type for generic functions but we still need to
-                        // detect if a function parameter is a generic function
-                        // to force the parent function to also be generic.
-                        if (!sema.inst_map.contains(inst)) {
-                            break :err error.GenericPoison;
-                        }
-                    }
                     break :param_ty param_ty;
                 } else |err| break :err err;
             } else |err| break :err err;
