@@ -72,7 +72,6 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         .ReleaseSafe = .{
             .exclude_os = .{
                 .windows, // TODO
-                .linux, // TODO
             },
             .expect = 
             \\error: TheSkyIsFalling
@@ -139,7 +138,6 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         .ReleaseSafe = .{
             .exclude_os = .{
                 .windows, // TODO
-                .linux, // TODO
             },
             .expect = 
             \\error: TheSkyIsFalling
