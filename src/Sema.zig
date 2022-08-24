@@ -26139,11 +26139,12 @@ fn analyzeSlice(
     var array_ty = ptr_ptr_child_ty;
     var slice_ty = ptr_ptr_ty;
     var ptr_or_slice = ptr_ptr;
-    var elem_ty = ptr_ptr_child_ty.childType();
+    var elem_ty: Type = undefined;
     var ptr_sentinel: ?Value = null;
     switch (ptr_ptr_child_ty.zigTypeTag()) {
         .Array => {
             ptr_sentinel = ptr_ptr_child_ty.sentinel();
+            elem_ty = ptr_ptr_child_ty.childType();
         },
         .Pointer => switch (ptr_ptr_child_ty.ptrSize()) {
             .One => {
