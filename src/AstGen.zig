@@ -4265,10 +4265,13 @@ fn structDeclInner(
     // are in scope, so that field types, alignments, and default value expressions
     // can refer to decls within the struct itself.
     astgen.advanceSourceCursorToNode(node);
+    // If `node == 0` then this is the root struct and all the declarations should
+    // be relative to the beginning of the file.
+    const decl_line = if (node == 0) 0 else astgen.source_line;
     var block_scope: GenZir = .{
         .parent = &namespace.base,
         .decl_node_index = node,
-        .decl_line = astgen.source_line,
+        .decl_line = decl_line,
         .astgen = astgen,
         .force_comptime = true,
         .in_defer = false,
@@ -11764,7 +11767,6 @@ fn scanDecls(astgen: *AstGen, namespace: *Scope.Namespace, members: []const Ast.
             }
         }
 
-        // const index_name = try astgen.identAsString(index_token);
         var s = namespace.parent;
         while (true) switch (s.tag) {
             .local_val => {
