@@ -1146,7 +1146,7 @@ pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) std.meta.Int(@typeInfo(
     assert(value != 0);
     const PromotedType = std.meta.Int(@typeInfo(T).Int.signedness, @typeInfo(T).Int.bits + 1);
     const ShiftType = std.math.Log2Int(PromotedType);
-    return @as(PromotedType, 1) << @intCast(ShiftType, @typeInfo(T).Int.bits - @clz(T, value - 1));
+    return @as(PromotedType, 1) << @intCast(ShiftType, @typeInfo(T).Int.bits - @clz(value - 1));
 }
 
 /// Returns the next power of two (if the value is not already a power of two).
@@ -1212,7 +1212,7 @@ pub fn log2_int(comptime T: type, x: T) Log2Int(T) {
     if (@typeInfo(T) != .Int or @typeInfo(T).Int.signedness != .unsigned)
         @compileError("log2_int requires an unsigned integer, found " ++ @typeName(T));
     assert(x != 0);
-    return @intCast(Log2Int(T), @typeInfo(T).Int.bits - 1 - @clz(T, x));
+    return @intCast(Log2Int(T), @typeInfo(T).Int.bits - 1 - @clz(x));
 }
 
 /// Return the log base 2 of integer value x, rounding up to the

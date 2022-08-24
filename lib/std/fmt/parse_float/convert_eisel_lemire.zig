@@ -36,7 +36,7 @@ pub fn convertEiselLemire(comptime T: type, q: i64, w_: u64) ?BiasedFp(f64) {
     }
 
     // Normalize our significant digits, so the most-significant bit is set.
-    const lz = @clz(u64, @bitCast(u64, w));
+    const lz = @clz(@bitCast(u64, w));
     w = math.shl(u64, w, lz);
 
     const r = computeProductApprox(q, w, float_info.mantissa_explicit_bits + 3);

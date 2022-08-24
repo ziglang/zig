@@ -299,11 +299,11 @@ fn renderBitEnum(
     for (enumerants) |enumerant, i| {
         if (enumerant.value != .bitflag) return error.InvalidRegistry;
         const value = try parseHexInt(enumerant.value.bitflag);
-        if (@popCount(u32, value) == 0) {
+        if (@popCount(value) == 0) {
             continue; // Skip 'none' items
         }
 
-        std.debug.assert(@popCount(u32, value) == 1);
+        std.debug.assert(@popCount(value) == 1);
 
         var bitpos = std.math.log2_int(u32, value);
         if (flags_by_bitpos[bitpos]) |*existing| {

@@ -852,13 +852,13 @@ pub const LdInfo = struct {
 pub fn elfInt(is_64: bool, need_bswap: bool, int_32: anytype, int_64: anytype) @TypeOf(int_64) {
     if (is_64) {
         if (need_bswap) {
-            return @byteSwap(@TypeOf(int_64), int_64);
+            return @byteSwap(int_64);
         } else {
             return int_64;
         }
     } else {
         if (need_bswap) {
-            return @byteSwap(@TypeOf(int_32), int_32);
+            return @byteSwap(int_32);
         } else {
             return int_32;
         }

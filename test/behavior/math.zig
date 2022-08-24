@@ -90,10 +90,11 @@ fn testClzBigInts() !void {
 }
 
 fn testOneClz(comptime T: type, x: T) u32 {
-    return @clz(T, x);
+    return @clz(x);
 }
 
 test "@clz vectors" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -120,7 +121,7 @@ fn testOneClzVector(
     x: @Vector(len, T),
     expected: @Vector(len, u32),
 ) !void {
-    try expectVectorsEqual(@clz(T, x), expected);
+    try expectVectorsEqual(@clz(x), expected);
 }
 
 fn expectVectorsEqual(a: anytype, b: anytype) !void {
@@ -151,19 +152,18 @@ fn testCtz() !void {
 }
 
 fn testOneCtz(comptime T: type, x: T) u32 {
-    return @ctz(T, x);
+    return @ctz(x);
 }
 
 test "@ctz vectors" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
-    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
-        builtin.cpu.arch == .aarch64)
-    {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
         // This regressed with LLVM 14:
         // https://github.com/ziglang/zig/issues/12013
         return error.SkipZigTest;
@@ -187,7 +187,7 @@ fn testOneCtzVector(
     x: @Vector(len, T),
     expected: @Vector(len, u32),
 ) !void {
-    try expectVectorsEqual(@ctz(T, x), expected);
+    try expectVectorsEqual(@ctz(x), expected);
 }
 
 test "const number literal" {

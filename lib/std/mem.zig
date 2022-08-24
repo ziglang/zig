@@ -1319,7 +1319,7 @@ pub fn readIntNative(comptime T: type, bytes: *const [@divExact(@typeInfo(T).Int
 /// This function cannot fail and cannot cause undefined behavior.
 /// Assumes the endianness of memory is foreign, so it must byte-swap.
 pub fn readIntForeign(comptime T: type, bytes: *const [@divExact(@typeInfo(T).Int.bits, 8)]u8) T {
-    return @byteSwap(T, readIntNative(T, bytes));
+    return @byteSwap(readIntNative(T, bytes));
 }
 
 pub const readIntLittle = switch (native_endian) {
@@ -1348,7 +1348,7 @@ pub fn readIntSliceNative(comptime T: type, bytes: []const u8) T {
 /// The bit count of T must be evenly divisible by 8.
 /// Assumes the endianness of memory is foreign, so it must byte-swap.
 pub fn readIntSliceForeign(comptime T: type, bytes: []const u8) T {
-    return @byteSwap(T, readIntSliceNative(T, bytes));
+    return @byteSwap(readIntSliceNative(T, bytes));
 }
 
 pub const readIntSliceLittle = switch (native_endian) {
@@ -1430,7 +1430,7 @@ pub fn writeIntNative(comptime T: type, buf: *[(@typeInfo(T).Int.bits + 7) / 8]u
 /// the integer bit width must be divisible by 8.
 /// This function stores in foreign endian, which means it does a @byteSwap first.
 pub fn writeIntForeign(comptime T: type, buf: *[@divExact(@typeInfo(T).Int.bits, 8)]u8, value: T) void {
-    writeIntNative(T, buf, @byteSwap(T, value));
+    writeIntNative(T, buf, @byteSwap(value));
 }
 
 pub const writeIntLittle = switch (native_endian) {
@@ -1575,7 +1575,7 @@ pub const bswapAllFields = @compileError("bswapAllFields has been renamed to byt
 pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
     if (@typeInfo(S) != .Struct) @compileError("byteSwapAllFields expects a struct as the first argument");
     inline for (std.meta.fields(S)) |f| {
-        @field(ptr, f.name) = @byteSwap(f.field_type, @field(ptr, f.name));
+        @field(ptr, f.name) = @byteSwap(@field(ptr, f.name));
     }
 }
 
@@ -2752,14 +2752,14 @@ test "replaceOwned" {
 pub fn littleToNative(comptime T: type, x: T) T {
     return switch (native_endian) {
         .Little => x,
-        .Big => @byteSwap(T, x),
+        .Big => @byteSwap(x),
     };
 }
 
 /// Converts a big-endian integer to host endianness.
 pub fn bigToNative(comptime T: type, x: T) T {
     return switch (native_endian) {
-        .Little => @byteSwap(T, x),
+        .Little => @byteSwap(x),
         .Big => x,
     };
 }
@@ -2784,14 +2784,14 @@ pub fn nativeTo(comptime T: type, x: T, desired_endianness: Endian) T {
 pub fn nativeToLittle(comptime T: type, x: T) T {
     return switch (native_endian) {
         .Little => x,
-        .Big => @byteSwap(T, x),
+        .Big => @byteSwap(x),
     };
 }
 
 /// Converts an integer which has host endianness to big endian.
 pub fn nativeToBig(comptime T: type, x: T) T {
     return switch (native_endian) {
-        .Little => @byteSwap(T, x),
+        .Little => @byteSwap(x),
         .Big => x,
     };
 }
@@ -2803,7 +2803,7 @@ pub fn nativeToBig(comptime T: type, x: T) T {
 /// - The delta required to align the pointer is not a multiple of the pointee's
 ///   type.
 pub fn alignPointerOffset(ptr: anytype, align_to: u29) ?usize {
-    assert(align_to != 0 and @popCount(u29, align_to) == 1);
+    assert(align_to != 0 and @popCount(align_to) == 1);
 
     const T = @TypeOf(ptr);
     const info = @typeInfo(T);
@@ -3293,7 +3293,7 @@ test "alignForward" {
 /// Round an address up to the previous aligned address
 /// Unlike `alignBackward`, `alignment` can be any positive number, not just a power of 2.
 pub fn alignBackwardAnyAlign(i: usize, alignment: usize) usize {
-    if (@popCount(usize, alignment) == 1)
+    if (@popCount(alignment) == 1)
         return alignBackward(i, alignment);
     assert(alignment != 0);
     return i - @mod(i, alignment);
@@ -3308,7 +3308,7 @@ pub fn alignBackward(addr: usize, alignment: usize) usize {
 /// Round an address up to the previous aligned address
 /// The alignment must be a power of 2 and greater than 0.
 pub fn alignBackwardGeneric(comptime T: type, addr: T, alignment: T) T {
-    assert(@popCount(T, alignment) == 1);
+    assert(@popCount(alignment) == 1);
     // 000010000 // example alignment
     // 000001111 // subtract 1
     // 111110000 // binary not
@@ -3318,11 +3318,11 @@ pub fn alignBackwardGeneric(comptime T: type, addr: T, alignment: T) T {
 /// Returns whether `alignment` is a valid alignment, meaning it is
 /// a positive power of 2.
 pub fn isValidAlign(alignment: u29) bool {
-    return @popCount(u29, alignment) == 1;
+    return @popCount(alignment) == 1;
 }
 
 pub fn isAlignedAnyAlign(i: usize, alignment: usize) bool {
-    if (@popCount(usize, alignment) == 1)
+    if (@popCount(alignment) == 1)
         return isAligned(i, alignment);
     assert(alignment != 0);
     return 0 == @mod(i, alignment);

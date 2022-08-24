@@ -1582,7 +1582,7 @@ pub const Value = extern union {
             .one, .bool_true => return ty_bits - 1,
 
             .int_u64 => {
-                const big = @clz(u64, val.castTag(.int_u64).?.data);
+                const big = @clz(val.castTag(.int_u64).?.data);
                 return big + ty_bits - 64;
             },
             .int_i64 => {
@@ -1599,7 +1599,7 @@ pub const Value = extern union {
                 while (i != 0) {
                     i -= 1;
                     const limb = bigint.limbs[i];
-                    const this_limb_lz = @clz(std.math.big.Limb, limb);
+                    const this_limb_lz = @clz(limb);
                     total_limb_lz += this_limb_lz;
                     if (this_limb_lz != bits_per_limb) break;
                 }
@@ -1626,7 +1626,7 @@ pub const Value = extern union {
             .one, .bool_true => return 0,
 
             .int_u64 => {
-                const big = @ctz(u64, val.castTag(.int_u64).?.data);
+                const big = @ctz(val.castTag(.int_u64).?.data);
                 return if (big == 64) ty_bits else big;
             },
             .int_i64 => {
@@ -1638,7 +1638,7 @@ pub const Value = extern union {
                 // Limbs are stored in little-endian order.
                 var result: u64 = 0;
                 for (bigint.limbs) |limb| {
-                    const limb_tz = @ctz(std.math.big.Limb, limb);
+                    const limb_tz = @ctz(limb);
                     result += limb_tz;
                     if (limb_tz != @sizeOf(std.math.big.Limb) * 8) break;
                 }
@@ -1663,7 +1663,7 @@ pub const Value = extern union {
             .zero, .bool_false => return 0,
             .one, .bool_true => return 1,
 
-            .int_u64 => return @popCount(u64, val.castTag(.int_u64).?.data),
+            .int_u64 => return @popCount(val.castTag(.int_u64).?.data),
 
             else => {
                 const info = ty.intInfo(target);

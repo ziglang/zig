@@ -7733,11 +7733,11 @@ fn builtinCall(
         .has_decl  => return hasDeclOrField(gz, scope, rl, node, params[0], params[1], .has_decl),
         .has_field => return hasDeclOrField(gz, scope, rl, node, params[0], params[1], .has_field),
 
-        .clz         => return bitBuiltin(gz, scope, rl, node, params[0], params[1], .clz),
-        .ctz         => return bitBuiltin(gz, scope, rl, node, params[0], params[1], .ctz),
-        .pop_count   => return bitBuiltin(gz, scope, rl, node, params[0], params[1], .pop_count),
-        .byte_swap   => return bitBuiltin(gz, scope, rl, node, params[0], params[1], .byte_swap),
-        .bit_reverse => return bitBuiltin(gz, scope, rl, node, params[0], params[1], .bit_reverse),
+        .clz         => return bitBuiltin(gz, scope, rl, node, params[0], .clz),
+        .ctz         => return bitBuiltin(gz, scope, rl, node, params[0], .ctz),
+        .pop_count   => return bitBuiltin(gz, scope, rl, node, params[0], .pop_count),
+        .byte_swap   => return bitBuiltin(gz, scope, rl, node, params[0], .byte_swap),
+        .bit_reverse => return bitBuiltin(gz, scope, rl, node, params[0], .bit_reverse),
 
         .div_exact => return divBuiltin(gz, scope, rl, node, params[0], params[1], .div_exact),
         .div_floor => return divBuiltin(gz, scope, rl, node, params[0], params[1], .div_floor),
@@ -8100,17 +8100,9 @@ fn bitBuiltin(
     scope: *Scope,
     rl: ResultLoc,
     node: Ast.Node.Index,
-    int_type_node: Ast.Node.Index,
     operand_node: Ast.Node.Index,
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
-    // The accepted proposal https://github.com/ziglang/zig/issues/6835
-    // tells us to remove the type parameter from these builtins. To stay
-    // source-compatible with stage1, we still observe the parameter here,
-    // but we do not encode it into the ZIR. To implement this proposal in
-    // stage2, only AstGen code will need to be changed.
-    _ = try typeExpr(gz, scope, int_type_node);
-
     const operand = try expr(gz, scope, .none, operand_node);
     const result = try gz.addUnNode(tag, operand, node);
     return rvalue(gz, rl, result, node);

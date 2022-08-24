@@ -3135,12 +3135,12 @@ fn emitSegmentInfo(self: *Wasm, file: fs.File, arena: Allocator) !void {
     for (self.segment_info.items) |segment_info| {
         log.debug("Emit segment: {s} align({d}) flags({b})", .{
             segment_info.name,
-            @ctz(u32, segment_info.alignment),
+            @ctz(segment_info.alignment),
             segment_info.flags,
         });
         try leb.writeULEB128(writer, @intCast(u32, segment_info.name.len));
         try writer.writeAll(segment_info.name);
-        try leb.writeULEB128(writer, @ctz(u32, segment_info.alignment));
+        try leb.writeULEB128(writer, @ctz(segment_info.alignment));
         try leb.writeULEB128(writer, segment_info.flags);
     }
 

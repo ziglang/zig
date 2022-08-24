@@ -192,7 +192,7 @@ pub fn normalize(comptime T: type, significand: *std.meta.Int(.unsigned, @typeIn
     const Z = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
     const integerBit = @as(Z, 1) << std.math.floatFractionalBits(T);
 
-    const shift = @clz(Z, significand.*) - @clz(Z, integerBit);
+    const shift = @clz(significand.*) - @clz(integerBit);
     significand.* <<= @intCast(std.math.Log2Int(Z), shift);
     return @as(i32, 1) - shift;
 }

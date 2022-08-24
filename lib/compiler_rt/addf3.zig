@@ -9,7 +9,7 @@ const normalize = common.normalize;
 pub inline fn addf3(comptime T: type, a: T, b: T) T {
     const bits = @typeInfo(T).Float.bits;
     const Z = std.meta.Int(.unsigned, bits);
-    const S = std.meta.Int(.unsigned, bits - @clz(Z, @as(Z, bits) - 1));
+    const S = std.meta.Int(.unsigned, bits - @clz(@as(Z, bits) - 1));
 
     const typeWidth = bits;
     const significandBits = math.floatMantissaBits(T);
@@ -118,7 +118,7 @@ pub inline fn addf3(comptime T: type, a: T, b: T) T {
         // If partial cancellation occured, we need to left-shift the result
         // and adjust the exponent:
         if (aSignificand < integerBit << 3) {
-            const shift = @intCast(i32, @clz(Z, aSignificand)) - @intCast(i32, @clz(std.meta.Int(.unsigned, bits), integerBit << 3));
+            const shift = @intCast(i32, @clz(aSignificand)) - @intCast(i32, @clz(integerBit << 3));
             aSignificand <<= @intCast(S, shift);
             aExponent -= shift;
         }

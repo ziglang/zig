@@ -389,7 +389,7 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
     const S = struct {
         fn endianSwap(x: anytype) @TypeOf(x) {
             if (endian != native_endian) {
-                return @byteSwap(@TypeOf(x), x);
+                return @byteSwap(x);
             } else {
                 return x;
             }

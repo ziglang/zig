@@ -243,7 +243,7 @@ inline fn div_u32(n: u32, d: u32) u32 {
     // special cases
     if (d == 0) return 0; // ?!
     if (n == 0) return 0;
-    var sr = @bitCast(c_uint, @as(c_int, @clz(u32, d)) - @as(c_int, @clz(u32, n)));
+    var sr = @bitCast(c_uint, @as(c_int, @clz(d)) - @as(c_int, @clz(n)));
     // 0 <= sr <= n_uword_bits - 1 or sr large
     if (sr > n_uword_bits - 1) {
         // d > r

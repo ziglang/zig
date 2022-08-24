@@ -391,7 +391,7 @@ pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) 
                     break :blk cc[start..][0..size];
                 } else null;
                 const atom_align = if (addr > 0)
-                    math.min(@ctz(u64, addr), sect.@"align")
+                    math.min(@ctz(addr), sect.@"align")
                 else
                     sect.@"align";
                 const atom = try self.createAtomFromSubsection(

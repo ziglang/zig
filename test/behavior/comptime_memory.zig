@@ -82,7 +82,7 @@ test "type pun value and struct" {
 }
 
 fn bigToNativeEndian(comptime T: type, v: T) T {
-    return if (endian == .Big) v else @byteSwap(T, v);
+    return if (endian == .Big) v else @byteSwap(v);
 }
 test "type pun endianness" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;

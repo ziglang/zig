@@ -343,7 +343,7 @@ fn emitMemArg(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
     try emit.code.append(@enumToInt(tag));
 
     // wasm encodes alignment as power of 2, rather than natural alignment
-    const encoded_alignment = @ctz(u32, mem_arg.alignment);
+    const encoded_alignment = @ctz(mem_arg.alignment);
     try leb128.writeULEB128(emit.code.writer(), encoded_alignment);
     try leb128.writeULEB128(emit.code.writer(), mem_arg.offset);
 }
