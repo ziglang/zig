@@ -559,7 +559,9 @@ pub const Decl = struct {
         }
         if (decl.getFunction()) |func| {
             _ = mod.align_stack_fns.remove(func);
-            _ = mod.monomorphed_funcs.remove(func);
+            if (func.comptime_args != null) {
+                _ = mod.monomorphed_funcs.remove(func);
+            }
             func.deinit(gpa);
             gpa.destroy(func);
         }
@@ -1478,6 +1480,7 @@ pub const Fn = struct {
     /// This is important because it may be accessed when resizing monomorphed_funcs
     /// while this Fn has already been added to the set, but does not have the
     /// owner_decl, comptime_args, or other fields populated yet.
+    /// This field is undefined if comptime_args == null.
     hash: u64,
 
     /// Relative to owner Decl.
