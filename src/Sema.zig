@@ -4071,6 +4071,19 @@ fn zirValidateArrayInit(
 
         // Determine whether the value stored to this pointer is comptime-known.
 
+        if (array_ty.isTuple()) {
+            if (array_ty.structFieldValueComptime(i)) |opv| {
+                element_vals[i] = opv;
+                continue;
+            }
+        } else {
+            // Array has one possible value, so value is always comptime-known
+            if (opt_opv) |opv| {
+                element_vals[i] = opv;
+                continue;
+            }
+        }
+
         const elem_ptr_air_ref = sema.inst_map.get(elem_ptr).?;
         const elem_ptr_air_inst = Air.refToIndex(elem_ptr_air_ref).?;
         // Find the block index of the elem_ptr so that we can look at the next
@@ -4086,19 +4099,6 @@ fn zirValidateArrayInit(
             block_index -= 1;
         }
         first_block_index = @minimum(first_block_index, block_index);
-
-        if (array_ty.isTuple()) {
-            if (array_ty.structFieldValueComptime(i)) |opv| {
-                element_vals[i] = opv;
-                continue;
-            }
-        } else {
-            // Array has one possible value, so value is always comptime-known
-            if (opt_opv) |opv| {
-                element_vals[i] = opv;
-                continue;
-            }
-        }
 
         // If the next instructon is a store with a comptime operand, this element
         // is comptime.
