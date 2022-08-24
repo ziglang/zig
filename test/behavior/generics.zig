@@ -342,3 +342,18 @@ test "generic instantiation of tagged union with only one field" {
     try expect(S.foo(.{ .s = "a" }) == 1);
     try expect(S.foo(.{ .s = "ab" }) == 2);
 }
+
+test "nested generic function" {
+    const S = struct {
+        fn foo(comptime T: type, callback: *const fn (user_data: T) anyerror!void, data: T) anyerror!void {
+            try callback(data);
+        }
+        fn bar(a: u32) anyerror!void {
+            try expect(a == 123);
+        }
+
+        fn g(_: *const fn (anytype) void) void {}
+    };
+    try expect(@typeInfo(@TypeOf(S.g)).Fn.is_generic);
+    try S.foo(u32, S.bar, 123);
+}

@@ -1,5 +1,6 @@
 fn f(_: anytype) void {}
-fn g(h: *const fn (anytype) void) void {
+const T = *const fn (anytype) void;
+fn g(h: T) void {
     h({});
 }
 pub export fn entry() void {
@@ -19,5 +20,5 @@ pub export fn entry1() void {
 // backend=stage2
 // target=native
 //
-// :2:6: error: parameter of type '*const fn(anytype) void' must be declared comptime
-// :9:34: error: parameter of type 'comptime_int' must be declared comptime
+// :3:6: error: parameter of type '*const fn(anytype) void' must be declared comptime
+// :10:34: error: parameter of type 'comptime_int' must be declared comptime
