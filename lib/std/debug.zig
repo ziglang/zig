@@ -837,12 +837,12 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_file: File) !ModuleDebugInfo
             // This coff file has embedded DWARF debug info
             _ = sec;
             // TODO: free the section data slices
-            const debug_info_data = di.coff.getSectionDataAlloc(".debug_info", allocator) catch null;
-            const debug_abbrev_data = di.coff.getSectionDataAlloc(".debug_abbrev", allocator) catch null;
-            const debug_str_data = di.coff.getSectionDataAlloc(".debug_str", allocator) catch null;
+            const debug_info = di.coff.getSectionDataAlloc(".debug_info", allocator) catch null;
+            const debug_abbrev = di.coff.getSectionDataAlloc(".debug_abbrev", allocator) catch null;
+            const debug_str = di.coff.getSectionDataAlloc(".debug_str", allocator) catch null;
             const debug_str_offsets = di.coff.getSectionDataAlloc(".debug_str_offsets", allocator) catch null;
-            const debug_line_data = di.coff.getSectionDataAlloc(".debug_line", allocator) catch null;
-            const debug_line_str_data = di.coff.getSectionDataAlloc(".debug_line_str", allocator) catch null;
+            const debug_line = di.coff.getSectionDataAlloc(".debug_line", allocator) catch null;
+            const debug_line_str = di.coff.getSectionDataAlloc(".debug_line_str", allocator) catch null;
             const debug_ranges = di.coff.getSectionDataAlloc(".debug_ranges", allocator) catch null;
             const debug_loclists = di.coff.getSectionDataAlloc(".debug_loclists", allocator) catch null;
             const debug_rnglists = di.coff.getSectionDataAlloc(".debug_rnglists", allocator) catch null;
@@ -852,12 +852,12 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_file: File) !ModuleDebugInfo
 
             var dwarf = DW.DwarfInfo{
                 .endian = native_endian,
-                .debug_info = debug_info_data orelse return error.MissingDebugInfo,
-                .debug_abbrev = debug_abbrev_data orelse return error.MissingDebugInfo,
-                .debug_str = debug_str_data orelse return error.MissingDebugInfo,
+                .debug_info = debug_info orelse return error.MissingDebugInfo,
+                .debug_abbrev = debug_abbrev orelse return error.MissingDebugInfo,
+                .debug_str = debug_str orelse return error.MissingDebugInfo,
                 .debug_str_offsets = debug_str_offsets,
-                .debug_line = debug_line_data orelse return error.MissingDebugInfo,
-                .debug_line_str = debug_line_str_data,
+                .debug_line = debug_line orelse return error.MissingDebugInfo,
+                .debug_line_str = debug_line_str,
                 .debug_ranges = debug_ranges,
                 .debug_loclists = debug_loclists,
                 .debug_rnglists = debug_rnglists,
@@ -1663,6 +1663,7 @@ pub const ModuleDebugInfo = switch (native_os) {
                             o_file_di,
                             DW.AT.name,
                             o_file_di.debug_str,
+                            compile_unit.*,
                         ) catch |err| switch (err) {
                             error.MissingDebugInfo, error.InvalidDebugInfo => "???",
                         },
@@ -1784,7 +1785,7 @@ fn getSymbolFromDwarf(allocator: mem.Allocator, address: u64, di: *DW.DwarfInfo)
     if (nosuspend di.findCompileUnit(address)) |compile_unit| {
         return SymbolInfo{
             .symbol_name = nosuspend di.getSymbolName(address) orelse "???",
-            .compile_unit_name = compile_unit.die.getAttrString(di, DW.AT.name, di.debug_str) catch |err| switch (err) {
+            .compile_unit_name = compile_unit.die.getAttrString(di, DW.AT.name, di.debug_str, compile_unit.*) catch |err| switch (err) {
                 error.MissingDebugInfo, error.InvalidDebugInfo => "???",
             },
             .line_info = nosuspend di.getLineNumberInfo(allocator, compile_unit.*, address) catch |err| switch (err) {

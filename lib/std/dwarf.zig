@@ -168,6 +168,11 @@ const CompileUnit = struct {
     is_64: bool,
     die: *Die,
     pc_range: ?PcRange,
+
+    str_offsets_base: usize,
+    addr_base: usize,
+    rnglists_base: usize,
+    loclists_base: usize,
 };
 
 const AbbrevTable = std.ArrayList(AbbrevTableEntry);
@@ -205,7 +210,7 @@ const AbbrevAttr = struct {
 
 const FormValue = union(enum) {
     Address: u64,
-    AddrOffset: u64,
+    AddrOffset: usize,
     Block: []u8,
     Const: Constant,
     ExprLoc: []u8,
@@ -215,10 +220,11 @@ const FormValue = union(enum) {
     RefAddr: u64,
     String: []const u8,
     StrPtr: u64,
-    StrOffset: u64,
+    StrOffset: usize,
     LineStrPtr: u64,
     LocListOffset: u64,
     RangeListOffset: u64,
+    data16: [16]u8,
 
     fn getString(fv: FormValue, di: DwarfInfo) ![]const u8 {
         switch (fv) {
@@ -235,6 +241,14 @@ const FormValue = union(enum) {
                 const int = try c.asUnsignedLe();
                 return math.cast(U, int) orelse return badDwarf();
             },
+            .SecOffset => |x| return math.cast(U, x) orelse return badDwarf(),
+            else => return badDwarf(),
+        }
+    }
+
+    fn getData16(fv: FormValue) ![16]u8 {
+        switch (fv) {
+            .data16 => |d| return d,
             else => return badDwarf(),
         }
     }
@@ -274,42 +288,30 @@ const Die = struct {
         return null;
     }
 
-    fn getAttrAddr(self: *const Die, di: *DwarfInfo, id: u64) error{ InvalidDebugInfo, MissingDebugInfo }!u64 {
-        const form_value = self.getAttr(id) orelse return missingDwarf();
+    fn getAttrAddr(
+        self: *const Die,
+        di: *DwarfInfo,
+        id: u64,
+        compile_unit: CompileUnit,
+    ) error{ InvalidDebugInfo, MissingDebugInfo }!u64 {
+        const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return switch (form_value.*) {
             FormValue.Address => |value| value,
             FormValue.AddrOffset => |index| {
                 const debug_addr = di.debug_addr orelse return badDwarf();
-                if (debug_addr.len < 8) return badDwarf();
-                const first_32_bits = mem.readInt(u32, debug_addr[0..4], di.endian);
-                const is_64 = first_32_bits == 0xffffffff;
-                var off: usize = undefined;
-                const length: u64 = l: {
-                    if (is_64) {
-                        if (debug_addr.len < 16) return badDwarf();
-                        off = 12;
-                        break :l mem.readInt(u64, debug_addr[4..12], di.endian);
-                    } else {
-                        if (debug_addr.len < 8) return badDwarf();
-                        if (first_32_bits >= 0xfffffff0) return badDwarf();
-                        off = 4;
-                        break :l first_32_bits;
-                    }
-                };
-                if (index > length) return badDwarf();
+                // addr_base points to the first item after the header, however we
+                // need to read the header to know the size of each item. Empirically,
+                // it may disagree with is_64 on the compile unit.
+                // The header is 8 or 12 bytes depending on is_64.
+                if (compile_unit.addr_base < 8) return badDwarf();
 
-                const version = mem.readInt(u16, debug_addr[off..][0..2], di.endian);
-                off += 2;
-                if (version < 5) return badDwarf();
+                const version = mem.readInt(u16, debug_addr[compile_unit.addr_base - 4 ..][0..2], di.endian);
+                if (version != 5) return badDwarf();
 
-                const addr_size = debug_addr[off];
-                off += 1;
+                const addr_size = debug_addr[compile_unit.addr_base - 2];
+                const seg_size = debug_addr[compile_unit.addr_base - 1];
 
-                const seg_size = debug_addr[off];
-                off += 1;
-
-                const base_offset = self.getAttrSecOffset(AT.addr_base) catch off;
-                const byte_offset = base_offset + (addr_size + seg_size) * index;
+                const byte_offset = compile_unit.addr_base + (addr_size + seg_size) * index;
                 if (byte_offset + addr_size > debug_addr.len) return badDwarf();
                 switch (addr_size) {
                     1 => return debug_addr[byte_offset],
@@ -324,16 +326,12 @@ const Die = struct {
     }
 
     fn getAttrSecOffset(self: *const Die, id: u64) !u64 {
-        const form_value = self.getAttr(id) orelse return missingDwarf();
-        return switch (form_value.*) {
-            FormValue.Const => |value| value.asUnsignedLe(),
-            FormValue.SecOffset => |value| value,
-            else => error.InvalidDebugInfo,
-        };
+        const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
+        return form_value.getUInt(u64);
     }
 
     fn getAttrUnsignedLe(self: *const Die, id: u64) !u64 {
-        const form_value = self.getAttr(id) orelse return missingDwarf();
+        const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return switch (form_value.*) {
             FormValue.Const => |value| value.asUnsignedLe(),
             else => error.InvalidDebugInfo,
@@ -341,51 +339,35 @@ const Die = struct {
     }
 
     fn getAttrRef(self: *const Die, id: u64) !u64 {
-        const form_value = self.getAttr(id) orelse return missingDwarf();
+        const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return switch (form_value.*) {
             FormValue.Ref => |value| value,
             else => error.InvalidDebugInfo,
         };
     }
 
-    pub fn getAttrString(self: *const Die, di: *DwarfInfo, id: u64, opt_str: ?[]const u8) error{ InvalidDebugInfo, MissingDebugInfo }![]const u8 {
-        const form_value = self.getAttr(id) orelse return missingDwarf();
+    pub fn getAttrString(
+        self: *const Die,
+        di: *DwarfInfo,
+        id: u64,
+        opt_str: ?[]const u8,
+        compile_unit: CompileUnit,
+    ) error{ InvalidDebugInfo, MissingDebugInfo }![]const u8 {
+        const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         switch (form_value.*) {
             FormValue.String => |value| return value,
             FormValue.StrPtr => |offset| return di.getString(offset),
             FormValue.StrOffset => |index| {
                 const debug_str_offsets = di.debug_str_offsets orelse return badDwarf();
-                if (debug_str_offsets.len < 8) return badDwarf();
-                const first_32_bits = mem.readInt(u32, debug_str_offsets[0..4], di.endian);
-                const is_64 = first_32_bits == 0xffffffff;
-                var off: usize = undefined;
-                const length: u64 = l: {
-                    if (is_64) {
-                        if (debug_str_offsets.len < 16) return badDwarf();
-                        off = 12;
-                        break :l mem.readInt(u64, debug_str_offsets[4..12], di.endian);
-                    } else {
-                        if (debug_str_offsets.len < 8) return badDwarf();
-                        if (first_32_bits >= 0xfffffff0) return badDwarf();
-                        off = 4;
-                        break :l first_32_bits;
-                    }
-                };
-                if (index > length) return badDwarf();
-
-                const version = mem.readInt(u16, debug_str_offsets[off..][0..2], di.endian);
-                off += 2;
-                if (version < 5) return badDwarf();
-
-                off += 2; // reserved
-
-                const base_offset = self.getAttrSecOffset(AT.str_offsets_base) catch off;
-                if (is_64) {
-                    const byte_offset = base_offset + 8 * index;
+                if (compile_unit.str_offsets_base == 0) return badDwarf();
+                if (compile_unit.is_64) {
+                    const byte_offset = compile_unit.str_offsets_base + 8 * index;
+                    if (byte_offset + 8 > debug_str_offsets.len) return badDwarf();
                     const offset = mem.readInt(u64, debug_str_offsets[byte_offset..][0..8], di.endian);
                     return getStringGeneric(opt_str, offset);
                 } else {
-                    const byte_offset = base_offset + 4 * index;
+                    const byte_offset = compile_unit.str_offsets_base + 4 * index;
+                    if (byte_offset + 4 > debug_str_offsets.len) return badDwarf();
                     const offset = mem.readInt(u32, debug_str_offsets[byte_offset..][0..4], di.endian);
                     return getStringGeneric(opt_str, offset);
                 }
@@ -401,7 +383,7 @@ const FileEntry = struct {
     dir_index: u32 = 0,
     mtime: u64 = 0,
     size: u64 = 0,
-    md5: u128 = 0,
+    md5: [16]u8 = [1]u8{0} ** 16,
 };
 
 const LineNumberProgram = struct {
@@ -606,7 +588,7 @@ fn parseFormValue(allocator: mem.Allocator, in_stream: anytype, form_id: u64, en
         FORM.addrx2 => return FormValue{ .AddrOffset = try in_stream.readInt(u16, endian) },
         FORM.addrx3 => return FormValue{ .AddrOffset = try in_stream.readInt(u24, endian) },
         FORM.addrx4 => return FormValue{ .AddrOffset = try in_stream.readInt(u32, endian) },
-        FORM.addrx => return FormValue{ .AddrOffset = try nosuspend leb.readULEB128(u64, in_stream) },
+        FORM.addrx => return FormValue{ .AddrOffset = try nosuspend leb.readULEB128(usize, in_stream) },
 
         FORM.block1 => parseFormValueBlock(allocator, in_stream, endian, 1),
         FORM.block2 => parseFormValueBlock(allocator, in_stream, endian, 2),
@@ -619,6 +601,11 @@ fn parseFormValue(allocator: mem.Allocator, in_stream: anytype, form_id: u64, en
         FORM.data2 => parseFormValueConstant(in_stream, false, endian, 2),
         FORM.data4 => parseFormValueConstant(in_stream, false, endian, 4),
         FORM.data8 => parseFormValueConstant(in_stream, false, endian, 8),
+        FORM.data16 => {
+            var buf: [16]u8 = undefined;
+            if ((try nosuspend in_stream.readAll(&buf)) < 16) return error.EndOfFile;
+            return FormValue{ .data16 = buf };
+        },
         FORM.udata, FORM.sdata => {
             const signed = form_id == FORM.sdata;
             return parseFormValueConstant(in_stream, signed, endian, -1);
@@ -647,7 +634,7 @@ fn parseFormValue(allocator: mem.Allocator, in_stream: anytype, form_id: u64, en
         FORM.strx2 => return FormValue{ .StrOffset = try in_stream.readInt(u16, endian) },
         FORM.strx3 => return FormValue{ .StrOffset = try in_stream.readInt(u24, endian) },
         FORM.strx4 => return FormValue{ .StrOffset = try in_stream.readInt(u32, endian) },
-        FORM.strx => return FormValue{ .StrOffset = try nosuspend leb.readULEB128(u64, in_stream) },
+        FORM.strx => return FormValue{ .StrOffset = try nosuspend leb.readULEB128(usize, in_stream) },
         FORM.line_strp => FormValue{ .LineStrPtr = try readAddress(in_stream, endian, is_64) },
         FORM.indirect => {
             const child_form_id = try nosuspend leb.readULEB128(u64, in_stream);
@@ -663,7 +650,7 @@ fn parseFormValue(allocator: mem.Allocator, in_stream: anytype, form_id: u64, en
         FORM.loclistx => return FormValue{ .LocListOffset = try nosuspend leb.readULEB128(u64, in_stream) },
         FORM.rnglistx => return FormValue{ .RangeListOffset = try nosuspend leb.readULEB128(u64, in_stream) },
         else => {
-            std.debug.print("unrecognized form id: {x}\n", .{form_id});
+            //std.debug.print("unrecognized form id: {x}\n", .{form_id});
             return badDwarf();
         },
     };
@@ -771,11 +758,26 @@ pub const DwarfInfo = struct {
 
             const next_unit_pos = this_unit_offset + next_offset;
 
+            var compile_unit: CompileUnit = undefined;
+
             while ((try seekable.getPos()) < next_unit_pos) {
-                const die_obj = (try di.parseDie(arena, in, abbrev_table, is_64)) orelse continue;
+                var die_obj = (try di.parseDie(arena, in, abbrev_table, is_64)) orelse continue;
                 const after_die_offset = try seekable.getPos();
 
                 switch (die_obj.tag_id) {
+                    TAG.compile_unit => {
+                        compile_unit = .{
+                            .version = version,
+                            .is_64 = is_64,
+                            .die = &die_obj,
+                            .pc_range = null,
+
+                            .str_offsets_base = if (die_obj.getAttr(AT.str_offsets_base)) |fv| try fv.getUInt(usize) else 0,
+                            .addr_base = if (die_obj.getAttr(AT.addr_base)) |fv| try fv.getUInt(usize) else 0,
+                            .rnglists_base = if (die_obj.getAttr(AT.rnglists_base)) |fv| try fv.getUInt(usize) else 0,
+                            .loclists_base = if (die_obj.getAttr(AT.loclists_base)) |fv| try fv.getUInt(usize) else 0,
+                        };
+                    },
                     TAG.subprogram, TAG.inlined_subroutine, TAG.subroutine, TAG.entry_point => {
                         const fn_name = x: {
                             var depth: i32 = 3;
@@ -783,7 +785,7 @@ pub const DwarfInfo = struct {
                             // Prevent endless loops
                             while (depth > 0) : (depth -= 1) {
                                 if (this_die_obj.getAttr(AT.name)) |_| {
-                                    const name = try this_die_obj.getAttrString(di, AT.name, di.debug_str);
+                                    const name = try this_die_obj.getAttrString(di, AT.name, di.debug_str, compile_unit);
                                     break :x try allocator.dupe(u8, name);
                                 } else if (this_die_obj.getAttr(AT.abstract_origin)) |_| {
                                     // Follow the DIE it points to and repeat
@@ -816,7 +818,7 @@ pub const DwarfInfo = struct {
                         };
 
                         const pc_range = x: {
-                            if (die_obj.getAttrAddr(di, AT.low_pc)) |low_pc| {
+                            if (die_obj.getAttrAddr(di, AT.low_pc, compile_unit)) |low_pc| {
                                 if (die_obj.getAttr(AT.high_pc)) |high_pc_value| {
                                     const pc_end = switch (high_pc_value.*) {
                                         FormValue.Address => |value| value,
@@ -873,23 +875,20 @@ pub const DwarfInfo = struct {
 
             var address_size: u8 = undefined;
             var debug_abbrev_offset: u64 = undefined;
-            switch (version) {
-                5 => {
-                    const unit_type = try in.readInt(u8, di.endian);
-                    if (unit_type != UT.compile) return badDwarf();
-                    address_size = try in.readByte();
-                    debug_abbrev_offset = if (is_64)
-                        try in.readInt(u64, di.endian)
-                    else
-                        try in.readInt(u32, di.endian);
-                },
-                else => {
-                    debug_abbrev_offset = if (is_64)
-                        try in.readInt(u64, di.endian)
-                    else
-                        try in.readInt(u32, di.endian);
-                    address_size = try in.readByte();
-                },
+            if (version >= 5) {
+                const unit_type = try in.readInt(u8, di.endian);
+                if (unit_type != UT.compile) return badDwarf();
+                address_size = try in.readByte();
+                debug_abbrev_offset = if (is_64)
+                    try in.readInt(u64, di.endian)
+                else
+                    try in.readInt(u32, di.endian);
+            } else {
+                debug_abbrev_offset = if (is_64)
+                    try in.readInt(u64, di.endian)
+                else
+                    try in.readInt(u32, di.endian);
+                address_size = try in.readByte();
             }
             if (address_size != @sizeOf(usize)) return badDwarf();
 
@@ -905,8 +904,19 @@ pub const DwarfInfo = struct {
 
             if (compile_unit_die.tag_id != TAG.compile_unit) return badDwarf();
 
-            const pc_range = x: {
-                if (compile_unit_die.getAttrAddr(di, AT.low_pc)) |low_pc| {
+            var compile_unit: CompileUnit = .{
+                .version = version,
+                .is_64 = is_64,
+                .pc_range = null,
+                .die = compile_unit_die,
+                .str_offsets_base = if (compile_unit_die.getAttr(AT.str_offsets_base)) |fv| try fv.getUInt(usize) else 0,
+                .addr_base = if (compile_unit_die.getAttr(AT.addr_base)) |fv| try fv.getUInt(usize) else 0,
+                .rnglists_base = if (compile_unit_die.getAttr(AT.rnglists_base)) |fv| try fv.getUInt(usize) else 0,
+                .loclists_base = if (compile_unit_die.getAttr(AT.loclists_base)) |fv| try fv.getUInt(usize) else 0,
+            };
+
+            compile_unit.pc_range = x: {
+                if (compile_unit_die.getAttrAddr(di, AT.low_pc, compile_unit)) |low_pc| {
                     if (compile_unit_die.getAttr(AT.high_pc)) |high_pc_value| {
                         const pc_end = switch (high_pc_value.*) {
                             FormValue.Address => |value| value,
@@ -929,12 +939,7 @@ pub const DwarfInfo = struct {
                 }
             };
 
-            try di.compile_unit_list.append(allocator, CompileUnit{
-                .version = version,
-                .is_64 = is_64,
-                .pc_range = pc_range,
-                .die = compile_unit_die,
-            });
+            try di.compile_unit_list.append(allocator, compile_unit);
 
             this_unit_offset += next_offset;
         }
@@ -955,7 +960,7 @@ pub const DwarfInfo = struct {
                     // specified by DW_AT.low_pc or to some other value encoded
                     // in the list itself.
                     // If no starting value is specified use zero.
-                    var base_address = compile_unit.die.getAttrAddr(di, AT.low_pc) catch |err| switch (err) {
+                    var base_address = compile_unit.die.getAttrAddr(di, AT.low_pc, compile_unit.*) catch |err| switch (err) {
                         error.MissingDebugInfo => @as(u64, 0), // TODO https://github.com/ziglang/zig/issues/11135
                         else => return err,
                     };
@@ -1087,7 +1092,7 @@ pub const DwarfInfo = struct {
         const in = &stream.reader();
         const seekable = &stream.seekableStream();
 
-        const compile_unit_cwd = try compile_unit.die.getAttrString(di, AT.comp_dir, di.debug_line_str);
+        const compile_unit_cwd = try compile_unit.die.getAttrString(di, AT.comp_dir, di.debug_line_str, compile_unit);
         const line_info_offset = try compile_unit.die.getAttrSecOffset(AT.stmt_list);
 
         try seekable.seekTo(line_info_offset);
@@ -1202,7 +1207,7 @@ pub const DwarfInfo = struct {
                                 LNCT.directory_index => e.dir_index = try form_value.getUInt(u32),
                                 LNCT.timestamp => e.mtime = try form_value.getUInt(u64),
                                 LNCT.size => e.size = try form_value.getUInt(u64),
-                                LNCT.MD5 => e.md5 = try form_value.getUInt(u128),
+                                LNCT.MD5 => e.md5 = try form_value.getData16(),
                                 else => continue,
                             }
                         }
@@ -1240,7 +1245,7 @@ pub const DwarfInfo = struct {
                             LNCT.directory_index => e.dir_index = try form_value.getUInt(u32),
                             LNCT.timestamp => e.mtime = try form_value.getUInt(u64),
                             LNCT.size => e.size = try form_value.getUInt(u64),
-                            LNCT.MD5 => e.md5 = try form_value.getUInt(u128),
+                            LNCT.MD5 => e.md5 = try form_value.getData16(),
                             else => continue,
                         }
                     }
@@ -1370,12 +1375,12 @@ pub fn openDwarfDebugInfo(di: *DwarfInfo, allocator: mem.Allocator) !void {
 
 /// This function is to make it handy to comment out the return and make it
 /// into a crash when working on this file.
-inline fn badDwarf() error{InvalidDebugInfo} {
+fn badDwarf() error{InvalidDebugInfo} {
     //std.os.abort(); // can be handy to uncomment when working on this file
     return error.InvalidDebugInfo;
 }
 
-inline fn missingDwarf() error{MissingDebugInfo} {
+fn missingDwarf() error{MissingDebugInfo} {
     //std.os.abort(); // can be handy to uncomment when working on this file
     return error.MissingDebugInfo;
 }
