@@ -3,3 +3,10 @@
 . ./ci/drone/linux_script_base
 
 ./build/zig build test-std -Dskip-release-safe -Dskip-release-fast -Dskip-release-small -Dskip-non-native
+
+# Produce the experimental std lib documentation.
+mkdir -p "$DISTDIR/doc/std"
+"$DISTDIR/bin/zig" test ../lib/std/std.zig \
+  --zig-lib-dir ../lib \
+  -femit-docs="$DISTDIR/doc/std" \
+  -fno-emit-bin

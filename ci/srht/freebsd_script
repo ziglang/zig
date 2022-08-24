@@ -61,11 +61,26 @@ stage3-release/bin/zig build test docs \
   -Dskip-stage1 \
   -Dskip-non-native
 
+# Produce the experimental std lib documentation.
+mkdir -p "stage3-release/doc/std"
+stage3-release/bin/zig test lib/std/std.zig \
+  --zig-lib-dir lib \
+  -femit-docs=stage3-release/doc/std/ \
+  -fno-emit-bin
+
 if [ -f ~/.s3cfg ]; then
-  mv ../LICENSE stage3-release/
-  mv ../zig-cache/langref.html stage3-release/
+  # Remove the unnecessary bin dir in stage3-release/bin/zig
   mv stage3-release/bin/zig stage3-release/
   rmdir stage3-release/bin
+
+  # Remove the unnecessary zig dir in stage3-release/lib/zig/std/std.zig
+  mv stage3-release/lib/zig stage3-release/lib2
+  rmdir stage3-release/lib
+  mv stage3-release/lib2 stage3-release/lib
+
+  mv ../LICENSE stage3-release/
+  mv ../zig-cache/langref.html stage3-release/doc
+
 
   GITBRANCH=$(basename $GITHUB_REF)
   VERSION=$(stage3-release/zig version)
@@ -88,7 +103,7 @@ if [ -f ~/.s3cfg ]; then
   s3cmd put -P --add-header="Cache-Control: max-age=0, must-revalidate" "$JSONFILE" "s3://ziglang.org/builds/$JSONFILE"
   s3cmd put -P "$JSONFILE" "s3://ziglang.org/builds/x86_64-freebsd-$VERSION.json"
 
-  if [ "$GITBRANCH" = "master" ]; then 
+  if [ "$GITBRANCH" = "master" ]; then
     # avoid leaking oauth token
     set +x
 

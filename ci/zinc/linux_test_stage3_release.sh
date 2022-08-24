@@ -62,17 +62,17 @@ $ZIG build test docs \
   --search-prefix "$DEPS_LOCAL"
 
 # Produce the experimental std lib documentation.
-mkdir -p "$RELEASE_STAGING/docs/std"
+mkdir -p "$RELEASE_STAGING/doc/std"
 $ZIG test lib/std/std.zig \
   --zig-lib-dir lib \
-  -femit-docs=$RELEASE_STAGING/docs/std \
+  -femit-docs=$RELEASE_STAGING/doc/std \
   -fno-emit-bin
 
 cp LICENSE $RELEASE_STAGING/
-cp zig-cache/langref.html $RELEASE_STAGING/docs/
+cp zig-cache/langref.html $RELEASE_STAGING/doc/
 
 # Look for HTML errors.
-tidy --drop-empty-elements no -qe $RELEASE_STAGING/docs/langref.html
+tidy --drop-empty-elements no -qe $RELEASE_STAGING/doc/langref.html
 
 # Explicit exit helps show last command duration.
 exit

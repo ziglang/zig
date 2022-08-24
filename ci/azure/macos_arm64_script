@@ -86,21 +86,27 @@ unset CXX
 make $JOBS install
 
 if [ "${BUILD_REASON}" != "PullRequest" ]; then
-  mv ../LICENSE release/
-
   # We do not run test suite but still need langref.
-  mkdir -p release/docs
-  $ZIG run ../doc/docgen.zig -- $ZIG ../doc/langref.html.in release/docs/langref.html
+  mkdir -p release/doc
+  $ZIG run ../doc/docgen.zig -- $ZIG ../doc/langref.html.in release/doc/langref.html
 
   # Produce the experimental std lib documentation.
-  mkdir -p release/docs/std
+  mkdir -p release/doc/std
   $ZIG test ../lib/std/std.zig \
     --zig-lib-dir ../lib \
-    -femit-docs=release/docs/std \
+    -femit-docs=release/doc/std \
     -fno-emit-bin
 
+  # Remove the unnecessary bin dir in release/bin/zig
   mv release/bin/zig release/
   rmdir release/bin
+
+  # Remove the unnecessary zig dir in release/lib/zig/std/std.zig
+  mv release/lib/zig release/lib2
+  rmdir release/lib
+  mv release/lib2 release/lib
+
+  mv ../LICENSE release/
 
   VERSION=$(../build.host/release/bin/zig version)
   DIRNAME="zig-macos-$ARCH-$VERSION"

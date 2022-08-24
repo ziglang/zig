@@ -48,7 +48,7 @@ wget "https://ziglang.org/builds/$NATIVE_TARBALL"
 tar xf "$NATIVE_TARBALL"
 ZIGDIR="$(pwd)/$(basename $NATIVE_TARBALL .tar.xz)"
 ZIG="$ZIGDIR/zig"
-LANGREF="$ZIGDIR/docs/langref.html"
+LANGREF="$ZIGDIR/doc/langref.html"
 SRCTARBALLDIR="zig-$VERSION"
 export SRC_TARBALL="$SRCTARBALLDIR.tar.xz"
 mv "$SRCDIR" "$SRCTARBALLDIR"
@@ -103,21 +103,21 @@ cd "$HOME"
 
 # Upload new stdlib autodocs
 mkdir -p docs_to_upload/documentation/master/std/
-gzip -c -9 "$ZIGDIR/docs/std/index.html" >  docs_to_upload/documentation/master/std/index.html
-gzip -c -9 "$ZIGDIR/docs/std/data.js" > docs_to_upload/documentation/master/std/data.js
-gzip -c -9 "$ZIGDIR/docs/std/main.js" > docs_to_upload/documentation/master/std/main.js
+gzip -c -9 "$ZIGDIR/doc/std/index.html" >  docs_to_upload/documentation/master/std/index.html
+gzip -c -9 "$ZIGDIR/doc/std/data.js" > docs_to_upload/documentation/master/std/data.js
+gzip -c -9 "$ZIGDIR/doc/std/main.js" > docs_to_upload/documentation/master/std/main.js
 gzip -c -9 "$LANGREF" > docs_to_upload/documentation/master/index.html
 $S3CMD put -P --no-mime-magic --recursive --add-header="Content-Encoding:gzip" --add-header="Cache-Control: max-age=0, must-revalidate" "docs_to_upload/" s3://ziglang.org/
 
 mkdir -p docs_src_to_upload/documentation/master/std/
-cp -r "$ZIGDIR/docs/std/src" docs_src_to_upload/documentation/master/std/
+cp -r "$ZIGDIR/doc/std/src" docs_src_to_upload/documentation/master/std/
 $S3CMD put -P --no-mime-magic --recursive --add-header:"Content-Type:text/html" --add-header="Cache-Control: max-age=0, must-revalidate" "docs_src_to_upload/" s3://ziglang.org/
 
 ## Copy without compression:
 # mkdir -p docs_to_upload/documentation/master/std/
-# cp "$ZIGDIR/docs/std/index.html" docs_to_upload/documentation/master/std/index.html
-# cp "$ZIGDIR/docs/std/data.js" docs_to_upload/documentation/master/std/data.js
-# cp "$ZIGDIR/docs/std/main.js" docs_to_upload/documentation/master/std/main.js
+# cp "$ZIGDIR/doc/std/index.html" docs_to_upload/documentation/master/std/index.html
+# cp "$ZIGDIR/doc/std/data.js" docs_to_upload/documentation/master/std/data.js
+# cp "$ZIGDIR/doc/std/main.js" docs_to_upload/documentation/master/std/main.js
 # cp "$LANGREF" docs_to_upload/documentation/master/index.html
 # $S3CMD put -P --no-mime-magic --recursive --add-header="Cache-Control: max-age=0, must-revalidate" "docs_to_upload/" s3://ziglang.org/
 

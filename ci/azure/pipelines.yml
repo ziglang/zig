@@ -102,12 +102,19 @@ jobs:
       $Env:AWS_EC2_METADATA_DISABLED = "true"
       $Env:AWS_REGION = "us-west-2"
 
+      # Produce the experimental std lib documentation.
+      mkdir stage3-release/doc/std -force
+      "$ZIGINSTALLDIR\bin\zig.exe" test ../lib/std/std.zig \
+        --zig-lib-dir ../lib \
+        -femit-docs=stage3-release/doc/std \
+        -fno-emit-bin
+
       mv LICENSE stage3-release/
-      mv zig-cache/langref.html stage3-release/
+      mv zig-cache/langref.html stage3-release/doc/
       mv stage3-release/bin/zig.exe stage3-release/
       rmdir stage3-release/bin
 
-      # Remove the unnecessary zig dir in $prefix/lib/zig/std/std.zig
+      # Remove the unnecessary zig dir in stage3-release/lib/zig/std/std.zig
       mv stage3-release/lib/zig stage3-release/lib2
       rmdir stage3-release/lib
       mv stage3-release/lib2 stage3-release/lib

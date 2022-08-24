@@ -12,10 +12,17 @@ pip3 install s3cmd
 
 cd build
 
-mv ../LICENSE "$DISTDIR/"
-mv ../zig-cache/langref.html "$DISTDIR/"
+# Remove the unnecessary bin dir in $DISTDIR/bin/zig
 mv "$DISTDIR/bin/zig" "$DISTDIR/"
 rmdir "$DISTDIR/bin"
+
+# Remove the unnecessary zig dir in $DESTDIR/lib/zig/std/std.zig
+mv "$DISTDIR/lib/zig" "$DISTDIR/lib2"
+rmdir "$DISTDIR/lib"
+mv "$DISTDIR/lib2" "$DISTDIR/lib"
+
+mv ../LICENSE "$DISTDIR/"
+mv ../zig-cache/langref.html "$DISTDIR/doc/"
 
 GITBRANCH="$DRONE_BRANCH"
 VERSION="$("$DISTDIR/zig" version)"
