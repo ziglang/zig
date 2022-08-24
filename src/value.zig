@@ -2689,6 +2689,12 @@ pub const Value = extern union {
             // to have only one possible value itself.
             .the_only_possible_value => return val,
 
+            // pointer to integer casted to pointer of array
+            .int_u64, .int_i64 => {
+                assert(index == 0);
+                return val;
+            },
+
             else => unreachable,
         }
     }
