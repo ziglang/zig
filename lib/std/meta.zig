@@ -1149,3 +1149,27 @@ test "isError" {
     try std.testing.expect(isError(math.absInt(@as(i8, -128))));
     try std.testing.expect(!isError(math.absInt(@as(i8, -127))));
 }
+
+/// This function returns a function pointer for a given function signature.
+/// It's a helper to make code compatible to both stage1 and stage2.
+///
+/// **WARNING:** This function is deprecated and will be removed together with stage1.
+pub fn FnPtr(comptime Fn: type) type {
+    return if (@import("builtin").zig_backend != .stage1)
+        *const Fn
+    else
+        Fn;
+}
+
+test "FnPtr" {
+    var func: FnPtr(fn () i64) = undefined;
+
+    // verify that we can perform runtime exchange
+    // and not have a function body in stage2:
+
+    func = std.time.timestamp;
+    _ = func();
+
+    func = std.time.milliTimestamp;
+    _ = func();
+}
