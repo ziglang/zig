@@ -2,4 +2,10 @@
 
 . ./ci/drone/linux_script_base
 
-./build/zig build test-std -Dskip-debug -Dskip-release-safe -Dskip-release-fast -Dskip-non-native
+# Empirically, this takes about 55 minutes on the CI, and is the bottleneck
+# causing timeouts. So this is disabled in favor of running a smaller set
+# of ReleaseSmall std lib tests.
+# ./build/zig build test-std -Dskip-debug -Dskip-release-safe -Dskip-release-fast -Dskip-non-native
+
+./build/zig test lib/std/std.zig -OReleaseSmall
+./build/zig test lib/std/std.zig -OReleaseSmall -lc
