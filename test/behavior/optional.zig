@@ -412,3 +412,19 @@ test "orelse on C pointer" {
     const d = foo orelse @compileError("bad");
     try expectEqual([*c]const u8, @TypeOf(d));
 }
+
+test "alignment of wrapping an optional payload" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
+    const S = struct {
+        const I = extern struct { x: i128 };
+
+        fn foo() ?I {
+            var i: I = .{ .x = 1234 };
+            return i;
+        }
+    };
+    try expect(S.foo().?.x == 1234);
+}

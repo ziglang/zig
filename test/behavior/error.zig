@@ -796,3 +796,19 @@ test "error union of noreturn used with catch" {
     const err = NoReturn.testCatch();
     try expect(err == error.OtherFailure);
 }
+
+test "alignment of wrapping an error union payload" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
+    const S = struct {
+        const I = extern struct { x: i128 };
+
+        fn foo() anyerror!I {
+            var i: I = .{ .x = 1234 };
+            return i;
+        }
+    };
+    try expect((S.foo() catch unreachable).x == 1234);
+}

@@ -6188,7 +6188,9 @@ pub const FuncGen = struct {
         }
         const llvm_optional_ty = try self.dg.lowerType(optional_ty);
         if (isByRef(optional_ty)) {
+            const target = self.dg.module.getTarget();
             const optional_ptr = self.buildAlloca(llvm_optional_ty);
+            optional_ptr.setAlignment(optional_ty.abiAlignment(target));
             const payload_ptr = self.builder.buildStructGEP(optional_ptr, 0, "");
             var ptr_ty_payload: Type.Payload.ElemType = .{
                 .base = .{ .tag = .single_mut_pointer },
@@ -6208,20 +6210,21 @@ pub const FuncGen = struct {
         if (self.liveness.isUnused(inst)) return null;
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-        const inst_ty = self.air.typeOfIndex(inst);
+        const err_un_ty = self.air.typeOfIndex(inst);
         const operand = try self.resolveInst(ty_op.operand);
         const payload_ty = self.air.typeOf(ty_op.operand);
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
             return operand;
         }
         const ok_err_code = (try self.dg.lowerType(Type.anyerror)).constNull();
-        const err_un_llvm_ty = try self.dg.lowerType(inst_ty);
+        const err_un_llvm_ty = try self.dg.lowerType(err_un_ty);
 
         const target = self.dg.module.getTarget();
         const payload_offset = errUnionPayloadOffset(payload_ty, target);
         const error_offset = errUnionErrorOffset(payload_ty, target);
-        if (isByRef(inst_ty)) {
+        if (isByRef(err_un_ty)) {
             const result_ptr = self.buildAlloca(err_un_llvm_ty);
+            result_ptr.setAlignment(err_un_ty.abiAlignment(target));
             const err_ptr = self.builder.buildStructGEP(result_ptr, error_offset, "");
             const store_inst = self.builder.buildStore(ok_err_code, err_ptr);
             store_inst.setAlignment(Type.anyerror.abiAlignment(target));
@@ -6256,6 +6259,7 @@ pub const FuncGen = struct {
         const error_offset = errUnionErrorOffset(payload_ty, target);
         if (isByRef(err_un_ty)) {
             const result_ptr = self.buildAlloca(err_un_llvm_ty);
+            result_ptr.setAlignment(err_un_ty.abiAlignment(target));
             const err_ptr = self.builder.buildStructGEP(result_ptr, error_offset, "");
             const store_inst = self.builder.buildStore(operand, err_ptr);
             store_inst.setAlignment(Type.anyerror.abiAlignment(target));
