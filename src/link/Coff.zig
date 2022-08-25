@@ -1133,6 +1133,10 @@ fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) !
             }
         }
 
+        for (self.base.options.force_undefined_symbols.keys()) |symbol| {
+            try argv.append(try allocPrint(arena, "-INCLUDE:{s}", .{symbol}));
+        }
+
         if (is_dyn_lib) {
             try argv.append("-DLL");
         }
