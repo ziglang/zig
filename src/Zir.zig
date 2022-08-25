@@ -43,7 +43,11 @@ pub const Header = extern struct {
     instructions_len: u32,
     string_bytes_len: u32,
     extra_len: u32,
-
+    /// We could leave this as padding, however it triggers a Valgrind warning because
+    /// we read and write undefined bytes to the file system. This is harmless, but
+    /// it's essentially free to have a zero field here and makes the warning go away,
+    /// making it more likely that following Valgrind warnings will be taken seriously.
+    unused: u32 = 0,
     stat_inode: std.fs.File.INode,
     stat_size: u64,
     stat_mtime: i128,
