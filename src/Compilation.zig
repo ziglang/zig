@@ -3758,7 +3758,6 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             "clang",
             c_object.src.src_path,
         });
-        try argv.appendSlice(c_object.src.extra_flags);
 
         const ext = classifyFileExt(c_object.src.src_path);
 
@@ -3771,6 +3770,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             comp.disable_c_depfile and comp.clang_passthrough_mode)
         {
             try comp.addCCArgs(arena, &argv, ext, null);
+            try argv.appendSlice(c_object.src.extra_flags);
 
             const out_obj_path = if (comp.bin_file.options.emit) |emit|
                 try emit.directory.join(arena, &.{emit.sub_path})
@@ -3811,6 +3811,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
         else
             try std.fmt.allocPrint(arena, "{s}.d", .{out_obj_path});
         try comp.addCCArgs(arena, &argv, ext, out_dep_path);
+        try argv.appendSlice(c_object.src.extra_flags);
 
         try argv.ensureUnusedCapacity(5);
         switch (comp.clang_preprocessor_mode) {
