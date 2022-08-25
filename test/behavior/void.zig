@@ -45,3 +45,9 @@ test "void array as a local variable initializer" {
     var x = [_]void{{}} ** 1004;
     _ = x[0];
 }
+
+const void_constant = {};
+test "reference to void constants" {
+    var a = void_constant;
+    _ = a;
+}
