@@ -41,6 +41,7 @@ pub const libs = [_]Lib{
     .{ .name = "rt", .sover = 1 },
     .{ .name = "ld", .sover = 2 },
     .{ .name = "util", .sover = 1 },
+    .{ .name = "resolv", .sover = 2 },
 };
 
 // glibc's naming of Zig architectures
@@ -59,7 +60,7 @@ const Arch = enum(c_int) {
     riscv32,
     riscv64,
     sparc,
-    sparcv9,
+    sparc64,
     sparcel,
     s390x,
     i386,
@@ -1155,7 +1156,7 @@ fn glibcToZigArch(arch_tag: Arch) std.Target.Cpu.Arch {
         .riscv32 => .riscv32,
         .riscv64 => .riscv64,
         .sparc => .sparc,
-        .sparcv9 => .sparc64, // In glibc, sparc64 is called sparcv9.
+        .sparc64 => .sparc64,
         .sparcel => .sparcel,
         .s390x => .s390x,
         .i386 => .i386,
