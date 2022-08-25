@@ -7720,7 +7720,6 @@ fn funcCommon(
     noalias_bits: u32,
     is_noinline: bool,
 ) CompileError!Air.Inst.Ref {
-    const fn_src = LazySrcLoc.nodeOffset(src_node_offset);
     const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = src_node_offset };
     const cc_src: LazySrcLoc = .{ .node_offset_fn_type_cc = src_node_offset };
 
@@ -7791,13 +7790,11 @@ fn funcCommon(
             param_types[i] = param.ty;
             sema.analyzeParameter(
                 block,
-                fn_src,
                 .unneeded,
                 param,
                 comptime_params,
                 i,
                 &is_generic,
-                is_extern,
                 cc_workaround,
                 has_body,
             ) catch |err| switch (err) {
@@ -7805,13 +7802,11 @@ fn funcCommon(
                     const decl = sema.mod.declPtr(block.src_decl);
                     try sema.analyzeParameter(
                         block,
-                        fn_src,
                         Module.paramSrc(src_node_offset, sema.gpa, decl, i),
                         param,
                         comptime_params,
                         i,
                         &is_generic,
-                        is_extern,
                         cc_workaround,
                         has_body,
                     );
@@ -7821,9 +7816,10 @@ fn funcCommon(
             };
         }
 
+        var is_comptime_ret = false;
         const ret_poison = if (!is_generic) rp: {
             if (sema.typeRequiresComptime(block, ret_ty_src, bare_return_type)) |ret_comptime| {
-                is_generic = ret_comptime;
+                is_comptime_ret = ret_comptime;
                 break :rp bare_return_type.tag() == .generic_poison;
             } else |err| switch (err) {
                 error.GenericPoison => {
@@ -7920,6 +7916,8 @@ fn funcCommon(
             return sema.fail(block, cc_src, "'noinline' function cannot have callconv 'Inline'", .{});
         }
         if (is_generic and sema.no_partial_func_ty) return error.GenericPoison;
+        for (comptime_params) |ct| is_generic = is_generic or ct;
+        is_generic = is_generic or is_comptime_ret;
 
         break :fn_ty try Type.Tag.function.create(sema.arena, .{
             .param_types = param_types,
@@ -8010,31 +8008,20 @@ fn funcCommon(
 fn analyzeParameter(
     sema: *Sema,
     block: *Block,
-    func_src: LazySrcLoc,
     param_src: LazySrcLoc,
     param: Block.Param,
     comptime_params: []bool,
     i: usize,
     is_generic: *bool,
-    is_extern: bool,
     cc: std.builtin.CallingConvention,
     has_body: bool,
 ) !void {
     const requires_comptime = try sema.typeRequiresComptime(block, param_src, param.ty);
     comptime_params[i] = param.is_comptime or requires_comptime;
-    const this_generic = comptime_params[i] or param.ty.tag() == .generic_poison;
+    const this_generic = param.ty.tag() == .generic_poison;
     is_generic.* = is_generic.* or this_generic;
-    if (is_extern and this_generic) {
-        // TODO this check should exist somewhere for notes.
-        if (param_src == .unneeded) return error.NeededSourceLocation;
-        const msg = msg: {
-            const msg = try sema.errMsg(block, func_src, "extern function cannot be generic", .{});
-            errdefer msg.destroy(sema.gpa);
-
-            try sema.errNote(block, param_src, msg, "function is generic because of this parameter", .{});
-            break :msg msg;
-        };
-        return sema.failWithOwnedErrorMsg(msg);
+    if (param.is_comptime and !Type.fnCallingConventionAllowsZigTypes(cc)) {
+        return sema.fail(block, param_src, "comptime parameters not allowed in function with calling convention '{s}'", .{@tagName(cc)});
     }
     if (this_generic and !Type.fnCallingConventionAllowsZigTypes(cc)) {
         return sema.fail(block, param_src, "generic parameters not allowed in function with calling convention '{s}'", .{@tagName(cc)});
