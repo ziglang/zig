@@ -1030,6 +1030,12 @@ elseif(MINGW)
   target_link_libraries(zig2 ntdll)
 endif()
 
+# Dummy install command so that the "install" target is not missing.
+# This is redundant from the "stage3" custom target below.
+if(NOT ZIG_SKIP_INSTALL_LIB_FILES)
+  install(FILES "lib/compiler_rt.zig" DESTINATION "lib/zig")
+endif()
+
 set(ZIG_INSTALL_ARGS "build"
     --zig-lib-dir "${CMAKE_SOURCE_DIR}/lib"
     --prefix "${CMAKE_INSTALL_PREFIX}"
