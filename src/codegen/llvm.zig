@@ -1860,7 +1860,7 @@ pub const Object = struct {
                 var offset: u64 = 0;
 
                 for (fields.values()) |field, i| {
-                    if (field.is_comptime or !field.ty.hasRuntimeBitsIgnoreComptime()) continue;
+                    if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
 
                     const field_size = field.ty.abiSize(target);
                     const field_align = field.alignment(target, layout);
@@ -2764,7 +2764,7 @@ pub const DeclGen = struct {
                 var any_underaligned_fields = false;
 
                 for (struct_obj.fields.values()) |field| {
-                    if (field.is_comptime or !field.ty.hasRuntimeBitsIgnoreComptime()) continue;
+                    if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
 
                     const field_align = field.alignment(target, struct_obj.layout);
                     const field_ty_align = field.ty.abiAlignment(target);
@@ -3443,7 +3443,7 @@ pub const DeclGen = struct {
                 var need_unnamed = false;
 
                 for (struct_obj.fields.values()) |field, i| {
-                    if (field.is_comptime or !field.ty.hasRuntimeBitsIgnoreComptime()) continue;
+                    if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
 
                     const field_align = field.alignment(target, struct_obj.layout);
                     big_align = @maximum(big_align, field_align);
@@ -9477,7 +9477,7 @@ fn llvmFieldIndex(
 
     var llvm_field_index: c_uint = 0;
     for (ty.structFields().values()) |field, i| {
-        if (field.is_comptime or !field.ty.hasRuntimeBitsIgnoreComptime()) continue;
+        if (field.is_comptime or !field.ty.hasRuntimeBits()) continue;
 
         const field_align = field.alignment(target, layout);
         big_align = @maximum(big_align, field_align);

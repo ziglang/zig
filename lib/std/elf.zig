@@ -3,7 +3,7 @@ const io = std.io;
 const os = std.os;
 const math = std.math;
 const mem = std.mem;
-const debug = std.debug;
+const assert = std.debug.assert;
 const File = std.fs.File;
 const native_endian = @import("builtin").target.cpu.arch.endian();
 
@@ -872,14 +872,14 @@ pub const Elf_MIPS_ABIFlags_v0 = extern struct {
 };
 
 comptime {
-    debug.assert(@sizeOf(Elf32_Ehdr) == 52);
-    debug.assert(@sizeOf(Elf64_Ehdr) == 64);
+    assert(@sizeOf(Elf32_Ehdr) == 52);
+    assert(@sizeOf(Elf64_Ehdr) == 64);
 
-    debug.assert(@sizeOf(Elf32_Phdr) == 32);
-    debug.assert(@sizeOf(Elf64_Phdr) == 56);
+    assert(@sizeOf(Elf32_Phdr) == 32);
+    assert(@sizeOf(Elf64_Phdr) == 56);
 
-    debug.assert(@sizeOf(Elf32_Shdr) == 40);
-    debug.assert(@sizeOf(Elf64_Shdr) == 64);
+    assert(@sizeOf(Elf32_Shdr) == 40);
+    assert(@sizeOf(Elf64_Shdr) == 64);
 }
 
 pub const Auxv = switch (@sizeOf(usize)) {

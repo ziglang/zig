@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const expect = std.testing.expect;
+const assert = std.debug.assert;
 const expectEqual = std.testing.expectEqual;
 const Tag = std.meta.Tag;
 
@@ -1065,6 +1066,8 @@ test "@unionInit on union with tag but no fields" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     const S = struct {
         const Type = enum(u8) { no_op = 105 };
@@ -1079,11 +1082,7 @@ test "@unionInit on union with tag but no fields" {
         };
 
         comptime {
-            if (builtin.zig_backend == .stage1) {
-                // stage1 gets the wrong answer here
-            } else {
-                std.debug.assert(@sizeOf(Data) == 0);
-            }
+            assert(@sizeOf(Data) == 1);
         }
 
         fn doTheTest() !void {

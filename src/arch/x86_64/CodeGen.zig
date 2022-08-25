@@ -6524,13 +6524,13 @@ fn airCmpxchg(self: *Self, inst: Air.Inst.Index) !void {
     const extra = self.air.extraData(Air.Block, ty_pl.payload);
     _ = ty_pl;
     _ = extra;
-    return self.fail("TODO implement airCmpxchg for {}", .{self.target.cpu.arch});
+    return self.fail("TODO implement x86 airCmpxchg", .{});
     // return self.finishAir(inst, result, .{ extra.ptr, extra.expected_value, extra.new_value });
 }
 
 fn airAtomicRmw(self: *Self, inst: Air.Inst.Index) !void {
     _ = inst;
-    return self.fail("TODO implement airCmpxchg for {}", .{self.target.cpu.arch});
+    return self.fail("TODO implement x86 airAtomicRaw", .{});
 }
 
 fn airAtomicLoad(self: *Self, inst: Air.Inst.Index) !void {

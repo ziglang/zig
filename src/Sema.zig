@@ -28844,6 +28844,10 @@ pub fn typeHasOnePossibleValue(
         .enum_numbered => {
             const resolved_ty = try sema.resolveTypeFields(block, src, ty);
             const enum_obj = resolved_ty.castTag(.enum_numbered).?.data;
+            // An explicit tag type is always provided for enum_numbered.
+            if (enum_obj.tag_ty.hasRuntimeBits()) {
+                return null;
+            }
             if (enum_obj.fields.count() == 1) {
                 if (enum_obj.values.count() == 0) {
                     return Value.zero; // auto-numbered
@@ -28857,6 +28861,9 @@ pub fn typeHasOnePossibleValue(
         .enum_full => {
             const resolved_ty = try sema.resolveTypeFields(block, src, ty);
             const enum_obj = resolved_ty.castTag(.enum_full).?.data;
+            if (enum_obj.tag_ty.hasRuntimeBits()) {
+                return null;
+            }
             if (enum_obj.fields.count() == 1) {
                 if (enum_obj.values.count() == 0) {
                     return Value.zero; // auto-numbered

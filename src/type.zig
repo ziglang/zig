@@ -2310,6 +2310,8 @@ pub const Type = extern union {
     ///     fields will count towards the ABI size. For example, `struct {T: type, x: i32}`
     ///     hasRuntimeBits()=true and abiSize()=4
     /// * the type has only one possible value, making its ABI size 0.
+    ///   - an enum with an explicit tag type has the ABI size of the integer tag type,
+    ///     making it one-possible-value only if the integer tag type has 0 bits.
     /// When `ignore_comptime_only` is true, then types that are comptime only
     /// may return false positives.
     pub fn hasRuntimeBitsAdvanced(
@@ -2452,9 +2454,9 @@ pub const Type = extern union {
                     _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty);
                 }
                 assert(struct_obj.haveFieldTypes());
-                for (struct_obj.fields.values()) |value| {
-                    if (value.is_comptime) continue;
-                    if (try value.ty.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit))
+                for (struct_obj.fields.values()) |field| {
+                    if (field.is_comptime) continue;
+                    if (try field.ty.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit))
                         return true;
                 } else {
                     return false;
@@ -2463,7 +2465,7 @@ pub const Type = extern union {
 
             .enum_full => {
                 const enum_full = ty.castTag(.enum_full).?.data;
-                return enum_full.fields.count() >= 2;
+                return enum_full.tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit);
             },
             .enum_simple => {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
@@ -2490,9 +2492,10 @@ pub const Type = extern union {
             },
             .union_safety_tagged, .union_tagged => {
                 const union_obj = ty.cast(Payload.Union).?.data;
-                if (union_obj.fields.count() > 0 and try union_obj.tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit)) {
+                if (try union_obj.tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit)) {
                     return true;
                 }
+
                 if (sema_kit) |sk| {
                     _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty);
                 }
@@ -3125,7 +3128,11 @@ pub const Type = extern union {
             .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
         };
         if (union_obj.fields.count() == 0) {
-            return AbiAlignmentAdvanced{ .scalar = @boolToInt(union_obj.layout == .Extern) };
+            if (have_tag) {
+                return abiAlignmentAdvanced(union_obj.tag_ty, target, strat);
+            } else {
+                return AbiAlignmentAdvanced{ .scalar = @boolToInt(union_obj.layout == .Extern) };
+            }
         }
 
         var max_align: u32 = 0;
@@ -4991,14 +4998,18 @@ pub const Type = extern union {
 
             .enum_numbered => {
                 const enum_numbered = ty.castTag(.enum_numbered).?.data;
-                if (enum_numbered.fields.count() == 1) {
-                    return enum_numbered.values.keys()[0];
-                } else {
+                // An explicit tag type is always provided for enum_numbered.
+                if (enum_numbered.tag_ty.hasRuntimeBits()) {
                     return null;
                 }
+                assert(enum_numbered.fields.count() == 1);
+                return enum_numbered.values.keys()[0];
             },
             .enum_full => {
                 const enum_full = ty.castTag(.enum_full).?.data;
+                if (enum_full.tag_ty.hasRuntimeBits()) {
+                    return null;
+                }
                 if (enum_full.fields.count() == 1) {
                     if (enum_full.values.count() == 0) {
                         return Value.zero;
@@ -5333,7 +5344,8 @@ pub const Type = extern union {
             .enum_numbered => return ty.castTag(.enum_numbered).?.data.tag_ty,
             .enum_simple => {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
-                const bits = std.math.log2_int_ceil(usize, enum_simple.fields.count());
+                const field_count = enum_simple.fields.count();
+                const bits: u16 = if (field_count == 0) 0 else std.math.log2_int_ceil(usize, field_count);
                 buffer.* = .{
                     .base = .{ .tag = .int_unsigned },
                     .data = bits,
@@ -5653,19 +5665,22 @@ pub const Type = extern union {
         target: Target,
 
         pub fn next(it: *StructOffsetIterator) ?FieldOffset {
-            if (it.struct_obj.fields.count() <= it.field)
+            const i = it.field;
+            if (it.struct_obj.fields.count() <= i)
                 return null;
 
-            const field = it.struct_obj.fields.values()[it.field];
-            defer it.field += 1;
-            if (!field.ty.hasRuntimeBits() or field.is_comptime)
-                return FieldOffset{ .field = it.field, .offset = it.offset };
+            const field = it.struct_obj.fields.values()[i];
+            it.field += 1;
+
+            if (field.is_comptime or !field.ty.hasRuntimeBits()) {
+                return FieldOffset{ .field = i, .offset = it.offset };
+            }
 
             const field_align = field.alignment(it.target, it.struct_obj.layout);
             it.big_align = @maximum(it.big_align, field_align);
-            it.offset = std.mem.alignForwardGeneric(u64, it.offset, field_align);
-            defer it.offset += field.ty.abiSize(it.target);
-            return FieldOffset{ .field = it.field, .offset = it.offset };
+            const field_offset = std.mem.alignForwardGeneric(u64, it.offset, field_align);
+            it.offset = field_offset + field.ty.abiSize(it.target);
+            return FieldOffset{ .field = i, .offset = field_offset };
         }
     };
 

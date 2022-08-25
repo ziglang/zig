@@ -1368,18 +1368,20 @@ pub const Union = struct {
             }
         }
         payload_align = @maximum(payload_align, 1);
-        if (!have_tag or fields.len <= 1) return .{
-            .abi_size = std.mem.alignForwardGeneric(u64, payload_size, payload_align),
-            .abi_align = payload_align,
-            .most_aligned_field = most_aligned_field,
-            .most_aligned_field_size = most_aligned_field_size,
-            .biggest_field = biggest_field,
-            .payload_size = payload_size,
-            .payload_align = payload_align,
-            .tag_align = 0,
-            .tag_size = 0,
-            .padding = 0,
-        };
+        if (!have_tag or !u.tag_ty.hasRuntimeBits()) {
+            return .{
+                .abi_size = std.mem.alignForwardGeneric(u64, payload_size, payload_align),
+                .abi_align = payload_align,
+                .most_aligned_field = most_aligned_field,
+                .most_aligned_field_size = most_aligned_field_size,
+                .biggest_field = biggest_field,
+                .payload_size = payload_size,
+                .payload_align = payload_align,
+                .tag_align = 0,
+                .tag_size = 0,
+                .padding = 0,
+            };
+        }
         // Put the tag before or after the payload depending on which one's
         // alignment is greater.
         const tag_size = u.tag_ty.abiSize(target);
