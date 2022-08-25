@@ -1448,6 +1448,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append(entry);
         }
 
+        for (self.base.options.force_undefined_symbols.keys()) |symbol| {
+            try argv.append("-u");
+            try argv.append(symbol);
+        }
+
         switch (self.base.options.hash_style) {
             .gnu => try argv.append("--hash-style=gnu"),
             .sysv => try argv.append("--hash-style=sysv"),

@@ -175,6 +175,12 @@ pub const Options = struct {
     lib_dirs: []const []const u8,
     rpath_list: []const []const u8,
 
+    /// List of symbols forced as undefined in the symbol table
+    /// thus forcing their resolution by the linker.
+    /// Corresponds to `-u <symbol>` for ELF and `/include:<symbol>` for COFF/PE.
+    /// TODO add handling for MachO.
+    force_undefined_symbols: std.StringArrayHashMapUnmanaged(void),
+
     version: ?std.builtin.Version,
     compatibility_version: ?std.builtin.Version,
     libc_installation: ?*const LibCInstallation,
