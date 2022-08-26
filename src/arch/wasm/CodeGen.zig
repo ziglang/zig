@@ -2355,7 +2355,7 @@ fn lowerDeclRefValue(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index)
 
     const module = self.bin_file.base.options.module.?;
     const decl = module.declPtr(decl_index);
-    if (!decl.ty.hasRuntimeBitsIgnoreComptime()) {
+    if (decl.ty.zigTypeTag() != .Fn and !decl.ty.hasRuntimeBitsIgnoreComptime()) {
         return WValue{ .imm32 = 0xaaaaaaaa };
     }
 
