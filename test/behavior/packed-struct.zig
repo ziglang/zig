@@ -446,3 +446,115 @@ test "optional pointer in packed struct" {
     const x = T{ .ptr = &n };
     try expect(x.ptr.? == &n);
 }
+
+test "nested packed struct field access test" {
+    const Vec2 = packed struct {
+        x: f32,
+        y: f32,
+    };
+
+    const Vec3 = packed struct {
+        x: f32,
+        y: f32,
+        z: f32,
+    };
+
+    const NestedVec2 = packed struct {
+        nested: Vec2,
+    };
+
+    const NestedVec3 = packed struct {
+        nested: Vec3,
+    };
+
+    const vec2 = Vec2{
+        .x = 1.0,
+        .y = 2.0,
+    };
+
+    try std.testing.expectEqual(vec2.x, 1.0);
+    try std.testing.expectEqual(vec2.y, 2.0);
+
+    var vec2_o: Vec2 = undefined;
+    const vec2_o_ptr: *Vec2 = &vec2_o;
+    vec2_o_ptr.* = vec2;
+
+    try std.testing.expectEqual(vec2_o.x, 1.0);
+    try std.testing.expectEqual(vec2_o.y, 2.0);
+
+    const nested_vec2 = NestedVec2{
+        .nested = Vec2{
+            .x = 1.0,
+            .y = 2.0,
+        },
+    };
+
+    try std.testing.expectEqual(nested_vec2.nested.x, 1.0);
+    try std.testing.expectEqual(nested_vec2.nested.y, 2.0);
+
+    var nested_o: NestedVec2 = undefined;
+    const nested_o_ptr: *NestedVec2 = &nested_o;
+    nested_o_ptr.* = nested_vec2;
+
+    try std.testing.expectEqual(nested_o.nested.x, 1.0);
+    try std.testing.expectEqual(nested_o.nested.y, 2.0);
+
+    const vec3 = Vec3{
+        .x = 1.0,
+        .y = 2.0,
+        .z = 3.0,
+    };
+
+    try std.testing.expectEqual(vec3.x, 1.0);
+    try std.testing.expectEqual(vec3.y, 2.0);
+    try std.testing.expectEqual(vec3.z, 3.0);
+
+    var vec3_o: Vec3 = undefined;
+    const vec3_o_ptr: *Vec3 = &vec3_o;
+    vec3_o_ptr.* = vec3;
+
+    try std.testing.expectEqual(vec3_o.x, 1.0);
+    try std.testing.expectEqual(vec3_o.y, 2.0);
+    try std.testing.expectEqual(vec3_o.z, 3.0);
+
+    const nested_vec3 = NestedVec3{
+        .nested = Vec3{
+            .x = 1.0,
+            .y = 2.0,
+            .z = 3.0,
+        },
+    };
+
+    try std.testing.expectEqual(nested_vec3.nested.x, 1.0);
+    try std.testing.expectEqual(nested_vec3.nested.y, 2.0);
+    try std.testing.expectEqual(nested_vec3.nested.z, 3.0);
+
+    var nested_vec3_o: NestedVec3 = undefined;
+    const nested_vec3_o_ptr: *NestedVec3 = &nested_vec3_o;
+    nested_vec3_o_ptr.* = nested_vec3;
+
+    try std.testing.expectEqual(nested_vec3_o.nested.x, 1.0);
+    try std.testing.expectEqual(nested_vec3_o.nested.y, 2.0);
+    try std.testing.expectEqual(nested_vec3_o.nested.z, 3.0);
+
+    const hld = packed struct {
+        c: u64,
+        d: u32,
+    };
+
+    const mld = packed struct {
+        h: u64,
+        i: u64,
+    };
+
+    const a = packed struct {
+        b: hld,
+        g: mld,
+    };
+
+    var arg = a{ .b = hld{ .c = 1, .d = 2 }, .g = mld{ .h = 6, .i = 8 } };
+    try std.testing.expect(arg.b.c == 1);
+    try std.testing.expect(arg.b.d == 2);
+    try std.testing.expect(arg.g.h == 6);
+    try std.testing.expect(arg.g.i == 8);
+}
