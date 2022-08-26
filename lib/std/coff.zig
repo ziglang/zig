@@ -787,6 +787,21 @@ pub const MachineType = enum(u16) {
     /// MIPS little-endian WCE v2
     WCEMIPSV2 = 0x169,
 
+    pub fn fromTargetCpuArch(arch: std.Target.Cpu.Arch) MachineType {
+        return switch (arch) {
+            .arm => .ARM,
+            .powerpc => .POWERPC,
+            .riscv32 => .RISCV32,
+            .thumb => .Thumb,
+            .i386 => .I386,
+            .aarch64 => .ARM64,
+            .riscv64 => .RISCV64,
+            .x86_64 => .X64,
+            // there's cases we don't (yet) handle
+            else => unreachable,
+        };
+    }
+
     pub fn toTargetCpuArch(machine_type: MachineType) ?std.Target.Cpu.Arch {
         return switch (machine_type) {
             .ARM => .arm,
