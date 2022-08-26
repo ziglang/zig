@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const print = std.debug.print;
 const expect = std.testing.expect;
 
@@ -106,6 +107,10 @@ test "C ABI floats" {
     c_f32(12.34);
     c_f64(56.78);
     c_five_floats(1.0, 2.0, 3.0, 4.0, 5.0);
+}
+
+test "C ABI long double" {
+    if (!builtin.cpu.arch.isWasm()) return error.SkipZigTest;
     c_long_double(12.34);
 }
 
@@ -116,6 +121,7 @@ export fn zig_f64(x: f64) void {
     expect(x == 56.78) catch @panic("test failure: zig_f64");
 }
 export fn zig_longdouble(x: c_longdouble) void {
+    if (!builtin.cpu.arch.isWasm()) return; // waiting for #1481
     expect(x == 12.34) catch @panic("test failure: zig_longdouble");
 }
 
