@@ -2681,9 +2681,24 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
-    const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airFieldParentPtr", .{});
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+    const extra = self.air.extraData(Air.FieldParentPtr, ty_pl.payload).data;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const field_ptr = try self.resolveInst(extra.field_ptr);
+        const struct_ty = self.air.getRefType(ty_pl.ty).childType();
+        const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(extra.field_index, self.target.*));
+        switch (field_ptr) {
+            .ptr_stack_offset => |off| {
+                break :result MCValue{ .ptr_stack_offset = off + struct_field_offset };
+            },
+            else => {
+                const lhs_bind: ReadArg.Bind = .{ .mcv = field_ptr };
+                const rhs_bind: ReadArg.Bind = .{ .mcv = .{ .immediate = struct_field_offset } };
+
+                break :result try self.addSub(.sub, lhs_bind, rhs_bind, Type.usize, Type.usize, null);
+            },
+        }
+    };
+    return self.finishAir(inst, result, .{ extra.field_ptr, .none, .none });
 }
 
 /// An argument to a Mir instruction which is read (and possibly also
