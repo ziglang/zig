@@ -89,6 +89,7 @@ export fn zig_struct_u128(a: U128) void {
 
 extern fn c_f32(f32) void;
 extern fn c_f64(f64) void;
+extern fn c_long_double(c_longdouble) void;
 
 // On windows x64, the first 4 are passed via registers, others on the stack.
 extern fn c_five_floats(f32, f32, f32, f32, f32) void;
@@ -105,6 +106,7 @@ test "C ABI floats" {
     c_f32(12.34);
     c_f64(56.78);
     c_five_floats(1.0, 2.0, 3.0, 4.0, 5.0);
+    c_long_double(12.34);
 }
 
 export fn zig_f32(x: f32) void {
@@ -112,6 +114,9 @@ export fn zig_f32(x: f32) void {
 }
 export fn zig_f64(x: f64) void {
     expect(x == 56.78) catch @panic("test failure: zig_f64");
+}
+export fn zig_longdouble(x: c_longdouble) void {
+    expect(x == 12.34) catch @panic("test failure: zig_longdouble");
 }
 
 extern fn c_ptr(*anyopaque) void;
