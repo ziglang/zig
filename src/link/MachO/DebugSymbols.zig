@@ -18,7 +18,6 @@ const Dwarf = @import("../Dwarf.zig");
 const MachO = @import("../MachO.zig");
 const Module = @import("../../Module.zig");
 const StringTable = @import("../strtab.zig").StringTable;
-const TextBlock = MachO.TextBlock;
 const Type = @import("../../type.zig").Type;
 
 base: *MachO,

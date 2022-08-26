@@ -5259,9 +5259,9 @@ pub fn clearDecl(
             // TODO instead of a union, put this memory trailing Decl objects,
             // and allow it to be variably sized.
             decl.link = switch (mod.comp.bin_file.tag) {
-                .coff => .{ .coff = link.File.Coff.TextBlock.empty },
+                .coff => .{ .coff = link.File.Coff.Atom.empty },
                 .elf => .{ .elf = link.File.Elf.TextBlock.empty },
-                .macho => .{ .macho = link.File.MachO.TextBlock.empty },
+                .macho => .{ .macho = link.File.MachO.Atom.empty },
                 .plan9 => .{ .plan9 = link.File.Plan9.DeclBlock.empty },
                 .c => .{ .c = {} },
                 .wasm => .{ .wasm = link.File.Wasm.DeclBlock.empty },
@@ -5680,9 +5680,9 @@ pub fn allocateNewDecl(
         .zir_decl_index = 0,
         .src_scope = src_scope,
         .link = switch (mod.comp.bin_file.tag) {
-            .coff => .{ .coff = link.File.Coff.TextBlock.empty },
+            .coff => .{ .coff = link.File.Coff.Atom.empty },
             .elf => .{ .elf = link.File.Elf.TextBlock.empty },
-            .macho => .{ .macho = link.File.MachO.TextBlock.empty },
+            .macho => .{ .macho = link.File.MachO.Atom.empty },
             .plan9 => .{ .plan9 = link.File.Plan9.DeclBlock.empty },
             .c => .{ .c = {} },
             .wasm => .{ .wasm = link.File.Wasm.DeclBlock.empty },

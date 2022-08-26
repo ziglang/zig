@@ -303,6 +303,15 @@ pub const SectionHeader = extern struct {
         return std.math.powi(u16, 2, self.flags.ALIGN - 1) catch unreachable;
     }
 
+    pub fn setAlignment(self: *SectionHeader, new_alignment: u16) void {
+        assert(new_alignment > 0 and new_alignment <= 8192);
+        self.flags.ALIGN = std.math.log2(new_alignment);
+    }
+
+    pub fn isCode(self: SectionHeader) bool {
+        return self.flags.CNT_CODE == 0b1;
+    }
+
     pub fn isComdat(self: SectionHeader) bool {
         return self.flags.LNK_COMDAT == 0b1;
     }
