@@ -841,10 +841,7 @@ pub const Coff = struct {
         if (self.is_image) {
             self.coff_header_offset = coff_header_offset + 4;
             const coff_header = self.getCoffHeader();
-            if (coff_header.size_of_optional_header == 0) {
-                std.log.err("Required PE header missing for image file", .{});
-                return error.MissingPEHeader;
-            }
+            if (coff_header.size_of_optional_header == 0) return error.MissingPEHeader;
         }
 
         // JK: we used to check for architecture here and throw an error if not x86 or derivative.
