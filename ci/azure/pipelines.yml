@@ -10,17 +10,6 @@ jobs:
   - script: ci/azure/macos_script
     name: main
     displayName: 'Build and test'
-- job: BuildMacOS_arm64
-  pool:
-    vmImage: 'macOS-11'
-  timeoutInMinutes: 180
-  steps:
-  - task: DownloadSecureFile@1
-    inputs:
-      secureFile: s3cfg
-  - script: ci/azure/macos_arm64_script
-    name: main
-    displayName: 'Build'
 - job: BuildWindows
   timeoutInMinutes: 360
   pool:
@@ -155,7 +144,6 @@ jobs:
 - job: OnMasterSuccess
   dependsOn:
   - BuildMacOS
-  - BuildMacOS_arm64
   - BuildWindows
   condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/master'))
   strategy:

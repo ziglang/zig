@@ -1,11 +1,16 @@
 #!/bin/sh
 
-. ./ci/drone/linux_script_base
+set -x
+set -e
 
-./build/zig build test-universal-libc -Dskip-non-native
-./build/zig build test-compare-output -Dskip-non-native
-./build/zig build test-standalone     -Dskip-non-native -Dskip-release-safe
-./build/zig build test-stack-traces   -Dskip-non-native
-./build/zig build test-cli            -Dskip-non-native
-./build/zig build test-asm-link       -Dskip-non-native
-./build/zig build test-translate-c    -Dskip-non-native
+INSTALL_PREFIX="$DRONE_WORKSPACE/stage3-release"
+ZIG="$INSTALL_PREFIX/bin/zig"
+export ZIG_GLOBAL_CACHE_DIR="$DRONE_WORKSPACE/zig-cache"
+
+$ZIG build test-universal-libc -Dskip-non-native
+$ZIG build test-compare-output -Dskip-non-native
+$ZIG build test-standalone     -Dskip-non-native -Dskip-release-safe
+$ZIG build test-stack-traces   -Dskip-non-native
+$ZIG build test-cli            -Dskip-non-native
+$ZIG build test-asm-link       -Dskip-non-native
+$ZIG build test-translate-c    -Dskip-non-native

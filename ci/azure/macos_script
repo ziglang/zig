@@ -34,6 +34,7 @@ git fetch --tags
 mkdir build
 cd build
 cmake .. \
+  -DCMAKE_INSTALL_PREFIX="stage3-release" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_BUILD_TYPE=Release \
   -DZIG_TARGET_TRIPLE="$TARGET" \
@@ -46,15 +47,6 @@ unset CC
 unset CXX
 
 make $JOBS install
-
-stage2/bin/zig build \
-  --prefix stage3-release \
-  --search-prefix "$PREFIX" \
-  -Dstatic-llvm \
-  -Drelease \
-  -Dstrip \
-  -Dtarget="$TARGET" \
-  -Denable-stage1
 
 stage3-release/bin/zig build test docs \
   -Denable-macos-sdk \

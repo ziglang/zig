@@ -959,9 +959,11 @@ else()
   set(ZIG2_OBJECT "${CMAKE_BINARY_DIR}/zig2.o")
 endif()
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
-    set(ZIG_RELEASE_ARG "")
+  set(ZIG_RELEASE_ARG "")
+elseif("${CMAKE_BUILD_TYPE}" STREQUAL "RelWithDebInfo")
+  set(ZIG_RELEASE_ARG -Drelease)
 else()
-    set(ZIG_RELEASE_ARG -Drelease)
+  set(ZIG_RELEASE_ARG -Drelease -Dstrip)
 endif()
 if(ZIG_SKIP_INSTALL_LIB_FILES)
   set(ZIG_SKIP_INSTALL_LIB_FILES_ARG "-Dskip-install-lib-files")
@@ -985,7 +987,9 @@ set(BUILD_ZIG2_ARGS
     --zig-lib-dir "${CMAKE_SOURCE_DIR}/lib"
     "-femit-bin=${ZIG2_OBJECT}"
     -fcompiler-rt
-    "${ZIG_SINGLE_THREADED_ARG}"
+    ${ZIG_SINGLE_THREADED_ARG}
+    -target "${ZIG_TARGET_TRIPLE}"
+    -mcpu "${ZIG_TARGET_MCPU}"
     -lc
     --pkg-begin build_options "${ZIG_CONFIG_ZIG_OUT}"
     --pkg-end
@@ -1042,10 +1046,10 @@ set(ZIG_INSTALL_ARGS "build"
     "-Dconfig_h=${ZIG_CONFIG_H_OUT}"
     "-Denable-llvm"
     "-Denable-stage1"
-    "${ZIG_RELEASE_ARG}"
-    "${ZIG_STATIC_ARG}"
-    "${ZIG_SKIP_INSTALL_LIB_FILES_ARG}"
-    "${ZIG_SINGLE_THREADED_ARG}"
+    ${ZIG_RELEASE_ARG}
+    ${ZIG_STATIC_ARG}
+    ${ZIG_SKIP_INSTALL_LIB_FILES_ARG}
+    ${ZIG_SINGLE_THREADED_ARG}
     "-Dtarget=${ZIG_TARGET_TRIPLE}"
     "-Dcpu=${ZIG_TARGET_MCPU}"
 )

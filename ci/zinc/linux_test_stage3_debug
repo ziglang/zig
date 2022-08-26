@@ -1,10 +1,15 @@
 #!/bin/sh
 
-. ./ci/zinc/linux_base.sh
+set -x
+set -e
 
+ARCH="$(uname -m)"
+DEPS_LOCAL="/deps/local"
 OLD_ZIG="$DEPS_LOCAL/bin/zig"
 TARGET="${ARCH}-linux-musl"
 MCPU="baseline"
+
+export PATH=$DEPS_LOCAL/bin:$PATH
 
 echo "building stage3-debug with zig version $($OLD_ZIG version)"
 
