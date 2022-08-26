@@ -2355,7 +2355,7 @@ fn lowerDeclRefValue(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index)
 
     const module = self.bin_file.base.options.module.?;
     const decl = module.declPtr(decl_index);
-    if (decl.ty.zigTypeTag() != .Fn and !decl.ty.hasRuntimeBitsIgnoreComptime()) {
+    if (!decl.ty.hasRuntimeBitsIgnoreComptime()) {
         return WValue{ .imm32 = 0xaaaaaaaa };
     }
 
@@ -2394,9 +2394,7 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
         const decl_index = decl_ref_mut.data.decl_index;
         return self.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl_index);
     }
-
     const target = self.target;
-
     switch (ty.zigTypeTag()) {
         .Void => return WValue{ .none = {} },
         .Int => {
