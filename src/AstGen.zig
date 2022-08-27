@@ -10492,16 +10492,34 @@ fn strLitNodeAsString(astgen: *AstGen, node: Ast.Node.Index) !IndexSlice {
     {
         const slice = tree.tokenSlice(tok_i);
         const line_bytes = slice[2 .. slice.len - 1];
-        try string_bytes.appendSlice(gpa, line_bytes);
+        const carriage_return_count = mem.count(u8, line_bytes, "\r");
+        if (carriage_return_count > 0) {
+            try string_bytes.ensureUnusedCapacity(gpa, line_bytes.len - carriage_return_count);
+            for (line_bytes) |line_byte| {
+                if (line_byte == '\r') continue;
+                string_bytes.appendAssumeCapacity(line_byte);
+            }
+        } else {
+            try string_bytes.appendSlice(gpa, line_bytes);
+        }
         tok_i += 1;
     }
     // Following lines: each line prepends a newline.
     while (tok_i <= end) : (tok_i += 1) {
         const slice = tree.tokenSlice(tok_i);
         const line_bytes = slice[2 .. slice.len - 1];
-        try string_bytes.ensureUnusedCapacity(gpa, line_bytes.len + 1);
+
+        const carriage_return_count = mem.count(u8, line_bytes, "\r");
+        try string_bytes.ensureUnusedCapacity(gpa, line_bytes.len - carriage_return_count + 1);
         string_bytes.appendAssumeCapacity('\n');
-        string_bytes.appendSliceAssumeCapacity(line_bytes);
+        if (carriage_return_count > 0) {
+            for (line_bytes) |line_byte| {
+                if (line_byte == '\r') continue;
+                string_bytes.appendAssumeCapacity(line_byte);
+            }
+        } else {
+            string_bytes.appendSliceAssumeCapacity(line_bytes);
+        }
     }
     const len = string_bytes.items.len - str_index;
     try string_bytes.append(gpa, 0);
