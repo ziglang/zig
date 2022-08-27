@@ -28,6 +28,13 @@ pub const InstallRawStep = @import("build/InstallRawStep.zig");
 pub const OptionsStep = @import("build/OptionsStep.zig");
 pub const EmulatableRunStep = @import("build/EmulatableRunStep.zig");
 
+const root_file = @import("root");
+
+pub const build_script = if (@hasDecl(root_file, "build.zig"))
+    root_file.@"build.zig"
+else
+    @compileError("Access to build.zig is only available in a 'zig build' invocation!");
+
 pub const Builder = struct {
     install_tls: TopLevelStep,
     uninstall_tls: TopLevelStep,

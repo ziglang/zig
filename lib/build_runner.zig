@@ -9,6 +9,8 @@ const process = std.process;
 const ArrayList = std.ArrayList;
 const File = std.fs.File;
 
+pub const @"build.zig" = root;
+
 pub fn main() !void {
     // Here we use an ArenaAllocator backed by a DirectAllocator because a build is a short-lived,
     // one shot program. We don't need to waste time freeing memory and finding places to squish
