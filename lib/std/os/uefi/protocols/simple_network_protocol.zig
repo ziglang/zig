@@ -1,23 +1,24 @@
-const uefi = @import("std").os.uefi;
+const std = @import("std");
+const uefi = std.os.uefi;
 const Event = uefi.Event;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
 
 pub const SimpleNetworkProtocol = extern struct {
     revision: u64,
-    _start: fn (*const SimpleNetworkProtocol) callconv(.C) Status,
-    _stop: fn (*const SimpleNetworkProtocol) callconv(.C) Status,
-    _initialize: fn (*const SimpleNetworkProtocol, usize, usize) callconv(.C) Status,
-    _reset: fn (*const SimpleNetworkProtocol, bool) callconv(.C) Status,
-    _shutdown: fn (*const SimpleNetworkProtocol) callconv(.C) Status,
-    _receive_filters: fn (*const SimpleNetworkProtocol, SimpleNetworkReceiveFilter, SimpleNetworkReceiveFilter, bool, usize, ?[*]const MacAddress) callconv(.C) Status,
-    _station_address: fn (*const SimpleNetworkProtocol, bool, ?*const MacAddress) callconv(.C) Status,
-    _statistics: fn (*const SimpleNetworkProtocol, bool, ?*usize, ?*NetworkStatistics) callconv(.C) Status,
-    _mcast_ip_to_mac: fn (*const SimpleNetworkProtocol, bool, *const anyopaque, *MacAddress) callconv(.C) Status,
-    _nvdata: fn (*const SimpleNetworkProtocol, bool, usize, usize, [*]u8) callconv(.C) Status,
-    _get_status: fn (*const SimpleNetworkProtocol, *SimpleNetworkInterruptStatus, ?*?[*]u8) callconv(.C) Status,
-    _transmit: fn (*const SimpleNetworkProtocol, usize, usize, [*]const u8, ?*const MacAddress, ?*const MacAddress, ?*const u16) callconv(.C) Status,
-    _receive: fn (*const SimpleNetworkProtocol, ?*usize, *usize, [*]u8, ?*MacAddress, ?*MacAddress, ?*u16) callconv(.C) Status,
+    _start: std.meta.FnPtr(fn (*const SimpleNetworkProtocol) callconv(.C) Status),
+    _stop: std.meta.FnPtr(fn (*const SimpleNetworkProtocol) callconv(.C) Status),
+    _initialize: std.meta.FnPtr(fn (*const SimpleNetworkProtocol, usize, usize) callconv(.C) Status),
+    _reset: std.meta.FnPtr(fn (*const SimpleNetworkProtocol, bool) callconv(.C) Status),
+    _shutdown: std.meta.FnPtr(fn (*const SimpleNetworkProtocol) callconv(.C) Status),
+    _receive_filters: std.meta.FnPtr(fn (*const SimpleNetworkProtocol, SimpleNetworkReceiveFilter, SimpleNetworkReceiveFilter, bool, usize, ?[*]const MacAddress) callconv(.C) Status),
+    _station_address: std.meta.FnPtr(fn (*const SimpleNetworkProtocol, bool, ?*const MacAddress) callconv(.C) Status),
+    _statistics: std.meta.FnPtr(fn (*const SimpleNetworkProtocol, bool, ?*usize, ?*NetworkStatistics) callconv(.C) Status),
+    _mcast_ip_to_mac: std.meta.FnPtr(fn (*const SimpleNetworkProtocol, bool, *const anyopaque, *MacAddress) callconv(.C) Status),
+    _nvdata: std.meta.FnPtr(fn (*const SimpleNetworkProtocol, bool, usize, usize, [*]u8) callconv(.C) Status),
+    _get_status: std.meta.FnPtr(fn (*const SimpleNetworkProtocol, *SimpleNetworkInterruptStatus, ?*?[*]u8) callconv(.C) Status),
+    _transmit: std.meta.FnPtr(fn (*const SimpleNetworkProtocol, usize, usize, [*]const u8, ?*const MacAddress, ?*const MacAddress, ?*const u16) callconv(.C) Status),
+    _receive: std.meta.FnPtr(fn (*const SimpleNetworkProtocol, ?*usize, *usize, [*]u8, ?*MacAddress, ?*MacAddress, ?*u16) callconv(.C) Status),
     wait_for_packet: Event,
     mode: *SimpleNetworkMode,
 

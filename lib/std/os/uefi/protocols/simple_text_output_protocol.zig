@@ -1,18 +1,19 @@
-const uefi = @import("std").os.uefi;
+const std = @import("std");
+const uefi = std.os.uefi;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
 
 /// Character output devices
 pub const SimpleTextOutputProtocol = extern struct {
-    _reset: fn (*const SimpleTextOutputProtocol, bool) callconv(.C) Status,
-    _output_string: fn (*const SimpleTextOutputProtocol, [*:0]const u16) callconv(.C) Status,
-    _test_string: fn (*const SimpleTextOutputProtocol, [*:0]const u16) callconv(.C) Status,
-    _query_mode: fn (*const SimpleTextOutputProtocol, usize, *usize, *usize) callconv(.C) Status,
-    _set_mode: fn (*const SimpleTextOutputProtocol, usize) callconv(.C) Status,
-    _set_attribute: fn (*const SimpleTextOutputProtocol, usize) callconv(.C) Status,
-    _clear_screen: fn (*const SimpleTextOutputProtocol) callconv(.C) Status,
-    _set_cursor_position: fn (*const SimpleTextOutputProtocol, usize, usize) callconv(.C) Status,
-    _enable_cursor: fn (*const SimpleTextOutputProtocol, bool) callconv(.C) Status,
+    _reset: std.meta.FnPtr(fn (*const SimpleTextOutputProtocol, bool) callconv(.C) Status),
+    _output_string: std.meta.FnPtr(fn (*const SimpleTextOutputProtocol, [*:0]const u16) callconv(.C) Status),
+    _test_string: std.meta.FnPtr(fn (*const SimpleTextOutputProtocol, [*:0]const u16) callconv(.C) Status),
+    _query_mode: std.meta.FnPtr(fn (*const SimpleTextOutputProtocol, usize, *usize, *usize) callconv(.C) Status),
+    _set_mode: std.meta.FnPtr(fn (*const SimpleTextOutputProtocol, usize) callconv(.C) Status),
+    _set_attribute: std.meta.FnPtr(fn (*const SimpleTextOutputProtocol, usize) callconv(.C) Status),
+    _clear_screen: std.meta.FnPtr(fn (*const SimpleTextOutputProtocol) callconv(.C) Status),
+    _set_cursor_position: std.meta.FnPtr(fn (*const SimpleTextOutputProtocol, usize, usize) callconv(.C) Status),
+    _enable_cursor: std.meta.FnPtr(fn (*const SimpleTextOutputProtocol, bool) callconv(.C) Status),
     mode: *SimpleTextOutputMode,
 
     /// Resets the text output device hardware.
