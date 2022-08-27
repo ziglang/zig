@@ -135,7 +135,6 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
     var gz_instructions: std.ArrayListUnmanaged(Zir.Inst.Index) = .{};
     var gen_scope: GenZir = .{
         .force_comptime = true,
-        .in_defer = false,
         .parent = &top_scope.base,
         .anon_name_strategy = .parent,
         .decl_node_index = 0,
@@ -1842,6 +1841,16 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
             .gen_zir => {
                 const block_gz = scope.cast(GenZir).?;
 
+                if (block_gz.cur_defer_node != 0) {
+                    return astgen.failNodeNotes(node, "cannot break out of defer expression", .{}, &.{
+                        try astgen.errNoteNode(
+                            block_gz.cur_defer_node,
+                            "defer expression here",
+                            .{},
+                        ),
+                    });
+                }
+
                 const block_inst = blk: {
                     if (break_label != 0) {
                         if (block_gz.label) |*label| {
@@ -1905,17 +1914,6 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
             .namespace => break,
             .defer_normal, .defer_error => scope = scope.cast(Scope.Defer).?.parent,
-            .defer_gen => {
-                const defer_gen = scope.cast(Scope.DeferGen).?;
-
-                return astgen.failNodeNotes(node, "cannot break out of defer expression", .{}, &.{
-                    try astgen.errNoteNode(
-                        defer_gen.defer_node,
-                        "defer expression here",
-                        .{},
-                    ),
-                });
-            },
             .top => unreachable,
         }
     }
@@ -1939,6 +1937,16 @@ fn continueExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) 
         switch (scope.tag) {
             .gen_zir => {
                 const gen_zir = scope.cast(GenZir).?;
+
+                if (gen_zir.cur_defer_node != 0) {
+                    return astgen.failNodeNotes(node, "cannot continue out of defer expression", .{}, &.{
+                        try astgen.errNoteNode(
+                            gen_zir.cur_defer_node,
+                            "defer expression here",
+                            .{},
+                        ),
+                    });
+                }
                 const continue_block = gen_zir.continue_block;
                 if (continue_block == 0) {
                     scope = gen_zir.parent;
@@ -1971,21 +1979,9 @@ fn continueExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) 
             .defer_normal => {
                 const defer_scope = scope.cast(Scope.Defer).?;
                 scope = defer_scope.parent;
-                const expr_node = node_datas[defer_scope.defer_node].rhs;
-                try unusedResultDeferExpr(parent_gz, defer_scope, defer_scope.parent, expr_node);
+                try parent_gz.addDefer(defer_scope.index, defer_scope.len);
             },
             .defer_error => scope = scope.cast(Scope.Defer).?.parent,
-            .defer_gen => {
-                const defer_gen = scope.cast(Scope.DeferGen).?;
-
-                return astgen.failNodeNotes(node, "cannot continue out of defer expression", .{}, &.{
-                    try astgen.errNoteNode(
-                        defer_gen.defer_node,
-                        "defer expression here",
-                        .{},
-                    ),
-                });
-            },
             .namespace => break,
             .top => unreachable,
         }
@@ -2050,7 +2046,6 @@ fn checkLabelRedefinition(astgen: *AstGen, parent_scope: *Scope, label: Ast.Toke
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
             .defer_normal, .defer_error => scope = scope.cast(Scope.Defer).?.parent,
-            .defer_gen => scope = scope.cast(Scope.DeferGen).?.parent,
             .namespace => break,
             .top => unreachable,
         }
@@ -2194,8 +2189,8 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
             .simple_var_decl  => scope = try varDecl(gz, scope, statement, block_arena_allocator, tree.simpleVarDecl(statement)),
             .aligned_var_decl => scope = try varDecl(gz, scope, statement, block_arena_allocator, tree.alignedVarDecl(statement)),
 
-            .@"defer"    => scope = try makeDeferScope(gz.astgen, scope, statement, block_arena_allocator, .defer_normal),
-            .@"errdefer" => scope = try makeDeferScope(gz.astgen, scope, statement, block_arena_allocator, .defer_error),
+            .@"defer"    => scope = try deferStmt(gz, scope, statement, block_arena_allocator, .defer_normal),
+            .@"errdefer" => scope = try deferStmt(gz, scope, statement, block_arena_allocator, .defer_error),
 
             .assign => try assign(gz, scope, statement),
 
@@ -2237,28 +2232,6 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
 
     try genDefers(gz, parent_scope, scope, .normal_only);
     try checkUsed(gz, parent_scope, scope);
-}
-
-fn unusedResultDeferExpr(gz: *GenZir, defer_scope: *Scope.Defer, expr_scope: *Scope, expr_node: Ast.Node.Index) InnerError!void {
-    const astgen = gz.astgen;
-    const prev_offset = astgen.source_offset;
-    const prev_line = astgen.source_line;
-    const prev_column = astgen.source_column;
-    defer {
-        astgen.source_offset = prev_offset;
-        astgen.source_line = prev_line;
-        astgen.source_column = prev_column;
-    }
-    astgen.source_offset = defer_scope.source_offset;
-    astgen.source_line = defer_scope.source_line;
-    astgen.source_column = defer_scope.source_column;
-
-    var defer_gen: Scope.DeferGen = .{
-        .parent = expr_scope,
-        .defer_node = defer_scope.defer_node,
-    };
-
-    _ = try unusedResultExpr(gz, &defer_gen.base, expr_node);
 }
 
 /// Returns AST source node of the thing that is noreturn if the statement is
@@ -2570,6 +2543,9 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .validate_struct_init_ty,
             .validate_deref,
             => break :b true,
+
+            .@"defer" => unreachable,
+            .defer_err_code => unreachable,
         }
     } else switch (maybe_unused_result) {
         .none => unreachable,
@@ -2589,15 +2565,12 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
     return noreturn_src_node;
 }
 
-fn countDefers(astgen: *AstGen, outer_scope: *Scope, inner_scope: *Scope) struct {
+fn countDefers(outer_scope: *Scope, inner_scope: *Scope) struct {
     have_any: bool,
     have_normal: bool,
     have_err: bool,
     need_err_code: bool,
 } {
-    const tree = astgen.tree;
-    const node_datas = tree.nodes.items(.data);
-
     var have_normal = false;
     var have_err = false;
     var need_err_code = false;
@@ -2607,7 +2580,6 @@ fn countDefers(astgen: *AstGen, outer_scope: *Scope, inner_scope: *Scope) struct
             .gen_zir => scope = scope.cast(GenZir).?.parent,
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
-            .defer_gen => scope = scope.cast(Scope.DeferGen).?.parent,
             .defer_normal => {
                 const defer_scope = scope.cast(Scope.Defer).?;
                 scope = defer_scope.parent;
@@ -2620,7 +2592,7 @@ fn countDefers(astgen: *AstGen, outer_scope: *Scope, inner_scope: *Scope) struct
 
                 have_err = true;
 
-                const have_err_payload = node_datas[defer_scope.defer_node].lhs != 0;
+                const have_err_payload = defer_scope.remapped_err_code != 0;
                 need_err_code = need_err_code or have_err_payload;
             },
             .namespace => unreachable,
@@ -2647,9 +2619,7 @@ fn genDefers(
     inner_scope: *Scope,
     which_ones: DefersToEmit,
 ) InnerError!void {
-    const astgen = gz.astgen;
-    const tree = astgen.tree;
-    const node_datas = tree.nodes.items(.data);
+    const gpa = gz.astgen.gpa;
 
     var scope = inner_scope;
     while (scope != outer_scope) {
@@ -2657,51 +2627,40 @@ fn genDefers(
             .gen_zir => scope = scope.cast(GenZir).?.parent,
             .local_val => scope = scope.cast(Scope.LocalVal).?.parent,
             .local_ptr => scope = scope.cast(Scope.LocalPtr).?.parent,
-            .defer_gen => scope = scope.cast(Scope.DeferGen).?.parent,
             .defer_normal => {
                 const defer_scope = scope.cast(Scope.Defer).?;
                 scope = defer_scope.parent;
-                const expr_node = node_datas[defer_scope.defer_node].rhs;
-                const prev_in_defer = gz.in_defer;
-                gz.in_defer = true;
-                defer gz.in_defer = prev_in_defer;
-                try unusedResultDeferExpr(gz, defer_scope, defer_scope.parent, expr_node);
+                try gz.addDefer(defer_scope.index, defer_scope.len);
             },
             .defer_error => {
                 const defer_scope = scope.cast(Scope.Defer).?;
                 scope = defer_scope.parent;
                 switch (which_ones) {
                     .both_sans_err => {
-                        const expr_node = node_datas[defer_scope.defer_node].rhs;
-                        const prev_in_defer = gz.in_defer;
-                        gz.in_defer = true;
-                        defer gz.in_defer = prev_in_defer;
-                        try unusedResultDeferExpr(gz, defer_scope, defer_scope.parent, expr_node);
+                        try gz.addDefer(defer_scope.index, defer_scope.len);
                     },
                     .both => |err_code| {
-                        const expr_node = node_datas[defer_scope.defer_node].rhs;
-                        const payload_token = node_datas[defer_scope.defer_node].lhs;
-                        const prev_in_defer = gz.in_defer;
-                        gz.in_defer = true;
-                        defer gz.in_defer = prev_in_defer;
-                        var local_val_scope: Scope.LocalVal = undefined;
-                        try gz.addDbgBlockBegin();
-                        const sub_scope = if (payload_token == 0) defer_scope.parent else blk: {
-                            const ident_name = try astgen.identAsString(payload_token);
-                            local_val_scope = .{
-                                .parent = defer_scope.parent,
-                                .gen_zir = gz,
-                                .name = ident_name,
-                                .inst = err_code,
-                                .token_src = payload_token,
-                                .id_cat = .@"capture",
-                            };
-                            try gz.addDbgVar(.dbg_var_val, ident_name, err_code);
-                            break :blk &local_val_scope.base;
-                        };
-                        try unusedResultDeferExpr(gz, defer_scope, sub_scope, expr_node);
-                        try checkUsed(gz, scope, sub_scope);
-                        try gz.addDbgBlockEnd();
+                        if (defer_scope.remapped_err_code == 0) {
+                            try gz.addDefer(defer_scope.index, defer_scope.len);
+                        } else {
+                            try gz.instructions.ensureUnusedCapacity(gpa, 1);
+                            try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
+
+                            const payload_index = try gz.astgen.addExtra(Zir.Inst.DeferErrCode{
+                                .remapped_err_code = defer_scope.remapped_err_code,
+                                .index = defer_scope.index,
+                                .len = defer_scope.len,
+                            });
+                            const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
+                            gz.astgen.instructions.appendAssumeCapacity(.{
+                                .tag = .defer_err_code,
+                                .data = .{ .defer_err_code = .{
+                                    .err_code = err_code,
+                                    .payload_index = payload_index,
+                                } },
+                            });
+                            gz.instructions.appendAssumeCapacity(new_index);
+                        }
                     },
                     .normal_only => continue,
                 }
@@ -2738,35 +2697,68 @@ fn checkUsed(
                 scope = s.parent;
             },
             .defer_normal, .defer_error => scope = scope.cast(Scope.Defer).?.parent,
-            .defer_gen => scope = scope.cast(Scope.DeferGen).?.parent,
             .namespace => unreachable,
             .top => unreachable,
         }
     }
 }
 
-fn makeDeferScope(
-    astgen: *AstGen,
+fn deferStmt(
+    gz: *GenZir,
     scope: *Scope,
     node: Ast.Node.Index,
     block_arena: Allocator,
     scope_tag: Scope.Tag,
 ) InnerError!*Scope {
-    const tree = astgen.tree;
+    var defer_gen = gz.makeSubBlock(scope);
+    defer_gen.cur_defer_node = node;
+    defer_gen.any_defer_node = node;
+    defer defer_gen.unstack();
+
+    const tree = gz.astgen.tree;
     const node_datas = tree.nodes.items(.data);
     const expr_node = node_datas[node].rhs;
-    const token_starts = tree.tokens.items(.start);
-    const node_start = token_starts[tree.firstToken(expr_node)];
+
+    const payload_token = node_datas[node].lhs;
+    var local_val_scope: Scope.LocalVal = undefined;
+    var remapped_err_code: Zir.Inst.Index = 0;
+    const have_err_code = scope_tag == .defer_error and payload_token != 0;
+    const sub_scope = if (!have_err_code) &defer_gen.base else blk: {
+        try gz.addDbgBlockBegin();
+        const ident_name = try gz.astgen.identAsString(payload_token);
+        remapped_err_code = @intCast(u32, try gz.astgen.instructions.addOne(gz.astgen.gpa));
+        const remapped_err_code_ref = Zir.indexToRef(remapped_err_code);
+        local_val_scope = .{
+            .parent = &defer_gen.base,
+            .gen_zir = gz,
+            .name = ident_name,
+            .inst = remapped_err_code_ref,
+            .token_src = payload_token,
+            .id_cat = .@"capture",
+        };
+        try gz.addDbgVar(.dbg_var_val, ident_name, remapped_err_code_ref);
+        break :blk &local_val_scope.base;
+    };
+    _ = try unusedResultExpr(&defer_gen, sub_scope, expr_node);
+    try checkUsed(gz, scope, sub_scope);
+    if (have_err_code) try gz.addDbgBlockEnd();
+    _ = try defer_gen.addBreak(.break_inline, 0, .void_value);
+
+    const body = defer_gen.instructionsSlice();
+    const body_len = gz.astgen.countBodyLenAfterFixups(body);
+
+    const index = @intCast(u32, gz.astgen.extra.items.len);
+    try gz.astgen.extra.ensureUnusedCapacity(gz.astgen.gpa, body_len);
+    gz.astgen.appendBodyWithFixups(body);
+
     const defer_scope = try block_arena.create(Scope.Defer);
-    astgen.advanceSourceCursor(node_start);
 
     defer_scope.* = .{
         .base = .{ .tag = scope_tag },
         .parent = scope,
-        .defer_node = node,
-        .source_offset = astgen.source_offset,
-        .source_line = astgen.source_line,
-        .source_column = astgen.source_column,
+        .index = index,
+        .len = body_len,
+        .remapped_err_code = remapped_err_code,
     };
     return &defer_scope.base;
 }
@@ -3447,7 +3439,6 @@ fn fnDecl(
 
     var decl_gz: GenZir = .{
         .force_comptime = true,
-        .in_defer = false,
         .decl_node_index = fn_proto.ast.proto_node,
         .decl_line = astgen.source_line,
         .parent = scope,
@@ -3459,7 +3450,6 @@ fn fnDecl(
 
     var fn_gz: GenZir = .{
         .force_comptime = false,
-        .in_defer = false,
         .decl_node_index = fn_proto.ast.proto_node,
         .decl_line = decl_gz.decl_line,
         .parent = &decl_gz.base,
@@ -3798,7 +3788,6 @@ fn globalVarDecl(
         .decl_line = astgen.source_line,
         .astgen = astgen,
         .force_comptime = true,
-        .in_defer = false,
         .anon_name_strategy = .parent,
         .instructions = gz.instructions,
         .instructions_top = gz.instructions.items.len,
@@ -3950,7 +3939,6 @@ fn comptimeDecl(
 
     var decl_block: GenZir = .{
         .force_comptime = true,
-        .in_defer = false,
         .decl_node_index = node,
         .decl_line = astgen.source_line,
         .parent = scope,
@@ -4005,7 +3993,6 @@ fn usingnamespaceDecl(
 
     var decl_block: GenZir = .{
         .force_comptime = true,
-        .in_defer = false,
         .decl_node_index = node,
         .decl_line = astgen.source_line,
         .parent = scope,
@@ -4053,7 +4040,6 @@ fn testDecl(
 
     var decl_block: GenZir = .{
         .force_comptime = true,
-        .in_defer = false,
         .decl_node_index = node,
         .decl_line = astgen.source_line,
         .parent = scope,
@@ -4118,7 +4104,6 @@ fn testDecl(
                 .local_val, .local_ptr => unreachable, // a test cannot be in a local scope
                 .gen_zir => s = s.cast(GenZir).?.parent,
                 .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
-                .defer_gen => s = s.cast(Scope.DeferGen).?.parent,
                 .namespace => {
                     const ns = s.cast(Scope.Namespace).?;
                     if (ns.decls.get(name_str_index)) |i| {
@@ -4150,7 +4135,6 @@ fn testDecl(
 
     var fn_block: GenZir = .{
         .force_comptime = false,
-        .in_defer = false,
         .decl_node_index = node,
         .decl_line = decl_block.decl_line,
         .parent = &decl_block.base,
@@ -4274,7 +4258,6 @@ fn structDeclInner(
         .decl_line = decl_line,
         .astgen = astgen,
         .force_comptime = true,
-        .in_defer = false,
         .instructions = gz.instructions,
         .instructions_top = gz.instructions.items.len,
     };
@@ -4475,7 +4458,6 @@ fn unionDeclInner(
         .decl_line = astgen.source_line,
         .astgen = astgen,
         .force_comptime = true,
-        .in_defer = false,
         .instructions = gz.instructions,
         .instructions_top = gz.instructions.items.len,
     };
@@ -4759,7 +4741,6 @@ fn containerDecl(
                 .decl_line = astgen.source_line,
                 .astgen = astgen,
                 .force_comptime = true,
-                .in_defer = false,
                 .instructions = gz.instructions,
                 .instructions_top = gz.instructions.items.len,
             };
@@ -4865,7 +4846,6 @@ fn containerDecl(
                 .decl_line = astgen.source_line,
                 .astgen = astgen,
                 .force_comptime = true,
-                .in_defer = false,
                 .instructions = gz.instructions,
                 .instructions_top = gz.instructions.items.len,
             };
@@ -5096,7 +5076,15 @@ fn tryExpr(
         return astgen.failNode(node, "'try' outside function scope", .{});
     };
 
-    if (parent_gz.in_defer) return astgen.failNode(node, "'try' not allowed inside defer expression", .{});
+    if (parent_gz.any_defer_node != 0) {
+        return astgen.failNodeNotes(node, "'try' not allowed inside defer expression", .{}, &.{
+            try astgen.errNoteNode(
+                parent_gz.any_defer_node,
+                "defer expression here",
+                .{},
+            ),
+        });
+    }
 
     // Ensure debug line/column information is emitted for this try expression.
     // Then we will save the line/column so that we can emit another one that goes
@@ -6642,7 +6630,15 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
         return astgen.failNode(node, "'return' outside function scope", .{});
     }
 
-    if (gz.in_defer) return astgen.failNode(node, "cannot return from defer expression", .{});
+    if (gz.any_defer_node != 0) {
+        return astgen.failNodeNotes(node, "cannot return from defer expression", .{}, &.{
+            try astgen.errNoteNode(
+                gz.any_defer_node,
+                "defer expression here",
+                .{},
+            ),
+        });
+    }
 
     // Ensure debug line/column information is emitted for this return expression.
     // Then we will save the line/column so that we can emit another one that goes
@@ -6669,7 +6665,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
         // for detecting whether to add something to the function's inferred error set.
         const ident_token = node_datas[operand_node].rhs;
         const err_name_str_index = try astgen.identAsString(ident_token);
-        const defer_counts = countDefers(astgen, defer_outer, scope);
+        const defer_counts = countDefers(defer_outer, scope);
         if (!defer_counts.need_err_code) {
             try genDefers(gz, defer_outer, scope, .both_sans_err);
             try emitDbgStmt(gz, ret_line, ret_column);
@@ -6710,7 +6706,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
             return Zir.Inst.Ref.unreachable_value;
         },
         .maybe => {
-            const defer_counts = countDefers(astgen, defer_outer, scope);
+            const defer_counts = countDefers(defer_outer, scope);
             if (!defer_counts.have_err) {
                 // Only regular defers; no branch needed.
                 try genDefers(gz, defer_outer, scope, .normal_only);
@@ -6907,7 +6903,6 @@ fn localVarRef(
         },
         .gen_zir => s = s.cast(GenZir).?.parent,
         .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
-        .defer_gen => s = s.cast(Scope.DeferGen).?.parent,
         .namespace => {
             const ns = s.cast(Scope.Namespace).?;
             if (ns.decls.get(name_str_index)) |i| {
@@ -7536,7 +7531,6 @@ fn builtinCall(
                         },
                         .gen_zir => s = s.cast(GenZir).?.parent,
                         .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
-                        .defer_gen => s = s.cast(Scope.DeferGen).?.parent,
                         .namespace => {
                             const ns = s.cast(Scope.Namespace).?;
                             if (ns.decls.get(decl_name)) |i| {
@@ -10031,7 +10025,6 @@ const Scope = struct {
         local_ptr,
         defer_normal,
         defer_error,
-        defer_gen,
         namespace,
         top,
     };
@@ -10090,10 +10083,9 @@ const Scope = struct {
         base: Scope,
         /// Parents can be: `LocalVal`, `LocalPtr`, `GenZir`, `Defer`, `Namespace`.
         parent: *Scope,
-        defer_node: Ast.Node.Index,
-        source_offset: u32,
-        source_line: u32,
-        source_column: u32,
+        index: u32,
+        len: u32,
+        remapped_err_code: Zir.Inst.Index = 0,
     };
 
     /// Represents a global scope that has any number of declarations in it.
@@ -10129,13 +10121,6 @@ const Scope = struct {
         const base_tag: Scope.Tag = .top;
         base: Scope = Scope{ .tag = base_tag },
     };
-
-    const DeferGen = struct {
-        const base_tag: Scope.Tag = .defer_gen;
-        base: Scope = Scope{ .tag = base_tag },
-        parent: *Scope,
-        defer_node: Ast.Node.Index,
-    };
 };
 
 /// This is a temporary structure; references to it are valid only
@@ -10146,7 +10131,6 @@ const GenZir = struct {
     force_comptime: bool,
     /// This is set to true for inline loops; false otherwise.
     is_inline: bool = false,
-    in_defer: bool,
     c_import: bool = false,
     /// How decls created in this scope should be named.
     anon_name_strategy: Zir.Inst.NameStrategy = .anon,
@@ -10189,6 +10173,10 @@ const GenZir = struct {
 
     suspend_node: Ast.Node.Index = 0,
     nosuspend_node: Ast.Node.Index = 0,
+    /// Set if this GenZir is a defer.
+    cur_defer_node: Ast.Node.Index = 0,
+    // Set if this GenZir is a defer or it is inside a defer.
+    any_defer_node: Ast.Node.Index = 0,
 
     /// Namespace members are lazy.  When executing a decl within a namespace,
     /// any references to external instructions need to be treated specially.
@@ -10229,7 +10217,6 @@ const GenZir = struct {
     fn makeSubBlock(gz: *GenZir, scope: *Scope) GenZir {
         return .{
             .force_comptime = gz.force_comptime,
-            .in_defer = gz.in_defer,
             .c_import = gz.c_import,
             .decl_node_index = gz.decl_node_index,
             .decl_line = gz.decl_line,
@@ -10238,6 +10225,7 @@ const GenZir = struct {
             .astgen = gz.astgen,
             .suspend_node = gz.suspend_node,
             .nosuspend_node = gz.nosuspend_node,
+            .any_defer_node = gz.any_defer_node,
             .instructions = gz.instructions,
             .instructions_top = gz.instructions.items.len,
         };
@@ -11092,6 +11080,16 @@ const GenZir = struct {
         });
     }
 
+    fn addDefer(gz: *GenZir, index: u32, len: u32) !void {
+        _ = try gz.add(.{
+            .tag = .@"defer",
+            .data = .{ .@"defer" = .{
+                .index = index,
+                .len = len,
+            } },
+        });
+    }
+
     fn addDecl(
         gz: *GenZir,
         tag: Zir.Inst.Tag,
@@ -11655,7 +11653,6 @@ fn detectLocalShadowing(
         },
         .gen_zir => s = s.cast(GenZir).?.parent,
         .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
-        .defer_gen => s = s.cast(Scope.DeferGen).?.parent,
         .top => break,
     };
 }
@@ -11794,7 +11791,6 @@ fn scanDecls(astgen: *AstGen, namespace: *Scope.Namespace, members: []const Ast.
             .namespace => s = s.cast(Scope.Namespace).?.parent,
             .gen_zir => s = s.cast(GenZir).?.parent,
             .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
-            .defer_gen => s = s.cast(Scope.DeferGen).?.parent,
             .top => break,
         };
         gop.value_ptr.* = member_node;
