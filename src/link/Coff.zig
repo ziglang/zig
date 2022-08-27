@@ -38,6 +38,7 @@ error_flags: link.File.ErrorFlags = .{},
 ptr_width: PtrWidth,
 
 sections: std.MultiArrayList(Section) = .{},
+data_directories: std.ArrayListUnmanaged(coff.ImageDataDirectory) = .{},
 
 text_section_index: ?u16 = null,
 got_section_index: ?u16 = null,
@@ -48,8 +49,6 @@ globals: std.StringArrayHashMapUnmanaged(SymbolWithLoc) = .{},
 locals_free_list: std.ArrayListUnmanaged(u32) = .{},
 
 strtab: StringTable(.strtab) = .{},
-
-symtab_offset: ?u32 = null,
 
 got_entries: std.AutoArrayHashMapUnmanaged(SymbolWithLoc, u32) = .{},
 got_entries_free_list: std.ArrayListUnmanaged(u32) = .{},
@@ -73,6 +72,7 @@ const default_section_alignment: u16 = 0x1000;
 const default_file_alignment: u16 = 0x200;
 const default_image_base_dll: u64 = 0x10000000;
 const default_image_base_exe: u64 = 0x10000;
+const default_header_size: u64 = default_section_alignment;
 
 const Section = struct {
     header: coff.SectionHeader,
@@ -192,6 +192,7 @@ pub fn deinit(self: *Coff) void {
         free_list.deinit(gpa);
     }
     self.sections.deinit(gpa);
+    self.data_directories.deinit(gpa);
 
     for (self.managed_atoms.items) |atom| {
         gpa.destroy(atom);
@@ -209,11 +210,8 @@ pub fn deinit(self: *Coff) void {
 }
 
 fn populateMissingMetadata(self: *Coff) !void {
-    log.debug("{x}", .{msdos_stub.len});
-
     if (self.text_section_index == null) {}
     if (self.got_section_index == null) {}
-    if (self.symtab_offset == null) {}
 }
 
 pub fn allocateDeclIndexes(self: *Coff, decl_index: Module.Decl.Index) !void {
@@ -662,6 +660,8 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
+    try self.writeDataDirectoriesHeaders();
+    try self.writeSectionHeaders();
     try self.writeHeader();
 
     if (self.entry_addr == null and self.base.options.output_mode == .Exe) {
@@ -692,23 +692,27 @@ pub fn updateDeclLineNumber(self: *Coff, module: *Module, decl: *Module.Decl) !v
     log.debug("TODO implement updateDeclLineNumber", .{});
 }
 
+fn writeSectionHeaders(self: *Coff) !void {
+    const offset = self.getSectionHeadersOffset();
+    try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.sections.items(.header)), offset);
+}
+
+fn writeDataDirectoriesHeaders(self: *Coff) !void {
+    const offset = self.getDataDirectoryHeadersOffset();
+    try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.data_directories.items), offset);
+}
+
 fn writeHeader(self: *Coff) !void {
     const gpa = self.base.allocator;
     var buffer = std.ArrayList(u8).init(gpa);
     defer buffer.deinit();
     const writer = buffer.writer();
 
-    try buffer.ensureUnusedCapacity(msdos_stub.len + 8);
+    try buffer.ensureTotalCapacity(self.getSizeOfHeaders());
     writer.writeAll(msdos_stub) catch unreachable;
     writer.writeByteNTimes(0, 4) catch unreachable; // align to 8 bytes
     writer.writeAll("PE\x00\x00") catch unreachable;
     buffer.items[0x3c] = @intCast(u8, msdos_stub.len + 4);
-
-    var num_data_directories: u32 = 0;
-    var size_of_optional_header = switch (self.ptr_width) {
-        .p32 => @intCast(u32, @sizeOf(coff.OptionalHeaderPE32)),
-        .p64 => @intCast(u32, @sizeOf(coff.OptionalHeaderPE64)),
-    } + num_data_directories * @sizeOf(coff.ImageDataDirectory);
 
     var flags = coff.CoffHeaderFlags{
         .EXECUTABLE_IMAGE = 1,
@@ -722,17 +726,20 @@ fn writeHeader(self: *Coff) !void {
         flags.DLL = 1;
     }
 
+    const size_of_optional_header = @intCast(
+        u16,
+        self.getOptionalHeaderSize() + self.getDataDirectoryHeadersSize() + self.getSectionHeadersSize(),
+    );
     var coff_header = coff.CoffHeader{
         .machine = coff.MachineType.fromTargetCpuArch(self.base.options.target.cpu.arch),
         .number_of_sections = @intCast(u16, self.sections.slice().len), // TODO what if we prune a section
         .time_date_stamp = 0, // TODO
-        .pointer_to_symbol_table = self.symtab_offset orelse 0,
-        .number_of_symbols = if (self.symtab_offset) |_| self.getTotalNumberOfSymbols() else 0,
-        .size_of_optional_header = @intCast(u16, size_of_optional_header),
+        .pointer_to_symbol_table = 0,
+        .number_of_symbols = 0,
+        .size_of_optional_header = size_of_optional_header,
         .flags = flags,
     };
 
-    try buffer.ensureUnusedCapacity(@sizeOf(coff.CoffHeader));
     writer.writeAll(mem.asBytes(&coff_header)) catch unreachable;
 
     const dll_flags: coff.DllFlags = .{
@@ -742,10 +749,7 @@ fn writeHeader(self: *Coff) !void {
         .NX_COMPAT = 1, // We are compatible with Data Execution Prevention
     };
     const subsystem: coff.Subsystem = .WINDOWS_CUI;
-    const size_of_headers: u32 = @intCast(
-        u32,
-        msdos_stub.len + 8 + size_of_optional_header + self.sections.slice().len * @sizeOf(coff.SectionHeader),
-    );
+    const size_of_headers: u32 = @intCast(u32, self.getSizeOfHeaders());
     const size_of_image_aligned: u32 = mem.alignForwardGeneric(u32, size_of_headers, default_section_alignment);
     const size_of_headers_aligned: u32 = mem.alignForwardGeneric(u32, size_of_headers, default_file_alignment);
     const image_base = self.base.options.image_base_override orelse switch (self.base.options.output_mode) {
@@ -756,7 +760,6 @@ fn writeHeader(self: *Coff) !void {
 
     switch (self.ptr_width) {
         .p32 => {
-            try buffer.ensureUnusedCapacity(@sizeOf(coff.OptionalHeaderPE32));
             var opt_header = coff.OptionalHeaderPE32{
                 .magic = coff.IMAGE_NT_OPTIONAL_HDR32_MAGIC,
                 .major_linker_version = 0,
@@ -787,12 +790,11 @@ fn writeHeader(self: *Coff) !void {
                 .size_of_heap_reserve = 0,
                 .size_of_heap_commit = 0,
                 .loader_flags = 0,
-                .number_of_rva_and_sizes = num_data_directories,
+                .number_of_rva_and_sizes = @intCast(u32, self.data_directories.items.len),
             };
             writer.writeAll(mem.asBytes(&opt_header)) catch unreachable;
         },
         .p64 => {
-            try buffer.ensureUnusedCapacity(@sizeOf(coff.OptionalHeaderPE64));
             var opt_header = coff.OptionalHeaderPE64{
                 .magic = coff.IMAGE_NT_OPTIONAL_HDR64_MAGIC,
                 .major_linker_version = 0,
@@ -822,31 +824,14 @@ fn writeHeader(self: *Coff) !void {
                 .size_of_heap_reserve = 0,
                 .size_of_heap_commit = 0,
                 .loader_flags = 0,
-                .number_of_rva_and_sizes = num_data_directories,
+                .number_of_rva_and_sizes = @intCast(u32, self.data_directories.items.len),
             };
             writer.writeAll(mem.asBytes(&opt_header)) catch unreachable;
         },
     }
 
-    try buffer.ensureUnusedCapacity(num_data_directories * @sizeOf(coff.ImageDataDirectory));
-    {
-        var i: usize = 0;
-        while (i < num_data_directories) : (i += 1) {
-            writer.writeAll(mem.asBytes(&coff.ImageDataDirectory{
-                .virtual_address = 0,
-                .size = 0,
-            })) catch unreachable;
-        }
-    }
-
     try self.base.file.?.pwriteAll(&[_]u8{0}, size_of_headers_aligned);
     try self.base.file.?.pwriteAll(buffer.items, 0);
-}
-
-fn getTotalNumberOfSymbols(self: Coff) u32 {
-    _ = self;
-    // TODO
-    return 0;
 }
 
 pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
@@ -856,14 +841,12 @@ pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
 }
 
 // fn detectAllocCollision(self: *Coff, start: u64, size: u64) ?u64 {
-//     const small_ptr = self.ptr_width == .p32;
-//     const ehdr_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Ehdr) else @sizeOf(elf.Elf64_Ehdr);
 //     if (start < default_header_size)
-//         return ehdr_size;
+//         return default_header_size;
 
 //     const end = start + padToIdeal(size);
 
-//     if (self.shdr_table_offset) |off| {
+//     if (self.symtab_offset) |off| {
 //         const shdr_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Shdr) else @sizeOf(elf.Elf64_Shdr);
 //         const tight_size = self.sections.items.len * shdr_size;
 //         const increased_size = padToIdeal(tight_size);
@@ -900,26 +883,26 @@ pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
 //     return null;
 // }
 
-// pub fn allocatedSize(self: *Coff, start: u64) u64 {
-//     if (start == 0)
-//         return 0;
-//     var min_pos: u64 = std.math.maxInt(u64);
-//     if (self.shdr_table_offset) |off| {
-//         if (off > start and off < min_pos) min_pos = off;
-//     }
-//     if (self.phdr_table_offset) |off| {
-//         if (off > start and off < min_pos) min_pos = off;
-//     }
-//     for (self.sections.items) |section| {
-//         if (section.sh_offset <= start) continue;
-//         if (section.sh_offset < min_pos) min_pos = section.sh_offset;
-//     }
-//     for (self.program_headers.items) |program_header| {
-//         if (program_header.p_offset <= start) continue;
-//         if (program_header.p_offset < min_pos) min_pos = program_header.p_offset;
-//     }
-//     return min_pos - start;
-// }
+// // pub fn allocatedSize(self: *Coff, start: u64) u64 {
+// //     if (start == 0)
+// //         return 0;
+// //     var min_pos: u64 = std.math.maxInt(u64);
+// //     if (self.shdr_table_offset) |off| {
+// //         if (off > start and off < min_pos) min_pos = off;
+// //     }
+// //     if (self.phdr_table_offset) |off| {
+// //         if (off > start and off < min_pos) min_pos = off;
+// //     }
+// //     for (self.sections.items) |section| {
+// //         if (section.sh_offset <= start) continue;
+// //         if (section.sh_offset < min_pos) min_pos = section.sh_offset;
+// //     }
+// //     for (self.program_headers.items) |program_header| {
+// //         if (program_header.p_offset <= start) continue;
+// //         if (program_header.p_offset < min_pos) min_pos = program_header.p_offset;
+// //     }
+// //     return min_pos - start;
+// // }
 
 // pub fn findFreeSpace(self: *Coff, object_size: u64, min_alignment: u32) u64 {
 //     var start: u64 = 0;
@@ -929,12 +912,34 @@ pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
 //     return start;
 // }
 
-fn getMaxOptionalHeaderSize(self: Coff) usize {
-    const hdr_size: usize = switch (self.ptr_width) {
+inline fn getSizeOfHeaders(self: Coff) usize {
+    const msdos_hdr_size = msdos_stub.len + 8;
+    return msdos_hdr_size + @sizeOf(coff.CoffHeader) + self.getOptionalHeaderSize() +
+        self.getDataDirectoryHeadersSize() + self.getSectionHeadersSize();
+}
+
+inline fn getOptionalHeaderSize(self: Coff) usize {
+    return switch (self.ptr_width) {
         .p32 => @sizeOf(coff.OptionalHeaderPE32),
         .p64 => @sizeOf(coff.OptionalHeaderPE64),
     };
-    return hdr_size + @sizeOf(coff.ImageDataDirectory) * 16;
+}
+
+inline fn getDataDirectoryHeadersSize(self: Coff) usize {
+    return self.data_directories.items.len * @sizeOf(coff.ImageDataDirectory);
+}
+
+inline fn getSectionHeadersSize(self: Coff) usize {
+    return self.sections.slice().len * @sizeOf(coff.SectionHeader);
+}
+
+inline fn getDataDirectoryHeadersOffset(self: Coff) usize {
+    const msdos_hdr_size = msdos_stub.len + 8;
+    return msdos_hdr_size + @sizeOf(coff.CoffHeader) + self.getOptionalHeaderSize();
+}
+
+inline fn getSectionHeadersOffset(self: Coff) usize {
+    return self.getDataDirectoryHeadersOffset() + self.getDataDirectoryHeadersSize();
 }
 
 /// Returns pointer-to-symbol described by `sym_with_loc` descriptor.
