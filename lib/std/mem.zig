@@ -972,21 +972,36 @@ pub fn allEqual(comptime T: type, slice: []const T, scalar: T) bool {
 }
 
 /// Remove values from the beginning of a slice.
-pub fn trimLeft(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
+pub fn trimLeft(comptime T: type, slice: anytype, values_to_strip: []const T) @TypeOf(slice) {
+    const S = @TypeOf(slice);
+    const info = @typeInfo(S);
+    if (info != .Pointer or info.Pointer.size != .Slice or info.Pointer.child != T)
+        @compileError("expected slice of " ++ @typeName(info.Pointer.child) ++ ", found " ++ @typeName(S));
+
     var begin: usize = 0;
     while (begin < slice.len and indexOfScalar(T, values_to_strip, slice[begin]) != null) : (begin += 1) {}
     return slice[begin..];
 }
 
 /// Remove values from the end of a slice.
-pub fn trimRight(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
+pub fn trimRight(comptime T: type, slice: anytype, values_to_strip: []const T) @TypeOf(slice) {
+    const S = @TypeOf(slice);
+    const info = @typeInfo(S);
+    if (info != .Pointer or info.Pointer.size != .Slice or info.Pointer.child != T)
+        @compileError("expected slice of " ++ @typeName(info.Pointer.child) ++ ", found " ++ @typeName(S));
+
     var end: usize = slice.len;
     while (end > 0 and indexOfScalar(T, values_to_strip, slice[end - 1]) != null) : (end -= 1) {}
     return slice[0..end];
 }
 
 /// Remove values from the beginning and end of a slice.
-pub fn trim(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
+pub fn trim(comptime T: type, slice: anytype, values_to_strip: []const T) @TypeOf(slice) {
+    const S = @TypeOf(slice);
+    const info = @typeInfo(S);
+    if (info != .Pointer or info.Pointer.size != .Slice or info.Pointer.child != T)
+        @compileError("expected slice of " ++ @typeName(info.Pointer.child) ++ ", found " ++ @typeName(S));
+
     var begin: usize = 0;
     var end: usize = slice.len;
     while (begin < end and indexOfScalar(T, values_to_strip, slice[begin]) != null) : (begin += 1) {}
