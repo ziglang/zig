@@ -39,7 +39,7 @@ fn selectSymbol(comptime function_static: anytype, function_dynamic: @TypeOf(fun
 
 // === Messages ===
 
-pub const WNDPROC = fn (hwnd: HWND, uMsg: UINT, wParam: WPARAM, lParam: LPARAM) callconv(WINAPI) LRESULT;
+pub const WNDPROC = std.meta.FnPtr(fn (hwnd: HWND, uMsg: UINT, wParam: WPARAM, lParam: LPARAM) callconv(WINAPI) LRESULT);
 
 pub const MSG = extern struct {
     hWnd: ?HWND,
@@ -1056,7 +1056,7 @@ pub fn getMessageA(lpMsg: *MSG, hWnd: ?HWND, wMsgFilterMin: u32, wMsgFilterMax: 
 }
 
 pub extern "user32" fn GetMessageW(lpMsg: *MSG, hWnd: ?HWND, wMsgFilterMin: UINT, wMsgFilterMax: UINT) callconv(WINAPI) BOOL;
-pub var pfnGetMessageW: @TypeOf(GetMessageW) = undefined;
+pub var pfnGetMessageW: std.meta.FnPtr(@TypeOf(GetMessageW)) = undefined;
 pub fn getMessageW(lpMsg: *MSG, hWnd: ?HWND, wMsgFilterMin: u32, wMsgFilterMax: u32) !void {
     const function = selectSymbol(GetMessageW, pfnGetMessageW, .win2k);
 
@@ -1087,7 +1087,7 @@ pub fn peekMessageA(lpMsg: *MSG, hWnd: ?HWND, wMsgFilterMin: u32, wMsgFilterMax:
 }
 
 pub extern "user32" fn PeekMessageW(lpMsg: *MSG, hWnd: ?HWND, wMsgFilterMin: UINT, wMsgFilterMax: UINT, wRemoveMsg: UINT) callconv(WINAPI) BOOL;
-pub var pfnPeekMessageW: @TypeOf(PeekMessageW) = undefined;
+pub var pfnPeekMessageW: std.meta.FnPtr(@TypeOf(PeekMessageW)) = undefined;
 pub fn peekMessageW(lpMsg: *MSG, hWnd: ?HWND, wMsgFilterMin: u32, wMsgFilterMax: u32, wRemoveMsg: u32) !bool {
     const function = selectSymbol(PeekMessageW, pfnPeekMessageW, .win2k);
 
@@ -1112,7 +1112,7 @@ pub fn dispatchMessageA(lpMsg: *const MSG) LRESULT {
 }
 
 pub extern "user32" fn DispatchMessageW(lpMsg: *const MSG) callconv(WINAPI) LRESULT;
-pub var pfnDispatchMessageW: @TypeOf(DispatchMessageW) = undefined;
+pub var pfnDispatchMessageW: std.meta.FnPtr(@TypeOf(DispatchMessageW)) = undefined;
 pub fn dispatchMessageW(lpMsg: *const MSG) LRESULT {
     const function = selectSymbol(DispatchMessageW, pfnDispatchMessageW, .win2k);
     return function(lpMsg);
@@ -1129,7 +1129,7 @@ pub fn defWindowProcA(hWnd: HWND, Msg: UINT, wParam: WPARAM, lParam: LPARAM) LRE
 }
 
 pub extern "user32" fn DefWindowProcW(hWnd: HWND, Msg: UINT, wParam: WPARAM, lParam: LPARAM) callconv(WINAPI) LRESULT;
-pub var pfnDefWindowProcW: @TypeOf(DefWindowProcW) = undefined;
+pub var pfnDefWindowProcW: std.meta.FnPtr(@TypeOf(DefWindowProcW)) = undefined;
 pub fn defWindowProcW(hWnd: HWND, Msg: UINT, wParam: WPARAM, lParam: LPARAM) LRESULT {
     const function = selectSymbol(DefWindowProcW, pfnDefWindowProcW, .win2k);
     return function(hWnd, Msg, wParam, lParam);
@@ -1191,7 +1191,7 @@ pub fn registerClassExA(window_class: *const WNDCLASSEXA) !ATOM {
 }
 
 pub extern "user32" fn RegisterClassExW(*const WNDCLASSEXW) callconv(WINAPI) ATOM;
-pub var pfnRegisterClassExW: @TypeOf(RegisterClassExW) = undefined;
+pub var pfnRegisterClassExW: std.meta.FnPtr(@TypeOf(RegisterClassExW)) = undefined;
 pub fn registerClassExW(window_class: *const WNDCLASSEXW) !ATOM {
     const function = selectSymbol(RegisterClassExW, pfnRegisterClassExW, .win2k);
     const atom = function(window_class);
@@ -1215,7 +1215,7 @@ pub fn unregisterClassA(lpClassName: [*:0]const u8, hInstance: HINSTANCE) !void 
 }
 
 pub extern "user32" fn UnregisterClassW(lpClassName: [*:0]const u16, hInstance: HINSTANCE) callconv(WINAPI) BOOL;
-pub var pfnUnregisterClassW: @TypeOf(UnregisterClassW) = undefined;
+pub var pfnUnregisterClassW: std.meta.FnPtr(@TypeOf(UnregisterClassW)) = undefined;
 pub fn unregisterClassW(lpClassName: [*:0]const u16, hInstance: HINSTANCE) !void {
     const function = selectSymbol(UnregisterClassW, pfnUnregisterClassW, .win2k);
     if (function(lpClassName, hInstance) == 0) {
@@ -1292,7 +1292,7 @@ pub fn createWindowExA(dwExStyle: u32, lpClassName: [*:0]const u8, lpWindowName:
 }
 
 pub extern "user32" fn CreateWindowExW(dwExStyle: DWORD, lpClassName: [*:0]const u16, lpWindowName: [*:0]const u16, dwStyle: DWORD, X: i32, Y: i32, nWidth: i32, nHeight: i32, hWindParent: ?HWND, hMenu: ?HMENU, hInstance: HINSTANCE, lpParam: ?LPVOID) callconv(WINAPI) ?HWND;
-pub var pfnCreateWindowExW: @TypeOf(CreateWindowExW) = undefined;
+pub var pfnCreateWindowExW: std.meta.FnPtr(@TypeOf(CreateWindowExW)) = undefined;
 pub fn createWindowExW(dwExStyle: u32, lpClassName: [*:0]const u16, lpWindowName: [*:0]const u16, dwStyle: u32, X: i32, Y: i32, nWidth: i32, nHeight: i32, hWindParent: ?HWND, hMenu: ?HMENU, hInstance: HINSTANCE, lpParam: ?*anyopaque) !HWND {
     const function = selectSymbol(CreateWindowExW, pfnCreateWindowExW, .win2k);
     const window = function(dwExStyle, lpClassName, lpWindowName, dwStyle, X, Y, nWidth, nHeight, hWindParent, hMenu, hInstance, lpParam);
@@ -1382,7 +1382,7 @@ pub fn getWindowLongA(hWnd: HWND, nIndex: i32) !i32 {
 }
 
 pub extern "user32" fn GetWindowLongW(hWnd: HWND, nIndex: i32) callconv(WINAPI) LONG;
-pub var pfnGetWindowLongW: @TypeOf(GetWindowLongW) = undefined;
+pub var pfnGetWindowLongW: std.meta.FnPtr(@TypeOf(GetWindowLongW)) = undefined;
 pub fn getWindowLongW(hWnd: HWND, nIndex: i32) !i32 {
     const function = selectSymbol(GetWindowLongW, pfnGetWindowLongW, .win2k);
 
@@ -1415,7 +1415,7 @@ pub fn getWindowLongPtrA(hWnd: HWND, nIndex: i32) !isize {
 }
 
 pub extern "user32" fn GetWindowLongPtrW(hWnd: HWND, nIndex: i32) callconv(WINAPI) LONG_PTR;
-pub var pfnGetWindowLongPtrW: @TypeOf(GetWindowLongPtrW) = undefined;
+pub var pfnGetWindowLongPtrW: std.meta.FnPtr(@TypeOf(GetWindowLongPtrW)) = undefined;
 pub fn getWindowLongPtrW(hWnd: HWND, nIndex: i32) !isize {
     if (@sizeOf(LONG_PTR) == 4) return getWindowLongW(hWnd, nIndex);
     const function = selectSymbol(GetWindowLongPtrW, pfnGetWindowLongPtrW, .win2k);
@@ -1449,7 +1449,7 @@ pub fn setWindowLongA(hWnd: HWND, nIndex: i32, dwNewLong: i32) !i32 {
 }
 
 pub extern "user32" fn SetWindowLongW(hWnd: HWND, nIndex: i32, dwNewLong: LONG) callconv(WINAPI) LONG;
-pub var pfnSetWindowLongW: @TypeOf(SetWindowLongW) = undefined;
+pub var pfnSetWindowLongW: std.meta.FnPtr(@TypeOf(SetWindowLongW)) = undefined;
 pub fn setWindowLongW(hWnd: HWND, nIndex: i32, dwNewLong: i32) !i32 {
     const function = selectSymbol(SetWindowLongW, pfnSetWindowLongW, .win2k);
 
@@ -1484,7 +1484,7 @@ pub fn setWindowLongPtrA(hWnd: HWND, nIndex: i32, dwNewLong: isize) !isize {
 }
 
 pub extern "user32" fn SetWindowLongPtrW(hWnd: HWND, nIndex: i32, dwNewLong: LONG_PTR) callconv(WINAPI) LONG_PTR;
-pub var pfnSetWindowLongPtrW: @TypeOf(SetWindowLongPtrW) = undefined;
+pub var pfnSetWindowLongPtrW: std.meta.FnPtr(@TypeOf(SetWindowLongPtrW)) = undefined;
 pub fn setWindowLongPtrW(hWnd: HWND, nIndex: i32, dwNewLong: isize) !isize {
     if (@sizeOf(LONG_PTR) == 4) return setWindowLongW(hWnd, nIndex, dwNewLong);
     const function = selectSymbol(SetWindowLongPtrW, pfnSetWindowLongPtrW, .win2k);
@@ -1580,7 +1580,7 @@ pub fn messageBoxA(hWnd: ?HWND, lpText: [*:0]const u8, lpCaption: [*:0]const u8,
 }
 
 pub extern "user32" fn MessageBoxW(hWnd: ?HWND, lpText: [*:0]const u16, lpCaption: ?[*:0]const u16, uType: UINT) callconv(WINAPI) i32;
-pub var pfnMessageBoxW: @TypeOf(MessageBoxW) = undefined;
+pub var pfnMessageBoxW: std.meta.FnPtr(@TypeOf(MessageBoxW)) = undefined;
 pub fn messageBoxW(hWnd: ?HWND, lpText: [*:0]const u16, lpCaption: [*:0]const u16, uType: u32) !i32 {
     const function = selectSymbol(MessageBoxW, pfnMessageBoxW, .win2k);
     const value = function(hWnd, lpText, lpCaption, uType);
