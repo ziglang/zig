@@ -1157,6 +1157,17 @@ pub const Target = struct {
                 };
             }
 
+            /// Returns whether this architecture supporst the address space
+            pub fn supportsAddressSpace(arch: Arch, address_space: std.builtin.AddressSpace) bool {
+                const is_nvptx = arch == .nvptx or arch == .nvptx64;
+                return switch (address_space) {
+                    .generic => true,
+                    .fs, .gs, .ss => arch == .x86_64 or arch == .i386,
+                    .global, .constant, .local, .shared => arch == .amdgcn or is_nvptx,
+                    .param => is_nvptx,
+                };
+            }
+
             pub fn ptrBitWidth(arch: Arch) u16 {
                 switch (arch) {
                     .avr,

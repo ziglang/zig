@@ -18181,13 +18181,21 @@ fn zirAddrSpaceCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Inst
     const ptr = try sema.resolveInst(extra.rhs);
     const ptr_ty = sema.typeOf(ptr);
 
+
     // TODO in addition to pointers, this instruction is supposed to work for
     // pointer-like optionals and slices.
     try sema.checkPtrOperand(block, ptr_src, ptr_ty);
 
-    // TODO check address space cast validity.
     const src_addrspace = ptr_ty.ptrAddressSpace();
-    _ = src_addrspace;
+    if (!target_util.addrSpaceCastIsValid(sema.mod.getTarget(), src_addrspace, dest_addrspace)) {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, src, "invalid address space cast", .{});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, src, msg, "address space '{s}' is not compatible with address space '{s}'", .{ @tagName(src_addrspace), @tagName(dest_addrspace) });
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    }
 
     const ptr_info = ptr_ty.ptrInfo().data;
     const dest_ty = try Type.ptr(sema.arena, sema.mod, .{
