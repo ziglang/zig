@@ -69,7 +69,10 @@ managed_atoms: std.ArrayListUnmanaged(*Atom) = .{},
 /// Table of atoms indexed by the symbol index.
 atom_by_index_table: std.AutoHashMapUnmanaged(u32, *Atom) = .{},
 
-const page_size: u16 = 0x1000;
+const default_section_alignment: u16 = 0x1000;
+const default_file_alignment: u16 = 0x200;
+const default_image_base_dll: u64 = 0x10000000;
+const default_image_base_exe: u64 = 0x10000;
 
 const Section = struct {
     header: coff.SectionHeader,
@@ -701,7 +704,7 @@ fn writeHeader(self: *Coff) !void {
     writer.writeAll("PE\x00\x00") catch unreachable;
     buffer.items[0x3c] = @intCast(u8, msdos_stub.len + 4);
 
-    var num_data_directories: u32 = 1;
+    var num_data_directories: u32 = 0;
     var size_of_optional_header = switch (self.ptr_width) {
         .p32 => @intCast(u32, @sizeOf(coff.OptionalHeaderPE32)),
         .p64 => @intCast(u32, @sizeOf(coff.OptionalHeaderPE64)),
@@ -732,7 +735,25 @@ fn writeHeader(self: *Coff) !void {
     try buffer.ensureUnusedCapacity(@sizeOf(coff.CoffHeader));
     writer.writeAll(mem.asBytes(&coff_header)) catch unreachable;
 
+    const dll_flags: coff.DllFlags = .{
+        .HIGH_ENTROPY_VA = 0, // TODO handle ASLR
+        .DYNAMIC_BASE = 0, // TODO handle ASLR
+        .TERMINAL_SERVER_AWARE = 1, // We are not a legacy app
+        .NX_COMPAT = 1, // We are compatible with Data Execution Prevention
+    };
     const subsystem: coff.Subsystem = .WINDOWS_CUI;
+    const size_of_headers: u32 = @intCast(
+        u32,
+        msdos_stub.len + 8 + size_of_optional_header + self.sections.slice().len * @sizeOf(coff.SectionHeader),
+    );
+    const size_of_image_aligned: u32 = mem.alignForwardGeneric(u32, size_of_headers, default_section_alignment);
+    const size_of_headers_aligned: u32 = mem.alignForwardGeneric(u32, size_of_headers, default_file_alignment);
+    const image_base = self.base.options.image_base_override orelse switch (self.base.options.output_mode) {
+        .Exe => default_image_base_exe,
+        .Lib => default_image_base_dll,
+        else => unreachable,
+    };
+
     switch (self.ptr_width) {
         .p32 => {
             try buffer.ensureUnusedCapacity(@sizeOf(coff.OptionalHeaderPE32));
@@ -746,21 +767,21 @@ fn writeHeader(self: *Coff) !void {
                 .address_of_entry_point = self.entry_addr orelse 0,
                 .base_of_code = 0,
                 .base_of_data = 0,
-                .image_base = 0,
-                .section_alignment = 0,
-                .file_alignment = 0,
-                .major_operating_system_version = 0,
+                .image_base = @intCast(u32, image_base),
+                .section_alignment = default_section_alignment,
+                .file_alignment = default_file_alignment,
+                .major_operating_system_version = 6,
                 .minor_operating_system_version = 0,
                 .major_image_version = 0,
                 .minor_image_version = 0,
-                .major_subsystem_version = 0,
+                .major_subsystem_version = 6,
                 .minor_subsystem_version = 0,
                 .win32_version_value = 0,
-                .size_of_image = 0,
-                .size_of_headers = 0,
+                .size_of_image = size_of_image_aligned,
+                .size_of_headers = size_of_headers_aligned,
                 .checksum = 0,
                 .subsystem = subsystem,
-                .dll_flags = .{},
+                .dll_flags = dll_flags,
                 .size_of_stack_reserve = 0,
                 .size_of_stack_commit = 0,
                 .size_of_heap_reserve = 0,
@@ -781,21 +802,21 @@ fn writeHeader(self: *Coff) !void {
                 .size_of_uninitialized_data = 0,
                 .address_of_entry_point = self.entry_addr orelse 0,
                 .base_of_code = 0,
-                .image_base = 0,
-                .section_alignment = 0,
-                .file_alignment = 0,
-                .major_operating_system_version = 0,
+                .image_base = image_base,
+                .section_alignment = default_section_alignment,
+                .file_alignment = default_file_alignment,
+                .major_operating_system_version = 6,
                 .minor_operating_system_version = 0,
                 .major_image_version = 0,
                 .minor_image_version = 0,
-                .major_subsystem_version = 0,
+                .major_subsystem_version = 6,
                 .minor_subsystem_version = 0,
                 .win32_version_value = 0,
-                .size_of_image = 0,
-                .size_of_headers = 0,
+                .size_of_image = size_of_image_aligned,
+                .size_of_headers = size_of_headers_aligned,
                 .checksum = 0,
                 .subsystem = subsystem,
-                .dll_flags = .{},
+                .dll_flags = dll_flags,
                 .size_of_stack_reserve = 0,
                 .size_of_stack_commit = 0,
                 .size_of_heap_reserve = 0,
@@ -808,11 +829,17 @@ fn writeHeader(self: *Coff) !void {
     }
 
     try buffer.ensureUnusedCapacity(num_data_directories * @sizeOf(coff.ImageDataDirectory));
-    writer.writeAll(mem.asBytes(&coff.ImageDataDirectory{
-        .virtual_address = 0,
-        .size = 0,
-    })) catch unreachable;
+    {
+        var i: usize = 0;
+        while (i < num_data_directories) : (i += 1) {
+            writer.writeAll(mem.asBytes(&coff.ImageDataDirectory{
+                .virtual_address = 0,
+                .size = 0,
+            })) catch unreachable;
+        }
+    }
 
+    try self.base.file.?.pwriteAll(&[_]u8{0}, size_of_headers_aligned);
     try self.base.file.?.pwriteAll(buffer.items, 0);
 }
 

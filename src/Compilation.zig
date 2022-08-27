@@ -1127,7 +1127,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 link_eh_frame_hdr or
                 options.link_emit_relocs or
                 options.output_mode == .Lib or
-                options.image_base_override != null or
                 options.linker_script != null or options.version_script != null or
                 options.emit_implib != null or
                 build_id)
