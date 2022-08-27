@@ -1461,6 +1461,29 @@ fn analyzeBodyInner(
             //        break break_data.inst;
             //    }
             //},
+            .@"defer" => blk: {
+                const inst_data = sema.code.instructions.items(.data)[inst].@"defer";
+                const defer_body = sema.code.extra[inst_data.index..][0..inst_data.len];
+                const break_inst = sema.analyzeBodyInner(block, defer_body) catch |err| switch (err) {
+                    error.ComptimeBreak => sema.comptime_break_inst,
+                    else => |e| return e,
+                };
+                if (break_inst != defer_body[defer_body.len - 1]) break always_noreturn;
+                break :blk Air.Inst.Ref.void_value;
+            },
+            .defer_err_code => blk: {
+                const inst_data = sema.code.instructions.items(.data)[inst].defer_err_code;
+                const extra = sema.code.extraData(Zir.Inst.DeferErrCode, inst_data.payload_index).data;
+                const defer_body = sema.code.extra[extra.index..][0..extra.len];
+                const err_code = try sema.resolveInst(inst_data.err_code);
+                try sema.inst_map.put(sema.gpa, extra.remapped_err_code, err_code);
+                const break_inst = sema.analyzeBodyInner(block, defer_body) catch |err| switch (err) {
+                    error.ComptimeBreak => sema.comptime_break_inst,
+                    else => |e| return e,
+                };
+                if (break_inst != defer_body[defer_body.len - 1]) break always_noreturn;
+                break :blk Air.Inst.Ref.void_value;
+            },
         };
         if (sema.typeOf(air_inst).isNoReturn())
             break always_noreturn;
@@ -9394,11 +9417,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 }
 
                 if (special_prong == .@"else" and seen_errors.count() == operand_ty.errorSetNames().len) {
-
-                    // TODO re-enable if defer implementation is improved
-                    // https://github.com/ziglang/zig/issues/11798
-                    if (true) break :else_validation;
-
                     // In order to enable common patterns for generic code allow simple else bodies
                     // else => unreachable,
                     // else => return,
@@ -9415,6 +9433,12 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                         .as_node,
                         .ret_node,
                         .@"unreachable",
+                        .@"defer",
+                        .defer_err_code,
+                        .err_union_code,
+                        .ret_err_value_code,
+                        .is_non_err,
+                        .condbr,
                         => {},
                         else => break,
                     } else break :else_validation;

@@ -19,3 +19,4 @@ export fn entry() usize { return @sizeOf(@TypeOf(testTrickyDefer)); }
 // target=native
 //
 // :4:11: error: 'try' not allowed inside defer expression
+// :4:5: note: defer expression here
