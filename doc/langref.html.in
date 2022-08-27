@@ -11793,8 +11793,8 @@ fn readU32Be() u32 {}
             <pre>{#syntax#}anytype{#endsyntax#}</pre>
           </th>
           <td>
-            Function parameters and struct fields can be declared with {#syntax#}anytype{#endsyntax#} in place of the type.
-            The type will be inferred where the function is called or the struct is instantiated.
+            Function parameters can be declared with {#syntax#}anytype{#endsyntax#} in place of the type.
+            The type will be inferred where the function is called.
             <ul>
               <li>See also {#link|Function Parameter Type Inference#}</li>
             </ul>
