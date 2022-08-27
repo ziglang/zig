@@ -101,7 +101,7 @@ CIDIR="$(pwd)"
 
 cd "$HOME"
 
-# Upload new stdlib autodocs 
+# Upload new stdlib autodocs
 mkdir -p docs_to_upload/documentation/master/std/
 gzip -c -9 "$ZIGDIR/docs/std/index.html" >  docs_to_upload/documentation/master/std/index.html
 gzip -c -9 "$ZIGDIR/docs/std/data.js" > docs_to_upload/documentation/master/std/data.js
@@ -110,7 +110,7 @@ gzip -c -9 "$LANGREF" > docs_to_upload/documentation/master/index.html
 $S3CMD put -P --no-mime-magic --recursive --add-header="Content-Encoding:gzip" --add-header="Cache-Control: max-age=0, must-revalidate" "docs_to_upload/" s3://ziglang.org/
 
 mkdir -p docs_src_to_upload/documentation/master/std/
-cp -r "$ZIGDIR/docs/src" docs_src_to_upload/documentation/master/std/
+cp -r "$ZIGDIR/docs/std/src" docs_src_to_upload/documentation/master/std/
 $S3CMD put -P --no-mime-magic --recursive --add-header:"Content-Type:text/html" --add-header="Cache-Control: max-age=0, must-revalidate" "docs_src_to_upload/" s3://ziglang.org/
 
 ## Copy without compression:
