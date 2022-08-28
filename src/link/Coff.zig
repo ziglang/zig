@@ -38,7 +38,7 @@ error_flags: link.File.ErrorFlags = .{},
 ptr_width: PtrWidth,
 
 sections: std.MultiArrayList(Section) = .{},
-data_directories: std.ArrayListUnmanaged(coff.ImageDataDirectory) = .{},
+data_directories: [16]coff.ImageDataDirectory,
 
 text_section_index: ?u16 = null,
 got_section_index: ?u16 = null,
@@ -72,7 +72,6 @@ const default_section_alignment: u16 = 0x1000;
 const default_file_alignment: u16 = 0x200;
 const default_image_base_dll: u64 = 0x10000000;
 const default_image_base_exe: u64 = 0x10000;
-const default_header_size: u64 = default_section_alignment;
 
 const Section = struct {
     header: coff.SectionHeader,
@@ -171,6 +170,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Coff {
             .file = null,
         },
         .ptr_width = ptr_width,
+        .data_directories = comptime mem.zeroes([16]coff.ImageDataDirectory),
     };
 
     const use_llvm = build_options.have_llvm and options.use_llvm;
@@ -192,7 +192,6 @@ pub fn deinit(self: *Coff) void {
         free_list.deinit(gpa);
     }
     self.sections.deinit(gpa);
-    self.data_directories.deinit(gpa);
 
     for (self.managed_atoms.items) |atom| {
         gpa.destroy(atom);
@@ -699,7 +698,7 @@ fn writeSectionHeaders(self: *Coff) !void {
 
 fn writeDataDirectoriesHeaders(self: *Coff) !void {
     const offset = self.getDataDirectoryHeadersOffset();
-    try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.data_directories.items), offset);
+    try self.base.file.?.pwriteAll(mem.sliceAsBytes(&self.data_directories), offset);
 }
 
 fn writeHeader(self: *Coff) !void {
@@ -790,7 +789,7 @@ fn writeHeader(self: *Coff) !void {
                 .size_of_heap_reserve = 0,
                 .size_of_heap_commit = 0,
                 .loader_flags = 0,
-                .number_of_rva_and_sizes = @intCast(u32, self.data_directories.items.len),
+                .number_of_rva_and_sizes = @intCast(u32, self.data_directories.len),
             };
             writer.writeAll(mem.asBytes(&opt_header)) catch unreachable;
         },
@@ -824,7 +823,7 @@ fn writeHeader(self: *Coff) !void {
                 .size_of_heap_reserve = 0,
                 .size_of_heap_commit = 0,
                 .loader_flags = 0,
-                .number_of_rva_and_sizes = @intCast(u32, self.data_directories.items.len),
+                .number_of_rva_and_sizes = @intCast(u32, self.data_directories.len),
             };
             writer.writeAll(mem.asBytes(&opt_header)) catch unreachable;
         },
@@ -841,32 +840,13 @@ pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
 }
 
 // fn detectAllocCollision(self: *Coff, start: u64, size: u64) ?u64 {
-//     if (start < default_header_size)
-//         return default_header_size;
+//     const headers_size = self.getSizeOfHeaders();
+//     if (start < headers_size)
+//         return headers_size;
 
 //     const end = start + padToIdeal(size);
 
-//     if (self.symtab_offset) |off| {
-//         const shdr_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Shdr) else @sizeOf(elf.Elf64_Shdr);
-//         const tight_size = self.sections.items.len * shdr_size;
-//         const increased_size = padToIdeal(tight_size);
-//         const test_end = off + increased_size;
-//         if (end > off and start < test_end) {
-//             return test_end;
-//         }
-//     }
-
-//     if (self.phdr_table_offset) |off| {
-//         const phdr_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Phdr) else @sizeOf(elf.Elf64_Phdr);
-//         const tight_size = self.sections.items.len * phdr_size;
-//         const increased_size = padToIdeal(tight_size);
-//         const test_end = off + increased_size;
-//         if (end > off and start < test_end) {
-//             return test_end;
-//         }
-//     }
-
-//     for (self.sections.items) |section| {
+//     for (self.sections.items(.header)) |header| {
 //         const increased_size = padToIdeal(section.sh_size);
 //         const test_end = section.sh_offset + increased_size;
 //         if (end > section.sh_offset and start < test_end) {
@@ -926,7 +906,7 @@ inline fn getOptionalHeaderSize(self: Coff) usize {
 }
 
 inline fn getDataDirectoryHeadersSize(self: Coff) usize {
-    return self.data_directories.items.len * @sizeOf(coff.ImageDataDirectory);
+    return self.data_directories.len * @sizeOf(coff.ImageDataDirectory);
 }
 
 inline fn getSectionHeadersSize(self: Coff) usize {
