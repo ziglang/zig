@@ -21892,17 +21892,18 @@ fn unionFieldPtr(
                 if (union_val.isUndef()) {
                     return sema.failWithUseOfUndef(block, src);
                 }
+                const enum_field_index = union_obj.tag_ty.enumFieldIndex(field_name).?;
                 const tag_and_val = union_val.castTag(.@"union").?.data;
                 var field_tag_buf: Value.Payload.U32 = .{
                     .base = .{ .tag = .enum_field_index },
-                    .data = field_index,
+                    .data = @intCast(u32, enum_field_index),
                 };
                 const field_tag = Value.initPayload(&field_tag_buf.base);
                 const tag_matches = tag_and_val.tag.eql(field_tag, union_obj.tag_ty, sema.mod);
                 if (!tag_matches) {
                     const msg = msg: {
                         const active_index = tag_and_val.tag.castTag(.enum_field_index).?.data;
-                        const active_field_name = union_obj.fields.keys()[active_index];
+                        const active_field_name = union_obj.tag_ty.enumFieldName(active_index);
                         const msg = try sema.errMsg(block, src, "access of union field '{s}' while field '{s}' is active", .{ field_name, active_field_name });
                         errdefer msg.destroy(sema.gpa);
                         try sema.addDeclaredHereNote(msg, union_ty);
@@ -21927,12 +21928,11 @@ fn unionFieldPtr(
     if (!initializing and union_obj.layout == .Auto and block.wantSafety() and
         union_ty.unionTagTypeSafety() != null and union_obj.fields.count() > 1)
     {
-        const enum_ty = union_ty.unionTagTypeHypothetical();
         const wanted_tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
-        const wanted_tag = try sema.addConstant(enum_ty, wanted_tag_val);
+        const wanted_tag = try sema.addConstant(union_obj.tag_ty, wanted_tag_val);
         // TODO would it be better if get_union_tag supported pointers to unions?
         const union_val = try block.addTyOp(.load, union_ty, union_ptr);
-        const active_tag = try block.addTyOp(.get_union_tag, enum_ty, union_val);
+        const active_tag = try block.addTyOp(.get_union_tag, union_obj.tag_ty, union_val);
         const ok = try block.addBinOp(.cmp_eq, active_tag, wanted_tag);
         try sema.addSafetyCheck(block, ok, .inactive_union_field);
     }
@@ -21963,9 +21963,10 @@ fn unionFieldVal(
         if (union_val.isUndef()) return sema.addConstUndef(field.ty);
 
         const tag_and_val = union_val.castTag(.@"union").?.data;
+        const enum_field_index = union_obj.tag_ty.enumFieldIndex(field_name).?;
         var field_tag_buf: Value.Payload.U32 = .{
             .base = .{ .tag = .enum_field_index },
-            .data = field_index,
+            .data = @intCast(u32, enum_field_index),
         };
         const field_tag = Value.initPayload(&field_tag_buf.base);
         const tag_matches = tag_and_val.tag.eql(field_tag, union_obj.tag_ty, sema.mod);
@@ -21976,7 +21977,7 @@ fn unionFieldVal(
                 } else {
                     const msg = msg: {
                         const active_index = tag_and_val.tag.castTag(.enum_field_index).?.data;
-                        const active_field_name = union_obj.fields.keys()[active_index];
+                        const active_field_name = union_obj.tag_ty.enumFieldName(active_index);
                         const msg = try sema.errMsg(block, src, "access of union field '{s}' while field '{s}' is active", .{ field_name, active_field_name });
                         errdefer msg.destroy(sema.gpa);
                         try sema.addDeclaredHereNote(msg, union_ty);
@@ -22001,10 +22002,9 @@ fn unionFieldVal(
     if (union_obj.layout == .Auto and block.wantSafety() and
         union_ty.unionTagTypeSafety() != null and union_obj.fields.count() > 1)
     {
-        const enum_ty = union_ty.unionTagTypeHypothetical();
         const wanted_tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
-        const wanted_tag = try sema.addConstant(enum_ty, wanted_tag_val);
-        const active_tag = try block.addTyOp(.get_union_tag, enum_ty, union_byval);
+        const wanted_tag = try sema.addConstant(union_obj.tag_ty, wanted_tag_val);
+        const active_tag = try block.addTyOp(.get_union_tag, union_obj.tag_ty, union_byval);
         const ok = try block.addBinOp(.cmp_eq, active_tag, wanted_tag);
         try sema.addSafetyCheck(block, ok, .inactive_union_field);
     }
