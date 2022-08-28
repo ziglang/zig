@@ -20,7 +20,7 @@ sym_index: u32,
 file: ?u32,
 
 /// Used size of the atom
-size: u64,
+size: u32,
 
 /// Alignment of the atom
 alignment: u32,
@@ -44,10 +44,12 @@ pub fn deinit(self: *Atom, gpa: Allocator) void {
     _ = gpa;
 }
 
+/// Returns symbol referencing this atom.
 pub fn getSymbol(self: Atom, coff_file: *Coff) coff.Symbol {
     return self.getSymbolPtr(coff_file).*;
 }
 
+/// Returns pointer-to-symbol referencing this atom.
 pub fn getSymbolPtr(self: Atom, coff_file: *Coff) *coff.Symbol {
     return coff_file.getSymbolPtr(.{
         .sym_index = self.sym_index,
@@ -59,8 +61,16 @@ pub fn getSymbolWithLoc(self: Atom) SymbolWithLoc {
     return .{ .sym_index = self.sym_index, .file = self.file };
 }
 
+/// Returns the name of this atom.
+pub fn getName(self: Atom, coff_file: *Coff) []const u8 {
+    return coff_file.getSymbolName(.{
+        .sym_index = self.sym_index,
+        .file = self.file,
+    });
+}
+
 /// Returns how much room there is to grow in virtual address space.
-pub fn capacity(self: Atom, coff_file: *Coff) u64 {
+pub fn capacity(self: Atom, coff_file: *Coff) u32 {
     const self_sym = self.getSymbol(coff_file);
     if (self.next) |next| {
         const next_sym = next.getSymbol(coff_file);
@@ -68,7 +78,7 @@ pub fn capacity(self: Atom, coff_file: *Coff) u64 {
     } else {
         // We are the last atom.
         // The capacity is limited only by virtual address space.
-        return std.math.maxInt(u64) - self_sym.value;
+        return std.math.maxInt(u32) - self_sym.value;
     }
 }
 

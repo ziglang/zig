@@ -23,6 +23,7 @@ const Compilation = @import("../Compilation.zig");
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Module = @import("../Module.zig");
+const Object = @import("Coff/Object.zig");
 const StringTable = @import("strtab.zig").StringTable;
 const TypedValue = @import("../TypedValue.zig");
 
@@ -38,6 +39,8 @@ error_flags: link.File.ErrorFlags = .{},
 
 ptr_width: PtrWidth,
 page_size: u32,
+
+objects: std.ArrayListUnmanaged(Object) = .{},
 
 sections: std.MultiArrayList(Section) = .{},
 data_directories: [16]coff.ImageDataDirectory,
@@ -185,6 +188,11 @@ pub fn deinit(self: *Coff) void {
         if (self.llvm_object) |llvm_object| llvm_object.destroy(gpa);
     }
 
+    for (self.objects.items) |*object| {
+        object.deinit(gpa);
+    }
+    self.objects.deinit(gpa);
+
     for (self.sections.items(.free_list)) |*free_list| {
         free_list.deinit(gpa);
     }
@@ -211,15 +219,15 @@ fn populateMissingMetadata(self: *Coff) !void {
 
     if (self.text_section_index == null) {
         self.text_section_index = @intCast(u16, self.sections.slice().len);
-        const file_size = self.base.options.program_code_size_hint;
+        const file_size = @intCast(u32, self.base.options.program_code_size_hint);
         const off = self.findFreeSpace(file_size, self.page_size); // TODO we are over-aligning in file; we should track both in file and in memory pointers
         log.debug("found .text free space 0x{x} to 0x{x}", .{ off, off + file_size });
         var header = coff.SectionHeader{
             .name = undefined,
-            .virtual_size = @intCast(u32, file_size),
-            .virtual_address = @intCast(u32, off),
-            .size_of_raw_data = @intCast(u32, file_size),
-            .pointer_to_raw_data = @intCast(u32, off),
+            .virtual_size = file_size,
+            .virtual_address = off,
+            .size_of_raw_data = file_size,
+            .pointer_to_raw_data = off,
             .pointer_to_relocations = 0,
             .pointer_to_linenumbers = 0,
             .number_of_relocations = 0,
@@ -236,15 +244,15 @@ fn populateMissingMetadata(self: *Coff) !void {
 
     if (self.pdata_section_index == null) {
         self.pdata_section_index = @intCast(u16, self.sections.slice().len);
-        const file_size = self.base.options.symbol_count_hint;
+        const file_size = @intCast(u32, self.base.options.symbol_count_hint);
         const off = self.findFreeSpace(file_size, self.page_size);
         log.debug("found .pdata free space 0x{x} to 0x{x}", .{ off, off + file_size });
         var header = coff.SectionHeader{
             .name = undefined,
-            .virtual_size = @intCast(u32, file_size),
-            .virtual_address = @intCast(u32, off),
-            .size_of_raw_data = @intCast(u32, file_size),
-            .pointer_to_raw_data = @intCast(u32, off),
+            .virtual_size = file_size,
+            .virtual_address = off,
+            .size_of_raw_data = file_size,
+            .pointer_to_raw_data = off,
             .pointer_to_relocations = 0,
             .pointer_to_linenumbers = 0,
             .number_of_relocations = 0,
@@ -260,15 +268,15 @@ fn populateMissingMetadata(self: *Coff) !void {
 
     if (self.rdata_section_index == null) {
         self.rdata_section_index = @intCast(u16, self.sections.slice().len);
-        const file_size = 1024;
+        const file_size: u32 = 1024;
         const off = self.findFreeSpace(file_size, self.page_size);
         log.debug("found .rdata free space 0x{x} to 0x{x}", .{ off, off + file_size });
         var header = coff.SectionHeader{
             .name = undefined,
-            .virtual_size = @intCast(u32, file_size),
-            .virtual_address = @intCast(u32, off),
-            .size_of_raw_data = @intCast(u32, file_size),
-            .pointer_to_raw_data = @intCast(u32, off),
+            .virtual_size = file_size,
+            .virtual_address = off,
+            .size_of_raw_data = file_size,
+            .pointer_to_raw_data = off,
             .pointer_to_relocations = 0,
             .pointer_to_linenumbers = 0,
             .number_of_relocations = 0,
@@ -284,15 +292,15 @@ fn populateMissingMetadata(self: *Coff) !void {
 
     if (self.data_section_index == null) {
         self.data_section_index = @intCast(u16, self.sections.slice().len);
-        const file_size = 1024;
+        const file_size: u32 = 1024;
         const off = self.findFreeSpace(file_size, self.page_size);
         log.debug("found .data free space 0x{x} to 0x{x}", .{ off, off + file_size });
         var header = coff.SectionHeader{
             .name = undefined,
-            .virtual_size = @intCast(u32, file_size),
-            .virtual_address = @intCast(u32, off),
-            .size_of_raw_data = @intCast(u32, file_size),
-            .pointer_to_raw_data = @intCast(u32, off),
+            .virtual_size = file_size,
+            .virtual_address = off,
+            .size_of_raw_data = file_size,
+            .pointer_to_raw_data = off,
             .pointer_to_relocations = 0,
             .pointer_to_linenumbers = 0,
             .number_of_relocations = 0,
@@ -309,7 +317,7 @@ fn populateMissingMetadata(self: *Coff) !void {
 
     if (self.strtab_offset == null) {
         try self.strtab.buffer.append(gpa, 0);
-        self.strtab_offset = @intCast(u32, self.findFreeSpace(self.strtab.len(), 1));
+        self.strtab_offset = self.findFreeSpace(@intCast(u32, self.strtab.len()), 1);
         log.debug("found strtab free space 0x{x} to 0x{x}", .{ self.strtab_offset.?, self.strtab_offset.? + self.strtab.len() });
     }
 
@@ -334,7 +342,7 @@ pub fn allocateDeclIndexes(self: *Coff, decl_index: Module.Decl.Index) !void {
     try self.decls.putNoClobber(gpa, decl_index, null);
 }
 
-fn allocateAtom(self: *Coff, atom: *Atom, new_atom_size: u64, alignment: u64, sect_id: u16) !u64 {
+fn allocateAtom(self: *Coff, atom: *Atom, new_atom_size: u32, alignment: u32, sect_id: u16) !u32 {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -362,10 +370,10 @@ fn allocateAtom(self: *Coff, atom: *Atom, new_atom_size: u64, alignment: u64, se
             const sym = big_atom.getSymbol(self);
             const capacity = big_atom.capacity(self);
             const ideal_capacity = if (header.isCode()) padToIdeal(capacity) else capacity;
-            const ideal_capacity_end_vaddr = math.add(u64, sym.n_value, ideal_capacity) catch ideal_capacity;
-            const capacity_end_vaddr = sym.n_value + capacity;
+            const ideal_capacity_end_vaddr = math.add(u32, sym.value, ideal_capacity) catch ideal_capacity;
+            const capacity_end_vaddr = sym.value + capacity;
             const new_start_vaddr_unaligned = capacity_end_vaddr - new_atom_ideal_capacity;
-            const new_start_vaddr = mem.alignBackwardGeneric(u64, new_start_vaddr_unaligned, alignment);
+            const new_start_vaddr = mem.alignBackwardGeneric(u32, new_start_vaddr_unaligned, alignment);
             if (new_start_vaddr < ideal_capacity_end_vaddr) {
                 // Additional bookkeeping here to notice if this free list node
                 // should be deleted because the atom that it points to has grown to take up
@@ -392,23 +400,30 @@ fn allocateAtom(self: *Coff, atom: *Atom, new_atom_size: u64, alignment: u64, se
         } else if (maybe_last_atom.*) |last| {
             const last_symbol = last.getSymbol(self);
             const ideal_capacity = if (header.isCode()) padToIdeal(last.size) else last.size;
-            const ideal_capacity_end_vaddr = last_symbol.n_value + ideal_capacity;
-            const new_start_vaddr = mem.alignForwardGeneric(u64, ideal_capacity_end_vaddr, alignment);
+            const ideal_capacity_end_vaddr = last_symbol.value + ideal_capacity;
+            const new_start_vaddr = mem.alignForwardGeneric(u32, ideal_capacity_end_vaddr, alignment);
             atom_placement = last;
             break :blk new_start_vaddr;
         } else {
-            break :blk mem.alignForwardGeneric(u64, header.addr, alignment);
+            break :blk mem.alignForwardGeneric(u32, header.virtual_address, alignment);
         }
     };
 
     const expand_section = atom_placement == null or atom_placement.?.next == null;
     if (expand_section) {
-        @panic("TODO expand section in allocateAtom");
+        const sect_capacity = self.allocatedSize(header.pointer_to_raw_data);
+        const needed_size: u32 = (vaddr + new_atom_size) - header.virtual_address;
+        if (needed_size > sect_capacity) {
+            @panic("TODO move section");
+        }
+        maybe_last_atom.* = atom;
+        header.virtual_size = needed_size;
+        header.size_of_raw_data = needed_size;
     }
 
-    if (header.getAlignment() < alignment) {
-        header.setAlignment(alignment);
-    }
+    // if (header.getAlignment().? < alignment) {
+    //     header.setAlignment(alignment);
+    // }
     atom.size = new_atom_size;
     atom.alignment = alignment;
 
@@ -465,36 +480,61 @@ fn allocateSymbol(self: *Coff) !u32 {
 pub fn allocateGotEntry(self: *Coff, target: SymbolWithLoc) !u32 {
     const gpa = self.base.allocator;
     try self.got_entries.ensureUnusedCapacity(gpa, 1);
-    if (self.got_entries_free_list.popOrNull()) |index| {
-        log.debug("  (reusing GOT entry index {d})", .{index});
-        if (self.got_entries.getIndex(target)) |existing| {
-            assert(existing == index);
+    const index: u32 = blk: {
+        if (self.got_entries_free_list.popOrNull()) |index| {
+            log.debug("  (reusing GOT entry index {d})", .{index});
+            if (self.got_entries.getIndex(target)) |existing| {
+                assert(existing == index);
+            }
+            break :blk index;
+        } else {
+            log.debug("  (allocating GOT entry at index {d})", .{self.got_entries.keys().len});
+            const index = @intCast(u32, self.got_entries.keys().len);
+            self.got_entries.putAssumeCapacityNoClobber(target, 0);
+            break :blk index;
         }
-        self.got_entries.keys()[index] = target;
-        return index;
-    } else {
-        log.debug("  (allocating GOT entry at index {d})", .{self.got_entries.keys().len});
-        const index = @intCast(u32, self.got_entries.keys().len);
-        try self.got_entries.putAssumeCapacityNoClobber(target, 0);
-        return index;
-    }
+    };
+    self.got_entries.keys()[index] = target;
+    return index;
 }
 
-fn growAtom(self: *Coff, atom: *Atom, new_atom_size: u64, alignment: u64, sect_id: u16) !u64 {
+fn createGotAtom(self: *Coff, target: SymbolWithLoc) !*Atom {
+    _ = self;
+    _ = target;
+    @panic("TODO createGotAtom");
+}
+
+fn growAtom(self: *Coff, atom: *Atom, new_atom_size: u32, alignment: u32, sect_id: u16) !u32 {
     const sym = atom.getSymbol(self);
-    const align_ok = mem.alignBackwardGeneric(u64, sym.value, alignment) == sym.value;
+    const align_ok = mem.alignBackwardGeneric(u32, sym.value, alignment) == sym.value;
     const need_realloc = !align_ok or new_atom_size > atom.capacity(self);
     if (!need_realloc) return sym.value;
     return self.allocateAtom(atom, new_atom_size, alignment, sect_id);
 }
 
-fn shrinkAtom(self: *Coff, atom: *Atom, new_block_size: u64, sect_id: u16) void {
+fn shrinkAtom(self: *Coff, atom: *Atom, new_block_size: u32, sect_id: u16) void {
     _ = self;
     _ = atom;
     _ = new_block_size;
     _ = sect_id;
     // TODO check the new capacity, and if it crosses the size threshold into a big enough
     // capacity, insert a free list node for it.
+}
+
+fn writeAtom(self: *Coff, atom: *Atom, code: []const u8, sect_id: u16) !void {
+    const section = self.sections.get(sect_id);
+    const sym = atom.getSymbol(self);
+    const file_offset = section.header.pointer_to_raw_data + sym.value - section.header.virtual_address;
+    try self.resolveRelocs(atom, code);
+    log.debug("writing atom for symbol {s} at file offset 0x{x}", .{ atom.getName(self), file_offset });
+    try self.base.file.?.pwriteAll(code, file_offset);
+}
+
+fn resolveRelocs(self: *Coff, atom: *Atom, code: []const u8) !void {
+    _ = self;
+    _ = atom;
+    _ = code;
+    log.debug("TODO resolveRelocs", .{});
 }
 
 fn freeAtom(self: *Coff, atom: *Atom, sect_id: u16) void {
@@ -583,8 +623,7 @@ pub fn updateFunc(self: *Coff, module: *Module, func: *Module.Fn, air: Air, live
         },
     };
 
-    const sym = try self.updateDeclCode(decl_index, code);
-    log.debug("updated decl code has sym {}", .{sym});
+    try self.updateDeclCode(decl_index, code);
 
     // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
     const decl_exports = module.decl_exports.get(decl_index) orelse &[0]*Module.Export{};
@@ -640,20 +679,104 @@ pub fn updateDecl(self: *Coff, module: *Module, decl_index: Module.Decl.Index) !
         },
     };
 
-    const sym = try self.updateDeclCode(decl_index, code);
-    log.debug("updated decl code for {}", .{sym});
+    try self.updateDeclCode(decl_index, code);
 
     // Since we updated the vaddr and the size, each corresponding export symbol also needs to be updated.
     const decl_exports = module.decl_exports.get(decl_index) orelse &[0]*Module.Export{};
     return self.updateDeclExports(module, decl_index, decl_exports);
 }
 
-fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []const u8) !*coff.Symbol {
-    _ = self;
-    _ = decl_index;
-    _ = code;
-    log.debug("TODO updateDeclCode", .{});
-    return &self.locals.items[0];
+fn getDeclOutputSection(self: *Coff, decl: *Module.Decl) u16 {
+    const ty = decl.ty;
+    const zig_ty = ty.zigTypeTag();
+    const val = decl.val;
+    const index: u16 = blk: {
+        if (val.isUndefDeep()) {
+            // TODO in release-fast and release-small, we should put undef in .bss
+            break :blk self.data_section_index.?;
+        }
+
+        switch (zig_ty) {
+            .Fn => break :blk self.text_section_index.?,
+            else => {
+                if (val.castTag(.variable)) |_| {
+                    break :blk self.data_section_index.?;
+                }
+                break :blk self.rdata_section_index.?;
+            },
+        }
+    };
+    return index;
+}
+
+fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []const u8) !void {
+    const gpa = self.base.allocator;
+    const mod = self.base.options.module.?;
+    const decl = mod.declPtr(decl_index);
+
+    const decl_name = try decl.getFullyQualifiedName(mod);
+    defer gpa.free(decl_name);
+
+    log.debug("updateDeclCode {s}{*}", .{ decl_name, decl });
+    const required_alignment = decl.getAlignment(self.base.options.target);
+
+    const decl_ptr = self.decls.getPtr(decl_index).?;
+    if (decl_ptr.* == null) {
+        decl_ptr.* = self.getDeclOutputSection(decl);
+    }
+    const sect_index = decl_ptr.*.?;
+
+    const code_len = @intCast(u32, code.len);
+    const atom = &decl.link.coff;
+    assert(atom.sym_index != 0); // Caller forgot to allocateDeclIndexes()
+    if (atom.size != 0) {
+        const sym = atom.getSymbolPtr(self);
+        const capacity = atom.capacity(self);
+        const need_realloc = code.len > capacity or !mem.isAlignedGeneric(u64, sym.value, required_alignment);
+
+        if (need_realloc) {
+            const vaddr = try self.growAtom(atom, code_len, required_alignment, sect_index);
+            log.debug("growing {s} from 0x{x} to 0x{x}", .{ decl_name, sym.value, vaddr });
+            log.debug("  (required alignment 0x{x}", .{required_alignment});
+
+            if (vaddr != sym.value) {
+                sym.value = vaddr;
+                log.debug("  (updating GOT entry)", .{});
+                var buffer: [@sizeOf(u64)]u8 = undefined;
+                const got_atom = self.getGotAtomForSymbol(.{ .sym_index = atom.sym_index, .file = null }).?;
+                try self.writeAtom(got_atom, &buffer, self.pdata_section_index.?);
+            }
+        } else if (code_len < atom.size) {
+            self.shrinkAtom(atom, code_len, sect_index);
+        }
+        atom.size = code_len;
+        try self.setSymbolName(sym, decl_name);
+        sym.section_number = @intToEnum(coff.SectionNumber, sect_index + 1);
+        sym.@"type" = .{ .complex_type = .FUNCTION, .base_type = .NULL };
+        sym.storage_class = .NULL;
+    } else {
+        const sym = atom.getSymbolPtr(self);
+        try self.setSymbolName(sym, decl_name);
+        const vaddr = try self.allocateAtom(atom, code_len, required_alignment, sect_index);
+        errdefer self.freeAtom(atom, sect_index);
+
+        log.debug("allocated atom for {s} at 0x{x}", .{ decl_name, vaddr });
+
+        atom.size = code_len;
+        sym.value = vaddr;
+        sym.section_number = @intToEnum(coff.SectionNumber, sect_index + 1);
+        sym.@"type" = .{ .complex_type = .FUNCTION, .base_type = .NULL };
+        sym.storage_class = .NULL;
+
+        const got_target = SymbolWithLoc{ .sym_index = atom.sym_index, .file = null };
+        _ = try self.allocateGotEntry(got_target);
+        const got_atom = try self.createGotAtom(got_target);
+
+        var buffer: [@sizeOf(u64)]u8 = undefined;
+        try self.writeAtom(got_atom, &buffer, self.pdata_section_index.?);
+    }
+
+    try self.writeAtom(atom, code, sect_index);
 }
 
 pub fn freeDecl(self: *Coff, decl_index: Module.Decl.Index) void {
@@ -701,40 +824,142 @@ pub fn updateDeclExports(
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
 
-    // Even in the case of LLVM, we need to notice certain exported symbols in order to
-    // detect the default subsystem.
-    for (exports) |exp| {
-        const exported_decl = module.declPtr(exp.exported_decl);
-        if (exported_decl.getFunction() == null) continue;
-        const winapi_cc = switch (self.base.options.target.cpu.arch) {
-            .i386 => std.builtin.CallingConvention.Stdcall,
-            else => std.builtin.CallingConvention.C,
-        };
-        const decl_cc = exported_decl.ty.fnCallingConvention();
-        if (decl_cc == .C and mem.eql(u8, exp.options.name, "main") and
-            self.base.options.link_libc)
-        {
-            module.stage1_flags.have_c_main = true;
-        } else if (decl_cc == winapi_cc and self.base.options.target.os.tag == .windows) {
-            if (mem.eql(u8, exp.options.name, "WinMain")) {
-                module.stage1_flags.have_winmain = true;
-            } else if (mem.eql(u8, exp.options.name, "wWinMain")) {
-                module.stage1_flags.have_wwinmain = true;
-            } else if (mem.eql(u8, exp.options.name, "WinMainCRTStartup")) {
-                module.stage1_flags.have_winmain_crt_startup = true;
-            } else if (mem.eql(u8, exp.options.name, "wWinMainCRTStartup")) {
-                module.stage1_flags.have_wwinmain_crt_startup = true;
-            } else if (mem.eql(u8, exp.options.name, "DllMainCRTStartup")) {
-                module.stage1_flags.have_dllmain_crt_startup = true;
+    if (build_options.have_llvm) {
+        // Even in the case of LLVM, we need to notice certain exported symbols in order to
+        // detect the default subsystem.
+        for (exports) |exp| {
+            const exported_decl = module.declPtr(exp.exported_decl);
+            if (exported_decl.getFunction() == null) continue;
+            const winapi_cc = switch (self.base.options.target.cpu.arch) {
+                .i386 => std.builtin.CallingConvention.Stdcall,
+                else => std.builtin.CallingConvention.C,
+            };
+            const decl_cc = exported_decl.ty.fnCallingConvention();
+            if (decl_cc == .C and mem.eql(u8, exp.options.name, "main") and
+                self.base.options.link_libc)
+            {
+                module.stage1_flags.have_c_main = true;
+            } else if (decl_cc == winapi_cc and self.base.options.target.os.tag == .windows) {
+                if (mem.eql(u8, exp.options.name, "WinMain")) {
+                    module.stage1_flags.have_winmain = true;
+                } else if (mem.eql(u8, exp.options.name, "wWinMain")) {
+                    module.stage1_flags.have_wwinmain = true;
+                } else if (mem.eql(u8, exp.options.name, "WinMainCRTStartup")) {
+                    module.stage1_flags.have_winmain_crt_startup = true;
+                } else if (mem.eql(u8, exp.options.name, "wWinMainCRTStartup")) {
+                    module.stage1_flags.have_wwinmain_crt_startup = true;
+                } else if (mem.eql(u8, exp.options.name, "DllMainCRTStartup")) {
+                    module.stage1_flags.have_dllmain_crt_startup = true;
+                }
             }
         }
-    }
 
-    if (build_options.have_llvm) {
         if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(module, decl_index, exports);
     }
 
-    log.debug("TODO updateDeclExports", .{});
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = self.base.allocator;
+
+    const decl = module.declPtr(decl_index);
+    const atom = &decl.link.coff;
+    if (atom.sym_index == 0) return;
+    const decl_sym = atom.getSymbol(self);
+
+    for (exports) |exp| {
+        log.debug("adding new export '{s}'", .{exp.options.name});
+
+        if (exp.options.section) |section_name| {
+            if (!mem.eql(u8, section_name, ".text")) {
+                try module.failed_exports.putNoClobber(
+                    module.gpa,
+                    exp,
+                    try Module.ErrorMsg.create(
+                        gpa,
+                        decl.srcLoc(),
+                        "Unimplemented: ExportOptions.section",
+                        .{},
+                    ),
+                );
+                continue;
+            }
+        }
+
+        if (exp.options.linkage == .LinkOnce) {
+            try module.failed_exports.putNoClobber(
+                module.gpa,
+                exp,
+                try Module.ErrorMsg.create(
+                    gpa,
+                    decl.srcLoc(),
+                    "Unimplemented: GlobalLinkage.LinkOnce",
+                    .{},
+                ),
+            );
+            continue;
+        }
+
+        const sym_index = exp.link.macho.sym_index orelse blk: {
+            const sym_index = try self.allocateSymbol();
+            exp.link.coff.sym_index = sym_index;
+            break :blk sym_index;
+        };
+        const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = null };
+        const sym = self.getSymbolPtr(sym_loc);
+        try self.setSymbolName(sym, exp.options.name);
+        sym.value = decl_sym.value;
+        sym.section_number = @intToEnum(coff.SectionNumber, self.text_section_index.? + 1);
+        sym.@"type" = .{ .complex_type = .FUNCTION, .base_type = .NULL };
+
+        switch (exp.options.linkage) {
+            .Strong => {
+                sym.storage_class = .EXTERNAL;
+            },
+            .Internal => @panic("TODO Internal"),
+            .Weak => @panic("TODO WeakExternal"),
+            else => unreachable,
+        }
+
+        self.resolveGlobalSymbol(sym_loc) catch |err| switch (err) {
+            error.MultipleSymbolDefinitions => {
+                const global = self.globals.get(exp.options.name).?;
+                if (sym_loc.sym_index != global.sym_index and global.file != null) {
+                    _ = try module.failed_exports.put(module.gpa, exp, try Module.ErrorMsg.create(
+                        gpa,
+                        decl.srcLoc(),
+                        \\LinkError: symbol '{s}' defined multiple times
+                        \\  first definition in '{s}'
+                    ,
+                        .{ exp.options.name, self.objects.items[global.file.?].name },
+                    ));
+                }
+            },
+            else => |e| return e,
+        };
+    }
+}
+
+fn resolveGlobalSymbol(self: *Coff, current: SymbolWithLoc) !void {
+    const gpa = self.base.allocator;
+    const sym = self.getSymbol(current);
+    _ = sym;
+    const sym_name = self.getSymbolName(current);
+
+    const name = try gpa.dupe(u8, sym_name);
+    const global_index = @intCast(u32, self.globals.values().len);
+    _ = global_index;
+    const gop = try self.globals.getOrPut(gpa, name);
+    defer if (gop.found_existing) gpa.free(name);
+
+    if (!gop.found_existing) {
+        gop.value_ptr.* = current;
+        // TODO undef + tentative
+        return;
+    }
+
+    log.debug("TODO finish resolveGlobalSymbols implementation", .{});
+    return error.MultipleSymbolDefinitions;
 }
 
 pub fn flush(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) !void {
@@ -805,7 +1030,7 @@ pub fn updateDeclLineNumber(self: *Coff, module: *Module, decl: *Module.Decl) !v
 
 fn writeStrtab(self: *Coff) !void {
     const allocated_size = self.allocatedSize(self.strtab_offset.?);
-    const needed_size = self.strtab.len();
+    const needed_size = @intCast(u32, self.strtab.len());
 
     if (needed_size > allocated_size) {
         self.strtab_offset = null;
@@ -870,7 +1095,7 @@ fn writeHeader(self: *Coff) !void {
         .NX_COMPAT = 1, // We are compatible with Data Execution Prevention
     };
     const subsystem: coff.Subsystem = .WINDOWS_CUI;
-    const size_of_headers: u32 = @intCast(u32, self.getSizeOfHeaders());
+    const size_of_headers: u32 = self.getSizeOfHeaders();
     const size_of_image_aligned: u32 = mem.alignForwardGeneric(u32, size_of_headers, self.page_size);
     const size_of_headers_aligned: u32 = mem.alignForwardGeneric(u32, size_of_headers, default_file_alignment);
     const image_base = self.base.options.image_base_override orelse switch (self.base.options.output_mode) {
@@ -968,7 +1193,7 @@ pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
         math.maxInt(@TypeOf(actual_size));
 }
 
-fn detectAllocCollision(self: *Coff, start: u64, size: u64) ?u64 {
+fn detectAllocCollision(self: *Coff, start: u32, size: u32) ?u32 {
     const headers_size = self.getSizeOfHeaders();
     if (start < headers_size)
         return headers_size;
@@ -976,7 +1201,7 @@ fn detectAllocCollision(self: *Coff, start: u64, size: u64) ?u64 {
     const end = start + padToIdeal(size);
 
     if (self.strtab_offset) |off| {
-        const increased_size = padToIdeal(self.strtab.len());
+        const increased_size = padToIdeal(@intCast(u32, self.strtab.len()));
         const test_end = off + increased_size;
         if (end > off and start < test_end) {
             return test_end;
@@ -994,10 +1219,10 @@ fn detectAllocCollision(self: *Coff, start: u64, size: u64) ?u64 {
     return null;
 }
 
-pub fn allocatedSize(self: *Coff, start: u64) u64 {
+pub fn allocatedSize(self: *Coff, start: u32) u32 {
     if (start == 0)
         return 0;
-    var min_pos: u64 = std.math.maxInt(u64);
+    var min_pos: u32 = std.math.maxInt(u32);
     if (self.strtab_offset) |off| {
         if (off > start and off < min_pos) min_pos = off;
     }
@@ -1008,41 +1233,41 @@ pub fn allocatedSize(self: *Coff, start: u64) u64 {
     return min_pos - start;
 }
 
-pub fn findFreeSpace(self: *Coff, object_size: u64, min_alignment: u32) u64 {
-    var start: u64 = 0;
+pub fn findFreeSpace(self: *Coff, object_size: u32, min_alignment: u32) u32 {
+    var start: u32 = 0;
     while (self.detectAllocCollision(start, object_size)) |item_end| {
-        start = mem.alignForwardGeneric(u64, item_end, min_alignment);
+        start = mem.alignForwardGeneric(u32, item_end, min_alignment);
     }
     return start;
 }
 
-inline fn getSizeOfHeaders(self: Coff) usize {
+inline fn getSizeOfHeaders(self: Coff) u32 {
     const msdos_hdr_size = msdos_stub.len + 8;
-    return msdos_hdr_size + @sizeOf(coff.CoffHeader) + self.getOptionalHeaderSize() +
-        self.getDataDirectoryHeadersSize() + self.getSectionHeadersSize();
+    return @intCast(u32, msdos_hdr_size + @sizeOf(coff.CoffHeader) + self.getOptionalHeaderSize() +
+        self.getDataDirectoryHeadersSize() + self.getSectionHeadersSize());
 }
 
-inline fn getOptionalHeaderSize(self: Coff) usize {
+inline fn getOptionalHeaderSize(self: Coff) u32 {
     return switch (self.ptr_width) {
-        .p32 => @sizeOf(coff.OptionalHeaderPE32),
-        .p64 => @sizeOf(coff.OptionalHeaderPE64),
+        .p32 => @intCast(u32, @sizeOf(coff.OptionalHeaderPE32)),
+        .p64 => @intCast(u32, @sizeOf(coff.OptionalHeaderPE64)),
     };
 }
 
-inline fn getDataDirectoryHeadersSize(self: Coff) usize {
-    return self.data_directories.len * @sizeOf(coff.ImageDataDirectory);
+inline fn getDataDirectoryHeadersSize(self: Coff) u32 {
+    return @intCast(u32, self.data_directories.len * @sizeOf(coff.ImageDataDirectory));
 }
 
-inline fn getSectionHeadersSize(self: Coff) usize {
-    return self.sections.slice().len * @sizeOf(coff.SectionHeader);
+inline fn getSectionHeadersSize(self: Coff) u32 {
+    return @intCast(u32, self.sections.slice().len * @sizeOf(coff.SectionHeader));
 }
 
-inline fn getDataDirectoryHeadersOffset(self: Coff) usize {
+inline fn getDataDirectoryHeadersOffset(self: Coff) u32 {
     const msdos_hdr_size = msdos_stub.len + 8;
-    return msdos_hdr_size + @sizeOf(coff.CoffHeader) + self.getOptionalHeaderSize();
+    return @intCast(u32, msdos_hdr_size + @sizeOf(coff.CoffHeader) + self.getOptionalHeaderSize());
 }
 
-inline fn getSectionHeadersOffset(self: Coff) usize {
+inline fn getSectionHeadersOffset(self: Coff) u32 {
     return self.getDataDirectoryHeadersOffset() + self.getDataDirectoryHeadersSize();
 }
 
@@ -1086,7 +1311,7 @@ fn setSectionName(self: *Coff, header: *coff.SectionHeader, name: []const u8) !v
         return;
     }
     const offset = try self.strtab.insert(self.base.allocator, name);
-    const name_offset = try fmt.bufPrint(&header.name, "/{d}", .{offset});
+    const name_offset = fmt.bufPrint(&header.name, "/{d}", .{offset}) catch unreachable;
     mem.set(u8, header.name[name_offset.len..], 0);
 }
 
@@ -1097,6 +1322,6 @@ fn setSymbolName(self: *Coff, symbol: *coff.Symbol, name: []const u8) !void {
         return;
     }
     const offset = try self.strtab.insert(self.base.allocator, name);
-    mem.copy(u8, symbol.name[0..4], 0);
-    _ = try fmt.bufPrint(symbol.name[4..], "{d}", .{offset});
+    mem.set(u8, symbol.name[0..4], 0);
+    _ = fmt.bufPrint(symbol.name[4..], "{d}", .{offset}) catch unreachable;
 }
