@@ -467,7 +467,7 @@ pub const Tokenizer = struct {
                         }
                         break;
                     },
-                    ' ', '\n', '\t' => {
+                    ' ', '\n', '\t', '\r' => {
                         result.loc.start = self.index + 1;
                     },
                     '"' => {
@@ -585,18 +585,6 @@ pub const Tokenizer = struct {
                     '0'...'9' => {
                         state = .int;
                         result.tag = .number_literal;
-                    },
-                    '\r' => {
-                        // Carriage returns are *only* allowed just before a linefeed as part of a CRLF pair, otherwise
-                        // they constitute an illegal byte!
-                        if (self.index + 1 < self.buffer.len and self.buffer[self.index + 1] == '\n') {
-                            result.loc.start = self.index + 1;
-                        } else {
-                            result.tag = .invalid;
-                            result.loc.end = self.index;
-                            self.index += 1;
-                            return result;
-                        }
                     },
                     else => {
                         result.tag = .invalid;
