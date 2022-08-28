@@ -43,7 +43,9 @@ sections: std.MultiArrayList(Section) = .{},
 data_directories: [16]coff.ImageDataDirectory,
 
 text_section_index: ?u16 = null,
-got_section_index: ?u16 = null,
+rdata_section_index: ?u16 = null,
+pdata_section_index: ?u16 = null,
+data_section_index: ?u16 = null,
 
 locals: std.ArrayListUnmanaged(coff.Symbol) = .{},
 globals: std.StringArrayHashMapUnmanaged(SymbolWithLoc) = .{},
@@ -212,12 +214,103 @@ fn populateMissingMetadata(self: *Coff) !void {
         const file_size = self.base.options.program_code_size_hint;
         const off = self.findFreeSpace(file_size, self.page_size); // TODO we are over-aligning in file; we should track both in file and in memory pointers
         log.debug("found .text free space 0x{x} to 0x{x}", .{ off, off + file_size });
+        var header = coff.SectionHeader{
+            .name = undefined,
+            .virtual_size = @intCast(u32, file_size),
+            .virtual_address = @intCast(u32, off),
+            .size_of_raw_data = @intCast(u32, file_size),
+            .pointer_to_raw_data = @intCast(u32, off),
+            .pointer_to_relocations = 0,
+            .pointer_to_linenumbers = 0,
+            .number_of_relocations = 0,
+            .number_of_linenumbers = 0,
+            .flags = .{
+                .CNT_CODE = 1,
+                .MEM_EXECUTE = 1,
+                .MEM_READ = 1,
+            },
+        };
+        try self.setSectionName(&header, ".text");
+        try self.sections.append(gpa, .{ .header = header });
     }
 
-    if (self.got_section_index == null) {}
+    if (self.pdata_section_index == null) {
+        self.pdata_section_index = @intCast(u16, self.sections.slice().len);
+        const file_size = self.base.options.symbol_count_hint;
+        const off = self.findFreeSpace(file_size, self.page_size);
+        log.debug("found .pdata free space 0x{x} to 0x{x}", .{ off, off + file_size });
+        var header = coff.SectionHeader{
+            .name = undefined,
+            .virtual_size = @intCast(u32, file_size),
+            .virtual_address = @intCast(u32, off),
+            .size_of_raw_data = @intCast(u32, file_size),
+            .pointer_to_raw_data = @intCast(u32, off),
+            .pointer_to_relocations = 0,
+            .pointer_to_linenumbers = 0,
+            .number_of_relocations = 0,
+            .number_of_linenumbers = 0,
+            .flags = .{
+                .CNT_INITIALIZED_DATA = 1,
+                .MEM_READ = 1,
+            },
+        };
+        try self.setSectionName(&header, ".pdata");
+        try self.sections.append(gpa, .{ .header = header });
+    }
+
+    if (self.rdata_section_index == null) {
+        self.rdata_section_index = @intCast(u16, self.sections.slice().len);
+        const file_size = 1024;
+        const off = self.findFreeSpace(file_size, self.page_size);
+        log.debug("found .rdata free space 0x{x} to 0x{x}", .{ off, off + file_size });
+        var header = coff.SectionHeader{
+            .name = undefined,
+            .virtual_size = @intCast(u32, file_size),
+            .virtual_address = @intCast(u32, off),
+            .size_of_raw_data = @intCast(u32, file_size),
+            .pointer_to_raw_data = @intCast(u32, off),
+            .pointer_to_relocations = 0,
+            .pointer_to_linenumbers = 0,
+            .number_of_relocations = 0,
+            .number_of_linenumbers = 0,
+            .flags = .{
+                .CNT_INITIALIZED_DATA = 1,
+                .MEM_READ = 1,
+            },
+        };
+        try self.setSectionName(&header, ".rdata");
+        try self.sections.append(gpa, .{ .header = header });
+    }
+
+    if (self.data_section_index == null) {
+        self.data_section_index = @intCast(u16, self.sections.slice().len);
+        const file_size = 1024;
+        const off = self.findFreeSpace(file_size, self.page_size);
+        log.debug("found .data free space 0x{x} to 0x{x}", .{ off, off + file_size });
+        var header = coff.SectionHeader{
+            .name = undefined,
+            .virtual_size = @intCast(u32, file_size),
+            .virtual_address = @intCast(u32, off),
+            .size_of_raw_data = @intCast(u32, file_size),
+            .pointer_to_raw_data = @intCast(u32, off),
+            .pointer_to_relocations = 0,
+            .pointer_to_linenumbers = 0,
+            .number_of_relocations = 0,
+            .number_of_linenumbers = 0,
+            .flags = .{
+                .CNT_INITIALIZED_DATA = 1,
+                .MEM_READ = 1,
+                .MEM_WRITE = 1,
+            },
+        };
+        try self.setSectionName(&header, ".data");
+        try self.sections.append(gpa, .{ .header = header });
+    }
 
     if (self.strtab_offset == null) {
         try self.strtab.buffer.append(gpa, 0);
+        self.strtab_offset = @intCast(u32, self.findFreeSpace(self.strtab.len(), 1));
+        log.debug("found strtab free space 0x{x} to 0x{x}", .{ self.strtab_offset.?, self.strtab_offset.? + self.strtab.len() });
     }
 
     // Index 0 is always a null symbol.
@@ -677,6 +770,7 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
+    try self.writeStrtab();
     try self.writeDataDirectoriesHeaders();
     try self.writeSectionHeaders();
     try self.writeHeader();
@@ -709,6 +803,19 @@ pub fn updateDeclLineNumber(self: *Coff, module: *Module, decl: *Module.Decl) !v
     log.debug("TODO implement updateDeclLineNumber", .{});
 }
 
+fn writeStrtab(self: *Coff) !void {
+    const allocated_size = self.allocatedSize(self.strtab_offset.?);
+    const needed_size = self.strtab.len();
+
+    if (needed_size > allocated_size) {
+        self.strtab_offset = null;
+        self.strtab_offset = @intCast(u32, self.findFreeSpace(needed_size, 1));
+    }
+
+    log.debug("writing strtab from 0x{x} to 0x{x}", .{ self.strtab_offset.?, self.strtab_offset.? + needed_size });
+    try self.base.file.?.pwriteAll(self.strtab.buffer.items, self.strtab_offset.?);
+}
+
 fn writeSectionHeaders(self: *Coff) !void {
     const offset = self.getSectionHeadersOffset();
     try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.sections.items(.header)), offset);
@@ -729,7 +836,7 @@ fn writeHeader(self: *Coff) !void {
     writer.writeAll(msdos_stub) catch unreachable;
     writer.writeByteNTimes(0, 4) catch unreachable; // align to 8 bytes
     writer.writeAll("PE\x00\x00") catch unreachable;
-    buffer.items[0x3c] = @intCast(u8, msdos_stub.len + 4);
+    mem.writeIntLittle(u32, buffer.items[0x3c..][0..4], msdos_stub.len + 4);
 
     var flags = coff.CoffHeaderFlags{
         .EXECUTABLE_IMAGE = 1,
@@ -743,10 +850,7 @@ fn writeHeader(self: *Coff) !void {
         flags.DLL = 1;
     }
 
-    const size_of_optional_header = @intCast(
-        u16,
-        self.getOptionalHeaderSize() + self.getDataDirectoryHeadersSize() + self.getSectionHeadersSize(),
-    );
+    const size_of_optional_header = @intCast(u16, self.getOptionalHeaderSize() + self.getDataDirectoryHeadersSize());
     var coff_header = coff.CoffHeader{
         .machine = coff.MachineType.fromTargetCpuArch(self.base.options.target.cpu.arch),
         .number_of_sections = @intCast(u16, self.sections.slice().len), // TODO what if we prune a section
@@ -774,6 +878,13 @@ fn writeHeader(self: *Coff) !void {
         .Lib => default_image_base_dll,
         else => unreachable,
     };
+    const text_section = self.sections.get(self.text_section_index.?).header;
+
+    var size_of_initialized_data: u32 = 0;
+    for (self.sections.items(.header)) |header| {
+        if (header.flags.CNT_INITIALIZED_DATA == 0) continue;
+        size_of_initialized_data += header.virtual_size;
+    }
 
     switch (self.ptr_width) {
         .p32 => {
@@ -781,11 +892,11 @@ fn writeHeader(self: *Coff) !void {
                 .magic = coff.IMAGE_NT_OPTIONAL_HDR32_MAGIC,
                 .major_linker_version = 0,
                 .minor_linker_version = 0,
-                .size_of_code = 0,
-                .size_of_initialized_data = 0,
+                .size_of_code = text_section.virtual_size,
+                .size_of_initialized_data = size_of_initialized_data,
                 .size_of_uninitialized_data = 0,
                 .address_of_entry_point = self.entry_addr orelse 0,
-                .base_of_code = 0,
+                .base_of_code = text_section.virtual_address,
                 .base_of_data = 0,
                 .image_base = @intCast(u32, image_base),
                 .section_alignment = self.page_size,
@@ -816,11 +927,11 @@ fn writeHeader(self: *Coff) !void {
                 .magic = coff.IMAGE_NT_OPTIONAL_HDR64_MAGIC,
                 .major_linker_version = 0,
                 .minor_linker_version = 0,
-                .size_of_code = 0,
-                .size_of_initialized_data = 0,
+                .size_of_code = text_section.virtual_size,
+                .size_of_initialized_data = size_of_initialized_data,
                 .size_of_uninitialized_data = 0,
                 .address_of_entry_point = self.entry_addr orelse 0,
-                .base_of_code = 0,
+                .base_of_code = text_section.virtual_address,
                 .image_base = image_base,
                 .section_alignment = self.page_size,
                 .file_alignment = default_file_alignment,
@@ -971,6 +1082,7 @@ pub fn getGotAtomForSymbol(self: *Coff, sym_loc: SymbolWithLoc) ?*Atom {
 fn setSectionName(self: *Coff, header: *coff.SectionHeader, name: []const u8) !void {
     if (name.len <= 8) {
         mem.copy(u8, &header.name, name);
+        mem.set(u8, header.name[name.len..], 0);
         return;
     }
     const offset = try self.strtab.insert(self.base.allocator, name);
@@ -981,6 +1093,7 @@ fn setSectionName(self: *Coff, header: *coff.SectionHeader, name: []const u8) !v
 fn setSymbolName(self: *Coff, symbol: *coff.Symbol, name: []const u8) !void {
     if (name.len <= 8) {
         mem.copy(u8, &symbol.name, name);
+        mem.set(u8, symbol.name[name.len..], 0);
         return;
     }
     const offset = try self.strtab.insert(self.base.allocator, name);
