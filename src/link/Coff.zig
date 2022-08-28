@@ -49,6 +49,7 @@ globals: std.StringArrayHashMapUnmanaged(SymbolWithLoc) = .{},
 locals_free_list: std.ArrayListUnmanaged(u32) = .{},
 
 strtab: StringTable(.strtab) = .{},
+strtab_offset: ?u32 = null,
 
 got_entries: std.AutoArrayHashMapUnmanaged(SymbolWithLoc, u32) = .{},
 got_entries_free_list: std.ArrayListUnmanaged(u32) = .{},
@@ -138,17 +139,6 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     });
     self.base.file = file;
 
-    // Index 0 is always a null symbol.
-    try self.locals.append(allocator, .{
-        .name = [_]u8{0} ** 8,
-        .value = 0,
-        .section_number = @intToEnum(coff.SectionNumber, 0),
-        .@"type" = .{ .base_type = .NULL, .complex_type = .NULL },
-        .storage_class = .NULL,
-        .number_of_aux_symbols = 0,
-    });
-    try self.strtab.buffer.append(allocator, 0);
-
     try self.populateMissingMetadata();
 
     return self;
@@ -209,8 +199,25 @@ pub fn deinit(self: *Coff) void {
 }
 
 fn populateMissingMetadata(self: *Coff) !void {
+    const gpa = self.base.allocator;
+
     if (self.text_section_index == null) {}
+
     if (self.got_section_index == null) {}
+
+    if (self.strtab_offset == null) {
+        try self.strtab.buffer.append(gpa, 0);
+    }
+
+    // Index 0 is always a null symbol.
+    try self.locals.append(gpa, .{
+        .name = [_]u8{0} ** 8,
+        .value = 0,
+        .section_number = @intToEnum(coff.SectionNumber, 0),
+        .@"type" = .{ .base_type = .NULL, .complex_type = .NULL },
+        .storage_class = .NULL,
+        .number_of_aux_symbols = 0,
+    });
 }
 
 pub fn allocateDeclIndexes(self: *Coff, decl_index: Module.Decl.Index) !void {
@@ -733,7 +740,7 @@ fn writeHeader(self: *Coff) !void {
         .machine = coff.MachineType.fromTargetCpuArch(self.base.options.target.cpu.arch),
         .number_of_sections = @intCast(u16, self.sections.slice().len), // TODO what if we prune a section
         .time_date_stamp = 0, // TODO
-        .pointer_to_symbol_table = 0,
+        .pointer_to_symbol_table = self.strtab_offset orelse 0,
         .number_of_symbols = 0,
         .size_of_optional_header = size_of_optional_header,
         .flags = flags,
@@ -846,6 +853,14 @@ fn detectAllocCollision(self: *Coff, start: u64, size: u64) ?u64 {
 
     const end = start + padToIdeal(size);
 
+    if (self.strtab_offset) |off| {
+        const increased_size = padToIdeal(self.strtab.len());
+        const test_end = off + increased_size;
+        if (end > off and start < test_end) {
+            return test_end;
+        }
+    }
+
     for (self.sections.items(.header)) |header| {
         const increased_size = padToIdeal(header.size_of_raw_data);
         const test_end = header.pointer_to_raw_data + increased_size;
@@ -861,6 +876,9 @@ pub fn allocatedSize(self: *Coff, start: u64) u64 {
     if (start == 0)
         return 0;
     var min_pos: u64 = std.math.maxInt(u64);
+    if (self.strtab_offset) |off| {
+        if (off > start and off < min_pos) min_pos = off;
+    }
     for (self.sections.items(.header)) |header| {
         if (header.pointer_to_raw_data <= start) continue;
         if (header.pointer_to_raw_data < min_pos) min_pos = header.pointer_to_raw_data;

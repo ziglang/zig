@@ -109,5 +109,9 @@ pub fn StringTable(comptime log_scope: @Type(.EnumLiteral)) type {
         pub fn getAssumeExists(self: Self, off: u32) []const u8 {
             return self.get(off) orelse unreachable;
         }
+
+        pub fn len(self: Self) usize {
+            return self.buffer.items.len;
+        }
     };
 }
