@@ -831,7 +831,7 @@ pub const Coff = struct {
         var stream = std.io.fixedBufferStream(self.data);
         const reader = stream.reader();
         try stream.seekTo(pe_pointer_offset);
-        const coff_header_offset = try reader.readByte();
+        const coff_header_offset = try reader.readIntLittle(u32);
         try stream.seekTo(coff_header_offset);
         var buf: [4]u8 = undefined;
         try reader.readNoEof(&buf);
