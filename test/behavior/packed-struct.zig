@@ -564,3 +564,18 @@ test "nested packed struct field access test" {
     try std.testing.expect(arg.g.h == 6);
     try std.testing.expect(arg.g.i == 8);
 }
+
+test "runtime init of unnamed packed struct type" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
+    var z: u8 = 123;
+    try (packed struct {
+        x: u8,
+        pub fn m(s: @This()) !void {
+            try expect(s.x == 123);
+        }
+    }{ .x = z }).m();
+}
