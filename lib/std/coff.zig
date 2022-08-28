@@ -256,20 +256,89 @@ pub const OptionalHeaderPE64 = extern struct {
     number_of_rva_and_sizes: u32,
 };
 
-pub const DebugDirectoryEntry = extern struct {
-    characteristiccs: u32,
-    time_date_stamp: u32,
-    major_version: u16,
-    minor_version: u16,
-    @"type": u32,
-    size_of_data: u32,
-    address_of_raw_data: u32,
-    pointer_to_raw_data: u32,
+pub const IMAGE_NUMBEROF_DIRECTORY_ENTRIES = 16;
+
+pub const DirectoryEntry = enum(u16) {
+    /// Export Directory
+    EXPORT = 0,
+
+    /// Import Directory
+    IMPORT = 1,
+
+    /// Resource Directory
+    RESOURCE = 2,
+
+    /// Exception Directory
+    EXCEPTION = 3,
+
+    /// Security Directory
+    SECURITY = 4,
+
+    /// Base Relocation Table
+    BASERELOC = 5,
+
+    /// Debug Directory
+    DEBUG = 6,
+
+    /// Architecture Specific Data
+    ARCHITECTURE = 7,
+
+    /// RVA of GP
+    GLOBALPTR = 8,
+
+    /// TLS Directory
+    TLS = 9,
+
+    /// Load Configuration Directory
+    LOAD_CONFIG = 10,
+
+    /// Bound Import Directory in headers
+    BOUND_IMPORT = 11,
+
+    /// Import Address Table
+    IAT = 12,
+
+    /// Delay Load Import Descriptors
+    DELAY_IMPORT = 13,
+
+    /// COM Runtime descriptor
+    COM_DESCRIPTOR = 14,
 };
 
 pub const ImageDataDirectory = extern struct {
     virtual_address: u32,
     size: u32,
+};
+
+pub const DebugDirectoryEntry = extern struct {
+    characteristics: u32,
+    time_date_stamp: u32,
+    major_version: u16,
+    minor_version: u16,
+    @"type": DebugType,
+    size_of_data: u32,
+    address_of_raw_data: u32,
+    pointer_to_raw_data: u32,
+};
+
+pub const DebugType = enum(u32) {
+    UNKNOWN = 0,
+    COFF = 1,
+    CODEVIEW = 2,
+    FPO = 3,
+    MISC = 4,
+    EXCEPTION = 5,
+    FIXUP = 6,
+    OMAP_TO_SRC = 7,
+    OMAP_FROM_SRC = 8,
+    BORLAND = 9,
+    RESERVED10 = 10,
+    VC_FEATURE = 12,
+    POGO = 13,
+    ILTCG = 14,
+    MPX = 15,
+    REPRO = 16,
+    EX_DLLCHARACTERISTICS = 20,
 };
 
 pub const SectionHeader = extern struct {
@@ -794,10 +863,6 @@ pub const MachineType = enum(u16) {
     }
 };
 
-const IMAGE_NUMBEROF_DIRECTORY_ENTRIES = 16;
-const IMAGE_DEBUG_TYPE_CODEVIEW = 2;
-const DEBUG_DIRECTORY = 6;
-
 pub const CoffError = error{
     InvalidPEMagic,
     InvalidPEHeader,
@@ -862,7 +927,7 @@ pub const Coff = struct {
         };
 
         const data_dirs = self.getDataDirectories();
-        const debug_dir = data_dirs[DEBUG_DIRECTORY];
+        const debug_dir = data_dirs[@enumToInt(DirectoryEntry.DEBUG)];
         const file_offset = debug_dir.virtual_address - header.virtual_address + header.pointer_to_raw_data;
 
         var stream = std.io.fixedBufferStream(self.data);
@@ -875,7 +940,7 @@ pub const Coff = struct {
         var i: u32 = 0;
         blk: while (i < debug_dir_entry_count) : (i += 1) {
             const debug_dir_entry = try reader.readStruct(DebugDirectoryEntry);
-            if (debug_dir_entry.type == IMAGE_DEBUG_TYPE_CODEVIEW) {
+            if (debug_dir_entry.type == .CODEVIEW) {
                 for (self.getSectionHeaders()) |*section| {
                     const section_start = section.virtual_address;
                     const section_size = section.virtual_size;
