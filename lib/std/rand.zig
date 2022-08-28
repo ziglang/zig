@@ -337,6 +337,42 @@ pub const Random = struct {
             mem.swap(T, &buf[i], &buf[j]);
         }
     }
+
+    /// Randomly selects an index into `proportions`, where the likelihood of each
+    /// index is weighted by that proportion.
+    ///
+    /// This is useful for selecting an item from a slice where weights are not equal.
+    /// `T` must be a numeric type capable of holding the sum of `proportions`.
+    pub fn weightedIndex(r: std.rand.Random, comptime T: type, proportions: []T) usize {
+        // This implementation works by summing the proportions and picking a random
+        //  point in [0, sum).  We then loop over the proportions, accumulating
+        //  until our accumulator is greater than the random point.
+
+        var sum: T = 0;
+        for (proportions) |v| {
+            sum += v;
+        }
+
+        const point = if (comptime std.meta.trait.isSignedInt(T))
+            r.intRangeLessThan(T, 0, sum)
+        else if (comptime std.meta.trait.isUnsignedInt(T))
+            r.uintLessThan(T, sum)
+        else if (comptime std.meta.trait.isFloat(T))
+            // take care that imprecision doesn't lead to a value slightly greater than sum
+            std.math.min(r.float(T) * sum, sum - std.math.epsilon(T))
+        else
+            @compileError("weightedIndex does not support proportions of type " ++ @typeName(T));
+
+        std.debug.assert(point < sum);
+
+        var accumulator: T = 0;
+        for (proportions) |p, index| {
+            accumulator += p;
+            if (point < accumulator) return index;
+        }
+
+        unreachable;
+    }
 };
 
 /// Convert a random integer 0 <= random_int <= maxValue(T),
