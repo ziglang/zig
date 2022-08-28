@@ -583,7 +583,7 @@ fn parseFormValueRef(in_stream: anytype, endian: std.builtin.Endian, size: i32) 
 // TODO the nosuspends here are workarounds
 fn parseFormValue(allocator: mem.Allocator, in_stream: anytype, form_id: u64, endian: std.builtin.Endian, is_64: bool) anyerror!FormValue {
     return switch (form_id) {
-        FORM.addr => FormValue{ .Address = try readAddress(in_stream, endian, @sizeOf(usize) == 8) },
+        FORM.addr => FormValue{ .Address = try readAddress(in_stream, endian, is_64) },
         FORM.addrx1 => return FormValue{ .AddrOffset = try in_stream.readInt(u8, endian) },
         FORM.addrx2 => return FormValue{ .AddrOffset = try in_stream.readInt(u16, endian) },
         FORM.addrx3 => return FormValue{ .AddrOffset = try in_stream.readInt(u24, endian) },
