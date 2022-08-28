@@ -2497,18 +2497,6 @@ fn zirEnumDecl(
     extra_index = try mod.scanNamespace(&enum_obj.namespace, extra_index, decls_len, new_decl);
 
     const body = sema.code.extra[extra_index..][0..body_len];
-    if (fields_len == 0) {
-        assert(body.len == 0);
-        if (tag_type_ref != .none) {
-            const ty = try sema.resolveType(block, tag_ty_src, tag_type_ref);
-            if (ty.zigTypeTag() != .Int and ty.zigTypeTag() != .ComptimeInt) {
-                return sema.fail(block, tag_ty_src, "expected integer tag type, found '{}'", .{ty.fmt(sema.mod)});
-            }
-            enum_obj.tag_ty = try ty.copy(new_decl_arena_allocator);
-            enum_obj.tag_ty_inferred = false;
-        }
-        return decl_val;
-    }
     extra_index += body.len;
 
     const bit_bags_count = std.math.divCeil(usize, fields_len, 32) catch unreachable;
@@ -2566,6 +2554,9 @@ fn zirEnumDecl(
             }
             enum_obj.tag_ty = try ty.copy(decl_arena_allocator);
             enum_obj.tag_ty_inferred = false;
+        } else if (fields_len == 0) {
+            enum_obj.tag_ty = try Type.Tag.int_unsigned.create(decl_arena_allocator, 0);
+            enum_obj.tag_ty_inferred = true;
         } else {
             const bits = std.math.log2_int_ceil(usize, fields_len);
             enum_obj.tag_ty = try Type.Tag.int_unsigned.create(decl_arena_allocator, bits);
