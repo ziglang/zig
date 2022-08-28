@@ -5641,7 +5641,7 @@ pub fn peekNextDeclIndex(mod: *const Module) Decl.Index {
     if (mod.decls_free_list.items.len != 0) {
         return mod.decls_free_list.items[mod.decls_free_list.items.len - 1];
     } else {
-        return @intToEnum(Decl.Index, mod.allocated_decls.len - 1);
+        return @intToEnum(Decl.Index, mod.allocated_decls.len);
     }
 }
 
