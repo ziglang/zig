@@ -467,7 +467,7 @@ pub const Tokenizer = struct {
                         }
                         break;
                     },
-                    ' ', '\n', '\t', '\r' => {
+                    ' ', '\n', '\t' => {
                         result.loc.start = self.index + 1;
                     },
                     '"' => {
@@ -585,6 +585,18 @@ pub const Tokenizer = struct {
                     '0'...'9' => {
                         state = .int;
                         result.tag = .number_literal;
+                    },
+                    '\r' => {
+                        // Carriage returns are *only* allowed just before a linefeed as part of a CRLF pair, otherwise
+                        // they constitute an illegal byte!
+                        if (self.index + 1 < self.buffer.len and self.buffer[self.index + 1] == '\n') {
+                            result.loc.start = self.index + 1;
+                        } else {
+                            result.tag = .invalid;
+                            result.loc.end = self.index;
+                            self.index += 1;
+                            return result;
+                        }
                     },
                     else => {
                         result.tag = .invalid;
@@ -925,7 +937,7 @@ pub const Tokenizer = struct {
                         self.index += 1;
                         break;
                     },
-                    '\t', '\r' => {},
+                    '\t' => {},
                     else => self.checkLiteralCharacter(),
                 },
 
@@ -1159,7 +1171,7 @@ pub const Tokenizer = struct {
                         state = .start;
                         result.loc.start = self.index + 1;
                     },
-                    '\t', '\r' => state = .line_comment,
+                    '\t' => state = .line_comment,
                     else => {
                         state = .line_comment;
                         self.checkLiteralCharacter();
@@ -1173,7 +1185,7 @@ pub const Tokenizer = struct {
                         result.tag = .doc_comment;
                         break;
                     },
-                    '\t', '\r' => {
+                    '\t' => {
                         state = .doc_comment;
                         result.tag = .doc_comment;
                     },
@@ -1195,12 +1207,12 @@ pub const Tokenizer = struct {
                         state = .start;
                         result.loc.start = self.index + 1;
                     },
-                    '\t', '\r' => {},
+                    '\t' => {},
                     else => self.checkLiteralCharacter(),
                 },
                 .doc_comment => switch (c) {
                     0, '\n' => break,
-                    '\t', '\r' => {},
+                    '\t' => {},
                     else => self.checkLiteralCharacter(),
                 },
                 .int => switch (c) {
@@ -1271,7 +1283,15 @@ pub const Tokenizer = struct {
     fn getInvalidCharacterLength(self: *Tokenizer) u3 {
         const c0 = self.buffer[self.index];
         if (std.ascii.isASCII(c0)) {
-            if (std.ascii.isControl(c0)) {
+            if (c0 == '\r') {
+                if (self.index + 1 < self.buffer.len and self.buffer[self.index + 1] == '\n') {
+                    // Carriage returns are *only* allowed just before a linefeed as part of a CRLF pair, otherwise
+                    // they constitute an illegal byte!
+                    return 0;
+                } else {
+                    return 1;
+                }
+            } else if (std.ascii.isControl(c0)) {
                 // ascii control codes are never allowed
                 // (note that \n was checked before we got here)
                 return 1;
