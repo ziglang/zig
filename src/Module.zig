@@ -4365,11 +4365,12 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
             .file_scope = file,
         },
     };
-    const new_decl_index = try mod.allocateNewDecl(&struct_obj.namespace, 0, null);
+    const name = try file.fullyQualifiedNameZ(gpa);
+    const new_decl_index = try mod.allocateNewDecl(&struct_obj.namespace, 0, null, name);
+    errdefer mod.destroyDecl(new_decl_index);
     const new_decl = mod.declPtr(new_decl_index);
     file.root_decl = new_decl_index.toOptional();
     struct_obj.owner_decl = new_decl_index;
-    new_decl.name = try file.fullyQualifiedNameZ(gpa);
     new_decl.src_line = 0;
     new_decl.is_pub = true;
     new_decl.is_exported = false;
@@ -5099,9 +5100,9 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
     );
     const comp = mod.comp;
     if (!gop.found_existing) {
-        const new_decl_index = try mod.allocateNewDecl(namespace, decl_node, iter.parent_decl.src_scope);
+        const new_decl_index = try mod.allocateNewDecl(namespace, decl_node, iter.parent_decl.src_scope, decl_name);
+        errdefer mod.destroyDecl(new_decl_index);
         const new_decl = mod.declPtr(new_decl_index);
-        new_decl.name = decl_name;
         if (is_usingnamespace) {
             namespace.usingnamespace_set.putAssumeCapacity(new_decl_index, is_pub);
         }
@@ -5636,12 +5637,24 @@ fn markOutdatedDecl(mod: *Module, decl_index: Decl.Index) !void {
     decl.analysis = .outdated;
 }
 
+pub fn peekNextDeclIndex(mod: *const Module) Decl.Index {
+    if (mod.decls_free_list.items.len != 0) {
+        return mod.decls_free_list.items[mod.decls_free_list.items.len - 1];
+    } else {
+        return @intToEnum(Decl.Index, mod.allocated_decls.len - 1);
+    }
+}
+
+/// Takes ownership of `name` even if it returns an error.
 pub fn allocateNewDecl(
     mod: *Module,
     namespace: *Namespace,
     src_node: Ast.Node.Index,
     src_scope: ?*CaptureScope,
+    name: [:0]const u8,
 ) !Decl.Index {
+    errdefer mod.gpa.free(name);
+
     const decl_and_index: struct {
         new_decl: *Decl,
         decl_index: Decl.Index,
@@ -5664,7 +5677,7 @@ pub fn allocateNewDecl(
     };
 
     decl_and_index.new_decl.* = .{
-        .name = undefined,
+        .name = name,
         .src_namespace = namespace,
         .src_node = src_node,
         .src_line = undefined,
@@ -5744,29 +5757,24 @@ pub fn createAnonymousDeclFromDecl(
     src_scope: ?*CaptureScope,
     tv: TypedValue,
 ) !Decl.Index {
-    const new_decl_index = try mod.allocateNewDecl(namespace, src_decl.src_node, src_scope);
-    errdefer mod.destroyDecl(new_decl_index);
     const name = try std.fmt.allocPrintZ(mod.gpa, "{s}__anon_{d}", .{
-        src_decl.name, @enumToInt(new_decl_index),
+        src_decl.name, @enumToInt(mod.peekNextDeclIndex()),
     });
-    try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, namespace, tv, name);
+    const new_decl_index = try mod.allocateNewDecl(namespace, src_decl.src_node, src_scope, name);
+    errdefer mod.destroyDecl(new_decl_index);
+    try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, namespace, tv);
     return new_decl_index;
 }
 
-/// Takes ownership of `name` even if it returns an error.
 pub fn initNewAnonDecl(
     mod: *Module,
     new_decl_index: Decl.Index,
     src_line: u32,
     namespace: *Namespace,
     typed_value: TypedValue,
-    name: [:0]u8,
 ) !void {
-    errdefer mod.gpa.free(name);
-
     const new_decl = mod.declPtr(new_decl_index);
 
-    new_decl.name = name;
     new_decl.src_line = src_line;
     new_decl.ty = typed_value.ty;
     new_decl.val = typed_value.val;

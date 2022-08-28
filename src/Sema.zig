@@ -2323,31 +2323,21 @@ fn createAnonymousDeclTypeNamed(
     const src_scope = block.wip_capture_scope;
     const src_decl = mod.declPtr(block.src_decl);
     const src_node = src_decl.relativeToNodeIndex(src.node_offset.x);
-    const new_decl_index = try mod.allocateNewDecl(namespace, src_node, src_scope);
-    errdefer mod.destroyDecl(new_decl_index);
 
-    switch (name_strategy) {
-        .anon => {
+    const name = switch (name_strategy) {
+        .anon => name: {
             // It would be neat to have "struct:line:column" but this name has
             // to survive incremental updates, where it may have been shifted down
             // or up to a different line, but unchanged, and thus not unnecessarily
             // semantically analyzed.
             // This name is also used as the key in the parent namespace so it cannot be
             // renamed.
-            const name = try std.fmt.allocPrintZ(sema.gpa, "{s}__{s}_{d}", .{
-                src_decl.name, anon_prefix, @enumToInt(new_decl_index),
+            break :name try std.fmt.allocPrintZ(sema.gpa, "{s}__{s}_{d}", .{
+                src_decl.name, anon_prefix, @enumToInt(mod.peekNextDeclIndex()),
             });
-            errdefer sema.gpa.free(name);
-            try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, namespace, typed_value, name);
-            return new_decl_index;
         },
-        .parent => {
-            const name = try sema.gpa.dupeZ(u8, mem.sliceTo(sema.mod.declPtr(block.src_decl).name, 0));
-            errdefer sema.gpa.free(name);
-            try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, namespace, typed_value, name);
-            return new_decl_index;
-        },
-        .func => {
+        .parent => try sema.gpa.dupeZ(u8, mem.sliceTo(sema.mod.declPtr(block.src_decl).name, 0)),
+        .func => name: {
             const fn_info = sema.code.getFnInfo(sema.func.?.zir_body_inst);
             const zir_tags = sema.code.instructions.items(.tag);
 
@@ -2374,12 +2364,9 @@ fn createAnonymousDeclTypeNamed(
             };
 
             try buf.appendSlice(")");
-            const name = try buf.toOwnedSliceSentinel(0);
-            errdefer sema.gpa.free(name);
-            try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, namespace, typed_value, name);
-            return new_decl_index;
+            break :name try buf.toOwnedSliceSentinel(0);
         },
-        .dbg_var => {
+        .dbg_var => name: {
             const ref = Zir.indexToRef(inst.?);
             const zir_tags = sema.code.instructions.items(.tag);
             const zir_data = sema.code.instructions.items(.data);
@@ -2388,19 +2375,22 @@ fn createAnonymousDeclTypeNamed(
                 .dbg_var_ptr, .dbg_var_val => {
                     if (zir_data[i].str_op.operand != ref) continue;
 
-                    const name = try std.fmt.allocPrintZ(sema.gpa, "{s}.{s}", .{
+                    break :name try std.fmt.allocPrintZ(sema.gpa, "{s}.{s}", .{
                         src_decl.name, zir_data[i].str_op.getStr(sema.code),
                     });
-                    errdefer sema.gpa.free(name);
-
-                    try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, namespace, typed_value, name);
-                    return new_decl_index;
                 },
                 else => {},
             };
             return sema.createAnonymousDeclTypeNamed(block, src, typed_value, .anon, anon_prefix, null);
         },
-    }
+    };
+
+    var new_decl_index = try mod.allocateNewDecl(namespace, src_node, src_scope, name);
+    errdefer mod.destroyDecl(new_decl_index);
+
+    try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, namespace, typed_value);
+
+    return new_decl_index;
 }
 
 fn zirEnumDecl(
@@ -6444,14 +6434,13 @@ fn instantiateGenericCall(
         // Create a Decl for the new function.
         const src_decl_index = namespace.getDeclIndex();
         const src_decl = mod.declPtr(src_decl_index);
-        const new_decl_index = try mod.allocateNewDecl(namespace, fn_owner_decl.src_node, src_decl.src_scope);
-        errdefer mod.destroyDecl(new_decl_index);
-        const new_decl = mod.declPtr(new_decl_index);
         // TODO better names for generic function instantiations
         const decl_name = try std.fmt.allocPrintZ(gpa, "{s}__anon_{d}", .{
-            fn_owner_decl.name, @enumToInt(new_decl_index),
+            fn_owner_decl.name, @enumToInt(mod.peekNextDeclIndex()),
         });
-        new_decl.name = decl_name;
+        const new_decl_index = try mod.allocateNewDecl(namespace, fn_owner_decl.src_node, src_decl.src_scope, decl_name);
+        errdefer mod.destroyDecl(new_decl_index);
+        const new_decl = mod.declPtr(new_decl_index);
         new_decl.src_line = fn_owner_decl.src_line;
         new_decl.is_pub = fn_owner_decl.is_pub;
         new_decl.is_exported = fn_owner_decl.is_exported;
@@ -20168,11 +20157,10 @@ fn zirBuiltinExtern(
     }
 
     // TODO check duplicate extern
-
-    const new_decl_index = try sema.mod.allocateNewDecl(sema.owner_decl.src_namespace, sema.owner_decl.src_node, null);
+    const name = try sema.gpa.dupeZ(u8, options.name);
+    const new_decl_index = try sema.mod.allocateNewDecl(sema.owner_decl.src_namespace, sema.owner_decl.src_node, null, name);
     errdefer sema.mod.destroyDecl(new_decl_index);
     const new_decl = sema.mod.declPtr(new_decl_index);
-    new_decl.name = try sema.gpa.dupeZ(u8, options.name);
 
     var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
     errdefer new_decl_arena.deinit();
@@ -28600,17 +28588,18 @@ fn generateUnionTagTypeNumbered(
     const enum_val = try Value.Tag.ty.create(new_decl_arena_allocator, enum_ty);
 
     const src_decl = mod.declPtr(block.src_decl);
-    const new_decl_index = try mod.allocateNewDecl(block.namespace, src_decl.src_node, block.wip_capture_scope);
-    errdefer mod.destroyDecl(new_decl_index);
     const name = name: {
         const fqn = try union_obj.getFullyQualifiedName(mod);
         defer sema.gpa.free(fqn);
         break :name try std.fmt.allocPrintZ(mod.gpa, "@typeInfo({s}).Union.tag_type.?", .{fqn});
     };
+    const new_decl_index = try mod.allocateNewDecl(block.namespace, src_decl.src_node, block.wip_capture_scope, name);
+    errdefer mod.destroyDecl(new_decl_index);
+
     try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, block.namespace, .{
         .ty = Type.type,
         .val = enum_val,
-    }, name);
+    });
     sema.mod.declPtr(new_decl_index).name_fully_qualified = true;
 
     const new_decl = mod.declPtr(new_decl_index);
@@ -28658,17 +28647,18 @@ fn generateUnionTagTypeSimple(sema: *Sema, block: *Block, fields_len: usize, may
             });
         };
         const src_decl = mod.declPtr(block.src_decl);
-        const new_decl_index = try mod.allocateNewDecl(block.namespace, src_decl.src_node, block.wip_capture_scope);
-        errdefer mod.destroyDecl(new_decl_index);
         const name = name: {
             const fqn = try union_obj.getFullyQualifiedName(mod);
             defer sema.gpa.free(fqn);
             break :name try std.fmt.allocPrintZ(mod.gpa, "@typeInfo({s}).Union.tag_type.?", .{fqn});
         };
+        const new_decl_index = try mod.allocateNewDecl(block.namespace, src_decl.src_node, block.wip_capture_scope, name);
+        errdefer mod.destroyDecl(new_decl_index);
+
         try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, block.namespace, .{
             .ty = Type.type,
             .val = enum_val,
-        }, name);
+        });
         sema.mod.declPtr(new_decl_index).name_fully_qualified = true;
         break :new_decl_index new_decl_index;
     };
