@@ -5,6 +5,7 @@ const build_options = @import("build_options");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const coff = std.coff;
+const fmt = std.fmt;
 const log = std.log.scoped(.link);
 const math = std.math;
 const mem = std.mem;
@@ -36,6 +37,7 @@ base: link.File,
 error_flags: link.File.ErrorFlags = .{},
 
 ptr_width: PtrWidth,
+page_size: u32,
 
 sections: std.MultiArrayList(Section) = .{},
 data_directories: [16]coff.ImageDataDirectory,
@@ -69,7 +71,6 @@ managed_atoms: std.ArrayListUnmanaged(*Atom) = .{},
 /// Table of atoms indexed by the symbol index.
 atom_by_index_table: std.AutoHashMapUnmanaged(u32, *Atom) = .{},
 
-const default_section_alignment: u16 = 0x1000;
 const default_file_alignment: u16 = 0x200;
 const default_image_base_dll: u64 = 0x10000000;
 const default_image_base_exe: u64 = 0x10000;
@@ -150,6 +151,9 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Coff {
         33...64 => .p64,
         else => return error.UnsupportedCOFFArchitecture,
     };
+    const page_size: u32 = switch (options.target.cpu.arch) {
+        else => 0x1000,
+    };
     const self = try gpa.create(Coff);
     errdefer gpa.destroy(self);
     self.* = .{
@@ -160,6 +164,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Coff {
             .file = null,
         },
         .ptr_width = ptr_width,
+        .page_size = page_size,
         .data_directories = comptime mem.zeroes([16]coff.ImageDataDirectory),
     };
 
@@ -199,9 +204,15 @@ pub fn deinit(self: *Coff) void {
 }
 
 fn populateMissingMetadata(self: *Coff) !void {
+    assert(self.llvm_object == null);
     const gpa = self.base.allocator;
 
-    if (self.text_section_index == null) {}
+    if (self.text_section_index == null) {
+        self.text_section_index = @intCast(u16, self.sections.slice().len);
+        const file_size = self.base.options.program_code_size_hint;
+        const off = self.findFreeSpace(file_size, self.page_size); // TODO we are over-aligning in file; we should track both in file and in memory pointers
+        log.debug("found .text free space 0x{x} to 0x{x}", .{ off, off + file_size });
+    }
 
     if (self.got_section_index == null) {}
 
@@ -756,7 +767,7 @@ fn writeHeader(self: *Coff) !void {
     };
     const subsystem: coff.Subsystem = .WINDOWS_CUI;
     const size_of_headers: u32 = @intCast(u32, self.getSizeOfHeaders());
-    const size_of_image_aligned: u32 = mem.alignForwardGeneric(u32, size_of_headers, default_section_alignment);
+    const size_of_image_aligned: u32 = mem.alignForwardGeneric(u32, size_of_headers, self.page_size);
     const size_of_headers_aligned: u32 = mem.alignForwardGeneric(u32, size_of_headers, default_file_alignment);
     const image_base = self.base.options.image_base_override orelse switch (self.base.options.output_mode) {
         .Exe => default_image_base_exe,
@@ -777,7 +788,7 @@ fn writeHeader(self: *Coff) !void {
                 .base_of_code = 0,
                 .base_of_data = 0,
                 .image_base = @intCast(u32, image_base),
-                .section_alignment = default_section_alignment,
+                .section_alignment = self.page_size,
                 .file_alignment = default_file_alignment,
                 .major_operating_system_version = 6,
                 .minor_operating_system_version = 0,
@@ -811,7 +822,7 @@ fn writeHeader(self: *Coff) !void {
                 .address_of_entry_point = self.entry_addr orelse 0,
                 .base_of_code = 0,
                 .image_base = image_base,
-                .section_alignment = default_section_alignment,
+                .section_alignment = self.page_size,
                 .file_alignment = default_file_alignment,
                 .major_operating_system_version = 6,
                 .minor_operating_system_version = 0,
@@ -955,4 +966,24 @@ pub fn getAtomForSymbol(self: *Coff, sym_loc: SymbolWithLoc) ?*Atom {
 pub fn getGotAtomForSymbol(self: *Coff, sym_loc: SymbolWithLoc) ?*Atom {
     const got_index = self.got_entries.get(sym_loc) orelse return null;
     return self.atom_by_index_table.get(got_index);
+}
+
+fn setSectionName(self: *Coff, header: *coff.SectionHeader, name: []const u8) !void {
+    if (name.len <= 8) {
+        mem.copy(u8, &header.name, name);
+        return;
+    }
+    const offset = try self.strtab.insert(self.base.allocator, name);
+    const name_offset = try fmt.bufPrint(&header.name, "/{d}", .{offset});
+    mem.set(u8, header.name[name_offset.len..], 0);
+}
+
+fn setSymbolName(self: *Coff, symbol: *coff.Symbol, name: []const u8) !void {
+    if (name.len <= 8) {
+        mem.copy(u8, &symbol.name, name);
+        return;
+    }
+    const offset = try self.strtab.insert(self.base.allocator, name);
+    mem.copy(u8, symbol.name[0..4], 0);
+    _ = try fmt.bufPrint(symbol.name[4..], "{d}", .{offset});
 }
