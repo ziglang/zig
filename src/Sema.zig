@@ -9003,6 +9003,9 @@ fn zirSwitchCond(
         .ErrorSet,
         .Enum,
         => {
+            if (operand_ty.isSlice()) {
+                return sema.fail(block, src, "switch on type '{}'", .{operand_ty.fmt(sema.mod)});
+            }
             if ((try sema.typeHasOnePossibleValue(block, operand_src, operand_ty))) |opv| {
                 return sema.addConstant(operand_ty, opv);
             }
