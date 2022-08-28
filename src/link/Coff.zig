@@ -839,58 +839,42 @@ pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
         math.maxInt(@TypeOf(actual_size));
 }
 
-// fn detectAllocCollision(self: *Coff, start: u64, size: u64) ?u64 {
-//     const headers_size = self.getSizeOfHeaders();
-//     if (start < headers_size)
-//         return headers_size;
+fn detectAllocCollision(self: *Coff, start: u64, size: u64) ?u64 {
+    const headers_size = self.getSizeOfHeaders();
+    if (start < headers_size)
+        return headers_size;
 
-//     const end = start + padToIdeal(size);
+    const end = start + padToIdeal(size);
 
-//     for (self.sections.items(.header)) |header| {
-//         const increased_size = padToIdeal(section.sh_size);
-//         const test_end = section.sh_offset + increased_size;
-//         if (end > section.sh_offset and start < test_end) {
-//             return test_end;
-//         }
-//     }
-//     for (self.program_headers.items) |program_header| {
-//         const increased_size = padToIdeal(program_header.p_filesz);
-//         const test_end = program_header.p_offset + increased_size;
-//         if (end > program_header.p_offset and start < test_end) {
-//             return test_end;
-//         }
-//     }
-//     return null;
-// }
+    for (self.sections.items(.header)) |header| {
+        const increased_size = padToIdeal(header.size_of_raw_data);
+        const test_end = header.pointer_to_raw_data + increased_size;
+        if (end > header.pointer_to_raw_data and start < test_end) {
+            return test_end;
+        }
+    }
 
-// // pub fn allocatedSize(self: *Coff, start: u64) u64 {
-// //     if (start == 0)
-// //         return 0;
-// //     var min_pos: u64 = std.math.maxInt(u64);
-// //     if (self.shdr_table_offset) |off| {
-// //         if (off > start and off < min_pos) min_pos = off;
-// //     }
-// //     if (self.phdr_table_offset) |off| {
-// //         if (off > start and off < min_pos) min_pos = off;
-// //     }
-// //     for (self.sections.items) |section| {
-// //         if (section.sh_offset <= start) continue;
-// //         if (section.sh_offset < min_pos) min_pos = section.sh_offset;
-// //     }
-// //     for (self.program_headers.items) |program_header| {
-// //         if (program_header.p_offset <= start) continue;
-// //         if (program_header.p_offset < min_pos) min_pos = program_header.p_offset;
-// //     }
-// //     return min_pos - start;
-// // }
+    return null;
+}
 
-// pub fn findFreeSpace(self: *Coff, object_size: u64, min_alignment: u32) u64 {
-//     var start: u64 = 0;
-//     while (self.detectAllocCollision(start, object_size)) |item_end| {
-//         start = mem.alignForwardGeneric(u64, item_end, min_alignment);
-//     }
-//     return start;
-// }
+pub fn allocatedSize(self: *Coff, start: u64) u64 {
+    if (start == 0)
+        return 0;
+    var min_pos: u64 = std.math.maxInt(u64);
+    for (self.sections.items(.header)) |header| {
+        if (header.pointer_to_raw_data <= start) continue;
+        if (header.pointer_to_raw_data < min_pos) min_pos = header.pointer_to_raw_data;
+    }
+    return min_pos - start;
+}
+
+pub fn findFreeSpace(self: *Coff, object_size: u64, min_alignment: u32) u64 {
+    var start: u64 = 0;
+    while (self.detectAllocCollision(start, object_size)) |item_end| {
+        start = mem.alignForwardGeneric(u64, item_end, min_alignment);
+    }
+    return start;
+}
 
 inline fn getSizeOfHeaders(self: Coff) usize {
     const msdos_hdr_size = msdos_stub.len + 8;
