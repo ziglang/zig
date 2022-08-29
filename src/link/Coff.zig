@@ -30,6 +30,7 @@ const TypedValue = @import("../TypedValue.zig");
 pub const base_tag: link.File.Tag = .coff;
 
 const msdos_stub = @embedFile("msdos-stub.bin");
+const N_DATA_DIRS: u5 = 16;
 
 /// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
 llvm_object: ?*LlvmObject = null,
@@ -43,7 +44,7 @@ page_size: u32,
 objects: std.ArrayListUnmanaged(Object) = .{},
 
 sections: std.MultiArrayList(Section) = .{},
-data_directories: [16]coff.ImageDataDirectory,
+data_directories: [N_DATA_DIRS]coff.ImageDataDirectory,
 
 text_section_index: ?u16 = null,
 got_section_index: ?u16 = null,
@@ -114,7 +115,7 @@ const UnnamedConstTable = std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayL
 
 const default_file_alignment: u16 = 0x200;
 const default_image_base_dll: u64 = 0x10000000;
-const default_image_base_exe: u64 = 0x10000;
+const default_image_base_exe: u64 = 0x400000;
 const default_size_of_stack_reserve: u32 = 0x1000000;
 const default_size_of_stack_commit: u32 = 0x1000;
 const default_size_of_heap_reserve: u32 = 0x100000;
@@ -210,7 +211,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Coff {
         },
         .ptr_width = ptr_width,
         .page_size = page_size,
-        .data_directories = comptime mem.zeroes([16]coff.ImageDataDirectory),
+        .data_directories = comptime mem.zeroes([N_DATA_DIRS]coff.ImageDataDirectory),
     };
 
     const use_llvm = build_options.have_llvm and options.use_llvm;
@@ -487,8 +488,8 @@ fn allocateAtom(self: *Coff, atom: *Atom, new_atom_size: u32, alignment: u32, se
             @panic("TODO move section");
         }
         maybe_last_atom.* = atom;
-        header.virtual_size = needed_size;
-        header.size_of_raw_data = mem.alignForwardGeneric(u32, needed_size, default_file_alignment);
+        // header.virtual_size = needed_size;
+        // header.size_of_raw_data = mem.alignForwardGeneric(u32, needed_size, default_file_alignment);
     }
 
     // if (header.getAlignment().? < alignment) {
@@ -1196,10 +1197,9 @@ fn writeHeader(self: *Coff) !void {
 
     try buffer.ensureTotalCapacity(self.getSizeOfHeaders());
     writer.writeAll(msdos_stub) catch unreachable;
-    writer.writeByteNTimes(0, 4) catch unreachable; // align to 8 bytes
-    writer.writeAll("PE\x00\x00") catch unreachable;
-    mem.writeIntLittle(u32, buffer.items[0x3c..][0..4], msdos_stub.len + 4);
+    mem.writeIntLittle(u32, buffer.items[0x3c..][0..4], msdos_stub.len);
 
+    writer.writeAll("PE\x00\x00") catch unreachable;
     var flags = coff.CoffHeaderFlags{
         .EXECUTABLE_IMAGE = 1,
         .DEBUG_STRIPPED = 1, // TODO
@@ -1345,10 +1345,10 @@ fn detectAllocCollision(self: *Coff, start: u32, size: u32) ?u32 {
     if (start < headers_size)
         return headers_size;
 
-    const end = start + padToIdeal(size);
+    const end = start + size;
 
     if (self.strtab_offset) |off| {
-        const increased_size = padToIdeal(@intCast(u32, self.strtab.len()));
+        const increased_size = @intCast(u32, self.strtab.len());
         const test_end = off + increased_size;
         if (end > off and start < test_end) {
             return test_end;
@@ -1356,7 +1356,7 @@ fn detectAllocCollision(self: *Coff, start: u32, size: u32) ?u32 {
     }
 
     for (self.sections.items(.header)) |header| {
-        const increased_size = padToIdeal(header.size_of_raw_data);
+        const increased_size = header.size_of_raw_data;
         const test_end = header.pointer_to_raw_data + increased_size;
         if (end > header.pointer_to_raw_data and start < test_end) {
             return test_end;
@@ -1389,7 +1389,7 @@ pub fn findFreeSpace(self: *Coff, object_size: u32, min_alignment: u32) u32 {
 }
 
 inline fn getSizeOfHeaders(self: Coff) u32 {
-    const msdos_hdr_size = msdos_stub.len + 8;
+    const msdos_hdr_size = msdos_stub.len + 4;
     return @intCast(u32, msdos_hdr_size + @sizeOf(coff.CoffHeader) + self.getOptionalHeaderSize() +
         self.getDataDirectoryHeadersSize() + self.getSectionHeadersSize());
 }
@@ -1410,7 +1410,7 @@ inline fn getSectionHeadersSize(self: Coff) u32 {
 }
 
 inline fn getDataDirectoryHeadersOffset(self: Coff) u32 {
-    const msdos_hdr_size = msdos_stub.len + 8;
+    const msdos_hdr_size = msdos_stub.len + 4;
     return @intCast(u32, msdos_hdr_size + @sizeOf(coff.CoffHeader) + self.getOptionalHeaderSize());
 }
 
@@ -1419,13 +1419,11 @@ inline fn getSectionHeadersOffset(self: Coff) u32 {
 }
 
 inline fn getSizeOfImage(self: Coff) u32 {
-    var max_image_size: u32 = 0;
+    var image_size: u32 = mem.alignForwardGeneric(u32, self.getSizeOfHeaders(), self.page_size);
     for (self.sections.items(.header)) |header| {
-        if (header.virtual_address + header.virtual_size > max_image_size) {
-            max_image_size = header.virtual_address + header.virtual_size;
-        }
+        image_size += mem.alignForwardGeneric(u32, header.virtual_size, self.page_size);
     }
-    return mem.alignForwardGeneric(u32, @maximum(max_image_size, self.getSizeOfHeaders()), self.page_size);
+    return image_size;
 }
 
 /// Returns symbol location corresponding to the set entrypoint (if any).
