@@ -754,6 +754,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/C.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Coff.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Coff/Atom.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Coff/Object.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Coff/lld.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO.zig"
