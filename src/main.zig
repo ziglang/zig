@@ -3735,8 +3735,8 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
 
         var build_file: ?[]const u8 = null;
         var override_lib_dir: ?[]const u8 = null;
-        var override_global_cache_dir: ?[]const u8 = null;
-        var override_local_cache_dir: ?[]const u8 = null;
+        var override_global_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_GLOBAL_CACHE_DIR");
+        var override_local_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LOCAL_CACHE_DIR");
         var child_argv = std.ArrayList([]const u8).init(arena);
 
         const argv_index_exe = child_argv.items.len;
