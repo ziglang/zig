@@ -33,6 +33,7 @@ void zig_five_integers(int32_t, int32_t, int32_t, int32_t, int32_t);
 
 void zig_f32(float);
 void zig_f64(double);
+void zig_longdouble(long double);
 void zig_five_floats(float, float, float, float, float);
 
 bool zig_ret_bool();
@@ -157,6 +158,7 @@ void run_c_tests(void) {
 
     zig_f32(12.34f);
     zig_f64(56.78);
+    zig_longdouble(12.34l);
     zig_five_floats(1.0f, 2.0f, 3.0f, 4.0f, 5.0f);
 
     zig_ptr((void*)0xdeadbeefL);
@@ -269,6 +271,10 @@ void c_f32(float x) {
 
 void c_f64(double x) {
     assert_or_panic(x == 56.78);
+}
+
+void c_long_double(long double x) {
+    assert_or_panic(x == 12.34l);
 }
 
 void c_ptr(void *x) {
