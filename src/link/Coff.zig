@@ -104,6 +104,10 @@ unnamed_const_atoms: UnnamedConstTable = .{},
 relocs: RelocTable = .{},
 
 const Reloc = struct {
+    @"type": enum {
+        got_pcrel,
+        direct,
+    },
     target: SymbolWithLoc,
     offset: u32,
     addend: u32,
@@ -413,10 +417,11 @@ pub fn allocateDeclIndexes(self: *Coff, decl_index: Module.Decl.Index) !void {
     try self.decls.putNoClobber(gpa, decl_index, null);
 }
 
-fn allocateAtom(self: *Coff, atom: *Atom, new_atom_size: u32, alignment: u32, sect_id: u16) !u32 {
+fn allocateAtom(self: *Coff, atom: *Atom, new_atom_size: u32, alignment: u32) !u32 {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const sect_id = @enumToInt(atom.getSymbol(self).section_number) - 1;
     const header = &self.sections.items(.header)[sect_id];
     const free_list = &self.sections.items(.free_list)[sect_id];
     const maybe_last_atom = &self.sections.items(.last_atom)[sect_id];
@@ -580,18 +585,20 @@ fn createGotAtom(self: *Coff, target: SymbolWithLoc) !*Atom {
 
     try self.managed_atoms.append(gpa, atom);
     try self.atom_by_index_table.putNoClobber(gpa, atom.sym_index, atom);
+    self.got_entries.getPtr(target).?.* = atom.sym_index;
 
     const sym = atom.getSymbolPtr(self);
-    sym.value = try self.allocateAtom(atom, atom.size, atom.alignment, self.got_section_index.?);
     sym.section_number = @intToEnum(coff.SectionNumber, self.got_section_index.? + 1);
+    sym.value = try self.allocateAtom(atom, atom.size, atom.alignment);
 
-    log.debug("allocated {s} atom at 0x{x}", .{ atom.getName(self), sym.value });
+    log.debug("allocated GOT atom at 0x{x}", .{sym.value});
 
     const gop_relocs = try self.relocs.getOrPut(gpa, atom);
     if (!gop_relocs.found_existing) {
         gop_relocs.value_ptr.* = .{};
     }
     try gop_relocs.value_ptr.append(gpa, .{
+        .@"type" = .direct,
         .target = target,
         .offset = 0,
         .addend = 0,
@@ -601,72 +608,98 @@ fn createGotAtom(self: *Coff, target: SymbolWithLoc) !*Atom {
     return atom;
 }
 
-fn growAtom(self: *Coff, atom: *Atom, new_atom_size: u32, alignment: u32, sect_id: u16) !u32 {
+fn growAtom(self: *Coff, atom: *Atom, new_atom_size: u32, alignment: u32) !u32 {
     const sym = atom.getSymbol(self);
     const align_ok = mem.alignBackwardGeneric(u32, sym.value, alignment) == sym.value;
     const need_realloc = !align_ok or new_atom_size > atom.capacity(self);
     if (!need_realloc) return sym.value;
-    return self.allocateAtom(atom, new_atom_size, alignment, sect_id);
+    return self.allocateAtom(atom, new_atom_size, alignment);
 }
 
-fn shrinkAtom(self: *Coff, atom: *Atom, new_block_size: u32, sect_id: u16) void {
+fn shrinkAtom(self: *Coff, atom: *Atom, new_block_size: u32) void {
     _ = self;
     _ = atom;
     _ = new_block_size;
-    _ = sect_id;
     // TODO check the new capacity, and if it crosses the size threshold into a big enough
     // capacity, insert a free list node for it.
 }
 
-fn writeAtom(self: *Coff, atom: *Atom, code: []const u8, sect_id: u16) !void {
-    const section = self.sections.get(sect_id);
+fn writeAtom(self: *Coff, atom: *Atom, code: []const u8) !void {
     const sym = atom.getSymbol(self);
+    const section = self.sections.get(@enumToInt(sym.section_number) - 1);
     const file_offset = section.header.pointer_to_raw_data + sym.value - section.header.virtual_address;
-    const resolved = try self.resolveRelocs(atom, code);
-    defer self.base.allocator.free(resolved);
     log.debug("writing atom for symbol {s} at file offset 0x{x}", .{ atom.getName(self), file_offset });
-    try self.base.file.?.pwriteAll(resolved, file_offset);
+    try self.base.file.?.pwriteAll(code, file_offset);
+    try self.resolveRelocs(atom);
 }
 
 fn writeGotAtom(self: *Coff, atom: *Atom) !void {
     switch (self.ptr_width) {
         .p32 => {
             var buffer: [@sizeOf(u32)]u8 = [_]u8{0} ** @sizeOf(u32);
-            try self.writeAtom(atom, &buffer, self.got_section_index.?);
+            try self.writeAtom(atom, &buffer);
         },
         .p64 => {
             var buffer: [@sizeOf(u64)]u8 = [_]u8{0} ** @sizeOf(u64);
-            try self.writeAtom(atom, &buffer, self.got_section_index.?);
+            try self.writeAtom(atom, &buffer);
         },
     }
 }
 
-fn resolveRelocs(self: *Coff, atom: *Atom, code: []const u8) ![]const u8 {
-    const gpa = self.base.allocator;
-    const resolved = try gpa.dupe(u8, code);
-    const relocs = self.relocs.get(atom) orelse return resolved;
+fn resolveRelocs(self: *Coff, atom: *Atom) !void {
+    const relocs = self.relocs.get(atom) orelse return;
+    const source_sym = atom.getSymbol(self);
+    const source_section = self.sections.get(@enumToInt(source_sym.section_number) - 1).header;
+    const file_offset = source_section.pointer_to_raw_data + source_sym.value - source_section.virtual_address;
+
+    log.debug("relocating '{s}'", .{atom.getName(self)});
 
     for (relocs.items) |*reloc| {
-        const target_sym = self.getSymbol(reloc.target);
-        const target_vaddr = target_sym.value + reloc.addend;
-        if (target_vaddr == reloc.prev_vaddr) continue;
+        const target_vaddr = switch (reloc.@"type") {
+            .got_pcrel => blk: {
+                const got_atom = self.getGotAtomForSymbol(reloc.target) orelse continue;
+                break :blk got_atom.getSymbol(self).value;
+            },
+            .direct => self.getSymbol(reloc.target).value,
+        };
+        const target_vaddr_with_addend = target_vaddr + reloc.addend;
 
-        log.debug("  ({x}: [() => 0x{x} ({s}))", .{ reloc.offset, target_vaddr, self.getSymbolName(reloc.target) });
+        if (target_vaddr_with_addend == reloc.prev_vaddr) continue;
 
-        switch (self.ptr_width) {
-            .p32 => mem.writeIntLittle(u32, resolved[reloc.offset..][0..4], @intCast(u32, target_vaddr)),
-            .p64 => mem.writeIntLittle(u64, resolved[reloc.offset..][0..8], target_vaddr),
+        log.debug("  ({x}: [() => 0x{x} ({s})) ({s})", .{
+            reloc.offset,
+            target_vaddr_with_addend,
+            self.getSymbolName(reloc.target),
+            @tagName(reloc.@"type"),
+        });
+
+        switch (reloc.@"type") {
+            .got_pcrel => {
+                const source_vaddr = source_sym.value + reloc.offset;
+                const disp = target_vaddr_with_addend - source_vaddr - 4;
+                try self.base.file.?.pwriteAll(mem.asBytes(&@intCast(u32, disp)), file_offset + reloc.offset);
+            },
+            .direct => switch (self.ptr_width) {
+                .p32 => try self.base.file.?.pwriteAll(
+                    mem.asBytes(&@intCast(u32, target_vaddr_with_addend + default_image_base_exe)),
+                    file_offset + reloc.offset,
+                ),
+                .p64 => try self.base.file.?.pwriteAll(
+                    mem.asBytes(&(target_vaddr_with_addend + default_image_base_exe)),
+                    file_offset + reloc.offset,
+                ),
+            },
         }
 
-        reloc.prev_vaddr = target_vaddr;
+        reloc.prev_vaddr = target_vaddr_with_addend;
     }
-
-    return resolved;
 }
 
-fn freeAtom(self: *Coff, atom: *Atom, sect_id: u16) void {
+fn freeAtom(self: *Coff, atom: *Atom) void {
     log.debug("freeAtom {*}", .{atom});
 
+    const sym = atom.getSymbol(self);
+    const sect_id = @enumToInt(sym.section_number) - 1;
     const free_list = &self.sections.items(.free_list)[sect_id];
     var already_have_free_list_node = false;
     {
@@ -858,11 +891,14 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []const u8, 
     assert(atom.sym_index != 0); // Caller forgot to allocateDeclIndexes()
     if (atom.size != 0) {
         const sym = atom.getSymbolPtr(self);
+        try self.setSymbolName(sym, decl_name);
+        sym.section_number = @intToEnum(coff.SectionNumber, sect_index + 1);
+        sym.@"type" = .{ .complex_type = complex_type, .base_type = .NULL };
+
         const capacity = atom.capacity(self);
         const need_realloc = code.len > capacity or !mem.isAlignedGeneric(u64, sym.value, required_alignment);
-
         if (need_realloc) {
-            const vaddr = try self.growAtom(atom, code_len, required_alignment, sect_index);
+            const vaddr = try self.growAtom(atom, code_len, required_alignment);
             log.debug("growing {s} from 0x{x} to 0x{x}", .{ decl_name, sym.value, vaddr });
             log.debug("  (required alignment 0x{x}", .{required_alignment});
 
@@ -873,24 +909,20 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []const u8, 
                 try self.writeGotAtom(got_atom);
             }
         } else if (code_len < atom.size) {
-            self.shrinkAtom(atom, code_len, sect_index);
+            self.shrinkAtom(atom, code_len);
         }
         atom.size = code_len;
-        try self.setSymbolName(sym, decl_name);
-        sym.section_number = @intToEnum(coff.SectionNumber, sect_index + 1);
-        sym.@"type" = .{ .complex_type = complex_type, .base_type = .NULL };
     } else {
         const sym = atom.getSymbolPtr(self);
         try self.setSymbolName(sym, decl_name);
-        const vaddr = try self.allocateAtom(atom, code_len, required_alignment, sect_index);
-        errdefer self.freeAtom(atom, sect_index);
-
-        log.debug("allocated atom for {s} at 0x{x}", .{ decl_name, vaddr });
-
-        atom.size = code_len;
-        sym.value = vaddr;
         sym.section_number = @intToEnum(coff.SectionNumber, sect_index + 1);
         sym.@"type" = .{ .complex_type = complex_type, .base_type = .NULL };
+
+        const vaddr = try self.allocateAtom(atom, code_len, required_alignment);
+        errdefer self.freeAtom(atom);
+        log.debug("allocated atom for {s} at 0x{x}", .{ decl_name, vaddr });
+        atom.size = code_len;
+        sym.value = vaddr;
 
         const got_target = SymbolWithLoc{ .sym_index = atom.sym_index, .file = null };
         _ = try self.allocateGotEntry(got_target);
@@ -898,7 +930,7 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []const u8, 
         try self.writeGotAtom(got_atom);
     }
 
-    try self.writeAtom(atom, code, sect_index);
+    try self.writeAtom(atom, code);
 }
 
 pub fn freeDecl(self: *Coff, decl_index: Module.Decl.Index) void {
@@ -912,8 +944,8 @@ pub fn freeDecl(self: *Coff, decl_index: Module.Decl.Index) void {
     log.debug("freeDecl {*}", .{decl});
 
     const kv = self.decls.fetchRemove(decl_index);
-    if (kv.?.value) |index| {
-        self.freeAtom(&decl.link.coff, index);
+    if (kv.?.value) |_| {
+        self.freeAtom(&decl.link.coff);
     }
 
     // Appending to free lists is allowed to fail because the free lists are heuristics based anyway.
@@ -1132,6 +1164,13 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
 
     if (build_options.enable_logging) {
         self.logSymtab();
+    }
+
+    {
+        var it = self.relocs.keyIterator();
+        while (it.next()) |atom| {
+            try self.resolveRelocs(atom.*);
+        }
     }
 
     if (self.getEntryPoint()) |entry_sym_loc| {

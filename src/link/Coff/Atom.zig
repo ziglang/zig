@@ -45,8 +45,11 @@ pub fn deinit(self: *Atom, gpa: Allocator) void {
 }
 
 /// Returns symbol referencing this atom.
-pub fn getSymbol(self: Atom, coff_file: *Coff) coff.Symbol {
-    return self.getSymbolPtr(coff_file).*;
+pub fn getSymbol(self: Atom, coff_file: *const Coff) *const coff.Symbol {
+    return coff_file.getSymbol(.{
+        .sym_index = self.sym_index,
+        .file = self.file,
+    });
 }
 
 /// Returns pointer-to-symbol referencing this atom.
@@ -62,7 +65,7 @@ pub fn getSymbolWithLoc(self: Atom) SymbolWithLoc {
 }
 
 /// Returns the name of this atom.
-pub fn getName(self: Atom, coff_file: *Coff) []const u8 {
+pub fn getName(self: Atom, coff_file: *const Coff) []const u8 {
     return coff_file.getSymbolName(.{
         .sym_index = self.sym_index,
         .file = self.file,
@@ -70,7 +73,7 @@ pub fn getName(self: Atom, coff_file: *Coff) []const u8 {
 }
 
 /// Returns how much room there is to grow in virtual address space.
-pub fn capacity(self: Atom, coff_file: *Coff) u32 {
+pub fn capacity(self: Atom, coff_file: *const Coff) u32 {
     const self_sym = self.getSymbol(coff_file);
     if (self.next) |next| {
         const next_sym = next.getSymbol(coff_file);
@@ -82,7 +85,7 @@ pub fn capacity(self: Atom, coff_file: *Coff) u32 {
     }
 }
 
-pub fn freeListEligible(self: Atom, coff_file: *Coff) bool {
+pub fn freeListEligible(self: Atom, coff_file: *const Coff) bool {
     // No need to keep a free list node for the last atom.
     const next = self.next orelse return false;
     const self_sym = self.getSymbol(coff_file);

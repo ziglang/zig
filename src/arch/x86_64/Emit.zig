@@ -994,6 +994,7 @@ fn mirLeaPie(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     );
 
     const end_offset = emit.code.items.len;
+    const gpa = emit.bin_file.allocator;
 
     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
         const reloc_type = switch (ops.flags) {
@@ -1003,7 +1004,7 @@ fn mirLeaPie(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
         };
         const atom = macho_file.atom_by_index_table.get(relocation.atom_index).?;
         log.debug("adding reloc of type {} to local @{d}", .{ reloc_type, relocation.sym_index });
-        try atom.relocs.append(emit.bin_file.allocator, .{
+        try atom.relocs.append(gpa, .{
             .offset = @intCast(u32, end_offset - 4),
             .target = .{ .sym_index = relocation.sym_index, .file = null },
             .addend = 0,
@@ -1011,6 +1012,24 @@ fn mirLeaPie(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             .pcrel = true,
             .length = 2,
             .@"type" = reloc_type,
+        });
+    } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
+        const atom = coff_file.atom_by_index_table.get(relocation.atom_index).?;
+        log.debug("adding reloc to local @{d}", .{relocation.sym_index});
+        const gop = try coff_file.relocs.getOrPut(gpa, atom);
+        if (!gop.found_existing) {
+            gop.value_ptr.* = .{};
+        }
+        try gop.value_ptr.append(gpa, .{
+            .@"type" = switch (ops.flags) {
+                0b00 => .got_pcrel,
+                0b01 => .direct,
+                else => return emit.fail("TODO unused LEA PIE variants 0b10 and 0b11", .{}),
+            },
+            .target = .{ .sym_index = relocation.sym_index, .file = null },
+            .offset = @intCast(u32, end_offset - 4),
+            .addend = 0,
+            .prev_vaddr = atom.getSymbol(coff_file).value,
         });
     } else {
         return emit.fail(
