@@ -964,19 +964,19 @@ pub const Object = struct {
                             else => {},
                         }
                     }
-                    const ints_llvm_ty = dg.context.structType(field_types.ptr, @intCast(c_uint, field_types.len), .False);
-                    const casted_ptr = builder.buildBitCast(arg_ptr, ints_llvm_ty.pointerType(0), "");
+                    const floats_llvm_ty = dg.context.structType(field_types.ptr, @intCast(c_uint, field_types.len), .False);
+                    const casted_ptr = builder.buildBitCast(arg_ptr, floats_llvm_ty.pointerType(0), "");
                     for (llvm_floats) |_, i_usize| {
                         const i = @intCast(c_uint, i_usize);
                         const param = llvm_func.getParam(i);
-                        const field_ptr = builder.buildStructGEP(casted_ptr, i, "");
+                        const field_ptr = builder.buildStructGEP(floats_llvm_ty, casted_ptr, i, "");
                         const store_inst = builder.buildStore(param, field_ptr);
                         store_inst.setAlignment(target.cpu.arch.ptrBitWidth() / 8);
                     }
 
                     const is_by_ref = isByRef(param_ty);
                     const loaded = if (is_by_ref) arg_ptr else l: {
-                        const load_inst = builder.buildLoad(arg_ptr, "");
+                        const load_inst = builder.buildLoad(param_llvm_ty, arg_ptr, "");
                         load_inst.setAlignment(param_alignment);
                         break :l load_inst;
                     };
@@ -4529,13 +4529,13 @@ pub const FuncGen = struct {
                         else => {},
                     }
                 }
-                const ints_llvm_ty = self.dg.context.structType(field_types.ptr, @intCast(c_uint, field_types.len), .False);
-                const casted_ptr = self.builder.buildBitCast(arg_ptr, ints_llvm_ty.pointerType(0), "");
+                const floats_llvm_ty = self.dg.context.structType(field_types.ptr, @intCast(c_uint, field_types.len), .False);
+                const casted_ptr = self.builder.buildBitCast(arg_ptr, floats_llvm_ty.pointerType(0), "");
                 try llvm_args.ensureUnusedCapacity(it.llvm_types_len);
                 for (llvm_floats) |_, i_usize| {
                     const i = @intCast(c_uint, i_usize);
-                    const field_ptr = self.builder.buildStructGEP(casted_ptr, i, "");
-                    const load_inst = self.builder.buildLoad(field_ptr, "");
+                    const field_ptr = self.builder.buildStructGEP(floats_llvm_ty, casted_ptr, i, "");
+                    const load_inst = self.builder.buildLoad(field_types[i], field_ptr, "");
                     load_inst.setAlignment(target.cpu.arch.ptrBitWidth() / 8);
                     llvm_args.appendAssumeCapacity(load_inst);
                 }
@@ -8169,7 +8169,7 @@ pub const FuncGen = struct {
 
         const llvm_fn = try self.getIsNamedEnumValueFunction(enum_ty);
         const params = [_]*const llvm.Value{operand};
-        return self.builder.buildCall(llvm_fn, &params, params.len, .Fast, .Auto, "");
+        return self.builder.buildCall(llvm_fn.globalGetValueType(), llvm_fn, &params, params.len, .Fast, .Auto, "");
     }
 
     fn getIsNamedEnumValueFunction(self: *FuncGen, enum_ty: Type) !*const llvm.Value {
@@ -9249,8 +9249,9 @@ pub const FuncGen = struct {
 
         switch (target.cpu.arch) {
             .x86_64 => {
+                const array_llvm_ty = usize_llvm_ty.arrayType(6);
                 const array_ptr = fg.valgrind_client_request_array orelse a: {
-                    const array_ptr = fg.buildAlloca(usize_llvm_ty.arrayType(6));
+                    const array_ptr = fg.buildAlloca(array_llvm_ty);
                     array_ptr.setAlignment(usize_alignment);
                     fg.valgrind_client_request_array = array_ptr;
                     break :a array_ptr;
@@ -9261,7 +9262,7 @@ pub const FuncGen = struct {
                     const indexes = [_]*const llvm.Value{
                         zero, usize_llvm_ty.constInt(@intCast(c_uint, i), .False),
                     };
-                    const elem_ptr = fg.builder.buildInBoundsGEP(array_ptr, &indexes, indexes.len, "");
+                    const elem_ptr = fg.builder.buildInBoundsGEP(array_llvm_ty, array_ptr, &indexes, indexes.len, "");
                     const store_inst = fg.builder.buildStore(elem, elem_ptr);
                     store_inst.setAlignment(usize_alignment);
                 }
@@ -9291,6 +9292,7 @@ pub const FuncGen = struct {
                 );
 
                 const call = fg.builder.buildCall(
+                    fn_llvm_ty,
                     asm_fn,
                     &args,
                     args.len,
