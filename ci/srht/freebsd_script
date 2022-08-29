@@ -31,6 +31,8 @@ export TERM=dumb
 
 mkdir build
 cd build
+
+
 cmake .. \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PREFIX_PATH=$PREFIX \
@@ -38,40 +40,38 @@ cmake .. \
   -DZIG_TARGET_MCPU="$MCPU" \
   -DZIG_STATIC=ON \
   -GNinja
-samu install
 
 # TODO: eliminate this workaround. Without this, zig does not end up passing
 # -isystem /usr/include when building libc++, resulting in #include <sys/endian.h>
 # "file not found" errors.
-stage2/bin/zig libc >libc.txt
+echo "include_dir=/usr/include" >>libc.txt
+echo "sys_include_dir=/usr/include" >>libc.txt
+echo "crt_dir=/usr/lib" >>libc.txt
+echo "msvc_lib_dir=" >>libc.txt
+echo "kernel32_lib_dir=" >>libc.txt
+echo "gcc_dir=" >>libc.txt
+ZIG_LIBC_TXT="$(pwd)/libc.txt"
 
-ZIG_LIBC=libc.txt stage2/bin/zig build \
-  --prefix stage3-release \
-  --search-prefix "$PREFIX" \
-  -Dstatic-llvm \
-  -Drelease \
-  -Dstrip \
-  -Dtarget="$TARGET" \
-  -Denable-stage1
+ZIG_LIBC="$ZIG_LIBC_TXT" samu install
 
 # Here we skip some tests to save time.
-stage3-release/bin/zig build test docs \
+stage3/bin/zig build test docs \
   -Dstatic-llvm \
   --search-prefix "$PREFIX" \
   -Dskip-stage1 \
   -Dskip-non-native
 
 if [ -f ~/.s3cfg ]; then
-  mv ../LICENSE stage3-release/
-  mv ../zig-cache/langref.html stage3-release/
-  mv stage3-release/bin/zig stage3-release/
-  rmdir stage3-release/bin
+  mv ../LICENSE stage3/
+  mv ../zig-cache/langref.html stage3/
+  mv stage3/bin/zig stage3/
+  rmdir stage3/bin
 
   GITBRANCH=$(basename $GITHUB_REF)
-  VERSION=$(stage3-release/zig version)
+  VERSION=$(stage3/zig version)
   DIRNAME="zig-freebsd-x86_64-$VERSION"
   TARBALL="$DIRNAME.tar.xz"
-  mv stage3-release "$DIRNAME"
+  mv stage3 "$DIRNAME"
   tar cfJ "$TARBALL" "$DIRNAME"
 
   s3cmd put -P --add-header="cache-control: public, max-age=31536000, immutable" "$TARBALL" s3://ziglang.org/builds/

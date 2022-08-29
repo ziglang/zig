@@ -1,0 +1,9 @@
+#!/bin/sh
+
+set +x # Avoid leaking oauth token.
+set -e
+
+ZIG_PREFIX="$DRONE_WORKSPACE/_release/staging"
+VERSION=$($ZIG_PREFIX/bin/zig version)
+cd $DRONE_WORKSPACE
+./ci/srht/on_master_success "$VERSION" "$SRHT_OAUTH_TOKEN"

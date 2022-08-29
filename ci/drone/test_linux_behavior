@@ -1,8 +1,13 @@
 #!/bin/sh
 
-. ./ci/drone/linux_script_base
+set -x
+set -e
 
-./build/zig build test-behavior    -Dskip-non-native
-./build/zig build test-compiler-rt -Dskip-non-native
-./build/zig build test-fmt
-./build/zig build docs
+INSTALL_PREFIX="$DRONE_WORKSPACE/stage3-release"
+ZIG="$INSTALL_PREFIX/bin/zig"
+export ZIG_GLOBAL_CACHE_DIR="$DRONE_WORKSPACE/zig-cache"
+
+$ZIG build test-behavior    -Dskip-non-native
+$ZIG build test-compiler-rt -Dskip-non-native
+$ZIG build test-fmt
+$ZIG build docs

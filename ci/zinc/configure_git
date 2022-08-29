@@ -1,0 +1,10 @@
+#!/bin/sh
+
+set -x
+set -e
+
+# Make the `zig version` number consistent.
+# This will affect the cmake commands that follow.
+# This is in its own script because git does not support this command
+# being run concurrently with itself.
+git config core.abbrev 9
