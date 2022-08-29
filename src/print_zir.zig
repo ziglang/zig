@@ -1721,13 +1721,13 @@ const Writer = struct {
         const body = self.code.extra[extra_index..][0..body_len];
         extra_index += body.len;
 
+        const prev_parent_decl_node = self.parent_decl_node;
+        if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
+        try self.writeBracedDecl(stream, body);
         if (fields_len == 0) {
-            assert(body.len == 0);
-            try stream.writeAll("{}, {})");
+            try stream.writeAll(", {})");
+            self.parent_decl_node = prev_parent_decl_node;
         } else {
-            const prev_parent_decl_node = self.parent_decl_node;
-            if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
-            try self.writeBracedDecl(stream, body);
             try stream.writeAll(", {\n");
 
             self.indent += 2;

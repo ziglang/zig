@@ -1170,3 +1170,8 @@ test "switch on an extern enum with negative value" {
         Foo.Bar => return,
     }
 }
+
+test "Non-exhaustive enum with nonstandard int size behaves correctly" {
+    const E = enum(u15) { _ };
+    try expect(@sizeOf(E) == @sizeOf(u15));
+}

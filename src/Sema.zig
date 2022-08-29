@@ -2497,18 +2497,6 @@ fn zirEnumDecl(
     extra_index = try mod.scanNamespace(&enum_obj.namespace, extra_index, decls_len, new_decl);
 
     const body = sema.code.extra[extra_index..][0..body_len];
-    if (fields_len == 0) {
-        assert(body.len == 0);
-        if (tag_type_ref != .none) {
-            const ty = try sema.resolveType(block, tag_ty_src, tag_type_ref);
-            if (ty.zigTypeTag() != .Int and ty.zigTypeTag() != .ComptimeInt) {
-                return sema.fail(block, tag_ty_src, "expected integer tag type, found '{}'", .{ty.fmt(sema.mod)});
-            }
-            enum_obj.tag_ty = try ty.copy(new_decl_arena_allocator);
-            enum_obj.tag_ty_inferred = false;
-        }
-        return decl_val;
-    }
     extra_index += body.len;
 
     const bit_bags_count = std.math.divCeil(usize, fields_len, 32) catch unreachable;
@@ -2566,6 +2554,9 @@ fn zirEnumDecl(
             }
             enum_obj.tag_ty = try ty.copy(decl_arena_allocator);
             enum_obj.tag_ty_inferred = false;
+        } else if (fields_len == 0) {
+            enum_obj.tag_ty = try Type.Tag.int_unsigned.create(decl_arena_allocator, 0);
+            enum_obj.tag_ty_inferred = true;
         } else {
             const bits = std.math.log2_int_ceil(usize, fields_len);
             enum_obj.tag_ty = try Type.Tag.int_unsigned.create(decl_arena_allocator, bits);
@@ -3788,6 +3779,7 @@ fn validateStructInit(
     if ((is_comptime or block.is_comptime) and
         (try sema.resolveDefinedValue(block, init_src, struct_ptr)) != null)
     {
+        try sema.resolveStructLayout(block, init_src, struct_ty);
         // In this case the only thing we need to do is evaluate the implicit
         // store instructions for default field values, and report any missing fields.
         // Avoid the cost of the extra machinery for detecting a comptime struct init value.
@@ -3982,6 +3974,7 @@ fn validateStructInit(
         try sema.storePtr2(block, init_src, struct_ptr, init_src, struct_init, init_src, .store);
         return;
     }
+    try sema.resolveStructLayout(block, init_src, struct_ty);
 
     // Our task is to insert `store` instructions for all the default field values.
     for (found_fields) |field_ptr, i| {
@@ -9003,6 +8996,9 @@ fn zirSwitchCond(
         .ErrorSet,
         .Enum,
         => {
+            if (operand_ty.isSlice()) {
+                return sema.fail(block, src, "switch on type '{}'", .{operand_ty.fmt(sema.mod)});
+            }
             if ((try sema.typeHasOnePossibleValue(block, operand_src, operand_ty))) |opv| {
                 return sema.addConstant(operand_ty, opv);
             }
@@ -15849,6 +15845,7 @@ fn finishStructInit(
     }
 
     if (is_ref) {
+        try sema.resolveStructLayout(block, dest_src, struct_ty);
         const target = sema.mod.getTarget();
         const alloc_ty = try Type.ptr(sema.arena, sema.mod, .{
             .pointee_type = struct_ty,
@@ -21895,17 +21892,18 @@ fn unionFieldPtr(
                 if (union_val.isUndef()) {
                     return sema.failWithUseOfUndef(block, src);
                 }
+                const enum_field_index = union_obj.tag_ty.enumFieldIndex(field_name).?;
                 const tag_and_val = union_val.castTag(.@"union").?.data;
                 var field_tag_buf: Value.Payload.U32 = .{
                     .base = .{ .tag = .enum_field_index },
-                    .data = field_index,
+                    .data = @intCast(u32, enum_field_index),
                 };
                 const field_tag = Value.initPayload(&field_tag_buf.base);
                 const tag_matches = tag_and_val.tag.eql(field_tag, union_obj.tag_ty, sema.mod);
                 if (!tag_matches) {
                     const msg = msg: {
                         const active_index = tag_and_val.tag.castTag(.enum_field_index).?.data;
-                        const active_field_name = union_obj.fields.keys()[active_index];
+                        const active_field_name = union_obj.tag_ty.enumFieldName(active_index);
                         const msg = try sema.errMsg(block, src, "access of union field '{s}' while field '{s}' is active", .{ field_name, active_field_name });
                         errdefer msg.destroy(sema.gpa);
                         try sema.addDeclaredHereNote(msg, union_ty);
@@ -21930,12 +21928,11 @@ fn unionFieldPtr(
     if (!initializing and union_obj.layout == .Auto and block.wantSafety() and
         union_ty.unionTagTypeSafety() != null and union_obj.fields.count() > 1)
     {
-        const enum_ty = union_ty.unionTagTypeHypothetical();
         const wanted_tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
-        const wanted_tag = try sema.addConstant(enum_ty, wanted_tag_val);
+        const wanted_tag = try sema.addConstant(union_obj.tag_ty, wanted_tag_val);
         // TODO would it be better if get_union_tag supported pointers to unions?
         const union_val = try block.addTyOp(.load, union_ty, union_ptr);
-        const active_tag = try block.addTyOp(.get_union_tag, enum_ty, union_val);
+        const active_tag = try block.addTyOp(.get_union_tag, union_obj.tag_ty, union_val);
         const ok = try block.addBinOp(.cmp_eq, active_tag, wanted_tag);
         try sema.addSafetyCheck(block, ok, .inactive_union_field);
     }
@@ -21966,9 +21963,10 @@ fn unionFieldVal(
         if (union_val.isUndef()) return sema.addConstUndef(field.ty);
 
         const tag_and_val = union_val.castTag(.@"union").?.data;
+        const enum_field_index = union_obj.tag_ty.enumFieldIndex(field_name).?;
         var field_tag_buf: Value.Payload.U32 = .{
             .base = .{ .tag = .enum_field_index },
-            .data = field_index,
+            .data = @intCast(u32, enum_field_index),
         };
         const field_tag = Value.initPayload(&field_tag_buf.base);
         const tag_matches = tag_and_val.tag.eql(field_tag, union_obj.tag_ty, sema.mod);
@@ -21979,7 +21977,7 @@ fn unionFieldVal(
                 } else {
                     const msg = msg: {
                         const active_index = tag_and_val.tag.castTag(.enum_field_index).?.data;
-                        const active_field_name = union_obj.fields.keys()[active_index];
+                        const active_field_name = union_obj.tag_ty.enumFieldName(active_index);
                         const msg = try sema.errMsg(block, src, "access of union field '{s}' while field '{s}' is active", .{ field_name, active_field_name });
                         errdefer msg.destroy(sema.gpa);
                         try sema.addDeclaredHereNote(msg, union_ty);
@@ -22004,10 +22002,9 @@ fn unionFieldVal(
     if (union_obj.layout == .Auto and block.wantSafety() and
         union_ty.unionTagTypeSafety() != null and union_obj.fields.count() > 1)
     {
-        const enum_ty = union_ty.unionTagTypeHypothetical();
         const wanted_tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
-        const wanted_tag = try sema.addConstant(enum_ty, wanted_tag_val);
-        const active_tag = try block.addTyOp(.get_union_tag, enum_ty, union_byval);
+        const wanted_tag = try sema.addConstant(union_obj.tag_ty, wanted_tag_val);
+        const active_tag = try block.addTyOp(.get_union_tag, union_obj.tag_ty, union_byval);
         const ok = try block.addBinOp(.cmp_eq, active_tag, wanted_tag);
         try sema.addSafetyCheck(block, ok, .inactive_union_field);
     }
@@ -22254,8 +22251,7 @@ fn tupleField(
 
     if (try sema.resolveMaybeUndefVal(block, tuple_src, tuple)) |tuple_val| {
         if (tuple_val.isUndef()) return sema.addConstUndef(field_ty);
-        const field_values = tuple_val.castTag(.aggregate).?.data;
-        return sema.addConstant(field_ty, field_values[field_index]);
+        return sema.addConstant(field_ty, tuple_val.fieldValue(tuple_ty, field_index));
     }
 
     try sema.validateRuntimeElemAccess(block, field_index_src, field_ty, tuple_ty, tuple_src);
@@ -28854,10 +28850,11 @@ pub fn typeHasOnePossibleValue(
 
         .tuple, .anon_struct => {
             const tuple = ty.tupleFields();
-            for (tuple.values) |val| {
-                if (val.tag() == .unreachable_value) {
-                    return null; // non-comptime field
-                }
+            for (tuple.values) |val, i| {
+                const is_comptime = val.tag() != .unreachable_value;
+                if (is_comptime) continue;
+                if ((try sema.typeHasOnePossibleValue(block, src, tuple.types[i])) != null) continue;
+                return null;
             }
             return Value.initTag(.empty_struct_value);
         },

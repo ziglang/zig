@@ -301,3 +301,30 @@ test "tuple type with void field" {
     const x = T{{}};
     try expect(@TypeOf(x[0]) == void);
 }
+
+test "zero sized struct in tuple handled correctly" {
+    const State = struct {
+        const Self = @This();
+        data: @Type(.{
+            .Struct = .{
+                .is_tuple = true,
+                .layout = .Auto,
+                .decls = &.{},
+                .fields = &.{.{
+                    .name = "0",
+                    .field_type = struct {},
+                    .default_value = null,
+                    .is_comptime = false,
+                    .alignment = 0,
+                }},
+            },
+        }),
+
+        pub fn do(this: Self) usize {
+            return @sizeOf(@TypeOf(this));
+        }
+    };
+
+    var s: State = undefined;
+    try expect(s.do() == 0);
+}

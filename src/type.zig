@@ -4979,19 +4979,20 @@ pub const Type = extern union {
                 const s = ty.castTag(.@"struct").?.data;
                 assert(s.haveFieldTypes());
                 for (s.fields.values()) |field| {
-                    if (field.ty.onePossibleValue() == null) {
-                        return null;
-                    }
+                    if (field.is_comptime) continue;
+                    if (field.ty.onePossibleValue() != null) continue;
+                    return null;
                 }
                 return Value.initTag(.empty_struct_value);
             },
 
             .tuple, .anon_struct => {
                 const tuple = ty.tupleFields();
-                for (tuple.values) |val| {
-                    if (val.tag() == .unreachable_value) {
-                        return null; // non-comptime field
-                    }
+                for (tuple.values) |val, i| {
+                    const is_comptime = val.tag() != .unreachable_value;
+                    if (is_comptime) continue;
+                    if (tuple.types[i].onePossibleValue() != null) continue;
+                    return null;
                 }
                 return Value.initTag(.empty_struct_value);
             },

@@ -1164,6 +1164,10 @@ fn fnProtoExpr(
     const tree = astgen.tree;
     const token_tags = tree.tokens.items(.tag);
 
+    if (fn_proto.name_token) |some| {
+        return astgen.failTok(some, "function type cannot have a name", .{});
+    }
+
     const is_extern = blk: {
         const maybe_extern_token = fn_proto.extern_export_inline_token orelse break :blk false;
         break :blk token_tags[maybe_extern_token] == .keyword_extern;
