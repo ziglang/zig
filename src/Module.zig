@@ -5391,6 +5391,9 @@ fn deleteDeclExports(mod: *Module, decl_index: Decl.Index) void {
         if (mod.comp.bin_file.cast(link.File.Wasm)) |wasm| {
             wasm.deleteExport(exp.link.wasm);
         }
+        if (mod.comp.bin_file.cast(link.File.Coff)) |coff| {
+            coff.deleteExport(exp.link.coff);
+        }
         if (mod.failed_exports.fetchSwapRemove(exp)) |failed_kv| {
             failed_kv.value.destroy(mod.gpa);
         }
