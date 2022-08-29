@@ -24038,6 +24038,10 @@ svint32_t svusmmla(svint32_t, svuint8_t, svint8_t);
 } // extern "C"
 #endif
 
+#undef __ai
+
+#undef __aio
+
 #endif /*__ARM_FEATURE_SVE */
 
 #endif /* __ARM_SVE_H */
