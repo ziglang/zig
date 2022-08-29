@@ -1782,7 +1782,7 @@ pub fn getMatchingSegment(self: *Wasm, object_index: u16, relocatable_index: u32
             });
             break :blk index;
         },
-        .custom => return error.@"TODO: Custom section relocations for wasm",
+        .debug => return error.@"TODO: Custom section relocations for wasm",
     }
 }
 

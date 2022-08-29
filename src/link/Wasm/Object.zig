@@ -63,16 +63,21 @@ relocatable_data: []const RelocatableData = &.{},
 /// import name, module name and export names. Each string will be deduplicated
 /// and returns an offset into the table.
 string_table: Wasm.StringTable = .{},
+/// All the names of each debug section found in the current object file.
+/// Each name is terminated by a null-terminator. The name can be found,
+/// from the `index` offset within the `RelocatableData`.
+debug_names: [:0]const u8,
 
 /// Represents a single item within a section (depending on its `type`)
 const RelocatableData = struct {
     /// The type of the relocatable data
-    type: enum { data, code, custom },
+    type: enum { data, code, debug },
     /// Pointer to the data of the segment, where its length is written to `size`
     data: [*]u8,
     /// The size in bytes of the data representing the segment within the section
     size: u32,
-    /// The index within the section itself
+    /// The index within the section itself, or in case of a debug section,
+    /// the offset within the `debug_names` table.
     index: u32,
     /// The offset within the section where the data starts
     offset: u32,
@@ -96,7 +101,7 @@ const RelocatableData = struct {
         return switch (self.type) {
             .data => .data,
             .code => .function,
-            .custom => .section,
+            .debug => unreachable, // illegal, debug sections are not represented by a symbol
         };
     }
 };
@@ -111,6 +116,7 @@ pub fn create(gpa: Allocator, file: std.fs.File, name: []const u8, maybe_max_siz
     var object: Object = .{
         .file = file,
         .name = try gpa.dupe(u8, name),
+        .debug_names = &.{},
     };
 
     var is_object_file: bool = false;
@@ -195,6 +201,11 @@ pub fn importedCountByKind(self: *const Object, kind: std.wasm.ExternalKind) u32
     return for (self.imports) |imp| {
         if (@as(std.wasm.ExternalKind, imp.kind) == kind) i += 1;
     } else i;
+}
+
+/// From a given `RelocatableDate`, find the corresponding debug section name
+pub fn getDebugName(self: *const Object, relocatable_data: RelocatableData) []const u8 {
+    return std.mem.sliceTo(self.debug_names[relocatable_data.index..], 0);
 }
 
 /// Checks if the object file is an MVP version.
@@ -328,10 +339,15 @@ fn Parser(comptime ReaderType: type) type {
 
             self.object.version = version;
             var relocatable_data = std.ArrayList(RelocatableData).init(gpa);
+            var debug_names = std.ArrayList(u8).init(gpa);
 
-            errdefer while (relocatable_data.popOrNull()) |rel_data| {
-                gpa.free(rel_data.data[0..rel_data.size]);
-            } else relocatable_data.deinit();
+            errdefer {
+                while (relocatable_data.popOrNull()) |rel_data| {
+                    gpa.free(rel_data.data[0..rel_data.size]);
+                } else relocatable_data.deinit();
+                gpa.free(debug_names.items);
+                debug_names.deinit();
+            }
 
             var section_index: u32 = 0;
             while (self.reader.reader().readByte()) |byte| : (section_index += 1) {
@@ -352,6 +368,24 @@ fn Parser(comptime ReaderType: type) type {
                             try self.parseRelocations(gpa);
                         } else if (std.mem.eql(u8, name, "target_features")) {
                             try self.parseFeatures(gpa);
+                        } else if (std.mem.startsWith(u8, name, ".debug")) {
+                            const debug_size = @intCast(u32, reader.context.bytes_left);
+                            const debug_content = try gpa.alloc(u8, debug_size);
+                            errdefer gpa.free(debug_content);
+                            try reader.readNoEof(debug_content);
+
+                            const debug_name_index = @intCast(u32, debug_names.items.len);
+                            try debug_names.ensureUnusedCapacity(name.len + 1);
+                            debug_names.appendSliceAssumeCapacity(try gpa.dupe(u8, name));
+                            debug_names.appendAssumeCapacity(0);
+                            try relocatable_data.append(.{
+                                .type = .debug,
+                                .data = debug_content.ptr,
+                                .size = debug_size,
+                                .index = debug_name_index,
+                                .offset = len - debug_size,
+                                .section_index = section_index,
+                            });
                         } else {
                             try reader.skipBytes(reader.context.bytes_left, .{});
                         }
@@ -517,6 +551,9 @@ fn Parser(comptime ReaderType: type) type {
                 else => |e| return e,
             }
             self.object.relocatable_data = relocatable_data.toOwnedSlice();
+
+            const names = debug_names.toOwnedSlice();
+            self.object.debug_names = names[0 .. names.len - 1 :0];
         }
 
         /// Based on the "features" custom section, parses it into a list of
