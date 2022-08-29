@@ -10,8 +10,10 @@
 #define _LIBCPP___ALGORITHM_REVERSE_H
 
 #include <__algorithm/iter_swap.h>
+#include <__algorithm/iterator_operations.h>
 #include <__config>
 #include <__iterator/iterator_traits.h>
+#include <__utility/move.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -19,28 +21,35 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <class _BidirectionalIterator>
+template <class _AlgPolicy, class _BidirectionalIterator>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 void
-__reverse(_BidirectionalIterator __first, _BidirectionalIterator __last, bidirectional_iterator_tag)
+__reverse_impl(_BidirectionalIterator __first, _BidirectionalIterator __last, bidirectional_iterator_tag)
 {
     while (__first != __last)
     {
         if (__first == --__last)
             break;
-        _VSTD::iter_swap(__first, __last);
+        _IterOps<_AlgPolicy>::iter_swap(__first, __last);
         ++__first;
     }
 }
 
-template <class _RandomAccessIterator>
+template <class _AlgPolicy, class _RandomAccessIterator>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 void
-__reverse(_RandomAccessIterator __first, _RandomAccessIterator __last, random_access_iterator_tag)
+__reverse_impl(_RandomAccessIterator __first, _RandomAccessIterator __last, random_access_iterator_tag)
 {
     if (__first != __last)
         for (; __first < --__last; ++__first)
-            _VSTD::iter_swap(__first, __last);
+            _IterOps<_AlgPolicy>::iter_swap(__first, __last);
+}
+
+template <class _AlgPolicy, class _BidirectionalIterator, class _Sentinel>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17
+void __reverse(_BidirectionalIterator __first, _Sentinel __last) {
+  using _IterCategory = typename _IterOps<_AlgPolicy>::template __iterator_category<_BidirectionalIterator>;
+  std::__reverse_impl<_AlgPolicy>(std::move(__first), std::move(__last), _IterCategory());
 }
 
 template <class _BidirectionalIterator>
@@ -48,7 +57,7 @@ inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 void
 reverse(_BidirectionalIterator __first, _BidirectionalIterator __last)
 {
-    _VSTD::__reverse(__first, __last, typename iterator_traits<_BidirectionalIterator>::iterator_category());
+  std::__reverse<_ClassicAlgPolicy>(std::move(__first), std::move(__last));
 }
 
 _LIBCPP_END_NAMESPACE_STD

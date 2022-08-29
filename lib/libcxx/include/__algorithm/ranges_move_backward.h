@@ -40,10 +40,11 @@ struct __fn {
   template <class _InIter, class _Sent, class _OutIter>
   _LIBCPP_HIDE_FROM_ABI constexpr static
   move_backward_result<_InIter, _OutIter> __move_backward_impl(_InIter __first, _Sent __last, _OutIter __result) {
-    auto __ret = ranges::move(std::make_reverse_iterator(ranges::next(__first, __last)),
+    auto __last_iter = ranges::next(__first, std::move(__last));
+    auto __ret = ranges::move(std::make_reverse_iterator(__last_iter),
                               std::make_reverse_iterator(__first),
                               std::make_reverse_iterator(__result));
-    return {std::move(__ret.in.base()), std::move(__ret.out.base())};
+    return {std::move(__last_iter), std::move(__ret.out.base())};
   }
 
   template <bidirectional_iterator _InIter, sentinel_for<_InIter> _Sent, bidirectional_iterator _OutIter>

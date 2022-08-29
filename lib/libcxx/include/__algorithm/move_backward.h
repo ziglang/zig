@@ -9,6 +9,7 @@
 #ifndef _LIBCPP___ALGORITHM_MOVE_BACKWARD_H
 #define _LIBCPP___ALGORITHM_MOVE_BACKWARD_H
 
+#include <__algorithm/iterator_operations.h>
 #include <__algorithm/unwrap_iter.h>
 #include <__config>
 #include <__utility/move.h>
@@ -21,25 +22,25 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <class _InputIterator, class _OutputIterator>
+template <class _AlgPolicy, class _InputIterator, class _OutputIterator>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
 _OutputIterator
 __move_backward_constexpr(_InputIterator __first, _InputIterator __last, _OutputIterator __result)
 {
     while (__first != __last)
-        *--__result = _VSTD::move(*--__last);
+        *--__result = _IterOps<_AlgPolicy>::__iter_move(--__last);
     return __result;
 }
 
-template <class _InputIterator, class _OutputIterator>
+template <class _AlgPolicy, class _InputIterator, class _OutputIterator>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
 _OutputIterator
-__move_backward(_InputIterator __first, _InputIterator __last, _OutputIterator __result)
+__move_backward_impl(_InputIterator __first, _InputIterator __last, _OutputIterator __result)
 {
-    return _VSTD::__move_backward_constexpr(__first, __last, __result);
+    return _VSTD::__move_backward_constexpr<_AlgPolicy>(__first, __last, __result);
 }
 
-template <class _Tp, class _Up>
+template <class _AlgPolicy, class _Tp, class _Up>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14
 typename enable_if
 <
@@ -47,7 +48,7 @@ typename enable_if
     is_trivially_move_assignable<_Up>::value,
     _Up*
 >::type
-__move_backward(_Tp* __first, _Tp* __last, _Up* __result)
+__move_backward_impl(_Tp* __first, _Tp* __last, _Up* __result)
 {
     const size_t __n = static_cast<size_t>(__last - __first);
     if (__n > 0)
@@ -58,20 +59,29 @@ __move_backward(_Tp* __first, _Tp* __last, _Up* __result)
     return __result;
 }
 
+template <class _AlgPolicy, class _BidirectionalIterator1, class _BidirectionalIterator2>
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
+_BidirectionalIterator2
+__move_backward(_BidirectionalIterator1 __first, _BidirectionalIterator1 __last,
+                _BidirectionalIterator2 __result)
+{
+    if (__libcpp_is_constant_evaluated()) {
+        return _VSTD::__move_backward_constexpr<_AlgPolicy>(__first, __last, __result);
+    } else {
+        return _VSTD::__rewrap_iter(__result,
+            _VSTD::__move_backward_impl<_AlgPolicy>(_VSTD::__unwrap_iter(__first),
+                                                    _VSTD::__unwrap_iter(__last),
+                                                    _VSTD::__unwrap_iter(__result)));
+    }
+}
+
 template <class _BidirectionalIterator1, class _BidirectionalIterator2>
 inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
 _BidirectionalIterator2
 move_backward(_BidirectionalIterator1 __first, _BidirectionalIterator1 __last,
               _BidirectionalIterator2 __result)
 {
-    if (__libcpp_is_constant_evaluated()) {
-        return _VSTD::__move_backward_constexpr(__first, __last, __result);
-    } else {
-        return _VSTD::__rewrap_iter(__result,
-            _VSTD::__move_backward(_VSTD::__unwrap_iter(__first),
-                                   _VSTD::__unwrap_iter(__last),
-                                   _VSTD::__unwrap_iter(__result)));
-    }
+  return std::__move_backward<_ClassicAlgPolicy>(std::move(__first), std::move(__last), std::move(__result));
 }
 
 _LIBCPP_END_NAMESPACE_STD

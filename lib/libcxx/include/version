@@ -331,8 +331,8 @@ __cpp_lib_void_t                                        201411L <type_traits>
 # define __cpp_lib_erase_if                             202002L
 # undef  __cpp_lib_execution
 // # define __cpp_lib_execution                            201902L
-# if !defined(_LIBCPP_AVAILABILITY_DISABLE_FTM___cpp_lib_format)
-// #   define __cpp_lib_format                             202106L
+# if !defined(_LIBCPP_AVAILABILITY_DISABLE_FTM___cpp_lib_format) && !defined(_LIBCPP_HAS_NO_INCOMPLETE_FORMAT)
+#   define __cpp_lib_format                             202106L
 # endif
 # define __cpp_lib_generic_unordered_lookup             201811L
 # define __cpp_lib_int_pow2                             202002L
@@ -351,7 +351,9 @@ __cpp_lib_void_t                                        201411L <type_traits>
 # define __cpp_lib_list_remove_return_type              201806L
 # define __cpp_lib_math_constants                       201907L
 // # define __cpp_lib_polymorphic_allocator                201902L
-// # define __cpp_lib_ranges                               201811L
+# if !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#   define __cpp_lib_ranges                             201811L
+# endif
 # define __cpp_lib_remove_cvref                         201711L
 # if !defined(_LIBCPP_HAS_NO_THREADS) && !defined(_LIBCPP_AVAILABILITY_DISABLE_FTM___cpp_lib_semaphore)
 #   define __cpp_lib_semaphore                          201907L

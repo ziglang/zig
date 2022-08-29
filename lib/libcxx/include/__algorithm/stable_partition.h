@@ -108,7 +108,7 @@ __stable_partition_impl(_ForwardIterator __first, _ForwardIterator __last, _Pred
 __second_half_done:
     // TTTFFFFFTTTTTFFFFF
     // f  ff   m    sf   l
-    return std::__rotate<_AlgPolicy>(__first_false, __m, __second_false, __fit);
+    return std::__rotate<_AlgPolicy>(__first_false, __m, __second_false).first;
     // TTTTTTTTFFFFFFFFFF
     //         |
 }
@@ -253,7 +253,7 @@ __first_half_done:
 __second_half_done:
     // TTTFFFFFTTTTTFFFFF
     // f  ff   m    sf  l
-    return std::__rotate<_AlgPolicy>(__first_false, __m, __second_false, __bit);
+    return std::__rotate<_AlgPolicy>(__first_false, __m, __second_false).first;
     // TTTTTTTTFFFFFFFFFF
     //         |
 }

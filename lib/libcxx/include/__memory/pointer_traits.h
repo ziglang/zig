@@ -12,6 +12,7 @@
 
 #include <__config>
 #include <__memory/addressof.h>
+#include <cstddef>
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -171,9 +172,30 @@ _Tp* __to_address(_Tp* __p) _NOEXCEPT {
     return __p;
 }
 
+template <class _Pointer, class = void>
+struct _HasToAddress : false_type {};
+
+template <class _Pointer>
+struct _HasToAddress<_Pointer,
+    decltype((void)pointer_traits<_Pointer>::to_address(declval<const _Pointer&>()))
+> : true_type {};
+
+template <class _Pointer, class = void>
+struct _HasArrow : false_type {};
+
+template <class _Pointer>
+struct _HasArrow<_Pointer,
+    decltype((void)declval<const _Pointer&>().operator->())
+> : true_type {};
+
+template <class _Pointer>
+struct _IsFancyPointer {
+  static const bool value = _HasArrow<_Pointer>::value || _HasToAddress<_Pointer>::value;
+};
+
 // enable_if is needed here to avoid instantiating checks for fancy pointers on raw pointers
 template <class _Pointer, class = __enable_if_t<
-    !is_pointer<_Pointer>::value && !is_array<_Pointer>::value && !is_function<_Pointer>::value
+    _And<is_class<_Pointer>, _IsFancyPointer<_Pointer> >::value
 > >
 _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR
 typename decay<decltype(__to_address_helper<_Pointer>::__call(declval<const _Pointer&>()))>::type
@@ -208,7 +230,7 @@ auto to_address(_Tp *__p) noexcept {
 
 template <class _Pointer>
 inline _LIBCPP_INLINE_VISIBILITY constexpr
-auto to_address(const _Pointer& __p) noexcept {
+auto to_address(const _Pointer& __p) noexcept -> decltype(std::__to_address(__p)) {
     return _VSTD::__to_address(__p);
 }
 #endif

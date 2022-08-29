@@ -166,11 +166,11 @@
     // user has provided their own).
     //
     // Users can pass -D_LIBCPP_AVAILABILITY_CUSTOM_VERBOSE_ABORT_PROVIDED
-    // to the compiler to tell the library to ignore the fact that the
-    // default function isn't available on their deployment target. Note that
-    // defining this macro but failing to define a custom function will lead to
-    // a load-time error on back-deployment targets, so it should be avoided.
-#   define _LIBCPP_AVAILABILITY_DEFAULT_VERBOSE_ABORT
+    // to the compiler to tell the library not to define its own verbose abort.
+    // Note that defining this macro but failing to define a custom function
+    // will lead to a load-time error on back-deployment targets, so it should
+    // be avoided.
+// #   define _LIBCPP_HAS_NO_VERBOSE_ABORT_IN_LIBRARY
 
 #elif defined(__APPLE__)
 
@@ -271,8 +271,8 @@
         __attribute__((unavailable))
 #   define _LIBCPP_AVAILABILITY_DISABLE_FTM___cpp_lib_format
 
-#   define _LIBCPP_AVAILABILITY_DEFAULT_VERBOSE_ABORT                  \
-        __attribute__((unavailable))
+#   define _LIBCPP_HAS_NO_VERBOSE_ABORT_IN_LIBRARY
+
 #else
 
 // ...New vendors can add availability markup here...
@@ -294,16 +294,6 @@
 #   define _LIBCPP_AVAILABILITY_THROW_BAD_ANY_CAST        _LIBCPP_AVAILABILITY_BAD_ANY_CAST
 #   define _LIBCPP_AVAILABILITY_THROW_BAD_OPTIONAL_ACCESS _LIBCPP_AVAILABILITY_BAD_OPTIONAL_ACCESS
 #   define _LIBCPP_AVAILABILITY_THROW_BAD_VARIANT_ACCESS  _LIBCPP_AVAILABILITY_BAD_VARIANT_ACCESS
-#endif
-
-// Define the special verbose termination function availability attribute, which can be silenced by
-// users if they provide their own custom function. The rest of the code should not use the
-// *_DEFAULT_* macro directly, since that would make it ignore the fact that the user provided
-// a custom function.
-#if defined(_LIBCPP_AVAILABILITY_CUSTOM_VERBOSE_ABORT_PROVIDED)
-#   define _LIBCPP_AVAILABILITY_VERBOSE_ABORT /* nothing */
-#else
-#   define _LIBCPP_AVAILABILITY_VERBOSE_ABORT _LIBCPP_AVAILABILITY_DEFAULT_VERBOSE_ABORT
 #endif
 
 #endif // _LIBCPP___AVAILABILITY

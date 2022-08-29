@@ -363,7 +363,7 @@ class __unconstrained_reverse_iterator {
   _Iter __iter_;
 
 public:
-  static_assert(__is_cpp17_bidirectional_iterator<_Iter>::value);
+  static_assert(__is_cpp17_bidirectional_iterator<_Iter>::value || bidirectional_iterator<_Iter>);
 
   using iterator_type = _Iter;
   using iterator_category =
@@ -389,6 +389,14 @@ public:
     } else {
       return std::prev(__iter_).operator->();
     }
+  }
+
+  _LIBCPP_HIDE_FROM_ABI friend constexpr
+  iter_rvalue_reference_t<_Iter> iter_move(const __unconstrained_reverse_iterator& __i)
+    noexcept(is_nothrow_copy_constructible_v<_Iter> &&
+        noexcept(ranges::iter_move(--declval<_Iter&>()))) {
+    auto __tmp = __i.base();
+    return ranges::iter_move(--__tmp);
   }
 
   _LIBCPP_HIDE_FROM_ABI constexpr __unconstrained_reverse_iterator& operator++() {

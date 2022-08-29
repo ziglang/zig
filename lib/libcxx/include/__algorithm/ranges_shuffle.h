@@ -11,6 +11,7 @@
 
 #include <__algorithm/iterator_operations.h>
 #include <__algorithm/shuffle.h>
+#include <__algorithm/uniform_random_bit_generator_adaptor.h>
 #include <__config>
 #include <__functional/invoke.h>
 #include <__functional/ranges_operations.h>
@@ -32,43 +33,12 @@
 
 #if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
-
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace ranges {
 namespace __shuffle {
 
 struct __fn {
-  // `std::shuffle` is more constrained than `std::ranges::shuffle`. `std::ranges::shuffle` only requires the given
-  // generator to satisfy the `std::uniform_random_bit_generator` concept. `std::shuffle` requires the given
-  // generator to meet the uniform random bit generator requirements; these requirements include satisfying
-  // `std::uniform_random_bit_generator` and add a requirement for the generator to provide a nested `result_type`
-  // typedef (see `[rand.req.urng]`).
-  //
-  // To reuse the implementation from `std::shuffle`, make the given generator meet the classic requirements by wrapping
-  // it into an adaptor type that forwards all of its interface and adds the required typedef.
-  template <class _Gen>
-  class _ClassicGenAdaptor {
-  private:
-    // The generator is not required to be copyable or movable, so it has to be stored as a reference.
-    _Gen& __gen;
-
-  public:
-    using result_type = invoke_result_t<_Gen&>;
-
-    _LIBCPP_HIDE_FROM_ABI
-    static constexpr auto min() { return __uncvref_t<_Gen>::min(); }
-    _LIBCPP_HIDE_FROM_ABI
-    static constexpr auto max() { return __uncvref_t<_Gen>::max(); }
-
-    _LIBCPP_HIDE_FROM_ABI
-    constexpr explicit _ClassicGenAdaptor(_Gen& __g) : __gen(__g) {}
-
-    _LIBCPP_HIDE_FROM_ABI
-    constexpr auto operator()() const { return __gen(); }
-  };
 
   template <random_access_iterator _Iter, sentinel_for<_Iter> _Sent, class _Gen>
   requires permutable<_Iter> && uniform_random_bit_generator<remove_reference_t<_Gen>>
@@ -95,8 +65,6 @@ inline namespace __cpo {
 } // namespace ranges
 
 _LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 

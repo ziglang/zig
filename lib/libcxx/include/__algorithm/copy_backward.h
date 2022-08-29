@@ -20,7 +20,6 @@
 #include <__ranges/subrange.h>
 #include <__utility/move.h>
 #include <__utility/pair.h>
-#include <cstring>
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -44,9 +43,10 @@ __copy_backward(_InputIterator __first, _InputIterator __last, _OutputIterator _
 template <class _AlgPolicy, class _Iter1, class _Sent1, class _Iter2,
           __enable_if_t<is_same<_AlgPolicy, _RangeAlgPolicy>::value, int> = 0>
 _LIBCPP_HIDE_FROM_ABI constexpr pair<_Iter1, _Iter2> __copy_backward(_Iter1 __first, _Sent1 __last, _Iter2 __result) {
-  auto __reverse_range = std::__reverse_range(std::ranges::subrange(std::move(__first), std::move(__last)));
+  auto __last_iter     = _IterOps<_AlgPolicy>::next(__first, std::move(__last));
+  auto __reverse_range = std::__reverse_range(std::ranges::subrange(std::move(__first), __last_iter));
   auto __ret           = ranges::copy(std::move(__reverse_range), std::make_reverse_iterator(__result));
-  return std::make_pair(__ret.in.base(), __ret.out.base());
+  return std::make_pair(__last_iter, __ret.out.base());
 }
 #endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 

@@ -10,19 +10,16 @@
 #define _LIBCPP___ALGORITHM_RANGES_REPLACE_COPY_H
 
 #include <__algorithm/in_out_result.h>
-#include <__algorithm/make_projected.h>
-#include <__algorithm/replace_copy.h>
+#include <__algorithm/ranges_replace_copy_if.h>
 #include <__config>
 #include <__functional/identity.h>
 #include <__functional/invoke.h>
 #include <__functional/ranges_operations.h>
 #include <__iterator/concepts.h>
-#include <__iterator/iterator_traits.h>
 #include <__iterator/projected.h>
 #include <__ranges/access.h>
 #include <__ranges/concepts.h>
 #include <__ranges/dangling.h>
-#include <__utility/forward.h>
 #include <__utility/move.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -40,35 +37,45 @@ using replace_copy_result = in_out_result<_InIter, _OutIter>;
 
 namespace __replace_copy {
 
-struct __fn {
-
-  template <input_iterator _InIter, sentinel_for<_InIter> _Sent, class _Type1, class _Type2,
-            output_iterator<const _Type2&> _OutIter, class _Proj = identity>
-  requires indirectly_copyable<_InIter, _OutIter> &&
-           indirect_binary_predicate<ranges::equal_to, projected<_InIter, _Proj>, const _Type1*>
-  _LIBCPP_HIDE_FROM_ABI constexpr
-  replace_copy_result<_InIter, _OutIter>
-  operator()(_InIter __first, _Sent __last, _OutIter __result, const _Type1& __old_value, const _Type2& __new_value,
+  struct __fn {
+    template <input_iterator _InIter,
+              sentinel_for<_InIter> _Sent,
+              class _OldType,
+              class _NewType,
+              output_iterator<const _NewType&> _OutIter,
+              class _Proj = identity>
+      requires indirectly_copyable<_InIter, _OutIter> &&
+               indirect_binary_predicate<ranges::equal_to, projected<_InIter, _Proj>, const _OldType*>
+    _LIBCPP_HIDE_FROM_ABI constexpr replace_copy_result<_InIter, _OutIter>
+    operator()(_InIter __first,
+               _Sent __last,
+               _OutIter __result,
+               const _OldType& __old_value,
+               const _NewType& __new_value,
                _Proj __proj = {}) const {
-    // TODO: implement
-    (void)__first; (void)__last; (void)__result; (void)__old_value; (void)__new_value; (void)__proj;
-    return {};
-  }
+      auto __pred = [&](const auto& __value) { return __value == __old_value; };
+      return ranges::__replace_copy_if_impl(
+          std::move(__first), std::move(__last), std::move(__result), __pred, __new_value, __proj);
+    }
 
-  template <input_range _Range, class _Type1, class _Type2, output_iterator<const _Type2&> _OutIter,
-            class _Proj = identity>
-  requires indirectly_copyable<iterator_t<_Range>, _OutIter> &&
-           indirect_binary_predicate<ranges::equal_to, projected<iterator_t<_Range>, _Proj>, const _Type1*>
-  _LIBCPP_HIDE_FROM_ABI constexpr
-  replace_copy_result<borrowed_iterator_t<_Range>, _OutIter>
-  operator()(_Range&& __range, _OutIter __result, const _Type1& __old_value, const _Type2& __new_value,
+    template <input_range _Range,
+              class _OldType,
+              class _NewType,
+              output_iterator<const _NewType&> _OutIter,
+              class _Proj = identity>
+      requires indirectly_copyable<iterator_t<_Range>, _OutIter> &&
+               indirect_binary_predicate<ranges::equal_to, projected<iterator_t<_Range>, _Proj>, const _OldType*>
+    _LIBCPP_HIDE_FROM_ABI constexpr replace_copy_result<borrowed_iterator_t<_Range>, _OutIter>
+    operator()(_Range&& __range,
+               _OutIter __result,
+               const _OldType& __old_value,
+               const _NewType& __new_value,
                _Proj __proj = {}) const {
-    // TODO: implement
-    (void)__range; (void)__result; (void)__old_value; (void)__new_value; (void)__proj;
-    return {};
-  }
-
-};
+      auto __pred = [&](const auto& __value) { return __value == __old_value; };
+      return ranges::__replace_copy_if_impl(
+          ranges::begin(__range), ranges::end(__range), std::move(__result), __pred, __new_value, __proj);
+    }
+  };
 
 } // namespace __replace_copy
 

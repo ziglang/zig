@@ -593,6 +593,11 @@ namespace ranges {
     constexpr borrowed_iterator_t<R>
       ranges::replace_if(R&& r, Pred pred, const T& new_value, Proj proj = {});                     // since C++20
 
+  template<class T, class Proj = identity,
+           indirect_strict_weak_order<projected<const T*, Proj>> Comp = ranges::less>
+    constexpr const T&
+      ranges::clamp(const T& v, const T& lo, const T& hi, Comp comp = {}, Proj proj = {});          // since C++20
+
   template<input_iterator I1, sentinel_for<I1> S1, input_iterator I2, sentinel_for<I2> S2,
            class Proj1 = identity, class Proj2 = identity,
            indirect_strict_weak_order<projected<I1, Proj1>,
@@ -745,6 +750,13 @@ namespace ranges {
     constexpr ranges::reverse_copy_result<borrowed_iterator_t<R>, O>
       ranges::reverse_copy(R&& r, O result);                                                        // since C++20
 
+  template<permutable I, sentinel_for<I> S>
+    constexpr subrange<I> rotate(I first, I middle, S last);                                        // since C++20
+
+  template<forward_range R>
+    requires permutable<iterator_t<R>>
+    constexpr borrowed_subrange_t<R> rotate(R&& r, iterator_t<R> middle);                           // Since C++20
+
   template <class _InIter, class _OutIter>
   using rotate_copy_result = in_out_result<_InIter, _OutIter>;                                      // since C++20
 
@@ -758,6 +770,18 @@ namespace ranges {
     constexpr ranges::rotate_copy_result<borrowed_iterator_t<R>, O>
       ranges::rotate_copy(R&& r, iterator_t<R> middle, O result);                                   // since C++20
 
+  template<input_iterator I, sentinel_for<I> S, weakly_incrementable O, class Gen>
+    requires (forward_iterator<I> || random_access_iterator<O>) &&
+            indirectly_copyable<I, O> &&
+            uniform_random_bit_generator<remove_reference_t<Gen>>
+    O sample(I first, S last, O out, iter_difference_t<I> n, Gen&& g);                              // Since C++20
+
+  template<input_range R, weakly_incrementable O, class Gen>
+    requires (forward_range<R> || random_access_iterator<O>) &&
+            indirectly_copyable<iterator_t<R>, O> &&
+            uniform_random_bit_generator<remove_reference_t<Gen>>
+    O sample(R&& r, O out, range_difference_t<R> n, Gen&& g);                                       // Since C++20
+
   template<random_access_iterator I, sentinel_for<I> S, class Gen>
     requires permutable<I> &&
             uniform_random_bit_generator<remove_reference_t<Gen>>
@@ -767,6 +791,21 @@ namespace ranges {
     requires permutable<iterator_t<R>> &&
             uniform_random_bit_generator<remove_reference_t<Gen>>
     borrowed_iterator_t<R> shuffle(R&& r, Gen&& g);                                                // Since C++20
+
+  template<forward_iterator I1, sentinel_for<I1> S1, forward_iterator I2,
+         sentinel_for<I2> S2, class Proj1 = identity, class Proj2 = identity,
+         indirect_equivalence_relation<projected<I1, Proj1>,
+                                       projected<I2, Proj2>> Pred = ranges::equal_to>
+  constexpr bool ranges::is_permutation(I1 first1, S1 last1, I2 first2, S2 last2,
+                                        Pred pred = {},
+                                        Proj1 proj1 = {}, Proj2 proj2 = {});                       // Since C++20
+
+  template<forward_range R1, forward_range R2,
+         class Proj1 = identity, class Proj2 = identity,
+         indirect_equivalence_relation<projected<iterator_t<R1>, Proj1>,
+                                       projected<iterator_t<R2>, Proj2>> Pred = ranges::equal_to>
+  constexpr bool ranges::is_permutation(R1&& r1, R2&& r2, Pred pred = {},
+                                        Proj1 proj1 = {}, Proj2 proj2 = {});                       // Since C++20
 
   template<forward_iterator I1, sentinel_for<I1> S1, forward_iterator I2,
            sentinel_for<I2> S2, class Pred = ranges::equal_to,
@@ -912,8 +951,108 @@ namespace ranges {
               indirectly_copyable_storable<iterator_t<R>, O>)
     constexpr unique_copy_result<borrowed_iterator_t<R>, O>
       unique_copy(R&& r, O result, C comp = {}, Proj proj = {});                                   // Since C++20
+
+  template<class I, class O>
+      using remove_copy_result = in_out_result<I, O>;                                              // Since C++20
+
+  template<input_iterator I, sentinel_for<I> S, weakly_incrementable O, class T,
+           class Proj = identity>
+             indirect_binary_predicate<ranges::equal_to, projected<I, Proj>, const T*>
+    constexpr remove_copy_result<I, O>
+      remove_copy(I first, S last, O result, const T& value, Proj proj = {});                      // Since C++20
+
+  template<input_range R, weakly_incrementable O, class T, class Proj = identity>
+    requires indirectly_copyable<iterator_t<R>, O> &&
+             indirect_binary_predicate<ranges::equal_to,
+                                       projected<iterator_t<R>, Proj>, const T*>
+    constexpr remove_copy_result<borrowed_iterator_t<R>, O>
+      remove_copy(R&& r, O result, const T& value, Proj proj = {});                                // Since C++20
+
+  template<class I, class O>
+      using remove_copy_if_result = in_out_result<I, O>;                                           // Since C++20
+
+  template<input_iterator I, sentinel_for<I> S, weakly_incrementable O,
+           class Proj = identity, indirect_unary_predicate<projected<I, Proj>> Pred>
+    requires indirectly_copyable<I, O>
+    constexpr remove_copy_if_result<I, O>
+      remove_copy_if(I first, S last, O result, Pred pred, Proj proj = {});                        // Since C++20
+
+  template<input_range R, weakly_incrementable O, class Proj = identity,
+           indirect_unary_predicate<projected<iterator_t<R>, Proj>> Pred>
+    requires indirectly_copyable<iterator_t<R>, O>
+    constexpr remove_copy_if_result<borrowed_iterator_t<R>, O>
+      remove_copy_if(R&& r, O result, Pred pred, Proj proj = {});                                  // Since C++20
+
+  template<class I, class O>
+      using replace_copy_result = in_out_result<I, O>;                                             // Since C++20
+
+  template<input_iterator I, sentinel_for<I> S, class T1, class T2,
+           output_iterator<const T2&> O, class Proj = identity>
+    requires indirectly_copyable<I, O> &&
+             indirect_binary_predicate<ranges::equal_to, projected<I, Proj>, const T1*>
+    constexpr replace_copy_result<I, O>
+      replace_copy(I first, S last, O result, const T1& old_value, const T2& new_value,
+                   Proj proj = {});                                                                // Since C++20
+
+  template<input_range R, class T1, class T2, output_iterator<const T2&> O,
+           class Proj = identity>
+    requires indirectly_copyable<iterator_t<R>, O> &&
+             indirect_binary_predicate<ranges::equal_to,
+                                       projected<iterator_t<R>, Proj>, const T1*>
+    constexpr replace_copy_result<borrowed_iterator_t<R>, O>
+      replace_copy(R&& r, O result, const T1& old_value, const T2& new_value,
+                   Proj proj = {});                                                                // Since C++20
+
+  template<class I, class O>
+      using replace_copy_if_result = in_out_result<I, O>;                                          // Since C++20
+
+  template<input_iterator I, sentinel_for<I> S, class T, output_iterator<const T&> O,
+           class Proj = identity, indirect_unary_predicate<projected<I, Proj>> Pred>
+    requires indirectly_copyable<I, O>
+    constexpr replace_copy_if_result<I, O>
+      replace_copy_if(I first, S last, O result, Pred pred, const T& new_value,
+                      Proj proj = {});                                                             // Since C++20
+
+  template<input_range R, class T, output_iterator<const T&> O, class Proj = identity,
+           indirect_unary_predicate<projected<iterator_t<R>, Proj>> Pred>
+    requires indirectly_copyable<iterator_t<R>, O>
+    constexpr replace_copy_if_result<borrowed_iterator_t<R>, O>
+      replace_copy_if(R&& r, O result, Pred pred, const T& new_value,
+                      Proj proj = {});                                                             // Since C++20
+
+  template<class I>
+    using prev_permutation_result = in_found_result<I>;                                            // Since C++20
+
+  template<bidirectional_iterator I, sentinel_for<I> S, class Comp = ranges::less,
+           class Proj = identity>
+    requires sortable<I, Comp, Proj>
+    constexpr ranges::prev_permutation_result<I>
+      ranges::prev_permutation(I first, S last, Comp comp = {}, Proj proj = {});                   // Since C++20
+
+  template<bidirectional_range R, class Comp = ranges::less,
+           class Proj = identity>
+    requires sortable<iterator_t<R>, Comp, Proj>
+    constexpr ranges::prev_permutation_result<borrowed_iterator_t<R>>
+      ranges::prev_permutation(R&& r, Comp comp = {}, Proj proj = {});                             // Since C++20
+
+  template<class I>
+    using next_permutation_result = in_found_result<I>;                                            // Since C++20
+
+  template<bidirectional_iterator I, sentinel_for<I> S, class Comp = ranges::less,
+           class Proj = identity>
+    requires sortable<I, Comp, Proj>
+    constexpr ranges::next_permutation_result<I>
+      ranges::next_permutation(I first, S last, Comp comp = {}, Proj proj = {});                   // Since C++20
+
+  template<bidirectional_range R, class Comp = ranges::less,
+           class Proj = identity>
+    requires sortable<iterator_t<R>, Comp, Proj>
+    constexpr ranges::next_permutation_result<borrowed_iterator_t<R>>
+      ranges::next_permutation(R&& r, Comp comp = {}, Proj proj = {});                             // Since C++20
+
 }
 
+template <class InputIterator, class Predicate>
     constexpr bool     // constexpr in C++20
     all_of(InputIterator first, InputIterator last, Predicate pred);
 
@@ -1645,6 +1784,7 @@ template <class BidirectionalIterator, class Compare>
 #include <__algorithm/ranges_all_of.h>
 #include <__algorithm/ranges_any_of.h>
 #include <__algorithm/ranges_binary_search.h>
+#include <__algorithm/ranges_clamp.h>
 #include <__algorithm/ranges_copy.h>
 #include <__algorithm/ranges_copy_backward.h>
 #include <__algorithm/ranges_copy_if.h>
@@ -1669,6 +1809,7 @@ template <class BidirectionalIterator, class Compare>
 #include <__algorithm/ranges_is_heap.h>
 #include <__algorithm/ranges_is_heap_until.h>
 #include <__algorithm/ranges_is_partitioned.h>
+#include <__algorithm/ranges_is_permutation.h>
 #include <__algorithm/ranges_is_sorted.h>
 #include <__algorithm/ranges_is_sorted_until.h>
 #include <__algorithm/ranges_lexicographical_compare.h>
@@ -1684,6 +1825,7 @@ template <class BidirectionalIterator, class Compare>
 #include <__algorithm/ranges_mismatch.h>
 #include <__algorithm/ranges_move.h>
 #include <__algorithm/ranges_move_backward.h>
+#include <__algorithm/ranges_next_permutation.h>
 #include <__algorithm/ranges_none_of.h>
 #include <__algorithm/ranges_nth_element.h>
 #include <__algorithm/ranges_partial_sort.h>
@@ -1692,14 +1834,21 @@ template <class BidirectionalIterator, class Compare>
 #include <__algorithm/ranges_partition_copy.h>
 #include <__algorithm/ranges_partition_point.h>
 #include <__algorithm/ranges_pop_heap.h>
+#include <__algorithm/ranges_prev_permutation.h>
 #include <__algorithm/ranges_push_heap.h>
 #include <__algorithm/ranges_remove.h>
+#include <__algorithm/ranges_remove_copy.h>
+#include <__algorithm/ranges_remove_copy_if.h>
 #include <__algorithm/ranges_remove_if.h>
 #include <__algorithm/ranges_replace.h>
+#include <__algorithm/ranges_replace_copy.h>
+#include <__algorithm/ranges_replace_copy_if.h>
 #include <__algorithm/ranges_replace_if.h>
 #include <__algorithm/ranges_reverse.h>
 #include <__algorithm/ranges_reverse_copy.h>
+#include <__algorithm/ranges_rotate.h>
 #include <__algorithm/ranges_rotate_copy.h>
+#include <__algorithm/ranges_sample.h>
 #include <__algorithm/ranges_search.h>
 #include <__algorithm/ranges_search_n.h>
 #include <__algorithm/ranges_set_difference.h>

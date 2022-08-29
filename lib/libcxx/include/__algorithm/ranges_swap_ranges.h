@@ -10,6 +10,8 @@
 #define _LIBCPP___ALGORITHM_RANGES_SWAP_RANGES_H
 
 #include <__algorithm/in_in_result.h>
+#include <__algorithm/iterator_operations.h>
+#include <__algorithm/swap_ranges.h>
 #include <__config>
 #include <__iterator/concepts.h>
 #include <__iterator/iter_swap.h>
@@ -38,12 +40,9 @@ struct __fn {
     requires indirectly_swappable<_I1, _I2>
   _LIBCPP_HIDE_FROM_ABI constexpr swap_ranges_result<_I1, _I2>
   operator()(_I1 __first1, _S1 __last1, _I2 __first2, _S2 __last2) const {
-    while (__first1 != __last1 && __first2 != __last2) {
-      ranges::iter_swap(__first1, __first2);
-      ++__first1;
-      ++__first2;
-    }
-    return {_VSTD::move(__first1), _VSTD::move(__first2)};
+    auto __ret = std::__swap_ranges<_RangeAlgPolicy>(
+        std::move(__first1), std::move(__last1), std::move(__first2), std::move(__last2));
+    return {std::move(__ret.first), std::move(__ret.second)};
   }
 
   template <input_range _R1, input_range _R2>

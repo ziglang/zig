@@ -453,9 +453,10 @@ public:
         : __data{_VSTD::to_address(__first)}, __size{__count} {}
 
     template <__span_compatible_iterator<element_type> _It, __span_compatible_sentinel_for<_It> _End>
-    _LIBCPP_INLINE_VISIBILITY
-    constexpr span(_It __first, _End __last)
-        : __data(_VSTD::to_address(__first)), __size(__last - __first) {}
+    _LIBCPP_INLINE_VISIBILITY constexpr span(_It __first, _End __last)
+        : __data(_VSTD::to_address(__first)), __size(__last - __first) {
+      _LIBCPP_ASSERT(__last - __first >= 0, "invalid range in span's constructor (iterator, sentinel)");
+    }
 
     template <size_t _Sz>
     _LIBCPP_INLINE_VISIBILITY

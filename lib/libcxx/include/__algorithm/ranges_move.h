@@ -10,6 +10,7 @@
 #define _LIBCPP___ALGORITHM_RANGES_MOVE_H
 
 #include <__algorithm/in_out_result.h>
+#include <__algorithm/iterator_operations.h>
 #include <__algorithm/move.h>
 #include <__config>
 #include <__iterator/concepts.h>
@@ -36,22 +37,10 @@ namespace __move {
 struct __fn {
 
   template <class _InIter, class _Sent, class _OutIter>
-    requires __iter_move::__move_deref<_InIter> // check that we are allowed to std::move() the value
   _LIBCPP_HIDE_FROM_ABI constexpr static
   move_result<_InIter, _OutIter> __move_impl(_InIter __first, _Sent __last, _OutIter __result) {
-    auto __ret = std::__move(std::move(__first), std::move(__last), std::move(__result));
+    auto __ret = std::__move<_RangeAlgPolicy>(std::move(__first), std::move(__last), std::move(__result));
     return {std::move(__ret.first), std::move(__ret.second)};
-  }
-
-  template <class _InIter, class _Sent, class _OutIter>
-  _LIBCPP_HIDE_FROM_ABI constexpr static
-  move_result<_InIter, _OutIter> __move_impl(_InIter __first, _Sent __last, _OutIter __result) {
-    while (__first != __last) {
-      *__result = ranges::iter_move(__first);
-      ++__first;
-      ++__result;
-    }
-    return {std::move(__first), std::move(__result)};
   }
 
   template <input_iterator _InIter, sentinel_for<_InIter> _Sent, weakly_incrementable _OutIter>

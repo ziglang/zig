@@ -15,10 +15,8 @@
 #include <__algorithm/swap_ranges.h>
 #include <__config>
 #include <__iterator/iterator_traits.h>
-#include <__iterator/next.h>
-#include <__iterator/prev.h>
 #include <__utility/move.h>
-#include <__utility/swap.h>
+#include <__utility/pair.h>
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -32,9 +30,11 @@ _LIBCPP_CONSTEXPR_AFTER_CXX11 _ForwardIterator
 __rotate_left(_ForwardIterator __first, _ForwardIterator __last)
 {
     typedef typename iterator_traits<_ForwardIterator>::value_type value_type;
-    value_type __tmp = _IterOps<_AlgPolicy>::__iter_move(__first);
-    // TODO(ranges): pass `_AlgPolicy` to `move`.
-    _ForwardIterator __lm1 = _VSTD::move(_VSTD::next(__first), __last, __first);
+    using _Ops = _IterOps<_AlgPolicy>;
+
+    value_type __tmp = _Ops::__iter_move(__first);
+    _ForwardIterator __lm1 = std::__move<_AlgPolicy>(
+        _Ops::next(__first), __last, __first).second;
     *__lm1 = _VSTD::move(__tmp);
     return __lm1;
 }
@@ -44,11 +44,11 @@ _LIBCPP_CONSTEXPR_AFTER_CXX11 _BidirectionalIterator
 __rotate_right(_BidirectionalIterator __first, _BidirectionalIterator __last)
 {
     typedef typename iterator_traits<_BidirectionalIterator>::value_type value_type;
-    // TODO(ranges): pass `_AlgPolicy` to `prev`.
-    _BidirectionalIterator __lm1 = _VSTD::prev(__last);
-    value_type __tmp = _IterOps<_AlgPolicy>::__iter_move(__lm1);
-    // TODO(ranges): pass `_AlgPolicy` to `move_backward`.
-    _BidirectionalIterator __fp1 = _VSTD::move_backward(__first, __lm1, __last);
+    using _Ops = _IterOps<_AlgPolicy>;
+
+    _BidirectionalIterator __lm1 = _Ops::prev(__last);
+    value_type __tmp = _Ops::__iter_move(__lm1);
+    _BidirectionalIterator __fp1 = std::__move_backward<_AlgPolicy>(__first, __lm1, std::move(__last));
     *__first = _VSTD::move(__tmp);
     return __fp1;
 }
@@ -108,26 +108,26 @@ __rotate_gcd(_RandomAccessIterator __first, _RandomAccessIterator __middle, _Ran
 {
     typedef typename iterator_traits<_RandomAccessIterator>::difference_type difference_type;
     typedef typename iterator_traits<_RandomAccessIterator>::value_type value_type;
+    using _Ops = _IterOps<_AlgPolicy>;
 
     const difference_type __m1 = __middle - __first;
-    const difference_type __m2 = __last - __middle;
+    const difference_type __m2 = _Ops::distance(__middle, __last);
     if (__m1 == __m2)
     {
-        // TODO(ranges): pass `_AlgPolicy` to `swap_ranges`.
-        _VSTD::swap_ranges(__first, __middle, __middle);
+        std::__swap_ranges<_AlgPolicy>(__first, __middle, __middle, __last);
         return __middle;
     }
     const difference_type __g = _VSTD::__algo_gcd(__m1, __m2);
     for (_RandomAccessIterator __p = __first + __g; __p != __first;)
     {
-        value_type __t(_IterOps<_AlgPolicy>::__iter_move(--__p));
+        value_type __t(_Ops::__iter_move(--__p));
         _RandomAccessIterator __p1 = __p;
         _RandomAccessIterator __p2 = __p1 + __m1;
         do
         {
-            *__p1 = _IterOps<_AlgPolicy>::__iter_move(__p2);
+            *__p1 = _Ops::__iter_move(__p2);
             __p1 = __p2;
-            const difference_type __d = __last - __p2;
+            const difference_type __d = _Ops::distance(__p2, __last);
             if (__m1 < __d)
                 __p2 += __m1;
             else
@@ -188,16 +188,23 @@ __rotate_impl(_RandomAccessIterator __first, _RandomAccessIterator __middle, _Ra
     return std::__rotate_forward<_AlgPolicy>(__first, __middle, __last);
 }
 
-template <class _AlgPolicy, class _RandomAccessIterator, class _IterCategory>
+template <class _AlgPolicy, class _Iterator, class _Sentinel>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11
-_RandomAccessIterator __rotate(_RandomAccessIterator __first, _RandomAccessIterator __middle,
-    _RandomAccessIterator __last, _IterCategory __iter_category) {
-  if (__first == __middle)
-      return __last;
-  if (__middle == __last)
-      return __first;
+pair<_Iterator, _Iterator>
+__rotate(_Iterator __first, _Iterator __middle, _Sentinel __last) {
+  using _Ret = pair<_Iterator, _Iterator>;
+  _Iterator __last_iter = _IterOps<_AlgPolicy>::next(__middle, __last);
 
-  return std::__rotate_impl<_AlgPolicy>(std::move(__first), std::move(__middle), std::move(__last), __iter_category);
+  if (__first == __middle)
+      return _Ret(__last_iter, __last_iter);
+  if (__middle == __last)
+      return _Ret(std::move(__first), std::move(__last_iter));
+
+  using _IterCategory = typename _IterOps<_AlgPolicy>::template __iterator_category<_Iterator>;
+  auto __result = std::__rotate_impl<_AlgPolicy>(
+      std::move(__first), std::move(__middle), __last_iter, _IterCategory());
+
+  return _Ret(std::move(__result), std::move(__last_iter));
 }
 
 template <class _ForwardIterator>
@@ -205,8 +212,8 @@ inline _LIBCPP_INLINE_VISIBILITY
 _LIBCPP_CONSTEXPR_AFTER_CXX17 _ForwardIterator
 rotate(_ForwardIterator __first, _ForwardIterator __middle, _ForwardIterator __last)
 {
-  return std::__rotate<_ClassicAlgPolicy>(__first, __middle, __last,
-                                          typename iterator_traits<_ForwardIterator>::iterator_category());
+  return std::__rotate<_ClassicAlgPolicy>(
+      std::move(__first), std::move(__middle), std::move(__last)).first;
 }
 
 _LIBCPP_END_NAMESPACE_STD

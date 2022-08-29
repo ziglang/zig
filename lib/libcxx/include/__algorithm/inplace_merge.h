@@ -9,7 +9,6 @@
 #ifndef _LIBCPP___ALGORITHM_INPLACE_MERGE_H
 #define _LIBCPP___ALGORITHM_INPLACE_MERGE_H
 
-#include <__algorithm/algorithm_family.h>
 #include <__algorithm/comp.h>
 #include <__algorithm/comp_ref_type.h>
 #include <__algorithm/iterator_operations.h>
@@ -65,7 +64,7 @@ void __half_inplace_merge(_InputIterator1 __first1, _Sent1 __last1,
     {
         if (__first2 == __last2)
         {
-            _AlgFamily<_AlgPolicy>::__move(__first1, __last1, __result);
+            std::__move<_AlgPolicy>(__first1, __last1, __result);
             return;
         }
 
@@ -185,8 +184,7 @@ void __inplace_merge(
         difference_type __len22 = __len2 - __len21;  // distance(__m2, __last)
         // [__first, __m1) [__m1, __middle) [__middle, __m2) [__m2, __last)
         // swap middle two partitions
-        // TODO(alg-policy): pass `_AlgPolicy` once it's supported by `rotate`.
-        __middle = _VSTD::rotate(__m1, __middle, __m2);
+        __middle = std::__rotate<_AlgPolicy>(__m1, __middle, __m2).first;
         // __len12 and __len21 now have swapped meanings
         // merge smaller range with recursive call and larger with tail recursion elimination
         if (__len11 + __len21 < __len12 + __len22)
