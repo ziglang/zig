@@ -137,7 +137,7 @@ pub fn lowerMir(emit: *Emit) InnerError!void {
             .fld => try emit.mirFld(inst),
 
             .lea => try emit.mirLea(inst),
-            .lea_pie => try emit.mirLeaPie(inst),
+            .lea_pic => try emit.mirLeaPic(inst),
 
             .shl => try emit.mirShift(.shl, inst),
             .sal => try emit.mirShift(.sal, inst),
@@ -338,7 +338,7 @@ fn mirJmpCall(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
                 .base = ops.reg1,
             }), emit.code);
         },
-        0b11 => return emit.fail("TODO unused JMP/CALL variant 0b11", .{}),
+        0b11 => return emit.fail("TODO unused variant jmp/call 0b11", .{}),
     }
 }
 
@@ -784,7 +784,7 @@ fn mirMovabs(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             // FD
             return lowerToFdEnc(.mov, ops.reg1, imm, emit.code);
         },
-        else => return emit.fail("TODO unused variant: movabs 0b{b}", .{ops.flags}),
+        else => return emit.fail("TODO unused movabs variant", .{}),
     }
 }
 
@@ -978,11 +978,16 @@ fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     }
 }
 
-fn mirLeaPie(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
+fn mirLeaPic(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const tag = emit.mir.instructions.items(.tag)[inst];
-    assert(tag == .lea_pie);
+    assert(tag == .lea_pic);
     const ops = emit.mir.instructions.items(.ops)[inst].decode();
     const relocation = emit.mir.instructions.items(.data)[inst].relocation;
+
+    switch (ops.flags) {
+        0b00, 0b01 => {},
+        else => return emit.fail("TODO unused LEA PIC variants 0b10 and 0b11", .{}),
+    }
 
     // lea reg1, [rip + reloc]
     // RM
@@ -1000,7 +1005,7 @@ fn mirLeaPie(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
         const reloc_type = switch (ops.flags) {
             0b00 => @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_GOT),
             0b01 => @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_SIGNED),
-            else => return emit.fail("TODO unused LEA PIE variants 0b10 and 0b11", .{}),
+            else => unreachable,
         };
         const atom = macho_file.atom_by_index_table.get(relocation.atom_index).?;
         log.debug("adding reloc of type {} to local @{d}", .{ reloc_type, relocation.sym_index });
@@ -1015,27 +1020,21 @@ fn mirLeaPie(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
         });
     } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
         const atom = coff_file.atom_by_index_table.get(relocation.atom_index).?;
-        log.debug("adding reloc to local @{d}", .{relocation.sym_index});
-        const gop = try coff_file.relocs.getOrPut(gpa, atom);
-        if (!gop.found_existing) {
-            gop.value_ptr.* = .{};
-        }
-        try gop.value_ptr.append(gpa, .{
+        try atom.addRelocation(coff_file, .{
             .@"type" = switch (ops.flags) {
-                0b00 => .got_pcrel,
+                0b00 => .got,
                 0b01 => .direct,
-                else => return emit.fail("TODO unused LEA PIE variants 0b10 and 0b11", .{}),
+                else => unreachable,
             },
             .target = .{ .sym_index = relocation.sym_index, .file = null },
             .offset = @intCast(u32, end_offset - 4),
             .addend = 0,
+            .pcrel = true,
+            .length = 2,
             .prev_vaddr = atom.getSymbol(coff_file).value,
         });
     } else {
-        return emit.fail(
-            "TODO implement lea reg, [rip + reloc] for linking backends different than MachO",
-            .{},
-        );
+        return emit.fail("TODO implement lea reg, [rip + reloc] for linking backends different than MachO", .{});
     }
 }
 

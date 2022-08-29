@@ -2657,19 +2657,19 @@ fn loadMemPtrIntoRegister(self: *Self, reg: Register, ptr_ty: Type, ptr: MCValue
         .direct_load,
         => |sym_index| {
             const abi_size = @intCast(u32, ptr_ty.abiSize(self.target.*));
-            const flags: u2 = switch (ptr) {
-                .got_load => 0b00,
-                .direct_load => 0b01,
-                else => unreachable,
-            };
             const mod = self.bin_file.options.module.?;
             const fn_owner_decl = mod.declPtr(self.mod_fn.owner_decl);
             const atom_index = if (self.bin_file.tag == link.File.MachO.base_tag)
                 fn_owner_decl.link.macho.sym_index
             else
                 fn_owner_decl.link.coff.sym_index;
+            const flags: u2 = switch (ptr) {
+                .got_load => 0b00,
+                .direct_load => 0b01,
+                else => unreachable,
+            };
             _ = try self.addInst(.{
-                .tag = .lea_pie,
+                .tag = .lea_pic,
                 .ops = Mir.Inst.Ops.encode(.{
                     .reg1 = registerAlias(reg, abi_size),
                     .flags = flags,
@@ -4004,9 +4004,9 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
             if (func_value.castTag(.function)) |func_payload| {
                 const func = func_payload.data;
                 const fn_owner_decl = mod.declPtr(func.owner_decl);
-                const sym_index = fn_owner_decl.link.coff.sym_index;
-                try self.genSetReg(Type.initTag(.usize), .rax, .{ .got_load = sym_index });
-                // callq *%rax
+                try self.genSetReg(Type.initTag(.usize), .rax, .{
+                    .got_load = fn_owner_decl.link.coff.sym_index,
+                });
                 _ = try self.addInst(.{
                     .tag = .call,
                     .ops = Mir.Inst.Ops.encode(.{
@@ -6876,8 +6876,6 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
         const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;
         return MCValue{ .memory = got_addr };
     } else if (self.bin_file.cast(link.File.MachO)) |_| {
-        // Because MachO is PIE-always-on, we defer memory address resolution until
-        // the linker has enough info to perform relocations.
         assert(decl.link.macho.sym_index != 0);
         return MCValue{ .got_load = decl.link.macho.sym_index };
     } else if (self.bin_file.cast(link.File.Coff)) |_| {

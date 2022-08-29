@@ -178,11 +178,11 @@ pub const Inst = struct {
         lea,
 
         /// ops flags: form:
-        ///      0b00  reg1, [rip + reloc] // via GOT emits X86_64_RELOC_GOT relocation
-        ///      0b01  reg1, [rip + reloc] // direct load emits X86_64_RELOC_SIGNED relocation
+        ///      0b00  reg1, [rip + reloc] // via GOT PIC
+        ///      0b01  reg1, [rip + reloc] // direct load PIC
         /// Notes:
         /// * `Data` contains `relocation`
-        lea_pie,
+        lea_pic,
 
         /// ops flags: form:
         ///      0b00  reg1, 1
@@ -242,15 +242,14 @@ pub const Inst = struct {
         imul_complex,
 
         /// ops flags:  form:
-        ///      0bX0   reg1, imm64
-        ///      0bX1   rax, moffs64
+        ///      0b00   reg1, imm64
+        ///      0b01   rax, moffs64
         /// Notes:
         ///   * If reg1 is 64-bit, the immediate is 64-bit and stored
         ///     within extra data `Imm64`.
-        ///   * For 0bX1, reg1 (or reg2) need to be
+        ///   * For 0b01, reg1 (or reg2) need to be
         ///     a version of rax. If reg1 == .none, then reg2 == .rax,
         ///     or vice versa.
-        /// TODO handle scaling
         movabs,
 
         /// ops flags:  form:

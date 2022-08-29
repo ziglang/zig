@@ -6,6 +6,7 @@ const coff = std.coff;
 const Allocator = std.mem.Allocator;
 
 const Coff = @import("../Coff.zig");
+const Reloc = Coff.Reloc;
 const SymbolWithLoc = Coff.SymbolWithLoc;
 
 /// Each decl always gets a local symbol with the fully qualified name.
@@ -95,4 +96,15 @@ pub fn freeListEligible(self: Atom, coff_file: *const Coff) bool {
     if (cap <= ideal_cap) return false;
     const surplus = cap - ideal_cap;
     return surplus >= Coff.min_text_capacity;
+}
+
+pub fn addRelocation(self: *Atom, coff_file: *Coff, reloc: Reloc) !void {
+    const gpa = coff_file.base.allocator;
+    // TODO causes a segfault on Windows
+    // log.debug("adding reloc of type {s} to target %{d}", .{ @tagName(reloc.@"type"), reloc.target.sym_index });
+    const gop = try coff_file.relocs.getOrPut(gpa, self);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = .{};
+    }
+    try gop.value_ptr.append(gpa, reloc);
 }

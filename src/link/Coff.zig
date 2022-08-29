@@ -103,14 +103,16 @@ unnamed_const_atoms: UnnamedConstTable = .{},
 /// this will be a table indexed by index into the list of Atoms.
 relocs: RelocTable = .{},
 
-const Reloc = struct {
+pub const Reloc = struct {
     @"type": enum {
-        got_pcrel,
+        got,
         direct,
     },
     target: SymbolWithLoc,
     offset: u32,
     addend: u32,
+    pcrel: bool,
+    length: u2,
     prev_vaddr: u32,
 };
 
@@ -593,15 +595,13 @@ fn createGotAtom(self: *Coff, target: SymbolWithLoc) !*Atom {
 
     log.debug("allocated GOT atom at 0x{x}", .{sym.value});
 
-    const gop_relocs = try self.relocs.getOrPut(gpa, atom);
-    if (!gop_relocs.found_existing) {
-        gop_relocs.value_ptr.* = .{};
-    }
-    try gop_relocs.value_ptr.append(gpa, .{
+    try atom.addRelocation(self, .{
         .@"type" = .direct,
         .target = target,
         .offset = 0,
         .addend = 0,
+        .pcrel = false,
+        .length = 3,
         .prev_vaddr = sym.value,
     });
 
@@ -656,7 +656,7 @@ fn resolveRelocs(self: *Coff, atom: *Atom) !void {
 
     for (relocs.items) |*reloc| {
         const target_vaddr = switch (reloc.@"type") {
-            .got_pcrel => blk: {
+            .got => blk: {
                 const got_atom = self.getGotAtomForSymbol(reloc.target) orelse continue;
                 break :blk got_atom.getSymbol(self).value;
             },
@@ -673,21 +673,28 @@ fn resolveRelocs(self: *Coff, atom: *Atom) !void {
             @tagName(reloc.@"type"),
         });
 
-        switch (reloc.@"type") {
-            .got_pcrel => {
-                const source_vaddr = source_sym.value + reloc.offset;
-                const disp = target_vaddr_with_addend - source_vaddr - 4;
-                try self.base.file.?.pwriteAll(mem.asBytes(&@intCast(u32, disp)), file_offset + reloc.offset);
-            },
-            .direct => switch (self.ptr_width) {
-                .p32 => try self.base.file.?.pwriteAll(
-                    mem.asBytes(&@intCast(u32, target_vaddr_with_addend + default_image_base_exe)),
+        if (reloc.pcrel) {
+            const source_vaddr = source_sym.value + reloc.offset;
+            const disp = target_vaddr_with_addend - source_vaddr - 4;
+            try self.base.file.?.pwriteAll(mem.asBytes(&@intCast(u32, disp)), file_offset + reloc.offset);
+            return;
+        }
+
+        switch (self.ptr_width) {
+            .p32 => try self.base.file.?.pwriteAll(
+                mem.asBytes(&@intCast(u32, target_vaddr_with_addend + default_image_base_exe)),
+                file_offset + reloc.offset,
+            ),
+            .p64 => switch (reloc.length) {
+                2 => try self.base.file.?.pwriteAll(
+                    mem.asBytes(&@truncate(u32, target_vaddr_with_addend + default_image_base_exe)),
                     file_offset + reloc.offset,
                 ),
-                .p64 => try self.base.file.?.pwriteAll(
+                3 => try self.base.file.?.pwriteAll(
                     mem.asBytes(&(target_vaddr_with_addend + default_image_base_exe)),
                     file_offset + reloc.offset,
                 ),
+                else => unreachable,
             },
         }
 
@@ -1270,8 +1277,8 @@ fn writeHeader(self: *Coff) !void {
     writer.writeAll(mem.asBytes(&coff_header)) catch unreachable;
 
     const dll_flags: coff.DllFlags = .{
-        .HIGH_ENTROPY_VA = 0, // TODO handle ASLR
-        .DYNAMIC_BASE = 0, // TODO handle ASLR
+        .HIGH_ENTROPY_VA = 0, //@boolToInt(self.base.options.pie),
+        .DYNAMIC_BASE = 0,
         .TERMINAL_SERVER_AWARE = 1, // We are not a legacy app
         .NX_COMPAT = 1, // We are compatible with Data Execution Prevention
     };
