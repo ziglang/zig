@@ -355,7 +355,9 @@ test "ed25519 batch verification" {
         try Ed25519.verifyBatch(2, signature_batch);
 
         signature_batch[1].sig = sig1;
-        try std.testing.expectError(error.SignatureVerificationFailed, Ed25519.verifyBatch(signature_batch.len, signature_batch));
+        // TODO https://github.com/ziglang/zig/issues/12240
+        const sig_len = signature_batch.len;
+        try std.testing.expectError(error.SignatureVerificationFailed, Ed25519.verifyBatch(sig_len, signature_batch));
     }
 }
 

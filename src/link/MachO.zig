@@ -270,42 +270,42 @@ pub const Export = struct {
 };
 
 pub fn openPath(allocator: Allocator, options: link.Options) !*MachO {
-    assert(options.object_format == .macho);
+    assert(options.target.ofmt == .macho);
 
-    const use_stage1 = build_options.is_stage1 and options.use_stage1;
-    if (use_stage1 or options.emit == null) {
+    const use_stage1 = build_options.have_stage1 and options.use_stage1;
+    if (use_stage1 or options.emit == null or options.module == null) {
         return createEmpty(allocator, options);
     }
-    const emit = options.emit.?;
-    const file = try emit.directory.handle.createFile(emit.sub_path, .{
-        .truncate = false,
-        .read = true,
-        .mode = link.determineMode(options),
-    });
-    errdefer file.close();
 
+    const emit = options.emit.?;
     const self = try createEmpty(allocator, options);
     errdefer {
         self.base.file = null;
         self.base.destroy();
     }
 
-    self.base.file = file;
-
     if (build_options.have_llvm and options.use_llvm and options.module != null) {
         // TODO this intermediary_basename isn't enough; in the case of `zig build-exe`,
         // we also want to put the intermediary object file in the cache while the
         // main emit directory is the cwd.
         self.base.intermediary_basename = try std.fmt.allocPrint(allocator, "{s}{s}", .{
-            emit.sub_path, options.object_format.fileExt(options.target.cpu.arch),
+            emit.sub_path, options.target.ofmt.fileExt(options.target.cpu.arch),
         });
     }
 
-    if (options.output_mode == .Lib and
-        options.link_mode == .Static and self.base.intermediary_basename != null)
-    {
-        return self;
-    }
+    if (self.base.intermediary_basename != null) switch (options.output_mode) {
+        .Obj => return self,
+        .Lib => if (options.link_mode == .Static) return self,
+        else => {},
+    };
+
+    const file = try emit.directory.handle.createFile(emit.sub_path, .{
+        .truncate = false,
+        .read = true,
+        .mode = link.determineMode(options),
+    });
+    errdefer file.close();
+    self.base.file = file;
 
     if (!options.strip and options.module != null) blk: {
         // TODO once I add support for converting (and relocating) DWARF info from relocatable
@@ -363,7 +363,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*MachO {
     const cpu_arch = options.target.cpu.arch;
     const page_size: u16 = if (cpu_arch == .aarch64) 0x4000 else 0x1000;
     const use_llvm = build_options.have_llvm and options.use_llvm;
-    const use_stage1 = build_options.is_stage1 and options.use_stage1;
+    const use_stage1 = build_options.have_stage1 and options.use_stage1;
 
     const self = try gpa.create(MachO);
     errdefer gpa.destroy(self);
@@ -5315,10 +5315,10 @@ fn writeFunctionStarts(self: *MachO, ncmds: *u32, lc_writer: anytype) !void {
 }
 
 fn filterDataInCode(
-    dices: []const macho.data_in_code_entry,
+    dices: []align(1) const macho.data_in_code_entry,
     start_addr: u64,
     end_addr: u64,
-) []const macho.data_in_code_entry {
+) []align(1) const macho.data_in_code_entry {
     const Predicate = struct {
         addr: u64,
 
@@ -5825,7 +5825,7 @@ pub fn getEntryPoint(self: MachO) error{MissingMainEntrypoint}!SymbolWithLoc {
     return global;
 }
 
-pub fn findFirst(comptime T: type, haystack: []const T, start: usize, predicate: anytype) usize {
+pub fn findFirst(comptime T: type, haystack: []align(1) const T, start: usize, predicate: anytype) usize {
     if (!@hasDecl(@TypeOf(predicate), "predicate"))
         @compileError("Predicate is required to define fn predicate(@This(), T) bool");
 
@@ -5861,8 +5861,9 @@ pub fn generateSymbolStabs(
         },
         else => |e| return e,
     };
-    const tu_name = try compile_unit.die.getAttrString(&debug_info, dwarf.AT.name);
-    const tu_comp_dir = try compile_unit.die.getAttrString(&debug_info, dwarf.AT.comp_dir);
+
+    const tu_name = try compile_unit.die.getAttrString(&debug_info, dwarf.AT.name, debug_info.debug_str, compile_unit.*);
+    const tu_comp_dir = try compile_unit.die.getAttrString(&debug_info, dwarf.AT.comp_dir, debug_info.debug_str, compile_unit.*);
 
     // Open scope
     try locals.ensureUnusedCapacity(3);

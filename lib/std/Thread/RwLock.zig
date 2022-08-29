@@ -168,8 +168,8 @@ pub const DefaultRwLock = struct {
     const IS_WRITING: usize = 1;
     const WRITER: usize = 1 << 1;
     const READER: usize = 1 << (1 + @bitSizeOf(Count));
-    const WRITER_MASK: usize = std.math.maxInt(Count) << @ctz(usize, WRITER);
-    const READER_MASK: usize = std.math.maxInt(Count) << @ctz(usize, READER);
+    const WRITER_MASK: usize = std.math.maxInt(Count) << @ctz(WRITER);
+    const READER_MASK: usize = std.math.maxInt(Count) << @ctz(READER);
     const Count = std.meta.Int(.unsigned, @divFloor(@bitSizeOf(usize) - 1, 2));
 
     pub fn tryLock(rwl: *DefaultRwLock) bool {

@@ -56,7 +56,7 @@ pub fn Channel(comptime T: type) type {
         pub fn init(self: *SelfChannel, buffer: []T) void {
             // The ring buffer implementation only works with power of 2 buffer sizes
             // because of relying on subtracting across zero. For example (0 -% 1) % 10 == 5
-            assert(buffer.len == 0 or @popCount(usize, buffer.len) == 1);
+            assert(buffer.len == 0 or @popCount(buffer.len) == 1);
 
             self.* = SelfChannel{
                 .buffer_len = 0,

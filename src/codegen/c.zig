@@ -835,7 +835,6 @@ pub const DeclGen = struct {
             },
             .Union => {
                 const union_obj = val.castTag(.@"union").?.data;
-                const union_ty = ty.cast(Type.Payload.Union).?.data;
                 const layout = ty.unionGetLayout(target);
 
                 try writer.writeAll("(");
@@ -851,7 +850,7 @@ pub const DeclGen = struct {
                     try writer.writeAll(".payload = {");
                 }
 
-                const index = union_ty.tag_ty.enumTagFieldIndex(union_obj.tag, dg.module).?;
+                const index = ty.unionTagFieldIndex(union_obj.tag, dg.module).?;
                 const field_ty = ty.unionFields().values()[index].ty;
                 const field_name = ty.unionFields().keys()[index];
                 if (field_ty.hasRuntimeBits()) {
@@ -1952,6 +1951,9 @@ fn genBody(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail, OutO
             .reduce_optimized,
             .float_to_int_optimized,
             => return f.fail("TODO implement optimized float mode", .{}),
+
+            .is_named_enum_value => return f.fail("TODO: C backend: implement is_named_enum_value", .{}),
+            .error_set_has_value => return f.fail("TODO: C backend: implement error_set_has_value", .{}),
             // zig fmt: on
         };
         switch (result_value) {
@@ -3250,7 +3252,7 @@ fn airIsNull(
 
     const ty = f.air.typeOf(un_op);
     var opt_buf: Type.Payload.ElemType = undefined;
-    const payload_ty = if (ty.zigTypeTag() == .Pointer)
+    const payload_ty = if (deref_suffix[0] != 0)
         ty.childType().optionalChild(&opt_buf)
     else
         ty.optionalChild(&opt_buf);

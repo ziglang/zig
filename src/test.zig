@@ -25,7 +25,7 @@ const skip_stage1 = builtin.zig_backend != .stage1 or build_options.skip_stage1;
 const hr = "=" ** 80;
 
 test {
-    if (build_options.is_stage1) {
+    if (build_options.have_stage1) {
         @import("stage1.zig").os_init();
     }
 
@@ -606,7 +606,6 @@ pub const TestContext = struct {
         output_mode: std.builtin.OutputMode,
         optimize_mode: std.builtin.Mode = .Debug,
         updates: std.ArrayList(Update),
-        object_format: ?std.Target.ObjectFormat = null,
         emit_h: bool = false,
         is_test: bool = false,
         expect_exact: bool = false,
@@ -782,12 +781,13 @@ pub const TestContext = struct {
     pub fn exeFromCompiledC(ctx: *TestContext, name: []const u8, target: CrossTarget) *Case {
         const prefixed_name = std.fmt.allocPrint(ctx.arena, "CBE: {s}", .{name}) catch
             @panic("out of memory");
+        var target_adjusted = target;
+        target_adjusted.ofmt = std.Target.ObjectFormat.c;
         ctx.cases.append(Case{
             .name = prefixed_name,
-            .target = target,
+            .target = target_adjusted,
             .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Exe,
-            .object_format = .c,
             .files = std.ArrayList(File).init(ctx.arena),
         }) catch @panic("out of memory");
         return &ctx.cases.items[ctx.cases.items.len - 1];
@@ -851,12 +851,13 @@ pub const TestContext = struct {
 
     /// Adds a test case for Zig or ZIR input, producing C code.
     pub fn addC(ctx: *TestContext, name: []const u8, target: CrossTarget) *Case {
+        var target_adjusted = target;
+        target_adjusted.ofmt = std.Target.ObjectFormat.c;
         ctx.cases.append(Case{
             .name = name,
-            .target = target,
+            .target = target_adjusted,
             .updates = std.ArrayList(Update).init(ctx.cases.allocator),
             .output_mode = .Obj,
-            .object_format = .c,
             .files = std.ArrayList(File).init(ctx.arena),
         }) catch @panic("out of memory");
         return &ctx.cases.items[ctx.cases.items.len - 1];
@@ -1224,10 +1225,6 @@ pub const TestContext = struct {
         try aux_thread_pool.init(self.gpa);
         defer aux_thread_pool.deinit();
 
-        var case_thread_pool: ThreadPool = undefined;
-        try case_thread_pool.init(self.gpa);
-        defer case_thread_pool.deinit();
-
         // Use the same global cache dir for all the tests, such that we for example don't have to
         // rebuild musl libc for every case (when LLVM backend is enabled).
         var global_tmp = std.testing.tmpDir(.{});
@@ -1245,9 +1242,6 @@ pub const TestContext = struct {
         defer self.gpa.free(global_cache_directory.path.?);
 
         {
-            var wait_group: WaitGroup = .{};
-            defer wait_group.wait();
-
             for (self.cases.items) |*case| {
                 if (build_options.skip_non_native) {
                     if (case.target.getCpuArch() != builtin.cpu.arch)
@@ -1267,17 +1261,19 @@ pub const TestContext = struct {
                     if (std.mem.indexOf(u8, case.name, test_filter) == null) continue;
                 }
 
-                wait_group.start();
-                try case_thread_pool.spawn(workerRunOneCase, .{
+                var prg_node = root_node.start(case.name, case.updates.items.len);
+                prg_node.activate();
+                defer prg_node.end();
+
+                case.result = runOneCase(
                     self.gpa,
-                    root_node,
-                    case,
+                    &prg_node,
+                    case.*,
                     zig_lib_directory,
                     &aux_thread_pool,
                     global_cache_directory,
                     host,
-                    &wait_group,
-                });
+                );
             }
         }
 
@@ -1293,33 +1289,6 @@ pub const TestContext = struct {
             print("{d} tests failed\n", .{fail_count});
             return error.TestFailed;
         }
-    }
-
-    fn workerRunOneCase(
-        gpa: Allocator,
-        root_node: *std.Progress.Node,
-        case: *Case,
-        zig_lib_directory: Compilation.Directory,
-        thread_pool: *ThreadPool,
-        global_cache_directory: Compilation.Directory,
-        host: std.zig.system.NativeTargetInfo,
-        wait_group: *WaitGroup,
-    ) void {
-        defer wait_group.finish();
-
-        var prg_node = root_node.start(case.name, case.updates.items.len);
-        prg_node.activate();
-        defer prg_node.end();
-
-        case.result = runOneCase(
-            gpa,
-            &prg_node,
-            case.*,
-            zig_lib_directory,
-            thread_pool,
-            global_cache_directory,
-            host,
-        );
     }
 
     fn runOneCase(
@@ -1533,7 +1502,6 @@ pub const TestContext = struct {
             .root_name = "test_case",
             .target = target,
             .output_mode = case.output_mode,
-            .object_format = case.object_format,
         });
 
         const emit_directory: Compilation.Directory = .{
@@ -1569,7 +1537,6 @@ pub const TestContext = struct {
             .emit_h = emit_h,
             .main_pkg = &main_pkg,
             .keep_source_files_loaded = true,
-            .object_format = case.object_format,
             .is_native_os = case.target.isNativeOs(),
             .is_native_abi = case.target.isNativeAbi(),
             .dynamic_linker = target_info.dynamic_linker.get(),
@@ -1814,7 +1781,7 @@ pub const TestContext = struct {
                             ".." ++ ss ++ "{s}" ++ ss ++ "{s}",
                             .{ &tmp.sub_path, bin_name },
                         );
-                        if (case.object_format != null and case.object_format.? == .c) {
+                        if (case.target.ofmt != null and case.target.ofmt.? == .c) {
                             if (host.getExternalExecutor(target_info, .{ .link_libc = true }) != .native) {
                                 // We wouldn't be able to run the compiled C code.
                                 continue :update; // Pass test.

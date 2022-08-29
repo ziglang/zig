@@ -294,6 +294,8 @@ pub const Type = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const Struct = struct {
         layout: ContainerLayout,
+        /// Only valid if layout is .Packed
+        backing_integer: ?type = null,
         fields: []const StructField,
         decls: []const Declaration,
         is_tuple: bool,
@@ -864,13 +866,12 @@ pub fn panicUnwrapError(st: ?*StackTrace, err: anyerror) noreturn {
 
 pub fn panicOutOfBounds(index: usize, len: usize) noreturn {
     @setCold(true);
-    std.debug.panic("attempt to index out of bound: index {d}, len {d}", .{ index, len });
+    std.debug.panic("index out of bounds: index {d}, len {d}", .{ index, len });
 }
 
-pub noinline fn returnError(maybe_st: ?*StackTrace) void {
+pub noinline fn returnError(st: *StackTrace) void {
     @setCold(true);
     @setRuntimeSafety(false);
-    const st = maybe_st orelse return;
     addErrRetTraceAddr(st, @returnAddress());
 }
 

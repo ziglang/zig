@@ -1194,6 +1194,16 @@ pub const Value = extern union {
         return switch (self.tag()) {
             .bool_true, .one => true,
             .bool_false, .zero => false,
+            .int_u64 => switch (self.castTag(.int_u64).?.data) {
+                0 => false,
+                1 => true,
+                else => unreachable,
+            },
+            .int_i64 => switch (self.castTag(.int_i64).?.data) {
+                0 => false,
+                1 => true,
+                else => unreachable,
+            },
             else => unreachable,
         };
     }
@@ -1572,7 +1582,7 @@ pub const Value = extern union {
             .one, .bool_true => return ty_bits - 1,
 
             .int_u64 => {
-                const big = @clz(u64, val.castTag(.int_u64).?.data);
+                const big = @clz(val.castTag(.int_u64).?.data);
                 return big + ty_bits - 64;
             },
             .int_i64 => {
@@ -1589,7 +1599,7 @@ pub const Value = extern union {
                 while (i != 0) {
                     i -= 1;
                     const limb = bigint.limbs[i];
-                    const this_limb_lz = @clz(std.math.big.Limb, limb);
+                    const this_limb_lz = @clz(limb);
                     total_limb_lz += this_limb_lz;
                     if (this_limb_lz != bits_per_limb) break;
                 }
@@ -1616,7 +1626,7 @@ pub const Value = extern union {
             .one, .bool_true => return 0,
 
             .int_u64 => {
-                const big = @ctz(u64, val.castTag(.int_u64).?.data);
+                const big = @ctz(val.castTag(.int_u64).?.data);
                 return if (big == 64) ty_bits else big;
             },
             .int_i64 => {
@@ -1628,7 +1638,7 @@ pub const Value = extern union {
                 // Limbs are stored in little-endian order.
                 var result: u64 = 0;
                 for (bigint.limbs) |limb| {
-                    const limb_tz = @ctz(std.math.big.Limb, limb);
+                    const limb_tz = @ctz(limb);
                     result += limb_tz;
                     if (limb_tz != @sizeOf(std.math.big.Limb) * 8) break;
                 }
@@ -1653,7 +1663,7 @@ pub const Value = extern union {
             .zero, .bool_false => return 0,
             .one, .bool_true => return 1,
 
-            .int_u64 => return @popCount(u64, val.castTag(.int_u64).?.data),
+            .int_u64 => return @popCount(val.castTag(.int_u64).?.data),
 
             else => {
                 const info = ty.intInfo(target);
@@ -1994,6 +2004,10 @@ pub const Value = extern union {
         return (try orderAgainstZeroAdvanced(lhs, sema_kit)).compare(op);
     }
 
+    pub fn eql(a: Value, b: Value, ty: Type, mod: *Module) bool {
+        return eqlAdvanced(a, ty, b, ty, mod, null) catch unreachable;
+    }
+
     /// This function is used by hash maps and so treats floating-point NaNs as equal
     /// to each other, and not equal to other floating-point values.
     /// Similarly, it treats `undef` as a distinct value from all other values.
@@ -2002,13 +2016,10 @@ pub const Value = extern union {
     /// for `a`. This function must act *as if* `a` has been coerced to `ty`. This complication
     /// is required in order to make generic function instantiation efficient - specifically
     /// the insertion into the monomorphized function table.
-    pub fn eql(a: Value, b: Value, ty: Type, mod: *Module) bool {
-        return eqlAdvanced(a, b, ty, mod, null) catch unreachable;
-    }
-
     /// If `null` is provided for `sema_kit` then it is guaranteed no error will be returned.
     pub fn eqlAdvanced(
         a: Value,
+        a_ty: Type,
         b: Value,
         ty: Type,
         mod: *Module,
@@ -2034,33 +2045,34 @@ pub const Value = extern union {
                 const a_payload = a.castTag(.opt_payload).?.data;
                 const b_payload = b.castTag(.opt_payload).?.data;
                 var buffer: Type.Payload.ElemType = undefined;
-                return eqlAdvanced(a_payload, b_payload, ty.optionalChild(&buffer), mod, sema_kit);
+                const payload_ty = ty.optionalChild(&buffer);
+                return eqlAdvanced(a_payload, payload_ty, b_payload, payload_ty, mod, sema_kit);
             },
             .slice => {
                 const a_payload = a.castTag(.slice).?.data;
                 const b_payload = b.castTag(.slice).?.data;
-                if (!(try eqlAdvanced(a_payload.len, b_payload.len, Type.usize, mod, sema_kit))) {
+                if (!(try eqlAdvanced(a_payload.len, Type.usize, b_payload.len, Type.usize, mod, sema_kit))) {
                     return false;
                 }
 
                 var ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
                 const ptr_ty = ty.slicePtrFieldType(&ptr_buf);
 
-                return eqlAdvanced(a_payload.ptr, b_payload.ptr, ptr_ty, mod, sema_kit);
+                return eqlAdvanced(a_payload.ptr, ptr_ty, b_payload.ptr, ptr_ty, mod, sema_kit);
             },
             .elem_ptr => {
                 const a_payload = a.castTag(.elem_ptr).?.data;
                 const b_payload = b.castTag(.elem_ptr).?.data;
                 if (a_payload.index != b_payload.index) return false;
 
-                return eqlAdvanced(a_payload.array_ptr, b_payload.array_ptr, ty, mod, sema_kit);
+                return eqlAdvanced(a_payload.array_ptr, ty, b_payload.array_ptr, ty, mod, sema_kit);
             },
             .field_ptr => {
                 const a_payload = a.castTag(.field_ptr).?.data;
                 const b_payload = b.castTag(.field_ptr).?.data;
                 if (a_payload.field_index != b_payload.field_index) return false;
 
-                return eqlAdvanced(a_payload.container_ptr, b_payload.container_ptr, ty, mod, sema_kit);
+                return eqlAdvanced(a_payload.container_ptr, ty, b_payload.container_ptr, ty, mod, sema_kit);
             },
             .@"error" => {
                 const a_name = a.castTag(.@"error").?.data.name;
@@ -2070,7 +2082,8 @@ pub const Value = extern union {
             .eu_payload => {
                 const a_payload = a.castTag(.eu_payload).?.data;
                 const b_payload = b.castTag(.eu_payload).?.data;
-                return eqlAdvanced(a_payload, b_payload, ty.errorUnionPayload(), mod, sema_kit);
+                const payload_ty = ty.errorUnionPayload();
+                return eqlAdvanced(a_payload, payload_ty, b_payload, payload_ty, mod, sema_kit);
             },
             .eu_payload_ptr => @panic("TODO: Implement more pointer eql cases"),
             .opt_payload_ptr => @panic("TODO: Implement more pointer eql cases"),
@@ -2088,7 +2101,7 @@ pub const Value = extern union {
                     const types = ty.tupleFields().types;
                     assert(types.len == a_field_vals.len);
                     for (types) |field_ty, i| {
-                        if (!(try eqlAdvanced(a_field_vals[i], b_field_vals[i], field_ty, mod, sema_kit))) {
+                        if (!(try eqlAdvanced(a_field_vals[i], field_ty, b_field_vals[i], field_ty, mod, sema_kit))) {
                             return false;
                         }
                     }
@@ -2099,7 +2112,7 @@ pub const Value = extern union {
                     const fields = ty.structFields().values();
                     assert(fields.len == a_field_vals.len);
                     for (fields) |field, i| {
-                        if (!(try eqlAdvanced(a_field_vals[i], b_field_vals[i], field.ty, mod, sema_kit))) {
+                        if (!(try eqlAdvanced(a_field_vals[i], field.ty, b_field_vals[i], field.ty, mod, sema_kit))) {
                             return false;
                         }
                     }
@@ -2110,7 +2123,7 @@ pub const Value = extern union {
                 for (a_field_vals) |a_elem, i| {
                     const b_elem = b_field_vals[i];
 
-                    if (!(try eqlAdvanced(a_elem, b_elem, elem_ty, mod, sema_kit))) {
+                    if (!(try eqlAdvanced(a_elem, elem_ty, b_elem, elem_ty, mod, sema_kit))) {
                         return false;
                     }
                 }
@@ -2122,7 +2135,7 @@ pub const Value = extern union {
                 switch (ty.containerLayout()) {
                     .Packed, .Extern => {
                         const tag_ty = ty.unionTagTypeHypothetical();
-                        if (!(try a_union.tag.eqlAdvanced(b_union.tag, tag_ty, mod, sema_kit))) {
+                        if (!(try eqlAdvanced(a_union.tag, tag_ty, b_union.tag, tag_ty, mod, sema_kit))) {
                             // In this case, we must disregard mismatching tags and compare
                             // based on the in-memory bytes of the payloads.
                             @panic("TODO comptime comparison of extern union values with mismatching tags");
@@ -2130,13 +2143,13 @@ pub const Value = extern union {
                     },
                     .Auto => {
                         const tag_ty = ty.unionTagTypeHypothetical();
-                        if (!(try a_union.tag.eqlAdvanced(b_union.tag, tag_ty, mod, sema_kit))) {
+                        if (!(try eqlAdvanced(a_union.tag, tag_ty, b_union.tag, tag_ty, mod, sema_kit))) {
                             return false;
                         }
                     },
                 }
                 const active_field_ty = ty.unionFieldType(a_union.tag, mod);
-                return a_union.val.eqlAdvanced(b_union.val, active_field_ty, mod, sema_kit);
+                return eqlAdvanced(a_union.val, active_field_ty, b_union.val, active_field_ty, mod, sema_kit);
             },
             else => {},
         } else if (a_tag == .null_value or b_tag == .null_value) {
@@ -2170,7 +2183,7 @@ pub const Value = extern union {
                 const b_val = b.enumToInt(ty, &buf_b);
                 var buf_ty: Type.Payload.Bits = undefined;
                 const int_ty = ty.intTagType(&buf_ty);
-                return eqlAdvanced(a_val, b_val, int_ty, mod, sema_kit);
+                return eqlAdvanced(a_val, int_ty, b_val, int_ty, mod, sema_kit);
             },
             .Array, .Vector => {
                 const len = ty.arrayLen();
@@ -2181,17 +2194,44 @@ pub const Value = extern union {
                 while (i < len) : (i += 1) {
                     const a_elem = elemValueBuffer(a, mod, i, &a_buf);
                     const b_elem = elemValueBuffer(b, mod, i, &b_buf);
-                    if (!(try eqlAdvanced(a_elem, b_elem, elem_ty, mod, sema_kit))) {
+                    if (!(try eqlAdvanced(a_elem, elem_ty, b_elem, elem_ty, mod, sema_kit))) {
                         return false;
                     }
                 }
                 return true;
             },
             .Struct => {
-                // A tuple can be represented with .empty_struct_value,
-                // the_one_possible_value, .aggregate in which case we could
-                // end up here and the values are equal if the type has zero fields.
-                return ty.isTupleOrAnonStruct() and ty.structFieldCount() != 0;
+                // A struct can be represented with one of:
+                //   .empty_struct_value,
+                //   .the_one_possible_value,
+                //   .aggregate,
+                // Note that we already checked above for matching tags, e.g. both .aggregate.
+                return ty.onePossibleValue() != null;
+            },
+            .Union => {
+                // Here we have to check for value equality, as-if `a` has been coerced to `ty`.
+                if (ty.onePossibleValue() != null) {
+                    return true;
+                }
+                if (a_ty.castTag(.anon_struct)) |payload| {
+                    const tuple = payload.data;
+                    if (tuple.values.len != 1) {
+                        return false;
+                    }
+                    const field_name = tuple.names[0];
+                    const union_obj = ty.cast(Type.Payload.Union).?.data;
+                    const field_index = union_obj.fields.getIndex(field_name) orelse return false;
+                    const tag_and_val = b.castTag(.@"union").?.data;
+                    var field_tag_buf: Value.Payload.U32 = .{
+                        .base = .{ .tag = .enum_field_index },
+                        .data = @intCast(u32, field_index),
+                    };
+                    const field_tag = Value.initPayload(&field_tag_buf.base);
+                    const tag_matches = tag_and_val.tag.eql(field_tag, union_obj.tag_ty, mod);
+                    if (!tag_matches) return false;
+                    return eqlAdvanced(tag_and_val.val, union_obj.tag_ty, tuple.values[0], tuple.types[0], mod, sema_kit);
+                }
+                return false;
             },
             .Float => {
                 switch (ty.floatBits(target)) {
@@ -2220,7 +2260,8 @@ pub const Value = extern union {
                         .base = .{ .tag = .opt_payload },
                         .data = a,
                     };
-                    return eqlAdvanced(Value.initPayload(&buffer.base), b, ty, mod, sema_kit);
+                    const opt_val = Value.initPayload(&buffer.base);
+                    return eqlAdvanced(opt_val, ty, b, ty, mod, sema_kit);
                 }
             },
             else => {},
@@ -2647,6 +2688,12 @@ pub const Value = extern union {
             // The child type of arrays which have only one possible value need
             // to have only one possible value itself.
             .the_only_possible_value => return val,
+
+            // pointer to integer casted to pointer of array
+            .int_u64, .int_i64 => {
+                assert(index == 0);
+                return val;
+            },
 
             else => unreachable,
         }
@@ -3470,44 +3517,6 @@ pub const Value = extern union {
         var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
         result_q.divFloor(&result_r, lhs_bigint, rhs_bigint, limbs_buffer);
         return fromBigInt(allocator, result_q.toConst());
-    }
-
-    pub fn intRem(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, target: Target) !Value {
-        if (ty.zigTypeTag() == .Vector) {
-            const result_data = try allocator.alloc(Value, ty.vectorLen());
-            for (result_data) |*scalar, i| {
-                scalar.* = try intRemScalar(lhs.indexVectorlike(i), rhs.indexVectorlike(i), allocator, target);
-            }
-            return Value.Tag.aggregate.create(allocator, result_data);
-        }
-        return intRemScalar(lhs, rhs, allocator, target);
-    }
-
-    pub fn intRemScalar(lhs: Value, rhs: Value, allocator: Allocator, target: Target) !Value {
-        // TODO is this a performance issue? maybe we should try the operation without
-        // resorting to BigInt first.
-        var lhs_space: Value.BigIntSpace = undefined;
-        var rhs_space: Value.BigIntSpace = undefined;
-        const lhs_bigint = lhs.toBigInt(&lhs_space, target);
-        const rhs_bigint = rhs.toBigInt(&rhs_space, target);
-        const limbs_q = try allocator.alloc(
-            std.math.big.Limb,
-            lhs_bigint.limbs.len,
-        );
-        const limbs_r = try allocator.alloc(
-            std.math.big.Limb,
-            // TODO: consider reworking Sema to re-use Values rather than
-            // always producing new Value objects.
-            rhs_bigint.limbs.len,
-        );
-        const limbs_buffer = try allocator.alloc(
-            std.math.big.Limb,
-            std.math.big.int.calcDivLimbsBufferLen(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
-        );
-        var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
-        var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
-        result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buffer);
-        return fromBigInt(allocator, result_r.toConst());
     }
 
     pub fn intMod(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, target: Target) !Value {

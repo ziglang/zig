@@ -323,3 +323,37 @@ test "generic function instantiation non-duplicates" {
     S.copy(u8, &buffer, "hello");
     S.copy(u8, &buffer, "hello2");
 }
+
+test "generic instantiation of tagged union with only one field" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    const S = struct {
+        const U = union(enum) {
+            s: []const u8,
+        };
+
+        fn foo(comptime u: U) usize {
+            return u.s.len;
+        }
+    };
+
+    try expect(S.foo(.{ .s = "a" }) == 1);
+    try expect(S.foo(.{ .s = "ab" }) == 2);
+}
+
+test "nested generic function" {
+    const S = struct {
+        fn foo(comptime T: type, callback: *const fn (user_data: T) anyerror!void, data: T) anyerror!void {
+            try callback(data);
+        }
+        fn bar(a: u32) anyerror!void {
+            try expect(a == 123);
+        }
+
+        fn g(_: *const fn (anytype) void) void {}
+    };
+    try expect(@typeInfo(@TypeOf(S.g)).Fn.is_generic);
+    try S.foo(u32, S.bar, 123);
+}

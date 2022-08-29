@@ -513,6 +513,11 @@ test "Type.Fn" {
     if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
+    if (true) {
+        // https://github.com/ziglang/zig/issues/12360
+        return error.SkipZigTest;
+    }
+
     const some_opaque = opaque {};
     const some_ptr = *some_opaque;
     const T = fn (c_int, some_ptr) callconv(.C) void;

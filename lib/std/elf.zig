@@ -3,7 +3,7 @@ const io = std.io;
 const os = std.os;
 const math = std.math;
 const mem = std.mem;
-const debug = std.debug;
+const assert = std.debug.assert;
 const File = std.fs.File;
 const native_endian = @import("builtin").target.cpu.arch.endian();
 
@@ -387,7 +387,7 @@ pub const Header = struct {
 
         const machine = if (need_bswap) blk: {
             const value = @enumToInt(hdr32.e_machine);
-            break :blk @intToEnum(EM, @byteSwap(@TypeOf(value), value));
+            break :blk @intToEnum(EM, @byteSwap(value));
         } else hdr32.e_machine;
 
         return @as(Header, .{
@@ -406,7 +406,7 @@ pub const Header = struct {
     }
 };
 
-pub fn ProgramHeaderIterator(ParseSource: anytype) type {
+pub fn ProgramHeaderIterator(comptime ParseSource: anytype) type {
     return struct {
         elf_header: Header,
         parse_source: ParseSource,
@@ -456,7 +456,7 @@ pub fn ProgramHeaderIterator(ParseSource: anytype) type {
     };
 }
 
-pub fn SectionHeaderIterator(ParseSource: anytype) type {
+pub fn SectionHeaderIterator(comptime ParseSource: anytype) type {
     return struct {
         elf_header: Header,
         parse_source: ParseSource,
@@ -511,7 +511,7 @@ pub fn SectionHeaderIterator(ParseSource: anytype) type {
 pub fn int(is_64: bool, need_bswap: bool, int_32: anytype, int_64: anytype) @TypeOf(int_64) {
     if (is_64) {
         if (need_bswap) {
-            return @byteSwap(@TypeOf(int_64), int_64);
+            return @byteSwap(int_64);
         } else {
             return int_64;
         }
@@ -522,7 +522,7 @@ pub fn int(is_64: bool, need_bswap: bool, int_32: anytype, int_64: anytype) @Typ
 
 pub fn int32(need_bswap: bool, int_32: anytype, comptime Int64: anytype) Int64 {
     if (need_bswap) {
-        return @byteSwap(@TypeOf(int_32), int_32);
+        return @byteSwap(int_32);
     } else {
         return int_32;
     }
@@ -872,14 +872,14 @@ pub const Elf_MIPS_ABIFlags_v0 = extern struct {
 };
 
 comptime {
-    debug.assert(@sizeOf(Elf32_Ehdr) == 52);
-    debug.assert(@sizeOf(Elf64_Ehdr) == 64);
+    assert(@sizeOf(Elf32_Ehdr) == 52);
+    assert(@sizeOf(Elf64_Ehdr) == 64);
 
-    debug.assert(@sizeOf(Elf32_Phdr) == 32);
-    debug.assert(@sizeOf(Elf64_Phdr) == 56);
+    assert(@sizeOf(Elf32_Phdr) == 32);
+    assert(@sizeOf(Elf64_Phdr) == 56);
 
-    debug.assert(@sizeOf(Elf32_Shdr) == 40);
-    debug.assert(@sizeOf(Elf64_Shdr) == 64);
+    assert(@sizeOf(Elf32_Shdr) == 40);
+    assert(@sizeOf(Elf64_Shdr) == 64);
 }
 
 pub const Auxv = switch (@sizeOf(usize)) {

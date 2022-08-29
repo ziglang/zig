@@ -18640,7 +18640,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, Scope *scope, AstNode *sour
                 result->special = ConstValSpecialStatic;
                 result->type = ir_type_info_get_type(ira, "Struct", nullptr);
 
-                ZigValue **fields = alloc_const_vals_ptrs(g, 4);
+                ZigValue **fields = alloc_const_vals_ptrs(g, 5);
                 result->data.x_struct.fields = fields;
 
                 // layout: ContainerLayout
@@ -18648,8 +18648,17 @@ static Error ir_make_type_info_value(IrAnalyze *ira, Scope *scope, AstNode *sour
                 fields[0]->special = ConstValSpecialStatic;
                 fields[0]->type = ir_type_info_get_type(ira, "ContainerLayout", nullptr);
                 bigint_init_unsigned(&fields[0]->data.x_enum_tag, type_entry->data.structure.layout);
+
+                // backing_integer: ?type
+                ensure_field_index(result->type, "backing_integer", 1);
+                fields[1]->special = ConstValSpecialStatic;
+                fields[1]->type = get_optional_type(g, g->builtin_types.entry_type);
+                // This is always null in stage1, as stage1 does not support explicit backing integers
+                // for packed structs.
+                fields[1]->data.x_optional = nullptr;
+
                 // fields: []Type.StructField
-                ensure_field_index(result->type, "fields", 1);
+                ensure_field_index(result->type, "fields", 2);
 
                 ZigType *type_info_struct_field_type = ir_type_info_get_type(ira, "StructField", nullptr);
                 if ((err = type_resolve(g, type_info_struct_field_type, ResolveStatusSizeKnown))) {
@@ -18663,7 +18672,7 @@ static Error ir_make_type_info_value(IrAnalyze *ira, Scope *scope, AstNode *sour
                 struct_field_array->data.x_array.special = ConstArraySpecialNone;
                 struct_field_array->data.x_array.data.s_none.elements = g->pass1_arena->allocate<ZigValue>(struct_field_count);
 
-                init_const_slice(g, fields[1], struct_field_array, 0, struct_field_count, false, nullptr);
+                init_const_slice(g, fields[2], struct_field_array, 0, struct_field_count, false, nullptr);
 
                 for (uint32_t struct_field_index = 0; struct_field_index < struct_field_count; struct_field_index++) {
                     TypeStructField *struct_field = type_entry->data.structure.fields[struct_field_index];
@@ -18710,18 +18719,18 @@ static Error ir_make_type_info_value(IrAnalyze *ira, Scope *scope, AstNode *sour
                     struct_field_val->parent.data.p_array.elem_index = struct_field_index;
                 }
                 // decls: []Type.Declaration
-                ensure_field_index(result->type, "decls", 2);
-                if ((err = ir_make_type_info_decls(ira, source_node, fields[2],
+                ensure_field_index(result->type, "decls", 3);
+                if ((err = ir_make_type_info_decls(ira, source_node, fields[3],
                                 type_entry->data.structure.decls_scope, false)))
                 {
                     return err;
                 }
 
                 // is_tuple: bool
-                ensure_field_index(result->type, "is_tuple", 3);
-                fields[3]->special = ConstValSpecialStatic;
-                fields[3]->type = g->builtin_types.entry_bool;
-                fields[3]->data.x_bool = is_tuple(type_entry);
+                ensure_field_index(result->type, "is_tuple", 4);
+                fields[4]->special = ConstValSpecialStatic;
+                fields[4]->type = g->builtin_types.entry_bool;
+                fields[4]->data.x_bool = is_tuple(type_entry);
 
                 break;
             }
@@ -19313,7 +19322,14 @@ static ZigType *type_info_to_type(IrAnalyze *ira, Scope *scope, AstNode *source_
             assert(layout_value->type == ir_type_info_get_type(ira, "ContainerLayout", nullptr));
             ContainerLayout layout = (ContainerLayout)bigint_as_u32(&layout_value->data.x_enum_tag);
 
-            ZigValue *fields_value = get_const_field(ira, source_node, payload, "fields", 1);
+            ZigType *tag_type = get_const_field_meta_type_optional(ira, source_node, payload, "backing_integer", 1);
+            if (tag_type != nullptr) {
+                ir_add_error_node(ira, source_node, buf_create_from_str(
+                    "the stage1 compiler does not support explicit backing integer types on packed structs"));
+                return ira->codegen->invalid_inst_gen->value->type;
+            }
+
+            ZigValue *fields_value = get_const_field(ira, source_node, payload, "fields", 2);
             if (fields_value == nullptr)
                 return ira->codegen->invalid_inst_gen->value->type;
             assert(fields_value->special == ConstValSpecialStatic);
@@ -19322,7 +19338,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, Scope *scope, AstNode *source_
             ZigValue *fields_len_value = fields_value->data.x_struct.fields[slice_len_index];
             size_t fields_len = bigint_as_usize(&fields_len_value->data.x_bigint);
 
-            ZigValue *decls_value = get_const_field(ira, source_node, payload, "decls", 2);
+            ZigValue *decls_value = get_const_field(ira, source_node, payload, "decls", 3);
             if (decls_value == nullptr)
                 return ira->codegen->invalid_inst_gen->value->type;
             assert(decls_value->special == ConstValSpecialStatic);
@@ -19335,7 +19351,7 @@ static ZigType *type_info_to_type(IrAnalyze *ira, Scope *scope, AstNode *source_
             }
 
             bool is_tuple;
-            if ((err = get_const_field_bool(ira, source_node, payload, "is_tuple", 3, &is_tuple)))
+            if ((err = get_const_field_bool(ira, source_node, payload, "is_tuple", 4, &is_tuple)))
                 return ira->codegen->invalid_inst_gen->value->type;
 
             ZigType *entry = new_type_table_entry(ZigTypeIdStruct);

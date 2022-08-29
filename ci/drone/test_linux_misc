@@ -1,0 +1,16 @@
+#!/bin/sh
+
+set -x
+set -e
+
+INSTALL_PREFIX="$DRONE_WORKSPACE/stage3-release"
+ZIG="$INSTALL_PREFIX/bin/zig"
+export ZIG_GLOBAL_CACHE_DIR="$DRONE_WORKSPACE/zig-cache"
+
+$ZIG build test-universal-libc -Dskip-non-native
+$ZIG build test-compare-output -Dskip-non-native
+$ZIG build test-standalone     -Dskip-non-native -Dskip-release-safe
+$ZIG build test-stack-traces   -Dskip-non-native
+$ZIG build test-cli            -Dskip-non-native
+$ZIG build test-asm-link       -Dskip-non-native
+$ZIG build test-translate-c    -Dskip-non-native

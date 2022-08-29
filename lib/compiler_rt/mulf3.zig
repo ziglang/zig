@@ -186,7 +186,7 @@ fn normalize(comptime T: type, significand: *PowerOfTwoSignificandZ(T)) i32 {
     const Z = PowerOfTwoSignificandZ(T);
     const integerBit = @as(Z, 1) << math.floatFractionalBits(T);
 
-    const shift = @clz(Z, significand.*) - @clz(Z, integerBit);
+    const shift = @clz(significand.*) - @clz(integerBit);
     significand.* <<= @intCast(math.Log2Int(Z), shift);
     return @as(i32, 1) - shift;
 }

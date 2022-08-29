@@ -10,6 +10,7 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace) noretur
 
 const U = union(enum(u32)) {
     X: u8,
+    Y: i8,
 };
 
 pub fn main() !void {
@@ -22,5 +23,5 @@ pub fn main() !void {
 }
 
 // run
-// backend=stage1
+// backend=llvm
 // target=native

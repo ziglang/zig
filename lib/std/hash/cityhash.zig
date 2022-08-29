@@ -143,9 +143,9 @@ pub const CityHash32 = struct {
             h = rotr32(h, 19);
             h = h *% 5 +% 0xe6546b64;
             g ^= b4;
-            g = @byteSwap(u32, g) *% 5;
+            g = @byteSwap(g) *% 5;
             h +%= b4 *% 5;
-            h = @byteSwap(u32, h);
+            h = @byteSwap(h);
             f +%= b0;
             const t: u32 = h;
             h = f;
@@ -252,11 +252,11 @@ pub const CityHash64 = struct {
 
         const u: u64 = rotr64(a +% g, 43) +% (rotr64(b, 30) +% c) *% 9;
         const v: u64 = ((a +% g) ^ d) +% f +% 1;
-        const w: u64 = @byteSwap(u64, (u +% v) *% mul) +% h;
+        const w: u64 = @byteSwap((u +% v) *% mul) +% h;
         const x: u64 = rotr64(e +% f, 42) +% c;
-        const y: u64 = (@byteSwap(u64, (v +% w) *% mul) +% g) *% mul;
+        const y: u64 = (@byteSwap((v +% w) *% mul) +% g) *% mul;
         const z: u64 = e +% f +% c;
-        const a1: u64 = @byteSwap(u64, (x +% z) *% mul +% y) +% b;
+        const a1: u64 = @byteSwap((x +% z) *% mul +% y) +% b;
         const b1: u64 = shiftmix((z +% a1) *% mul +% d +% h) *% mul;
         return b1 +% x;
     }

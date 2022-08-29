@@ -211,6 +211,7 @@ pub fn buildTsan(comp: *Compilation) !void {
         .link_mode = link_mode,
         .want_sanitize_c = false,
         .want_stack_check = false,
+        .want_stack_protector = 0,
         .want_valgrind = false,
         .want_tsan = false,
         .want_pic = true,

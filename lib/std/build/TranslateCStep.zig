@@ -21,6 +21,7 @@ output_dir: ?[]const u8,
 out_basename: []const u8,
 target: CrossTarget = CrossTarget{},
 output_file: build.GeneratedFile,
+use_stage1: ?bool = null,
 
 pub fn create(builder: *Builder, source: build.FileSource) *TranslateCStep {
     const self = builder.allocator.create(TranslateCStep) catch unreachable;
@@ -90,6 +91,19 @@ fn make(step: *Step) !void {
     for (self.c_macros.items) |c_macro| {
         try argv_list.append("-D");
         try argv_list.append(c_macro);
+    }
+    if (self.use_stage1) |stage1| {
+        if (stage1) {
+            try argv_list.append("-fstage1");
+        } else {
+            try argv_list.append("-fno-stage1");
+        }
+    } else if (self.builder.use_stage1) |stage1| {
+        if (stage1) {
+            try argv_list.append("-fstage1");
+        } else {
+            try argv_list.append("-fno-stage1");
+        }
     }
 
     try argv_list.append(self.source.getPath(self.builder));

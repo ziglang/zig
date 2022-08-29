@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const expect = std.testing.expect;
+const assert = std.debug.assert;
 const expectEqual = std.testing.expectEqual;
 const Tag = std.meta.Tag;
 
@@ -744,7 +745,7 @@ fn setAttribute(attr: Attribute) void {
     _ = attr;
 }
 
-fn Setter(attr: Attribute) type {
+fn Setter(comptime attr: Attribute) type {
     return struct {
         fn set() void {
             setAttribute(attr);
@@ -1065,6 +1066,8 @@ test "@unionInit on union with tag but no fields" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     const S = struct {
         const Type = enum(u8) { no_op = 105 };
@@ -1079,11 +1082,7 @@ test "@unionInit on union with tag but no fields" {
         };
 
         comptime {
-            if (builtin.zig_backend == .stage1) {
-                // stage1 gets the wrong answer here
-            } else {
-                std.debug.assert(@sizeOf(Data) == 0);
-            }
+            assert(@sizeOf(Data) == 1);
         }
 
         fn doTheTest() !void {
@@ -1255,4 +1254,73 @@ test "return an extern union from C calling convention" {
         .d = 4.0,
     });
     try expect(u.d == 4.0);
+}
+
+test "noreturn field in union" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    const U = union(enum) {
+        a: u32,
+        b: noreturn,
+        c: noreturn,
+    };
+    var a = U{ .a = 1 };
+    var count: u32 = 0;
+    if (a == .b) @compileError("bad");
+    switch (a) {
+        .a => count += 1,
+        .b => |val| {
+            _ = val;
+            @compileError("bad");
+        },
+        .c => @compileError("bad"),
+    }
+    switch (a) {
+        .a => count += 1,
+        .b, .c => @compileError("bad"),
+    }
+    switch (a) {
+        .a, .b, .c => {
+            count += 1;
+            try expect(a == .a);
+        },
+    }
+    switch (a) {
+        .a => count += 1,
+        else => @compileError("bad"),
+    }
+    switch (a) {
+        else => {
+            count += 1;
+            try expect(a == .a);
+        },
+    }
+    try expect(count == 5);
+}
+
+test "union and enum field order doesn't match" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const MyTag = enum(u32) {
+        b = 1337,
+        a = 1666,
+    };
+    const MyUnion = union(MyTag) {
+        a: f32,
+        b: void,
+    };
+    var x: MyUnion = .{ .a = 666 };
+    switch (x) {
+        .a => |my_f32| {
+            try expect(@TypeOf(my_f32) == f32);
+        },
+        .b => unreachable,
+    }
+    x = .b;
+    try expect(x == .b);
 }

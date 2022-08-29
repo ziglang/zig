@@ -9977,11 +9977,11 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCInclude, "cInclude", 1);
     create_builtin_fn(g, BuiltinFnIdCDefine, "cDefine", 2);
     create_builtin_fn(g, BuiltinFnIdCUndef, "cUndef", 1);
-    create_builtin_fn(g, BuiltinFnIdCtz, "ctz", 2);
-    create_builtin_fn(g, BuiltinFnIdClz, "clz", 2);
-    create_builtin_fn(g, BuiltinFnIdPopCount, "popCount", 2);
-    create_builtin_fn(g, BuiltinFnIdBswap, "byteSwap", 2);
-    create_builtin_fn(g, BuiltinFnIdBitReverse, "bitReverse", 2);
+    create_builtin_fn(g, BuiltinFnIdCtz, "ctz", 1);
+    create_builtin_fn(g, BuiltinFnIdClz, "clz", 1);
+    create_builtin_fn(g, BuiltinFnIdPopCount, "popCount", 1);
+    create_builtin_fn(g, BuiltinFnIdBswap, "byteSwap", 1);
+    create_builtin_fn(g, BuiltinFnIdBitReverse, "bitReverse", 1);
     create_builtin_fn(g, BuiltinFnIdImport, "import", 1);
     create_builtin_fn(g, BuiltinFnIdCImport, "cImport", 1);
     create_builtin_fn(g, BuiltinFnIdErrName, "errorName", 1);
@@ -10261,13 +10261,13 @@ Buf *codegen_generate_builtin_source(CodeGen *g) {
     buf_appendf(contents, "pub const single_threaded = %s;\n", bool_to_str(g->is_single_threaded));
     buf_appendf(contents, "pub const abi = std.Target.Abi.%s;\n", cur_abi);
     buf_appendf(contents, "pub const cpu = std.Target.Cpu.baseline(.%s);\n", cur_arch);
-    buf_appendf(contents, "pub const stage2_arch: std.Target.Cpu.Arch = .%s;\n", cur_arch);
     buf_appendf(contents, "pub const os = std.Target.Os.Tag.defaultVersionRange(.%s, .%s);\n", cur_os, cur_arch);
     buf_appendf(contents,
         "pub const target = std.Target{\n"
         "    .cpu = cpu,\n"
         "    .os = os,\n"
         "    .abi = abi,\n"
+        "    .ofmt = object_format,\n"
         "};\n"
     );
 

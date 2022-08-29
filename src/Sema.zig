@@ -76,8 +76,14 @@ types_to_resolve: std.ArrayListUnmanaged(Air.Inst.Ref) = .{},
 post_hoc_blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, *LabeledBlock) = .{},
 /// Populated with the last compile error created.
 err: ?*Module.ErrorMsg = null,
+/// True when analyzing a generic instantiation. Used to suppress some errors.
+is_generic_instantiation: bool = false,
+/// Set to true when analyzing a func type instruction so that nested generic
+/// function types will emit generic poison instead of a partial type.
+no_partial_func_ty: bool = false,
 
 const std = @import("std");
+const math = std.math;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
@@ -772,7 +778,6 @@ fn analyzeBodyInner(
             .optional_payload_unsafe      => try sema.zirOptionalPayload(block, inst, false),
             .optional_payload_unsafe_ptr  => try sema.zirOptionalPayloadPtr(block, inst, false),
             .optional_type                => try sema.zirOptionalType(block, inst),
-            .param_type                   => try sema.zirParamType(block, inst),
             .ptr_type                     => try sema.zirPtrType(block, inst),
             .overflow_arithmetic_ptr      => try sema.zirOverflowArithmeticPtr(block, inst),
             .ref                          => try sema.zirRef(block, inst),
@@ -816,7 +821,6 @@ fn analyzeBodyInner(
             .embed_file                   => try sema.zirEmbedFile(block, inst),
             .error_name                   => try sema.zirErrorName(block, inst),
             .tag_name                     => try sema.zirTagName(block, inst),
-            .reify                        => try sema.zirReify(block, inst),
             .type_name                    => try sema.zirTypeName(block, inst),
             .frame_type                   => try sema.zirFrameType(block, inst),
             .frame_size                   => try sema.zirFrameSize(block, inst),
@@ -876,9 +880,6 @@ fn analyzeBodyInner(
             .add       => try sema.zirArithmetic(block, inst, .add),
             .addwrap   => try sema.zirArithmetic(block, inst, .addwrap),
             .add_sat   => try sema.zirArithmetic(block, inst, .add_sat),
-            .mod_rem   => try sema.zirArithmetic(block, inst, .mod_rem),
-            .mod       => try sema.zirArithmetic(block, inst, .mod),
-            .rem       => try sema.zirArithmetic(block, inst, .rem),
             .mul       => try sema.zirArithmetic(block, inst, .mul),
             .mulwrap   => try sema.zirArithmetic(block, inst, .mulwrap),
             .mul_sat   => try sema.zirArithmetic(block, inst, .mul_sat),
@@ -890,6 +891,10 @@ fn analyzeBodyInner(
             .div_exact => try sema.zirDivExact(block, inst),
             .div_floor => try sema.zirDivFloor(block, inst),
             .div_trunc => try sema.zirDivTrunc(block, inst),
+
+            .mod_rem   => try sema.zirModRem(block, inst),
+            .mod       => try sema.zirMod(block, inst),
+            .rem       => try sema.zirRem(block, inst),
 
             .maximum => try sema.zirMinMax(block, inst, .max),
             .minimum => try sema.zirMinMax(block, inst, .min),
@@ -950,6 +955,7 @@ fn analyzeBodyInner(
                     .select                => try sema.zirSelect(            block, extended),
                     .error_to_int          => try sema.zirErrorToInt(        block, extended),
                     .int_to_error          => try sema.zirIntToError(        block, extended),
+                    .reify                 => try sema.zirReify(             block, extended, inst),
                     // zig fmt: on
                     .fence => {
                         try sema.zirFence(block, extended);
@@ -1494,7 +1500,8 @@ pub fn resolveInst(sema: *Sema, zir_ref: Zir.Inst.Ref) !Air.Inst.Ref {
 
     // Finally, the last section of indexes refers to the map of ZIR=>AIR.
     const inst = sema.inst_map.get(@intCast(u32, i)).?;
-    if (sema.typeOf(inst).tag() == .generic_poison) return error.GenericPoison;
+    const ty = sema.typeOf(inst);
+    if (ty.tag() == .generic_poison) return error.GenericPoison;
     return inst;
 }
 
@@ -1577,8 +1584,7 @@ pub fn setupErrorReturnTrace(sema: *Sema, block: *Block, last_arg_index: usize) 
 
     // st.index = 0;
     const index_field_ptr = try sema.fieldPtr(&err_trace_block, src, st_ptr, "index", src, true);
-    const zero = try sema.addConstant(Type.usize, Value.zero);
-    try sema.storePtr2(&err_trace_block, src, index_field_ptr, src, zero, src, .store);
+    try sema.storePtr2(&err_trace_block, src, index_field_ptr, src, .zero_usize, src, .store);
 
     // @errorReturnTrace() = &st;
     _ = try err_trace_block.addUnOp(.set_err_return_trace, st_ptr);
@@ -1695,7 +1701,10 @@ fn resolveMaybeUndefValIntable(
         .elem_ptr => check = check.castTag(.elem_ptr).?.data.array_ptr,
         .eu_payload_ptr, .opt_payload_ptr => check = check.cast(Value.Payload.PayloadPtr).?.data.container_ptr,
         .generic_poison => return error.GenericPoison,
-        else => return val,
+        else => {
+            try sema.resolveLazyValue(block, src, val);
+            return val;
+        },
     };
 }
 
@@ -1818,10 +1827,21 @@ fn failWithInvalidComptimeFieldStore(sema: *Sema, block: *Block, init_src: LazyS
 
         const tree = try sema.getAstTree(block);
         const decl = sema.mod.declPtr(decl_index);
-        const field_src = enumFieldSrcLoc(decl, tree.*, container_ty.getNodeOffset(), field_index);
+        const field_src = enumFieldSrcLoc(decl, tree.*, 0, field_index);
         const default_value_src: LazySrcLoc = .{ .node_offset_field_default = field_src.node_offset.x };
 
-        try sema.errNote(block, default_value_src, msg, "default value set here", .{});
+        try sema.mod.errNoteNonLazy(default_value_src.toSrcLoc(decl), msg, "default value set here", .{});
+        break :msg msg;
+    };
+    return sema.failWithOwnedErrorMsg(msg);
+}
+
+fn failWithUseOfAsync(sema: *Sema, block: *Block, src: LazySrcLoc) CompileError {
+    const msg = msg: {
+        const msg = try sema.errMsg(block, src, "async has not been implemented in the self-hosted compiler yet", .{});
+        errdefer msg.destroy(sema.gpa);
+
+        try sema.errNote(block, src, msg, "to use async enable the stage1 compiler with either '-fstage1' or by setting '.use_stage1 = true` in your 'build.zig' script", .{});
         break :msg msg;
     };
     return sema.failWithOwnedErrorMsg(msg);
@@ -1855,7 +1875,7 @@ fn addFieldErrNote(
     const decl_index = container_ty.getOwnerDecl();
     const decl = mod.declPtr(decl_index);
     const tree = try sema.getAstTree(block);
-    const field_src = enumFieldSrcLoc(decl, tree.*, container_ty.getNodeOffset(), field_index);
+    const field_src = enumFieldSrcLoc(decl, tree.*, 0, field_index);
     try mod.errNoteNonLazy(field_src.toSrcLoc(decl), parent, format, args);
 }
 
@@ -1895,8 +1915,6 @@ fn failWithOwnedErrorMsg(sema: *Sema, err_msg: *Module.ErrorMsg) CompileError {
     }
 
     const mod = sema.mod;
-    sema.err = err_msg;
-
     {
         errdefer err_msg.destroy(mod.gpa);
         if (err_msg.src_loc.lazy == .unneeded) {
@@ -1914,8 +1932,10 @@ fn failWithOwnedErrorMsg(sema: *Sema, err_msg: *Module.ErrorMsg) CompileError {
     const gop = mod.failed_decls.getOrPutAssumeCapacity(sema.owner_decl_index);
     if (gop.found_existing) {
         // If there are multiple errors for the same Decl, prefer the first one added.
+        sema.err = null;
         err_msg.destroy(mod.gpa);
     } else {
+        sema.err = err_msg;
         gop.value_ptr.* = err_msg;
     }
     return error.AnalysisFail;
@@ -2228,6 +2248,16 @@ pub fn analyzeStructDecl(
         break :blk decls_len;
     } else 0;
 
+    if (small.has_backing_int) {
+        const backing_int_body_len = sema.code.extra[extra_index];
+        extra_index += 1; // backing_int_body_len
+        if (backing_int_body_len == 0) {
+            extra_index += 1; // backing_int_ref
+        } else {
+            extra_index += backing_int_body_len; // backing_int_body_inst
+        }
+    }
+
     _ = try sema.mod.scanNamespace(&struct_obj.namespace, extra_index, decls_len, new_decl);
 }
 
@@ -2251,7 +2281,7 @@ fn zirStructDecl(
     const struct_obj = try new_decl_arena_allocator.create(Module.Struct);
     const struct_ty = try Type.Tag.@"struct".create(new_decl_arena_allocator, struct_obj);
     const struct_val = try Value.Tag.ty.create(new_decl_arena_allocator, struct_ty);
-    const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
+    const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
         .ty = Type.type,
         .val = struct_val,
     }, small.name_strategy, "struct", inst);
@@ -2261,7 +2291,6 @@ fn zirStructDecl(
     struct_obj.* = .{
         .owner_decl = new_decl_index,
         .fields = .{},
-        .node_offset = src.node_offset.x,
         .zir_index = inst,
         .layout = small.layout,
         .status = .none,
@@ -2283,6 +2312,7 @@ fn zirStructDecl(
 fn createAnonymousDeclTypeNamed(
     sema: *Sema,
     block: *Block,
+    src: LazySrcLoc,
     typed_value: TypedValue,
     name_strategy: Zir.Inst.NameStrategy,
     anon_prefix: []const u8,
@@ -2292,7 +2322,8 @@ fn createAnonymousDeclTypeNamed(
     const namespace = block.namespace;
     const src_scope = block.wip_capture_scope;
     const src_decl = mod.declPtr(block.src_decl);
-    const new_decl_index = try mod.allocateNewDecl(namespace, src_decl.src_node, src_scope);
+    const src_node = src_decl.relativeToNodeIndex(src.node_offset.x);
+    const new_decl_index = try mod.allocateNewDecl(namespace, src_node, src_scope);
     errdefer mod.destroyDecl(new_decl_index);
 
     switch (name_strategy) {
@@ -2367,7 +2398,7 @@ fn createAnonymousDeclTypeNamed(
                 },
                 else => {},
             };
-            return sema.createAnonymousDeclTypeNamed(block, typed_value, .anon, anon_prefix, null);
+            return sema.createAnonymousDeclTypeNamed(block, src, typed_value, .anon, anon_prefix, null);
         },
     }
 }
@@ -2431,7 +2462,7 @@ fn zirEnumDecl(
     };
     const enum_ty = Type.initPayload(&enum_ty_payload.base);
     const enum_val = try Value.Tag.ty.create(new_decl_arena_allocator, enum_ty);
-    const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
+    const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
         .ty = Type.type,
         .val = enum_val,
     }, small.name_strategy, "enum", inst);
@@ -2445,7 +2476,6 @@ fn zirEnumDecl(
         .tag_ty_inferred = true,
         .fields = .{},
         .values = .{},
-        .node_offset = src.node_offset.x,
         .namespace = .{
             .parent = block.namespace,
             .ty = enum_ty,
@@ -2467,18 +2497,6 @@ fn zirEnumDecl(
     extra_index = try mod.scanNamespace(&enum_obj.namespace, extra_index, decls_len, new_decl);
 
     const body = sema.code.extra[extra_index..][0..body_len];
-    if (fields_len == 0) {
-        assert(body.len == 0);
-        if (tag_type_ref != .none) {
-            const ty = try sema.resolveType(block, tag_ty_src, tag_type_ref);
-            if (ty.zigTypeTag() != .Int and ty.zigTypeTag() != .ComptimeInt) {
-                return sema.fail(block, tag_ty_src, "expected integer tag type, found '{}'", .{ty.fmt(sema.mod)});
-            }
-            enum_obj.tag_ty = try ty.copy(new_decl_arena_allocator);
-            enum_obj.tag_ty_inferred = false;
-        }
-        return decl_val;
-    }
     extra_index += body.len;
 
     const bit_bags_count = std.math.divCeil(usize, fields_len, 32) catch unreachable;
@@ -2536,6 +2554,9 @@ fn zirEnumDecl(
             }
             enum_obj.tag_ty = try ty.copy(decl_arena_allocator);
             enum_obj.tag_ty_inferred = false;
+        } else if (fields_len == 0) {
+            enum_obj.tag_ty = try Type.Tag.int_unsigned.create(decl_arena_allocator, 0);
+            enum_obj.tag_ty_inferred = true;
         } else {
             const bits = std.math.log2_int_ceil(usize, fields_len);
             enum_obj.tag_ty = try Type.Tag.int_unsigned.create(decl_arena_allocator, bits);
@@ -2673,7 +2694,7 @@ fn zirUnionDecl(
     const union_ty = Type.initPayload(&union_payload.base);
     const union_val = try Value.Tag.ty.create(new_decl_arena_allocator, union_ty);
     const mod = sema.mod;
-    const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
+    const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
         .ty = Type.type,
         .val = union_val,
     }, small.name_strategy, "union", inst);
@@ -2684,7 +2705,6 @@ fn zirUnionDecl(
         .owner_decl = new_decl_index,
         .tag_ty = Type.initTag(.@"null"),
         .fields = .{},
-        .node_offset = src.node_offset.x,
         .zir_index = inst,
         .layout = small.layout,
         .status = .none,
@@ -2742,7 +2762,7 @@ fn zirOpaqueDecl(
     };
     const opaque_ty = Type.initPayload(&opaque_ty_payload.base);
     const opaque_val = try Value.Tag.ty.create(new_decl_arena_allocator, opaque_ty);
-    const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
+    const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
         .ty = Type.type,
         .val = opaque_val,
     }, small.name_strategy, "opaque", inst);
@@ -2752,7 +2772,6 @@ fn zirOpaqueDecl(
 
     opaque_obj.* = .{
         .owner_decl = new_decl_index,
-        .node_offset = src.node_offset.x,
         .namespace = .{
             .parent = block.namespace,
             .ty = opaque_ty,
@@ -2791,7 +2810,7 @@ fn zirErrorSetDecl(
     const error_set_ty = try Type.Tag.error_set.create(new_decl_arena_allocator, error_set);
     const error_set_val = try Value.Tag.ty.create(new_decl_arena_allocator, error_set_ty);
     const mod = sema.mod;
-    const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
+    const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
         .ty = Type.type,
         .val = error_set_val,
     }, name_strategy, "error", inst);
@@ -2816,7 +2835,6 @@ fn zirErrorSetDecl(
 
     error_set.* = .{
         .owner_decl = new_decl_index,
-        .node_offset = inst_data.src_node,
         .names = names,
     };
     try new_decl.finalizeNewArena(&new_decl_arena);
@@ -3068,7 +3086,7 @@ fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
 
             const candidate = block.instructions.items[search_index];
             switch (air_tags[candidate]) {
-                .dbg_stmt => continue,
+                .dbg_stmt, .dbg_block_begin, .dbg_block_end => continue,
                 .store => break candidate,
                 else => break :ct,
             }
@@ -3080,7 +3098,7 @@ fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
 
             const candidate = block.instructions.items[search_index];
             switch (air_tags[candidate]) {
-                .dbg_stmt => continue,
+                .dbg_stmt, .dbg_block_begin, .dbg_block_end => continue,
                 .alloc => {
                     if (Air.indexToRef(candidate) != alloc) break :ct;
                     break;
@@ -3298,7 +3316,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
 
                     const candidate = block.instructions.items[search_index];
                     switch (air_tags[candidate]) {
-                        .dbg_stmt => continue,
+                        .dbg_stmt, .dbg_block_begin, .dbg_block_end => continue,
                         .store => break candidate,
                         else => break :ct,
                     }
@@ -3310,7 +3328,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
 
                     const candidate = block.instructions.items[search_index];
                     switch (air_tags[candidate]) {
-                        .dbg_stmt => continue,
+                        .dbg_stmt, .dbg_block_begin, .dbg_block_end => continue,
                         .bitcast => break candidate,
                         else => break :ct,
                     }
@@ -3322,7 +3340,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
 
                     const candidate = block.instructions.items[search_index];
                     switch (air_tags[candidate]) {
-                        .dbg_stmt => continue,
+                        .dbg_stmt, .dbg_block_begin, .dbg_block_end => continue,
                         .constant => break candidate,
                         else => break :ct,
                     }
@@ -3596,8 +3614,6 @@ fn validateUnionInit(
     union_ptr: Air.Inst.Ref,
     is_comptime: bool,
 ) CompileError!void {
-    const union_obj = union_ty.cast(Type.Payload.Union).?.data;
-
     if (instrs.len != 1) {
         const msg = msg: {
             const msg = try sema.errMsg(
@@ -3631,7 +3647,8 @@ fn validateUnionInit(
     const field_src: LazySrcLoc = .{ .node_offset_initializer = field_ptr_data.src_node };
     const field_ptr_extra = sema.code.extraData(Zir.Inst.Field, field_ptr_data.payload_index).data;
     const field_name = sema.code.nullTerminatedString(field_ptr_extra.field_name_start);
-    const field_index = try sema.unionFieldIndex(block, union_ty, field_name, field_src);
+    // Validate the field access but ignore the index since we want the tag enum field index.
+    _ = try sema.unionFieldIndex(block, union_ty, field_name, field_src);
     const air_tags = sema.air_instructions.items(.tag);
     const air_datas = sema.air_instructions.items(.data);
     const field_ptr_air_ref = sema.inst_map.get(field_ptr).?;
@@ -3690,7 +3707,9 @@ fn validateUnionInit(
         break;
     }
 
-    const tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
+    const tag_ty = union_ty.unionTagTypeHypothetical();
+    const enum_field_index = @intCast(u32, tag_ty.enumFieldIndex(field_name).?);
+    const tag_val = try Value.Tag.enum_field_index.create(sema.arena, enum_field_index);
 
     if (init_val) |val| {
         // Our task is to delete all the `field_ptr` and `store` instructions, and insert
@@ -3707,7 +3726,7 @@ fn validateUnionInit(
     }
 
     try sema.requireFunctionBlock(block, init_src);
-    const new_tag = try sema.addConstant(union_obj.tag_ty, tag_val);
+    const new_tag = try sema.addConstant(tag_ty, tag_val);
     _ = try block.addBinOp(.set_union_tag, union_ptr, new_tag);
 }
 
@@ -3754,11 +3773,13 @@ fn validateStructInit(
     }
 
     var root_msg: ?*Module.ErrorMsg = null;
+    errdefer if (root_msg) |msg| msg.destroy(sema.gpa);
 
     const struct_ptr = try sema.resolveInst(struct_ptr_zir_ref);
     if ((is_comptime or block.is_comptime) and
         (try sema.resolveDefinedValue(block, init_src, struct_ptr)) != null)
     {
+        try sema.resolveStructLayout(block, init_src, struct_ty);
         // In this case the only thing we need to do is evaluate the implicit
         // store instructions for default field values, and report any missing fields.
         // Avoid the cost of the extra machinery for detecting a comptime struct init value.
@@ -3929,6 +3950,7 @@ fn validateStructInit(
     }
 
     if (root_msg) |msg| {
+        root_msg = null;
         if (struct_ty.castTag(.@"struct")) |struct_obj| {
             const fqn = try struct_obj.data.getFullyQualifiedName(sema.mod);
             defer gpa.free(fqn);
@@ -3952,6 +3974,7 @@ fn validateStructInit(
         try sema.storePtr2(block, init_src, struct_ptr, init_src, struct_init, init_src, .store);
         return;
     }
+    try sema.resolveStructLayout(block, init_src, struct_ty);
 
     // Our task is to insert `store` instructions for all the default field values.
     for (found_fields) |field_ptr, i| {
@@ -3987,6 +4010,8 @@ fn zirValidateArrayInit(
     if (instrs.len != array_len and array_ty.isTuple()) {
         const struct_obj = array_ty.castTag(.tuple).?.data;
         var root_msg: ?*Module.ErrorMsg = null;
+        errdefer if (root_msg) |msg| msg.destroy(sema.gpa);
+
         for (struct_obj.values) |default_val, i| {
             if (i < instrs.len) continue;
 
@@ -4001,6 +4026,7 @@ fn zirValidateArrayInit(
         }
 
         if (root_msg) |msg| {
+            root_msg = null;
             return sema.failWithOwnedErrorMsg(msg);
         }
     }
@@ -4038,6 +4064,19 @@ fn zirValidateArrayInit(
 
         // Determine whether the value stored to this pointer is comptime-known.
 
+        if (array_ty.isTuple()) {
+            if (array_ty.structFieldValueComptime(i)) |opv| {
+                element_vals[i] = opv;
+                continue;
+            }
+        } else {
+            // Array has one possible value, so value is always comptime-known
+            if (opt_opv) |opv| {
+                element_vals[i] = opv;
+                continue;
+            }
+        }
+
         const elem_ptr_air_ref = sema.inst_map.get(elem_ptr).?;
         const elem_ptr_air_inst = Air.refToIndex(elem_ptr_air_ref).?;
         // Find the block index of the elem_ptr so that we can look at the next
@@ -4053,19 +4092,6 @@ fn zirValidateArrayInit(
             block_index -= 1;
         }
         first_block_index = @minimum(first_block_index, block_index);
-
-        if (array_ty.isTuple()) {
-            if (array_ty.structFieldValueComptime(i)) |opv| {
-                element_vals[i] = opv;
-                continue;
-            }
-        } else {
-            // Array has one possible value, so value is always comptime-known
-            if (opt_opv) |opv| {
-                element_vals[i] = opv;
-                continue;
-            }
-        }
 
         // If the next instructon is a store with a comptime operand, this element
         // is comptime.
@@ -4433,43 +4459,6 @@ fn zirStoreNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!v
     return sema.storePtr2(block, src, ptr, src, operand, src, if (is_ret) .ret_ptr else .store);
 }
 
-fn zirParamType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const callee_src = sema.src;
-
-    const inst_data = sema.code.instructions.items(.data)[inst].param_type;
-    const callee = try sema.resolveInst(inst_data.callee);
-    const callee_ty = sema.typeOf(callee);
-    var param_index = inst_data.param_index;
-
-    const fn_ty = if (callee_ty.tag() == .bound_fn) fn_ty: {
-        const bound_fn_val = try sema.resolveConstValue(block, .unneeded, callee, undefined);
-        const bound_fn = bound_fn_val.castTag(.bound_fn).?.data;
-        const fn_ty = sema.typeOf(bound_fn.func_inst);
-        param_index += 1;
-        break :fn_ty fn_ty;
-    } else callee_ty;
-
-    const fn_info = if (fn_ty.zigTypeTag() == .Pointer)
-        fn_ty.childType().fnInfo()
-    else
-        fn_ty.fnInfo();
-
-    if (param_index >= fn_info.param_types.len) {
-        if (fn_info.is_var_args) {
-            return sema.addType(Type.initTag(.var_args_param));
-        }
-        // TODO implement begin_call/end_call Zir instructions and check
-        // argument count before casting arguments to parameter types.
-        return sema.fail(block, callee_src, "wrong number of arguments", .{});
-    }
-
-    if (fn_info.param_types[param_index].tag() == .generic_poison) {
-        return sema.addType(Type.initTag(.var_args_param));
-    }
-
-    return sema.addType(fn_info.param_types[param_index]);
-}
-
 fn zirStr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -4775,7 +4764,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
 fn zirSuspendBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
-    return sema.fail(parent_block, src, "TODO: implement Sema.zirSuspendBlock", .{});
+    return sema.failWithUseOfAsync(parent_block, src);
 }
 
 fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -5403,6 +5392,17 @@ fn lookupInNamespace(
             }
         }
 
+        {
+            var i: usize = 0;
+            while (i < candidates.items.len) {
+                if (candidates.items[i] == sema.owner_decl_index) {
+                    _ = candidates.orderedRemove(i);
+                } else {
+                    i += 1;
+                }
+            }
+        }
+
         switch (candidates.items.len) {
             0 => {},
             1 => {
@@ -5439,6 +5439,19 @@ fn lookupInNamespace(
     return null;
 }
 
+fn funcDeclSrc(sema: *Sema, block: *Block, src: LazySrcLoc, func_inst: Air.Inst.Ref) !?Module.SrcLoc {
+    const func_val = (try sema.resolveMaybeUndefVal(block, src, func_inst)) orelse return null;
+    if (func_val.isUndef()) return null;
+    const owner_decl_index = switch (func_val.tag()) {
+        .extern_fn => func_val.castTag(.extern_fn).?.data.owner_decl,
+        .function => func_val.castTag(.function).?.data.owner_decl,
+        .decl_ref => sema.mod.declPtr(func_val.castTag(.decl_ref).?.data).val.castTag(.function).?.data.owner_decl,
+        else => return null,
+    };
+    const owner_decl = sema.mod.declPtr(owner_decl_index);
+    return owner_decl.srcLoc();
+}
+
 fn zirCall(
     sema: *Sema,
     block: *Block,
@@ -5451,13 +5464,14 @@ fn zirCall(
     const func_src: LazySrcLoc = .{ .node_offset_call_func = inst_data.src_node };
     const call_src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.Call, inst_data.payload_index);
-    const args = sema.code.refSlice(extra.end, extra.data.flags.args_len);
+    const args_len = extra.data.flags.args_len;
 
     const modifier = @intToEnum(std.builtin.CallOptions.Modifier, extra.data.flags.packed_modifier);
     const ensure_result_used = extra.data.flags.ensure_result_used;
 
     var func = try sema.resolveInst(extra.data.callee);
     var resolved_args: []Air.Inst.Ref = undefined;
+    var arg_index: u32 = 0;
 
     const func_type = sema.typeOf(func);
 
@@ -5468,16 +5482,93 @@ fn zirCall(
         const bound_func = try sema.resolveValue(block, .unneeded, func, undefined);
         const bound_data = &bound_func.cast(Value.Payload.BoundFn).?.data;
         func = bound_data.func_inst;
-        resolved_args = try sema.arena.alloc(Air.Inst.Ref, args.len + 1);
-        resolved_args[0] = bound_data.arg0_inst;
-        for (args) |zir_arg, i| {
-            resolved_args[i + 1] = try sema.resolveInst(zir_arg);
-        }
+        resolved_args = try sema.arena.alloc(Air.Inst.Ref, args_len + 1);
+        resolved_args[arg_index] = bound_data.arg0_inst;
+        arg_index += 1;
     } else {
-        resolved_args = try sema.arena.alloc(Air.Inst.Ref, args.len);
-        for (args) |zir_arg, i| {
-            resolved_args[i] = try sema.resolveInst(zir_arg);
+        resolved_args = try sema.arena.alloc(Air.Inst.Ref, args_len);
+    }
+    const total_args = args_len + @boolToInt(bound_arg_src != null);
+
+    const callee_ty = sema.typeOf(func);
+    const func_ty = func_ty: {
+        switch (callee_ty.zigTypeTag()) {
+            .Fn => break :func_ty callee_ty,
+            .Pointer => {
+                const ptr_info = callee_ty.ptrInfo().data;
+                if (ptr_info.size == .One and ptr_info.pointee_type.zigTypeTag() == .Fn) {
+                    break :func_ty ptr_info.pointee_type;
+                }
+            },
+            else => {},
         }
+        return sema.fail(block, func_src, "type '{}' not a function", .{callee_ty.fmt(sema.mod)});
+    };
+    const func_ty_info = func_ty.fnInfo();
+
+    const fn_params_len = func_ty_info.param_types.len;
+    check_args: {
+        if (func_ty_info.is_var_args) {
+            assert(func_ty_info.cc == .C);
+            if (total_args >= fn_params_len) break :check_args;
+        } else if (fn_params_len == total_args) {
+            break :check_args;
+        }
+
+        const decl_src = try sema.funcDeclSrc(block, func_src, func);
+        const member_str = if (bound_arg_src != null) "member function " else "";
+        const variadic_str = if (func_ty_info.is_var_args) "at least " else "";
+        const msg = msg: {
+            const msg = try sema.errMsg(
+                block,
+                func_src,
+                "{s}expected {s}{d} argument(s), found {d}",
+                .{
+                    member_str,
+                    variadic_str,
+                    fn_params_len - @boolToInt(bound_arg_src != null),
+                    args_len,
+                },
+            );
+            errdefer msg.destroy(sema.gpa);
+
+            if (decl_src) |some| try sema.mod.errNoteNonLazy(some, msg, "function declared here", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    }
+
+    const args_body = sema.code.extra[extra.end..];
+
+    const parent_comptime = block.is_comptime;
+    // `extra_index` and `arg_index` are separate since the bound function is passed as the first argument.
+    var extra_index: usize = 0;
+    var arg_start: u32 = args_len;
+    while (extra_index < args_len) : ({
+        extra_index += 1;
+        arg_index += 1;
+    }) {
+        const arg_end = sema.code.extra[extra.end + extra_index];
+        defer arg_start = arg_end;
+
+        const param_ty = if (arg_index >= fn_params_len or
+            func_ty_info.param_types[arg_index].tag() == .generic_poison)
+            Type.initTag(.var_args_param)
+        else
+            func_ty_info.param_types[arg_index];
+
+        const old_comptime = block.is_comptime;
+        defer block.is_comptime = old_comptime;
+        // Generate args to comptime params in comptime block.
+        block.is_comptime = parent_comptime;
+        if (arg_index < fn_params_len and func_ty_info.comptime_params[arg_index]) {
+            block.is_comptime = true;
+        }
+
+        const param_ty_inst = try sema.addType(param_ty);
+        try sema.inst_map.put(sema.gpa, inst, param_ty_inst);
+
+        resolved_args[arg_index] = try sema.resolveBody(block, args_body[arg_start..arg_end], inst);
     }
 
     return sema.analyzeCall(block, func, func_src, call_src, modifier, ensure_result_used, resolved_args, bound_arg_src);
@@ -5487,10 +5578,14 @@ const GenericCallAdapter = struct {
     generic_fn: *Module.Fn,
     precomputed_hash: u64,
     func_ty_info: Type.Payload.Function.Data,
-    /// Unlike comptime_args, the Type here is not always present.
-    /// .generic_poison is used to communicate non-anytype parameters.
-    comptime_tvs: []const TypedValue,
+    args: []const Arg,
     module: *Module,
+
+    const Arg = struct {
+        ty: Type,
+        val: Value,
+        is_anytype: bool,
+    };
 
     pub fn eql(ctx: @This(), adapted_key: void, other_key: *Module.Fn) bool {
         _ = adapted_key;
@@ -5502,11 +5597,11 @@ const GenericCallAdapter = struct {
 
         const other_comptime_args = other_key.comptime_args.?;
         for (other_comptime_args[0..ctx.func_ty_info.param_types.len]) |other_arg, i| {
-            const this_arg = ctx.comptime_tvs[i];
+            const this_arg = ctx.args[i];
             const this_is_comptime = this_arg.val.tag() != .generic_poison;
             const other_is_comptime = other_arg.val.tag() != .generic_poison;
-            const this_is_anytype = this_arg.ty.tag() != .generic_poison;
-            const other_is_anytype = other_key.anytype_args[i];
+            const this_is_anytype = this_arg.is_anytype;
+            const other_is_anytype = other_key.isAnytypeParam(ctx.module, @intCast(u32, i));
 
             if (other_is_anytype != this_is_anytype) return false;
             if (other_is_comptime != this_is_comptime) return false;
@@ -5524,7 +5619,17 @@ const GenericCallAdapter = struct {
                 }
             } else if (this_is_comptime) {
                 // Both are comptime parameters but not anytype parameters.
-                if (!this_arg.val.eql(other_arg.val, other_arg.ty, ctx.module)) {
+                // We assert no error is possible here because any lazy values must be resolved
+                // before inserting into the generic function hash map.
+                const is_eql = Value.eqlAdvanced(
+                    this_arg.val,
+                    this_arg.ty,
+                    other_arg.val,
+                    other_arg.ty,
+                    ctx.module,
+                    null,
+                ) catch unreachable;
+                if (!is_eql) {
                     return false;
                 }
             }
@@ -5539,6 +5644,37 @@ const GenericCallAdapter = struct {
         return ctx.precomputed_hash;
     }
 };
+
+fn addComptimeReturnTypeNote(
+    sema: *Sema,
+    block: *Block,
+    func: Air.Inst.Ref,
+    func_src: LazySrcLoc,
+    return_ty: Type,
+    parent: *Module.ErrorMsg,
+    requires_comptime: bool,
+) !void {
+    if (!requires_comptime) return;
+
+    const src_loc = if (try sema.funcDeclSrc(block, func_src, func)) |capture| blk: {
+        var src_loc = capture;
+        src_loc.lazy = .{ .node_offset_fn_type_ret_ty = 0 };
+        break :blk src_loc;
+    } else blk: {
+        const src_decl = sema.mod.declPtr(block.src_decl);
+        break :blk func_src.toSrcLoc(src_decl);
+    };
+    if (return_ty.tag() == .generic_poison) {
+        return sema.mod.errNoteNonLazy(src_loc, parent, "generic function is instantiated with a comptime only return type", .{});
+    }
+    try sema.mod.errNoteNonLazy(
+        src_loc,
+        parent,
+        "function is being called at comptime because it returns a comptime only type '{}'",
+        .{return_ty.fmt(sema.mod)},
+    );
+    try sema.explainWhyTypeIsComptime(block, func_src, parent, src_loc, return_ty);
+}
 
 fn analyzeCall(
     sema: *Sema,
@@ -5571,13 +5707,20 @@ fn analyzeCall(
     const func_ty_info = func_ty.fnInfo();
     const cc = func_ty_info.cc;
     if (cc == .Naked) {
-        // TODO add error note: declared here
-        return sema.fail(
-            block,
-            func_src,
-            "unable to call function with naked calling convention",
-            .{},
-        );
+        const decl_src = try sema.funcDeclSrc(block, func_src, func);
+        const msg = msg: {
+            const msg = try sema.errMsg(
+                block,
+                func_src,
+                "unable to call function with naked calling convention",
+                .{},
+            );
+            errdefer msg.destroy(sema.gpa);
+
+            if (decl_src) |some| try sema.mod.errNoteNonLazy(some, msg, "function declared here", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
     }
     const fn_params_len = func_ty_info.param_types.len;
     if (func_ty_info.is_var_args) {
@@ -5612,7 +5755,7 @@ fn analyzeCall(
         .never_inline => Air.Inst.Tag.call_never_inline,
         .always_tail => Air.Inst.Tag.call_always_tail,
 
-        .async_kw => return sema.fail(block, call_src, "TODO implement async call", .{}),
+        .async_kw => return sema.failWithUseOfAsync(block, call_src),
     };
 
     if (modifier == .never_inline and func_ty_info.cc == .Inline) {
@@ -5623,9 +5766,11 @@ fn analyzeCall(
 
     var is_generic_call = func_ty_info.is_generic;
     var is_comptime_call = block.is_comptime or modifier == .compile_time;
+    var comptime_only_ret_ty = false;
     if (!is_comptime_call) {
         if (sema.typeRequiresComptime(block, func_src, func_ty_info.return_type)) |ct| {
             is_comptime_call = ct;
+            comptime_only_ret_ty = ct;
         } else |err| switch (err) {
             error.GenericPoison => is_generic_call = true,
             else => |e| return e,
@@ -5654,6 +5799,7 @@ fn analyzeCall(
             error.ComptimeReturn => {
                 is_inline_call = true;
                 is_comptime_call = true;
+                comptime_only_ret_ty = true;
             },
             else => |e| return e,
         }
@@ -5664,8 +5810,12 @@ fn analyzeCall(
     }
 
     const result: Air.Inst.Ref = if (is_inline_call) res: {
-        // TODO explain why function is being called at comptime
-        const func_val = try sema.resolveConstValue(block, func_src, func, "function being called at comptime must be comptime known");
+        const func_val = sema.resolveConstValue(block, func_src, func, "function being called at comptime must be comptime known") catch |err| {
+            if (err == error.AnalysisFail and sema.err != null) {
+                try sema.addComptimeReturnTypeNote(block, func, func_src, func_ty_info.return_type, sema.err.?, comptime_only_ret_ty);
+            }
+            return err;
+        };
         const module_fn = switch (func_val.tag()) {
             .decl_ref => mod.declPtr(func_val.castTag(.decl_ref).?.data).val.castTag(.function).?.data,
             .function => func_val.castTag(.function).?.data,
@@ -5777,12 +5927,16 @@ fn analyzeCall(
                 is_comptime_call,
                 &should_memoize,
                 memoized_call_key,
+                // last 4 arguments are only used when reporting errors
+                undefined,
+                undefined,
+                undefined,
+                undefined,
             ) catch |err| switch (err) {
                 error.NeededSourceLocation => {
-                    sema.inst_map.clearRetainingCapacity();
+                    _ = sema.inst_map.remove(inst);
                     const decl = sema.mod.declPtr(block.src_decl);
                     child_block.src_decl = block.src_decl;
-                    arg_i = 0;
                     try sema.analyzeInlineCallArg(
                         block,
                         &child_block,
@@ -5794,6 +5948,10 @@ fn analyzeCall(
                         is_comptime_call,
                         &should_memoize,
                         memoized_call_key,
+                        func,
+                        func_src,
+                        func_ty_info.return_type,
+                        comptime_only_ret_ty,
                     );
                     return error.AnalysisFail;
                 },
@@ -5956,7 +6114,18 @@ fn analyzeCall(
                     else => |e| return e,
                 };
             } else {
-                args[i] = uncasted_arg;
+                args[i] = sema.coerceVarArgParam(block, uncasted_arg, .unneeded) catch |err| switch (err) {
+                    error.NeededSourceLocation => {
+                        const decl = sema.mod.declPtr(block.src_decl);
+                        _ = try sema.coerceVarArgParam(
+                            block,
+                            uncasted_arg,
+                            Module.argSrc(call_src.node_offset.x, sema.gpa, decl, i, bound_arg_src),
+                        );
+                        return error.AnalysisFail;
+                    },
+                    else => |e| return e,
+                };
             }
         }
 
@@ -5998,6 +6167,10 @@ fn analyzeInlineCallArg(
     is_comptime_call: bool,
     should_memoize: *bool,
     memoized_call_key: Module.MemoizedCall.Key,
+    func: Air.Inst.Ref,
+    func_src: LazySrcLoc,
+    ret_ty: Type,
+    comptime_only_ret_ty: bool,
 ) !void {
     const zir_tags = sema.code.instructions.items(.tag);
     switch (zir_tags[inst]) {
@@ -6013,14 +6186,23 @@ fn analyzeInlineCallArg(
             new_fn_info.param_types[arg_i.*] = param_ty;
             const uncasted_arg = uncasted_args[arg_i.*];
             if (try sema.typeRequiresComptime(arg_block, arg_src, param_ty)) {
-                _ = try sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "argument to parameter with comptime only type must be comptime known");
+                _ = sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "argument to parameter with comptime only type must be comptime known") catch |err| {
+                    if (err == error.AnalysisFail and sema.err != null) {
+                        try sema.addComptimeReturnTypeNote(arg_block, func, func_src, ret_ty, sema.err.?, comptime_only_ret_ty);
+                    }
+                    return err;
+                };
             }
             const casted_arg = try sema.coerce(arg_block, param_ty, uncasted_arg, arg_src);
             try sema.inst_map.putNoClobber(sema.gpa, inst, casted_arg);
 
             if (is_comptime_call) {
-                // TODO explain why function is being called at comptime
-                const arg_val = try sema.resolveConstMaybeUndefVal(arg_block, arg_src, casted_arg, "argument to function being called at comptime must be comptime known");
+                const arg_val = sema.resolveConstMaybeUndefVal(arg_block, arg_src, casted_arg, "argument to function being called at comptime must be comptime known") catch |err| {
+                    if (err == error.AnalysisFail and sema.err != null) {
+                        try sema.addComptimeReturnTypeNote(arg_block, func, func_src, ret_ty, sema.err.?, comptime_only_ret_ty);
+                    }
+                    return err;
+                };
                 switch (arg_val.tag()) {
                     .generic_poison, .generic_poison_type => {
                         // This function is currently evaluated as part of an as-of-yet unresolvable
@@ -6050,8 +6232,12 @@ fn analyzeInlineCallArg(
             try sema.inst_map.putNoClobber(sema.gpa, inst, uncasted_arg);
 
             if (is_comptime_call) {
-                // TODO explain why function is being called at comptime
-                const arg_val = try sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "argument to function being called at comptime must be comptime known");
+                const arg_val = sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "argument to function being called at comptime must be comptime known") catch |err| {
+                    if (err == error.AnalysisFail and sema.err != null) {
+                        try sema.addComptimeReturnTypeNote(arg_block, func, func_src, ret_ty, sema.err.?, comptime_only_ret_ty);
+                    }
+                    return err;
+                };
                 switch (arg_val.tag()) {
                     .generic_poison, .generic_poison_type => {
                         // This function is currently evaluated as part of an as-of-yet unresolvable
@@ -6157,8 +6343,7 @@ fn instantiateGenericCall(
     var hasher = std.hash.Wyhash.init(0);
     std.hash.autoHash(&hasher, @ptrToInt(module_fn));
 
-    const comptime_tvs = try sema.arena.alloc(TypedValue, func_ty_info.param_types.len);
-
+    const generic_args = try sema.arena.alloc(GenericCallAdapter.Arg, func_ty_info.param_types.len);
     {
         var i: usize = 0;
         for (fn_info.param_body) |inst| {
@@ -6182,8 +6367,9 @@ fn instantiateGenericCall(
                 else => continue,
             }
 
+            const arg_ty = sema.typeOf(uncasted_args[i]);
+
             if (is_comptime) {
-                const arg_ty = sema.typeOf(uncasted_args[i]);
                 const arg_val = sema.analyzeGenericCallArgVal(block, .unneeded, uncasted_args[i]) catch |err| switch (err) {
                     error.NeededSourceLocation => {
                         const decl = sema.mod.declPtr(block.src_decl);
@@ -6196,27 +6382,30 @@ fn instantiateGenericCall(
                 arg_val.hash(arg_ty, &hasher, mod);
                 if (is_anytype) {
                     arg_ty.hashWithHasher(&hasher, mod);
-                    comptime_tvs[i] = .{
+                    generic_args[i] = .{
                         .ty = arg_ty,
                         .val = arg_val,
+                        .is_anytype = true,
                     };
                 } else {
-                    comptime_tvs[i] = .{
-                        .ty = Type.initTag(.generic_poison),
+                    generic_args[i] = .{
+                        .ty = arg_ty,
                         .val = arg_val,
+                        .is_anytype = false,
                     };
                 }
             } else if (is_anytype) {
-                const arg_ty = sema.typeOf(uncasted_args[i]);
                 arg_ty.hashWithHasher(&hasher, mod);
-                comptime_tvs[i] = .{
+                generic_args[i] = .{
                     .ty = arg_ty,
                     .val = Value.initTag(.generic_poison),
+                    .is_anytype = true,
                 };
             } else {
-                comptime_tvs[i] = .{
-                    .ty = Type.initTag(.generic_poison),
+                generic_args[i] = .{
+                    .ty = arg_ty,
                     .val = Value.initTag(.generic_poison),
+                    .is_anytype = false,
                 };
             }
 
@@ -6230,7 +6419,7 @@ fn instantiateGenericCall(
         .generic_fn = module_fn,
         .precomputed_hash = precomputed_hash,
         .func_ty_info = func_ty_info,
-        .comptime_tvs = comptime_tvs,
+        .args = generic_args,
         .module = mod,
     };
     const gop = try mod.monomorphed_funcs.getOrPutAdapted(gpa, {}, adapter);
@@ -6261,6 +6450,7 @@ fn instantiateGenericCall(
         new_decl.is_exported = fn_owner_decl.is_exported;
         new_decl.has_align = fn_owner_decl.has_align;
         new_decl.has_linksection_or_addrspace = fn_owner_decl.has_linksection_or_addrspace;
+        new_decl.@"linksection" = fn_owner_decl.@"linksection";
         new_decl.@"addrspace" = fn_owner_decl.@"addrspace";
         new_decl.zir_decl_index = fn_owner_decl.zir_decl_index;
         new_decl.alive = true; // This Decl is called at runtime.
@@ -6305,6 +6495,7 @@ fn instantiateGenericCall(
             .comptime_args = try new_decl_arena_allocator.alloc(TypedValue, uncasted_args.len),
             .comptime_args_fn_inst = module_fn.zir_body_inst,
             .preallocated_new_func = new_module_func,
+            .is_generic_instantiation = true,
         };
         defer child_sema.deinit();
 
@@ -6386,12 +6577,9 @@ fn instantiateGenericCall(
         errdefer new_func.deinit(gpa);
         assert(new_func == new_module_func);
 
-        const anytype_args = try new_decl_arena_allocator.alloc(bool, func_ty_info.param_types.len);
-        new_func.anytype_args = anytype_args.ptr;
         arg_i = 0;
         for (fn_info.param_body) |inst| {
             var is_comptime = false;
-            var is_anytype = false;
             switch (zir_tags[inst]) {
                 .param => {
                     is_comptime = func_ty_info.paramIsComptime(arg_i);
@@ -6400,11 +6588,9 @@ fn instantiateGenericCall(
                     is_comptime = true;
                 },
                 .param_anytype => {
-                    is_anytype = true;
                     is_comptime = func_ty_info.paramIsComptime(arg_i);
                 },
                 .param_anytype_comptime => {
-                    is_anytype = true;
                     is_comptime = true;
                 },
                 else => continue,
@@ -6412,10 +6598,9 @@ fn instantiateGenericCall(
 
             // We populate the Type here regardless because it is needed by
             // `GenericCallAdapter.eql` as well as function body analysis.
-            // Whether it is anytype is communicated by `anytype_args`.
+            // Whether it is anytype is communicated by `isAnytypeParam`.
             const arg = child_sema.inst_map.get(inst).?;
             const copied_arg_ty = try child_sema.typeOf(arg).copy(new_decl_arena_allocator);
-            anytype_args[arg_i] = is_anytype;
 
             if (try sema.typeRequiresComptime(block, .unneeded, copied_arg_ty)) {
                 is_comptime = true;
@@ -6588,8 +6773,13 @@ fn zirOptionalType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
-    const child_type = try sema.resolveType(block, src, inst_data.operand);
+    const operand_src: LazySrcLoc = .{ .node_offset_un_op = inst_data.src_node };
+    const child_type = try sema.resolveType(block, operand_src, inst_data.operand);
+    if (child_type.zigTypeTag() == .Opaque) {
+        return sema.fail(block, operand_src, "opaque type '{}' cannot be optional", .{child_type.fmt(sema.mod)});
+    } else if (child_type.zigTypeTag() == .Null) {
+        return sema.fail(block, operand_src, "type '{}' cannot be optional", .{child_type.fmt(sema.mod)});
+    }
     const opt_type = try Type.optional(sema.arena, child_type);
 
     return sema.addType(opt_type);
@@ -6662,6 +6852,9 @@ fn zirAnyframeType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     defer tracy.end();
 
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    if (true) {
+        return sema.failWithUseOfAsync(block, inst_data.src());
+    }
     const operand_src: LazySrcLoc = .{ .node_offset_anyframe_type = inst_data.src_node };
     const return_type = try sema.resolveType(block, operand_src, inst_data.operand);
     const anyframe_type = try Type.Tag.anyframe_T.create(sema.arena, return_type);
@@ -6683,6 +6876,15 @@ fn zirErrorUnionType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
     if (error_set.zigTypeTag() != .ErrorSet) {
         return sema.fail(block, lhs_src, "expected error set type, found '{}'", .{
             error_set.fmt(sema.mod),
+        });
+    }
+    if (payload.zigTypeTag() == .Opaque) {
+        return sema.fail(block, rhs_src, "error union with payload of opaque type '{}' not allowed", .{
+            payload.fmt(sema.mod),
+        });
+    } else if (payload.zigTypeTag() == .ErrorSet) {
+        return sema.fail(block, rhs_src, "error union with payload of error set type '{}' not allowed", .{
+            payload.fmt(sema.mod),
         });
     }
     const err_union_ty = try Type.errorUnion(sema.arena, error_set, payload, sema.mod);
@@ -6716,11 +6918,10 @@ fn zirErrorToInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
     const uncasted_operand = try sema.resolveInst(extra.operand);
     const operand = try sema.coerce(block, Type.anyerror, uncasted_operand, operand_src);
-    const result_ty = Type.u16;
 
     if (try sema.resolveMaybeUndefVal(block, src, operand)) |val| {
         if (val.isUndef()) {
-            return sema.addConstUndef(result_ty);
+            return sema.addConstUndef(Type.err_int);
         }
         switch (val.tag()) {
             .@"error" => {
@@ -6729,14 +6930,14 @@ fn zirErrorToInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
                     .base = .{ .tag = .int_u64 },
                     .data = (try sema.mod.getErrorValue(val.castTag(.@"error").?.data.name)).value,
                 };
-                return sema.addConstant(result_ty, Value.initPayload(&payload.base));
+                return sema.addConstant(Type.err_int, Value.initPayload(&payload.base));
             },
 
             // This is not a valid combination with the type `anyerror`.
             .the_only_possible_value => unreachable,
 
             // Assume it's already encoded as an integer.
-            else => return sema.addConstant(result_ty, val),
+            else => return sema.addConstant(Type.err_int, val),
         }
     }
 
@@ -6745,14 +6946,14 @@ fn zirErrorToInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     if (!op_ty.isAnyError()) {
         const names = op_ty.errorSetNames();
         switch (names.len) {
-            0 => return sema.addConstant(result_ty, Value.zero),
-            1 => return sema.addIntUnsigned(result_ty, sema.mod.global_error_set.get(names[0]).?),
+            0 => return sema.addConstant(Type.err_int, Value.zero),
+            1 => return sema.addIntUnsigned(Type.err_int, sema.mod.global_error_set.get(names[0]).?),
             else => {},
         }
     }
 
     try sema.requireRuntimeBlock(block, src, operand_src);
-    return block.addBitCast(result_ty, operand);
+    return block.addBitCast(Type.err_int, operand);
 }
 
 fn zirIntToError(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
@@ -6763,7 +6964,7 @@ fn zirIntToError(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     const src = LazySrcLoc.nodeOffset(extra.node);
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
     const uncasted_operand = try sema.resolveInst(extra.operand);
-    const operand = try sema.coerce(block, Type.u16, uncasted_operand, operand_src);
+    const operand = try sema.coerce(block, Type.err_int, uncasted_operand, operand_src);
     const target = sema.mod.getTarget();
 
     if (try sema.resolveDefinedValue(block, operand_src, operand)) |value| {
@@ -6780,7 +6981,10 @@ fn zirIntToError(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     try sema.requireRuntimeBlock(block, src, operand_src);
     if (block.wantSafety()) {
         const is_lt_len = try block.addUnOp(.cmp_lt_errors_len, operand);
-        try sema.addSafetyCheck(block, is_lt_len, .invalid_error_code);
+        const zero_val = try sema.addConstant(Type.err_int, Value.zero);
+        const is_non_zero = try block.addBinOp(.cmp_neq, operand, zero_val);
+        const ok = try block.addBinOp(.bit_and, is_lt_len, is_non_zero);
+        try sema.addSafetyCheck(block, ok, .invalid_error_code);
     }
     return block.addInst(.{
         .tag = .bitcast,
@@ -6940,8 +7144,12 @@ fn zirIntToEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     }
 
     try sema.requireRuntimeBlock(block, src, operand_src);
-    // TODO insert safety check to make sure the value matches an enum value
-    return block.addTyOp(.intcast, dest_ty, operand);
+    const result = try block.addTyOp(.intcast, dest_ty, operand);
+    if (block.wantSafety() and !dest_ty.isNonexhaustiveEnum() and sema.mod.comp.bin_file.options.use_llvm) {
+        const ok = try block.addUnOp(.is_named_enum_value, result);
+        try sema.addSafetyCheck(block, ok, .invalid_enum_value);
+    }
+    return result;
 }
 
 /// Pointer in, pointer out.
@@ -7048,6 +7256,8 @@ fn zirOptionalPayload(
             if (operand_ty.ptrSize() != .C) {
                 return sema.failWithExpectedOptionalType(block, src, operand_ty);
             }
+            // TODO https://github.com/ziglang/zig/issues/6597
+            if (true) break :t operand_ty;
             const ptr_info = operand_ty.ptrInfo().data;
             break :t try Type.ptr(sema.arena, sema.mod, .{
                 .pointee_type = try ptr_info.pointee_type.copy(sema.arena),
@@ -7425,10 +7635,11 @@ fn handleExternLibName(
 ) CompileError![:0]u8 {
     blk: {
         const mod = sema.mod;
+        const comp = mod.comp;
         const target = mod.getTarget();
         log.debug("extern fn symbol expected in lib '{s}'", .{lib_name});
         if (target_util.is_libc_lib_name(target, lib_name)) {
-            if (!mod.comp.bin_file.options.link_libc) {
+            if (!comp.bin_file.options.link_libc and !comp.bin_file.options.parent_compilation_link_libc) {
                 return sema.fail(
                     block,
                     src_loc,
@@ -7436,11 +7647,11 @@ fn handleExternLibName(
                     .{},
                 );
             }
-            mod.comp.bin_file.options.link_libc = true;
+            comp.bin_file.options.link_libc = true;
             break :blk;
         }
         if (target_util.is_libcpp_lib_name(target, lib_name)) {
-            if (!mod.comp.bin_file.options.link_libcpp) {
+            if (!comp.bin_file.options.link_libcpp) {
                 return sema.fail(
                     block,
                     src_loc,
@@ -7448,14 +7659,14 @@ fn handleExternLibName(
                     .{},
                 );
             }
-            mod.comp.bin_file.options.link_libcpp = true;
+            comp.bin_file.options.link_libcpp = true;
             break :blk;
         }
         if (mem.eql(u8, lib_name, "unwind")) {
-            mod.comp.bin_file.options.link_libunwind = true;
+            comp.bin_file.options.link_libunwind = true;
             break :blk;
         }
-        if (!target.isWasm() and !mod.comp.bin_file.options.pic) {
+        if (!target.isWasm() and !comp.bin_file.options.pic) {
             return sema.fail(
                 block,
                 src_loc,
@@ -7463,7 +7674,7 @@ fn handleExternLibName(
                 .{ lib_name, lib_name },
             );
         }
-        mod.comp.stage1AddLinkLib(lib_name) catch |err| {
+        comp.stage1AddLinkLib(lib_name) catch |err| {
             return sema.fail(block, src_loc, "unable to add link lib '{s}': {s}", .{
                 lib_name, @errorName(err),
             });
@@ -7502,7 +7713,6 @@ fn funcCommon(
     noalias_bits: u32,
     is_noinline: bool,
 ) CompileError!Air.Inst.Ref {
-    const fn_src = LazySrcLoc.nodeOffset(src_node_offset);
     const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = src_node_offset };
     const cc_src: LazySrcLoc = .{ .node_offset_fn_type_cc = src_node_offset };
 
@@ -7573,27 +7783,25 @@ fn funcCommon(
             param_types[i] = param.ty;
             sema.analyzeParameter(
                 block,
-                fn_src,
                 .unneeded,
                 param,
                 comptime_params,
                 i,
                 &is_generic,
-                is_extern,
                 cc_workaround,
+                has_body,
             ) catch |err| switch (err) {
                 error.NeededSourceLocation => {
                     const decl = sema.mod.declPtr(block.src_decl);
                     try sema.analyzeParameter(
                         block,
-                        fn_src,
                         Module.paramSrc(src_node_offset, sema.gpa, decl, i),
                         param,
                         comptime_params,
                         i,
                         &is_generic,
-                        is_extern,
                         cc_workaround,
+                        has_body,
                     );
                     return error.AnalysisFail;
                 },
@@ -7601,18 +7809,17 @@ fn funcCommon(
             };
         }
 
-        const ret_poison = if (!is_generic) rp: {
-            if (sema.typeRequiresComptime(block, ret_ty_src, bare_return_type)) |ret_comptime| {
-                is_generic = ret_comptime;
-                break :rp bare_return_type.tag() == .generic_poison;
-            } else |err| switch (err) {
-                error.GenericPoison => {
-                    is_generic = true;
-                    break :rp true;
-                },
-                else => |e| return e,
-            }
-        } else bare_return_type.tag() == .generic_poison;
+        var ret_ty_requires_comptime = false;
+        const ret_poison = if (sema.typeRequiresComptime(block, ret_ty_src, bare_return_type)) |ret_comptime| rp: {
+            ret_ty_requires_comptime = ret_comptime;
+            break :rp bare_return_type.tag() == .generic_poison;
+        } else |err| switch (err) {
+            error.GenericPoison => rp: {
+                is_generic = true;
+                break :rp true;
+            },
+            else => |e| return e,
+        };
 
         const return_type = if (!inferred_error_set or ret_poison)
             bare_return_type
@@ -7654,6 +7861,41 @@ fn funcCommon(
                 try sema.addDeclaredHereNote(msg, return_type);
                 break :msg msg;
             };
+            return sema.failWithOwnedErrorMsg(msg);
+        }
+
+        // If the return type is comptime only but not dependent on parameters then all parameter types also need to be comptime
+        if (!sema.is_generic_instantiation and has_body and ret_ty_requires_comptime) comptime_check: {
+            for (block.params.items) |param| {
+                if (!param.is_comptime) break;
+            } else break :comptime_check;
+
+            const msg = try sema.errMsg(
+                block,
+                ret_ty_src,
+                "function with comptime only return type '{}' requires all parameters to be comptime",
+                .{return_type.fmt(sema.mod)},
+            );
+            try sema.explainWhyTypeIsComptime(block, ret_ty_src, msg, ret_ty_src.toSrcLoc(sema.owner_decl), return_type);
+
+            const tags = sema.code.instructions.items(.tag);
+            const data = sema.code.instructions.items(.data);
+            const param_body = sema.code.getParamBody(func_inst);
+            for (block.params.items) |param, i| {
+                if (!param.is_comptime) {
+                    const param_index = param_body[i];
+                    const param_src = switch (tags[param_index]) {
+                        .param => data[param_index].pl_tok.src(),
+                        .param_anytype => data[param_index].str_tok.src(),
+                        else => unreachable,
+                    };
+                    if (param.name.len != 0) {
+                        try sema.errNote(block, param_src, msg, "param '{s}' is required to be comptime", .{param.name});
+                    } else {
+                        try sema.errNote(block, param_src, msg, "param is required to be comptime", .{});
+                    }
+                }
+            }
             return sema.failWithOwnedErrorMsg(msg);
         }
 
@@ -7699,6 +7941,9 @@ fn funcCommon(
         if (cc_workaround == .Inline and is_noinline) {
             return sema.fail(block, cc_src, "'noinline' function cannot have callconv 'Inline'", .{});
         }
+        if (is_generic and sema.no_partial_func_ty) return error.GenericPoison;
+        for (comptime_params) |ct| is_generic = is_generic or ct;
+        is_generic = is_generic or ret_ty_requires_comptime;
 
         break :fn_ty try Type.Tag.function.create(sema.arena, .{
             .param_types = param_types,
@@ -7760,11 +8005,6 @@ fn funcCommon(
         break :blk if (sema.comptime_args.len == 0) null else sema.comptime_args.ptr;
     } else null;
 
-    const param_names = try sema.gpa.alloc([:0]const u8, block.params.items.len);
-    for (param_names) |*param_name, i| {
-        param_name.* = try sema.gpa.dupeZ(u8, block.params.items[i].name);
-    }
-
     const hash = new_func.hash;
     const fn_payload = try sema.arena.create(Value.Payload.Function);
     new_func.* = .{
@@ -7772,13 +8012,11 @@ fn funcCommon(
         .zir_body_inst = func_inst,
         .owner_decl = sema.owner_decl_index,
         .comptime_args = comptime_args,
-        .anytype_args = undefined,
         .hash = hash,
         .lbrace_line = src_locs.lbrace_line,
         .rbrace_line = src_locs.rbrace_line,
         .lbrace_column = @truncate(u16, src_locs.columns),
         .rbrace_column = @truncate(u16, src_locs.columns >> 16),
-        .param_names = param_names,
         .branch_quota = default_branch_quota,
         .is_noinline = is_noinline,
     };
@@ -7796,30 +8034,20 @@ fn funcCommon(
 fn analyzeParameter(
     sema: *Sema,
     block: *Block,
-    func_src: LazySrcLoc,
     param_src: LazySrcLoc,
     param: Block.Param,
     comptime_params: []bool,
     i: usize,
     is_generic: *bool,
-    is_extern: bool,
     cc: std.builtin.CallingConvention,
+    has_body: bool,
 ) !void {
     const requires_comptime = try sema.typeRequiresComptime(block, param_src, param.ty);
     comptime_params[i] = param.is_comptime or requires_comptime;
-    const this_generic = comptime_params[i] or param.ty.tag() == .generic_poison;
+    const this_generic = param.ty.tag() == .generic_poison;
     is_generic.* = is_generic.* or this_generic;
-    if (is_extern and this_generic) {
-        // TODO this check should exist somewhere for notes.
-        if (param_src == .unneeded) return error.NeededSourceLocation;
-        const msg = msg: {
-            const msg = try sema.errMsg(block, func_src, "extern function cannot be generic", .{});
-            errdefer msg.destroy(sema.gpa);
-
-            try sema.errNote(block, param_src, msg, "function is generic because of this parameter", .{});
-            break :msg msg;
-        };
-        return sema.failWithOwnedErrorMsg(msg);
+    if (param.is_comptime and !Type.fnCallingConventionAllowsZigTypes(cc)) {
+        return sema.fail(block, param_src, "comptime parameters not allowed in function with calling convention '{s}'", .{@tagName(cc)});
     }
     if (this_generic and !Type.fnCallingConventionAllowsZigTypes(cc)) {
         return sema.fail(block, param_src, "generic parameters not allowed in function with calling convention '{s}'", .{@tagName(cc)});
@@ -7852,9 +8080,9 @@ fn analyzeParameter(
         };
         return sema.failWithOwnedErrorMsg(msg);
     }
-    if (requires_comptime and !param.is_comptime) {
+    if (!sema.is_generic_instantiation and requires_comptime and !param.is_comptime and has_body) {
         const msg = msg: {
-            const msg = try sema.errMsg(block, param_src, "parametter of type '{}' must be declared comptime", .{
+            const msg = try sema.errMsg(block, param_src, "parameter of type '{}' must be declared comptime", .{
                 param.ty.fmt(sema.mod),
             });
             errdefer msg.destroy(sema.gpa);
@@ -7885,25 +8113,19 @@ fn zirParam(
             // Make sure any nested param instructions don't clobber our work.
             const prev_params = block.params;
             const prev_preallocated_new_func = sema.preallocated_new_func;
+            const prev_no_partial_func_type = sema.no_partial_func_ty;
             block.params = .{};
             sema.preallocated_new_func = null;
+            sema.no_partial_func_ty = true;
             defer {
                 block.params.deinit(sema.gpa);
                 block.params = prev_params;
                 sema.preallocated_new_func = prev_preallocated_new_func;
+                sema.no_partial_func_ty = prev_no_partial_func_type;
             }
 
             if (sema.resolveBody(block, body, inst)) |param_ty_inst| {
                 if (sema.analyzeAsType(block, src, param_ty_inst)) |param_ty| {
-                    if (param_ty.zigTypeTag() == .Fn and param_ty.fnInfo().is_generic) {
-                        // zirFunc will not emit error.GenericPoison to build a
-                        // partial type for generic functions but we still need to
-                        // detect if a function parameter is a generic function
-                        // to force the parent function to also be generic.
-                        if (!sema.inst_map.contains(inst)) {
-                            break :err error.GenericPoison;
-                        }
-                    }
                     break :param_ty param_ty;
                 } else |err| break :err err;
             } else |err| break :err err;
@@ -7952,7 +8174,7 @@ fn zirParam(
 
     try block.params.append(sema.gpa, .{
         .ty = param_ty,
-        .is_comptime = is_comptime,
+        .is_comptime = comptime_syntax,
         .name = param_name,
     });
     const result = try sema.addConstant(param_ty, Value.initTag(.generic_poison));
@@ -8638,13 +8860,11 @@ fn zirSwitchCapture(
     switch (operand_ty.zigTypeTag()) {
         .Union => {
             const union_obj = operand_ty.cast(Type.Payload.Union).?.data;
-            const enum_ty = union_obj.tag_ty;
-
             const first_item = try sema.resolveInst(items[0]);
             // Previous switch validation ensured this will succeed
             const first_item_val = sema.resolveConstValue(block, .unneeded, first_item, undefined) catch unreachable;
 
-            const first_field_index = @intCast(u32, enum_ty.enumTagFieldIndex(first_item_val, sema.mod).?);
+            const first_field_index = @intCast(u32, operand_ty.unionTagFieldIndex(first_item_val, sema.mod).?);
             const first_field = union_obj.fields.values()[first_field_index];
 
             for (items[1..]) |item, i| {
@@ -8652,7 +8872,7 @@ fn zirSwitchCapture(
                 // Previous switch validation ensured this will succeed
                 const item_val = sema.resolveConstValue(block, .unneeded, item_ref, undefined) catch unreachable;
 
-                const field_index = enum_ty.enumTagFieldIndex(item_val, sema.mod).?;
+                const field_index = operand_ty.unionTagFieldIndex(item_val, sema.mod).?;
                 const field = union_obj.fields.values()[field_index];
                 if (!field.ty.eql(first_field.ty, sema.mod)) {
                     const msg = msg: {
@@ -8776,6 +8996,9 @@ fn zirSwitchCond(
         .ErrorSet,
         .Enum,
         => {
+            if (operand_ty.isSlice()) {
+                return sema.fail(block, src, "switch on type '{}'", .{operand_ty.fmt(sema.mod)});
+            }
             if ((try sema.typeHasOnePossibleValue(block, operand_src, operand_ty))) |opv| {
                 return sema.addConstant(operand_ty, opv);
             }
@@ -8852,12 +9075,17 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         },
     };
 
-    const union_originally = blk: {
+    const maybe_union_ty = blk: {
         const zir_data = sema.code.instructions.items(.data);
         const cond_index = Zir.refToIndex(extra.data.operand).?;
         const raw_operand = sema.resolveInst(zir_data[cond_index].un_node.operand) catch unreachable;
-        break :blk sema.typeOf(raw_operand).zigTypeTag() == .Union;
+        break :blk sema.typeOf(raw_operand);
     };
+    const union_originally = maybe_union_ty.zigTypeTag() == .Union;
+    var seen_union_fields: []?Module.SwitchProngSrc = &.{};
+    defer gpa.free(seen_union_fields);
+
+    var empty_enum = false;
 
     const operand_ty = sema.typeOf(operand);
 
@@ -8892,7 +9120,9 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         .Union => unreachable, // handled in zirSwitchCond
         .Enum => {
             var seen_fields = try gpa.alloc(?Module.SwitchProngSrc, operand_ty.enumFieldCount());
-            defer gpa.free(seen_fields);
+            empty_enum = seen_fields.len == 0 and !operand_ty.isNonexhaustiveEnum();
+            defer if (!union_originally) gpa.free(seen_fields);
+            if (union_originally) seen_union_fields = seen_fields;
             mem.set(?Module.SwitchProngSrc, seen_fields, null);
 
             // This is used for non-exhaustive enum values that do not correspond to any tags.
@@ -9486,6 +9716,9 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     }
 
     if (scalar_cases_len + multi_cases_len == 0) {
+        if (empty_enum) {
+            return Air.Inst.Ref.void_value;
+        }
         if (special_prong == .none) {
             return sema.fail(block, src, "switch must handle all possibilities", .{});
         }
@@ -9525,18 +9758,28 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         const item = try sema.resolveInst(item_ref);
         // `item` is already guaranteed to be constant known.
 
-        _ = sema.analyzeBodyInner(&case_block, body) catch |err| switch (err) {
-            error.ComptimeBreak => {
-                const zir_datas = sema.code.instructions.items(.data);
-                const break_data = zir_datas[sema.comptime_break_inst].@"break";
-                try sema.addRuntimeBreak(&case_block, .{
-                    .block_inst = break_data.block_inst,
-                    .operand = break_data.operand,
-                    .inst = sema.comptime_break_inst,
-                });
-            },
-            else => |e| return e,
-        };
+        const analyze_body = if (union_originally) blk: {
+            const item_val = sema.resolveConstValue(block, .unneeded, item, undefined) catch unreachable;
+            const field_ty = maybe_union_ty.unionFieldType(item_val, sema.mod);
+            break :blk field_ty.zigTypeTag() != .NoReturn;
+        } else true;
+
+        if (analyze_body) {
+            _ = sema.analyzeBodyInner(&case_block, body) catch |err| switch (err) {
+                error.ComptimeBreak => {
+                    const zir_datas = sema.code.instructions.items(.data);
+                    const break_data = zir_datas[sema.comptime_break_inst].@"break";
+                    try sema.addRuntimeBreak(&case_block, .{
+                        .block_inst = break_data.block_inst,
+                        .operand = break_data.operand,
+                        .inst = sema.comptime_break_inst,
+                    });
+                },
+                else => |e| return e,
+            };
+        } else {
+            _ = try case_block.addNoOp(.unreach);
+        }
 
         try wip_captures.finalize();
 
@@ -9577,20 +9820,34 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         if (ranges_len == 0) {
             cases_len += 1;
 
+            const analyze_body = if (union_originally)
+                for (items) |item_ref| {
+                    const item = try sema.resolveInst(item_ref);
+                    const item_val = sema.resolveConstValue(block, .unneeded, item, undefined) catch unreachable;
+                    const field_ty = maybe_union_ty.unionFieldType(item_val, sema.mod);
+                    if (field_ty.zigTypeTag() != .NoReturn) break true;
+                } else false
+            else
+                true;
+
             const body = sema.code.extra[extra_index..][0..body_len];
             extra_index += body_len;
-            _ = sema.analyzeBodyInner(&case_block, body) catch |err| switch (err) {
-                error.ComptimeBreak => {
-                    const zir_datas = sema.code.instructions.items(.data);
-                    const break_data = zir_datas[sema.comptime_break_inst].@"break";
-                    try sema.addRuntimeBreak(&case_block, .{
-                        .block_inst = break_data.block_inst,
-                        .operand = break_data.operand,
-                        .inst = sema.comptime_break_inst,
-                    });
-                },
-                else => |e| return e,
-            };
+            if (analyze_body) {
+                _ = sema.analyzeBodyInner(&case_block, body) catch |err| switch (err) {
+                    error.ComptimeBreak => {
+                        const zir_datas = sema.code.instructions.items(.data);
+                        const break_data = zir_datas[sema.comptime_break_inst].@"break";
+                        try sema.addRuntimeBreak(&case_block, .{
+                            .block_inst = break_data.block_inst,
+                            .operand = break_data.operand,
+                            .inst = sema.comptime_break_inst,
+                        });
+                    },
+                    else => |e| return e,
+                };
+            } else {
+                _ = try case_block.addNoOp(.unreach);
+            }
 
             try cases_extra.ensureUnusedCapacity(gpa, 2 + items.len +
                 case_block.instructions.items.len);
@@ -9705,14 +9962,24 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     }
 
     var final_else_body: []const Air.Inst.Index = &.{};
-    if (special.body.len != 0 or !is_first) {
+    if (special.body.len != 0 or !is_first or case_block.wantSafety()) {
         var wip_captures = try WipCaptureScope.init(gpa, sema.perm_arena, child_block.wip_capture_scope);
         defer wip_captures.deinit();
 
         case_block.instructions.shrinkRetainingCapacity(0);
         case_block.wip_capture_scope = wip_captures.scope;
 
-        if (special.body.len != 0) {
+        const analyze_body = if (union_originally)
+            for (seen_union_fields) |seen_field, index| {
+                if (seen_field != null) continue;
+                const union_obj = maybe_union_ty.cast(Type.Payload.Union).?.data;
+                const field_ty = union_obj.fields.values()[index].ty;
+                if (field_ty.zigTypeTag() != .NoReturn) break true;
+            } else false
+        else
+            true;
+
+        if (special.body.len != 0 and analyze_body) {
             _ = sema.analyzeBodyInner(&case_block, special.body) catch |err| switch (err) {
                 error.ComptimeBreak => {
                     const zir_datas = sema.code.instructions.items(.data);
@@ -9728,9 +9995,11 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         } else {
             // We still need a terminator in this block, but we have proven
             // that it is unreachable.
-            // TODO this should be a special safety panic other than unreachable, something
-            // like "panic: switch operand had corrupt value not allowed by the type"
-            try case_block.addUnreachable(src, true);
+            if (case_block.wantSafety()) {
+                _ = try sema.safetyPanic(&case_block, src, .corrupt_switch);
+            } else {
+                _ = try case_block.addNoOp(.unreach);
+            }
         }
 
         try wip_captures.finalize();
@@ -10194,16 +10463,14 @@ fn zirShl(
 
         const val = switch (air_tag) {
             .shl_exact => val: {
-                const shifted = try lhs_val.shl(rhs_val, lhs_ty, sema.arena, target);
+                const shifted = try lhs_val.shlWithOverflow(rhs_val, lhs_ty, sema.arena, target);
                 if (scalar_ty.zigTypeTag() == .ComptimeInt) {
-                    break :val shifted;
+                    break :val shifted.wrapped_result;
                 }
-                const int_info = scalar_ty.intInfo(target);
-                const truncated = try shifted.intTrunc(lhs_ty, sema.arena, int_info.signedness, int_info.bits, target);
-                if (try sema.compare(block, src, truncated, .eq, shifted, lhs_ty)) {
-                    break :val shifted;
+                if (shifted.overflowed.compareWithZero(.eq)) {
+                    break :val shifted.wrapped_result;
                 }
-                return sema.addConstUndef(lhs_ty);
+                return sema.fail(block, src, "operation caused overflow", .{});
             },
 
             .shl_sat => if (scalar_ty.zigTypeTag() == .ComptimeInt)
@@ -10239,34 +10506,57 @@ fn zirShl(
     } else rhs;
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
-    if (block.wantSafety() and air_tag == .shl_exact) {
-        const op_ov_tuple_ty = try sema.overflowArithmeticTupleType(lhs_ty);
-        const op_ov = try block.addInst(.{
-            .tag = .shl_with_overflow,
-            .data = .{ .ty_pl = .{
-                .ty = try sema.addType(op_ov_tuple_ty),
-                .payload = try sema.addExtra(Air.Bin{
-                    .lhs = lhs,
-                    .rhs = rhs,
-                }),
-            } },
-        });
-        const ov_bit = try sema.tupleFieldValByIndex(block, src, op_ov, 1, op_ov_tuple_ty);
-        const any_ov_bit = if (lhs_ty.zigTypeTag() == .Vector)
-            try block.addInst(.{
-                .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
-                .data = .{ .reduce = .{
-                    .operand = ov_bit,
-                    .operation = .Or,
-                } },
-            })
-        else
-            ov_bit;
-        const zero_ov = try sema.addConstant(Type.@"u1", Value.zero);
-        const no_ov = try block.addBinOp(.cmp_eq, any_ov_bit, zero_ov);
+    if (block.wantSafety()) {
+        const bit_count = scalar_ty.intInfo(target).bits;
+        if (!std.math.isPowerOfTwo(bit_count)) {
+            const bit_count_val = try Value.Tag.int_u64.create(sema.arena, bit_count);
 
-        try sema.addSafetyCheck(block, no_ov, .shl_overflow);
-        return sema.tupleFieldValByIndex(block, src, op_ov, 0, op_ov_tuple_ty);
+            const ok = if (rhs_ty.zigTypeTag() == .Vector) ok: {
+                const bit_count_inst = try sema.addConstant(rhs_ty, try Value.Tag.repeated.create(sema.arena, bit_count_val));
+                const lt = try block.addCmpVector(rhs, bit_count_inst, .lt, try sema.addType(rhs_ty));
+                break :ok try block.addInst(.{
+                    .tag = .reduce,
+                    .data = .{ .reduce = .{
+                        .operand = lt,
+                        .operation = .And,
+                    } },
+                });
+            } else ok: {
+                const bit_count_inst = try sema.addConstant(rhs_ty, bit_count_val);
+                break :ok try block.addBinOp(.cmp_lt, rhs, bit_count_inst);
+            };
+            try sema.addSafetyCheck(block, ok, .shift_rhs_too_big);
+        }
+
+        if (air_tag == .shl_exact) {
+            const op_ov_tuple_ty = try sema.overflowArithmeticTupleType(lhs_ty);
+            const op_ov = try block.addInst(.{
+                .tag = .shl_with_overflow,
+                .data = .{ .ty_pl = .{
+                    .ty = try sema.addType(op_ov_tuple_ty),
+                    .payload = try sema.addExtra(Air.Bin{
+                        .lhs = lhs,
+                        .rhs = rhs,
+                    }),
+                } },
+            });
+            const ov_bit = try sema.tupleFieldValByIndex(block, src, op_ov, 1, op_ov_tuple_ty);
+            const any_ov_bit = if (lhs_ty.zigTypeTag() == .Vector)
+                try block.addInst(.{
+                    .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
+                    .data = .{ .reduce = .{
+                        .operand = ov_bit,
+                        .operation = .Or,
+                    } },
+                })
+            else
+                ov_bit;
+            const zero_ov = try sema.addConstant(Type.@"u1", Value.zero);
+            const no_ov = try block.addBinOp(.cmp_eq, any_ov_bit, zero_ov);
+
+            try sema.addSafetyCheck(block, no_ov, .shl_overflow);
+            return sema.tupleFieldValByIndex(block, src, op_ov, 0, op_ov_tuple_ty);
+        }
     }
     return block.addBinOp(air_tag, lhs, new_rhs);
 }
@@ -10333,7 +10623,7 @@ fn zirShr(
                 // Detect if any ones would be shifted out.
                 const truncated = try lhs_val.intTruncBitsAsValue(lhs_ty, sema.arena, .unsigned, rhs_val, target);
                 if (!(try truncated.compareWithZeroAdvanced(.eq, sema.kit(block, src)))) {
-                    return sema.addConstUndef(lhs_ty);
+                    return sema.fail(block, src, "exact shift shifted out 1 bits", .{});
                 }
             }
             const val = try lhs_val.shr(rhs_val, lhs_ty, sema.arena, target);
@@ -10345,20 +10635,43 @@ fn zirShr(
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
     const result = try block.addBinOp(air_tag, lhs, rhs);
-    if (block.wantSafety() and air_tag == .shr_exact) {
-        const back = try block.addBinOp(.shl, result, rhs);
+    if (block.wantSafety()) {
+        const bit_count = scalar_ty.intInfo(target).bits;
+        if (!std.math.isPowerOfTwo(bit_count)) {
+            const bit_count_val = try Value.Tag.int_u64.create(sema.arena, bit_count);
 
-        const ok = if (rhs_ty.zigTypeTag() == .Vector) ok: {
-            const eql = try block.addCmpVector(lhs, back, .eq, try sema.addType(rhs_ty));
-            break :ok try block.addInst(.{
-                .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
-                .data = .{ .reduce = .{
-                    .operand = eql,
-                    .operation = .And,
-                } },
-            });
-        } else try block.addBinOp(.cmp_eq, lhs, back);
-        try sema.addSafetyCheck(block, ok, .shr_overflow);
+            const ok = if (rhs_ty.zigTypeTag() == .Vector) ok: {
+                const bit_count_inst = try sema.addConstant(rhs_ty, try Value.Tag.repeated.create(sema.arena, bit_count_val));
+                const lt = try block.addCmpVector(rhs, bit_count_inst, .lt, try sema.addType(rhs_ty));
+                break :ok try block.addInst(.{
+                    .tag = .reduce,
+                    .data = .{ .reduce = .{
+                        .operand = lt,
+                        .operation = .And,
+                    } },
+                });
+            } else ok: {
+                const bit_count_inst = try sema.addConstant(rhs_ty, bit_count_val);
+                break :ok try block.addBinOp(.cmp_lt, rhs, bit_count_inst);
+            };
+            try sema.addSafetyCheck(block, ok, .shift_rhs_too_big);
+        }
+
+        if (air_tag == .shr_exact) {
+            const back = try block.addBinOp(.shl, result, rhs);
+
+            const ok = if (rhs_ty.zigTypeTag() == .Vector) ok: {
+                const eql = try block.addCmpVector(lhs, back, .eq, try sema.addType(rhs_ty));
+                break :ok try block.addInst(.{
+                    .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
+                    .data = .{ .reduce = .{
+                        .operand = eql,
+                        .operation = .And,
+                    } },
+                });
+            } else try block.addBinOp(.cmp_eq, lhs, back);
+            try sema.addSafetyCheck(block, ok, .shr_overflow);
+        }
     }
     return result;
 }
@@ -11040,6 +11353,21 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
     const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(block, lhs_src, casted_lhs);
     const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(block, rhs_src, casted_rhs);
 
+    if ((lhs_ty.zigTypeTag() == .ComptimeFloat and rhs_ty.zigTypeTag() == .ComptimeInt) or
+        (lhs_ty.zigTypeTag() == .ComptimeInt and rhs_ty.zigTypeTag() == .ComptimeFloat))
+    {
+        // If it makes a difference whether we coerce to ints or floats before doing the division, error.
+        // If lhs % rhs is 0, it doesn't matter.
+        const lhs_val = maybe_lhs_val orelse unreachable;
+        const rhs_val = maybe_rhs_val orelse unreachable;
+        const rem = lhs_val.floatRem(rhs_val, resolved_type, sema.arena, target) catch unreachable;
+        if (rem.compareWithZero(.neq)) {
+            return sema.fail(block, src, "ambiguous coercion of division operands '{s}' and '{s}'; non-zero remainder '{}'", .{
+                @tagName(lhs_ty.tag()), @tagName(rhs_ty.tag()), rem.fmtValue(resolved_type, sema.mod),
+            });
+        }
+    }
+
     // TODO: emit compile error when .div is used on integers and there would be an
     // ambiguous result between div_floor and div_trunc.
 
@@ -11130,7 +11458,12 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
         try sema.addDivByZeroSafety(block, resolved_type, maybe_rhs_val, casted_rhs, is_int);
     }
 
-    const air_tag = if (is_int) Air.Inst.Tag.div_trunc else switch (block.float_mode) {
+    const air_tag = if (is_int) blk: {
+        if (lhs_ty.isSignedInt() or rhs_ty.isSignedInt()) {
+            return sema.fail(block, src, "division with '{s}' and '{s}': signed integers must use @divTrunc, @divFloor, or @divExact", .{ @tagName(lhs_ty.tag()), @tagName(rhs_ty.tag()) });
+        }
+        break :blk Air.Inst.Tag.div_trunc;
+    } else switch (block.float_mode) {
         .Optimized => Air.Inst.Tag.div_float_optimized,
         .Strict => Air.Inst.Tag.div_float,
     };
@@ -11210,13 +11543,19 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         if (maybe_lhs_val) |lhs_val| {
             if (maybe_rhs_val) |rhs_val| {
                 if (is_int) {
-                    // TODO: emit compile error if there is a remainder
+                    const modulus_val = try lhs_val.intMod(rhs_val, resolved_type, sema.arena, target);
+                    if (modulus_val.compareWithZero(.neq)) {
+                        return sema.fail(block, src, "exact division produced remainder", .{});
+                    }
                     return sema.addConstant(
                         resolved_type,
                         try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, target),
                     );
                 } else {
-                    // TODO: emit compile error if there is a remainder
+                    const modulus_val = try lhs_val.floatMod(rhs_val, resolved_type, sema.arena, target);
+                    if (modulus_val.compareWithZero(.neq)) {
+                        return sema.fail(block, src, "exact division produced remainder", .{});
+                    }
                     return sema.addConstant(
                         resolved_type,
                         try lhs_val.floatDiv(rhs_val, resolved_type, sema.arena, target),
@@ -11634,6 +11973,395 @@ fn airTag(block: *Block, is_int: bool, normal: Air.Inst.Tag, optimized: Air.Inst
     };
 }
 
+fn zirModRem(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src: LazySrcLoc = .{ .node_offset_bin_op = inst_data.src_node };
+    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const lhs = try sema.resolveInst(extra.lhs);
+    const rhs = try sema.resolveInst(extra.rhs);
+    const lhs_ty = sema.typeOf(lhs);
+    const rhs_ty = sema.typeOf(rhs);
+    const lhs_zig_ty_tag = try lhs_ty.zigTypeTagOrPoison();
+    const rhs_zig_ty_tag = try rhs_ty.zigTypeTagOrPoison();
+    try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
+    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty, .mod_rem);
+
+    const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
+    const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
+        .override = &[_]LazySrcLoc{ lhs_src, rhs_src },
+    });
+
+    const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
+    const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs_src);
+
+    const lhs_scalar_ty = lhs_ty.scalarType();
+    const rhs_scalar_ty = rhs_ty.scalarType();
+    const scalar_tag = resolved_type.scalarType().zigTypeTag();
+
+    const is_int = scalar_tag == .Int or scalar_tag == .ComptimeInt;
+
+    try sema.checkArithmeticOp(block, src, scalar_tag, lhs_zig_ty_tag, rhs_zig_ty_tag, .mod_rem);
+
+    const mod = sema.mod;
+    const target = mod.getTarget();
+    const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(block, lhs_src, casted_lhs);
+    const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(block, rhs_src, casted_rhs);
+
+    const runtime_src = rs: {
+        // For integers:
+        // Either operand being undef is a compile error because there exists
+        // a possible value (TODO what is it?) that would invoke illegal behavior.
+        // TODO: can lhs undef be handled better?
+        //
+        // For floats:
+        // If the rhs is zero, compile error for division by zero.
+        // If the rhs is undefined, compile error because there is a possible
+        // value (zero) for which the division would be illegal behavior.
+        // If the lhs is undefined, result is undefined.
+        //
+        // For either one: if the result would be different between @mod and @rem,
+        // then emit a compile error saying you have to pick one.
+        if (is_int) {
+            if (maybe_lhs_val) |lhs_val| {
+                if (lhs_val.isUndef()) {
+                    return sema.failWithUseOfUndef(block, lhs_src);
+                }
+                if (try lhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
+                    return sema.addConstant(resolved_type, Value.zero);
+                }
+            } else if (lhs_scalar_ty.isSignedInt()) {
+                return sema.failWithModRemNegative(block, lhs_src, lhs_ty, rhs_ty);
+            }
+            if (maybe_rhs_val) |rhs_val| {
+                if (rhs_val.isUndef()) {
+                    return sema.failWithUseOfUndef(block, rhs_src);
+                }
+                if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
+                    return sema.failWithDivideByZero(block, rhs_src);
+                }
+                if (maybe_lhs_val) |lhs_val| {
+                    const rem_result = try sema.intRem(block, resolved_type, lhs_val, lhs_src, rhs_val, rhs_src);
+                    // If this answer could possibly be different by doing `intMod`,
+                    // we must emit a compile error. Otherwise, it's OK.
+                    if ((try rhs_val.compareWithZeroAdvanced(.lt, sema.kit(block, src))) != (try lhs_val.compareWithZeroAdvanced(.lt, sema.kit(block, src))) and
+                        !(try rem_result.compareWithZeroAdvanced(.eq, sema.kit(block, src))))
+                    {
+                        const bad_src = if (try lhs_val.compareWithZeroAdvanced(.lt, sema.kit(block, src)))
+                            lhs_src
+                        else
+                            rhs_src;
+                        return sema.failWithModRemNegative(block, bad_src, lhs_ty, rhs_ty);
+                    }
+                    if (try lhs_val.compareWithZeroAdvanced(.lt, sema.kit(block, src))) {
+                        // Negative
+                        return sema.addConstant(resolved_type, Value.zero);
+                    }
+                    return sema.addConstant(resolved_type, rem_result);
+                }
+                break :rs lhs_src;
+            } else if (rhs_scalar_ty.isSignedInt()) {
+                return sema.failWithModRemNegative(block, rhs_src, lhs_ty, rhs_ty);
+            } else {
+                break :rs rhs_src;
+            }
+        }
+        // float operands
+        if (maybe_rhs_val) |rhs_val| {
+            if (rhs_val.isUndef()) {
+                return sema.failWithUseOfUndef(block, rhs_src);
+            }
+            if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
+                return sema.failWithDivideByZero(block, rhs_src);
+            }
+            if (try rhs_val.compareWithZeroAdvanced(.lt, sema.kit(block, src))) {
+                return sema.failWithModRemNegative(block, rhs_src, lhs_ty, rhs_ty);
+            }
+            if (maybe_lhs_val) |lhs_val| {
+                if (lhs_val.isUndef() or (try lhs_val.compareWithZeroAdvanced(.lt, sema.kit(block, src)))) {
+                    return sema.failWithModRemNegative(block, lhs_src, lhs_ty, rhs_ty);
+                }
+                return sema.addConstant(
+                    resolved_type,
+                    try lhs_val.floatRem(rhs_val, resolved_type, sema.arena, target),
+                );
+            } else {
+                return sema.failWithModRemNegative(block, lhs_src, lhs_ty, rhs_ty);
+            }
+        } else {
+            return sema.failWithModRemNegative(block, rhs_src, lhs_ty, rhs_ty);
+        }
+    };
+
+    try sema.requireRuntimeBlock(block, src, runtime_src);
+
+    if (block.wantSafety()) {
+        try sema.addDivByZeroSafety(block, resolved_type, maybe_rhs_val, casted_rhs, is_int);
+    }
+
+    const air_tag = airTag(block, is_int, .rem, .rem_optimized);
+    return block.addBinOp(air_tag, casted_lhs, casted_rhs);
+}
+
+fn intRem(
+    sema: *Sema,
+    block: *Block,
+    ty: Type,
+    lhs: Value,
+    lhs_src: LazySrcLoc,
+    rhs: Value,
+    rhs_src: LazySrcLoc,
+) CompileError!Value {
+    if (ty.zigTypeTag() == .Vector) {
+        const result_data = try sema.arena.alloc(Value, ty.vectorLen());
+        for (result_data) |*scalar, i| {
+            scalar.* = try sema.intRemScalar(block, lhs.indexVectorlike(i), lhs_src, rhs.indexVectorlike(i), rhs_src);
+        }
+        return Value.Tag.aggregate.create(sema.arena, result_data);
+    }
+    return sema.intRemScalar(block, lhs, lhs_src, rhs, rhs_src);
+}
+
+fn intRemScalar(
+    sema: *Sema,
+    block: *Block,
+    lhs: Value,
+    lhs_src: LazySrcLoc,
+    rhs: Value,
+    rhs_src: LazySrcLoc,
+) CompileError!Value {
+    const target = sema.mod.getTarget();
+    // TODO is this a performance issue? maybe we should try the operation without
+    // resorting to BigInt first.
+    var lhs_space: Value.BigIntSpace = undefined;
+    var rhs_space: Value.BigIntSpace = undefined;
+    const lhs_bigint = try lhs.toBigIntAdvanced(&lhs_space, target, sema.kit(block, lhs_src));
+    const rhs_bigint = try rhs.toBigIntAdvanced(&rhs_space, target, sema.kit(block, rhs_src));
+    const limbs_q = try sema.arena.alloc(
+        math.big.Limb,
+        lhs_bigint.limbs.len,
+    );
+    const limbs_r = try sema.arena.alloc(
+        math.big.Limb,
+        // TODO: consider reworking Sema to re-use Values rather than
+        // always producing new Value objects.
+        rhs_bigint.limbs.len,
+    );
+    const limbs_buffer = try sema.arena.alloc(
+        math.big.Limb,
+        math.big.int.calcDivLimbsBufferLen(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+    );
+    var result_q = math.big.int.Mutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
+    var result_r = math.big.int.Mutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
+    result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buffer);
+    return Value.fromBigInt(sema.arena, result_r.toConst());
+}
+
+fn zirMod(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src: LazySrcLoc = .{ .node_offset_bin_op = inst_data.src_node };
+    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const lhs = try sema.resolveInst(extra.lhs);
+    const rhs = try sema.resolveInst(extra.rhs);
+    const lhs_ty = sema.typeOf(lhs);
+    const rhs_ty = sema.typeOf(rhs);
+    const lhs_zig_ty_tag = try lhs_ty.zigTypeTagOrPoison();
+    const rhs_zig_ty_tag = try rhs_ty.zigTypeTagOrPoison();
+    try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
+    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty, .mod);
+
+    const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
+    const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
+        .override = &[_]LazySrcLoc{ lhs_src, rhs_src },
+    });
+
+    const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
+    const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs_src);
+
+    const scalar_tag = resolved_type.scalarType().zigTypeTag();
+
+    const is_int = scalar_tag == .Int or scalar_tag == .ComptimeInt;
+
+    try sema.checkArithmeticOp(block, src, scalar_tag, lhs_zig_ty_tag, rhs_zig_ty_tag, .mod);
+
+    const mod = sema.mod;
+    const target = mod.getTarget();
+    const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(block, lhs_src, casted_lhs);
+    const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(block, rhs_src, casted_rhs);
+
+    const runtime_src = rs: {
+        // For integers:
+        // Either operand being undef is a compile error because there exists
+        // a possible value (TODO what is it?) that would invoke illegal behavior.
+        // TODO: can lhs zero be handled better?
+        // TODO: can lhs undef be handled better?
+        //
+        // For floats:
+        // If the rhs is zero, compile error for division by zero.
+        // If the rhs is undefined, compile error because there is a possible
+        // value (zero) for which the division would be illegal behavior.
+        // If the lhs is undefined, result is undefined.
+        if (is_int) {
+            if (maybe_lhs_val) |lhs_val| {
+                if (lhs_val.isUndef()) {
+                    return sema.failWithUseOfUndef(block, lhs_src);
+                }
+            }
+            if (maybe_rhs_val) |rhs_val| {
+                if (rhs_val.isUndef()) {
+                    return sema.failWithUseOfUndef(block, rhs_src);
+                }
+                if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
+                    return sema.failWithDivideByZero(block, rhs_src);
+                }
+                if (maybe_lhs_val) |lhs_val| {
+                    return sema.addConstant(
+                        resolved_type,
+                        try lhs_val.intMod(rhs_val, resolved_type, sema.arena, target),
+                    );
+                }
+                break :rs lhs_src;
+            } else {
+                break :rs rhs_src;
+            }
+        }
+        // float operands
+        if (maybe_rhs_val) |rhs_val| {
+            if (rhs_val.isUndef()) {
+                return sema.failWithUseOfUndef(block, rhs_src);
+            }
+            if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
+                return sema.failWithDivideByZero(block, rhs_src);
+            }
+        }
+        if (maybe_lhs_val) |lhs_val| {
+            if (lhs_val.isUndef()) {
+                return sema.addConstUndef(resolved_type);
+            }
+            if (maybe_rhs_val) |rhs_val| {
+                return sema.addConstant(
+                    resolved_type,
+                    try lhs_val.floatMod(rhs_val, resolved_type, sema.arena, target),
+                );
+            } else break :rs rhs_src;
+        } else break :rs lhs_src;
+    };
+
+    try sema.requireRuntimeBlock(block, src, runtime_src);
+
+    if (block.wantSafety()) {
+        try sema.addDivByZeroSafety(block, resolved_type, maybe_rhs_val, casted_rhs, is_int);
+    }
+
+    const air_tag = airTag(block, is_int, .mod, .mod_optimized);
+    return block.addBinOp(air_tag, casted_lhs, casted_rhs);
+}
+
+fn zirRem(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src: LazySrcLoc = .{ .node_offset_bin_op = inst_data.src_node };
+    const lhs_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = inst_data.src_node };
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const lhs = try sema.resolveInst(extra.lhs);
+    const rhs = try sema.resolveInst(extra.rhs);
+    const lhs_ty = sema.typeOf(lhs);
+    const rhs_ty = sema.typeOf(rhs);
+    const lhs_zig_ty_tag = try lhs_ty.zigTypeTagOrPoison();
+    const rhs_zig_ty_tag = try rhs_ty.zigTypeTagOrPoison();
+    try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
+    try sema.checkInvalidPtrArithmetic(block, src, lhs_ty, .rem);
+
+    const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
+    const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
+        .override = &[_]LazySrcLoc{ lhs_src, rhs_src },
+    });
+
+    const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
+    const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs_src);
+
+    const scalar_tag = resolved_type.scalarType().zigTypeTag();
+
+    const is_int = scalar_tag == .Int or scalar_tag == .ComptimeInt;
+
+    try sema.checkArithmeticOp(block, src, scalar_tag, lhs_zig_ty_tag, rhs_zig_ty_tag, .rem);
+
+    const mod = sema.mod;
+    const target = mod.getTarget();
+    const maybe_lhs_val = try sema.resolveMaybeUndefValIntable(block, lhs_src, casted_lhs);
+    const maybe_rhs_val = try sema.resolveMaybeUndefValIntable(block, rhs_src, casted_rhs);
+
+    const runtime_src = rs: {
+        // For integers:
+        // Either operand being undef is a compile error because there exists
+        // a possible value (TODO what is it?) that would invoke illegal behavior.
+        // TODO: can lhs zero be handled better?
+        // TODO: can lhs undef be handled better?
+        //
+        // For floats:
+        // If the rhs is zero, compile error for division by zero.
+        // If the rhs is undefined, compile error because there is a possible
+        // value (zero) for which the division would be illegal behavior.
+        // If the lhs is undefined, result is undefined.
+        if (is_int) {
+            if (maybe_lhs_val) |lhs_val| {
+                if (lhs_val.isUndef()) {
+                    return sema.failWithUseOfUndef(block, lhs_src);
+                }
+            }
+            if (maybe_rhs_val) |rhs_val| {
+                if (rhs_val.isUndef()) {
+                    return sema.failWithUseOfUndef(block, rhs_src);
+                }
+                if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
+                    return sema.failWithDivideByZero(block, rhs_src);
+                }
+                if (maybe_lhs_val) |lhs_val| {
+                    return sema.addConstant(
+                        resolved_type,
+                        try sema.intRem(block, resolved_type, lhs_val, lhs_src, rhs_val, rhs_src),
+                    );
+                }
+                break :rs lhs_src;
+            } else {
+                break :rs rhs_src;
+            }
+        }
+        // float operands
+        if (maybe_rhs_val) |rhs_val| {
+            if (rhs_val.isUndef()) {
+                return sema.failWithUseOfUndef(block, rhs_src);
+            }
+            if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
+                return sema.failWithDivideByZero(block, rhs_src);
+            }
+        }
+        if (maybe_lhs_val) |lhs_val| {
+            if (lhs_val.isUndef()) {
+                return sema.addConstUndef(resolved_type);
+            }
+            if (maybe_rhs_val) |rhs_val| {
+                return sema.addConstant(
+                    resolved_type,
+                    try lhs_val.floatRem(rhs_val, resolved_type, sema.arena, target),
+                );
+            } else break :rs rhs_src;
+        } else break :rs lhs_src;
+    };
+
+    try sema.requireRuntimeBlock(block, src, runtime_src);
+
+    if (block.wantSafety()) {
+        try sema.addDivByZeroSafety(block, resolved_type, maybe_rhs_val, casted_rhs, is_int);
+    }
+
+    const air_tag = airTag(block, is_int, .rem, .rem_optimized);
+    return block.addBinOp(air_tag, casted_lhs, casted_rhs);
+}
+
 fn zirOverflowArithmetic(
     sema: *Sema,
     block: *Block,
@@ -11895,8 +12623,6 @@ fn analyzeArithmetic(
     const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
     const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs_src);
 
-    const lhs_scalar_ty = lhs_ty.scalarType();
-    const rhs_scalar_ty = rhs_ty.scalarType();
     const scalar_tag = resolved_type.scalarType().zigTypeTag();
 
     const is_int = scalar_tag == .Int or scalar_tag == .ComptimeInt;
@@ -12242,206 +12968,6 @@ fn analyzeArithmetic(
                     } else break :rs .{ .src = lhs_src, .air_tag = .mul_sat };
                 } else break :rs .{ .src = rhs_src, .air_tag = .mul_sat };
             },
-            .mod_rem => {
-                // For integers:
-                // Either operand being undef is a compile error because there exists
-                // a possible value (TODO what is it?) that would invoke illegal behavior.
-                // TODO: can lhs undef be handled better?
-                //
-                // For floats:
-                // If the rhs is zero, compile error for division by zero.
-                // If the rhs is undefined, compile error because there is a possible
-                // value (zero) for which the division would be illegal behavior.
-                // If the lhs is undefined, result is undefined.
-                //
-                // For either one: if the result would be different between @mod and @rem,
-                // then emit a compile error saying you have to pick one.
-                if (is_int) {
-                    if (maybe_lhs_val) |lhs_val| {
-                        if (lhs_val.isUndef()) {
-                            return sema.failWithUseOfUndef(block, lhs_src);
-                        }
-                        if (try lhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                            return sema.addConstant(resolved_type, Value.zero);
-                        }
-                    } else if (lhs_scalar_ty.isSignedInt()) {
-                        return sema.failWithModRemNegative(block, lhs_src, lhs_ty, rhs_ty);
-                    }
-                    if (maybe_rhs_val) |rhs_val| {
-                        if (rhs_val.isUndef()) {
-                            return sema.failWithUseOfUndef(block, rhs_src);
-                        }
-                        if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                            return sema.failWithDivideByZero(block, rhs_src);
-                        }
-                        if (maybe_lhs_val) |lhs_val| {
-                            const rem_result = try lhs_val.intRem(rhs_val, resolved_type, sema.arena, target);
-                            // If this answer could possibly be different by doing `intMod`,
-                            // we must emit a compile error. Otherwise, it's OK.
-                            if ((try rhs_val.compareWithZeroAdvanced(.lt, sema.kit(block, src))) != (try lhs_val.compareWithZeroAdvanced(.lt, sema.kit(block, src))) and
-                                !(try rem_result.compareWithZeroAdvanced(.eq, sema.kit(block, src))))
-                            {
-                                const bad_src = if (try lhs_val.compareWithZeroAdvanced(.lt, sema.kit(block, src)))
-                                    lhs_src
-                                else
-                                    rhs_src;
-                                return sema.failWithModRemNegative(block, bad_src, lhs_ty, rhs_ty);
-                            }
-                            if (try lhs_val.compareWithZeroAdvanced(.lt, sema.kit(block, src))) {
-                                // Negative
-                                return sema.addConstant(resolved_type, Value.zero);
-                            }
-                            return sema.addConstant(resolved_type, rem_result);
-                        }
-                        break :rs .{ .src = lhs_src, .air_tag = .rem };
-                    } else if (rhs_scalar_ty.isSignedInt()) {
-                        return sema.failWithModRemNegative(block, rhs_src, lhs_ty, rhs_ty);
-                    } else {
-                        break :rs .{ .src = rhs_src, .air_tag = .rem };
-                    }
-                }
-                // float operands
-                if (maybe_rhs_val) |rhs_val| {
-                    if (rhs_val.isUndef()) {
-                        return sema.failWithUseOfUndef(block, rhs_src);
-                    }
-                    if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                        return sema.failWithDivideByZero(block, rhs_src);
-                    }
-                    if (try rhs_val.compareWithZeroAdvanced(.lt, sema.kit(block, src))) {
-                        return sema.failWithModRemNegative(block, rhs_src, lhs_ty, rhs_ty);
-                    }
-                    if (maybe_lhs_val) |lhs_val| {
-                        if (lhs_val.isUndef() or (try lhs_val.compareWithZeroAdvanced(.lt, sema.kit(block, src)))) {
-                            return sema.failWithModRemNegative(block, lhs_src, lhs_ty, rhs_ty);
-                        }
-                        return sema.addConstant(
-                            resolved_type,
-                            try lhs_val.floatRem(rhs_val, resolved_type, sema.arena, target),
-                        );
-                    } else {
-                        return sema.failWithModRemNegative(block, lhs_src, lhs_ty, rhs_ty);
-                    }
-                } else {
-                    return sema.failWithModRemNegative(block, rhs_src, lhs_ty, rhs_ty);
-                }
-            },
-            .rem => {
-                // For integers:
-                // Either operand being undef is a compile error because there exists
-                // a possible value (TODO what is it?) that would invoke illegal behavior.
-                // TODO: can lhs zero be handled better?
-                // TODO: can lhs undef be handled better?
-                //
-                // For floats:
-                // If the rhs is zero, compile error for division by zero.
-                // If the rhs is undefined, compile error because there is a possible
-                // value (zero) for which the division would be illegal behavior.
-                // If the lhs is undefined, result is undefined.
-                if (is_int) {
-                    if (maybe_lhs_val) |lhs_val| {
-                        if (lhs_val.isUndef()) {
-                            return sema.failWithUseOfUndef(block, lhs_src);
-                        }
-                    }
-                    if (maybe_rhs_val) |rhs_val| {
-                        if (rhs_val.isUndef()) {
-                            return sema.failWithUseOfUndef(block, rhs_src);
-                        }
-                        if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                            return sema.failWithDivideByZero(block, rhs_src);
-                        }
-                        if (maybe_lhs_val) |lhs_val| {
-                            return sema.addConstant(
-                                resolved_type,
-                                try lhs_val.intRem(rhs_val, resolved_type, sema.arena, target),
-                            );
-                        }
-                        break :rs .{ .src = lhs_src, .air_tag = .rem };
-                    } else {
-                        break :rs .{ .src = rhs_src, .air_tag = .rem };
-                    }
-                }
-                // float operands
-                if (maybe_rhs_val) |rhs_val| {
-                    if (rhs_val.isUndef()) {
-                        return sema.failWithUseOfUndef(block, rhs_src);
-                    }
-                    if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                        return sema.failWithDivideByZero(block, rhs_src);
-                    }
-                }
-                const air_tag: Air.Inst.Tag = if (block.float_mode == .Optimized) .rem_optimized else .rem;
-                if (maybe_lhs_val) |lhs_val| {
-                    if (lhs_val.isUndef()) {
-                        return sema.addConstUndef(resolved_type);
-                    }
-                    if (maybe_rhs_val) |rhs_val| {
-                        return sema.addConstant(
-                            resolved_type,
-                            try lhs_val.floatRem(rhs_val, resolved_type, sema.arena, target),
-                        );
-                    } else break :rs .{ .src = rhs_src, .air_tag = air_tag };
-                } else break :rs .{ .src = lhs_src, .air_tag = air_tag };
-            },
-            .mod => {
-                // For integers:
-                // Either operand being undef is a compile error because there exists
-                // a possible value (TODO what is it?) that would invoke illegal behavior.
-                // TODO: can lhs zero be handled better?
-                // TODO: can lhs undef be handled better?
-                //
-                // For floats:
-                // If the rhs is zero, compile error for division by zero.
-                // If the rhs is undefined, compile error because there is a possible
-                // value (zero) for which the division would be illegal behavior.
-                // If the lhs is undefined, result is undefined.
-                if (is_int) {
-                    if (maybe_lhs_val) |lhs_val| {
-                        if (lhs_val.isUndef()) {
-                            return sema.failWithUseOfUndef(block, lhs_src);
-                        }
-                    }
-                    if (maybe_rhs_val) |rhs_val| {
-                        if (rhs_val.isUndef()) {
-                            return sema.failWithUseOfUndef(block, rhs_src);
-                        }
-                        if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                            return sema.failWithDivideByZero(block, rhs_src);
-                        }
-                        if (maybe_lhs_val) |lhs_val| {
-                            return sema.addConstant(
-                                resolved_type,
-                                try lhs_val.intMod(rhs_val, resolved_type, sema.arena, target),
-                            );
-                        }
-                        break :rs .{ .src = lhs_src, .air_tag = .mod };
-                    } else {
-                        break :rs .{ .src = rhs_src, .air_tag = .mod };
-                    }
-                }
-                // float operands
-                if (maybe_rhs_val) |rhs_val| {
-                    if (rhs_val.isUndef()) {
-                        return sema.failWithUseOfUndef(block, rhs_src);
-                    }
-                    if (try rhs_val.compareWithZeroAdvanced(.eq, sema.kit(block, src))) {
-                        return sema.failWithDivideByZero(block, rhs_src);
-                    }
-                }
-                const air_tag: Air.Inst.Tag = if (block.float_mode == .Optimized) .mod_optimized else .mod;
-                if (maybe_lhs_val) |lhs_val| {
-                    if (lhs_val.isUndef()) {
-                        return sema.addConstUndef(resolved_type);
-                    }
-                    if (maybe_rhs_val) |rhs_val| {
-                        return sema.addConstant(
-                            resolved_type,
-                            try lhs_val.floatMod(rhs_val, resolved_type, sema.arena, target),
-                        );
-                    } else break :rs .{ .src = rhs_src, .air_tag = air_tag };
-                } else break :rs .{ .src = lhs_src, .air_tag = air_tag };
-            },
             else => unreachable,
         }
     };
@@ -12484,33 +13010,6 @@ fn analyzeArithmetic(
                 try sema.addSafetyCheck(block, no_ov, .integer_overflow);
                 return sema.tupleFieldValByIndex(block, src, op_ov, 0, op_ov_tuple_ty);
             }
-        }
-        switch (rs.air_tag) {
-            .rem, .mod, .rem_optimized, .mod_optimized => {
-                const ok = if (resolved_type.zigTypeTag() == .Vector) ok: {
-                    const zero_val = try Value.Tag.repeated.create(sema.arena, Value.zero);
-                    const zero = try sema.addConstant(sema.typeOf(casted_rhs), zero_val);
-                    const ok = try block.addCmpVector(casted_rhs, zero, if (scalar_tag == .Int) .gt else .neq, try sema.addType(resolved_type));
-                    break :ok try block.addInst(.{
-                        .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
-                        .data = .{ .reduce = .{
-                            .operand = ok,
-                            .operation = .And,
-                        } },
-                    });
-                } else ok: {
-                    const zero = try sema.addConstant(sema.typeOf(casted_rhs), Value.zero);
-                    const air_tag = if (scalar_tag == .Int)
-                        Air.Inst.Tag.cmp_gt
-                    else if (block.float_mode == .Optimized)
-                        Air.Inst.Tag.cmp_neq_optimized
-                    else
-                        Air.Inst.Tag.cmp_neq;
-                    break :ok try block.addBinOp(air_tag, casted_rhs, zero);
-                };
-                try sema.addSafetyCheck(block, ok, .remainder_division_zero_negative);
-            },
-            else => {},
         }
     }
     return block.addBinOp(rs.air_tag, casted_lhs, casted_rhs);
@@ -12557,7 +13056,7 @@ fn analyzePtrArithmetic(
         // The resulting pointer is aligned to the lcd between the offset (an
         // arbitrary number) and the alignment factor (always a power of two,
         // non zero).
-        const new_align = @as(u32, 1) << @intCast(u5, @ctz(u64, addend | ptr_info.@"align"));
+        const new_align = @as(u32, 1) << @intCast(u5, @ctz(addend | ptr_info.@"align"));
 
         break :t try Type.ptr(sema.arena, sema.mod, .{
             .pointee_type = ptr_info.pointee_type,
@@ -12895,6 +13394,14 @@ fn analyzeCmpUnionTag(
     // enum comparison codepath.
     const coerced_tag = try sema.coerce(block, union_tag_ty, tag, tag_src);
     const coerced_union = try sema.coerce(block, union_tag_ty, un, un_src);
+
+    if (try sema.resolveMaybeUndefVal(block, tag_src, coerced_tag)) |enum_val| {
+        if (enum_val.isUndef()) return sema.addConstUndef(Type.bool);
+        const field_ty = union_ty.unionFieldType(enum_val, sema.mod);
+        if (field_ty.zigTypeTag() == .NoReturn) {
+            return Air.Inst.Ref.bool_false;
+        }
+    }
 
     return sema.cmpSelf(block, src, coerced_union, coerced_tag, op, un_src, tag_src);
 }
@@ -13961,10 +14468,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     else
                         field.default_val;
                     const default_val_ptr = try sema.optRefValue(block, src, field.ty, opt_default_val);
-                    const alignment = switch (layout) {
-                        .Auto, .Extern => field.normalAlignment(target),
-                        .Packed => 0,
-                    };
+                    const alignment = field.alignment(target, layout);
 
                     struct_field_fields.* = .{
                         // name: []const u8,
@@ -14003,13 +14507,27 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
             const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, struct_ty.getNamespace());
 
-            const field_values = try sema.arena.create([4]Value);
+            const backing_integer_val = blk: {
+                if (layout == .Packed) {
+                    const struct_obj = struct_ty.castTag(.@"struct").?.data;
+                    assert(struct_obj.haveLayout());
+                    assert(struct_obj.backing_int_ty.isInt());
+                    const backing_int_ty_val = try Value.Tag.ty.create(sema.arena, struct_obj.backing_int_ty);
+                    break :blk try Value.Tag.opt_payload.create(sema.arena, backing_int_ty_val);
+                } else {
+                    break :blk Value.initTag(.null_value);
+                }
+            };
+
+            const field_values = try sema.arena.create([5]Value);
             field_values.* = .{
                 // layout: ContainerLayout,
                 try Value.Tag.enum_field_index.create(
                     sema.arena,
                     @enumToInt(layout),
                 ),
+                // backing_integer: ?type,
+                backing_integer_val,
                 // fields: []const StructField,
                 fields_val,
                 // decls: []const Declaration,
@@ -14047,8 +14565,8 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             );
         },
         .BoundFn => @panic("TODO remove this type from the language and compiler"),
-        .Frame => return sema.fail(block, src, "TODO: implement zirTypeInfo for Frame", .{}),
-        .AnyFrame => return sema.fail(block, src, "TODO: implement zirTypeInfo for AnyFrame", .{}),
+        .Frame => return sema.failWithUseOfAsync(block, src),
+        .AnyFrame => return sema.failWithUseOfAsync(block, src),
     }
 }
 
@@ -14333,6 +14851,20 @@ fn zirBoolBr(
     const rhs_result = try sema.resolveBody(rhs_block, body, inst);
     _ = try rhs_block.addBr(block_inst, rhs_result);
 
+    return finishCondBr(sema, parent_block, &child_block, &then_block, &else_block, lhs, block_inst);
+}
+
+fn finishCondBr(
+    sema: *Sema,
+    parent_block: *Block,
+    child_block: *Block,
+    then_block: *Block,
+    else_block: *Block,
+    cond: Air.Inst.Ref,
+    block_inst: Air.Inst.Index,
+) !Air.Inst.Ref {
+    const gpa = sema.gpa;
+
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).Struct.fields.len +
         then_block.instructions.items.len + else_block.instructions.items.len +
         @typeInfo(Air.Block).Struct.fields.len + child_block.instructions.items.len + 1);
@@ -14345,7 +14877,7 @@ fn zirBoolBr(
     sema.air_extra.appendSliceAssumeCapacity(else_block.instructions.items);
 
     _ = try child_block.addInst(.{ .tag = .cond_br, .data = .{ .pl_op = .{
-        .operand = lhs,
+        .operand = cond,
         .payload = cond_br_payload,
     } } });
 
@@ -14715,8 +15247,81 @@ fn zirRetLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir
         const operand = try sema.analyzeLoad(block, src, ret_ptr, src);
         return sema.analyzeRet(block, operand, src);
     }
+
+    if (sema.wantErrorReturnTracing()) {
+        const is_non_err = try sema.analyzePtrIsNonErr(block, src, ret_ptr);
+        return retWithErrTracing(sema, block, src, is_non_err, .ret_load, ret_ptr);
+    }
+
     _ = try block.addUnOp(.ret_load, ret_ptr);
     return always_noreturn;
+}
+
+fn retWithErrTracing(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    is_non_err: Air.Inst.Ref,
+    ret_tag: Air.Inst.Tag,
+    operand: Air.Inst.Ref,
+) CompileError!Zir.Inst.Index {
+    const need_check = switch (is_non_err) {
+        .bool_true => {
+            _ = try block.addUnOp(ret_tag, operand);
+            return always_noreturn;
+        },
+        .bool_false => false,
+        else => true,
+    };
+    const gpa = sema.gpa;
+    const unresolved_stack_trace_ty = try sema.getBuiltinType(block, src, "StackTrace");
+    const stack_trace_ty = try sema.resolveTypeFields(block, src, unresolved_stack_trace_ty);
+    const ptr_stack_trace_ty = try Type.Tag.single_mut_pointer.create(sema.arena, stack_trace_ty);
+    const err_return_trace = try block.addTy(.err_return_trace, ptr_stack_trace_ty);
+    const return_err_fn = try sema.getBuiltin(block, src, "returnError");
+    const args: [1]Air.Inst.Ref = .{err_return_trace};
+
+    if (!need_check) {
+        _ = try sema.analyzeCall(block, return_err_fn, src, src, .never_inline, false, &args, null);
+        _ = try block.addUnOp(ret_tag, operand);
+        return always_noreturn;
+    }
+
+    var then_block = block.makeSubBlock();
+    defer then_block.instructions.deinit(gpa);
+    _ = try then_block.addUnOp(ret_tag, operand);
+
+    var else_block = block.makeSubBlock();
+    defer else_block.instructions.deinit(gpa);
+    _ = try sema.analyzeCall(&else_block, return_err_fn, src, src, .never_inline, false, &args, null);
+    _ = try else_block.addUnOp(ret_tag, operand);
+
+    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).Struct.fields.len +
+        then_block.instructions.items.len + else_block.instructions.items.len +
+        @typeInfo(Air.Block).Struct.fields.len + 1);
+
+    const cond_br_payload = sema.addExtraAssumeCapacity(Air.CondBr{
+        .then_body_len = @intCast(u32, then_block.instructions.items.len),
+        .else_body_len = @intCast(u32, else_block.instructions.items.len),
+    });
+    sema.air_extra.appendSliceAssumeCapacity(then_block.instructions.items);
+    sema.air_extra.appendSliceAssumeCapacity(else_block.instructions.items);
+
+    _ = try block.addInst(.{ .tag = .cond_br, .data = .{ .pl_op = .{
+        .operand = is_non_err,
+        .payload = cond_br_payload,
+    } } });
+
+    return always_noreturn;
+}
+
+fn wantErrorReturnTracing(sema: *Sema) bool {
+    // TODO implement this feature in all the backends and then delete this check.
+    const backend_supports_error_return_tracing = sema.mod.comp.bin_file.options.use_llvm;
+
+    return sema.fn_ret_ty.isError() and
+        sema.mod.comp.bin_file.options.error_return_tracing and
+        backend_supports_error_return_tracing;
 }
 
 fn addToInferredErrorSet(sema: *Sema, uncasted_operand: Air.Inst.Ref) !void {
@@ -14764,27 +15369,15 @@ fn analyzeRet(
         return always_noreturn;
     }
 
-    // TODO implement this feature in all the backends and then delete this check.
-    const backend_supports_error_return_tracing =
-        sema.mod.comp.bin_file.options.use_llvm;
+    try sema.resolveTypeLayout(block, src, sema.fn_ret_ty);
 
-    if (sema.fn_ret_ty.isError() and
-        sema.mod.comp.bin_file.options.error_return_tracing and
-        backend_supports_error_return_tracing)
-    ret_err: {
-        if (try sema.resolveMaybeUndefVal(block, src, operand)) |ret_val| {
-            if (ret_val.tag() != .@"error") break :ret_err;
-        }
-        const return_err_fn = try sema.getBuiltin(block, src, "returnError");
-        const unresolved_stack_trace_ty = try sema.getBuiltinType(block, src, "StackTrace");
-        const stack_trace_ty = try sema.resolveTypeFields(block, src, unresolved_stack_trace_ty);
-        const ptr_stack_trace_ty = try Type.Tag.optional_single_mut_pointer.create(sema.arena, stack_trace_ty);
-        const err_return_trace = try block.addTy(.err_return_trace, ptr_stack_trace_ty);
-        const args: [1]Air.Inst.Ref = .{err_return_trace};
-        _ = try sema.analyzeCall(block, return_err_fn, src, src, .never_inline, false, &args, null);
+    if (sema.wantErrorReturnTracing()) {
+        // Avoid adding a frame to the error return trace in case the value is comptime-known
+        // to be not an error.
+        const is_non_err = try sema.analyzeIsNonErr(block, src, operand);
+        return retWithErrTracing(sema, block, src, is_non_err, .ret, operand);
     }
 
-    try sema.resolveTypeLayout(block, src, sema.fn_ret_ty);
     _ = try block.addUnOp(.ret, operand);
     return always_noreturn;
 }
@@ -15015,7 +15608,9 @@ fn unionInit(
     const init = try sema.coerce(block, field.ty, uncasted_init, init_src);
 
     if (try sema.resolveMaybeUndefVal(block, init_src, init)) |init_val| {
-        const tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
+        const tag_ty = union_ty.unionTagTypeHypothetical();
+        const enum_field_index = @intCast(u32, tag_ty.enumFieldIndex(field_name).?);
+        const tag_val = try Value.Tag.enum_field_index.create(sema.arena, enum_field_index);
         return sema.addConstant(union_ty, try Value.Tag.@"union".create(sema.arena, .{
             .tag = tag_val,
             .val = init_val,
@@ -15113,7 +15708,9 @@ fn zirStructInit(
         const field_type_extra = sema.code.extraData(Zir.Inst.FieldType, field_type_data.payload_index).data;
         const field_name = sema.code.nullTerminatedString(field_type_extra.name_start);
         const field_index = try sema.unionFieldIndex(block, resolved_ty, field_name, field_src);
-        const tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
+        const tag_ty = resolved_ty.unionTagTypeHypothetical();
+        const enum_field_index = @intCast(u32, tag_ty.enumFieldIndex(field_name).?);
+        const tag_val = try Value.Tag.enum_field_index.create(sema.arena, enum_field_index);
 
         const init_inst = try sema.resolveInst(item.data.init);
         if (try sema.resolveMaybeUndefVal(block, field_src, init_inst)) |val| {
@@ -15161,6 +15758,8 @@ fn finishStructInit(
     const gpa = sema.gpa;
 
     var root_msg: ?*Module.ErrorMsg = null;
+    errdefer if (root_msg) |msg| msg.destroy(sema.gpa);
+
     if (struct_ty.isAnonStruct()) {
         const struct_obj = struct_ty.castTag(.anon_struct).?.data;
         for (struct_obj.values) |default_val, i| {
@@ -15216,6 +15815,7 @@ fn finishStructInit(
     }
 
     if (root_msg) |msg| {
+        root_msg = null;
         if (struct_ty.castTag(.@"struct")) |struct_obj| {
             const fqn = try struct_obj.data.getFullyQualifiedName(sema.mod);
             defer gpa.free(fqn);
@@ -15245,6 +15845,7 @@ fn finishStructInit(
     }
 
     if (is_ref) {
+        try sema.resolveStructLayout(block, dest_src, struct_ty);
         const target = sema.mod.getTarget();
         const alloc_ty = try Type.ptr(sema.arena, sema.mod, .{
             .pointee_type = struct_ty,
@@ -15619,9 +16220,10 @@ fn fieldType(
     field_src: LazySrcLoc,
     ty_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
-    const resolved_ty = try sema.resolveTypeFields(block, ty_src, aggregate_ty);
-    var cur_ty = resolved_ty;
+    var cur_ty = aggregate_ty;
     while (true) {
+        const resolved_ty = try sema.resolveTypeFields(block, ty_src, cur_ty);
+        cur_ty = resolved_ty;
         switch (cur_ty.zigTypeTag()) {
             .Struct => {
                 if (cur_ty.isAnonStruct()) {
@@ -15693,7 +16295,7 @@ fn zirFrame(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const src = LazySrcLoc.nodeOffset(@bitCast(i32, extended.operand));
-    return sema.fail(block, src, "TODO: Sema.zirFrame", .{});
+    return sema.failWithUseOfAsync(block, src);
 }
 
 fn zirAlignOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -15742,7 +16344,7 @@ fn zirUnaryMath(
     block: *Block,
     inst: Zir.Inst.Index,
     air_tag: Air.Inst.Tag,
-    eval: fn (Value, Type, Allocator, std.Target) Allocator.Error!Value,
+    comptime eval: fn (Value, Type, Allocator, std.Target) Allocator.Error!Value,
 ) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -15853,25 +16455,30 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         const field_name = enum_ty.enumFieldName(field_index);
         return sema.addStrLit(block, field_name);
     }
+    try sema.requireRuntimeBlock(block, src, operand_src);
+    if (block.wantSafety() and sema.mod.comp.bin_file.options.use_llvm) {
+        const ok = try block.addUnOp(.is_named_enum_value, casted_operand);
+        try sema.addSafetyCheck(block, ok, .invalid_enum_value);
+    }
     // In case the value is runtime-known, we have an AIR instruction for this instead
     // of trying to lower it in Sema because an optimization pass may result in the operand
     // being comptime-known, which would let us elide the `tag_name` AIR instruction.
     return block.addUnOp(.tag_name, casted_operand);
 }
 
-fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
+    const name_strategy = @intToEnum(Zir.Inst.NameStrategy, extended.small);
+    const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
+    const src = LazySrcLoc.nodeOffset(extra.node);
     const type_info_ty = try sema.resolveBuiltinTypeFields(block, src, "Type");
-    const uncasted_operand = try sema.resolveInst(inst_data.operand);
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const uncasted_operand = try sema.resolveInst(extra.operand);
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
     const type_info = try sema.coerce(block, type_info_ty, uncasted_operand, operand_src);
     const val = try sema.resolveConstValue(block, operand_src, type_info, "operand to @Type must be comptime known");
     const union_val = val.cast(Value.Payload.Union).?.data;
-    const tag_ty = type_info_ty.unionTagType().?;
     const target = mod.getTarget();
-    const tag_index = tag_ty.enumTagFieldIndex(union_val.tag, mod).?;
+    const tag_index = type_info_ty.unionTagFieldIndex(union_val.tag, mod).?;
     if (union_val.val.anyUndef()) return sema.failWithUseOfUndef(block, src);
     switch (@intToEnum(std.builtin.TypeId, tag_index)) {
         .Type => return Air.Inst.Ref.type_type,
@@ -15882,7 +16489,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
         .ComptimeInt => return Air.Inst.Ref.comptime_int_type,
         .Undefined => return Air.Inst.Ref.undefined_type,
         .Null => return Air.Inst.Ref.null_type,
-        .AnyFrame => return Air.Inst.Ref.anyframe_type,
+        .AnyFrame => return sema.failWithUseOfAsync(block, src),
         .EnumLiteral => return Air.Inst.Ref.enum_literal_type,
         .Int => {
             const struct_val = union_val.val.castTag(.aggregate).?.data;
@@ -15945,7 +16552,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             if (!try sema.intFitsInType(block, src, alignment_val, Type.u32, null)) {
                 return sema.fail(block, src, "alignment must fit in 'u32'", .{});
             }
-            const abi_align = @intCast(u29, alignment_val.toUnsignedInt(target));
+            const abi_align = @intCast(u29, (try alignment_val.getUnsignedIntAdvanced(target, sema.kit(block, src))).?);
 
             var buffer: Value.ToTypeBuffer = undefined;
             const unresolved_elem_ty = child_val.toType(&buffer);
@@ -16110,22 +16717,31 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             const struct_val = union_val.val.castTag(.aggregate).?.data;
             // layout: containerlayout,
             const layout_val = struct_val[0];
+            // backing_int: ?type,
+            const backing_int_val = struct_val[1];
             // fields: []const enumfield,
-            const fields_val = struct_val[1];
+            const fields_val = struct_val[2];
             // decls: []const declaration,
-            const decls_val = struct_val[2];
+            const decls_val = struct_val[3];
             // is_tuple: bool,
-            const is_tuple_val = struct_val[3];
+            const is_tuple_val = struct_val[4];
+            assert(struct_val.len == 5);
+
+            const layout = layout_val.toEnum(std.builtin.Type.ContainerLayout);
 
             // Decls
             if (decls_val.sliceLen(mod) > 0) {
                 return sema.fail(block, src, "reified structs must have no decls", .{});
             }
 
+            if (layout != .Packed and !backing_int_val.isNull()) {
+                return sema.fail(block, src, "non-packed struct does not support backing integer type", .{});
+            }
+
             return if (is_tuple_val.toBool())
                 try sema.reifyTuple(block, src, fields_val)
             else
-                try sema.reifyStruct(block, inst, src, layout_val, fields_val);
+                try sema.reifyStruct(block, inst, src, layout, backing_int_val, fields_val, name_strategy);
         },
         .Enum => {
             const struct_val = union_val.val.castTag(.aggregate).?.data;
@@ -16171,10 +16787,10 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             };
             const enum_ty = Type.initPayload(&enum_ty_payload.base);
             const enum_val = try Value.Tag.ty.create(new_decl_arena_allocator, enum_ty);
-            const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
+            const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
                 .ty = Type.type,
                 .val = enum_val,
-            }, .anon, "enum", null);
+            }, name_strategy, "enum", inst);
             const new_decl = mod.declPtr(new_decl_index);
             new_decl.owns_tv = true;
             errdefer mod.abortAnonDecl(new_decl_index);
@@ -16185,7 +16801,6 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
                 .tag_ty_inferred = false,
                 .fields = .{},
                 .values = .{},
-                .node_offset = src.node_offset.x,
                 .namespace = .{
                     .parent = block.namespace,
                     .ty = enum_ty,
@@ -16204,43 +16819,39 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
 
             // Fields
             const fields_len = try sema.usizeCast(block, src, fields_val.sliceLen(mod));
-            if (fields_len > 0) {
-                try enum_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
-                try enum_obj.values.ensureTotalCapacityContext(new_decl_arena_allocator, fields_len, .{
+            try enum_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
+            try enum_obj.values.ensureTotalCapacityContext(new_decl_arena_allocator, fields_len, .{
+                .ty = enum_obj.tag_ty,
+                .mod = mod,
+            });
+
+            var i: usize = 0;
+            while (i < fields_len) : (i += 1) {
+                const elem_val = try fields_val.elemValue(sema.mod, sema.arena, i);
+                const field_struct_val = elem_val.castTag(.aggregate).?.data;
+                // TODO use reflection instead of magic numbers here
+                // name: []const u8
+                const name_val = field_struct_val[0];
+                // value: comptime_int
+                const value_val = field_struct_val[1];
+
+                const field_name = try name_val.toAllocatedBytes(
+                    Type.initTag(.const_slice_u8),
+                    new_decl_arena_allocator,
+                    sema.mod,
+                );
+
+                const gop = enum_obj.fields.getOrPutAssumeCapacity(field_name);
+                if (gop.found_existing) {
+                    // TODO: better source location
+                    return sema.fail(block, src, "duplicate enum tag {s}", .{field_name});
+                }
+
+                const copied_tag_val = try value_val.copy(new_decl_arena_allocator);
+                enum_obj.values.putAssumeCapacityNoClobberContext(copied_tag_val, {}, .{
                     .ty = enum_obj.tag_ty,
                     .mod = mod,
                 });
-
-                var i: usize = 0;
-                while (i < fields_len) : (i += 1) {
-                    const elem_val = try fields_val.elemValue(sema.mod, sema.arena, i);
-                    const field_struct_val = elem_val.castTag(.aggregate).?.data;
-                    // TODO use reflection instead of magic numbers here
-                    // name: []const u8
-                    const name_val = field_struct_val[0];
-                    // value: comptime_int
-                    const value_val = field_struct_val[1];
-
-                    const field_name = try name_val.toAllocatedBytes(
-                        Type.initTag(.const_slice_u8),
-                        new_decl_arena_allocator,
-                        sema.mod,
-                    );
-
-                    const gop = enum_obj.fields.getOrPutAssumeCapacity(field_name);
-                    if (gop.found_existing) {
-                        // TODO: better source location
-                        return sema.fail(block, src, "duplicate enum tag {s}", .{field_name});
-                    }
-
-                    const copied_tag_val = try value_val.copy(new_decl_arena_allocator);
-                    enum_obj.values.putAssumeCapacityNoClobberContext(copied_tag_val, {}, .{
-                        .ty = enum_obj.tag_ty,
-                        .mod = mod,
-                    });
-                }
-            } else {
-                return sema.fail(block, src, "enums must have at least one field", .{});
             }
 
             try new_decl.finalizeNewArena(&new_decl_arena);
@@ -16268,17 +16879,16 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             };
             const opaque_ty = Type.initPayload(&opaque_ty_payload.base);
             const opaque_val = try Value.Tag.ty.create(new_decl_arena_allocator, opaque_ty);
-            const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
+            const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
                 .ty = Type.type,
                 .val = opaque_val,
-            }, .anon, "opaque", null);
+            }, name_strategy, "opaque", inst);
             const new_decl = mod.declPtr(new_decl_index);
             new_decl.owns_tv = true;
             errdefer mod.abortAnonDecl(new_decl_index);
 
             opaque_obj.* = .{
                 .owner_decl = new_decl_index,
-                .node_offset = src.node_offset.x,
                 .namespace = .{
                     .parent = block.namespace,
                     .ty = opaque_ty,
@@ -16327,10 +16937,10 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             };
             const union_ty = Type.initPayload(&union_payload.base);
             const new_union_val = try Value.Tag.ty.create(new_decl_arena_allocator, union_ty);
-            const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
+            const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
                 .ty = Type.type,
                 .val = new_union_val,
-            }, .anon, "union", null);
+            }, name_strategy, "union", inst);
             const new_decl = mod.declPtr(new_decl_index);
             new_decl.owns_tv = true;
             errdefer mod.abortAnonDecl(new_decl_index);
@@ -16338,7 +16948,6 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
                 .owner_decl = new_decl_index,
                 .tag_ty = Type.initTag(.@"null"),
                 .fields = .{},
-                .node_offset = src.node_offset.x,
                 .zir_index = inst,
                 .layout = layout,
                 .status = .have_field_types,
@@ -16367,58 +16976,54 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             }
 
             // Fields
-            if (fields_len > 0) {
-                try union_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
+            try union_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
 
-                var i: usize = 0;
-                while (i < fields_len) : (i += 1) {
-                    const elem_val = try fields_val.elemValue(sema.mod, sema.arena, i);
-                    const field_struct_val = elem_val.castTag(.aggregate).?.data;
-                    // TODO use reflection instead of magic numbers here
-                    // name: []const u8
-                    const name_val = field_struct_val[0];
-                    // field_type: type,
-                    const field_type_val = field_struct_val[1];
-                    // alignment: comptime_int,
-                    const alignment_val = field_struct_val[2];
+            var i: usize = 0;
+            while (i < fields_len) : (i += 1) {
+                const elem_val = try fields_val.elemValue(sema.mod, sema.arena, i);
+                const field_struct_val = elem_val.castTag(.aggregate).?.data;
+                // TODO use reflection instead of magic numbers here
+                // name: []const u8
+                const name_val = field_struct_val[0];
+                // field_type: type,
+                const field_type_val = field_struct_val[1];
+                // alignment: comptime_int,
+                const alignment_val = field_struct_val[2];
 
-                    const field_name = try name_val.toAllocatedBytes(
-                        Type.initTag(.const_slice_u8),
-                        new_decl_arena_allocator,
-                        sema.mod,
-                    );
+                const field_name = try name_val.toAllocatedBytes(
+                    Type.initTag(.const_slice_u8),
+                    new_decl_arena_allocator,
+                    sema.mod,
+                );
 
-                    if (enum_field_names) |set| {
-                        set.putAssumeCapacity(field_name, {});
-                    }
-
-                    if (tag_ty_field_names) |*names| {
-                        const enum_has_field = names.orderedRemove(field_name);
-                        if (!enum_has_field) {
-                            const msg = msg: {
-                                const msg = try sema.errMsg(block, src, "no field named '{s}' in enum '{}'", .{ field_name, union_obj.tag_ty.fmt(sema.mod) });
-                                errdefer msg.destroy(sema.gpa);
-                                try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
-                                break :msg msg;
-                            };
-                            return sema.failWithOwnedErrorMsg(msg);
-                        }
-                    }
-
-                    const gop = union_obj.fields.getOrPutAssumeCapacity(field_name);
-                    if (gop.found_existing) {
-                        // TODO: better source location
-                        return sema.fail(block, src, "duplicate union field {s}", .{field_name});
-                    }
-
-                    var buffer: Value.ToTypeBuffer = undefined;
-                    gop.value_ptr.* = .{
-                        .ty = try field_type_val.toType(&buffer).copy(new_decl_arena_allocator),
-                        .abi_align = @intCast(u32, alignment_val.toUnsignedInt(target)),
-                    };
+                if (enum_field_names) |set| {
+                    set.putAssumeCapacity(field_name, {});
                 }
-            } else {
-                return sema.fail(block, src, "unions must have at least one field", .{});
+
+                if (tag_ty_field_names) |*names| {
+                    const enum_has_field = names.orderedRemove(field_name);
+                    if (!enum_has_field) {
+                        const msg = msg: {
+                            const msg = try sema.errMsg(block, src, "no field named '{s}' in enum '{}'", .{ field_name, union_obj.tag_ty.fmt(sema.mod) });
+                            errdefer msg.destroy(sema.gpa);
+                            try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
+                            break :msg msg;
+                        };
+                        return sema.failWithOwnedErrorMsg(msg);
+                    }
+                }
+
+                const gop = union_obj.fields.getOrPutAssumeCapacity(field_name);
+                if (gop.found_existing) {
+                    // TODO: better source location
+                    return sema.fail(block, src, "duplicate union field {s}", .{field_name});
+                }
+
+                var buffer: Value.ToTypeBuffer = undefined;
+                gop.value_ptr.* = .{
+                    .ty = try field_type_val.toType(&buffer).copy(new_decl_arena_allocator),
+                    .abi_align = @intCast(u32, alignment_val.toUnsignedInt(target)),
+                };
             }
 
             if (tag_ty_field_names) |names| {
@@ -16534,7 +17139,7 @@ fn zirReify(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
             return sema.addType(ty);
         },
         .BoundFn => @panic("TODO delete BoundFn from the language"),
-        .Frame => @panic("TODO implement https://github.com/ziglang/zig/issues/10710"),
+        .Frame => return sema.failWithUseOfAsync(block, src),
     }
 }
 
@@ -16621,8 +17226,10 @@ fn reifyStruct(
     block: *Block,
     inst: Zir.Inst.Index,
     src: LazySrcLoc,
-    layout_val: Value,
+    layout: std.builtin.Type.ContainerLayout,
+    backing_int_val: Value,
     fields_val: Value,
+    name_strategy: Zir.Inst.NameStrategy,
 ) CompileError!Air.Inst.Ref {
     var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
     errdefer new_decl_arena.deinit();
@@ -16632,19 +17239,18 @@ fn reifyStruct(
     const struct_ty = try Type.Tag.@"struct".create(new_decl_arena_allocator, struct_obj);
     const new_struct_val = try Value.Tag.ty.create(new_decl_arena_allocator, struct_ty);
     const mod = sema.mod;
-    const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, .{
+    const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
         .ty = Type.type,
         .val = new_struct_val,
-    }, .anon, "struct", null);
+    }, name_strategy, "struct", inst);
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
     struct_obj.* = .{
         .owner_decl = new_decl_index,
         .fields = .{},
-        .node_offset = src.node_offset.x,
         .zir_index = inst,
-        .layout = layout_val.toEnum(std.builtin.Type.ContainerLayout),
+        .layout = layout,
         .status = .have_field_types,
         .known_non_opv = false,
         .namespace = .{
@@ -16710,6 +17316,41 @@ fn reifyStruct(
         };
     }
 
+    if (layout == .Packed) {
+        struct_obj.status = .layout_wip;
+
+        for (struct_obj.fields.values()) |field, index| {
+            sema.resolveTypeLayout(block, src, field.ty) catch |err| switch (err) {
+                error.AnalysisFail => {
+                    const msg = sema.err orelse return err;
+                    try sema.addFieldErrNote(block, struct_ty, index, msg, "while checking this field", .{});
+                    return err;
+                },
+                else => return err,
+            };
+        }
+
+        var fields_bit_sum: u64 = 0;
+        for (struct_obj.fields.values()) |field| {
+            fields_bit_sum += field.ty.bitSize(target);
+        }
+
+        if (backing_int_val.optionalValue()) |payload| {
+            var buf: Value.ToTypeBuffer = undefined;
+            const backing_int_ty = payload.toType(&buf);
+            try sema.checkBackingIntType(block, src, backing_int_ty, fields_bit_sum);
+            struct_obj.backing_int_ty = try backing_int_ty.copy(new_decl_arena_allocator);
+        } else {
+            var buf: Type.Payload.Bits = .{
+                .base = .{ .tag = .int_unsigned },
+                .data = @intCast(u16, fields_bit_sum),
+            };
+            struct_obj.backing_int_ty = try Type.initPayload(&buf.base).copy(new_decl_arena_allocator);
+        }
+
+        struct_obj.status = .have_layout;
+    }
+
     try new_decl.finalizeNewArena(&new_decl_arena);
     return sema.analyzeDeclVal(block, src, new_decl_index);
 }
@@ -16736,13 +17377,13 @@ fn zirTypeName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 fn zirFrameType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirFrameType", .{});
+    return sema.failWithUseOfAsync(block, src);
 }
 
 fn zirFrameSize(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirFrameSize", .{});
+    return sema.failWithUseOfAsync(block, src);
 }
 
 fn zirFloatToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -16834,7 +17475,7 @@ fn zirIntToPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     }
 
     try sema.requireRuntimeBlock(block, src, operand_src);
-    if (block.wantSafety()) {
+    if (block.wantSafety() and try sema.typeHasRuntimeBits(block, sema.src, type_res.elemType2())) {
         if (!type_res.isAllowzeroPtr()) {
             const is_non_zero = try block.addBinOp(.cmp_neq, operand_coerced, .zero_usize);
             try sema.addSafetyCheck(block, is_non_zero, .cast_to_null);
@@ -16931,17 +17572,10 @@ fn zirErrSetCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     }
 
     try sema.requireRuntimeBlock(block, src, operand_src);
-    if (block.wantSafety() and !dest_ty.isAnyError()) {
-        const err_int_inst = try block.addBitCast(Type.u16, operand);
-        // TODO: Output a switch instead of chained OR's.
-        var found_match: Air.Inst.Ref = undefined;
-        for (dest_ty.errorSetNames()) |dest_err_name, i| {
-            const dest_err_int = (try sema.mod.getErrorValue(dest_err_name)).value;
-            const dest_err_int_inst = try sema.addIntUnsigned(Type.u16, dest_err_int);
-            const next_match = try block.addBinOp(.cmp_eq, dest_err_int_inst, err_int_inst);
-            found_match = if (i == 0) next_match else try block.addBinOp(.bool_or, found_match, next_match);
-        }
-        try sema.addSafetyCheck(block, found_match, .invalid_error_code);
+    if (block.wantSafety() and !dest_ty.isAnyError() and sema.mod.comp.bin_file.options.use_llvm) {
+        const err_int_inst = try block.addBitCast(Type.err_int, operand);
+        const ok = try block.addTyOp(.error_set_has_value, dest_ty, err_int_inst);
+        try sema.addSafetyCheck(block, ok, .invalid_error_code);
     }
     return block.addBitCast(dest_ty, operand);
 }
@@ -16968,6 +17602,15 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         try sema.analyzeSlicePtr(block, operand_src, operand, operand_ty)
     else
         operand;
+
+    if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |operand_val| {
+        if (!dest_ty.ptrAllowsZero() and operand_val.isUndef()) {
+            return sema.failWithUseOfUndef(block, operand_src);
+        }
+        if (!dest_ty.ptrAllowsZero() and operand_val.isNull()) {
+            return sema.fail(block, operand_src, "null pointer casted to type {}", .{dest_ty.fmt(sema.mod)});
+        }
+    }
 
     const dest_elem_ty = dest_ty.elemType2();
     try sema.resolveTypeLayout(block, dest_ty_src, dest_elem_ty);
@@ -17126,7 +17769,9 @@ fn zirAlignCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     }
 
     try sema.requireRuntimeBlock(block, inst_data.src(), ptr_src);
-    if (block.wantSafety() and dest_align > 1) {
+    if (block.wantSafety() and dest_align > 1 and
+        try sema.typeHasRuntimeBits(block, sema.src, dest_ty.elemType2()))
+    {
         const val_payload = try sema.arena.create(Value.Payload.U64);
         val_payload.* = .{
             .base = .{ .tag = .int_u64 },
@@ -17145,7 +17790,7 @@ fn zirAlignCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         const is_aligned = try block.addBinOp(.cmp_eq, remainder, .zero_usize);
         const ok = if (ptr_ty.isSlice()) ok: {
             const len = try sema.analyzeSliceLen(block, ptr_src, ptr);
-            const len_zero = try block.addBinOp(.cmp_eq, len, try sema.addConstant(Type.usize, Value.zero));
+            const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
             break :ok try block.addBinOp(.bit_or, len_zero, is_aligned);
         } else is_aligned;
         try sema.addSafetyCheck(block, ok, .incorrect_alignment);
@@ -17158,11 +17803,11 @@ fn zirBitCount(
     block: *Block,
     inst: Zir.Inst.Index,
     air_tag: Air.Inst.Tag,
-    comptimeOp: fn (val: Value, ty: Type, target: std.Target) u64,
+    comptime comptimeOp: fn (val: Value, ty: Type, target: std.Target) u64,
 ) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const operand = try sema.resolveInst(inst_data.operand);
     const operand_ty = sema.typeOf(operand);
     _ = try checkIntOrVector(sema, block, operand, operand_src);
@@ -17214,17 +17859,16 @@ fn zirBitCount(
 fn zirByteSwap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const operand = try sema.resolveInst(inst_data.operand);
     const operand_ty = sema.typeOf(operand);
-    const scalar_ty = try sema.checkIntOrVectorAllowComptime(block, operand_ty, operand_src);
+    const scalar_ty = try sema.checkIntOrVector(block, operand, operand_src);
     const target = sema.mod.getTarget();
     const bits = scalar_ty.intInfo(target).bits;
     if (bits % 8 != 0) {
         return sema.fail(
             block,
-            ty_src,
+            operand_src,
             "@byteSwap requires the number of bits to be evenly divisible by 8, but {} has {} bits",
             .{ scalar_ty.fmt(sema.mod), bits },
         );
@@ -17235,7 +17879,7 @@ fn zirByteSwap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     }
 
     switch (operand_ty.zigTypeTag()) {
-        .Int, .ComptimeInt => {
+        .Int => {
             const runtime_src = if (try sema.resolveMaybeUndefVal(block, operand_src, operand)) |val| {
                 if (val.isUndef()) return sema.addConstUndef(operand_ty);
                 const result_val = try val.byteSwap(operand_ty, target, sema.arena);
@@ -17273,7 +17917,7 @@ fn zirByteSwap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 fn zirBitReverse(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const operand = try sema.resolveInst(inst_data.operand);
     const operand_ty = sema.typeOf(operand);
     _ = try sema.checkIntOrVectorAllowComptime(block, operand_ty, operand_src);
@@ -18973,13 +19617,13 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
 fn zirBuiltinAsyncCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirBuiltinAsyncCall", .{});
+    return sema.failWithUseOfAsync(block, src);
 }
 
 fn zirResume(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
-    return sema.fail(block, src, "TODO: Sema.zirResume", .{});
+    return sema.failWithUseOfAsync(block, src);
 }
 
 fn zirAwait(
@@ -18990,7 +19634,7 @@ fn zirAwait(
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
 
-    return sema.fail(block, src, "TODO: Sema.zirAwait", .{});
+    return sema.failWithUseOfAsync(block, src);
 }
 
 fn zirAwaitNosuspend(
@@ -19001,7 +19645,7 @@ fn zirAwaitNosuspend(
     const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
     const src = LazySrcLoc.nodeOffset(extra.node);
 
-    return sema.fail(block, src, "TODO: Sema.zirAwaitNosuspend", .{});
+    return sema.failWithUseOfAsync(block, src);
 }
 
 fn zirVarExtended(
@@ -19670,6 +20314,8 @@ fn validateRunTimeType(
     };
 }
 
+const TypeSet = std.HashMapUnmanaged(Type, void, Type.HashContext64, std.hash_map.default_max_load_percentage);
+
 fn explainWhyTypeIsComptime(
     sema: *Sema,
     block: *Block,
@@ -19677,6 +20323,22 @@ fn explainWhyTypeIsComptime(
     msg: *Module.ErrorMsg,
     src_loc: Module.SrcLoc,
     ty: Type,
+) CompileError!void {
+    var type_set = TypeSet{};
+    defer type_set.deinit(sema.gpa);
+
+    try sema.resolveTypeFully(block, src, ty);
+    return sema.explainWhyTypeIsComptimeInner(block, src, msg, src_loc, ty, &type_set);
+}
+
+fn explainWhyTypeIsComptimeInner(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    msg: *Module.ErrorMsg,
+    src_loc: Module.SrcLoc,
+    ty: Type,
+    type_set: *TypeSet,
 ) CompileError!void {
     const mod = sema.mod;
     switch (ty.zigTypeTag()) {
@@ -19714,7 +20376,7 @@ fn explainWhyTypeIsComptime(
         },
 
         .Array, .Vector => {
-            try sema.explainWhyTypeIsComptime(block, src, msg, src_loc, ty.elemType());
+            try sema.explainWhyTypeIsComptimeInner(block, src, msg, src_loc, ty.elemType(), type_set);
         },
         .Pointer => {
             const elem_ty = ty.elemType2();
@@ -19732,18 +20394,20 @@ fn explainWhyTypeIsComptime(
                 }
                 return;
             }
-            try sema.explainWhyTypeIsComptime(block, src, msg, src_loc, ty.elemType());
+            try sema.explainWhyTypeIsComptimeInner(block, src, msg, src_loc, ty.elemType(), type_set);
         },
 
         .Optional => {
             var buf: Type.Payload.ElemType = undefined;
-            try sema.explainWhyTypeIsComptime(block, src, msg, src_loc, ty.optionalChild(&buf));
+            try sema.explainWhyTypeIsComptimeInner(block, src, msg, src_loc, ty.optionalChild(&buf), type_set);
         },
         .ErrorUnion => {
-            try sema.explainWhyTypeIsComptime(block, src, msg, src_loc, ty.errorUnionPayload());
+            try sema.explainWhyTypeIsComptimeInner(block, src, msg, src_loc, ty.errorUnionPayload(), type_set);
         },
 
         .Struct => {
+            if ((try type_set.getOrPutContext(sema.gpa, ty, .{ .mod = mod })).found_existing) return;
+
             if (ty.castTag(.@"struct")) |payload| {
                 const struct_obj = payload.data;
                 for (struct_obj.fields.values()) |field, i| {
@@ -19751,9 +20415,10 @@ fn explainWhyTypeIsComptime(
                         .index = i,
                         .range = .type,
                     });
+
                     if (try sema.typeRequiresComptime(block, src, field.ty)) {
                         try mod.errNoteNonLazy(field_src_loc, msg, "struct requires comptime because of this field", .{});
-                        try sema.explainWhyTypeIsComptime(block, src, msg, field_src_loc, field.ty);
+                        try sema.explainWhyTypeIsComptimeInner(block, src, msg, field_src_loc, field.ty, type_set);
                     }
                 }
             }
@@ -19761,6 +20426,8 @@ fn explainWhyTypeIsComptime(
         },
 
         .Union => {
+            if ((try type_set.getOrPutContext(sema.gpa, ty, .{ .mod = mod })).found_existing) return;
+
             if (ty.cast(Type.Payload.Union)) |payload| {
                 const union_obj = payload.data;
                 for (union_obj.fields.values()) |field, i| {
@@ -19768,9 +20435,10 @@ fn explainWhyTypeIsComptime(
                         .index = i,
                         .range = .type,
                     });
+
                     if (try sema.typeRequiresComptime(block, src, field.ty)) {
                         try mod.errNoteNonLazy(field_src_loc, msg, "union requires comptime because of this field", .{});
-                        try sema.explainWhyTypeIsComptime(block, src, msg, field_src_loc, field.ty);
+                        try sema.explainWhyTypeIsComptimeInner(block, src, msg, field_src_loc, field.ty, type_set);
                     }
                 }
             }
@@ -19911,8 +20579,8 @@ fn validatePackedType(ty: Type) bool {
         .AnyFrame,
         .Fn,
         .Array,
-        .Optional,
         => return false,
+        .Optional => return ty.isPtrLikeOptional(),
         .Void,
         .Bool,
         .Float,
@@ -19978,11 +20646,13 @@ pub const PanicId = enum {
     shl_overflow,
     shr_overflow,
     divide_by_zero,
-    remainder_division_zero_negative,
     exact_division_remainder,
     /// TODO make this call `std.builtin.panicInactiveUnionField`.
     inactive_union_field,
     integer_part_out_of_bounds,
+    corrupt_switch,
+    shift_rhs_too_big,
+    invalid_enum_value,
 };
 
 fn addSafetyCheck(
@@ -20076,7 +20746,7 @@ fn panicWithMsg(
     const arena = sema.arena;
 
     const this_feature_is_implemented_in_the_backend =
-        mod.comp.bin_file.options.object_format == .c or
+        mod.comp.bin_file.options.target.ofmt == .c or
         mod.comp.bin_file.options.use_llvm;
     if (!this_feature_is_implemented_in_the_backend) {
         // TODO implement this feature in all the backends and then delete this branch
@@ -20274,10 +20944,12 @@ fn safetyPanic(
         .shl_overflow => "left shift overflowed bits",
         .shr_overflow => "right shift overflowed bits",
         .divide_by_zero => "division by zero",
-        .remainder_division_zero_negative => "remainder division by zero or negative value",
         .exact_division_remainder => "exact division produced remainder",
         .inactive_union_field => "access of inactive union field",
         .integer_part_out_of_bounds => "integer part of floating point value out of bounds",
+        .corrupt_switch => "switch on corrupt value",
+        .shift_rhs_too_big => "shift amount is greater than the type size",
+        .invalid_enum_value => "invalid enum value",
     };
 
     const msg_inst = msg_inst: {
@@ -20736,14 +21408,30 @@ fn fieldCallBind(
         switch (concrete_ty.zigTypeTag()) {
             .Struct => {
                 const struct_ty = try sema.resolveTypeFields(block, src, concrete_ty);
-                const struct_obj = struct_ty.castTag(.@"struct").?.data;
+                if (struct_ty.castTag(.@"struct")) |struct_obj| {
+                    const field_index_usize = struct_obj.data.fields.getIndex(field_name) orelse
+                        break :find_field;
+                    const field_index = @intCast(u32, field_index_usize);
+                    const field = struct_obj.data.fields.values()[field_index];
 
-                const field_index_usize = struct_obj.fields.getIndex(field_name) orelse
-                    break :find_field;
-                const field_index = @intCast(u32, field_index_usize);
-                const field = struct_obj.fields.values()[field_index];
-
-                return finishFieldCallBind(sema, block, src, ptr_ty, field.ty, field_index, object_ptr);
+                    return finishFieldCallBind(sema, block, src, ptr_ty, field.ty, field_index, object_ptr);
+                } else if (struct_ty.isTuple()) {
+                    if (mem.eql(u8, field_name, "len")) {
+                        return sema.addIntUnsigned(Type.usize, struct_ty.structFieldCount());
+                    }
+                    if (std.fmt.parseUnsigned(u32, field_name, 10)) |field_index| {
+                        if (field_index >= struct_ty.structFieldCount()) break :find_field;
+                        return finishFieldCallBind(sema, block, src, ptr_ty, struct_ty.structFieldType(field_index), field_index, object_ptr);
+                    } else |_| {}
+                } else {
+                    const max = struct_ty.structFieldCount();
+                    var i: u32 = 0;
+                    while (i < max) : (i += 1) {
+                        if (mem.eql(u8, struct_ty.structFieldName(i), field_name)) {
+                            return finishFieldCallBind(sema, block, src, ptr_ty, struct_ty.structFieldType(i), i, object_ptr);
+                        }
+                    }
+                }
             },
             .Union => {
                 const union_ty = try sema.resolveTypeFields(block, src, concrete_ty);
@@ -21009,7 +21697,7 @@ fn structFieldPtrByIndex(
             const elem_size_bits = ptr_ty_data.pointee_type.bitSize(target);
             if (elem_size_bytes * 8 == elem_size_bits) {
                 const byte_offset = ptr_ty_data.bit_offset / 8;
-                const new_align = @as(u32, 1) << @intCast(u5, @ctz(u64, byte_offset | parent_align));
+                const new_align = @as(u32, 1) << @intCast(u5, @ctz(byte_offset | parent_align));
                 ptr_ty_data.bit_offset = 0;
                 ptr_ty_data.host_size = 0;
                 ptr_ty_data.@"align" = new_align;
@@ -21184,6 +21872,18 @@ fn unionFieldPtr(
         .@"addrspace" = union_ptr_ty.ptrAddressSpace(),
     });
 
+    if (initializing and field.ty.zigTypeTag() == .NoReturn) {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, src, "cannot initialize 'noreturn' field of union", .{});
+            errdefer msg.destroy(sema.gpa);
+
+            try sema.addFieldErrNote(block, union_ty, field_index, msg, "field '{s}' declared here", .{field_name});
+            try sema.addDeclaredHereNote(msg, union_ty);
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    }
+
     if (try sema.resolveDefinedValue(block, src, union_ptr)) |union_ptr_val| ct: {
         switch (union_obj.layout) {
             .Auto => if (!initializing) {
@@ -21192,17 +21892,18 @@ fn unionFieldPtr(
                 if (union_val.isUndef()) {
                     return sema.failWithUseOfUndef(block, src);
                 }
+                const enum_field_index = union_obj.tag_ty.enumFieldIndex(field_name).?;
                 const tag_and_val = union_val.castTag(.@"union").?.data;
                 var field_tag_buf: Value.Payload.U32 = .{
                     .base = .{ .tag = .enum_field_index },
-                    .data = field_index,
+                    .data = @intCast(u32, enum_field_index),
                 };
                 const field_tag = Value.initPayload(&field_tag_buf.base);
                 const tag_matches = tag_and_val.tag.eql(field_tag, union_obj.tag_ty, sema.mod);
                 if (!tag_matches) {
                     const msg = msg: {
                         const active_index = tag_and_val.tag.castTag(.enum_field_index).?.data;
-                        const active_field_name = union_obj.fields.keys()[active_index];
+                        const active_field_name = union_obj.tag_ty.enumFieldName(active_index);
                         const msg = try sema.errMsg(block, src, "access of union field '{s}' while field '{s}' is active", .{ field_name, active_field_name });
                         errdefer msg.destroy(sema.gpa);
                         try sema.addDeclaredHereNote(msg, union_ty);
@@ -21227,14 +21928,17 @@ fn unionFieldPtr(
     if (!initializing and union_obj.layout == .Auto and block.wantSafety() and
         union_ty.unionTagTypeSafety() != null and union_obj.fields.count() > 1)
     {
-        const enum_ty = union_ty.unionTagTypeHypothetical();
         const wanted_tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
-        const wanted_tag = try sema.addConstant(enum_ty, wanted_tag_val);
+        const wanted_tag = try sema.addConstant(union_obj.tag_ty, wanted_tag_val);
         // TODO would it be better if get_union_tag supported pointers to unions?
         const union_val = try block.addTyOp(.load, union_ty, union_ptr);
-        const active_tag = try block.addTyOp(.get_union_tag, enum_ty, union_val);
+        const active_tag = try block.addTyOp(.get_union_tag, union_obj.tag_ty, union_val);
         const ok = try block.addBinOp(.cmp_eq, active_tag, wanted_tag);
         try sema.addSafetyCheck(block, ok, .inactive_union_field);
+    }
+    if (field.ty.zigTypeTag() == .NoReturn) {
+        _ = try block.addNoOp(.unreach);
+        return Air.Inst.Ref.unreachable_value;
     }
     return block.addStructFieldPtr(union_ptr, field_index, ptr_field_ty);
 }
@@ -21259,9 +21963,10 @@ fn unionFieldVal(
         if (union_val.isUndef()) return sema.addConstUndef(field.ty);
 
         const tag_and_val = union_val.castTag(.@"union").?.data;
+        const enum_field_index = union_obj.tag_ty.enumFieldIndex(field_name).?;
         var field_tag_buf: Value.Payload.U32 = .{
             .base = .{ .tag = .enum_field_index },
-            .data = field_index,
+            .data = @intCast(u32, enum_field_index),
         };
         const field_tag = Value.initPayload(&field_tag_buf.base);
         const tag_matches = tag_and_val.tag.eql(field_tag, union_obj.tag_ty, sema.mod);
@@ -21272,7 +21977,7 @@ fn unionFieldVal(
                 } else {
                     const msg = msg: {
                         const active_index = tag_and_val.tag.castTag(.enum_field_index).?.data;
-                        const active_field_name = union_obj.fields.keys()[active_index];
+                        const active_field_name = union_obj.tag_ty.enumFieldName(active_index);
                         const msg = try sema.errMsg(block, src, "access of union field '{s}' while field '{s}' is active", .{ field_name, active_field_name });
                         errdefer msg.destroy(sema.gpa);
                         try sema.addDeclaredHereNote(msg, union_ty);
@@ -21297,12 +22002,15 @@ fn unionFieldVal(
     if (union_obj.layout == .Auto and block.wantSafety() and
         union_ty.unionTagTypeSafety() != null and union_obj.fields.count() > 1)
     {
-        const enum_ty = union_ty.unionTagTypeHypothetical();
         const wanted_tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
-        const wanted_tag = try sema.addConstant(enum_ty, wanted_tag_val);
-        const active_tag = try block.addTyOp(.get_union_tag, enum_ty, union_byval);
+        const wanted_tag = try sema.addConstant(union_obj.tag_ty, wanted_tag_val);
+        const active_tag = try block.addTyOp(.get_union_tag, union_obj.tag_ty, union_byval);
         const ok = try block.addBinOp(.cmp_eq, active_tag, wanted_tag);
         try sema.addSafetyCheck(block, ok, .inactive_union_field);
+    }
+    if (field.ty.zigTypeTag() == .NoReturn) {
+        _ = try block.addNoOp(.unreach);
+        return Air.Inst.Ref.unreachable_value;
     }
     return block.addStructFieldVal(union_byval, field_index, field.ty);
 }
@@ -21543,8 +22251,7 @@ fn tupleField(
 
     if (try sema.resolveMaybeUndefVal(block, tuple_src, tuple)) |tuple_val| {
         if (tuple_val.isUndef()) return sema.addConstUndef(field_ty);
-        const field_values = tuple_val.castTag(.aggregate).?.data;
-        return sema.addConstant(field_ty, field_values[field_index]);
+        return sema.addConstant(field_ty, tuple_val.fieldValue(tuple_ty, field_index));
     }
 
     try sema.validateRuntimeElemAccess(block, field_index_src, field_ty, tuple_ty, tuple_src);
@@ -21886,7 +22593,7 @@ fn coerceExtra(
             // Function body to function pointer.
             if (inst_ty.zigTypeTag() == .Fn) {
                 const fn_val = try sema.resolveConstValue(block, .unneeded, inst, undefined);
-                const fn_decl = fn_val.castTag(.function).?.data.owner_decl;
+                const fn_decl = fn_val.pointerDecl().?;
                 const inst_as_ptr = try sema.analyzeDeclRef(fn_decl);
                 return sema.coerce(block, dest_ty, inst_as_ptr, inst_src);
             }
@@ -21966,7 +22673,6 @@ fn coerceExtra(
                     .ok => {},
                     else => break :src_c_ptr,
                 }
-                // TODO add safety check for null pointer
                 return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
             }
 
@@ -23271,7 +23977,10 @@ fn coerceVarArgParam(
     inst_src: LazySrcLoc,
 ) !Air.Inst.Ref {
     const inst_ty = sema.typeOf(inst);
+    if (block.is_typeof) return inst;
+
     switch (inst_ty.zigTypeTag()) {
+        // TODO consider casting to c_int/f64 if they fit
         .ComptimeInt, .ComptimeFloat => return sema.fail(block, inst_src, "integer and float literals in var args function must be casted", .{}),
         else => {},
     }
@@ -23653,7 +24362,10 @@ fn beginComptimePtrMutation(
                                 const array_len_including_sentinel =
                                     try sema.usizeCast(block, src, parent.ty.arrayLenIncludingSentinel());
                                 const elems = try arena.alloc(Value, array_len_including_sentinel);
-                                mem.set(Value, elems, repeated_val);
+                                if (elems.len > 0) elems[0] = repeated_val;
+                                for (elems[1..]) |*elem| {
+                                    elem.* = try repeated_val.copy(arena);
+                                }
 
                                 val_ptr.* = try Value.Tag.aggregate.create(arena, elems);
 
@@ -24439,6 +25151,24 @@ fn coerceCompatiblePtrs(
         return sema.addConstant(dest_ty, val);
     }
     try sema.requireRuntimeBlock(block, inst_src, null);
+    const inst_ty = sema.typeOf(inst);
+    const inst_allows_zero = (inst_ty.zigTypeTag() == .Pointer and inst_ty.ptrAllowsZero()) or true;
+    if (block.wantSafety() and inst_allows_zero and !dest_ty.ptrAllowsZero() and
+        try sema.typeHasRuntimeBits(block, sema.src, dest_ty.elemType2()))
+    {
+        const actual_ptr = if (inst_ty.isSlice())
+            try sema.analyzeSlicePtr(block, inst_src, inst, inst_ty)
+        else
+            inst;
+        const ptr_int = try block.addUnOp(.ptrtoint, actual_ptr);
+        const is_non_zero = try block.addBinOp(.cmp_neq, ptr_int, .zero_usize);
+        const ok = if (inst_ty.isSlice()) ok: {
+            const len = try sema.analyzeSliceLen(block, inst_src, inst);
+            const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
+            break :ok try block.addBinOp(.bit_or, len_zero, is_non_zero);
+        } else is_non_zero;
+        try sema.addSafetyCheck(block, ok, .cast_to_null);
+    }
     return sema.bitCast(block, dest_ty, inst, inst_src);
 }
 
@@ -24467,8 +25197,7 @@ fn coerceEnumToUnion(
 
     const enum_tag = try sema.coerce(block, tag_ty, inst, inst_src);
     if (try sema.resolveDefinedValue(block, inst_src, enum_tag)) |val| {
-        const union_obj = union_ty.cast(Type.Payload.Union).?.data;
-        const field_index = union_obj.tag_ty.enumTagFieldIndex(val, sema.mod) orelse {
+        const field_index = union_ty.unionTagFieldIndex(val, sema.mod) orelse {
             const msg = msg: {
                 const msg = try sema.errMsg(block, inst_src, "union '{}' has no tag with value '{}'", .{
                     union_ty.fmt(sema.mod), val.fmtValue(tag_ty, sema.mod),
@@ -24479,8 +25208,22 @@ fn coerceEnumToUnion(
             };
             return sema.failWithOwnedErrorMsg(msg);
         };
+
+        const union_obj = union_ty.cast(Type.Payload.Union).?.data;
         const field = union_obj.fields.values()[field_index];
         const field_ty = try sema.resolveTypeFields(block, inst_src, field.ty);
+        if (field_ty.zigTypeTag() == .NoReturn) {
+            const msg = msg: {
+                const msg = try sema.errMsg(block, inst_src, "cannot initialize 'noreturn' field of union", .{});
+                errdefer msg.destroy(sema.gpa);
+
+                const field_name = union_obj.fields.keys()[field_index];
+                try sema.addFieldErrNote(block, union_ty, field_index, msg, "field '{s}' declared here", .{field_name});
+                try sema.addDeclaredHereNote(msg, union_ty);
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(msg);
+        }
         const opv = (try sema.typeHasOnePossibleValue(block, inst_src, field_ty)) orelse {
             const msg = msg: {
                 const field_name = union_obj.fields.keys()[field_index];
@@ -24516,13 +25259,37 @@ fn coerceEnumToUnion(
         return sema.failWithOwnedErrorMsg(msg);
     }
 
+    const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+    {
+        var msg: ?*Module.ErrorMsg = null;
+        errdefer if (msg) |some| some.destroy(sema.gpa);
+
+        for (union_obj.fields.values()) |field, i| {
+            if (field.ty.zigTypeTag() == .NoReturn) {
+                const err_msg = msg orelse try sema.errMsg(
+                    block,
+                    inst_src,
+                    "runtime coercion from enum '{}' to union '{}' which has a 'noreturn' field",
+                    .{ tag_ty.fmt(sema.mod), union_ty.fmt(sema.mod) },
+                );
+                msg = err_msg;
+
+                try sema.addFieldErrNote(block, union_ty, i, err_msg, "'noreturn' field here", .{});
+            }
+        }
+        if (msg) |some| {
+            msg = null;
+            try sema.addDeclaredHereNote(some, union_ty);
+            return sema.failWithOwnedErrorMsg(some);
+        }
+    }
+
     // If the union has all fields 0 bits, the union value is just the enum value.
     if (union_ty.unionHasAllZeroBitFieldTypes()) {
         return block.addBitCast(union_ty, enum_tag);
     }
 
     const msg = msg: {
-        const union_obj = union_ty.cast(Type.Payload.Union).?.data;
         const msg = try sema.errMsg(
             block,
             inst_src,
@@ -24533,11 +25300,11 @@ fn coerceEnumToUnion(
 
         var it = union_obj.fields.iterator();
         var field_index: usize = 0;
-        while (it.next()) |field| {
+        while (it.next()) |field| : (field_index += 1) {
             const field_name = field.key_ptr.*;
             const field_ty = field.value_ptr.ty;
+            if (!field_ty.hasRuntimeBits()) continue;
             try sema.addFieldErrNote(block, union_ty, field_index, msg, "field '{s}' has type '{}'", .{ field_name, field_ty.fmt(sema.mod) });
-            field_index += 1;
         }
         try sema.addDeclaredHereNote(msg, union_ty);
         break :msg msg;
@@ -24840,6 +25607,7 @@ fn coerceTupleToStruct(
 
     // Populate default field values and report errors for missing fields.
     var root_msg: ?*Module.ErrorMsg = null;
+    errdefer if (root_msg) |msg| msg.destroy(sema.gpa);
 
     for (field_refs) |*field_ref, i| {
         if (field_ref.* != .none) continue;
@@ -24865,6 +25633,7 @@ fn coerceTupleToStruct(
     }
 
     if (root_msg) |msg| {
+        root_msg = null;
         try sema.addDeclaredHereNote(msg, struct_ty);
         return sema.failWithOwnedErrorMsg(msg);
     }
@@ -24934,6 +25703,7 @@ fn coerceTupleToTuple(
 
     // Populate default field values and report errors for missing fields.
     var root_msg: ?*Module.ErrorMsg = null;
+    errdefer if (root_msg) |msg| msg.destroy(sema.gpa);
 
     for (field_refs) |*field_ref, i| {
         if (field_ref.* != .none) continue;
@@ -24969,6 +25739,7 @@ fn coerceTupleToTuple(
     }
 
     if (root_msg) |msg| {
+        root_msg = null;
         try sema.addDeclaredHereNote(msg, tuple_ty);
         return sema.failWithOwnedErrorMsg(msg);
     }
@@ -25207,9 +25978,36 @@ fn analyzeIsNull(
             return Air.Inst.Ref.bool_false;
         }
     }
+
+    const operand_ty = sema.typeOf(operand);
+    var buf: Type.Payload.ElemType = undefined;
+    if (operand_ty.zigTypeTag() == .Optional and operand_ty.optionalChild(&buf).zigTypeTag() == .NoReturn) {
+        return Air.Inst.Ref.bool_true;
+    }
     try sema.requireRuntimeBlock(block, src, null);
     const air_tag: Air.Inst.Tag = if (invert_logic) .is_non_null else .is_null;
     return block.addUnOp(air_tag, operand);
+}
+
+fn analyzePtrIsNonErrComptimeOnly(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    operand: Air.Inst.Ref,
+) CompileError!Air.Inst.Ref {
+    const ptr_ty = sema.typeOf(operand);
+    assert(ptr_ty.zigTypeTag() == .Pointer);
+    const child_ty = ptr_ty.childType();
+
+    const child_tag = child_ty.zigTypeTag();
+    if (child_tag != .ErrorSet and child_tag != .ErrorUnion) return Air.Inst.Ref.bool_true;
+    if (child_tag == .ErrorSet) return Air.Inst.Ref.bool_false;
+    assert(child_tag == .ErrorUnion);
+
+    _ = block;
+    _ = src;
+
+    return Air.Inst.Ref.none;
 }
 
 fn analyzeIsNonErrComptimeOnly(
@@ -25224,11 +26022,22 @@ fn analyzeIsNonErrComptimeOnly(
     if (ot == .ErrorSet) return Air.Inst.Ref.bool_false;
     assert(ot == .ErrorUnion);
 
+    const payload_ty = operand_ty.errorUnionPayload();
+    if (payload_ty.zigTypeTag() == .NoReturn) {
+        return Air.Inst.Ref.bool_false;
+    }
+
     if (Air.refToIndex(operand)) |operand_inst| {
-        const air_tags = sema.air_instructions.items(.tag);
-        if (air_tags[operand_inst] == .wrap_errunion_payload) {
-            return Air.Inst.Ref.bool_true;
+        switch (sema.air_instructions.items(.tag)[operand_inst]) {
+            .wrap_errunion_payload => return Air.Inst.Ref.bool_true,
+            .wrap_errunion_err => return Air.Inst.Ref.bool_false,
+            else => {},
         }
+    } else if (operand == .undef) {
+        return sema.addConstUndef(Type.bool);
+    } else {
+        // None of the ref tags can be errors.
+        return Air.Inst.Ref.bool_true;
     }
 
     const maybe_operand_val = try sema.resolveMaybeUndefVal(block, src, operand);
@@ -25304,6 +26113,21 @@ fn analyzeIsNonErr(
     }
 }
 
+fn analyzePtrIsNonErr(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    operand: Air.Inst.Ref,
+) CompileError!Air.Inst.Ref {
+    const result = try sema.analyzePtrIsNonErrComptimeOnly(block, src, operand);
+    if (result == .none) {
+        try sema.requireRuntimeBlock(block, src, null);
+        return block.addUnOp(.is_non_err_ptr, operand);
+    } else {
+        return result;
+    }
+}
+
 fn analyzeSlice(
     sema: *Sema,
     block: *Block,
@@ -25330,11 +26154,12 @@ fn analyzeSlice(
     var array_ty = ptr_ptr_child_ty;
     var slice_ty = ptr_ptr_ty;
     var ptr_or_slice = ptr_ptr;
-    var elem_ty = ptr_ptr_child_ty.childType();
+    var elem_ty: Type = undefined;
     var ptr_sentinel: ?Value = null;
     switch (ptr_ptr_child_ty.zigTypeTag()) {
         .Array => {
             ptr_sentinel = ptr_ptr_child_ty.sentinel();
+            elem_ty = ptr_ptr_child_ty.childType();
         },
         .Pointer => switch (ptr_ptr_child_ty.ptrSize()) {
             .One => {
@@ -25578,6 +26403,27 @@ fn analyzeSlice(
         const new_ptr_val = opt_new_ptr_val orelse {
             const result = try block.addBitCast(return_ty, new_ptr);
             if (block.wantSafety()) {
+                // requirement: slicing C ptr is non-null
+                if (ptr_ptr_child_ty.isCPtr()) {
+                    const is_non_null = try sema.analyzeIsNull(block, ptr_src, ptr, true);
+                    try sema.addSafetyCheck(block, is_non_null, .unwrap_null);
+                }
+
+                if (slice_ty.isSlice()) {
+                    const slice_len_inst = try block.addTyOp(.slice_len, Type.usize, ptr_or_slice);
+                    const actual_len = if (slice_ty.sentinel() == null)
+                        slice_len_inst
+                    else
+                        try sema.analyzeArithmetic(block, .add, slice_len_inst, .one, src, end_src, end_src);
+
+                    const actual_end = if (slice_sentinel != null)
+                        try sema.analyzeArithmetic(block, .add, end, .one, src, end_src, end_src)
+                    else
+                        end;
+
+                    try sema.panicIndexOutOfBounds(block, src, actual_end, actual_len, .cmp_lte);
+                }
+
                 // requirement: result[new_len] == slice_sentinel
                 try sema.panicSentinelMismatch(block, src, slice_sentinel, elem_ty, result, new_len);
             }
@@ -25639,7 +26485,11 @@ fn analyzeSlice(
             break :blk try sema.analyzeArithmetic(block, .add, slice_len_inst, .one, src, end_src, end_src);
         } else null;
         if (opt_len_inst) |len_inst| {
-            try sema.panicIndexOutOfBounds(block, src, end, len_inst, .cmp_lte);
+            const actual_end = if (slice_sentinel != null)
+                try sema.analyzeArithmetic(block, .add, end, .one, src, end_src, end_src)
+            else
+                end;
+            try sema.panicIndexOutOfBounds(block, src, actual_end, len_inst, .cmp_lte);
         }
 
         // requirement: start <= end
@@ -26616,9 +27466,6 @@ pub fn resolveTypeLayout(
     src: LazySrcLoc,
     ty: Type,
 ) CompileError!void {
-    if (build_options.omit_stage2)
-        @panic("sadly stage2 is omitted from this build to save memory on the CI server");
-
     switch (ty.zigTypeTag()) {
         .Struct => return sema.resolveStructLayout(block, src, ty),
         .Union => return sema.resolveUnionLayout(block, src, ty),
@@ -26677,6 +27524,11 @@ fn resolveStructLayout(
                 else => return err,
             };
         }
+
+        if (struct_obj.layout == .Packed) {
+            try semaBackingIntType(sema.mod, struct_obj);
+        }
+
         struct_obj.status = .have_layout;
 
         // In case of querying the ABI alignment of this struct, we will ask
@@ -26694,6 +27546,109 @@ fn resolveStructLayout(
         }
     }
     // otherwise it's a tuple; no need to resolve anything
+}
+
+fn semaBackingIntType(mod: *Module, struct_obj: *Module.Struct) CompileError!void {
+    const gpa = mod.gpa;
+    const target = mod.getTarget();
+
+    var fields_bit_sum: u64 = 0;
+    for (struct_obj.fields.values()) |field| {
+        fields_bit_sum += field.ty.bitSize(target);
+    }
+
+    const decl_index = struct_obj.owner_decl;
+    const decl = mod.declPtr(decl_index);
+    var decl_arena = decl.value_arena.?.promote(gpa);
+    defer decl.value_arena.?.* = decl_arena.state;
+    const decl_arena_allocator = decl_arena.allocator();
+
+    const zir = struct_obj.namespace.file_scope.zir;
+    const extended = zir.instructions.items(.data)[struct_obj.zir_index].extended;
+    assert(extended.opcode == .struct_decl);
+    const small = @bitCast(Zir.Inst.StructDecl.Small, extended.small);
+
+    if (small.has_backing_int) {
+        var extra_index: usize = extended.operand;
+        extra_index += @boolToInt(small.has_src_node);
+        extra_index += @boolToInt(small.has_fields_len);
+        extra_index += @boolToInt(small.has_decls_len);
+
+        const backing_int_body_len = zir.extra[extra_index];
+        extra_index += 1;
+
+        var analysis_arena = std.heap.ArenaAllocator.init(gpa);
+        defer analysis_arena.deinit();
+
+        var sema: Sema = .{
+            .mod = mod,
+            .gpa = gpa,
+            .arena = analysis_arena.allocator(),
+            .perm_arena = decl_arena_allocator,
+            .code = zir,
+            .owner_decl = decl,
+            .owner_decl_index = decl_index,
+            .func = null,
+            .fn_ret_ty = Type.void,
+            .owner_func = null,
+        };
+        defer sema.deinit();
+
+        var wip_captures = try WipCaptureScope.init(gpa, decl_arena_allocator, decl.src_scope);
+        defer wip_captures.deinit();
+
+        var block: Block = .{
+            .parent = null,
+            .sema = &sema,
+            .src_decl = decl_index,
+            .namespace = &struct_obj.namespace,
+            .wip_capture_scope = wip_captures.scope,
+            .instructions = .{},
+            .inlining = null,
+            .is_comptime = true,
+        };
+        defer {
+            assert(block.instructions.items.len == 0);
+            block.params.deinit(gpa);
+        }
+
+        const backing_int_src: LazySrcLoc = .{ .node_offset_container_tag = 0 };
+        const backing_int_ty = blk: {
+            if (backing_int_body_len == 0) {
+                const backing_int_ref = @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
+                break :blk try sema.resolveType(&block, backing_int_src, backing_int_ref);
+            } else {
+                const body = zir.extra[extra_index..][0..backing_int_body_len];
+                const ty_ref = try sema.resolveBody(&block, body, struct_obj.zir_index);
+                break :blk try sema.analyzeAsType(&block, backing_int_src, ty_ref);
+            }
+        };
+
+        try sema.checkBackingIntType(&block, backing_int_src, backing_int_ty, fields_bit_sum);
+        struct_obj.backing_int_ty = try backing_int_ty.copy(decl_arena_allocator);
+    } else {
+        var buf: Type.Payload.Bits = .{
+            .base = .{ .tag = .int_unsigned },
+            .data = @intCast(u16, fields_bit_sum),
+        };
+        struct_obj.backing_int_ty = try Type.initPayload(&buf.base).copy(decl_arena_allocator);
+    }
+}
+
+fn checkBackingIntType(sema: *Sema, block: *Block, src: LazySrcLoc, backing_int_ty: Type, fields_bit_sum: u64) CompileError!void {
+    const target = sema.mod.getTarget();
+
+    if (!backing_int_ty.isInt()) {
+        return sema.fail(block, src, "expected backing integer type, found '{}'", .{backing_int_ty.fmt(sema.mod)});
+    }
+    if (backing_int_ty.bitSize(target) != fields_bit_sum) {
+        return sema.fail(
+            block,
+            src,
+            "backing integer type '{}' has bit size {} but the struct fields have a total bit size of {}",
+            .{ backing_int_ty.fmt(sema.mod), backing_int_ty.bitSize(target), fields_bit_sum },
+        );
+    }
 }
 
 fn resolveUnionLayout(
@@ -26849,8 +27804,6 @@ fn resolveUnionFully(
 }
 
 pub fn resolveTypeFields(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!Type {
-    if (build_options.omit_stage2)
-        @panic("sadly stage2 is omitted from this build to save memory on the CI server");
     switch (ty.tag()) {
         .@"struct" => {
             const struct_obj = ty.castTag(.@"struct").?.data;
@@ -26997,13 +27950,15 @@ fn resolveInferredErrorSetTy(
 fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void {
     const gpa = mod.gpa;
     const decl_index = struct_obj.owner_decl;
-    const zir = struct_obj.namespace.file_scope.zir;
+    const file_scope = struct_obj.namespace.file_scope;
+    if (file_scope.status != .success_zir) return error.AnalysisFail;
+    const zir = file_scope.zir;
     const extended = zir.instructions.items(.data)[struct_obj.zir_index].extended;
     assert(extended.opcode == .struct_decl);
     const small = @bitCast(Zir.Inst.StructDecl.Small, extended.small);
     var extra_index: usize = extended.operand;
 
-    const src = LazySrcLoc.nodeOffset(struct_obj.node_offset);
+    const src = LazySrcLoc.nodeOffset(0);
     extra_index += @boolToInt(small.has_src_node);
 
     const fields_len = if (small.has_fields_len) blk: {
@@ -27018,12 +27973,26 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
         break :decls_len decls_len;
     } else 0;
 
+    // The backing integer cannot be handled until `resolveStructLayout()`.
+    if (small.has_backing_int) {
+        const backing_int_body_len = zir.extra[extra_index];
+        extra_index += 1; // backing_int_body_len
+        if (backing_int_body_len == 0) {
+            extra_index += 1; // backing_int_ref
+        } else {
+            extra_index += backing_int_body_len; // backing_int_body_inst
+        }
+    }
+
     // Skip over decls.
     var decls_it = zir.declIteratorInner(extra_index, decls_len);
     while (decls_it.next()) |_| {}
     extra_index = decls_it.extra_index;
 
     if (fields_len == 0) {
+        if (struct_obj.layout == .Packed) {
+            try semaBackingIntType(mod, struct_obj);
+        }
         struct_obj.status = .have_layout;
         return;
     }
@@ -27122,12 +28091,12 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
             if (gop.found_existing) {
                 const msg = msg: {
                     const tree = try sema.getAstTree(&block_scope);
-                    const field_src = enumFieldSrcLoc(decl, tree.*, struct_obj.node_offset, field_i);
+                    const field_src = enumFieldSrcLoc(decl, tree.*, 0, field_i);
                     const msg = try sema.errMsg(&block_scope, field_src, "duplicate struct field: '{s}'", .{field_name});
                     errdefer msg.destroy(gpa);
 
                     const prev_field_index = struct_obj.fields.getIndex(field_name).?;
-                    const prev_field_src = enumFieldSrcLoc(decl, tree.*, struct_obj.node_offset, prev_field_index);
+                    const prev_field_src = enumFieldSrcLoc(decl, tree.*, 0, prev_field_index);
                     try sema.mod.errNoteNonLazy(prev_field_src.toSrcLoc(decl), msg, "other field here", .{});
                     try sema.errNote(&block_scope, src, msg, "struct declared here", .{});
                     break :msg msg;
@@ -27184,8 +28153,20 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
         if (field_ty.zigTypeTag() == .Opaque) {
             const msg = msg: {
                 const tree = try sema.getAstTree(&block_scope);
-                const field_src = enumFieldSrcLoc(decl, tree.*, struct_obj.node_offset, i);
+                const field_src = enumFieldSrcLoc(decl, tree.*, 0, i);
                 const msg = try sema.errMsg(&block_scope, field_src, "opaque types have unknown size and therefore cannot be directly embedded in structs", .{});
+                errdefer msg.destroy(sema.gpa);
+
+                try sema.addDeclaredHereNote(msg, field_ty);
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(msg);
+        }
+        if (field_ty.zigTypeTag() == .NoReturn) {
+            const msg = msg: {
+                const tree = try sema.getAstTree(&block_scope);
+                const field_src = enumFieldSrcLoc(decl, tree.*, 0, i);
+                const msg = try sema.errMsg(&block_scope, field_src, "struct fields cannot be 'noreturn'", .{});
                 errdefer msg.destroy(sema.gpa);
 
                 try sema.addDeclaredHereNote(msg, field_ty);
@@ -27196,7 +28177,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
         if (struct_obj.layout == .Extern and !sema.validateExternType(field.ty, .other)) {
             const msg = msg: {
                 const tree = try sema.getAstTree(&block_scope);
-                const fields_src = enumFieldSrcLoc(decl, tree.*, struct_obj.node_offset, i);
+                const fields_src = enumFieldSrcLoc(decl, tree.*, 0, i);
                 const msg = try sema.errMsg(&block_scope, fields_src, "extern structs cannot contain fields of type '{}'", .{field.ty.fmt(sema.mod)});
                 errdefer msg.destroy(sema.gpa);
 
@@ -27209,7 +28190,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
         } else if (struct_obj.layout == .Packed and !(validatePackedType(field.ty))) {
             const msg = msg: {
                 const tree = try sema.getAstTree(&block_scope);
-                const fields_src = enumFieldSrcLoc(decl, tree.*, struct_obj.node_offset, i);
+                const fields_src = enumFieldSrcLoc(decl, tree.*, 0, i);
                 const msg = try sema.errMsg(&block_scope, fields_src, "packed structs cannot contain fields of type '{}'", .{field.ty.fmt(sema.mod)});
                 errdefer msg.destroy(sema.gpa);
 
@@ -27266,7 +28247,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
     const small = @bitCast(Zir.Inst.UnionDecl.Small, extended.small);
     var extra_index: usize = extended.operand;
 
-    const src = LazySrcLoc.nodeOffset(union_obj.node_offset);
+    const src = LazySrcLoc.nodeOffset(0);
     extra_index += @boolToInt(small.has_src_node);
 
     const tag_type_ref: Zir.Inst.Ref = if (small.has_tag_type) blk: {
@@ -27299,10 +28280,6 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
     extra_index = decls_it.extra_index;
 
     const body = zir.extra[extra_index..][0..body_len];
-    if (fields_len == 0) {
-        assert(body.len == 0);
-        return;
-    }
     extra_index += body.len;
 
     const decl = mod.declPtr(decl_index);
@@ -27388,6 +28365,10 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         // untagged is represented by the Type tag (union vs union_tagged).
         union_obj.tag_ty = try sema.generateUnionTagTypeSimple(&block_scope, fields_len, union_obj);
         enum_field_names = &union_obj.tag_ty.castTag(.enum_simple).?.data.fields;
+    }
+
+    if (fields_len == 0) {
+        return;
     }
 
     const bits_per_field = 4;
@@ -27490,12 +28471,12 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         if (gop.found_existing) {
             const msg = msg: {
                 const tree = try sema.getAstTree(&block_scope);
-                const field_src = enumFieldSrcLoc(decl, tree.*, union_obj.node_offset, field_i);
+                const field_src = enumFieldSrcLoc(decl, tree.*, 0, field_i);
                 const msg = try sema.errMsg(&block_scope, field_src, "duplicate union field: '{s}'", .{field_name});
                 errdefer msg.destroy(gpa);
 
                 const prev_field_index = union_obj.fields.getIndex(field_name).?;
-                const prev_field_src = enumFieldSrcLoc(decl, tree.*, union_obj.node_offset, prev_field_index);
+                const prev_field_src = enumFieldSrcLoc(decl, tree.*, 0, prev_field_index);
                 try sema.mod.errNoteNonLazy(prev_field_src.toSrcLoc(decl), msg, "other field here", .{});
                 try sema.errNote(&block_scope, src, msg, "union declared here", .{});
                 break :msg msg;
@@ -27508,7 +28489,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
             if (!enum_has_field) {
                 const msg = msg: {
                     const tree = try sema.getAstTree(&block_scope);
-                    const field_src = enumFieldSrcLoc(decl, tree.*, union_obj.node_offset, field_i);
+                    const field_src = enumFieldSrcLoc(decl, tree.*, 0, field_i);
                     const msg = try sema.errMsg(&block_scope, field_src, "no field named '{s}' in enum '{}'", .{ field_name, union_obj.tag_ty.fmt(sema.mod) });
                     errdefer msg.destroy(sema.gpa);
                     try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
@@ -27521,7 +28502,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         if (field_ty.zigTypeTag() == .Opaque) {
             const msg = msg: {
                 const tree = try sema.getAstTree(&block_scope);
-                const field_src = enumFieldSrcLoc(decl, tree.*, union_obj.node_offset, field_i);
+                const field_src = enumFieldSrcLoc(decl, tree.*, 0, field_i);
                 const msg = try sema.errMsg(&block_scope, field_src, "opaque types have unknown size and therefore cannot be directly embedded in unions", .{});
                 errdefer msg.destroy(sema.gpa);
 
@@ -27533,7 +28514,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         if (union_obj.layout == .Extern and !sema.validateExternType(field_ty, .union_field)) {
             const msg = msg: {
                 const tree = try sema.getAstTree(&block_scope);
-                const field_src = enumFieldSrcLoc(decl, tree.*, union_obj.node_offset, field_i);
+                const field_src = enumFieldSrcLoc(decl, tree.*, 0, field_i);
                 const msg = try sema.errMsg(&block_scope, field_src, "extern unions cannot contain fields of type '{}'", .{field_ty.fmt(sema.mod)});
                 errdefer msg.destroy(sema.gpa);
 
@@ -27546,7 +28527,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         } else if (union_obj.layout == .Packed and !(validatePackedType(field_ty))) {
             const msg = msg: {
                 const tree = try sema.getAstTree(&block_scope);
-                const fields_src = enumFieldSrcLoc(decl, tree.*, union_obj.node_offset, field_i);
+                const fields_src = enumFieldSrcLoc(decl, tree.*, 0, field_i);
                 const msg = try sema.errMsg(&block_scope, fields_src, "packed unions cannot contain fields of type '{}'", .{field_ty.fmt(sema.mod)});
                 errdefer msg.destroy(sema.gpa);
 
@@ -27638,7 +28619,6 @@ fn generateUnionTagTypeNumbered(
         .tag_ty = int_ty,
         .fields = .{},
         .values = .{},
-        .node_offset = 0,
     };
     // Here we pre-allocate the maps using the decl arena.
     try enum_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
@@ -27696,7 +28676,6 @@ fn generateUnionTagTypeSimple(sema: *Sema, block: *Block, fields_len: usize, may
     enum_obj.* = .{
         .owner_decl = new_decl_index,
         .fields = .{},
-        .node_offset = 0,
     };
     // Here we pre-allocate the maps using the decl arena.
     try enum_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
@@ -27871,10 +28850,11 @@ pub fn typeHasOnePossibleValue(
 
         .tuple, .anon_struct => {
             const tuple = ty.tupleFields();
-            for (tuple.values) |val| {
-                if (val.tag() == .unreachable_value) {
-                    return null; // non-comptime field
-                }
+            for (tuple.values) |val, i| {
+                const is_comptime = val.tag() != .unreachable_value;
+                if (is_comptime) continue;
+                if ((try sema.typeHasOnePossibleValue(block, src, tuple.types[i])) != null) continue;
+                return null;
             }
             return Value.initTag(.empty_struct_value);
         },
@@ -27882,6 +28862,10 @@ pub fn typeHasOnePossibleValue(
         .enum_numbered => {
             const resolved_ty = try sema.resolveTypeFields(block, src, ty);
             const enum_obj = resolved_ty.castTag(.enum_numbered).?.data;
+            // An explicit tag type is always provided for enum_numbered.
+            if (enum_obj.tag_ty.hasRuntimeBits()) {
+                return null;
+            }
             if (enum_obj.fields.count() == 1) {
                 if (enum_obj.values.count() == 0) {
                     return Value.zero; // auto-numbered
@@ -27895,6 +28879,9 @@ pub fn typeHasOnePossibleValue(
         .enum_full => {
             const resolved_ty = try sema.resolveTypeFields(block, src, ty);
             const enum_obj = resolved_ty.castTag(.enum_full).?.data;
+            if (enum_obj.tag_ty.hasRuntimeBits()) {
+                return null;
+            }
             if (enum_obj.fields.count() == 1) {
                 if (enum_obj.values.count() == 0) {
                     return Value.zero; // auto-numbered
@@ -27927,7 +28914,9 @@ pub fn typeHasOnePossibleValue(
             const union_obj = resolved_ty.cast(Type.Payload.Union).?.data;
             const tag_val = (try sema.typeHasOnePossibleValue(block, src, union_obj.tag_ty)) orelse
                 return null;
-            const only_field = union_obj.fields.values()[0];
+            const fields = union_obj.fields.values();
+            if (fields.len == 0) return Value.initTag(.empty_struct_value);
+            const only_field = fields[0];
             if (only_field.ty.eql(resolved_ty, sema.mod)) {
                 const msg = try Module.ErrorMsg.create(
                     sema.gpa,
@@ -28006,8 +28995,18 @@ fn enumFieldSrcLoc(
         .container_decl_arg_trailing,
         => tree.containerDeclArg(enum_node),
 
+        .tagged_union,
+        .tagged_union_trailing,
+        => tree.taggedUnion(enum_node),
+        .tagged_union_two,
+        .tagged_union_two_trailing,
+        => tree.taggedUnionTwo(&buffer, enum_node),
+        .tagged_union_enum_tag,
+        .tagged_union_enum_tag_trailing,
+        => tree.taggedUnionEnumTag(enum_node),
+
         // Container was constructed with `@Type`.
-        else => return LazySrcLoc.nodeOffset(node_offset),
+        else => return LazySrcLoc.nodeOffset(0),
     };
     var it_index: usize = 0;
     for (container_decl.ast.members) |member_node| {
@@ -28437,8 +29436,6 @@ fn typePtrOrOptionalPtrTy(
 /// TODO merge these implementations together with the "advanced"/sema_kit pattern seen
 /// elsewhere in value.zig
 pub fn typeRequiresComptime(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!bool {
-    if (build_options.omit_stage2)
-        @panic("sadly stage2 is omitted from this build to save memory on the CI server");
     return switch (ty.tag()) {
         .u1,
         .u8,
@@ -28543,7 +29540,7 @@ pub fn typeRequiresComptime(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Typ
         => {
             const child_ty = ty.childType();
             if (child_ty.zigTypeTag() == .Fn) {
-                return false;
+                return child_ty.fnInfo().is_generic;
             } else {
                 return sema.typeRequiresComptime(block, src, child_ty);
             }
@@ -28656,7 +29653,9 @@ fn unionFieldAlignment(
     src: LazySrcLoc,
     field: Module.Union.Field,
 ) !u32 {
-    if (field.abi_align == 0) {
+    if (field.ty.zigTypeTag() == .NoReturn) {
+        return @as(u32, 0);
+    } else if (field.abi_align == 0) {
         return sema.typeAbiAlignment(block, src, field.ty);
     } else {
         return field.abi_align;
@@ -29430,7 +30429,7 @@ fn valuesEqual(
     rhs: Value,
     ty: Type,
 ) CompileError!bool {
-    return Value.eqlAdvanced(lhs, rhs, ty, sema.mod, sema.kit(block, src));
+    return Value.eqlAdvanced(lhs, ty, rhs, ty, sema.mod, sema.kit(block, src));
 }
 
 /// Asserts the values are comparable vectors of type `ty`.
@@ -29478,7 +30477,7 @@ fn elemPtrType(sema: *Sema, ptr_ty: Type, offset: ?usize) !Type {
         // The resulting pointer is aligned to the lcd between the offset (an
         // arbitrary number) and the alignment factor (always a power of two,
         // non zero).
-        const new_align = @as(u32, 1) << @intCast(u5, @ctz(u64, addend | ptr_info.@"align"));
+        const new_align = @as(u32, 1) << @intCast(u5, @ctz(addend | ptr_info.@"align"));
         break :a new_align;
     };
     return try Type.ptr(sema.arena, sema.mod, .{

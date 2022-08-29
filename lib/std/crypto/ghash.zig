@@ -41,8 +41,8 @@ pub const Ghash = struct {
     pub fn init(key: *const [key_length]u8) Ghash {
         const h1 = mem.readIntBig(u64, key[0..8]);
         const h0 = mem.readIntBig(u64, key[8..16]);
-        const h1r = @bitReverse(u64, h1);
-        const h0r = @bitReverse(u64, h0);
+        const h1r = @bitReverse(h1);
+        const h0r = @bitReverse(h0);
         const h2 = h0 ^ h1;
         const h2r = h0r ^ h1r;
 
@@ -68,8 +68,8 @@ pub const Ghash = struct {
             hh.update(key);
             const hh1 = hh.y1;
             const hh0 = hh.y0;
-            const hh1r = @bitReverse(u64, hh1);
-            const hh0r = @bitReverse(u64, hh0);
+            const hh1r = @bitReverse(hh1);
+            const hh0r = @bitReverse(hh0);
             const hh2 = hh0 ^ hh1;
             const hh2r = hh0r ^ hh1r;
 
@@ -156,8 +156,8 @@ pub const Ghash = struct {
                 y1 ^= mem.readIntBig(u64, msg[i..][0..8]);
                 y0 ^= mem.readIntBig(u64, msg[i..][8..16]);
 
-                const y1r = @bitReverse(u64, y1);
-                const y0r = @bitReverse(u64, y0);
+                const y1r = @bitReverse(y1);
+                const y0r = @bitReverse(y0);
                 const y2 = y0 ^ y1;
                 const y2r = y0r ^ y1r;
 
@@ -172,8 +172,8 @@ pub const Ghash = struct {
                 const sy1 = mem.readIntBig(u64, msg[i..][16..24]);
                 const sy0 = mem.readIntBig(u64, msg[i..][24..32]);
 
-                const sy1r = @bitReverse(u64, sy1);
-                const sy0r = @bitReverse(u64, sy0);
+                const sy1r = @bitReverse(sy1);
+                const sy0r = @bitReverse(sy0);
                 const sy2 = sy0 ^ sy1;
                 const sy2r = sy0r ^ sy1r;
 
@@ -191,9 +191,9 @@ pub const Ghash = struct {
                 z0h ^= sz0h;
                 z1h ^= sz1h;
                 z2h ^= sz2h;
-                z0h = @bitReverse(u64, z0h) >> 1;
-                z1h = @bitReverse(u64, z1h) >> 1;
-                z2h = @bitReverse(u64, z2h) >> 1;
+                z0h = @bitReverse(z0h) >> 1;
+                z1h = @bitReverse(z1h) >> 1;
+                z2h = @bitReverse(z2h) >> 1;
 
                 var v3 = z1h;
                 var v2 = z1 ^ z2h;
@@ -217,8 +217,8 @@ pub const Ghash = struct {
             y1 ^= mem.readIntBig(u64, msg[i..][0..8]);
             y0 ^= mem.readIntBig(u64, msg[i..][8..16]);
 
-            const y1r = @bitReverse(u64, y1);
-            const y0r = @bitReverse(u64, y0);
+            const y1r = @bitReverse(y1);
+            const y0r = @bitReverse(y0);
             const y2 = y0 ^ y1;
             const y2r = y0r ^ y1r;
 
@@ -228,9 +228,9 @@ pub const Ghash = struct {
             var z0h = clmul(y0r, st.h0r);
             var z1h = clmul(y1r, st.h1r);
             var z2h = clmul(y2r, st.h2r) ^ z0h ^ z1h;
-            z0h = @bitReverse(u64, z0h) >> 1;
-            z1h = @bitReverse(u64, z1h) >> 1;
-            z2h = @bitReverse(u64, z2h) >> 1;
+            z0h = @bitReverse(z0h) >> 1;
+            z1h = @bitReverse(z1h) >> 1;
+            z2h = @bitReverse(z2h) >> 1;
 
             // shift & reduce
             var v3 = z1h;

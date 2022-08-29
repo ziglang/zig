@@ -705,15 +705,6 @@ pub fn addCases(ctx: *TestContext) !void {
         });
 
         case.addError(
-            \\const E1 = enum {};
-            \\export fn foo() void {
-            \\    _ = E1.a;
-            \\}
-        , &.{
-            ":1:12: error: enum declarations must have at least one tag",
-        });
-
-        case.addError(
             \\const E1 = enum { a, b, _ };
             \\export fn foo() void {
             \\    _ = E1.a;

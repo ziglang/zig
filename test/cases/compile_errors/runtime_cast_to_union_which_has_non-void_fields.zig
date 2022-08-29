@@ -18,6 +18,4 @@ fn foo(l: Letter) void {
 //
 // :11:20: error: runtime coercion from enum 'tmp.Letter' to union 'tmp.Value' which has non-void fields
 // :3:5: note: field 'A' has type 'i32'
-// :4:5: note: field 'B' has type 'void'
-// :5:5: note: field 'C' has type 'void'
 // :2:15: note: union declared here

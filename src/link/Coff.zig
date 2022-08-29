@@ -128,7 +128,7 @@ pub const TextBlock = struct {
 pub const SrcFn = void;
 
 pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*Coff {
-    assert(options.object_format == .coff);
+    assert(options.target.ofmt == .coff);
 
     if (build_options.have_llvm and options.use_llvm) {
         return createEmpty(allocator, options);
@@ -204,15 +204,18 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     index += 2;
 
     // Characteristics
-    var characteristics: u16 = std.coff.IMAGE_FILE_DEBUG_STRIPPED | std.coff.IMAGE_FILE_RELOCS_STRIPPED; // TODO Remove debug info stripped flag when necessary
+    var characteristics: std.coff.CoffHeaderFlags = .{
+        .DEBUG_STRIPPED = 1, // TODO remove debug info stripped flag when necessary
+        .RELOCS_STRIPPED = 1,
+    };
     if (options.output_mode == .Exe) {
-        characteristics |= std.coff.IMAGE_FILE_EXECUTABLE_IMAGE;
+        characteristics.EXECUTABLE_IMAGE = 1;
     }
     switch (self.ptr_width) {
-        .p32 => characteristics |= std.coff.IMAGE_FILE_32BIT_MACHINE,
-        .p64 => characteristics |= std.coff.IMAGE_FILE_LARGE_ADDRESS_AWARE,
+        .p32 => characteristics.@"32BIT_MACHINE" = 1,
+        .p64 => characteristics.LARGE_ADDRESS_AWARE = 1,
     }
-    mem.writeIntLittle(u16, hdr_data[index..][0..2], characteristics);
+    mem.writeIntLittle(u16, hdr_data[index..][0..2], @bitCast(u16, characteristics));
     index += 2;
 
     assert(index == 20);
@@ -352,7 +355,10 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     mem.set(u8, hdr_data[index..][0..12], 0);
     index += 12;
     // Section flags
-    mem.writeIntLittle(u32, hdr_data[index..][0..4], std.coff.IMAGE_SCN_CNT_INITIALIZED_DATA | std.coff.IMAGE_SCN_MEM_READ);
+    mem.writeIntLittle(u32, hdr_data[index..][0..4], @bitCast(u32, std.coff.SectionHeaderFlags{
+        .CNT_INITIALIZED_DATA = 1,
+        .MEM_READ = 1,
+    }));
     index += 4;
     // Then, the .text section
     hdr_data[index..][0..8].* = ".text\x00\x00\x00".*;
@@ -378,11 +384,12 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     mem.set(u8, hdr_data[index..][0..12], 0);
     index += 12;
     // Section flags
-    mem.writeIntLittle(
-        u32,
-        hdr_data[index..][0..4],
-        std.coff.IMAGE_SCN_CNT_CODE | std.coff.IMAGE_SCN_MEM_EXECUTE | std.coff.IMAGE_SCN_MEM_READ | std.coff.IMAGE_SCN_MEM_WRITE,
-    );
+    mem.writeIntLittle(u32, hdr_data[index..][0..4], @bitCast(u32, std.coff.SectionHeaderFlags{
+        .CNT_CODE = 1,
+        .MEM_EXECUTE = 1,
+        .MEM_READ = 1,
+        .MEM_WRITE = 1,
+    }));
     index += 4;
 
     assert(index == optional_header_size + section_table_size);
@@ -411,7 +418,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Coff {
     };
 
     const use_llvm = build_options.have_llvm and options.use_llvm;
-    const use_stage1 = build_options.is_stage1 and options.use_stage1;
+    const use_stage1 = build_options.have_stage1 and options.use_stage1;
     if (use_llvm and !use_stage1) {
         self.llvm_object = try LlvmObject.create(gpa, options);
     }
@@ -949,7 +956,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) !
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
     const module_obj_path: ?[]const u8 = if (self.base.options.module) |module| blk: {
-        const use_stage1 = build_options.is_stage1 and self.base.options.use_stage1;
+        const use_stage1 = build_options.have_stage1 and self.base.options.use_stage1;
         if (use_stage1) {
             const obj_basename = try std.zig.binNameAlloc(arena, .{
                 .root_name = self.base.options.root_name,
@@ -1124,6 +1131,10 @@ fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) !
             } else {
                 try argv.append("-MACHINE:ARM64");
             }
+        }
+
+        for (self.base.options.force_undefined_symbols.keys()) |symbol| {
+            try argv.append(try allocPrint(arena, "-INCLUDE:{s}", .{symbol}));
         }
 
         if (is_dyn_lib) {

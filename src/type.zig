@@ -2310,6 +2310,8 @@ pub const Type = extern union {
     ///     fields will count towards the ABI size. For example, `struct {T: type, x: i32}`
     ///     hasRuntimeBits()=true and abiSize()=4
     /// * the type has only one possible value, making its ABI size 0.
+    ///   - an enum with an explicit tag type has the ABI size of the integer tag type,
+    ///     making it one-possible-value only if the integer tag type has 0 bits.
     /// When `ignore_comptime_only` is true, then types that are comptime only
     /// may return false positives.
     pub fn hasRuntimeBitsAdvanced(
@@ -2376,6 +2378,32 @@ pub const Type = extern union {
             .error_set_merged,
             => return true,
 
+            // Pointers to zero-bit types still have a runtime address; however, pointers
+            // to comptime-only types do not, with the exception of function pointers.
+            .anyframe_T,
+            .optional_single_mut_pointer,
+            .optional_single_const_pointer,
+            .single_const_pointer,
+            .single_mut_pointer,
+            .many_const_pointer,
+            .many_mut_pointer,
+            .c_const_pointer,
+            .c_mut_pointer,
+            .const_slice,
+            .mut_slice,
+            .pointer,
+            => {
+                if (ignore_comptime_only) {
+                    return true;
+                } else if (ty.childType().zigTypeTag() == .Fn) {
+                    return !ty.childType().fnInfo().is_generic;
+                } else if (sema_kit) |sk| {
+                    return !(try sk.sema.typeRequiresComptime(sk.block, sk.src, ty));
+                } else {
+                    return !comptimeOnly(ty);
+                }
+            },
+
             // These are false because they are comptime-only types.
             .single_const_pointer_to_comptime_int,
             .void,
@@ -2398,30 +2426,6 @@ pub const Type = extern union {
             .fn_naked_noreturn_no_args,
             .fn_ccc_void_no_args,
             => return false,
-
-            // These types have more than one possible value, so the result is the same as
-            // asking whether they are comptime-only types.
-            .anyframe_T,
-            .optional_single_mut_pointer,
-            .optional_single_const_pointer,
-            .single_const_pointer,
-            .single_mut_pointer,
-            .many_const_pointer,
-            .many_mut_pointer,
-            .c_const_pointer,
-            .c_mut_pointer,
-            .const_slice,
-            .mut_slice,
-            .pointer,
-            => {
-                if (ignore_comptime_only) {
-                    return true;
-                } else if (sema_kit) |sk| {
-                    return !(try sk.sema.typeRequiresComptime(sk.block, sk.src, ty));
-                } else {
-                    return !comptimeOnly(ty);
-                }
-            },
 
             .optional => {
                 var buf: Payload.ElemType = undefined;
@@ -2450,9 +2454,9 @@ pub const Type = extern union {
                     _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty);
                 }
                 assert(struct_obj.haveFieldTypes());
-                for (struct_obj.fields.values()) |value| {
-                    if (value.is_comptime) continue;
-                    if (try value.ty.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit))
+                for (struct_obj.fields.values()) |field| {
+                    if (field.is_comptime) continue;
+                    if (try field.ty.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit))
                         return true;
                 } else {
                     return false;
@@ -2461,7 +2465,7 @@ pub const Type = extern union {
 
             .enum_full => {
                 const enum_full = ty.castTag(.enum_full).?.data;
-                return enum_full.fields.count() >= 2;
+                return enum_full.tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit);
             },
             .enum_simple => {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
@@ -2491,6 +2495,7 @@ pub const Type = extern union {
                 if (try union_obj.tag_ty.hasRuntimeBitsAdvanced(ignore_comptime_only, sema_kit)) {
                     return true;
                 }
+
                 if (sema_kit) |sk| {
                     _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty);
                 }
@@ -3000,9 +3005,17 @@ pub const Type = extern union {
                     .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
                 };
                 if (struct_obj.layout == .Packed) {
-                    var buf: Type.Payload.Bits = undefined;
-                    const int_ty = struct_obj.packedIntegerType(target, &buf);
-                    return AbiAlignmentAdvanced{ .scalar = int_ty.abiAlignment(target) };
+                    switch (strat) {
+                        .sema_kit => |sk| try sk.sema.resolveTypeLayout(sk.block, sk.src, ty),
+                        .lazy => |arena| {
+                            if (!struct_obj.haveLayout()) {
+                                return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) };
+                            }
+                        },
+                        .eager => {},
+                    }
+                    assert(struct_obj.haveLayout());
+                    return AbiAlignmentAdvanced{ .scalar = struct_obj.backing_int_ty.abiAlignment(target) };
                 }
 
                 const fields = ty.structFields();
@@ -3021,6 +3034,15 @@ pub const Type = extern union {
                         },
                     };
                     big_align = @maximum(big_align, field_align);
+
+                    // This logic is duplicated in Module.Struct.Field.alignment.
+                    if (struct_obj.layout == .Extern or target.ofmt == .c) {
+                        if (field.ty.isAbiInt() and field.ty.intInfo(target).bits >= 128) {
+                            // The C ABI requires 128 bit integer fields of structs
+                            // to be 16-bytes aligned.
+                            big_align = @maximum(big_align, 16);
+                        }
+                    }
                 }
                 return AbiAlignmentAdvanced{ .scalar = big_align };
             },
@@ -3105,6 +3127,13 @@ pub const Type = extern union {
             .sema_kit => unreachable, // handled above
             .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
         };
+        if (union_obj.fields.count() == 0) {
+            if (have_tag) {
+                return abiAlignmentAdvanced(union_obj.tag_ty, target, strat);
+            } else {
+                return AbiAlignmentAdvanced{ .scalar = @boolToInt(union_obj.layout == .Extern) };
+            }
+        }
 
         var max_align: u32 = 0;
         if (have_tag) max_align = union_obj.tag_ty.abiAlignment(target);
@@ -3192,17 +3221,16 @@ pub const Type = extern union {
                 .Packed => {
                     const struct_obj = ty.castTag(.@"struct").?.data;
                     switch (strat) {
-                        .sema_kit => |sk| _ = try sk.sema.resolveTypeFields(sk.block, sk.src, ty),
+                        .sema_kit => |sk| try sk.sema.resolveTypeLayout(sk.block, sk.src, ty),
                         .lazy => |arena| {
-                            if (!struct_obj.haveFieldTypes()) {
+                            if (!struct_obj.haveLayout()) {
                                 return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) };
                             }
                         },
                         .eager => {},
                     }
-                    var buf: Type.Payload.Bits = undefined;
-                    const int_ty = struct_obj.packedIntegerType(target, &buf);
-                    return AbiSizeAdvanced{ .scalar = int_ty.abiSize(target) };
+                    assert(struct_obj.haveLayout());
+                    return AbiSizeAdvanced{ .scalar = struct_obj.backing_int_ty.abiSize(target) };
                 },
                 else => {
                     switch (strat) {
@@ -3253,8 +3281,8 @@ pub const Type = extern union {
 
             .array_u8 => return AbiSizeAdvanced{ .scalar = ty.castTag(.array_u8).?.data },
             .array_u8_sentinel_0 => return AbiSizeAdvanced{ .scalar = ty.castTag(.array_u8_sentinel_0).?.data + 1 },
-            .array, .vector => {
-                const payload = ty.cast(Payload.Array).?.data;
+            .array => {
+                const payload = ty.castTag(.array).?.data;
                 switch (try payload.elem_type.abiSizeAdvanced(target, strat)) {
                     .scalar => |elem_size| return AbiSizeAdvanced{ .scalar = payload.len * elem_size },
                     .val => switch (strat) {
@@ -3274,6 +3302,28 @@ pub const Type = extern union {
                         .lazy => |arena| return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) },
                     },
                 }
+            },
+
+            .vector => {
+                const payload = ty.castTag(.vector).?.data;
+                const sema_kit = switch (strat) {
+                    .sema_kit => |sk| sk,
+                    .eager => null,
+                    .lazy => |arena| return AbiSizeAdvanced{
+                        .val = try Value.Tag.lazy_size.create(arena, ty),
+                    },
+                };
+                const elem_bits = try payload.elem_type.bitSizeAdvanced(target, sema_kit);
+                const total_bits = elem_bits * payload.len;
+                const total_bytes = (total_bits + 7) / 8;
+                const alignment = switch (try ty.abiAlignmentAdvanced(target, strat)) {
+                    .scalar => |x| x,
+                    .val => return AbiSizeAdvanced{
+                        .val = try Value.Tag.lazy_size.create(strat.lazy, ty),
+                    },
+                };
+                const result = std.mem.alignForwardGeneric(u64, total_bytes, alignment);
+                return AbiSizeAdvanced{ .scalar = result };
             },
 
             .isize,
@@ -3319,7 +3369,13 @@ pub const Type = extern union {
             .f128 => return AbiSizeAdvanced{ .scalar = 16 },
 
             .f80 => switch (target.cpu.arch) {
-                .i386 => return AbiSizeAdvanced{ .scalar = 12 },
+                .i386 => switch (target.os.tag) {
+                    .windows => switch (target.abi) {
+                        .msvc => return AbiSizeAdvanced{ .scalar = 16 },
+                        else => return AbiSizeAdvanced{ .scalar = 12 },
+                    },
+                    else => return AbiSizeAdvanced{ .scalar = 12 },
+                },
                 .x86_64 => return AbiSizeAdvanced{ .scalar = 16 },
                 else => {
                     var payload: Payload.Bits = .{
@@ -4236,9 +4292,16 @@ pub const Type = extern union {
 
     pub fn unionFieldType(ty: Type, enum_tag: Value, mod: *Module) Type {
         const union_obj = ty.cast(Payload.Union).?.data;
-        const index = union_obj.tag_ty.enumTagFieldIndex(enum_tag, mod).?;
+        const index = ty.unionTagFieldIndex(enum_tag, mod).?;
         assert(union_obj.haveFieldTypes());
         return union_obj.fields.values()[index].ty;
+    }
+
+    pub fn unionTagFieldIndex(ty: Type, enum_tag: Value, mod: *Module) ?usize {
+        const union_obj = ty.cast(Payload.Union).?.data;
+        const index = union_obj.tag_ty.enumTagFieldIndex(enum_tag, mod) orelse return null;
+        const name = union_obj.tag_ty.enumFieldName(index);
+        return union_obj.fields.getIndex(name);
     }
 
     pub fn unionHasAllZeroBitFieldTypes(ty: Type) bool {
@@ -4529,6 +4592,12 @@ pub const Type = extern union {
             },
 
             .vector => ty = ty.castTag(.vector).?.data.elem_type,
+
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                assert(struct_obj.layout == .Packed);
+                ty = struct_obj.backing_int_ty;
+            },
 
             else => unreachable,
         };
@@ -4910,33 +4979,38 @@ pub const Type = extern union {
                 const s = ty.castTag(.@"struct").?.data;
                 assert(s.haveFieldTypes());
                 for (s.fields.values()) |field| {
-                    if (field.ty.onePossibleValue() == null) {
-                        return null;
-                    }
+                    if (field.is_comptime) continue;
+                    if (field.ty.onePossibleValue() != null) continue;
+                    return null;
                 }
                 return Value.initTag(.empty_struct_value);
             },
 
             .tuple, .anon_struct => {
                 const tuple = ty.tupleFields();
-                for (tuple.values) |val| {
-                    if (val.tag() == .unreachable_value) {
-                        return null; // non-comptime field
-                    }
+                for (tuple.values) |val, i| {
+                    const is_comptime = val.tag() != .unreachable_value;
+                    if (is_comptime) continue;
+                    if (tuple.types[i].onePossibleValue() != null) continue;
+                    return null;
                 }
                 return Value.initTag(.empty_struct_value);
             },
 
             .enum_numbered => {
                 const enum_numbered = ty.castTag(.enum_numbered).?.data;
-                if (enum_numbered.fields.count() == 1) {
-                    return enum_numbered.values.keys()[0];
-                } else {
+                // An explicit tag type is always provided for enum_numbered.
+                if (enum_numbered.tag_ty.hasRuntimeBits()) {
                     return null;
                 }
+                assert(enum_numbered.fields.count() == 1);
+                return enum_numbered.values.keys()[0];
             },
             .enum_full => {
                 const enum_full = ty.castTag(.enum_full).?.data;
+                if (enum_full.tag_ty.hasRuntimeBits()) {
+                    return null;
+                }
                 if (enum_full.fields.count() == 1) {
                     if (enum_full.values.count() == 0) {
                         return Value.zero;
@@ -5271,7 +5345,8 @@ pub const Type = extern union {
             .enum_numbered => return ty.castTag(.enum_numbered).?.data.tag_ty,
             .enum_simple => {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
-                const bits = std.math.log2_int_ceil(usize, enum_simple.fields.count());
+                const field_count = enum_simple.fields.count();
+                const bits: u16 = if (field_count == 0) 0 else std.math.log2_int_ceil(usize, field_count);
                 buffer.* = .{
                     .base = .{ .tag = .int_unsigned },
                     .data = bits,
@@ -5492,7 +5567,7 @@ pub const Type = extern union {
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
                 assert(struct_obj.layout != .Packed);
-                return struct_obj.fields.values()[index].normalAlignment(target);
+                return struct_obj.fields.values()[index].alignment(target, struct_obj.layout);
             },
             .@"union", .union_safety_tagged, .union_tagged => {
                 const union_obj = ty.cast(Payload.Union).?.data;
@@ -5591,19 +5666,22 @@ pub const Type = extern union {
         target: Target,
 
         pub fn next(it: *StructOffsetIterator) ?FieldOffset {
-            if (it.struct_obj.fields.count() <= it.field)
+            const i = it.field;
+            if (it.struct_obj.fields.count() <= i)
                 return null;
 
-            const field = it.struct_obj.fields.values()[it.field];
-            defer it.field += 1;
-            if (!field.ty.hasRuntimeBits() or field.is_comptime)
-                return FieldOffset{ .field = it.field, .offset = it.offset };
+            const field = it.struct_obj.fields.values()[i];
+            it.field += 1;
 
-            const field_align = field.normalAlignment(it.target);
+            if (field.is_comptime or !field.ty.hasRuntimeBits()) {
+                return FieldOffset{ .field = i, .offset = it.offset };
+            }
+
+            const field_align = field.alignment(it.target, it.struct_obj.layout);
             it.big_align = @maximum(it.big_align, field_align);
-            it.offset = std.mem.alignForwardGeneric(u64, it.offset, field_align);
-            defer it.offset += field.ty.abiSize(it.target);
-            return FieldOffset{ .field = it.field, .offset = it.offset };
+            const field_offset = std.mem.alignForwardGeneric(u64, it.offset, field_align);
+            it.offset = field_offset + field.ty.abiSize(it.target);
+            return FieldOffset{ .field = i, .offset = field_offset };
         }
     };
 
@@ -5768,50 +5846,6 @@ pub const Type = extern union {
             => unreachable, // These need to be resolved earlier.
 
             else => return null,
-        }
-    }
-
-    pub fn getNodeOffset(ty: Type) i32 {
-        switch (ty.tag()) {
-            .enum_full, .enum_nonexhaustive => {
-                const enum_full = ty.cast(Payload.EnumFull).?.data;
-                return enum_full.node_offset;
-            },
-            .enum_numbered => return ty.castTag(.enum_numbered).?.data.node_offset,
-            .enum_simple => {
-                const enum_simple = ty.castTag(.enum_simple).?.data;
-                return enum_simple.node_offset;
-            },
-            .@"struct" => {
-                const struct_obj = ty.castTag(.@"struct").?.data;
-                return struct_obj.node_offset;
-            },
-            .error_set => {
-                const error_set = ty.castTag(.error_set).?.data;
-                return error_set.node_offset;
-            },
-            .@"union", .union_safety_tagged, .union_tagged => {
-                const union_obj = ty.cast(Payload.Union).?.data;
-                return union_obj.node_offset;
-            },
-            .@"opaque" => {
-                const opaque_obj = ty.cast(Payload.Opaque).?.data;
-                return opaque_obj.node_offset;
-            },
-            .atomic_order,
-            .atomic_rmw_op,
-            .calling_convention,
-            .address_space,
-            .float_mode,
-            .reduce_op,
-            .call_options,
-            .prefetch_options,
-            .export_options,
-            .extern_options,
-            .type_info,
-            => unreachable, // These need to be resolved earlier.
-
-            else => unreachable,
         }
     }
 
@@ -6345,6 +6379,8 @@ pub const Type = extern union {
     pub const @"anyopaque" = initTag(.anyopaque);
     pub const @"null" = initTag(.@"null");
 
+    pub const err_int = Type.u16;
+
     pub fn ptr(arena: Allocator, mod: *Module, data: Payload.Pointer.Data) !Type {
         const target = mod.getTarget();
 
@@ -6535,6 +6571,11 @@ pub const CType = enum {
                     .long, .ulong => return 32,
                     .longlong, .ulonglong, .longdouble => return 64,
                 },
+                .avr => switch (self) {
+                    .short, .ushort, .int, .uint => return 16,
+                    .long, .ulong, .longdouble => return 32,
+                    .longlong, .ulonglong => return 64,
+                },
                 else => switch (self) {
                     .short, .ushort => return 16,
                     .int, .uint => return 32,
@@ -6573,31 +6614,42 @@ pub const CType = enum {
             .emscripten,
             .plan9,
             .solaris,
-            => switch (self) {
-                .short, .ushort => return 16,
-                .int, .uint => return 32,
-                .long, .ulong => return target.cpu.arch.ptrBitWidth(),
-                .longlong, .ulonglong => return 64,
-                .longdouble => switch (target.cpu.arch) {
-                    .i386, .x86_64 => return 80,
+            .haiku,
+            .ananas,
+            .fuchsia,
+            .minix,
+            => switch (target.cpu.arch) {
+                .avr => switch (self) {
+                    .short, .ushort, .int, .uint => return 16,
+                    .long, .ulong, .longdouble => return 32,
+                    .longlong, .ulonglong => return 64,
+                },
+                else => switch (self) {
+                    .short, .ushort => return 16,
+                    .int, .uint => return 32,
+                    .long, .ulong => return target.cpu.arch.ptrBitWidth(),
+                    .longlong, .ulonglong => return 64,
+                    .longdouble => switch (target.cpu.arch) {
+                        .i386, .x86_64 => return 80,
 
-                    .riscv64,
-                    .aarch64,
-                    .aarch64_be,
-                    .aarch64_32,
-                    .s390x,
-                    .mips64,
-                    .mips64el,
-                    .sparc,
-                    .sparc64,
-                    .sparcel,
-                    .powerpc,
-                    .powerpcle,
-                    .powerpc64,
-                    .powerpc64le,
-                    => return 128,
+                        .riscv64,
+                        .aarch64,
+                        .aarch64_be,
+                        .aarch64_32,
+                        .s390x,
+                        .mips64,
+                        .mips64el,
+                        .sparc,
+                        .sparc64,
+                        .sparcel,
+                        .powerpc,
+                        .powerpcle,
+                        .powerpc64,
+                        .powerpc64le,
+                        => return 128,
 
-                    else => return 64,
+                        else => return 64,
+                    },
                 },
             },
 
@@ -6617,14 +6669,10 @@ pub const CType = enum {
                 },
             },
 
-            .ananas,
             .cloudabi,
-            .fuchsia,
             .kfreebsd,
             .lv2,
             .zos,
-            .haiku,
-            .minix,
             .rtems,
             .nacl,
             .aix,

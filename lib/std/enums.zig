@@ -57,7 +57,7 @@ pub fn values(comptime E: type) []const E {
 /// the total number of items which have no matching enum key (holes in the enum
 /// numbering).  So for example, if an enum has values 1, 2, 5, and 6, max_unused_slots
 /// must be at least 3, to allow unused slots 0, 3, and 4.
-fn directEnumArrayLen(comptime E: type, comptime max_unused_slots: comptime_int) comptime_int {
+pub fn directEnumArrayLen(comptime E: type, comptime max_unused_slots: comptime_int) comptime_int {
     var max_value: comptime_int = -1;
     const max_usize: comptime_int = ~@as(usize, 0);
     const fields = std.meta.fields(E);

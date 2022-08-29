@@ -1698,6 +1698,14 @@ pub const Instruction = union(enum) {
 
     // Data processing (2 source)
 
+    pub fn udiv(rd: Register, rn: Register, rm: Register) Instruction {
+        return dataProcessing2Source(0b0, 0b000010, rd, rn, rm);
+    }
+
+    pub fn sdiv(rd: Register, rn: Register, rm: Register) Instruction {
+        return dataProcessing2Source(0b0, 0b000011, rd, rn, rm);
+    }
+
     pub fn lslv(rd: Register, rn: Register, rm: Register) Instruction {
         return dataProcessing2Source(0b0, 0b001000, rd, rn, rm);
     }

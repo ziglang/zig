@@ -517,6 +517,9 @@ pub const WriteFileError = error{
     OperationAborted,
     BrokenPipe,
     NotOpenForWriting,
+    /// The process cannot access the file because another process has locked
+    /// a portion of the file.
+    LockViolation,
     Unexpected,
 };
 
@@ -597,6 +600,7 @@ pub fn WriteFile(
                 .IO_PENDING => unreachable,
                 .BROKEN_PIPE => return error.BrokenPipe,
                 .INVALID_HANDLE => return error.NotOpenForWriting,
+                .LOCK_VIOLATION => return error.LockViolation,
                 else => |err| return unexpectedError(err),
             }
         }
@@ -1798,7 +1802,7 @@ pub const PathSpace = struct {
     data: [PATH_MAX_WIDE:0]u16,
     len: usize,
 
-    pub fn span(self: PathSpace) [:0]const u16 {
+    pub fn span(self: *const PathSpace) [:0]const u16 {
         return self.data[0..self.len :0];
     }
 };

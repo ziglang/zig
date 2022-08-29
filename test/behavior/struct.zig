@@ -147,7 +147,7 @@ test "fn call of struct field" {
             return 13;
         }
 
-        fn callStructField(foo: Foo) i32 {
+        fn callStructField(comptime foo: Foo) i32 {
             return foo.ptr();
         }
     };
@@ -963,7 +963,7 @@ test "tuple assigned to variable" {
 
 test "comptime struct field" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.stage2_arch == .arm) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch == .arm) return error.SkipZigTest; // TODO
 
     const T = struct {
         a: i32,

@@ -1495,6 +1495,7 @@ pub const LibExeObjStep = struct {
     emit_h: bool = false,
     bundle_compiler_rt: ?bool = null,
     single_threaded: ?bool = null,
+    stack_protector: ?bool = null,
     disable_stack_probing: bool,
     disable_sanitize_c: bool,
     sanitize_thread: bool,
@@ -1896,13 +1897,12 @@ pub const LibExeObjStep = struct {
     /// When a binary cannot be ran through emulation or the option is disabled, a warning
     /// will be printed and the binary will *NOT* be ran.
     pub fn runEmulatable(exe: *LibExeObjStep) *EmulatableRunStep {
-        assert(exe.kind == .exe or exe.kind == .text_exe);
+        assert(exe.kind == .exe or exe.kind == .test_exe);
 
-        const run_step = EmulatableRunStep.create(exe.builder.fmt("run {s}", .{exe.step.name}), exe);
+        const run_step = EmulatableRunStep.create(exe.builder, exe.builder.fmt("run {s}", .{exe.step.name}), exe);
         if (exe.vcpkg_bin_path) |path| {
-            run_step.addPathDir(path);
+            RunStep.addPathDirInternal(&run_step.step, exe.builder, path);
         }
-
         return run_step;
     }
 
@@ -2825,6 +2825,13 @@ pub const LibExeObjStep = struct {
         }
         if (self.disable_stack_probing) {
             try zig_args.append("-fno-stack-check");
+        }
+        if (self.stack_protector) |stack_protector| {
+            if (stack_protector) {
+                try zig_args.append("-fstack-protector");
+            } else {
+                try zig_args.append("-fno-stack-protector");
+            }
         }
         if (self.red_zone) |red_zone| {
             if (red_zone) {

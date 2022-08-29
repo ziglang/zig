@@ -1104,3 +1104,24 @@ test "namespace lookup ignores decl causing the lookup" {
     };
     _ = S.foo();
 }
+
+test "ambiguous reference error ignores current declaration" {
+    const S = struct {
+        const foo = 666;
+
+        const a = @This();
+        const b = struct {
+            const foo = a.foo;
+            const bar = struct {
+                bar: u32 = b.foo,
+            };
+
+            comptime {
+                _ = b.foo;
+            }
+        };
+
+        usingnamespace b;
+    };
+    try expect(S.b.foo == 666);
+}

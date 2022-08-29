@@ -5374,10 +5374,8 @@ static Stage1ZirInst *astgen_builtin_fn_call(Stage1AstGen *ag, Scope *scope, Ast
                 if (arg0_value == ag->codegen->invalid_inst_src)
                     return arg0_value;
 
-                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                Stage1ZirInst *arg1_value = astgen_node(ag, arg1_node, scope);
-                if (arg1_value == ag->codegen->invalid_inst_src)
-                    return arg1_value;
+                Stage1ZirInst *arg1_value = arg0_value;
+                arg0_value = ir_build_typeof_1(ag, scope, arg0_node, arg1_value);
 
                 Stage1ZirInst *result;
                 switch (builtin_fn->id) {

@@ -1116,6 +1116,7 @@ struct AstNodeContainerDecl {
     ContainerLayout layout;
 
     bool auto_enum, is_root; // union(enum)
+    bool unsupported_explicit_backing_int;
 };
 
 struct AstNodeErrorSetField {

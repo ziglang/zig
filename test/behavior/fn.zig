@@ -137,7 +137,7 @@ test "implicit cast function unreachable return" {
     wantsFnWithVoid(fnWithUnreachable);
 }
 
-fn wantsFnWithVoid(f: fn () void) void {
+fn wantsFnWithVoid(comptime f: fn () void) void {
     _ = f;
 }
 
@@ -421,4 +421,25 @@ test "import passed byref to function in return type" {
     };
     var list = S.get();
     try expect(list.items.len == 0);
+}
+
+test "implicit cast function to function ptr" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    const S1 = struct {
+        export fn someFunctionThatReturnsAValue() c_int {
+            return 123;
+        }
+    };
+    var fnPtr1: *const fn () callconv(.C) c_int = S1.someFunctionThatReturnsAValue;
+    try expect(fnPtr1() == 123);
+    const S2 = struct {
+        extern fn someFunctionThatReturnsAValue() c_int;
+    };
+    var fnPtr2: *const fn () callconv(.C) c_int = S2.someFunctionThatReturnsAValue;
+    try expect(fnPtr2() == 123);
 }

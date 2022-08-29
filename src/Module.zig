@@ -84,7 +84,6 @@ string_literal_bytes: std.ArrayListUnmanaged(u8) = .{},
 /// The set of all the generic function instantiations. This is used so that when a generic
 /// function is called twice with the same comptime parameter arguments, both calls dispatch
 /// to the same function.
-/// TODO: remove functions from this set when they are destroyed.
 monomorphed_funcs: MonomorphedFuncsSet = .{},
 /// The set of all comptime function calls that have been cached so that future calls
 /// with the same parameters will get the same return value.
@@ -92,7 +91,6 @@ memoized_calls: MemoizedCallSet = .{},
 /// Contains the values from `@setAlignStack`. A sparse table is used here
 /// instead of a field of `Fn` because usage of `@setAlignStack` is rare, while
 /// functions are many.
-/// TODO: remove functions from this set when they are destroyed.
 align_stack_fns: std.AutoHashMapUnmanaged(*const Fn, SetAlignStack) = .{},
 
 /// We optimize memory usage for a compilation with no compile errors by storing the
@@ -560,6 +558,10 @@ pub const Decl = struct {
             gpa.destroy(extern_fn);
         }
         if (decl.getFunction()) |func| {
+            _ = mod.align_stack_fns.remove(func);
+            if (func.comptime_args != null) {
+                _ = mod.monomorphed_funcs.remove(func);
+            }
             func.deinit(gpa);
             gpa.destroy(func);
         }
@@ -853,8 +855,6 @@ pub const EmitH = struct {
 pub const ErrorSet = struct {
     /// The Decl that corresponds to the error set itself.
     owner_decl: Decl.Index,
-    /// Offset from Decl node index, points to the error set AST node.
-    node_offset: i32,
     /// The string bytes are stored in the owner Decl arena.
     /// These must be in sorted order. See sortNames.
     names: NameMap,
@@ -866,7 +866,7 @@ pub const ErrorSet = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = LazySrcLoc.nodeOffset(self.node_offset),
+            .lazy = LazySrcLoc.nodeOffset(0),
         };
     }
 
@@ -893,12 +893,15 @@ pub const Struct = struct {
     namespace: Namespace,
     /// The Decl that corresponds to the struct itself.
     owner_decl: Decl.Index,
-    /// Offset from `owner_decl`, points to the struct AST node.
-    node_offset: i32,
     /// Index of the struct_decl ZIR instruction.
     zir_index: Zir.Inst.Index,
 
     layout: std.builtin.Type.ContainerLayout,
+    /// If the layout is not packed, this is the noreturn type.
+    /// If the layout is packed, this is the backing integer type of the packed struct.
+    /// Whether zig chooses this type or the user specifies it, it is stored here.
+    /// This will be set to the noreturn type until status is `have_layout`.
+    backing_int_ty: Type = Type.initTag(.noreturn),
     status: enum {
         none,
         field_types_wip,
@@ -934,13 +937,41 @@ pub const Struct = struct {
         /// If true then `default_val` is the comptime field value.
         is_comptime: bool,
 
-        /// Returns the field alignment, assuming the struct is not packed.
-        pub fn normalAlignment(field: Field, target: Target) u32 {
-            if (field.abi_align == 0) {
-                return field.ty.abiAlignment(target);
-            } else {
+        /// Returns the field alignment. If the struct is packed, returns 0.
+        pub fn alignment(
+            field: Field,
+            target: Target,
+            layout: std.builtin.Type.ContainerLayout,
+        ) u32 {
+            if (field.abi_align != 0) {
+                assert(layout != .Packed);
                 return field.abi_align;
             }
+
+            switch (layout) {
+                .Packed => return 0,
+                .Auto => {
+                    if (target.ofmt == .c) {
+                        return alignmentExtern(field, target);
+                    } else {
+                        return field.ty.abiAlignment(target);
+                    }
+                },
+                .Extern => return alignmentExtern(field, target),
+            }
+        }
+
+        pub fn alignmentExtern(field: Field, target: Target) u32 {
+            // This logic is duplicated in Type.abiAlignmentAdvanced.
+            const ty_abi_align = field.ty.abiAlignment(target);
+
+            if (field.ty.isAbiInt() and field.ty.intInfo(target).bits >= 128) {
+                // The C ABI requires 128 bit integer fields of structs
+                // to be 16-bytes aligned.
+                return @maximum(ty_abi_align, 16);
+            }
+
+            return ty_abi_align;
         }
     };
 
@@ -953,7 +984,7 @@ pub const Struct = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = LazySrcLoc.nodeOffset(s.node_offset),
+            .lazy = LazySrcLoc.nodeOffset(0),
         };
     }
 
@@ -968,7 +999,7 @@ pub const Struct = struct {
             });
             return s.srcLoc(mod);
         };
-        const node = owner_decl.relativeToNodeIndex(s.node_offset);
+        const node = owner_decl.relativeToNodeIndex(0);
         const node_tags = tree.nodes.items(.tag);
         switch (node_tags[node]) {
             .container_decl,
@@ -1029,7 +1060,7 @@ pub const Struct = struct {
 
     pub fn packedFieldBitOffset(s: Struct, target: Target, index: usize) u16 {
         assert(s.layout == .Packed);
-        assert(s.haveFieldTypes());
+        assert(s.haveLayout());
         var bit_sum: u64 = 0;
         for (s.fields.values()) |field, i| {
             if (i == index) {
@@ -1037,19 +1068,7 @@ pub const Struct = struct {
             }
             bit_sum += field.ty.bitSize(target);
         }
-        return @intCast(u16, bit_sum);
-    }
-
-    pub fn packedIntegerBits(s: Struct, target: Target) u16 {
-        return s.packedFieldBitOffset(target, s.fields.count());
-    }
-
-    pub fn packedIntegerType(s: Struct, target: Target, buf: *Type.Payload.Bits) Type {
-        buf.* = .{
-            .base = .{ .tag = .int_unsigned },
-            .data = s.packedIntegerBits(target),
-        };
-        return Type.initPayload(&buf.base);
+        unreachable; // index out of bounds
     }
 };
 
@@ -1060,8 +1079,6 @@ pub const Struct = struct {
 pub const EnumSimple = struct {
     /// The Decl that corresponds to the enum itself.
     owner_decl: Decl.Index,
-    /// Offset from `owner_decl`, points to the enum decl AST node.
-    node_offset: i32,
     /// Set of field names in declaration order.
     fields: NameMap,
 
@@ -1072,7 +1089,7 @@ pub const EnumSimple = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = LazySrcLoc.nodeOffset(self.node_offset),
+            .lazy = LazySrcLoc.nodeOffset(0),
         };
     }
 };
@@ -1083,8 +1100,6 @@ pub const EnumSimple = struct {
 pub const EnumNumbered = struct {
     /// The Decl that corresponds to the enum itself.
     owner_decl: Decl.Index,
-    /// Offset from `owner_decl`, points to the enum decl AST node.
-    node_offset: i32,
     /// An integer type which is used for the numerical value of the enum.
     /// Whether zig chooses this type or the user specifies it, it is stored here.
     tag_ty: Type,
@@ -1103,7 +1118,7 @@ pub const EnumNumbered = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = LazySrcLoc.nodeOffset(self.node_offset),
+            .lazy = LazySrcLoc.nodeOffset(0),
         };
     }
 };
@@ -1113,8 +1128,6 @@ pub const EnumNumbered = struct {
 pub const EnumFull = struct {
     /// The Decl that corresponds to the enum itself.
     owner_decl: Decl.Index,
-    /// Offset from `owner_decl`, points to the enum decl AST node.
-    node_offset: i32,
     /// An integer type which is used for the numerical value of the enum.
     /// Whether zig chooses this type or the user specifies it, it is stored here.
     tag_ty: Type,
@@ -1137,7 +1150,7 @@ pub const EnumFull = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = LazySrcLoc.nodeOffset(self.node_offset),
+            .lazy = LazySrcLoc.nodeOffset(0),
         };
     }
 };
@@ -1155,8 +1168,6 @@ pub const Union = struct {
     namespace: Namespace,
     /// The Decl that corresponds to the union itself.
     owner_decl: Decl.Index,
-    /// Offset from `owner_decl`, points to the union decl AST node.
-    node_offset: i32,
     /// Index of the union_decl ZIR instruction.
     zir_index: Zir.Inst.Index,
 
@@ -1203,7 +1214,7 @@ pub const Union = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = LazySrcLoc.nodeOffset(self.node_offset),
+            .lazy = LazySrcLoc.nodeOffset(0),
         };
     }
 
@@ -1218,7 +1229,7 @@ pub const Union = struct {
             });
             return u.srcLoc(mod);
         };
-        const node = owner_decl.relativeToNodeIndex(u.node_offset);
+        const node = owner_decl.relativeToNodeIndex(0);
         const node_tags = tree.nodes.items(.tag);
         var buf: [2]Ast.Node.Index = undefined;
         switch (node_tags[node]) {
@@ -1357,18 +1368,20 @@ pub const Union = struct {
             }
         }
         payload_align = @maximum(payload_align, 1);
-        if (!have_tag or fields.len <= 1) return .{
-            .abi_size = std.mem.alignForwardGeneric(u64, payload_size, payload_align),
-            .abi_align = payload_align,
-            .most_aligned_field = most_aligned_field,
-            .most_aligned_field_size = most_aligned_field_size,
-            .biggest_field = biggest_field,
-            .payload_size = payload_size,
-            .payload_align = payload_align,
-            .tag_align = 0,
-            .tag_size = 0,
-            .padding = 0,
-        };
+        if (!have_tag or !u.tag_ty.hasRuntimeBits()) {
+            return .{
+                .abi_size = std.mem.alignForwardGeneric(u64, payload_size, payload_align),
+                .abi_align = payload_align,
+                .most_aligned_field = most_aligned_field,
+                .most_aligned_field_size = most_aligned_field_size,
+                .biggest_field = biggest_field,
+                .payload_size = payload_size,
+                .payload_align = payload_align,
+                .tag_align = 0,
+                .tag_size = 0,
+                .padding = 0,
+            };
+        }
         // Put the tag before or after the payload depending on which one's
         // alignment is greater.
         const tag_size = u.tag_ty.abiSize(target);
@@ -1410,8 +1423,6 @@ pub const Union = struct {
 pub const Opaque = struct {
     /// The Decl that corresponds to the opaque itself.
     owner_decl: Decl.Index,
-    /// Offset from `owner_decl`, points to the opaque decl AST node.
-    node_offset: i32,
     /// Represents the declarations inside this opaque.
     namespace: Namespace,
 
@@ -1420,7 +1431,7 @@ pub const Opaque = struct {
         return .{
             .file_scope = owner_decl.getFileScope(),
             .parent_decl_node = owner_decl.src_node,
-            .lazy = LazySrcLoc.nodeOffset(self.node_offset),
+            .lazy = LazySrcLoc.nodeOffset(0),
         };
     }
 
@@ -1464,25 +1475,14 @@ pub const Fn = struct {
     /// These never have .generic_poison for the Type
     /// because the Type is needed to pass to `Type.eql` and for inserting comptime arguments
     /// into the inst_map when analyzing the body of a generic function instantiation.
-    /// Instead, the is_anytype knowledge is communicated via `anytype_args`.
+    /// Instead, the is_anytype knowledge is communicated via `isAnytypeParam`.
     comptime_args: ?[*]TypedValue,
-    /// When comptime_args is null, this is undefined. Otherwise, this flags each
-    /// parameter and tells whether it is anytype.
-    /// TODO apply the same enhancement for param_names below to this field.
-    anytype_args: [*]bool,
-
-    /// Prefer to use `getParamName` to access this because of the future improvement
-    /// we want to do mentioned in the TODO below.
-    /// Stored in gpa.
-    /// TODO: change param ZIR instructions to be embedded inside the function
-    /// ZIR instruction instead of before it, so that `zir_body_inst` can be used to
-    /// determine param names rather than redundantly storing them here.
-    param_names: []const [:0]const u8,
 
     /// Precomputed hash for monomorphed_funcs.
     /// This is important because it may be accessed when resizing monomorphed_funcs
     /// while this Fn has already been added to the set, but does not have the
     /// owner_decl, comptime_args, or other fields populated yet.
+    /// This field is undefined if comptime_args == null.
     hash: u64,
 
     /// Relative to owner Decl.
@@ -1590,18 +1590,43 @@ pub const Fn = struct {
             gpa.destroy(node);
             it = next;
         }
-
-        for (func.param_names) |param_name| {
-            gpa.free(param_name);
-        }
-        gpa.free(func.param_names);
     }
 
-    pub fn getParamName(func: Fn, index: u32) [:0]const u8 {
-        // TODO rework ZIR of parameters so that this function looks up
-        // param names in ZIR instead of redundantly saving them into Fn.
-        // const zir = func.owner_decl.getFileScope().zir;
-        return func.param_names[index];
+    pub fn isAnytypeParam(func: Fn, mod: *Module, index: u32) bool {
+        const file = mod.declPtr(func.owner_decl).getFileScope();
+
+        const tags = file.zir.instructions.items(.tag);
+
+        const param_body = file.zir.getParamBody(func.zir_body_inst);
+        const param = param_body[index];
+
+        return switch (tags[param]) {
+            .param, .param_comptime => false,
+            .param_anytype, .param_anytype_comptime => true,
+            else => unreachable,
+        };
+    }
+
+    pub fn getParamName(func: Fn, mod: *Module, index: u32) [:0]const u8 {
+        const file = mod.declPtr(func.owner_decl).getFileScope();
+
+        const tags = file.zir.instructions.items(.tag);
+        const data = file.zir.instructions.items(.data);
+
+        const param_body = file.zir.getParamBody(func.zir_body_inst);
+        const param = param_body[index];
+
+        return switch (tags[param]) {
+            .param, .param_comptime => blk: {
+                const extra = file.zir.extraData(Zir.Inst.Param, data[param].pl_tok.payload_index);
+                break :blk file.zir.nullTerminatedString(extra.data.name);
+            },
+            .param_anytype, .param_anytype_comptime => blk: {
+                const param_data = data[param].str_tok;
+                break :blk param_data.get(file.zir);
+            },
+            else => unreachable,
+        };
     }
 
     pub fn hasInferredErrorSet(func: Fn, mod: *Module) bool {
@@ -4102,6 +4127,12 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
             // The exports this Decl performs will be re-discovered, so we remove them here
             // prior to re-analysis.
             mod.deleteDeclExports(decl_index);
+
+            // Similarly, `@setAlignStack` invocations will be re-discovered.
+            if (decl.getFunction()) |func| {
+                _ = mod.align_stack_fns.remove(func);
+            }
+
             // Dependencies will be re-discovered, so we remove them here prior to re-analysis.
             for (decl.dependencies.keys()) |dep_index| {
                 const dep = mod.declPtr(dep_index);
@@ -4324,7 +4355,6 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     struct_obj.* = .{
         .owner_decl = undefined, // set below
         .fields = .{},
-        .node_offset = 0, // it's the struct for the root file
         .zir_index = undefined, // set below
         .layout = .Auto,
         .status = .none,
@@ -6047,17 +6077,17 @@ pub fn paramSrc(
         else => unreachable,
     };
     var it = full.iterate(tree);
-    while (true) {
-        if (it.param_i == param_i) {
-            const param = it.next().?;
+    var i: usize = 0;
+    while (it.next()) |param| : (i += 1) {
+        if (i == param_i) {
             if (param.anytype_ellipsis3) |some| {
                 const main_token = tree.nodes.items(.main_token)[decl.src_node];
                 return .{ .token_offset_param = @bitCast(i32, some) - @bitCast(i32, main_token) };
             }
             return .{ .node_offset_param = decl.nodeIndexToRelative(param.type_expr) };
         }
-        _ = it.next();
     }
+    unreachable;
 }
 
 pub fn argSrc(
@@ -6503,4 +6533,8 @@ pub fn addGlobalAssembly(mod: *Module, decl_index: Decl.Index, source: []const u
     errdefer mod.gpa.free(duped_source);
 
     mod.global_assembly.putAssumeCapacityNoClobber(decl_index, duped_source);
+}
+
+pub fn wantDllExports(mod: Module) bool {
+    return mod.comp.bin_file.options.dll_export_fns and mod.getTarget().os.tag == .windows;
 }

@@ -9,6 +9,7 @@ const Package = @import("Package.zig");
 const Zir = @import("Zir.zig");
 const Ref = Zir.Inst.Ref;
 const log = std.log.scoped(.autodoc);
+const Docgen = @import("autodoc/render_source.zig");
 
 module: *Module,
 doc_location: Compilation.EmitLoc,
@@ -67,6 +68,8 @@ pub fn generateZirData(self: *Autodoc) !void {
             log.debug("path: {s}", .{path});
         }
     }
+
+    log.debug("Ref map size: {}", .{Ref.typed_value_map.len});
 
     const root_src_dir = self.module.main_pkg.root_src_directory;
     const root_src_path = self.module.main_pkg.root_src_path;
@@ -158,6 +161,9 @@ pub fn generateZirData(self: *Autodoc) !void {
                     .void_type => .{
                         .Void = .{ .name = tmpbuf.toOwnedSlice() },
                     },
+                    .type_info_type => .{
+                        .ComptimeExpr = .{ .name = tmpbuf.toOwnedSlice() },
+                    },
                     .type_type => .{
                         .Type = .{ .name = tmpbuf.toOwnedSlice() },
                     },
@@ -189,10 +195,14 @@ pub fn generateZirData(self: *Autodoc) !void {
         );
     }
 
-    var root_scope = Scope{ .parent = null, .enclosing_type = main_type_index };
+    var root_scope = Scope{
+        .parent = null,
+        .enclosing_type = main_type_index,
+    };
+
     try self.ast_nodes.append(self.arena, .{ .name = "(root)" });
     try self.files.put(self.arena, file, main_type_index);
-    _ = try self.walkInstruction(file, &root_scope, Zir.main_struct_inst, false);
+    _ = try self.walkInstruction(file, &root_scope, 1, Zir.main_struct_inst, false);
 
     if (self.ref_paths_pending_on_decls.count() > 0) {
         @panic("some decl paths were never fully analized (pending on decls)");
@@ -242,6 +252,7 @@ pub fn generateZirData(self: *Autodoc) !void {
         try d.handle.openDir(self.doc_location.basename, .{})
     else
         try self.module.zig_cache_artifact_directory.handle.openDir(self.doc_location.basename, .{});
+
     {
         const data_js_f = try output_dir.createFile("data.js", .{});
         defer data_js_f.close();
@@ -266,11 +277,54 @@ pub fn generateZirData(self: *Autodoc) !void {
         try buffer.flush();
     }
 
+    {
+        output_dir.makeDir("src") catch |e| switch (e) {
+            error.PathAlreadyExists => {},
+            else => |err| return err,
+        };
+        const html_dir = try output_dir.openDir("src", .{});
+
+        var files_iterator = self.files.iterator();
+
+        while (files_iterator.next()) |entry| {
+            const new_html_path = entry.key_ptr.*.sub_file_path;
+
+            const html_file = try createFromPath(html_dir, new_html_path);
+            defer html_file.close();
+            var buffer = std.io.bufferedWriter(html_file.writer());
+
+            const out = buffer.writer();
+
+            try Docgen.genHtml(self.module.gpa, entry.key_ptr.*, out);
+            try buffer.flush();
+        }
+    }
+
     // copy main.js, index.html
     var docs_dir = try self.module.comp.zig_lib_directory.handle.openDir("docs", .{});
     defer docs_dir.close();
     try docs_dir.copyFile("main.js", output_dir, "main.js", .{});
     try docs_dir.copyFile("index.html", output_dir, "index.html", .{});
+}
+
+fn createFromPath(base_dir: std.fs.Dir, path: []const u8) !std.fs.File {
+    var path_tokens = std.mem.tokenize(u8, path, std.fs.path.sep_str);
+    var dir = base_dir;
+    while (path_tokens.next()) |toc| {
+        if (path_tokens.peek() != null) {
+            dir.makeDir(toc) catch |e| switch (e) {
+                error.PathAlreadyExists => {},
+                else => |err| return err,
+            };
+            dir = try dir.openDir(toc, .{});
+        } else {
+            return dir.createFile(toc, .{}) catch |e| switch (e) {
+                error.PathAlreadyExists => try dir.openFile(toc, .{}),
+                else => |err| return err,
+            };
+        }
+    }
+    return error.EmptyPath;
 }
 
 /// Represents a chain of scopes, used to resolve decl references to the
@@ -563,6 +617,7 @@ const DocData = struct {
         type: usize, // index in `types`
         this: usize, // index in `types`
         declRef: usize, // index in `decls`
+        builtinField: enum { len, ptr },
         fieldRef: FieldRef,
         refPath: []Expr,
         int: struct {
@@ -587,7 +642,7 @@ const DocData = struct {
         sizeOf: usize, // index in `exprs`
         bitSizeOf: usize, // index in `exprs`
         enumToInt: usize, // index in `exprs`
-        compileError: []const u8,
+        compileError: usize, //index in `exprs`
         errorSets: usize,
         string: []const u8, // direct value
         sliceIndex: usize,
@@ -652,20 +707,26 @@ const DocData = struct {
             var jsw = std.json.writeStream(w, 15);
             try jsw.beginObject();
             try jsw.objectField(@tagName(active_tag));
-            inline for (comptime std.meta.fields(Expr)) |case| {
-                if (@field(Expr, case.name) == active_tag) {
-                    switch (active_tag) {
-                        .int => {
-                            if (self.int.negated) try w.writeAll("-");
-                            try jsw.emitNumber(self.int.value);
-                        },
-                        .int_big => {
+            switch (self) {
+                .int => {
+                    if (self.int.negated) try w.writeAll("-");
+                    try jsw.emitNumber(self.int.value);
+                },
+                .int_big => {
 
-                            //@panic("TODO: json serialization of big ints!");
-                            //if (v.negated) try w.writeAll("-");
-                            //try jsw.emitNumber(v.value);
-                        },
-                        else => {
+                    //@panic("TODO: json serialization of big ints!");
+                    //if (v.negated) try w.writeAll("-");
+                    //try jsw.emitNumber(v.value);
+                },
+                .builtinField => {
+                    try jsw.emitString(@tagName(self.builtinField));
+                },
+                else => {
+                    inline for (comptime std.meta.fields(Expr)) |case| {
+                        // TODO: this is super ugly, fix once `inline else` is a thing
+                        if (comptime std.mem.eql(u8, case.name, "builtinField"))
+                            continue;
+                        if (@field(Expr, case.name) == active_tag) {
                             try std.json.stringify(@field(self, case.name), opt, w);
                             jsw.state_index -= 1;
                             // TODO: we should not reach into the state of the
@@ -674,9 +735,9 @@ const DocData = struct {
                             //       would be nice to have a proper integration
                             //       between the json writer and the generic
                             //       std.json.stringify implementation
-                        },
+                        }
                     }
-                }
+                },
             }
             try jsw.endObject();
         }
@@ -712,6 +773,7 @@ fn walkInstruction(
     self: *Autodoc,
     file: *File,
     parent_scope: *Scope,
+    parent_line: usize,
     inst_index: usize,
     need_type: bool, // true if the caller needs us to provide also a typeRef
 ) AutodocErrors!DocData.WalkResult {
@@ -794,12 +856,16 @@ fn walkInstruction(
 
                 const new_file = self.module.import_table.get(abs_root_src_path).?;
 
-                var root_scope = Scope{ .parent = null, .enclosing_type = main_type_index };
+                var root_scope = Scope{
+                    .parent = null,
+                    .enclosing_type = main_type_index,
+                };
                 try self.ast_nodes.append(self.arena, .{ .name = "(root)" });
                 try self.files.put(self.arena, new_file, main_type_index);
                 return self.walkInstruction(
                     new_file,
                     &root_scope,
+                    1,
                     Zir.main_struct_inst,
                     false,
                 );
@@ -824,13 +890,14 @@ fn walkInstruction(
             return self.walkInstruction(
                 new_file.file,
                 &new_scope,
+                1,
                 Zir.main_struct_inst,
                 need_type,
             );
         },
         .ret_node => {
             const un_node = data[inst_index].un_node;
-            return self.walkRef(file, parent_scope, un_node.operand, false);
+            return self.walkRef(file, parent_scope, parent_line, un_node.operand, false);
         },
         .ret_load => {
             const un_node = data[inst_index].un_node;
@@ -861,7 +928,7 @@ fn walkInstruction(
             }
 
             if (result_ref) |rr| {
-                return self.walkRef(file, parent_scope, rr, need_type);
+                return self.walkRef(file, parent_scope, parent_line, rr, need_type);
             }
 
             return DocData.WalkResult{
@@ -870,11 +937,11 @@ fn walkInstruction(
         },
         .closure_get => {
             const inst_node = data[inst_index].inst_node;
-            return try self.walkInstruction(file, parent_scope, inst_node.inst, need_type);
+            return try self.walkInstruction(file, parent_scope, parent_line, inst_node.inst, need_type);
         },
         .closure_capture => {
             const un_tok = data[inst_index].un_tok;
-            return try self.walkRef(file, parent_scope, un_tok.operand, need_type);
+            return try self.walkRef(file, parent_scope, parent_line, un_tok.operand, need_type);
         },
         .cmpxchg_strong, .cmpxchg_weak => {
             const pl_node = data[inst_index].pl_node;
@@ -889,6 +956,7 @@ fn walkInstruction(
             var ptr: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 extra.data.ptr,
                 false,
             );
@@ -898,6 +966,7 @@ fn walkInstruction(
             var expected_value: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 extra.data.expected_value,
                 false,
             );
@@ -907,6 +976,7 @@ fn walkInstruction(
             var new_value: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 extra.data.new_value,
                 false,
             );
@@ -916,6 +986,7 @@ fn walkInstruction(
             var success_order: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 extra.data.success_order,
                 false,
             );
@@ -925,6 +996,7 @@ fn walkInstruction(
             var failure_order: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 extra.data.failure_order,
                 false,
             );
@@ -978,17 +1050,16 @@ fn walkInstruction(
             var operand: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 un_node.operand,
                 false,
             );
 
+            const operand_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, operand.expr);
+
             return DocData.WalkResult{
-                .expr = .{
-                    .compileError = switch (operand.expr) {
-                        .string => |s| s,
-                        else => "TODO: non-string @compileError arguments",
-                    },
-                },
+                .expr = .{ .compileError = operand_index },
             };
         },
         .enum_literal => {
@@ -1034,12 +1105,14 @@ fn walkInstruction(
             var lhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 extra.data.lhs,
                 false,
             );
             var start: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 extra.data.start,
                 false,
             );
@@ -1065,18 +1138,21 @@ fn walkInstruction(
             var lhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 extra.data.lhs,
                 false,
             );
             var start: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 extra.data.start,
                 false,
             );
             var end: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 extra.data.end,
                 false,
             );
@@ -1104,24 +1180,28 @@ fn walkInstruction(
             var lhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 extra.data.lhs,
                 false,
             );
             var start: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 extra.data.start,
                 false,
             );
             var end: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 extra.data.end,
                 false,
             );
             var sentinel: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 extra.data.sentinel,
                 false,
             );
@@ -1171,12 +1251,14 @@ fn walkInstruction(
             var lhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 extra.data.lhs,
                 false,
             );
             var rhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 extra.data.rhs,
                 false,
             );
@@ -1220,7 +1302,6 @@ fn walkInstruction(
         .trunc,
         .round,
         .tag_name,
-        .reify,
         .type_name,
         .frame_type,
         .frame_size,
@@ -1238,7 +1319,7 @@ fn walkInstruction(
             const un_node = data[inst_index].un_node;
             const bin_index = self.exprs.items.len;
             try self.exprs.append(self.arena, .{ .builtin = .{ .param = 0 } });
-            const param = try self.walkRef(file, parent_scope, un_node.operand, false);
+            const param = try self.walkRef(file, parent_scope, parent_line, un_node.operand, false);
 
             const param_index = self.exprs.items.len;
             try self.exprs.append(self.arena, param.expr);
@@ -1287,12 +1368,14 @@ fn walkInstruction(
             var lhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 extra.data.lhs,
                 false,
             );
             var rhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 extra.data.rhs,
                 false,
             );
@@ -1315,12 +1398,14 @@ fn walkInstruction(
             var lhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 extra.data.lhs,
                 false,
             );
             var rhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 extra.data.rhs,
                 false,
             );
@@ -1343,12 +1428,14 @@ fn walkInstruction(
             var lhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 extra.data.lhs,
                 false,
             );
             var rhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 extra.data.rhs,
                 false,
             );
@@ -1368,7 +1455,7 @@ fn walkInstruction(
 
         //     var operand: DocData.WalkResult = try self.walkRef(
         //         file,
-        //         parent_scope,
+        //         parent_scope, parent_line,
         //         un_node.operand,
         //         false,
         //     );
@@ -1377,7 +1464,7 @@ fn walkInstruction(
         // },
         .overflow_arithmetic_ptr => {
             const un_node = data[inst_index].un_node;
-            const elem_type_ref = try self.walkRef(file, parent_scope, un_node.operand, false);
+            const elem_type_ref = try self.walkRef(file, parent_scope, parent_line, un_node.operand, false);
             const type_slot_index = self.types.items.len;
             try self.types.append(self.arena, .{
                 .Pointer = .{
@@ -1402,6 +1489,7 @@ fn walkInstruction(
             const elem_type_ref = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 extra.data.elem_type,
                 false,
             );
@@ -1411,7 +1499,7 @@ fn walkInstruction(
             var sentinel: ?DocData.Expr = null;
             if (ptr.flags.has_sentinel) {
                 const ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
-                const ref_result = try self.walkRef(file, parent_scope, ref, false);
+                const ref_result = try self.walkRef(file, parent_scope, parent_line, ref, false);
                 sentinel = ref_result.expr;
                 extra_index += 1;
             }
@@ -1419,21 +1507,21 @@ fn walkInstruction(
             var @"align": ?DocData.Expr = null;
             if (ptr.flags.has_align) {
                 const ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
-                const ref_result = try self.walkRef(file, parent_scope, ref, false);
+                const ref_result = try self.walkRef(file, parent_scope, parent_line, ref, false);
                 @"align" = ref_result.expr;
                 extra_index += 1;
             }
             var address_space: ?DocData.Expr = null;
             if (ptr.flags.has_addrspace) {
                 const ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
-                const ref_result = try self.walkRef(file, parent_scope, ref, false);
+                const ref_result = try self.walkRef(file, parent_scope, parent_line, ref, false);
                 address_space = ref_result.expr;
                 extra_index += 1;
             }
             var bit_start: ?DocData.Expr = null;
             if (ptr.flags.has_bit_range) {
                 const ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
-                const ref_result = try self.walkRef(file, parent_scope, ref, false);
+                const ref_result = try self.walkRef(file, parent_scope, parent_line, ref, false);
                 address_space = ref_result.expr;
                 extra_index += 1;
             }
@@ -1441,7 +1529,7 @@ fn walkInstruction(
             var host_size: ?DocData.Expr = null;
             if (ptr.flags.has_bit_range) {
                 const ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
-                const ref_result = try self.walkRef(file, parent_scope, ref, false);
+                const ref_result = try self.walkRef(file, parent_scope, parent_line, ref, false);
                 host_size = ref_result.expr;
             }
 
@@ -1471,8 +1559,8 @@ fn walkInstruction(
         .array_type => {
             const pl_node = data[inst_index].pl_node;
             const bin = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index).data;
-            const len = try self.walkRef(file, parent_scope, bin.lhs, false);
-            const child = try self.walkRef(file, parent_scope, bin.rhs, false);
+            const len = try self.walkRef(file, parent_scope, parent_line, bin.lhs, false);
+            const child = try self.walkRef(file, parent_scope, parent_line, bin.rhs, false);
 
             const type_slot_index = self.types.items.len;
             try self.types.append(self.arena, .{
@@ -1490,9 +1578,9 @@ fn walkInstruction(
         .array_type_sentinel => {
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.ArrayTypeSentinel, pl_node.payload_index);
-            const len = try self.walkRef(file, parent_scope, extra.data.len, false);
-            const sentinel = try self.walkRef(file, parent_scope, extra.data.sentinel, false);
-            const elem_type = try self.walkRef(file, parent_scope, extra.data.elem_type, false);
+            const len = try self.walkRef(file, parent_scope, parent_line, extra.data.len, false);
+            const sentinel = try self.walkRef(file, parent_scope, parent_line, extra.data.sentinel, false);
+            const elem_type = try self.walkRef(file, parent_scope, parent_line, extra.data.elem_type, false);
 
             const type_slot_index = self.types.items.len;
             try self.types.append(self.arena, .{
@@ -1514,10 +1602,10 @@ fn walkInstruction(
             const array_data = try self.arena.alloc(usize, operands.len - 1);
 
             std.debug.assert(operands.len > 0);
-            var array_type = try self.walkRef(file, parent_scope, operands[0], false);
+            var array_type = try self.walkRef(file, parent_scope, parent_line, operands[0], false);
 
             for (operands[1..]) |op, idx| {
-                const wr = try self.walkRef(file, parent_scope, op, false);
+                const wr = try self.walkRef(file, parent_scope, parent_line, op, false);
                 const expr_index = self.exprs.items.len;
                 try self.exprs.append(self.arena, wr.expr);
                 array_data[idx] = expr_index;
@@ -1535,7 +1623,7 @@ fn walkInstruction(
             const array_data = try self.arena.alloc(usize, operands.len);
 
             for (operands) |op, idx| {
-                const wr = try self.walkRef(file, parent_scope, op, false);
+                const wr = try self.walkRef(file, parent_scope, parent_line, op, false);
                 const expr_index = self.exprs.items.len;
                 try self.exprs.append(self.arena, wr.expr);
                 array_data[idx] = expr_index;
@@ -1553,10 +1641,10 @@ fn walkInstruction(
             const array_data = try self.arena.alloc(usize, operands.len - 1);
 
             std.debug.assert(operands.len > 0);
-            var array_type = try self.walkRef(file, parent_scope, operands[0], false);
+            var array_type = try self.walkRef(file, parent_scope, parent_line, operands[0], false);
 
             for (operands[1..]) |op, idx| {
-                const wr = try self.walkRef(file, parent_scope, op, false);
+                const wr = try self.walkRef(file, parent_scope, parent_line, op, false);
                 const expr_index = self.exprs.items.len;
                 try self.exprs.append(self.arena, wr.expr);
                 array_data[idx] = expr_index;
@@ -1585,7 +1673,7 @@ fn walkInstruction(
             const array_data = try self.arena.alloc(usize, operands.len);
 
             for (operands) |op, idx| {
-                const wr = try self.walkRef(file, parent_scope, op, false);
+                const wr = try self.walkRef(file, parent_scope, parent_line, op, false);
                 const expr_index = self.exprs.items.len;
                 try self.exprs.append(self.arena, wr.expr);
                 array_data[idx] = expr_index;
@@ -1620,6 +1708,7 @@ fn walkInstruction(
             var operand: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 un_node.operand,
                 need_type,
             );
@@ -1641,6 +1730,7 @@ fn walkInstruction(
             const operand = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 un_node.operand,
                 false,
             );
@@ -1657,6 +1747,7 @@ fn walkInstruction(
             const operand = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 un_node.operand,
                 need_type,
             );
@@ -1674,6 +1765,7 @@ fn walkInstruction(
             const operand = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 un_node.operand,
                 false,
             );
@@ -1690,7 +1782,7 @@ fn walkInstruction(
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.SwitchBlock, pl_node.payload_index);
             const cond_index = self.exprs.items.len;
-            _ = try self.walkRef(file, parent_scope, extra.data.operand, false);
+            _ = try self.walkRef(file, parent_scope, parent_line, extra.data.operand, false);
 
             const ast_index = self.ast_nodes.items.len;
             const type_index = self.types.items.len - 1;
@@ -1718,6 +1810,7 @@ fn walkInstruction(
             const operand = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 un_node.operand,
                 need_type,
             );
@@ -1743,6 +1836,7 @@ fn walkInstruction(
             const operand = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 un_node.operand,
                 need_type,
             );
@@ -1762,6 +1856,7 @@ fn walkInstruction(
             var operand: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 data[body].@"break".operand,
                 false,
             );
@@ -1780,6 +1875,7 @@ fn walkInstruction(
             const operand = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 un_node.operand,
                 need_type,
             );
@@ -1798,6 +1894,7 @@ fn walkInstruction(
             const dest_type_walk = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 extra.data.dest_type,
                 false,
             );
@@ -1805,6 +1902,7 @@ fn walkInstruction(
             const operand = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 extra.data.operand,
                 false,
             );
@@ -1832,6 +1930,7 @@ fn walkInstruction(
             const operand: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 un_node.operand,
                 false,
             );
@@ -1863,31 +1962,60 @@ fn walkInstruction(
             const extra = file.zir.extraData(Zir.Inst.Field, pl_node.payload_index);
 
             var path: std.ArrayListUnmanaged(DocData.Expr) = .{};
-            var lhs = @enumToInt(extra.data.lhs) - Ref.typed_value_map.len; // underflow = need to handle Refs
-
             try path.append(self.arena, .{
                 .string = file.zir.nullTerminatedString(extra.data.field_name_start),
             });
+
             // Put inside path the starting index of each decl name that
-            // we encounter as we navigate through all the field_vals
-            while (tags[lhs] == .field_val or
-                tags[lhs] == .field_call_bind or
-                tags[lhs] == .field_ptr or
-                tags[lhs] == .field_type)
-            {
-                const lhs_extra = file.zir.extraData(
-                    Zir.Inst.Field,
-                    data[lhs].pl_node.payload_index,
-                );
+            // we encounter as we navigate through all the field_*s
+            const lhs_ref = blk: {
+                var lhs_extra = extra;
+                while (true) {
+                    if (@enumToInt(lhs_extra.data.lhs) < Ref.typed_value_map.len) {
+                        break :blk lhs_extra.data.lhs;
+                    }
 
-                try path.append(self.arena, .{
-                    .string = file.zir.nullTerminatedString(lhs_extra.data.field_name_start),
-                });
-                lhs = @enumToInt(lhs_extra.data.lhs) - Ref.typed_value_map.len; // underflow = need to handle Refs
-            }
+                    const lhs = @enumToInt(lhs_extra.data.lhs) - Ref.typed_value_map.len;
+                    if (tags[lhs] != .field_val and
+                        tags[lhs] != .field_call_bind and
+                        tags[lhs] != .field_ptr and
+                        tags[lhs] != .field_type) break :blk lhs_extra.data.lhs;
 
+                    lhs_extra = file.zir.extraData(
+                        Zir.Inst.Field,
+                        data[lhs].pl_node.payload_index,
+                    );
+
+                    try path.append(self.arena, .{
+                        .string = file.zir.nullTerminatedString(lhs_extra.data.field_name_start),
+                    });
+                }
+            };
+
+            // If the lhs is a `call` instruction, it means that we're inside
+            // a function call and we're referring to one of its arguments.
+            // We can't just blindly analyze the instruction or we will
+            // start recursing forever.
+            // TODO: add proper resolution of the container type for `calls`
+            // TODO: we're like testing lhs as an instruction twice
+            //       (above and below) this todo, maybe a cleaer solution woul
+            //       avoid that.
             // TODO: double check that we really don't need type info here
-            const wr = try self.walkInstruction(file, parent_scope, lhs, false);
+
+            const wr = blk: {
+                if (@enumToInt(lhs_ref) >= Ref.typed_value_map.len) {
+                    const lhs_inst = @enumToInt(lhs_ref) - Ref.typed_value_map.len;
+                    if (tags[lhs_inst] == .call) {
+                        break :blk DocData.WalkResult{
+                            .expr = .{
+                                .comptimeExpr = 0,
+                            },
+                        };
+                    }
+                }
+
+                break :blk try self.walkRef(file, parent_scope, parent_line, lhs_ref, false);
+            };
             try path.append(self.arena, wr.expr);
 
             // This way the data in `path` has the same ordering that the ref
@@ -1906,7 +2034,7 @@ fn walkInstruction(
             // - (2) Paths can sometimes never resolve fully. This means that
             //       any value that depends on that will have to become a
             //       comptimeExpr.
-            try self.tryResolveRefPath(file, lhs, path.items);
+            try self.tryResolveRefPath(file, inst_index, path.items);
             return DocData.WalkResult{ .expr = .{ .refPath = path.items } };
         },
         .int_type => {
@@ -1937,6 +2065,7 @@ fn walkInstruction(
             return self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 getBlockInlineBreak(file.zir, inst_index),
                 need_type,
             );
@@ -1969,6 +2098,7 @@ fn walkInstruction(
                         const wr = try self.walkRef(
                             file,
                             parent_scope,
+                            parent_line,
                             field_extra.data.container_type,
                             false,
                         );
@@ -1979,6 +2109,7 @@ fn walkInstruction(
                 const value = try self.walkRef(
                     file,
                     parent_scope,
+                    parent_line,
                     init_extra.data.init,
                     need_type,
                 );
@@ -1995,6 +2126,7 @@ fn walkInstruction(
             var operand: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
+                parent_line,
                 un_node.operand,
                 false,
             );
@@ -2010,6 +2142,34 @@ fn walkInstruction(
                 .{@tagName(tags[inst_index])},
             );
             return self.cteTodo(@tagName(tags[inst_index]));
+        },
+        .struct_init_anon => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.StructInitAnon, pl_node.payload_index);
+
+            const field_vals = try self.arena.alloc(
+                DocData.Expr.FieldVal,
+                extra.data.fields_len,
+            );
+
+            var idx = extra.end;
+            for (field_vals) |*fv| {
+                const init_extra = file.zir.extraData(Zir.Inst.StructInitAnon.Item, idx);
+                const field_name = file.zir.nullTerminatedString(init_extra.data.field_name);
+                const value = try self.walkRef(
+                    file,
+                    parent_scope,
+                    parent_line,
+                    init_extra.data.init,
+                    need_type,
+                );
+                fv.* = .{ .name = field_name, .val = value };
+                idx = init_extra.end;
+            }
+
+            return DocData.WalkResult{
+                .expr = .{ .@"struct" = field_vals },
+            };
         },
         .error_set_decl => {
             const pl_node = data[inst_index].pl_node;
@@ -2075,18 +2235,23 @@ fn walkInstruction(
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Call, pl_node.payload_index);
 
-            const callee = try self.walkRef(file, parent_scope, extra.data.callee, need_type);
+            const callee = try self.walkRef(file, parent_scope, parent_line, extra.data.callee, need_type);
 
             const args_len = extra.data.flags.args_len;
             var args = try self.arena.alloc(DocData.Expr, args_len);
-            const arg_refs = file.zir.refSlice(extra.end, args_len);
-            for (arg_refs) |ref, idx| {
+            const body = file.zir.extra[extra.end..];
+
+            var i: usize = 0;
+            while (i < args_len) : (i += 1) {
+                const arg_end = file.zir.extra[extra.end + i];
+                const break_index = body[arg_end - 1];
+                const ref = data[break_index].@"break".operand;
                 // TODO: consider toggling need_type to true if we ever want
                 //       to show discrepancies between the types of provided
                 //       arguments and the types declared in the function
                 //       signature for its parameters.
-                const wr = try self.walkRef(file, parent_scope, ref, false);
-                args[idx] = wr.expr;
+                const wr = try self.walkRef(file, parent_scope, parent_line, ref, false);
+                args[i] = wr.expr;
             }
 
             const cte_slot_index = self.comptime_exprs.items.len;
@@ -2116,6 +2281,7 @@ fn walkInstruction(
             const result = self.analyzeFunction(
                 file,
                 parent_scope,
+                parent_line,
                 inst_index,
                 self_ast_node_index,
                 type_slot_index,
@@ -2131,6 +2297,7 @@ fn walkInstruction(
             const result = self.analyzeFancyFunction(
                 file,
                 parent_scope,
+                parent_line,
                 inst_index,
                 self_ast_node_index,
                 type_slot_index,
@@ -2158,7 +2325,7 @@ fn walkInstruction(
 
                     var array_type: ?DocData.Expr = null;
                     for (args) |arg, idx| {
-                        const wr = try self.walkRef(file, parent_scope, arg, idx == 0);
+                        const wr = try self.walkRef(file, parent_scope, parent_line, arg, idx == 0);
                         if (idx == 0) {
                             array_type = wr.typeRef;
                         }
@@ -2303,6 +2470,7 @@ fn walkInstruction(
                     extra_index = try self.walkDecls(
                         file,
                         &scope,
+                        parent_line,
                         decls_first_index,
                         decls_len,
                         &decl_indexes,
@@ -2323,6 +2491,7 @@ fn walkInstruction(
                     try self.collectUnionFieldInfo(
                         file,
                         &scope,
+                        parent_line,
                         fields_len,
                         &field_type_refs,
                         &field_name_indexes,
@@ -2423,6 +2592,7 @@ fn walkInstruction(
                     extra_index = try self.walkDecls(
                         file,
                         &scope,
+                        parent_line,
                         decls_first_index,
                         decls_len,
                         &decl_indexes,
@@ -2532,6 +2702,17 @@ fn walkInstruction(
                         break :blk decls_len;
                     } else 0;
 
+                    // TODO: Expose explicit backing integer types in some way.
+                    if (small.has_backing_int) {
+                        const backing_int_body_len = file.zir.extra[extra_index];
+                        extra_index += 1; // backing_int_body_len
+                        if (backing_int_body_len == 0) {
+                            extra_index += 1; // backing_int_ref
+                        } else {
+                            extra_index += backing_int_body_len; // backing_int_body_inst
+                        }
+                    }
+
                     var decl_indexes: std.ArrayListUnmanaged(usize) = .{};
                     var priv_decl_indexes: std.ArrayListUnmanaged(usize) = .{};
 
@@ -2555,6 +2736,7 @@ fn walkInstruction(
                     extra_index = try self.walkDecls(
                         file,
                         &scope,
+                        parent_line,
                         decls_first_index,
                         decls_len,
                         &decl_indexes,
@@ -2567,6 +2749,7 @@ fn walkInstruction(
                     try self.collectStructFieldInfo(
                         file,
                         &scope,
+                        parent_line,
                         fields_len,
                         &field_type_refs,
                         &field_name_indexes,
@@ -2605,11 +2788,12 @@ fn walkInstruction(
                 },
                 .error_to_int,
                 .int_to_error,
+                .reify,
                 => {
                     const extra = file.zir.extraData(Zir.Inst.UnNode, extended.operand).data;
                     const bin_index = self.exprs.items.len;
                     try self.exprs.append(self.arena, .{ .builtin = .{ .param = 0 } });
-                    const param = try self.walkRef(file, parent_scope, extra.operand, false);
+                    const param = try self.walkRef(file, parent_scope, parent_line, extra.operand, false);
 
                     const param_index = self.exprs.items.len;
                     try self.exprs.append(self.arena, param.expr);
@@ -2637,6 +2821,7 @@ fn walkDecls(
     self: *Autodoc,
     file: *File,
     scope: *Scope,
+    parent_line: usize,
     decls_first_index: usize,
     decls_len: u32,
     decl_indexes: *std.ArrayListUnmanaged(usize),
@@ -2669,7 +2854,7 @@ fn walkDecls(
 
         // const hash_u32s = file.zir.extra[extra_index..][0..4];
         extra_index += 4;
-        const line = file.zir.extra[extra_index];
+        const line = parent_line + file.zir.extra[extra_index];
         extra_index += 1;
         const decl_name_index = file.zir.extra[extra_index];
         extra_index += 1;
@@ -2808,7 +2993,7 @@ fn walkDecls(
         const ast_node_index = idx: {
             const idx = self.ast_nodes.items.len;
             try self.ast_nodes.append(self.arena, .{
-                .file = 0,
+                .file = self.files.getIndex(file) orelse unreachable,
                 .line = line,
                 .col = 0,
                 .docs = doc_comment,
@@ -2820,7 +3005,7 @@ fn walkDecls(
         const walk_result = if (is_test) // TODO: decide if tests should show up at all
             DocData.WalkResult{ .expr = .{ .void = .{} } }
         else
-            try self.walkInstruction(file, scope, value_index, true);
+            try self.walkInstruction(file, scope, line, value_index, true);
 
         if (is_pub) {
             try decl_indexes.append(self.arena, decls_slot_index);
@@ -3013,6 +3198,10 @@ fn tryResolveRefPath(
                         .{ @tagName(self.types.items[t_index]), resolved_parent },
                     );
                 },
+                .ComptimeExpr => {
+                    // Same as the comptimeExpr branch above
+                    break :outer;
+                },
                 .Unanalyzed => {
                     // This decl path is pending completion
                     {
@@ -3034,6 +3223,20 @@ fn tryResolveRefPath(
                     });
 
                     return;
+                },
+                .Array => {
+                    if (std.mem.eql(u8, child_string, "len")) {
+                        path[i + 1] = .{
+                            .builtinField = .len,
+                        };
+                    } else {
+                        panicWithContext(
+                            file,
+                            inst_index,
+                            "TODO: handle `{s}` in tryResolveDeclPath.type.Array\nInfo: {}",
+                            .{ child_string, resolved_parent },
+                        );
+                    }
                 },
                 .Enum => |t_enum| {
                     for (t_enum.pubDecls) |d| {
@@ -3198,6 +3401,7 @@ fn analyzeFancyFunction(
     self: *Autodoc,
     file: *File,
     scope: *Scope,
+    parent_line: usize,
     inst_index: usize,
     self_ast_node_index: usize,
     type_slot_index: usize,
@@ -3262,7 +3466,7 @@ fn analyzeFancyFunction(
 
                 const break_index = file.zir.extra[extra.end..][extra.data.body_len - 1];
                 const break_operand = data[break_index].@"break".operand;
-                const param_type_ref = try self.walkRef(file, scope, break_operand, false);
+                const param_type_ref = try self.walkRef(file, scope, parent_line, break_operand, false);
 
                 param_type_refs.appendAssumeCapacity(param_type_ref.expr);
             },
@@ -3286,7 +3490,7 @@ fn analyzeFancyFunction(
     if (extra.data.bits.has_align_ref) {
         const align_ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
         align_index = self.exprs.items.len;
-        _ = try self.walkRef(file, scope, align_ref, false);
+        _ = try self.walkRef(file, scope, parent_line, align_ref, false);
         extra_index += 1;
     } else if (extra.data.bits.has_align_body) {
         const align_body_len = file.zir.extra[extra_index];
@@ -3303,7 +3507,7 @@ fn analyzeFancyFunction(
     if (extra.data.bits.has_addrspace_ref) {
         const addrspace_ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
         addrspace_index = self.exprs.items.len;
-        _ = try self.walkRef(file, scope, addrspace_ref, false);
+        _ = try self.walkRef(file, scope, parent_line, addrspace_ref, false);
         extra_index += 1;
     } else if (extra.data.bits.has_addrspace_body) {
         const addrspace_body_len = file.zir.extra[extra_index];
@@ -3320,7 +3524,7 @@ fn analyzeFancyFunction(
     if (extra.data.bits.has_section_ref) {
         const section_ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
         section_index = self.exprs.items.len;
-        _ = try self.walkRef(file, scope, section_ref, false);
+        _ = try self.walkRef(file, scope, parent_line, section_ref, false);
         extra_index += 1;
     } else if (extra.data.bits.has_section_body) {
         const section_body_len = file.zir.extra[extra_index];
@@ -3337,7 +3541,7 @@ fn analyzeFancyFunction(
     if (extra.data.bits.has_cc_ref) {
         const cc_ref = @intToEnum(Zir.Inst.Ref, file.zir.extra[extra_index]);
         cc_index = self.exprs.items.len;
-        _ = try self.walkRef(file, scope, cc_ref, false);
+        _ = try self.walkRef(file, scope, parent_line, cc_ref, false);
         extra_index += 1;
     } else if (extra.data.bits.has_cc_body) {
         const cc_body_len = file.zir.extra[extra_index];
@@ -3356,14 +3560,14 @@ fn analyzeFancyFunction(
             .none => DocData.Expr{ .void = .{} },
             else => blk: {
                 const ref = fn_info.ret_ty_ref;
-                const wr = try self.walkRef(file, scope, ref, false);
+                const wr = try self.walkRef(file, scope, parent_line, ref, false);
                 break :blk wr.expr;
             },
         },
         else => blk: {
             const last_instr_index = fn_info.ret_ty_body[fn_info.ret_ty_body.len - 1];
             const break_operand = data[last_instr_index].@"break".operand;
-            const wr = try self.walkRef(file, scope, break_operand, false);
+            const wr = try self.walkRef(file, scope, parent_line, break_operand, false);
             break :blk wr.expr;
         },
     };
@@ -3378,6 +3582,7 @@ fn analyzeFancyFunction(
                 break :blk try self.getGenericReturnType(
                     file,
                     scope,
+                    parent_line,
                     fn_info.body[fn_info.body.len - 1],
                 );
             } else {
@@ -3414,6 +3619,7 @@ fn analyzeFunction(
     self: *Autodoc,
     file: *File,
     scope: *Scope,
+    parent_line: usize,
     inst_index: usize,
     self_ast_node_index: usize,
     type_slot_index: usize,
@@ -3479,7 +3685,7 @@ fn analyzeFunction(
 
                 const break_index = file.zir.extra[extra.end..][extra.data.body_len - 1];
                 const break_operand = data[break_index].@"break".operand;
-                const param_type_ref = try self.walkRef(file, scope, break_operand, false);
+                const param_type_ref = try self.walkRef(file, scope, parent_line, break_operand, false);
 
                 param_type_refs.appendAssumeCapacity(param_type_ref.expr);
             },
@@ -3492,14 +3698,14 @@ fn analyzeFunction(
             .none => DocData.Expr{ .void = .{} },
             else => blk: {
                 const ref = fn_info.ret_ty_ref;
-                const wr = try self.walkRef(file, scope, ref, false);
+                const wr = try self.walkRef(file, scope, parent_line, ref, false);
                 break :blk wr.expr;
             },
         },
         else => blk: {
             const last_instr_index = fn_info.ret_ty_body[fn_info.ret_ty_body.len - 1];
             const break_operand = data[last_instr_index].@"break".operand;
-            const wr = try self.walkRef(file, scope, break_operand, false);
+            const wr = try self.walkRef(file, scope, parent_line, break_operand, false);
             break :blk wr.expr;
         },
     };
@@ -3514,6 +3720,7 @@ fn analyzeFunction(
                 break :blk try self.getGenericReturnType(
                     file,
                     scope,
+                    parent_line,
                     fn_info.body[fn_info.body.len - 1],
                 );
             } else {
@@ -3554,9 +3761,11 @@ fn getGenericReturnType(
     self: *Autodoc,
     file: *File,
     scope: *Scope,
+    parent_line: usize, // function decl line
     body_end: usize,
 ) !DocData.Expr {
-    const wr = try self.walkInstruction(file, scope, body_end, false);
+    // TODO: compute the correct line offset
+    const wr = try self.walkInstruction(file, scope, parent_line, body_end, false);
     return wr.expr;
 }
 
@@ -3564,6 +3773,7 @@ fn collectUnionFieldInfo(
     self: *Autodoc,
     file: *File,
     scope: *Scope,
+    parent_line: usize,
     fields_len: usize,
     field_type_refs: *std.ArrayListUnmanaged(DocData.Expr),
     field_name_indexes: *std.ArrayListUnmanaged(usize),
@@ -3610,7 +3820,7 @@ fn collectUnionFieldInfo(
 
         // type
         {
-            const walk_result = try self.walkRef(file, scope, field_type, false);
+            const walk_result = try self.walkRef(file, scope, parent_line, field_type, false);
             try field_type_refs.append(self.arena, walk_result.expr);
         }
 
@@ -3633,6 +3843,7 @@ fn collectStructFieldInfo(
     self: *Autodoc,
     file: *File,
     scope: *Scope,
+    parent_line: usize,
     fields_len: usize,
     field_type_refs: *std.ArrayListUnmanaged(DocData.Expr),
     field_name_indexes: *std.ArrayListUnmanaged(usize),
@@ -3706,7 +3917,7 @@ fn collectStructFieldInfo(
     for (fields) |field| {
         const type_expr = expr: {
             if (field.type_ref != .none) {
-                const walk_result = try self.walkRef(file, scope, field.type_ref, false);
+                const walk_result = try self.walkRef(file, scope, parent_line, field.type_ref, false);
                 break :expr walk_result.expr;
             }
 
@@ -3716,7 +3927,7 @@ fn collectStructFieldInfo(
 
             const break_inst = body[body.len - 1];
             const operand = data[break_inst].@"break".operand;
-            const walk_result = try self.walkRef(file, scope, operand, false);
+            const walk_result = try self.walkRef(file, scope, parent_line, operand, false);
             break :expr walk_result.expr;
         };
 
@@ -3746,6 +3957,7 @@ fn walkRef(
     self: *Autodoc,
     file: *File,
     parent_scope: *Scope,
+    parent_line: usize,
     ref: Ref,
     need_type: bool, // true when the caller needs also a typeRef for the return value
 ) AutodocErrors!DocData.WalkResult {
@@ -3761,9 +3973,12 @@ fn walkRef(
     } else if (enum_value < Ref.typed_value_map.len) {
         switch (ref) {
             else => {
-                std.debug.panic("TODO: handle {s} in `walkRef`\n", .{
-                    @tagName(ref),
-                });
+                panicWithContext(
+                    file,
+                    0,
+                    "TODO: handle {s} in walkRef",
+                    .{@tagName(ref)},
+                );
             },
             .undef => {
                 return DocData.WalkResult{ .expr = .@"undefined" };
@@ -3854,7 +4069,7 @@ fn walkRef(
         }
     } else {
         const zir_index = enum_value - Ref.typed_value_map.len;
-        return self.walkInstruction(file, parent_scope, zir_index, need_type);
+        return self.walkInstruction(file, parent_scope, parent_line, zir_index, need_type);
     }
 }
 
@@ -3886,13 +4101,13 @@ fn cteTodo(self: *Autodoc, msg: []const u8) error{OutOfMemory}!DocData.WalkResul
 }
 
 fn writeFileTableToJson(map: std.AutoArrayHashMapUnmanaged(*File, usize), jsw: anytype) !void {
-    try jsw.beginObject();
+    try jsw.beginArray();
     var it = map.iterator();
     while (it.next()) |entry| {
-        try jsw.objectField(entry.key_ptr.*.sub_file_path);
-        try jsw.emitNumber(entry.value_ptr.*);
+        try jsw.arrayElem();
+        try jsw.emitString(entry.key_ptr.*.sub_file_path);
     }
-    try jsw.endObject();
+    try jsw.endArray();
 }
 
 fn writePackageTableToJson(

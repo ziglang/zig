@@ -887,7 +887,7 @@ pub const Mutable = struct {
 
         var sum: Limb = 0;
         for (r.limbs[0..r.len]) |limb| {
-            sum += @popCount(Limb, limb);
+            sum += @popCount(limb);
         }
         r.set(sum);
     }
@@ -1520,7 +1520,7 @@ pub const Mutable = struct {
     ) void {
         // 0.
         // Normalize so that y[t] > b/2
-        const lz = @clz(Limb, y.limbs[y.len - 1]);
+        const lz = @clz(y.limbs[y.len - 1]);
         const norm_shift = if (lz == 0 and y.toConst().isOdd())
             limb_bits // Force an extra limb so that y is even.
         else
@@ -1917,7 +1917,7 @@ pub const Const = struct {
 
     /// Returns the number of bits required to represent the absolute value of an integer.
     pub fn bitCountAbs(self: Const) usize {
-        return (self.limbs.len - 1) * limb_bits + (limb_bits - @clz(Limb, self.limbs[self.limbs.len - 1]));
+        return (self.limbs.len - 1) * limb_bits + (limb_bits - @clz(self.limbs[self.limbs.len - 1]));
     }
 
     /// Returns the number of bits required to represent the integer in twos-complement form.
@@ -1936,9 +1936,9 @@ pub const Const = struct {
         if (!self.positive) block: {
             bits += 1;
 
-            if (@popCount(Limb, self.limbs[self.limbs.len - 1]) == 1) {
+            if (@popCount(self.limbs[self.limbs.len - 1]) == 1) {
                 for (self.limbs[0 .. self.limbs.len - 1]) |limb| {
-                    if (@popCount(Limb, limb) != 0) {
+                    if (@popCount(limb) != 0) {
                         break :block;
                     }
                 }
@@ -3895,8 +3895,8 @@ fn llpow(r: []Limb, a: []const Limb, b: u32, tmp_limbs: []Limb) void {
     // The initial assignment makes the result end in `r` so an extra memory
     // copy is saved, each 1 flips the index twice so it's only the zeros that
     // matter.
-    const b_leading_zeros = @clz(u32, b);
-    const exp_zeros = @popCount(u32, ~b) - b_leading_zeros;
+    const b_leading_zeros = @clz(b);
+    const exp_zeros = @popCount(~b) - b_leading_zeros;
     if (exp_zeros & 1 != 0) {
         tmp1 = tmp_limbs;
         tmp2 = r;

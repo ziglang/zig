@@ -816,11 +816,11 @@ pub fn openSelfDebugInfo(allocator: mem.Allocator) anyerror!DebugInfo {
 /// TODO it's weird to take ownership even on error, rework this code.
 fn readCoffDebugInfo(allocator: mem.Allocator, coff_file: File) !ModuleDebugInfo {
     nosuspend {
-        errdefer coff_file.close();
+        defer coff_file.close();
 
         const coff_obj = try allocator.create(coff.Coff);
         errdefer allocator.destroy(coff_obj);
-        coff_obj.* = coff.Coff.init(allocator, coff_file);
+        coff_obj.* = .{ .allocator = allocator };
 
         var di = ModuleDebugInfo{
             .base_address = undefined,
@@ -828,27 +828,42 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_file: File) !ModuleDebugInfo
             .debug_data = undefined,
         };
 
-        try di.coff.loadHeader();
-        try di.coff.loadSections();
-        if (di.coff.getSection(".debug_info")) |sec| {
+        // TODO convert to Windows' memory-mapped file API
+        const file_len = math.cast(usize, try coff_file.getEndPos()) orelse math.maxInt(usize);
+        const data = try coff_file.readToEndAlloc(allocator, file_len);
+        try di.coff.parse(data);
+
+        if (di.coff.getSectionByName(".debug_info")) |sec| {
             // This coff file has embedded DWARF debug info
             _ = sec;
             // TODO: free the section data slices
-            const debug_info_data = di.coff.getSectionData(".debug_info", allocator) catch null;
-            const debug_abbrev_data = di.coff.getSectionData(".debug_abbrev", allocator) catch null;
-            const debug_str_data = di.coff.getSectionData(".debug_str", allocator) catch null;
-            const debug_line_data = di.coff.getSectionData(".debug_line", allocator) catch null;
-            const debug_line_str_data = di.coff.getSectionData(".debug_line_str", allocator) catch null;
-            const debug_ranges_data = di.coff.getSectionData(".debug_ranges", allocator) catch null;
+            const debug_info = di.coff.getSectionDataAlloc(".debug_info", allocator) catch null;
+            const debug_abbrev = di.coff.getSectionDataAlloc(".debug_abbrev", allocator) catch null;
+            const debug_str = di.coff.getSectionDataAlloc(".debug_str", allocator) catch null;
+            const debug_str_offsets = di.coff.getSectionDataAlloc(".debug_str_offsets", allocator) catch null;
+            const debug_line = di.coff.getSectionDataAlloc(".debug_line", allocator) catch null;
+            const debug_line_str = di.coff.getSectionDataAlloc(".debug_line_str", allocator) catch null;
+            const debug_ranges = di.coff.getSectionDataAlloc(".debug_ranges", allocator) catch null;
+            const debug_loclists = di.coff.getSectionDataAlloc(".debug_loclists", allocator) catch null;
+            const debug_rnglists = di.coff.getSectionDataAlloc(".debug_rnglists", allocator) catch null;
+            const debug_addr = di.coff.getSectionDataAlloc(".debug_addr", allocator) catch null;
+            const debug_names = di.coff.getSectionDataAlloc(".debug_names", allocator) catch null;
+            const debug_frame = di.coff.getSectionDataAlloc(".debug_frame", allocator) catch null;
 
             var dwarf = DW.DwarfInfo{
                 .endian = native_endian,
-                .debug_info = debug_info_data orelse return error.MissingDebugInfo,
-                .debug_abbrev = debug_abbrev_data orelse return error.MissingDebugInfo,
-                .debug_str = debug_str_data orelse return error.MissingDebugInfo,
-                .debug_line = debug_line_data orelse return error.MissingDebugInfo,
-                .debug_line_str = debug_line_str_data,
-                .debug_ranges = debug_ranges_data,
+                .debug_info = debug_info orelse return error.MissingDebugInfo,
+                .debug_abbrev = debug_abbrev orelse return error.MissingDebugInfo,
+                .debug_str = debug_str orelse return error.MissingDebugInfo,
+                .debug_str_offsets = debug_str_offsets,
+                .debug_line = debug_line orelse return error.MissingDebugInfo,
+                .debug_line_str = debug_line_str,
+                .debug_ranges = debug_ranges,
+                .debug_loclists = debug_loclists,
+                .debug_rnglists = debug_rnglists,
+                .debug_addr = debug_addr,
+                .debug_names = debug_names,
+                .debug_frame = debug_frame,
             };
             try DW.openDwarfDebugInfo(&dwarf, allocator);
             di.debug_data = PdbOrDwarf{ .dwarf = dwarf };
@@ -863,7 +878,10 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_file: File) !ModuleDebugInfo
         defer allocator.free(path);
 
         di.debug_data = PdbOrDwarf{ .pdb = undefined };
-        di.debug_data.pdb = try pdb.Pdb.init(allocator, path);
+        di.debug_data.pdb = pdb.Pdb.init(allocator, path) catch |err| switch (err) {
+            error.FileNotFound, error.IsDir => return error.MissingDebugInfo,
+            else => return err,
+        };
         try di.debug_data.pdb.parseInfoStream();
         try di.debug_data.pdb.parseDbiStream();
 
@@ -912,9 +930,15 @@ pub fn readElfDebugInfo(allocator: mem.Allocator, elf_file: File) !ModuleDebugIn
         var opt_debug_info: ?[]const u8 = null;
         var opt_debug_abbrev: ?[]const u8 = null;
         var opt_debug_str: ?[]const u8 = null;
+        var opt_debug_str_offsets: ?[]const u8 = null;
         var opt_debug_line: ?[]const u8 = null;
         var opt_debug_line_str: ?[]const u8 = null;
         var opt_debug_ranges: ?[]const u8 = null;
+        var opt_debug_loclists: ?[]const u8 = null;
+        var opt_debug_rnglists: ?[]const u8 = null;
+        var opt_debug_addr: ?[]const u8 = null;
+        var opt_debug_names: ?[]const u8 = null;
+        var opt_debug_frame: ?[]const u8 = null;
 
         for (shdrs) |*shdr| {
             if (shdr.sh_type == elf.SHT_NULL) continue;
@@ -926,12 +950,24 @@ pub fn readElfDebugInfo(allocator: mem.Allocator, elf_file: File) !ModuleDebugIn
                 opt_debug_abbrev = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
             } else if (mem.eql(u8, name, ".debug_str")) {
                 opt_debug_str = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+            } else if (mem.eql(u8, name, ".debug_str_offsets")) {
+                opt_debug_str_offsets = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
             } else if (mem.eql(u8, name, ".debug_line")) {
                 opt_debug_line = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
             } else if (mem.eql(u8, name, ".debug_line_str")) {
                 opt_debug_line_str = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
             } else if (mem.eql(u8, name, ".debug_ranges")) {
                 opt_debug_ranges = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+            } else if (mem.eql(u8, name, ".debug_loclists")) {
+                opt_debug_loclists = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+            } else if (mem.eql(u8, name, ".debug_rnglists")) {
+                opt_debug_rnglists = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+            } else if (mem.eql(u8, name, ".debug_addr")) {
+                opt_debug_addr = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+            } else if (mem.eql(u8, name, ".debug_names")) {
+                opt_debug_names = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+            } else if (mem.eql(u8, name, ".debug_frame")) {
+                opt_debug_frame = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
             }
         }
 
@@ -940,9 +976,15 @@ pub fn readElfDebugInfo(allocator: mem.Allocator, elf_file: File) !ModuleDebugIn
             .debug_info = opt_debug_info orelse return error.MissingDebugInfo,
             .debug_abbrev = opt_debug_abbrev orelse return error.MissingDebugInfo,
             .debug_str = opt_debug_str orelse return error.MissingDebugInfo,
+            .debug_str_offsets = opt_debug_str_offsets,
             .debug_line = opt_debug_line orelse return error.MissingDebugInfo,
             .debug_line_str = opt_debug_line_str,
             .debug_ranges = opt_debug_ranges,
+            .debug_loclists = opt_debug_loclists,
+            .debug_rnglists = opt_debug_rnglists,
+            .debug_addr = opt_debug_addr,
+            .debug_names = opt_debug_names,
+            .debug_frame = opt_debug_frame,
         };
 
         try DW.openDwarfDebugInfo(&di, allocator);
@@ -968,24 +1010,20 @@ fn readMachODebugInfo(allocator: mem.Allocator, macho_file: File) !ModuleDebugIn
     if (hdr.magic != macho.MH_MAGIC_64)
         return error.InvalidDebugInfo;
 
-    const hdr_base = @ptrCast([*]const u8, hdr);
-    var ptr = hdr_base + @sizeOf(macho.mach_header_64);
-    var ncmd: u32 = hdr.ncmds;
-    const symtab = while (ncmd != 0) : (ncmd -= 1) {
-        const lc = @ptrCast(*const std.macho.load_command, ptr);
-        switch (lc.cmd) {
-            .SYMTAB => break @ptrCast(*const std.macho.symtab_command, ptr),
-            else => {},
-        }
-        ptr = @alignCast(@alignOf(std.macho.load_command), ptr + lc.cmdsize);
-    } else {
-        return error.MissingDebugInfo;
+    var it = macho.LoadCommandIterator{
+        .ncmds = hdr.ncmds,
+        .buffer = mapped_mem[@sizeOf(macho.mach_header_64)..][0..hdr.sizeofcmds],
     };
+    const symtab = while (it.next()) |cmd| switch (cmd.cmd()) {
+        .SYMTAB => break cmd.cast(macho.symtab_command).?,
+        else => {},
+    } else return error.MissingDebugInfo;
+
     const syms = @ptrCast(
         [*]const macho.nlist_64,
-        @alignCast(@alignOf(macho.nlist_64), hdr_base + symtab.symoff),
+        @alignCast(@alignOf(macho.nlist_64), &mapped_mem[symtab.symoff]),
     )[0..symtab.nsyms];
-    const strings = @ptrCast([*]const u8, hdr_base + symtab.stroff)[0 .. symtab.strsize - 1 :0];
+    const strings = mapped_mem[symtab.stroff..][0 .. symtab.strsize - 1 :0];
 
     const symbols_buf = try allocator.alloc(MachoSymbol, syms.len);
 
@@ -1200,48 +1238,46 @@ pub const DebugInfo = struct {
             if (address < base_address) continue;
 
             const header = std.c._dyld_get_image_header(i) orelse continue;
-            // The array of load commands is right after the header
-            var cmd_ptr = @intToPtr([*]u8, @ptrToInt(header) + @sizeOf(macho.mach_header_64));
 
-            var cmds = header.ncmds;
-            while (cmds != 0) : (cmds -= 1) {
-                const lc = @ptrCast(
-                    *macho.load_command,
-                    @alignCast(@alignOf(macho.load_command), cmd_ptr),
-                );
-                cmd_ptr += lc.cmdsize;
-                if (lc.cmd != .SEGMENT_64) continue;
+            var it = macho.LoadCommandIterator{
+                .ncmds = header.ncmds,
+                .buffer = @alignCast(@alignOf(u64), @intToPtr(
+                    [*]u8,
+                    @ptrToInt(header) + @sizeOf(macho.mach_header_64),
+                ))[0..header.sizeofcmds],
+            };
+            while (it.next()) |cmd| switch (cmd.cmd()) {
+                .SEGMENT_64 => {
+                    const segment_cmd = cmd.cast(macho.segment_command_64).?;
+                    const rebased_address = address - base_address;
+                    const seg_start = segment_cmd.vmaddr;
+                    const seg_end = seg_start + segment_cmd.vmsize;
 
-                const segment_cmd = @ptrCast(
-                    *const std.macho.segment_command_64,
-                    @alignCast(@alignOf(std.macho.segment_command_64), lc),
-                );
+                    if (rebased_address >= seg_start and rebased_address < seg_end) {
+                        if (self.address_map.get(base_address)) |obj_di| {
+                            return obj_di;
+                        }
 
-                const rebased_address = address - base_address;
-                const seg_start = segment_cmd.vmaddr;
-                const seg_end = seg_start + segment_cmd.vmsize;
+                        const obj_di = try self.allocator.create(ModuleDebugInfo);
+                        errdefer self.allocator.destroy(obj_di);
 
-                if (rebased_address >= seg_start and rebased_address < seg_end) {
-                    if (self.address_map.get(base_address)) |obj_di| {
+                        const macho_path = mem.sliceTo(std.c._dyld_get_image_name(i), 0);
+                        const macho_file = fs.cwd().openFile(macho_path, .{
+                            .intended_io_mode = .blocking,
+                        }) catch |err| switch (err) {
+                            error.FileNotFound => return error.MissingDebugInfo,
+                            else => return err,
+                        };
+                        obj_di.* = try readMachODebugInfo(self.allocator, macho_file);
+                        obj_di.base_address = base_address;
+
+                        try self.address_map.putNoClobber(base_address, obj_di);
+
                         return obj_di;
                     }
-
-                    const obj_di = try self.allocator.create(ModuleDebugInfo);
-                    errdefer self.allocator.destroy(obj_di);
-
-                    const macho_path = mem.sliceTo(std.c._dyld_get_image_name(i), 0);
-                    const macho_file = fs.cwd().openFile(macho_path, .{ .intended_io_mode = .blocking }) catch |err| switch (err) {
-                        error.FileNotFound => return error.MissingDebugInfo,
-                        else => return err,
-                    };
-                    obj_di.* = try readMachODebugInfo(self.allocator, macho_file);
-                    obj_di.base_address = base_address;
-
-                    try self.address_map.putNoClobber(base_address, obj_di);
-
-                    return obj_di;
-                }
-            }
+                },
+                else => {},
+            };
         }
 
         return error.MissingDebugInfo;
@@ -1445,44 +1481,31 @@ pub const ModuleDebugInfo = switch (native_os) {
             if (hdr.magic != std.macho.MH_MAGIC_64)
                 return error.InvalidDebugInfo;
 
-            const hdr_base = @ptrCast([*]const u8, hdr);
-            var ptr = hdr_base + @sizeOf(macho.mach_header_64);
-            var segptr = ptr;
-            var ncmd: u32 = hdr.ncmds;
-            var segcmd: ?*const macho.segment_command_64 = null;
-            var symtabcmd: ?*const macho.symtab_command = null;
-
-            while (ncmd != 0) : (ncmd -= 1) {
-                const lc = @ptrCast(*const std.macho.load_command, ptr);
-                switch (lc.cmd) {
-                    .SEGMENT_64 => {
-                        segcmd = @ptrCast(
-                            *const std.macho.segment_command_64,
-                            @alignCast(@alignOf(std.macho.segment_command_64), ptr),
-                        );
-                        segptr = ptr;
-                    },
-                    .SYMTAB => {
-                        symtabcmd = @ptrCast(
-                            *const std.macho.symtab_command,
-                            @alignCast(@alignOf(std.macho.symtab_command), ptr),
-                        );
-                    },
-                    else => {},
-                }
-                ptr = @alignCast(@alignOf(std.macho.load_command), ptr + lc.cmdsize);
-            }
+            var segcmd: ?macho.LoadCommandIterator.LoadCommand = null;
+            var symtabcmd: ?macho.symtab_command = null;
+            var it = macho.LoadCommandIterator{
+                .ncmds = hdr.ncmds,
+                .buffer = mapped_mem[@sizeOf(macho.mach_header_64)..][0..hdr.sizeofcmds],
+            };
+            while (it.next()) |cmd| switch (cmd.cmd()) {
+                .SEGMENT_64 => segcmd = cmd,
+                .SYMTAB => symtabcmd = cmd.cast(macho.symtab_command).?,
+                else => {},
+            };
 
             if (segcmd == null or symtabcmd == null) return error.MissingDebugInfo;
 
             // Parse symbols
             const strtab = @ptrCast(
                 [*]const u8,
-                hdr_base + symtabcmd.?.stroff,
+                &mapped_mem[symtabcmd.?.stroff],
             )[0 .. symtabcmd.?.strsize - 1 :0];
             const symtab = @ptrCast(
                 [*]const macho.nlist_64,
-                @alignCast(@alignOf(macho.nlist_64), hdr_base + symtabcmd.?.symoff),
+                @alignCast(
+                    @alignOf(macho.nlist_64),
+                    &mapped_mem[symtabcmd.?.symoff],
+                ),
             )[0..symtabcmd.?.nsyms];
 
             // TODO handle tentative (common) symbols
@@ -1496,25 +1519,21 @@ pub const ModuleDebugInfo = switch (native_os) {
                 addr_table.putAssumeCapacityNoClobber(sym_name, sym.n_value);
             }
 
-            var opt_debug_line: ?*const macho.section_64 = null;
-            var opt_debug_info: ?*const macho.section_64 = null;
-            var opt_debug_abbrev: ?*const macho.section_64 = null;
-            var opt_debug_str: ?*const macho.section_64 = null;
-            var opt_debug_line_str: ?*const macho.section_64 = null;
-            var opt_debug_ranges: ?*const macho.section_64 = null;
+            var opt_debug_line: ?macho.section_64 = null;
+            var opt_debug_info: ?macho.section_64 = null;
+            var opt_debug_abbrev: ?macho.section_64 = null;
+            var opt_debug_str: ?macho.section_64 = null;
+            var opt_debug_str_offsets: ?macho.section_64 = null;
+            var opt_debug_line_str: ?macho.section_64 = null;
+            var opt_debug_ranges: ?macho.section_64 = null;
+            var opt_debug_loclists: ?macho.section_64 = null;
+            var opt_debug_rnglists: ?macho.section_64 = null;
+            var opt_debug_addr: ?macho.section_64 = null;
+            var opt_debug_names: ?macho.section_64 = null;
+            var opt_debug_frame: ?macho.section_64 = null;
 
-            const sections = @ptrCast(
-                [*]const macho.section_64,
-                @alignCast(@alignOf(macho.section_64), segptr + @sizeOf(std.macho.segment_command_64)),
-            )[0..segcmd.?.nsects];
-            for (sections) |*sect| {
-                // The section name may not exceed 16 chars and a trailing null may
-                // not be present
-                const name = if (mem.indexOfScalar(u8, sect.sectname[0..], 0)) |last|
-                    sect.sectname[0..last]
-                else
-                    sect.sectname[0..];
-
+            for (segcmd.?.getSections()) |sect| {
+                const name = sect.sectName();
                 if (mem.eql(u8, name, "__debug_line")) {
                     opt_debug_line = sect;
                 } else if (mem.eql(u8, name, "__debug_info")) {
@@ -1523,10 +1542,22 @@ pub const ModuleDebugInfo = switch (native_os) {
                     opt_debug_abbrev = sect;
                 } else if (mem.eql(u8, name, "__debug_str")) {
                     opt_debug_str = sect;
+                } else if (mem.eql(u8, name, "__debug_str_offsets")) {
+                    opt_debug_str_offsets = sect;
                 } else if (mem.eql(u8, name, "__debug_line_str")) {
                     opt_debug_line_str = sect;
                 } else if (mem.eql(u8, name, "__debug_ranges")) {
                     opt_debug_ranges = sect;
+                } else if (mem.eql(u8, name, "__debug_loclists")) {
+                    opt_debug_loclists = sect;
+                } else if (mem.eql(u8, name, "__debug_rnglists")) {
+                    opt_debug_rnglists = sect;
+                } else if (mem.eql(u8, name, "__debug_addr")) {
+                    opt_debug_addr = sect;
+                } else if (mem.eql(u8, name, "__debug_names")) {
+                    opt_debug_names = sect;
+                } else if (mem.eql(u8, name, "__debug_frame")) {
+                    opt_debug_frame = sect;
                 }
             }
 
@@ -1544,6 +1575,10 @@ pub const ModuleDebugInfo = switch (native_os) {
                 .debug_info = try chopSlice(mapped_mem, debug_info.offset, debug_info.size),
                 .debug_abbrev = try chopSlice(mapped_mem, debug_abbrev.offset, debug_abbrev.size),
                 .debug_str = try chopSlice(mapped_mem, debug_str.offset, debug_str.size),
+                .debug_str_offsets = if (opt_debug_str_offsets) |debug_str_offsets|
+                    try chopSlice(mapped_mem, debug_str_offsets.offset, debug_str_offsets.size)
+                else
+                    null,
                 .debug_line = try chopSlice(mapped_mem, debug_line.offset, debug_line.size),
                 .debug_line_str = if (opt_debug_line_str) |debug_line_str|
                     try chopSlice(mapped_mem, debug_line_str.offset, debug_line_str.size)
@@ -1551,6 +1586,26 @@ pub const ModuleDebugInfo = switch (native_os) {
                     null,
                 .debug_ranges = if (opt_debug_ranges) |debug_ranges|
                     try chopSlice(mapped_mem, debug_ranges.offset, debug_ranges.size)
+                else
+                    null,
+                .debug_loclists = if (opt_debug_loclists) |debug_loclists|
+                    try chopSlice(mapped_mem, debug_loclists.offset, debug_loclists.size)
+                else
+                    null,
+                .debug_rnglists = if (opt_debug_rnglists) |debug_rnglists|
+                    try chopSlice(mapped_mem, debug_rnglists.offset, debug_rnglists.size)
+                else
+                    null,
+                .debug_addr = if (opt_debug_addr) |debug_addr|
+                    try chopSlice(mapped_mem, debug_addr.offset, debug_addr.size)
+                else
+                    null,
+                .debug_names = if (opt_debug_names) |debug_names|
+                    try chopSlice(mapped_mem, debug_names.offset, debug_names.size)
+                else
+                    null,
+                .debug_frame = if (opt_debug_frame) |debug_frame|
+                    try chopSlice(mapped_mem, debug_frame.offset, debug_frame.size)
                 else
                     null,
             };
@@ -1607,6 +1662,8 @@ pub const ModuleDebugInfo = switch (native_os) {
                         .compile_unit_name = compile_unit.die.getAttrString(
                             o_file_di,
                             DW.AT.name,
+                            o_file_di.debug_str,
+                            compile_unit.*,
                         ) catch |err| switch (err) {
                             error.MissingDebugInfo, error.InvalidDebugInfo => "???",
                         },
@@ -1647,7 +1704,7 @@ pub const ModuleDebugInfo = switch (native_os) {
 
             switch (self.debug_data) {
                 .dwarf => |*dwarf| {
-                    const dwarf_address = relocated_address + self.coff.pe_header.image_base;
+                    const dwarf_address = relocated_address + self.coff.getImageBase();
                     return getSymbolFromDwarf(allocator, dwarf_address, dwarf);
                 },
                 .pdb => {
@@ -1655,13 +1712,14 @@ pub const ModuleDebugInfo = switch (native_os) {
                 },
             }
 
-            var coff_section: *coff.Section = undefined;
+            var coff_section: *align(1) const coff.SectionHeader = undefined;
             const mod_index = for (self.debug_data.pdb.sect_contribs) |sect_contrib| {
-                if (sect_contrib.Section > self.coff.sections.items.len) continue;
+                const sections = self.coff.getSectionHeaders();
+                if (sect_contrib.Section > sections.len) continue;
                 // Remember that SectionContribEntry.Section is 1-based.
-                coff_section = &self.coff.sections.items[sect_contrib.Section - 1];
+                coff_section = &sections[sect_contrib.Section - 1];
 
-                const vaddr_start = coff_section.header.virtual_address + sect_contrib.Offset;
+                const vaddr_start = coff_section.virtual_address + sect_contrib.Offset;
                 const vaddr_end = vaddr_start + sect_contrib.Size;
                 if (relocated_address >= vaddr_start and relocated_address < vaddr_end) {
                     break sect_contrib.ModuleIndex;
@@ -1677,11 +1735,11 @@ pub const ModuleDebugInfo = switch (native_os) {
 
             const symbol_name = self.debug_data.pdb.getSymbolName(
                 module,
-                relocated_address - coff_section.header.virtual_address,
+                relocated_address - coff_section.virtual_address,
             ) orelse "???";
             const opt_line_info = try self.debug_data.pdb.getLineNumberInfo(
                 module,
-                relocated_address - coff_section.header.virtual_address,
+                relocated_address - coff_section.virtual_address,
             );
 
             return SymbolInfo{
@@ -1727,7 +1785,7 @@ fn getSymbolFromDwarf(allocator: mem.Allocator, address: u64, di: *DW.DwarfInfo)
     if (nosuspend di.findCompileUnit(address)) |compile_unit| {
         return SymbolInfo{
             .symbol_name = nosuspend di.getSymbolName(address) orelse "???",
-            .compile_unit_name = compile_unit.die.getAttrString(di, DW.AT.name) catch |err| switch (err) {
+            .compile_unit_name = compile_unit.die.getAttrString(di, DW.AT.name, di.debug_str, compile_unit.*) catch |err| switch (err) {
                 error.MissingDebugInfo, error.InvalidDebugInfo => "???",
             },
             .line_info = nosuspend di.getLineNumberInfo(allocator, compile_unit.*, address) catch |err| switch (err) {
@@ -1816,7 +1874,7 @@ fn resetSegfaultHandler() void {
         return;
     }
     var act = os.Sigaction{
-        .handler = .{ .sigaction = os.SIG.DFL },
+        .handler = .{ .handler = os.SIG.DFL },
         .mask = os.empty_sigset,
         .flags = 0,
     };
@@ -1976,7 +2034,7 @@ noinline fn showMyTrace() usize {
 /// For more advanced usage, see `ConfigurableTrace`.
 pub const Trace = ConfigurableTrace(2, 4, builtin.mode == .Debug);
 
-pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize, comptime enabled: bool) type {
+pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize, comptime is_enabled: bool) type {
     return struct {
         addrs: [actual_size][stack_frame_count]usize = undefined,
         notes: [actual_size][]const u8 = undefined,
@@ -1985,7 +2043,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
         const actual_size = if (enabled) size else 0;
         const Index = if (enabled) usize else u0;
 
-        pub const enabled = enabled;
+        pub const enabled = is_enabled;
 
         pub const add = if (enabled) addNoInline else addNoOp;
 

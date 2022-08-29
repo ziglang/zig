@@ -237,7 +237,7 @@ pub fn detect(allocator: Allocator, cross_target: CrossTarget) DetectError!Nativ
 
 /// First we attempt to use the executable's own binary. If it is dynamically
 /// linked, then it should answer both the C ABI question and the dynamic linker question.
-/// If it is statically linked, then we try /usr/bin/env. If that does not provide the answer, then
+/// If it is statically linked, then we try /usr/bin/env (or the file it references in shebang). If that does not provide the answer, then
 /// we fall back to the defaults.
 /// TODO Remove the Allocator requirement from this function.
 fn detectAbiAndDynamicLinker(
@@ -276,6 +276,7 @@ fn detectAbiAndDynamicLinker(
     };
     var ld_info_list_buffer: [all_abis.len]LdInfo = undefined;
     var ld_info_list_len: usize = 0;
+    const ofmt = cross_target.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch);
 
     for (all_abis) |abi| {
         // This may be a nonsensical parameter. We detect this with error.UnknownDynamicLinkerPath and
@@ -284,6 +285,7 @@ fn detectAbiAndDynamicLinker(
             .cpu = cpu,
             .os = os,
             .abi = abi,
+            .ofmt = ofmt,
         };
         const ld = target.standardDynamicLinkerPath();
         if (ld.get() == null) continue;
@@ -346,6 +348,7 @@ fn detectAbiAndDynamicLinker(
                 .cpu = cpu,
                 .os = os_adjusted,
                 .abi = cross_target.abi orelse found_ld_info.abi,
+                .ofmt = cross_target.ofmt orelse Target.ObjectFormat.default(os_adjusted.tag, cpu.arch),
             },
             .dynamic_linker = if (cross_target.dynamic_linker.get() == null)
                 DynamicLinker.init(found_ld_path)
@@ -355,37 +358,77 @@ fn detectAbiAndDynamicLinker(
         return result;
     }
 
-    const env_file = std.fs.openFileAbsoluteZ("/usr/bin/env", .{}) catch |err| switch (err) {
-        error.NoSpaceLeft => unreachable,
-        error.NameTooLong => unreachable,
-        error.PathAlreadyExists => unreachable,
-        error.SharingViolation => unreachable,
-        error.InvalidUtf8 => unreachable,
-        error.BadPathName => unreachable,
-        error.PipeBusy => unreachable,
-        error.FileLocksNotSupported => unreachable,
-        error.WouldBlock => unreachable,
-        error.FileBusy => unreachable, // opened without write permissions
+    const elf_file = blk: {
+        // This block looks for a shebang line in /usr/bin/env,
+        // if it finds one, then instead of using /usr/bin/env as the ELF file to examine, it uses the file it references instead,
+        // doing the same logic recursively in case it finds another shebang line.
 
-        error.IsDir,
-        error.NotDir,
-        error.InvalidHandle,
-        error.AccessDenied,
-        error.NoDevice,
-        error.FileNotFound,
-        error.FileTooBig,
-        error.Unexpected,
-        => return defaultAbiAndDynamicLinker(cpu, os, cross_target),
+        // Since /usr/bin/env is hard-coded into the shebang line of many portable scripts, it's a
+        // reasonably reliable path to start with.
+        var file_name: []const u8 = "/usr/bin/env";
+        // #! (2) + 255 (max length of shebang line since Linux 5.1) + \n (1)
+        var buffer: [258]u8 = undefined;
+        while (true) {
+            const file = std.fs.openFileAbsolute(file_name, .{}) catch |err| switch (err) {
+                error.NoSpaceLeft => unreachable,
+                error.NameTooLong => unreachable,
+                error.PathAlreadyExists => unreachable,
+                error.SharingViolation => unreachable,
+                error.InvalidUtf8 => unreachable,
+                error.BadPathName => unreachable,
+                error.PipeBusy => unreachable,
+                error.FileLocksNotSupported => unreachable,
+                error.WouldBlock => unreachable,
+                error.FileBusy => unreachable, // opened without write permissions
 
-        else => |e| return e,
+                error.IsDir,
+                error.NotDir,
+                error.InvalidHandle,
+                error.AccessDenied,
+                error.NoDevice,
+                error.FileNotFound,
+                error.FileTooBig,
+                error.Unexpected,
+                => |e| {
+                    std.log.warn("Encoutered error: {s}, falling back to default ABI and dynamic linker.\n", .{@errorName(e)});
+                    return defaultAbiAndDynamicLinker(cpu, os, cross_target);
+                },
+
+                else => |e| return e,
+            };
+
+            const line = file.reader().readUntilDelimiter(&buffer, '\n') catch |err| switch (err) {
+                error.IsDir => unreachable, // Handled before
+                error.AccessDenied => unreachable,
+                error.WouldBlock => unreachable, // Did not request blocking mode
+                error.OperationAborted => unreachable, // Windows-only
+                error.BrokenPipe => unreachable,
+                error.ConnectionResetByPeer => unreachable,
+                error.ConnectionTimedOut => unreachable,
+                error.InputOutput => unreachable,
+                error.Unexpected => unreachable,
+
+                error.StreamTooLong,
+                error.EndOfStream,
+                error.NotOpenForReading,
+                => break :blk file,
+
+                else => |e| {
+                    file.close();
+                    return e;
+                },
+            };
+            if (!mem.startsWith(u8, line, "#!")) break :blk file;
+            var it = std.mem.tokenize(u8, line[2..], " ");
+            file.close();
+            file_name = it.next() orelse return defaultAbiAndDynamicLinker(cpu, os, cross_target);
+        }
     };
-    defer env_file.close();
+    defer elf_file.close();
 
     // If Zig is statically linked, such as via distributed binary static builds, the above
-    // trick won't work. The next thing we fall back to is the same thing, but for /usr/bin/env.
-    // Since that path is hard-coded into the shebang line of many portable scripts, it's a
-    // reasonably reliable path to check for.
-    return abiAndDynamicLinkerFromFile(env_file, cpu, os, ld_info_list, cross_target) catch |err| switch (err) {
+    // trick (block self_exe) won't work. The next thing we fall back to is the same thing, but for elf_file.
+    return abiAndDynamicLinkerFromFile(elf_file, cpu, os, ld_info_list, cross_target) catch |err| switch (err) {
         error.FileSystem,
         error.SystemResources,
         error.SymLinkLoop,
@@ -403,7 +446,10 @@ fn detectAbiAndDynamicLinker(
         error.UnexpectedEndOfFile,
         error.NameTooLong,
         // Finally, we fall back on the standard path.
-        => defaultAbiAndDynamicLinker(cpu, os, cross_target),
+        => |e| {
+            std.log.warn("Encoutered error: {s}, falling back to default ABI and dynamic linker.\n", .{@errorName(e)});
+            return defaultAbiAndDynamicLinker(cpu, os, cross_target);
+        },
     };
 }
 
@@ -496,6 +542,7 @@ pub fn abiAndDynamicLinkerFromFile(
             .cpu = cpu,
             .os = os,
             .abi = cross_target.abi orelse Target.Abi.default(cpu.arch, os),
+            .ofmt = cross_target.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch),
         },
         .dynamic_linker = cross_target.dynamic_linker,
     };
@@ -786,6 +833,7 @@ fn defaultAbiAndDynamicLinker(cpu: Target.Cpu, os: Target.Os, cross_target: Cros
         .cpu = cpu,
         .os = os,
         .abi = cross_target.abi orelse Target.Abi.default(cpu.arch, os),
+        .ofmt = cross_target.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch),
     };
     return NativeTargetInfo{
         .target = target,
@@ -804,13 +852,13 @@ pub const LdInfo = struct {
 pub fn elfInt(is_64: bool, need_bswap: bool, int_32: anytype, int_64: anytype) @TypeOf(int_64) {
     if (is_64) {
         if (need_bswap) {
-            return @byteSwap(@TypeOf(int_64), int_64);
+            return @byteSwap(int_64);
         } else {
             return int_64;
         }
     } else {
         if (need_bswap) {
-            return @byteSwap(@TypeOf(int_32), int_32);
+            return @byteSwap(int_32);
         } else {
             return int_32;
         }

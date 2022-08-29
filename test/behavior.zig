@@ -26,7 +26,6 @@ test {
     _ = @import("behavior/bugs/920.zig");
     _ = @import("behavior/bugs/1025.zig");
     _ = @import("behavior/bugs/1076.zig");
-    _ = @import("behavior/bugs/1111.zig");
     _ = @import("behavior/bugs/1277.zig");
     _ = @import("behavior/bugs/1310.zig");
     _ = @import("behavior/bugs/1381.zig");
@@ -84,6 +83,8 @@ test {
     _ = @import("behavior/bugs/11213.zig");
     _ = @import("behavior/bugs/12003.zig");
     _ = @import("behavior/bugs/12033.zig");
+    _ = @import("behavior/bugs/12430.zig");
+    _ = @import("behavior/bugs/12486.zig");
     _ = @import("behavior/byteswap.zig");
     _ = @import("behavior/byval_arg_var.zig");
     _ = @import("behavior/call.zig");
@@ -159,12 +160,14 @@ test {
     _ = @import("behavior/while.zig");
     _ = @import("behavior/widening.zig");
 
-    if (builtin.stage2_arch == .wasm32) {
+    if (builtin.cpu.arch == .wasm32) {
         _ = @import("behavior/wasm.zig");
     }
 
     if (builtin.zig_backend != .stage1) {
         _ = @import("behavior/decltest.zig");
+        _ = @import("behavior/packed_struct_explicit_backing_int.zig");
+        _ = @import("behavior/empty_union.zig");
     }
 
     if (builtin.os.tag != .wasi) {

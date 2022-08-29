@@ -246,3 +246,18 @@ test "function call with 40 arguments" {
     };
     try S.doTheTest(39);
 }
+
+test "arguments to comptime parameters generated in comptime blocks" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
+    const S = struct {
+        fn fortyTwo() i32 {
+            return 42;
+        }
+
+        fn foo(comptime x: i32) void {
+            if (x != 42) @compileError("bad");
+        }
+    };
+    S.foo(S.fortyTwo());
+}

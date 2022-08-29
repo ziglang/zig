@@ -877,8 +877,9 @@ pub const IterableDir = struct {
         /// a reference to the path.
         pub fn next(self: *Walker) !?WalkerEntry {
             while (self.stack.items.len != 0) {
-                // `top` becomes invalid after appending to `self.stack`
+                // `top` and `containing` become invalid after appending to `self.stack`
                 var top = &self.stack.items[self.stack.items.len - 1];
+                var containing = top;
                 var dirname_len = top.dirname_len;
                 if (try top.iter.next()) |base| {
                     self.name_buffer.shrinkRetainingCapacity(dirname_len);
@@ -899,10 +900,11 @@ pub const IterableDir = struct {
                                 .dirname_len = self.name_buffer.items.len,
                             });
                             top = &self.stack.items[self.stack.items.len - 1];
+                            containing = &self.stack.items[self.stack.items.len - 2];
                         }
                     }
                     return WalkerEntry{
-                        .dir = top.iter.dir,
+                        .dir = containing.iter.dir,
                         .basename = self.name_buffer.items[dirname_len..],
                         .path = self.name_buffer.items,
                         .kind = base.kind,

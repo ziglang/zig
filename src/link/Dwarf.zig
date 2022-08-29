@@ -102,7 +102,7 @@ pub const DeclState = struct {
     }
 
     pub fn addExprlocReloc(self: *DeclState, target: u32, offset: u32, is_ptr: bool) !void {
-        log.debug("{x}: target sym @{d}, via GOT {}", .{ offset, target, is_ptr });
+        log.debug("{x}: target sym %{d}, via GOT {}", .{ offset, target, is_ptr });
         try self.exprloc_relocs.append(self.gpa, .{
             .@"type" = if (is_ptr) .got_load else .direct_load,
             .target = target,
@@ -135,7 +135,7 @@ pub const DeclState = struct {
                 .@"type" = ty,
                 .offset = undefined,
             });
-            log.debug("@{d}: {}", .{ sym_index, ty.fmtDebug() });
+            log.debug("%{d}: {}", .{ sym_index, ty.fmtDebug() });
             try self.abbrev_resolver.putNoClobberContext(self.gpa, ty, sym_index, .{
                 .mod = self.mod,
             });
@@ -143,7 +143,7 @@ pub const DeclState = struct {
                 .mod = self.mod,
             }).?;
         };
-        log.debug("{x}: @{d} + 0", .{ offset, resolv });
+        log.debug("{x}: %{d} + 0", .{ offset, resolv });
         try self.abbrev_relocs.append(self.gpa, .{
             .target = resolv,
             .atom = atom,
@@ -243,11 +243,13 @@ pub const DeclState = struct {
             .Pointer => {
                 if (ty.isSlice()) {
                     // Slices are structs: struct { .ptr = *, .len = N }
+                    const ptr_bits = target.cpu.arch.ptrBitWidth();
+                    const ptr_bytes = @intCast(u8, @divExact(ptr_bits, 8));
                     // DW.AT.structure_type
                     try dbg_info_buffer.ensureUnusedCapacity(2);
                     dbg_info_buffer.appendAssumeCapacity(@enumToInt(AbbrevKind.struct_type));
                     // DW.AT.byte_size, DW.FORM.sdata
-                    dbg_info_buffer.appendAssumeCapacity(@sizeOf(usize) * 2);
+                    dbg_info_buffer.appendAssumeCapacity(ptr_bytes * 2);
                     // DW.AT.name, DW.FORM.string
                     try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(module)});
                     // DW.AT.member
@@ -276,7 +278,7 @@ pub const DeclState = struct {
                     try self.addTypeRelocGlobal(atom, Type.usize, @intCast(u32, index));
                     // DW.AT.data_member_location, DW.FORM.sdata
                     try dbg_info_buffer.ensureUnusedCapacity(2);
-                    dbg_info_buffer.appendAssumeCapacity(@sizeOf(usize));
+                    dbg_info_buffer.appendAssumeCapacity(ptr_bytes);
                     // DW.AT.structure_type delimit children
                     dbg_info_buffer.appendAssumeCapacity(0);
                 } else {
@@ -1054,6 +1056,7 @@ pub fn commitDeclState(
                 break :blk false;
             };
             if (deferred) {
+                log.debug("resolving %{d} deferred until flush", .{target});
                 try self.global_abbrev_relocs.append(gpa, .{
                     .target = null,
                     .offset = reloc.offset,
@@ -1061,10 +1064,12 @@ pub fn commitDeclState(
                     .addend = reloc.addend,
                 });
             } else {
+                const value = symbol.atom.off + symbol.offset + reloc.addend;
+                log.debug("{x}: [() => {x}] (%{d}, '{}')", .{ reloc.offset, value, target, ty.fmtDebug() });
                 mem.writeInt(
                     u32,
                     dbg_info_buffer.items[reloc.offset..][0..@sizeOf(u32)],
-                    symbol.atom.off + symbol.offset + reloc.addend,
+                    value,
                     target_endian,
                 );
             }
@@ -1257,7 +1262,7 @@ fn writeDeclDebugInfo(self: *Dwarf, file: *File, atom: *Atom, dbg_info_buf: []co
                     debug_info_sect.addr = dwarf_segment.vmaddr + new_offset - dwarf_segment.fileoff;
                 }
                 debug_info_sect.size = needed_size;
-                d_sym.debug_line_header_dirty = true;
+                d_sym.debug_info_header_dirty = true;
             }
             const file_pos = debug_info_sect.offset + atom.off;
             try pwriteDbgInfoNops(

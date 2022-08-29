@@ -369,3 +369,62 @@ test "optional pointer to zero bit error union payload" {
         some.foo();
     } else |_| {}
 }
+
+const NoReturn = struct {
+    var a: u32 = undefined;
+    fn someData() bool {
+        a -= 1;
+        return a == 0;
+    }
+    fn loop() ?noreturn {
+        while (true) {
+            if (someData()) return null;
+        }
+    }
+    fn testOrelse() u32 {
+        loop() orelse return 123;
+        @compileError("bad");
+    }
+};
+
+test "optional of noreturn used with if" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
+    NoReturn.a = 64;
+    if (NoReturn.loop()) |_| {
+        @compileError("bad");
+    } else {
+        try expect(true);
+    }
+}
+
+test "optional of noreturn used with orelse" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
+    NoReturn.a = 64;
+    const val = NoReturn.testOrelse();
+    try expect(val == 123);
+}
+
+test "orelse on C pointer" {
+    // TODO https://github.com/ziglang/zig/issues/6597
+    const foo: [*c]const u8 = "hey";
+    const d = foo orelse @compileError("bad");
+    try expectEqual([*c]const u8, @TypeOf(d));
+}
+
+test "alignment of wrapping an optional payload" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
+    const S = struct {
+        const I = extern struct { x: i128 };
+
+        fn foo() ?I {
+            var i: I = .{ .x = 1234 };
+            return i;
+        }
+    };
+    try expect(S.foo().?.x == 1234);
+}

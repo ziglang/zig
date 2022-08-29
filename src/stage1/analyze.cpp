@@ -3034,6 +3034,12 @@ static Error resolve_struct_zero_bits(CodeGen *g, ZigType *struct_type) {
 
     AstNode *decl_node = struct_type->data.structure.decl_node;
 
+    if (decl_node->data.container_decl.unsupported_explicit_backing_int) {
+        add_node_error(g, decl_node, buf_create_from_str(
+            "the stage1 compiler does not support explicit backing integer types on packed structs"));
+        return ErrorSemanticAnalyzeFail;
+    }
+
     if (struct_type->data.structure.resolve_loop_flag_zero_bits) {
         if (struct_type->data.structure.resolve_status != ResolveStatusInvalid) {
             struct_type->data.structure.resolve_status = ResolveStatusInvalid;

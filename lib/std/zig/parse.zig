@@ -3356,16 +3356,18 @@ const Parser = struct {
     }
 
     /// Caller must have already verified the first token.
+    /// ContainerDeclAuto <- ContainerDeclType LBRACE container_doc_comment? ContainerMembers RBRACE
+    ///
     /// ContainerDeclType
-    ///     <- KEYWORD_struct
+    ///     <- KEYWORD_struct (LPAREN Expr RPAREN)?
+    ///      / KEYWORD_opaque
     ///      / KEYWORD_enum (LPAREN Expr RPAREN)?
     ///      / KEYWORD_union (LPAREN (KEYWORD_enum (LPAREN Expr RPAREN)? / Expr) RPAREN)?
-    ///      / KEYWORD_opaque
     fn parseContainerDeclAuto(p: *Parser) !Node.Index {
         const main_token = p.nextToken();
         const arg_expr = switch (p.token_tags[main_token]) {
-            .keyword_struct, .keyword_opaque => null_node,
-            .keyword_enum => blk: {
+            .keyword_opaque => null_node,
+            .keyword_struct, .keyword_enum => blk: {
                 if (p.eatToken(.l_paren)) |_| {
                     const expr = try p.expectExpr();
                     _ = try p.expectToken(.r_paren);
@@ -3668,7 +3670,7 @@ const Parser = struct {
     }
 
     /// KEYWORD_if LPAREN Expr RPAREN PtrPayload? Body (KEYWORD_else Payload? Body)?
-    fn parseIf(p: *Parser, bodyParseFn: fn (p: *Parser) Error!Node.Index) !Node.Index {
+    fn parseIf(p: *Parser, comptime bodyParseFn: fn (p: *Parser) Error!Node.Index) !Node.Index {
         const if_token = p.eatToken(.keyword_if) orelse return null_node;
         _ = try p.expectToken(.l_paren);
         const condition = try p.expectExpr();

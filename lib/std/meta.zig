@@ -764,7 +764,7 @@ const TagPayloadType = TagPayload;
 
 ///Given a tagged union type, and an enum, return the type of the union
 /// field corresponding to the enum tag.
-pub fn TagPayload(comptime U: type, tag: Tag(U)) type {
+pub fn TagPayload(comptime U: type, comptime tag: Tag(U)) type {
     comptime debug.assert(trait.is(.Union)(U));
 
     const info = @typeInfo(U).Union;
@@ -1024,28 +1024,13 @@ pub fn ArgsTuple(comptime Function: type) type {
     if (function_info.is_var_args)
         @compileError("Cannot create ArgsTuple for variadic function");
 
-    var argument_field_list: [function_info.args.len]std.builtin.Type.StructField = undefined;
+    var argument_field_list: [function_info.args.len]type = undefined;
     inline for (function_info.args) |arg, i| {
         const T = arg.arg_type.?;
-        @setEvalBranchQuota(10_000);
-        var num_buf: [128]u8 = undefined;
-        argument_field_list[i] = .{
-            .name = std.fmt.bufPrint(&num_buf, "{d}", .{i}) catch unreachable,
-            .field_type = T,
-            .default_value = null,
-            .is_comptime = false,
-            .alignment = if (@sizeOf(T) > 0) @alignOf(T) else 0,
-        };
+        argument_field_list[i] = T;
     }
 
-    return @Type(.{
-        .Struct = .{
-            .is_tuple = true,
-            .layout = .Auto,
-            .decls = &.{},
-            .fields = &argument_field_list,
-        },
-    });
+    return CreateUniqueTuple(argument_field_list.len, argument_field_list);
 }
 
 /// For a given anonymous list of types, returns a new tuple type
@@ -1056,6 +1041,10 @@ pub fn ArgsTuple(comptime Function: type) type {
 /// - `Tuple(&[_]type {f32})` ⇒ `tuple { f32 }`
 /// - `Tuple(&[_]type {f32,u32})` ⇒ `tuple { f32, u32 }`
 pub fn Tuple(comptime types: []const type) type {
+    return CreateUniqueTuple(types.len, types[0..types.len].*);
+}
+
+fn CreateUniqueTuple(comptime N: comptime_int, comptime types: [N]type) type {
     var tuple_fields: [types.len]std.builtin.Type.StructField = undefined;
     inline for (types) |T, i| {
         @setEvalBranchQuota(10_000);
@@ -1118,6 +1107,32 @@ test "Tuple" {
     TupleTester.assertTuple(.{ u32, f16, []const u8, void }, Tuple(&[_]type{ u32, f16, []const u8, void }));
 }
 
+test "Tuple deduplication" {
+    const T1 = std.meta.Tuple(&.{ u32, f32, i8 });
+    const T2 = std.meta.Tuple(&.{ u32, f32, i8 });
+    const T3 = std.meta.Tuple(&.{ u32, f32, i7 });
+
+    if (T1 != T2) {
+        @compileError("std.meta.Tuple doesn't deduplicate tuple types.");
+    }
+    if (T1 == T3) {
+        @compileError("std.meta.Tuple fails to generate different types.");
+    }
+}
+
+test "ArgsTuple forwarding" {
+    const T1 = std.meta.Tuple(&.{ u32, f32, i8 });
+    const T2 = std.meta.ArgsTuple(fn (u32, f32, i8) void);
+    const T3 = std.meta.ArgsTuple(fn (u32, f32, i8) callconv(.C) noreturn);
+
+    if (T1 != T2) {
+        @compileError("std.meta.ArgsTuple produces different types than std.meta.Tuple");
+    }
+    if (T1 != T3) {
+        @compileError("std.meta.ArgsTuple produces different types for the same argument lists.");
+    }
+}
+
 /// TODO: https://github.com/ziglang/zig/issues/425
 pub fn globalOption(comptime name: []const u8, comptime T: type) ?T {
     if (!@hasDecl(root, name))
@@ -1133,4 +1148,28 @@ pub fn isError(error_union: anytype) bool {
 test "isError" {
     try std.testing.expect(isError(math.absInt(@as(i8, -128))));
     try std.testing.expect(!isError(math.absInt(@as(i8, -127))));
+}
+
+/// This function returns a function pointer for a given function signature.
+/// It's a helper to make code compatible to both stage1 and stage2.
+///
+/// **WARNING:** This function is deprecated and will be removed together with stage1.
+pub fn FnPtr(comptime Fn: type) type {
+    return if (@import("builtin").zig_backend != .stage1)
+        *const Fn
+    else
+        Fn;
+}
+
+test "FnPtr" {
+    var func: FnPtr(fn () i64) = undefined;
+
+    // verify that we can perform runtime exchange
+    // and not have a function body in stage2:
+
+    func = std.time.timestamp;
+    _ = func();
+
+    func = std.time.milliTimestamp;
+    _ = func();
 }

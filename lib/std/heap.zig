@@ -479,7 +479,7 @@ const WasmPageAllocator = struct {
             @setCold(true);
             for (self.data) |segment, i| {
                 const spills_into_next = @bitCast(i128, segment) < 0;
-                const has_enough_bits = @popCount(u128, segment) >= num_pages;
+                const has_enough_bits = @popCount(segment) >= num_pages;
 
                 if (!spills_into_next and !has_enough_bits) continue;
 
@@ -1185,7 +1185,7 @@ pub fn testAllocatorLargeAlignment(base_allocator: mem.Allocator) !void {
     const large_align = @as(u29, mem.page_size << 2);
 
     var align_mask: usize = undefined;
-    _ = @shlWithOverflow(usize, ~@as(usize, 0), @as(USizeShift, @ctz(u29, large_align)), &align_mask);
+    _ = @shlWithOverflow(usize, ~@as(usize, 0), @as(USizeShift, @ctz(large_align)), &align_mask);
 
     var slice = try allocator.alignedAlloc(u8, large_align, 500);
     try testing.expect(@ptrToInt(slice.ptr) & align_mask == @ptrToInt(slice.ptr));

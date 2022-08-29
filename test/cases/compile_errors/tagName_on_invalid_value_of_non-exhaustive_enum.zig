@@ -9,4 +9,4 @@ test "enum" {
 // is_test=1
 //
 // :3:9: error: no field with value '5' in enum 'test.enum.E'
-// :1:1: note: declared here
+// :2:15: note: declared here

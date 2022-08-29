@@ -90,10 +90,11 @@ fn testClzBigInts() !void {
 }
 
 fn testOneClz(comptime T: type, x: T) u32 {
-    return @clz(T, x);
+    return @clz(x);
 }
 
 test "@clz vectors" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -120,7 +121,7 @@ fn testOneClzVector(
     x: @Vector(len, T),
     expected: @Vector(len, u32),
 ) !void {
-    try expectVectorsEqual(@clz(T, x), expected);
+    try expectVectorsEqual(@clz(x), expected);
 }
 
 fn expectVectorsEqual(a: anytype, b: anytype) !void {
@@ -151,19 +152,18 @@ fn testCtz() !void {
 }
 
 fn testOneCtz(comptime T: type, x: T) u32 {
-    return @ctz(T, x);
+    return @ctz(x);
 }
 
 test "@ctz vectors" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
 
-    if ((builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and
-        builtin.cpu.arch == .aarch64)
-    {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
         // This regressed with LLVM 14:
         // https://github.com/ziglang/zig/issues/12013
         return error.SkipZigTest;
@@ -187,7 +187,7 @@ fn testOneCtzVector(
     x: @Vector(len, T),
     expected: @Vector(len, u32),
 ) !void {
-    try expectVectorsEqual(@ctz(T, x), expected);
+    try expectVectorsEqual(@ctz(x), expected);
 }
 
 test "const number literal" {
@@ -239,10 +239,9 @@ test "quad hex float literal parsing in range" {
 }
 
 test "underscore separator parsing" {
-    try expect(0_0_0_0 == 0);
     try expect(1_234_567 == 1234567);
-    try expect(001_234_567 == 1234567);
-    try expect(0_0_1_2_3_4_5_6_7 == 1234567);
+    try expect(1_234_567 == 1234567);
+    try expect(1_2_3_4_5_6_7 == 1234567);
 
     try expect(0b0_0_0_0 == 0);
     try expect(0b1010_1010 == 0b10101010);
@@ -260,7 +259,7 @@ test "underscore separator parsing" {
     try expect(0x1_0_1_0_1_0_1_0 == 0x10101010);
 
     try expect(123_456.789_000e1_0 == 123456.789000e10);
-    try expect(0_1_2_3_4_5_6.7_8_9_0_0_0e0_0_1_0 == 123456.789000e10);
+    try expect(1_2_3_4_5_6.7_8_9_0_0_0e0_0_1_0 == 123456.789000e10);
 
     try expect(0x1234_5678.9ABC_DEF0p-1_0 == 0x12345678.9ABCDEF0p-10);
     try expect(0x1_2_3_4_5_6_7_8.9_A_B_C_D_E_F_0p-0_0_0_1_0 == 0x12345678.9ABCDEF0p-10);
@@ -1168,6 +1167,7 @@ test "remainder division" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .windows) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/12602
 
     comptime try remdiv(f16);
     comptime try remdiv(f32);
@@ -1199,6 +1199,7 @@ test "float remainder division using @rem" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .windows) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/12602
 
     comptime try frem(f16);
     comptime try frem(f32);
@@ -1241,6 +1242,7 @@ test "float modulo division using @mod" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .windows) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/12602
 
     comptime try fmod(f16);
     comptime try fmod(f32);
@@ -1368,6 +1370,7 @@ test "@floor f80" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .windows) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/12602
 
     try testFloor(f80, 12.0);
     comptime try testFloor(f80, 12.0);
@@ -1416,6 +1419,7 @@ test "@ceil f80" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .windows) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/12602
 
     try testCeil(f80, 12.0);
     comptime try testCeil(f80, 12.0);
@@ -1464,6 +1468,7 @@ test "@trunc f80" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .windows) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/12602
 
     try testTrunc(f80, 12.0);
     comptime try testTrunc(f80, 12.0);
@@ -1526,6 +1531,7 @@ test "@round f80" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .windows) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/12602
 
     try testRound(f80, 12.0);
     comptime try testRound(f80, 12.0);
@@ -1720,4 +1726,19 @@ fn testAbsFloat() !void {
 }
 fn testAbsFloatOne(in: f32, out: f32) !void {
     try expect(@fabs(@as(f32, in)) == @as(f32, out));
+}
+
+test "mod lazy values" {
+    {
+        const X = struct { x: u32 };
+        const x = @sizeOf(X);
+        const y = 1 % x;
+        _ = y;
+    }
+    {
+        const X = struct { x: u32 };
+        const x = @sizeOf(X);
+        const y = x % 1;
+        _ = y;
+    }
 }

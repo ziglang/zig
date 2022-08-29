@@ -378,6 +378,8 @@ const usage_build_generic =
     \\  -fno-lto                  Force-disable Link Time Optimization
     \\  -fstack-check             Enable stack probing in unsafe builds
     \\  -fno-stack-check          Disable stack probing in safe builds
+    \\  -fstack-protector         Enable stack protection in unsafe builds
+    \\  -fno-stack-protector      Disable stack protection in safe builds
     \\  -fsanitize-c              Enable C undefined behavior detection in unsafe builds
     \\  -fno-sanitize-c           Disable C undefined behavior detection in safe builds
     \\  -fvalgrind                Include valgrind client requests in release builds
@@ -668,6 +670,7 @@ fn buildOutputType(
     var want_unwind_tables: ?bool = null;
     var want_sanitize_c: ?bool = null;
     var want_stack_check: ?bool = null;
+    var want_stack_protector: ?u32 = null;
     var want_red_zone: ?bool = null;
     var omit_frame_pointer: ?bool = null;
     var want_valgrind: ?bool = null;
@@ -718,7 +721,7 @@ fn buildOutputType(
     var test_filter: ?[]const u8 = null;
     var test_name_prefix: ?[]const u8 = null;
     var override_local_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LOCAL_CACHE_DIR");
-    var override_global_cache_dir: ?[]const u8 = null;
+    var override_global_cache_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_GLOBAL_CACHE_DIR");
     var override_lib_dir: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LIB_DIR");
     var main_pkg_path: ?[]const u8 = null;
     var clang_preprocessor_mode: Compilation.ClangPreprocessorMode = .no;
@@ -1168,6 +1171,10 @@ fn buildOutputType(
                         want_stack_check = true;
                     } else if (mem.eql(u8, arg, "-fno-stack-check")) {
                         want_stack_check = false;
+                    } else if (mem.eql(u8, arg, "-fstack-protector")) {
+                        want_stack_protector = Compilation.default_stack_protector_buffer_size;
+                    } else if (mem.eql(u8, arg, "-fno-stack-protector")) {
+                        want_stack_protector = 0;
                     } else if (mem.eql(u8, arg, "-mred-zone")) {
                         want_red_zone = true;
                     } else if (mem.eql(u8, arg, "-mno-red-zone")) {
@@ -1521,6 +1528,12 @@ fn buildOutputType(
                     .no_color_diagnostics => color = .off,
                     .stack_check => want_stack_check = true,
                     .no_stack_check => want_stack_check = false,
+                    .stack_protector => {
+                        if (want_stack_protector == null) {
+                            want_stack_protector = Compilation.default_stack_protector_buffer_size;
+                        }
+                    },
+                    .no_stack_protector => want_stack_protector = 0,
                     .unwind_tables => want_unwind_tables = true,
                     .no_unwind_tables => want_unwind_tables = false,
                     .nostdlib => ensure_libc_on_non_freestanding = false,
@@ -1657,7 +1670,8 @@ fn buildOutputType(
                         disable_c_depfile = true;
                         try clang_argv.appendSlice(it.other_args);
                     },
-                    .dep_file_mm => { // -MM
+                    .dep_file_to_stdout => { // -M, -MM
+                        // "Like -MD, but also implies -E and writes to stdout by default"
                         // "Like -MMD, but also implies -E and writes to stdout by default"
                         c_out_mode = .preprocessor;
                         disable_c_depfile = true;
@@ -2191,6 +2205,7 @@ fn buildOutputType(
         .arch_os_abi = target_arch_os_abi,
         .cpu_features = target_mcpu,
         .dynamic_linker = target_dynamic_linker,
+        .object_format = target_ofmt,
     };
 
     // Before passing the mcpu string in for parsing, we convert any -m flags that were
@@ -2493,28 +2508,7 @@ fn buildOutputType(
         }
     }
 
-    const object_format: std.Target.ObjectFormat = blk: {
-        const ofmt = target_ofmt orelse break :blk target_info.target.getObjectFormat();
-        if (mem.eql(u8, ofmt, "elf")) {
-            break :blk .elf;
-        } else if (mem.eql(u8, ofmt, "c")) {
-            break :blk .c;
-        } else if (mem.eql(u8, ofmt, "coff")) {
-            break :blk .coff;
-        } else if (mem.eql(u8, ofmt, "macho")) {
-            break :blk .macho;
-        } else if (mem.eql(u8, ofmt, "wasm")) {
-            break :blk .wasm;
-        } else if (mem.eql(u8, ofmt, "hex")) {
-            break :blk .hex;
-        } else if (mem.eql(u8, ofmt, "raw")) {
-            break :blk .raw;
-        } else if (mem.eql(u8, ofmt, "spirv")) {
-            break :blk .spirv;
-        } else {
-            fatal("unsupported object format: {s}", .{ofmt});
-        }
-    };
+    const object_format = target_info.target.ofmt;
 
     if (output_mode == .Obj and (object_format == .coff or object_format == .macho)) {
         const total_obj_count = c_source_files.items.len +
@@ -2568,7 +2562,6 @@ fn buildOutputType(
                 .target = target_info.target,
                 .output_mode = output_mode,
                 .link_mode = link_mode,
-                .object_format = object_format,
                 .version = optional_version,
             }),
         },
@@ -2858,7 +2851,6 @@ fn buildOutputType(
         .emit_implib = emit_implib_resolved.data,
         .link_mode = link_mode,
         .dll_export_fns = dll_export_fns,
-        .object_format = object_format,
         .optimize_mode = optimize_mode,
         .keep_source_files_loaded = false,
         .clang_argv = clang_argv.items,
@@ -2880,6 +2872,7 @@ fn buildOutputType(
         .want_unwind_tables = want_unwind_tables,
         .want_sanitize_c = want_sanitize_c,
         .want_stack_check = want_stack_check,
+        .want_stack_protector = want_stack_protector,
         .want_red_zone = want_red_zone,
         .omit_frame_pointer = omit_frame_pointer,
         .want_valgrind = want_valgrind,
@@ -2996,7 +2989,7 @@ fn buildOutputType(
         return std.io.getStdOut().writeAll(try comp.generateBuiltinZigSource(arena));
     }
     if (arg_mode == .translate_c) {
-        const stage1_mode = use_stage1 orelse build_options.is_stage1;
+        const stage1_mode = use_stage1 orelse false;
         return cmdTranslateC(comp, arena, have_enable_cache, stage1_mode);
     }
 
@@ -3172,11 +3165,11 @@ fn parseCrossTargetOrReportFatalError(
                 for (diags.arch.?.allCpuModels()) |cpu| {
                     help_text.writer().print(" {s}\n", .{cpu.name}) catch break :help;
                 }
-                std.log.info("Available CPUs for architecture '{s}':\n{s}", .{
+                std.log.info("available CPUs for architecture '{s}':\n{s}", .{
                     @tagName(diags.arch.?), help_text.items,
                 });
             }
-            fatal("Unknown CPU: '{s}'", .{diags.cpu_name.?});
+            fatal("unknown CPU: '{s}'", .{diags.cpu_name.?});
         },
         error.UnknownCpuFeature => {
             help: {
@@ -3185,11 +3178,26 @@ fn parseCrossTargetOrReportFatalError(
                 for (diags.arch.?.allFeaturesList()) |feature| {
                     help_text.writer().print(" {s}: {s}\n", .{ feature.name, feature.description }) catch break :help;
                 }
-                std.log.info("Available CPU features for architecture '{s}':\n{s}", .{
+                std.log.info("available CPU features for architecture '{s}':\n{s}", .{
                     @tagName(diags.arch.?), help_text.items,
                 });
             }
-            fatal("Unknown CPU feature: '{s}'", .{diags.unknown_feature_name.?});
+            fatal("unknown CPU feature: '{s}'", .{diags.unknown_feature_name.?});
+        },
+        error.UnknownObjectFormat => {
+            {
+                var help_text = std.ArrayList(u8).init(allocator);
+                defer help_text.deinit();
+                inline for (@typeInfo(std.Target.ObjectFormat).Enum.fields) |field| {
+                    help_text.writer().print(" {s}\n", .{field.name}) catch
+                    // TODO change this back to `break :help`
+                    // this working around a stage1 bug.
+                    //break :help;
+                        @panic("out of memory");
+                }
+                std.log.info("available object formats:\n{s}", .{help_text.items});
+            }
+            fatal("unknown object format: '{s}'", .{opts.object_format.?});
         },
         else => |e| return e,
     };
@@ -3359,7 +3367,7 @@ fn updateModule(gpa: Allocator, comp: *Compilation, hook: AfterUpdateHook) !void
 
             // If a .pdb file is part of the expected output, we must also copy
             // it into place here.
-            const is_coff = comp.bin_file.options.object_format == .coff;
+            const is_coff = comp.bin_file.options.target.ofmt == .coff;
             const have_pdb = is_coff and !comp.bin_file.options.strip;
             if (have_pdb) {
                 // Replace `.out` or `.exe` with `.pdb` on both the source and destination
@@ -4226,6 +4234,7 @@ const FmtError = error{
     NotOpenForWriting,
     UnsupportedEncoding,
     ConnectionResetByPeer,
+    LockViolation,
 } || fs.File.OpenError;
 
 fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) FmtError!void {
@@ -4652,7 +4661,7 @@ pub const ClangArgIterator = struct {
         lib_dir,
         mcpu,
         dep_file,
-        dep_file_mm,
+        dep_file_to_stdout,
         framework_dir,
         framework,
         nostdlibinc,
@@ -4668,6 +4677,8 @@ pub const ClangArgIterator = struct {
         no_color_diagnostics,
         stack_check,
         no_stack_check,
+        stack_protector,
+        no_stack_protector,
         strip,
         exec_model,
         emit_llvm,

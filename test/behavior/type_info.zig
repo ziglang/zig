@@ -293,6 +293,7 @@ test "type info: struct info" {
 fn testStruct() !void {
     const unpacked_struct_info = @typeInfo(TestStruct);
     try expect(unpacked_struct_info.Struct.is_tuple == false);
+    try expect(unpacked_struct_info.Struct.backing_integer == null);
     try expect(unpacked_struct_info.Struct.fields[0].alignment == @alignOf(u32));
     try expect(@ptrCast(*const u32, unpacked_struct_info.Struct.fields[0].default_value.?).* == 4);
     try expect(mem.eql(u8, "foobar", @ptrCast(*const *const [6:0]u8, unpacked_struct_info.Struct.fields[1].default_value.?).*));
@@ -315,6 +316,7 @@ fn testPackedStruct() !void {
     try expect(struct_info == .Struct);
     try expect(struct_info.Struct.is_tuple == false);
     try expect(struct_info.Struct.layout == .Packed);
+    try expect(struct_info.Struct.backing_integer == u128);
     try expect(struct_info.Struct.fields.len == 4);
     try expect(struct_info.Struct.fields[0].alignment == 0);
     try expect(struct_info.Struct.fields[2].field_type == f32);
@@ -326,7 +328,7 @@ fn testPackedStruct() !void {
 }
 
 const TestPackedStruct = packed struct {
-    fieldA: usize,
+    fieldA: u64,
     fieldB: void,
     fieldC: f32,
     fieldD: u32 = 4,

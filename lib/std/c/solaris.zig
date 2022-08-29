@@ -879,10 +879,10 @@ pub const winsize = extern struct {
 const NSIG = 75;
 
 pub const SIG = struct {
-    pub const DFL = @intToPtr(?Sigaction.sigaction_fn, 0);
-    pub const ERR = @intToPtr(?Sigaction.sigaction_fn, maxInt(usize));
-    pub const IGN = @intToPtr(?Sigaction.sigaction_fn, 1);
-    pub const HOLD = @intToPtr(?Sigaction.sigaction_fn, 2);
+    pub const DFL = @intToPtr(?Sigaction.handler_fn, 0);
+    pub const ERR = @intToPtr(?Sigaction.handler_fn, maxInt(usize));
+    pub const IGN = @intToPtr(?Sigaction.handler_fn, 1);
+    pub const HOLD = @intToPtr(?Sigaction.handler_fn, 2);
 
     pub const WORDS = 4;
     pub const MAXSIG = 75;

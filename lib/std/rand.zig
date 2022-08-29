@@ -257,15 +257,15 @@ pub const Random = struct {
                 // If all 41 bits are zero, generate additional random bits, until a
                 // set bit is found, or 126 bits have been generated.
                 const rand = r.int(u64);
-                var rand_lz = @clz(u64, rand);
+                var rand_lz = @clz(rand);
                 if (rand_lz >= 41) {
                     // TODO: when #5177 or #489 is implemented,
                     // tell the compiler it is unlikely (1/2^41) to reach this point.
                     // (Same for the if branch and the f64 calculations below.)
-                    rand_lz = 41 + @clz(u64, r.int(u64));
+                    rand_lz = 41 + @clz(r.int(u64));
                     if (rand_lz == 41 + 64) {
                         // It is astronomically unlikely to reach this point.
-                        rand_lz += @clz(u32, r.int(u32) | 0x7FF);
+                        rand_lz += @clz(r.int(u32) | 0x7FF);
                     }
                 }
                 const mantissa = @truncate(u23, rand);
@@ -277,12 +277,12 @@ pub const Random = struct {
                 // If all 12 bits are zero, generate additional random bits, until a
                 // set bit is found, or 1022 bits have been generated.
                 const rand = r.int(u64);
-                var rand_lz: u64 = @clz(u64, rand);
+                var rand_lz: u64 = @clz(rand);
                 if (rand_lz >= 12) {
                     rand_lz = 12;
                     while (true) {
                         // It is astronomically unlikely for this loop to execute more than once.
-                        const addl_rand_lz = @clz(u64, r.int(u64));
+                        const addl_rand_lz = @clz(r.int(u64));
                         rand_lz += addl_rand_lz;
                         if (addl_rand_lz != 64) {
                             break;
@@ -336,6 +336,42 @@ pub const Random = struct {
             const j = r.intRangeLessThan(usize, i, buf.len);
             mem.swap(T, &buf[i], &buf[j]);
         }
+    }
+
+    /// Randomly selects an index into `proportions`, where the likelihood of each
+    /// index is weighted by that proportion.
+    ///
+    /// This is useful for selecting an item from a slice where weights are not equal.
+    /// `T` must be a numeric type capable of holding the sum of `proportions`.
+    pub fn weightedIndex(r: std.rand.Random, comptime T: type, proportions: []T) usize {
+        // This implementation works by summing the proportions and picking a random
+        //  point in [0, sum).  We then loop over the proportions, accumulating
+        //  until our accumulator is greater than the random point.
+
+        var sum: T = 0;
+        for (proportions) |v| {
+            sum += v;
+        }
+
+        const point = if (comptime std.meta.trait.isSignedInt(T))
+            r.intRangeLessThan(T, 0, sum)
+        else if (comptime std.meta.trait.isUnsignedInt(T))
+            r.uintLessThan(T, sum)
+        else if (comptime std.meta.trait.isFloat(T))
+            // take care that imprecision doesn't lead to a value slightly greater than sum
+            std.math.min(r.float(T) * sum, sum - std.math.epsilon(T))
+        else
+            @compileError("weightedIndex does not support proportions of type " ++ @typeName(T));
+
+        std.debug.assert(point < sum);
+
+        var accumulator: T = 0;
+        for (proportions) |p, index| {
+            accumulator += p;
+            if (point < accumulator) return index;
+        }
+
+        unreachable;
     }
 };
 

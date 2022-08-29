@@ -353,6 +353,26 @@ const known_options = [_]KnownOpt{
         .ident = "no_stack_check",
     },
     .{
+        .name = "stack-protector",
+        .ident = "stack_protector",
+    },
+    .{
+        .name = "fstack-protector",
+        .ident = "stack_protector",
+    },
+    .{
+        .name = "fno-stack-protector",
+        .ident = "no_stack_protector",
+    },
+    .{
+        .name = "fstack-protector-strong",
+        .ident = "stack_protector",
+    },
+    .{
+        .name = "fstack-protector-all",
+        .ident = "stack_protector",
+    },
+    .{
         .name = "MD",
         .ident = "dep_file",
     },
@@ -386,11 +406,15 @@ const known_options = [_]KnownOpt{
     },
     .{
         .name = "MM",
-        .ident = "dep_file_mm",
+        .ident = "dep_file_to_stdout",
+    },
+    .{
+        .name = "M",
+        .ident = "dep_file_to_stdout",
     },
     .{
         .name = "user-dependencies",
-        .ident = "dep_file_mm",
+        .ident = "dep_file_to_stdout",
     },
     .{
         .name = "MMD",
@@ -648,9 +672,9 @@ pub fn main() anyerror!void {
                 \\    .name = "{s}",
                 \\    .syntax = {s},
                 \\    .zig_equivalent = .{s},
-                \\    .pd1 = {any},
-                \\    .pd2 = {any},
-                \\    .psl = {any},
+                \\    .pd1 = {},
+                \\    .pd2 = {},
+                \\    .psl = {},
                 \\}},
                 \\
             , .{ name, final_syntax, ident, pd1, pd2, pslash });
@@ -678,9 +702,9 @@ pub fn main() anyerror!void {
                 \\    .name = "{s}",
                 \\    .syntax = {s},
                 \\    .zig_equivalent = .other,
-                \\    .pd1 = {any},
-                \\    .pd2 = {any},
-                \\    .psl = {any},
+                \\    .pd1 = {},
+                \\    .pd2 = {},
+                \\    .psl = {},
                 \\}},
                 \\
             , .{ name, syntax, pd1, pd2, pslash });

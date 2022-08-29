@@ -7,7 +7,7 @@ const meta = std.meta;
 const math = std.math;
 
 /// Creates a stream which allows for reading bit fields from another stream
-pub fn BitReader(endian: std.builtin.Endian, comptime ReaderType: type) type {
+pub fn BitReader(comptime endian: std.builtin.Endian, comptime ReaderType: type) type {
     return struct {
         forward_reader: ReaderType,
         bit_buffer: u7,

@@ -33,9 +33,13 @@ prev_di_column: u32,
 /// Relative to the beginning of `code`.
 prev_di_pc: usize,
 
-/// The amount of stack space consumed by all stack arguments as well
-/// as the saved callee-saved registers
-prologue_stack_space: u32,
+/// The amount of stack space consumed by the saved callee-saved
+/// registers in bytes
+saved_regs_stack_space: u32,
+
+/// The final stack frame size of the function (already aligned to the
+/// respective stack alignment). Does not include prologue stack space.
+stack_size: u32,
 
 /// The branch type of every branch
 branch_types: std.AutoHashMapUnmanaged(Mir.Inst.Index, BranchType) = .{},
@@ -500,14 +504,15 @@ fn mirLoadStackArgument(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const cond = emit.mir.instructions.items(.cond)[inst];
     const r_stack_offset = emit.mir.instructions.items(.data)[inst].r_stack_offset;
+    const rt = r_stack_offset.rt;
 
-    const raw_offset = emit.prologue_stack_space - r_stack_offset.stack_offset;
+    const raw_offset = emit.stack_size + emit.saved_regs_stack_space + r_stack_offset.stack_offset;
     switch (tag) {
         .ldr_ptr_stack_argument => {
             const operand = Instruction.Operand.fromU32(raw_offset) orelse
                 return emit.fail("TODO mirLoadStack larger offsets", .{});
 
-            try emit.writeInstruction(Instruction.add(cond, r_stack_offset.rt, .fp, operand));
+            try emit.writeInstruction(Instruction.add(cond, rt, .sp, operand));
         },
         .ldr_stack_argument,
         .ldrb_stack_argument,
@@ -516,23 +521,11 @@ fn mirLoadStackArgument(emit: *Emit, inst: Mir.Inst.Index) !void {
                 break :blk Instruction.Offset.imm(@intCast(u12, raw_offset));
             } else return emit.fail("TODO mirLoadStack larger offsets", .{});
 
-            const ldr = switch (tag) {
-                .ldr_stack_argument => &Instruction.ldr,
-                .ldrb_stack_argument => &Instruction.ldrb,
+            switch (tag) {
+                .ldr_stack_argument => try emit.writeInstruction(Instruction.ldr(cond, rt, .sp, .{ .offset = offset })),
+                .ldrb_stack_argument => try emit.writeInstruction(Instruction.ldrb(cond, rt, .sp, .{ .offset = offset })),
                 else => unreachable,
-            };
-
-            const ldr_workaround = switch (builtin.zig_backend) {
-                .stage1 => ldr.*,
-                else => ldr,
-            };
-
-            try emit.writeInstruction(ldr_workaround(
-                cond,
-                r_stack_offset.rt,
-                .fp,
-                .{ .offset = offset },
-            ));
+            }
         },
         .ldrh_stack_argument,
         .ldrsb_stack_argument,
@@ -542,24 +535,12 @@ fn mirLoadStackArgument(emit: *Emit, inst: Mir.Inst.Index) !void {
                 break :blk Instruction.ExtraLoadStoreOffset.imm(@intCast(u8, raw_offset));
             } else return emit.fail("TODO mirLoadStack larger offsets", .{});
 
-            const ldr = switch (tag) {
-                .ldrh_stack_argument => &Instruction.ldrh,
-                .ldrsb_stack_argument => &Instruction.ldrsb,
-                .ldrsh_stack_argument => &Instruction.ldrsh,
+            switch (tag) {
+                .ldrh_stack_argument => try emit.writeInstruction(Instruction.ldrh(cond, rt, .sp, .{ .offset = offset })),
+                .ldrsb_stack_argument => try emit.writeInstruction(Instruction.ldrsb(cond, rt, .sp, .{ .offset = offset })),
+                .ldrsh_stack_argument => try emit.writeInstruction(Instruction.ldrsh(cond, rt, .sp, .{ .offset = offset })),
                 else => unreachable,
-            };
-
-            const ldr_workaround = switch (builtin.zig_backend) {
-                .stage1 => ldr.*,
-                else => ldr,
-            };
-
-            try emit.writeInstruction(ldr_workaround(
-                cond,
-                r_stack_offset.rt,
-                .fp,
-                .{ .offset = offset },
-            ));
+            }
         },
         else => unreachable,
     }

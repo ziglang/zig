@@ -290,3 +290,41 @@ test "coerce tuple to tuple" {
     };
     try S.foo(.{123});
 }
+
+test "tuple type with void field" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    const T = std.meta.Tuple(&[_]type{void});
+    const x = T{{}};
+    try expect(@TypeOf(x[0]) == void);
+}
+
+test "zero sized struct in tuple handled correctly" {
+    const State = struct {
+        const Self = @This();
+        data: @Type(.{
+            .Struct = .{
+                .is_tuple = true,
+                .layout = .Auto,
+                .decls = &.{},
+                .fields = &.{.{
+                    .name = "0",
+                    .field_type = struct {},
+                    .default_value = null,
+                    .is_comptime = false,
+                    .alignment = 0,
+                }},
+            },
+        }),
+
+        pub fn do(this: Self) usize {
+            return @sizeOf(@TypeOf(this));
+        }
+    };
+
+    var s: State = undefined;
+    try expect(s.do() == 0);
+}

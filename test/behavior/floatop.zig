@@ -194,8 +194,8 @@ fn testSin() !void {
         const eps = epsForType(ty);
         try expect(@sin(@as(ty, 0)) == 0);
         try expect(math.approxEqAbs(ty, @sin(@as(ty, std.math.pi)), 0, eps));
-        try expect(math.approxEqAbs(ty, @sin(@as(ty, std.math.pi / 2)), 1, eps));
-        try expect(math.approxEqAbs(ty, @sin(@as(ty, std.math.pi / 4)), 0.7071067811865475, eps));
+        try expect(math.approxEqAbs(ty, @sin(@as(ty, std.math.pi / 2.0)), 1, eps));
+        try expect(math.approxEqAbs(ty, @sin(@as(ty, std.math.pi / 4.0)), 0.7071067811865475, eps));
     }
 
     {
@@ -228,8 +228,8 @@ fn testCos() !void {
         const eps = epsForType(ty);
         try expect(@cos(@as(ty, 0)) == 1);
         try expect(math.approxEqAbs(ty, @cos(@as(ty, std.math.pi)), -1, eps));
-        try expect(math.approxEqAbs(ty, @cos(@as(ty, std.math.pi / 2)), 0, eps));
-        try expect(math.approxEqAbs(ty, @cos(@as(ty, std.math.pi / 4)), 0.7071067811865475, eps));
+        try expect(math.approxEqAbs(ty, @cos(@as(ty, std.math.pi / 2.0)), 0, eps));
+        try expect(math.approxEqAbs(ty, @cos(@as(ty, std.math.pi / 4.0)), 0.7071067811865475, eps));
     }
 
     {

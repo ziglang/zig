@@ -310,6 +310,10 @@ pub const SymbolKind = enum(u16) {
 
 pub const TypeIndex = u32;
 
+// TODO According to this header:
+// https://github.com/microsoft/microsoft-pdb/blob/082c5290e5aff028ae84e43affa8be717aa7af73/include/cvinfo.h#L3722
+// we should define RecordPrefix as part of the ProcSym structure.
+// This might be important when we start generating PDB in self-hosted with our own PE linker.
 pub const ProcSym = extern struct {
     Parent: u32,
     End: u32,
@@ -321,8 +325,7 @@ pub const ProcSym = extern struct {
     CodeOffset: u32,
     Segment: u16,
     Flags: ProcSymFlags,
-    // following is a null terminated string
-    // Name: [*]u8,
+    Name: [1]u8, // null-terminated
 };
 
 pub const ProcSymFlags = packed struct {
@@ -693,7 +696,7 @@ pub const Pdb = struct {
                 .S_LPROC32, .S_GPROC32 => {
                     const proc_sym = @ptrCast(*align(1) ProcSym, &module.symbols[symbol_i + @sizeOf(RecordPrefix)]);
                     if (address >= proc_sym.CodeOffset and address < proc_sym.CodeOffset + proc_sym.CodeSize) {
-                        return mem.sliceTo(@ptrCast([*:0]u8, proc_sym) + @sizeOf(ProcSym), 0);
+                        return mem.sliceTo(@ptrCast([*:0]u8, &proc_sym.Name[0]), 0);
                     }
                 },
                 else => {},

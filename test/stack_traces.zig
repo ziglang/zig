@@ -21,7 +21,8 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         },
         .ReleaseSafe = .{
             .exclude_os = .{
-                .windows, // segfault
+                .windows, // TODO
+                .linux, // defeated by aggressive inlining
             },
             .expect = 
             \\error: TheSkyIsFalling
@@ -70,7 +71,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         },
         .ReleaseSafe = .{
             .exclude_os = .{
-                .windows, // segfault
+                .windows, // TODO
             },
             .expect = 
             \\error: TheSkyIsFalling
@@ -136,7 +137,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         },
         .ReleaseSafe = .{
             .exclude_os = .{
-                .windows, // segfault
+                .windows, // TODO
             },
             .expect = 
             \\error: TheSkyIsFalling
@@ -172,7 +173,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
     cases.addCase(.{
         .exclude_os = .{
             .openbsd, // integer overflow
-            .windows,
+            .windows, // TODO intermittent failures
         },
         .name = "dumpCurrentStackTrace",
         .source = 

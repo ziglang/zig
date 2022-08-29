@@ -1293,3 +1293,57 @@ test "mutate through pointer-like optional at comptime" {
         try expect(payload_ptr.*.* == 16);
     }
 }
+
+test "repeated value is correctly expanded" {
+    const S = struct { x: [4]i8 = std.mem.zeroes([4]i8) };
+    const M = struct { x: [4]S = std.mem.zeroes([4]S) };
+
+    comptime {
+        var res = M{};
+        for (.{ 1, 2, 3 }) |i| res.x[i].x[i] = i;
+
+        try expectEqual(M{ .x = .{
+            .{ .x = .{ 0, 0, 0, 0 } },
+            .{ .x = .{ 0, 1, 0, 0 } },
+            .{ .x = .{ 0, 0, 2, 0 } },
+            .{ .x = .{ 0, 0, 0, 3 } },
+        } }, res);
+    }
+}
+
+test "value in if block is comptime known" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
+    const first = blk: {
+        const s = if (false) "a" else "b";
+        break :blk "foo" ++ s;
+    };
+    const second = blk: {
+        const S = struct { str: []const u8 };
+        const s = if (false) S{ .str = "a" } else S{ .str = "b" };
+        break :blk "foo" ++ s.str;
+    };
+    comptime try expect(std.mem.eql(u8, first, second));
+}
+
+test "lazy sizeof is resolved in division" {
+    const A = struct {
+        a: u32,
+    };
+    const a = 2;
+    try expect(@sizeOf(A) / a == 2);
+    try expect(@sizeOf(A) - a == 2);
+}
+
+test "lazy value is resolved as slice operand" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    const A = struct { a: u32 };
+    var a: [512]u64 = undefined;
+
+    const ptr1 = a[0..@sizeOf(A)];
+    const ptr2 = @ptrCast([*]u8, &a)[0..@sizeOf(A)];
+    try expect(@ptrToInt(ptr1) == @ptrToInt(ptr2));
+    try expect(ptr1.len == ptr2.len);
+}

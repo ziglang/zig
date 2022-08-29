@@ -475,10 +475,9 @@ pub fn abort() noreturn {
 
         // Install default handler so that the tkill below will terminate.
         const sigact = Sigaction{
-            .handler = .{ .sigaction = SIG.DFL },
-            .mask = undefined,
-            .flags = undefined,
-            .restorer = undefined,
+            .handler = .{ .handler = SIG.DFL },
+            .mask = empty_sigset,
+            .flags = 0,
         };
         sigaction(SIG.ABRT, &sigact, null) catch |err| switch (err) {
             error.OperationNotSupported => unreachable,
@@ -952,6 +951,10 @@ pub const WriteError = error{
     SystemResources,
     OperationAborted,
     NotOpenForWriting,
+
+    /// The process cannot access the file because another process has locked
+    /// a portion of the file. Windows-only.
+    LockViolation,
 
     /// This error occurs when no global event loop is configured,
     /// and reading from the file descriptor would block.
@@ -2648,6 +2651,7 @@ pub fn renameatW(
         .creation = windows.FILE_OPEN,
         .io_mode = .blocking,
         .filter = .any, // This function is supposed to rename both files and directories.
+        .follow_symlinks = false,
     }) catch |err| switch (err) {
         error.WouldBlock => unreachable, // Not possible without `.share_access_nonblocking = true`.
         else => |e| return e,
@@ -5443,11 +5447,7 @@ pub fn toPosixPath(file_path: []const u8) ![MAX_PATH_BYTES - 1:0]u8 {
 /// if this happens the fix is to add the error code to the corresponding
 /// switch expression, possibly introduce a new error in the error set, and
 /// send a patch to Zig.
-/// The self-hosted compiler is not fully capable of handle the related code.
-/// Until then, unexpected error tracing is disabled for the self-hosted compiler.
-/// TODO remove this once self-hosted is capable enough to handle printing and
-/// stack trace dumping.
-pub const unexpected_error_tracing = builtin.zig_backend == .stage1 and builtin.mode == .Debug;
+pub const unexpected_error_tracing = (builtin.zig_backend == .stage1 or builtin.zig_backend == .stage2_llvm) and builtin.mode == .Debug;
 
 pub const UnexpectedError = error{
     /// The Operating System returned an undocumented error code.
@@ -6251,7 +6251,7 @@ pub const CopyFileRangeError = error{
     NoSpaceLeft,
     Unseekable,
     PermissionDenied,
-    FileBusy,
+    SwapFile,
 } || PReadError || PWriteError || UnexpectedError;
 
 var has_copy_file_range_syscall = std.atomic.Atomic(bool).init(true);
@@ -6305,7 +6305,7 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
             .NOSPC => return error.NoSpaceLeft,
             .OVERFLOW => return error.Unseekable,
             .PERM => return error.PermissionDenied,
-            .TXTBSY => return error.FileBusy,
+            .TXTBSY => return error.SwapFile,
             // these may not be regular files, try fallback
             .INVAL => {},
             // support for cross-filesystem copy added in Linux 5.3, use fallback

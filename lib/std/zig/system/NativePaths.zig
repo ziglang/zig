@@ -109,6 +109,8 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
 
     if (native_target.os.tag != .windows) {
         const triple = try native_target.linuxTriple(allocator);
+        defer allocator.free(triple);
+
         const qual = native_target.cpu.arch.ptrBitWidth();
 
         // TODO: $ ld --verbose | grep SEARCH_DIR

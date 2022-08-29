@@ -249,7 +249,7 @@ pub const Export = struct {
 };
 
 pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Options) !*Elf {
-    assert(options.object_format == .elf);
+    assert(options.target.ofmt == .elf);
 
     if (build_options.have_llvm and options.use_llvm) {
         return createEmpty(allocator, options);
@@ -328,7 +328,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
         .page_size = page_size,
     };
     const use_llvm = build_options.have_llvm and options.use_llvm;
-    const use_stage1 = build_options.is_stage1 and options.use_stage1;
+    const use_stage1 = build_options.have_stage1 and options.use_stage1;
     if (use_llvm and !use_stage1) {
         self.llvm_object = try LlvmObject.create(gpa, options);
     }
@@ -1448,6 +1448,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append(entry);
         }
 
+        for (self.base.options.force_undefined_symbols.keys()) |symbol| {
+            try argv.append("-u");
+            try argv.append(symbol);
+        }
+
         switch (self.base.options.hash_style) {
             .gnu => try argv.append("--hash-style=gnu"),
             .sysv => try argv.append("--hash-style=sysv"),
@@ -1671,6 +1676,12 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             if (comp.libc_static_lib) |lib| {
                 try argv.append(lib.full_object_path);
             }
+        }
+
+        // stack-protector.
+        // Related: https://github.com/ziglang/zig/issues/7265
+        if (comp.libssp_static_lib) |ssp| {
+            try argv.append(ssp.full_object_path);
         }
 
         // compiler-rt

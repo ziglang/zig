@@ -267,6 +267,7 @@ pub fn categorizeOperand(
         .byte_swap,
         .bit_reverse,
         .splat,
+        .error_set_has_value,
         => {
             const o = air_datas[inst].ty_op;
             if (o.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
@@ -291,6 +292,7 @@ pub fn categorizeOperand(
         .is_non_err_ptr,
         .ptrtoint,
         .bool_to_int,
+        .is_named_enum_value,
         .tag_name,
         .error_name,
         .sqrt,
@@ -841,6 +843,7 @@ fn analyzeInst(
         .byte_swap,
         .bit_reverse,
         .splat,
+        .error_set_has_value,
         => {
             const o = inst_datas[inst].ty_op;
             return trackOperands(a, new_set, inst, main_tomb, .{ o.operand, .none, .none });
@@ -858,6 +861,7 @@ fn analyzeInst(
         .bool_to_int,
         .ret,
         .ret_load,
+        .is_named_enum_value,
         .tag_name,
         .error_name,
         .sqrt,
