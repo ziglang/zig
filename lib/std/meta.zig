@@ -105,6 +105,7 @@ test "std.meta.isTag for Tagged Unions" {
     try testing.expect(!isTag(flt, "int"));
 }
 
+/// Returns the variant of an enum type, `T`, which is named `str`, or `null` if no such variant exists.
 pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
     // Using ComptimeStringMap here is more performant, but it will start to take too
     // long to compile if the enum is large enough, due to the current limits of comptime
@@ -192,6 +193,7 @@ test "std.meta.alignment" {
     try testing.expect(alignment(fn () align(128) void) == 128);
 }
 
+/// Given a parameterized type (array, vector, pointer, optional), returns the "child type".
 pub fn Child(comptime T: type) type {
     return switch (@typeInfo(T)) {
         .Array => |info| info.child,
@@ -210,7 +212,7 @@ test "std.meta.Child" {
     try testing.expect(Child(Vector(2, u8)) == u8);
 }
 
-/// Given a "memory span" type, returns the "element type".
+/// Given a "memory span" type (array, slice, vector, or pointer to such), returns the "element type".
 pub fn Elem(comptime T: type) type {
     switch (@typeInfo(T)) {
         .Array => |info| return info.child,
@@ -505,7 +507,6 @@ test "std.meta.declarationInfo" {
         try testing.expect(!info.is_pub);
     }
 }
-
 pub fn fields(comptime T: type) switch (@typeInfo(T)) {
     .Struct => []const Type.StructField,
     .Union => []const Type.UnionField,
@@ -652,6 +653,7 @@ test "std.meta.tags" {
     try testing.expectEqual(E2.A, e2_tags[0]);
 }
 
+/// Returns an enum with a variant named after each field of `T`.
 pub fn FieldEnum(comptime T: type) type {
     const field_infos = fields(T);
 
