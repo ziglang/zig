@@ -1130,6 +1130,10 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
+    if (build_options.enable_logging) {
+        self.logSymtab();
+    }
+
     if (self.getEntryPoint()) |entry_sym_loc| {
         self.entry_addr = self.getSymbol(entry_sym_loc).value;
     }
@@ -1428,7 +1432,7 @@ inline fn getSizeOfImage(self: Coff) u32 {
 
 /// Returns symbol location corresponding to the set entrypoint (if any).
 pub fn getEntryPoint(self: Coff) ?SymbolWithLoc {
-    const entry_name = self.base.options.entry orelse "mainCRTStartup"; // TODO this is incomplete
+    const entry_name = self.base.options.entry orelse "_start"; // TODO this is incomplete
     return self.globals.get(entry_name);
 }
 
@@ -1439,14 +1443,15 @@ pub fn getSymbolPtr(self: *Coff, sym_loc: SymbolWithLoc) *coff.Symbol {
 }
 
 /// Returns symbol described by `sym_with_loc` descriptor.
-pub fn getSymbol(self: *Coff, sym_loc: SymbolWithLoc) coff.Symbol {
-    return self.getSymbolPtr(sym_loc).*;
+pub fn getSymbol(self: *const Coff, sym_loc: SymbolWithLoc) *const coff.Symbol {
+    assert(sym_loc.file == null); // TODO linking object files
+    return &self.locals.items[sym_loc.sym_index];
 }
 
 /// Returns name of the symbol described by `sym_with_loc` descriptor.
-pub fn getSymbolName(self: *Coff, sym_loc: SymbolWithLoc) []const u8 {
+pub fn getSymbolName(self: *const Coff, sym_loc: SymbolWithLoc) []const u8 {
     assert(sym_loc.file == null); // TODO linking object files
-    const sym = self.locals.items[sym_loc.sym_index];
+    const sym = self.getSymbol(sym_loc);
     const offset = sym.getNameOffset() orelse return sym.getName().?;
     return self.strtab.get(offset).?;
 }
@@ -1485,4 +1490,82 @@ fn setSymbolName(self: *Coff, symbol: *coff.Symbol, name: []const u8) !void {
     const offset = try self.strtab.insert(self.base.allocator, name);
     mem.set(u8, symbol.name[0..4], 0);
     mem.writeIntLittle(u32, symbol.name[4..8], offset);
+}
+
+fn logSymAttributes(sym: *const coff.Symbol, buf: *[4]u8) []const u8 {
+    mem.set(u8, buf[0..4], '_');
+    switch (sym.section_number) {
+        .UNDEFINED => {
+            buf[3] = 'u';
+            switch (sym.storage_class) {
+                .EXTERNAL => buf[1] = 'e',
+                .WEAK_EXTERNAL => buf[1] = 'w',
+                .NULL => {},
+                else => unreachable,
+            }
+        },
+        .ABSOLUTE => unreachable, // handle ABSOLUTE
+        .DEBUG => unreachable,
+        else => {
+            buf[0] = 's';
+            switch (sym.storage_class) {
+                .EXTERNAL => buf[1] = 'e',
+                .WEAK_EXTERNAL => buf[1] = 'w',
+                .NULL => {},
+                else => unreachable,
+            }
+        },
+    }
+    return buf[0..];
+}
+
+fn logSymtab(self: *Coff) void {
+    var buf: [4]u8 = undefined;
+
+    log.debug("symtab:", .{});
+    log.debug("  object(null)", .{});
+    for (self.locals.items) |*sym, sym_id| {
+        const where = if (sym.section_number == .UNDEFINED) "ord" else "sect";
+        const def_index: u16 = switch (sym.section_number) {
+            .UNDEFINED => 0, // TODO
+            .ABSOLUTE => unreachable, // TODO
+            .DEBUG => unreachable, // TODO
+            else => @enumToInt(sym.section_number),
+        };
+        log.debug("    %{d}: {?s} @{x} in {s}({d}), {s}", .{
+            sym_id,
+            self.getSymbolName(.{ .sym_index = @intCast(u32, sym_id), .file = null }),
+            sym.value,
+            where,
+            def_index,
+            logSymAttributes(sym, &buf),
+        });
+    }
+
+    log.debug("globals table:", .{});
+    for (self.globals.keys()) |name, id| {
+        const value = self.globals.values()[id];
+        log.debug("  {s} => %{d} in object({?d})", .{ name, value.sym_index, value.file });
+    }
+
+    log.debug("GOT entries:", .{});
+    for (self.got_entries.keys()) |target, i| {
+        const got_sym = self.getSymbol(.{ .sym_index = self.got_entries.values()[i], .file = null });
+        const target_sym = self.getSymbol(target);
+        if (target_sym.section_number == .UNDEFINED) {
+            log.debug("  {d}@{x} => import('{s}')", .{
+                i,
+                got_sym.value,
+                self.getSymbolName(target),
+            });
+        } else {
+            log.debug("  {d}@{x} => local(%{d}) in object({?d}) {s}", .{
+                i,
+                got_sym.value,
+                target.sym_index,
+                target.file,
+                logSymAttributes(target_sym, &buf),
+            });
+        }
+    }
 }
