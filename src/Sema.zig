@@ -5076,7 +5076,7 @@ pub fn analyzeExport(
         },
         .src = src,
         .link = switch (mod.comp.bin_file.tag) {
-            .coff => .{ .coff = {} },
+            .coff => .{ .coff = .{} },
             .elf => .{ .elf = .{} },
             .macho => .{ .macho = .{} },
             .plan9 => .{ .plan9 = null },

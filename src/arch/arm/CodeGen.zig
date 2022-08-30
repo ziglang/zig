@@ -3698,7 +3698,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
     // Due to incremental compilation, how function calls are generated depends
     // on linking.
     switch (self.bin_file.tag) {
-        .elf, .coff => {
+        .elf => {
             if (self.air.value(callee)) |func_value| {
                 if (func_value.castTag(.function)) |func_payload| {
                     const func = func_payload.data;
@@ -3709,11 +3709,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                     const got_addr = if (self.bin_file.cast(link.File.Elf)) |elf_file| blk: {
                         const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
                         break :blk @intCast(u32, got.p_vaddr + fn_owner_decl.link.elf.offset_table_index * ptr_bytes);
-                    } else if (self.bin_file.cast(link.File.Coff)) |coff_file|
-                        coff_file.offset_table_virtual_address + fn_owner_decl.link.coff.offset_table_index * ptr_bytes
-                    else
-                        unreachable;
-
+                    } else unreachable;
                     try self.genSetReg(Type.initTag(.usize), .lr, .{ .memory = got_addr });
                 } else if (func_value.castTag(.extern_fn)) |_| {
                     return self.fail("TODO implement calling extern functions", .{});
@@ -3751,6 +3747,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
             }
         },
         .macho => unreachable, // unsupported architecture for MachO
+        .coff => return self.fail("TODO implement call in COFF for {}", .{self.target.cpu.arch}),
         .plan9 => return self.fail("TODO implement call on plan9 for {}", .{self.target.cpu.arch}),
         else => unreachable,
     }
@@ -5548,9 +5545,8 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
         return MCValue{ .memory = got_addr };
     } else if (self.bin_file.cast(link.File.MachO)) |_| {
         unreachable; // unsupported architecture for MachO
-    } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-        const got_addr = coff_file.offset_table_virtual_address + decl.link.coff.offset_table_index * ptr_bytes;
-        return MCValue{ .memory = got_addr };
+    } else if (self.bin_file.cast(link.File.Coff)) |_| {
+        return self.fail("TODO codegen COFF const Decl pointer", .{});
     } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
         try p9.seeDecl(decl_index);
         const got_addr = p9.bases.data + decl.link.plan9.got_index.? * ptr_bytes;

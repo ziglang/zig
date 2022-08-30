@@ -372,6 +372,15 @@ pub const SectionHeader = extern struct {
         return std.math.powi(u16, 2, self.flags.ALIGN - 1) catch unreachable;
     }
 
+    pub fn setAlignment(self: *SectionHeader, new_alignment: u16) void {
+        assert(new_alignment > 0 and new_alignment <= 8192);
+        self.flags.ALIGN = std.math.log2(new_alignment);
+    }
+
+    pub fn isCode(self: SectionHeader) bool {
+        return self.flags.CNT_CODE == 0b1;
+    }
+
     pub fn isComdat(self: SectionHeader) bool {
         return self.flags.LNK_COMDAT == 0b1;
     }
@@ -846,6 +855,21 @@ pub const MachineType = enum(u16) {
     Thumb = 0x1c2,
     /// MIPS little-endian WCE v2
     WCEMIPSV2 = 0x169,
+
+    pub fn fromTargetCpuArch(arch: std.Target.Cpu.Arch) MachineType {
+        return switch (arch) {
+            .arm => .ARM,
+            .powerpc => .POWERPC,
+            .riscv32 => .RISCV32,
+            .thumb => .Thumb,
+            .i386 => .I386,
+            .aarch64 => .ARM64,
+            .riscv64 => .RISCV64,
+            .x86_64 => .X64,
+            // there's cases we don't (yet) handle
+            else => unreachable,
+        };
+    }
 
     pub fn toTargetCpuArch(machine_type: MachineType) ?std.Target.Cpu.Arch {
         return switch (machine_type) {
