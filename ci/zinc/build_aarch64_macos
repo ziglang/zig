@@ -16,5 +16,5 @@ SEARCH_PREFIX="/deps/$TARGET"
   -Drelease \
   -Dstrip \
   -Dtarget="$TARGET" \
-  -Dmcpu="$MCPU" \
+  -Dcpu="$MCPU" \
   -Denable-stage1
