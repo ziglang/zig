@@ -4522,7 +4522,7 @@ pub const FuncGen = struct {
             "",
         );
 
-        if (return_type.isNoReturn()) {
+        if (return_type.isNoReturn() and attr != .AlwaysTail) {
             _ = self.builder.buildUnreachable();
             return null;
         }

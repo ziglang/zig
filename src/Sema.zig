@@ -6152,7 +6152,21 @@ fn analyzeCall(
     if (ensure_result_used) {
         try sema.ensureResultUsed(block, result, call_src);
     }
+    if (call_tag == .call_always_tail) {
+        return sema.handleTailCall(block, call_src, func_ty, result);
+    }
     return result;
+}
+
+fn handleTailCall(sema: *Sema, block: *Block, call_src: LazySrcLoc, func_ty: Type, result: Air.Inst.Ref) !Air.Inst.Ref {
+    const func_decl = sema.mod.declPtr(sema.owner_func.?.owner_decl);
+    if (!func_ty.eql(func_decl.ty, sema.mod)) {
+        return sema.fail(block, call_src, "unable to perform tail call: type of function being called '{}' does not match type of calling function '{}'", .{
+            func_ty.fmt(sema.mod), func_decl.ty.fmt(sema.mod),
+        });
+    }
+    _ = try block.addUnOp(.ret, result);
+    return Air.Inst.Ref.unreachable_value;
 }
 
 fn analyzeInlineCallArg(
@@ -6670,7 +6684,8 @@ fn instantiateGenericCall(
     try sema.requireFunctionBlock(block, call_src);
 
     const comptime_args = callee.comptime_args.?;
-    const new_fn_info = mod.declPtr(callee.owner_decl).ty.fnInfo();
+    const func_ty = mod.declPtr(callee.owner_decl).ty;
+    const new_fn_info = func_ty.fnInfo();
     const runtime_args_len = @intCast(u32, new_fn_info.param_types.len);
     const runtime_args = try sema.arena.alloc(Air.Inst.Ref, runtime_args_len);
     {
@@ -6717,7 +6732,7 @@ fn instantiateGenericCall(
 
     try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.Call).Struct.fields.len +
         runtime_args_len);
-    const func_inst = try block.addInst(.{
+    const result = try block.addInst(.{
         .tag = call_tag,
         .data = .{ .pl_op = .{
             .operand = callee_inst,
@@ -6729,9 +6744,12 @@ fn instantiateGenericCall(
     sema.appendRefsAssumeCapacity(runtime_args);
 
     if (ensure_result_used) {
-        try sema.ensureResultUsed(block, func_inst, call_src);
+        try sema.ensureResultUsed(block, result, call_src);
     }
-    return func_inst;
+    if (call_tag == .call_always_tail) {
+        return sema.handleTailCall(block, call_src, func_ty, result);
+    }
+    return result;
 }
 
 fn emitDbgInline(
@@ -19262,11 +19280,17 @@ fn resolveCallOptions(
             return wanted_modifier;
         },
         // These can be upgraded to comptime. nosuspend bit can be safely ignored.
-        .always_tail, .always_inline, .compile_time => {
+        .always_inline, .compile_time => {
             _ = (try sema.resolveDefinedValue(block, func_src, func)) orelse {
                 return sema.fail(block, func_src, "modifier '{s}' requires a comptime-known function", .{@tagName(wanted_modifier)});
             };
 
+            if (is_comptime) {
+                return .compile_time;
+            }
+            return wanted_modifier;
+        },
+        .always_tail => {
             if (is_comptime) {
                 return .compile_time;
             }
