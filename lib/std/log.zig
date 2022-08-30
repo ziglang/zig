@@ -38,7 +38,7 @@
 //!             return,
 //!     } ++ "): ";
 //!
-//!     const prefix = "[" ++ level.asText() ++ "] " ++ scope_prefix;
+//!     const prefix = "[" ++ comptime level.asText() ++ "] " ++ scope_prefix;
 //!
 //!     // Print the message to stderr, silently ignoring any errors
 //!     std.debug.getStderrMutex().lock();
