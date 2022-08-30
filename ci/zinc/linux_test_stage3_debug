@@ -56,7 +56,7 @@ stage3/bin/zig build test \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
   --search-prefix "$DEPS_LOCAL" \
-  --zig-lib-dir ../lib
+  --zig-lib-dir "$(pwd)/../lib"
 
 # Explicit exit helps show last command duration.
 exit

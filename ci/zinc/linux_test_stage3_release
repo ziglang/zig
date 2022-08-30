@@ -41,14 +41,14 @@ ninja install
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
   --search-prefix "$DEPS_LOCAL" \
-  --zig-lib-dir ../lib
+  --zig-lib-dir "$(pwd)/../lib"
 
 # Produce the experimental std lib documentation.
 mkdir -p "$RELEASE_STAGING/docs/std"
 "$RELEASE_STAGING/bin/zig" test ../lib/std/std.zig \
   -femit-docs=$RELEASE_STAGING/docs/std \
   -fno-emit-bin \
-  --zig-lib-dir ../lib
+  --zig-lib-dir "$(pwd)/../lib"
 
 cp ../LICENSE $RELEASE_STAGING/
 cp ../zig-cache/langref.html $RELEASE_STAGING/docs/
