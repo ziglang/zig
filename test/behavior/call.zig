@@ -270,6 +270,8 @@ test "forced tail call" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
+    if (comptime !builtin.target.supportsTailCall()) return error.SkipZigTest;
+
     const S = struct {
         fn fibonacciTailInternal(n: u16, a: u16, b: u16) u16 {
             if (n == 0) return a;
@@ -295,6 +297,8 @@ test "inline call preserves tail call" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    if (comptime !builtin.target.supportsTailCall()) return error.SkipZigTest;
 
     const max = std.math.maxInt(u16);
     const S = struct {

@@ -6160,6 +6160,10 @@ fn analyzeCall(
 }
 
 fn handleTailCall(sema: *Sema, block: *Block, call_src: LazySrcLoc, func_ty: Type, result: Air.Inst.Ref) !Air.Inst.Ref {
+    const target = sema.mod.getTarget();
+    if (!target.supportsTailCall()) {
+        return sema.fail(block, call_src, "unable to perform tail call: target does not support tail calls", .{});
+    }
     const func_decl = sema.mod.declPtr(sema.owner_func.?.owner_decl);
     if (!func_ty.eql(func_decl.ty, sema.mod)) {
         return sema.fail(block, call_src, "unable to perform tail call: type of function being called '{}' does not match type of calling function '{}'", .{
