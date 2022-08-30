@@ -171,7 +171,7 @@ pub fn tokenSlice(tree: Ast, token_index: TokenIndex) []const u8 {
         .index = token_starts[token_index],
         .pending_invalid_token = null,
     };
-    const token = tokenizer.next();
+    const token = tokenizer.findTagAtCurrentIndex(token_tag);
     assert(token.tag == token_tag);
     return tree.source[token.loc.start..token.loc.end];
 }
