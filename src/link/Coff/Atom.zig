@@ -2,6 +2,7 @@ const Atom = @This();
 
 const std = @import("std");
 const coff = std.coff;
+const log = std.log.scoped(.link);
 
 const Allocator = std.mem.Allocator;
 
@@ -100,11 +101,20 @@ pub fn freeListEligible(self: Atom, coff_file: *const Coff) bool {
 
 pub fn addRelocation(self: *Atom, coff_file: *Coff, reloc: Reloc) !void {
     const gpa = coff_file.base.allocator;
-    // TODO causes a segfault on Windows
-    // log.debug("adding reloc of type {s} to target %{d}", .{ @tagName(reloc.@"type"), reloc.target.sym_index });
+    log.debug("  (adding reloc of type {s} to target %{d})", .{ @tagName(reloc.@"type"), reloc.target.sym_index });
     const gop = try coff_file.relocs.getOrPut(gpa, self);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
     }
     try gop.value_ptr.append(gpa, reloc);
+}
+
+pub fn addBaseRelocation(self: *Atom, coff_file: *Coff, offset: u32) !void {
+    const gpa = coff_file.base.allocator;
+    log.debug("  (adding base relocation at offset 0x{x} in %{d})", .{ offset, self.sym_index });
+    const gop = try coff_file.base_relocs.getOrPut(gpa, self);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = .{};
+    }
+    try gop.value_ptr.append(gpa, offset);
 }
