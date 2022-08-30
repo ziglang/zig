@@ -8,7 +8,8 @@ ZIG="$INSTALL_PREFIX/bin/zig"
 export ZIG_GLOBAL_CACHE_DIR="$DRONE_WORKSPACE/zig-cache"
 
 $ZIG build test-universal-libc -Dskip-non-native --zig-lib-dir lib
-$ZIG build test-compare-output -Dskip-non-native --zig-lib-dir lib
+# https://github.com/ziglang/zig/issues/12689
+# $ZIG build test-compare-output -Dskip-non-native --zig-lib-dir lib
 $ZIG build test-standalone     -Dskip-non-native --zig-lib-dir lib -Dskip-release-safe
 $ZIG build test-stack-traces   -Dskip-non-native --zig-lib-dir lib
 $ZIG build test-cli            -Dskip-non-native --zig-lib-dir lib
