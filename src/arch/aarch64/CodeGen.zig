@@ -3466,19 +3466,16 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
     // on linking.
     const mod = self.bin_file.options.module.?;
     if (self.air.value(callee)) |func_value| {
-        if (self.bin_file.tag == link.File.Elf.base_tag or self.bin_file.tag == link.File.Coff.base_tag) {
+        if (self.bin_file.cast(link.File.Elf)) |elf_file| {
             if (func_value.castTag(.function)) |func_payload| {
                 const func = func_payload.data;
                 const ptr_bits = self.target.cpu.arch.ptrBitWidth();
                 const ptr_bytes: u64 = @divExact(ptr_bits, 8);
                 const fn_owner_decl = mod.declPtr(func.owner_decl);
-                const got_addr = if (self.bin_file.cast(link.File.Elf)) |elf_file| blk: {
+                const got_addr = blk: {
                     const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
                     break :blk @intCast(u32, got.p_vaddr + fn_owner_decl.link.elf.offset_table_index * ptr_bytes);
-                } else if (self.bin_file.cast(link.File.Coff)) |coff_file|
-                    coff_file.offset_table_virtual_address + fn_owner_decl.link.coff.offset_table_index * ptr_bytes
-                else
-                    unreachable;
+                };
 
                 try self.genSetReg(Type.initTag(.usize), .x30, .{ .memory = got_addr });
 
@@ -3546,6 +3543,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
             } else {
                 return self.fail("TODO implement calling bitcasted functions", .{});
             }
+        } else if (self.bin_file.cast(link.File.Coff)) |_| {
+            return self.fail("TODO implement calling in COFF for {}", .{self.target.cpu.arch});
         } else unreachable;
     } else {
         assert(ty.zigTypeTag() == .Pointer);
@@ -5109,9 +5108,8 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
         // the linker has enough info to perform relocations.
         assert(decl.link.macho.sym_index != 0);
         return MCValue{ .got_load = decl.link.macho.sym_index };
-    } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-        const got_addr = coff_file.offset_table_virtual_address + decl.link.coff.offset_table_index * ptr_bytes;
-        return MCValue{ .memory = got_addr };
+    } else if (self.bin_file.cast(link.File.Coff)) |_| {
+        return self.fail("TODO codegen COFF const Decl pointer", .{});
     } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
         try p9.seeDecl(decl_index);
         const got_addr = p9.bases.data + decl.link.plan9.got_index.? * ptr_bytes;

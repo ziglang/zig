@@ -2657,22 +2657,26 @@ fn loadMemPtrIntoRegister(self: *Self, reg: Register, ptr_ty: Type, ptr: MCValue
         .direct_load,
         => |sym_index| {
             const abi_size = @intCast(u32, ptr_ty.abiSize(self.target.*));
+            const mod = self.bin_file.options.module.?;
+            const fn_owner_decl = mod.declPtr(self.mod_fn.owner_decl);
+            const atom_index = if (self.bin_file.tag == link.File.MachO.base_tag)
+                fn_owner_decl.link.macho.sym_index
+            else
+                fn_owner_decl.link.coff.sym_index;
             const flags: u2 = switch (ptr) {
                 .got_load => 0b00,
                 .direct_load => 0b01,
                 else => unreachable,
             };
-            const mod = self.bin_file.options.module.?;
-            const fn_owner_decl = mod.declPtr(self.mod_fn.owner_decl);
             _ = try self.addInst(.{
-                .tag = .lea_pie,
+                .tag = .lea_pic,
                 .ops = Mir.Inst.Ops.encode(.{
                     .reg1 = registerAlias(reg, abi_size),
                     .flags = flags,
                 }),
                 .data = .{
                     .relocation = .{
-                        .atom_index = fn_owner_decl.link.macho.sym_index,
+                        .atom_index = atom_index,
                         .sym_index = sym_index,
                     },
                 },
@@ -3961,24 +3965,55 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
     // Due to incremental compilation, how function calls are generated depends
     // on linking.
     const mod = self.bin_file.options.module.?;
-    if (self.bin_file.tag == link.File.Elf.base_tag or self.bin_file.tag == link.File.Coff.base_tag) {
+    if (self.bin_file.cast(link.File.Elf)) |elf_file| {
         if (self.air.value(callee)) |func_value| {
             if (func_value.castTag(.function)) |func_payload| {
                 const func = func_payload.data;
                 const ptr_bits = self.target.cpu.arch.ptrBitWidth();
                 const ptr_bytes: u64 = @divExact(ptr_bits, 8);
                 const fn_owner_decl = mod.declPtr(func.owner_decl);
-                const got_addr = if (self.bin_file.cast(link.File.Elf)) |elf_file| blk: {
+                const got_addr = blk: {
                     const got = &elf_file.program_headers.items[elf_file.phdr_got_index.?];
                     break :blk @intCast(u32, got.p_vaddr + fn_owner_decl.link.elf.offset_table_index * ptr_bytes);
-                } else if (self.bin_file.cast(link.File.Coff)) |coff_file|
-                    @intCast(u32, coff_file.offset_table_virtual_address + fn_owner_decl.link.coff.offset_table_index * ptr_bytes)
-                else
-                    unreachable;
+                };
                 _ = try self.addInst(.{
                     .tag = .call,
                     .ops = Mir.Inst.Ops.encode(.{ .flags = 0b01 }),
                     .data = .{ .imm = @truncate(u32, got_addr) },
+                });
+            } else if (func_value.castTag(.extern_fn)) |_| {
+                return self.fail("TODO implement calling extern functions", .{});
+            } else {
+                return self.fail("TODO implement calling bitcasted functions", .{});
+            }
+        } else {
+            assert(ty.zigTypeTag() == .Pointer);
+            const mcv = try self.resolveInst(callee);
+            try self.genSetReg(Type.initTag(.usize), .rax, mcv);
+            _ = try self.addInst(.{
+                .tag = .call,
+                .ops = Mir.Inst.Ops.encode(.{
+                    .reg1 = .rax,
+                    .flags = 0b01,
+                }),
+                .data = undefined,
+            });
+        }
+    } else if (self.bin_file.cast(link.File.Coff)) |_| {
+        if (self.air.value(callee)) |func_value| {
+            if (func_value.castTag(.function)) |func_payload| {
+                const func = func_payload.data;
+                const fn_owner_decl = mod.declPtr(func.owner_decl);
+                try self.genSetReg(Type.initTag(.usize), .rax, .{
+                    .got_load = fn_owner_decl.link.coff.sym_index,
+                });
+                _ = try self.addInst(.{
+                    .tag = .call,
+                    .ops = Mir.Inst.Ops.encode(.{
+                        .reg1 = .rax,
+                        .flags = 0b01,
+                    }),
+                    .data = undefined,
                 });
             } else if (func_value.castTag(.extern_fn)) |_| {
                 return self.fail("TODO implement calling extern functions", .{});
@@ -4003,9 +4038,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
             if (func_value.castTag(.function)) |func_payload| {
                 const func = func_payload.data;
                 const fn_owner_decl = mod.declPtr(func.owner_decl);
-                try self.genSetReg(Type.initTag(.usize), .rax, .{
-                    .got_load = fn_owner_decl.link.macho.sym_index,
-                });
+                const sym_index = fn_owner_decl.link.macho.sym_index;
+                try self.genSetReg(Type.initTag(.usize), .rax, .{ .got_load = sym_index });
                 // callq *%rax
                 _ = try self.addInst(.{
                     .tag = .call,
@@ -6842,13 +6876,11 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
         const got_addr = got.p_vaddr + decl.link.elf.offset_table_index * ptr_bytes;
         return MCValue{ .memory = got_addr };
     } else if (self.bin_file.cast(link.File.MachO)) |_| {
-        // Because MachO is PIE-always-on, we defer memory address resolution until
-        // the linker has enough info to perform relocations.
         assert(decl.link.macho.sym_index != 0);
         return MCValue{ .got_load = decl.link.macho.sym_index };
-    } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-        const got_addr = coff_file.offset_table_virtual_address + decl.link.coff.offset_table_index * ptr_bytes;
-        return MCValue{ .memory = got_addr };
+    } else if (self.bin_file.cast(link.File.Coff)) |_| {
+        assert(decl.link.coff.sym_index != 0);
+        return MCValue{ .got_load = decl.link.coff.sym_index };
     } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
         try p9.seeDecl(decl_index);
         const got_addr = p9.bases.data + decl.link.plan9.got_index.? * ptr_bytes;

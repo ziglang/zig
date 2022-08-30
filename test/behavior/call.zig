@@ -261,3 +261,71 @@ test "arguments to comptime parameters generated in comptime blocks" {
     };
     S.foo(S.fortyTwo());
 }
+
+test "forced tail call" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    if (builtin.zig_backend == .stage2_llvm) {
+        // Only attempt this test on targets we know have tail call support in LLVM.
+        if (builtin.cpu.arch != .x86_64 and builtin.cpu.arch != .aarch64) {
+            return error.SkipZigTest;
+        }
+    }
+
+    const S = struct {
+        fn fibonacciTailInternal(n: u16, a: u16, b: u16) u16 {
+            if (n == 0) return a;
+            if (n == 1) return b;
+            return @call(
+                .{ .modifier = .always_tail },
+                fibonacciTailInternal,
+                .{ n - 1, b, a + b },
+            );
+        }
+
+        fn fibonacciTail(n: u16) u16 {
+            return fibonacciTailInternal(n, 0, 1);
+        }
+    };
+    try expect(S.fibonacciTail(10) == 55);
+}
+
+test "inline call preserves tail call" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    if (builtin.zig_backend == .stage2_llvm) {
+        // Only attempt this test on targets we know have tail call support in LLVM.
+        if (builtin.cpu.arch != .x86_64 and builtin.cpu.arch != .aarch64) {
+            return error.SkipZigTest;
+        }
+    }
+
+    const max = std.math.maxInt(u16);
+    const S = struct {
+        var a: u16 = 0;
+        fn foo() void {
+            return bar();
+        }
+
+        inline fn bar() void {
+            if (a == max) return;
+            // Stack overflow if not tail called
+            var buf: [max]u16 = undefined;
+            buf[a] = a;
+            a += 1;
+            return @call(.{ .modifier = .always_tail }, foo, .{});
+        }
+    };
+    S.foo();
+    try expect(S.a == std.math.maxInt(u16));
+}

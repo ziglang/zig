@@ -1324,3 +1324,31 @@ test "union and enum field order doesn't match" {
     x = .b;
     try expect(x == .b);
 }
+
+test "@unionInit uses tag value instead of field index" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+
+    const E = enum(u8) {
+        b = 255,
+        a = 3,
+    };
+    const U = union(E) {
+        a: usize,
+        b: isize,
+    };
+    var i: isize = -1;
+    var u = @unionInit(U, "b", i);
+    {
+        var a = u.b;
+        try expect(a == i);
+    }
+    {
+        var a = &u.b;
+        try expect(a.* == i);
+    }
+    try expect(@enumToInt(u) == 255);
+}

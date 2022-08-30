@@ -6598,6 +6598,8 @@ pub const CType = enum {
                         .powerpcle,
                         .powerpc64,
                         .powerpc64le,
+                        .wasm32,
+                        .wasm64,
                         => return 128,
 
                         else => return 64,
@@ -6646,6 +6648,8 @@ pub const CType = enum {
                         .powerpcle,
                         .powerpc64,
                         .powerpc64le,
+                        .wasm32,
+                        .wasm64,
                         => return 128,
 
                         else => return 64,

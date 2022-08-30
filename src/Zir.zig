@@ -242,6 +242,8 @@ pub const Inst = struct {
         /// Type coercion to the function's return type.
         /// Uses the `pl_node` field. Payload is `As`. AST node could be many things.
         as_node,
+        /// Same as `as_node` but ignores runtime to comptime int error.
+        as_shift_operand,
         /// Bitwise AND. `&`
         bit_and,
         /// Reinterpret the memory representation of a value as a different type.
@@ -942,9 +944,6 @@ pub const Inst = struct {
         /// Implements the `@maximum` builtin.
         /// Uses the `pl_node` union field with payload `Bin`
         maximum,
-        /// Implements the `@asyncCall` builtin.
-        /// Uses the `pl_node` union field with payload `AsyncCall`.
-        builtin_async_call,
         /// Implements the `@cImport` builtin.
         /// Uses the `pl_node` union field with payload `Block`.
         c_import,
@@ -1029,6 +1028,7 @@ pub const Inst = struct {
                 .anyframe_type,
                 .as,
                 .as_node,
+                .as_shift_operand,
                 .bit_and,
                 .bitcast,
                 .bit_or,
@@ -1231,7 +1231,6 @@ pub const Inst = struct {
                 .memcpy,
                 .memset,
                 .minimum,
-                .builtin_async_call,
                 .c_import,
                 .@"resume",
                 .@"await",
@@ -1339,6 +1338,7 @@ pub const Inst = struct {
                 .anyframe_type,
                 .as,
                 .as_node,
+                .as_shift_operand,
                 .bit_and,
                 .bitcast,
                 .bit_or,
@@ -1513,7 +1513,6 @@ pub const Inst = struct {
                 .field_parent_ptr,
                 .maximum,
                 .minimum,
-                .builtin_async_call,
                 .c_import,
                 .@"resume",
                 .@"await",
@@ -1577,6 +1576,7 @@ pub const Inst = struct {
                 .anyframe_type = .un_node,
                 .as = .bin,
                 .as_node = .pl_node,
+                .as_shift_operand = .pl_node,
                 .bit_and = .pl_node,
                 .bitcast = .pl_node,
                 .bit_not = .un_node,
@@ -1801,7 +1801,6 @@ pub const Inst = struct {
                 .memcpy = .pl_node,
                 .memset = .pl_node,
                 .minimum = .pl_node,
-                .builtin_async_call = .pl_node,
                 .c_import = .pl_node,
 
                 .alloc = .un_node,
@@ -1972,6 +1971,9 @@ pub const Inst = struct {
         /// `operand` is payload index to `UnNode`.
         /// `small` contains `NameStrategy
         reify,
+        /// Implements the `@asyncCall` builtin.
+        /// `operand` is payload index to `AsyncCall`.
+        builtin_async_call,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -3454,6 +3456,7 @@ pub const Inst = struct {
     };
 
     pub const AsyncCall = struct {
+        node: i32,
         frame_buffer: Ref,
         result_ptr: Ref,
         fn_ptr: Ref,

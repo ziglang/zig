@@ -6,7 +6,6 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.mingw);
 
 const builtin = @import("builtin");
-const target_util = @import("target.zig");
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 const Cache = @import("Cache.zig");
@@ -404,11 +403,12 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     });
     errdefer comp.gpa.free(lib_final_path);
 
-    const llvm = @import("codegen/llvm/bindings.zig");
-    const arch_type = target_util.archToLLVM(target.cpu.arch);
+    const llvm_bindings = @import("codegen/llvm/bindings.zig");
+    const llvm = @import("codegen/llvm.zig");
+    const arch_tag = llvm.targetArch(target.cpu.arch);
     const def_final_path_z = try arena.dupeZ(u8, def_final_path);
     const lib_final_path_z = try arena.dupeZ(u8, lib_final_path);
-    if (llvm.WriteImportLibrary(def_final_path_z.ptr, arch_type, lib_final_path_z.ptr, true)) {
+    if (llvm_bindings.WriteImportLibrary(def_final_path_z.ptr, arch_tag, lib_final_path_z.ptr, true)) {
         // TODO surface a proper error here
         log.err("unable to turn {s}.def into {s}.lib", .{ lib_name, lib_name });
         return error.WritingImportLibFailed;

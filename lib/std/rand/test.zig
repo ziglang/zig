@@ -452,7 +452,7 @@ test "Random weightedIndex" {
         var prng = DefaultPrng.init(0);
         const random = prng.random();
 
-        var proportions = [_]T{ 2, 1, 1, 2 };
+        const proportions = [_]T{ 2, 1, 1, 2 };
         var counts = [_]f64{ 0, 0, 0, 0 };
 
         const n_trials: u64 = 10_000;

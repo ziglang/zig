@@ -12,5 +12,5 @@ export ZIG_GLOBAL_CACHE_DIR="$DRONE_WORKSPACE/zig-cache"
 # of ReleaseSmall std lib tests.
 # $ZIG build test-std -Dskip-debug -Dskip-release-safe -Dskip-release-fast -Dskip-non-native
 
-$ZIG test lib/std/std.zig -OReleaseSmall
-$ZIG test lib/std/std.zig -OReleaseSmall -lc
+$ZIG test lib/std/std.zig -OReleaseSmall     --zig-lib-dir lib
+$ZIG test lib/std/std.zig -OReleaseSmall -lc --zig-lib-dir lib

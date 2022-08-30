@@ -49,6 +49,7 @@ unset CXX
 make $JOBS install
 
 stage3-release/bin/zig build test docs \
+  --zig-lib-dir "$(pwd)/../lib" \
   -Denable-macos-sdk \
   -Dstatic-llvm \
   --search-prefix "$PREFIX"

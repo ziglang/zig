@@ -7,5 +7,6 @@ INSTALL_PREFIX="$DRONE_WORKSPACE/stage3-release"
 ZIG="$INSTALL_PREFIX/bin/zig"
 export ZIG_GLOBAL_CACHE_DIR="$DRONE_WORKSPACE/zig-cache"
 
-$ZIG build -Dskip-non-native # test building self-hosted without LLVM
-$ZIG build -Dskip-non-native test-cases
+# test building self-hosted without LLVM
+$ZIG build            -Dskip-non-native --zig-lib-dir lib
+$ZIG build test-cases -Dskip-non-native --zig-lib-dir lib

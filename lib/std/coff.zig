@@ -256,20 +256,89 @@ pub const OptionalHeaderPE64 = extern struct {
     number_of_rva_and_sizes: u32,
 };
 
-pub const DebugDirectoryEntry = extern struct {
-    characteristiccs: u32,
-    time_date_stamp: u32,
-    major_version: u16,
-    minor_version: u16,
-    @"type": u32,
-    size_of_data: u32,
-    address_of_raw_data: u32,
-    pointer_to_raw_data: u32,
+pub const IMAGE_NUMBEROF_DIRECTORY_ENTRIES = 16;
+
+pub const DirectoryEntry = enum(u16) {
+    /// Export Directory
+    EXPORT = 0,
+
+    /// Import Directory
+    IMPORT = 1,
+
+    /// Resource Directory
+    RESOURCE = 2,
+
+    /// Exception Directory
+    EXCEPTION = 3,
+
+    /// Security Directory
+    SECURITY = 4,
+
+    /// Base Relocation Table
+    BASERELOC = 5,
+
+    /// Debug Directory
+    DEBUG = 6,
+
+    /// Architecture Specific Data
+    ARCHITECTURE = 7,
+
+    /// RVA of GP
+    GLOBALPTR = 8,
+
+    /// TLS Directory
+    TLS = 9,
+
+    /// Load Configuration Directory
+    LOAD_CONFIG = 10,
+
+    /// Bound Import Directory in headers
+    BOUND_IMPORT = 11,
+
+    /// Import Address Table
+    IAT = 12,
+
+    /// Delay Load Import Descriptors
+    DELAY_IMPORT = 13,
+
+    /// COM Runtime descriptor
+    COM_DESCRIPTOR = 14,
 };
 
 pub const ImageDataDirectory = extern struct {
     virtual_address: u32,
     size: u32,
+};
+
+pub const DebugDirectoryEntry = extern struct {
+    characteristics: u32,
+    time_date_stamp: u32,
+    major_version: u16,
+    minor_version: u16,
+    @"type": DebugType,
+    size_of_data: u32,
+    address_of_raw_data: u32,
+    pointer_to_raw_data: u32,
+};
+
+pub const DebugType = enum(u32) {
+    UNKNOWN = 0,
+    COFF = 1,
+    CODEVIEW = 2,
+    FPO = 3,
+    MISC = 4,
+    EXCEPTION = 5,
+    FIXUP = 6,
+    OMAP_TO_SRC = 7,
+    OMAP_FROM_SRC = 8,
+    BORLAND = 9,
+    RESERVED10 = 10,
+    VC_FEATURE = 12,
+    POGO = 13,
+    ILTCG = 14,
+    MPX = 15,
+    REPRO = 16,
+    EX_DLLCHARACTERISTICS = 20,
 };
 
 pub const SectionHeader = extern struct {
@@ -301,6 +370,15 @@ pub const SectionHeader = extern struct {
     pub fn getAlignment(self: SectionHeader) ?u16 {
         if (self.flags.ALIGN == 0) return null;
         return std.math.powi(u16, 2, self.flags.ALIGN - 1) catch unreachable;
+    }
+
+    pub fn setAlignment(self: *SectionHeader, new_alignment: u16) void {
+        assert(new_alignment > 0 and new_alignment <= 8192);
+        self.flags.ALIGN = std.math.log2(new_alignment);
+    }
+
+    pub fn isCode(self: SectionHeader) bool {
+        return self.flags.CNT_CODE == 0b1;
     }
 
     pub fn isComdat(self: SectionHeader) bool {
@@ -778,6 +856,21 @@ pub const MachineType = enum(u16) {
     /// MIPS little-endian WCE v2
     WCEMIPSV2 = 0x169,
 
+    pub fn fromTargetCpuArch(arch: std.Target.Cpu.Arch) MachineType {
+        return switch (arch) {
+            .arm => .ARM,
+            .powerpc => .POWERPC,
+            .riscv32 => .RISCV32,
+            .thumb => .Thumb,
+            .i386 => .I386,
+            .aarch64 => .ARM64,
+            .riscv64 => .RISCV64,
+            .x86_64 => .X64,
+            // there's cases we don't (yet) handle
+            else => unreachable,
+        };
+    }
+
     pub fn toTargetCpuArch(machine_type: MachineType) ?std.Target.Cpu.Arch {
         return switch (machine_type) {
             .ARM => .arm,
@@ -793,10 +886,6 @@ pub const MachineType = enum(u16) {
         };
     }
 };
-
-const IMAGE_NUMBEROF_DIRECTORY_ENTRIES = 16;
-const IMAGE_DEBUG_TYPE_CODEVIEW = 2;
-const DEBUG_DIRECTORY = 6;
 
 pub const CoffError = error{
     InvalidPEMagic,
@@ -831,7 +920,7 @@ pub const Coff = struct {
         var stream = std.io.fixedBufferStream(self.data);
         const reader = stream.reader();
         try stream.seekTo(pe_pointer_offset);
-        const coff_header_offset = try reader.readByte();
+        const coff_header_offset = try reader.readIntLittle(u32);
         try stream.seekTo(coff_header_offset);
         var buf: [4]u8 = undefined;
         try reader.readNoEof(&buf);
@@ -862,7 +951,7 @@ pub const Coff = struct {
         };
 
         const data_dirs = self.getDataDirectories();
-        const debug_dir = data_dirs[DEBUG_DIRECTORY];
+        const debug_dir = data_dirs[@enumToInt(DirectoryEntry.DEBUG)];
         const file_offset = debug_dir.virtual_address - header.virtual_address + header.pointer_to_raw_data;
 
         var stream = std.io.fixedBufferStream(self.data);
@@ -875,7 +964,7 @@ pub const Coff = struct {
         var i: u32 = 0;
         blk: while (i < debug_dir_entry_count) : (i += 1) {
             const debug_dir_entry = try reader.readStruct(DebugDirectoryEntry);
-            if (debug_dir_entry.type == IMAGE_DEBUG_TYPE_CODEVIEW) {
+            if (debug_dir_entry.type == .CODEVIEW) {
                 for (self.getSectionHeaders()) |*section| {
                     const section_start = section.virtual_address;
                     const section_size = section.virtual_size;
@@ -1011,132 +1100,132 @@ pub const Coff = struct {
         mem.copy(u8, out_buff, self.data[sec.pointer_to_raw_data..][0..sec.virtual_size]);
         return out_buff;
     }
+};
 
-    pub const Symtab = struct {
+pub const Symtab = struct {
+    buffer: []const u8,
+
+    pub fn len(self: Symtab) usize {
+        return @divExact(self.buffer.len, Symbol.sizeOf());
+    }
+
+    pub const Tag = enum {
+        symbol,
+        func_def,
+        debug_info,
+        weak_ext,
+        file_def,
+        sect_def,
+    };
+
+    pub const Record = union(Tag) {
+        symbol: Symbol,
+        debug_info: DebugInfoDefinition,
+        func_def: FunctionDefinition,
+        weak_ext: WeakExternalDefinition,
+        file_def: FileDefinition,
+        sect_def: SectionDefinition,
+    };
+
+    /// Lives as long as Symtab instance.
+    pub fn at(self: Symtab, index: usize, tag: Tag) Record {
+        const offset = index * Symbol.sizeOf();
+        const raw = self.buffer[offset..][0..Symbol.sizeOf()];
+        return switch (tag) {
+            .symbol => .{ .symbol = asSymbol(raw) },
+            .debug_info => .{ .debug_info = asDebugInfo(raw) },
+            .func_def => .{ .func_def = asFuncDef(raw) },
+            .weak_ext => .{ .weak_ext = asWeakExtDef(raw) },
+            .file_def => .{ .file_def = asFileDef(raw) },
+            .sect_def => .{ .sect_def = asSectDef(raw) },
+        };
+    }
+
+    fn asSymbol(raw: []const u8) Symbol {
+        return .{
+            .name = raw[0..8].*,
+            .value = mem.readIntLittle(u32, raw[8..12]),
+            .section_number = @intToEnum(SectionNumber, mem.readIntLittle(u16, raw[12..14])),
+            .@"type" = @bitCast(SymType, mem.readIntLittle(u16, raw[14..16])),
+            .storage_class = @intToEnum(StorageClass, raw[16]),
+            .number_of_aux_symbols = raw[17],
+        };
+    }
+
+    fn asDebugInfo(raw: []const u8) DebugInfoDefinition {
+        return .{
+            .unused_1 = raw[0..4].*,
+            .linenumber = mem.readIntLittle(u16, raw[4..6]),
+            .unused_2 = raw[6..12].*,
+            .pointer_to_next_function = mem.readIntLittle(u32, raw[12..16]),
+            .unused_3 = raw[16..18].*,
+        };
+    }
+
+    fn asFuncDef(raw: []const u8) FunctionDefinition {
+        return .{
+            .tag_index = mem.readIntLittle(u32, raw[0..4]),
+            .total_size = mem.readIntLittle(u32, raw[4..8]),
+            .pointer_to_linenumber = mem.readIntLittle(u32, raw[8..12]),
+            .pointer_to_next_function = mem.readIntLittle(u32, raw[12..16]),
+            .unused = raw[16..18].*,
+        };
+    }
+
+    fn asWeakExtDef(raw: []const u8) WeakExternalDefinition {
+        return .{
+            .tag_index = mem.readIntLittle(u32, raw[0..4]),
+            .flag = @intToEnum(WeakExternalFlag, mem.readIntLittle(u32, raw[4..8])),
+            .unused = raw[8..18].*,
+        };
+    }
+
+    fn asFileDef(raw: []const u8) FileDefinition {
+        return .{
+            .file_name = raw[0..18].*,
+        };
+    }
+
+    fn asSectDef(raw: []const u8) SectionDefinition {
+        return .{
+            .length = mem.readIntLittle(u32, raw[0..4]),
+            .number_of_relocations = mem.readIntLittle(u16, raw[4..6]),
+            .number_of_linenumbers = mem.readIntLittle(u16, raw[6..8]),
+            .checksum = mem.readIntLittle(u32, raw[8..12]),
+            .number = mem.readIntLittle(u16, raw[12..14]),
+            .selection = @intToEnum(ComdatSelection, raw[14]),
+            .unused = raw[15..18].*,
+        };
+    }
+
+    pub const Slice = struct {
         buffer: []const u8,
-
-        fn len(self: Symtab) usize {
-            return @divExact(self.buffer.len, Symbol.sizeOf());
-        }
-
-        const Tag = enum {
-            symbol,
-            func_def,
-            debug_info,
-            weak_ext,
-            file_def,
-            sect_def,
-        };
-
-        const Record = union(Tag) {
-            symbol: Symbol,
-            debug_info: DebugInfoDefinition,
-            func_def: FunctionDefinition,
-            weak_ext: WeakExternalDefinition,
-            file_def: FileDefinition,
-            sect_def: SectionDefinition,
-        };
+        num: usize,
+        count: usize = 0,
 
         /// Lives as long as Symtab instance.
-        fn at(self: Symtab, index: usize, tag: Tag) Record {
-            const offset = index * Symbol.sizeOf();
-            const raw = self.buffer[offset..][0..Symbol.sizeOf()];
-            return switch (tag) {
-                .symbol => .{ .symbol = asSymbol(raw) },
-                .debug_info => .{ .debug_info = asDebugInfo(raw) },
-                .func_def => .{ .func_def = asFuncDef(raw) },
-                .weak_ext => .{ .weak_ext = asWeakExtDef(raw) },
-                .file_def => .{ .file_def = asFileDef(raw) },
-                .sect_def => .{ .sect_def = asSectDef(raw) },
-            };
-        }
-
-        fn asSymbol(raw: []const u8) Symbol {
-            return .{
-                .name = raw[0..8].*,
-                .value = mem.readIntLittle(u32, raw[8..12]),
-                .section_number = @intToEnum(SectionNumber, mem.readIntLittle(u16, raw[12..14])),
-                .@"type" = @bitCast(SymType, mem.readIntLittle(u16, raw[14..16])),
-                .storage_class = @intToEnum(StorageClass, raw[16]),
-                .number_of_aux_symbols = raw[17],
-            };
-        }
-
-        fn asDebugInfo(raw: []const u8) DebugInfoDefinition {
-            return .{
-                .unused_1 = raw[0..4].*,
-                .linenumber = mem.readIntLittle(u16, raw[4..6]),
-                .unused_2 = raw[6..12].*,
-                .pointer_to_next_function = mem.readIntLittle(u32, raw[12..16]),
-                .unused_3 = raw[16..18].*,
-            };
-        }
-
-        fn asFuncDef(raw: []const u8) FunctionDefinition {
-            return .{
-                .tag_index = mem.readIntLittle(u32, raw[0..4]),
-                .total_size = mem.readIntLittle(u32, raw[4..8]),
-                .pointer_to_linenumber = mem.readIntLittle(u32, raw[8..12]),
-                .pointer_to_next_function = mem.readIntLittle(u32, raw[12..16]),
-                .unused = raw[16..18].*,
-            };
-        }
-
-        fn asWeakExtDef(raw: []const u8) WeakExternalDefinition {
-            return .{
-                .tag_index = mem.readIntLittle(u32, raw[0..4]),
-                .flag = @intToEnum(WeakExternalFlag, mem.readIntLittle(u32, raw[4..8])),
-                .unused = raw[8..18].*,
-            };
-        }
-
-        fn asFileDef(raw: []const u8) FileDefinition {
-            return .{
-                .file_name = raw[0..18].*,
-            };
-        }
-
-        fn asSectDef(raw: []const u8) SectionDefinition {
-            return .{
-                .length = mem.readIntLittle(u32, raw[0..4]),
-                .number_of_relocations = mem.readIntLittle(u16, raw[4..6]),
-                .number_of_linenumbers = mem.readIntLittle(u16, raw[6..8]),
-                .checksum = mem.readIntLittle(u32, raw[8..12]),
-                .number = mem.readIntLittle(u16, raw[12..14]),
-                .selection = @intToEnum(ComdatSelection, raw[14]),
-                .unused = raw[15..18].*,
-            };
-        }
-
-        const Slice = struct {
-            buffer: []const u8,
-            num: usize,
-            count: usize = 0,
-
-            /// Lives as long as Symtab instance.
-            fn next(self: *Slice) ?Symbol {
-                if (self.count >= self.num) return null;
-                const sym = asSymbol(self.buffer[0..Symbol.sizeOf()]);
-                self.count += 1;
-                self.buffer = self.buffer[Symbol.sizeOf()..];
-                return sym;
-            }
-        };
-
-        fn slice(self: Symtab, start: usize, end: ?usize) Slice {
-            const offset = start * Symbol.sizeOf();
-            const llen = if (end) |e| e * Symbol.sizeOf() else self.buffer.len;
-            const num = @divExact(llen - offset, Symbol.sizeOf());
-            return Slice{ .buffer = self.buffer[offset..][0..llen], .num = num };
+        pub fn next(self: *Slice) ?Symbol {
+            if (self.count >= self.num) return null;
+            const sym = asSymbol(self.buffer[0..Symbol.sizeOf()]);
+            self.count += 1;
+            self.buffer = self.buffer[Symbol.sizeOf()..];
+            return sym;
         }
     };
 
-    pub const Strtab = struct {
-        buffer: []const u8,
+    pub fn slice(self: Symtab, start: usize, end: ?usize) Slice {
+        const offset = start * Symbol.sizeOf();
+        const llen = if (end) |e| e * Symbol.sizeOf() else self.buffer.len;
+        const num = @divExact(llen - offset, Symbol.sizeOf());
+        return Slice{ .buffer = self.buffer[offset..][0..llen], .num = num };
+    }
+};
 
-        fn get(self: Strtab, off: u32) []const u8 {
-            assert(off < self.buffer.len);
-            return mem.sliceTo(@ptrCast([*:0]const u8, self.buffer.ptr + off), 0);
-        }
-    };
+pub const Strtab = struct {
+    buffer: []const u8,
+
+    pub fn get(self: Strtab, off: u32) []const u8 {
+        assert(off < self.buffer.len);
+        return mem.sliceTo(@ptrCast([*:0]const u8, self.buffer.ptr + off), 0);
+    }
 };
