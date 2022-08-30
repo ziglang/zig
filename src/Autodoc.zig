@@ -1888,7 +1888,7 @@ fn walkInstruction(
                 .expr = .{ .typeInfo = operand_index },
             };
         },
-        .as_node => {
+        .as_node, .as_shift_operand => {
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.As, pl_node.payload_index);
             const dest_type_walk = try self.walkRef(

@@ -226,6 +226,8 @@ pub const ResultLoc = union(enum) {
     ref,
     /// The expression will be coerced into this type, but it will be evaluated as an rvalue.
     ty: Zir.Inst.Ref,
+    /// Same as `ty` but for shift operands.
+    ty_shift_operand: Zir.Inst.Ref,
     /// Same as `ty` but it is guaranteed that Sema will additionally perform the coercion,
     /// so no `as` instruction needs to be emitted.
     coerced_ty: Zir.Inst.Ref,
@@ -259,7 +261,7 @@ pub const ResultLoc = union(enum) {
     fn strategy(rl: ResultLoc, block_scope: *GenZir) Strategy {
         switch (rl) {
             // In this branch there will not be any store_to_block_ptr instructions.
-            .none, .ty, .coerced_ty, .ref => return .{
+            .none, .ty, .ty_shift_operand, .coerced_ty, .ref => return .{
                 .tag = .break_operand,
                 .elide_store_to_block_ptr_instructions = false,
             },
@@ -300,6 +302,14 @@ pub const ResultLoc = union(enum) {
         return switch (rl) {
             .coerced_ty => |ty| .{ .ty = ty },
             else => rl,
+        };
+    }
+
+    fn zirTag(rl: ResultLoc) Zir.Inst.Tag {
+        return switch (rl) {
+            .ty => .as_node,
+            .ty_shift_operand => .as_shift_operand,
+            else => unreachable,
         };
     }
 };
@@ -1385,7 +1395,7 @@ fn arrayInitExpr(
             const tag: Zir.Inst.Tag = if (types.array != .none) .array_init else .array_init_anon;
             return arrayInitExprInner(gz, scope, node, array_init.ast.elements, types.array, types.elem, tag);
         },
-        .ty, .coerced_ty => {
+        .ty, .ty_shift_operand, .coerced_ty => {
             const tag: Zir.Inst.Tag = if (types.array != .none) .array_init else .array_init_anon;
             const result = try arrayInitExprInner(gz, scope, node, array_init.ast.elements, types.array, types.elem, tag);
             return rvalue(gz, rl, result, node);
@@ -1631,7 +1641,7 @@ fn structInitExpr(
                 return structInitExprRlNone(gz, scope, node, struct_init, .none, .struct_init_anon);
             }
         },
-        .ty, .coerced_ty => |ty_inst| {
+        .ty, .ty_shift_operand, .coerced_ty => |ty_inst| {
             if (struct_init.ast.type_expr == 0) {
                 const result = try structInitExprRlNone(gz, scope, node, struct_init, ty_inst, .struct_init_anon);
                 return rvalue(gz, rl, result, node);
@@ -2327,6 +2337,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .anyframe_type,
             .as,
             .as_node,
+            .as_shift_operand,
             .bit_and,
             .bitcast,
             .bit_or,
@@ -2497,7 +2508,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .field_parent_ptr,
             .maximum,
             .minimum,
-            .builtin_async_call,
             .c_import,
             .@"resume",
             .@"await",
@@ -7278,7 +7288,7 @@ fn as(
 ) InnerError!Zir.Inst.Ref {
     const dest_type = try typeExpr(gz, scope, lhs);
     switch (rl) {
-        .none, .discard, .ref, .ty, .coerced_ty => {
+        .none, .discard, .ref, .ty, .ty_shift_operand, .coerced_ty => {
             const result = try reachableExpr(gz, scope, .{ .ty = dest_type }, rhs, node);
             return rvalue(gz, rl, result, node);
         },
@@ -7959,7 +7969,8 @@ fn builtinCall(
             return rvalue(gz, rl, result, node);
         },
         .async_call => {
-            const result = try gz.addPlNode(.builtin_async_call, node, Zir.Inst.AsyncCall{
+            const result = try gz.addExtendedPayload(.builtin_async_call, Zir.Inst.AsyncCall{
+                .node = gz.nodeIndexToRelative(node),
                 .frame_buffer = try expr(gz, scope, .none, params[0]),
                 .result_ptr = try expr(gz, scope, .none, params[1]),
                 .fn_ptr = try expr(gz, scope, .none, params[2]),
@@ -8178,7 +8189,7 @@ fn shiftOp(
 ) InnerError!Zir.Inst.Ref {
     const lhs = try expr(gz, scope, .none, lhs_node);
     const log2_int_type = try gz.addUnNode(.typeof_log2_int_type, lhs, lhs_node);
-    const rhs = try expr(gz, scope, .{ .ty = log2_int_type }, rhs_node);
+    const rhs = try expr(gz, scope, .{ .ty_shift_operand = log2_int_type }, rhs_node);
     const result = try gz.addPlNode(tag, node, Zir.Inst.Bin{
         .lhs = lhs,
         .rhs = rhs,
@@ -9409,7 +9420,7 @@ fn rvalue(
             }
             return indexToRef(gop.value_ptr.*);
         },
-        .ty => |ty_inst| {
+        .ty, .ty_shift_operand => |ty_inst| {
             // Quickly eliminate some common, unnecessary type coercion.
             const as_ty = @as(u64, @enumToInt(Zir.Inst.Ref.type_type)) << 32;
             const as_comptime_int = @as(u64, @enumToInt(Zir.Inst.Ref.comptime_int_type)) << 32;
@@ -9470,7 +9481,7 @@ fn rvalue(
                 => return result, // type of result is already correct
 
                 // Need an explicit type coercion instruction.
-                else => return gz.addPlNode(.as_node, src_node, Zir.Inst.As{
+                else => return gz.addPlNode(rl.zirTag(), src_node, Zir.Inst.As{
                     .dest_type = ty_inst,
                     .operand = result,
                 }),
@@ -10350,7 +10361,7 @@ const GenZir = struct {
         // we emit ZIR for the block break instructions to have the result values,
         // and then rvalue() on that to pass the value to the result location.
         switch (parent_rl) {
-            .ty, .coerced_ty => |ty_inst| {
+            .ty, .ty_shift_operand, .coerced_ty => |ty_inst| {
                 gz.rl_ty_inst = ty_inst;
                 gz.break_result_loc = parent_rl;
             },
@@ -11506,7 +11517,7 @@ const GenZir = struct {
     fn addRet(gz: *GenZir, rl: ResultLoc, operand: Zir.Inst.Ref, node: Ast.Node.Index) !void {
         switch (rl) {
             .ptr => |ret_ptr| _ = try gz.addUnNode(.ret_load, ret_ptr, node),
-            .ty => _ = try gz.addUnNode(.ret_node, operand, node),
+            .ty, .ty_shift_operand => _ = try gz.addUnNode(.ret_node, operand, node),
             else => unreachable,
         }
     }

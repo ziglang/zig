@@ -283,7 +283,6 @@ const Writer = struct {
             .mul_add => try self.writeMulAdd(stream, inst),
             .field_parent_ptr => try self.writeFieldParentPtr(stream, inst),
             .builtin_call => try self.writeBuiltinCall(stream, inst),
-            .builtin_async_call => try self.writeBuiltinAsyncCall(stream, inst),
 
             .struct_init_anon,
             .struct_init_anon_ref,
@@ -397,7 +396,7 @@ const Writer = struct {
             .field_val_named,
             => try self.writePlNodeFieldNamed(stream, inst),
 
-            .as_node => try self.writeAs(stream, inst),
+            .as_node, .as_shift_operand => try self.writeAs(stream, inst),
 
             .repeat,
             .repeat_inline,
@@ -531,6 +530,7 @@ const Writer = struct {
                 try stream.writeAll(") ");
                 try self.writeSrc(stream, src);
             },
+            .builtin_async_call => try self.writeBuiltinAsyncCall(stream, extended),
         }
     }
 
@@ -814,9 +814,8 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
-    fn writeBuiltinAsyncCall(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const extra = self.code.extraData(Zir.Inst.AsyncCall, inst_data.payload_index).data;
+    fn writeBuiltinAsyncCall(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
+        const extra = self.code.extraData(Zir.Inst.AsyncCall, extended.operand).data;
         try self.writeInstRef(stream, extra.frame_buffer);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.result_ptr);
@@ -825,7 +824,7 @@ const Writer = struct {
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.args);
         try stream.writeAll(") ");
-        try self.writeSrc(stream, inst_data.src());
+        try self.writeSrc(stream, LazySrcLoc.nodeOffset(extra.node));
     }
 
     fn writeParam(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
