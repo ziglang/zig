@@ -270,7 +270,12 @@ test "forced tail call" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
-    if (comptime !builtin.target.supportsTailCall()) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_llvm) {
+        // Only attempt this test on targets we know have tail call support in LLVM.
+        if (builtin.cpu.arch != .x86_64 and builtin.cpu.arch != .aarch64) {
+            return error.SkipZigTest;
+        }
+    }
 
     const S = struct {
         fn fibonacciTailInternal(n: u16, a: u16, b: u16) u16 {
@@ -298,7 +303,12 @@ test "inline call preserves tail call" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
-    if (comptime !builtin.target.supportsTailCall()) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_llvm) {
+        // Only attempt this test on targets we know have tail call support in LLVM.
+        if (builtin.cpu.arch != .x86_64 and builtin.cpu.arch != .aarch64) {
+            return error.SkipZigTest;
+        }
+    }
 
     const max = std.math.maxInt(u16);
     const S = struct {

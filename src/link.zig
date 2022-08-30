@@ -931,9 +931,10 @@ pub const File = struct {
             std.debug.print("\n", .{});
         }
 
-        const llvm = @import("codegen/llvm/bindings.zig");
-        const os_type = @import("target.zig").osToLLVM(base.options.target.os.tag);
-        const bad = llvm.WriteArchive(full_out_path_z, object_files.items.ptr, object_files.items.len, os_type);
+        const llvm_bindings = @import("codegen/llvm/bindings.zig");
+        const llvm = @import("codegen/llvm.zig");
+        const os_tag = llvm.targetOs(base.options.target.os.tag);
+        const bad = llvm_bindings.WriteArchive(full_out_path_z, object_files.items.ptr, object_files.items.len, os_tag);
         if (bad) return error.UnableToWriteArchive;
 
         if (!base.options.disable_lld_caching) {

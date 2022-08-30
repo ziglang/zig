@@ -1440,16 +1440,6 @@ pub const Target = struct {
         return !self.cpu.arch.isWasm();
     }
 
-    pub fn supportsTailCall(self: Target) bool {
-        switch (self.cpu.arch) {
-            .wasm32, .wasm64 => return wasm.featureSetHas(self.cpu.features, .tail_call),
-            // TODO these might not be true but LLVM doesn't seem to be able to handle them
-            .mips, .mipsel, .mips64, .mips64el => return false,
-            .powerpc, .powerpcle, .powerpc64, .powerpc64le => return false,
-            else => return true,
-        }
-    }
-
     pub const FloatAbi = enum {
         hard,
         soft,

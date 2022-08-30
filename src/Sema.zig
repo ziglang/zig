@@ -6161,8 +6161,11 @@ fn analyzeCall(
 
 fn handleTailCall(sema: *Sema, block: *Block, call_src: LazySrcLoc, func_ty: Type, result: Air.Inst.Ref) !Air.Inst.Ref {
     const target = sema.mod.getTarget();
-    if (!target.supportsTailCall()) {
-        return sema.fail(block, call_src, "unable to perform tail call: target does not support tail calls", .{});
+    const backend = sema.mod.comp.getZigBackend();
+    if (!target_util.supportsTailCall(target, backend)) {
+        return sema.fail(block, call_src, "unable to perform tail call: compiler backend '{s}' does not support tail calls on target architecture '{s}' with the selected CPU feature flags", .{
+            @tagName(backend), @tagName(target.cpu.arch),
+        });
     }
     const func_decl = sema.mod.declPtr(sema.owner_func.?.owner_decl);
     if (!func_ty.eql(func_decl.ty, sema.mod)) {
