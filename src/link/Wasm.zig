@@ -67,6 +67,18 @@ code_section_index: ?u32 = null,
 debug_info_index: ?u32 = null,
 /// The index of the segment representing the custom '.debug_line' section.
 debug_line_index: ?u32 = null,
+/// The index of the segment representing the custom '.debug_loc' section.
+debug_loc_index: ?u32 = null,
+/// The index of the segment representing the custom '.debug_ranges' section.
+debug_ranges_index: ?u32 = null,
+/// The index of the segment representing the custom '.debug_pubnames' section.
+debug_pubnames_index: ?u32 = null,
+/// The index of the segment representing the custom '.debug_pubtypes' section.
+debug_pubtypes_index: ?u32 = null,
+/// The index of the segment representing the custom '.debug_pubtypes' section.
+debug_str_index: ?u32 = null,
+/// The index of the segment representing the custom '.debug_pubtypes' section.
+debug_abbrev_index: ?u32 = null,
 /// The count of imported functions. This number will be appended
 /// to the function indexes as their index starts at the lowest non-extern function.
 imported_functions_count: u32 = 0,
@@ -1753,7 +1765,7 @@ fn setupMemory(self: *Wasm) !void {
 /// From a given object's index and the index of the segment, returns the corresponding
 /// index of the segment within the final data section. When the segment does not yet
 /// exist, a new one will be initialized and appended. The new index will be returned in that case.
-pub fn getMatchingSegment(self: *Wasm, object_index: u16, relocatable_index: u32) !u32 {
+pub fn getMatchingSegment(self: *Wasm, object_index: u16, relocatable_index: u32) !?u32 {
     const object: Object = self.objects.items[object_index];
     const relocatable_data = object.relocatable_data[relocatable_index];
     const index = @intCast(u32, self.segments.items.len);
@@ -1765,25 +1777,81 @@ pub fn getMatchingSegment(self: *Wasm, object_index: u16, relocatable_index: u32
             const result = try self.data_segments.getOrPut(self.base.allocator, segment_info.outputName(merge_segment));
             if (!result.found_existing) {
                 result.value_ptr.* = index;
-                try self.segments.append(self.base.allocator, .{
-                    .alignment = 1,
-                    .size = 0,
-                    .offset = 0,
-                });
+                try self.appendDummySegment();
                 return index;
             } else return result.value_ptr.*;
         },
         .code => return self.code_section_index orelse blk: {
             self.code_section_index = index;
-            try self.segments.append(self.base.allocator, .{
-                .alignment = 1,
-                .size = 0,
-                .offset = 0,
-            });
+            try self.appendDummySegment();
             break :blk index;
         },
-        .debug => return error.@"TODO: Custom section relocations for wasm",
+        .debug => {
+            const debug_name = object.getDebugName(relocatable_data);
+            if (mem.eql(u8, debug_name, ".debug_info")) {
+                return self.debug_info_index orelse blk: {
+                    self.debug_info_index = index;
+                    try self.appendDummySegment();
+                    break :blk index;
+                };
+            } else if (mem.eql(u8, debug_name, ".debug_line")) {
+                return self.debug_line_index orelse blk: {
+                    self.debug_line_index = index;
+                    try self.appendDummySegment();
+                    break :blk index;
+                };
+            } else if (mem.eql(u8, debug_name, ".debug_loc")) {
+                return self.debug_loc_index orelse blk: {
+                    self.debug_loc_index = index;
+                    try self.appendDummySegment();
+                    break :blk index;
+                };
+            } else if (mem.eql(u8, debug_name, ".debug_ranges")) {
+                return self.debug_line_index orelse blk: {
+                    self.debug_ranges_index = index;
+                    try self.appendDummySegment();
+                    break :blk index;
+                };
+            } else if (mem.eql(u8, debug_name, ".debug_pubnames")) {
+                return self.debug_pubnames_index orelse blk: {
+                    self.debug_pubnames_index = index;
+                    try self.appendDummySegment();
+                    break :blk index;
+                };
+            } else if (mem.eql(u8, debug_name, ".debug_pubtypes")) {
+                return self.debug_pubtypes_index orelse blk: {
+                    self.debug_pubtypes_index = index;
+                    try self.appendDummySegment();
+                    break :blk index;
+                };
+            } else if (mem.eql(u8, debug_name, ".debug_abbrev")) {
+                return self.debug_abbrev_index orelse blk: {
+                    self.debug_abbrev_index = index;
+                    try self.appendDummySegment();
+                    break :blk index;
+                };
+            } else if (mem.eql(u8, debug_name, ".debug_str")) {
+                return self.debug_str_index orelse blk: {
+                    self.debug_str_index = index;
+                    try self.appendDummySegment();
+                    break :blk index;
+                };
+            } else {
+                log.warn("found unknown debug section '{s}'", .{debug_name});
+                log.warn("  debug section will be skipped", .{});
+                return null;
+            }
+        },
     }
+}
+
+/// Appends a new segment with default field values
+fn appendDummySegment(self: *Wasm) !void {
+    try self.segments.append(self.base.allocator, .{
+        .alignment = 1,
+        .size = 0,
+        .offset = 0,
+    });
 }
 
 /// Returns the symbol index of the error name table.
@@ -1936,17 +2004,18 @@ fn resetState(self: *Wasm) void {
     for (self.segment_info.items) |*segment_info| {
         self.base.allocator.free(segment_info.name);
     }
-    const mod = self.base.options.module.?;
-    var decl_it = self.decls.keyIterator();
-    while (decl_it.next()) |decl_index_ptr| {
-        const decl = mod.declPtr(decl_index_ptr.*);
-        const atom = &decl.link.wasm;
-        atom.next = null;
-        atom.prev = null;
+    if (self.base.options.module) |mod| {
+        var decl_it = self.decls.keyIterator();
+        while (decl_it.next()) |decl_index_ptr| {
+            const decl = mod.declPtr(decl_index_ptr.*);
+            const atom = &decl.link.wasm;
+            atom.next = null;
+            atom.prev = null;
 
-        for (atom.locals.items) |*local_atom| {
-            local_atom.next = null;
-            local_atom.prev = null;
+            for (atom.locals.items) |*local_atom| {
+                local_atom.next = null;
+                local_atom.prev = null;
+            }
         }
     }
     self.functions.clearRetainingCapacity();
@@ -2036,29 +2105,34 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     defer self.resetState();
     try self.setupStart();
     try self.setupImports();
-    const mod = self.base.options.module.?;
-    var decl_it = self.decls.keyIterator();
-    while (decl_it.next()) |decl_index_ptr| {
-        const decl = mod.declPtr(decl_index_ptr.*);
-        if (decl.isExtern()) continue;
-        const atom = &decl.*.link.wasm;
-        if (decl.ty.zigTypeTag() == .Fn) {
-            try self.parseAtom(atom, .{ .function = decl.fn_link.wasm });
-        } else if (decl.getVariable()) |variable| {
-            if (!variable.is_mutable) {
-                try self.parseAtom(atom, .{ .data = .read_only });
-            } else if (variable.init.isUndefDeep()) {
-                try self.parseAtom(atom, .{ .data = .uninitialized });
+    if (self.base.options.module) |mod| {
+        var decl_it = self.decls.keyIterator();
+        while (decl_it.next()) |decl_index_ptr| {
+            const decl = mod.declPtr(decl_index_ptr.*);
+            if (decl.isExtern()) continue;
+            const atom = &decl.*.link.wasm;
+            if (decl.ty.zigTypeTag() == .Fn) {
+                try self.parseAtom(atom, .{ .function = decl.fn_link.wasm });
+            } else if (decl.getVariable()) |variable| {
+                if (!variable.is_mutable) {
+                    try self.parseAtom(atom, .{ .data = .read_only });
+                } else if (variable.init.isUndefDeep()) {
+                    try self.parseAtom(atom, .{ .data = .uninitialized });
+                } else {
+                    try self.parseAtom(atom, .{ .data = .initialized });
+                }
             } else {
-                try self.parseAtom(atom, .{ .data = .initialized });
+                try self.parseAtom(atom, .{ .data = .read_only });
             }
-        } else {
-            try self.parseAtom(atom, .{ .data = .read_only });
+
+            // also parse atoms for a decl's locals
+            for (atom.locals.items) |*local_atom| {
+                try self.parseAtom(local_atom, .{ .data = .read_only });
+            }
         }
 
-        // also parse atoms for a decl's locals
-        for (atom.locals.items) |*local_atom| {
-            try self.parseAtom(local_atom, .{ .data = .read_only });
+        if (self.dwarf) |*dwarf| {
+            try dwarf.flushModule(&self.base, self.base.options.module.?);
         }
     }
 
@@ -2066,9 +2140,6 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         try object.parseIntoAtoms(self.base.allocator, @intCast(u16, object_index), self);
     }
 
-    if (self.dwarf) |*dwarf| {
-        try dwarf.flushModule(&self.base, self.base.options.module.?);
-    }
     try self.allocateAtoms();
     try self.setupMemory();
     self.mapFunctionTable();
@@ -2425,12 +2496,14 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     } else if (!self.base.options.strip) {
         if (self.dwarf) |*dwarf| {
             if (self.debug_info_index != null) {
-                try dwarf.writeDbgAbbrev(&self.base);
-                // for debug info and ranges, the address is always 0,
-                // as locations are always offsets relative to 'code' section.
-                try dwarf.writeDbgInfoHeader(&self.base, mod, 0, code_section_size);
-                try dwarf.writeDbgAranges(&self.base, 0, code_section_size);
-                try dwarf.writeDbgLineHeader(&self.base, mod);
+                if (self.base.options.module) |mod| {
+                    try dwarf.writeDbgAbbrev(&self.base);
+                    // for debug info and ranges, the address is always 0,
+                    // as locations are always offsets relative to 'code' section.
+                    try dwarf.writeDbgInfoHeader(&self.base, mod, 0, code_section_size);
+                    try dwarf.writeDbgAranges(&self.base, 0, code_section_size);
+                    try dwarf.writeDbgLineHeader(&self.base, mod);
+                }
 
                 try emitDebugSection(file, self.debug_info.items, ".debug_info");
                 try emitDebugSection(file, self.debug_aranges.items, ".debug_ranges");

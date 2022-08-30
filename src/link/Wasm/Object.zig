@@ -889,12 +889,9 @@ pub fn parseIntoAtoms(self: *Object, gpa: Allocator, object_index: u16, wasm_bin
     }
 
     for (self.relocatable_data) |relocatable_data, index| {
-        const symbols = symbol_for_segment.getPtr(.{
-            .kind = relocatable_data.getSymbolKind(),
-            .index = @intCast(u32, relocatable_data.index),
-        }) orelse continue; // encountered a segment we do not create an atom for
-        const sym_index = symbols.pop();
-        const final_index = try wasm_bin.getMatchingSegment(object_index, @intCast(u32, index));
+        const final_index = (try wasm_bin.getMatchingSegment(object_index, @intCast(u32, index))) orelse {
+            continue; // found unknown section, so skip parsing into atom as we do not know how to handle it.
+        };
 
         const atom = try gpa.create(Atom);
         atom.* = Atom.empty;
@@ -907,7 +904,6 @@ pub fn parseIntoAtoms(self: *Object, gpa: Allocator, object_index: u16, wasm_bin
         atom.file = object_index;
         atom.size = relocatable_data.size;
         atom.alignment = relocatable_data.getAlignment(self);
-        atom.sym_index = sym_index;
 
         const relocations: []types.Relocation = self.relocations.get(relocatable_data.section_index) orelse &.{};
         for (relocations) |relocation| {
@@ -929,19 +925,30 @@ pub fn parseIntoAtoms(self: *Object, gpa: Allocator, object_index: u16, wasm_bin
 
         try atom.code.appendSlice(gpa, relocatable_data.data[0..relocatable_data.size]);
 
-        // symbols referencing the same atom will be added as alias
-        // or as 'parent' when they are global.
-        while (symbols.popOrNull()) |idx| {
-            const alias_symbol = self.symtable[idx];
-            const symbol = self.symtable[atom.sym_index];
-            if (alias_symbol.isGlobal() and symbol.isLocal()) {
-                atom.sym_index = idx;
+        if (relocatable_data.type != .debug) {
+            const symbols = symbol_for_segment.getPtr(.{
+                .kind = relocatable_data.getSymbolKind(),
+                .index = @intCast(u32, relocatable_data.index),
+            }) orelse continue; // encountered a segment we do not create an atom for
+            const sym_index = symbols.pop();
+            atom.sym_index = sym_index;
+
+            // symbols referencing the same atom will be added as alias
+            // or as 'parent' when they are global.
+            while (symbols.popOrNull()) |idx| {
+                const alias_symbol = self.symtable[idx];
+                const symbol = self.symtable[atom.sym_index];
+                if (alias_symbol.isGlobal() and symbol.isLocal()) {
+                    atom.sym_index = idx;
+                }
             }
+            try wasm_bin.symbol_atom.putNoClobber(gpa, atom.symbolLoc(), atom);
         }
-        try wasm_bin.symbol_atom.putNoClobber(gpa, atom.symbolLoc(), atom);
 
         const segment: *Wasm.Segment = &wasm_bin.segments.items[final_index];
-        segment.alignment = std.math.max(segment.alignment, atom.alignment);
+        if (relocatable_data.type == .data) { //code section and debug sections are 1-byte aligned
+            segment.alignment = std.math.max(segment.alignment, atom.alignment);
+        }
 
         if (wasm_bin.atoms.getPtr(final_index)) |last| {
             last.*.next = atom;
