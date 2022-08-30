@@ -19,7 +19,8 @@ pip3 install s3cmd
 cd build
 
 mv ../LICENSE "$INSTALL_PREFIX/"
-mv ../zig-cache/langref.html "$INSTALL_PREFIX/"
+# https://github.com/ziglang/zig/issues/12689
+# mv ../zig-cache/langref.html "$INSTALL_PREFIX/"
 mv "$INSTALL_PREFIX/bin/zig" "$INSTALL_PREFIX/"
 rmdir "$INSTALL_PREFIX/bin"
 
