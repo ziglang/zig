@@ -910,10 +910,11 @@ pub const Object = struct {
             while (it.next()) |lowering| switch (lowering) {
                 .no_bits => continue,
                 .byval => {
-                    const param_ty = fn_info.param_types[it.zig_index - 1];
+                    assert(!it.byval_attr);
+                    const param_index = it.zig_index - 1;
+                    const param_ty = fn_info.param_types[param_index];
                     const param = llvm_func.getParam(llvm_arg_i);
                     try args.ensureUnusedCapacity(1);
-                    assert(!it.byval_attr);
 
                     if (isByRef(param_ty)) {
                         const alignment = param_ty.abiAlignment(target);
@@ -926,32 +927,7 @@ pub const Object = struct {
                     } else {
                         args.appendAssumeCapacity(param);
 
-                        if (param_ty.isPtrAtRuntime()) {
-                            const ptr_info = param_ty.ptrInfo().data;
-                            if (math.cast(u5, it.zig_index - 1)) |i| {
-                                if (@truncate(u1, fn_info.noalias_bits >> i) != 0) {
-                                    dg.addArgAttr(llvm_func, llvm_arg_i, "noalias");
-                                }
-                            }
-                            if (!param_ty.isPtrLikeOptional() and !ptr_info.@"allowzero") {
-                                dg.addArgAttr(llvm_func, llvm_arg_i, "nonnull");
-                            }
-                            if (!ptr_info.mutable) {
-                                dg.addArgAttr(llvm_func, llvm_arg_i, "readonly");
-                            }
-                            if (ptr_info.@"align" != 0) {
-                                dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", ptr_info.@"align");
-                            } else {
-                                const elem_align = @maximum(
-                                    ptr_info.pointee_type.abiAlignment(target),
-                                    1,
-                                );
-                                dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", elem_align);
-                            }
-                        } else if (ccAbiPromoteInt(fn_info.cc, target, param_ty)) |s| switch (s) {
-                            .signed => dg.addArgAttr(llvm_func, llvm_arg_i, "signext"),
-                            .unsigned => dg.addArgAttr(llvm_func, llvm_arg_i, "zeroext"),
-                        };
+                        dg.addByValParamAttrs(llvm_func, param_ty, param_index, fn_info, llvm_arg_i);
                     }
                     llvm_arg_i += 1;
                 },
@@ -961,13 +937,7 @@ pub const Object = struct {
                     const param = llvm_func.getParam(llvm_arg_i);
                     const alignment = param_ty.abiAlignment(target);
 
-                    dg.addArgAttr(llvm_func, llvm_arg_i, "nonnull");
-                    dg.addArgAttr(llvm_func, llvm_arg_i, "readonly");
-                    dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", alignment);
-                    if (it.byval_attr) {
-                        llvm_func.addByValAttr(llvm_arg_i, param_llvm_ty);
-                    }
-
+                    dg.addByRefParamAttrs(llvm_func, llvm_arg_i, alignment, it.byval_attr, param_llvm_ty);
                     llvm_arg_i += 1;
 
                     try args.ensureUnusedCapacity(1);
@@ -2529,6 +2499,39 @@ pub const DeclGen = struct {
 
         if (fn_info.return_type.isNoReturn()) {
             dg.addFnAttr(llvm_fn, "noreturn");
+        }
+
+        // Add parameter attributes. We handle only the case of extern functions (no body)
+        // because functions with bodies are handled in `updateFunc`.
+        if (is_extern) {
+            var it = iterateParamTypes(dg, fn_info);
+            it.llvm_index += @boolToInt(sret);
+            it.llvm_index += @boolToInt(err_return_tracing);
+            while (it.next()) |lowering| switch (lowering) {
+                .byval => {
+                    const param_index = it.zig_index - 1;
+                    const param_ty = fn_info.param_types[param_index];
+                    if (!isByRef(param_ty)) {
+                        dg.addByValParamAttrs(llvm_fn, param_ty, param_index, fn_info, it.llvm_index - 1);
+                    }
+                },
+                .byref => {
+                    const param_ty = fn_info.param_types[it.zig_index - 1];
+                    const param_llvm_ty = try dg.lowerType(param_ty);
+                    const alignment = param_ty.abiAlignment(target);
+                    dg.addByRefParamAttrs(llvm_fn, it.llvm_index - 1, alignment, it.byval_attr, param_llvm_ty);
+                },
+                // No attributes needed for these.
+                .no_bits,
+                .abi_sized_int,
+                .multiple_llvm_ints,
+                .multiple_llvm_float,
+                .as_u16,
+                => continue,
+
+                .slice => unreachable, // extern functions do not support slice types.
+
+            };
         }
 
         return llvm_fn;
@@ -4139,6 +4142,59 @@ pub const DeclGen = struct {
             return dg.context.intType(@intCast(c_uint, int_ty.abiSize(target) * 8));
         } else {
             return null;
+        }
+    }
+
+    fn addByValParamAttrs(
+        dg: DeclGen,
+        llvm_fn: *const llvm.Value,
+        param_ty: Type,
+        param_index: u32,
+        fn_info: Type.Payload.Function.Data,
+        llvm_arg_i: u32,
+    ) void {
+        const target = dg.module.getTarget();
+        if (param_ty.isPtrAtRuntime()) {
+            const ptr_info = param_ty.ptrInfo().data;
+            if (math.cast(u5, param_index)) |i| {
+                if (@truncate(u1, fn_info.noalias_bits >> i) != 0) {
+                    dg.addArgAttr(llvm_fn, llvm_arg_i, "noalias");
+                }
+            }
+            if (!param_ty.isPtrLikeOptional() and !ptr_info.@"allowzero") {
+                dg.addArgAttr(llvm_fn, llvm_arg_i, "nonnull");
+            }
+            if (!ptr_info.mutable) {
+                dg.addArgAttr(llvm_fn, llvm_arg_i, "readonly");
+            }
+            if (ptr_info.@"align" != 0) {
+                dg.addArgAttrInt(llvm_fn, llvm_arg_i, "align", ptr_info.@"align");
+            } else {
+                const elem_align = @maximum(
+                    ptr_info.pointee_type.abiAlignment(target),
+                    1,
+                );
+                dg.addArgAttrInt(llvm_fn, llvm_arg_i, "align", elem_align);
+            }
+        } else if (ccAbiPromoteInt(fn_info.cc, target, param_ty)) |s| switch (s) {
+            .signed => dg.addArgAttr(llvm_fn, llvm_arg_i, "signext"),
+            .unsigned => dg.addArgAttr(llvm_fn, llvm_arg_i, "zeroext"),
+        };
+    }
+
+    fn addByRefParamAttrs(
+        dg: DeclGen,
+        llvm_fn: *const llvm.Value,
+        llvm_arg_i: u32,
+        alignment: u32,
+        byval_attr: bool,
+        param_llvm_ty: *const llvm.Type,
+    ) void {
+        dg.addArgAttr(llvm_fn, llvm_arg_i, "nonnull");
+        dg.addArgAttr(llvm_fn, llvm_arg_i, "readonly");
+        dg.addArgAttrInt(llvm_fn, llvm_arg_i, "align", alignment);
+        if (byval_attr) {
+            llvm_fn.addByValAttr(llvm_arg_i, param_llvm_ty);
         }
     }
 };
