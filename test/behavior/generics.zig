@@ -344,6 +344,8 @@ test "generic instantiation of tagged union with only one field" {
 }
 
 test "nested generic function" {
+    if (builtin.zig_backend == .stage1) return error.SkipZigTest;
+
     const S = struct {
         fn foo(comptime T: type, callback: *const fn (user_data: T) anyerror!void, data: T) anyerror!void {
             try callback(data);
