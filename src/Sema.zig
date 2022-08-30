@@ -8195,8 +8195,22 @@ fn zirParam(
         .is_comptime = comptime_syntax,
         .name = param_name,
     });
-    const result = try sema.addConstant(param_ty, Value.initTag(.generic_poison));
-    try sema.inst_map.putNoClobber(sema.gpa, inst, result);
+
+    if (is_comptime) {
+        // If this is a comptime parameter we can add a constant generic_poison
+        // since this is also a generic parameter.
+        const result = try sema.addConstant(param_ty, Value.initTag(.generic_poison));
+        try sema.inst_map.putNoClobber(sema.gpa, inst, result);
+    } else {
+        // Otherwise we need a dummy runtime instruction.
+        const result_index = @intCast(Air.Inst.Index, sema.air_instructions.len);
+        try sema.air_instructions.append(sema.gpa, .{
+            .tag = .alloc,
+            .data = .{ .ty = param_ty },
+        });
+        const result = Air.indexToRef(result_index);
+        try sema.inst_map.putNoClobber(sema.gpa, inst, result);
+    }
 }
 
 fn zirParamAnytype(
