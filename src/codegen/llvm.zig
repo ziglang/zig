@@ -797,6 +797,7 @@ pub const Object = struct {
                     const param_ty = fn_info.param_types[it.zig_index - 1];
                     const param = llvm_func.getParam(llvm_arg_i);
                     try args.ensureUnusedCapacity(1);
+                    assert(!it.byval_attr);
 
                     if (isByRef(param_ty)) {
                         const alignment = param_ty.abiAlignment(target);
@@ -840,11 +841,16 @@ pub const Object = struct {
                 },
                 .byref => {
                     const param_ty = fn_info.param_types[it.zig_index - 1];
+                    const param_llvm_ty = try dg.lowerType(param_ty);
                     const param = llvm_func.getParam(llvm_arg_i);
+                    const alignment = param_ty.abiAlignment(target);
 
                     dg.addArgAttr(llvm_func, llvm_arg_i, "nonnull");
                     dg.addArgAttr(llvm_func, llvm_arg_i, "readonly");
-                    dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", param_ty.abiAlignment(target));
+                    dg.addArgAttrInt(llvm_func, llvm_arg_i, "align", alignment);
+                    if (it.byval_attr) {
+                        llvm_func.addByValAttr(llvm_arg_i, param_llvm_ty);
+                    }
 
                     llvm_arg_i += 1;
 
@@ -853,14 +859,13 @@ pub const Object = struct {
                     if (isByRef(param_ty)) {
                         args.appendAssumeCapacity(param);
                     } else {
-                        const alignment = param_ty.abiAlignment(target);
-                        const param_llvm_ty = try dg.lowerType(param_ty);
                         const load_inst = builder.buildLoad(param_llvm_ty, param, "");
                         load_inst.setAlignment(alignment);
                         args.appendAssumeCapacity(load_inst);
                     }
                 },
                 .abi_sized_int => {
+                    assert(!it.byval_attr);
                     const param_ty = fn_info.param_types[it.zig_index - 1];
                     const param = llvm_func.getParam(llvm_arg_i);
                     llvm_arg_i += 1;
@@ -890,6 +895,7 @@ pub const Object = struct {
                     }
                 },
                 .slice => {
+                    assert(!it.byval_attr);
                     const param_ty = fn_info.param_types[it.zig_index - 1];
                     const ptr_info = param_ty.ptrInfo().data;
 
@@ -919,6 +925,7 @@ pub const Object = struct {
                     try args.append(aggregate);
                 },
                 .multiple_llvm_ints => {
+                    assert(!it.byval_attr);
                     const llvm_ints = it.llvm_types_buffer[0..it.llvm_types_len];
                     const param_ty = fn_info.param_types[it.zig_index - 1];
                     const param_llvm_ty = try dg.lowerType(param_ty);
@@ -949,6 +956,7 @@ pub const Object = struct {
                     try args.append(loaded);
                 },
                 .multiple_llvm_float => {
+                    assert(!it.byval_attr);
                     const llvm_floats = it.llvm_types_buffer[0..it.llvm_types_len];
                     const param_ty = fn_info.param_types[it.zig_index - 1];
                     const param_llvm_ty = try dg.lowerType(param_ty);
@@ -983,6 +991,7 @@ pub const Object = struct {
                     try args.append(loaded);
                 },
                 .as_u16 => {
+                    assert(!it.byval_attr);
                     const param = llvm_func.getParam(llvm_arg_i);
                     llvm_arg_i += 1;
                     const casted = builder.buildBitCast(param, dg.context.halfType(), "");
@@ -2404,14 +2413,6 @@ pub const DeclGen = struct {
 
         if (fn_info.return_type.isNoReturn()) {
             dg.addFnAttr(llvm_fn, "noreturn");
-        }
-
-        var llvm_arg_i = @as(c_uint, @boolToInt(sret)) + @boolToInt(err_return_tracing);
-        var it = iterateParamTypes(dg, fn_info);
-        while (it.next()) |_| : (llvm_arg_i += 1) {
-            if (!it.byval_attr) continue;
-            const param = llvm_fn.getParam(llvm_arg_i);
-            llvm_fn.addByValAttr(llvm_arg_i, param.typeOf().getElementType());
         }
 
         return llvm_fn;
