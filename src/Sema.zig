@@ -21933,6 +21933,7 @@ fn unionFieldPtr(
         .mutable = union_ptr_ty.ptrIsMutable(),
         .@"addrspace" = union_ptr_ty.ptrAddressSpace(),
     });
+    const enum_field_index = @intCast(u32, union_obj.tag_ty.enumFieldIndex(field_name).?);
 
     if (initializing and field.ty.zigTypeTag() == .NoReturn) {
         const msg = msg: {
@@ -21954,11 +21955,10 @@ fn unionFieldPtr(
                 if (union_val.isUndef()) {
                     return sema.failWithUseOfUndef(block, src);
                 }
-                const enum_field_index = union_obj.tag_ty.enumFieldIndex(field_name).?;
                 const tag_and_val = union_val.castTag(.@"union").?.data;
                 var field_tag_buf: Value.Payload.U32 = .{
                     .base = .{ .tag = .enum_field_index },
-                    .data = @intCast(u32, enum_field_index),
+                    .data = enum_field_index,
                 };
                 const field_tag = Value.initPayload(&field_tag_buf.base);
                 const tag_matches = tag_and_val.tag.eql(field_tag, union_obj.tag_ty, sema.mod);
@@ -21990,7 +21990,7 @@ fn unionFieldPtr(
     if (!initializing and union_obj.layout == .Auto and block.wantSafety() and
         union_ty.unionTagTypeSafety() != null and union_obj.fields.count() > 1)
     {
-        const wanted_tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
+        const wanted_tag_val = try Value.Tag.enum_field_index.create(sema.arena, enum_field_index);
         const wanted_tag = try sema.addConstant(union_obj.tag_ty, wanted_tag_val);
         // TODO would it be better if get_union_tag supported pointers to unions?
         const union_val = try block.addTyOp(.load, union_ty, union_ptr);
@@ -22020,15 +22020,15 @@ fn unionFieldVal(
     const union_obj = union_ty.cast(Type.Payload.Union).?.data;
     const field_index = try sema.unionFieldIndex(block, union_ty, field_name, field_name_src);
     const field = union_obj.fields.values()[field_index];
+    const enum_field_index = @intCast(u32, union_obj.tag_ty.enumFieldIndex(field_name).?);
 
     if (try sema.resolveMaybeUndefVal(block, src, union_byval)) |union_val| {
         if (union_val.isUndef()) return sema.addConstUndef(field.ty);
 
         const tag_and_val = union_val.castTag(.@"union").?.data;
-        const enum_field_index = union_obj.tag_ty.enumFieldIndex(field_name).?;
         var field_tag_buf: Value.Payload.U32 = .{
             .base = .{ .tag = .enum_field_index },
-            .data = @intCast(u32, enum_field_index),
+            .data = enum_field_index,
         };
         const field_tag = Value.initPayload(&field_tag_buf.base);
         const tag_matches = tag_and_val.tag.eql(field_tag, union_obj.tag_ty, sema.mod);
@@ -22064,7 +22064,7 @@ fn unionFieldVal(
     if (union_obj.layout == .Auto and block.wantSafety() and
         union_ty.unionTagTypeSafety() != null and union_obj.fields.count() > 1)
     {
-        const wanted_tag_val = try Value.Tag.enum_field_index.create(sema.arena, field_index);
+        const wanted_tag_val = try Value.Tag.enum_field_index.create(sema.arena, enum_field_index);
         const wanted_tag = try sema.addConstant(union_obj.tag_ty, wanted_tag_val);
         const active_tag = try block.addTyOp(.get_union_tag, union_obj.tag_ty, union_byval);
         const ok = try block.addBinOp(.cmp_eq, active_tag, wanted_tag);

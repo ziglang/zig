@@ -8527,12 +8527,26 @@ pub const FuncGen = struct {
         const union_llvm_ty = try self.dg.lowerType(union_ty);
         const target = self.dg.module.getTarget();
         const layout = union_ty.unionGetLayout(target);
+        const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+        const tag_int = blk: {
+            const tag_ty = union_ty.unionTagTypeHypothetical();
+            const union_field_name = union_obj.fields.keys()[extra.field_index];
+            const enum_field_index = tag_ty.enumFieldIndex(union_field_name).?;
+            var tag_val_payload: Value.Payload.U32 = .{
+                .base = .{ .tag = .enum_field_index },
+                .data = @intCast(u32, enum_field_index),
+            };
+            const tag_val = Value.initPayload(&tag_val_payload.base);
+            var int_payload: Value.Payload.U64 = undefined;
+            const tag_int_val = tag_val.enumToInt(tag_ty, &int_payload);
+            break :blk tag_int_val.toUnsignedInt(target);
+        };
         if (layout.payload_size == 0) {
             if (layout.tag_size == 0) {
                 return null;
             }
             assert(!isByRef(union_ty));
-            return union_llvm_ty.constInt(extra.field_index, .False);
+            return union_llvm_ty.constInt(tag_int, .False);
         }
         assert(isByRef(union_ty));
         // The llvm type of the alloca will the the named LLVM union type, which will not
@@ -8541,7 +8555,6 @@ pub const FuncGen = struct {
         // then set the fields appropriately.
         const result_ptr = self.buildAlloca(union_llvm_ty);
         const llvm_payload = try self.resolveInst(extra.init);
-        const union_obj = union_ty.cast(Type.Payload.Union).?.data;
         assert(union_obj.haveFieldTypes());
         const field = union_obj.fields.values()[extra.field_index];
         const field_llvm_ty = try self.dg.lowerType(field.ty);
@@ -8625,7 +8638,7 @@ pub const FuncGen = struct {
             };
             const field_ptr = self.builder.buildInBoundsGEP(casted_ptr, &indices, indices.len, "");
             const tag_llvm_ty = try self.dg.lowerType(union_obj.tag_ty);
-            const llvm_tag = tag_llvm_ty.constInt(extra.field_index, .False);
+            const llvm_tag = tag_llvm_ty.constInt(tag_int, .False);
             const store_inst = self.builder.buildStore(llvm_tag, field_ptr);
             store_inst.setAlignment(union_obj.tag_ty.abiAlignment(target));
         }
