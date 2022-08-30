@@ -177,6 +177,116 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![:0]u8 {
     return llvm_triple.toOwnedSliceSentinel(0);
 }
 
+pub fn targetOs(os_tag: std.Target.Os.Tag) llvm.OSType {
+    return switch (os_tag) {
+        .freestanding, .other, .opencl, .glsl450, .vulkan, .plan9 => .UnknownOS,
+        .windows, .uefi => .Win32,
+        .ananas => .Ananas,
+        .cloudabi => .CloudABI,
+        .dragonfly => .DragonFly,
+        .freebsd => .FreeBSD,
+        .fuchsia => .Fuchsia,
+        .ios => .IOS,
+        .kfreebsd => .KFreeBSD,
+        .linux => .Linux,
+        .lv2 => .Lv2,
+        .macos => .MacOSX,
+        .netbsd => .NetBSD,
+        .openbsd => .OpenBSD,
+        .solaris => .Solaris,
+        .zos => .ZOS,
+        .haiku => .Haiku,
+        .minix => .Minix,
+        .rtems => .RTEMS,
+        .nacl => .NaCl,
+        .aix => .AIX,
+        .cuda => .CUDA,
+        .nvcl => .NVCL,
+        .amdhsa => .AMDHSA,
+        .ps4 => .PS4,
+        .elfiamcu => .ELFIAMCU,
+        .tvos => .TvOS,
+        .watchos => .WatchOS,
+        .mesa3d => .Mesa3D,
+        .contiki => .Contiki,
+        .amdpal => .AMDPAL,
+        .hermit => .HermitCore,
+        .hurd => .Hurd,
+        .wasi => .WASI,
+        .emscripten => .Emscripten,
+    };
+}
+
+pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
+    return switch (arch_tag) {
+        .arm => .arm,
+        .armeb => .armeb,
+        .aarch64 => .aarch64,
+        .aarch64_be => .aarch64_be,
+        .aarch64_32 => .aarch64_32,
+        .arc => .arc,
+        .avr => .avr,
+        .bpfel => .bpfel,
+        .bpfeb => .bpfeb,
+        .csky => .csky,
+        .hexagon => .hexagon,
+        .m68k => .m68k,
+        .mips => .mips,
+        .mipsel => .mipsel,
+        .mips64 => .mips64,
+        .mips64el => .mips64el,
+        .msp430 => .msp430,
+        .powerpc => .ppc,
+        .powerpcle => .ppcle,
+        .powerpc64 => .ppc64,
+        .powerpc64le => .ppc64le,
+        .r600 => .r600,
+        .amdgcn => .amdgcn,
+        .riscv32 => .riscv32,
+        .riscv64 => .riscv64,
+        .sparc => .sparc,
+        .sparc64 => .sparcv9, // In LLVM, sparc64 == sparcv9.
+        .sparcel => .sparcel,
+        .s390x => .systemz,
+        .tce => .tce,
+        .tcele => .tcele,
+        .thumb => .thumb,
+        .thumbeb => .thumbeb,
+        .i386 => .x86,
+        .x86_64 => .x86_64,
+        .xcore => .xcore,
+        .nvptx => .nvptx,
+        .nvptx64 => .nvptx64,
+        .le32 => .le32,
+        .le64 => .le64,
+        .amdil => .amdil,
+        .amdil64 => .amdil64,
+        .hsail => .hsail,
+        .hsail64 => .hsail64,
+        .spir => .spir,
+        .spir64 => .spir64,
+        .kalimba => .kalimba,
+        .shave => .shave,
+        .lanai => .lanai,
+        .wasm32 => .wasm32,
+        .wasm64 => .wasm64,
+        .renderscript32 => .renderscript32,
+        .renderscript64 => .renderscript64,
+        .ve => .ve,
+        .spu_2, .spirv32, .spirv64 => .UnknownArch,
+    };
+}
+
+pub fn supportsTailCall(target: std.Target) bool {
+    switch (target.cpu.arch) {
+        .wasm32, .wasm64 => return std.Target.wasm.featureSetHas(target.cpu.features, .tail_call),
+        // Although these ISAs support tail calls, LLVM does not support tail calls on them.
+        .mips, .mipsel, .mips64, .mips64el => return false,
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => return false,
+        else => return true,
+    }
+}
+
 pub const Object = struct {
     gpa: Allocator,
     module: *Module,
@@ -4522,7 +4632,7 @@ pub const FuncGen = struct {
             "",
         );
 
-        if (return_type.isNoReturn()) {
+        if (return_type.isNoReturn() and attr != .AlwaysTail) {
             _ = self.builder.buildUnreachable();
             return null;
         }
@@ -8527,12 +8637,26 @@ pub const FuncGen = struct {
         const union_llvm_ty = try self.dg.lowerType(union_ty);
         const target = self.dg.module.getTarget();
         const layout = union_ty.unionGetLayout(target);
+        const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+        const tag_int = blk: {
+            const tag_ty = union_ty.unionTagTypeHypothetical();
+            const union_field_name = union_obj.fields.keys()[extra.field_index];
+            const enum_field_index = tag_ty.enumFieldIndex(union_field_name).?;
+            var tag_val_payload: Value.Payload.U32 = .{
+                .base = .{ .tag = .enum_field_index },
+                .data = @intCast(u32, enum_field_index),
+            };
+            const tag_val = Value.initPayload(&tag_val_payload.base);
+            var int_payload: Value.Payload.U64 = undefined;
+            const tag_int_val = tag_val.enumToInt(tag_ty, &int_payload);
+            break :blk tag_int_val.toUnsignedInt(target);
+        };
         if (layout.payload_size == 0) {
             if (layout.tag_size == 0) {
                 return null;
             }
             assert(!isByRef(union_ty));
-            return union_llvm_ty.constInt(extra.field_index, .False);
+            return union_llvm_ty.constInt(tag_int, .False);
         }
         assert(isByRef(union_ty));
         // The llvm type of the alloca will the the named LLVM union type, which will not
@@ -8541,7 +8665,6 @@ pub const FuncGen = struct {
         // then set the fields appropriately.
         const result_ptr = self.buildAlloca(union_llvm_ty);
         const llvm_payload = try self.resolveInst(extra.init);
-        const union_obj = union_ty.cast(Type.Payload.Union).?.data;
         assert(union_obj.haveFieldTypes());
         const field = union_obj.fields.values()[extra.field_index];
         const field_llvm_ty = try self.dg.lowerType(field.ty);
@@ -8625,7 +8748,7 @@ pub const FuncGen = struct {
             };
             const field_ptr = self.builder.buildInBoundsGEP(casted_ptr, &indices, indices.len, "");
             const tag_llvm_ty = try self.dg.lowerType(union_obj.tag_ty);
-            const llvm_tag = tag_llvm_ty.constInt(extra.field_index, .False);
+            const llvm_tag = tag_llvm_ty.constInt(tag_int, .False);
             const store_inst = self.builder.buildStore(llvm_tag, field_ptr);
             store_inst.setAlignment(union_obj.tag_ty.abiAlignment(target));
         }
