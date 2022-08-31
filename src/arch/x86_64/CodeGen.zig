@@ -3999,7 +3999,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                 .data = undefined,
             });
         }
-    } else if (self.bin_file.cast(link.File.Coff)) |_| {
+    } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
         if (self.air.value(callee)) |func_value| {
             if (func_value.castTag(.function)) |func_payload| {
                 const func = func_payload.data;
@@ -4015,8 +4015,26 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                     }),
                     .data = undefined,
                 });
-            } else if (func_value.castTag(.extern_fn)) |_| {
-                return self.fail("TODO implement calling extern functions", .{});
+            } else if (func_value.castTag(.extern_fn)) |func_payload| {
+                const extern_fn = func_payload.data;
+                const decl_name = mod.declPtr(extern_fn.owner_decl).name;
+                if (extern_fn.lib_name) |lib_name| {
+                    log.debug("TODO enforce that '{s}' is expected in '{s}' library", .{
+                        decl_name,
+                        lib_name,
+                    });
+                }
+                const sym_index = try coff_file.getGlobalSymbol(mem.sliceTo(decl_name, 0));
+                _ = try self.addInst(.{
+                    .tag = .call_extern,
+                    .ops = undefined,
+                    .data = .{
+                        .relocation = .{
+                            .atom_index = mod.declPtr(self.mod_fn.owner_decl).link.coff.sym_index,
+                            .sym_index = sym_index,
+                        },
+                    },
+                });
             } else {
                 return self.fail("TODO implement calling bitcasted functions", .{});
             }

@@ -36,6 +36,10 @@ comptime {
                 if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
                     @export(main2, .{ .name = "main" });
                 }
+            } else if (builtin.os.tag == .windows) {
+                if (!@hasDecl(root, "wWinMainCRTStartup") and !@hasDecl(root, "mainCRTStartup")) {
+                    @export(wWinMainCRTStartup2, .{ .name = "wWinMainCRTStartup" });
+                }
             } else if (builtin.os.tag == .wasi and @hasDecl(root, "main")) {
                 @export(wasiMain2, .{ .name = "_start" });
             } else {

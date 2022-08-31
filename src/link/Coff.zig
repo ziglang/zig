@@ -596,7 +596,7 @@ fn allocateSymbol(self: *Coff) !u32 {
     self.locals.items[index] = .{
         .name = [_]u8{0} ** 8,
         .value = 0,
-        .section_number = @intToEnum(coff.SectionNumber, 0),
+        .section_number = .UNDEFINED,
         .@"type" = .{ .base_type = .NULL, .complex_type = .NULL },
         .storage_class = .NULL,
         .number_of_aux_symbols = 0,
@@ -1027,7 +1027,7 @@ pub fn freeDecl(self: *Coff, decl_index: Module.Decl.Index) void {
             log.debug("  adding GOT index {d} to free list (target local@{d})", .{ got_index, sym_index });
         }
 
-        self.locals.items[sym_index].section_number = @intToEnum(coff.SectionNumber, 0);
+        self.locals.items[sym_index].section_number = .UNDEFINED;
         _ = self.atom_by_index_table.remove(sym_index);
         decl.link.coff.sym_index = 0;
     }
@@ -1266,6 +1266,30 @@ pub fn getDeclVAddr(
     _ = decl_index;
     _ = reloc_info;
     @panic("TODO getDeclVAddr");
+}
+
+pub fn getGlobalSymbol(self: *Coff, name: []const u8) !u32 {
+    const gpa = self.base.allocator;
+    const sym_name = try gpa.dupe(u8, name);
+    const global_index = @intCast(u32, self.globals.values().len);
+    _ = global_index;
+    const gop = try self.globals.getOrPut(gpa, sym_name);
+    defer if (gop.found_existing) gpa.free(sym_name);
+
+    if (gop.found_existing) {
+        // TODO audit this: can we ever reference anything from outside the Zig module?
+        assert(gop.value_ptr.file == null);
+        return gop.value_ptr.sym_index;
+    }
+
+    const sym_index = try self.allocateSymbol();
+    const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = null };
+    const sym = self.getSymbolPtr(sym_loc);
+    try self.setSymbolName(sym, sym_name);
+    sym.storage_class = .EXTERNAL;
+    gop.value_ptr.* = sym_loc;
+
+    return sym_index;
 }
 
 pub fn updateDeclLineNumber(self: *Coff, module: *Module, decl: *Module.Decl) !void {
@@ -1614,7 +1638,7 @@ inline fn getSizeOfImage(self: Coff) u32 {
 
 /// Returns symbol location corresponding to the set entrypoint (if any).
 pub fn getEntryPoint(self: Coff) ?SymbolWithLoc {
-    const entry_name = self.base.options.entry orelse "_start"; // TODO this is incomplete
+    const entry_name = self.base.options.entry orelse "wWinMainCRTStartup"; // TODO this is incomplete
     return self.globals.get(entry_name);
 }
 
