@@ -77,7 +77,7 @@ const RelocatableData = struct {
     /// The size in bytes of the data representing the segment within the section
     size: u32,
     /// The index within the section itself, or in case of a debug section,
-    /// the offset within the `debug_names` table.
+    /// the offset within the `string_table`.
     index: u32,
     /// The offset within the section where the data starts
     offset: u32,
@@ -101,8 +101,15 @@ const RelocatableData = struct {
         return switch (self.type) {
             .data => .data,
             .code => .function,
-            .debug => unreachable, // illegal, debug sections are not represented by a symbol
+            .debug => .section,
         };
+    }
+
+    /// Returns the index within a section itself, or in case of a debug section,
+    /// returns the section index within the object file.
+    pub fn getIndex(self: RelocatableData) u32 {
+        if (self.type == .debug) return self.section_index;
+        return self.index;
     }
 };
 
@@ -205,7 +212,7 @@ pub fn importedCountByKind(self: *const Object, kind: std.wasm.ExternalKind) u32
 
 /// From a given `RelocatableDate`, find the corresponding debug section name
 pub fn getDebugName(self: *const Object, relocatable_data: RelocatableData) []const u8 {
-    return std.mem.sliceTo(self.debug_names[relocatable_data.index..], 0);
+    return self.string_table.get(relocatable_data.index);
 }
 
 /// Checks if the object file is an MVP version.
@@ -363,6 +370,7 @@ fn Parser(comptime ReaderType: type) type {
 
                         if (std.mem.eql(u8, name, "linking")) {
                             is_object_file.* = true;
+                            self.object.relocatable_data = relocatable_data.items; // at this point no new relocatable sections will appear so we're free to store them.
                             try self.parseMetadata(gpa, @intCast(usize, reader.context.bytes_left));
                         } else if (std.mem.startsWith(u8, name, "reloc")) {
                             try self.parseRelocations(gpa);
@@ -374,19 +382,16 @@ fn Parser(comptime ReaderType: type) type {
                             errdefer gpa.free(debug_content);
                             try reader.readNoEof(debug_content);
 
-                            const debug_name_index = @intCast(u32, debug_names.items.len);
-                            try debug_names.ensureUnusedCapacity(name.len + 1);
-                            debug_names.appendSliceAssumeCapacity(try gpa.dupe(u8, name));
-                            debug_names.appendAssumeCapacity(0);
                             try relocatable_data.append(.{
                                 .type = .debug,
                                 .data = debug_content.ptr,
                                 .size = debug_size,
-                                .index = debug_name_index,
+                                .index = try self.object.string_table.put(gpa, name),
                                 .offset = len - debug_size,
                                 .section_index = section_index,
                             });
                         } else {
+                            log.info("found unknown custom section '{s}' - skipping parsing", .{name});
                             try reader.skipBytes(reader.context.bytes_left, .{});
                         }
                     },
@@ -551,9 +556,6 @@ fn Parser(comptime ReaderType: type) type {
                 else => |e| return e,
             }
             self.object.relocatable_data = relocatable_data.toOwnedSlice();
-
-            const names = debug_names.toOwnedSlice();
-            self.object.debug_names = names[0 .. names.len - 1 :0];
         }
 
         /// Based on the "features" custom section, parses it into a list of
@@ -774,7 +776,12 @@ fn Parser(comptime ReaderType: type) type {
                 },
                 .section => {
                     symbol.index = try leb.readULEB128(u32, reader);
-                    symbol.name = try self.object.string_table.put(gpa, @tagName(symbol.tag));
+                    for (self.object.relocatable_data) |data| {
+                        if (data.section_index == symbol.index) {
+                            symbol.name = data.index;
+                            break;
+                        }
+                    }
                 },
                 else => {
                     symbol.index = try leb.readULEB128(u32, reader);
@@ -864,7 +871,6 @@ fn assertEnd(reader: anytype) !void {
 
 /// Parses an object file into atoms, for code and data sections
 pub fn parseIntoAtoms(self: *Object, gpa: Allocator, object_index: u16, wasm_bin: *Wasm) !void {
-    log.debug("Parsing data section into atoms", .{});
     const Key = struct {
         kind: Symbol.Tag,
         index: u32,
@@ -876,7 +882,7 @@ pub fn parseIntoAtoms(self: *Object, gpa: Allocator, object_index: u16, wasm_bin
 
     for (self.symtable) |symbol, symbol_index| {
         switch (symbol.tag) {
-            .function, .data => if (!symbol.isUndefined()) {
+            .function, .data, .section => if (!symbol.isUndefined()) {
                 const gop = try symbol_for_segment.getOrPut(.{ .kind = symbol.tag, .index = symbol.index });
                 const sym_idx = @intCast(u32, symbol_index);
                 if (!gop.found_existing) {
@@ -925,13 +931,11 @@ pub fn parseIntoAtoms(self: *Object, gpa: Allocator, object_index: u16, wasm_bin
 
         try atom.code.appendSlice(gpa, relocatable_data.data[0..relocatable_data.size]);
 
-        if (relocatable_data.type != .debug) {
-            const symbols = symbol_for_segment.getPtr(.{
-                .kind = relocatable_data.getSymbolKind(),
-                .index = @intCast(u32, relocatable_data.index),
-            }) orelse continue; // encountered a segment we do not create an atom for
-            const sym_index = symbols.pop();
-            atom.sym_index = sym_index;
+        if (symbol_for_segment.getPtr(.{
+            .kind = relocatable_data.getSymbolKind(),
+            .index = relocatable_data.getIndex(),
+        })) |symbols| {
+            atom.sym_index = symbols.pop();
 
             // symbols referencing the same atom will be added as alias
             // or as 'parent' when they are global.
@@ -957,7 +961,7 @@ pub fn parseIntoAtoms(self: *Object, gpa: Allocator, object_index: u16, wasm_bin
         } else {
             try wasm_bin.atoms.putNoClobber(gpa, final_index, atom);
         }
-        log.debug("Parsed into atom: '{s}'", .{self.string_table.get(self.symtable[atom.sym_index].name)});
+        log.debug("Parsed into atom: '{s}' at segment index {d}", .{ self.string_table.get(self.symtable[atom.sym_index].name), final_index });
     }
 }
 

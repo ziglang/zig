@@ -2495,21 +2495,39 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         }
     } else if (!self.base.options.strip) {
         if (self.dwarf) |*dwarf| {
-            if (self.debug_info_index != null) {
-                if (self.base.options.module) |mod| {
-                    try dwarf.writeDbgAbbrev(&self.base);
-                    // for debug info and ranges, the address is always 0,
-                    // as locations are always offsets relative to 'code' section.
-                    try dwarf.writeDbgInfoHeader(&self.base, mod, 0, code_section_size);
-                    try dwarf.writeDbgAranges(&self.base, 0, code_section_size);
-                    try dwarf.writeDbgLineHeader(&self.base, mod);
-                }
+            const mod = self.base.options.module.?;
+            try dwarf.writeDbgAbbrev(&self.base);
+            // for debug info and ranges, the address is always 0,
+            // as locations are always offsets relative to 'code' section.
+            try dwarf.writeDbgInfoHeader(&self.base, mod, 0, code_section_size);
+            try dwarf.writeDbgAranges(&self.base, 0, code_section_size);
+            try dwarf.writeDbgLineHeader(&self.base, mod);
+        }
 
-                try emitDebugSection(file, self.debug_info.items, ".debug_info");
-                try emitDebugSection(file, self.debug_aranges.items, ".debug_ranges");
-                try emitDebugSection(file, self.debug_abbrev.items, ".debug_abbrev");
-                try emitDebugSection(file, self.debug_line.items, ".debug_line");
-                try emitDebugSection(file, dwarf.strtab.items, ".debug_str");
+        var debug_bytes = std.ArrayList(u8).init(self.base.allocator);
+        defer debug_bytes.deinit();
+
+        const debug_sections = .{
+            .{ ".debug_info", self.debug_info_index },
+            .{ ".debug_pubtypes", self.debug_pubtypes_index },
+            .{ ".debug_abbrev", self.debug_abbrev_index },
+            .{ ".debug_line", self.debug_line_index },
+            .{ ".debug_str", self.debug_str_index },
+            .{ ".debug_pubnames", self.debug_pubnames_index },
+            .{ ".debug_loc", self.debug_loc_index },
+            .{ ".debug_ranges", self.debug_ranges_index },
+        };
+
+        inline for (debug_sections) |item| {
+            if (item[1]) |index| {
+                var atom = self.atoms.get(index).?.getFirst();
+                while (true) {
+                    atom.resolveRelocs(self);
+                    try debug_bytes.appendSlice(atom.code.items);
+                    atom = atom.next orelse break;
+                }
+                try emitDebugSection(file, debug_bytes.items, item[0]);
+                debug_bytes.clearRetainingCapacity();
             }
         }
         try self.emitNameSection(file, arena);
@@ -2517,6 +2535,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
 }
 
 fn emitDebugSection(file: fs.File, data: []const u8, name: []const u8) !void {
+    if (data.len == 0) return;
     const header_offset = try reserveCustomSectionHeader(file);
     const writer = file.writer();
     try leb.writeULEB128(writer, @intCast(u32, name.len));
