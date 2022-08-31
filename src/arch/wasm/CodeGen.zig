@@ -2394,9 +2394,7 @@ fn lowerConstant(self: *Self, val: Value, ty: Type) InnerError!WValue {
         const decl_index = decl_ref_mut.data.decl_index;
         return self.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl_index);
     }
-
     const target = self.target;
-
     switch (ty.zigTypeTag()) {
         .Void => return WValue{ .none = {} },
         .Int => {
