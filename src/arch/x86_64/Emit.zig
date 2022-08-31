@@ -1157,6 +1157,18 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             .length = 2,
             .@"type" = @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_BRANCH),
         });
+    } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
+        // Add relocation to the decl.
+        const atom = coff_file.atom_by_index_table.get(relocation.atom_index).?;
+        try atom.addRelocation(coff_file, .{
+            .@"type" = .direct,
+            .target = .{ .sym_index = relocation.sym_index, .file = null },
+            .offset = offset,
+            .addend = 0,
+            .pcrel = true,
+            .length = 2,
+            .prev_vaddr = atom.getSymbol(coff_file).value,
+        });
     } else {
         return emit.fail("TODO implement call_extern for linking backends different than MachO", .{});
     }
