@@ -1346,6 +1346,7 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         }
     }
     try self.writeBaseRelocations();
+    try self.writeImportTable();
 
     if (self.getEntryPoint()) |entry_sym_loc| {
         self.entry_addr = self.getSymbol(entry_sym_loc).value;
@@ -1481,6 +1482,22 @@ fn writeBaseRelocations(self: *Coff) !void {
     self.data_directories[@enumToInt(coff.DirectoryEntry.BASERELOC)] = .{
         .virtual_address = header.virtual_address,
         .size = needed_size,
+    };
+}
+
+fn writeImportTable(self: *Coff) !void {
+    const gpa = self.base.allocator;
+    _ = gpa;
+
+    const section = self.sections.get(self.idata_section_index.?);
+    const iat_rva = section.header.virtual_address;
+    const iat_size = blk: {
+        const last_atom = section.last_atom.?;
+        break :blk last_atom.getSymbol(self).value + last_atom.size - iat_rva;
+    };
+    self.data_directories[@enumToInt(coff.DirectoryEntry.IAT)] = .{
+        .virtual_address = iat_rva,
+        .size = iat_size,
     };
 }
 
