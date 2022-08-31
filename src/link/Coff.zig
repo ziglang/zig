@@ -51,9 +51,11 @@ got_section_index: ?u16 = null,
 rdata_section_index: ?u16 = null,
 data_section_index: ?u16 = null,
 reloc_section_index: ?u16 = null,
+idata_section_index: ?u16 = null,
 
 locals: std.ArrayListUnmanaged(coff.Symbol) = .{},
 globals: std.StringArrayHashMapUnmanaged(SymbolWithLoc) = .{},
+unresolved: std.AutoArrayHashMapUnmanaged(u32, bool) = .{},
 
 locals_free_list: std.ArrayListUnmanaged(u32) = .{},
 
@@ -62,6 +64,9 @@ strtab_offset: ?u32 = null,
 
 got_entries: std.AutoArrayHashMapUnmanaged(SymbolWithLoc, u32) = .{},
 got_entries_free_list: std.ArrayListUnmanaged(u32) = .{},
+
+imports_table: std.AutoArrayHashMapUnmanaged(SymbolWithLoc, u32) = .{},
+imports_table_free_list: std.ArrayListUnmanaged(u32) = .{},
 
 /// Virtual address of the entry point procedure relative to image base.
 entry_addr: ?u32 = null,
@@ -109,6 +114,11 @@ relocs: RelocTable = .{},
 /// this will be a table indexed by index into the list of Atoms.
 base_relocs: BaseRelocationTable = .{},
 
+/// A table of bindings indexed by the owning them `Atom`.
+/// Note that once we refactor `Atom`'s lifetime and ownership rules,
+/// this will be a table indexed by index into the list of Atoms.
+bindings: BindingTable = .{},
+
 pub const Reloc = struct {
     @"type": enum {
         got,
@@ -124,6 +134,7 @@ pub const Reloc = struct {
 
 const RelocTable = std.AutoHashMapUnmanaged(*Atom, std.ArrayListUnmanaged(Reloc));
 const BaseRelocationTable = std.AutoHashMapUnmanaged(*Atom, std.ArrayListUnmanaged(u32));
+const BindingTable = std.AutoHashMapUnmanaged(*Atom, std.ArrayListUnmanaged(SymbolWithLoc));
 const UnnamedConstTable = std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(*Atom));
 
 const default_file_alignment: u16 = 0x200;
@@ -269,10 +280,13 @@ pub fn deinit(self: *Coff) void {
 
     self.locals.deinit(gpa);
     self.globals.deinit(gpa);
+    self.unresolved.deinit(gpa);
     self.locals_free_list.deinit(gpa);
     self.strtab.deinit(gpa);
     self.got_entries.deinit(gpa);
     self.got_entries_free_list.deinit(gpa);
+    self.imports_table.deinit(gpa);
+    self.imports_table_free_list.deinit(gpa);
     self.decls.deinit(gpa);
     self.atom_by_index_table.deinit(gpa);
 
@@ -298,6 +312,14 @@ pub fn deinit(self: *Coff) void {
             relocs.deinit(gpa);
         }
         self.base_relocs.deinit(gpa);
+    }
+
+    {
+        var it = self.bindings.valueIterator();
+        while (it.next()) |bindings| {
+            bindings.deinit(gpa);
+        }
+        self.bindings.deinit(gpa);
     }
 }
 
@@ -420,11 +442,35 @@ fn populateMissingMetadata(self: *Coff) !void {
             .number_of_linenumbers = 0,
             .flags = .{
                 .CNT_INITIALIZED_DATA = 1,
-                .MEM_PURGEABLE = 1,
+                .MEM_DISCARDABLE = 1,
                 .MEM_READ = 1,
             },
         };
         try self.setSectionName(&header, ".reloc");
+        try self.sections.append(gpa, .{ .header = header });
+    }
+
+    if (self.idata_section_index == null) {
+        self.idata_section_index = @intCast(u16, self.sections.slice().len);
+        const file_size = @intCast(u32, self.base.options.symbol_count_hint) * self.ptr_width.abiSize();
+        const off = self.findFreeSpace(file_size, self.page_size);
+        log.debug("found .idata free space 0x{x} to 0x{x}", .{ off, off + file_size });
+        var header = coff.SectionHeader{
+            .name = undefined,
+            .virtual_size = file_size,
+            .virtual_address = off,
+            .size_of_raw_data = file_size,
+            .pointer_to_raw_data = off,
+            .pointer_to_relocations = 0,
+            .pointer_to_linenumbers = 0,
+            .number_of_relocations = 0,
+            .number_of_linenumbers = 0,
+            .flags = .{
+                .CNT_INITIALIZED_DATA = 1,
+                .MEM_READ = 1,
+            },
+        };
+        try self.setSectionName(&header, ".idata");
         try self.sections.append(gpa, .{ .header = header });
     }
 
@@ -626,6 +672,27 @@ pub fn allocateGotEntry(self: *Coff, target: SymbolWithLoc) !u32 {
     return index;
 }
 
+pub fn allocateImportEntry(self: *Coff, target: SymbolWithLoc) !u32 {
+    const gpa = self.base.allocator;
+    try self.imports_table.ensureUnusedCapacity(gpa, 1);
+    const index: u32 = blk: {
+        if (self.imports_table_free_list.popOrNull()) |index| {
+            log.debug("  (reusing import entry index {d})", .{index});
+            if (self.imports_table.getIndex(target)) |existing| {
+                assert(existing == index);
+            }
+            break :blk index;
+        } else {
+            log.debug("  (allocating import entry at index {d})", .{self.imports_table.keys().len});
+            const index = @intCast(u32, self.imports_table.keys().len);
+            self.imports_table.putAssumeCapacityNoClobber(target, 0);
+            break :blk index;
+        }
+    };
+    self.imports_table.keys()[index] = target;
+    return index;
+}
+
 fn createGotAtom(self: *Coff, target: SymbolWithLoc) !*Atom {
     const gpa = self.base.allocator;
     const atom = try gpa.create(Atom);
@@ -666,6 +733,32 @@ fn createGotAtom(self: *Coff, target: SymbolWithLoc) !*Atom {
     return atom;
 }
 
+fn createImportAtom(self: *Coff, target: SymbolWithLoc) !*Atom {
+    const gpa = self.base.allocator;
+    const atom = try gpa.create(Atom);
+    errdefer gpa.destroy(atom);
+    atom.* = Atom.empty;
+    atom.sym_index = try self.allocateSymbol();
+    atom.size = @sizeOf(u64);
+    atom.alignment = @alignOf(u64);
+
+    try self.managed_atoms.append(gpa, atom);
+    try self.atom_by_index_table.putNoClobber(gpa, atom.sym_index, atom);
+    self.imports_table.getPtr(target).?.* = atom.sym_index;
+
+    const sym = atom.getSymbolPtr(self);
+    sym.section_number = @intToEnum(coff.SectionNumber, self.idata_section_index.? + 1);
+    sym.value = try self.allocateAtom(atom, atom.size, atom.alignment);
+
+    log.debug("allocated import atom at 0x{x}", .{sym.value});
+
+    const target_sym = self.getSymbol(target);
+    assert(target_sym.section_number == .UNDEFINED);
+    try atom.addBinding(self, target);
+
+    return atom;
+}
+
 fn growAtom(self: *Coff, atom: *Atom, new_atom_size: u32, alignment: u32) !u32 {
     const sym = atom.getSymbol(self);
     const align_ok = mem.alignBackwardGeneric(u32, sym.value, alignment) == sym.value;
@@ -691,7 +784,7 @@ fn writeAtom(self: *Coff, atom: *Atom, code: []const u8) !void {
     try self.resolveRelocs(atom);
 }
 
-fn writeGotAtom(self: *Coff, atom: *Atom) !void {
+fn writePtrWidthAtom(self: *Coff, atom: *Atom) !void {
     switch (self.ptr_width) {
         .p32 => {
             var buffer: [@sizeOf(u32)]u8 = [_]u8{0} ** @sizeOf(u32);
@@ -718,7 +811,12 @@ fn resolveRelocs(self: *Coff, atom: *Atom) !void {
                 const got_atom = self.getGotAtomForSymbol(reloc.target) orelse continue;
                 break :blk got_atom.getSymbol(self).value;
             },
-            .direct => self.getSymbol(reloc.target).value,
+            .direct => blk: {
+                if (self.getImportAtomForSymbol(reloc.target)) |import_atom| {
+                    break :blk import_atom.getSymbol(self).value;
+                }
+                break :blk self.getSymbol(reloc.target).value;
+            },
         };
         const target_vaddr_with_addend = target_vaddr + reloc.addend;
 
@@ -971,7 +1069,7 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []const u8, 
                 sym.value = vaddr;
                 log.debug("  (updating GOT entry)", .{});
                 const got_atom = self.getGotAtomForSymbol(.{ .sym_index = atom.sym_index, .file = null }).?;
-                try self.writeGotAtom(got_atom);
+                try self.writePtrWidthAtom(got_atom);
             }
         } else if (code_len < atom.size) {
             self.shrinkAtom(atom, code_len);
@@ -992,7 +1090,7 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []const u8, 
         const got_target = SymbolWithLoc{ .sym_index = atom.sym_index, .file = null };
         _ = try self.allocateGotEntry(got_target);
         const got_atom = try self.createGotAtom(got_target);
-        try self.writeGotAtom(got_atom);
+        try self.writePtrWidthAtom(got_atom);
     }
 
     try self.writeAtom(atom, code);
@@ -1227,6 +1325,16 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
+    while (self.unresolved.popOrNull()) |entry| {
+        assert(entry.value); // We only expect imports generated by the incremental linker for now.
+        const global = self.globals.values()[entry.key];
+        if (self.imports_table.contains(global)) continue;
+
+        _ = try self.allocateImportEntry(global);
+        const import_atom = try self.createImportAtom(global);
+        try self.writePtrWidthAtom(import_atom);
+    }
+
     if (build_options.enable_logging) {
         self.logSymtab();
     }
@@ -1272,7 +1380,6 @@ pub fn getGlobalSymbol(self: *Coff, name: []const u8) !u32 {
     const gpa = self.base.allocator;
     const sym_name = try gpa.dupe(u8, name);
     const global_index = @intCast(u32, self.globals.values().len);
-    _ = global_index;
     const gop = try self.globals.getOrPut(gpa, sym_name);
     defer if (gop.found_existing) gpa.free(sym_name);
 
@@ -1288,6 +1395,7 @@ pub fn getGlobalSymbol(self: *Coff, name: []const u8) !u32 {
     try self.setSymbolName(sym, sym_name);
     sym.storage_class = .EXTERNAL;
     gop.value_ptr.* = sym_loc;
+    try self.unresolved.putNoClobber(gpa, global_index, true);
 
     return sym_index;
 }
@@ -1674,6 +1782,13 @@ pub fn getAtomForSymbol(self: *Coff, sym_loc: SymbolWithLoc) ?*Atom {
 pub fn getGotAtomForSymbol(self: *Coff, sym_loc: SymbolWithLoc) ?*Atom {
     const got_index = self.got_entries.get(sym_loc) orelse return null;
     return self.atom_by_index_table.get(got_index);
+}
+
+/// Returns import atom that references `sym_with_loc` if one exists.
+/// Returns null otherwise.
+pub fn getImportAtomForSymbol(self: *Coff, sym_loc: SymbolWithLoc) ?*Atom {
+    const imports_index = self.imports_table.get(sym_loc) orelse return null;
+    return self.atom_by_index_table.get(imports_index);
 }
 
 fn setSectionName(self: *Coff, header: *coff.SectionHeader, name: []const u8) !void {
