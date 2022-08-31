@@ -713,7 +713,6 @@ const DocData = struct {
                     try jsw.emitNumber(self.int.value);
                 },
                 .int_big => {
-
                     try jsw.beginObject();
                     try jsw.objectField("value");
                     try jsw.emitString(self.int_big.value);
@@ -1105,14 +1104,6 @@ fn walkInstruction(
                 .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
                 .expr = .{ .int_big = .{ .value = as_string } },
             };
-
-            // printWithContext(
-            //     file,
-            //     inst_index,
-            //     "TODO: implement `{s}` for walkInstruction\n\n",
-            //     .{@tagName(tags[inst_index])},
-            // );
-            // return self.cteTodo(@tagName(tags[inst_index]));
         },
 
         .slice_start => {
