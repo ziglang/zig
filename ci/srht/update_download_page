@@ -118,17 +118,9 @@ $S3CMD put -P --no-mime-magic \
   --add-header="Cache-Control: max-age=0, must-revalidate" \
   "$LANGREF" s3://ziglang.org/documentation/master/index.html
 
-$S3CMD put -P --no-mime-magic \
+$S3CMD put -P --no-mime-magic --recursive \
   --add-header="Cache-Control: max-age=0, must-revalidate" \
-  "$ZIGDIR/docs/std/index.html" s3://ziglang.org/documentation/master/std/index.html
-
-$S3CMD put -P --no-mime-magic \
-  --add-header="Cache-Control: max-age=0, must-revalidate" \
-  "$ZIGDIR/docs/std/main.js" s3://ziglang.org/documentation/master/std/main.js
-
-$S3CMD put -P --no-mime-magic \
-  --add-header="Cache-Control: max-age=0, must-revalidate" \
-  "$ZIGDIR/docs/std/data.js" s3://ziglang.org/documentation/master/std/data.js
+  "$ZIGDIR/docs/std/" s3://ziglang.org/documentation/master/std/
 
 $S3CMD put -P --no-mime-magic \
   --add-header="cache-control: public, max-age=31536000, immutable" \
