@@ -180,6 +180,7 @@ pub const Inst = struct {
         /// ops flags: form:
         ///      0b00  reg1, [rip + reloc] // via GOT PIC
         ///      0b01  reg1, [rip + reloc] // direct load PIC
+        ///      0b10  reg1, [rip + reloc] // via imports table PIC
         /// Notes:
         /// * `Data` contains `relocation`
         lea_pic,

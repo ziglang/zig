@@ -985,8 +985,8 @@ fn mirLeaPic(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     const relocation = emit.mir.instructions.items(.data)[inst].relocation;
 
     switch (ops.flags) {
-        0b00, 0b01 => {},
-        else => return emit.fail("TODO unused LEA PIC variants 0b10 and 0b11", .{}),
+        0b00, 0b01, 0b10 => {},
+        else => return emit.fail("TODO unused LEA PIC variant 0b11", .{}),
     }
 
     // lea reg1, [rip + reloc]
@@ -1024,6 +1024,7 @@ fn mirLeaPic(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             .@"type" = switch (ops.flags) {
                 0b00 => .got,
                 0b01 => .direct,
+                0b10 => .imports,
                 else => unreachable,
             },
             .target = .{ .sym_index = relocation.sym_index, .file = null },

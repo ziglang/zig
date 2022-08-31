@@ -123,6 +123,7 @@ pub const Reloc = struct {
     @"type": enum {
         got,
         direct,
+        imports,
     },
     target: SymbolWithLoc,
     offset: u32,
@@ -812,18 +813,18 @@ fn resolveRelocs(self: *Coff, atom: *Atom) !void {
                 break :blk got_atom.getSymbol(self).value;
             },
             .direct => blk: {
-                if (self.getImportAtomForSymbol(reloc.target)) |import_atom| {
-                    break :blk import_atom.getSymbol(self).value;
-                }
                 break :blk self.getSymbol(reloc.target).value;
+            },
+            .imports => blk: {
+                const import_atom = self.getImportAtomForSymbol(reloc.target) orelse continue;
+                break :blk import_atom.getSymbol(self).value;
             },
         };
         const target_vaddr_with_addend = target_vaddr + reloc.addend;
-
         if (target_vaddr_with_addend == reloc.prev_vaddr) continue;
 
         log.debug("  ({x}: [() => 0x{x} ({s})) ({s})", .{
-            reloc.offset,
+            source_sym.value + reloc.offset,
             target_vaddr_with_addend,
             self.getSymbolName(reloc.target),
             @tagName(reloc.@"type"),
@@ -833,7 +834,7 @@ fn resolveRelocs(self: *Coff, atom: *Atom) !void {
             const source_vaddr = source_sym.value + reloc.offset;
             const disp = target_vaddr_with_addend - source_vaddr - 4;
             try self.base.file.?.pwriteAll(mem.asBytes(&@intCast(u32, disp)), file_offset + reloc.offset);
-            return;
+            continue;
         }
 
         switch (self.ptr_width) {
@@ -1345,8 +1346,8 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
             try self.resolveRelocs(atom.*);
         }
     }
-    try self.writeBaseRelocations();
     try self.writeImportTable();
+    try self.writeBaseRelocations();
 
     if (self.getEntryPoint()) |entry_sym_loc| {
         self.entry_addr = self.getSymbol(entry_sym_loc).value;
@@ -1487,14 +1488,80 @@ fn writeBaseRelocations(self: *Coff) !void {
 
 fn writeImportTable(self: *Coff) !void {
     const gpa = self.base.allocator;
-    _ = gpa;
 
     const section = self.sections.get(self.idata_section_index.?);
     const iat_rva = section.header.virtual_address;
     const iat_size = blk: {
         const last_atom = section.last_atom.?;
-        break :blk last_atom.getSymbol(self).value + last_atom.size - iat_rva;
+        break :blk last_atom.getSymbol(self).value + last_atom.size * 2 - iat_rva; // account for sentinel zero pointer
     };
+
+    const dll_name = "KERNEL32.dll";
+
+    var import_dir_entry = coff.ImportDirectoryEntry{
+        .import_lookup_table_rva = @sizeOf(coff.ImportDirectoryEntry) * 2,
+        .time_date_stamp = 0,
+        .forwarder_chain = 0,
+        .name_rva = 0,
+        .import_address_table_rva = iat_rva,
+    };
+
+    // TODO: we currently assume there's only one (implicit) DLL - ntdll
+    var lookup_table = std.ArrayList(coff.ImportLookupEntry64.ByName).init(gpa);
+    defer lookup_table.deinit();
+
+    var names_table = std.ArrayList(u8).init(gpa);
+    defer names_table.deinit();
+
+    // TODO: check if import is still valid
+    for (self.imports_table.keys()) |target| {
+        const target_name = self.getSymbolName(target);
+        const start = names_table.items.len;
+        mem.writeIntLittle(u16, try names_table.addManyAsArray(2), 0); // TODO: currently, hint is set to 0 as we haven't yet parsed any DLL
+        try names_table.appendSlice(target_name);
+        try names_table.append(0);
+        const end = names_table.items.len;
+        if (!mem.isAlignedGeneric(usize, end - start, @sizeOf(u16))) {
+            try names_table.append(0);
+        }
+        try lookup_table.append(.{ .name_table_rva = @intCast(u31, start) });
+    }
+    try lookup_table.append(.{ .name_table_rva = 0 }); // the sentinel
+
+    const dir_entry_size = @sizeOf(coff.ImportDirectoryEntry) + lookup_table.items.len * @sizeOf(coff.ImportLookupEntry64.ByName) + names_table.items.len + dll_name.len + 1;
+    const needed_size = iat_size + dir_entry_size + @sizeOf(coff.ImportDirectoryEntry);
+    const sect_capacity = self.allocatedSize(section.header.pointer_to_raw_data);
+    assert(needed_size < sect_capacity); // TODO: implement expanding .idata section
+
+    // Fixup offsets
+    const base_rva = iat_rva + iat_size;
+    import_dir_entry.import_lookup_table_rva += base_rva;
+    import_dir_entry.name_rva = @intCast(u32, base_rva + dir_entry_size + @sizeOf(coff.ImportDirectoryEntry) - dll_name.len - 1);
+
+    for (lookup_table.items[0 .. lookup_table.items.len - 1]) |*lk| {
+        lk.name_table_rva += @intCast(u31, base_rva + @sizeOf(coff.ImportDirectoryEntry) * 2 + lookup_table.items.len * @sizeOf(coff.ImportLookupEntry64.ByName));
+    }
+
+    var buffer = std.ArrayList(u8).init(gpa);
+    defer buffer.deinit();
+    try buffer.ensureTotalCapacity(dir_entry_size + @sizeOf(coff.ImportDirectoryEntry));
+    buffer.appendSliceAssumeCapacity(mem.asBytes(&import_dir_entry));
+    buffer.appendNTimesAssumeCapacity(0, @sizeOf(coff.ImportDirectoryEntry)); // the sentinel; TODO: I think doing all of the above on bytes directly might be cleaner
+    buffer.appendSliceAssumeCapacity(mem.sliceAsBytes(lookup_table.items));
+    buffer.appendSliceAssumeCapacity(names_table.items);
+    buffer.appendSliceAssumeCapacity(dll_name);
+    buffer.appendAssumeCapacity(0);
+
+    try self.base.file.?.pwriteAll(buffer.items, section.header.pointer_to_raw_data + iat_size);
+    // Override the IAT atoms
+    // TODO: we should rewrite only dirtied atoms, but that's for way later
+    try self.base.file.?.pwriteAll(mem.sliceAsBytes(lookup_table.items), section.header.pointer_to_raw_data);
+
+    self.data_directories[@enumToInt(coff.DirectoryEntry.IMPORT)] = .{
+        .virtual_address = iat_rva + iat_size,
+        .size = @intCast(u32, @sizeOf(coff.ImportDirectoryEntry) * 2),
+    };
+
     self.data_directories[@enumToInt(coff.DirectoryEntry.IAT)] = .{
         .virtual_address = iat_rva,
         .size = iat_size,
