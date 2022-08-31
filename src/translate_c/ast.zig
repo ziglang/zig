@@ -934,13 +934,13 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             .data = undefined,
         }),
         .zero_literal => return c.addNode(.{
-            .tag = .integer_literal,
-            .main_token = try c.addToken(.integer_literal, "0"),
+            .tag = .number_literal,
+            .main_token = try c.addToken(.number_literal, "0"),
             .data = undefined,
         }),
         .one_literal => return c.addNode(.{
-            .tag = .integer_literal,
-            .main_token = try c.addToken(.integer_literal, "1"),
+            .tag = .number_literal,
+            .main_token = try c.addToken(.number_literal, "1"),
             .data = undefined,
         }),
         .void_type => return c.addNode(.{
@@ -1074,16 +1074,16 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         .float_literal => {
             const payload = node.castTag(.float_literal).?.data;
             return c.addNode(.{
-                .tag = .float_literal,
-                .main_token = try c.addToken(.float_literal, payload),
+                .tag = .number_literal,
+                .main_token = try c.addToken(.number_literal, payload),
                 .data = undefined,
             });
         },
         .integer_literal => {
             const payload = node.castTag(.integer_literal).?.data;
             return c.addNode(.{
-                .tag = .integer_literal,
-                .main_token = try c.addToken(.integer_literal, payload),
+                .tag = .number_literal,
+                .main_token = try c.addToken(.number_literal, payload),
                 .data = undefined,
             });
         },
@@ -1137,14 +1137,14 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const string = try renderNode(c, payload.string);
             const l_bracket = try c.addToken(.l_bracket, "[");
             const start = try c.addNode(.{
-                .tag = .integer_literal,
-                .main_token = try c.addToken(.integer_literal, "0"),
+                .tag = .number_literal,
+                .main_token = try c.addToken(.number_literal, "0"),
                 .data = undefined,
             });
             _ = try c.addToken(.ellipsis2, "..");
             const end = try c.addNode(.{
-                .tag = .integer_literal,
-                .main_token = try c.addTokenFmt(.integer_literal, "{d}", .{payload.end}),
+                .tag = .number_literal,
+                .main_token = try c.addTokenFmt(.number_literal, "{d}", .{payload.end}),
                 .data = undefined,
             });
             _ = try c.addToken(.r_bracket, "]");
@@ -1827,8 +1827,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .data = .{
                     .lhs = init,
                     .rhs = try c.addNode(.{
-                        .tag = .integer_literal,
-                        .main_token = try c.addTokenFmt(.integer_literal, "{d}", .{payload.count}),
+                        .tag = .number_literal,
+                        .main_token = try c.addTokenFmt(.number_literal, "{d}", .{payload.count}),
                         .data = undefined,
                     }),
                 },
@@ -2039,8 +2039,8 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
         _ = try c.addToken(.keyword_align, "align");
         _ = try c.addToken(.l_paren, "(");
         const align_expr = try c.addNode(.{
-            .tag = .integer_literal,
-            .main_token = try c.addTokenFmt(.integer_literal, "{d}", .{alignment}),
+            .tag = .number_literal,
+            .main_token = try c.addTokenFmt(.number_literal, "{d}", .{alignment}),
             .data = undefined,
         });
         _ = try c.addToken(.r_paren, ")");
@@ -2143,8 +2143,8 @@ fn renderArrayInit(c: *Context, lhs: NodeIndex, inits: []const Node) !NodeIndex 
 fn renderArrayType(c: *Context, len: usize, elem_type: Node) !NodeIndex {
     const l_bracket = try c.addToken(.l_bracket, "[");
     const len_expr = try c.addNode(.{
-        .tag = .integer_literal,
-        .main_token = try c.addTokenFmt(.integer_literal, "{d}", .{len}),
+        .tag = .number_literal,
+        .main_token = try c.addTokenFmt(.number_literal, "{d}", .{len}),
         .data = undefined,
     });
     _ = try c.addToken(.r_bracket, "]");
@@ -2162,15 +2162,15 @@ fn renderArrayType(c: *Context, len: usize, elem_type: Node) !NodeIndex {
 fn renderNullSentinelArrayType(c: *Context, len: usize, elem_type: Node) !NodeIndex {
     const l_bracket = try c.addToken(.l_bracket, "[");
     const len_expr = try c.addNode(.{
-        .tag = .integer_literal,
-        .main_token = try c.addTokenFmt(.integer_literal, "{d}", .{len}),
+        .tag = .number_literal,
+        .main_token = try c.addTokenFmt(.number_literal, "{d}", .{len}),
         .data = undefined,
     });
     _ = try c.addToken(.colon, ":");
 
     const sentinel_expr = try c.addNode(.{
-        .tag = .integer_literal,
-        .main_token = try c.addToken(.integer_literal, "0"),
+        .tag = .number_literal,
+        .main_token = try c.addToken(.number_literal, "0"),
         .data = undefined,
     });
 
@@ -2571,8 +2571,8 @@ fn renderVar(c: *Context, node: Node) !NodeIndex {
         _ = try c.addToken(.keyword_align, "align");
         _ = try c.addToken(.l_paren, "(");
         const res = try c.addNode(.{
-            .tag = .integer_literal,
-            .main_token = try c.addTokenFmt(.integer_literal, "{d}", .{some}),
+            .tag = .number_literal,
+            .main_token = try c.addTokenFmt(.number_literal, "{d}", .{some}),
             .data = undefined,
         });
         _ = try c.addToken(.r_paren, ")");
@@ -2655,8 +2655,8 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
         _ = try c.addToken(.keyword_align, "align");
         _ = try c.addToken(.l_paren, "(");
         const res = try c.addNode(.{
-            .tag = .integer_literal,
-            .main_token = try c.addTokenFmt(.integer_literal, "{d}", .{some}),
+            .tag = .number_literal,
+            .main_token = try c.addTokenFmt(.number_literal, "{d}", .{some}),
             .data = undefined,
         });
         _ = try c.addToken(.r_paren, ")");

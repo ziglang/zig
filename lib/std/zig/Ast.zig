@@ -406,8 +406,7 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
         .identifier,
         .anyframe_literal,
         .char_literal,
-        .integer_literal,
-        .float_literal,
+        .number_literal,
         .unreachable_literal,
         .string_literal,
         .multiline_string_literal,
@@ -781,8 +780,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
 
         .anyframe_literal,
         .char_literal,
-        .integer_literal,
-        .float_literal,
+        .number_literal,
         .unreachable_literal,
         .identifier,
         .deref,
@@ -2919,9 +2917,7 @@ pub const Node = struct {
         /// Both lhs and rhs unused.
         char_literal,
         /// Both lhs and rhs unused.
-        integer_literal,
-        /// Both lhs and rhs unused.
-        float_literal,
+        number_literal,
         /// Both lhs and rhs unused.
         unreachable_literal,
         /// Both lhs and rhs unused.

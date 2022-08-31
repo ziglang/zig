@@ -7,5 +7,4 @@ fn main() void {
 // backend=llvm
 // target=native
 //
-// :2:21: error: expected expression, found 'invalid bytes'
-// :2:24: note: invalid byte: ';'
+// :2:23: error: trailing digit separator

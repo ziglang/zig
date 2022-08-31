@@ -7,5 +7,4 @@ fn main() void {
 // backend=stage2
 // target=native
 //
-// :2:21: error: expected expression, found 'invalid bytes'
-// :2:28: note: invalid byte: '_'
+// :2:28: error: repeated digit separator

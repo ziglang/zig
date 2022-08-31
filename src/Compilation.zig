@@ -610,7 +610,7 @@ pub const AllErrors = struct {
                 }
                 const token_starts = file.tree.tokens.items(.start);
                 const start = token_starts[item.data.token] + item.data.byte_offset;
-                const end = start + @intCast(u32, file.tree.tokenSlice(item.data.token).len);
+                const end = start + @intCast(u32, file.tree.tokenSlice(item.data.token).len) - item.data.byte_offset;
                 break :blk Module.SrcLoc.Span{ .start = start, .end = end, .main = start };
             };
             const err_loc = std.zig.findLineColumn(file.source, err_span.main);
@@ -629,7 +629,7 @@ pub const AllErrors = struct {
                         }
                         const token_starts = file.tree.tokens.items(.start);
                         const start = token_starts[note_item.data.token] + note_item.data.byte_offset;
-                        const end = start + @intCast(u32, file.tree.tokenSlice(note_item.data.token).len);
+                        const end = start + @intCast(u32, file.tree.tokenSlice(note_item.data.token).len) - item.data.byte_offset;
                         break :blk Module.SrcLoc.Span{ .start = start, .end = end, .main = start };
                     };
                     const loc = std.zig.findLineColumn(file.source, span.main);

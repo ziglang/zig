@@ -199,8 +199,7 @@ fn renderExpression(gpa: Allocator, ais: *Ais, tree: Ast, node: Ast.Node.Index, 
             return renderSpace(ais, tree, token_index, lexeme.len, space);
         },
 
-        .integer_literal,
-        .float_literal,
+        .number_literal,
         .char_literal,
         .unreachable_literal,
         .anyframe_literal,

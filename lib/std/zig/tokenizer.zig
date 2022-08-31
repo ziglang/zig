@@ -136,8 +136,7 @@ pub const Token = struct {
         angle_bracket_angle_bracket_right,
         angle_bracket_angle_bracket_right_equal,
         tilde,
-        integer_literal,
-        float_literal,
+        number_literal,
         doc_comment,
         container_doc_comment,
         keyword_addrspace,
@@ -199,8 +198,7 @@ pub const Token = struct {
                 .char_literal,
                 .eof,
                 .builtin,
-                .integer_literal,
-                .float_literal,
+                .number_literal,
                 .doc_comment,
                 .container_doc_comment,
                 => null,
@@ -328,8 +326,7 @@ pub const Token = struct {
                 .char_literal => "a character literal",
                 .eof => "EOF",
                 .builtin => "a builtin function",
-                .integer_literal => "an integer literal",
-                .float_literal => "a floating point literal",
+                .number_literal => "a number literal",
                 .doc_comment, .container_doc_comment => "a document comment",
                 else => unreachable,
             };
@@ -387,24 +384,11 @@ pub const Tokenizer = struct {
         line_comment,
         doc_comment_start,
         doc_comment,
-        zero,
-        int_literal_dec,
-        int_literal_dec_no_underscore,
-        int_literal_bin,
-        int_literal_bin_no_underscore,
-        int_literal_oct,
-        int_literal_oct_no_underscore,
-        int_literal_hex,
-        int_literal_hex_no_underscore,
-        num_dot_dec,
-        num_dot_hex,
-        float_fraction_dec,
-        float_fraction_dec_no_underscore,
-        float_fraction_hex,
-        float_fraction_hex_no_underscore,
-        float_exponent_unsigned,
-        float_exponent_num,
-        float_exponent_num_no_underscore,
+        int,
+        int_exponent,
+        int_period,
+        float,
+        float_exponent,
         ampersand,
         caret,
         percent,
@@ -557,13 +541,9 @@ pub const Tokenizer = struct {
                     '&' => {
                         state = .ampersand;
                     },
-                    '0' => {
-                        state = .zero;
-                        result.tag = .integer_literal;
-                    },
-                    '1'...'9' => {
-                        state = .int_literal_dec;
-                        result.tag = .integer_literal;
+                    '0'...'9' => {
+                        state = .int;
+                        result.tag = .number_literal;
                     },
                     else => {
                         result.tag = .invalid;
@@ -1175,232 +1155,42 @@ pub const Tokenizer = struct {
                     '\t', '\r' => {},
                     else => self.checkLiteralCharacter(),
                 },
-                .zero => switch (c) {
-                    'b' => {
-                        state = .int_literal_bin_no_underscore;
+                .int => switch (c) {
+                    '.' => state = .int_period,
+                    '_', 'a'...'d', 'f'...'o', 'q'...'z', 'A'...'D', 'F'...'O', 'Q'...'Z', '0'...'9' => {},
+                    'e', 'E', 'p', 'P' => state = .int_exponent,
+                    else => break,
+                },
+                .int_exponent => switch (c) {
+                    '-', '+' => {
+                        state = .float;
                     },
-                    'o' => {
-                        state = .int_literal_oct_no_underscore;
-                    },
-                    'x' => {
-                        state = .int_literal_hex_no_underscore;
-                    },
-                    '0'...'9', '_', '.', 'e', 'E' => {
-                        // reinterpret as a decimal number
+                    else => {
                         self.index -= 1;
-                        state = .int_literal_dec;
+                        state = .int;
                     },
-                    'a', 'c', 'd', 'f'...'n', 'p'...'w', 'y', 'z', 'A'...'D', 'F'...'Z' => {
-                        result.tag = .invalid;
-                        break;
-                    },
-                    else => break,
                 },
-                .int_literal_bin_no_underscore => switch (c) {
-                    '0'...'1' => {
-                        state = .int_literal_bin;
+                .int_period => switch (c) {
+                    '_', 'a'...'d', 'f'...'o', 'q'...'z', 'A'...'D', 'F'...'O', 'Q'...'Z', '0'...'9' => {
+                        state = .float;
                     },
+                    'e', 'E', 'p', 'P' => state = .float_exponent,
                     else => {
-                        result.tag = .invalid;
-                        break;
-                    },
-                },
-                .int_literal_bin => switch (c) {
-                    '_' => {
-                        state = .int_literal_bin_no_underscore;
-                    },
-                    '0'...'1' => {},
-                    '2'...'9', 'a'...'z', 'A'...'Z' => {
-                        result.tag = .invalid;
-                        break;
-                    },
-                    else => break,
-                },
-                .int_literal_oct_no_underscore => switch (c) {
-                    '0'...'7' => {
-                        state = .int_literal_oct;
-                    },
-                    else => {
-                        result.tag = .invalid;
-                        break;
-                    },
-                },
-                .int_literal_oct => switch (c) {
-                    '_' => {
-                        state = .int_literal_oct_no_underscore;
-                    },
-                    '0'...'7' => {},
-                    '8', '9', 'a'...'z', 'A'...'Z' => {
-                        result.tag = .invalid;
-                        break;
-                    },
-                    else => break,
-                },
-                .int_literal_dec_no_underscore => switch (c) {
-                    '0'...'9' => {
-                        state = .int_literal_dec;
-                    },
-                    else => {
-                        result.tag = .invalid;
-                        break;
-                    },
-                },
-                .int_literal_dec => switch (c) {
-                    '_' => {
-                        state = .int_literal_dec_no_underscore;
-                    },
-                    '.' => {
-                        state = .num_dot_dec;
-                        result.tag = .invalid;
-                    },
-                    'e', 'E' => {
-                        state = .float_exponent_unsigned;
-                        result.tag = .float_literal;
-                    },
-                    '0'...'9' => {},
-                    'a'...'d', 'f'...'z', 'A'...'D', 'F'...'Z' => {
-                        result.tag = .invalid;
-                        break;
-                    },
-                    else => break,
-                },
-                .int_literal_hex_no_underscore => switch (c) {
-                    '0'...'9', 'a'...'f', 'A'...'F' => {
-                        state = .int_literal_hex;
-                    },
-                    else => {
-                        result.tag = .invalid;
-                        break;
-                    },
-                },
-                .int_literal_hex => switch (c) {
-                    '_' => {
-                        state = .int_literal_hex_no_underscore;
-                    },
-                    '.' => {
-                        state = .num_dot_hex;
-                        result.tag = .invalid;
-                    },
-                    'p', 'P' => {
-                        state = .float_exponent_unsigned;
-                        result.tag = .float_literal;
-                    },
-                    '0'...'9', 'a'...'f', 'A'...'F' => {},
-                    'g'...'o', 'q'...'z', 'G'...'O', 'Q'...'Z' => {
-                        result.tag = .invalid;
-                        break;
-                    },
-                    else => break,
-                },
-                .num_dot_dec => switch (c) {
-                    '.' => {
-                        result.tag = .integer_literal;
                         self.index -= 1;
-                        state = .start;
                         break;
                     },
-                    '0'...'9' => {
-                        result.tag = .float_literal;
-                        state = .float_fraction_dec;
-                    },
-                    '_', 'a'...'z', 'A'...'Z' => {
-                        result.tag = .invalid;
-                        break;
-                    },
+                },
+                .float => switch (c) {
+                    '_', 'a'...'d', 'f'...'o', 'q'...'z', 'A'...'D', 'F'...'O', 'Q'...'Z', '0'...'9' => {},
+                    'e', 'E', 'p', 'P' => state = .float_exponent,
                     else => break,
                 },
-                .num_dot_hex => switch (c) {
-                    '.' => {
-                        result.tag = .integer_literal;
+                .float_exponent => switch (c) {
+                    '-', '+' => state = .float,
+                    else => {
                         self.index -= 1;
-                        state = .start;
-                        break;
+                        state = .float;
                     },
-                    '0'...'9', 'a'...'f', 'A'...'F' => {
-                        result.tag = .float_literal;
-                        state = .float_fraction_hex;
-                    },
-                    '_', 'g'...'z', 'G'...'Z' => {
-                        result.tag = .invalid;
-                        break;
-                    },
-                    else => break,
-                },
-                .float_fraction_dec_no_underscore => switch (c) {
-                    '0'...'9' => {
-                        state = .float_fraction_dec;
-                    },
-                    else => {
-                        result.tag = .invalid;
-                        break;
-                    },
-                },
-                .float_fraction_dec => switch (c) {
-                    '_' => {
-                        state = .float_fraction_dec_no_underscore;
-                    },
-                    'e', 'E' => {
-                        state = .float_exponent_unsigned;
-                    },
-                    '0'...'9' => {},
-                    'a'...'d', 'f'...'z', 'A'...'D', 'F'...'Z' => {
-                        result.tag = .invalid;
-                        break;
-                    },
-                    else => break,
-                },
-                .float_fraction_hex_no_underscore => switch (c) {
-                    '0'...'9', 'a'...'f', 'A'...'F' => {
-                        state = .float_fraction_hex;
-                    },
-                    else => {
-                        result.tag = .invalid;
-                        break;
-                    },
-                },
-                .float_fraction_hex => switch (c) {
-                    '_' => {
-                        state = .float_fraction_hex_no_underscore;
-                    },
-                    'p', 'P' => {
-                        state = .float_exponent_unsigned;
-                    },
-                    '0'...'9', 'a'...'f', 'A'...'F' => {},
-                    'g'...'o', 'q'...'z', 'G'...'O', 'Q'...'Z' => {
-                        result.tag = .invalid;
-                        break;
-                    },
-                    else => break,
-                },
-                .float_exponent_unsigned => switch (c) {
-                    '+', '-' => {
-                        state = .float_exponent_num_no_underscore;
-                    },
-                    else => {
-                        // reinterpret as a normal exponent number
-                        self.index -= 1;
-                        state = .float_exponent_num_no_underscore;
-                    },
-                },
-                .float_exponent_num_no_underscore => switch (c) {
-                    '0'...'9' => {
-                        state = .float_exponent_num;
-                    },
-                    else => {
-                        result.tag = .invalid;
-                        break;
-                    },
-                },
-                .float_exponent_num => switch (c) {
-                    '_' => {
-                        state = .float_exponent_num_no_underscore;
-                    },
-                    '0'...'9' => {},
-                    'a'...'z', 'A'...'Z' => {
-                        result.tag = .invalid;
-                        break;
-                    },
-                    else => break,
                 },
             }
         }
@@ -1571,7 +1361,7 @@ test "code point literal with unicode escapes" {
     , &.{ .invalid, .invalid });
     try testTokenize(
         \\'\U0333'
-    , &.{ .invalid, .integer_literal, .invalid });
+    , &.{ .invalid, .number_literal, .invalid });
 }
 
 test "code point literal with unicode code point" {
@@ -1584,7 +1374,7 @@ test "float literal e exponent" {
     try testTokenize("a = 4.94065645841246544177e-324;\n", &.{
         .identifier,
         .equal,
-        .float_literal,
+        .number_literal,
         .semicolon,
     });
 }
@@ -1593,7 +1383,7 @@ test "float literal p exponent" {
     try testTokenize("a = 0x1.a827999fcef32p+1022;\n", &.{
         .identifier,
         .equal,
-        .float_literal,
+        .number_literal,
         .semicolon,
     });
 }
@@ -1757,7 +1547,7 @@ test "correctly parse pointer assignment" {
         .identifier,
         .period_asterisk,
         .equal,
-        .integer_literal,
+        .number_literal,
         .semicolon,
     });
 }
@@ -1767,7 +1557,7 @@ test "correctly parse pointer dereference followed by asterisk" {
         .string_literal,
         .period_asterisk,
         .asterisk_asterisk,
-        .integer_literal,
+        .number_literal,
     });
 
     try testTokenize("(\"b\".*)** 10", &.{
@@ -1776,256 +1566,256 @@ test "correctly parse pointer dereference followed by asterisk" {
         .period_asterisk,
         .r_paren,
         .asterisk_asterisk,
-        .integer_literal,
+        .number_literal,
     });
 
     try testTokenize("\"b\".*** 10", &.{
         .string_literal,
         .invalid_periodasterisks,
         .asterisk_asterisk,
-        .integer_literal,
+        .number_literal,
     });
 }
 
 test "range literals" {
-    try testTokenize("0...9", &.{ .integer_literal, .ellipsis3, .integer_literal });
+    try testTokenize("0...9", &.{ .number_literal, .ellipsis3, .number_literal });
     try testTokenize("'0'...'9'", &.{ .char_literal, .ellipsis3, .char_literal });
-    try testTokenize("0x00...0x09", &.{ .integer_literal, .ellipsis3, .integer_literal });
-    try testTokenize("0b00...0b11", &.{ .integer_literal, .ellipsis3, .integer_literal });
-    try testTokenize("0o00...0o11", &.{ .integer_literal, .ellipsis3, .integer_literal });
+    try testTokenize("0x00...0x09", &.{ .number_literal, .ellipsis3, .number_literal });
+    try testTokenize("0b00...0b11", &.{ .number_literal, .ellipsis3, .number_literal });
+    try testTokenize("0o00...0o11", &.{ .number_literal, .ellipsis3, .number_literal });
 }
 
 test "number literals decimal" {
-    try testTokenize("0", &.{.integer_literal});
-    try testTokenize("1", &.{.integer_literal});
-    try testTokenize("2", &.{.integer_literal});
-    try testTokenize("3", &.{.integer_literal});
-    try testTokenize("4", &.{.integer_literal});
-    try testTokenize("5", &.{.integer_literal});
-    try testTokenize("6", &.{.integer_literal});
-    try testTokenize("7", &.{.integer_literal});
-    try testTokenize("8", &.{.integer_literal});
-    try testTokenize("9", &.{.integer_literal});
-    try testTokenize("1..", &.{ .integer_literal, .ellipsis2 });
-    try testTokenize("0a", &.{ .invalid, .identifier });
-    try testTokenize("9b", &.{ .invalid, .identifier });
-    try testTokenize("1z", &.{ .invalid, .identifier });
-    try testTokenize("1z_1", &.{ .invalid, .identifier });
-    try testTokenize("9z3", &.{ .invalid, .identifier });
+    try testTokenize("0", &.{.number_literal});
+    try testTokenize("1", &.{.number_literal});
+    try testTokenize("2", &.{.number_literal});
+    try testTokenize("3", &.{.number_literal});
+    try testTokenize("4", &.{.number_literal});
+    try testTokenize("5", &.{.number_literal});
+    try testTokenize("6", &.{.number_literal});
+    try testTokenize("7", &.{.number_literal});
+    try testTokenize("8", &.{.number_literal});
+    try testTokenize("9", &.{.number_literal});
+    try testTokenize("1..", &.{ .number_literal, .ellipsis2 });
+    try testTokenize("0a", &.{.number_literal});
+    try testTokenize("9b", &.{.number_literal});
+    try testTokenize("1z", &.{.number_literal});
+    try testTokenize("1z_1", &.{.number_literal});
+    try testTokenize("9z3", &.{.number_literal});
 
-    try testTokenize("0_0", &.{.integer_literal});
-    try testTokenize("0001", &.{.integer_literal});
-    try testTokenize("01234567890", &.{.integer_literal});
-    try testTokenize("012_345_6789_0", &.{.integer_literal});
-    try testTokenize("0_1_2_3_4_5_6_7_8_9_0", &.{.integer_literal});
+    try testTokenize("0_0", &.{.number_literal});
+    try testTokenize("0001", &.{.number_literal});
+    try testTokenize("01234567890", &.{.number_literal});
+    try testTokenize("012_345_6789_0", &.{.number_literal});
+    try testTokenize("0_1_2_3_4_5_6_7_8_9_0", &.{.number_literal});
 
-    try testTokenize("00_", &.{.invalid});
-    try testTokenize("0_0_", &.{.invalid});
-    try testTokenize("0__0", &.{ .invalid, .identifier });
-    try testTokenize("0_0f", &.{ .invalid, .identifier });
-    try testTokenize("0_0_f", &.{ .invalid, .identifier });
-    try testTokenize("0_0_f_00", &.{ .invalid, .identifier });
-    try testTokenize("1_,", &.{ .invalid, .comma });
+    try testTokenize("00_", &.{.number_literal});
+    try testTokenize("0_0_", &.{.number_literal});
+    try testTokenize("0__0", &.{.number_literal});
+    try testTokenize("0_0f", &.{.number_literal});
+    try testTokenize("0_0_f", &.{.number_literal});
+    try testTokenize("0_0_f_00", &.{.number_literal});
+    try testTokenize("1_,", &.{ .number_literal, .comma });
 
-    try testTokenize("0.0", &.{.float_literal});
-    try testTokenize("1.0", &.{.float_literal});
-    try testTokenize("10.0", &.{.float_literal});
-    try testTokenize("0e0", &.{.float_literal});
-    try testTokenize("1e0", &.{.float_literal});
-    try testTokenize("1e100", &.{.float_literal});
-    try testTokenize("1.0e100", &.{.float_literal});
-    try testTokenize("1.0e+100", &.{.float_literal});
-    try testTokenize("1.0e-100", &.{.float_literal});
-    try testTokenize("1_0_0_0.0_0_0_0_0_1e1_0_0_0", &.{.float_literal});
+    try testTokenize("0.0", &.{.number_literal});
+    try testTokenize("1.0", &.{.number_literal});
+    try testTokenize("10.0", &.{.number_literal});
+    try testTokenize("0e0", &.{.number_literal});
+    try testTokenize("1e0", &.{.number_literal});
+    try testTokenize("1e100", &.{.number_literal});
+    try testTokenize("1.0e100", &.{.number_literal});
+    try testTokenize("1.0e+100", &.{.number_literal});
+    try testTokenize("1.0e-100", &.{.number_literal});
+    try testTokenize("1_0_0_0.0_0_0_0_0_1e1_0_0_0", &.{.number_literal});
 
-    try testTokenize("1.", &.{.invalid});
-    try testTokenize("1e", &.{.invalid});
-    try testTokenize("1.e100", &.{ .invalid, .identifier });
-    try testTokenize("1.0e1f0", &.{ .invalid, .identifier });
-    try testTokenize("1.0p100", &.{ .invalid, .identifier });
-    try testTokenize("1.0p-100", &.{ .invalid, .identifier, .minus, .integer_literal });
-    try testTokenize("1.0p1f0", &.{ .invalid, .identifier });
-    try testTokenize("1.0_,", &.{ .invalid, .comma });
-    try testTokenize("1_.0", &.{ .invalid, .period, .integer_literal });
-    try testTokenize("1._", &.{ .invalid, .identifier });
-    try testTokenize("1.a", &.{ .invalid, .identifier });
-    try testTokenize("1.z", &.{ .invalid, .identifier });
-    try testTokenize("1._0", &.{ .invalid, .identifier });
-    try testTokenize("1.+", &.{ .invalid, .plus });
-    try testTokenize("1._+", &.{ .invalid, .identifier, .plus });
-    try testTokenize("1._e", &.{ .invalid, .identifier });
-    try testTokenize("1.0e", &.{.invalid});
-    try testTokenize("1.0e,", &.{ .invalid, .comma });
-    try testTokenize("1.0e_", &.{ .invalid, .identifier });
-    try testTokenize("1.0e+_", &.{ .invalid, .identifier });
-    try testTokenize("1.0e-_", &.{ .invalid, .identifier });
-    try testTokenize("1.0e0_+", &.{ .invalid, .plus });
+    try testTokenize("1.", &.{ .number_literal, .period });
+    try testTokenize("1e", &.{.number_literal});
+    try testTokenize("1.e100", &.{.number_literal});
+    try testTokenize("1.0e1f0", &.{.number_literal});
+    try testTokenize("1.0p100", &.{.number_literal});
+    try testTokenize("1.0p-100", &.{.number_literal});
+    try testTokenize("1.0p1f0", &.{.number_literal});
+    try testTokenize("1.0_,", &.{ .number_literal, .comma });
+    try testTokenize("1_.0", &.{.number_literal});
+    try testTokenize("1._", &.{.number_literal});
+    try testTokenize("1.a", &.{.number_literal});
+    try testTokenize("1.z", &.{.number_literal});
+    try testTokenize("1._0", &.{.number_literal});
+    try testTokenize("1.+", &.{ .number_literal, .period, .plus });
+    try testTokenize("1._+", &.{ .number_literal, .plus });
+    try testTokenize("1._e", &.{.number_literal});
+    try testTokenize("1.0e", &.{.number_literal});
+    try testTokenize("1.0e,", &.{ .number_literal, .comma });
+    try testTokenize("1.0e_", &.{.number_literal});
+    try testTokenize("1.0e+_", &.{.number_literal});
+    try testTokenize("1.0e-_", &.{.number_literal});
+    try testTokenize("1.0e0_+", &.{ .number_literal, .plus });
 }
 
 test "number literals binary" {
-    try testTokenize("0b0", &.{.integer_literal});
-    try testTokenize("0b1", &.{.integer_literal});
-    try testTokenize("0b2", &.{ .invalid, .integer_literal });
-    try testTokenize("0b3", &.{ .invalid, .integer_literal });
-    try testTokenize("0b4", &.{ .invalid, .integer_literal });
-    try testTokenize("0b5", &.{ .invalid, .integer_literal });
-    try testTokenize("0b6", &.{ .invalid, .integer_literal });
-    try testTokenize("0b7", &.{ .invalid, .integer_literal });
-    try testTokenize("0b8", &.{ .invalid, .integer_literal });
-    try testTokenize("0b9", &.{ .invalid, .integer_literal });
-    try testTokenize("0ba", &.{ .invalid, .identifier });
-    try testTokenize("0bb", &.{ .invalid, .identifier });
-    try testTokenize("0bc", &.{ .invalid, .identifier });
-    try testTokenize("0bd", &.{ .invalid, .identifier });
-    try testTokenize("0be", &.{ .invalid, .identifier });
-    try testTokenize("0bf", &.{ .invalid, .identifier });
-    try testTokenize("0bz", &.{ .invalid, .identifier });
+    try testTokenize("0b0", &.{.number_literal});
+    try testTokenize("0b1", &.{.number_literal});
+    try testTokenize("0b2", &.{.number_literal});
+    try testTokenize("0b3", &.{.number_literal});
+    try testTokenize("0b4", &.{.number_literal});
+    try testTokenize("0b5", &.{.number_literal});
+    try testTokenize("0b6", &.{.number_literal});
+    try testTokenize("0b7", &.{.number_literal});
+    try testTokenize("0b8", &.{.number_literal});
+    try testTokenize("0b9", &.{.number_literal});
+    try testTokenize("0ba", &.{.number_literal});
+    try testTokenize("0bb", &.{.number_literal});
+    try testTokenize("0bc", &.{.number_literal});
+    try testTokenize("0bd", &.{.number_literal});
+    try testTokenize("0be", &.{.number_literal});
+    try testTokenize("0bf", &.{.number_literal});
+    try testTokenize("0bz", &.{.number_literal});
 
-    try testTokenize("0b0000_0000", &.{.integer_literal});
-    try testTokenize("0b1111_1111", &.{.integer_literal});
-    try testTokenize("0b10_10_10_10", &.{.integer_literal});
-    try testTokenize("0b0_1_0_1_0_1_0_1", &.{.integer_literal});
-    try testTokenize("0b1.", &.{ .integer_literal, .period });
-    try testTokenize("0b1.0", &.{ .integer_literal, .period, .integer_literal });
+    try testTokenize("0b0000_0000", &.{.number_literal});
+    try testTokenize("0b1111_1111", &.{.number_literal});
+    try testTokenize("0b10_10_10_10", &.{.number_literal});
+    try testTokenize("0b0_1_0_1_0_1_0_1", &.{.number_literal});
+    try testTokenize("0b1.", &.{ .number_literal, .period });
+    try testTokenize("0b1.0", &.{.number_literal});
 
-    try testTokenize("0B0", &.{ .invalid, .identifier });
-    try testTokenize("0b_", &.{ .invalid, .identifier });
-    try testTokenize("0b_0", &.{ .invalid, .identifier });
-    try testTokenize("0b1_", &.{.invalid});
-    try testTokenize("0b0__1", &.{ .invalid, .identifier });
-    try testTokenize("0b0_1_", &.{.invalid});
-    try testTokenize("0b1e", &.{ .invalid, .identifier });
-    try testTokenize("0b1p", &.{ .invalid, .identifier });
-    try testTokenize("0b1e0", &.{ .invalid, .identifier });
-    try testTokenize("0b1p0", &.{ .invalid, .identifier });
-    try testTokenize("0b1_,", &.{ .invalid, .comma });
+    try testTokenize("0B0", &.{.number_literal});
+    try testTokenize("0b_", &.{.number_literal});
+    try testTokenize("0b_0", &.{.number_literal});
+    try testTokenize("0b1_", &.{.number_literal});
+    try testTokenize("0b0__1", &.{.number_literal});
+    try testTokenize("0b0_1_", &.{.number_literal});
+    try testTokenize("0b1e", &.{.number_literal});
+    try testTokenize("0b1p", &.{.number_literal});
+    try testTokenize("0b1e0", &.{.number_literal});
+    try testTokenize("0b1p0", &.{.number_literal});
+    try testTokenize("0b1_,", &.{ .number_literal, .comma });
 }
 
 test "number literals octal" {
-    try testTokenize("0o0", &.{.integer_literal});
-    try testTokenize("0o1", &.{.integer_literal});
-    try testTokenize("0o2", &.{.integer_literal});
-    try testTokenize("0o3", &.{.integer_literal});
-    try testTokenize("0o4", &.{.integer_literal});
-    try testTokenize("0o5", &.{.integer_literal});
-    try testTokenize("0o6", &.{.integer_literal});
-    try testTokenize("0o7", &.{.integer_literal});
-    try testTokenize("0o8", &.{ .invalid, .integer_literal });
-    try testTokenize("0o9", &.{ .invalid, .integer_literal });
-    try testTokenize("0oa", &.{ .invalid, .identifier });
-    try testTokenize("0ob", &.{ .invalid, .identifier });
-    try testTokenize("0oc", &.{ .invalid, .identifier });
-    try testTokenize("0od", &.{ .invalid, .identifier });
-    try testTokenize("0oe", &.{ .invalid, .identifier });
-    try testTokenize("0of", &.{ .invalid, .identifier });
-    try testTokenize("0oz", &.{ .invalid, .identifier });
+    try testTokenize("0o0", &.{.number_literal});
+    try testTokenize("0o1", &.{.number_literal});
+    try testTokenize("0o2", &.{.number_literal});
+    try testTokenize("0o3", &.{.number_literal});
+    try testTokenize("0o4", &.{.number_literal});
+    try testTokenize("0o5", &.{.number_literal});
+    try testTokenize("0o6", &.{.number_literal});
+    try testTokenize("0o7", &.{.number_literal});
+    try testTokenize("0o8", &.{.number_literal});
+    try testTokenize("0o9", &.{.number_literal});
+    try testTokenize("0oa", &.{.number_literal});
+    try testTokenize("0ob", &.{.number_literal});
+    try testTokenize("0oc", &.{.number_literal});
+    try testTokenize("0od", &.{.number_literal});
+    try testTokenize("0oe", &.{.number_literal});
+    try testTokenize("0of", &.{.number_literal});
+    try testTokenize("0oz", &.{.number_literal});
 
-    try testTokenize("0o01234567", &.{.integer_literal});
-    try testTokenize("0o0123_4567", &.{.integer_literal});
-    try testTokenize("0o01_23_45_67", &.{.integer_literal});
-    try testTokenize("0o0_1_2_3_4_5_6_7", &.{.integer_literal});
-    try testTokenize("0o7.", &.{ .integer_literal, .period });
-    try testTokenize("0o7.0", &.{ .integer_literal, .period, .integer_literal });
+    try testTokenize("0o01234567", &.{.number_literal});
+    try testTokenize("0o0123_4567", &.{.number_literal});
+    try testTokenize("0o01_23_45_67", &.{.number_literal});
+    try testTokenize("0o0_1_2_3_4_5_6_7", &.{.number_literal});
+    try testTokenize("0o7.", &.{ .number_literal, .period });
+    try testTokenize("0o7.0", &.{.number_literal});
 
-    try testTokenize("0O0", &.{ .invalid, .identifier });
-    try testTokenize("0o_", &.{ .invalid, .identifier });
-    try testTokenize("0o_0", &.{ .invalid, .identifier });
-    try testTokenize("0o1_", &.{.invalid});
-    try testTokenize("0o0__1", &.{ .invalid, .identifier });
-    try testTokenize("0o0_1_", &.{.invalid});
-    try testTokenize("0o1e", &.{ .invalid, .identifier });
-    try testTokenize("0o1p", &.{ .invalid, .identifier });
-    try testTokenize("0o1e0", &.{ .invalid, .identifier });
-    try testTokenize("0o1p0", &.{ .invalid, .identifier });
-    try testTokenize("0o_,", &.{ .invalid, .identifier, .comma });
+    try testTokenize("0O0", &.{.number_literal});
+    try testTokenize("0o_", &.{.number_literal});
+    try testTokenize("0o_0", &.{.number_literal});
+    try testTokenize("0o1_", &.{.number_literal});
+    try testTokenize("0o0__1", &.{.number_literal});
+    try testTokenize("0o0_1_", &.{.number_literal});
+    try testTokenize("0o1e", &.{.number_literal});
+    try testTokenize("0o1p", &.{.number_literal});
+    try testTokenize("0o1e0", &.{.number_literal});
+    try testTokenize("0o1p0", &.{.number_literal});
+    try testTokenize("0o_,", &.{ .number_literal, .comma });
 }
 
 test "number literals hexadecimal" {
-    try testTokenize("0x0", &.{.integer_literal});
-    try testTokenize("0x1", &.{.integer_literal});
-    try testTokenize("0x2", &.{.integer_literal});
-    try testTokenize("0x3", &.{.integer_literal});
-    try testTokenize("0x4", &.{.integer_literal});
-    try testTokenize("0x5", &.{.integer_literal});
-    try testTokenize("0x6", &.{.integer_literal});
-    try testTokenize("0x7", &.{.integer_literal});
-    try testTokenize("0x8", &.{.integer_literal});
-    try testTokenize("0x9", &.{.integer_literal});
-    try testTokenize("0xa", &.{.integer_literal});
-    try testTokenize("0xb", &.{.integer_literal});
-    try testTokenize("0xc", &.{.integer_literal});
-    try testTokenize("0xd", &.{.integer_literal});
-    try testTokenize("0xe", &.{.integer_literal});
-    try testTokenize("0xf", &.{.integer_literal});
-    try testTokenize("0xA", &.{.integer_literal});
-    try testTokenize("0xB", &.{.integer_literal});
-    try testTokenize("0xC", &.{.integer_literal});
-    try testTokenize("0xD", &.{.integer_literal});
-    try testTokenize("0xE", &.{.integer_literal});
-    try testTokenize("0xF", &.{.integer_literal});
-    try testTokenize("0x0z", &.{ .invalid, .identifier });
-    try testTokenize("0xz", &.{ .invalid, .identifier });
+    try testTokenize("0x0", &.{.number_literal});
+    try testTokenize("0x1", &.{.number_literal});
+    try testTokenize("0x2", &.{.number_literal});
+    try testTokenize("0x3", &.{.number_literal});
+    try testTokenize("0x4", &.{.number_literal});
+    try testTokenize("0x5", &.{.number_literal});
+    try testTokenize("0x6", &.{.number_literal});
+    try testTokenize("0x7", &.{.number_literal});
+    try testTokenize("0x8", &.{.number_literal});
+    try testTokenize("0x9", &.{.number_literal});
+    try testTokenize("0xa", &.{.number_literal});
+    try testTokenize("0xb", &.{.number_literal});
+    try testTokenize("0xc", &.{.number_literal});
+    try testTokenize("0xd", &.{.number_literal});
+    try testTokenize("0xe", &.{.number_literal});
+    try testTokenize("0xf", &.{.number_literal});
+    try testTokenize("0xA", &.{.number_literal});
+    try testTokenize("0xB", &.{.number_literal});
+    try testTokenize("0xC", &.{.number_literal});
+    try testTokenize("0xD", &.{.number_literal});
+    try testTokenize("0xE", &.{.number_literal});
+    try testTokenize("0xF", &.{.number_literal});
+    try testTokenize("0x0z", &.{.number_literal});
+    try testTokenize("0xz", &.{.number_literal});
 
-    try testTokenize("0x0123456789ABCDEF", &.{.integer_literal});
-    try testTokenize("0x0123_4567_89AB_CDEF", &.{.integer_literal});
-    try testTokenize("0x01_23_45_67_89AB_CDE_F", &.{.integer_literal});
-    try testTokenize("0x0_1_2_3_4_5_6_7_8_9_A_B_C_D_E_F", &.{.integer_literal});
+    try testTokenize("0x0123456789ABCDEF", &.{.number_literal});
+    try testTokenize("0x0123_4567_89AB_CDEF", &.{.number_literal});
+    try testTokenize("0x01_23_45_67_89AB_CDE_F", &.{.number_literal});
+    try testTokenize("0x0_1_2_3_4_5_6_7_8_9_A_B_C_D_E_F", &.{.number_literal});
 
-    try testTokenize("0X0", &.{ .invalid, .identifier });
-    try testTokenize("0x_", &.{ .invalid, .identifier });
-    try testTokenize("0x_1", &.{ .invalid, .identifier });
-    try testTokenize("0x1_", &.{.invalid});
-    try testTokenize("0x0__1", &.{ .invalid, .identifier });
-    try testTokenize("0x0_1_", &.{.invalid});
-    try testTokenize("0x_,", &.{ .invalid, .identifier, .comma });
+    try testTokenize("0X0", &.{.number_literal});
+    try testTokenize("0x_", &.{.number_literal});
+    try testTokenize("0x_1", &.{.number_literal});
+    try testTokenize("0x1_", &.{.number_literal});
+    try testTokenize("0x0__1", &.{.number_literal});
+    try testTokenize("0x0_1_", &.{.number_literal});
+    try testTokenize("0x_,", &.{ .number_literal, .comma });
 
-    try testTokenize("0x1.0", &.{.float_literal});
-    try testTokenize("0xF.0", &.{.float_literal});
-    try testTokenize("0xF.F", &.{.float_literal});
-    try testTokenize("0xF.Fp0", &.{.float_literal});
-    try testTokenize("0xF.FP0", &.{.float_literal});
-    try testTokenize("0x1p0", &.{.float_literal});
-    try testTokenize("0xfp0", &.{.float_literal});
-    try testTokenize("0x1.0+0xF.0", &.{ .float_literal, .plus, .float_literal });
+    try testTokenize("0x1.0", &.{.number_literal});
+    try testTokenize("0xF.0", &.{.number_literal});
+    try testTokenize("0xF.F", &.{.number_literal});
+    try testTokenize("0xF.Fp0", &.{.number_literal});
+    try testTokenize("0xF.FP0", &.{.number_literal});
+    try testTokenize("0x1p0", &.{.number_literal});
+    try testTokenize("0xfp0", &.{.number_literal});
+    try testTokenize("0x1.0+0xF.0", &.{ .number_literal, .plus, .number_literal });
 
-    try testTokenize("0x1.", &.{.invalid});
-    try testTokenize("0xF.", &.{.invalid});
-    try testTokenize("0x1.+0xF.", &.{ .invalid, .plus, .invalid });
-    try testTokenize("0xff.p10", &.{ .invalid, .identifier });
+    try testTokenize("0x1.", &.{ .number_literal, .period });
+    try testTokenize("0xF.", &.{ .number_literal, .period });
+    try testTokenize("0x1.+0xF.", &.{ .number_literal, .period, .plus, .number_literal, .period });
+    try testTokenize("0xff.p10", &.{.number_literal});
 
-    try testTokenize("0x0123456.789ABCDEF", &.{.float_literal});
-    try testTokenize("0x0_123_456.789_ABC_DEF", &.{.float_literal});
-    try testTokenize("0x0_1_2_3_4_5_6.7_8_9_A_B_C_D_E_F", &.{.float_literal});
-    try testTokenize("0x0p0", &.{.float_literal});
-    try testTokenize("0x0.0p0", &.{.float_literal});
-    try testTokenize("0xff.ffp10", &.{.float_literal});
-    try testTokenize("0xff.ffP10", &.{.float_literal});
-    try testTokenize("0xffp10", &.{.float_literal});
-    try testTokenize("0xff_ff.ff_ffp1_0_0_0", &.{.float_literal});
-    try testTokenize("0xf_f_f_f.f_f_f_fp+1_000", &.{.float_literal});
-    try testTokenize("0xf_f_f_f.f_f_f_fp-1_00_0", &.{.float_literal});
+    try testTokenize("0x0123456.789ABCDEF", &.{.number_literal});
+    try testTokenize("0x0_123_456.789_ABC_DEF", &.{.number_literal});
+    try testTokenize("0x0_1_2_3_4_5_6.7_8_9_A_B_C_D_E_F", &.{.number_literal});
+    try testTokenize("0x0p0", &.{.number_literal});
+    try testTokenize("0x0.0p0", &.{.number_literal});
+    try testTokenize("0xff.ffp10", &.{.number_literal});
+    try testTokenize("0xff.ffP10", &.{.number_literal});
+    try testTokenize("0xffp10", &.{.number_literal});
+    try testTokenize("0xff_ff.ff_ffp1_0_0_0", &.{.number_literal});
+    try testTokenize("0xf_f_f_f.f_f_f_fp+1_000", &.{.number_literal});
+    try testTokenize("0xf_f_f_f.f_f_f_fp-1_00_0", &.{.number_literal});
 
-    try testTokenize("0x1e", &.{.integer_literal});
-    try testTokenize("0x1e0", &.{.integer_literal});
-    try testTokenize("0x1p", &.{.invalid});
-    try testTokenize("0xfp0z1", &.{ .invalid, .identifier });
-    try testTokenize("0xff.ffpff", &.{ .invalid, .identifier });
-    try testTokenize("0x0.p", &.{ .invalid, .identifier });
-    try testTokenize("0x0.z", &.{ .invalid, .identifier });
-    try testTokenize("0x0._", &.{ .invalid, .identifier });
-    try testTokenize("0x0_.0", &.{ .invalid, .period, .integer_literal });
-    try testTokenize("0x0_.0.0", &.{ .invalid, .period, .float_literal });
-    try testTokenize("0x0._0", &.{ .invalid, .identifier });
-    try testTokenize("0x0.0_", &.{.invalid});
-    try testTokenize("0x0_p0", &.{ .invalid, .identifier });
-    try testTokenize("0x0_.p0", &.{ .invalid, .period, .identifier });
-    try testTokenize("0x0._p0", &.{ .invalid, .identifier });
-    try testTokenize("0x0.0_p0", &.{ .invalid, .identifier });
-    try testTokenize("0x0._0p0", &.{ .invalid, .identifier });
-    try testTokenize("0x0.0p_0", &.{ .invalid, .identifier });
-    try testTokenize("0x0.0p+_0", &.{ .invalid, .identifier });
-    try testTokenize("0x0.0p-_0", &.{ .invalid, .identifier });
-    try testTokenize("0x0.0p0_", &.{ .invalid, .eof });
+    try testTokenize("0x1e", &.{.number_literal});
+    try testTokenize("0x1e0", &.{.number_literal});
+    try testTokenize("0x1p", &.{.number_literal});
+    try testTokenize("0xfp0z1", &.{.number_literal});
+    try testTokenize("0xff.ffpff", &.{.number_literal});
+    try testTokenize("0x0.p", &.{.number_literal});
+    try testTokenize("0x0.z", &.{.number_literal});
+    try testTokenize("0x0._", &.{.number_literal});
+    try testTokenize("0x0_.0", &.{.number_literal});
+    try testTokenize("0x0_.0.0", &.{ .number_literal, .period, .number_literal });
+    try testTokenize("0x0._0", &.{.number_literal});
+    try testTokenize("0x0.0_", &.{.number_literal});
+    try testTokenize("0x0_p0", &.{.number_literal});
+    try testTokenize("0x0_.p0", &.{.number_literal});
+    try testTokenize("0x0._p0", &.{.number_literal});
+    try testTokenize("0x0.0_p0", &.{.number_literal});
+    try testTokenize("0x0._0p0", &.{.number_literal});
+    try testTokenize("0x0.0p_0", &.{.number_literal});
+    try testTokenize("0x0.0p+_0", &.{.number_literal});
+    try testTokenize("0x0.0p-_0", &.{.number_literal});
+    try testTokenize("0x0.0p0_", &.{.number_literal});
 }
 
 test "multi line string literal with only 1 backslash" {
@@ -2034,7 +1824,7 @@ test "multi line string literal with only 1 backslash" {
 
 test "invalid builtin identifiers" {
     try testTokenize("@()", &.{ .invalid, .l_paren, .r_paren });
-    try testTokenize("@0()", &.{ .invalid, .integer_literal, .l_paren, .r_paren });
+    try testTokenize("@0()", &.{ .invalid, .number_literal, .l_paren, .r_paren });
 }
 
 test "invalid token with unfinished escape right before eof" {
