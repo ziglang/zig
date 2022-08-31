@@ -33,7 +33,7 @@ tar cfJ "$TARBALL" "$BASENAME"
 SHASUM=$(sha256sum $TARBALL | cut '-d ' -f1)
 BYTESIZE=$(wc -c < $TARBALL)
 
-MANIFEST="manifest.json"
+MANIFEST="manifest-$TARGET.json"
 touch $MANIFEST
 echo "{\"tarball\": \"$TARBALL\"," >>$MANIFEST
 echo "\"shasum\": \"$SHASUM\"," >>$MANIFEST
