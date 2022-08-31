@@ -75,6 +75,11 @@ steps:
   depends_on:
   - macos_package
   - linux_package
+  when:
+    branch:
+      - master
+    event:
+      - push
   image: ci/debian-amd64:11.1-9
   environment:
     SRHT_OAUTH_TOKEN:
