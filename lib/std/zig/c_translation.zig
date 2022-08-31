@@ -268,7 +268,7 @@ test "sizeof" {
 pub const CIntLiteralRadix = enum { decimal, octal, hexadecimal };
 
 fn PromoteIntLiteralReturnType(comptime SuffixType: type, comptime number: comptime_int, comptime radix: CIntLiteralRadix) type {
-    const signed_decimal = [_]type{ c_int, c_long, c_longlong };
+    const signed_decimal = [_]type{ c_int, c_long, c_longlong, c_ulonglong };
     const signed_oct_hex = [_]type{ c_int, c_uint, c_long, c_ulong, c_longlong, c_ulonglong };
     const unsigned = [_]type{ c_uint, c_ulong, c_ulonglong };
 
