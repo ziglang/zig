@@ -16,4 +16,4 @@ $ZIG build test-universal-libc -Dskip-non-native --zig-lib-dir lib
 $ZIG build test-stack-traces   -Dskip-non-native --zig-lib-dir lib
 $ZIG build test-cli            -Dskip-non-native --zig-lib-dir lib
 $ZIG build test-asm-link       -Dskip-non-native --zig-lib-dir lib
-$ZIG build test-translate-c    -Dskip-non-native --zig-lib-dir lib
+# $ZIG build test-translate-c    -Dskip-non-native --zig-lib-dir lib
