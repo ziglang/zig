@@ -1496,6 +1496,22 @@ pub const Fn = struct {
     /// active Sema context. Importantly, this value is also updated when an existing
     /// generic function instantiation is found and called.
     branch_quota: u32,
+
+    /// If this is not none, this function is a generic function instantiation, and
+    /// this is the generic function decl from which the instance was derived.
+    /// This information is redundant with a combination of checking if comptime_args is
+    /// not null and looking at the first decl dependency of owner_decl. This redundant
+    /// information is useful for three reasons:
+    /// 1. Improved perf of monomorphed_funcs when checking the eql() function because it
+    ///    can do two fewer pointer chases by grabbing the info from this field directly
+    ///    instead of accessing the decl and then the dependencies set.
+    /// 2. While a generic function instantiation is being initialized, we need hash()
+    ///    and eql() to work before the initialization is complete. Completing the
+    ///    insertion into the decl dependency set has more fallible operations than simply
+    ///    setting this field.
+    /// 3. I forgot what the third thing was while typing up the other two.
+    generic_owner_decl: Decl.OptionalIndex,
+
     state: Analysis,
     is_cold: bool = false,
     is_noinline: bool,
