@@ -442,7 +442,7 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Ins
         .@"asm",
         .asm_simple,
         .string_literal,
-        .integer_literal,
+        .number_literal,
         .call,
         .call_comma,
         .async_call,
@@ -460,7 +460,6 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Ins
         .while_cont,
         .bool_not,
         .address_of,
-        .float_literal,
         .optional_type,
         .block,
         .block_semicolon,
@@ -733,7 +732,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
         .string_literal           => return stringLiteral(gz, rl, node),
         .multiline_string_literal => return multilineStringLiteral(gz, rl, node),
 
-        .integer_literal => return integerLiteral(gz, rl, node),
+        .number_literal => return numberLiteral(gz, rl, node, node, .positive),
         // zig fmt: on
 
         .builtin_call_two, .builtin_call_two_comma => {
@@ -774,7 +773,6 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
         },
         .@"return" => return ret(gz, scope, node),
         .field_access => return fieldAccess(gz, scope, rl, node),
-        .float_literal => return floatLiteral(gz, rl, node, .positive),
 
         .if_simple => return ifExpr(gz, scope, rl.br(), node, tree.ifSimple(node)),
         .@"if" => return ifExpr(gz, scope, rl.br(), node, tree.ifFull(node)),
@@ -7046,93 +7044,101 @@ fn charLiteral(gz: *GenZir, rl: ResultLoc, node: Ast.Node.Index) InnerError!Zir.
     }
 }
 
-fn integerLiteral(gz: *GenZir, rl: ResultLoc, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
-    const astgen = gz.astgen;
-    const tree = astgen.tree;
-    const main_tokens = tree.nodes.items(.main_token);
-    const int_token = main_tokens[node];
-    const prefixed_bytes = tree.tokenSlice(int_token);
-
-    var base: u8 = 10;
-    var non_prefixed: []const u8 = prefixed_bytes;
-    if (mem.startsWith(u8, prefixed_bytes, "0x")) {
-        base = 16;
-        non_prefixed = prefixed_bytes[2..];
-    } else if (mem.startsWith(u8, prefixed_bytes, "0o")) {
-        base = 8;
-        non_prefixed = prefixed_bytes[2..];
-    } else if (mem.startsWith(u8, prefixed_bytes, "0b")) {
-        base = 2;
-        non_prefixed = prefixed_bytes[2..];
-    }
-
-    if (base == 10 and prefixed_bytes.len >= 2 and prefixed_bytes[0] == '0') {
-        return astgen.failNodeNotes(node, "integer literal '{s}' has leading zero", .{prefixed_bytes}, &.{
-            try astgen.errNoteNode(node, "use '0o' prefix for octal literals", .{}),
-        });
-    }
-
-    if (std.fmt.parseUnsigned(u64, non_prefixed, base)) |small_int| {
-        const result: Zir.Inst.Ref = switch (small_int) {
-            0 => .zero,
-            1 => .one,
-            else => try gz.addInt(small_int),
-        };
-        return rvalue(gz, rl, result, node);
-    } else |err| switch (err) {
-        error.InvalidCharacter => unreachable, // Caught by the parser.
-        error.Overflow => {},
-    }
-
-    const gpa = astgen.gpa;
-    var big_int = try std.math.big.int.Managed.init(gpa);
-    defer big_int.deinit();
-    big_int.setString(base, non_prefixed) catch |err| switch (err) {
-        error.InvalidCharacter => unreachable, // caught by parser
-        error.InvalidBase => unreachable, // we only pass 16, 8, 2, see above
-        error.OutOfMemory => return error.OutOfMemory,
-    };
-
-    const limbs = big_int.limbs[0..big_int.len()];
-    assert(big_int.isPositive());
-    const result = try gz.addIntBig(limbs);
-    return rvalue(gz, rl, result, node);
-}
-
 const Sign = enum { negative, positive };
 
-fn floatLiteral(gz: *GenZir, rl: ResultLoc, node: Ast.Node.Index, sign: Sign) InnerError!Zir.Inst.Ref {
+fn numberLiteral(gz: *GenZir, rl: ResultLoc, node: Ast.Node.Index, source_node: Ast.Node.Index, sign: Sign) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const main_tokens = tree.nodes.items(.main_token);
+    const num_token = main_tokens[node];
+    const bytes = tree.tokenSlice(num_token);
 
-    const main_token = main_tokens[node];
-    const bytes = tree.tokenSlice(main_token);
-    const unsigned_float_number = std.fmt.parseFloat(f128, bytes) catch |err| switch (err) {
-        error.InvalidCharacter => unreachable, // validated by tokenizer
+    const result: Zir.Inst.Ref = switch (std.zig.parseNumberLiteral(bytes)) {
+        .int => |num| switch (num) {
+            0 => .zero,
+            1 => .one,
+            else => try gz.addInt(num),
+        },
+        .big_int => |base| big: {
+            const gpa = astgen.gpa;
+            var big_int = try std.math.big.int.Managed.init(gpa);
+            defer big_int.deinit();
+            const prefix_offset = @as(u8, 2) * @boolToInt(base != .decimal);
+            big_int.setString(@enumToInt(base), bytes[prefix_offset..]) catch |err| switch (err) {
+                error.InvalidCharacter => unreachable, // caught in `parseNumberLiteral`
+                error.InvalidBase => unreachable, // we only pass 16, 8, 2, see above
+                error.OutOfMemory => return error.OutOfMemory,
+            };
+
+            const limbs = big_int.limbs[0..big_int.len()];
+            assert(big_int.isPositive());
+            break :big try gz.addIntBig(limbs);
+        },
+        .float => {
+            const unsigned_float_number = std.fmt.parseFloat(f128, bytes) catch |err| switch (err) {
+                error.InvalidCharacter => unreachable, // validated by tokenizer
+            };
+            const float_number = switch (sign) {
+                .negative => -unsigned_float_number,
+                .positive => unsigned_float_number,
+            };
+            // If the value fits into a f64 without losing any precision, store it that way.
+            @setFloatMode(.Strict);
+            const smaller_float = @floatCast(f64, float_number);
+            const bigger_again: f128 = smaller_float;
+            if (bigger_again == float_number) {
+                const result = try gz.addFloat(smaller_float);
+                return rvalue(gz, rl, result, source_node);
+            }
+            // We need to use 128 bits. Break the float into 4 u32 values so we can
+            // put it into the `extra` array.
+            const int_bits = @bitCast(u128, float_number);
+            const result = try gz.addPlNode(.float128, node, Zir.Inst.Float128{
+                .piece0 = @truncate(u32, int_bits),
+                .piece1 = @truncate(u32, int_bits >> 32),
+                .piece2 = @truncate(u32, int_bits >> 64),
+                .piece3 = @truncate(u32, int_bits >> 96),
+            });
+            return rvalue(gz, rl, result, source_node);
+        },
+        .failure => |err| return astgen.failWithNumberError(err, num_token, bytes),
     };
-    const float_number = switch (sign) {
-        .negative => -unsigned_float_number,
-        .positive => unsigned_float_number,
-    };
-    // If the value fits into a f64 without losing any precision, store it that way.
-    @setFloatMode(.Strict);
-    const smaller_float = @floatCast(f64, float_number);
-    const bigger_again: f128 = smaller_float;
-    if (bigger_again == float_number) {
-        const result = try gz.addFloat(smaller_float);
-        return rvalue(gz, rl, result, node);
+
+    if (sign == .positive) {
+        return rvalue(gz, rl, result, source_node);
+    } else {
+        const negated = try gz.addUnNode(.negate, result, source_node);
+        return rvalue(gz, rl, negated, source_node);
     }
-    // We need to use 128 bits. Break the float into 4 u32 values so we can
-    // put it into the `extra` array.
-    const int_bits = @bitCast(u128, float_number);
-    const result = try gz.addPlNode(.float128, node, Zir.Inst.Float128{
-        .piece0 = @truncate(u32, int_bits),
-        .piece1 = @truncate(u32, int_bits >> 32),
-        .piece2 = @truncate(u32, int_bits >> 64),
-        .piece3 = @truncate(u32, int_bits >> 96),
-    });
-    return rvalue(gz, rl, result, node);
+}
+
+fn failWithNumberError(astgen: *AstGen, err: std.zig.number_literal.Error, token: Ast.TokenIndex, bytes: []const u8) InnerError {
+    const is_float = std.mem.indexOfScalar(u8, bytes, '.') != null;
+    switch (err) {
+        .leading_zero => if (is_float) {
+            return astgen.failTok(token, "number '{s}' has leading zero", .{bytes});
+        } else {
+            return astgen.failTokNotes(token, "number '{s}' has leading zero", .{bytes}, &.{
+                try astgen.errNoteTok(token, "use '0o' prefix for octal literals", .{}),
+            });
+        },
+        .digit_after_base => return astgen.failTok(token, "expected a digit after base prefix", .{}),
+        .upper_case_base => |i| return astgen.failOff(token, @intCast(u32, i), "base prefix must be lowercase", .{}),
+        .invalid_float_base => |i| return astgen.failOff(token, @intCast(u32, i), "invalid base for float literal", .{}),
+        .repeated_underscore => |i| return astgen.failOff(token, @intCast(u32, i), "repeated digit separator", .{}),
+        .invalid_underscore_after_special => |i| return astgen.failOff(token, @intCast(u32, i), "expected digit before digit separator", .{}),
+        .invalid_digit => |info| return astgen.failOff(token, @intCast(u32, info.i), "invalid digit '{c}' for {s} base", .{ bytes[info.i], @tagName(info.base) }),
+        .invalid_digit_exponent => |i| return astgen.failOff(token, @intCast(u32, i), "invalid digit '{c}' in exponent", .{bytes[i]}),
+        .duplicate_exponent => |i| return astgen.failOff(token, @intCast(u32, i), "duplicate exponent", .{}),
+        .invalid_hex_exponent => |i| return astgen.failOff(token, @intCast(u32, i), "hex exponent in decimal float", .{}),
+        .exponent_after_underscore => |i| return astgen.failOff(token, @intCast(u32, i), "expected digit before exponent", .{}),
+        .special_after_underscore => |i| return astgen.failOff(token, @intCast(u32, i), "expected digit before '{c}'", .{bytes[i]}),
+        .trailing_special => |i| return astgen.failOff(token, @intCast(u32, i), "expected digit after '{c}'", .{bytes[i - 1]}),
+        .trailing_underscore => |i| return astgen.failOff(token, @intCast(u32, i), "trailing digit separator", .{}),
+        .duplicate_period => unreachable, // Validated by tokenizer
+        .invalid_character => unreachable, // Validated by tokenizer
+        .invalid_exponent_sign => unreachable, // Validated by tokenizer
+    }
 }
 
 fn asmExpr(
@@ -8083,8 +8089,8 @@ fn negation(
     // Check for float literal as the sub-expression because we want to preserve
     // its negativity rather than having it go through comptime subtraction.
     const operand_node = node_datas[node].lhs;
-    if (node_tags[operand_node] == .float_literal) {
-        return floatLiteral(gz, rl, operand_node, .negative);
+    if (node_tags[operand_node] == .number_literal) {
+        return numberLiteral(gz, rl, operand_node, node, .negative);
     }
 
     const operand = try expr(gz, scope, .none, operand_node);
@@ -8492,8 +8498,7 @@ fn nodeMayNeedMemoryLocation(tree: *const Ast, start_node: Ast.Node.Index, have_
             .fn_decl,
             .anyframe_type,
             .anyframe_literal,
-            .integer_literal,
-            .float_literal,
+            .number_literal,
             .enum_literal,
             .string_literal,
             .multiline_string_literal,
@@ -8752,8 +8757,7 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.Ev
             .fn_decl,
             .anyframe_type,
             .anyframe_literal,
-            .integer_literal,
-            .float_literal,
+            .number_literal,
             .enum_literal,
             .string_literal,
             .multiline_string_literal,
@@ -8926,8 +8930,7 @@ fn nodeImpliesMoreThanOnePossibleValue(tree: *const Ast, start_node: Ast.Node.In
             .@"suspend",
             .fn_decl,
             .anyframe_literal,
-            .integer_literal,
-            .float_literal,
+            .number_literal,
             .enum_literal,
             .string_literal,
             .multiline_string_literal,
@@ -9169,8 +9172,7 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
             .@"suspend",
             .fn_decl,
             .anyframe_literal,
-            .integer_literal,
-            .float_literal,
+            .number_literal,
             .enum_literal,
             .string_literal,
             .multiline_string_literal,

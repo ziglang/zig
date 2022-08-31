@@ -2401,16 +2401,8 @@ const Parser = struct {
                     .rhs = undefined,
                 },
             }),
-            .integer_literal => return p.addNode(.{
-                .tag = .integer_literal,
-                .main_token = p.nextToken(),
-                .data = .{
-                    .lhs = undefined,
-                    .rhs = undefined,
-                },
-            }),
-            .float_literal => return p.addNode(.{
-                .tag = .float_literal,
+            .number_literal => return p.addNode(.{
+                .tag = .number_literal,
                 .main_token = p.nextToken(),
                 .data = .{
                     .lhs = undefined,
