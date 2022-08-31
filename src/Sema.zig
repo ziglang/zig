@@ -10378,8 +10378,10 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
                         break :blk pkg.key_ptr.*;
                     }
                 }
-                unreachable;
-            } else unreachable;
+                return sema.fail(block, operand_src, "no package named '{s}' available", .{ operand });
+            } else {
+                return sema.fail(block, operand_src, "no package named '{s}' available", .{ operand });
+            };
             return sema.fail(block, operand_src, "no package named '{s}' available within package '{s}'", .{ operand, parent });
         },
         else => {
