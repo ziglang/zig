@@ -5590,11 +5590,10 @@ const GenericCallAdapter = struct {
 
     pub fn eql(ctx: @This(), adapted_key: void, other_key: *Module.Fn) bool {
         _ = adapted_key;
-        // The generic function Decl is guaranteed to be the first dependency
-        // of each of its instantiations.
-        const other_owner_decl = ctx.module.declPtr(other_key.owner_decl);
-        const generic_owner_decl = other_owner_decl.dependencies.keys()[0];
-        if (ctx.generic_fn.owner_decl != generic_owner_decl) return false;
+        // Checking for equality may happen on an item that has been inserted
+        // into the map but is not yet fully initialized. In such case, the
+        // two initialized fields are `hash` and `generic_owner_decl`.
+        if (ctx.generic_fn.owner_decl != other_key.generic_owner_decl.unwrap().?) return false;
 
         const other_comptime_args = other_key.comptime_args.?;
         for (other_comptime_args[0..ctx.func_ty_info.param_types.len]) |other_arg, i| {
@@ -6447,11 +6446,14 @@ fn instantiateGenericCall(
     const gop = try mod.monomorphed_funcs.getOrPutAdapted(gpa, {}, adapter);
     const callee = if (!gop.found_existing) callee: {
         const new_module_func = try gpa.create(Module.Fn);
+        errdefer gpa.destroy(new_module_func);
+
         // This ensures that we can operate on the hash map before the Module.Fn
         // struct is fully initialized.
         new_module_func.hash = precomputed_hash;
+        new_module_func.generic_owner_decl = module_fn.owner_decl.toOptional();
+        new_module_func.comptime_args = null;
         gop.key_ptr.* = new_module_func;
-        errdefer gpa.destroy(new_module_func);
         errdefer assert(mod.monomorphed_funcs.remove(new_module_func));
 
         try namespace.anon_decls.ensureUnusedCapacity(gpa, 1);
@@ -8032,11 +8034,13 @@ fn funcCommon(
     } else null;
 
     const hash = new_func.hash;
+    const generic_owner_decl = if (comptime_args == null) .none else new_func.generic_owner_decl;
     const fn_payload = try sema.arena.create(Value.Payload.Function);
     new_func.* = .{
         .state = anal_state,
         .zir_body_inst = func_inst,
         .owner_decl = sema.owner_decl_index,
+        .generic_owner_decl = generic_owner_decl,
         .comptime_args = comptime_args,
         .hash = hash,
         .lbrace_line = src_locs.lbrace_line,
