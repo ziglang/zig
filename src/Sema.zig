@@ -24075,16 +24075,40 @@ fn coerceVarArgParam(
     inst: Air.Inst.Ref,
     inst_src: LazySrcLoc,
 ) !Air.Inst.Ref {
-    const inst_ty = sema.typeOf(inst);
     if (block.is_typeof) return inst;
 
-    switch (inst_ty.zigTypeTag()) {
+    const coerced = switch (sema.typeOf(inst).zigTypeTag()) {
         // TODO consider casting to c_int/f64 if they fit
-        .ComptimeInt, .ComptimeFloat => return sema.fail(block, inst_src, "integer and float literals in var args function must be casted", .{}),
-        else => {},
+        .ComptimeInt, .ComptimeFloat => return sema.fail(
+            block,
+            inst_src,
+            "integer and float literals passed variadic function must be casted to a fixed-size number type",
+            .{},
+        ),
+        .Fn => blk: {
+            const fn_val = try sema.resolveConstValue(block, .unneeded, inst, undefined);
+            const fn_decl = fn_val.pointerDecl().?;
+            break :blk try sema.analyzeDeclRef(fn_decl);
+        },
+        .Array => return sema.fail(block, inst_src, "arrays must be passed by reference to variadic function", .{}),
+        else => inst,
+    };
+
+    const coerced_ty = sema.typeOf(coerced);
+    if (!sema.validateExternType(coerced_ty, .other)) {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, inst_src, "cannot pass '{}' to variadic function", .{coerced_ty.fmt(sema.mod)});
+            errdefer msg.destroy(sema.gpa);
+
+            const src_decl = sema.mod.declPtr(block.src_decl);
+            try sema.explainWhyTypeIsNotExtern(msg, inst_src.toSrcLoc(src_decl), coerced_ty, .other);
+
+            try sema.addDeclaredHereNote(msg, coerced_ty);
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
     }
-    // TODO implement more of this function.
-    return inst;
+    return coerced;
 }
 
 // TODO migrate callsites to use storePtr2 instead.

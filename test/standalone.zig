@@ -66,6 +66,7 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     if (builtin.os.tag == .linux) {
         cases.addBuildFile("test/standalone/pie/build.zig", .{});
     }
+    cases.addBuildFile("test/standalone/issue_12706/build.zig", .{});
 
     // Ensure the development tools are buildable.
 
