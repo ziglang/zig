@@ -6959,7 +6959,7 @@ fn lowerUnnamedConst(self: *Self, tv: TypedValue) InnerError!MCValue {
     } else if (self.bin_file.cast(link.File.MachO)) |_| {
         return MCValue{ .direct_load = local_sym_index };
     } else if (self.bin_file.cast(link.File.Coff)) |_| {
-        return self.fail("TODO lower unnamed const in COFF", .{});
+        return MCValue{ .direct_load = local_sym_index };
     } else if (self.bin_file.cast(link.File.Plan9)) |_| {
         return self.fail("TODO lower unnamed const in Plan9", .{});
     } else {
