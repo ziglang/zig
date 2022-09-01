@@ -26,7 +26,7 @@ test "zig fmt: remove trailing comma at the end of assembly clobber" {
         \\    );
         \\}
         \\
-        ,
+    ,
         \\fn foo() void {
         \\    asm volatile (""
         \\        : [_] "" (-> type),
