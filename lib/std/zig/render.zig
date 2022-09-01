@@ -2114,9 +2114,19 @@ fn renderAsm(
                 return renderToken(ais, tree, tok_i + 1, space);
             },
             .comma => {
-                try renderToken(ais, tree, tok_i, .none);
-                try renderToken(ais, tree, tok_i + 1, .space);
-                tok_i += 2;
+                switch (token_tags[tok_i + 2]) {
+                    .r_paren => {
+                        ais.setIndentDelta(indent_delta);
+                        ais.popIndent();
+                        try renderToken(ais, tree, tok_i, .newline);
+                        return renderToken(ais, tree, tok_i + 2, space);
+                    },
+                    else => {
+                        try renderToken(ais, tree, tok_i, .none);
+                        try renderToken(ais, tree, tok_i + 1, .space);
+                        tok_i += 2;
+                    },
+                }
             },
             else => unreachable,
         }
