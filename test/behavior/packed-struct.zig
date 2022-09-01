@@ -579,3 +579,29 @@ test "runtime init of unnamed packed struct type" {
         }
     }{ .x = z }).m();
 }
+
+test "packed struct passed to callconv(.C) function" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
+    const S = struct {
+        const Packed = packed struct {
+            a: u16,
+            b: bool = true,
+            c: bool = true,
+            d: u46 = 0,
+        };
+
+        fn foo(p: Packed, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) callconv(.C) bool {
+            return p.a == 12345 and p.b == true and p.c == true and p.d == 0 and a1 == 5 and a2 == 4 and a3 == 3 and a4 == 2 and a5 == 1;
+        }
+    };
+    const result = S.foo(S.Packed{
+        .a = 12345,
+        .b = true,
+        .c = true,
+    }, 5, 4, 3, 2, 1);
+    try expect(result);
+}

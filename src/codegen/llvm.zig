@@ -9853,6 +9853,8 @@ const ParamTypeIterator = struct {
                     .AnyFrame,
                     .Vector,
                     => true,
+                    .Struct => ty.containerLayout() == .Packed,
+                    .Union => ty.containerLayout() == .Packed,
 
                     else => false,
                 };
