@@ -4204,7 +4204,6 @@ fn airRet(self: *Self, inst: Air.Inst.Index) !void {
         },
         .stack_offset => {
             const reg = try self.copyToTmpRegister(Type.usize, self.ret_mcv);
-            log.warn("REG = {}", .{reg});
             const reg_lock = self.register_manager.lockRegAssumeUnused(reg);
             defer self.register_manager.unlockReg(reg_lock);
 
@@ -7129,7 +7128,75 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             result.stack_align = 1;
             return result;
         },
-        .Unspecified, .C => {
+        .C => {
+            // Return values
+            if (ret_ty.zigTypeTag() == .NoReturn) {
+                result.return_value = .{ .unreach = {} };
+            } else if (!ret_ty.hasRuntimeBitsIgnoreComptime() and !ret_ty.isError()) {
+                // TODO: is this even possible for C calling convention?
+                result.return_value = .{ .none = {} };
+            } else {
+                const ret_ty_size = @intCast(u32, ret_ty.abiSize(self.target.*));
+                if (ret_ty_size == 0) {
+                    assert(ret_ty.isError());
+                    result.return_value = .{ .immediate = 0 };
+                } else if (ret_ty_size <= 8) {
+                    const aliased_reg = registerAlias(abi.getCAbiIntReturnRegs(self.target.*)[0], ret_ty_size);
+                    result.return_value = .{ .register = aliased_reg };
+                } else {
+                    // TODO: return argument cell should go first
+                    result.return_value = .{ .stack_offset = 0 };
+                }
+            }
+
+            // Input params
+            var next_stack_offset: u32 = switch (result.return_value) {
+                .stack_offset => |off| @intCast(u32, off),
+                else => 0,
+            };
+
+            for (param_types) |ty, i| {
+                assert(ty.hasRuntimeBits());
+
+                if (self.target.os.tag != .windows) {
+                    return self.fail("TODO SysV calling convention", .{});
+                }
+
+                switch (abi.classifyWindows(ty, self.target.*)) {
+                    .integer => blk: {
+                        if (i >= abi.getCAbiIntParamRegs(self.target.*).len) break :blk; // fallthrough
+                        result.args[i] = .{ .register = abi.getCAbiIntParamRegs(self.target.*)[i] };
+                        continue;
+                    },
+                    .sse => return self.fail("TODO float/vector via SSE on Windows", .{}),
+                    .memory => {}, // fallthrough
+                    else => unreachable,
+                }
+
+                const param_size = @intCast(u32, ty.abiSize(self.target.*));
+                const param_align = @intCast(u32, ty.abiAlignment(self.target.*));
+                const offset = mem.alignForwardGeneric(u32, next_stack_offset + param_size, param_align);
+                result.args[i] = .{ .stack_offset = @intCast(i32, offset) };
+                next_stack_offset = offset;
+            }
+            // Align the stack to 16bytes before allocating shadow stack space.
+            const aligned_next_stack_offset = mem.alignForwardGeneric(u32, next_stack_offset, 16);
+            const padding = aligned_next_stack_offset - next_stack_offset;
+            if (padding > 0) {
+                for (result.args) |*arg| {
+                    if (arg.isRegister()) continue;
+                    arg.stack_offset += @intCast(i32, padding);
+                }
+            }
+
+            // TODO fix this so that the 16byte alignment padding is at the current value of $rsp, and push
+            // the args onto the stack so that there is no padding between the first argument and
+            // the standard preamble.
+            // alignment padding | ret value (if > 8) | args ... | shadow stack space | $rbp |
+            result.stack_byte_count = aligned_next_stack_offset + 4 * @sizeOf(u64);
+            result.stack_align = 16;
+        },
+        .Unspecified => {
             // Return values
             if (ret_ty.zigTypeTag() == .NoReturn) {
                 result.return_value = .{ .unreach = {} };
@@ -7141,8 +7208,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                     assert(ret_ty.isError());
                     result.return_value = .{ .immediate = 0 };
                 } else if (ret_ty_size <= 8) {
-                    const aliased_reg = registerAlias(abi.getCAbiIntReturnRegs(self.target.*)[0], ret_ty_size);
-                    result.return_value = .{ .register = aliased_reg };
+                    result.return_value = .{ .register = .rdi };
                 } else {
                     // We simply make the return MCValue a stack offset. However, the actual value
                     // for the offset will be populated later. We will also push the stack offset
@@ -7152,73 +7218,21 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             }
 
             // Input params
-            // First, split into args that can be passed via registers.
-            // This will make it easier to then push the rest of args in reverse
-            // order on the stack.
-            var next_int_reg: usize = 0;
-            var by_reg = std.AutoHashMap(usize, usize).init(self.bin_file.allocator);
-            defer by_reg.deinit();
-
-            // If we want debug output, we store all args on stack for better liveness of args
-            // in debugging contexts such as previewing the args in the debugger anywhere in
-            // the procedure. Passing the args via registers can lead to reusing the register
-            // for local ops thus clobbering the input arg forever.
-            // This of course excludes C ABI calls.
-            const omit_args_in_registers = blk: {
-                if (cc == .C) break :blk false;
-                switch (self.bin_file.options.optimize_mode) {
-                    .Debug => break :blk true,
-                    else => break :blk false,
-                }
-            };
-            if (!omit_args_in_registers) {
-                for (param_types) |ty, i| {
-                    if (!ty.hasRuntimeBits()) continue;
-                    const param_size = @intCast(u32, ty.abiSize(self.target.*));
-                    // For simplicity of codegen, slices and other types are always pushed onto the stack.
-                    // TODO: look into optimizing this by passing things as registers sometimes,
-                    // such as ptr and len of slices as separate registers.
-                    // TODO: also we need to honor the C ABI for relevant types rather than passing on
-                    // the stack here.
-                    const pass_in_reg = switch (ty.zigTypeTag()) {
-                        .Bool => true,
-                        .Int, .Enum => param_size <= 8,
-                        .Pointer => ty.ptrSize() != .Slice,
-                        .Optional => ty.isPtrLikeOptional(),
-                        else => false,
-                    };
-                    if (pass_in_reg) {
-                        if (next_int_reg >= abi.getCAbiIntParamRegs(self.target.*).len) break;
-                        try by_reg.putNoClobber(i, next_int_reg);
-                        next_int_reg += 1;
-                    }
-                }
-            }
-
             var next_stack_offset: u32 = switch (result.return_value) {
                 .stack_offset => |off| @intCast(u32, off),
                 else => 0,
             };
-            var count: usize = param_types.len;
-            while (count > 0) : (count -= 1) {
-                const i = count - 1;
-                const ty = param_types[i];
+
+            for (param_types) |ty, i| {
                 if (!ty.hasRuntimeBits()) {
-                    assert(cc != .C);
                     result.args[i] = .{ .none = {} };
                     continue;
                 }
                 const param_size = @intCast(u32, ty.abiSize(self.target.*));
                 const param_align = @intCast(u32, ty.abiAlignment(self.target.*));
-                if (by_reg.get(i)) |int_reg| {
-                    const aliased_reg = registerAlias(abi.getCAbiIntParamRegs(self.target.*)[int_reg], param_size);
-                    result.args[i] = .{ .register = aliased_reg };
-                    next_int_reg += 1;
-                } else {
-                    const offset = mem.alignForwardGeneric(u32, next_stack_offset + param_size, param_align);
-                    result.args[i] = .{ .stack_offset = @intCast(i32, offset) };
-                    next_stack_offset = offset;
-                }
+                const offset = mem.alignForwardGeneric(u32, next_stack_offset + param_size, param_align);
+                result.args[i] = .{ .stack_offset = @intCast(i32, offset) };
+                next_stack_offset = offset;
             }
 
             result.stack_align = 16;
