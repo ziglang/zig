@@ -132,7 +132,7 @@ $S3CMD put -P --no-mime-magic \
 
 $S3CMD put -P --no-mime-magic --recursive \
   --add-header="Cache-Control: max-age=0, must-revalidate" \
-  --add-header="Content-Type: text/html" \
+  -m "text/html" \
   "$ZIGDIR/docs/std/src/" s3://ziglang.org/documentation/master/std/src/
 
 $S3CMD put -P --no-mime-magic \
