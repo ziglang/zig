@@ -1053,7 +1053,7 @@ pub fn updateDecl(self: *Coff, module: *Module, decl_index: Module.Decl.Index) !
         .ty = decl.ty,
         .val = decl_val,
     }, &code_buffer, .none, .{
-        .parent_atom_index = 0,
+        .parent_atom_index = decl.link.coff.sym_index,
     });
     const code = switch (res) {
         .externally_managed => |x| x,

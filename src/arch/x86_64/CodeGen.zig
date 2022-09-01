@@ -4204,6 +4204,7 @@ fn airRet(self: *Self, inst: Air.Inst.Index) !void {
         },
         .stack_offset => {
             const reg = try self.copyToTmpRegister(Type.usize, self.ret_mcv);
+            log.warn("REG = {}", .{reg});
             const reg_lock = self.register_manager.lockRegAssumeUnused(reg);
             defer self.register_manager.unlockReg(reg_lock);
 
@@ -5854,7 +5855,11 @@ fn genInlineMemcpy(
     len: MCValue,
     opts: InlineMemcpyOpts,
 ) InnerError!void {
-    // TODO preserve contents of .rax and .rcx if not free, and then restore
+    // TODO: Preserve contents of .rax and .rcx if not free and locked, and then restore
+    // How can we do this without context if the value inside .rax or .rcx we preserve contains
+    // value needed to perform the memcpy in the first place?
+    // I think we should have an accumulator-based context that we pass with each subsequent helper
+    // call until we resolve the entire instruction.
     try self.register_manager.getReg(.rax, null);
     try self.register_manager.getReg(.rcx, null);
 

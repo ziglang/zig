@@ -447,7 +447,7 @@ pub fn getCAbiIntReturnRegs(target: Target) []const Register {
 }
 
 const gp_regs = [_]Register{
-    .rax, .rbx, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11, .r12, .r13, .r14, .r15,
+    .rbx, .r12, .r13, .r14, .r15, .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11,
 };
 const sse_avx_regs = [_]Register{
     .ymm0, .ymm1, .ymm2,  .ymm3,  .ymm4,  .ymm5,  .ymm6,  .ymm7,
