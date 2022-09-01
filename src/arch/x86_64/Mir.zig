@@ -461,46 +461,43 @@ pub const Inst = struct {
     }
 };
 
-pub fn RegisterList(comptime Reg: type, comptime registers: []const Reg) type {
-    assert(registers.len <= @bitSizeOf(u32));
-    return struct {
-        bitset: RegBitSet = RegBitSet.initEmpty(),
+pub const RegisterList = struct {
+    bitset: BitSet = BitSet.initEmpty(),
 
-        const RegBitSet = IntegerBitSet(registers.len);
-        const Self = @This();
+    const BitSet = IntegerBitSet(@ctz(@as(u32, 0)));
+    const Self = @This();
 
-        fn getIndexForReg(reg: Reg) RegBitSet.MaskInt {
-            inline for (registers) |cpreg, i| {
-                if (reg.id() == cpreg.id()) return i;
-            }
-            unreachable; // register not in input register list!
+    fn getIndexForReg(registers: []const Register, reg: Register) BitSet.MaskInt {
+        for (registers) |cpreg, i| {
+            if (reg.id() == cpreg.id()) return @intCast(u32, i);
         }
+        unreachable; // register not in input register list!
+    }
 
-        pub fn push(self: *Self, reg: Reg) void {
-            const index = getIndexForReg(reg);
-            self.bitset.set(index);
-        }
+    pub fn push(self: *Self, registers: []const Register, reg: Register) void {
+        const index = getIndexForReg(registers, reg);
+        self.bitset.set(index);
+    }
 
-        pub fn isSet(self: Self, reg: Reg) bool {
-            const index = getIndexForReg(reg);
-            return self.bitset.isSet(index);
-        }
+    pub fn isSet(self: Self, registers: []const Register, reg: Register) bool {
+        const index = getIndexForReg(registers, reg);
+        return self.bitset.isSet(index);
+    }
 
-        pub fn asInt(self: Self) u32 {
-            return self.bitset.mask;
-        }
+    pub fn asInt(self: Self) u32 {
+        return self.bitset.mask;
+    }
 
-        pub fn fromInt(mask: u32) Self {
-            return .{
-                .bitset = RegBitSet{ .mask = @intCast(RegBitSet.MaskInt, mask) },
-            };
-        }
+    pub fn fromInt(mask: u32) Self {
+        return .{
+            .bitset = BitSet{ .mask = @intCast(BitSet.MaskInt, mask) },
+        };
+    }
 
-        pub fn count(self: Self) u32 {
-            return @intCast(u32, self.bitset.count());
-        }
-    };
-}
+    pub fn count(self: Self) u32 {
+        return @intCast(u32, self.bitset.count());
+    }
+};
 
 pub const SaveRegisterList = struct {
     /// Use `RegisterList` to populate.

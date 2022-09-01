@@ -32,11 +32,6 @@ const abi = @import("abi.zig");
 const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
 const errUnionErrorOffset = codegen.errUnionErrorOffset;
 
-const callee_preserved_regs = abi.callee_preserved_regs;
-const caller_preserved_regs = abi.caller_preserved_regs;
-const c_abi_int_param_regs = abi.c_abi_int_param_regs;
-const c_abi_int_return_regs = abi.c_abi_int_return_regs;
-
 const Condition = bits.Condition;
 const RegisterManager = abi.RegisterManager;
 const RegisterLock = RegisterManager.RegisterLock;
@@ -448,10 +443,11 @@ fn gen(self: *Self) InnerError!void {
 
         // Create list of registers to save in the prologue.
         // TODO handle register classes
-        var reg_list: Mir.RegisterList(Register, &callee_preserved_regs) = .{};
-        inline for (callee_preserved_regs) |reg| {
+        var reg_list = Mir.RegisterList{};
+        const callee_preserved_regs = abi.getCalleePreservedRegs(self.target.*);
+        for (callee_preserved_regs) |reg| {
             if (self.register_manager.isRegAllocated(reg)) {
-                reg_list.push(reg);
+                reg_list.push(callee_preserved_regs, reg);
             }
         }
         const saved_regs_stack_space: u32 = reg_list.count() * 8;
@@ -3923,7 +3919,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
 
     try self.spillEflagsIfOccupied();
 
-    for (caller_preserved_regs) |reg| {
+    for (abi.getCallerPreservedRegs(self.target.*)) |reg| {
         try self.register_manager.getReg(reg, null);
     }
 
@@ -7140,7 +7136,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                     assert(ret_ty.isError());
                     result.return_value = .{ .immediate = 0 };
                 } else if (ret_ty_size <= 8) {
-                    const aliased_reg = registerAlias(c_abi_int_return_regs[0], ret_ty_size);
+                    const aliased_reg = registerAlias(abi.getCAbiIntReturnRegs(self.target.*)[0], ret_ty_size);
                     result.return_value = .{ .register = aliased_reg };
                 } else {
                     // We simply make the return MCValue a stack offset. However, the actual value
@@ -7187,7 +7183,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                         else => false,
                     };
                     if (pass_in_reg) {
-                        if (next_int_reg >= c_abi_int_param_regs.len) break;
+                        if (next_int_reg >= abi.getCAbiIntParamRegs(self.target.*).len) break;
                         try by_reg.putNoClobber(i, next_int_reg);
                         next_int_reg += 1;
                     }
@@ -7210,7 +7206,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                 const param_size = @intCast(u32, ty.abiSize(self.target.*));
                 const param_align = @intCast(u32, ty.abiAlignment(self.target.*));
                 if (by_reg.get(i)) |int_reg| {
-                    const aliased_reg = registerAlias(c_abi_int_param_regs[int_reg], param_size);
+                    const aliased_reg = registerAlias(abi.getCAbiIntParamRegs(self.target.*)[int_reg], param_size);
                     result.args[i] = .{ .register = aliased_reg };
                     next_int_reg += 1;
                 } else {

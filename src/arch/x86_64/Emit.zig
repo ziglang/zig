@@ -283,10 +283,11 @@ fn mirPushPopRegisterList(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerErro
     const ops = emit.mir.instructions.items(.ops)[inst].decode();
     const payload = emit.mir.instructions.items(.data)[inst].payload;
     const save_reg_list = emit.mir.extraData(Mir.SaveRegisterList, payload).data;
-    const reg_list = Mir.RegisterList(Register, &abi.callee_preserved_regs).fromInt(save_reg_list.register_list);
     var disp: i32 = -@intCast(i32, save_reg_list.stack_end);
-    inline for (abi.callee_preserved_regs) |reg| {
-        if (reg_list.isSet(reg)) {
+    const reg_list = Mir.RegisterList.fromInt(save_reg_list.register_list);
+    const callee_preserved_regs = abi.getCalleePreservedRegs(emit.target.*);
+    for (callee_preserved_regs) |reg| {
+        if (reg_list.isSet(callee_preserved_regs, reg)) {
             switch (tag) {
                 .push => try lowerToMrEnc(.mov, RegisterOrMemory.mem(.qword_ptr, .{
                     .disp = @bitCast(u32, disp),
