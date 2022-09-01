@@ -936,35 +936,34 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
     };
     // TODO swap this for inst.ty.ptrAlign
     const abi_align = elem_ty.abiAlignment(self.target.*);
+
     return self.allocMem(abi_size, abi_align, inst);
 }
 
-fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
-    const elem_ty = self.air.typeOfIndex(inst);
+fn allocRegOrMem(self: *Self, elem_ty: Type, reg_ok: bool, maybe_inst: ?Air.Inst.Index) !MCValue {
     const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) orelse {
         const mod = self.bin_file.options.module.?;
         return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(mod)});
     };
     const abi_align = elem_ty.abiAlignment(self.target.*);
-    if (abi_align > self.stack_align)
-        self.stack_align = abi_align;
 
     if (reg_ok) {
         // Make sure the type can fit in a register before we try to allocate one.
         const ptr_bits = self.target.cpu.arch.ptrBitWidth();
         const ptr_bytes: u64 = @divExact(ptr_bits, 8);
         if (abi_size <= ptr_bytes) {
-            if (self.register_manager.tryAllocReg(inst, gp)) |reg| {
+            if (self.register_manager.tryAllocReg(maybe_inst, gp)) |reg| {
                 return MCValue{ .register = reg };
             }
         }
     }
-    const stack_offset = try self.allocMem(abi_size, abi_align, inst);
+
+    const stack_offset = try self.allocMem(abi_size, abi_align, maybe_inst);
     return MCValue{ .stack_offset = stack_offset };
 }
 
 pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void {
-    const stack_mcv = try self.allocRegOrMem(inst, false);
+    const stack_mcv = try self.allocRegOrMem(self.air.typeOfIndex(inst), false, inst);
     log.debug("spilling {} (%{d}) to stack mcv {any}", .{ reg, inst, stack_mcv });
 
     const reg_mcv = self.getResolvedInstValue(inst);
@@ -985,12 +984,13 @@ pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void 
 /// occupied
 fn spillCompareFlagsIfOccupied(self: *Self) !void {
     if (self.cpsr_flags_inst) |inst_to_save| {
+        const ty = self.air.typeOfIndex(inst_to_save);
         const mcv = self.getResolvedInstValue(inst_to_save);
         const new_mcv = switch (mcv) {
-            .cpsr_flags => try self.allocRegOrMem(inst_to_save, true),
+            .cpsr_flags => try self.allocRegOrMem(ty, true, inst_to_save),
             .register_c_flag,
             .register_v_flag,
-            => try self.allocRegOrMem(inst_to_save, false),
+            => try self.allocRegOrMem(ty, false, inst_to_save),
             else => unreachable, // mcv doesn't occupy the compare flags
         };
 
@@ -1121,10 +1121,11 @@ fn truncRegister(
     });
 }
 
+/// Asserts that both operand_ty and dest_ty are integer types
 fn trunc(
     self: *Self,
     maybe_inst: ?Air.Inst.Index,
-    operand: MCValue,
+    operand_bind: ReadArg.Bind,
     operand_ty: Type,
     dest_ty: Type,
 ) !MCValue {
@@ -1132,39 +1133,38 @@ fn trunc(
     const info_b = dest_ty.intInfo(self.target.*);
 
     if (info_b.bits <= 32) {
-        const operand_reg = switch (operand) {
-            .register => |r| r,
-            else => operand_reg: {
-                if (info_a.bits <= 32) {
-                    break :operand_reg try self.copyToTmpRegister(operand_ty, operand);
-                } else {
-                    return self.fail("TODO load least significant word into register", .{});
-                }
-            },
+        if (info_a.bits > 32) {
+            return self.fail("TODO load least significant word into register", .{});
+        }
+
+        var operand_reg: Register = undefined;
+        var dest_reg: Register = undefined;
+
+        const read_args = [_]ReadArg{
+            .{ .ty = operand_ty, .bind = operand_bind, .class = gp, .reg = &operand_reg },
         };
-        const operand_reg_lock = self.register_manager.lockReg(operand_reg);
-        defer if (operand_reg_lock) |reg| self.register_manager.unlockReg(reg);
-
-        const dest_reg = if (maybe_inst) |inst| blk: {
-            const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-
-            if (operand == .register and self.reuseOperand(inst, ty_op.operand, 0, operand)) {
-                break :blk operand_reg;
-            } else {
-                break :blk try self.register_manager.allocReg(inst, gp);
-            }
-        } else try self.register_manager.allocReg(null, gp);
+        const write_args = [_]WriteArg{
+            .{ .ty = dest_ty, .bind = .none, .class = gp, .reg = &dest_reg },
+        };
+        try self.allocRegs(
+            &read_args,
+            &write_args,
+            if (maybe_inst) |inst| .{
+                .corresponding_inst = inst,
+                .operand_mapping = &.{0},
+            } else null,
+        );
 
         switch (info_b.bits) {
             32 => {
                 try self.genSetReg(operand_ty, dest_reg, .{ .register = operand_reg });
-                return MCValue{ .register = dest_reg };
             },
             else => {
                 try self.truncRegister(operand_reg, dest_reg, info_b.signedness, info_b.bits);
-                return MCValue{ .register = dest_reg };
             },
         }
+
+        return MCValue{ .register = dest_reg };
     } else {
         return self.fail("TODO: truncate to ints > 32 bits", .{});
     }
@@ -1172,12 +1172,12 @@ fn trunc(
 
 fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const operand = try self.resolveInst(ty_op.operand);
+    const operand_bind: ReadArg.Bind = .{ .inst = ty_op.operand };
     const operand_ty = self.air.typeOf(ty_op.operand);
     const dest_ty = self.air.typeOfIndex(inst);
 
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else blk: {
-        break :blk try self.trunc(inst, operand, operand_ty, dest_ty);
+        break :blk try self.trunc(inst, operand_bind, operand_ty, dest_ty);
     };
 
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
@@ -2334,7 +2334,7 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
                 break :result dst_mcv;
             },
             else => {
-                const dest = try self.allocRegOrMem(inst, true);
+                const dest = try self.allocRegOrMem(self.air.typeOfIndex(inst), true, inst);
 
                 const base_bind: ReadArg.Bind = .{ .mcv = base_mcv };
                 const index_bind: ReadArg.Bind = .{ .mcv = index_mcv };
@@ -2583,16 +2583,18 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
         if (self.liveness.isUnused(inst) and !is_volatile)
             break :result MCValue.dead;
 
-        const dst_mcv: MCValue = blk: {
-            if (self.reuseOperand(inst, ty_op.operand, 0, ptr)) {
+        const dest_mcv: MCValue = blk: {
+            const ptr_fits_dest = elem_ty.abiSize(self.target.*) <= 4;
+            if (ptr_fits_dest and self.reuseOperand(inst, ty_op.operand, 0, ptr)) {
                 // The MCValue that holds the pointer can be re-used as the value.
                 break :blk ptr;
             } else {
-                break :blk try self.allocRegOrMem(inst, true);
+                break :blk try self.allocRegOrMem(elem_ty, true, inst);
             }
         };
-        try self.load(dst_mcv, ptr, self.air.typeOf(ty_op.operand));
-        break :result dst_mcv;
+        try self.load(dest_mcv, ptr, self.air.typeOf(ty_op.operand));
+
+        break :result dest_mcv;
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
@@ -4615,34 +4617,82 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, .unreach, .{ .none, .none, .none });
 }
 
-fn isNull(self: *Self, ty: Type, operand: MCValue) !MCValue {
-    if (ty.isPtrLikeOptional()) {
-        assert(ty.abiSize(self.target.*) == 4);
+fn isNull(
+    self: *Self,
+    operand_bind: ReadArg.Bind,
+    operand_ty: Type,
+) !MCValue {
+    if (operand_ty.isPtrLikeOptional()) {
+        assert(operand_ty.abiSize(self.target.*) == 4);
 
-        const reg_mcv: MCValue = switch (operand) {
-            .register => operand,
-            else => .{ .register = try self.copyToTmpRegister(ty, operand) },
-        };
-
-        _ = try self.addInst(.{
-            .tag = .cmp,
-            .data = .{ .r_op_cmp = .{
-                .rn = reg_mcv.register,
-                .op = Instruction.Operand.fromU32(0).?,
-            } },
-        });
-
-        return MCValue{ .cpsr_flags = .eq };
+        const imm_bind: ReadArg.Bind = .{ .mcv = .{ .immediate = 0 } };
+        return self.cmp(operand_bind, imm_bind, Type.usize, .eq);
     } else {
         return self.fail("TODO implement non-pointer optionals", .{});
     }
 }
 
-fn isNonNull(self: *Self, ty: Type, operand: MCValue) !MCValue {
-    const is_null_result = try self.isNull(ty, operand);
+fn isNonNull(
+    self: *Self,
+    operand_bind: ReadArg.Bind,
+    operand_ty: Type,
+) !MCValue {
+    const is_null_result = try self.isNull(operand_bind, operand_ty);
     assert(is_null_result.cpsr_flags == .eq);
 
     return MCValue{ .cpsr_flags = .ne };
+}
+
+fn airIsNull(self: *Self, inst: Air.Inst.Index) !void {
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const operand_bind: ReadArg.Bind = .{ .inst = un_op };
+        const operand_ty = self.air.typeOf(un_op);
+
+        break :result try self.isNull(operand_bind, operand_ty);
+    };
+    return self.finishAir(inst, result, .{ un_op, .none, .none });
+}
+
+fn airIsNullPtr(self: *Self, inst: Air.Inst.Index) !void {
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const operand_ptr = try self.resolveInst(un_op);
+        const ptr_ty = self.air.typeOf(un_op);
+        const elem_ty = ptr_ty.elemType();
+
+        const operand = try self.allocRegOrMem(elem_ty, true, null);
+        try self.load(operand, operand_ptr, ptr_ty);
+
+        break :result try self.isNull(.{ .mcv = operand }, elem_ty);
+    };
+    return self.finishAir(inst, result, .{ un_op, .none, .none });
+}
+
+fn airIsNonNull(self: *Self, inst: Air.Inst.Index) !void {
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const operand_bind: ReadArg.Bind = .{ .inst = un_op };
+        const operand_ty = self.air.typeOf(un_op);
+
+        break :result try self.isNonNull(operand_bind, operand_ty);
+    };
+    return self.finishAir(inst, result, .{ un_op, .none, .none });
+}
+
+fn airIsNonNullPtr(self: *Self, inst: Air.Inst.Index) !void {
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const operand_ptr = try self.resolveInst(un_op);
+        const ptr_ty = self.air.typeOf(un_op);
+        const elem_ty = ptr_ty.elemType();
+
+        const operand = try self.allocRegOrMem(elem_ty, true, null);
+        try self.load(operand, operand_ptr, ptr_ty);
+
+        break :result try self.isNonNull(.{ .mcv = operand }, elem_ty);
+    };
+    return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
 fn isErr(
@@ -4657,8 +4707,7 @@ fn isErr(
     }
 
     const error_mcv = try self.errUnionErr(error_union_bind, error_union_ty, null);
-    _ = try self.cmp(.{ .mcv = error_mcv }, .{ .mcv = .{ .immediate = 0 } }, error_type, .neq);
-    return MCValue{ .cpsr_flags = .hi };
+    return try self.cmp(.{ .mcv = error_mcv }, .{ .mcv = .{ .immediate = 0 } }, error_type, .gt);
 }
 
 fn isNonErr(
@@ -4680,68 +4729,6 @@ fn isNonErr(
     }
 }
 
-fn airIsNull(self: *Self, inst: Air.Inst.Index) !void {
-    const un_op = self.air.instructions.items(.data)[inst].un_op;
-
-    try self.spillCompareFlagsIfOccupied();
-    self.cpsr_flags_inst = inst;
-
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const operand = try self.resolveInst(un_op);
-        const ty = self.air.typeOf(un_op);
-        break :result try self.isNull(ty, operand);
-    };
-    return self.finishAir(inst, result, .{ un_op, .none, .none });
-}
-
-fn airIsNullPtr(self: *Self, inst: Air.Inst.Index) !void {
-    const un_op = self.air.instructions.items(.data)[inst].un_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const operand_ptr = try self.resolveInst(un_op);
-        const ptr_ty = self.air.typeOf(un_op);
-        const operand: MCValue = blk: {
-            if (self.reuseOperand(inst, un_op, 0, operand_ptr)) {
-                // The MCValue that holds the pointer can be re-used as the value.
-                break :blk operand_ptr;
-            } else {
-                break :blk try self.allocRegOrMem(inst, true);
-            }
-        };
-        try self.load(operand, operand_ptr, ptr_ty);
-        break :result try self.isNull(ptr_ty.elemType(), operand);
-    };
-    return self.finishAir(inst, result, .{ un_op, .none, .none });
-}
-
-fn airIsNonNull(self: *Self, inst: Air.Inst.Index) !void {
-    const un_op = self.air.instructions.items(.data)[inst].un_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const operand = try self.resolveInst(un_op);
-        const ty = self.air.typeOf(un_op);
-        break :result try self.isNonNull(ty, operand);
-    };
-    return self.finishAir(inst, result, .{ un_op, .none, .none });
-}
-
-fn airIsNonNullPtr(self: *Self, inst: Air.Inst.Index) !void {
-    const un_op = self.air.instructions.items(.data)[inst].un_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const operand_ptr = try self.resolveInst(un_op);
-        const ptr_ty = self.air.typeOf(un_op);
-        const operand: MCValue = blk: {
-            if (self.reuseOperand(inst, un_op, 0, operand_ptr)) {
-                // The MCValue that holds the pointer can be re-used as the value.
-                break :blk operand_ptr;
-            } else {
-                break :blk try self.allocRegOrMem(inst, true);
-            }
-        };
-        try self.load(operand, operand_ptr, ptr_ty);
-        break :result try self.isNonNull(ptr_ty.elemType(), operand);
-    };
-    return self.finishAir(inst, result, .{ un_op, .none, .none });
-}
-
 fn airIsErr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
@@ -4758,16 +4745,12 @@ fn airIsErrPtr(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_ptr = try self.resolveInst(un_op);
         const ptr_ty = self.air.typeOf(un_op);
-        const operand: MCValue = blk: {
-            if (self.reuseOperand(inst, un_op, 0, operand_ptr)) {
-                // The MCValue that holds the pointer can be re-used as the value.
-                break :blk operand_ptr;
-            } else {
-                break :blk try self.allocRegOrMem(inst, true);
-            }
-        };
+        const elem_ty = ptr_ty.elemType();
+
+        const operand = try self.allocRegOrMem(elem_ty, true, null);
         try self.load(operand, operand_ptr, ptr_ty);
-        break :result try self.isErr(.{ .mcv = operand }, ptr_ty.elemType());
+
+        break :result try self.isErr(.{ .mcv = operand }, elem_ty);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -4788,16 +4771,12 @@ fn airIsNonErrPtr(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_ptr = try self.resolveInst(un_op);
         const ptr_ty = self.air.typeOf(un_op);
-        const operand: MCValue = blk: {
-            if (self.reuseOperand(inst, un_op, 0, operand_ptr)) {
-                // The MCValue that holds the pointer can be re-used as the value.
-                break :blk operand_ptr;
-            } else {
-                break :blk try self.allocRegOrMem(inst, true);
-            }
-        };
+        const elem_ty = ptr_ty.elemType();
+
+        const operand = try self.allocRegOrMem(elem_ty, true, null);
         try self.load(operand, operand_ptr, ptr_ty);
-        break :result try self.isNonErr(.{ .mcv = operand }, ptr_ty.elemType());
+
+        break :result try self.isNonErr(.{ .mcv = operand }, elem_ty);
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
@@ -5010,7 +4989,7 @@ fn br(self: *Self, block: Air.Inst.Index, operand: Air.Inst.Ref) !void {
                 .none, .dead, .unreach => unreachable,
                 .register, .stack_offset, .memory => operand_mcv,
                 .immediate, .stack_argument_offset, .cpsr_flags => blk: {
-                    const new_mcv = try self.allocRegOrMem(block, true);
+                    const new_mcv = try self.allocRegOrMem(self.air.typeOfIndex(block), true, block);
                     try self.setRegOrMem(self.air.typeOfIndex(block), new_mcv, operand_mcv);
                     break :blk new_mcv;
                 },
