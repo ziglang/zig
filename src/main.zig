@@ -2758,6 +2758,14 @@ fn buildOutputType(
         }
         pkg.table = pkg_tree_root.table;
         pkg_tree_root.table = .{};
+    } else {
+        // Remove any dangling pointers just in case.
+        var it = pkg_tree_root.table.valueIterator();
+        while (it.next()) |p| {
+            if (p.*.parent == &pkg_tree_root) {
+                p.*.parent = null;
+            }
+        }
     }
 
     const self_exe_path = try introspect.findZigExePath(arena);
