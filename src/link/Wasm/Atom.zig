@@ -145,7 +145,7 @@ pub fn resolveRelocs(self: *Atom, wasm_bin: *const Wasm) void {
 /// All values will be represented as a `u64` as all values can fit within it.
 /// The final value must be casted to the correct size.
 fn relocationValue(self: Atom, relocation: types.Relocation, wasm_bin: *const Wasm) u64 {
-    const target_loc: Wasm.SymbolLoc = .{ .file = self.file, .index = relocation.index };
+    const target_loc = (Wasm.SymbolLoc{ .file = self.file, .index = relocation.index }).finalLoc(wasm_bin);
     const symbol = target_loc.getSymbol(wasm_bin).*;
     switch (relocation.relocation_type) {
         .R_WASM_FUNCTION_INDEX_LEB => return symbol.index,
@@ -174,8 +174,7 @@ fn relocationValue(self: Atom, relocation: types.Relocation, wasm_bin: *const Wa
         => {
             std.debug.assert(symbol.tag == .data and !symbol.isUndefined());
             const merge_segment = wasm_bin.base.options.output_mode != .Obj;
-            const target_atom_loc = wasm_bin.discarded.get(target_loc) orelse target_loc;
-            const target_atom = wasm_bin.symbol_atom.get(target_atom_loc).?;
+            const target_atom = wasm_bin.symbol_atom.get(target_loc).?;
             const segment_info = if (target_atom.file) |object_index| blk: {
                 break :blk wasm_bin.objects.items[object_index].segment_info;
             } else wasm_bin.segment_info.items;
@@ -187,6 +186,6 @@ fn relocationValue(self: Atom, relocation: types.Relocation, wasm_bin: *const Wa
         .R_WASM_EVENT_INDEX_LEB => return symbol.index,
         .R_WASM_SECTION_OFFSET_I32,
         .R_WASM_FUNCTION_OFFSET_I32,
-        => return relocation.offset,
+        => return relocation.addend orelse 0,
     }
 }

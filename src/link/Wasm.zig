@@ -221,6 +221,18 @@ pub const SymbolLoc = struct {
         }
         return wasm_bin.string_table.get(wasm_bin.symbols.items[self.index].name);
     }
+
+    /// From a given symbol location, returns the final location.
+    /// e.g. when a symbol was resolved and replaced by the symbol
+    /// in a different file, this will return said location.
+    /// If the symbol wasn't replaced by another, this will return
+    /// the given location itself.
+    pub fn finalLoc(self: SymbolLoc, wasm_bin: *const Wasm) SymbolLoc {
+        if (wasm_bin.discarded.get(self)) |new_loc| {
+            return new_loc.finalLoc(wasm_bin);
+        }
+        return self;
+    }
 };
 
 /// Generic string table that duplicates strings

@@ -387,11 +387,10 @@ fn Parser(comptime ReaderType: type) type {
                                 .data = debug_content.ptr,
                                 .size = debug_size,
                                 .index = try self.object.string_table.put(gpa, name),
-                                .offset = len - debug_size,
+                                .offset = 0, // debug sections only contain 1 entry, so no need to calculate offset
                                 .section_index = section_index,
                             });
                         } else {
-                            log.info("found unknown custom section '{s}' - skipping parsing", .{name});
                             try reader.skipBytes(reader.context.bytes_left, .{});
                         }
                     },
