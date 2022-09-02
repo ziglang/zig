@@ -5328,7 +5328,7 @@ fn br(self: *Self, block: Air.Inst.Index, operand: Air.Inst.Ref) !void {
             block_data.mcv = switch (operand_mcv) {
                 .none, .dead, .unreach => unreachable,
                 .register, .stack_offset, .memory => operand_mcv,
-                .eflags, .immediate => blk: {
+                .eflags, .immediate, .ptr_stack_offset => blk: {
                     const new_mcv = try self.allocRegOrMem(block, true);
                     try self.setRegOrMem(self.air.typeOfIndex(block), new_mcv, operand_mcv);
                     break :blk new_mcv;
