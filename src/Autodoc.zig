@@ -712,14 +712,6 @@ const DocData = struct {
                     if (self.int.negated) try w.writeAll("-");
                     try jsw.emitNumber(self.int.value);
                 },
-                .int_big => {
-                    try jsw.beginObject();
-                    try jsw.objectField("value");
-                    try jsw.emitString(self.int_big.value);
-                    try jsw.objectField("negated");
-                    try jsw.emitBool(self.int_big.negated);
-                    try jsw.endObject();
-                },
                 .builtinField => {
                     try jsw.emitString(@tagName(self.builtinField));
                 },
