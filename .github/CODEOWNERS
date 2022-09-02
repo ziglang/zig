@@ -1,3 +1,4 @@
 # Autodoc 
 /src/Autodoc.zig  @kristoff-it
+/src/autodoc/*    @kristoff-it
 /lib/docs/*       @kristoff-it
