@@ -690,7 +690,7 @@ test "union with only 1 field casted to its enum type which has enum value speci
 
     var e = Expr{ .Literal = Literal{ .Bool = true } };
     comptime try expect(Tag(ExprTag) == comptime_int);
-    var t = @as(ExprTag, e);
+    comptime var t = @as(ExprTag, e);
     try expect(t == Expr.Literal);
     try expect(@enumToInt(t) == 33);
     comptime try expect(@enumToInt(t) == 33);

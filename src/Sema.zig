@@ -2565,7 +2565,7 @@ fn zirEnumDecl(
         }
     }
 
-    if (small.nonexhaustive) {
+    if (small.nonexhaustive and enum_obj.tag_ty.zigTypeTag() != .ComptimeInt) {
         if (fields_len > 1 and std.math.log2_int(u64, fields_len) == enum_obj.tag_ty.bitSize(sema.mod.getTarget())) {
             return sema.fail(block, src, "non-exhaustive enum specifies every value", .{});
         }
@@ -20363,11 +20363,12 @@ fn validateRunTimeType(
         .Int,
         .Float,
         .ErrorSet,
-        .Enum,
         .Frame,
         .AnyFrame,
         .Void,
         => return true,
+
+        .Enum => return !(try sema.typeRequiresComptime(block, src, ty)),
 
         .BoundFn,
         .ComptimeFloat,
@@ -29049,7 +29050,7 @@ pub fn typeHasOnePossibleValue(
         },
         .enum_nonexhaustive => {
             const tag_ty = ty.castTag(.enum_nonexhaustive).?.data.tag_ty;
-            if (!(try sema.typeHasRuntimeBits(block, src, tag_ty))) {
+            if (tag_ty.zigTypeTag() != .ComptimeInt and !(try sema.typeHasRuntimeBits(block, src, tag_ty))) {
                 return Value.zero;
             } else {
                 return null;
