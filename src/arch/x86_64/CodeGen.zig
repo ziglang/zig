@@ -222,6 +222,14 @@ const Branch = struct {
         try writer.writeAll("}");
     }
 
+    fn format(branch: Branch, comptime unused_format_string: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = branch;
+        _ = unused_format_string;
+        _ = options;
+        _ = writer;
+        @compileError("do not format Branch directly; use ty.fmtDebug()");
+    }
+
     fn fmtDebug(self: @This()) std.fmt.Formatter(fmt) {
         return .{ .data = .{
             .insts = self.inst_table.keys(),
@@ -823,7 +831,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 fn processDeath(self: *Self, inst: Air.Inst.Index) void {
     const air_tags = self.air.instructions.items(.tag);
     if (air_tags[inst] == .constant) return; // Constants are immortal.
-    log.debug("  (processing death of %{d})", .{inst});
+    log.debug("%{d} => {}", .{ inst, MCValue.dead });
     // When editing this function, note that the logic must synchronize with `reuseOperand`.
     const prev_value = self.getResolvedInstValue(inst);
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
@@ -851,10 +859,8 @@ fn finishAirBookkeeping(self: *Self) void {
 }
 
 fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Liveness.bpi - 1]Air.Inst.Ref) void {
-    log.debug("finishAir: %{d}, {}, {any}", .{ inst, result, operands });
     var tomb_bits = self.liveness.getTombBits(inst);
     for (operands) |op| {
-        log.debug("  (processing {})", .{op});
         const dies = @truncate(u1, tomb_bits) != 0;
         tomb_bits >>= 1;
         if (!dies) continue;
@@ -865,7 +871,7 @@ fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Live
     }
     const is_used = @truncate(u1, tomb_bits) == 0;
     if (is_used) {
-        log.debug("  (saving %{d} => {})", .{ inst, result });
+        log.debug("%{d} => {}", .{ inst, result });
         const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
         branch.inst_table.putAssumeCapacityNoClobber(inst, result);
 
@@ -4678,8 +4684,6 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
 
     const reloc = try self.genCondBrMir(cond_ty, cond);
 
-    log.debug("airCondBr: %{d}", .{inst});
-
     // If the condition dies here in this condbr instruction, process
     // that death now instead of later as this has an effect on
     // whether it needs to be spilled in the branches
@@ -4736,6 +4740,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     // that we can use all the code emitting abstractions. This is why at the bottom we
     // assert that parent_branch.free_registers equals the saved_then_branch.free_registers
     // rather than assigning it.
+    log.debug("airCondBr: %{d}", .{inst});
     log.debug("Upper branches:", .{});
     for (self.branch_stack.items) |bs| {
         log.debug("{}", .{bs.fmtDebug()});
@@ -5119,8 +5124,6 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
     );
     defer self.gpa.free(liveness.deaths);
 
-    log.debug("airSwitch: %{d}", .{inst});
-
     // If the condition dies here in this switch instruction, process
     // that death now instead of later as this has an effect on
     // whether it needs to be spilled in the branches
@@ -5207,6 +5210,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
 
     // Consolidate returned MCValues between prongs and else branch like we do
     // in airCondBr.
+    log.debug("airSwitch: %{d}", .{inst});
     log.debug("Upper branches:", .{});
     for (self.branch_stack.items) |bs| {
         log.debug("{}", .{bs.fmtDebug()});
