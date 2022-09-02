@@ -5035,6 +5035,21 @@ test "zig fmt: make single-line if no trailing comma" {
     );
 }
 
+test "zig fmt: preserve container doc comment in container without trailing comma" {
+    try testTransform(
+        \\const A = enum(u32) {
+        \\//! comment
+        \\_ };
+        \\
+    ,
+        \\const A = enum(u32) {
+        \\    //! comment
+        \\    _,
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: make single-line if no trailing comma" {
     try testCanonical(
         \\// Test trailing comma syntax
