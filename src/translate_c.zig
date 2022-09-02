@@ -1166,6 +1166,10 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
             });
         }
 
+        if (!c.zig_is_stage1 and is_packed) {
+            return failDecl(c, record_loc, bare_name, "cannot translate packed record union", .{});
+        }
+
         const record_payload = try c.arena.create(ast.Payload.Record);
         record_payload.* = .{
             .base = .{ .tag = ([2]Tag{ .@"struct", .@"union" })[@boolToInt(is_union)] },
