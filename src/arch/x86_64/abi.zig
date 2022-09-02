@@ -174,6 +174,12 @@ pub fn classifySystemV(ty: Type, target: Target) [8]Class {
             // "If the size of the aggregate exceeds a single eightbyte, each is classified
             // separately.".
             const ty_size = ty.abiSize(target);
+            if (ty.containerLayout() == .Packed) {
+                assert(ty_size <= 128);
+                result[0] = .integer;
+                if (ty_size > 64) result[1] = .integer;
+                return result;
+            }
             if (ty_size > 64)
                 return memory_class;
 
@@ -284,6 +290,12 @@ pub fn classifySystemV(ty: Type, target: Target) [8]Class {
             // "If the size of the aggregate exceeds a single eightbyte, each is classified
             // separately.".
             const ty_size = ty.abiSize(target);
+            if (ty.containerLayout() == .Packed) {
+                assert(ty_size <= 128);
+                result[0] = .integer;
+                if (ty_size > 64) result[1] = .integer;
+                return result;
+            }
             if (ty_size > 64)
                 return memory_class;
 

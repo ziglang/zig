@@ -5056,7 +5056,7 @@ pub fn analyzeExport(
     try mod.ensureDeclAnalyzed(exported_decl_index);
     const exported_decl = mod.declPtr(exported_decl_index);
 
-    if (!sema.validateExternType(exported_decl.ty, .other)) {
+    if (!try sema.validateExternType(block, src, exported_decl.ty, .other)) {
         const msg = msg: {
             const msg = try sema.errMsg(block, src, "unable to export type '{}'", .{exported_decl.ty.fmt(sema.mod)});
             errdefer msg.destroy(sema.gpa);
@@ -7896,7 +7896,7 @@ fn funcCommon(
             };
             return sema.failWithOwnedErrorMsg(msg);
         }
-        if (!Type.fnCallingConventionAllowsZigTypes(cc_workaround) and !sema.validateExternType(return_type, .ret_ty)) {
+        if (!Type.fnCallingConventionAllowsZigTypes(cc_workaround) and !try sema.validateExternType(block, ret_ty_src, return_type, .ret_ty)) {
             const msg = msg: {
                 const msg = try sema.errMsg(block, ret_ty_src, "return type '{}' not allowed in function with calling convention '{s}'", .{
                     return_type.fmt(sema.mod), @tagName(cc_workaround),
@@ -8115,7 +8115,7 @@ fn analyzeParameter(
         };
         return sema.failWithOwnedErrorMsg(msg);
     }
-    if (!Type.fnCallingConventionAllowsZigTypes(cc) and !sema.validateExternType(param.ty, .param_ty)) {
+    if (!Type.fnCallingConventionAllowsZigTypes(cc) and !try sema.validateExternType(block, param_src, param.ty, .param_ty)) {
         const msg = msg: {
             const msg = try sema.errMsg(block, param_src, "parameter of type '{}' not allowed in function with calling convention '{s}'", .{
                 param.ty.fmt(sema.mod), @tagName(cc),
@@ -15583,7 +15583,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     } else if (inst_data.size == .Many and elem_ty.zigTypeTag() == .Opaque) {
         return sema.fail(block, elem_ty_src, "unknown-length pointer to opaque not allowed", .{});
     } else if (inst_data.size == .C) {
-        if (!sema.validateExternType(elem_ty, .other)) {
+        if (!try sema.validateExternType(block, elem_ty_src, elem_ty, .other)) {
             const msg = msg: {
                 const msg = try sema.errMsg(block, elem_ty_src, "C pointers cannot point to non-C-ABI-compatible type '{}'", .{elem_ty.fmt(sema.mod)});
                 errdefer msg.destroy(sema.gpa);
@@ -16681,7 +16681,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
             } else if (ptr_size == .Many and elem_ty.zigTypeTag() == .Opaque) {
                 return sema.fail(block, src, "unknown-length pointer to opaque not allowed", .{});
             } else if (ptr_size == .C) {
-                if (!sema.validateExternType(elem_ty, .other)) {
+                if (!try sema.validateExternType(block, src, elem_ty, .other)) {
                     const msg = msg: {
                         const msg = try sema.errMsg(block, src, "C pointers cannot point to non-C-ABI-compatible type '{}'", .{elem_ty.fmt(sema.mod)});
                         errdefer msg.destroy(sema.gpa);
@@ -20549,7 +20549,14 @@ const ExternPosition = enum {
 
 /// Returns true if `ty` is allowed in extern types.
 /// Does *NOT* require `ty` to be resolved in any way.
-fn validateExternType(sema: *Sema, ty: Type, position: ExternPosition) bool {
+/// Calls `resolveTypeLayout` for packed containers.
+fn validateExternType(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    ty: Type,
+    position: ExternPosition,
+) !bool {
     switch (ty.zigTypeTag()) {
         .Type,
         .ComptimeFloat,
@@ -20577,17 +20584,25 @@ fn validateExternType(sema: *Sema, ty: Type, position: ExternPosition) bool {
         .Fn => return !Type.fnCallingConventionAllowsZigTypes(ty.fnCallingConvention()),
         .Enum => {
             var buf: Type.Payload.Bits = undefined;
-            return sema.validateExternType(ty.intTagType(&buf), position);
+            return sema.validateExternType(block, src, ty.intTagType(&buf), position);
         },
         .Struct, .Union => switch (ty.containerLayout()) {
-            .Extern, .Packed => return true,
-            else => return false,
+            .Extern => return true,
+            .Packed => {
+                const target = sema.mod.getTarget();
+                const bit_size = try ty.bitSizeAdvanced(target, sema.kit(block, src));
+                switch (bit_size) {
+                    8, 16, 32, 64, 128 => return true,
+                    else => return false,
+                }
+            },
+            .Auto => return false,
         },
         .Array => {
             if (position == .ret_ty or position == .param_ty) return false;
-            return sema.validateExternType(ty.elemType2(), .other);
+            return sema.validateExternType(block, src, ty.elemType2(), .other);
         },
-        .Vector => return sema.validateExternType(ty.elemType2(), .other),
+        .Vector => return sema.validateExternType(block, src, ty.elemType2(), .other),
         .Optional => return ty.isPtrLikeOptional(),
     }
 }
@@ -20639,8 +20654,8 @@ fn explainWhyTypeIsNotExtern(
             try mod.errNoteNonLazy(src_loc, msg, "enum tag type '{}' is not extern compatible", .{tag_ty.fmt(sema.mod)});
             try sema.explainWhyTypeIsNotExtern(msg, src_loc, tag_ty, position);
         },
-        .Struct => try mod.errNoteNonLazy(src_loc, msg, "only structs with packed or extern layout are extern compatible", .{}),
-        .Union => try mod.errNoteNonLazy(src_loc, msg, "only unions with packed or extern layout are extern compatible", .{}),
+        .Struct => try mod.errNoteNonLazy(src_loc, msg, "only extern structs and ABI sized packed structs are extern compatible", .{}),
+        .Union => try mod.errNoteNonLazy(src_loc, msg, "only extern unions and ABI sized packed unions are extern compatible", .{}),
         .Array => {
             if (position == .ret_ty) {
                 return mod.errNoteNonLazy(src_loc, msg, "arrays are not allowed as a return type", .{});
@@ -24119,7 +24134,7 @@ fn coerceVarArgParam(
     };
 
     const coerced_ty = sema.typeOf(coerced);
-    if (!sema.validateExternType(coerced_ty, .other)) {
+    if (!try sema.validateExternType(block, inst_src, coerced_ty, .other)) {
         const msg = msg: {
             const msg = try sema.errMsg(block, inst_src, "cannot pass '{}' to variadic function", .{coerced_ty.fmt(sema.mod)});
             errdefer msg.destroy(sema.gpa);
@@ -28321,7 +28336,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
             };
             return sema.failWithOwnedErrorMsg(msg);
         }
-        if (struct_obj.layout == .Extern and !sema.validateExternType(field.ty, .other)) {
+        if (struct_obj.layout == .Extern and !try sema.validateExternType(&block_scope, src, field.ty, .other)) {
             const msg = msg: {
                 const tree = try sema.getAstTree(&block_scope);
                 const fields_src = enumFieldSrcLoc(decl, tree.*, 0, i);
@@ -28658,7 +28673,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
             };
             return sema.failWithOwnedErrorMsg(msg);
         }
-        if (union_obj.layout == .Extern and !sema.validateExternType(field_ty, .union_field)) {
+        if (union_obj.layout == .Extern and !try sema.validateExternType(&block_scope, src, field_ty, .union_field)) {
             const msg = msg: {
                 const tree = try sema.getAstTree(&block_scope);
                 const field_src = enumFieldSrcLoc(decl, tree.*, 0, field_i);

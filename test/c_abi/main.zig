@@ -263,37 +263,30 @@ const SmallPackedStruct = packed struct {
     b: u2,
     c: u2,
     d: u2,
-    e: bool,
 };
-const c_small_packed_struct: fn (SmallPackedStruct) callconv(.C) void = @compileError("TODO: #1481");
+extern fn c_small_packed_struct(SmallPackedStruct) void;
 extern fn c_ret_small_packed_struct() SmallPackedStruct;
 
-// waiting on #1481
-//export fn zig_small_packed_struct(x: SmallPackedStruct) void {
-//    expect(x.a == 0) catch @panic("test failure");
-//    expect(x.b == 1) catch @panic("test failure");
-//    expect(x.c == 2) catch @panic("test failure");
-//    expect(x.d == 3) catch @panic("test failure");
-//    expect(x.e) catch @panic("test failure");
-//}
+export fn zig_small_packed_struct(x: SmallPackedStruct) void {
+    expect(x.a == 0) catch @panic("test failure");
+    expect(x.b == 1) catch @panic("test failure");
+    expect(x.c == 2) catch @panic("test failure");
+    expect(x.d == 3) catch @panic("test failure");
+}
 
 test "C ABI small packed struct" {
-    var s = SmallPackedStruct{ .a = 0, .b = 1, .c = 2, .d = 3, .e = true };
-    _ = s; //c_small_packed_struct(s); // waiting on #1481
+    var s = SmallPackedStruct{ .a = 0, .b = 1, .c = 2, .d = 3 };
+    c_small_packed_struct(s);
     var s2 = c_ret_small_packed_struct();
     try expect(s2.a == 0);
     try expect(s2.b == 1);
     try expect(s2.c == 2);
     try expect(s2.d == 3);
-    try expect(s2.e);
 }
 
 const BigPackedStruct = packed struct {
     a: u64,
     b: u64,
-    c: u64,
-    d: u64,
-    e: u8,
 };
 extern fn c_big_packed_struct(BigPackedStruct) void;
 extern fn c_ret_big_packed_struct() BigPackedStruct;
@@ -301,20 +294,14 @@ extern fn c_ret_big_packed_struct() BigPackedStruct;
 export fn zig_big_packed_struct(x: BigPackedStruct) void {
     expect(x.a == 1) catch @panic("test failure");
     expect(x.b == 2) catch @panic("test failure");
-    expect(x.c == 3) catch @panic("test failure");
-    expect(x.d == 4) catch @panic("test failure");
-    expect(x.e == 5) catch @panic("test failure");
 }
 
 test "C ABI big packed struct" {
-    var s = BigPackedStruct{ .a = 1, .b = 2, .c = 3, .d = 4, .e = 5 };
+    var s = BigPackedStruct{ .a = 1, .b = 2 };
     c_big_packed_struct(s);
     var s2 = c_ret_big_packed_struct();
     try expect(s2.a == 1);
     try expect(s2.b == 2);
-    try expect(s2.c == 3);
-    try expect(s2.d == 4);
-    try expect(s2.e == 5);
 }
 
 const SplitStructInt = extern struct {

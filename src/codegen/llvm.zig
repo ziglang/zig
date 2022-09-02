@@ -9674,22 +9674,7 @@ fn lowerFnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*const llvm.
             }
         },
         .C => {
-            const is_scalar = switch (fn_info.return_type.zigTypeTag()) {
-                .Void,
-                .Bool,
-                .NoReturn,
-                .Int,
-                .Float,
-                .Pointer,
-                .Optional,
-                .ErrorSet,
-                .Enum,
-                .AnyFrame,
-                .Vector,
-                => true,
-
-                else => false,
-            };
+            const is_scalar = isScalar(fn_info.return_type);
             switch (target.cpu.arch) {
                 .mips, .mipsel => return dg.lowerType(fn_info.return_type),
                 .x86_64 => switch (target.os.tag) {
@@ -9837,24 +9822,7 @@ const ParamTypeIterator = struct {
                 @panic("TODO implement async function lowering in the LLVM backend");
             },
             .C => {
-                const is_scalar = switch (ty.zigTypeTag()) {
-                    .Void,
-                    .Bool,
-                    .NoReturn,
-                    .Int,
-                    .Float,
-                    .Pointer,
-                    .Optional,
-                    .ErrorSet,
-                    .Enum,
-                    .AnyFrame,
-                    .Vector,
-                    => true,
-                    .Struct => ty.containerLayout() == .Packed,
-                    .Union => ty.containerLayout() == .Packed,
-
-                    else => false,
-                };
+                const is_scalar = isScalar(ty);
                 switch (it.target.cpu.arch) {
                     .riscv32, .riscv64 => {
                         it.zig_index += 1;
@@ -10106,6 +10074,27 @@ fn isByRef(ty: Type) bool {
             return true;
         },
     }
+}
+
+fn isScalar(ty: Type) bool {
+    return switch (ty.zigTypeTag()) {
+        .Void,
+        .Bool,
+        .NoReturn,
+        .Int,
+        .Float,
+        .Pointer,
+        .Optional,
+        .ErrorSet,
+        .Enum,
+        .AnyFrame,
+        .Vector,
+        => true,
+
+        .Struct => ty.containerLayout() == .Packed,
+        .Union => ty.containerLayout() == .Packed,
+        else => false,
+    };
 }
 
 /// This function returns true if we expect LLVM to lower x86_fp80 correctly
