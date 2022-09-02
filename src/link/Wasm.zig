@@ -103,16 +103,6 @@ string_table: StringTable = .{},
 /// Debug information for wasm
 dwarf: ?Dwarf = null,
 
-// *debug information* //
-/// Contains all bytes for the '.debug_info' section
-debug_info: std.ArrayListUnmanaged(u8) = .{},
-/// Contains all bytes for the '.debug_line' section
-debug_line: std.ArrayListUnmanaged(u8) = .{},
-/// Contains all bytes for the '.debug_abbrev' section
-debug_abbrev: std.ArrayListUnmanaged(u8) = .{},
-/// Contains all bytes for the '.debug_ranges' section
-debug_aranges: std.ArrayListUnmanaged(u8) = .{},
-
 // Output sections
 /// Output type section
 func_types: std.ArrayListUnmanaged(wasm.Type) = .{},
@@ -716,11 +706,6 @@ pub fn deinit(self: *Wasm) void {
     if (self.dwarf) |*dwarf| {
         dwarf.deinit();
     }
-
-    self.debug_info.deinit(gpa);
-    self.debug_line.deinit(gpa);
-    self.debug_abbrev.deinit(gpa);
-    self.debug_aranges.deinit(gpa);
 }
 
 pub fn allocateDeclIndexes(self: *Wasm, decl_index: Module.Decl.Index) !void {
@@ -1983,32 +1968,22 @@ fn populateErrorNameTable(self: *Wasm) !void {
     try self.parseAtom(names_atom, .{ .data = .read_only });
 }
 
-pub fn getDebugInfoIndex(self: *Wasm) !u32 {
-    assert(self.dwarf != null);
-    return self.debug_info_index orelse {
-        self.debug_info_index = @intCast(u32, self.segments.items.len);
-        const segment = try self.segments.addOne(self.base.allocator);
-        segment.* = .{
-            .size = 0,
-            .offset = 0,
-            // debug sections always have alignment '1'
-            .alignment = 1,
-        };
-        return self.debug_info_index.?;
-    };
-}
+/// From a given index variable, returns it value if set.
+/// When not set, initialises a new segment, sets the index,
+/// and returns it value.
+/// When a new segment is initialised. It also creates an atom.
+pub fn getOrSetDebugIndex(self: *Wasm, index: *?u32) !u32 {
+    return (index.*) orelse {
+        const new_index = @intCast(u32, self.segments.items.len);
+        index.* = new_index;
+        try self.appendDummySegment();
 
-pub fn getDebugLineIndex(self: *Wasm) !u32 {
-    assert(self.dwarf != null);
-    return self.debug_line_index orelse {
-        self.debug_line_index = @intCast(u32, self.segments.items.len);
-        const segment = try self.segments.addOne(self.base.allocator);
-        segment.* = .{
-            .size = 0,
-            .offset = 0,
-            .alignment = 1,
-        };
-        return self.debug_line_index.?;
+        const atom = try self.base.allocator.create(Atom);
+        atom.* = Atom.empty;
+        atom.alignment = 1; // debug sections are always 1-byte-aligned
+        try self.managed_atoms.append(self.base.allocator, atom);
+        try self.atoms.put(self.base.allocator, new_index, atom);
+        return new_index;
     };
 }
 
