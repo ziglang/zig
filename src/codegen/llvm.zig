@@ -9051,7 +9051,7 @@ pub const FuncGen = struct {
                     }
                 },
             },
-            .Union => return self.unionFieldPtr(inst, struct_ptr, struct_ty, field_index),
+            .Union => return self.unionFieldPtr(inst, struct_ptr, struct_ty),
             else => unreachable,
         }
     }
@@ -9061,16 +9061,13 @@ pub const FuncGen = struct {
         inst: Air.Inst.Index,
         union_ptr: *const llvm.Value,
         union_ty: Type,
-        field_index: c_uint,
     ) !?*const llvm.Value {
-        const union_obj = union_ty.cast(Type.Payload.Union).?.data;
-        const field = &union_obj.fields.values()[field_index];
         const result_llvm_ty = try self.dg.lowerType(self.air.typeOfIndex(inst));
-        if (!field.ty.hasRuntimeBitsIgnoreComptime()) {
-            return null;
-        }
         const target = self.dg.module.getTarget();
         const layout = union_ty.unionGetLayout(target);
+        if (layout.payload_size == 0) {
+            return self.builder.buildBitCast(union_ptr, result_llvm_ty, "");
+        }
         const payload_index = @boolToInt(layout.tag_align >= layout.payload_align);
         const union_field_ptr = self.builder.buildStructGEP(union_ptr, payload_index, "");
         return self.builder.buildBitCast(union_field_ptr, result_llvm_ty, "");
