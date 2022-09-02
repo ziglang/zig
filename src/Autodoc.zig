@@ -639,7 +639,7 @@ const DocData = struct {
             negated: bool = false,
         },
         int_big: struct {
-            value: []const u8, // direct value
+            value: []const u8, // string representation
             negated: bool = false,
         },
         float: f64, // direct value
@@ -725,12 +725,6 @@ const DocData = struct {
                 .int => {
                     if (self.int.negated) try w.writeAll("-");
                     try jsw.emitNumber(self.int.value);
-                },
-                .int_big => {
-
-                    //@panic("TODO: json serialization of big ints!");
-                    //if (v.negated) try w.writeAll("-");
-                    //try jsw.emitNumber(v.value);
                 },
                 .builtinField => {
                     try jsw.emitString(@tagName(self.builtinField));
@@ -1099,15 +1093,24 @@ fn walkInstruction(
         },
         .int_big => {
             // @check
-            const str = data[inst_index].str.get(file.zir);
-            _ = str;
-            printWithContext(
-                file,
-                inst_index,
-                "TODO: implement `{s}` for walkInstruction\n\n",
-                .{@tagName(tags[inst_index])},
-            );
-            return self.cteTodo(@tagName(tags[inst_index]));
+            const str = data[inst_index].str; //.get(file.zir);
+            const byte_count = str.len * @sizeOf(std.math.big.Limb);
+            const limb_bytes = file.zir.string_bytes[str.start..][0..byte_count];
+
+            var limbs = try self.arena.alloc(std.math.big.Limb, str.len);
+            std.mem.copy(u8, std.mem.sliceAsBytes(limbs), limb_bytes);
+
+            const big_int = std.math.big.int.Const{
+                .limbs = limbs,
+                .positive = true,
+            };
+
+            const as_string = try big_int.toStringAlloc(self.arena, 10, .lower);
+
+            return DocData.WalkResult{
+                .typeRef = .{ .type = @enumToInt(Ref.comptime_int_type) },
+                .expr = .{ .int_big = .{ .value = as_string } },
+            };
         },
 
         .slice_start => {
@@ -1776,6 +1779,7 @@ fn walkInstruction(
             );
             switch (operand.expr) {
                 .int => |*int| int.negated = true,
+                .int_big => |*int_big| int_big.negated = true,
                 else => {
                     printWithContext(
                         file,
