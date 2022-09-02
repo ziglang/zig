@@ -1313,14 +1313,14 @@ fn walkInstruction(
             var lhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
-                parent_line,
+                parent_src,
                 extra.data.lhs,
                 false,
             );
             var rhs: DocData.WalkResult = try self.walkRef(
                 file,
                 parent_scope,
-                parent_line,
+                parent_src,
                 extra.data.rhs,
                 false,
             );
