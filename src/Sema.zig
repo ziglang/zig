@@ -23426,8 +23426,11 @@ const InMemoryCoercionResult = union(enum) {
                 var index: u6 = 0;
                 var actual_noalias = false;
                 while (true) : (index += 1) {
-                    if (param.actual << index != param.wanted << index) {
-                        actual_noalias = (param.actual << index) == (1 << 31);
+                    const actual = @truncate(u1, param.actual >> index);
+                    const wanted = @truncate(u1, param.wanted >> index);
+                    if (actual != wanted) {
+                        actual_noalias = actual == 1;
+                        break;
                     }
                 }
                 if (!actual_noalias) {
@@ -23921,7 +23924,7 @@ fn coerceInMemoryAllowedFns(
 
     if (dest_info.noalias_bits != src_info.noalias_bits) {
         return InMemoryCoercionResult{ .fn_param_noalias = .{
-            .actual = dest_info.noalias_bits,
+            .actual = src_info.noalias_bits,
             .wanted = dest_info.noalias_bits,
         } };
     }
