@@ -4227,7 +4227,7 @@ fn srcLocInfo(
         const tok_idx = tokens[node_idx];
         const start = tree.tokens.items(.start)[tok_idx];
         const loc = tree.tokenLocation(parent_src.bytes, tok_idx);
-        return .{
+        return SrcLocInfo{
             .line = parent_src.line + loc.line,
             .bytes = start,
             .src_node = sn,
