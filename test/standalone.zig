@@ -13,6 +13,8 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.add("test/standalone/guess_number/main.zig");
     cases.add("test/standalone/main_return_error/error_u8.zig");
     cases.add("test/standalone/main_return_error/error_u8_non_zero.zig");
+    cases.add("test/standalone/noreturn_call/inline.zig");
+    cases.add("test/standalone/noreturn_call/as_arg.zig");
     cases.addBuildFile("test/standalone/main_pkg_path/build.zig", .{});
     cases.addBuildFile("test/standalone/shared_library/build.zig", .{});
     cases.addBuildFile("test/standalone/mix_o_files/build.zig", .{});

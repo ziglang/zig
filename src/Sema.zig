@@ -5569,7 +5569,11 @@ fn zirCall(
         const param_ty_inst = try sema.addType(param_ty);
         try sema.inst_map.put(sema.gpa, inst, param_ty_inst);
 
-        resolved_args[arg_index] = try sema.resolveBody(block, args_body[arg_start..arg_end], inst);
+        const resolved = try sema.resolveBody(block, args_body[arg_start..arg_end], inst);
+        if (sema.typeOf(resolved).zigTypeTag() == .NoReturn) {
+            return resolved;
+        }
+        resolved_args[arg_index] = resolved;
     }
 
     return sema.analyzeCall(block, func, func_src, call_src, modifier, ensure_result_used, resolved_args, bound_arg_src);
@@ -6047,7 +6051,7 @@ fn analyzeCall(
                 break :result try sema.analyzeBlockBody(block, call_src, &child_block, merges);
             };
 
-            if (!is_comptime_call) {
+            if (!is_comptime_call and sema.typeOf(result).zigTypeTag() != .NoReturn) {
                 try sema.emitDbgInline(
                     block,
                     module_fn,
