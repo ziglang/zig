@@ -4736,9 +4736,6 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     // that we can use all the code emitting abstractions. This is why at the bottom we
     // assert that parent_branch.free_registers equals the saved_then_branch.free_registers
     // rather than assigning it.
-    const parent_branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
-    try parent_branch.inst_table.ensureUnusedCapacity(self.gpa, else_branch.inst_table.count());
-
     log.debug("Upper branches:", .{});
     for (self.branch_stack.items) |bs| {
         log.debug("{}", .{bs.fmtDebug()});
@@ -4747,67 +4744,8 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     log.debug("Then branch: {}", .{then_branch.fmtDebug()});
     log.debug("Else branch: {}", .{else_branch.fmtDebug()});
 
-    const else_slice = else_branch.inst_table.entries.slice();
-    const else_keys = else_slice.items(.key);
-    const else_values = else_slice.items(.value);
-    for (else_keys) |else_key, else_idx| {
-        const else_value = else_values[else_idx];
-        const canon_mcv = if (then_branch.inst_table.fetchSwapRemove(else_key)) |then_entry| blk: {
-            // The instruction's MCValue is overridden in both branches.
-            parent_branch.inst_table.putAssumeCapacity(else_key, then_entry.value);
-            if (else_value == .dead) {
-                assert(then_entry.value == .dead);
-                continue;
-            }
-            break :blk then_entry.value;
-        } else blk: {
-            if (else_value == .dead)
-                continue;
-            // The instruction is only overridden in the else branch.
-            var i: usize = self.branch_stack.items.len - 1;
-            while (true) {
-                i -= 1; // If this overflows, the question is: why wasn't the instruction marked dead?
-                if (self.branch_stack.items[i].inst_table.get(else_key)) |mcv| {
-                    assert(mcv != .dead);
-                    break :blk mcv;
-                }
-            }
-        };
-        log.debug("consolidating else_entry {d} {}=>{}", .{ else_key, else_value, canon_mcv });
-        // TODO make sure the destination stack offset / register does not already have something
-        // going on there.
-        try self.setRegOrMem(self.air.typeOfIndex(else_key), canon_mcv, else_value);
-        // TODO track the new register / stack allocation
-    }
-    try parent_branch.inst_table.ensureUnusedCapacity(self.gpa, then_branch.inst_table.count());
-    const then_slice = then_branch.inst_table.entries.slice();
-    const then_keys = then_slice.items(.key);
-    const then_values = then_slice.items(.value);
-    for (then_keys) |then_key, then_idx| {
-        const then_value = then_values[then_idx];
-        // We already deleted the items from this table that matched the else_branch.
-        // So these are all instructions that are only overridden in the then branch.
-        parent_branch.inst_table.putAssumeCapacity(then_key, then_value);
-        log.debug("then_value = {}", .{then_value});
-        if (then_value == .dead)
-            continue;
-        const parent_mcv = blk: {
-            log.debug("{d}", .{self.branch_stack.items.len});
-            var i: usize = self.branch_stack.items.len - 1;
-            while (true) {
-                i -= 1;
-                if (self.branch_stack.items[i].inst_table.get(then_key)) |mcv| {
-                    assert(mcv != .dead);
-                    break :blk mcv;
-                }
-            }
-        };
-        log.debug("consolidating then_entry {d} {}=>{}", .{ then_key, parent_mcv, then_value });
-        // TODO make sure the destination stack offset / register does not already have something
-        // going on there.
-        try self.setRegOrMem(self.air.typeOfIndex(then_key), parent_mcv, then_value);
-        // TODO track the new register / stack allocation
-    }
+    const parent_branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+    try self.canonicaliseBranches(parent_branch, &then_branch, &else_branch);
 
     // We already took care of pl_op.operand earlier, so we're going
     // to pass .none here
