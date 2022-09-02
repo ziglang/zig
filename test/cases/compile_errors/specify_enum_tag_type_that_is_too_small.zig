@@ -12,7 +12,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage1
+// backend=stage2
 // target=native
 //
-// tmp.zig:6:5: error: enumeration value 4 too large for type 'u2'
+// :6:5: error: enumeration value '4' too large for type 'u2'

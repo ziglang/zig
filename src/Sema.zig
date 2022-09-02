@@ -2586,6 +2586,7 @@ fn zirEnumDecl(
     var cur_bit_bag: u32 = undefined;
     var field_i: u32 = 0;
     var last_tag_val: ?Value = null;
+    var tag_val_buf: Value.Payload.U64 = undefined;
     while (field_i < fields_len) : (field_i += 1) {
         if (field_i % 32 == 0) {
             cur_bit_bag = sema.code.extra[bit_bag_index];
@@ -2641,6 +2642,21 @@ fn zirEnumDecl(
                 .ty = enum_obj.tag_ty,
                 .mod = mod,
             });
+        } else {
+            tag_val_buf = .{
+                .base = .{ .tag = .int_u64 },
+                .data = field_i,
+            };
+            last_tag_val = Value.initPayload(&tag_val_buf.base);
+        }
+
+        if (!(try sema.intFitsInType(block, src, last_tag_val.?, enum_obj.tag_ty, null))) {
+            const tree = try sema.getAstTree(block);
+            const field_src = enumFieldSrcLoc(sema.mod.declPtr(block.src_decl), tree.*, src.node_offset.x, field_i);
+            const msg = try sema.errMsg(block, field_src, "enumeration value '{}' too large for type '{}'", .{
+                last_tag_val.?.fmtValue(enum_obj.tag_ty, mod), enum_obj.tag_ty.fmt(mod),
+            });
+            return sema.failWithOwnedErrorMsg(msg);
         }
     }
     return decl_val;
