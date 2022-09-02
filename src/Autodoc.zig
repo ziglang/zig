@@ -1293,6 +1293,50 @@ fn walkInstruction(
                 .expr = .{ .binOpIndex = binop_index },
             };
         },
+        // compare operators
+        .cmp_eq,
+        .cmp_neq,
+        .cmp_gt,
+        .cmp_gte,
+        .cmp_lt,
+        .cmp_lte,
+        => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
+
+            const binop_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
+
+            var lhs: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                parent_line,
+                extra.data.lhs,
+                false,
+            );
+            var rhs: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                parent_line,
+                extra.data.rhs,
+                false,
+            );
+
+            const lhs_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, lhs.expr);
+            const rhs_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, rhs.expr);
+            self.exprs.items[binop_index] = .{ .binOp = .{
+                .name = @tagName(tags[inst_index]),
+                .lhs = lhs_index,
+                .rhs = rhs_index,
+            } };
+
+            return DocData.WalkResult{
+                .typeRef = .{ .type = @enumToInt(Ref.bool_type) },
+                .expr = .{ .binOpIndex = binop_index },
+            };
+        },
 
         // builtin functions
         .align_of,
