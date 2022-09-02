@@ -200,6 +200,34 @@ const Branch = struct {
         self.inst_table.deinit(gpa);
         self.* = undefined;
     }
+
+    const FormatContext = struct {
+        insts: []const Air.Inst.Index,
+        mcvs: []const MCValue,
+    };
+
+    fn fmt(
+        ctx: FormatContext,
+        comptime unused_format_string: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        _ = options;
+        comptime assert(unused_format_string.len == 0);
+        try writer.writeAll("Branch {\n");
+        for (ctx.insts) |inst, i| {
+            const mcv = ctx.mcvs[i];
+            try writer.print("  %{d} => {}\n", .{ inst, mcv });
+        }
+        try writer.writeAll("}");
+    }
+
+    fn fmtDebug(self: @This()) std.fmt.Formatter(fmt) {
+        return .{ .data = .{
+            .insts = self.inst_table.keys(),
+            .mcvs = self.inst_table.values(),
+        } };
+    }
 };
 
 const StackAllocation = struct {
@@ -232,7 +260,7 @@ const BigTomb = struct {
     fn finishAir(bt: *BigTomb, result: MCValue) void {
         const is_used = !bt.function.liveness.isUnused(bt.inst);
         if (is_used) {
-            log.debug("%{d} => {}", .{ bt.inst, result });
+            log.debug("  (saving %{d} => {})", .{ bt.inst, result });
             const branch = &bt.function.branch_stack.items[bt.function.branch_stack.items.len - 1];
             branch.inst_table.putAssumeCapacityNoClobber(bt.inst, result);
         }
@@ -795,6 +823,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 fn processDeath(self: *Self, inst: Air.Inst.Index) void {
     const air_tags = self.air.instructions.items(.tag);
     if (air_tags[inst] == .constant) return; // Constants are immortal.
+    log.debug("  (processing death of %{d})", .{inst});
     // When editing this function, note that the logic must synchronize with `reuseOperand`.
     const prev_value = self.getResolvedInstValue(inst);
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
@@ -822,8 +851,10 @@ fn finishAirBookkeeping(self: *Self) void {
 }
 
 fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Liveness.bpi - 1]Air.Inst.Ref) void {
+    log.debug("finishAir: %{d}, {}, {any}", .{ inst, result, operands });
     var tomb_bits = self.liveness.getTombBits(inst);
     for (operands) |op| {
+        log.debug("  (processing {})", .{op});
         const dies = @truncate(u1, tomb_bits) != 0;
         tomb_bits >>= 1;
         if (!dies) continue;
@@ -834,7 +865,7 @@ fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Live
     }
     const is_used = @truncate(u1, tomb_bits) == 0;
     if (is_used) {
-        log.debug("%{d} => {}", .{ inst, result });
+        log.debug("  (saving %{d} => {})", .{ inst, result });
         const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
         branch.inst_table.putAssumeCapacityNoClobber(inst, result);
 
@@ -4647,6 +4678,8 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
 
     const reloc = try self.genCondBrMir(cond_ty, cond);
 
+    log.debug("airCondBr: %{d}", .{inst});
+
     // If the condition dies here in this condbr instruction, process
     // that death now instead of later as this has an effect on
     // whether it needs to be spilled in the branches
@@ -4674,21 +4707,26 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
 
     // Revert to the previous register and stack allocation state.
 
-    var saved_then_branch = self.branch_stack.pop();
-    defer saved_then_branch.deinit(self.gpa);
+    var then_branch = self.branch_stack.pop();
+    defer then_branch.deinit(self.gpa);
 
     self.revertState(saved_state);
 
     try self.performReloc(reloc);
 
-    const else_branch = self.branch_stack.addOneAssumeCapacity();
-    else_branch.* = .{};
+    try self.branch_stack.append(.{});
+    errdefer {
+        _ = self.branch_stack.pop();
+    }
 
     try self.ensureProcessDeathCapacity(liveness_condbr.else_deaths.len);
     for (liveness_condbr.else_deaths) |operand| {
         self.processDeath(operand);
     }
     try self.genBody(else_body);
+
+    var else_branch = self.branch_stack.pop();
+    defer else_branch.deinit(self.gpa);
 
     // At this point, each branch will possibly have conflicting values for where
     // each instruction is stored. They agree, however, on which instructions are alive/dead.
@@ -4698,15 +4736,23 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     // that we can use all the code emitting abstractions. This is why at the bottom we
     // assert that parent_branch.free_registers equals the saved_then_branch.free_registers
     // rather than assigning it.
-    const parent_branch = &self.branch_stack.items[self.branch_stack.items.len - 2];
+    const parent_branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
     try parent_branch.inst_table.ensureUnusedCapacity(self.gpa, else_branch.inst_table.count());
+
+    log.debug("Upper branches:", .{});
+    for (self.branch_stack.items) |bs| {
+        log.debug("{}", .{bs.fmtDebug()});
+    }
+
+    log.debug("Then branch: {}", .{then_branch.fmtDebug()});
+    log.debug("Else branch: {}", .{else_branch.fmtDebug()});
 
     const else_slice = else_branch.inst_table.entries.slice();
     const else_keys = else_slice.items(.key);
     const else_values = else_slice.items(.value);
     for (else_keys) |else_key, else_idx| {
         const else_value = else_values[else_idx];
-        const canon_mcv = if (saved_then_branch.inst_table.fetchSwapRemove(else_key)) |then_entry| blk: {
+        const canon_mcv = if (then_branch.inst_table.fetchSwapRemove(else_key)) |then_entry| blk: {
             // The instruction's MCValue is overridden in both branches.
             parent_branch.inst_table.putAssumeCapacity(else_key, then_entry.value);
             if (else_value == .dead) {
@@ -4718,7 +4764,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
             if (else_value == .dead)
                 continue;
             // The instruction is only overridden in the else branch.
-            var i: usize = self.branch_stack.items.len - 2;
+            var i: usize = self.branch_stack.items.len - 1;
             while (true) {
                 i -= 1; // If this overflows, the question is: why wasn't the instruction marked dead?
                 if (self.branch_stack.items[i].inst_table.get(else_key)) |mcv| {
@@ -4733,8 +4779,8 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
         try self.setRegOrMem(self.air.typeOfIndex(else_key), canon_mcv, else_value);
         // TODO track the new register / stack allocation
     }
-    try parent_branch.inst_table.ensureUnusedCapacity(self.gpa, saved_then_branch.inst_table.count());
-    const then_slice = saved_then_branch.inst_table.entries.slice();
+    try parent_branch.inst_table.ensureUnusedCapacity(self.gpa, then_branch.inst_table.count());
+    const then_slice = then_branch.inst_table.entries.slice();
     const then_keys = then_slice.items(.key);
     const then_values = then_slice.items(.value);
     for (then_keys) |then_key, then_idx| {
@@ -4746,7 +4792,8 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
         if (then_value == .dead)
             continue;
         const parent_mcv = blk: {
-            var i: usize = self.branch_stack.items.len - 2;
+            log.debug("{d}", .{self.branch_stack.items.len});
+            var i: usize = self.branch_stack.items.len - 1;
             while (true) {
                 i -= 1;
                 if (self.branch_stack.items[i].inst_table.get(then_key)) |mcv| {
@@ -4760,11 +4807,6 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
         // going on there.
         try self.setRegOrMem(self.air.typeOfIndex(then_key), parent_mcv, then_value);
         // TODO track the new register / stack allocation
-    }
-
-    {
-        var item = self.branch_stack.pop();
-        item.deinit(self.gpa);
     }
 
     // We already took care of pl_op.operand earlier, so we're going
@@ -5139,6 +5181,8 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
     );
     defer self.gpa.free(liveness.deaths);
 
+    log.debug("airSwitch: %{d}", .{inst});
+
     // If the condition dies here in this switch instruction, process
     // that death now instead of later as this has an effect on
     // whether it needs to be spilled in the branches
@@ -5149,6 +5193,15 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
             self.processDeath(op_index);
         }
     }
+
+    var branch_stack = std.ArrayList(Branch).init(self.gpa);
+    defer {
+        for (branch_stack.items) |*bs| {
+            bs.deinit(self.gpa);
+        }
+        branch_stack.deinit();
+    }
+    try branch_stack.ensureTotalCapacityPrecise(switch_br.data.cases_len + 1);
 
     while (case_i < switch_br.data.cases_len) : (case_i += 1) {
         const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
@@ -5179,10 +5232,9 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
 
         try self.genBody(case_body);
 
-        // Revert to the previous register and stack allocation state.
-        var saved_case_branch = self.branch_stack.pop();
-        defer saved_case_branch.deinit(self.gpa);
+        branch_stack.appendAssumeCapacity(self.branch_stack.pop());
 
+        // Revert to the previous register and stack allocation state.
         self.revertState(saved_state);
 
         for (relocs) |reloc| {
@@ -5192,10 +5244,13 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
 
     if (switch_br.data.else_body_len > 0) {
         const else_body = self.air.extra[extra_index..][0..switch_br.data.else_body_len];
+
+        // Capture the state of register and stack allocation state so that we can revert to it.
+        const saved_state = try self.captureState();
+
         try self.branch_stack.append(.{});
-        defer {
-            var item = self.branch_stack.pop();
-            item.deinit(self.gpa);
+        errdefer {
+            _ = self.branch_stack.pop();
         }
 
         const else_deaths = liveness.deaths.len - 1;
@@ -5206,13 +5261,100 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
 
         try self.genBody(else_body);
 
-        // TODO consolidate returned MCValues between prongs and else branch like we do
-        // in airCondBr.
+        branch_stack.appendAssumeCapacity(self.branch_stack.pop());
+
+        // Revert to the previous register and stack allocation state.
+        self.revertState(saved_state);
+    }
+
+    // Consolidate returned MCValues between prongs and else branch like we do
+    // in airCondBr.
+    log.debug("Upper branches:", .{});
+    for (self.branch_stack.items) |bs| {
+        log.debug("{}", .{bs.fmtDebug()});
+    }
+    for (branch_stack.items) |bs, i| {
+        log.debug("Case-{d} branch: {}", .{ i, bs.fmtDebug() });
+    }
+
+    // TODO: can we reduce the complexity of this algorithm?
+    const parent_branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+    var i: usize = branch_stack.items.len;
+    while (i > 1) : (i -= 1) {
+        const canon_branch = &branch_stack.items[i - 2];
+        const target_branch = &branch_stack.items[i - 1];
+        try self.canonicaliseBranches(parent_branch, canon_branch, target_branch);
     }
 
     // We already took care of pl_op.operand earlier, so we're going
     // to pass .none here
     return self.finishAir(inst, .unreach, .{ .none, .none, .none });
+}
+
+fn canonicaliseBranches(self: *Self, parent_branch: *Branch, canon_branch: *Branch, target_branch: *Branch) !void {
+    try parent_branch.inst_table.ensureUnusedCapacity(self.gpa, target_branch.inst_table.count());
+
+    const target_slice = target_branch.inst_table.entries.slice();
+    const target_keys = target_slice.items(.key);
+    const target_values = target_slice.items(.value);
+
+    for (target_keys) |target_key, target_idx| {
+        const target_value = target_values[target_idx];
+        const canon_mcv = if (canon_branch.inst_table.fetchSwapRemove(target_key)) |canon_entry| blk: {
+            // The instruction's MCValue is overridden in both branches.
+            parent_branch.inst_table.putAssumeCapacity(target_key, canon_entry.value);
+            if (target_value == .dead) {
+                assert(canon_entry.value == .dead);
+                continue;
+            }
+            break :blk canon_entry.value;
+        } else blk: {
+            if (target_value == .dead)
+                continue;
+            // The instruction is only overridden in the else branch.
+            var i: usize = self.branch_stack.items.len - 1;
+            while (true) {
+                i -= 1; // If this overflows, the question is: why wasn't the instruction marked dead?
+                if (self.branch_stack.items[i].inst_table.get(target_key)) |mcv| {
+                    assert(mcv != .dead);
+                    break :blk mcv;
+                }
+            }
+        };
+        log.debug("consolidating target_entry {d} {}=>{}", .{ target_key, target_value, canon_mcv });
+        // TODO make sure the destination stack offset / register does not already have something
+        // going on there.
+        try self.setRegOrMem(self.air.typeOfIndex(target_key), canon_mcv, target_value);
+        // TODO track the new register / stack allocation
+    }
+    try parent_branch.inst_table.ensureUnusedCapacity(self.gpa, canon_branch.inst_table.count());
+    const canon_slice = canon_branch.inst_table.entries.slice();
+    const canon_keys = canon_slice.items(.key);
+    const canon_values = canon_slice.items(.value);
+    for (canon_keys) |canon_key, canon_idx| {
+        const canon_value = canon_values[canon_idx];
+        // We already deleted the items from this table that matched the target_branch.
+        // So these are all instructions that are only overridden in the canon branch.
+        parent_branch.inst_table.putAssumeCapacity(canon_key, canon_value);
+        log.debug("canon_value = {}", .{canon_value});
+        if (canon_value == .dead)
+            continue;
+        const parent_mcv = blk: {
+            var i: usize = self.branch_stack.items.len - 1;
+            while (true) {
+                i -= 1;
+                if (self.branch_stack.items[i].inst_table.get(canon_key)) |mcv| {
+                    assert(mcv != .dead);
+                    break :blk mcv;
+                }
+            }
+        };
+        log.debug("consolidating canon_entry {d} {}=>{}", .{ canon_key, parent_mcv, canon_value });
+        // TODO make sure the destination stack offset / register does not already have something
+        // going on there.
+        try self.setRegOrMem(self.air.typeOfIndex(canon_key), parent_mcv, canon_value);
+        // TODO track the new register / stack allocation
+    }
 }
 
 fn performReloc(self: *Self, reloc: Mir.Inst.Index) !void {
