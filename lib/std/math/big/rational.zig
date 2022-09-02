@@ -334,13 +334,13 @@ pub const Rational = struct {
     /// Returns math.Order.lt, math.Order.eq, math.Order.gt if a < b, a == b or a
     /// > b respectively.
     pub fn order(a: Rational, b: Rational) !math.Order {
-        return cmpInternal(a, b, true);
+        return cmpInternal(a, b, false);
     }
 
     /// Returns math.Order.lt, math.Order.eq, math.Order.gt if |a| < |b|, |a| ==
     /// |b| or |a| > |b| respectively.
     pub fn orderAbs(a: Rational, b: Rational) !math.Order {
-        return cmpInternal(a, b, false);
+        return cmpInternal(a, b, true);
     }
 
     // p/q > x/y iff p*y > x*q
@@ -702,6 +702,18 @@ test "big.rational order" {
     try a.setRatio(890, 10);
     try b.setRatio(89, 1);
     try testing.expect((try a.order(b)) == .eq);
+}
+
+test "big.rational order/orderAbs with negative" {
+    var a = try Rational.init(testing.allocator);
+    defer a.deinit();
+    var b = try Rational.init(testing.allocator);
+    defer b.deinit();
+
+    try a.setRatio(1, 1);
+    try b.setRatio(-2, 1);
+    try testing.expect((try a.order(b)) == .gt);
+    try testing.expect((try a.orderAbs(b)) == .lt);
 }
 
 test "big.rational add single-limb" {
