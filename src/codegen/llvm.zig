@@ -9687,6 +9687,7 @@ fn lowerFnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*const llvm.
                                 return dg.context.intType(@intCast(c_uint, abi_size * 8));
                             }
                         },
+                        .win_i128 => return dg.context.intType(64).vectorType(2),
                         .memory => return dg.context.voidType(),
                         .sse => return dg.lowerType(fn_info.return_type),
                         else => unreachable,
@@ -9727,6 +9728,7 @@ fn lowerFnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*const llvm.
                                     @panic("TODO");
                                 },
                                 .memory => unreachable, // handled above
+                                .win_i128 => unreachable, // windows only
                                 .none => break,
                             }
                         }
@@ -9851,6 +9853,11 @@ const ParamTypeIterator = struct {
                                     return .abi_sized_int;
                                 }
                             },
+                            .win_i128 => {
+                                it.zig_index += 1;
+                                it.llvm_index += 1;
+                                return .byref;
+                            },
                             .memory => {
                                 it.zig_index += 1;
                                 it.llvm_index += 1;
@@ -9905,6 +9912,7 @@ const ParamTypeIterator = struct {
                                         @panic("TODO");
                                     },
                                     .memory => unreachable, // handled above
+                                    .win_i128 => unreachable, // windows only
                                     .none => break,
                                 }
                             }

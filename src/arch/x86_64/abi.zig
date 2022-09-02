@@ -5,7 +5,7 @@ const assert = std.debug.assert;
 const Register = @import("bits.zig").Register;
 const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 
-pub const Class = enum { integer, sse, sseup, x87, x87up, complex_x87, memory, none };
+pub const Class = enum { integer, sse, sseup, x87, x87up, complex_x87, memory, none, win_i128 };
 
 pub fn classifyWindows(ty: Type, target: Target) Class {
     // https://docs.microsoft.com/en-gb/cpp/build/x64-calling-convention?view=vs-2017
@@ -34,7 +34,15 @@ pub fn classifyWindows(ty: Type, target: Target) Class {
         => switch (ty.abiSize(target)) {
             0 => unreachable,
             1, 2, 4, 8 => return .integer,
-            else => return .memory,
+            else => switch (ty.zigTypeTag()) {
+                .Int => return .win_i128,
+                .Struct, .Union => if (ty.containerLayout() == .Packed) {
+                    return .win_i128;
+                } else {
+                    return .memory;
+                },
+                else => return .memory,
+            },
         },
 
         .Float, .Vector => return .sse,
