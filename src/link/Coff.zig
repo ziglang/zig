@@ -485,7 +485,7 @@ fn populateMissingMetadata(self: *Coff) !void {
     try self.locals.append(gpa, .{
         .name = [_]u8{0} ** 8,
         .value = 0,
-        .section_number = @intToEnum(coff.SectionNumber, 0),
+        .section_number = .UNDEFINED,
         .@"type" = .{ .base_type = .NULL, .complex_type = .NULL },
         .storage_class = .NULL,
         .number_of_aux_symbols = 0,
@@ -988,7 +988,7 @@ pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.In
     };
     defer gpa.free(sym_name);
     try self.setSymbolName(sym, sym_name);
-    sym.section_number = @intToEnum(coff.SectionNumber, self.rdata_section_index.?);
+    sym.section_number = @intToEnum(coff.SectionNumber, self.rdata_section_index.? + 1);
 
     try self.managed_atoms.append(gpa, atom);
     try self.atom_by_index_table.putNoClobber(gpa, atom.sym_index, atom);
@@ -1334,7 +1334,7 @@ pub fn deleteExport(self: *Coff, exp: Export) void {
     sym.* = .{
         .name = [_]u8{0} ** 8,
         .value = 0,
-        .section_number = @intToEnum(coff.SectionNumber, 0),
+        .section_number = .UNDEFINED,
         .@"type" = .{ .base_type = .NULL, .complex_type = .NULL },
         .storage_class = .NULL,
         .number_of_aux_symbols = 0,
