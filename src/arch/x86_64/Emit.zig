@@ -615,14 +615,15 @@ inline fn immOpSize(u_imm: u32) u6 {
 fn mirArithScaleSrc(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = emit.mir.instructions.items(.ops)[inst].decode();
     const scale = ops.flags;
-    const imm = emit.mir.instructions.items(.data)[inst].imm;
-    // OP reg1, [reg2 + scale*rcx + imm32]
+    const payload = emit.mir.instructions.items(.data)[inst].payload;
+    const index_reg_disp = emit.mir.extraData(Mir.IndexRegisterDisp, payload).data.decode();
+    // OP reg1, [reg2 + scale*index + imm32]
     const scale_index = ScaleIndex{
         .scale = scale,
-        .index = .rcx,
+        .index = index_reg_disp.index,
     };
     return lowerToRmEnc(tag, ops.reg1, RegisterOrMemory.mem(Memory.PtrSize.new(ops.reg1.size()), .{
-        .disp = imm,
+        .disp = index_reg_disp.disp,
         .base = ops.reg2,
         .scale_index = scale_index,
     }), emit.code);
@@ -631,22 +632,16 @@ fn mirArithScaleSrc(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void
 fn mirArithScaleDst(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = emit.mir.instructions.items(.ops)[inst].decode();
     const scale = ops.flags;
-    const imm = emit.mir.instructions.items(.data)[inst].imm;
+    const payload = emit.mir.instructions.items(.data)[inst].payload;
+    const index_reg_disp = emit.mir.extraData(Mir.IndexRegisterDisp, payload).data.decode();
     const scale_index = ScaleIndex{
         .scale = scale,
-        .index = .rax,
+        .index = index_reg_disp.index,
     };
-    if (ops.reg2 == .none) {
-        // OP qword ptr [reg1 + scale*rax + 0], imm32
-        return lowerToMiEnc(tag, RegisterOrMemory.mem(.qword_ptr, .{
-            .disp = 0,
-            .base = ops.reg1,
-            .scale_index = scale_index,
-        }), imm, emit.code);
-    }
-    // OP [reg1 + scale*rax + imm32], reg2
+    assert(ops.reg2 != .none);
+    // OP [reg1 + scale*index + imm32], reg2
     return lowerToMrEnc(tag, RegisterOrMemory.mem(Memory.PtrSize.new(ops.reg2.size()), .{
-        .disp = imm,
+        .disp = index_reg_disp.disp,
         .base = ops.reg1,
         .scale_index = scale_index,
     }), ops.reg2, emit.code);
@@ -656,24 +651,24 @@ fn mirArithScaleImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void
     const ops = emit.mir.instructions.items(.ops)[inst].decode();
     const scale = ops.flags;
     const payload = emit.mir.instructions.items(.data)[inst].payload;
-    const imm_pair = emit.mir.extraData(Mir.ImmPair, payload).data;
+    const index_reg_disp_imm = emit.mir.extraData(Mir.IndexRegisterDispImm, payload).data.decode();
     const scale_index = ScaleIndex{
         .scale = scale,
-        .index = .rax,
+        .index = index_reg_disp_imm.index,
     };
-    // OP qword ptr [reg1 + scale*rax + imm32], imm32
+    // OP qword ptr [reg1 + scale*index + imm32], imm32
     return lowerToMiEnc(tag, RegisterOrMemory.mem(.qword_ptr, .{
-        .disp = imm_pair.dest_off,
+        .disp = index_reg_disp_imm.disp,
         .base = ops.reg1,
         .scale_index = scale_index,
-    }), imm_pair.operand, emit.code);
+    }), index_reg_disp_imm.imm, emit.code);
 }
 
 fn mirArithMemIndexImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!void {
     const ops = emit.mir.instructions.items(.ops)[inst].decode();
     assert(ops.reg2 == .none);
     const payload = emit.mir.instructions.items(.data)[inst].payload;
-    const imm_pair = emit.mir.extraData(Mir.ImmPair, payload).data;
+    const index_reg_disp_imm = emit.mir.extraData(Mir.IndexRegisterDispImm, payload).data.decode();
     const ptr_size: Memory.PtrSize = switch (ops.flags) {
         0b00 => .byte_ptr,
         0b01 => .word_ptr,
@@ -682,14 +677,14 @@ fn mirArithMemIndexImm(emit: *Emit, tag: Tag, inst: Mir.Inst.Index) InnerError!v
     };
     const scale_index = ScaleIndex{
         .scale = 0,
-        .index = .rax,
+        .index = index_reg_disp_imm.index,
     };
-    // OP ptr [reg1 + rax*1 + imm32], imm32
+    // OP ptr [reg1 + index + imm32], imm32
     return lowerToMiEnc(tag, RegisterOrMemory.mem(ptr_size, .{
-        .disp = imm_pair.dest_off,
+        .disp = index_reg_disp_imm.disp,
         .base = ops.reg1,
         .scale_index = scale_index,
-    }), imm_pair.operand, emit.code);
+    }), index_reg_disp_imm.imm, emit.code);
 }
 
 fn mirMovSignExtend(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
@@ -957,18 +952,19 @@ fn mirLea(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             mem.writeIntLittle(i32, emit.code.items[end_offset - 4 ..][0..4], disp);
         },
         0b10 => {
-            // lea reg, [rbp + rcx + imm32]
-            const imm = emit.mir.instructions.items(.data)[inst].imm;
+            // lea reg, [rbp + index + imm32]
+            const payload = emit.mir.instructions.items(.data)[inst].payload;
+            const index_reg_disp = emit.mir.extraData(Mir.IndexRegisterDisp, payload).data.decode();
             const src_reg: ?Register = if (ops.reg2 != .none) ops.reg2 else null;
             const scale_index = ScaleIndex{
                 .scale = 0,
-                .index = .rcx,
+                .index = index_reg_disp.index,
             };
             return lowerToRmEnc(
                 .lea,
                 ops.reg1,
                 RegisterOrMemory.mem(Memory.PtrSize.new(ops.reg1.size()), .{
-                    .disp = imm,
+                    .disp = index_reg_disp.disp,
                     .base = src_reg,
                     .scale_index = scale_index,
                 }),
@@ -2255,6 +2251,7 @@ fn lowerToMxEnc(tag: Tag, reg_or_mem: RegisterOrMemory, enc: Encoding, code: *st
                 encoder.rex(.{
                     .w = wide,
                     .b = base.isExtended(),
+                    .x = if (mem_op.scale_index) |si| si.index.isExtended() else false,
                 });
             }
             opc.encode(encoder);
@@ -2360,10 +2357,12 @@ fn lowerToMiXEnc(
                 encoder.rex(.{
                     .w = dst_mem.ptr_size == .qword_ptr,
                     .b = base.isExtended(),
+                    .x = if (dst_mem.scale_index) |si| si.index.isExtended() else false,
                 });
             } else {
                 encoder.rex(.{
                     .w = dst_mem.ptr_size == .qword_ptr,
+                    .x = if (dst_mem.scale_index) |si| si.index.isExtended() else false,
                 });
             }
             opc.encode(encoder);
@@ -2415,11 +2414,13 @@ fn lowerToRmEnc(
                     .w = setRexWRegister(reg),
                     .r = reg.isExtended(),
                     .b = base.isExtended(),
+                    .x = if (src_mem.scale_index) |si| si.index.isExtended() else false,
                 });
             } else {
                 encoder.rex(.{
                     .w = setRexWRegister(reg),
                     .r = reg.isExtended(),
+                    .x = if (src_mem.scale_index) |si| si.index.isExtended() else false,
                 });
             }
             opc.encode(encoder);
@@ -2460,11 +2461,13 @@ fn lowerToMrEnc(
                     .w = dst_mem.ptr_size == .qword_ptr or setRexWRegister(reg),
                     .r = reg.isExtended(),
                     .b = base.isExtended(),
+                    .x = if (dst_mem.scale_index) |si| si.index.isExtended() else false,
                 });
             } else {
                 encoder.rex(.{
                     .w = dst_mem.ptr_size == .qword_ptr or setRexWRegister(reg),
                     .r = reg.isExtended(),
+                    .x = if (dst_mem.scale_index) |si| si.index.isExtended() else false,
                 });
             }
             opc.encode(encoder);
@@ -2504,11 +2507,13 @@ fn lowerToRmiEnc(
                     .w = setRexWRegister(reg),
                     .r = reg.isExtended(),
                     .b = base.isExtended(),
+                    .x = if (src_mem.scale_index) |si| si.index.isExtended() else false,
                 });
             } else {
                 encoder.rex(.{
                     .w = setRexWRegister(reg),
                     .r = reg.isExtended(),
+                    .x = if (src_mem.scale_index) |si| si.index.isExtended() else false,
                 });
             }
             opc.encode(encoder);
@@ -2545,10 +2550,12 @@ fn lowerToVmEnc(
                 vex.rex(.{
                     .r = reg.isExtended(),
                     .b = base.isExtended(),
+                    .x = if (src_mem.scale_index) |si| si.index.isExtended() else false,
                 });
             } else {
                 vex.rex(.{
                     .r = reg.isExtended(),
+                    .x = if (src_mem.scale_index) |si| si.index.isExtended() else false,
                 });
             }
             encoder.vex(enc.prefix);
@@ -2585,10 +2592,12 @@ fn lowerToMvEnc(
                 vex.rex(.{
                     .r = reg.isExtended(),
                     .b = base.isExtended(),
+                    .x = if (dst_mem.scale_index) |si| si.index.isExtended() else false,
                 });
             } else {
                 vex.rex(.{
                     .r = reg.isExtended(),
+                    .x = if (dst_mem.scale_index) |si| si.index.isExtended() else false,
                 });
             }
             encoder.vex(enc.prefix);

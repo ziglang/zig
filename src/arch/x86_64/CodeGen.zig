@@ -5932,7 +5932,6 @@ const InlineMemcpyOpts = struct {
     dest_stack_base: ?Register = null,
 };
 
-/// Spills .rax and .rcx.
 fn genInlineMemcpy(
     self: *Self,
     dst_ptr: MCValue,
@@ -5940,19 +5939,6 @@ fn genInlineMemcpy(
     len: MCValue,
     opts: InlineMemcpyOpts,
 ) InnerError!void {
-    // TODO: Preserve contents of .rax and .rcx if not free and locked, and then restore
-    // How can we do this without context if the value inside .rax or .rcx we preserve contains
-    // value needed to perform the memcpy in the first place?
-    // I think we should have an accumulator-based context that we pass with each subsequent helper
-    // call until we resolve the entire instruction.
-    try self.register_manager.getReg(.rax, null);
-    try self.register_manager.getReg(.rcx, null);
-
-    const reg_locks = self.register_manager.lockRegsAssumeUnused(2, .{ .rax, .rcx });
-    defer for (reg_locks) |lock| {
-        self.register_manager.unlockReg(lock);
-    };
-
     const ssbase_lock: ?RegisterLock = if (opts.source_stack_base) |reg|
         self.register_manager.lockReg(reg)
     else
@@ -5965,7 +5951,13 @@ fn genInlineMemcpy(
         null;
     defer if (dsbase_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const dst_addr_reg = try self.register_manager.allocReg(null, gp);
+    const regs = try self.register_manager.allocRegs(5, .{ null, null, null, null, null }, gp);
+    const dst_addr_reg = regs[0];
+    const src_addr_reg = regs[1];
+    const index_reg = regs[2].to64();
+    const count_reg = regs[3].to64();
+    const tmp_reg = regs[4].to8();
+
     switch (dst_ptr) {
         .memory,
         .got_load,
@@ -5998,10 +5990,7 @@ fn genInlineMemcpy(
             return self.fail("TODO implement memcpy for setting stack when dest is {}", .{dst_ptr});
         },
     }
-    const dst_addr_reg_lock = self.register_manager.lockRegAssumeUnused(dst_addr_reg);
-    defer self.register_manager.unlockReg(dst_addr_reg_lock);
 
-    const src_addr_reg = try self.register_manager.allocReg(null, gp);
     switch (src_ptr) {
         .memory,
         .got_load,
@@ -6034,26 +6023,13 @@ fn genInlineMemcpy(
             return self.fail("TODO implement memcpy for setting stack when src is {}", .{src_ptr});
         },
     }
-    const src_addr_reg_lock = self.register_manager.lockRegAssumeUnused(src_addr_reg);
-    defer self.register_manager.unlockReg(src_addr_reg_lock);
-
-    const regs = try self.register_manager.allocRegs(2, .{ null, null }, gp);
-    const count_reg = regs[0].to64();
-    const tmp_reg = regs[1].to8();
 
     try self.genSetReg(Type.usize, count_reg, len);
 
-    // mov rcx, 0
+    // mov index_reg, 0
     _ = try self.addInst(.{
         .tag = .mov,
-        .ops = Mir.Inst.Ops.encode(.{ .reg1 = .rcx }),
-        .data = .{ .imm = 0 },
-    });
-
-    // mov rax, 0
-    _ = try self.addInst(.{
-        .tag = .mov,
-        .ops = Mir.Inst.Ops.encode(.{ .reg1 = .rax }),
+        .ops = Mir.Inst.Ops.encode(.{ .reg1 = index_reg }),
         .data = .{ .imm = 0 },
     });
 
@@ -6075,37 +6051,30 @@ fn genInlineMemcpy(
         } },
     });
 
-    // mov tmp, [addr + rcx]
+    // mov tmp, [addr + index_reg]
     _ = try self.addInst(.{
         .tag = .mov_scale_src,
         .ops = Mir.Inst.Ops.encode(.{
             .reg1 = tmp_reg.to8(),
             .reg2 = src_addr_reg,
         }),
-        .data = .{ .imm = 0 },
+        .data = .{ .payload = try self.addExtra(Mir.IndexRegisterDisp.encode(index_reg, 0)) },
     });
 
-    // mov [stack_offset + rax], tmp
+    // mov [stack_offset + index_reg], tmp
     _ = try self.addInst(.{
         .tag = .mov_scale_dst,
         .ops = Mir.Inst.Ops.encode(.{
             .reg1 = dst_addr_reg,
             .reg2 = tmp_reg.to8(),
         }),
-        .data = .{ .imm = 0 },
+        .data = .{ .payload = try self.addExtra(Mir.IndexRegisterDisp.encode(index_reg, 0)) },
     });
 
-    // add rcx, 1
+    // add index_reg, 1
     _ = try self.addInst(.{
         .tag = .add,
-        .ops = Mir.Inst.Ops.encode(.{ .reg1 = .rcx }),
-        .data = .{ .imm = 1 },
-    });
-
-    // add rax, 1
-    _ = try self.addInst(.{
-        .tag = .add,
-        .ops = Mir.Inst.Ops.encode(.{ .reg1 = .rax }),
+        .ops = Mir.Inst.Ops.encode(.{ .reg1 = index_reg }),
         .data = .{ .imm = 1 },
     });
 
@@ -6127,7 +6096,6 @@ fn genInlineMemcpy(
     try self.performReloc(loop_reloc);
 }
 
-/// Spills .rax register.
 fn genInlineMemset(
     self: *Self,
     dst_ptr: MCValue,
@@ -6135,12 +6103,22 @@ fn genInlineMemset(
     len: MCValue,
     opts: InlineMemcpyOpts,
 ) InnerError!void {
-    // TODO preserve contents of .rax and then restore
-    try self.register_manager.getReg(.rax, null);
-    const rax_lock = self.register_manager.lockRegAssumeUnused(.rax);
-    defer self.register_manager.unlockReg(rax_lock);
+    const ssbase_lock: ?RegisterLock = if (opts.source_stack_base) |reg|
+        self.register_manager.lockReg(reg)
+    else
+        null;
+    defer if (ssbase_lock) |reg| self.register_manager.unlockReg(reg);
 
-    const addr_reg = try self.register_manager.allocReg(null, gp);
+    const dsbase_lock: ?RegisterLock = if (opts.dest_stack_base) |reg|
+        self.register_manager.lockReg(reg)
+    else
+        null;
+    defer if (dsbase_lock) |lock| self.register_manager.unlockReg(lock);
+
+    const regs = try self.register_manager.allocRegs(2, .{ null, null }, gp);
+    const addr_reg = regs[0];
+    const index_reg = regs[1].to64();
+
     switch (dst_ptr) {
         .memory,
         .got_load,
@@ -6173,17 +6151,15 @@ fn genInlineMemset(
             return self.fail("TODO implement memcpy for setting stack when dest is {}", .{dst_ptr});
         },
     }
-    const addr_reg_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
-    defer self.register_manager.unlockReg(addr_reg_lock);
 
-    try self.genSetReg(Type.usize, .rax, len);
-    try self.genBinOpMir(.sub, Type.usize, .{ .register = .rax }, .{ .immediate = 1 });
+    try self.genSetReg(Type.usize, index_reg, len);
+    try self.genBinOpMir(.sub, Type.usize, .{ .register = index_reg }, .{ .immediate = 1 });
 
     // loop:
-    // cmp rax, -1
+    // cmp index_reg, -1
     const loop_start = try self.addInst(.{
         .tag = .cmp,
-        .ops = Mir.Inst.Ops.encode(.{ .reg1 = .rax }),
+        .ops = Mir.Inst.Ops.encode(.{ .reg1 = index_reg }),
         .data = .{ .imm = @bitCast(u32, @as(i32, -1)) },
     });
 
@@ -6202,24 +6178,20 @@ fn genInlineMemset(
             if (x > math.maxInt(i32)) {
                 return self.fail("TODO inline memset for value immediate larger than 32bits", .{});
             }
-            // mov byte ptr [rbp + rax + stack_offset], imm
-            const payload = try self.addExtra(Mir.ImmPair{
-                .dest_off = 0,
-                .operand = @truncate(u32, x),
-            });
+            // mov byte ptr [rbp + index_reg + stack_offset], imm
             _ = try self.addInst(.{
                 .tag = .mov_mem_index_imm,
                 .ops = Mir.Inst.Ops.encode(.{ .reg1 = addr_reg }),
-                .data = .{ .payload = payload },
+                .data = .{ .payload = try self.addExtra(Mir.IndexRegisterDispImm.encode(index_reg, 0, @truncate(u32, x))) },
             });
         },
         else => return self.fail("TODO inline memset for value of type {}", .{value}),
     }
 
-    // sub rax, 1
+    // sub index_reg, 1
     _ = try self.addInst(.{
         .tag = .sub,
-        .ops = Mir.Inst.Ops.encode(.{ .reg1 = .rax }),
+        .ops = Mir.Inst.Ops.encode(.{ .reg1 = index_reg }),
         .data = .{ .imm = 1 },
     });
 
