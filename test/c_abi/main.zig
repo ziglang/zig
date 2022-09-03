@@ -110,7 +110,7 @@ test "C ABI floats" {
 }
 
 test "C ABI long double" {
-    if (!builtin.cpu.arch.isWasm()) return error.SkipZigTest;
+    if (!builtin.cpu.arch.isWasm() and !builtin.cpu.arch.isAARCH64()) return error.SkipZigTest;
     c_long_double(12.34);
 }
 

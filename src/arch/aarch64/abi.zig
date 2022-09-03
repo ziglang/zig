@@ -3,6 +3,69 @@ const builtin = @import("builtin");
 const bits = @import("bits.zig");
 const Register = bits.Register;
 const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
+const Type = @import("../../type.zig").Type;
+
+pub const Class = enum { memory, integer, none, float_array };
+
+pub fn classifyType(ty: Type, target: std.Target) [2]Class {
+    if (!ty.hasRuntimeBitsIgnoreComptime()) return .{ .none, .none };
+    switch (ty.zigTypeTag()) {
+        .Struct => {
+            if (ty.containerLayout() == .Packed) return .{ .integer, .none };
+
+            if (ty.structFieldCount() <= 4) {
+                const fields = ty.structFields();
+                var float_size: ?u64 = null;
+                for (fields.values()) |field| {
+                    if (field.ty.zigTypeTag() != .Float) break;
+                    const field_size = field.ty.bitSize(target);
+                    const prev_size = float_size orelse {
+                        float_size = field_size;
+                        continue;
+                    };
+                    if (field_size != prev_size) break;
+                } else {
+                    return .{ .float_array, .none };
+                }
+            }
+            const bit_size = ty.bitSize(target);
+            if (bit_size > 128) return .{ .memory, .none };
+            if (bit_size > 64) return .{ .integer, .integer };
+            return .{ .integer, .none };
+        },
+        .Union => {
+            const bit_size = ty.bitSize(target);
+            if (bit_size > 128) return .{ .memory, .none };
+            if (bit_size > 64) return .{ .integer, .integer };
+            return .{ .integer, .none };
+        },
+        .Int, .Enum, .ErrorSet, .Vector, .Float, .Bool => return .{ .integer, .none },
+        .Array => return .{ .memory, .none },
+        .Optional => {
+            std.debug.assert(ty.isPtrLikeOptional());
+            return .{ .integer, .none };
+        },
+        .Pointer => {
+            std.debug.assert(!ty.isSlice());
+            return .{ .integer, .none };
+        },
+        .ErrorUnion,
+        .Frame,
+        .AnyFrame,
+        .NoReturn,
+        .Void,
+        .Type,
+        .ComptimeFloat,
+        .ComptimeInt,
+        .Undefined,
+        .Null,
+        .BoundFn,
+        .Fn,
+        .Opaque,
+        .EnumLiteral,
+        => unreachable,
+    }
+}
 
 const callee_preserved_regs_impl = if (builtin.os.tag.isDarwin()) struct {
     pub const callee_preserved_regs = [_]Register{
