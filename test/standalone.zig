@@ -50,6 +50,9 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
             cases.addBuildFile("test/c_abi/build.zig", .{});
         }
     }
+    if (builtin.cpu.arch.isAARCH64() and builtin.zig_backend == .stage2_llvm) {
+        cases.addBuildFile("test/c_abi/build.zig", .{});
+    }
     // C ABI tests only pass for the Wasm target when using stage2
     cases.addBuildFile("test/c_abi/build_wasm.zig", .{
         .requires_stage2 = true,

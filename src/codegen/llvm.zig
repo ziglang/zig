@@ -23,6 +23,7 @@ const LazySrcLoc = Module.LazySrcLoc;
 const CType = @import("../type.zig").CType;
 const x86_64_abi = @import("../arch/x86_64/abi.zig");
 const wasm_c_abi = @import("../arch/wasm/abi.zig");
+const aarch64_c_abi = @import("../arch/aarch64/abi.zig");
 
 const Error = error{ OutOfMemory, CodegenFail };
 
@@ -1076,6 +1077,26 @@ pub const Object = struct {
                     const casted = builder.buildBitCast(param, dg.context.halfType(), "");
                     try args.ensureUnusedCapacity(1);
                     args.appendAssumeCapacity(casted);
+                },
+                .float_array => {
+                    const param_ty = fn_info.param_types[it.zig_index - 1];
+                    const param_llvm_ty = try dg.lowerType(param_ty);
+                    const param = llvm_func.getParam(llvm_arg_i);
+                    llvm_arg_i += 1;
+
+                    const alignment = param_ty.abiAlignment(target);
+                    const arg_ptr = buildAllocaInner(builder, llvm_func, false, param_llvm_ty);
+                    arg_ptr.setAlignment(alignment);
+                    const casted_ptr = builder.buildBitCast(arg_ptr, param.typeOf().pointerType(0), "");
+                    _ = builder.buildStore(param, casted_ptr);
+
+                    if (isByRef(param_ty)) {
+                        try args.append(arg_ptr);
+                    } else {
+                        const load_inst = builder.buildLoad(arg_ptr, "");
+                        load_inst.setAlignment(alignment);
+                        try args.append(load_inst);
+                    }
                 },
             };
         }
@@ -3070,6 +3091,13 @@ pub const DeclGen = struct {
             .as_u16 => {
                 try llvm_params.append(dg.context.intType(16));
             },
+            .float_array => {
+                const param_ty = fn_info.param_types[it.zig_index - 1];
+                const float_ty = try dg.lowerType(param_ty.structFieldType(0));
+                const field_count = @intCast(c_uint, param_ty.structFieldCount());
+                const arr_ty = float_ty.arrayType(field_count);
+                try llvm_params.append(arr_ty);
+            },
         };
 
         return llvm.functionType(
@@ -4620,6 +4648,27 @@ pub const FuncGen = struct {
                 const llvm_arg = try self.resolveInst(arg);
                 const casted = self.builder.buildBitCast(llvm_arg, self.dg.context.intType(16), "");
                 try llvm_args.append(casted);
+            },
+            .float_array => {
+                const arg = args[it.zig_index - 1];
+                const arg_ty = self.air.typeOf(arg);
+                var llvm_arg = try self.resolveInst(arg);
+                if (!isByRef(arg_ty)) {
+                    const p = self.buildAlloca(llvm_arg.typeOf());
+                    const store_inst = self.builder.buildStore(llvm_arg, p);
+                    store_inst.setAlignment(arg_ty.abiAlignment(target));
+                    llvm_arg = store_inst;
+                }
+
+                const float_ty = try self.dg.lowerType(arg_ty.structFieldType(0));
+                const field_count = @intCast(u32, arg_ty.structFieldCount());
+                const arr_ty = float_ty.arrayType(field_count);
+
+                const casted = self.builder.buildBitCast(llvm_arg, arr_ty.pointerType(0), "");
+                const alignment = arg_ty.abiAlignment(target);
+                const load_inst = self.builder.buildLoad(casted, "");
+                load_inst.setAlignment(alignment);
+                try llvm_args.append(load_inst);
             },
         };
 
@@ -9644,6 +9693,7 @@ fn firstParamSRet(fn_info: Type.Payload.Function.Data, target: std.Target) bool 
                 else => return x86_64_abi.classifySystemV(fn_info.return_type, target)[0] == .memory,
             },
             .wasm32 => return wasm_c_abi.classifyType(fn_info.return_type, target)[0] == .indirect,
+            .aarch64, .aarch64_be => return aarch64_c_abi.classifyType(fn_info.return_type, target)[0] == .memory,
             else => return false, // TODO investigate C ABI for other architectures
         },
         else => return false,
@@ -9753,6 +9803,24 @@ fn lowerFnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*const llvm.
                     const abi_size = scalar_type.abiSize(target);
                     return dg.context.intType(@intCast(c_uint, abi_size * 8));
                 },
+                .aarch64, .aarch64_be => {
+                    if (is_scalar) {
+                        return dg.lowerType(fn_info.return_type);
+                    }
+                    const classes = aarch64_c_abi.classifyType(fn_info.return_type, target);
+                    if (classes[0] == .memory or classes[0] == .none) {
+                        return dg.context.voidType();
+                    }
+                    if (classes[0] == .float_array) {
+                        return dg.lowerType(fn_info.return_type);
+                    }
+                    if (classes[1] == .none) {
+                        const bit_size = fn_info.return_type.bitSize(target);
+                        return dg.context.intType(@intCast(c_uint, bit_size));
+                    }
+
+                    return dg.context.intType(64).arrayType(2);
+                },
                 // TODO investigate C ABI for other architectures
                 else => return dg.lowerType(fn_info.return_type),
             }
@@ -9780,6 +9848,7 @@ const ParamTypeIterator = struct {
         multiple_llvm_float,
         slice,
         as_u16,
+        float_array,
     };
 
     pub fn next(it: *ParamTypeIterator) ?Lowering {
@@ -9944,6 +10013,28 @@ const ParamTypeIterator = struct {
                             return .byref;
                         }
                         return .abi_sized_int;
+                    },
+                    .aarch64, .aarch64_be => {
+                        it.zig_index += 1;
+                        it.llvm_index += 1;
+                        if (is_scalar) {
+                            return .byval;
+                        }
+                        const classes = aarch64_c_abi.classifyType(ty, it.target);
+                        if (classes[0] == .memory) {
+                            return .byref;
+                        }
+                        if (classes[0] == .float_array) {
+                            return .float_array;
+                        }
+                        if (classes[1] == .none) {
+                            it.llvm_types_len = 1;
+                        } else {
+                            it.llvm_types_len = 2;
+                        }
+                        it.llvm_types_buffer[0] = 64;
+                        it.llvm_types_buffer[1] = 64;
+                        return .multiple_llvm_ints;
                     },
                     // TODO investigate C ABI for other architectures
                     else => {
