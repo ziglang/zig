@@ -23,6 +23,10 @@ pub fn classifyType(ty: Type, target: Target) [2]Class {
     if (!ty.hasRuntimeBitsIgnoreComptime()) return none;
     switch (ty.zigTypeTag()) {
         .Struct => {
+            if (ty.containerLayout() == .Packed) {
+                if (ty.bitSize(target) <= 64) return direct;
+                return .{ .direct, .direct };
+            }
             // When the struct type is non-scalar
             if (ty.structFieldCount() > 1) return memory;
             // When the struct's alignment is non-natural
@@ -57,6 +61,10 @@ pub fn classifyType(ty: Type, target: Target) [2]Class {
             return direct;
         },
         .Union => {
+            if (ty.containerLayout() == .Packed) {
+                if (ty.bitSize(target) <= 64) return direct;
+                return .{ .direct, .direct };
+            }
             const layout = ty.unionGetLayout(target);
             std.debug.assert(layout.tag_size == 0);
             if (ty.unionFields().count() > 1) return memory;

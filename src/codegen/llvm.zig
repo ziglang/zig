@@ -9051,7 +9051,7 @@ pub const FuncGen = struct {
                     }
                 },
             },
-            .Union => return self.unionFieldPtr(inst, struct_ptr, struct_ty, field_index),
+            .Union => return self.unionFieldPtr(inst, struct_ptr, struct_ty),
             else => unreachable,
         }
     }
@@ -9061,16 +9061,13 @@ pub const FuncGen = struct {
         inst: Air.Inst.Index,
         union_ptr: *const llvm.Value,
         union_ty: Type,
-        field_index: c_uint,
     ) !?*const llvm.Value {
-        const union_obj = union_ty.cast(Type.Payload.Union).?.data;
-        const field = &union_obj.fields.values()[field_index];
         const result_llvm_ty = try self.dg.lowerType(self.air.typeOfIndex(inst));
-        if (!field.ty.hasRuntimeBitsIgnoreComptime()) {
-            return null;
-        }
         const target = self.dg.module.getTarget();
         const layout = union_ty.unionGetLayout(target);
+        if (layout.payload_size == 0) {
+            return self.builder.buildBitCast(union_ptr, result_llvm_ty, "");
+        }
         const payload_index = @boolToInt(layout.tag_align >= layout.payload_align);
         const union_field_ptr = self.builder.buildStructGEP(union_ptr, payload_index, "");
         return self.builder.buildBitCast(union_field_ptr, result_llvm_ty, "");
@@ -9677,22 +9674,7 @@ fn lowerFnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*const llvm.
             }
         },
         .C => {
-            const is_scalar = switch (fn_info.return_type.zigTypeTag()) {
-                .Void,
-                .Bool,
-                .NoReturn,
-                .Int,
-                .Float,
-                .Pointer,
-                .Optional,
-                .ErrorSet,
-                .Enum,
-                .AnyFrame,
-                .Vector,
-                => true,
-
-                else => false,
-            };
+            const is_scalar = isScalar(fn_info.return_type);
             switch (target.cpu.arch) {
                 .mips, .mipsel => return dg.lowerType(fn_info.return_type),
                 .x86_64 => switch (target.os.tag) {
@@ -9705,6 +9687,7 @@ fn lowerFnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*const llvm.
                                 return dg.context.intType(@intCast(c_uint, abi_size * 8));
                             }
                         },
+                        .win_i128 => return dg.context.intType(64).vectorType(2),
                         .memory => return dg.context.voidType(),
                         .sse => return dg.lowerType(fn_info.return_type),
                         else => unreachable,
@@ -9745,6 +9728,7 @@ fn lowerFnRetTy(dg: *DeclGen, fn_info: Type.Payload.Function.Data) !*const llvm.
                                     @panic("TODO");
                                 },
                                 .memory => unreachable, // handled above
+                                .win_i128 => unreachable, // windows only
                                 .none => break,
                             }
                         }
@@ -9840,22 +9824,7 @@ const ParamTypeIterator = struct {
                 @panic("TODO implement async function lowering in the LLVM backend");
             },
             .C => {
-                const is_scalar = switch (ty.zigTypeTag()) {
-                    .Void,
-                    .Bool,
-                    .NoReturn,
-                    .Int,
-                    .Float,
-                    .Pointer,
-                    .Optional,
-                    .ErrorSet,
-                    .Enum,
-                    .AnyFrame,
-                    .Vector,
-                    => true,
-
-                    else => false,
-                };
+                const is_scalar = isScalar(ty);
                 switch (it.target.cpu.arch) {
                     .riscv32, .riscv64 => {
                         it.zig_index += 1;
@@ -9883,6 +9852,11 @@ const ParamTypeIterator = struct {
                                     it.llvm_index += 1;
                                     return .abi_sized_int;
                                 }
+                            },
+                            .win_i128 => {
+                                it.zig_index += 1;
+                                it.llvm_index += 1;
+                                return .byref;
                             },
                             .memory => {
                                 it.zig_index += 1;
@@ -9938,6 +9912,7 @@ const ParamTypeIterator = struct {
                                         @panic("TODO");
                                     },
                                     .memory => unreachable, // handled above
+                                    .win_i128 => unreachable, // windows only
                                     .none => break,
                                 }
                             }
@@ -10107,6 +10082,27 @@ fn isByRef(ty: Type) bool {
             return true;
         },
     }
+}
+
+fn isScalar(ty: Type) bool {
+    return switch (ty.zigTypeTag()) {
+        .Void,
+        .Bool,
+        .NoReturn,
+        .Int,
+        .Float,
+        .Pointer,
+        .Optional,
+        .ErrorSet,
+        .Enum,
+        .AnyFrame,
+        .Vector,
+        => true,
+
+        .Struct => ty.containerLayout() == .Packed,
+        .Union => ty.containerLayout() == .Packed,
+        else => false,
+    };
 }
 
 /// This function returns true if we expect LLVM to lower x86_fp80 correctly

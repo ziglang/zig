@@ -2042,6 +2042,9 @@ pub const Type = extern union {
                 try writer.writeAll("fn(");
                 for (fn_info.param_types) |param_ty, i| {
                     if (i != 0) try writer.writeAll(", ");
+                    if (std.math.cast(u5, i)) |index| if (@truncate(u1, fn_info.noalias_bits >> index) != 0) {
+                        try writer.writeAll("noalias ");
+                    };
                     if (param_ty.tag() == .generic_poison) {
                         try writer.writeAll("anytype");
                     } else {
@@ -2398,7 +2401,7 @@ pub const Type = extern union {
                 } else if (ty.childType().zigTypeTag() == .Fn) {
                     return !ty.childType().fnInfo().is_generic;
                 } else if (sema_kit) |sk| {
-                    return !(try sk.sema.typeRequiresComptime(sk.block, sk.src, ty));
+                    return !(try sk.sema.typeRequiresComptime(ty));
                 } else {
                     return !comptimeOnly(ty);
                 }
@@ -2437,7 +2440,7 @@ pub const Type = extern union {
                 if (ignore_comptime_only) {
                     return true;
                 } else if (sema_kit) |sk| {
-                    return !(try sk.sema.typeRequiresComptime(sk.block, sk.src, child_ty));
+                    return !(try sk.sema.typeRequiresComptime(child_ty));
                 } else {
                     return !comptimeOnly(child_ty);
                 }

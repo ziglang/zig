@@ -728,20 +728,22 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add("struct initializer - packed",
-        \\struct {int x,y,z;} __attribute__((packed)) s0 = {1, 2};
-    , &[_][]const u8{
-        \\const struct_unnamed_1 = packed struct {
-        \\    x: c_int,
-        \\    y: c_int,
-        \\    z: c_int,
-        \\};
-        \\pub export var s0: struct_unnamed_1 = struct_unnamed_1{
-        \\    .x = @as(c_int, 1),
-        \\    .y = @as(c_int, 2),
-        \\    .z = 0,
-        \\};
-    });
+    if (builtin.zig_backend == .stage1) {
+        cases.add("struct initializer - packed",
+            \\struct {int x,y,z;} __attribute__((packed)) s0 = {1, 2};
+        , &[_][]const u8{
+            \\const struct_unnamed_1 = packed struct {
+            \\    x: c_int,
+            \\    y: c_int,
+            \\    z: c_int,
+            \\};
+            \\pub export var s0: struct_unnamed_1 = struct_unnamed_1{
+            \\    .x = @as(c_int, 1),
+            \\    .y = @as(c_int, 2),
+            \\    .z = 0,
+            \\};
+        });
+    }
 
     // Test case temporarily disabled:
     // https://github.com/ziglang/zig/issues/12055

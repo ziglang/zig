@@ -301,3 +301,14 @@ test "array access of generic param in typeof expression" {
     try expect(S.first("a") == 'a');
     comptime try expect(S.first("a") == 'a');
 }
+
+test "lazy size cast to float" {
+    {
+        const S = struct { a: u8 };
+        try expect(@intToFloat(f32, @sizeOf(S)) == 1.0);
+    }
+    {
+        const S = struct { a: u8 };
+        try expect(@as(f32, @sizeOf(S)) == 1.0);
+    }
+}
