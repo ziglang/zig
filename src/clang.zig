@@ -148,6 +148,9 @@ pub const APSInt = opaque {
 pub const ASTContext = opaque {
     pub const getPointerType = ZigClangASTContext_getPointerType;
     extern fn ZigClangASTContext_getPointerType(*const ASTContext, T: QualType) QualType;
+
+    pub const getTargetInfo = ZigClangASTContext_getTargetInfo;
+    extern fn ZigClangASTContext_getTargetInfo(*const ASTContext) *const TargetInfo;
 };
 
 pub const ASTUnit = opaque {
@@ -194,6 +197,12 @@ pub const ASTRecordLayout = opaque {
 
     pub const getAlignment = ZigClangASTRecordLayout_getAlignment;
     extern fn ZigClangASTRecordLayout_getAlignment(*const ASTRecordLayout) i64;
+
+    pub const getSize = ZigClangASTRecordLayout_getSize;
+    extern fn ZigClangASTRecordLayout_getSize(*const ASTRecordLayout) i64;
+
+    pub const getDataSize = ZigClangASTRecordLayout_getSize;
+    extern fn ZigClangASTRecordLayout_getDataSize(*const ASTRecordLayout) i64;
 };
 
 pub const AttributedType = opaque {
@@ -893,6 +902,11 @@ pub const SwitchStmt = opaque {
 pub const TagDecl = opaque {
     pub const isThisDeclarationADefinition = ZigClangTagDecl_isThisDeclarationADefinition;
     extern fn ZigClangTagDecl_isThisDeclarationADefinition(*const TagDecl) bool;
+};
+
+pub const TargetInfo = opaque {
+    pub const getMaxPointerWidth = ZigClangTargetInfo_getMaxPointerWidth;
+    extern fn ZigClangTargetInfo_getMaxPointerWidth(*const TargetInfo) u64;
 };
 
 pub const Type = opaque {

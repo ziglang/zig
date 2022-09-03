@@ -1166,8 +1166,8 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
             });
         }
 
-        if (!c.zig_is_stage1 and is_packed) {
-            return failDecl(c, record_loc, bare_name, "cannot translate packed record union", .{});
+        if (!c.zig_is_stage1 and is_packed and !isAbiSizedPackedRecord(c, record_decl)) {
+            return failDecl(c, record_loc, bare_name, "cannot translate packed record union (unless ABI sized)", .{});
         }
 
         const record_payload = try c.arena.create(ast.Payload.Record);
@@ -1202,6 +1202,39 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
             try bs.discardVariable(c, name);
         }
     }
+}
+
+/// Check if the declaration is an ABI sized, packed structure
+///
+/// aCurrently, a packed struct is only extern if it is "ABI-sized"
+fn isAbiSizedPackedRecord(c: *const Context, decl: *const clang.RecordDecl) bool {
+    assert(decl.getPackedAttribute()); // should be packed
+    // For the purposes of translate-c, we consider a implement something "ABI sized"
+    // if it is smaller than a pointer
+    const struct_layout = decl.getASTRecordLayout(c.clang_context);
+    const ptr_bits = c.clang_context.getTargetInfo().getMaxPointerWidth();
+    // double check we're in bits
+    assert(ptr_bits >= 16);
+    assert(ptr_bits % 8 == 0);
+    const ptr_size = ptr_bits / 8;
+    const struct_size = struct_layout.getSize();
+    {
+        // verify the result from getSize() matches the result
+        // returned from getDataSize().
+        //
+        // According to clang doxygen, getDataSize() returns record
+        // size "without tail padding"
+        //
+        // Since this is a packed struct, this should match the regular size
+        const struct_data_size = struct_layout.getDataSize();
+        if (struct_size != struct_data_size) {
+            std.debug.panic(
+                "Expected getSize() {} to match getDataSize() {} (packed struct should have no padding)",
+                .{ struct_size, struct_data_size },
+            );
+        }
+    }
+    return struct_size <= ptr_size;
 }
 
 fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) Error!void {

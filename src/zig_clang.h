@@ -164,6 +164,7 @@ struct ZigClangStringLiteral;
 struct ZigClangStringRef;
 struct ZigClangSwitchStmt;
 struct ZigClangTagDecl;
+struct ZigClangTargetInfo;
 struct ZigClangType;
 struct ZigClangTypedefNameDecl;
 struct ZigClangTypedefType;
@@ -1049,6 +1050,7 @@ ZIG_EXTERN_C const char* ZigClangSourceManager_getCharacterData(const struct Zig
         struct ZigClangSourceLocation SL);
 
 ZIG_EXTERN_C struct ZigClangQualType ZigClangASTContext_getPointerType(const struct ZigClangASTContext*, struct ZigClangQualType T);
+ZIG_EXTERN_C const struct ZigClangTargetInfo* ZigClangASTContext_getTargetInfo(const struct ZigClangASTContext*);
 
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangLexer_getLocForEndOfToken(struct ZigClangSourceLocation,
         const ZigClangSourceManager *, const ZigClangASTUnit *);
@@ -1076,6 +1078,8 @@ ZIG_EXTERN_C const struct ZigClangRecordDecl *ZigClangRecordType_getDecl(const s
 ZIG_EXTERN_C const struct ZigClangEnumDecl *ZigClangEnumType_getDecl(const struct ZigClangEnumType *record_ty);
 
 ZIG_EXTERN_C bool ZigClangTagDecl_isThisDeclarationADefinition(const struct ZigClangTagDecl *);
+
+ZIG_EXTERN_C uint64_t ZigClangTargetInfo_getMaxPointerWidth(const struct ZigClangTargetInfo *);
 
 ZIG_EXTERN_C const struct ZigClangTagDecl *ZigClangRecordDecl_getCanonicalDecl(const struct ZigClangRecordDecl *record_decl);
 ZIG_EXTERN_C const struct ZigClangTagDecl *ZigClangEnumDecl_getCanonicalDecl(const struct ZigClangEnumDecl *);
@@ -1106,6 +1110,8 @@ ZIG_EXTERN_C const struct ZigClangASTRecordLayout *ZigClangRecordDecl_getASTReco
 
 ZIG_EXTERN_C uint64_t ZigClangASTRecordLayout_getFieldOffset(const struct ZigClangASTRecordLayout *, unsigned);
 ZIG_EXTERN_C int64_t ZigClangASTRecordLayout_getAlignment(const struct ZigClangASTRecordLayout *);
+ZIG_EXTERN_C int64_t ZigClangASTRecordLayout_getSize(const struct ZigClangASTRecordLayout *);
+ZIG_EXTERN_C int64_t ZigClangASTRecordLayout_getDataSize(const struct ZigClangASTRecordLayout *);
 
 ZIG_EXTERN_C struct ZigClangQualType ZigClangFunctionDecl_getType(const struct ZigClangFunctionDecl *);
 ZIG_EXTERN_C struct ZigClangSourceLocation ZigClangFunctionDecl_getLocation(const struct ZigClangFunctionDecl *);

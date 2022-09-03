@@ -25,6 +25,7 @@
 #include <clang/AST/Attr.h>
 #include <clang/AST/Expr.h>
 #include <clang/AST/RecordLayout.h>
+#include <clang/Basic/TargetInfo.h>
 
 #if __GNUC__ >= 8
 #pragma GCC diagnostic pop
@@ -1832,12 +1833,21 @@ const char* ZigClangSourceManager_getCharacterData(const ZigClangSourceManager *
     return reinterpret_cast<const clang::SourceManager *>(self)->getCharacterData(bitcast(SL));
 }
 
-ZigClangQualType ZigClangASTContext_getPointerType(const ZigClangASTContext* self, ZigClangQualType T) {
+ZigClangQualType ZigClangASTContext_getPointerType(const ZigClangASTContext *self, ZigClangQualType T) {
     return bitcast(reinterpret_cast<const clang::ASTContext *>(self)->getPointerType(bitcast(T)));
 }
+const ZigClangTargetInfo *ZigClangASTContext_getTargetInfo(const ZigClangASTContext* self) {
+    const clang::ASTContext *ctx = reinterpret_cast<const clang::ASTContext *>(self);
+    return reinterpret_cast<const ZigClangTargetInfo *>(&ctx->getTargetInfo());
+}
 
+// TODO: UNUSED??
 unsigned ZigClangASTContext_getTypeAlign(const ZigClangASTContext* self, ZigClangQualType T) {
     return reinterpret_cast<const clang::ASTContext *>(self)->getTypeAlign(bitcast(T));
+}
+
+uint64_t ZigClangTargetInfo_getMaxPointerWidth(const ZigClangTargetInfo *self) {
+    return reinterpret_cast<const clang::TargetInfo *>(self)->getMaxPointerWidth();
 }
 
 ZigClangASTContext *ZigClangASTUnit_getASTContext(ZigClangASTUnit *self) {
@@ -2908,6 +2918,16 @@ uint64_t ZigClangASTRecordLayout_getFieldOffset(const struct ZigClangASTRecordLa
 int64_t ZigClangASTRecordLayout_getAlignment(const struct ZigClangASTRecordLayout *self) {
     auto casted_self = reinterpret_cast<const clang::ASTRecordLayout *>(self);
     return casted_self->getAlignment().getQuantity();
+}
+
+int64_t ZigClangASTRecordLayout_getSize(const struct ZigClangASTRecordLayout *self) {
+    auto casted_self = reinterpret_cast<const clang::ASTRecordLayout *>(self);
+    return casted_self->getSize().getQuantity();
+}
+
+int64_t ZigClangASTRecordLayout_getDataSize(const struct ZigClangASTRecordLayout *self) {
+    auto casted_self = reinterpret_cast<const clang::ASTRecordLayout *>(self);
+    return casted_self->getDataSize().getQuantity();
 }
 
 bool ZigClangIntegerLiteral_EvaluateAsInt(const struct ZigClangIntegerLiteral *self, struct ZigClangExprEvalResult *result, const struct ZigClangASTContext *ctx) {
