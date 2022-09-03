@@ -439,16 +439,17 @@ fn gen(self: *Self) InnerError!void {
         });
 
         if (self.ret_mcv == .stack_offset) {
-            // The address where to store the return value for the caller is in `.rdi`
+            // The address where to store the return value for the caller is in a
             // register which the callee is free to clobber. Therefore, we purposely
             // spill it to stack immediately.
             const stack_offset = mem.alignForwardGeneric(u32, self.next_stack_offset + 8, 8);
             self.next_stack_offset = stack_offset;
             self.max_end_stack = @maximum(self.max_end_stack, self.next_stack_offset);
 
-            try self.genSetStack(Type.usize, @intCast(i32, stack_offset), MCValue{ .register = .rdi }, .{});
+            const ret_reg = abi.getCAbiIntParamRegs(self.target.*)[0];
+            try self.genSetStack(Type.usize, @intCast(i32, stack_offset), MCValue{ .register = ret_reg }, .{});
             self.ret_mcv = MCValue{ .stack_offset = @intCast(i32, stack_offset) };
-            log.debug("gen: spilling .rdi to stack at offset {}", .{stack_offset});
+            log.debug("gen: spilling {s} to stack at offset {}", .{ @tagName(ret_reg), stack_offset });
         }
 
         _ = try self.addInst(.{
@@ -831,7 +832,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 fn processDeath(self: *Self, inst: Air.Inst.Index) void {
     const air_tags = self.air.instructions.items(.tag);
     if (air_tags[inst] == .constant) return; // Constants are immortal.
-    log.debug("%{d} => {}", .{ inst, MCValue.dead });
+    log.debug("%{d} => {}", .{ inst, MCValue{ .dead = {} } });
     // When editing this function, note that the logic must synchronize with `reuseOperand`.
     const prev_value = self.getResolvedInstValue(inst);
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
@@ -3960,7 +3961,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
         try self.register_manager.getReg(reg, null);
     }
 
-    const rdi_lock: ?RegisterLock = blk: {
+    const ret_reg_lock: ?RegisterLock = blk: {
         if (info.return_value == .stack_offset) {
             const ret_ty = fn_ty.fnReturnType();
             const ret_abi_size = @intCast(u32, ret_ty.abiSize(self.target.*));
@@ -3968,17 +3969,18 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
             const stack_offset = @intCast(i32, try self.allocMem(inst, ret_abi_size, ret_abi_align));
             log.debug("airCall: return value on stack at offset {}", .{stack_offset});
 
-            try self.register_manager.getReg(.rdi, null);
-            try self.genSetReg(Type.usize, .rdi, .{ .ptr_stack_offset = stack_offset });
-            const rdi_lock = self.register_manager.lockRegAssumeUnused(.rdi);
+            const ret_reg = abi.getCAbiIntParamRegs(self.target.*)[0];
+            try self.register_manager.getReg(ret_reg, null);
+            try self.genSetReg(Type.usize, ret_reg, .{ .ptr_stack_offset = stack_offset });
+            const ret_reg_lock = self.register_manager.lockRegAssumeUnused(ret_reg);
 
             info.return_value.stack_offset = stack_offset;
 
-            break :blk rdi_lock;
+            break :blk ret_reg_lock;
         }
         break :blk null;
     };
-    defer if (rdi_lock) |lock| self.register_manager.unlockReg(lock);
+    defer if (ret_reg_lock) |lock| self.register_manager.unlockReg(lock);
 
     for (args) |arg, arg_i| {
         const mc_arg = info.args[arg_i];
@@ -7292,11 +7294,12 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                     assert(ret_ty.isError());
                     result.return_value = .{ .immediate = 0 };
                 } else if (ret_ty_size <= 8) {
-                    result.return_value = .{ .register = .rdi };
+                    const aliased_reg = registerAlias(abi.getCAbiIntReturnRegs(self.target.*)[0], ret_ty_size);
+                    result.return_value = .{ .register = aliased_reg };
                 } else {
                     // We simply make the return MCValue a stack offset. However, the actual value
                     // for the offset will be populated later. We will also push the stack offset
-                    // value into .rdi register when we resolve the offset.
+                    // value into an appropriate register when we resolve the offset.
                     result.return_value = .{ .stack_offset = 0 };
                 }
             }
