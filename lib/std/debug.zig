@@ -206,17 +206,12 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackT
     if (native_os == .windows) {
         const addrs = stack_trace.instruction_addresses;
         const first_addr = first_address orelse {
-            stack_trace.index = windows.ntdll.RtlCaptureStackBackTrace(
-                0,
-                @intCast(u32, addrs.len),
-                @ptrCast(**anyopaque, addrs.ptr),
-                null,
-            );
+            stack_trace.index = walkStackWindows(addrs[0..]);
             return;
         };
         var addr_buf_stack: [32]usize = undefined;
         const addr_buf = if (addr_buf_stack.len > addrs.len) addr_buf_stack[0..] else addrs;
-        const n = windows.ntdll.RtlCaptureStackBackTrace(0, @intCast(u32, addr_buf.len), @ptrCast(**anyopaque, addr_buf.ptr), null);
+        const n = walkStackWindows(addr_buf[0..]);
         const first_index = for (addr_buf[0..n]) |addr, i| {
             if (addr == first_addr) {
                 break i;
@@ -573,6 +568,42 @@ pub fn writeCurrentStackTrace(
     }
 }
 
+pub fn walkStackWindows(addresses: []usize) usize {
+    if (builtin.cpu.arch == .i386) {
+        // RtlVirtualUnwind doesn't exist on x86
+        return windows.ntdll.RtlCaptureStackBackTrace(windows.UNW_FLAG_NHANDLER, addresses.len, @ptrCast(**anyopaque, addresses.ptr), null);
+    }
+
+    var context: windows.CONTEXT = std.mem.zeroes(windows.CONTEXT);
+    windows.kernel32.RtlCaptureContext(&context);
+
+    var i: usize = 0;
+    var image_base: usize = undefined;
+    var history_table: windows.UNWIND_HISTORY_TABLE = std.mem.zeroes(windows.UNWIND_HISTORY_TABLE);
+
+    while (i < addresses.len) : (i += 1) {
+        const current_regs = context.getRegs();
+        if (windows.kernel32.RtlLookupFunctionEntry(current_regs.ip, &image_base, &history_table)) |runtime_function| {
+            var handler_data: ?*anyopaque = null;
+            var establisher_frame: u64 = undefined;
+            _ = windows.kernel32.RtlVirtualUnwind(0, image_base, current_regs.ip, runtime_function, &context, &handler_data, &establisher_frame, null);
+        } else {
+            // leaf function
+            context.setIp(@intToPtr(*u64, current_regs.sp).*);
+            context.setSp(current_regs.sp + @sizeOf(usize));
+        }
+
+        const next_regs = context.getRegs();
+        if (next_regs.ip == 0) {
+            break;
+        }
+
+        addresses[i] = next_regs.ip;
+    }
+
+    return i;
+}
+
 pub fn writeCurrentStackTraceWindows(
     out_stream: anytype,
     debug_info: *DebugInfo,
@@ -580,7 +611,7 @@ pub fn writeCurrentStackTraceWindows(
     start_addr: ?usize,
 ) !void {
     var addr_buf: [1024]usize = undefined;
-    const n = windows.ntdll.RtlCaptureStackBackTrace(0, addr_buf.len, @ptrCast(**anyopaque, &addr_buf), null);
+    const n = walkStackWindows(addr_buf[0..]);
     const addrs = addr_buf[0..n];
     var start_i: usize = if (start_addr) |saddr| blk: {
         for (addrs) |addr, i| {
