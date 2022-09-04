@@ -488,14 +488,10 @@ fn gen(self: *Self) !void {
         const aligned_total_stack_end = mem.alignForwardGeneric(u32, total_stack_size, self.stack_align);
         const stack_size = aligned_total_stack_end - self.saved_regs_stack_space;
         self.max_end_stack = stack_size;
-        if (Instruction.Operand.fromU32(stack_size)) |op| {
-            self.mir_instructions.set(sub_reloc, .{
-                .tag = .sub,
-                .data = .{ .rr_op = .{ .rd = .sp, .rn = .sp, .op = op } },
-            });
-        } else {
-            return self.failSymbol("TODO ARM: allow larger stacks", .{});
-        }
+        self.mir_instructions.set(sub_reloc, .{
+            .tag = .sub_sp_scratch_r0,
+            .data = .{ .imm32 = stack_size },
+        });
 
         _ = try self.addInst(.{
             .tag = .dbg_epilogue_begin,
