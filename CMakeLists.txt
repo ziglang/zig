@@ -309,8 +309,14 @@ set(EMBEDDED_SOFTFLOAT_SOURCES
 )
 add_library(embedded_softfloat STATIC ${EMBEDDED_SOFTFLOAT_SOURCES})
 if(MSVC)
+    set(SOFTFLOAT_CFLAGS "/w")
+
+    if(NOT "${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+        set(SOFTFLOAT_CFLAGS "${SOFTFLOAT_CFLAGS} /O2")
+    endif()
+
     set_target_properties(embedded_softfloat PROPERTIES
-        COMPILE_FLAGS "/w /O2"
+        COMPILE_FLAGS ${SOFTFLOAT_CFLAGS}
     )
 else()
     set_target_properties(embedded_softfloat PROPERTIES
@@ -871,7 +877,9 @@ else()
 endif()
 
 if(MSVC)
-  set(OPTIMIZED_C_FLAGS "/O2")
+  if(NOT "${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+    set(OPTIMIZED_C_FLAGS "/O2")
+  endif()
 else(MSVC)
   set(OPTIMIZED_C_FLAGS "-std=c99 -O3")
 endif(MSVC)
