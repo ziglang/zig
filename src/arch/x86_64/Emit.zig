@@ -1029,7 +1029,6 @@ fn mirLeaPic(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             .addend = 0,
             .pcrel = true,
             .length = 2,
-            .prev_vaddr = atom.getSymbol(coff_file).value,
         });
     } else {
         return emit.fail("TODO implement lea reg, [rip + reloc] for linking backends different than MachO", .{});
@@ -1165,7 +1164,6 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             .addend = 0,
             .pcrel = true,
             .length = 2,
-            .prev_vaddr = atom.getSymbol(coff_file).value,
         });
     } else {
         return emit.fail("TODO implement call_extern for linking backends different than MachO", .{});

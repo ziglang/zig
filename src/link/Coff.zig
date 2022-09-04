@@ -114,11 +114,6 @@ relocs: RelocTable = .{},
 /// this will be a table indexed by index into the list of Atoms.
 base_relocs: BaseRelocationTable = .{},
 
-/// A table of bindings indexed by the owning them `Atom`.
-/// Note that once we refactor `Atom`'s lifetime and ownership rules,
-/// this will be a table indexed by index into the list of Atoms.
-bindings: BindingTable = .{},
-
 pub const Reloc = struct {
     @"type": enum {
         got,
@@ -130,12 +125,11 @@ pub const Reloc = struct {
     addend: u32,
     pcrel: bool,
     length: u2,
-    prev_vaddr: u32,
+    dirty: bool = true,
 };
 
 const RelocTable = std.AutoHashMapUnmanaged(*Atom, std.ArrayListUnmanaged(Reloc));
 const BaseRelocationTable = std.AutoHashMapUnmanaged(*Atom, std.ArrayListUnmanaged(u32));
-const BindingTable = std.AutoHashMapUnmanaged(*Atom, std.ArrayListUnmanaged(SymbolWithLoc));
 const UnnamedConstTable = std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(*Atom));
 
 const default_file_alignment: u16 = 0x200;
@@ -192,6 +186,16 @@ pub const SymbolWithLoc = struct {
 
     // null means it's a synthetic global or Zig source.
     file: ?u32 = null,
+
+    pub fn eql(this: SymbolWithLoc, other: SymbolWithLoc) bool {
+        if (this.file == null and other.file == null) {
+            return this.sym_index == other.sym_index;
+        }
+        if (this.file != null and other.file != null) {
+            return this.sym_index == other.sym_index and this.file.? == other.file.?;
+        }
+        return false;
+    }
 };
 
 /// When allocating, the ideal_capacity is calculated by
@@ -313,14 +317,6 @@ pub fn deinit(self: *Coff) void {
             relocs.deinit(gpa);
         }
         self.base_relocs.deinit(gpa);
-    }
-
-    {
-        var it = self.bindings.valueIterator();
-        while (it.next()) |bindings| {
-            bindings.deinit(gpa);
-        }
-        self.bindings.deinit(gpa);
     }
 }
 
@@ -720,7 +716,6 @@ fn createGotAtom(self: *Coff, target: SymbolWithLoc) !*Atom {
         .addend = 0,
         .pcrel = false,
         .length = 3,
-        .prev_vaddr = sym.value,
     });
 
     const target_sym = self.getSymbol(target);
@@ -752,10 +747,6 @@ fn createImportAtom(self: *Coff, target: SymbolWithLoc) !*Atom {
     sym.value = try self.allocateAtom(atom, atom.size, atom.alignment);
 
     log.debug("allocated import atom at 0x{x}", .{sym.value});
-
-    const target_sym = self.getSymbol(target);
-    assert(target_sym.section_number == .UNDEFINED);
-    try atom.addBinding(self, target);
 
     return atom;
 }
@@ -798,6 +789,17 @@ fn writePtrWidthAtom(self: *Coff, atom: *Atom) !void {
     }
 }
 
+fn markRelocsDirty(self: *Coff, target: SymbolWithLoc) void {
+    // TODO: reverse-lookup might come in handy here
+    var it = self.relocs.valueIterator();
+    while (it.next()) |relocs| {
+        for (relocs.items) |*reloc| {
+            if (!reloc.target.eql(target)) continue;
+            reloc.dirty = true;
+        }
+    }
+}
+
 fn resolveRelocs(self: *Coff, atom: *Atom) !void {
     const relocs = self.relocs.get(atom) orelse return;
     const source_sym = atom.getSymbol(self);
@@ -807,6 +809,8 @@ fn resolveRelocs(self: *Coff, atom: *Atom) !void {
     log.debug("relocating '{s}'", .{atom.getName(self)});
 
     for (relocs.items) |*reloc| {
+        if (!reloc.dirty) continue;
+
         const target_vaddr = switch (reloc.@"type") {
             .got => blk: {
                 const got_atom = self.getGotAtomForSymbol(reloc.target) orelse continue;
@@ -821,7 +825,6 @@ fn resolveRelocs(self: *Coff, atom: *Atom) !void {
             },
         };
         const target_vaddr_with_addend = target_vaddr + reloc.addend;
-        if (target_vaddr_with_addend == reloc.prev_vaddr) continue;
 
         log.debug("  ({x}: [() => 0x{x} ({s})) ({s})", .{
             source_sym.value + reloc.offset,
@@ -829,6 +832,8 @@ fn resolveRelocs(self: *Coff, atom: *Atom) !void {
             self.getSymbolName(reloc.target),
             @tagName(reloc.@"type"),
         });
+
+        reloc.dirty = false;
 
         if (reloc.pcrel) {
             const source_vaddr = source_sym.value + reloc.offset;
@@ -854,8 +859,6 @@ fn resolveRelocs(self: *Coff, atom: *Atom) !void {
                 else => unreachable,
             },
         }
-
-        reloc.prev_vaddr = target_vaddr_with_addend;
     }
 }
 
@@ -1131,7 +1134,9 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []const u8, 
             if (vaddr != sym.value) {
                 sym.value = vaddr;
                 log.debug("  (updating GOT entry)", .{});
-                const got_atom = self.getGotAtomForSymbol(.{ .sym_index = atom.sym_index, .file = null }).?;
+                const got_target = SymbolWithLoc{ .sym_index = atom.sym_index, .file = null };
+                const got_atom = self.getGotAtomForSymbol(got_target).?;
+                self.markRelocsDirty(got_target);
                 try self.writePtrWidthAtom(got_atom);
             }
         } else if (code_len < atom.size) {
@@ -1156,6 +1161,7 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []const u8, 
         try self.writePtrWidthAtom(got_atom);
     }
 
+    self.markRelocsDirty(atom.getSymbolWithLoc());
     try self.writeAtom(atom, code);
 }
 
@@ -1457,7 +1463,6 @@ pub fn getDeclVAddr(
 
     const atom = self.atom_by_index_table.get(reloc_info.parent_atom_index).?;
     const target = SymbolWithLoc{ .sym_index = decl.link.coff.sym_index, .file = null };
-    const target_sym = self.getSymbol(target);
     try atom.addRelocation(self, .{
         .@"type" = .direct,
         .target = target,
@@ -1465,7 +1470,6 @@ pub fn getDeclVAddr(
         .addend = reloc_info.addend,
         .pcrel = false,
         .length = 3,
-        .prev_vaddr = target_sym.value,
     });
     try atom.addBaseRelocation(self, @intCast(u32, reloc_info.offset));
 
