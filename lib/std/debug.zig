@@ -571,7 +571,7 @@ pub fn writeCurrentStackTrace(
 pub fn walkStackWindows(addresses: []usize) usize {
     if (builtin.cpu.arch == .i386) {
         // RtlVirtualUnwind doesn't exist on x86
-        return windows.ntdll.RtlCaptureStackBackTrace(windows.UNW_FLAG_NHANDLER, addresses.len, @ptrCast(**anyopaque, addresses.ptr), null);
+        return windows.ntdll.RtlCaptureStackBackTrace(0, addresses.len, @ptrCast(**anyopaque, addresses.ptr), null);
     }
 
     var context: windows.CONTEXT = std.mem.zeroes(windows.CONTEXT);
@@ -586,7 +586,7 @@ pub fn walkStackWindows(addresses: []usize) usize {
         if (windows.kernel32.RtlLookupFunctionEntry(current_regs.ip, &image_base, &history_table)) |runtime_function| {
             var handler_data: ?*anyopaque = null;
             var establisher_frame: u64 = undefined;
-            _ = windows.kernel32.RtlVirtualUnwind(0, image_base, current_regs.ip, runtime_function, &context, &handler_data, &establisher_frame, null);
+            _ = windows.kernel32.RtlVirtualUnwind(windows.UNW_FLAG_NHANDLER, image_base, current_regs.ip, runtime_function, &context, &handler_data, &establisher_frame, null);
         } else {
             // leaf function
             context.setIp(@intToPtr(*u64, current_regs.sp).*);
