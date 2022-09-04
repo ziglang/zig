@@ -58,7 +58,7 @@ const RefPathResumeInfo = struct {
 const SrcLocInfo = struct {
     bytes: u32 = 0,
     line: usize = 0,
-    src_node: i32 = 0,
+    src_node: u32 = 0,
 };
 
 var arena_allocator: std.heap.ArenaAllocator = undefined;
@@ -481,6 +481,7 @@ const DocData = struct {
         line: usize = 0,
         col: usize = 0,
         name: ?[]const u8 = null,
+        code: ?[]const u8 = null,
         docs: ?[]const u8 = null,
         fields: ?[]usize = null, // index into astNodes
         @"comptime": bool = false,
@@ -2441,7 +2442,10 @@ fn walkInstruction(
                         break :blk src_node;
                     } else null;
 
-                    const src_info = try self.srcLocInfo(file, src_node, parent_src);
+                    const src_info = if (src_node) |sn|
+                        try self.srcLocInfo(file, sn, parent_src)
+                    else
+                        parent_src;
                     _ = src_info;
 
                     const decls_len = if (small.has_decls_len) blk: {
@@ -2500,7 +2504,10 @@ fn walkInstruction(
                         break :blk src_node;
                     } else null;
 
-                    const src_info = try self.srcLocInfo(file, src_node, parent_src);
+                    const src_info = if (src_node) |sn|
+                        try self.srcLocInfo(file, sn, parent_src)
+                    else
+                        parent_src;
 
                     const tag_type: ?Ref = if (small.has_tag_type) blk: {
                         const tag_type = file.zir.extra[extra_index];
@@ -2623,7 +2630,10 @@ fn walkInstruction(
                         break :blk src_node;
                     } else null;
 
-                    const src_info = try self.srcLocInfo(file, src_node, parent_src);
+                    const src_info = if (src_node) |sn|
+                        try self.srcLocInfo(file, sn, parent_src)
+                    else
+                        parent_src;
 
                     const tag_type: ?Ref = if (small.has_tag_type) blk: {
                         const tag_type = file.zir.extra[extra_index];
@@ -2770,7 +2780,10 @@ fn walkInstruction(
                         break :blk src_node;
                     } else null;
 
-                    const src_info = try self.srcLocInfo(file, src_node, parent_src);
+                    const src_info = if (src_node) |sn|
+                        try self.srcLocInfo(file, sn, parent_src)
+                    else
+                        parent_src;
 
                     const fields_len = if (small.has_fields_len) blk: {
                         const fields_len = file.zir.extra[extra_index];
@@ -2911,6 +2924,7 @@ fn walkDecls(
     priv_decl_indexes: *std.ArrayListUnmanaged(usize),
     extra_start: usize,
 ) AutodocErrors!usize {
+    const data = file.zir.instructions.items(.data);
     const bit_bags_count = std.math.divCeil(usize, decls_len, 8) catch unreachable;
     var extra_index = extra_start + bit_bags_count;
     var bit_bag_index: usize = extra_start;
@@ -2938,7 +2952,7 @@ fn walkDecls(
         // const hash_u32s = file.zir.extra[extra_index..][0..4];
         extra_index += 4;
 
-        //const line = file.zir.extra[extra_index];
+        // const line = file.zir.extra[extra_index];
         extra_index += 1;
         const decl_name_index = file.zir.extra[extra_index];
         extra_index += 1;
@@ -2968,10 +2982,11 @@ fn walkDecls(
         };
         _ = addrspace_inst;
 
-        // const pub_str = if (is_pub) "pub " else "";
-        // const hash_bytes = @bitCast([16]u8, hash_u32s.*);
+        // This is known to work because decl values are always block_inlines
+        const value_pl_node = data[value_index].pl_node;
+        const decl_src = try self.srcLocInfo(file, value_pl_node.src_node, parent_src);
 
-        var is_test = false; // we discover if it's a test by lookin at its name
+        var is_test = false; // we discover if it's a test by looking at its name
         const name: []const u8 = blk: {
             if (decl_name_index == 0) {
                 break :blk if (is_exported) "usingnamespace" else "comptime";
@@ -2979,84 +2994,32 @@ fn walkDecls(
                 is_test = true;
                 break :blk "test";
             } else if (decl_name_index == 2) {
-                is_test = true;
-                // TODO: remove temporary hack
-                break :blk "test";
-                // // it is a decltest
-                // const decl_being_tested = scope.resolveDeclName(doc_comment_index);
-                // const ast_node_index = idx: {
-                //     const idx = self.ast_nodes.items.len;
-                //     const file_source = file.getSource(self.module.gpa) catch unreachable; // TODO fix this
-                //     const source_of_decltest_function = srcloc: {
-                //         const func_index = getBlockInlineBreak(file.zir, value_index);
-                //         // a decltest is always a function
-                //         const tag = file.zir.instructions.items(.tag)[Zir.refToIndex(func_index).?];
-                //         std.debug.assert(tag == .func_extended);
+                // it is a decltest
+                const decl_being_tested = scope.resolveDeclName(doc_comment_index);
+                const func_index = getBlockInlineBreak(file.zir, value_index);
 
-                //         const pl_node = file.zir.instructions.items(.data)[Zir.refToIndex(func_index).?].pl_node;
-                //         const extra = file.zir.extraData(Zir.Inst.ExtendedFunc, pl_node.payload_index);
-                //         const bits = @bitCast(Zir.Inst.ExtendedFunc.Bits, extra.data.bits);
+                const pl_node = data[Zir.refToIndex(func_index).?].pl_node;
+                const fn_src = try self.srcLocInfo(file, pl_node.src_node, decl_src);
+                const tree = try file.getTree(self.module.gpa);
+                const test_source_code = tree.getNodeSource(fn_src.src_node);
 
-                //         var extra_index_for_this_func: usize = extra.end;
-                //         if (bits.has_lib_name) extra_index_for_this_func += 1;
-                //         if (bits.has_cc) extra_index_for_this_func += 1;
-                //         if (bits.has_align) extra_index_for_this_func += 1;
-
-                //         const ret_ty_body = file.zir.extra[extra_index_for_this_func..][0..extra.data.ret_body_len];
-                //         extra_index_for_this_func += ret_ty_body.len;
-
-                //         const body = file.zir.extra[extra_index_for_this_func..][0..extra.data.body_len];
-                //         extra_index_for_this_func += body.len;
-
-                //         var src_locs: Zir.Inst.Func.SrcLocs = undefined;
-                //         if (body.len != 0) {
-                //             src_locs = file.zir.extraData(Zir.Inst.Func.SrcLocs, extra_index_for_this_func).data;
-                //         } else {
-                //             src_locs = .{
-                //                 .lbrace_line = line,
-                //                 .rbrace_line = line,
-                //                 .columns = 0, // TODO get columns when body.len == 0
-                //             };
-                //         }
-                //         break :srcloc src_locs;
-                //     };
-                //     const source_slice = slice: {
-                //         var start_byte_offset: u32 = 0;
-                //         var end_byte_offset: u32 = 0;
-                //         const rbrace_col = @truncate(u16, source_of_decltest_function.columns >> 16);
-                //         var lines: u32 = 0;
-                //         for (file_source.bytes) |b, i| {
-                //             if (b == '\n') {
-                //                 lines += 1;
-                //             }
-                //             if (lines == source_of_decltest_function.lbrace_line) {
-                //                 start_byte_offset = @intCast(u32, i);
-                //             }
-                //             if (lines == source_of_decltest_function.rbrace_line) {
-                //                 end_byte_offset = @intCast(u32, i) + rbrace_col;
-                //                 break;
-                //             }
-                //         }
-                //         break :slice file_source.bytes[start_byte_offset..end_byte_offset];
-                //     };
-                //     try self.ast_nodes.append(self.arena, .{
-                //         .file = 0,
-                //         .line = line,
-                //         .col = 0,
-                //         .name = try self.arena.dupe(u8, source_slice),
-                //     });
-                //     break :idx idx;
-                // };
-                // self.decls.items[decl_being_tested].decltest = ast_node_index;
-                // self.decls.items[decls_slot_index] = .{
-                //     ._analyzed = true,
-                //     .name = "test",
-                //     .isTest = true,
-                //     .src = ast_node_index,
-                //     .value = .{ .expr = .{ .type = 0 } },
-                //     .kind = "const",
-                // };
-                // continue;
+                const ast_node_index = self.ast_nodes.items.len;
+                try self.ast_nodes.append(self.arena, .{
+                    .file = 0,
+                    .line = 0,
+                    .col = 0,
+                    .code = test_source_code,
+                });
+                self.decls.items[decl_being_tested].decltest = ast_node_index;
+                self.decls.items[decls_slot_index] = .{
+                    ._analyzed = true,
+                    .name = "test",
+                    .isTest = true,
+                    .src = ast_node_index,
+                    .value = .{ .expr = .{ .type = 0 } },
+                    .kind = "const",
+                };
+                continue;
             } else {
                 const raw_decl_name = file.zir.nullTerminatedString(decl_name_index);
                 if (raw_decl_name.len == 0) {
@@ -3072,11 +3035,6 @@ fn walkDecls(
             file.zir.nullTerminatedString(doc_comment_index)
         else
             null;
-
-        // This is known to work because decl values are always block_inlines
-        const data = file.zir.instructions.items(.data);
-        const value_pl_node = data[value_index].pl_node;
-        const decl_src = try self.srcLocInfo(file, value_pl_node.src_node, parent_src);
 
         // astnode
         const ast_node_index = idx: {
@@ -4215,24 +4173,20 @@ fn writePackageTableToJson(
 fn srcLocInfo(
     self: Autodoc,
     file: *File,
-    src_node: ?i32,
+    src_node: i32,
     parent_src: SrcLocInfo,
 ) !SrcLocInfo {
-    if (src_node) |unwrapped_src_node| {
-        const sn = parent_src.src_node + unwrapped_src_node;
-        const tree = try file.getTree(self.module.gpa);
-        const node_idx = @bitCast(Ast.Node.Index, sn);
-        const tokens = tree.nodes.items(.main_token);
+    const sn = @intCast(u32, @intCast(i32, parent_src.src_node) + src_node);
+    const tree = try file.getTree(self.module.gpa);
+    const node_idx = @bitCast(Ast.Node.Index, sn);
+    const tokens = tree.nodes.items(.main_token);
 
-        const tok_idx = tokens[node_idx];
-        const start = tree.tokens.items(.start)[tok_idx];
-        const loc = tree.tokenLocation(parent_src.bytes, tok_idx);
-        return SrcLocInfo{
-            .line = parent_src.line + loc.line,
-            .bytes = start,
-            .src_node = sn,
-        };
-    } else {
-        return parent_src;
-    }
+    const tok_idx = tokens[node_idx];
+    const start = tree.tokens.items(.start)[tok_idx];
+    const loc = tree.tokenLocation(parent_src.bytes, tok_idx);
+    return SrcLocInfo{
+        .line = parent_src.line + loc.line,
+        .bytes = start,
+        .src_node = sn,
+    };
 }
