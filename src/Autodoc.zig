@@ -577,7 +577,13 @@ const DocData = struct {
             is_extern: bool = false,
         },
         BoundFn: struct { name: []const u8 },
-        Opaque: struct { name: []const u8 },
+        Opaque: struct {
+            name: []const u8,
+            src: usize, // index into astNodes
+            privDecls: []usize = &.{}, // index into decls
+            pubDecls: []usize = &.{}, // index into decls
+            ast: usize,
+        },
         Frame: struct { name: []const u8 },
         AnyFrame: struct { name: []const u8 },
         Vector: struct { name: []const u8 },
@@ -2433,6 +2439,14 @@ fn walkInstruction(
                     return result;
                 },
                 .opaque_decl => {
+                    const type_slot_index = self.types.items.len;
+                    try self.types.append(self.arena, .{ .Unanalyzed = .{} });
+
+                    var scope: Scope = .{
+                        .parent = parent_scope,
+                        .enclosing_type = type_slot_index,
+                    };
+
                     const small = @bitCast(Zir.Inst.OpaqueDecl.Small, extended.small);
                     var extra_index: usize = extended.operand;
 
@@ -2453,22 +2467,63 @@ fn walkInstruction(
                         extra_index += 1;
                         break :blk decls_len;
                     } else 0;
-                    _ = decls_len;
 
-                    const decls_bits = file.zir.extra[extra_index];
-                    _ = decls_bits;
+                    var decl_indexes: std.ArrayListUnmanaged(usize) = .{};
+                    var priv_decl_indexes: std.ArrayListUnmanaged(usize) = .{};
 
-                    // const sep = "=" ** 200;
-                    // log.debug("{s}", .{sep});
-                    // log.debug("small = {any}", .{small});
-                    // log.debug("src_node = {}", .{src_node});
-                    // log.debug("decls_len = {}", .{decls_len});
-                    // log.debug("decls_bit = {}", .{decls_bits});
-                    // log.debug("{s}", .{sep});
-                    const type_slot_index = self.types.items.len - 1;
-                    try self.types.append(self.arena, .{ .Opaque = .{ .name = "TODO" } });
+                    const decls_first_index = self.decls.items.len;
+                    // Decl name lookahead for reserving slots in `scope` (and `decls`).
+                    // Done to make sure that all decl refs can be resolved correctly,
+                    // even if we haven't fully analyzed the decl yet.
+                    {
+                        var it = file.zir.declIterator(@intCast(u32, inst_index));
+                        try self.decls.resize(self.arena, decls_first_index + it.decls_len);
+                        for (self.decls.items[decls_first_index..]) |*slot| {
+                            slot._analyzed = false;
+                        }
+                        var decls_slot_index = decls_first_index;
+                        while (it.next()) |d| : (decls_slot_index += 1) {
+                            const decl_name_index = file.zir.extra[d.sub_index + 5];
+                            try scope.insertDeclRef(self.arena, decl_name_index, decls_slot_index);
+                        }
+                    }
+
+                    extra_index = try self.walkDecls(
+                        file,
+                        &scope,
+                        src_info,
+                        decls_first_index,
+                        decls_len,
+                        &decl_indexes,
+                        &priv_decl_indexes,
+                        extra_index,
+                    );
+
+                    self.types.items[type_slot_index] = .{
+                        .Opaque = .{
+                            .name = "todo_name",
+                            .src = self_ast_node_index,
+                            .privDecls = priv_decl_indexes.items,
+                            .pubDecls = decl_indexes.items,
+                            .ast = self_ast_node_index,
+                        },
+                    };
+                    if (self.ref_paths_pending_on_types.get(type_slot_index)) |paths| {
+                        for (paths.items) |resume_info| {
+                            try self.tryResolveRefPath(
+                                resume_info.file,
+                                inst_index,
+                                resume_info.ref_path,
+                            );
+                        }
+
+                        _ = self.ref_paths_pending_on_types.remove(type_slot_index);
+                        // TODO: we should deallocate the arraylist that holds all the
+                        //       decl paths. not doing it now since it's arena-allocated
+                        //       anyway, but maybe we should put it elsewhere.
+                    }
                     return DocData.WalkResult{
-                        .typeRef = .{ .type = @enumToInt(Ref.anyopaque_type) },
+                        .typeRef = .{ .type = @enumToInt(Ref.type_type) },
                         .expr = .{ .type = type_slot_index },
                     };
                 },
@@ -3426,6 +3481,37 @@ fn tryResolveRefPath(
                     //
                     // that's working
                     path[i + 1] = (try self.cteTodo(child_string)).expr;
+                    continue :outer;
+                },
+                .Opaque => |t_opaque| {
+                    for (t_opaque.pubDecls) |d| {
+                        // TODO: this could be improved a lot
+                        //       by having our own string table!
+                        const decl = self.decls.items[d];
+                        if (std.mem.eql(u8, decl.name, child_string)) {
+                            path[i + 1] = .{ .declRef = d };
+                            continue :outer;
+                        }
+                    }
+                    for (t_opaque.privDecls) |d| {
+                        // TODO: this could be improved a lot
+                        //       by having our own string table!
+                        const decl = self.decls.items[d];
+                        if (std.mem.eql(u8, decl.name, child_string)) {
+                            path[i + 1] = .{ .declRef = d };
+                            continue :outer;
+                        }
+                    }
+
+                    // if we got here, our search failed
+                    printWithContext(
+                        file,
+                        inst_index,
+                        "failed to match `{s}` in opaque",
+                        .{child_string},
+                    );
+
+                    path[i + 1] = (try self.cteTodo("match failure")).expr;
                     continue :outer;
                 },
             },
