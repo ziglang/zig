@@ -287,6 +287,15 @@ pub fn supportsTailCall(target: std.Target) bool {
     }
 }
 
+/// TODO can this be done with simpler logic / different API binding?
+fn deleteLlvmGlobal(llvm_global: *const llvm.Value) void {
+    if (llvm_global.globalGetValueType().getTypeKind() == .Function) {
+        llvm_global.deleteFunction();
+        return;
+    }
+    return llvm_global.deleteGlobal();
+}
+
 pub const Object = struct {
     gpa: Allocator,
     module: *Module,
@@ -640,7 +649,7 @@ pub const Object = struct {
 
             const new_global_ptr = other_global.constBitCast(llvm_global.typeOf());
             llvm_global.replaceAllUsesWith(new_global_ptr);
-            object.deleteLlvmGlobal(llvm_global);
+            deleteLlvmGlobal(llvm_global);
             entry.value_ptr.* = new_global_ptr;
         }
         object.extern_collisions.clearRetainingCapacity();
@@ -666,7 +675,7 @@ pub const Object = struct {
                 const new_global_ptr = llvm_global.constBitCast(other_global.typeOf());
                 other_global.replaceAllUsesWith(new_global_ptr);
                 llvm_global.takeName(other_global);
-                other_global.deleteGlobal();
+                deleteLlvmGlobal(other_global);
                 // Problem: now we need to replace in the decl_map that
                 // the extern decl index points to this new global. However we don't
                 // know the decl index.
@@ -1184,15 +1193,6 @@ pub const Object = struct {
         return null;
     }
 
-    /// TODO can this be done with simpler logic / different API binding?
-    fn deleteLlvmGlobal(o: Object, llvm_global: *const llvm.Value) void {
-        if (o.llvm_module.getNamedFunction(llvm_global.getValueName()) != null) {
-            llvm_global.deleteFunction();
-            return;
-        }
-        return llvm_global.deleteGlobal();
-    }
-
     pub fn updateDeclExports(
         self: *Object,
         module: *Module,
@@ -1287,7 +1287,7 @@ pub const Object = struct {
                     alias.setAliasee(llvm_global);
                 } else {
                     _ = self.llvm_module.addAlias(
-                        llvm_global.typeOf(),
+                        llvm_global.globalGetValueType(),
                         0,
                         llvm_global,
                         exp_name_z,
