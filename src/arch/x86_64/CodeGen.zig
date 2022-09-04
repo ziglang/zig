@@ -7216,19 +7216,23 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             for (param_types) |ty, i| {
                 assert(ty.hasRuntimeBits());
 
-                if (self.target.os.tag != .windows) {
-                    return self.fail("TODO SysV calling convention", .{});
+                const classes: []const abi.Class = switch (self.target.os.tag) {
+                    .windows => &[1]abi.Class{abi.classifyWindows(ty, self.target.*)},
+                    else => mem.sliceTo(&abi.classifySystemV(ty, self.target.*), .none),
+                };
+                if (classes.len > 1) {
+                    return self.fail("TODO handle multiple classes per type", .{});
                 }
-
-                switch (abi.classifyWindows(ty, self.target.*)) {
+                switch (classes[0]) {
                     .integer => blk: {
                         if (i >= abi.getCAbiIntParamRegs(self.target.*).len) break :blk; // fallthrough
                         result.args[i] = .{ .register = abi.getCAbiIntParamRegs(self.target.*)[i] };
                         continue;
                     },
-                    .sse => return self.fail("TODO float/vector via SSE on Windows", .{}),
                     .memory => {}, // fallthrough
-                    else => unreachable,
+                    else => |class| return self.fail("TODO handle calling convention class {s}", .{
+                        @tagName(class),
+                    }),
                 }
 
                 const param_size = @intCast(u32, ty.abiSize(self.target.*));
@@ -7237,7 +7241,8 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                 result.args[i] = .{ .stack_offset = @intCast(i32, offset) };
                 next_stack_offset = offset;
             }
-            // Align the stack to 16bytes before allocating shadow stack space.
+
+            // Align the stack to 16bytes before allocating shadow stack space (if any).
             const aligned_next_stack_offset = mem.alignForwardGeneric(u32, next_stack_offset, 16);
             const padding = aligned_next_stack_offset - next_stack_offset;
             if (padding > 0) {
@@ -7247,11 +7252,13 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                 }
             }
 
-            // TODO fix this so that the 16byte alignment padding is at the current value of $rsp, and push
-            // the args onto the stack so that there is no padding between the first argument and
-            // the standard preamble.
-            // alignment padding | ret value (if > 8) | args ... | shadow stack space | $rbp |
-            result.stack_byte_count = aligned_next_stack_offset + 4 * @sizeOf(u64);
+            const shadow_stack_space: u32 = switch (self.target.os.tag) {
+                .windows => @intCast(u32, 4 * @sizeOf(u64)),
+                else => 0,
+            };
+
+            // alignment padding | args ... | shadow stack space (if any) | ret addr | $rbp |
+            result.stack_byte_count = aligned_next_stack_offset + shadow_stack_space;
             result.stack_align = 16;
         },
         .Unspecified => {
