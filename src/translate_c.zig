@@ -1166,7 +1166,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
             });
         }
 
-        if (!c.zig_is_stage1 and is_packed and !isAbiSizedPackedRecord(c, record_decl)) {
+        if (!c.zig_is_stage1 and is_packed and !isExternPackedRecord(c, record_decl)) {
             return failDecl(c, record_loc, bare_name, "cannot translate packed record union (unless ABI sized)", .{});
         }
 
@@ -1204,11 +1204,25 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
     }
 }
 
-/// Check if the declaration is an ABI sized, packed structure
+/// Check if the packed record is abi-compatible
 ///
-/// aCurrently, a packed struct is only extern if it is "ABI-sized"
-fn isAbiSizedPackedRecord(c: *const Context, decl: *const clang.RecordDecl) bool {
+/// Currently, a packed struct is only extern if it is "ABI-sized" and has one field
+fn isExternPackedRecord(c: *const Context, decl: *const clang.RecordDecl) bool {
     assert(decl.getPackedAttribute()); // should be packed
+    // According to @Vexu, a packed record is only ABI compatible if it has one field
+    // See here: https://github.com/ziglang/zig/pull/12735#pullrequestreview-1095639816
+    const field_count = fieldCounter: {
+        var count: usize = 0;
+        var iter = decl.field_begin();
+        const end = decl.field_end();
+        while (iter.neq(end)) : (iter = iter.next()) {
+            // No need to deref here, but do it anyways for consistency
+            _ = iter.deref();
+            count += 1;
+        }
+        break :fieldCounter count;
+    };
+    if (field_count != 1) return false;
     // For the purposes of translate-c, we consider a implement something "ABI sized"
     // if it is smaller than a pointer
     const struct_layout = decl.getASTRecordLayout(c.clang_context);
