@@ -37,7 +37,7 @@ if(ZIG_USE_LLVM_CONFIG)
       OUTPUT_STRIP_TRAILING_WHITESPACE)
 
     get_filename_component(LLVM_CONFIG_DIR "${LLVM_CONFIG_EXE}" DIRECTORY)
-    if("${LLVM_CONFIG_VERSION}" VERSION_LESS 15 OR "${LLVM_CONFIG_VERSION}" VERSION_EQUAL 16 OR "${LLVM_CONFIG_VERSION}" VERSION_GREATER 16)
+    if("${LLVM_CONFIG_VERSION}" VERSION_LESS 15 OR "${LLVM_CONFIG_VERSION}" VERSION_GREATER_EQUAL 16)
       # Save the error message, in case this is the last llvm-config we find
       list(APPEND LLVM_CONFIG_ERROR_MESSAGES "expected LLVM 15.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
 
@@ -47,10 +47,10 @@ if(ZIG_USE_LLVM_CONFIG)
     endif()
 
     # Check that this LLVM supports linking as a shared/static library, if requested
-    if (ZIG_SHARED_LLVM OR ZIG_STATIC_LLVM)
-      if (ZIG_SHARED_LLVM)
+    if (ZIG_LLVM STREQUAL "shared" OR ZIG_LLVM STREQUAL "static")
+      if (ZIG_LLVM STREQUAL "shared")
         set(STATIC_OR_SHARED_LINK "--link-shared")
-      elseif (ZIG_STATIC_LLVM)
+      elseif (ZIG_LLVM STREQUAL "static")
         set(STATIC_OR_SHARED_LINK "--link-static")
       endif()
 
@@ -60,11 +60,11 @@ if(ZIG_USE_LLVM_CONFIG)
         ERROR_VARIABLE LLVM_CONFIG_ERROR
         ERROR_STRIP_TRAILING_WHITESPACE)
 
-      if (LLVM_CONFIG_ERROR) 
+      if (LLVM_CONFIG_ERROR)
         # Save the error message, in case this is the last llvm-config we find
-        if (ZIG_SHARED_LLVM)
+        if (ZIG_LLVM STREQUAL "shared")
           list(APPEND LLVM_CONFIG_ERROR_MESSAGES "LLVM 15.x found at ${LLVM_CONFIG_EXE} does not support linking as a shared library")
-        else()
+        elseif(ZIG_LLVM STREQUAL "static")
           list(APPEND LLVM_CONFIG_ERROR_MESSAGES "LLVM 15.x found at ${LLVM_CONFIG_EXE} does not support linking as a static library")
         endif()
 
@@ -113,7 +113,7 @@ if(ZIG_USE_LLVM_CONFIG)
     break()
   endwhile()
 
-  if(ZIG_SHARED_LLVM OR ZIG_STATIC_LLVM)
+  if(ZIG_LLVM STREQUAL "shared" OR ZIG_LLVM STREQUAL "static")
     execute_process(
         COMMAND ${LLVM_CONFIG_EXE} --libfiles ${STATIC_OR_SHARED_LINK}
         OUTPUT_VARIABLE LLVM_LIBRARIES_SPACES
@@ -373,3 +373,4 @@ include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(llvm DEFAULT_MSG LLVM_LIBRARIES LLVM_INCLUDE_DIRS)
 
 mark_as_advanced(LLVM_INCLUDE_DIRS LLVM_LIBRARIES LLVM_LIBDIRS)
+
