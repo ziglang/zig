@@ -2739,6 +2739,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
         const mcv = try self.resolveInst(operand);
         const struct_ty = self.air.typeOf(operand);
         const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, self.target.*));
+        const struct_field_ty = struct_ty.structFieldType(index);
 
         switch (mcv) {
             .dead, .unreach => unreachable,
@@ -2776,10 +2777,44 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                 } else {
                     // Copy to new register
                     const dest_reg = try self.register_manager.allocReg(null, gp);
-                    try self.genSetReg(struct_ty.structFieldType(index), dest_reg, field);
+                    try self.genSetReg(struct_field_ty, dest_reg, field);
 
                     break :result MCValue{ .register = dest_reg };
                 }
+            },
+            .register => {
+                var operand_reg: Register = undefined;
+                var dest_reg: Register = undefined;
+
+                const read_args = [_]ReadArg{
+                    .{ .ty = struct_ty, .bind = .{ .mcv = mcv }, .class = gp, .reg = &operand_reg },
+                };
+                const write_args = [_]WriteArg{
+                    .{ .ty = struct_field_ty, .bind = .none, .class = gp, .reg = &dest_reg },
+                };
+                try self.allocRegs(
+                    &read_args,
+                    &write_args,
+                    ReuseMetadata{
+                        .corresponding_inst = inst,
+                        .operand_mapping = &.{0},
+                    },
+                );
+
+                const field_bit_offset = struct_field_offset * 8;
+                const field_bit_size = @intCast(u32, struct_field_ty.abiSize(self.target.*)) * 8;
+
+                _ = try self.addInst(.{
+                    .tag = if (struct_field_ty.isSignedInt()) Mir.Inst.Tag.sbfx else .ubfx,
+                    .data = .{ .rr_lsb_width = .{
+                        .rd = dest_reg,
+                        .rn = operand_reg,
+                        .lsb = @intCast(u5, field_bit_offset),
+                        .width = @intCast(u6, field_bit_size),
+                    } },
+                });
+
+                break :result MCValue{ .register = dest_reg };
             },
             else => return self.fail("TODO implement codegen struct_field_val for {}", .{mcv}),
         }

@@ -954,7 +954,6 @@ test "const local with comptime init through array init" {
 
 test "closure capture type of runtime-known parameter" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn b(c: anytype) !void {

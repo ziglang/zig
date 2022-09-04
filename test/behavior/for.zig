@@ -213,7 +213,6 @@ test "for on slice with allowzero ptr" {
 
 test "else continue outer for" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     var i: usize = 6;
     var buf: [5]u8 = undefined;

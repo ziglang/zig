@@ -175,7 +175,6 @@ test "nested arrays of integers" {
 
 test "implicit comptime in array type size" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     var arr: [plusOne(10)]bool = undefined;
     try expect(arr.len == 11);
@@ -484,7 +483,6 @@ test "sentinel element count towards the ABI size calculation" {
 test "zero-sized array with recursive type definition" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const U = struct {
         fn foo(comptime T: type, comptime n: usize) type {
