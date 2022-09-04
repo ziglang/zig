@@ -349,6 +349,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
         };
     }
 
+    try wasm_bin.initDebugSections();
     return wasm_bin;
 }
 
@@ -375,6 +376,23 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Wasm {
         self.llvm_object = try LlvmObject.create(gpa, options);
     }
     return self;
+}
+
+/// Initializes symbols and atoms for the debug sections
+/// Initialization is only done when compiling Zig code.
+/// When Zig is invoked as a linker instead, the atoms
+/// and symbols come from the object files instead.
+pub fn initDebugSections(self: *Wasm) !void {
+    if (self.dwarf == null) return; // not compiling Zig code, so no need to pre-initialize debug sections
+    // this will create an Atom and set the index for us.
+    try self.createDebugSectionForIndex(&self.debug_info_index);
+    try self.createDebugSectionForIndex(&self.debug_line_index);
+    try self.createDebugSectionForIndex(&self.debug_loc_index);
+    try self.createDebugSectionForIndex(&self.debug_abbrev_index);
+    try self.createDebugSectionForIndex(&self.debug_ranges_index);
+    try self.createDebugSectionForIndex(&self.debug_str_index);
+    try self.createDebugSectionForIndex(&self.debug_pubnames_index);
+    try self.createDebugSectionForIndex(&self.debug_pubtypes_index);
 }
 
 fn parseInputFiles(self: *Wasm, files: []const []const u8) !void {
@@ -1968,23 +1986,19 @@ fn populateErrorNameTable(self: *Wasm) !void {
     try self.parseAtom(names_atom, .{ .data = .read_only });
 }
 
-/// From a given index variable, returns it value if set.
-/// When not set, initialises a new segment, sets the index,
-/// and returns it value.
-/// When a new segment is initialised. It also creates an atom.
-pub fn getOrSetDebugIndex(self: *Wasm, index: *?u32) !u32 {
-    return (index.*) orelse {
-        const new_index = @intCast(u32, self.segments.items.len);
-        index.* = new_index;
-        try self.appendDummySegment();
+/// From a given index variable, creates a new debug section.
+/// This initializes the index, appends a new segment,
+/// and finally, creates a managed `Atom`.
+pub fn createDebugSectionForIndex(self: *Wasm, index: *?u32) !void {
+    const new_index = @intCast(u32, self.segments.items.len);
+    index.* = new_index;
+    try self.appendDummySegment();
 
-        const atom = try self.base.allocator.create(Atom);
-        atom.* = Atom.empty;
-        atom.alignment = 1; // debug sections are always 1-byte-aligned
-        try self.managed_atoms.append(self.base.allocator, atom);
-        try self.atoms.put(self.base.allocator, new_index, atom);
-        return new_index;
-    };
+    const atom = try self.base.allocator.create(Atom);
+    atom.* = Atom.empty;
+    atom.alignment = 1; // debug sections are always 1-byte-aligned
+    try self.managed_atoms.append(self.base.allocator, atom);
+    try self.atoms.put(self.base.allocator, new_index, atom);
 }
 
 fn resetState(self: *Wasm) void {
