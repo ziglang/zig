@@ -338,150 +338,54 @@ fn populateMissingMetadata(self: *Coff) !void {
     });
 
     if (self.text_section_index == null) {
-        self.text_section_index = @intCast(u16, self.sections.slice().len);
         const file_size = @intCast(u32, self.base.options.program_code_size_hint);
-        const off = self.findFreeSpace(file_size, self.page_size); // TODO we are over-aligning in file; we should track both in file and in memory pointers
-        log.debug("found .text free space 0x{x} to 0x{x}", .{ off, off + file_size });
-        var header = coff.SectionHeader{
-            .name = undefined,
-            .virtual_size = file_size,
-            .virtual_address = off,
-            .size_of_raw_data = file_size,
-            .pointer_to_raw_data = off,
-            .pointer_to_relocations = 0,
-            .pointer_to_linenumbers = 0,
-            .number_of_relocations = 0,
-            .number_of_linenumbers = 0,
-            .flags = .{
-                .CNT_CODE = 1,
-                .MEM_EXECUTE = 1,
-                .MEM_READ = 1,
-            },
-        };
-        try self.setSectionName(&header, ".text");
-        try self.sections.append(gpa, .{ .header = header });
+        self.text_section_index = try self.allocateSection(".text", file_size, .{
+            .CNT_CODE = 1,
+            .MEM_EXECUTE = 1,
+            .MEM_READ = 1,
+        });
     }
 
     if (self.got_section_index == null) {
-        self.got_section_index = @intCast(u16, self.sections.slice().len);
         const file_size = @intCast(u32, self.base.options.symbol_count_hint) * self.ptr_width.abiSize();
-        const off = self.findFreeSpace(file_size, self.page_size);
-        log.debug("found .got free space 0x{x} to 0x{x}", .{ off, off + file_size });
-        var header = coff.SectionHeader{
-            .name = undefined,
-            .virtual_size = file_size,
-            .virtual_address = off,
-            .size_of_raw_data = file_size,
-            .pointer_to_raw_data = off,
-            .pointer_to_relocations = 0,
-            .pointer_to_linenumbers = 0,
-            .number_of_relocations = 0,
-            .number_of_linenumbers = 0,
-            .flags = .{
-                .CNT_INITIALIZED_DATA = 1,
-                .MEM_READ = 1,
-            },
-        };
-        try self.setSectionName(&header, ".got");
-        try self.sections.append(gpa, .{ .header = header });
+        self.got_section_index = try self.allocateSection(".got", file_size, .{
+            .CNT_INITIALIZED_DATA = 1,
+            .MEM_READ = 1,
+        });
     }
 
     if (self.rdata_section_index == null) {
-        self.rdata_section_index = @intCast(u16, self.sections.slice().len);
         const file_size: u32 = 1024;
-        const off = self.findFreeSpace(file_size, self.page_size);
-        log.debug("found .rdata free space 0x{x} to 0x{x}", .{ off, off + file_size });
-        var header = coff.SectionHeader{
-            .name = undefined,
-            .virtual_size = file_size,
-            .virtual_address = off,
-            .size_of_raw_data = file_size,
-            .pointer_to_raw_data = off,
-            .pointer_to_relocations = 0,
-            .pointer_to_linenumbers = 0,
-            .number_of_relocations = 0,
-            .number_of_linenumbers = 0,
-            .flags = .{
-                .CNT_INITIALIZED_DATA = 1,
-                .MEM_READ = 1,
-            },
-        };
-        try self.setSectionName(&header, ".rdata");
-        try self.sections.append(gpa, .{ .header = header });
+        self.rdata_section_index = try self.allocateSection(".rdata", file_size, .{
+            .CNT_INITIALIZED_DATA = 1,
+            .MEM_READ = 1,
+        });
     }
 
     if (self.data_section_index == null) {
-        self.data_section_index = @intCast(u16, self.sections.slice().len);
         const file_size: u32 = 1024;
-        const off = self.findFreeSpace(file_size, self.page_size);
-        log.debug("found .data free space 0x{x} to 0x{x}", .{ off, off + file_size });
-        var header = coff.SectionHeader{
-            .name = undefined,
-            .virtual_size = file_size,
-            .virtual_address = off,
-            .size_of_raw_data = file_size,
-            .pointer_to_raw_data = off,
-            .pointer_to_relocations = 0,
-            .pointer_to_linenumbers = 0,
-            .number_of_relocations = 0,
-            .number_of_linenumbers = 0,
-            .flags = .{
-                .CNT_INITIALIZED_DATA = 1,
-                .MEM_READ = 1,
-                .MEM_WRITE = 1,
-            },
-        };
-        try self.setSectionName(&header, ".data");
-        try self.sections.append(gpa, .{ .header = header });
+        self.data_section_index = try self.allocateSection(".data", file_size, .{
+            .CNT_INITIALIZED_DATA = 1,
+            .MEM_READ = 1,
+            .MEM_WRITE = 1,
+        });
     }
 
     if (self.reloc_section_index == null) {
-        self.reloc_section_index = @intCast(u16, self.sections.slice().len);
         const file_size = @intCast(u32, self.base.options.symbol_count_hint) * @sizeOf(coff.BaseRelocation);
-        const off = self.findFreeSpace(file_size, self.page_size);
-        log.debug("found .reloc free space 0x{x} to 0x{x}", .{ off, off + file_size });
-        var header = coff.SectionHeader{
-            .name = undefined,
-            .virtual_size = file_size,
-            .virtual_address = off,
-            .size_of_raw_data = file_size,
-            .pointer_to_raw_data = off,
-            .pointer_to_relocations = 0,
-            .pointer_to_linenumbers = 0,
-            .number_of_relocations = 0,
-            .number_of_linenumbers = 0,
-            .flags = .{
-                .CNT_INITIALIZED_DATA = 1,
-                .MEM_DISCARDABLE = 1,
-                .MEM_READ = 1,
-            },
-        };
-        try self.setSectionName(&header, ".reloc");
-        try self.sections.append(gpa, .{ .header = header });
+        self.reloc_section_index = try self.allocateSection(".reloc", file_size, .{
+            .CNT_INITIALIZED_DATA = 1,
+            .MEM_DISCARDABLE = 1,
+            .MEM_READ = 1,
+        });
     }
 
     if (self.idata_section_index == null) {
-        self.idata_section_index = @intCast(u16, self.sections.slice().len);
         const file_size = @intCast(u32, self.base.options.symbol_count_hint) * self.ptr_width.abiSize();
-        const off = self.findFreeSpace(file_size, self.page_size);
-        log.debug("found .idata free space 0x{x} to 0x{x}", .{ off, off + file_size });
-        var header = coff.SectionHeader{
-            .name = undefined,
-            .virtual_size = file_size,
-            .virtual_address = off,
-            .size_of_raw_data = file_size,
-            .pointer_to_raw_data = off,
-            .pointer_to_relocations = 0,
-            .pointer_to_linenumbers = 0,
-            .number_of_relocations = 0,
-            .number_of_linenumbers = 0,
-            .flags = .{
-                .CNT_INITIALIZED_DATA = 1,
-                .MEM_READ = 1,
-            },
-        };
-        try self.setSectionName(&header, ".idata");
-        try self.sections.append(gpa, .{ .header = header });
+        self.idata_section_index = try self.allocateSection(".idata", file_size, .{
+            .CNT_INITIALIZED_DATA = 1,
+            .MEM_READ = 1,
+        });
     }
 
     if (self.strtab_offset == null) {
@@ -503,6 +407,27 @@ fn populateMissingMetadata(self: *Coff) !void {
         }
         try self.base.file.?.pwriteAll(&[_]u8{0}, max_file_offset);
     }
+}
+
+fn allocateSection(self: *Coff, name: []const u8, size: u32, flags: coff.SectionHeaderFlags) !u16 {
+    const index = @intCast(u16, self.sections.slice().len);
+    const off = self.findFreeSpace(size, self.page_size); // TODO: we overalign here
+    log.debug("found {s} free space 0x{x} to 0x{x}", .{ name, off, off + size });
+    var header = coff.SectionHeader{
+        .name = undefined,
+        .virtual_size = size,
+        .virtual_address = off,
+        .size_of_raw_data = size,
+        .pointer_to_raw_data = off,
+        .pointer_to_relocations = 0,
+        .pointer_to_linenumbers = 0,
+        .number_of_relocations = 0,
+        .number_of_linenumbers = 0,
+        .flags = flags,
+    };
+    try self.setSectionName(&header, name);
+    try self.sections.append(self.base.allocator, .{ .header = header });
+    return index;
 }
 
 pub fn allocateDeclIndexes(self: *Coff, decl_index: Module.Decl.Index) !void {
