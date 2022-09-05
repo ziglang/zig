@@ -324,6 +324,19 @@ fn populateMissingMetadata(self: *Coff) !void {
     assert(self.llvm_object == null);
     const gpa = self.base.allocator;
 
+    try self.strtab.buffer.ensureUnusedCapacity(gpa, @sizeOf(u32));
+    self.strtab.buffer.appendNTimesAssumeCapacity(0, @sizeOf(u32));
+
+    // Index 0 is always a null symbol.
+    try self.locals.append(gpa, .{
+        .name = [_]u8{0} ** 8,
+        .value = 0,
+        .section_number = .UNDEFINED,
+        .@"type" = .{ .base_type = .NULL, .complex_type = .NULL },
+        .storage_class = .NULL,
+        .number_of_aux_symbols = 0,
+    });
+
     if (self.text_section_index == null) {
         self.text_section_index = @intCast(u16, self.sections.slice().len);
         const file_size = @intCast(u32, self.base.options.program_code_size_hint);
@@ -472,20 +485,10 @@ fn populateMissingMetadata(self: *Coff) !void {
     }
 
     if (self.strtab_offset == null) {
-        try self.strtab.buffer.append(gpa, 0);
-        self.strtab_offset = self.findFreeSpace(@intCast(u32, self.strtab.len()), 1);
-        log.debug("found strtab free space 0x{x} to 0x{x}", .{ self.strtab_offset.?, self.strtab_offset.? + self.strtab.len() });
+        const file_size = @intCast(u32, self.strtab.len());
+        self.strtab_offset = self.findFreeSpace(file_size, @alignOf(u32)); // 4bytes aligned seems like a good idea here
+        log.debug("found strtab free space 0x{x} to 0x{x}", .{ self.strtab_offset.?, self.strtab_offset.? + file_size });
     }
-
-    // Index 0 is always a null symbol.
-    try self.locals.append(gpa, .{
-        .name = [_]u8{0} ** 8,
-        .value = 0,
-        .section_number = .UNDEFINED,
-        .@"type" = .{ .base_type = .NULL, .complex_type = .NULL },
-        .storage_class = .NULL,
-        .number_of_aux_symbols = 0,
-    });
 
     {
         // We need to find out what the max file offset is according to section headers.
@@ -1672,11 +1675,20 @@ fn writeStrtab(self: *Coff) !void {
 
     if (needed_size > allocated_size) {
         self.strtab_offset = null;
-        self.strtab_offset = @intCast(u32, self.findFreeSpace(needed_size, 1));
+        self.strtab_offset = @intCast(u32, self.findFreeSpace(needed_size, @alignOf(u32)));
     }
 
     log.debug("writing strtab from 0x{x} to 0x{x}", .{ self.strtab_offset.?, self.strtab_offset.? + needed_size });
-    try self.base.file.?.pwriteAll(self.strtab.buffer.items, self.strtab_offset.?);
+
+    var buffer = std.ArrayList(u8).init(self.base.allocator);
+    defer buffer.deinit();
+    try buffer.ensureTotalCapacityPrecise(needed_size);
+    buffer.appendSliceAssumeCapacity(self.strtab.items());
+    // Here, we do a trick in that we do not commit the size of the strtab to strtab buffer, instead
+    // we write the length of the strtab to a temporary buffer that goes to file.
+    mem.writeIntLittle(u32, buffer.items[0..4], @intCast(u32, self.strtab.len()));
+
+    try self.base.file.?.pwriteAll(buffer.items, self.strtab_offset.?);
 }
 
 fn writeSectionHeaders(self: *Coff) !void {
@@ -1982,6 +1994,14 @@ fn setSectionName(self: *Coff, header: *coff.SectionHeader, name: []const u8) !v
     const offset = try self.strtab.insert(self.base.allocator, name);
     const name_offset = fmt.bufPrint(&header.name, "/{d}", .{offset}) catch unreachable;
     mem.set(u8, header.name[name_offset.len..], 0);
+}
+
+fn getSectionName(self: *const Coff, header: *const coff.SectionHeader) []const u8 {
+    if (header.getName()) |name| {
+        return name;
+    }
+    const offset = header.getNameOffset().?;
+    return self.strtab.get(offset).?;
 }
 
 fn setSymbolName(self: *Coff, symbol: *coff.Symbol, name: []const u8) !void {
