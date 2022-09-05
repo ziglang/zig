@@ -978,7 +978,7 @@ pub const Builder = struct {
         child.cwd = cwd;
         child.env_map = env_map;
 
-        const term = child.spawnAndWait(null) catch |err| {
+        const term = child.spawnAndWait(.{}) catch |err| {
             log.err("Unable to spawn {s}: {s}\n", .{ argv[0], @errorName(err) });
             return err;
         };
