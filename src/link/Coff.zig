@@ -411,12 +411,19 @@ fn populateMissingMetadata(self: *Coff) !void {
 
 fn allocateSection(self: *Coff, name: []const u8, size: u32, flags: coff.SectionHeaderFlags) !u16 {
     const index = @intCast(u16, self.sections.slice().len);
-    const off = self.findFreeSpace(size, self.page_size); // TODO: we overalign here
-    log.debug("found {s} free space 0x{x} to 0x{x}", .{ name, off, off + size });
+    const off = self.findFreeSpace(size, default_file_alignment);
+    const vaddr = self.findFreeSpaceVM(size, self.page_size);
+    log.debug("found {s} free space 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
+        name,
+        off,
+        off + size,
+        vaddr,
+        vaddr + size,
+    });
     var header = coff.SectionHeader{
         .name = undefined,
         .virtual_size = size,
-        .virtual_address = off,
+        .virtual_address = vaddr,
         .size_of_raw_data = size,
         .pointer_to_raw_data = off,
         .pointer_to_relocations = 0,
@@ -513,16 +520,22 @@ fn allocateAtom(self: *Coff, atom: *Atom, new_atom_size: u32, alignment: u32) !u
         const sect_capacity = self.allocatedSize(header.pointer_to_raw_data);
         const needed_size: u32 = (vaddr + new_atom_size) - header.virtual_address;
         if (needed_size > sect_capacity) {
+            // const new_offset = self.findFreeSpace(needed_size, self.page_size);
+            // const current_size = if (last_atom) |atom| blk: {
+            //     const sym = last_atom.getSymbol(self);
+            //     break :blk (sym.value + atom.size) - header.virtual_address;
+            // } else 0;
+            // log.debug("moving {s} from 0x{x} to 0x{x}", .{ header.pointer_to_raw_data, new_offset });
+            // const amt = try self.base.file.?.copyRangeAll(header.pointer_to_raw_data, self.base.file.?, new_offset, current_size);
+            // if (amt != current_size) return error.InputOutput;
+
             @panic("TODO move section");
+            // header.virtual_size = needed_size;
+            // header.size_of_raw_data = mem.alignForwardGeneric(u32, needed_size, default_file_alignment);
         }
         maybe_last_atom.* = atom;
-        // header.virtual_size = needed_size;
-        // header.size_of_raw_data = mem.alignForwardGeneric(u32, needed_size, default_file_alignment);
     }
 
-    // if (header.getAlignment().? < alignment) {
-    //     header.setAlignment(alignment);
-    // }
     atom.size = new_atom_size;
     atom.alignment = alignment;
 
@@ -1778,7 +1791,57 @@ pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
 }
 
 fn detectAllocCollision(self: *Coff, start: u32, size: u32) ?u32 {
-    const headers_size = self.getSizeOfHeaders();
+    const headers_size = @maximum(self.getSizeOfHeaders(), 0x1000);
+    if (start < headers_size)
+        return headers_size;
+
+    const end = start + padToIdeal(size);
+
+    if (self.strtab_offset) |off| {
+        const tight_size = @intCast(u32, self.strtab.len());
+        const increased_size = padToIdeal(tight_size);
+        const test_end = off + increased_size;
+        if (end > off and start < test_end) {
+            return test_end;
+        }
+    }
+
+    for (self.sections.items(.header)) |header| {
+        const tight_size = header.size_of_raw_data;
+        const increased_size = padToIdeal(tight_size);
+        const test_end = header.pointer_to_raw_data + increased_size;
+        if (end > header.pointer_to_raw_data and start < test_end) {
+            return test_end;
+        }
+    }
+
+    return null;
+}
+
+fn allocatedSize(self: *Coff, start: u32) u32 {
+    if (start == 0)
+        return 0;
+    var min_pos: u32 = std.math.maxInt(u32);
+    if (self.strtab_offset) |off| {
+        if (off > start and off < min_pos) min_pos = off;
+    }
+    for (self.sections.items(.header)) |header| {
+        if (header.pointer_to_raw_data <= start) continue;
+        if (header.pointer_to_raw_data < min_pos) min_pos = header.pointer_to_raw_data;
+    }
+    return min_pos - start;
+}
+
+fn findFreeSpace(self: *Coff, object_size: u32, min_alignment: u32) u32 {
+    var start: u32 = 0;
+    while (self.detectAllocCollision(start, object_size)) |item_end| {
+        start = mem.alignForwardGeneric(u32, item_end, min_alignment);
+    }
+    return start;
+}
+
+fn detectAllocCollisionVM(self: *Coff, start: u32, size: u32) ?u32 {
+    const headers_size = @maximum(self.getSizeOfHeaders(), 0x1000);
     if (start < headers_size)
         return headers_size;
 
@@ -1793,33 +1856,18 @@ fn detectAllocCollision(self: *Coff, start: u32, size: u32) ?u32 {
     }
 
     for (self.sections.items(.header)) |header| {
-        const increased_size = header.size_of_raw_data;
-        const test_end = header.pointer_to_raw_data + increased_size;
-        if (end > header.pointer_to_raw_data and start < test_end) {
+        const increased_size = header.virtual_size;
+        const test_end = header.virtual_address + increased_size;
+        if (end > header.virtual_address and start < test_end) {
             return test_end;
         }
     }
-
     return null;
 }
 
-pub fn allocatedSize(self: *Coff, start: u32) u32 {
-    if (start == 0)
-        return 0;
-    var min_pos: u32 = std.math.maxInt(u32);
-    if (self.strtab_offset) |off| {
-        if (off > start and off < min_pos) min_pos = off;
-    }
-    for (self.sections.items(.header)) |header| {
-        if (header.pointer_to_raw_data <= start) continue;
-        if (header.pointer_to_raw_data < min_pos) min_pos = header.pointer_to_raw_data;
-    }
-    return min_pos - start;
-}
-
-pub fn findFreeSpace(self: *Coff, object_size: u32, min_alignment: u32) u32 {
+fn findFreeSpaceVM(self: *Coff, object_size: u32, min_alignment: u32) u32 {
     var start: u32 = 0;
-    while (self.detectAllocCollision(start, object_size)) |item_end| {
+    while (self.detectAllocCollisionVM(start, object_size)) |item_end| {
         start = mem.alignForwardGeneric(u32, item_end, min_alignment);
     }
     return start;
