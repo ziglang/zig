@@ -96,18 +96,20 @@ pub const Level = enum {
 };
 
 /// The default log level is based on build mode.
-pub const default_level: Level = switch (builtin.mode) {
-    .Debug => .debug,
-    .ReleaseSafe => .info,
-    .ReleaseFast, .ReleaseSmall => .err,
-};
+pub fn defaultLevel() Level {
+    return switch (builtin.mode) {
+        .Debug => .debug,
+        .ReleaseSafe => .info,
+        .ReleaseFast, .ReleaseSmall => .err,
+    };
+}
 
 /// The current log level. This is set to root.log_level if present, otherwise
 /// log.default_level.
-pub const level: Level = if (@hasDecl(root, "log_level"))
+pub const level: fn () Level = if (@hasDecl(root, "log_level"))
     root.log_level
 else
-    default_level;
+    defaultLevel;
 
 pub const ScopeLevel = struct {
     scope: @Type(.EnumLiteral),
@@ -129,7 +131,7 @@ fn log(
         inline for (scope_levels) |scope_level| {
             if (scope_level.scope == scope) break :blk scope_level.level;
         }
-        break :blk level;
+        break :blk level();
     };
 
     if (@enumToInt(message_level) <= @enumToInt(effective_log_level)) {

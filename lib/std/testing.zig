@@ -20,7 +20,10 @@ pub var failing_allocator_instance = FailingAllocator.init(base_allocator_instan
 pub var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
 
 /// TODO https://github.com/ziglang/zig/issues/5738
-pub var log_level = std.log.Level.warn;
+pub var current_log_level: std.log.Level = .warn;
+pub fn log_level() std.log.Level {
+    return current_log_level;
+}
 
 /// This is available to any test that wants to execute Zig in a child process.
 /// It will be the same executable that is running `zig test`.

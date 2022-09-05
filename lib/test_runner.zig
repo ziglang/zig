@@ -53,7 +53,7 @@ pub fn main() void {
                 leaks += 1;
             }
         }
-        std.testing.log_level = .warn;
+        std.testing.current_log_level = .warn;
 
         var test_node = root_node.start(test_fn.name, 0);
         test_node.activate();
@@ -123,7 +123,7 @@ pub fn log(
     if (@enumToInt(message_level) <= @enumToInt(std.log.Level.err)) {
         log_err_count += 1;
     }
-    if (@enumToInt(message_level) <= @enumToInt(std.testing.log_level)) {
+    if (@enumToInt(message_level) <= @enumToInt(std.testing.current_log_level)) {
         std.debug.print(
             "[" ++ @tagName(scope) ++ "] (" ++ @tagName(message_level) ++ "): " ++ format ++ "\n",
             args,

@@ -92,11 +92,13 @@ const debug_usage = normal_usage ++
 
 const usage = if (debug_extensions_enabled) debug_usage else normal_usage;
 
-pub const log_level: std.log.Level = switch (builtin.mode) {
-    .Debug => .debug,
-    .ReleaseSafe, .ReleaseFast => .info,
-    .ReleaseSmall => .err,
-};
+pub fn log_level() std.log.Level {
+    return switch (builtin.mode) {
+        .Debug => .debug,
+        .ReleaseSafe, .ReleaseFast => .info,
+        .ReleaseSmall => .err,
+    };
+}
 
 var log_scopes: std.ArrayListUnmanaged([]const u8) = .{};
 
@@ -109,7 +111,7 @@ pub fn log(
     // Hide debug messages unless:
     // * logging enabled with `-Dlog`.
     // * the --debug-log arg for the scope has been provided
-    if (@enumToInt(level) > @enumToInt(std.log.level) or
+    if (@enumToInt(level) > @enumToInt(std.log.level()) or
         @enumToInt(level) > @enumToInt(std.log.Level.info))
     {
         if (!build_options.enable_logging) return;
