@@ -359,7 +359,17 @@
 
       #listFns dt {
         font-family: var(--mono);
+        display: flex;
+        flex-direction: colunm;
+        justify-content: space-between;
       }
+      
+      #listFns dt .fnSignature {
+        overflow-x: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      
       .argBreaker {
         display: none;
       }
