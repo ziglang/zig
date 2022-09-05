@@ -175,6 +175,16 @@ pub fn addCases(ctx: *TestContext) !void {
     }
 
     {
+        const case = ctx.obj("isolated carriage return in multiline string literal", .{});
+        case.backend = .stage2;
+
+        case.addError("const foo = \\\\\test\r\r rogue carriage return\n;", &[_][]const u8{
+            ":1:19: error: expected ';' after declaration",
+            ":1:20: note: invalid byte: '\\r'",
+        });
+    }
+
+    {
         const case = ctx.obj("missing semicolon at EOF", .{});
         case.addError(
             \\const foo = 1
