@@ -666,6 +666,10 @@ pub fn deinit(self: *Self) void {
     self.locals.deinit(self.gpa);
     self.mir_instructions.deinit(self.gpa);
     self.mir_extra.deinit(self.gpa);
+    self.free_locals_i32.deinit(self.gpa);
+    self.free_locals_i64.deinit(self.gpa);
+    self.free_locals_f32.deinit(self.gpa);
+    self.free_locals_f64.deinit(self.gpa);
     self.* = undefined;
 }
 
