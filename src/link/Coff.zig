@@ -421,11 +421,14 @@ fn allocateSection(self: *Coff, name: []const u8, size: u32, flags: coff.Section
     const index = @intCast(u16, self.sections.slice().len);
     const off = self.findFreeSpace(size, default_file_alignment);
     // Memory is always allocated in sequence
+    // TODO: investigate if we can allocate .text last; this way it would never need to grow in memory!
     const vaddr = blk: {
         if (index == 0) break :blk self.page_size;
         const prev_header = self.sections.items(.header)[index - 1];
         break :blk mem.alignForwardGeneric(u32, prev_header.virtual_address + prev_header.virtual_size, self.page_size);
     };
+    // We commit more memory than needed upfront so that we don't have to reallocate too soon.
+    const memsz = mem.alignForwardGeneric(u32, size, self.page_size) * 100;
     log.debug("found {s} free space 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
         name,
         off,
@@ -435,7 +438,7 @@ fn allocateSection(self: *Coff, name: []const u8, size: u32, flags: coff.Section
     });
     var header = coff.SectionHeader{
         .name = undefined,
-        .virtual_size = size,
+        .virtual_size = memsz,
         .virtual_address = vaddr,
         .size_of_raw_data = size,
         .pointer_to_raw_data = off,
@@ -456,6 +459,7 @@ fn growSectionVM(self: *Coff, sect_id: u32, needed_size: u32) !void {
     const old_aligned_end = header.virtual_address + mem.alignForwardGeneric(u32, header.virtual_size, self.page_size);
     const new_aligned_end = header.virtual_address + mem.alignForwardGeneric(u32, increased_size, self.page_size);
     const diff = new_aligned_end - old_aligned_end;
+    log.debug("growing {s} in virtual memory by {x}", .{ self.getSectionName(header), diff });
 
     // TODO: enforce order by increasing VM addresses in self.sections container.
     // This is required by the loader anyhow as far as I can tell.
