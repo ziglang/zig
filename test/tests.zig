@@ -108,6 +108,14 @@ const test_targets = blk: {
             },
             .backend = .stage2_x86_64,
         },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .windows,
+                .abi = .gnu,
+            },
+            .backend = .stage2_x86_64,
+        },
 
         .{
             .target = .{
@@ -693,6 +701,13 @@ pub fn addPkgTests(
             else => {
                 these_tests.use_stage1 = false;
                 these_tests.use_llvm = false;
+
+                if (test_target.target.getOsTag() == .windows) {
+                    // TODO: We set these to no so that we don't fallback to LLD for incremental linking context. This is because
+                    // our own COFF linker doesn't yet support these options.
+                    these_tests.emit_implib = .no_emit;
+                    these_tests.use_unwind_tables = false;
+                }
             },
         };
 

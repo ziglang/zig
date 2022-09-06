@@ -1623,6 +1623,7 @@ pub const LibExeObjStep = struct {
     /// Overrides the default stack size
     stack_size: ?u64 = null,
 
+    use_unwind_tables: ?bool = null,
     want_lto: ?bool = null,
     use_stage1: ?bool = null,
     use_llvm: ?bool = null,
@@ -2502,6 +2503,14 @@ pub const LibExeObjStep = struct {
                 try zig_args.append("-fLLD");
             } else {
                 try zig_args.append("-fno-LLD");
+            }
+        }
+
+        if (self.use_unwind_tables) |use_unwind_tables| {
+            if (use_unwind_tables) {
+                try zig_args.append("-funwind-tables");
+            } else {
+                try zig_args.append("-fno-unwind-tables");
             }
         }
 
