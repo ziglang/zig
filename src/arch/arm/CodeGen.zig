@@ -2258,89 +2258,84 @@ fn airPtrSlicePtrPtr(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
+fn ptrElemVal(
+    self: *Self,
+    ptr_bind: ReadArg.Bind,
+    index_bind: ReadArg.Bind,
+    ptr_ty: Type,
+    maybe_inst: ?Air.Inst.Index,
+) !MCValue {
+    const elem_ty = ptr_ty.childType();
+    const elem_size = @intCast(u32, elem_ty.abiSize(self.target.*));
+
+    switch (elem_size) {
+        1, 4 => {
+            var base_reg: Register = undefined;
+            var index_reg: Register = undefined;
+            var dest_reg: Register = undefined;
+
+            const read_args = [_]ReadArg{
+                .{ .ty = ptr_ty, .bind = ptr_bind, .class = gp, .reg = &base_reg },
+                .{ .ty = Type.usize, .bind = index_bind, .class = gp, .reg = &index_reg },
+            };
+            const write_args = [_]WriteArg{
+                .{ .ty = elem_ty, .bind = .none, .class = gp, .reg = &dest_reg },
+            };
+            try self.allocRegs(
+                &read_args,
+                &write_args,
+                if (maybe_inst) |inst| .{
+                    .corresponding_inst = inst,
+                    .operand_mapping = &.{ 0, 1 },
+                } else null,
+            );
+
+            const tag: Mir.Inst.Tag = switch (elem_size) {
+                1 => .ldrb,
+                4 => .ldr,
+                else => unreachable,
+            };
+            const shift: u5 = switch (elem_size) {
+                1 => 0,
+                4 => 2,
+                else => unreachable,
+            };
+
+            _ = try self.addInst(.{
+                .tag = tag,
+                .data = .{ .rr_offset = .{
+                    .rt = dest_reg,
+                    .rn = base_reg,
+                    .offset = .{ .offset = Instruction.Offset.reg(index_reg, .{ .lsl = shift }) },
+                } },
+            });
+
+            return MCValue{ .register = dest_reg };
+        },
+        else => {
+            const addr = try self.ptrArithmetic(.ptr_add, ptr_bind, index_bind, ptr_ty, Type.usize, null);
+
+            const dest = try self.allocRegOrMem(elem_ty, true, maybe_inst);
+            try self.load(dest, addr, ptr_ty);
+            return dest;
+        },
+    }
+}
+
 fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
-    const is_volatile = false; // TODO
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-
-    if (!is_volatile and self.liveness.isUnused(inst)) return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
-    const result: MCValue = result: {
-        const slice_mcv = try self.resolveInst(bin_op.lhs);
-
-        // TODO optimize for the case where the index is a constant,
-        // i.e. index_mcv == .immediate
-        const index_mcv = try self.resolveInst(bin_op.rhs);
-        const index_is_register = index_mcv == .register;
-
-        const slice_ty = self.air.typeOf(bin_op.lhs);
-        const elem_ty = slice_ty.childType();
-        const elem_size = @intCast(u32, elem_ty.abiSize(self.target.*));
-
+    const slice_ty = self.air.typeOf(bin_op.lhs);
+    const result: MCValue = if (!slice_ty.isVolatilePtr() and self.liveness.isUnused(inst)) .dead else result: {
         var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-        const slice_ptr_field_type = slice_ty.slicePtrFieldType(&buf);
+        const ptr_ty = slice_ty.slicePtrFieldType(&buf);
 
-        const index_lock: ?RegisterLock = if (index_is_register)
-            self.register_manager.lockRegAssumeUnused(index_mcv.register)
-        else
-            null;
-        defer if (index_lock) |reg| self.register_manager.unlockReg(reg);
-
+        const slice_mcv = try self.resolveInst(bin_op.lhs);
         const base_mcv = slicePtr(slice_mcv);
 
-        switch (elem_size) {
-            1, 4 => {
-                const base_reg = switch (base_mcv) {
-                    .register => |r| r,
-                    else => try self.copyToTmpRegister(slice_ptr_field_type, base_mcv),
-                };
-                const base_reg_lock = self.register_manager.lockRegAssumeUnused(base_reg);
-                defer self.register_manager.unlockReg(base_reg_lock);
+        const base_bind: ReadArg.Bind = .{ .mcv = base_mcv };
+        const index_bind: ReadArg.Bind = .{ .inst = bin_op.rhs };
 
-                const dst_reg = try self.register_manager.allocReg(inst, gp);
-                const dst_mcv = MCValue{ .register = dst_reg };
-                const dst_reg_lock = self.register_manager.lockRegAssumeUnused(dst_reg);
-                defer self.register_manager.unlockReg(dst_reg_lock);
-
-                const index_reg: Register = switch (index_mcv) {
-                    .register => |reg| reg,
-                    else => try self.copyToTmpRegister(Type.usize, index_mcv),
-                };
-                const index_reg_lock = self.register_manager.lockReg(index_reg);
-                defer if (index_reg_lock) |lock| self.register_manager.unlockReg(lock);
-
-                const tag: Mir.Inst.Tag = switch (elem_size) {
-                    1 => .ldrb,
-                    4 => .ldr,
-                    else => unreachable,
-                };
-                const shift: u5 = switch (elem_size) {
-                    1 => 0,
-                    4 => 2,
-                    else => unreachable,
-                };
-
-                _ = try self.addInst(.{
-                    .tag = tag,
-                    .data = .{ .rr_offset = .{
-                        .rt = dst_reg,
-                        .rn = base_reg,
-                        .offset = .{ .offset = Instruction.Offset.reg(index_reg, .{ .lsl = shift }) },
-                    } },
-                });
-
-                break :result dst_mcv;
-            },
-            else => {
-                const dest = try self.allocRegOrMem(self.air.typeOfIndex(inst), true, inst);
-
-                const base_bind: ReadArg.Bind = .{ .mcv = base_mcv };
-                const index_bind: ReadArg.Bind = .{ .mcv = index_mcv };
-
-                const addr = try self.ptrArithmetic(.ptr_add, base_bind, index_bind, slice_ptr_field_type, Type.usize, null);
-                try self.load(dest, addr, slice_ptr_field_type);
-
-                break :result dest;
-            },
-        }
+        break :result try self.ptrElemVal(base_bind, index_bind, ptr_ty, inst);
     };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
@@ -2371,9 +2366,14 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airPtrElemVal(self: *Self, inst: Air.Inst.Index) !void {
-    const is_volatile = false; // TODO
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (!is_volatile and self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement ptr_elem_val for {}", .{self.target.cpu.arch});
+    const ptr_ty = self.air.typeOf(bin_op.lhs);
+    const result: MCValue = if (!ptr_ty.isVolatilePtr() and self.liveness.isUnused(inst)) .dead else result: {
+        const base_bind: ReadArg.Bind = .{ .inst = bin_op.lhs };
+        const index_bind: ReadArg.Bind = .{ .inst = bin_op.rhs };
+
+        break :result try self.ptrElemVal(base_bind, index_bind, ptr_ty, inst);
+    };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 

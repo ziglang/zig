@@ -641,7 +641,6 @@ test "global constant is loaded with a runtime-known index" {
 
 test "multiline string literal is null terminated" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const s1 =
         \\one
