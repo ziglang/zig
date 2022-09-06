@@ -5799,7 +5799,7 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
         }
     }
     for (source) |c| {
-        if (c == '\\') {
+        if (c == '\\' or c == '\t') {
             break;
         }
     } else return source;
@@ -5876,6 +5876,13 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
                     state = .Start;
             },
             .Start => {
+                if (c == '\t') {
+                    bytes[i] = '\\';
+                    i += 1;
+                    bytes[i] = 't';
+                    i += 1;
+                    continue;
+                }
                 if (c == '\\') {
                     state = .Escape;
                 }
