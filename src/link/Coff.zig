@@ -520,19 +520,36 @@ fn allocateAtom(self: *Coff, atom: *Atom, new_atom_size: u32, alignment: u32) !u
         const sect_capacity = self.allocatedSize(header.pointer_to_raw_data);
         const needed_size: u32 = (vaddr + new_atom_size) - header.virtual_address;
         if (needed_size > sect_capacity) {
-            // const new_offset = self.findFreeSpace(needed_size, self.page_size);
-            // const current_size = if (last_atom) |atom| blk: {
-            //     const sym = last_atom.getSymbol(self);
-            //     break :blk (sym.value + atom.size) - header.virtual_address;
-            // } else 0;
-            // log.debug("moving {s} from 0x{x} to 0x{x}", .{ header.pointer_to_raw_data, new_offset });
-            // const amt = try self.base.file.?.copyRangeAll(header.pointer_to_raw_data, self.base.file.?, new_offset, current_size);
-            // if (amt != current_size) return error.InputOutput;
-
-            @panic("TODO move section");
-            // header.virtual_size = needed_size;
-            // header.size_of_raw_data = mem.alignForwardGeneric(u32, needed_size, default_file_alignment);
+            const new_offset = self.findFreeSpace(needed_size, default_file_alignment);
+            const current_size = if (maybe_last_atom.*) |last_atom| blk: {
+                const sym = last_atom.getSymbol(self);
+                break :blk (sym.value + last_atom.size) - header.virtual_address;
+            } else 0;
+            log.debug("moving {s} from (0x{x} - 0x{x}) to (0x{x} - 0x{x})", .{
+                self.getSectionName(header),
+                header.pointer_to_raw_data,
+                header.pointer_to_raw_data + current_size,
+                new_offset,
+                new_offset + current_size,
+            });
+            const amt = try self.base.file.?.copyRangeAll(
+                header.pointer_to_raw_data,
+                self.base.file.?,
+                new_offset,
+                current_size,
+            );
+            if (amt != current_size) return error.InputOutput;
+            header.pointer_to_raw_data = new_offset;
         }
+
+        const sect_vm_capacity = self.allocatedSizeVM(header.virtual_address);
+        if (needed_size > sect_vm_capacity) {
+            log.err("needed {x}, available {x}", .{ needed_size, sect_vm_capacity });
+            @panic("TODO expand section in virtual address space");
+        }
+
+        header.virtual_size = @maximum(header.virtual_size, needed_size);
+        header.size_of_raw_data = needed_size;
         maybe_last_atom.* = atom;
     }
 
@@ -778,8 +795,9 @@ fn resolveRelocs(self: *Coff, atom: *Atom) !void {
 
         if (reloc.pcrel) {
             const source_vaddr = source_sym.value + reloc.offset;
-            const disp = target_vaddr_with_addend - source_vaddr - 4;
-            try self.base.file.?.pwriteAll(mem.asBytes(&@intCast(u32, disp)), file_offset + reloc.offset);
+            const disp =
+                @intCast(i32, target_vaddr_with_addend) - @intCast(i32, source_vaddr) - 4;
+            try self.base.file.?.pwriteAll(mem.asBytes(&disp), file_offset + reloc.offset);
             continue;
         }
 
@@ -1515,7 +1533,24 @@ fn writeBaseRelocations(self: *Coff) !void {
     const header = &self.sections.items(.header)[self.reloc_section_index.?];
     const sect_capacity = self.allocatedSize(header.pointer_to_raw_data);
     const needed_size = @intCast(u32, buffer.items.len);
-    assert(needed_size < sect_capacity); // TODO expand .reloc section
+    if (needed_size > sect_capacity) {
+        const new_offset = self.findFreeSpace(needed_size, default_file_alignment);
+        log.debug("writing {s} at 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
+            self.getSectionName(header),
+            header.pointer_to_raw_data,
+            header.pointer_to_raw_data + needed_size,
+            new_offset,
+            new_offset + needed_size,
+        });
+        header.pointer_to_raw_data = new_offset;
+
+        const sect_vm_capacity = self.allocatedSizeVM(header.virtual_address);
+        if (needed_size > sect_vm_capacity) {
+            @panic("TODO expand section in virtual address space");
+        }
+    }
+    header.virtual_size = @maximum(header.virtual_size, needed_size);
+    header.size_of_raw_data = needed_size;
 
     try self.base.file.?.pwriteAll(buffer.items, header.pointer_to_raw_data);
 
@@ -1608,6 +1643,8 @@ fn writeImportTable(self: *Coff) !void {
 }
 
 fn writeStrtab(self: *Coff) !void {
+    if (self.strtab_offset == null) return;
+
     const allocated_size = self.allocatedSize(self.strtab_offset.?);
     const needed_size = @intCast(u32, self.strtab.len());
 
@@ -1838,6 +1875,20 @@ fn findFreeSpace(self: *Coff, object_size: u32, min_alignment: u32) u32 {
         start = mem.alignForwardGeneric(u32, item_end, min_alignment);
     }
     return start;
+}
+
+fn allocatedSizeVM(self: *Coff, start: u32) u32 {
+    if (start == 0)
+        return 0;
+    var min_pos: u32 = std.math.maxInt(u32);
+    if (self.strtab_offset) |off| {
+        if (off > start and off < min_pos) min_pos = off;
+    }
+    for (self.sections.items(.header)) |header| {
+        if (header.virtual_address <= start) continue;
+        if (header.virtual_address < min_pos) min_pos = header.virtual_address;
+    }
+    return min_pos - start;
 }
 
 fn detectAllocCollisionVM(self: *Coff, start: u32, size: u32) ?u32 {
