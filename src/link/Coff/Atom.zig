@@ -4,8 +4,6 @@ const std = @import("std");
 const coff = std.coff;
 const log = std.log.scoped(.link);
 
-const Allocator = std.mem.Allocator;
-
 const Coff = @import("../Coff.zig");
 const Reloc = Coff.Reloc;
 const SymbolWithLoc = Coff.SymbolWithLoc;
@@ -40,11 +38,6 @@ pub const empty = Atom{
     .prev = null,
     .next = null,
 };
-
-pub fn deinit(self: *Atom, gpa: Allocator) void {
-    _ = self;
-    _ = gpa;
-}
 
 /// Returns symbol referencing this atom.
 pub fn getSymbol(self: Atom, coff_file: *const Coff) *const coff.Symbol {

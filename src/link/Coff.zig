@@ -30,7 +30,6 @@ const TypedValue = @import("../TypedValue.zig");
 pub const base_tag: link.File.Tag = .coff;
 
 const msdos_stub = @embedFile("msdos-stub.bin");
-const N_DATA_DIRS: u5 = 16;
 
 /// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
 llvm_object: ?*LlvmObject = null,
@@ -44,7 +43,7 @@ page_size: u32,
 objects: std.ArrayListUnmanaged(Object) = .{},
 
 sections: std.MultiArrayList(Section) = .{},
-data_directories: [N_DATA_DIRS]coff.ImageDataDirectory,
+data_directories: [coff.IMAGE_NUMBEROF_DIRECTORY_ENTRIES]coff.ImageDataDirectory,
 
 text_section_index: ?u16 = null,
 got_section_index: ?u16 = null,
@@ -259,7 +258,7 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Coff {
         },
         .ptr_width = ptr_width,
         .page_size = page_size,
-        .data_directories = comptime mem.zeroes([N_DATA_DIRS]coff.ImageDataDirectory),
+        .data_directories = comptime mem.zeroes([coff.IMAGE_NUMBEROF_DIRECTORY_ENTRIES]coff.ImageDataDirectory),
     };
 
     const use_llvm = build_options.have_llvm and options.use_llvm;
@@ -421,7 +420,12 @@ fn populateMissingMetadata(self: *Coff) !void {
 fn allocateSection(self: *Coff, name: []const u8, size: u32, flags: coff.SectionHeaderFlags) !u16 {
     const index = @intCast(u16, self.sections.slice().len);
     const off = self.findFreeSpace(size, default_file_alignment);
-    const vaddr = self.findFreeSpaceVM(size, self.page_size);
+    // Memory is always allocated in sequence
+    const vaddr = blk: {
+        if (index == 0) break :blk self.page_size;
+        const prev_header = self.sections.items(.header)[index - 1];
+        break :blk mem.alignForwardGeneric(u32, prev_header.virtual_address + prev_header.virtual_size, self.page_size);
+    };
     log.debug("found {s} free space 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
         name,
         off,
@@ -574,7 +578,7 @@ fn allocateAtom(self: *Coff, atom: *Atom, new_atom_size: u32, alignment: u32) !u
             header.pointer_to_raw_data = new_offset;
         }
 
-        const sect_vm_capacity = self.allocatedSizeVM(header.virtual_address);
+        const sect_vm_capacity = self.allocatedVirtualSize(header.virtual_address);
         if (needed_size > sect_vm_capacity) {
             try self.growSectionVM(sect_id, needed_size);
             self.markRelocsDirtyByAddress(header.virtual_address + needed_size);
@@ -857,10 +861,9 @@ fn resolveRelocs(self: *Coff, atom: *Atom) !void {
 fn freeAtom(self: *Coff, atom: *Atom) void {
     log.debug("freeAtom {*}", .{atom});
 
-    // TODO hashmap
-    for (self.managed_atoms.items) |owned| {
-        if (owned == atom) break;
-    } else atom.deinit(self.base.allocator);
+    // Remove any relocs and base relocs associated with this Atom
+    _ = self.relocs.remove(atom);
+    _ = self.base_relocs.remove(atom);
 
     const sym = atom.getSymbol(self);
     const sect_id = @enumToInt(sym.section_number) - 1;
@@ -1577,7 +1580,7 @@ fn writeBaseRelocations(self: *Coff) !void {
         });
         header.pointer_to_raw_data = new_offset;
 
-        const sect_vm_capacity = self.allocatedSizeVM(header.virtual_address);
+        const sect_vm_capacity = self.allocatedVirtualSize(header.virtual_address);
         if (needed_size > sect_vm_capacity) {
             // TODO: we want to enforce .reloc after every alloc section.
             try self.growSectionVM(self.reloc_section_index.?, needed_size);
@@ -1862,7 +1865,7 @@ pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
 }
 
 fn detectAllocCollision(self: *Coff, start: u32, size: u32) ?u32 {
-    const headers_size = @maximum(self.getSizeOfHeaders(), 0x1000);
+    const headers_size = @maximum(self.getSizeOfHeaders(), self.page_size);
     if (start < headers_size)
         return headers_size;
 
@@ -1911,7 +1914,7 @@ fn findFreeSpace(self: *Coff, object_size: u32, min_alignment: u32) u32 {
     return start;
 }
 
-fn allocatedSizeVM(self: *Coff, start: u32) u32 {
+fn allocatedVirtualSize(self: *Coff, start: u32) u32 {
     if (start == 0)
         return 0;
     var min_pos: u32 = std.math.maxInt(u32);
@@ -1920,39 +1923,6 @@ fn allocatedSizeVM(self: *Coff, start: u32) u32 {
         if (header.virtual_address < min_pos) min_pos = header.virtual_address;
     }
     return min_pos - start;
-}
-
-fn detectAllocCollisionVM(self: *Coff, start: u32, size: u32) ?u32 {
-    const headers_size = @maximum(self.getSizeOfHeaders(), 0x1000);
-    if (start < headers_size)
-        return headers_size;
-
-    const end = start + size;
-
-    if (self.strtab_offset) |off| {
-        const increased_size = @intCast(u32, self.strtab.len());
-        const test_end = off + increased_size;
-        if (end > off and start < test_end) {
-            return test_end;
-        }
-    }
-
-    for (self.sections.items(.header)) |header| {
-        const increased_size = header.virtual_size;
-        const test_end = header.virtual_address + increased_size;
-        if (end > header.virtual_address and start < test_end) {
-            return test_end;
-        }
-    }
-    return null;
-}
-
-fn findFreeSpaceVM(self: *Coff, object_size: u32, min_alignment: u32) u32 {
-    var start: u32 = 0;
-    while (self.detectAllocCollisionVM(start, object_size)) |item_end| {
-        start = mem.alignForwardGeneric(u32, item_end, min_alignment);
-    }
-    return start;
 }
 
 inline fn getSizeOfHeaders(self: Coff) u32 {
