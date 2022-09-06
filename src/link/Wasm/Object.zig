@@ -953,13 +953,7 @@ pub fn parseIntoAtoms(self: *Object, gpa: Allocator, object_index: u16, wasm_bin
             segment.alignment = std.math.max(segment.alignment, atom.alignment);
         }
 
-        if (wasm_bin.atoms.getPtr(final_index)) |last| {
-            last.*.next = atom;
-            atom.prev = last.*;
-            last.* = atom;
-        } else {
-            try wasm_bin.atoms.putNoClobber(gpa, final_index, atom);
-        }
+        try wasm_bin.appendAtomAtIndex(final_index, atom);
         log.debug("Parsed into atom: '{s}' at segment index {d}", .{ self.string_table.get(self.symtable[atom.sym_index].name), final_index });
     }
 }

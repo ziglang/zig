@@ -190,7 +190,7 @@ fn relocationValue(self: Atom, relocation: types.Relocation, wasm_bin: *const Wa
             const target_atom = wasm_bin.symbol_atom.get(target_loc).?;
             const segment_info = if (target_atom.file) |object_index| blk: {
                 break :blk wasm_bin.objects.items[object_index].segment_info;
-            } else wasm_bin.segment_info.items;
+            } else wasm_bin.segment_info.values();
             const segment_name = segment_info[symbol.index].outputName(merge_segment);
             const segment_index = wasm_bin.data_segments.get(segment_name).?;
             const segment = wasm_bin.segments.items[segment_index];
