@@ -126,6 +126,15 @@ pub const Reloc = struct {
     pcrel: bool,
     length: u2,
     dirty: bool = true,
+
+    /// Returns an Atom which is the target node of this relocation edge (if any).
+    fn getTargetAtom(self: Reloc, coff_file: *Coff) ?*Atom {
+        switch (self.@"type") {
+            .got => return coff_file.getGotAtomForSymbol(self.target),
+            .direct => return coff_file.getAtomForSymbol(self.target),
+            .imports => return coff_file.getImportAtomForSymbol(self.target),
+        }
+    }
 };
 
 const RelocTable = std.AutoHashMapUnmanaged(*Atom, std.ArrayListUnmanaged(Reloc));
@@ -355,7 +364,7 @@ fn populateMissingMetadata(self: *Coff) !void {
     }
 
     if (self.rdata_section_index == null) {
-        const file_size: u32 = 1024;
+        const file_size: u32 = self.page_size;
         self.rdata_section_index = try self.allocateSection(".rdata", file_size, .{
             .CNT_INITIALIZED_DATA = 1,
             .MEM_READ = 1,
@@ -363,11 +372,19 @@ fn populateMissingMetadata(self: *Coff) !void {
     }
 
     if (self.data_section_index == null) {
-        const file_size: u32 = 1024;
+        const file_size: u32 = self.page_size;
         self.data_section_index = try self.allocateSection(".data", file_size, .{
             .CNT_INITIALIZED_DATA = 1,
             .MEM_READ = 1,
             .MEM_WRITE = 1,
+        });
+    }
+
+    if (self.idata_section_index == null) {
+        const file_size = @intCast(u32, self.base.options.symbol_count_hint) * self.ptr_width.abiSize();
+        self.idata_section_index = try self.allocateSection(".idata", file_size, .{
+            .CNT_INITIALIZED_DATA = 1,
+            .MEM_READ = 1,
         });
     }
 
@@ -376,14 +393,6 @@ fn populateMissingMetadata(self: *Coff) !void {
         self.reloc_section_index = try self.allocateSection(".reloc", file_size, .{
             .CNT_INITIALIZED_DATA = 1,
             .MEM_DISCARDABLE = 1,
-            .MEM_READ = 1,
-        });
-    }
-
-    if (self.idata_section_index == null) {
-        const file_size = @intCast(u32, self.base.options.symbol_count_hint) * self.ptr_width.abiSize();
-        self.idata_section_index = try self.allocateSection(".idata", file_size, .{
-            .CNT_INITIALIZED_DATA = 1,
             .MEM_READ = 1,
         });
     }
@@ -435,6 +444,35 @@ fn allocateSection(self: *Coff, name: []const u8, size: u32, flags: coff.Section
     try self.setSectionName(&header, name);
     try self.sections.append(self.base.allocator, .{ .header = header });
     return index;
+}
+
+fn growSectionVM(self: *Coff, sect_id: u32, needed_size: u32) !void {
+    const header = &self.sections.items(.header)[sect_id];
+    const increased_size = padToIdeal(needed_size);
+    const old_aligned_end = header.virtual_address + mem.alignForwardGeneric(u32, header.virtual_size, self.page_size);
+    const new_aligned_end = header.virtual_address + mem.alignForwardGeneric(u32, increased_size, self.page_size);
+    const diff = new_aligned_end - old_aligned_end;
+
+    // TODO: enforce order by increasing VM addresses in self.sections container.
+    // This is required by the loader anyhow as far as I can tell.
+    for (self.sections.items(.header)[sect_id + 1 ..]) |*next_header, next_sect_id| {
+        const maybe_last_atom = &self.sections.items(.last_atom)[sect_id + 1 + next_sect_id];
+        next_header.virtual_address += diff;
+
+        if (maybe_last_atom.*) |last_atom| {
+            var atom = last_atom;
+            while (true) {
+                const sym = atom.getSymbolPtr(self);
+                sym.value += diff;
+
+                if (atom.prev) |prev| {
+                    atom = prev;
+                } else break;
+            }
+        }
+    }
+
+    header.virtual_size = increased_size;
 }
 
 pub fn allocateDeclIndexes(self: *Coff, decl_index: Module.Decl.Index) !void {
@@ -525,13 +563,7 @@ fn allocateAtom(self: *Coff, atom: *Atom, new_atom_size: u32, alignment: u32) !u
                 const sym = last_atom.getSymbol(self);
                 break :blk (sym.value + last_atom.size) - header.virtual_address;
             } else 0;
-            log.debug("moving {s} from (0x{x} - 0x{x}) to (0x{x} - 0x{x})", .{
-                self.getSectionName(header),
-                header.pointer_to_raw_data,
-                header.pointer_to_raw_data + current_size,
-                new_offset,
-                new_offset + current_size,
-            });
+            log.debug("moving {s} from 0x{x} to 0x{x}", .{ self.getSectionName(header), header.pointer_to_raw_data, new_offset });
             const amt = try self.base.file.?.copyRangeAll(
                 header.pointer_to_raw_data,
                 self.base.file.?,
@@ -544,8 +576,8 @@ fn allocateAtom(self: *Coff, atom: *Atom, new_atom_size: u32, alignment: u32) !u
 
         const sect_vm_capacity = self.allocatedSizeVM(header.virtual_address);
         if (needed_size > sect_vm_capacity) {
-            log.err("needed {x}, available {x}", .{ needed_size, sect_vm_capacity });
-            @panic("TODO expand section in virtual address space");
+            try self.growSectionVM(sect_id, needed_size);
+            self.markRelocsDirtyByAddress(header.virtual_address + needed_size);
         }
 
         header.virtual_size = @maximum(header.virtual_size, needed_size);
@@ -747,12 +779,24 @@ fn writePtrWidthAtom(self: *Coff, atom: *Atom) !void {
     }
 }
 
-fn markRelocsDirty(self: *Coff, target: SymbolWithLoc) void {
+fn markRelocsDirtyByTarget(self: *Coff, target: SymbolWithLoc) void {
     // TODO: reverse-lookup might come in handy here
     var it = self.relocs.valueIterator();
     while (it.next()) |relocs| {
         for (relocs.items) |*reloc| {
             if (!reloc.target.eql(target)) continue;
+            reloc.dirty = true;
+        }
+    }
+}
+
+fn markRelocsDirtyByAddress(self: *Coff, addr: u32) void {
+    var it = self.relocs.valueIterator();
+    while (it.next()) |relocs| {
+        for (relocs.items) |*reloc| {
+            const target_atom = reloc.getTargetAtom(self) orelse continue;
+            const target_sym = target_atom.getSymbol(self);
+            if (target_sym.value < addr) continue;
             reloc.dirty = true;
         }
     }
@@ -769,19 +813,8 @@ fn resolveRelocs(self: *Coff, atom: *Atom) !void {
     for (relocs.items) |*reloc| {
         if (!reloc.dirty) continue;
 
-        const target_vaddr = switch (reloc.@"type") {
-            .got => blk: {
-                const got_atom = self.getGotAtomForSymbol(reloc.target) orelse continue;
-                break :blk got_atom.getSymbol(self).value;
-            },
-            .direct => blk: {
-                break :blk self.getSymbol(reloc.target).value;
-            },
-            .imports => blk: {
-                const import_atom = self.getImportAtomForSymbol(reloc.target) orelse continue;
-                break :blk import_atom.getSymbol(self).value;
-            },
-        };
+        const target_atom = reloc.getTargetAtom(self) orelse continue;
+        const target_vaddr = target_atom.getSymbol(self).value;
         const target_vaddr_with_addend = target_vaddr + reloc.addend;
 
         log.debug("  ({x}: [() => 0x{x} ({s})) ({s})", .{
@@ -1095,7 +1128,7 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []const u8, 
                 log.debug("  (updating GOT entry)", .{});
                 const got_target = SymbolWithLoc{ .sym_index = atom.sym_index, .file = null };
                 const got_atom = self.getGotAtomForSymbol(got_target).?;
-                self.markRelocsDirty(got_target);
+                self.markRelocsDirtyByTarget(got_target);
                 try self.writePtrWidthAtom(got_atom);
             }
         } else if (code_len < atom.size) {
@@ -1120,7 +1153,7 @@ fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []const u8, 
         try self.writePtrWidthAtom(got_atom);
     }
 
-    self.markRelocsDirty(atom.getSymbolWithLoc());
+    self.markRelocsDirtyByTarget(atom.getSymbolWithLoc());
     try self.writeAtom(atom, code);
 }
 
@@ -1546,7 +1579,8 @@ fn writeBaseRelocations(self: *Coff) !void {
 
         const sect_vm_capacity = self.allocatedSizeVM(header.virtual_address);
         if (needed_size > sect_vm_capacity) {
-            @panic("TODO expand section in virtual address space");
+            // TODO: we want to enforce .reloc after every alloc section.
+            try self.growSectionVM(self.reloc_section_index.?, needed_size);
         }
     }
     header.virtual_size = @maximum(header.virtual_size, needed_size);
@@ -1881,9 +1915,6 @@ fn allocatedSizeVM(self: *Coff, start: u32) u32 {
     if (start == 0)
         return 0;
     var min_pos: u32 = std.math.maxInt(u32);
-    if (self.strtab_offset) |off| {
-        if (off > start and off < min_pos) min_pos = off;
-    }
     for (self.sections.items(.header)) |header| {
         if (header.virtual_address <= start) continue;
         if (header.virtual_address < min_pos) min_pos = header.virtual_address;
@@ -2114,5 +2145,18 @@ fn logSymtab(self: *Coff) void {
                 logSymAttributes(target_sym, &buf),
             });
         }
+    }
+}
+
+fn logSections(self: *Coff) void {
+    log.debug("sections:", .{});
+    for (self.sections.items(.header)) |*header| {
+        log.debug("  {s}: VM({x}, {x}) FILE({x}, {x})", .{
+            self.getSectionName(header),
+            header.virtual_address,
+            header.virtual_address + header.virtual_size,
+            header.pointer_to_raw_data,
+            header.pointer_to_raw_data + header.size_of_raw_data,
+        });
     }
 }
