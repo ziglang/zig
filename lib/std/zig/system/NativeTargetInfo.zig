@@ -390,7 +390,7 @@ fn detectAbiAndDynamicLinker(
                 error.FileTooBig,
                 error.Unexpected,
                 => |e| {
-                    std.log.warn("Encoutered error: {s}, falling back to default ABI and dynamic linker.\n", .{@errorName(e)});
+                    std.log.warn("Encountered error: {s}, falling back to default ABI and dynamic linker.\n", .{@errorName(e)});
                     return defaultAbiAndDynamicLinker(cpu, os, cross_target);
                 },
 
@@ -447,7 +447,7 @@ fn detectAbiAndDynamicLinker(
         error.NameTooLong,
         // Finally, we fall back on the standard path.
         => |e| {
-            std.log.warn("Encoutered error: {s}, falling back to default ABI and dynamic linker.\n", .{@errorName(e)});
+            std.log.warn("Encountered error: {s}, falling back to default ABI and dynamic linker.\n", .{@errorName(e)});
             return defaultAbiAndDynamicLinker(cpu, os, cross_target);
         },
     };
