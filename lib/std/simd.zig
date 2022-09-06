@@ -57,6 +57,15 @@ pub fn suggestVectorSize(comptime T: type) ?usize {
     return suggestVectorSizeForCpu(T, builtin.cpu);
 }
 
+test "suggestVectorSizeForCpu works with signed and unsigned values" {
+    comptime var cpu = std.Target.Cpu.baseline(std.Target.Cpu.Arch.x86_64);
+    comptime cpu.features.addFeature(@enumToInt(std.Target.x86.Feature.avx512f));
+    const signed_integer_size = suggestVectorSizeForCpu(i32, cpu).?;
+    const unsigned_integer_size = suggestVectorSizeForCpu(u32, cpu).?;
+    try std.testing.expectEqual(@as(usize, 16), unsigned_integer_size);
+    try std.testing.expectEqual(@as(usize, 16), signed_integer_size);
+}
+
 fn vectorLength(comptime VectorType: type) comptime_int {
     return switch (@typeInfo(VectorType)) {
         .Vector => |info| info.len,
