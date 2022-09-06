@@ -292,7 +292,12 @@ pub fn deinit(self: *Coff) void {
     self.managed_atoms.deinit(gpa);
 
     self.locals.deinit(gpa);
+
+    for (self.globals.keys()) |key| {
+        gpa.free(key);
+    }
     self.globals.deinit(gpa);
+
     self.unresolved.deinit(gpa);
     self.locals_free_list.deinit(gpa);
     self.strtab.deinit(gpa);
