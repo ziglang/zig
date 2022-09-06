@@ -4274,11 +4274,14 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func: *Fn) SemaError!void {
 
             const comp = mod.comp;
 
-            if (comp.bin_file.options.emit == null and
+            const no_bin_file = (comp.bin_file.options.emit == null and
                 comp.emit_asm == null and
                 comp.emit_llvm_ir == null and
-                comp.emit_llvm_bc == null)
-            {
+                comp.emit_llvm_bc == null);
+
+            const dump_air = builtin.mode == .Debug and comp.verbose_air;
+
+            if (no_bin_file and !dump_air) {
                 return;
             }
 
@@ -4286,13 +4289,17 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func: *Fn) SemaError!void {
             var liveness = try Liveness.analyze(gpa, air);
             defer liveness.deinit(gpa);
 
-            if (builtin.mode == .Debug and comp.verbose_air) {
+            if (dump_air) {
                 const fqn = try decl.getFullyQualifiedName(mod);
                 defer mod.gpa.free(fqn);
 
                 std.debug.print("# Begin Function AIR: {s}:\n", .{fqn});
                 @import("print_air.zig").dump(mod, air, liveness);
                 std.debug.print("# End Function AIR: {s}\n\n", .{fqn});
+            }
+
+            if (no_bin_file) {
+                return;
             }
 
             comp.bin_file.updateFunc(mod, func, air, liveness) catch |err| switch (err) {
