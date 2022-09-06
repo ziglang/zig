@@ -308,11 +308,7 @@ set(EMBEDDED_SOFTFLOAT_SOURCES
     "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3e/source/ui64_to_extF80M.c"
 )
 add_library(embedded_softfloat STATIC ${EMBEDDED_SOFTFLOAT_SOURCES})
-if(MSVC)
-    set_target_properties(embedded_softfloat PROPERTIES
-        COMPILE_FLAGS "/w /O2"
-    )
-else()
+if(NOT MSVC)
     set_target_properties(embedded_softfloat PROPERTIES
         COMPILE_FLAGS "-std=c99 -O3"
     )
@@ -870,11 +866,9 @@ else()
     endif()
 endif()
 
-if(MSVC)
-  set(OPTIMIZED_C_FLAGS "/O2")
-else(MSVC)
+if(NOT MSVC)
   set(OPTIMIZED_C_FLAGS "-std=c99 -O3")
-endif(MSVC)
+endif()
 
 set(EXE_LDFLAGS " ")
 if(MSVC)
