@@ -3177,8 +3177,7 @@ pub fn isatty(handle: fd_t) bool {
     if (builtin.os.tag == .linux) {
         while (true) {
             var wsz: linux.winsize = undefined;
-            const fd = @bitCast(usize, @as(isize, handle));
-            const rc = linux.syscall3(.ioctl, fd, linux.T.IOCGWINSZ, @ptrToInt(&wsz));
+            const rc = linux.tiocgwinsz_ioctl.func(handle, &wsz);
             switch (linux.getErrno(rc)) {
                 .SUCCESS => return true,
                 .INTR => continue,

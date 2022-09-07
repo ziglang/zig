@@ -1594,7 +1594,7 @@ pub fn getrusage(who: i32, usage: *rusage) usize {
 }
 
 pub fn tcgetattr(fd: fd_t, termios_p: *termios) usize {
-    return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), T.CGETS, @ptrToInt(termios_p));
+    return tcgets_ioctl.func(fd, termios_p);
 }
 
 pub fn tcsetattr(fd: fd_t, optional_action: TCSA, termios_p: *const termios) usize {
@@ -2851,8 +2851,11 @@ pub const DT = struct {
     pub const WHT = 14;
 };
 
+const tcgets_ioctl = ioctlInfo(.read, 't', 19, termios);
+pub const tiocgwinsz_ioctl = ioctlInfo(.read, 't', 104, winsize);
+
 pub const T = struct {
-    pub const CGETS = if (is_mips) 0x540D else 0x5401;
+    pub const CGETS = tcgets_ioctl.request;
     pub const CSETS = if (is_mips) 0x540e else 0x5402;
     pub const CSETSW = if (is_mips) 0x540f else 0x5403;
     pub const CSETSF = if (is_mips) 0x5410 else 0x5404;
@@ -2870,7 +2873,8 @@ pub const T = struct {
     pub const IOCSPGRP = if (is_mips) 0x741d else 0x5410;
     pub const IOCOUTQ = if (is_mips) 0x7472 else 0x5411;
     pub const IOCSTI = if (is_mips) 0x5472 else 0x5412;
-    pub const IOCGWINSZ = if (is_mips or is_ppc64) 0x40087468 else 0x5413;
+    // TODO: verify this is still 0x40087468 when (is_mips or is_ppc64) and 0x5413 otherwise
+    pub const IOCGWINSZ = tiocgwinsz_ioctl.request;
     pub const IOCSWINSZ = if (is_mips or is_ppc64) 0x80087467 else 0x5414;
     pub const IOCMGET = if (is_mips) 0x741d else 0x5415;
     pub const IOCMBIS = if (is_mips) 0x741b else 0x5416;
@@ -5701,3 +5705,66 @@ pub const AUDIT = struct {
         }
     };
 };
+
+pub const IoctlDirection = enum {
+    none,
+    read,
+    write,
+    read_write,
+};
+
+/// Returns a type-safe ioctl wrapper function.
+///
+/// Linux encodes the size of the ioctl argument and its IO direction within the request number.
+/// `ioctlFunc` returns a function with the same argument type that was used to create the
+/// request number.  By preserving this relationship, the kernel will always have the correct
+/// IO direction and argument size, meaning it should never result in out-of-bounds memory access.
+pub fn ioctlFunc(
+    comptime dir: IoctlDirection,
+    comptime io_type: u8,
+    comptime nr: u8,
+    comptime Arg: type,
+) ioctlInfo(dir, io_type, nr, Arg).Fn {
+    return ioctlInfo(dir, io_type, nr, Arg).func;
+}
+
+fn ioctlInfo(comptime dir: IoctlDirection, comptime io_type: u8, comptime nr: u8, comptime Arg: type) type {
+    comptime {
+        switch (dir) {
+            .none => {
+                assert(Arg == void);
+            },
+            else => {},
+        }
+    }
+
+    return struct {
+        pub const request = switch (dir) {
+            .none => IOCTL.IO(io_type, nr),
+            .read => IOCTL.IOR(io_type, nr, Arg),
+            .write => IOCTL.IOW(io_type, nr, Arg),
+            .read_write => IOCTL.IOWR(io_type, nr, Arg),
+        };
+
+        const ArgPtr = switch (dir) {
+            .none => void,
+            .read => *Arg,
+            .write => *const Arg,
+            .read_write => *Arg,
+        };
+
+        pub usingnamespace if (Arg == void) struct {
+            pub const Fn = fn (fd: fd_t) usize;
+
+            pub fn func(fd: fd_t) usize {
+                return syscall2(.ioctl, @bitCast(usize, @as(isize, fd)), request);
+            }
+        } else struct {
+            pub const Fn = fn (fd: fd_t, arg: ArgPtr) usize;
+
+            pub fn func(fd: fd_t, arg: ArgPtr) usize {
+                return ioctl(fd, request, @ptrToInt(arg));
+            }
+        };
+    };
+}

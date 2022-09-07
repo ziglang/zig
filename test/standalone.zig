@@ -102,4 +102,8 @@ pub fn addCases(cases: *tests.StandaloneContext) void {
     cases.addBuildFile("test/standalone/issue_13030/build.zig", .{ .build_modes = true });
     cases.addBuildFile("test/standalone/emit_asm_and_bin/build.zig", .{});
     cases.addBuildFile("test/standalone/issue_12588/build.zig", .{});
+
+    if (builtin.os.tag == .linux) {
+        cases.addBuildFile("test/standalone/linux_ioctls/build.zig", .{});
+    }
 }
