@@ -1437,7 +1437,6 @@ fn parseArchive(self: *MachO, path: []const u8, force_load: bool) !bool {
 
     if (force_load) {
         defer archive.deinit(gpa);
-        defer file.close();
         // Get all offsets from the ToC
         var offsets = std.AutoArrayHashMap(u32, void).init(gpa);
         defer offsets.deinit();
@@ -3015,7 +3014,6 @@ pub fn deinit(self: *MachO) void {
     }
 
     if (self.d_sym) |*d_sym| {
-        d_sym.file.close();
         d_sym.deinit(gpa);
     }
 
@@ -3044,7 +3042,6 @@ pub fn deinit(self: *MachO) void {
     self.objects.deinit(gpa);
 
     for (self.archives.items) |*archive| {
-        archive.file.close();
         archive.deinit(gpa);
     }
     self.archives.deinit(gpa);

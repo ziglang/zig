@@ -648,12 +648,10 @@ pub fn deinit(self: *Wasm) void {
         gpa.free(segment_info.name);
     }
     for (self.objects.items) |*object| {
-        object.file.?.close();
         object.deinit(gpa);
     }
 
     for (self.archives.items) |*archive| {
-        archive.file.close();
         archive.deinit(gpa);
     }
 
