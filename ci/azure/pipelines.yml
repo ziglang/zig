@@ -61,6 +61,7 @@ jobs:
 
   - pwsh: |
       Set-Variable -Name ZIGINSTALLDIR -Value "$(Get-Location)\stage3-release"
+      Set-Variable -Name ZIGPREFIXPATH -Value "$(Get-Location)\$(ZIG_LLVM_CLANG_LLD_NAME)"
 
       function CheckLastExitCode {
         if (!$?) {
