@@ -2,8 +2,6 @@ const std = @import("std.zig");
 const debug = std.debug;
 const assert = debug.assert;
 const testing = std.testing;
-const mem = std.mem;
-const Allocator = mem.Allocator;
 
 /// A singly-linked list is headed by a single forward pointer. The elements
 /// are singly linked for minimum space and pointer manipulation overhead at
