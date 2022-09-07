@@ -1548,13 +1548,12 @@ pub const TestContext = struct {
             .self_exe_path = std.testing.zig_exe_path,
             // TODO instead of turning off color, pass in a std.Progress.Node
             .color = .off,
-            // TODO: We set these to no so that we don't fallback to LLD for incremental linking context. This is because
-            // our own COFF linker doesn't yet support these options.
-            .want_unwind_tables = switch (case.backend) {
-                .stage2 => if (target.os.tag == .windows) false else null,
+            // TODO: force self-hosted linkers with stage2 backend to avoid LLD creeping in
+            //       until the auto-select mechanism deems them worthy
+            .use_lld = switch (case.backend) {
+                .stage2 => false,
                 else => null,
             },
-            .emit_implib = null,
         });
         defer comp.destroy();
 

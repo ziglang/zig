@@ -701,13 +701,8 @@ pub fn addPkgTests(
             else => {
                 these_tests.use_stage1 = false;
                 these_tests.use_llvm = false;
-
-                if (test_target.target.getOsTag() == .windows) {
-                    // TODO: We set these to no so that we don't fallback to LLD for incremental linking context. This is because
-                    // our own COFF linker doesn't yet support these options.
-                    these_tests.emit_implib = .no_emit;
-                    these_tests.use_unwind_tables = false;
-                }
+                // TODO: force self-hosted linkers to avoid LLD creeping in until the auto-select mechanism deems them worthy
+                these_tests.use_lld = false;
             },
         };
 
