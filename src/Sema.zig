@@ -26005,6 +26005,7 @@ fn analyzeDeclRef(sema: *Sema, decl_index: Decl.Index) CompileError!Air.Inst.Ref
             .pointee_type = decl_tv.ty,
             .mutable = false,
             .@"addrspace" = decl.@"addrspace",
+            .@"align" = decl.@"align",
         }),
         try Value.Tag.decl_ref.create(sema.arena, decl_index),
     );
