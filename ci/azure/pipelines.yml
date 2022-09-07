@@ -73,8 +73,7 @@ jobs:
       & "$ZIGINSTALLDIR\bin\zig.exe" build test docs `
         --search-prefix "$ZIGPREFIXPATH" `
         -Dstatic-llvm `
-        -Dskip-non-native `
-        -Dskip-stage2-tests
+        -Dskip-non-native
       CheckLastExitCode
     name: test
     displayName: 'Test'

@@ -177,6 +177,8 @@ const TestManifestConfigDefaults = struct {
                 inline for (&[_][]const u8{ "x86_64", "aarch64" }) |arch| {
                     defaults = defaults ++ arch ++ "-macos" ++ ",";
                 }
+                // Windows
+                defaults = defaults ++ "x86_64-windows" ++ ",";
                 // Wasm
                 defaults = defaults ++ "wasm32-wasi";
                 return defaults;
@@ -1546,6 +1548,13 @@ pub const TestContext = struct {
             .self_exe_path = std.testing.zig_exe_path,
             // TODO instead of turning off color, pass in a std.Progress.Node
             .color = .off,
+            // TODO: We set these to no so that we don't fallback to LLD for incremental linking context. This is because
+            // our own COFF linker doesn't yet support these options.
+            .want_unwind_tables = switch (case.backend) {
+                .stage2 => if (target.os.tag == .windows) false else null,
+                else => null,
+            },
+            .emit_implib = null,
         });
         defer comp.destroy();
 
