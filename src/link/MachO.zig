@@ -3013,6 +3013,7 @@ pub fn deinit(self: *MachO) void {
     }
 
     if (self.d_sym) |*d_sym| {
+        d_sym.file.close();
         d_sym.deinit(gpa);
     }
 
@@ -3041,6 +3042,7 @@ pub fn deinit(self: *MachO) void {
     self.objects.deinit(gpa);
 
     for (self.archives.items) |*archive| {
+        archive.file.close();
         archive.deinit(gpa);
     }
     self.archives.deinit(gpa);
@@ -3084,15 +3086,6 @@ pub fn deinit(self: *MachO) void {
     }
 
     self.atom_by_index_table.deinit(gpa);
-}
-
-pub fn closeFiles(self: MachO) void {
-    for (self.archives.items) |archive| {
-        archive.file.close();
-    }
-    if (self.d_sym) |ds| {
-        ds.file.close();
-    }
 }
 
 fn freeAtom(self: *MachO, atom: *Atom, sect_id: u8, owns_atom: bool) void {
