@@ -793,11 +793,13 @@ fn linkOneShot(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) 
         }
     } else {
         const sub_path = self.base.options.emit.?.sub_path;
-        self.base.file = try directory.handle.createFile(sub_path, .{
-            .truncate = true,
-            .read = true,
-            .mode = link.determineMode(self.base.options),
-        });
+        if (self.base.file == null) {
+            self.base.file = try directory.handle.createFile(sub_path, .{
+                .truncate = true,
+                .read = true,
+                .mode = link.determineMode(self.base.options),
+            });
+        }
         // Index 0 is always a null symbol.
         try self.locals.append(gpa, .{
             .n_strx = 0,
