@@ -345,6 +345,15 @@ pub const CaptureScope = struct {
     /// During sema, this map is backed by the gpa.  Once sema completes,
     /// it is reallocated using the value_arena.
     captures: std.AutoHashMapUnmanaged(Zir.Inst.Index, TypedValue) = .{},
+
+    pub fn failed(noalias self: *const @This()) bool {
+        return self.captures.available == 0 and self.captures.size == std.math.maxInt(u32);
+    }
+
+    pub fn fail(noalias self: *@This()) void {
+        self.captures.available = 0;
+        self.captures.size = std.math.maxInt(u32);
+    }
 };
 
 pub const WipCaptureScope = struct {
@@ -383,6 +392,7 @@ pub const WipCaptureScope = struct {
     pub fn deinit(noalias self: *@This()) void {
         if (!self.finalized) {
             self.scope.captures.deinit(self.gpa);
+            self.scope.fail();
         }
         self.* = undefined;
     }

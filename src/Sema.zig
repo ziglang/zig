@@ -5956,7 +5956,6 @@ fn analyzeCall(
                 error.NeededSourceLocation => {
                     _ = sema.inst_map.remove(inst);
                     const decl = sema.mod.declPtr(block.src_decl);
-                    child_block.src_decl = block.src_decl;
                     try sema.analyzeInlineCallArg(
                         block,
                         &child_block,
@@ -13740,6 +13739,16 @@ fn zirClosureGet(
     const tv = while (true) {
         // Note: We don't need to add a dependency here, because
         // decls always depend on their lexical parents.
+
+        // Fail this decl if a scope it depended on failed.
+        if (scope.failed()) {
+            if (sema.owner_func) |owner_func| {
+                owner_func.state = .dependency_failure;
+            } else {
+                sema.owner_decl.analysis = .dependency_failure;
+            }
+            return error.AnalysisFail;
+        }
         if (scope.captures.getPtr(inst_data.inst)) |tv| {
             break tv;
         }
