@@ -109,13 +109,19 @@ pub fn flushModule(self: *NvPtx, comp: *Compilation, prog_node: *std.Progress.No
     const tracy = trace(@src());
     defer tracy.end();
 
-    var hack_comp = comp;
-    if (comp.bin_file.options.emit) |emit| {
-        hack_comp.emit_asm = .{
-            .directory = emit.directory,
-            .basename = comp.bin_file.intermediary_basename.?,
-        };
-        hack_comp.bin_file.options.emit = null;
+    const outfile = comp.bin_file.options.emit.?;
+    // !!! We modify 'comp' before passing it to LLVM, but restore value afterwards
+    // We tell LLVM to not try to build a .o, only an "assembly" file.
+    // This is required by the LLVM PTX backend.
+    comp.bin_file.options.emit = null;
+    comp.emit_asm = .{
+        .directory = outfile.directory,
+        .basename = comp.bin_file.intermediary_basename.?,
+    };
+    defer {
+        comp.bin_file.options.emit = outfile;
+        comp.emit_asm = null;
     }
-    return try self.llvm_object.flushModule(hack_comp, prog_node);
+
+    try self.llvm_object.flushModule(comp, prog_node);
 }
