@@ -79,9 +79,9 @@ pub const Flag = enum(u32) {
 /// Verifies if the given symbol should be imported from the
 /// host environment or not
 pub fn requiresImport(self: Symbol) bool {
+    if (self.tag == .data) return false;
     if (!self.isUndefined()) return false;
     if (self.isWeak()) return false;
-    if (self.tag == .data) return false;
     // if (self.isDefined() and self.isWeak()) return true; //TODO: Only when building shared lib
 
     return true;

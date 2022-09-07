@@ -16,6 +16,28 @@ test "zig fmt: preserves clobbers in inline asm with stray comma" {
     );
 }
 
+test "zig fmt: remove trailing comma at the end of assembly clobber" {
+    try testTransform(
+        \\fn foo() void {
+        \\    asm volatile (""
+        \\        : [_] "" (-> type),
+        \\        :
+        \\        : "clobber1", "clobber2",
+        \\    );
+        \\}
+        \\
+    ,
+        \\fn foo() void {
+        \\    asm volatile (""
+        \\        : [_] "" (-> type),
+        \\        :
+        \\        : "clobber1", "clobber2"
+        \\    );
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: respect line breaks in struct field value declaration" {
     try testCanonical(
         \\const Foo = struct {
@@ -5031,6 +5053,21 @@ test "zig fmt: make single-line if no trailing comma" {
         \\test "array no trailing comma" {
         \\    var stream = multiOutStream(.{ fbs1.outStream(), fbs2.outStream() });
         \\}
+        \\
+    );
+}
+
+test "zig fmt: preserve container doc comment in container without trailing comma" {
+    try testTransform(
+        \\const A = enum(u32) {
+        \\//! comment
+        \\_ };
+        \\
+    ,
+        \\const A = enum(u32) {
+        \\    //! comment
+        \\    _,
+        \\};
         \\
     );
 }

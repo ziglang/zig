@@ -1933,12 +1933,15 @@ fn renderContainerDecl(
             break :one_line;
         }
 
-        // 2. A member of the container has a doc comment.
+        // 2. The container has a container comment.
+        if (token_tags[lbrace + 1] == .container_doc_comment) break :one_line;
+
+        // 3. A member of the container has a doc comment.
         for (token_tags[lbrace + 1 .. rbrace - 1]) |tag| {
             if (tag == .doc_comment) break :one_line;
         }
 
-        // 3. The container has non-field members.
+        // 4. The container has non-field members.
         for (container_decl.ast.members) |member| {
             if (!node_tags[member].isContainerField()) break :one_line;
         }
@@ -2114,9 +2117,19 @@ fn renderAsm(
                 return renderToken(ais, tree, tok_i + 1, space);
             },
             .comma => {
-                try renderToken(ais, tree, tok_i, .none);
-                try renderToken(ais, tree, tok_i + 1, .space);
-                tok_i += 2;
+                switch (token_tags[tok_i + 2]) {
+                    .r_paren => {
+                        ais.setIndentDelta(indent_delta);
+                        ais.popIndent();
+                        try renderToken(ais, tree, tok_i, .newline);
+                        return renderToken(ais, tree, tok_i + 2, space);
+                    },
+                    else => {
+                        try renderToken(ais, tree, tok_i, .none);
+                        try renderToken(ais, tree, tok_i + 1, .space);
+                        tok_i += 2;
+                    },
+                }
             },
             else => unreachable,
         }
@@ -2348,7 +2361,7 @@ fn renderSpace(ais: *Ais, tree: Ast, token_index: Ast.TokenIndex, lexeme_len: us
     }
 }
 
-/// Returns true if there exists a comment between any of the tokens from
+/// Returns true if there exists a line comment between any of the tokens from
 /// `start_token` to `end_token`. This is used to determine if e.g. a
 /// fn_proto should be wrapped and have a trailing comma inserted even if
 /// there is none in the source.

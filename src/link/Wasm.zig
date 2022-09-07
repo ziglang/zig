@@ -607,6 +607,24 @@ fn resolveSymbolsInArchives(self: *Wasm) !void {
     }
 }
 
+fn checkUndefinedSymbols(self: *const Wasm) !void {
+    var found_undefined_symbols = false;
+    for (self.undefs.values()) |undef| {
+        const symbol = undef.getSymbol(self);
+        if (symbol.tag == .data) {
+            found_undefined_symbols = true;
+            const file_name = if (undef.file) |file_index| name: {
+                break :name self.objects.items[file_index].name;
+            } else self.name;
+            log.err("could not resolve undefined symbol '{s}'", .{undef.getName(self)});
+            log.err("  defined in '{s}'", .{file_name});
+        }
+    }
+    if (found_undefined_symbols) {
+        return error.UndefinedSymbol;
+    }
+}
+
 pub fn deinit(self: *Wasm) void {
     const gpa = self.base.allocator;
     if (build_options.have_llvm) {
@@ -783,14 +801,16 @@ pub fn updateDecl(self: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !voi
 
     decl.link.wasm.clear();
 
-    if (decl.isExtern()) {
-        return;
-    }
-
     if (decl.val.castTag(.function)) |_| {
         return;
     } else if (decl.val.castTag(.extern_fn)) |_| {
         return;
+    }
+
+    if (decl.isExtern()) {
+        const variable = decl.getVariable().?;
+        const name = mem.sliceTo(decl.name, 0);
+        return self.addOrUpdateImport(name, decl.link.wasm.sym_index, variable.lib_name, null);
     }
     const val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
 
@@ -834,19 +854,18 @@ pub fn updateDeclLineNumber(self: *Wasm, mod: *Module, decl: *const Module.Decl)
 }
 
 fn finishUpdateDecl(self: *Wasm, decl: *Module.Decl, code: []const u8) !void {
-    if (code.len == 0) return;
     const mod = self.base.options.module.?;
     const atom: *Atom = &decl.link.wasm;
-    atom.size = @intCast(u32, code.len);
-    atom.alignment = decl.ty.abiAlignment(self.base.options.target);
     const symbol = &self.symbols.items[atom.sym_index];
-
     const full_name = try decl.getFullyQualifiedName(mod);
     defer self.base.allocator.free(full_name);
     symbol.name = try self.string_table.put(self.base.allocator, full_name);
     try atom.code.appendSlice(self.base.allocator, code);
-
     try self.resolved_symbols.put(self.base.allocator, atom.symbolLoc(), {});
+
+    if (code.len == 0) return;
+    atom.size = @intCast(u32, code.len);
+    atom.alignment = decl.ty.abiAlignment(self.base.options.target);
 }
 
 /// From a given symbol location, returns its `wasm.GlobalType`.
@@ -1235,7 +1254,10 @@ pub fn addOrUpdateImport(
                 .kind = .{ .function = ty_index },
             };
         }
-    } else @panic("TODO: Implement undefined symbols for non-function declarations");
+    } else {
+        symbol.tag = .data;
+        return; // non-functions will not be imported from the runtime, but only resolved during link-time
+    }
 }
 
 /// Kind represents the type of an Atom, which is only
@@ -1438,7 +1460,7 @@ fn setupImports(self: *Wasm) !void {
         if (std.mem.eql(u8, symbol_loc.getName(self), "__indirect_function_table")) {
             continue;
         }
-        if (symbol.tag == .data or !symbol.requiresImport()) {
+        if (!symbol.requiresImport()) {
             continue;
         }
 
@@ -2007,6 +2029,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     }
 
     try self.resolveSymbolsInArchives();
+    try self.checkUndefinedSymbols();
 
     // When we finish/error we reset the state of the linker
     // So we can rebuild the binary file on each incremental update

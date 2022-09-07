@@ -113,3 +113,13 @@ test "cast functions" {
     try expectEqual(true, h.CAST_TO_BOOL(S.foo));
     try expect(h.CAST_TO_UINTPTR(S.foo) != 0);
 }
+
+test "large integer macro" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    try expectEqual(@as(c_ulonglong, 18446744073709550592), h.LARGE_INT);
+}

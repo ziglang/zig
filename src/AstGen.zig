@@ -5127,7 +5127,7 @@ fn tryExpr(
         else => .none,
     };
     // This could be a pointer or value depending on the `rl` parameter.
-    const operand = try expr(parent_gz, scope, operand_rl, operand_node);
+    const operand = try reachableExpr(parent_gz, scope, operand_rl, operand_node, node);
     const is_inline = parent_gz.force_comptime;
     const is_inline_bit = @as(u2, @boolToInt(is_inline));
     const is_ptr_bit = @as(u2, @boolToInt(operand_rl == .ref)) << 1;

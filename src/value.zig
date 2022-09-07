@@ -2940,17 +2940,24 @@ pub const Value = extern union {
     }
 
     pub fn intToFloat(val: Value, arena: Allocator, int_ty: Type, float_ty: Type, target: Target) !Value {
+        return intToFloatAdvanced(val, arena, int_ty, float_ty, target, null) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => unreachable,
+        };
+    }
+
+    pub fn intToFloatAdvanced(val: Value, arena: Allocator, int_ty: Type, float_ty: Type, target: Target, sema_kit: ?Module.WipAnalysis) !Value {
         if (int_ty.zigTypeTag() == .Vector) {
             const result_data = try arena.alloc(Value, int_ty.vectorLen());
             for (result_data) |*scalar, i| {
-                scalar.* = try intToFloatScalar(val.indexVectorlike(i), arena, float_ty.scalarType(), target);
+                scalar.* = try intToFloatScalar(val.indexVectorlike(i), arena, float_ty.scalarType(), target, sema_kit);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return intToFloatScalar(val, arena, float_ty, target);
+        return intToFloatScalar(val, arena, float_ty, target, sema_kit);
     }
 
-    pub fn intToFloatScalar(val: Value, arena: Allocator, float_ty: Type, target: Target) !Value {
+    pub fn intToFloatScalar(val: Value, arena: Allocator, float_ty: Type, target: Target, sema_kit: ?Module.WipAnalysis) !Value {
         switch (val.tag()) {
             .undef, .zero, .one => return val,
             .the_only_possible_value => return Value.initTag(.zero), // for i0, u0
@@ -2969,6 +2976,22 @@ pub const Value = extern union {
                 const limbs = val.castTag(.int_big_negative).?.data;
                 const float = bigIntToFloat(limbs, false);
                 return floatToValue(float, arena, float_ty, target);
+            },
+            .lazy_align => {
+                const ty = val.castTag(.lazy_align).?.data;
+                if (sema_kit) |sk| {
+                    return intToFloatInner((try ty.abiAlignmentAdvanced(target, .{ .sema_kit = sk })).scalar, arena, float_ty, target);
+                } else {
+                    return intToFloatInner(ty.abiAlignment(target), arena, float_ty, target);
+                }
+            },
+            .lazy_size => {
+                const ty = val.castTag(.lazy_size).?.data;
+                if (sema_kit) |sk| {
+                    return intToFloatInner((try ty.abiSizeAdvanced(target, .{ .sema_kit = sk })).scalar, arena, float_ty, target);
+                } else {
+                    return intToFloatInner(ty.abiSize(target), arena, float_ty, target);
+                }
             },
             else => unreachable,
         }

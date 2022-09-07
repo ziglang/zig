@@ -690,7 +690,7 @@ test "union with only 1 field casted to its enum type which has enum value speci
 
     var e = Expr{ .Literal = Literal{ .Bool = true } };
     comptime try expect(Tag(ExprTag) == comptime_int);
-    var t = @as(ExprTag, e);
+    comptime var t = @as(ExprTag, e);
     try expect(t == Expr.Literal);
     try expect(@enumToInt(t) == 33);
     comptime try expect(@enumToInt(t) == 33);
@@ -1351,4 +1351,32 @@ test "@unionInit uses tag value instead of field index" {
         try expect(a.* == i);
     }
     try expect(@enumToInt(u) == 255);
+}
+
+test "union field ptr - zero sized payload" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const U = union {
+        foo: void,
+        bar: void,
+        fn bar(_: *void) void {}
+    };
+    var u: U = .{ .foo = {} };
+    U.bar(&u.foo);
+}
+
+test "union field ptr - zero sized field" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const U = union {
+        foo: void,
+        bar: u32,
+        fn bar(_: *void) void {}
+    };
+    var u: U = .{ .foo = {} };
+    U.bar(&u.foo);
 }

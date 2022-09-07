@@ -3447,6 +3447,9 @@ pub const BindError = error{
     /// A nonexistent interface was requested or the requested address was not local.
     AddressNotAvailable,
 
+    /// The address is not valid for the address family of socket.
+    AddressFamilyNotSupported,
+
     /// Too many symbolic links were encountered in resolving addr.
     SymLinkLoop,
 
@@ -3502,6 +3505,7 @@ pub fn bind(sock: socket_t, addr: *const sockaddr, len: socklen_t) BindError!voi
             .BADF => unreachable, // always a race condition if this error is returned
             .INVAL => unreachable, // invalid parameters
             .NOTSOCK => unreachable, // invalid `sockfd`
+            .AFNOSUPPORT => return error.AddressFamilyNotSupported,
             .ADDRNOTAVAIL => return error.AddressNotAvailable,
             .FAULT => unreachable, // invalid `addr` pointer
             .LOOP => return error.SymLinkLoop,

@@ -172,18 +172,16 @@ fn relocationValue(self: Atom, relocation: types.Relocation, wasm_bin: *const Wa
         .R_WASM_MEMORY_ADDR_SLEB,
         .R_WASM_MEMORY_ADDR_SLEB64,
         => {
-            if (symbol.isUndefined() and symbol.isWeak()) {
-                return 0;
-            }
-            std.debug.assert(symbol.tag == .data);
+            std.debug.assert(symbol.tag == .data and !symbol.isUndefined());
             const merge_segment = wasm_bin.base.options.output_mode != .Obj;
-            const segment_info = if (self.file) |object_index| blk: {
+            const target_atom_loc = wasm_bin.discarded.get(target_loc) orelse target_loc;
+            const target_atom = wasm_bin.symbol_atom.get(target_atom_loc).?;
+            const segment_info = if (target_atom.file) |object_index| blk: {
                 break :blk wasm_bin.objects.items[object_index].segment_info;
             } else wasm_bin.segment_info.items;
             const segment_name = segment_info[symbol.index].outputName(merge_segment);
-            const atom_index = wasm_bin.data_segments.get(segment_name).?;
-            const target_atom = wasm_bin.symbol_atom.get(target_loc).?;
-            const segment = wasm_bin.segments.items[atom_index];
+            const segment_index = wasm_bin.data_segments.get(segment_name).?;
+            const segment = wasm_bin.segments.items[segment_index];
             return target_atom.offset + segment.offset + (relocation.addend orelse 0);
         },
         .R_WASM_EVENT_INDEX_LEB => return symbol.index,

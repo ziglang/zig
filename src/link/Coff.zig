@@ -50,6 +50,7 @@ text_section_index: ?u16 = null,
 got_section_index: ?u16 = null,
 rdata_section_index: ?u16 = null,
 data_section_index: ?u16 = null,
+reloc_section_index: ?u16 = null,
 
 locals: std.ArrayListUnmanaged(coff.Symbol) = .{},
 globals: std.StringArrayHashMapUnmanaged(SymbolWithLoc) = .{},
@@ -98,10 +99,15 @@ atom_by_index_table: std.AutoHashMapUnmanaged(u32, *Atom) = .{},
 /// with `Decl` `main`, and lives as long as that `Decl`.
 unnamed_const_atoms: UnnamedConstTable = .{},
 
-/// A table of relocations indexed by the owning them `TextBlock`.
-/// Note that once we refactor `TextBlock`'s lifetime and ownership rules,
+/// A table of relocations indexed by the owning them `Atom`.
+/// Note that once we refactor `Atom`'s lifetime and ownership rules,
 /// this will be a table indexed by index into the list of Atoms.
 relocs: RelocTable = .{},
+
+/// A table of base relocations indexed by the owning them `Atom`.
+/// Note that once we refactor `Atom`'s lifetime and ownership rules,
+/// this will be a table indexed by index into the list of Atoms.
+base_relocs: BaseRelocationTable = .{},
 
 pub const Reloc = struct {
     @"type": enum {
@@ -117,6 +123,7 @@ pub const Reloc = struct {
 };
 
 const RelocTable = std.AutoHashMapUnmanaged(*Atom, std.ArrayListUnmanaged(Reloc));
+const BaseRelocationTable = std.AutoHashMapUnmanaged(*Atom, std.ArrayListUnmanaged(u32));
 const UnnamedConstTable = std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(*Atom));
 
 const default_file_alignment: u16 = 0x200;
@@ -150,7 +157,17 @@ const Section = struct {
     free_list: std.ArrayListUnmanaged(*Atom) = .{},
 };
 
-pub const PtrWidth = enum { p32, p64 };
+pub const PtrWidth = enum {
+    p32,
+    p64,
+
+    fn abiSize(pw: PtrWidth) u4 {
+        return switch (pw) {
+            .p32 => 4,
+            .p64 => 8,
+        };
+    }
+};
 pub const SrcFn = void;
 
 pub const Export = struct {
@@ -274,6 +291,14 @@ pub fn deinit(self: *Coff) void {
         }
         self.relocs.deinit(gpa);
     }
+
+    {
+        var it = self.base_relocs.valueIterator();
+        while (it.next()) |relocs| {
+            relocs.deinit(gpa);
+        }
+        self.base_relocs.deinit(gpa);
+    }
 }
 
 fn populateMissingMetadata(self: *Coff) !void {
@@ -307,7 +332,7 @@ fn populateMissingMetadata(self: *Coff) !void {
 
     if (self.got_section_index == null) {
         self.got_section_index = @intCast(u16, self.sections.slice().len);
-        const file_size = @intCast(u32, self.base.options.symbol_count_hint);
+        const file_size = @intCast(u32, self.base.options.symbol_count_hint) * self.ptr_width.abiSize();
         const off = self.findFreeSpace(file_size, self.page_size);
         log.debug("found .got free space 0x{x} to 0x{x}", .{ off, off + file_size });
         var header = coff.SectionHeader{
@@ -375,6 +400,31 @@ fn populateMissingMetadata(self: *Coff) !void {
             },
         };
         try self.setSectionName(&header, ".data");
+        try self.sections.append(gpa, .{ .header = header });
+    }
+
+    if (self.reloc_section_index == null) {
+        self.reloc_section_index = @intCast(u16, self.sections.slice().len);
+        const file_size = @intCast(u32, self.base.options.symbol_count_hint) * @sizeOf(coff.BaseRelocation);
+        const off = self.findFreeSpace(file_size, self.page_size);
+        log.debug("found .reloc free space 0x{x} to 0x{x}", .{ off, off + file_size });
+        var header = coff.SectionHeader{
+            .name = undefined,
+            .virtual_size = file_size,
+            .virtual_address = off,
+            .size_of_raw_data = file_size,
+            .pointer_to_raw_data = off,
+            .pointer_to_relocations = 0,
+            .pointer_to_linenumbers = 0,
+            .number_of_relocations = 0,
+            .number_of_linenumbers = 0,
+            .flags = .{
+                .CNT_INITIALIZED_DATA = 1,
+                .MEM_PURGEABLE = 1,
+                .MEM_READ = 1,
+            },
+        };
+        try self.setSectionName(&header, ".reloc");
         try self.sections.append(gpa, .{ .header = header });
     }
 
@@ -604,6 +654,14 @@ fn createGotAtom(self: *Coff, target: SymbolWithLoc) !*Atom {
         .length = 3,
         .prev_vaddr = sym.value,
     });
+
+    const target_sym = self.getSymbol(target);
+    switch (target_sym.section_number) {
+        .UNDEFINED => @panic("TODO generate a binding for undefined GOT target"),
+        .ABSOLUTE => {},
+        .DEBUG => unreachable, // not possible
+        else => try atom.addBaseRelocation(self, 0),
+    }
 
     return atom;
 }
@@ -1179,6 +1237,7 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
             try self.resolveRelocs(atom.*);
         }
     }
+    try self.writeBaseRelocations();
 
     if (self.getEntryPoint()) |entry_sym_loc| {
         self.entry_addr = self.getSymbol(entry_sym_loc).value;
@@ -1214,6 +1273,83 @@ pub fn updateDeclLineNumber(self: *Coff, module: *Module, decl: *Module.Decl) !v
     _ = module;
     _ = decl;
     log.debug("TODO implement updateDeclLineNumber", .{});
+}
+
+/// TODO: note if we need to rewrite base relocations by dirtying any of the entries in the global table
+/// TODO: note that .ABSOLUTE is used as padding within each block; we could use this fact to do
+///       incremental updates and writes into the table instead of doing it all at once
+fn writeBaseRelocations(self: *Coff) !void {
+    const gpa = self.base.allocator;
+
+    var pages = std.AutoHashMap(u32, std.ArrayList(coff.BaseRelocation)).init(gpa);
+    defer {
+        var it = pages.valueIterator();
+        while (it.next()) |inner| {
+            inner.deinit();
+        }
+        pages.deinit();
+    }
+
+    var it = self.base_relocs.iterator();
+    while (it.next()) |entry| {
+        const atom = entry.key_ptr.*;
+        const offsets = entry.value_ptr.*;
+
+        for (offsets.items) |offset| {
+            const sym = atom.getSymbol(self);
+            const rva = sym.value + offset;
+            const page = mem.alignBackwardGeneric(u32, rva, self.page_size);
+            const gop = try pages.getOrPut(page);
+            if (!gop.found_existing) {
+                gop.value_ptr.* = std.ArrayList(coff.BaseRelocation).init(gpa);
+            }
+            try gop.value_ptr.append(.{
+                .offset = @intCast(u12, rva - page),
+                .@"type" = .DIR64,
+            });
+        }
+    }
+
+    var buffer = std.ArrayList(u8).init(gpa);
+    defer buffer.deinit();
+
+    var pages_it = pages.iterator();
+    while (pages_it.next()) |entry| {
+        // Pad to required 4byte alignment
+        if (!mem.isAlignedGeneric(
+            usize,
+            entry.value_ptr.items.len * @sizeOf(coff.BaseRelocation),
+            @sizeOf(u32),
+        )) {
+            try entry.value_ptr.append(.{
+                .offset = 0,
+                .@"type" = .ABSOLUTE,
+            });
+        }
+
+        const block_size = @intCast(
+            u32,
+            entry.value_ptr.items.len * @sizeOf(coff.BaseRelocation) + @sizeOf(coff.BaseRelocationDirectoryEntry),
+        );
+        try buffer.ensureUnusedCapacity(block_size);
+        buffer.appendSliceAssumeCapacity(mem.asBytes(&coff.BaseRelocationDirectoryEntry{
+            .page_rva = entry.key_ptr.*,
+            .block_size = block_size,
+        }));
+        buffer.appendSliceAssumeCapacity(mem.sliceAsBytes(entry.value_ptr.items));
+    }
+
+    const header = &self.sections.items(.header)[self.reloc_section_index.?];
+    const sect_capacity = self.allocatedSize(header.pointer_to_raw_data);
+    const needed_size = @intCast(u32, buffer.items.len);
+    assert(needed_size < sect_capacity); // TODO expand .reloc section
+
+    try self.base.file.?.pwriteAll(buffer.items, header.pointer_to_raw_data);
+
+    self.data_directories[@enumToInt(coff.DirectoryEntry.BASERELOC)] = .{
+        .virtual_address = header.virtual_address,
+        .size = needed_size,
+    };
 }
 
 fn writeStrtab(self: *Coff) !void {
@@ -1277,8 +1413,8 @@ fn writeHeader(self: *Coff) !void {
     writer.writeAll(mem.asBytes(&coff_header)) catch unreachable;
 
     const dll_flags: coff.DllFlags = .{
-        .HIGH_ENTROPY_VA = 0, //@boolToInt(self.base.options.pie),
-        .DYNAMIC_BASE = 0,
+        .HIGH_ENTROPY_VA = 1, // TODO do we want to permit non-PIE builds at all?
+        .DYNAMIC_BASE = 1,
         .TERMINAL_SERVER_AWARE = 1, // We are not a legacy app
         .NX_COMPAT = 1, // We are compatible with Data Execution Prevention
     };

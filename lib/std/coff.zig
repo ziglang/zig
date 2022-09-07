@@ -419,6 +419,91 @@ pub const DebugType = enum(u32) {
     EX_DLLCHARACTERISTICS = 20,
 };
 
+pub const ImportDirectoryEntry = extern struct {
+    /// The RVA of the import lookup table.
+    /// This table contains a name or ordinal for each import.
+    /// (The name "Characteristics" is used in Winnt.h, but no longer describes this field.)
+    import_lookup_table_rva: u32,
+
+    /// The stamp that is set to zero until the image is bound.
+    /// After the image is bound, this field is set to the time/data stamp of the DLL.
+    time_date_stamp: u32,
+
+    /// The index of the first forwarder reference.
+    forwarder_chain: u32,
+
+    /// The address of an ASCII string that contains the name of the DLL.
+    /// This address is relative to the image base.
+    name_rva: u32,
+
+    /// The RVA of the import address table.
+    /// The contents of this table are identical to the contents of the import lookup table until the image is bound.
+    import_address_table_rva: u32,
+};
+
+pub const ImportLookupEntry32 = struct {
+    pub const ByName = packed struct {
+        name_table_rva: u31,
+        flag: u1 = 0,
+    };
+
+    pub const ByOrdinal = packed struct {
+        ordinal_number: u16,
+        unused: u15 = 0,
+        flag: u1 = 1,
+    };
+
+    const mask = 0x80000000;
+
+    pub fn getImportByName(raw: u32) ?ByName {
+        if (mask & raw != 0) return null;
+        return @bitCast(ByName, raw);
+    }
+
+    pub fn getImportByOrdinal(raw: u32) ?ByOrdinal {
+        if (mask & raw == 0) return null;
+        return @bitCast(ByOrdinal, raw);
+    }
+};
+
+pub const ImportLookupEntry64 = struct {
+    pub const ByName = packed struct {
+        name_table_rva: u31,
+        unused: u32 = 0,
+        flag: u1 = 0,
+    };
+
+    pub const ByOrdinal = packed struct {
+        ordinal_number: u16,
+        unused: u47 = 0,
+        flag: u1 = 1,
+    };
+
+    const mask = 0x8000000000000000;
+
+    pub fn getImportByName(raw: u64) ?ByName {
+        if (mask & raw != 0) return null;
+        return @bitCast(ByName, raw);
+    }
+
+    pub fn getImportByOrdinal(raw: u64) ?ByOrdinal {
+        if (mask & raw == 0) return null;
+        return @bitCast(ByOrdinal, raw);
+    }
+};
+
+/// Every name ends with a NULL byte. IF the NULL byte does not fall on
+/// 2byte boundary, the entry structure is padded to ensure 2byte alignment.
+pub const ImportHintNameEntry = extern struct {
+    /// An index into the export name pointer table.
+    /// A match is attempted first with this value. If it fails, a binary search is performed on the DLL's export name pointer table.
+    hint: u16,
+
+    /// Pointer to NULL terminated ASCII name.
+    /// Variable length...
+    name: [1]u8,
+};
+
 pub const SectionHeader = extern struct {
     name: [8]u8,
     virtual_size: u32,

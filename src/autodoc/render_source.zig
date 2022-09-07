@@ -79,6 +79,16 @@ pub fn genHtml(
         \\        text-align: right;
         \\        color: #999;
         \\      }
+        \\      
+        \\      .line {
+        \\        width: 100%;
+        \\        display: inline-block;
+        \\      }
+        \\      .line:target {
+        \\        border-top: 1px solid #ccc;
+        \\        border-bottom: 1px solid #ccc;
+        \\        background: #fafafa;
+        \\      }
         \\
         \\      @media (prefers-color-scheme: dark) {
         \\        body{
@@ -89,6 +99,11 @@ pub fn genHtml(
         \\            color: #ccc;
         \\            background: #222;
         \\            border: unset;
+        \\        }
+        \\        .line:target {
+        \\            border-top: 1px solid #444;
+        \\            border-bottom: 1px solid #444;
+        \\            background: #333;
         \\        }
         \\        .tok-kw {
         \\            color: #eee;
