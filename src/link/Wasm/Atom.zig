@@ -90,6 +90,19 @@ pub fn getFirst(self: *Atom) *Atom {
     return tmp;
 }
 
+/// Unlike `getFirst` this returns the first `*Atom` that was
+/// produced from Zig code, rather than an object file.
+/// This is useful for debug sections where we want to extend
+/// the bytes, and don't want to overwrite existing Atoms.
+pub fn getFirstZigAtom(self: *Atom) *Atom {
+    if (self.file == null) return self;
+    var tmp = self;
+    return while (tmp.prev) |prev| {
+        if (prev.file == null) break prev;
+        tmp = prev;
+    } else unreachable; // must allocate an Atom first!
+}
+
 /// Returns the location of the symbol that represents this `Atom`
 pub fn symbolLoc(self: Atom) Wasm.SymbolLoc {
     return .{ .file = self.file, .index = self.sym_index };
@@ -145,7 +158,7 @@ pub fn resolveRelocs(self: *Atom, wasm_bin: *const Wasm) void {
 /// All values will be represented as a `u64` as all values can fit within it.
 /// The final value must be casted to the correct size.
 fn relocationValue(self: Atom, relocation: types.Relocation, wasm_bin: *const Wasm) u64 {
-    const target_loc: Wasm.SymbolLoc = .{ .file = self.file, .index = relocation.index };
+    const target_loc = (Wasm.SymbolLoc{ .file = self.file, .index = relocation.index }).finalLoc(wasm_bin);
     const symbol = target_loc.getSymbol(wasm_bin).*;
     switch (relocation.relocation_type) {
         .R_WASM_FUNCTION_INDEX_LEB => return symbol.index,
@@ -174,19 +187,34 @@ fn relocationValue(self: Atom, relocation: types.Relocation, wasm_bin: *const Wa
         => {
             std.debug.assert(symbol.tag == .data and !symbol.isUndefined());
             const merge_segment = wasm_bin.base.options.output_mode != .Obj;
-            const target_atom_loc = wasm_bin.discarded.get(target_loc) orelse target_loc;
-            const target_atom = wasm_bin.symbol_atom.get(target_atom_loc).?;
+            const target_atom = wasm_bin.symbol_atom.get(target_loc).?;
             const segment_info = if (target_atom.file) |object_index| blk: {
                 break :blk wasm_bin.objects.items[object_index].segment_info;
-            } else wasm_bin.segment_info.items;
+            } else wasm_bin.segment_info.values();
             const segment_name = segment_info[symbol.index].outputName(merge_segment);
             const segment_index = wasm_bin.data_segments.get(segment_name).?;
             const segment = wasm_bin.segments.items[segment_index];
             return target_atom.offset + segment.offset + (relocation.addend orelse 0);
         },
         .R_WASM_EVENT_INDEX_LEB => return symbol.index,
-        .R_WASM_SECTION_OFFSET_I32,
-        .R_WASM_FUNCTION_OFFSET_I32,
-        => return relocation.offset,
+        .R_WASM_SECTION_OFFSET_I32 => {
+            const target_atom = wasm_bin.symbol_atom.get(target_loc).?;
+            return target_atom.offset + (relocation.addend orelse 0);
+        },
+        .R_WASM_FUNCTION_OFFSET_I32 => {
+            const target_atom = wasm_bin.symbol_atom.get(target_loc).?;
+            var atom = target_atom.getFirst();
+            var offset: u32 = 0;
+            // TODO: Calculate this during atom allocation, rather than
+            // this linear calculation. For now it's done here as atoms
+            // are being sorted after atom allocation, as functions aren't
+            // merged until later.
+            while (true) {
+                offset += 5; // each atom uses 5 bytes to store its body's size
+                if (atom == target_atom) break;
+                atom = atom.next.?;
+            }
+            return target_atom.offset + offset + (relocation.addend orelse 0);
+        },
     }
 }
