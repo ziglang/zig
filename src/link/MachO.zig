@@ -1157,6 +1157,28 @@ fn linkOneShot(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) 
         var ncmds: u32 = 0;
 
         try self.writeLinkeditSegmentData(&ncmds, lc_writer);
+
+        // If the last section of __DATA segment is zerofill section, we need to ensure
+        // that the free space between the end of the last non-zerofill section of __DATA
+        // segment and the beginning of __LINKEDIT segment is zerofilled as the loader will
+        // copy-paste this space into memory for quicker zerofill operation.
+        if (self.data_segment_cmd_index) |data_seg_id| blk: {
+            var physical_zerofill_start: u64 = 0;
+            const section_indexes = self.getSectionIndexes(data_seg_id);
+            for (self.sections.items(.header)[section_indexes.start..section_indexes.end]) |header| {
+                if (header.isZerofill() and header.size > 0) break;
+                physical_zerofill_start = header.offset + header.size;
+            } else break :blk;
+            const linkedit = self.segments.items[self.linkedit_segment_cmd_index.?];
+            const physical_zerofill_size = linkedit.fileoff - physical_zerofill_start;
+            if (physical_zerofill_size > 0) {
+                var padding = try self.base.allocator.alloc(u8, physical_zerofill_size);
+                defer self.base.allocator.free(padding);
+                mem.set(u8, padding, 0);
+                try self.base.file.?.pwriteAll(padding, physical_zerofill_start);
+            }
+        }
+
         try writeDylinkerLC(&ncmds, lc_writer);
         try self.writeMainLC(&ncmds, lc_writer);
         try self.writeDylibIdLC(&ncmds, lc_writer);
@@ -5690,8 +5712,10 @@ fn writeHeader(self: *MachO, ncmds: u32, sizeofcmds: u32) !void {
         else => unreachable,
     }
 
-    if (self.getSectionByName("__DATA", "__thread_vars")) |_| {
-        header.flags |= macho.MH_HAS_TLV_DESCRIPTORS;
+    if (self.getSectionByName("__DATA", "__thread_vars")) |sect_id| {
+        if (self.sections.items(.header)[sect_id].size > 0) {
+            header.flags |= macho.MH_HAS_TLV_DESCRIPTORS;
+        }
     }
 
     header.ncmds = ncmds;
