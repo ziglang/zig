@@ -5956,7 +5956,6 @@ fn analyzeCall(
                 error.NeededSourceLocation => {
                     _ = sema.inst_map.remove(inst);
                     const decl = sema.mod.declPtr(block.src_decl);
-                    child_block.src_decl = block.src_decl;
                     try sema.analyzeInlineCallArg(
                         block,
                         &child_block,
@@ -13740,6 +13739,16 @@ fn zirClosureGet(
     const tv = while (true) {
         // Note: We don't need to add a dependency here, because
         // decls always depend on their lexical parents.
+
+        // Fail this decl if a scope it depended on failed.
+        if (scope.failed()) {
+            if (sema.owner_func) |owner_func| {
+                owner_func.state = .dependency_failure;
+            } else {
+                sema.owner_decl.analysis = .dependency_failure;
+            }
+            return error.AnalysisFail;
+        }
         if (scope.captures.getPtr(inst_data.inst)) |tv| {
             break tv;
         }
@@ -18076,8 +18085,8 @@ fn bitOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!u6
     const target = sema.mod.getTarget();
 
     try sema.resolveTypeLayout(block, lhs_src, ty);
-    switch (ty.tag()) {
-        .@"struct", .tuple, .anon_struct => {},
+    switch (ty.zigTypeTag()) {
+        .Struct => {},
         else => {
             const msg = msg: {
                 const msg = try sema.errMsg(block, lhs_src, "expected struct type, found '{}'", .{ty.fmt(sema.mod)});
@@ -19617,28 +19626,19 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     const dest_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const src_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const len_src: LazySrcLoc = .{ .node_offset_builtin_call_arg2 = inst_data.src_node };
-    const dest_ptr = try sema.resolveInst(extra.dest);
-    const dest_ptr_ty = sema.typeOf(dest_ptr);
+    const uncasted_dest_ptr = try sema.resolveInst(extra.dest);
 
-    try sema.checkPtrOperand(block, dest_src, dest_ptr_ty);
-    if (dest_ptr_ty.isConstPtr()) {
-        return sema.fail(block, dest_src, "cannot store through const pointer '{}'", .{dest_ptr_ty.fmt(sema.mod)});
-    }
+    // TODO AstGen's coerced_ty cannot handle volatile here
+    var dest_ptr_info = Type.initTag(.manyptr_u8).ptrInfo().data;
+    dest_ptr_info.@"volatile" = sema.typeOf(uncasted_dest_ptr).isVolatilePtr();
+    const dest_ptr_ty = try Type.ptr(sema.arena, sema.mod, dest_ptr_info);
+    const dest_ptr = try sema.coerce(block, dest_ptr_ty, uncasted_dest_ptr, dest_src);
 
     const uncasted_src_ptr = try sema.resolveInst(extra.source);
-    const uncasted_src_ptr_ty = sema.typeOf(uncasted_src_ptr);
-    try sema.checkPtrOperand(block, src_src, uncasted_src_ptr_ty);
-    const src_ptr_info = uncasted_src_ptr_ty.ptrInfo().data;
-    const wanted_src_ptr_ty = try Type.ptr(sema.arena, sema.mod, .{
-        .pointee_type = dest_ptr_ty.elemType2(),
-        .@"align" = src_ptr_info.@"align",
-        .@"addrspace" = src_ptr_info.@"addrspace",
-        .mutable = false,
-        .@"allowzero" = src_ptr_info.@"allowzero",
-        .@"volatile" = src_ptr_info.@"volatile",
-        .size = .Many,
-    });
-    const src_ptr = try sema.coerce(block, wanted_src_ptr_ty, uncasted_src_ptr, src_src);
+    var src_ptr_info = Type.initTag(.manyptr_const_u8).ptrInfo().data;
+    src_ptr_info.@"volatile" = sema.typeOf(uncasted_src_ptr).isVolatilePtr();
+    const src_ptr_ty = try Type.ptr(sema.arena, sema.mod, src_ptr_info);
+    const src_ptr = try sema.coerce(block, src_ptr_ty, uncasted_src_ptr, src_src);
     const len = try sema.coerce(block, Type.usize, try sema.resolveInst(extra.byte_count), len_src);
 
     const runtime_src = if (try sema.resolveDefinedValue(block, dest_src, dest_ptr)) |dest_ptr_val| rs: {
@@ -19674,14 +19674,15 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     const dest_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const value_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const len_src: LazySrcLoc = .{ .node_offset_builtin_call_arg2 = inst_data.src_node };
-    const dest_ptr = try sema.resolveInst(extra.dest);
-    const dest_ptr_ty = sema.typeOf(dest_ptr);
-    try sema.checkPtrOperand(block, dest_src, dest_ptr_ty);
-    if (dest_ptr_ty.isConstPtr()) {
-        return sema.fail(block, dest_src, "cannot store through const pointer '{}'", .{dest_ptr_ty.fmt(sema.mod)});
-    }
-    const elem_ty = dest_ptr_ty.elemType2();
-    const value = try sema.coerce(block, elem_ty, try sema.resolveInst(extra.byte), value_src);
+    const uncasted_dest_ptr = try sema.resolveInst(extra.dest);
+
+    // TODO AstGen's coerced_ty cannot handle volatile here
+    var ptr_info = Type.initTag(.manyptr_u8).ptrInfo().data;
+    ptr_info.@"volatile" = sema.typeOf(uncasted_dest_ptr).isVolatilePtr();
+    const dest_ptr_ty = try Type.ptr(sema.arena, sema.mod, ptr_info);
+    const dest_ptr = try sema.coerce(block, dest_ptr_ty, uncasted_dest_ptr, dest_src);
+
+    const value = try sema.coerce(block, Type.u8, try sema.resolveInst(extra.byte), value_src);
     const len = try sema.coerce(block, Type.usize, try sema.resolveInst(extra.byte_count), len_src);
 
     const runtime_src = if (try sema.resolveDefinedValue(block, dest_src, dest_ptr)) |ptr_val| rs: {
@@ -26013,6 +26014,7 @@ fn analyzeDeclRef(sema: *Sema, decl_index: Decl.Index) CompileError!Air.Inst.Ref
             .pointee_type = decl_tv.ty,
             .mutable = false,
             .@"addrspace" = decl.@"addrspace",
+            .@"align" = decl.@"align",
         }),
         try Value.Tag.decl_ref.create(sema.arena, decl_index),
     );

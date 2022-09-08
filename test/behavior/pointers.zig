@@ -486,3 +486,14 @@ test "array slicing to slice" {
     try S.doTheTest();
     comptime try S.doTheTest();
 }
+
+test "pointer to constant decl preserves alignment" {
+    const S = struct {
+        a: u8,
+        b: u8,
+        const aligned align(8) = @This(){ .a = 3, .b = 4 };
+    };
+
+    const alignment = @typeInfo(@TypeOf(&S.aligned)).Pointer.alignment;
+    try std.testing.expect(alignment == 8);
+}

@@ -9204,6 +9204,12 @@ pub const FuncGen = struct {
             return self.builder.buildBitCast(truncated_int, elem_llvm_ty, "");
         }
 
+        if (info.pointee_type.isPtrAtRuntime()) {
+            const same_size_int = self.context.intType(elem_bits);
+            const truncated_int = self.builder.buildTrunc(shifted_value, same_size_int, "");
+            return self.builder.buildIntToPtr(truncated_int, elem_llvm_ty, "");
+        }
+
         return self.builder.buildTrunc(shifted_value, elem_llvm_ty, "");
     }
 
@@ -9235,7 +9241,10 @@ pub const FuncGen = struct {
             // Convert to equally-sized integer type in order to perform the bit
             // operations on the value to store
             const value_bits_type = self.context.intType(elem_bits);
-            const value_bits = self.builder.buildBitCast(elem, value_bits_type, "");
+            const value_bits = if (elem_ty.isPtrAtRuntime())
+                self.builder.buildPtrToInt(elem, value_bits_type, "")
+            else
+                self.builder.buildBitCast(elem, value_bits_type, "");
 
             var mask_val = value_bits_type.constAllOnes();
             mask_val = mask_val.constZExt(containing_int_ty);
