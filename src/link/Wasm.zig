@@ -3055,14 +3055,26 @@ fn writeVecSectionHeader(file: fs.File, offset: u64, section: wasm.Section, size
     buf[0] = @enumToInt(section);
     leb.writeUnsignedFixed(5, buf[1..6], size);
     leb.writeUnsignedFixed(5, buf[6..], items);
-    try file.pwriteAll(&buf, offset);
+
+    if (builtin.target.os.tag == .windows) {
+        // https://github.com/ziglang/zig/issues/12783
+        const curr_pos = try file.getPos();
+        try file.pwriteAll(&buf, offset);
+        try file.seekTo(curr_pos);
+    } else try file.pwriteAll(&buf, offset);
 }
 
 fn writeCustomSectionHeader(file: fs.File, offset: u64, size: u32) !void {
     var buf: [1 + 5]u8 = undefined;
     buf[0] = 0; // 0 = 'custom' section
     leb.writeUnsignedFixed(5, buf[1..6], size);
-    try file.pwriteAll(&buf, offset);
+
+    if (builtin.target.os.tag == .windows) {
+        // https://github.com/ziglang/zig/issues/12783
+        const curr_pos = try file.getPos();
+        try file.pwriteAll(&buf, offset);
+        try file.seekTo(curr_pos);
+    } else try file.pwriteAll(&buf, offset);
 }
 
 fn emitLinkSection(self: *Wasm, file: fs.File, arena: Allocator, symbol_table: *std.AutoArrayHashMap(SymbolLoc, u32)) !void {
