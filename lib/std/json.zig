@@ -1088,7 +1088,8 @@ pub const TokenStream = struct {
     i: usize,
     slice: []const u8,
     parser: StreamingParser,
-    token: ?Token,
+    token1: ?Token,
+    token2: ?Token,
 
     pub const Error = StreamingParser.Error || error{UnexpectedEndOfJson};
 
@@ -1097,38 +1098,41 @@ pub const TokenStream = struct {
             .i = 0,
             .slice = slice,
             .parser = StreamingParser.init(),
-            .token = null,
+            .token1 = null,
+            .token2 = null,
         };
     }
 
     fn stackUsed(self: *TokenStream) usize {
-        return self.parser.stack.len + if (self.token != null) @as(usize, 1) else 0;
+        return self.parser.stack.len + @boolToInt(self.token1 != null) + @boolToInt(self.token2 != null);
     }
 
     pub fn next(self: *TokenStream) Error!?Token {
-        if (self.token) |token| {
-            self.token = null;
+        const token = try self.peek();
+        self.token1 = self.token2;
+        self.token2 = null;
+        return token;
+    }
+
+    pub fn peek(self: *TokenStream) Error!?Token {
+        if (self.token1) |token| {
             return token;
         }
 
-        var t1: ?Token = undefined;
-        var t2: ?Token = undefined;
-
         while (self.i < self.slice.len) {
-            try self.parser.feed(self.slice[self.i], &t1, &t2);
+            try self.parser.feed(self.slice[self.i], &self.token1, &self.token2);
             self.i += 1;
 
-            if (t1) |token| {
-                self.token = t2;
+            if (self.token1) |token| {
                 return token;
             }
         }
 
         // Without this a bare number fails, the streaming parser doesn't know the input ended
-        try self.parser.feed(' ', &t1, &t2);
+        try self.parser.feed(' ', &self.token1, &self.token2);
         self.i += 1;
 
-        if (t1) |token| {
+        if (self.token1) |token| {
             return token;
         } else if (self.parser.complete) {
             return null;
