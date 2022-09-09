@@ -4137,19 +4137,14 @@ pub fn populateBuiltinFile(mod: *Module) !void {
             };
         }
     } else |err| switch (err) {
+        error.BadPathName => unreachable, // it's always "builtin.zig"
         error.NameTooLong => unreachable, // it's always "builtin.zig"
+        error.PipeBusy => unreachable, // it's not a pipe
+        error.WouldBlock => unreachable, // not asking for non-blocking I/O
+
         error.FileNotFound => try writeBuiltinFile(file, builtin_pkg),
-        else => |e| {
-            if (builtin.os.tag == .windows) {
-                switch (e) {
-                    error.BadPathName => unreachable, // it's always "builtin.zig"
-                    error.PipeBusy => unreachable, // it's not a pipe
-                    error.WouldBlock => unreachable, // not asking for non-blocking I/O
-                    else => return e,
-                }
-            }
-            return e;
-        },
+
+        else => |e| return e,
     }
 
     file.tree = try std.zig.parse(gpa, file.source);

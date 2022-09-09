@@ -2600,24 +2600,30 @@ pub const Dir = struct {
 
     pub const StatFileError = File.OpenError || File.StatError || os.FStatAtError;
 
-    /// Provides info on a file (File.Stat) for any file in the opened directory,
-    /// with a single syscall (fstatat), except on Windows.
-    /// Currently on Windows, files are opened then closed (implying several syscalls, unfortunately).
-    /// Symlinks are not followed on linux, haiku, solaris and *BSDs.
-    /// Other OSs have a default behavior (they currently lack an os.AT.SYMLINK_NOFOLLOW flag).
+    /// Returns metadata for a file inside the directory.
+    ///
+    /// On Windows, this requires three syscalls. On other operating systems, it
+    /// only takes one.
+    ///
+    /// Symlinks are followed.
+    ///
+    /// `sub_path` may be absolute, in which case `self` is ignored.
     pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
-        if (builtin.os.tag == .windows) {
-            var file = try self.openFile(sub_path, .{});
-            defer file.close();
-            return file.stat();
+        switch (builtin.os.tag) {
+            .windows => {
+                var file = try self.openFile(sub_path, .{});
+                defer file.close();
+                return file.stat();
+            },
+            .wasi => {
+                const st = try os.fstatatWasi(self.fd, sub_path, os.wasi.LOOKUP_SYMLINK_FOLLOW);
+                return Stat.fromSystem(st);
+            },
+            else => {
+                const st = try os.fstatat(self.fd, sub_path, 0);
+                return Stat.fromSystem(st);
+            },
         }
-
-        const flags = switch (builtin.os.tag) {
-            .linux, .haiku, .solaris, .freebsd, .netbsd, .dragonfly, .openbsd => os.AT.SYMLINK_NOFOLLOW,
-            else => 0, // TODO: correct flags not yet implemented
-        };
-
-        return Stat.fromSystemStat(try os.fstatat(self.fd, sub_path, flags));
     }
 
     const Permissions = File.Permissions;
