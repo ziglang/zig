@@ -681,12 +681,10 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) !void {
         };
         // Add relocation to the decl.
         const atom = macho_file.atom_by_index_table.get(relocation.atom_index).?;
+        const target = macho_file.getGlobalByIndex(relocation.sym_index);
         try atom.relocs.append(emit.bin_file.allocator, .{
             .offset = offset,
-            .target = .{
-                .sym_index = relocation.sym_index,
-                .file = null,
-            },
+            .target = target,
             .addend = 0,
             .subtractor = null,
             .pcrel = true,
