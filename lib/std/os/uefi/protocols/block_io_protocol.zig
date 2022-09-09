@@ -2,7 +2,7 @@ const std = @import("std");
 const uefi = std.os.uefi;
 const Status = uefi.Status;
 
-const EfiBlockMedia = extern struct {
+pub const EfiBlockMedia = extern struct {
     /// The current media ID. If the media changes, this value is changed.
     media_id: u32,
 
@@ -38,7 +38,7 @@ const EfiBlockMedia = extern struct {
     optimal_transfer_length_granularity: u32,
 };
 
-const BlockIoProtocol = extern struct {
+pub const BlockIoProtocol = extern struct {
     const Self = @This();
 
     revision: u64,
