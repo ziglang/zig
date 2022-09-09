@@ -1544,9 +1544,10 @@ pub fn getDeclVAddr(
 
 pub fn getGlobalSymbol(self: *Coff, name: []const u8) !u32 {
     const gop = try self.getOrPutGlobalPtr(name);
+    const global_index = self.getGlobalIndex(name).?;
 
     if (gop.found_existing) {
-        return gop.value_ptr.sym_index;
+        return global_index;
     }
 
     const sym_index = try self.allocateSymbol();
@@ -1559,9 +1560,9 @@ pub fn getGlobalSymbol(self: *Coff, name: []const u8) !u32 {
     try self.setSymbolName(sym, sym_name);
     sym.storage_class = .EXTERNAL;
 
-    try self.unresolved.putNoClobber(gpa, self.getGlobalIndex(name).?, true);
+    try self.unresolved.putNoClobber(gpa, global_index, true);
 
-    return sym_index;
+    return global_index;
 }
 
 pub fn updateDeclLineNumber(self: *Coff, module: *Module, decl: *Module.Decl) !void {
@@ -2075,6 +2076,12 @@ pub fn getGlobal(self: *const Coff, name: []const u8) ?SymbolWithLoc {
 /// Returns the index of the global entry for `name` if one exists.
 pub fn getGlobalIndex(self: *const Coff, name: []const u8) ?u32 {
     return self.resolver.get(name);
+}
+
+/// Returns global entry at `index`.
+pub fn getGlobalByIndex(self: *const Coff, index: u32) SymbolWithLoc {
+    assert(index < self.globals.items.len);
+    return self.globals.items[index];
 }
 
 const GetOrPutGlobalPtrResult = struct {

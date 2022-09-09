@@ -4890,9 +4890,10 @@ pub fn getGlobalSymbol(self: *MachO, name: []const u8) !u32 {
     const sym_name = try std.fmt.allocPrint(gpa, "_{s}", .{name});
     defer gpa.free(sym_name);
     const gop = try self.getOrPutGlobalPtr(sym_name);
+    const global_index = self.getGlobalIndex(sym_name).?;
 
     if (gop.found_existing) {
-        return gop.value_ptr.sym_index;
+        return global_index;
     }
 
     const sym_index = try self.allocateSymbol();
@@ -4902,9 +4903,9 @@ pub fn getGlobalSymbol(self: *MachO, name: []const u8) !u32 {
     const sym = self.getSymbolPtr(sym_loc);
     sym.n_strx = try self.strtab.insert(gpa, sym_name);
 
-    try self.unresolved.putNoClobber(gpa, self.getGlobalIndex(sym_name).?, true);
+    try self.unresolved.putNoClobber(gpa, global_index, true);
 
-    return sym_index;
+    return global_index;
 }
 
 fn getSegmentAllocBase(self: MachO, indices: []const ?u8) struct { vmaddr: u64, fileoff: u64 } {
@@ -5828,6 +5829,12 @@ pub fn getGlobal(self: *const MachO, name: []const u8) ?SymbolWithLoc {
 /// Returns the index of the global entry for `name` if one exists.
 pub fn getGlobalIndex(self: *const MachO, name: []const u8) ?u32 {
     return self.resolver.get(name);
+}
+
+/// Returns global entry at `index`.
+pub fn getGlobalByIndex(self: *const MachO, index: u32) SymbolWithLoc {
+    assert(index < self.globals.items.len);
+    return self.globals.items[index];
 }
 
 const GetOrPutGlobalPtrResult = struct {
