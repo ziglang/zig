@@ -2043,16 +2043,11 @@ fn writeAtomsIncremental(self: *MachO) !void {
 
 pub fn createGotAtom(self: *MachO, target: SymbolWithLoc) !*Atom {
     const gpa = self.base.allocator;
-    const sym_index = @intCast(u32, self.locals.items.len);
-    try self.locals.append(gpa, .{
-        .n_strx = 0,
-        .n_type = macho.N_SECT,
-        .n_sect = 0,
-        .n_desc = 0,
-        .n_value = 0,
-    });
-
+    const sym_index = try self.allocateSymbol();
     const atom = try MachO.createEmptyAtom(gpa, sym_index, @sizeOf(u64), 3);
+    const sym = atom.getSymbolPtr(self);
+    sym.n_type = macho.N_SECT;
+
     try atom.relocs.append(gpa, .{
         .offset = 0,
         .target = target,
@@ -2088,16 +2083,11 @@ pub fn createGotAtom(self: *MachO, target: SymbolWithLoc) !*Atom {
 
 pub fn createTlvPtrAtom(self: *MachO, target: SymbolWithLoc) !*Atom {
     const gpa = self.base.allocator;
-    const sym_index = @intCast(u32, self.locals.items.len);
-    try self.locals.append(gpa, .{
-        .n_strx = 0,
-        .n_type = macho.N_SECT,
-        .n_sect = 0,
-        .n_desc = 0,
-        .n_value = 0,
-    });
-
+    const sym_index = try self.allocateSymbol();
     const atom = try MachO.createEmptyAtom(gpa, sym_index, @sizeOf(u64), 3);
+    const sym = atom.getSymbolPtr(self);
+    sym.n_type = macho.N_SECT;
+
     const target_sym = self.getSymbol(target);
     assert(target_sym.undf());
 
@@ -2125,15 +2115,10 @@ fn createDyldPrivateAtom(self: *MachO) !void {
     if (self.dyld_private_atom != null) return;
 
     const gpa = self.base.allocator;
-    const sym_index = @intCast(u32, self.locals.items.len);
-    try self.locals.append(gpa, .{
-        .n_strx = 0,
-        .n_type = macho.N_SECT,
-        .n_sect = 0,
-        .n_desc = 0,
-        .n_value = 0,
-    });
+    const sym_index = try self.allocateSymbol();
     const atom = try MachO.createEmptyAtom(gpa, sym_index, @sizeOf(u64), 3);
+    const sym = atom.getSymbolPtr(self);
+    sym.n_type = macho.N_SECT;
     self.dyld_private_atom = atom;
 
     try self.allocateAtomCommon(atom, self.data_section_index.?);
@@ -2158,15 +2143,11 @@ fn createStubHelperPreambleAtom(self: *MachO) !void {
         .aarch64 => 2,
         else => unreachable,
     };
-    const sym_index = @intCast(u32, self.locals.items.len);
-    try self.locals.append(gpa, .{
-        .n_strx = 0,
-        .n_type = macho.N_SECT,
-        .n_sect = 0,
-        .n_desc = 0,
-        .n_value = 0,
-    });
+    const sym_index = try self.allocateSymbol();
     const atom = try MachO.createEmptyAtom(gpa, sym_index, size, alignment);
+    const sym = atom.getSymbolPtr(self);
+    sym.n_type = macho.N_SECT;
+
     const dyld_private_sym_index = self.dyld_private_atom.?.sym_index;
     switch (arch) {
         .x86_64 => {
@@ -2283,15 +2264,11 @@ pub fn createStubHelperAtom(self: *MachO) !*Atom {
         .aarch64 => 2,
         else => unreachable,
     };
-    const sym_index = @intCast(u32, self.locals.items.len);
-    try self.locals.append(gpa, .{
-        .n_strx = 0,
-        .n_type = macho.N_SECT,
-        .n_sect = 0,
-        .n_desc = 0,
-        .n_value = 0,
-    });
+    const sym_index = try self.allocateSymbol();
     const atom = try MachO.createEmptyAtom(gpa, sym_index, stub_size, alignment);
+    const sym = atom.getSymbolPtr(self);
+    sym.n_type = macho.N_SECT;
+
     try atom.relocs.ensureTotalCapacity(gpa, 1);
 
     switch (arch) {
@@ -2347,15 +2324,11 @@ pub fn createStubHelperAtom(self: *MachO) !*Atom {
 
 pub fn createLazyPointerAtom(self: *MachO, stub_sym_index: u32, target: SymbolWithLoc) !*Atom {
     const gpa = self.base.allocator;
-    const sym_index = @intCast(u32, self.locals.items.len);
-    try self.locals.append(gpa, .{
-        .n_strx = 0,
-        .n_type = macho.N_SECT,
-        .n_sect = 0,
-        .n_desc = 0,
-        .n_value = 0,
-    });
+    const sym_index = try self.allocateSymbol();
     const atom = try MachO.createEmptyAtom(gpa, sym_index, @sizeOf(u64), 3);
+    const sym = atom.getSymbolPtr(self);
+    sym.n_type = macho.N_SECT;
+
     try atom.relocs.append(gpa, .{
         .offset = 0,
         .target = .{ .sym_index = stub_sym_index, .file = null },
@@ -2398,15 +2371,11 @@ pub fn createStubAtom(self: *MachO, laptr_sym_index: u32) !*Atom {
         .aarch64 => 3 * @sizeOf(u32),
         else => unreachable, // unhandled architecture type
     };
-    const sym_index = @intCast(u32, self.locals.items.len);
-    try self.locals.append(gpa, .{
-        .n_strx = 0,
-        .n_type = macho.N_SECT,
-        .n_sect = 0,
-        .n_desc = 0,
-        .n_value = 0,
-    });
+    const sym_index = try self.allocateSymbol();
     const atom = try MachO.createEmptyAtom(gpa, sym_index, stub_size, alignment);
+    const sym = atom.getSymbolPtr(self);
+    sym.n_type = macho.N_SECT;
+
     switch (arch) {
         .x86_64 => {
             // jmp
@@ -2518,7 +2487,9 @@ fn createMhExecuteHeaderSymbol(self: *MachO) !void {
 
     const gpa = self.base.allocator;
     const sym_index = try self.allocateSymbol();
-    self.locals.items[sym_index] = .{
+    const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = null };
+    const sym = self.getSymbolPtr(sym_loc);
+    sym.* = .{
         .n_strx = try self.strtab.insert(gpa, "__mh_execute_header"),
         .n_type = macho.N_SECT | macho.N_EXT,
         .n_sect = 0,
@@ -2527,30 +2498,25 @@ fn createMhExecuteHeaderSymbol(self: *MachO) !void {
     };
 
     const gop = try self.getOrPutGlobalPtr("__mh_execute_header");
-    gop.value_ptr.* = .{
-        .sym_index = sym_index,
-        .file = null,
-    };
+    gop.value_ptr.* = sym_loc;
 }
 
 fn createDsoHandleSymbol(self: *MachO) !void {
     const global = self.getGlobalPtr("___dso_handle") orelse return;
-    const sym = self.getSymbolPtr(global.*);
-    if (!sym.undf()) return;
+    if (!self.getSymbol(global.*).undf()) return;
 
     const gpa = self.base.allocator;
     const sym_index = try self.allocateSymbol();
-    self.locals.items[sym_index] = .{
+    const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = null };
+    const sym = self.getSymbolPtr(sym_loc);
+    sym.* = .{
         .n_strx = try self.strtab.insert(gpa, "___dso_handle"),
         .n_type = macho.N_SECT | macho.N_EXT,
         .n_sect = 0,
         .n_desc = macho.N_WEAK_DEF,
         .n_value = 0,
     };
-    global.* = .{
-        .sym_index = sym_index,
-        .file = null,
-    };
+    global.* = sym_loc;
     _ = self.unresolved.swapRemove(self.getGlobalIndex("___dso_handle").?);
 }
 
@@ -2789,7 +2755,8 @@ fn resolveDyldStubBinder(self: *MachO) !void {
 
     const gpa = self.base.allocator;
     const sym_index = try self.allocateSymbol();
-    const sym = &self.locals.items[sym_index];
+    const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = null };
+    const sym = self.getSymbolPtr(sym_loc);
     const sym_name = "dyld_stub_binder";
     sym.* = .{
         .n_strx = try self.strtab.insert(gpa, sym_name),
@@ -2799,10 +2766,7 @@ fn resolveDyldStubBinder(self: *MachO) !void {
         .n_value = 0,
     };
     const gop = try self.getOrPutGlobalPtr(sym_name);
-    gop.value_ptr.* = .{
-        .sym_index = sym_index,
-        .file = null,
-    };
+    gop.value_ptr.* = sym_loc;
     const global = gop.value_ptr.*;
 
     for (self.dylibs.items) |dylib, id| {
