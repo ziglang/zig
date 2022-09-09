@@ -144,6 +144,7 @@ pub const Block = struct {
     /// Non zero if a non-inline loop or a runtime conditional have been encountered.
     /// Stores to to comptime variables are only allowed when var.runtime_index <= runtime_index.
     runtime_index: Value.RuntimeIndex = .zero,
+    inline_block: Zir.Inst.Index = 0,
 
     is_comptime: bool,
     is_typeof: bool = false,
@@ -1157,9 +1158,20 @@ fn analyzeBodyInner(
             },
             .check_comptime_control_flow => {
                 if (!block.is_comptime) {
-                    if (block.runtime_cond orelse block.runtime_loop) |runtime_src| {
-                        const inst_data = sema.code.instructions.items(.data)[inst].node;
-                        const src = LazySrcLoc.nodeOffset(inst_data);
+                    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+                    const src = inst_data.src();
+                    const inline_block = Zir.refToIndex(inst_data.operand).?;
+
+                    var check_block = block;
+                    const target_runtime_index = while (true) {
+                        if (check_block.inline_block == inline_block) {
+                            break check_block.runtime_index;
+                        }
+                        check_block = check_block.parent.?;
+                    } else unreachable;
+
+                    if (@enumToInt(target_runtime_index) < @enumToInt(block.runtime_index)) {
+                        const runtime_src = block.runtime_cond orelse block.runtime_loop.?;
                         const msg = msg: {
                             const msg = try sema.errMsg(block, src, "comptime control flow inside runtime block", .{});
                             errdefer msg.destroy(sema.gpa);
@@ -1272,10 +1284,15 @@ fn analyzeBodyInner(
                 // current list of parameters and restore it later.
                 // Note: this probably needs to be resolved in a more general manner.
                 const prev_params = block.params;
+                const prev_inline_block = block.inline_block;
+                if (tags[inline_body[inline_body.len - 1]] == .repeat_inline) {
+                    block.inline_block = inline_body[0];
+                }
                 block.params = .{};
                 defer {
                     block.params.deinit(gpa);
                     block.params = prev_params;
+                    block.inline_block = prev_inline_block;
                 }
                 const opt_break_data = try sema.analyzeBodyBreak(block, inline_body);
                 // A runtime conditional branch that needs a post-hoc block to be

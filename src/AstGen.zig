@@ -1981,7 +1981,7 @@ fn continueExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) 
                 else
                     .@"break";
                 if (break_tag == .break_inline) {
-                    _ = try parent_gz.addNode(.check_comptime_control_flow, node);
+                    _ = try parent_gz.addUnNode(.check_comptime_control_flow, Zir.indexToRef(continue_block), node);
                 }
                 _ = try parent_gz.addBreak(break_tag, continue_block, .void_value);
                 return Zir.Inst.Ref.unreachable_value;
