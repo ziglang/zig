@@ -24770,6 +24770,20 @@ fn beginComptimePtrMutation(
                         else => unreachable,
                     },
 
+                    .empty_struct_value => {
+                        const duped = try sema.arena.create(Value);
+                        duped.* = Value.initTag(.the_only_possible_value);
+                        return beginComptimePtrMutationInner(
+                            sema,
+                            block,
+                            src,
+                            parent.ty.structFieldType(field_index),
+                            duped,
+                            ptr_elem_ty,
+                            parent.decl_ref_mut,
+                        );
+                    },
+
                     else => unreachable,
                 },
                 .reinterpret => |reinterpret| {
