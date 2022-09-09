@@ -221,7 +221,7 @@ pub const StreamingParser = struct {
     pub fn reset(p: *StreamingParser) void {
         p.state = .TopLevelBegin;
         p.count = 0;
-        // Set before ever read in main transition function
+        // Set before every read in main transition function
         p.after_string_state = undefined;
         p.after_value_state = .ValueEnd; // handle end of values normally
         p.stack.init();
