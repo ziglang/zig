@@ -1337,3 +1337,37 @@ test "lazy value is resolved as slice operand" {
     try expect(@ptrToInt(ptr1) == @ptrToInt(ptr2));
     try expect(ptr1.len == ptr2.len);
 }
+
+test "break from inline loop depends on runtime condition" {
+    const S = struct {
+        fn foo(a: u8) bool {
+            return a == 4;
+        }
+    };
+    const arr = [_]u8{ 1, 2, 3, 4 };
+    {
+        const blk = blk: {
+            inline for (arr) |val| {
+                if (S.foo(val)) {
+                    break :blk val;
+                }
+            }
+            return error.TestFailed;
+        };
+        try expect(blk == 4);
+    }
+
+    {
+        comptime var i = 0;
+        const blk = blk: {
+            inline while (i < arr.len) : (i += 1) {
+                const val = arr[i];
+                if (S.foo(val)) {
+                    break :blk val;
+                }
+            }
+            return error.TestFailed;
+        };
+        try expect(blk == 4);
+    }
+}
