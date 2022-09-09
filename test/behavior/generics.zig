@@ -358,3 +358,14 @@ test "nested generic function" {
     try expect(@typeInfo(@TypeOf(S.g)).Fn.is_generic);
     try S.foo(u32, S.bar, 123);
 }
+
+test "extern function used as generic parameter" {
+    const S = struct {
+        extern fn foo() void;
+        extern fn bar() void;
+        inline fn baz(comptime _: anytype) type {
+            return struct {};
+        }
+    };
+    try expect(S.baz(S.foo) != S.baz(S.bar));
+}
