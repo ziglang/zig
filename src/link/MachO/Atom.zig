@@ -272,7 +272,7 @@ pub fn parseRelocs(self: *Atom, relocs: []align(1) const macho.relocation_info, 
                 subtractor = sym_loc;
             } else {
                 const sym_name = context.macho_file.getSymbolName(sym_loc);
-                subtractor = context.macho_file.globals.get(sym_name).?;
+                subtractor = context.macho_file.getGlobal(sym_name).?;
             }
             // Verify that *_SUBTRACTOR is followed by *_UNSIGNED.
             if (relocs.len <= i + 1) {
@@ -339,7 +339,7 @@ pub fn parseRelocs(self: *Atom, relocs: []align(1) const macho.relocation_info, 
                 break :target sym_loc;
             } else {
                 const sym_name = context.macho_file.getSymbolName(sym_loc);
-                break :target context.macho_file.globals.get(sym_name).?;
+                break :target context.macho_file.getGlobal(sym_name).?;
             }
         };
         const offset = @intCast(u32, rel.r_address - context.base_offset);
@@ -579,7 +579,7 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
                 // If there is no atom for target, we still need to check for special, atom-less
                 // symbols such as `___dso_handle`.
                 const target_name = macho_file.getSymbolName(rel.target);
-                assert(macho_file.globals.contains(target_name));
+                assert(macho_file.getGlobal(target_name) != null);
                 const atomless_sym = macho_file.getSymbol(rel.target);
                 log.debug("    | atomless target '{s}'", .{target_name});
                 break :blk atomless_sym.n_value;
