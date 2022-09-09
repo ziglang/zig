@@ -5957,20 +5957,36 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
     return bytes[0..i];
 }
 
+/// non-ASCII characters (c > 127) are also treated as non-printable by fmtSliceEscapeLower.
+/// If a C string literal or char literal in a macro is not valid UTF-8, we need to escape
+/// non-ASCII characters so that the Zig source we output will itself be UTF-8.
+fn escapeUnprintables(ctx: *Context, m: *MacroCtx) ![]const u8 {
+    const zigified = try zigifyEscapeSequences(ctx, m);
+    if (std.unicode.utf8ValidateSlice(zigified)) return zigified;
+
+    const formatter = std.fmt.fmtSliceEscapeLower(zigified);
+    const encoded_size = @intCast(usize, std.fmt.count("{s}", .{formatter}));
+    var output = try ctx.arena.alloc(u8, encoded_size);
+    return std.fmt.bufPrint(output, "{s}", .{formatter}) catch |err| switch (err) {
+        error.NoSpaceLeft => unreachable,
+        else => |e| return e,
+    };
+}
+
 fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     const tok = m.next().?;
     const slice = m.slice();
     switch (tok) {
         .CharLiteral => {
             if (slice[0] != '\'' or slice[1] == '\\' or slice.len == 3) {
-                return Tag.char_literal.create(c.arena, try zigifyEscapeSequences(c, m));
+                return Tag.char_literal.create(c.arena, try escapeUnprintables(c, m));
             } else {
                 const str = try std.fmt.allocPrint(c.arena, "0x{s}", .{std.fmt.fmtSliceHexLower(slice[1 .. slice.len - 1])});
                 return Tag.integer_literal.create(c.arena, str);
             }
         },
         .StringLiteral => {
-            return Tag.string_literal.create(c.arena, try zigifyEscapeSequences(c, m));
+            return Tag.string_literal.create(c.arena, try escapeUnprintables(c, m));
         },
         .IntegerLiteral, .FloatLiteral => {
             return parseCNumLit(c, m);
