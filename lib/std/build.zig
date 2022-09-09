@@ -45,6 +45,7 @@ pub const Builder = struct {
     /// The purpose of executing the command is for a human to read compile errors from the terminal
     prominent_compile_errors: bool,
     color: enum { auto, on, off } = .auto,
+    reference_trace: ?u32 = null,
     use_stage1: ?bool = null,
     invalid_user_input: bool,
     zig_exe: []const u8,
@@ -2473,6 +2474,10 @@ pub const LibExeObjStep = struct {
         if (builder.color != .auto) {
             try zig_args.append("--color");
             try zig_args.append(@tagName(builder.color));
+        }
+
+        if (builder.reference_trace) |some| {
+            try zig_args.append(try std.fmt.allocPrint(builder.allocator, "-freference-trace={d}", .{some}));
         }
 
         if (self.use_stage1) |stage1| {

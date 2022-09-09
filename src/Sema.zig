@@ -111,6 +111,7 @@ const crash_report = @import("crash_report.zig");
 const build_options = @import("build_options");
 
 pub const default_branch_quota = 1000;
+pub const default_reference_trace_len = 2;
 
 pub const InstMap = std.AutoHashMapUnmanaged(Zir.Inst.Index, Air.Inst.Ref);
 
@@ -1958,13 +1959,53 @@ fn failWithOwnedErrorMsg(sema: *Sema, err_msg: *Module.ErrorMsg) CompileError {
     }
 
     const mod = sema.mod;
-    {
+    ref: {
         errdefer err_msg.destroy(mod.gpa);
         if (err_msg.src_loc.lazy == .unneeded) {
             return error.NeededSourceLocation;
         }
         try mod.failed_decls.ensureUnusedCapacity(mod.gpa, 1);
         try mod.failed_files.ensureUnusedCapacity(mod.gpa, 1);
+
+        const max_references = blk: {
+            if (sema.mod.comp.reference_trace) |num| break :blk num;
+            // Do not add multiple traces without explicit request.
+            if (sema.mod.failed_decls.count() != 0) break :ref;
+            break :blk default_reference_trace_len;
+        };
+
+        var referenced_by = if (sema.func) |some| some.owner_decl else sema.owner_decl_index;
+        var reference_stack = std.ArrayList(Module.ErrorMsg.Trace).init(sema.gpa);
+        defer reference_stack.deinit();
+
+        // Avoid infinite loops.
+        var seen = std.AutoHashMap(Module.Decl.Index, void).init(sema.gpa);
+        defer seen.deinit();
+
+        var cur_reference_trace: u32 = 0;
+        while (sema.mod.reference_table.get(referenced_by)) |ref| : (cur_reference_trace += 1) {
+            const gop = try seen.getOrPut(ref.referencer);
+            if (gop.found_existing) break;
+            if (cur_reference_trace < max_references) {
+                const decl = sema.mod.declPtr(ref.referencer);
+                try reference_stack.append(.{ .decl = decl.name, .src_loc = ref.src.toSrcLoc(decl) });
+            }
+            referenced_by = ref.referencer;
+        }
+        if (sema.mod.comp.reference_trace == null and cur_reference_trace > 0) {
+            try reference_stack.append(.{
+                .decl = null,
+                .src_loc = undefined,
+                .hidden = 0,
+            });
+        } else if (cur_reference_trace > max_references) {
+            try reference_stack.append(.{
+                .decl = undefined,
+                .src_loc = undefined,
+                .hidden = cur_reference_trace - max_references,
+            });
+        }
+        err_msg.reference_trace = reference_stack.toOwnedSlice();
     }
     if (sema.owner_func) |func| {
         func.state = .sema_failure;
@@ -5366,14 +5407,8 @@ fn zirDeclRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const src = inst_data.src();
     const decl_name = inst_data.get(sema.code);
     const decl_index = try sema.lookupIdentifier(block, src, decl_name);
-    return sema.analyzeDeclRef(decl_index) catch |err| switch (err) {
-        error.AnalysisFail => {
-            const msg = sema.err orelse return err;
-            try sema.errNote(block, src, msg, "referenced here", .{});
-            return err;
-        },
-        else => return err,
-    };
+    try sema.addReferencedBy(block, src, decl_index);
+    return sema.analyzeDeclRef(decl_index);
 }
 
 fn zirDeclVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -6107,6 +6142,7 @@ fn analyzeCall(
                     error.AnalysisFail => {
                         const err_msg = sema.err orelse return err;
                         try sema.errNote(block, call_src, err_msg, "called from here", .{});
+                        err_msg.clearTrace(sema.gpa);
                         return err;
                     },
                     else => |e| return e,
@@ -21741,14 +21777,8 @@ fn namespaceLookupRef(
     decl_name: []const u8,
 ) CompileError!?Air.Inst.Ref {
     const decl = (try sema.namespaceLookup(block, src, namespace, decl_name)) orelse return null;
-    return sema.analyzeDeclRef(decl) catch |err| switch (err) {
-        error.AnalysisFail => {
-            const msg = sema.err orelse return err;
-            try sema.errNote(block, src, msg, "referenced here", .{});
-            return err;
-        },
-        else => return err,
-    };
+    try sema.addReferencedBy(block, src, decl);
+    return try sema.analyzeDeclRef(decl);
 }
 
 fn namespaceLookupVal(
@@ -26001,14 +26031,8 @@ fn analyzeDeclVal(
     if (sema.decl_val_table.get(decl_index)) |result| {
         return result;
     }
-    const decl_ref = sema.analyzeDeclRef(decl_index) catch |err| switch (err) {
-        error.AnalysisFail => {
-            const msg = sema.err orelse return err;
-            try sema.errNote(block, src, msg, "referenced here", .{});
-            return err;
-        },
-        else => return err,
-    };
+    try sema.addReferencedBy(block, src, decl_index);
+    const decl_ref = try sema.analyzeDeclRef(decl_index);
     const result = try sema.analyzeLoad(block, src, decl_ref, src);
     if (Air.refToIndex(result)) |index| {
         if (sema.air_instructions.items(.tag)[index] == .constant and !block.is_typeof) {
@@ -26016,6 +26040,19 @@ fn analyzeDeclVal(
         }
     }
     return result;
+}
+
+fn addReferencedBy(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    decl_index: Decl.Index,
+) !void {
+    if (sema.mod.comp.reference_trace == @as(u32, 0)) return;
+    try sema.mod.reference_table.put(sema.gpa, decl_index, .{
+        .referencer = block.src_decl,
+        .src = src,
+    });
 }
 
 fn ensureDeclAnalyzed(sema: *Sema, decl_index: Decl.Index) CompileError!void {
