@@ -127,7 +127,7 @@ pub const Reloc = struct {
     @"type": enum {
         got,
         direct,
-        imports,
+        import,
     },
     target: SymbolWithLoc,
     offset: u32,
@@ -141,7 +141,7 @@ pub const Reloc = struct {
         switch (self.@"type") {
             .got => return coff_file.getGotAtomForSymbol(self.target),
             .direct => return coff_file.getAtomForSymbol(self.target),
-            .imports => return coff_file.getImportAtomForSymbol(self.target),
+            .import => return coff_file.getImportAtomForSymbol(self.target),
         }
     }
 };

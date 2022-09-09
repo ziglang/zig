@@ -1021,7 +1021,7 @@ fn mirLeaPic(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             .@"type" = switch (ops.flags) {
                 0b00 => .got,
                 0b01 => .direct,
-                0b10 => .imports,
+                0b10 => .import,
                 else => unreachable,
             },
             .target = switch (ops.flags) {
