@@ -2042,6 +2042,9 @@ pub const Type = extern union {
                 try writer.writeAll("fn(");
                 for (fn_info.param_types) |param_ty, i| {
                     if (i != 0) try writer.writeAll(", ");
+                    if (fn_info.paramIsComptime(i)) {
+                        try writer.writeAll("comptime ");
+                    }
                     if (std.math.cast(u5, i)) |index| if (@truncate(u1, fn_info.noalias_bits >> index) != 0) {
                         try writer.writeAll("noalias ");
                     };
