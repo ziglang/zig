@@ -1213,7 +1213,7 @@ pub const TestContext = struct {
     }
 
     fn run(self: *TestContext) !void {
-        const host = try std.zig.system.NativeTargetInfo.detect(self.gpa, .{});
+        const host = try std.zig.system.NativeTargetInfo.detect(.{});
 
         var progress = std.Progress{};
         const root_node = progress.start("compiler", self.cases.items.len);
@@ -1302,7 +1302,7 @@ pub const TestContext = struct {
         global_cache_directory: Compilation.Directory,
         host: std.zig.system.NativeTargetInfo,
     ) !void {
-        const target_info = try std.zig.system.NativeTargetInfo.detect(allocator, case.target);
+        const target_info = try std.zig.system.NativeTargetInfo.detect(case.target);
         const target = target_info.target;
 
         var arena_allocator = std.heap.ArenaAllocator.init(allocator);
