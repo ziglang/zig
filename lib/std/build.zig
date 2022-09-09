@@ -171,7 +171,7 @@ pub const Builder = struct {
         const env_map = try allocator.create(EnvMap);
         env_map.* = try process.getEnvMap(allocator);
 
-        const host = try NativeTargetInfo.detect(allocator, .{});
+        const host = try NativeTargetInfo.detect(.{});
 
         const self = try allocator.create(Builder);
         self.* = Builder{
@@ -1798,7 +1798,7 @@ pub const LibExeObjStep = struct {
     }
 
     fn computeOutFileNames(self: *LibExeObjStep) void {
-        self.target_info = NativeTargetInfo.detect(self.builder.allocator, self.target) catch
+        self.target_info = NativeTargetInfo.detect(self.target) catch
             unreachable;
 
         const target = self.target_info.target;

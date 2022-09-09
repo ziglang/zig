@@ -37,8 +37,7 @@ pub const DetectError = error{
 /// relative to that.
 /// Any resources this function allocates are released before returning, and so there is no
 /// deinitialization method.
-/// TODO Remove the Allocator requirement from this function.
-pub fn detect(allocator: Allocator, cross_target: CrossTarget) DetectError!NativeTargetInfo {
+pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
     var os = cross_target.getOsTag().defaultVersionRange(cross_target.getCpuArch());
     if (cross_target.os_tag == null) {
         switch (builtin.target.os.tag) {
@@ -199,7 +198,7 @@ pub fn detect(allocator: Allocator, cross_target: CrossTarget) DetectError!Nativ
     } orelse backup_cpu_detection: {
         break :backup_cpu_detection Target.Cpu.baseline(cpu_arch);
     };
-    var result = try detectAbiAndDynamicLinker(allocator, cpu, os, cross_target);
+    var result = try detectAbiAndDynamicLinker(cpu, os, cross_target);
     // For x86, we need to populate some CPU feature flags depending on architecture
     // and mode:
     //  * 16bit_mode => if the abi is code16
@@ -236,13 +235,20 @@ pub fn detect(allocator: Allocator, cross_target: CrossTarget) DetectError!Nativ
     return result;
 }
 
-/// First we attempt to use the executable's own binary. If it is dynamically
-/// linked, then it should answer both the C ABI question and the dynamic linker question.
-/// If it is statically linked, then we try /usr/bin/env (or the file it references in shebang). If that does not provide the answer, then
-/// we fall back to the defaults.
-/// TODO Remove the Allocator requirement from this function.
+/// In the past, this function attempted to use the executable's own binary if it was dynamically
+/// linked to answer both the C ABI question and the dynamic linker question. However, this
+/// could be problematic on a system that uses a RUNPATH for the compiler binary, locking
+/// it to an older glibc version, while system binaries such as /usr/bin/env use a newer glibc
+/// version. The problem is that libc.so.6 glibc version will match that of the system while
+/// the dynamic linker will match that of the compiler binary. Executables with these versions
+/// mismatching will fail to run.
+///
+/// Therefore, this function works the same regardless of whether the compiler binary is
+/// dynamically or statically linked. It inspects `/usr/bin/env` as an ELF file to find the
+/// answer to these questions, or if there is a shebang line, then it chases the referenced
+/// file recursively. If that does not provide the answer, then the function falls back to
+/// defaults.
 fn detectAbiAndDynamicLinker(
-    allocator: Allocator,
     cpu: Target.Cpu,
     os: Target.Os,
     cross_target: CrossTarget,
@@ -280,8 +286,8 @@ fn detectAbiAndDynamicLinker(
     const ofmt = cross_target.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch);
 
     for (all_abis) |abi| {
-        // This may be a nonsensical parameter. We detect this with error.UnknownDynamicLinkerPath and
-        // skip adding it to `ld_info_list`.
+        // This may be a nonsensical parameter. We detect this with
+        // error.UnknownDynamicLinkerPath and skip adding it to `ld_info_list`.
         const target: Target = .{
             .cpu = cpu,
             .os = os,
@@ -301,62 +307,6 @@ fn detectAbiAndDynamicLinker(
 
     // Best case scenario: the executable is dynamically linked, and we can iterate
     // over our own shared objects and find a dynamic linker.
-    self_exe: {
-        const lib_paths = try std.process.getSelfExeSharedLibPaths(allocator);
-        defer {
-            for (lib_paths) |lib_path| {
-                allocator.free(lib_path);
-            }
-            allocator.free(lib_paths);
-        }
-
-        var found_ld_info: LdInfo = undefined;
-        var found_ld_path: [:0]const u8 = undefined;
-
-        // Look for dynamic linker.
-        // This is O(N^M) but typical case here is N=2 and M=10.
-        find_ld: for (lib_paths) |lib_path| {
-            for (ld_info_list) |ld_info| {
-                const standard_ld_basename = fs.path.basename(ld_info.ld.get().?);
-                if (std.mem.endsWith(u8, lib_path, standard_ld_basename)) {
-                    found_ld_info = ld_info;
-                    found_ld_path = lib_path;
-                    break :find_ld;
-                }
-            }
-        } else break :self_exe;
-
-        // Look for glibc version.
-        var os_adjusted = os;
-        if (builtin.target.os.tag == .linux and found_ld_info.abi.isGnu() and
-            cross_target.glibc_version == null)
-        {
-            for (lib_paths) |lib_path| {
-                if (std.mem.endsWith(u8, lib_path, glibc_so_basename)) {
-                    os_adjusted.version_range.linux.glibc = glibcVerFromSo(lib_path) catch |err| switch (err) {
-                        error.GnuLibCVersionUnavailable => continue,
-                        else => |e| return e,
-                    };
-                    break;
-                }
-            }
-        }
-
-        var result: NativeTargetInfo = .{
-            .target = .{
-                .cpu = cpu,
-                .os = os_adjusted,
-                .abi = cross_target.abi orelse found_ld_info.abi,
-                .ofmt = cross_target.ofmt orelse Target.ObjectFormat.default(os_adjusted.tag, cpu.arch),
-            },
-            .dynamic_linker = if (cross_target.dynamic_linker.get() == null)
-                DynamicLinker.init(found_ld_path)
-            else
-                cross_target.dynamic_linker,
-        };
-        return result;
-    }
-
     const elf_file = blk: {
         // This block looks for a shebang line in /usr/bin/env,
         // if it finds one, then instead of using /usr/bin/env as the ELF file to examine, it uses the file it references instead,
@@ -451,56 +401,6 @@ fn detectAbiAndDynamicLinker(
 }
 
 const glibc_so_basename = "libc.so.6";
-
-fn glibcVerFromSo(so_path: [:0]const u8) !std.builtin.Version {
-    const file = fs.openFileAbsolute(so_path, .{}) catch |err| switch (err) {
-        // Contextually impossible errors.
-        error.NoSpaceLeft => unreachable,
-        error.NameTooLong => unreachable,
-        error.PathAlreadyExists => unreachable,
-        error.SharingViolation => unreachable,
-        error.InvalidUtf8 => unreachable,
-        error.BadPathName => unreachable,
-        error.PipeBusy => unreachable,
-        error.FileLocksNotSupported => unreachable,
-        error.WouldBlock => unreachable,
-        error.FileBusy => unreachable, // opened without write permissions
-        error.NoDevice => unreachable, // not accessing special device
-        error.InvalidHandle => unreachable, // should not be in the error set
-        error.DeviceBusy => unreachable, // read-only
-
-        // Errors that indicate a false negative may occur if we treat this as
-        // not a libc shared object.
-        error.ProcessFdQuotaExceeded => return error.ProcessFdQuotaExceeded,
-        error.SystemFdQuotaExceeded => return error.SystemFdQuotaExceeded,
-        error.SystemResources => return error.SystemResources,
-        error.Unexpected => return error.Unexpected,
-
-        // Errors that indicate this file is not a libc shared object.
-        error.SymLinkLoop => return error.GnuLibCVersionUnavailable,
-        error.IsDir => return error.GnuLibCVersionUnavailable,
-        error.AccessDenied => return error.GnuLibCVersionUnavailable,
-        error.FileNotFound => return error.GnuLibCVersionUnavailable,
-        error.FileTooBig => return error.GnuLibCVersionUnavailable,
-        error.NotDir => return error.GnuLibCVersionUnavailable,
-    };
-    defer file.close();
-
-    return glibcVerFromSoFile(file) catch |err| switch (err) {
-        error.InvalidElfMagic => return error.GnuLibCVersionUnavailable,
-        error.InvalidElfEndian => return error.GnuLibCVersionUnavailable,
-        error.InvalidElfClass => return error.GnuLibCVersionUnavailable,
-        error.InvalidElfFile => return error.GnuLibCVersionUnavailable,
-        error.InvalidElfVersion => return error.GnuLibCVersionUnavailable,
-        error.InvalidGnuLibCVersion => return error.GnuLibCVersionUnavailable,
-        error.UnexpectedEndOfFile => return error.GnuLibCVersionUnavailable,
-        error.UnableToReadElfFile => return error.GnuLibCVersionUnavailable,
-
-        error.SystemResources => return error.SystemResources,
-        error.FileSystem => return error.FileSystem,
-        error.Unexpected => return error.Unexpected,
-    };
-}
 
 fn glibcVerFromSoFile(file: fs.File) !std.builtin.Version {
     var hdr_buf: [@sizeOf(elf.Elf64_Ehdr)]u8 align(@alignOf(elf.Elf64_Ehdr)) = undefined;

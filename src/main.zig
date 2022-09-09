@@ -268,7 +268,7 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
     } else if (mem.eql(u8, cmd, "init-lib")) {
         return cmdInit(gpa, arena, cmd_args, .Lib);
     } else if (mem.eql(u8, cmd, "targets")) {
-        const info = try detectNativeTargetInfo(arena, .{});
+        const info = try detectNativeTargetInfo(.{});
         const stdout = io.getStdOut().writer();
         return @import("print_targets.zig").cmdTargets(arena, cmd_args, stdout, info.target);
     } else if (mem.eql(u8, cmd, "version")) {
@@ -2267,7 +2267,7 @@ fn buildOutputType(
     }
 
     const cross_target = try parseCrossTargetOrReportFatalError(arena, target_parse_options);
-    const target_info = try detectNativeTargetInfo(gpa, cross_target);
+    const target_info = try detectNativeTargetInfo(cross_target);
 
     if (target_info.target.os.tag != .freestanding) {
         if (ensure_libc_on_non_freestanding)
@@ -3283,7 +3283,7 @@ fn runOrTest(
     if (std.process.can_execv and arg_mode == .run and !watch) {
         // execv releases the locks; no need to destroy the Compilation here.
         const err = std.process.execv(gpa, argv.items);
-        try warnAboutForeignBinaries(gpa, arena, arg_mode, target_info, link_libc);
+        try warnAboutForeignBinaries(arena, arg_mode, target_info, link_libc);
         const cmd = try std.mem.join(arena, " ", argv.items);
         fatal("the following command failed to execve with '{s}':\n{s}", .{ @errorName(err), cmd });
     } else if (std.process.can_spawn) {
@@ -3300,7 +3300,7 @@ fn runOrTest(
         }
 
         const term = child.spawnAndWait() catch |err| {
-            try warnAboutForeignBinaries(gpa, arena, arg_mode, target_info, link_libc);
+            try warnAboutForeignBinaries(arena, arg_mode, target_info, link_libc);
             const cmd = try std.mem.join(arena, " ", argv.items);
             fatal("the following command failed with '{s}':\n{s}", .{ @errorName(err), cmd });
         };
@@ -3914,7 +3914,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         gimmeMoreOfThoseSweetSweetFileDescriptors();
 
         const cross_target: std.zig.CrossTarget = .{};
-        const target_info = try detectNativeTargetInfo(gpa, cross_target);
+        const target_info = try detectNativeTargetInfo(cross_target);
 
         const exe_basename = try std.zig.binNameAlloc(arena, .{
             .root_name = "build",
@@ -4956,8 +4956,8 @@ test "fds" {
     gimmeMoreOfThoseSweetSweetFileDescriptors();
 }
 
-fn detectNativeTargetInfo(gpa: Allocator, cross_target: std.zig.CrossTarget) !std.zig.system.NativeTargetInfo {
-    return std.zig.system.NativeTargetInfo.detect(gpa, cross_target);
+fn detectNativeTargetInfo(cross_target: std.zig.CrossTarget) !std.zig.system.NativeTargetInfo {
+    return std.zig.system.NativeTargetInfo.detect(cross_target);
 }
 
 /// Indicate that we are now terminating with a successful exit code.
@@ -5320,14 +5320,13 @@ fn parseIntSuffix(arg: []const u8, prefix_len: usize) u64 {
 }
 
 fn warnAboutForeignBinaries(
-    gpa: Allocator,
     arena: Allocator,
     arg_mode: ArgMode,
     target_info: std.zig.system.NativeTargetInfo,
     link_libc: bool,
 ) !void {
     const host_cross_target: std.zig.CrossTarget = .{};
-    const host_target_info = try detectNativeTargetInfo(gpa, host_cross_target);
+    const host_target_info = try detectNativeTargetInfo(host_cross_target);
 
     switch (host_target_info.getExternalExecutor(target_info, .{ .link_libc = link_libc })) {
         .native => return,
