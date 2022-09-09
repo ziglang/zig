@@ -108,6 +108,14 @@ const test_targets = blk: {
             },
             .backend = .stage2_x86_64,
         },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .windows,
+                .abi = .gnu,
+            },
+            .backend = .stage2_x86_64,
+        },
 
         .{
             .target = .{
@@ -693,6 +701,8 @@ pub fn addPkgTests(
             else => {
                 these_tests.use_stage1 = false;
                 these_tests.use_llvm = false;
+                // TODO: force self-hosted linkers to avoid LLD creeping in until the auto-select mechanism deems them worthy
+                these_tests.use_lld = false;
             },
         };
 

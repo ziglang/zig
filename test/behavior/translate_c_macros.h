@@ -50,3 +50,5 @@ typedef _Bool uintptr_t;
 #define CAST_TO_UINTPTR(X) (uintptr_t)(X)
 
 #define LARGE_INT 18446744073709550592
+
+#define EMBEDDED_TAB "hello	"

@@ -1210,7 +1210,7 @@ fn genHtml(
     var env_map = try process.getEnvMap(allocator);
     try env_map.put("ZIG_DEBUG_COLOR", "1");
 
-    const host = try std.zig.system.NativeTargetInfo.detect(allocator, .{});
+    const host = try std.zig.system.NativeTargetInfo.detect(.{});
     const builtin_code = try getBuiltinCode(allocator, &env_map, zig_exe);
 
     for (toc.nodes) |node| {
@@ -1474,7 +1474,6 @@ fn genHtml(
                                 .arch_os_abi = triple,
                             });
                             const target_info = try std.zig.system.NativeTargetInfo.detect(
-                                allocator,
                                 cross_target,
                             );
                             switch (host.getExternalExecutor(target_info, .{

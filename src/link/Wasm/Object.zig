@@ -63,16 +63,21 @@ relocatable_data: []const RelocatableData = &.{},
 /// import name, module name and export names. Each string will be deduplicated
 /// and returns an offset into the table.
 string_table: Wasm.StringTable = .{},
+/// All the names of each debug section found in the current object file.
+/// Each name is terminated by a null-terminator. The name can be found,
+/// from the `index` offset within the `RelocatableData`.
+debug_names: [:0]const u8,
 
 /// Represents a single item within a section (depending on its `type`)
 const RelocatableData = struct {
     /// The type of the relocatable data
-    type: enum { data, code, custom },
+    type: enum { data, code, debug },
     /// Pointer to the data of the segment, where its length is written to `size`
     data: [*]u8,
     /// The size in bytes of the data representing the segment within the section
     size: u32,
-    /// The index within the section itself
+    /// The index within the section itself, or in case of a debug section,
+    /// the offset within the `string_table`.
     index: u32,
     /// The offset within the section where the data starts
     offset: u32,
@@ -96,8 +101,15 @@ const RelocatableData = struct {
         return switch (self.type) {
             .data => .data,
             .code => .function,
-            .custom => .section,
+            .debug => .section,
         };
+    }
+
+    /// Returns the index within a section itself, or in case of a debug section,
+    /// returns the section index within the object file.
+    pub fn getIndex(self: RelocatableData) u32 {
+        if (self.type == .debug) return self.section_index;
+        return self.index;
     }
 };
 
@@ -111,6 +123,7 @@ pub fn create(gpa: Allocator, file: std.fs.File, name: []const u8, maybe_max_siz
     var object: Object = .{
         .file = file,
         .name = try gpa.dupe(u8, name),
+        .debug_names = &.{},
     };
 
     var is_object_file: bool = false;
@@ -141,6 +154,9 @@ pub fn create(gpa: Allocator, file: std.fs.File, name: []const u8, maybe_max_siz
 /// Frees all memory of `Object` at once. The given `Allocator` must be
 /// the same allocator that was used when `init` was called.
 pub fn deinit(self: *Object, gpa: Allocator) void {
+    if (self.file) |file| {
+        file.close();
+    }
     for (self.func_types) |func_ty| {
         gpa.free(func_ty.params);
         gpa.free(func_ty.returns);
@@ -195,6 +211,11 @@ pub fn importedCountByKind(self: *const Object, kind: std.wasm.ExternalKind) u32
     return for (self.imports) |imp| {
         if (@as(std.wasm.ExternalKind, imp.kind) == kind) i += 1;
     } else i;
+}
+
+/// From a given `RelocatableDate`, find the corresponding debug section name
+pub fn getDebugName(self: *const Object, relocatable_data: RelocatableData) []const u8 {
+    return self.string_table.get(relocatable_data.index);
 }
 
 /// Checks if the object file is an MVP version.
@@ -328,10 +349,15 @@ fn Parser(comptime ReaderType: type) type {
 
             self.object.version = version;
             var relocatable_data = std.ArrayList(RelocatableData).init(gpa);
+            var debug_names = std.ArrayList(u8).init(gpa);
 
-            errdefer while (relocatable_data.popOrNull()) |rel_data| {
-                gpa.free(rel_data.data[0..rel_data.size]);
-            } else relocatable_data.deinit();
+            errdefer {
+                while (relocatable_data.popOrNull()) |rel_data| {
+                    gpa.free(rel_data.data[0..rel_data.size]);
+                } else relocatable_data.deinit();
+                gpa.free(debug_names.items);
+                debug_names.deinit();
+            }
 
             var section_index: u32 = 0;
             while (self.reader.reader().readByte()) |byte| : (section_index += 1) {
@@ -347,11 +373,26 @@ fn Parser(comptime ReaderType: type) type {
 
                         if (std.mem.eql(u8, name, "linking")) {
                             is_object_file.* = true;
+                            self.object.relocatable_data = relocatable_data.items; // at this point no new relocatable sections will appear so we're free to store them.
                             try self.parseMetadata(gpa, @intCast(usize, reader.context.bytes_left));
                         } else if (std.mem.startsWith(u8, name, "reloc")) {
                             try self.parseRelocations(gpa);
                         } else if (std.mem.eql(u8, name, "target_features")) {
                             try self.parseFeatures(gpa);
+                        } else if (std.mem.startsWith(u8, name, ".debug")) {
+                            const debug_size = @intCast(u32, reader.context.bytes_left);
+                            const debug_content = try gpa.alloc(u8, debug_size);
+                            errdefer gpa.free(debug_content);
+                            try reader.readNoEof(debug_content);
+
+                            try relocatable_data.append(.{
+                                .type = .debug,
+                                .data = debug_content.ptr,
+                                .size = debug_size,
+                                .index = try self.object.string_table.put(gpa, name),
+                                .offset = 0, // debug sections only contain 1 entry, so no need to calculate offset
+                                .section_index = section_index,
+                            });
                         } else {
                             try reader.skipBytes(reader.context.bytes_left, .{});
                         }
@@ -737,7 +778,12 @@ fn Parser(comptime ReaderType: type) type {
                 },
                 .section => {
                     symbol.index = try leb.readULEB128(u32, reader);
-                    symbol.name = try self.object.string_table.put(gpa, @tagName(symbol.tag));
+                    for (self.object.relocatable_data) |data| {
+                        if (data.section_index == symbol.index) {
+                            symbol.name = data.index;
+                            break;
+                        }
+                    }
                 },
                 else => {
                     symbol.index = try leb.readULEB128(u32, reader);
@@ -827,7 +873,6 @@ fn assertEnd(reader: anytype) !void {
 
 /// Parses an object file into atoms, for code and data sections
 pub fn parseIntoAtoms(self: *Object, gpa: Allocator, object_index: u16, wasm_bin: *Wasm) !void {
-    log.debug("Parsing data section into atoms", .{});
     const Key = struct {
         kind: Symbol.Tag,
         index: u32,
@@ -839,7 +884,7 @@ pub fn parseIntoAtoms(self: *Object, gpa: Allocator, object_index: u16, wasm_bin
 
     for (self.symtable) |symbol, symbol_index| {
         switch (symbol.tag) {
-            .function, .data => if (!symbol.isUndefined()) {
+            .function, .data, .section => if (!symbol.isUndefined()) {
                 const gop = try symbol_for_segment.getOrPut(.{ .kind = symbol.tag, .index = symbol.index });
                 const sym_idx = @intCast(u32, symbol_index);
                 if (!gop.found_existing) {
@@ -852,12 +897,9 @@ pub fn parseIntoAtoms(self: *Object, gpa: Allocator, object_index: u16, wasm_bin
     }
 
     for (self.relocatable_data) |relocatable_data, index| {
-        const symbols = symbol_for_segment.getPtr(.{
-            .kind = relocatable_data.getSymbolKind(),
-            .index = @intCast(u32, relocatable_data.index),
-        }) orelse continue; // encountered a segment we do not create an atom for
-        const sym_index = symbols.pop();
-        const final_index = try wasm_bin.getMatchingSegment(object_index, @intCast(u32, index));
+        const final_index = (try wasm_bin.getMatchingSegment(object_index, @intCast(u32, index))) orelse {
+            continue; // found unknown section, so skip parsing into atom as we do not know how to handle it.
+        };
 
         const atom = try gpa.create(Atom);
         atom.* = Atom.empty;
@@ -870,7 +912,6 @@ pub fn parseIntoAtoms(self: *Object, gpa: Allocator, object_index: u16, wasm_bin
         atom.file = object_index;
         atom.size = relocatable_data.size;
         atom.alignment = relocatable_data.getAlignment(self);
-        atom.sym_index = sym_index;
 
         const relocations: []types.Relocation = self.relocations.get(relocatable_data.section_index) orelse &.{};
         for (relocations) |relocation| {
@@ -892,28 +933,31 @@ pub fn parseIntoAtoms(self: *Object, gpa: Allocator, object_index: u16, wasm_bin
 
         try atom.code.appendSlice(gpa, relocatable_data.data[0..relocatable_data.size]);
 
-        // symbols referencing the same atom will be added as alias
-        // or as 'parent' when they are global.
-        while (symbols.popOrNull()) |idx| {
-            const alias_symbol = self.symtable[idx];
-            const symbol = self.symtable[atom.sym_index];
-            if (alias_symbol.isGlobal() and symbol.isLocal()) {
-                atom.sym_index = idx;
+        if (symbol_for_segment.getPtr(.{
+            .kind = relocatable_data.getSymbolKind(),
+            .index = relocatable_data.getIndex(),
+        })) |symbols| {
+            atom.sym_index = symbols.pop();
+
+            // symbols referencing the same atom will be added as alias
+            // or as 'parent' when they are global.
+            while (symbols.popOrNull()) |idx| {
+                const alias_symbol = self.symtable[idx];
+                const symbol = self.symtable[atom.sym_index];
+                if (alias_symbol.isGlobal() and symbol.isLocal()) {
+                    atom.sym_index = idx;
+                }
             }
+            try wasm_bin.symbol_atom.putNoClobber(gpa, atom.symbolLoc(), atom);
         }
-        try wasm_bin.symbol_atom.putNoClobber(gpa, atom.symbolLoc(), atom);
 
         const segment: *Wasm.Segment = &wasm_bin.segments.items[final_index];
-        segment.alignment = std.math.max(segment.alignment, atom.alignment);
-
-        if (wasm_bin.atoms.getPtr(final_index)) |last| {
-            last.*.next = atom;
-            atom.prev = last.*;
-            last.* = atom;
-        } else {
-            try wasm_bin.atoms.putNoClobber(gpa, final_index, atom);
+        if (relocatable_data.type == .data) { //code section and debug sections are 1-byte aligned
+            segment.alignment = std.math.max(segment.alignment, atom.alignment);
         }
-        log.debug("Parsed into atom: '{s}'", .{self.string_table.get(self.symtable[atom.sym_index].name)});
+
+        try wasm_bin.appendAtomAtIndex(final_index, atom);
+        log.debug("Parsed into atom: '{s}' at segment index {d}", .{ self.string_table.get(self.symtable[atom.sym_index].name), final_index });
     }
 }
 

@@ -1167,7 +1167,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
         }
 
         if (!c.zig_is_stage1 and is_packed) {
-            return failDecl(c, record_loc, bare_name, "cannot translate packed record union", .{});
+            return failDecl(c, record_loc, name, "cannot translate packed record union", .{});
         }
 
         const record_payload = try c.arena.create(ast.Payload.Record);
@@ -5799,7 +5799,7 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
         }
     }
     for (source) |c| {
-        if (c == '\\') {
+        if (c == '\\' or c == '\t') {
             break;
         }
     } else return source;
@@ -5876,6 +5876,13 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
                     state = .Start;
             },
             .Start => {
+                if (c == '\t') {
+                    bytes[i] = '\\';
+                    i += 1;
+                    bytes[i] = 't';
+                    i += 1;
+                    continue;
+                }
                 if (c == '\\') {
                     state = .Escape;
                 }

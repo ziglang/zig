@@ -110,6 +110,10 @@ pub fn StringTable(comptime log_scope: @Type(.EnumLiteral)) type {
             return self.get(off) orelse unreachable;
         }
 
+        pub fn items(self: Self) []const u8 {
+            return self.buffer.items;
+        }
+
         pub fn len(self: Self) usize {
             return self.buffer.items.len;
         }

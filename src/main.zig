@@ -268,7 +268,7 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
     } else if (mem.eql(u8, cmd, "init-lib")) {
         return cmdInit(gpa, arena, cmd_args, .Lib);
     } else if (mem.eql(u8, cmd, "targets")) {
-        const info = try detectNativeTargetInfo(arena, .{});
+        const info = try detectNativeTargetInfo(.{});
         const stdout = io.getStdOut().writer();
         return @import("print_targets.zig").cmdTargets(arena, cmd_args, stdout, info.target);
     } else if (mem.eql(u8, cmd, "version")) {
@@ -691,6 +691,9 @@ fn buildOutputType(
     var linker_max_memory: ?u64 = null;
     var linker_shared_memory: bool = false;
     var linker_global_base: ?u64 = null;
+    var linker_print_gc_sections: bool = false;
+    var linker_print_icf_sections: bool = false;
+    var linker_print_map: bool = false;
     var linker_z_nodelete = false;
     var linker_z_notext = false;
     var linker_z_defs = false;
@@ -1816,6 +1819,12 @@ fn buildOutputType(
                     linker_gc_sections = true;
                 } else if (mem.eql(u8, arg, "--no-gc-sections")) {
                     linker_gc_sections = false;
+                } else if (mem.eql(u8, arg, "--print-gc-sections")) {
+                    linker_print_gc_sections = true;
+                } else if (mem.eql(u8, arg, "--print-icf-sections")) {
+                    linker_print_icf_sections = true;
+                } else if (mem.eql(u8, arg, "--print-map")) {
+                    linker_print_map = true;
                 } else if (mem.eql(u8, arg, "--allow-shlib-undefined") or
                     mem.eql(u8, arg, "-allow-shlib-undefined"))
                 {
@@ -2258,7 +2267,7 @@ fn buildOutputType(
     }
 
     const cross_target = try parseCrossTargetOrReportFatalError(arena, target_parse_options);
-    const target_info = try detectNativeTargetInfo(gpa, cross_target);
+    const target_info = try detectNativeTargetInfo(cross_target);
 
     if (target_info.target.os.tag != .freestanding) {
         if (ensure_libc_on_non_freestanding)
@@ -2911,6 +2920,9 @@ fn buildOutputType(
         .linker_initial_memory = linker_initial_memory,
         .linker_max_memory = linker_max_memory,
         .linker_shared_memory = linker_shared_memory,
+        .linker_print_gc_sections = linker_print_gc_sections,
+        .linker_print_icf_sections = linker_print_icf_sections,
+        .linker_print_map = linker_print_map,
         .linker_global_base = linker_global_base,
         .linker_export_symbol_names = linker_export_symbol_names.items,
         .linker_z_nodelete = linker_z_nodelete,
@@ -3271,7 +3283,7 @@ fn runOrTest(
     if (std.process.can_execv and arg_mode == .run and !watch) {
         // execv releases the locks; no need to destroy the Compilation here.
         const err = std.process.execv(gpa, argv.items);
-        try warnAboutForeignBinaries(gpa, arena, arg_mode, target_info, link_libc);
+        try warnAboutForeignBinaries(arena, arg_mode, target_info, link_libc);
         const cmd = try std.mem.join(arena, " ", argv.items);
         fatal("the following command failed to execve with '{s}':\n{s}", .{ @errorName(err), cmd });
     } else if (std.process.can_spawn) {
@@ -3288,7 +3300,7 @@ fn runOrTest(
         }
 
         const term = child.spawnAndWait() catch |err| {
-            try warnAboutForeignBinaries(gpa, arena, arg_mode, target_info, link_libc);
+            try warnAboutForeignBinaries(arena, arg_mode, target_info, link_libc);
             const cmd = try std.mem.join(arena, " ", argv.items);
             fatal("the following command failed with '{s}':\n{s}", .{ @errorName(err), cmd });
         };
@@ -3902,7 +3914,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         gimmeMoreOfThoseSweetSweetFileDescriptors();
 
         const cross_target: std.zig.CrossTarget = .{};
-        const target_info = try detectNativeTargetInfo(gpa, cross_target);
+        const target_info = try detectNativeTargetInfo(cross_target);
 
         const exe_basename = try std.zig.binNameAlloc(arena, .{
             .root_name = "build",
@@ -4944,8 +4956,8 @@ test "fds" {
     gimmeMoreOfThoseSweetSweetFileDescriptors();
 }
 
-fn detectNativeTargetInfo(gpa: Allocator, cross_target: std.zig.CrossTarget) !std.zig.system.NativeTargetInfo {
-    return std.zig.system.NativeTargetInfo.detect(gpa, cross_target);
+fn detectNativeTargetInfo(cross_target: std.zig.CrossTarget) !std.zig.system.NativeTargetInfo {
+    return std.zig.system.NativeTargetInfo.detect(cross_target);
 }
 
 /// Indicate that we are now terminating with a successful exit code.
@@ -5308,14 +5320,13 @@ fn parseIntSuffix(arg: []const u8, prefix_len: usize) u64 {
 }
 
 fn warnAboutForeignBinaries(
-    gpa: Allocator,
     arena: Allocator,
     arg_mode: ArgMode,
     target_info: std.zig.system.NativeTargetInfo,
     link_libc: bool,
 ) !void {
     const host_cross_target: std.zig.CrossTarget = .{};
-    const host_target_info = try detectNativeTargetInfo(gpa, host_cross_target);
+    const host_target_info = try detectNativeTargetInfo(host_cross_target);
 
     switch (host_target_info.getExternalExecutor(target_info, .{ .link_libc = link_libc })) {
         .native => return,

@@ -345,6 +345,15 @@ pub const CaptureScope = struct {
     /// During sema, this map is backed by the gpa.  Once sema completes,
     /// it is reallocated using the value_arena.
     captures: std.AutoHashMapUnmanaged(Zir.Inst.Index, TypedValue) = .{},
+
+    pub fn failed(noalias self: *const @This()) bool {
+        return self.captures.available == 0 and self.captures.size == std.math.maxInt(u32);
+    }
+
+    pub fn fail(noalias self: *@This()) void {
+        self.captures.available = 0;
+        self.captures.size = std.math.maxInt(u32);
+    }
 };
 
 pub const WipCaptureScope = struct {
@@ -383,6 +392,7 @@ pub const WipCaptureScope = struct {
     pub fn deinit(noalias self: *@This()) void {
         if (!self.finalized) {
             self.scope.captures.deinit(self.gpa);
+            self.scope.fail();
         }
         self.* = undefined;
     }
@@ -4274,11 +4284,14 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func: *Fn) SemaError!void {
 
             const comp = mod.comp;
 
-            if (comp.bin_file.options.emit == null and
+            const no_bin_file = (comp.bin_file.options.emit == null and
                 comp.emit_asm == null and
                 comp.emit_llvm_ir == null and
-                comp.emit_llvm_bc == null)
-            {
+                comp.emit_llvm_bc == null);
+
+            const dump_air = builtin.mode == .Debug and comp.verbose_air;
+
+            if (no_bin_file and !dump_air) {
                 return;
             }
 
@@ -4286,13 +4299,17 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func: *Fn) SemaError!void {
             var liveness = try Liveness.analyze(gpa, air);
             defer liveness.deinit(gpa);
 
-            if (builtin.mode == .Debug and comp.verbose_air) {
+            if (dump_air) {
                 const fqn = try decl.getFullyQualifiedName(mod);
                 defer mod.gpa.free(fqn);
 
                 std.debug.print("# Begin Function AIR: {s}:\n", .{fqn});
                 @import("print_air.zig").dump(mod, air, liveness);
                 std.debug.print("# End Function AIR: {s}\n\n", .{fqn});
+            }
+
+            if (no_bin_file) {
+                return;
             }
 
             comp.bin_file.updateFunc(mod, func, air, liveness) catch |err| switch (err) {

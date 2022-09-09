@@ -177,6 +177,8 @@ const TestManifestConfigDefaults = struct {
                 inline for (&[_][]const u8{ "x86_64", "aarch64" }) |arch| {
                     defaults = defaults ++ arch ++ "-macos" ++ ",";
                 }
+                // Windows
+                defaults = defaults ++ "x86_64-windows" ++ ",";
                 // Wasm
                 defaults = defaults ++ "wasm32-wasi";
                 return defaults;
@@ -1211,7 +1213,7 @@ pub const TestContext = struct {
     }
 
     fn run(self: *TestContext) !void {
-        const host = try std.zig.system.NativeTargetInfo.detect(self.gpa, .{});
+        const host = try std.zig.system.NativeTargetInfo.detect(.{});
 
         var progress = std.Progress{};
         const root_node = progress.start("compiler", self.cases.items.len);
@@ -1300,7 +1302,7 @@ pub const TestContext = struct {
         global_cache_directory: Compilation.Directory,
         host: std.zig.system.NativeTargetInfo,
     ) !void {
-        const target_info = try std.zig.system.NativeTargetInfo.detect(allocator, case.target);
+        const target_info = try std.zig.system.NativeTargetInfo.detect(case.target);
         const target = target_info.target;
 
         var arena_allocator = std.heap.ArenaAllocator.init(allocator);
@@ -1546,6 +1548,12 @@ pub const TestContext = struct {
             .self_exe_path = std.testing.zig_exe_path,
             // TODO instead of turning off color, pass in a std.Progress.Node
             .color = .off,
+            // TODO: force self-hosted linkers with stage2 backend to avoid LLD creeping in
+            //       until the auto-select mechanism deems them worthy
+            .use_lld = switch (case.backend) {
+                .stage2 => false,
+                else => null,
+            },
         });
         defer comp.destroy();
 

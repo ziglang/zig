@@ -28,6 +28,7 @@ pub const DetectError = error{
     SystemFdQuotaExceeded,
     DeviceBusy,
     OSVersionDetectionFail,
+    Unexpected,
 };
 
 /// Given a `CrossTarget`, which specifies in detail which parts of the target should be detected
@@ -36,8 +37,7 @@ pub const DetectError = error{
 /// relative to that.
 /// Any resources this function allocates are released before returning, and so there is no
 /// deinitialization method.
-/// TODO Remove the Allocator requirement from this function.
-pub fn detect(allocator: Allocator, cross_target: CrossTarget) DetectError!NativeTargetInfo {
+pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
     var os = cross_target.getOsTag().defaultVersionRange(cross_target.getCpuArch());
     if (cross_target.os_tag == null) {
         switch (builtin.target.os.tag) {
@@ -198,7 +198,7 @@ pub fn detect(allocator: Allocator, cross_target: CrossTarget) DetectError!Nativ
     } orelse backup_cpu_detection: {
         break :backup_cpu_detection Target.Cpu.baseline(cpu_arch);
     };
-    var result = try detectAbiAndDynamicLinker(allocator, cpu, os, cross_target);
+    var result = try detectAbiAndDynamicLinker(cpu, os, cross_target);
     // For x86, we need to populate some CPU feature flags depending on architecture
     // and mode:
     //  * 16bit_mode => if the abi is code16
@@ -235,13 +235,20 @@ pub fn detect(allocator: Allocator, cross_target: CrossTarget) DetectError!Nativ
     return result;
 }
 
-/// First we attempt to use the executable's own binary. If it is dynamically
-/// linked, then it should answer both the C ABI question and the dynamic linker question.
-/// If it is statically linked, then we try /usr/bin/env (or the file it references in shebang). If that does not provide the answer, then
-/// we fall back to the defaults.
-/// TODO Remove the Allocator requirement from this function.
+/// In the past, this function attempted to use the executable's own binary if it was dynamically
+/// linked to answer both the C ABI question and the dynamic linker question. However, this
+/// could be problematic on a system that uses a RUNPATH for the compiler binary, locking
+/// it to an older glibc version, while system binaries such as /usr/bin/env use a newer glibc
+/// version. The problem is that libc.so.6 glibc version will match that of the system while
+/// the dynamic linker will match that of the compiler binary. Executables with these versions
+/// mismatching will fail to run.
+///
+/// Therefore, this function works the same regardless of whether the compiler binary is
+/// dynamically or statically linked. It inspects `/usr/bin/env` as an ELF file to find the
+/// answer to these questions, or if there is a shebang line, then it chases the referenced
+/// file recursively. If that does not provide the answer, then the function falls back to
+/// defaults.
 fn detectAbiAndDynamicLinker(
-    allocator: Allocator,
     cpu: Target.Cpu,
     os: Target.Os,
     cross_target: CrossTarget,
@@ -279,8 +286,8 @@ fn detectAbiAndDynamicLinker(
     const ofmt = cross_target.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch);
 
     for (all_abis) |abi| {
-        // This may be a nonsensical parameter. We detect this with error.UnknownDynamicLinkerPath and
-        // skip adding it to `ld_info_list`.
+        // This may be a nonsensical parameter. We detect this with
+        // error.UnknownDynamicLinkerPath and skip adding it to `ld_info_list`.
         const target: Target = .{
             .cpu = cpu,
             .os = os,
@@ -300,64 +307,6 @@ fn detectAbiAndDynamicLinker(
 
     // Best case scenario: the executable is dynamically linked, and we can iterate
     // over our own shared objects and find a dynamic linker.
-    self_exe: {
-        const lib_paths = try std.process.getSelfExeSharedLibPaths(allocator);
-        defer {
-            for (lib_paths) |lib_path| {
-                allocator.free(lib_path);
-            }
-            allocator.free(lib_paths);
-        }
-
-        var found_ld_info: LdInfo = undefined;
-        var found_ld_path: [:0]const u8 = undefined;
-
-        // Look for dynamic linker.
-        // This is O(N^M) but typical case here is N=2 and M=10.
-        find_ld: for (lib_paths) |lib_path| {
-            for (ld_info_list) |ld_info| {
-                const standard_ld_basename = fs.path.basename(ld_info.ld.get().?);
-                if (std.mem.endsWith(u8, lib_path, standard_ld_basename)) {
-                    found_ld_info = ld_info;
-                    found_ld_path = lib_path;
-                    break :find_ld;
-                }
-            }
-        } else break :self_exe;
-
-        // Look for glibc version.
-        var os_adjusted = os;
-        if (builtin.target.os.tag == .linux and found_ld_info.abi.isGnu() and
-            cross_target.glibc_version == null)
-        {
-            for (lib_paths) |lib_path| {
-                if (std.mem.endsWith(u8, lib_path, glibc_so_basename)) {
-                    os_adjusted.version_range.linux.glibc = glibcVerFromSO(lib_path) catch |err| switch (err) {
-                        error.UnrecognizedGnuLibCFileName => continue,
-                        error.InvalidGnuLibCVersion => continue,
-                        error.GnuLibCVersionUnavailable => continue,
-                        else => |e| return e,
-                    };
-                    break;
-                }
-            }
-        }
-
-        var result: NativeTargetInfo = .{
-            .target = .{
-                .cpu = cpu,
-                .os = os_adjusted,
-                .abi = cross_target.abi orelse found_ld_info.abi,
-                .ofmt = cross_target.ofmt orelse Target.ObjectFormat.default(os_adjusted.tag, cpu.arch),
-            },
-            .dynamic_linker = if (cross_target.dynamic_linker.get() == null)
-                DynamicLinker.init(found_ld_path)
-            else
-                cross_target.dynamic_linker,
-        };
-        return result;
-    }
-
     const elf_file = blk: {
         // This block looks for a shebang line in /usr/bin/env,
         // if it finds one, then instead of using /usr/bin/env as the ELF file to examine, it uses the file it references instead,
@@ -369,7 +318,7 @@ fn detectAbiAndDynamicLinker(
         // #! (2) + 255 (max length of shebang line since Linux 5.1) + \n (1)
         var buffer: [258]u8 = undefined;
         while (true) {
-            const file = std.fs.openFileAbsolute(file_name, .{}) catch |err| switch (err) {
+            const file = fs.openFileAbsolute(file_name, .{}) catch |err| switch (err) {
                 error.NoSpaceLeft => unreachable,
                 error.NameTooLong => unreachable,
                 error.PathAlreadyExists => unreachable,
@@ -390,44 +339,35 @@ fn detectAbiAndDynamicLinker(
                 error.FileTooBig,
                 error.Unexpected,
                 => |e| {
-                    std.log.warn("Encoutered error: {s}, falling back to default ABI and dynamic linker.\n", .{@errorName(e)});
+                    std.log.warn("Encountered error: {s}, falling back to default ABI and dynamic linker.\n", .{@errorName(e)});
                     return defaultAbiAndDynamicLinker(cpu, os, cross_target);
                 },
 
                 else => |e| return e,
             };
+            errdefer file.close();
 
-            const line = file.reader().readUntilDelimiter(&buffer, '\n') catch |err| switch (err) {
-                error.IsDir => unreachable, // Handled before
-                error.AccessDenied => unreachable,
-                error.WouldBlock => unreachable, // Did not request blocking mode
-                error.OperationAborted => unreachable, // Windows-only
-                error.BrokenPipe => unreachable,
-                error.ConnectionResetByPeer => unreachable,
-                error.ConnectionTimedOut => unreachable,
-                error.InputOutput => unreachable,
-                error.Unexpected => unreachable,
-
-                error.StreamTooLong,
-                error.EndOfStream,
-                error.NotOpenForReading,
+            const len = preadMin(file, &buffer, 0, buffer.len) catch |err| switch (err) {
+                error.UnexpectedEndOfFile,
+                error.UnableToReadElfFile,
                 => break :blk file,
 
-                else => |e| {
-                    file.close();
-                    return e;
-                },
+                else => |e| return e,
             };
+            const newline = mem.indexOfScalar(u8, buffer[0..len], '\n') orelse break :blk file;
+            const line = buffer[0..newline];
             if (!mem.startsWith(u8, line, "#!")) break :blk file;
-            var it = std.mem.tokenize(u8, line[2..], " ");
-            file.close();
+            var it = mem.tokenize(u8, line[2..], " ");
             file_name = it.next() orelse return defaultAbiAndDynamicLinker(cpu, os, cross_target);
+            file.close();
         }
     };
     defer elf_file.close();
 
     // If Zig is statically linked, such as via distributed binary static builds, the above
     // trick (block self_exe) won't work. The next thing we fall back to is the same thing, but for elf_file.
+    // TODO: inline this function and combine the buffer we already read above to find
+    // the possible shebang line with the buffer we use for the ELF header.
     return abiAndDynamicLinkerFromFile(elf_file, cpu, os, ld_info_list, cross_target) catch |err| switch (err) {
         error.FileSystem,
         error.SystemResources,
@@ -447,31 +387,196 @@ fn detectAbiAndDynamicLinker(
         error.NameTooLong,
         // Finally, we fall back on the standard path.
         => |e| {
-            std.log.warn("Encoutered error: {s}, falling back to default ABI and dynamic linker.\n", .{@errorName(e)});
+            std.log.warn("Encountered error: {s}, falling back to default ABI and dynamic linker.\n", .{@errorName(e)});
             return defaultAbiAndDynamicLinker(cpu, os, cross_target);
         },
     };
 }
 
-const glibc_so_basename = "libc.so.6";
-
-fn glibcVerFromSO(so_path: [:0]const u8) !std.builtin.Version {
-    var link_buf: [std.os.PATH_MAX]u8 = undefined;
-    const link_name = std.os.readlinkZ(so_path.ptr, &link_buf) catch |err| switch (err) {
-        error.AccessDenied => return error.GnuLibCVersionUnavailable,
-        error.FileSystem => return error.FileSystem,
-        error.SymLinkLoop => return error.SymLinkLoop,
+fn glibcVerFromRPath(rpath: []const u8) !std.builtin.Version {
+    var dir = fs.cwd().openDir(rpath, .{}) catch |err| switch (err) {
         error.NameTooLong => unreachable,
-        error.NotLink => return error.GnuLibCVersionUnavailable,
-        error.FileNotFound => return error.GnuLibCVersionUnavailable,
-        error.SystemResources => return error.SystemResources,
-        error.NotDir => return error.GnuLibCVersionUnavailable,
-        error.Unexpected => return error.GnuLibCVersionUnavailable,
+        error.InvalidUtf8 => unreachable,
+        error.BadPathName => unreachable,
+        error.DeviceBusy => unreachable,
+
+        error.FileNotFound,
+        error.NotDir,
+        error.InvalidHandle,
+        error.AccessDenied,
+        error.NoDevice,
+        => return error.GLibCNotFound,
+
+        error.ProcessFdQuotaExceeded,
+        error.SystemFdQuotaExceeded,
+        error.SystemResources,
+        error.SymLinkLoop,
+        error.Unexpected,
+        => |e| return e,
+    };
+    defer dir.close();
+
+    // Now we have a candidate for the path to libc shared object. In
+    // the past, we used readlink() here because the link name would
+    // reveal the glibc version. However, in more recent GNU/Linux
+    // installations, there is no symlink. Thus we instead use a more
+    // robust check of opening the libc shared object and looking at the
+    // .dynstr section, and finding the max version number of symbols
+    // that start with "GLIBC_2.".
+    const glibc_so_basename = "libc.so.6";
+    var f = dir.openFile(glibc_so_basename, .{}) catch |err| switch (err) {
+        error.NameTooLong => unreachable,
         error.InvalidUtf8 => unreachable, // Windows only
         error.BadPathName => unreachable, // Windows only
-        error.UnsupportedReparsePointType => unreachable, // Windows only
+        error.PipeBusy => unreachable, // Windows-only
+        error.SharingViolation => unreachable, // Windows-only
+        error.FileLocksNotSupported => unreachable, // No lock requested.
+        error.NoSpaceLeft => unreachable, // read-only
+        error.PathAlreadyExists => unreachable, // read-only
+        error.DeviceBusy => unreachable, // read-only
+        error.FileBusy => unreachable, // read-only
+        error.InvalidHandle => unreachable, // should not be in the error set
+        error.WouldBlock => unreachable, // not using O_NONBLOCK
+        error.NoDevice => unreachable, // not asking for a special device
+
+        error.AccessDenied,
+        error.FileNotFound,
+        error.NotDir,
+        error.IsDir,
+        => return error.GLibCNotFound,
+
+        error.FileTooBig => return error.Unexpected,
+
+        error.ProcessFdQuotaExceeded,
+        error.SystemFdQuotaExceeded,
+        error.SystemResources,
+        error.SymLinkLoop,
+        error.Unexpected,
+        => |e| return e,
     };
-    return glibcVerFromLinkName(link_name, "libc-");
+    defer f.close();
+
+    return glibcVerFromSoFile(f) catch |err| switch (err) {
+        error.InvalidElfMagic,
+        error.InvalidElfEndian,
+        error.InvalidElfClass,
+        error.InvalidElfFile,
+        error.InvalidElfVersion,
+        error.InvalidGnuLibCVersion,
+        error.UnexpectedEndOfFile,
+        => return error.GLibCNotFound,
+
+        error.SystemResources,
+        error.UnableToReadElfFile,
+        error.Unexpected,
+        error.FileSystem,
+        => |e| return e,
+    };
+}
+
+fn glibcVerFromSoFile(file: fs.File) !std.builtin.Version {
+    var hdr_buf: [@sizeOf(elf.Elf64_Ehdr)]u8 align(@alignOf(elf.Elf64_Ehdr)) = undefined;
+    _ = try preadMin(file, &hdr_buf, 0, hdr_buf.len);
+    const hdr32 = @ptrCast(*elf.Elf32_Ehdr, &hdr_buf);
+    const hdr64 = @ptrCast(*elf.Elf64_Ehdr, &hdr_buf);
+    if (!mem.eql(u8, hdr32.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
+    const elf_endian: std.builtin.Endian = switch (hdr32.e_ident[elf.EI_DATA]) {
+        elf.ELFDATA2LSB => .Little,
+        elf.ELFDATA2MSB => .Big,
+        else => return error.InvalidElfEndian,
+    };
+    const need_bswap = elf_endian != native_endian;
+    if (hdr32.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
+
+    const is_64 = switch (hdr32.e_ident[elf.EI_CLASS]) {
+        elf.ELFCLASS32 => false,
+        elf.ELFCLASS64 => true,
+        else => return error.InvalidElfClass,
+    };
+    const shstrndx = elfInt(is_64, need_bswap, hdr32.e_shstrndx, hdr64.e_shstrndx);
+    var shoff = elfInt(is_64, need_bswap, hdr32.e_shoff, hdr64.e_shoff);
+    const shentsize = elfInt(is_64, need_bswap, hdr32.e_shentsize, hdr64.e_shentsize);
+    const str_section_off = shoff + @as(u64, shentsize) * @as(u64, shstrndx);
+    var sh_buf: [16 * @sizeOf(elf.Elf64_Shdr)]u8 align(@alignOf(elf.Elf64_Shdr)) = undefined;
+    if (sh_buf.len < shentsize) return error.InvalidElfFile;
+
+    _ = try preadMin(file, &sh_buf, str_section_off, shentsize);
+    const shstr32 = @ptrCast(*elf.Elf32_Shdr, @alignCast(@alignOf(elf.Elf32_Shdr), &sh_buf));
+    const shstr64 = @ptrCast(*elf.Elf64_Shdr, @alignCast(@alignOf(elf.Elf64_Shdr), &sh_buf));
+    const shstrtab_off = elfInt(is_64, need_bswap, shstr32.sh_offset, shstr64.sh_offset);
+    const shstrtab_size = elfInt(is_64, need_bswap, shstr32.sh_size, shstr64.sh_size);
+    var strtab_buf: [4096:0]u8 = undefined;
+    const shstrtab_len = std.math.min(shstrtab_size, strtab_buf.len);
+    const shstrtab_read_len = try preadMin(file, &strtab_buf, shstrtab_off, shstrtab_len);
+    const shstrtab = strtab_buf[0..shstrtab_read_len];
+    const shnum = elfInt(is_64, need_bswap, hdr32.e_shnum, hdr64.e_shnum);
+    var sh_i: u16 = 0;
+    const dynstr: struct { offset: u64, size: u64 } = find_dyn_str: while (sh_i < shnum) {
+        // Reserve some bytes so that we can deref the 64-bit struct fields
+        // even when the ELF file is 32-bits.
+        const sh_reserve: usize = @sizeOf(elf.Elf64_Shdr) - @sizeOf(elf.Elf32_Shdr);
+        const sh_read_byte_len = try preadMin(
+            file,
+            sh_buf[0 .. sh_buf.len - sh_reserve],
+            shoff,
+            shentsize,
+        );
+        var sh_buf_i: usize = 0;
+        while (sh_buf_i < sh_read_byte_len and sh_i < shnum) : ({
+            sh_i += 1;
+            shoff += shentsize;
+            sh_buf_i += shentsize;
+        }) {
+            const sh32 = @ptrCast(
+                *elf.Elf32_Shdr,
+                @alignCast(@alignOf(elf.Elf32_Shdr), &sh_buf[sh_buf_i]),
+            );
+            const sh64 = @ptrCast(
+                *elf.Elf64_Shdr,
+                @alignCast(@alignOf(elf.Elf64_Shdr), &sh_buf[sh_buf_i]),
+            );
+            const sh_name_off = elfInt(is_64, need_bswap, sh32.sh_name, sh64.sh_name);
+            // TODO this pointer cast should not be necessary
+            const sh_name = mem.sliceTo(std.meta.assumeSentinel(shstrtab[sh_name_off..].ptr, 0), 0);
+            if (mem.eql(u8, sh_name, ".dynstr")) {
+                break :find_dyn_str .{
+                    .offset = elfInt(is_64, need_bswap, sh32.sh_offset, sh64.sh_offset),
+                    .size = elfInt(is_64, need_bswap, sh32.sh_size, sh64.sh_size),
+                };
+            }
+        }
+    } else return error.InvalidGnuLibCVersion;
+
+    // Here we loop over all the strings in the dynstr string table, assuming that any
+    // strings that start with "GLIBC_2." indicate the existence of such a glibc version,
+    // and furthermore, that the system-installed glibc is at minimum that version.
+
+    // Empirically, glibc 2.34 libc.so .dynstr section is 32441 bytes on my system.
+    // Here I use double this value plus some headroom. This makes it only need
+    // a single read syscall here.
+    var buf: [80000]u8 = undefined;
+    if (buf.len < dynstr.size) return error.InvalidGnuLibCVersion;
+
+    const dynstr_size = @intCast(usize, dynstr.size);
+    const dynstr_bytes = buf[0..dynstr_size];
+    _ = try preadMin(file, dynstr_bytes, dynstr.offset, dynstr_bytes.len);
+    var it = mem.split(u8, dynstr_bytes, &.{0});
+    var max_ver: std.builtin.Version = .{ .major = 2, .minor = 2, .patch = 5 };
+    while (it.next()) |s| {
+        if (mem.startsWith(u8, s, "GLIBC_2.")) {
+            const chopped = s["GLIBC_".len..];
+            const ver = std.builtin.Version.parse(chopped) catch |err| switch (err) {
+                error.Overflow => return error.InvalidGnuLibCVersion,
+                error.InvalidCharacter => return error.InvalidGnuLibCVersion,
+                error.InvalidVersion => return error.InvalidGnuLibCVersion,
+            };
+            switch (ver.order(max_ver)) {
+                .gt => max_ver = ver,
+                .lt, .eq => continue,
+            }
+        }
+    }
+    return max_ver;
 }
 
 fn glibcVerFromLinkName(link_name: []const u8, prefix: []const u8) !std.builtin.Version {
@@ -641,65 +746,65 @@ pub fn abiAndDynamicLinkerFromFile(
     if (builtin.target.os.tag == .linux and result.target.isGnuLibC() and
         cross_target.glibc_version == null)
     {
-        if (rpath_offset) |rpoff| {
-            const shstrndx = elfInt(is_64, need_bswap, hdr32.e_shstrndx, hdr64.e_shstrndx);
+        const shstrndx = elfInt(is_64, need_bswap, hdr32.e_shstrndx, hdr64.e_shstrndx);
 
-            var shoff = elfInt(is_64, need_bswap, hdr32.e_shoff, hdr64.e_shoff);
-            const shentsize = elfInt(is_64, need_bswap, hdr32.e_shentsize, hdr64.e_shentsize);
-            const str_section_off = shoff + @as(u64, shentsize) * @as(u64, shstrndx);
+        var shoff = elfInt(is_64, need_bswap, hdr32.e_shoff, hdr64.e_shoff);
+        const shentsize = elfInt(is_64, need_bswap, hdr32.e_shentsize, hdr64.e_shentsize);
+        const str_section_off = shoff + @as(u64, shentsize) * @as(u64, shstrndx);
 
-            var sh_buf: [16 * @sizeOf(elf.Elf64_Shdr)]u8 align(@alignOf(elf.Elf64_Shdr)) = undefined;
-            if (sh_buf.len < shentsize) return error.InvalidElfFile;
+        var sh_buf: [16 * @sizeOf(elf.Elf64_Shdr)]u8 align(@alignOf(elf.Elf64_Shdr)) = undefined;
+        if (sh_buf.len < shentsize) return error.InvalidElfFile;
 
-            _ = try preadMin(file, &sh_buf, str_section_off, shentsize);
-            const shstr32 = @ptrCast(*elf.Elf32_Shdr, @alignCast(@alignOf(elf.Elf32_Shdr), &sh_buf));
-            const shstr64 = @ptrCast(*elf.Elf64_Shdr, @alignCast(@alignOf(elf.Elf64_Shdr), &sh_buf));
-            const shstrtab_off = elfInt(is_64, need_bswap, shstr32.sh_offset, shstr64.sh_offset);
-            const shstrtab_size = elfInt(is_64, need_bswap, shstr32.sh_size, shstr64.sh_size);
-            var strtab_buf: [4096:0]u8 = undefined;
-            const shstrtab_len = std.math.min(shstrtab_size, strtab_buf.len);
-            const shstrtab_read_len = try preadMin(file, &strtab_buf, shstrtab_off, shstrtab_len);
-            const shstrtab = strtab_buf[0..shstrtab_read_len];
+        _ = try preadMin(file, &sh_buf, str_section_off, shentsize);
+        const shstr32 = @ptrCast(*elf.Elf32_Shdr, @alignCast(@alignOf(elf.Elf32_Shdr), &sh_buf));
+        const shstr64 = @ptrCast(*elf.Elf64_Shdr, @alignCast(@alignOf(elf.Elf64_Shdr), &sh_buf));
+        const shstrtab_off = elfInt(is_64, need_bswap, shstr32.sh_offset, shstr64.sh_offset);
+        const shstrtab_size = elfInt(is_64, need_bswap, shstr32.sh_size, shstr64.sh_size);
+        var strtab_buf: [4096:0]u8 = undefined;
+        const shstrtab_len = std.math.min(shstrtab_size, strtab_buf.len);
+        const shstrtab_read_len = try preadMin(file, &strtab_buf, shstrtab_off, shstrtab_len);
+        const shstrtab = strtab_buf[0..shstrtab_read_len];
 
-            const shnum = elfInt(is_64, need_bswap, hdr32.e_shnum, hdr64.e_shnum);
-            var sh_i: u16 = 0;
-            const dynstr: ?struct { offset: u64, size: u64 } = find_dyn_str: while (sh_i < shnum) {
-                // Reserve some bytes so that we can deref the 64-bit struct fields
-                // even when the ELF file is 32-bits.
-                const sh_reserve: usize = @sizeOf(elf.Elf64_Shdr) - @sizeOf(elf.Elf32_Shdr);
-                const sh_read_byte_len = try preadMin(
-                    file,
-                    sh_buf[0 .. sh_buf.len - sh_reserve],
-                    shoff,
-                    shentsize,
+        const shnum = elfInt(is_64, need_bswap, hdr32.e_shnum, hdr64.e_shnum);
+        var sh_i: u16 = 0;
+        const dynstr: ?struct { offset: u64, size: u64 } = find_dyn_str: while (sh_i < shnum) {
+            // Reserve some bytes so that we can deref the 64-bit struct fields
+            // even when the ELF file is 32-bits.
+            const sh_reserve: usize = @sizeOf(elf.Elf64_Shdr) - @sizeOf(elf.Elf32_Shdr);
+            const sh_read_byte_len = try preadMin(
+                file,
+                sh_buf[0 .. sh_buf.len - sh_reserve],
+                shoff,
+                shentsize,
+            );
+            var sh_buf_i: usize = 0;
+            while (sh_buf_i < sh_read_byte_len and sh_i < shnum) : ({
+                sh_i += 1;
+                shoff += shentsize;
+                sh_buf_i += shentsize;
+            }) {
+                const sh32 = @ptrCast(
+                    *elf.Elf32_Shdr,
+                    @alignCast(@alignOf(elf.Elf32_Shdr), &sh_buf[sh_buf_i]),
                 );
-                var sh_buf_i: usize = 0;
-                while (sh_buf_i < sh_read_byte_len and sh_i < shnum) : ({
-                    sh_i += 1;
-                    shoff += shentsize;
-                    sh_buf_i += shentsize;
-                }) {
-                    const sh32 = @ptrCast(
-                        *elf.Elf32_Shdr,
-                        @alignCast(@alignOf(elf.Elf32_Shdr), &sh_buf[sh_buf_i]),
-                    );
-                    const sh64 = @ptrCast(
-                        *elf.Elf64_Shdr,
-                        @alignCast(@alignOf(elf.Elf64_Shdr), &sh_buf[sh_buf_i]),
-                    );
-                    const sh_name_off = elfInt(is_64, need_bswap, sh32.sh_name, sh64.sh_name);
-                    // TODO this pointer cast should not be necessary
-                    const sh_name = mem.sliceTo(std.meta.assumeSentinel(shstrtab[sh_name_off..].ptr, 0), 0);
-                    if (mem.eql(u8, sh_name, ".dynstr")) {
-                        break :find_dyn_str .{
-                            .offset = elfInt(is_64, need_bswap, sh32.sh_offset, sh64.sh_offset),
-                            .size = elfInt(is_64, need_bswap, sh32.sh_size, sh64.sh_size),
-                        };
-                    }
+                const sh64 = @ptrCast(
+                    *elf.Elf64_Shdr,
+                    @alignCast(@alignOf(elf.Elf64_Shdr), &sh_buf[sh_buf_i]),
+                );
+                const sh_name_off = elfInt(is_64, need_bswap, sh32.sh_name, sh64.sh_name);
+                // TODO this pointer cast should not be necessary
+                const sh_name = mem.sliceTo(std.meta.assumeSentinel(shstrtab[sh_name_off..].ptr, 0), 0);
+                if (mem.eql(u8, sh_name, ".dynstr")) {
+                    break :find_dyn_str .{
+                        .offset = elfInt(is_64, need_bswap, sh32.sh_offset, sh64.sh_offset),
+                        .size = elfInt(is_64, need_bswap, sh32.sh_size, sh64.sh_size),
+                    };
                 }
-            } else null;
+            }
+        } else null;
 
-            if (dynstr) |ds| {
+        if (dynstr) |ds| {
+            if (rpath_offset) |rpoff| {
                 // TODO this pointer cast should not be necessary
                 const rpoff_usize = std.math.cast(usize, rpoff) orelse return error.InvalidElfFile;
                 if (rpoff_usize > ds.size) return error.InvalidElfFile;
@@ -713,64 +818,31 @@ pub fn abiAndDynamicLinkerFromFile(
                 const rpath_list = mem.sliceTo(std.meta.assumeSentinel(strtab.ptr, 0), 0);
                 var it = mem.tokenize(u8, rpath_list, ":");
                 while (it.next()) |rpath| {
-                    var dir = fs.cwd().openDir(rpath, .{}) catch |err| switch (err) {
-                        error.NameTooLong => unreachable,
-                        error.InvalidUtf8 => unreachable,
-                        error.BadPathName => unreachable,
-                        error.DeviceBusy => unreachable,
-
-                        error.FileNotFound,
-                        error.NotDir,
-                        error.InvalidHandle,
-                        error.AccessDenied,
-                        error.NoDevice,
-                        => continue,
-
-                        error.ProcessFdQuotaExceeded,
-                        error.SystemFdQuotaExceeded,
-                        error.SystemResources,
-                        error.SymLinkLoop,
-                        error.Unexpected,
-                        => |e| return e,
-                    };
-                    defer dir.close();
-
-                    var link_buf: [std.os.PATH_MAX]u8 = undefined;
-                    const link_name = std.os.readlinkatZ(
-                        dir.fd,
-                        glibc_so_basename,
-                        &link_buf,
-                    ) catch |err| switch (err) {
-                        error.NameTooLong => unreachable,
-                        error.InvalidUtf8 => unreachable, // Windows only
-                        error.BadPathName => unreachable, // Windows only
-                        error.UnsupportedReparsePointType => unreachable, // Windows only
-
-                        error.AccessDenied,
-                        error.FileNotFound,
-                        error.NotLink,
-                        error.NotDir,
-                        => continue,
-
-                        error.SystemResources,
-                        error.FileSystem,
-                        error.SymLinkLoop,
-                        error.Unexpected,
-                        => |e| return e,
-                    };
-                    result.target.os.version_range.linux.glibc = glibcVerFromLinkName(
-                        link_name,
-                        "libc-",
-                    ) catch |err| switch (err) {
-                        error.UnrecognizedGnuLibCFileName,
-                        error.InvalidGnuLibCVersion,
-                        => continue,
-                    };
-                    break;
+                    if (glibcVerFromRPath(rpath)) |ver| {
+                        result.target.os.version_range.linux.glibc = ver;
+                        return result;
+                    } else |err| switch (err) {
+                        error.GLibCNotFound => continue,
+                        else => |e| return e,
+                    }
                 }
             }
-        } else if (result.dynamic_linker.get()) |dl_path| glibc_ver: {
-            // There is no DT_RUNPATH but we can try to see if the information is
+        }
+
+        if (result.dynamic_linker.get()) |dl_path| glibc_ver: {
+            // There is no DT_RUNPATH so we try to find libc.so.6 inside the same
+            // directory as the dynamic linker.
+            if (fs.path.dirname(dl_path)) |rpath| {
+                if (glibcVerFromRPath(rpath)) |ver| {
+                    result.target.os.version_range.linux.glibc = ver;
+                    return result;
+                } else |err| switch (err) {
+                    error.GLibCNotFound => {},
+                    else => |e| return e,
+                }
+            }
+
+            // So far, no luck. Next we try to see if the information is
             // present in the symlink data for the dynamic linker path.
             var link_buf: [std.os.PATH_MAX]u8 = undefined;
             const link_name = std.os.readlink(dl_path, &link_buf) catch |err| switch (err) {
@@ -799,6 +871,36 @@ pub fn abiAndDynamicLinkerFromFile(
                 error.InvalidGnuLibCVersion,
                 => break :glibc_ver,
             };
+            return result;
+        }
+
+        // Nothing worked so far. Finally we fall back to hard-coded search paths.
+        // Some distros such as Debian keep their libc.so.6 in `/lib/$triple/`.
+        var path_buf: [std.os.PATH_MAX]u8 = undefined;
+        var index: usize = 0;
+        const prefix = "/lib/";
+        const cpu_arch = @tagName(result.target.cpu.arch);
+        const os_tag = @tagName(result.target.os.tag);
+        const abi = @tagName(result.target.abi);
+        mem.copy(u8, path_buf[index..], prefix);
+        index += prefix.len;
+        mem.copy(u8, path_buf[index..], cpu_arch);
+        index += cpu_arch.len;
+        path_buf[index] = '-';
+        index += 1;
+        mem.copy(u8, path_buf[index..], os_tag);
+        index += os_tag.len;
+        path_buf[index] = '-';
+        index += 1;
+        mem.copy(u8, path_buf[index..], abi);
+        index += abi.len;
+        const rpath = path_buf[0..index];
+        if (glibcVerFromRPath(rpath)) |ver| {
+            result.target.os.version_range.linux.glibc = ver;
+            return result;
+        } else |err| switch (err) {
+            error.GLibCNotFound => {},
+            else => |e| return e,
         }
     }
 

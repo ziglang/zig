@@ -392,23 +392,69 @@ pub fn classifySystemV(ty: Type, target: Target) [8]Class {
     }
 }
 
-/// Note that .rsp and .rbp also belong to this set, however, we never expect to use them
-/// for anything else but stack offset tracking therefore we exclude them from this set.
-pub const callee_preserved_regs = [_]Register{ .rbx, .r12, .r13, .r14, .r15 };
-/// These registers need to be preserved (saved on the stack) and restored by the caller before
-/// the caller relinquishes control to a subroutine via call instruction (or similar).
-/// In other words, these registers are free to use by the callee.
-pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11 };
+pub const SysV = struct {
+    /// Note that .rsp and .rbp also belong to this set, however, we never expect to use them
+    /// for anything else but stack offset tracking therefore we exclude them from this set.
+    pub const callee_preserved_regs = [_]Register{ .rbx, .r12, .r13, .r14, .r15 };
+    /// These registers need to be preserved (saved on the stack) and restored by the caller before
+    /// the caller relinquishes control to a subroutine via call instruction (or similar).
+    /// In other words, these registers are free to use by the callee.
+    pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11 };
 
-pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
-pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };
+    pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
+    pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };
+};
 
+pub const Win64 = struct {
+    /// Note that .rsp and .rbp also belong to this set, however, we never expect to use them
+    /// for anything else but stack offset tracking therefore we exclude them from this set.
+    pub const callee_preserved_regs = [_]Register{ .rbx, .rsi, .rdi, .r12, .r13, .r14, .r15 };
+    /// These registers need to be preserved (saved on the stack) and restored by the caller before
+    /// the caller relinquishes control to a subroutine via call instruction (or similar).
+    /// In other words, these registers are free to use by the callee.
+    pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .r8, .r9, .r10, .r11 };
+
+    pub const c_abi_int_param_regs = [_]Register{ .rcx, .rdx, .r8, .r9 };
+    pub const c_abi_int_return_regs = [_]Register{.rax};
+};
+
+pub fn getCalleePreservedRegs(target: Target) []const Register {
+    return switch (target.os.tag) {
+        .windows => &Win64.callee_preserved_regs,
+        else => &SysV.callee_preserved_regs,
+    };
+}
+
+pub fn getCallerPreservedRegs(target: Target) []const Register {
+    return switch (target.os.tag) {
+        .windows => &Win64.caller_preserved_regs,
+        else => &SysV.caller_preserved_regs,
+    };
+}
+
+pub fn getCAbiIntParamRegs(target: Target) []const Register {
+    return switch (target.os.tag) {
+        .windows => &Win64.c_abi_int_param_regs,
+        else => &SysV.c_abi_int_param_regs,
+    };
+}
+
+pub fn getCAbiIntReturnRegs(target: Target) []const Register {
+    return switch (target.os.tag) {
+        .windows => &Win64.c_abi_int_return_regs,
+        else => &SysV.c_abi_int_return_regs,
+    };
+}
+
+const gp_regs = [_]Register{
+    .rbx, .r12, .r13, .r14, .r15, .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11,
+};
 const sse_avx_regs = [_]Register{
     .ymm0, .ymm1, .ymm2,  .ymm3,  .ymm4,  .ymm5,  .ymm6,  .ymm7,
     .ymm8, .ymm9, .ymm10, .ymm11, .ymm12, .ymm13, .ymm14, .ymm15,
 };
-const allocatable_registers = callee_preserved_regs ++ caller_preserved_regs ++ sse_avx_regs;
-pub const RegisterManager = RegisterManagerFn(@import("CodeGen.zig"), Register, &allocatable_registers);
+const allocatable_regs = gp_regs ++ sse_avx_regs;
+pub const RegisterManager = RegisterManagerFn(@import("CodeGen.zig"), Register, &allocatable_regs);
 
 // Register classes
 const RegisterBitSet = RegisterManager.RegisterBitSet;
@@ -417,15 +463,15 @@ pub const RegisterClass = struct {
         var set = RegisterBitSet.initEmpty();
         set.setRangeValue(.{
             .start = 0,
-            .end = caller_preserved_regs.len + callee_preserved_regs.len,
+            .end = gp_regs.len,
         }, true);
         break :blk set;
     };
     pub const sse: RegisterBitSet = blk: {
         var set = RegisterBitSet.initEmpty();
         set.setRangeValue(.{
-            .start = caller_preserved_regs.len + callee_preserved_regs.len,
-            .end = allocatable_registers.len,
+            .start = gp_regs.len,
+            .end = allocatable_regs.len,
         }, true);
         break :blk set;
     };
