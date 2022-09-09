@@ -820,55 +820,87 @@ pub fn abiAndDynamicLinkerFromFile(
                 while (it.next()) |rpath| {
                     if (glibcVerFromRPath(rpath)) |ver| {
                         result.target.os.version_range.linux.glibc = ver;
-                        break;
+                        return result;
                     } else |err| switch (err) {
                         error.GLibCNotFound => continue,
                         else => |e| return e,
                     }
                 }
-            } else if (result.dynamic_linker.get()) |dl_path| glibc_ver: {
-                // There is no DT_RUNPATH so we try to find libc.so.6 inside the same
-                // directory as the dynamic linker.
-                if (fs.path.dirname(dl_path)) |rpath| {
-                    if (glibcVerFromRPath(rpath)) |ver| {
-                        result.target.os.version_range.linux.glibc = ver;
-                        break :glibc_ver;
-                    } else |err| switch (err) {
-                        error.GLibCNotFound => {},
-                        else => |e| return e,
-                    }
-                }
-
-                // So far, no luck. Next we try to see if the information is
-                // present in the symlink data for the dynamic linker path.
-                var link_buf: [std.os.PATH_MAX]u8 = undefined;
-                const link_name = std.os.readlink(dl_path, &link_buf) catch |err| switch (err) {
-                    error.NameTooLong => unreachable,
-                    error.InvalidUtf8 => unreachable, // Windows only
-                    error.BadPathName => unreachable, // Windows only
-                    error.UnsupportedReparsePointType => unreachable, // Windows only
-
-                    error.AccessDenied,
-                    error.FileNotFound,
-                    error.NotLink,
-                    error.NotDir,
-                    => break :glibc_ver,
-
-                    error.SystemResources,
-                    error.FileSystem,
-                    error.SymLinkLoop,
-                    error.Unexpected,
-                    => |e| return e,
-                };
-                result.target.os.version_range.linux.glibc = glibcVerFromLinkName(
-                    fs.path.basename(link_name),
-                    "ld-",
-                ) catch |err| switch (err) {
-                    error.UnrecognizedGnuLibCFileName,
-                    error.InvalidGnuLibCVersion,
-                    => break :glibc_ver,
-                };
             }
+        }
+
+        if (result.dynamic_linker.get()) |dl_path| glibc_ver: {
+            // There is no DT_RUNPATH so we try to find libc.so.6 inside the same
+            // directory as the dynamic linker.
+            if (fs.path.dirname(dl_path)) |rpath| {
+                if (glibcVerFromRPath(rpath)) |ver| {
+                    result.target.os.version_range.linux.glibc = ver;
+                    return result;
+                } else |err| switch (err) {
+                    error.GLibCNotFound => {},
+                    else => |e| return e,
+                }
+            }
+
+            // So far, no luck. Next we try to see if the information is
+            // present in the symlink data for the dynamic linker path.
+            var link_buf: [std.os.PATH_MAX]u8 = undefined;
+            const link_name = std.os.readlink(dl_path, &link_buf) catch |err| switch (err) {
+                error.NameTooLong => unreachable,
+                error.InvalidUtf8 => unreachable, // Windows only
+                error.BadPathName => unreachable, // Windows only
+                error.UnsupportedReparsePointType => unreachable, // Windows only
+
+                error.AccessDenied,
+                error.FileNotFound,
+                error.NotLink,
+                error.NotDir,
+                => break :glibc_ver,
+
+                error.SystemResources,
+                error.FileSystem,
+                error.SymLinkLoop,
+                error.Unexpected,
+                => |e| return e,
+            };
+            result.target.os.version_range.linux.glibc = glibcVerFromLinkName(
+                fs.path.basename(link_name),
+                "ld-",
+            ) catch |err| switch (err) {
+                error.UnrecognizedGnuLibCFileName,
+                error.InvalidGnuLibCVersion,
+                => break :glibc_ver,
+            };
+            return result;
+        }
+
+        // Nothing worked so far. Finally we fall back to hard-coded search paths.
+        // Some distros such as Debian keep their libc.so.6 in `/lib/$triple/`.
+        var path_buf: [std.os.PATH_MAX]u8 = undefined;
+        var index: usize = 0;
+        const prefix = "/lib/";
+        const cpu_arch = @tagName(result.target.cpu.arch);
+        const os_tag = @tagName(result.target.os.tag);
+        const abi = @tagName(result.target.abi);
+        mem.copy(u8, path_buf[index..], prefix);
+        index += prefix.len;
+        mem.copy(u8, path_buf[index..], cpu_arch);
+        index += cpu_arch.len;
+        path_buf[index] = '-';
+        index += 1;
+        mem.copy(u8, path_buf[index..], os_tag);
+        index += os_tag.len;
+        path_buf[index] = '-';
+        index += 1;
+        mem.copy(u8, path_buf[index..], abi);
+        index += abi.len;
+        const rpath = path_buf[0..index];
+        if (glibcVerFromRPath(rpath)) |ver| {
+            result.target.os.version_range.linux.glibc = ver;
+            return result;
+        } else |err| switch (err) {
+            error.GLibCNotFound => {},
+            else => |e| return e,
         }
     }
 
