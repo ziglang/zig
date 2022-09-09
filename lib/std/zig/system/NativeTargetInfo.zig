@@ -347,26 +347,17 @@ fn detectAbiAndDynamicLinker(
             };
             errdefer file.close();
 
-            const line = file.reader().readUntilDelimiter(&buffer, '\n') catch |err| switch (err) {
-                error.IsDir => unreachable, // Handled before
-                error.AccessDenied => unreachable,
-                error.WouldBlock => unreachable, // Did not request blocking mode
-                error.OperationAborted => unreachable, // Windows-only
-                error.BrokenPipe => unreachable,
-                error.ConnectionResetByPeer => unreachable,
-                error.ConnectionTimedOut => unreachable,
-                error.InputOutput => unreachable,
-                error.Unexpected => unreachable,
-
-                error.StreamTooLong,
-                error.EndOfStream,
-                error.NotOpenForReading,
+            const len = preadMin(file, &buffer, 0, buffer.len) catch |err| switch (err) {
+                error.UnexpectedEndOfFile,
+                error.UnableToReadElfFile,
                 => break :blk file,
 
                 else => |e| return e,
             };
+            const newline = mem.indexOfScalar(u8, buffer[0..len], '\n') orelse break :blk file;
+            const line = buffer[0..newline];
             if (!mem.startsWith(u8, line, "#!")) break :blk file;
-            var it = std.mem.tokenize(u8, line[2..], " ");
+            var it = mem.tokenize(u8, line[2..], " ");
             file_name = it.next() orelse return defaultAbiAndDynamicLinker(cpu, os, cross_target);
             file.close();
         }
@@ -375,6 +366,8 @@ fn detectAbiAndDynamicLinker(
 
     // If Zig is statically linked, such as via distributed binary static builds, the above
     // trick (block self_exe) won't work. The next thing we fall back to is the same thing, but for elf_file.
+    // TODO: inline this function and combine the buffer we already read above to find
+    // the possible shebang line with the buffer we use for the ELF header.
     return abiAndDynamicLinkerFromFile(elf_file, cpu, os, ld_info_list, cross_target) catch |err| switch (err) {
         error.FileSystem,
         error.SystemResources,
@@ -584,6 +577,23 @@ fn glibcVerFromSoFile(file: fs.File) !std.builtin.Version {
         }
     }
     return max_ver;
+}
+
+fn glibcVerFromLinkName(link_name: []const u8, prefix: []const u8) !std.builtin.Version {
+    // example: "libc-2.3.4.so"
+    // example: "libc-2.27.so"
+    // example: "ld-2.33.so"
+    const suffix = ".so";
+    if (!mem.startsWith(u8, link_name, prefix) or !mem.endsWith(u8, link_name, suffix)) {
+        return error.UnrecognizedGnuLibCFileName;
+    }
+    // chop off "libc-" and ".so"
+    const link_name_chopped = link_name[prefix.len .. link_name.len - suffix.len];
+    return std.builtin.Version.parse(link_name_chopped) catch |err| switch (err) {
+        error.Overflow => return error.InvalidGnuLibCVersion,
+        error.InvalidCharacter => return error.InvalidGnuLibCVersion,
+        error.InvalidVersion => return error.InvalidGnuLibCVersion,
+    };
 }
 
 pub const AbiAndDynamicLinkerFromFileError = error{
@@ -816,17 +826,48 @@ pub fn abiAndDynamicLinkerFromFile(
                         else => |e| return e,
                     }
                 }
-            } else if (result.dynamic_linker.get()) |dl_path| {
+            } else if (result.dynamic_linker.get()) |dl_path| glibc_ver: {
                 // There is no DT_RUNPATH so we try to find libc.so.6 inside the same
                 // directory as the dynamic linker.
                 if (fs.path.dirname(dl_path)) |rpath| {
                     if (glibcVerFromRPath(rpath)) |ver| {
                         result.target.os.version_range.linux.glibc = ver;
+                        break :glibc_ver;
                     } else |err| switch (err) {
                         error.GLibCNotFound => {},
                         else => |e| return e,
                     }
                 }
+
+                // So far, no luck. Next we try to see if the information is
+                // present in the symlink data for the dynamic linker path.
+                var link_buf: [std.os.PATH_MAX]u8 = undefined;
+                const link_name = std.os.readlink(dl_path, &link_buf) catch |err| switch (err) {
+                    error.NameTooLong => unreachable,
+                    error.InvalidUtf8 => unreachable, // Windows only
+                    error.BadPathName => unreachable, // Windows only
+                    error.UnsupportedReparsePointType => unreachable, // Windows only
+
+                    error.AccessDenied,
+                    error.FileNotFound,
+                    error.NotLink,
+                    error.NotDir,
+                    => break :glibc_ver,
+
+                    error.SystemResources,
+                    error.FileSystem,
+                    error.SymLinkLoop,
+                    error.Unexpected,
+                    => |e| return e,
+                };
+                result.target.os.version_range.linux.glibc = glibcVerFromLinkName(
+                    fs.path.basename(link_name),
+                    "ld-",
+                ) catch |err| switch (err) {
+                    error.UnrecognizedGnuLibCFileName,
+                    error.InvalidGnuLibCVersion,
+                    => break :glibc_ver,
+                };
             }
         }
     }
