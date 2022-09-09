@@ -552,14 +552,14 @@ fn glibcVerFromSoFile(file: fs.File) !std.builtin.Version {
     // and furthermore, that the system-installed glibc is at minimum that version.
 
     // Empirically, glibc 2.34 libc.so .dynstr section is 32441 bytes on my system.
-    // Here I use this value plus some headroom. This makes it only need
+    // Here I use double this value plus some headroom. This makes it only need
     // a single read syscall here.
-    var buf: [40000]u8 = undefined;
+    var buf: [80000]u8 = undefined;
     if (buf.len < dynstr.size) return error.InvalidGnuLibCVersion;
 
     const dynstr_size = @intCast(usize, dynstr.size);
     const dynstr_bytes = buf[0..dynstr_size];
-    _ = try preadMin(file, dynstr_bytes, dynstr.offset, dynstr_size);
+    _ = try preadMin(file, dynstr_bytes, dynstr.offset, dynstr_bytes.len);
     var it = mem.split(u8, dynstr_bytes, &.{0});
     var max_ver: std.builtin.Version = .{ .major = 2, .minor = 2, .patch = 5 };
     while (it.next()) |s| {
