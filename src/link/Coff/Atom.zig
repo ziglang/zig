@@ -111,13 +111,3 @@ pub fn addBaseRelocation(self: *Atom, coff_file: *Coff, offset: u32) !void {
     }
     try gop.value_ptr.append(gpa, offset);
 }
-
-pub fn addBinding(self: *Atom, coff_file: *Coff, target: SymbolWithLoc) !void {
-    const gpa = coff_file.base.allocator;
-    log.debug("  (adding binding to target %{d} in %{d})", .{ target.sym_index, self.sym_index });
-    const gop = try coff_file.bindings.getOrPut(gpa, self);
-    if (!gop.found_existing) {
-        gop.value_ptr.* = .{};
-    }
-    try gop.value_ptr.append(gpa, target);
-}
