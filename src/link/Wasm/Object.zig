@@ -154,6 +154,9 @@ pub fn create(gpa: Allocator, file: std.fs.File, name: []const u8, maybe_max_siz
 /// Frees all memory of `Object` at once. The given `Allocator` must be
 /// the same allocator that was used when `init` was called.
 pub fn deinit(self: *Object, gpa: Allocator) void {
+    if (self.file) |file| {
+        file.close();
+    }
     for (self.func_types) |func_ty| {
         gpa.free(func_ty.params);
         gpa.free(func_ty.returns);

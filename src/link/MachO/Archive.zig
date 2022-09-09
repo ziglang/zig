@@ -88,6 +88,7 @@ const ar_hdr = extern struct {
 };
 
 pub fn deinit(self: *Archive, allocator: Allocator) void {
+    self.file.close();
     for (self.toc.keys()) |*key| {
         allocator.free(key.*);
     }

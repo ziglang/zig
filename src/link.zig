@@ -476,7 +476,7 @@ pub const File = struct {
         log.debug("getGlobalSymbol '{s}'", .{name});
         switch (base.tag) {
             // zig fmt: off
-            .coff  => unreachable,
+            .coff  => return @fieldParentPtr(Coff, "base", base).getGlobalSymbol(name),
             .elf   => unreachable,
             .macho => return @fieldParentPtr(MachO, "base", base).getGlobalSymbol(name),
             .plan9 => unreachable,

@@ -4,8 +4,6 @@ const std = @import("std");
 const coff = std.coff;
 const log = std.log.scoped(.link);
 
-const Allocator = std.mem.Allocator;
-
 const Coff = @import("../Coff.zig");
 const Reloc = Coff.Reloc;
 const SymbolWithLoc = Coff.SymbolWithLoc;
@@ -40,11 +38,6 @@ pub const empty = Atom{
     .prev = null,
     .next = null,
 };
-
-pub fn deinit(self: *Atom, gpa: Allocator) void {
-    _ = self;
-    _ = gpa;
-}
 
 /// Returns symbol referencing this atom.
 pub fn getSymbol(self: Atom, coff_file: *const Coff) *const coff.Symbol {
@@ -117,4 +110,14 @@ pub fn addBaseRelocation(self: *Atom, coff_file: *Coff, offset: u32) !void {
         gop.value_ptr.* = .{};
     }
     try gop.value_ptr.append(gpa, offset);
+}
+
+pub fn addBinding(self: *Atom, coff_file: *Coff, target: SymbolWithLoc) !void {
+    const gpa = coff_file.base.allocator;
+    log.debug("  (adding binding to target %{d} in %{d})", .{ target.sym_index, self.sym_index });
+    const gop = try coff_file.bindings.getOrPut(gpa, self);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = .{};
+    }
+    try gop.value_ptr.append(gpa, target);
 }
