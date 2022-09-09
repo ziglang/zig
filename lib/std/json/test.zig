@@ -2746,6 +2746,11 @@ test "json.serialize issue #5959" {
     try std.testing.expectEqual(parser, parser);
 }
 
+fn checkPeek(p: *TokenStream, id: std.meta.Tag(Token)) !void {
+    const token = (p.peek() catch unreachable).?;
+    try testing.expect(std.meta.activeTag(token) == id);
+}
+
 fn checkNext(p: *TokenStream, id: std.meta.Tag(Token)) !void {
     const token = (p.next() catch unreachable).?;
     try testing.expect(std.meta.activeTag(token) == id);
@@ -2818,6 +2823,29 @@ test "json.token premature object close" {
     try checkNext(&p, .ObjectBegin);
     try checkNext(&p, .String);
     try testing.expectError(error.InvalidValueBegin, p.next());
+}
+
+test "json.token.peek doesn't advance stream" {
+    var p = TokenStream.init("[\"a\", 1e6, null, false \n}");
+    try checkPeek(&p, .ArrayBegin);
+    try checkPeek(&p, .ArrayBegin);
+    try checkPeek(&p, .ArrayBegin);
+    try checkNext(&p, .ArrayBegin);
+
+    try checkPeek(&p, .String);
+    try checkNext(&p, .String);
+
+    try checkPeek(&p, .Number);
+    try checkNext(&p, .Number);
+
+    try checkPeek(&p, .Null);
+    try checkNext(&p, .Null);
+
+    try checkPeek(&p, .False);
+    try checkNext(&p, .False);
+
+    try testing.expectError(error.UnexpectedClosingBrace, p.peek());
+    try testing.expectError(error.UnexpectedClosingBrace, p.next());
 }
 
 test "json.validate" {
