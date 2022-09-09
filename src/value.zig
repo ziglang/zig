@@ -2778,6 +2778,9 @@ pub const Value = extern union {
                     const tuple = ty.tupleFields();
                     return tuple.values[index];
                 }
+                if (ty.structFieldValueComptime(index)) |some| {
+                    return some;
+                }
                 unreachable;
             },
             .undef => return Value.undef,

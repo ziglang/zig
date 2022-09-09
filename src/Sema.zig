@@ -21683,12 +21683,19 @@ fn finishFieldCallBind(
         .@"addrspace" = ptr_ty.ptrAddressSpace(),
     });
 
+    const container_ty = ptr_ty.childType();
+    if (container_ty.zigTypeTag() == .Struct) {
+        if (container_ty.structFieldValueComptime(field_index)) |default_val| {
+            return sema.addConstant(field_ty, default_val);
+        }
+    }
+
     if (try sema.resolveDefinedValue(block, src, object_ptr)) |struct_ptr_val| {
         const pointer = try sema.addConstant(
             ptr_field_ty,
             try Value.Tag.field_ptr.create(arena, .{
                 .container_ptr = struct_ptr_val,
-                .container_ty = ptr_ty.childType(),
+                .container_ty = container_ty,
                 .field_index = field_index,
             }),
         );
