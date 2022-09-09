@@ -3870,7 +3870,7 @@ pub const DeclGen = struct {
                                 var b: usize = 0;
                                 for (parent_ty.structFields().values()[0..field_index]) |field| {
                                     if (field.is_comptime or !field.ty.hasRuntimeBitsIgnoreComptime()) continue;
-                                    b += field.ty.bitSize(target);
+                                    b += @intCast(usize, field.ty.bitSize(target));
                                 }
                                 break :b b;
                             };
