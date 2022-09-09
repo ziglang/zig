@@ -17406,7 +17406,7 @@ fn reifyStruct(
         if (!try sema.intFitsInType(block, src, alignment_val, Type.u32, null)) {
             return sema.fail(block, src, "alignment must fit in 'u32'", .{});
         }
-        const abi_align = @intCast(u29, alignment_val.toUnsignedInt(target));
+        const abi_align = @intCast(u29, (try alignment_val.getUnsignedIntAdvanced(target, sema.kit(block, src))).?);
 
         const field_name = try name_val.toAllocatedBytes(
             Type.initTag(.const_slice_u8),
