@@ -2378,6 +2378,7 @@ pub const Managed = struct {
     /// This is identical to an `init`, followed by a `set`.
     pub fn initSet(allocator: Allocator, value: anytype) !Managed {
         var s = try Managed.init(allocator);
+        errdefer s.deinit();
         try s.set(value);
         return s;
     }
