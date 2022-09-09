@@ -1170,7 +1170,8 @@ fn linkOneShot(self: *MachO, comp: *Compilation, prog_node: *std.Progress.Node) 
                 physical_zerofill_start = header.offset + header.size;
             } else break :blk;
             const linkedit = self.segments.items[self.linkedit_segment_cmd_index.?];
-            const physical_zerofill_size = linkedit.fileoff - physical_zerofill_start;
+            const physical_zerofill_size = math.cast(usize, linkedit.fileoff - physical_zerofill_start) orelse
+                return error.Overflow;
             if (physical_zerofill_size > 0) {
                 var padding = try self.base.allocator.alloc(u8, physical_zerofill_size);
                 defer self.base.allocator.free(padding);
