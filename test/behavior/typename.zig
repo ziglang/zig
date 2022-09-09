@@ -122,7 +122,7 @@ test "top level decl" {
     );
     // generic fn
     try expectEqualStrings(
-        "fn(type) type",
+        "fn(comptime type) type",
         @typeName(@TypeOf(TypeFromFn)),
     );
 }
@@ -244,5 +244,5 @@ test "comptime parameters not converted to anytype in function type" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const T = fn (fn (type) void, void) void;
-    try expectEqualStrings("fn(fn(type) void, void) void", @typeName(T));
+    try expectEqualStrings("fn(comptime fn(comptime type) void, void) void", @typeName(T));
 }
