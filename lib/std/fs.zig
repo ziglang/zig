@@ -150,7 +150,6 @@ pub fn copyFileAbsolute(source_path: []const u8, dest_path: []const u8, args: Co
     return Dir.copyFile(my_cwd, source_path, my_cwd, dest_path, args);
 }
 
-/// TODO update this API to avoid a getrandom syscall for every operation.
 pub const AtomicFile = struct {
     file: File,
     // TODO either replace this with rand_buf or use []u16 on Windows
