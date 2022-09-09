@@ -244,7 +244,6 @@ const Sub = struct { b: u8 };
 const Str = struct { a: []Sub };
 test "set global var array via slice embedded in struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     var s = Str{ .a = s_array[0..] };
 
@@ -297,7 +296,6 @@ fn testArrayByValAtComptime(b: [2]u8) u8 {
 
 test "comptime evaluating function that takes array by value" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const arr = [_]u8{ 1, 2 };
     const x = comptime testArrayByValAtComptime(arr);
@@ -426,7 +424,6 @@ test "anonymous literal in array" {
 
 test "access the null element of a null terminated array" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {

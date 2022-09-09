@@ -336,7 +336,6 @@ fn doesAlotT(comptime T: type, value: usize) T {
 }
 
 test "@setEvalBranchQuota at same scope as generic function call" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     try expect(doesAlotT(u32, 2) == 2);

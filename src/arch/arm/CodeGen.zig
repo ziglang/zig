@@ -2359,9 +2359,68 @@ fn airSliceElemPtr(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
 }
 
+fn arrayElemVal(
+    self: *Self,
+    array_bind: ReadArg.Bind,
+    index_bind: ReadArg.Bind,
+    array_ty: Type,
+    maybe_inst: ?Air.Inst.Index,
+) InnerError!MCValue {
+    const elem_ty = array_ty.childType();
+
+    const mcv = try array_bind.resolveToMcv(self);
+    switch (mcv) {
+        .stack_offset,
+        .memory,
+        .stack_argument_offset,
+        => {
+            const ptr_to_mcv = switch (mcv) {
+                .stack_offset => |off| MCValue{ .ptr_stack_offset = off },
+                .memory => |addr| MCValue{ .immediate = @intCast(u32, addr) },
+                .stack_argument_offset => |off| blk: {
+                    const reg = try self.register_manager.allocReg(null, gp);
+
+                    _ = try self.addInst(.{
+                        .tag = .ldr_ptr_stack_argument,
+                        .data = .{ .r_stack_offset = .{
+                            .rt = reg,
+                            .stack_offset = off,
+                        } },
+                    });
+
+                    break :blk MCValue{ .register = reg };
+                },
+                else => unreachable,
+            };
+            const ptr_to_mcv_lock: ?RegisterLock = switch (ptr_to_mcv) {
+                .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+                else => null,
+            };
+            defer if (ptr_to_mcv_lock) |lock| self.register_manager.unlockReg(lock);
+
+            const base_bind: ReadArg.Bind = .{ .mcv = ptr_to_mcv };
+
+            var ptr_ty_payload: Type.Payload.ElemType = .{
+                .base = .{ .tag = .single_mut_pointer },
+                .data = elem_ty,
+            };
+            const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
+
+            return try self.ptrElemVal(base_bind, index_bind, ptr_ty, maybe_inst);
+        },
+        else => return self.fail("TODO implement array_elem_val for {}", .{mcv}),
+    }
+}
+
 fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement array_elem_val for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const array_bind: ReadArg.Bind = .{ .inst = bin_op.lhs };
+        const index_bind: ReadArg.Bind = .{ .inst = bin_op.rhs };
+        const array_ty = self.air.typeOf(bin_op.lhs);
+
+        break :result try self.arrayElemVal(array_bind, index_bind, array_ty, inst);
+    };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 

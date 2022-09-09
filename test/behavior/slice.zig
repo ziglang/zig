@@ -268,7 +268,6 @@ fn sliceSum(comptime q: []const u8) i32 {
 
 test "slice type with custom alignment" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const LazilyResolvedType = struct {
         anything: i32,
