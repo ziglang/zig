@@ -4749,6 +4749,9 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
         .inlining = parent_block.inlining,
         .is_comptime = parent_block.is_comptime,
         .c_import_buf = &c_import_buf,
+        .runtime_cond = parent_block.runtime_cond,
+        .runtime_loop = parent_block.runtime_loop,
+        .runtime_index = parent_block.runtime_index,
     };
     defer child_block.instructions.deinit(sema.gpa);
 
@@ -4847,6 +4850,9 @@ fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErro
         .is_comptime = parent_block.is_comptime,
         .want_safety = parent_block.want_safety,
         .float_mode = parent_block.float_mode,
+        .runtime_cond = parent_block.runtime_cond,
+        .runtime_loop = parent_block.runtime_loop,
+        .runtime_index = parent_block.runtime_index,
     };
 
     defer child_block.instructions.deinit(gpa);
@@ -9742,6 +9748,9 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         .inlining = block.inlining,
         .is_comptime = block.is_comptime,
         .switch_else_err_ty = else_error_ty,
+        .runtime_cond = block.runtime_cond,
+        .runtime_loop = block.runtime_loop,
+        .runtime_index = block.runtime_index,
     };
     const merges = &child_block.label.?.merges;
     defer child_block.instructions.deinit(gpa);
@@ -14872,6 +14881,9 @@ fn zirTypeofPeer(
         .inlining = block.inlining,
         .is_comptime = false,
         .is_typeof = true,
+        .runtime_cond = block.runtime_cond,
+        .runtime_loop = block.runtime_loop,
+        .runtime_index = block.runtime_index,
     };
     defer child_block.instructions.deinit(sema.gpa);
     // Ignore the result, we only care about the instructions in `args`.
