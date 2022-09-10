@@ -236,7 +236,7 @@ pub fn scanInputSections(self: Object, macho_file: *MachO) !void {
 }
 
 /// Splits object into atoms assuming one-shot linking mode.
-pub fn splitIntoAtomsOneShot(self: *Object, macho_file: *MachO, object_id: u32) !void {
+pub fn splitIntoAtoms(self: *Object, macho_file: *MachO, object_id: u32) !void {
     assert(macho_file.mode == .one_shot);
 
     const tracy = trace(@src());
