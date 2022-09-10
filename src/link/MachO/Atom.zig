@@ -314,13 +314,13 @@ pub fn parseRelocs(self: *Atom, relocs: []align(1) const macho.relocation_info, 
                 const sect_id = @intCast(u16, rel.r_symbolnum - 1);
                 const sym_index = object.sections_as_symbols.get(sect_id) orelse blk: {
                     const sect = object.getSourceSection(sect_id);
-                    const match = (try context.macho_file.getOutputSection(sect)) orelse
+                    const out_sect_id = (try context.macho_file.getOutputSection(sect)) orelse
                         unreachable;
                     const sym_index = @intCast(u32, object.symtab.items.len);
                     try object.symtab.append(gpa, .{
                         .n_strx = 0,
                         .n_type = macho.N_SECT,
-                        .n_sect = match + 1,
+                        .n_sect = out_sect_id + 1,
                         .n_desc = 0,
                         .n_value = sect.addr,
                     });
