@@ -324,8 +324,6 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
     wasm_bin.base.file = file;
     wasm_bin.name = sub_path;
 
-    try file.writeAll(&(wasm.magic ++ wasm.version));
-
     // As sym_index '0' is reserved, we use it for our stack pointer symbol
     const sym_name = try wasm_bin.string_table.put(allocator, "__stack_pointer");
     const symbol = try wasm_bin.symbols.addOne(allocator);
@@ -363,7 +361,11 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
         };
     }
 
-    try wasm_bin.initDebugSections();
+    if (!options.strip and options.module != null) {
+        wasm_bin.dwarf = Dwarf.init(allocator, .wasm, options.target);
+        try wasm_bin.initDebugSections();
+    }
+
     return wasm_bin;
 }
 
@@ -379,10 +381,6 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Wasm {
         },
         .name = undefined,
     };
-
-    if (!options.strip and options.module != null) {
-        self.dwarf = Dwarf.init(gpa, .wasm, options.target);
-    }
 
     const use_llvm = build_options.have_llvm and options.use_llvm;
     const use_stage1 = build_options.have_stage1 and options.use_stage1;
@@ -2213,7 +2211,8 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     const header_size = 5 + 1;
     const is_obj = self.base.options.output_mode == .Obj;
 
-    // No need to rewrite the magic/version header
+    // We write the magic bytes at the end so they will only be written
+    // if everything succeeded as expected.
     try file.setEndPos(@sizeOf(@TypeOf(wasm.magic ++ wasm.version)));
     try file.seekTo(@sizeOf(@TypeOf(wasm.magic ++ wasm.version)));
 
@@ -2599,6 +2598,11 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         }
         try self.emitNameSection(file, arena);
     }
+
+    // Only when writing all sections executed properly we write the magic
+    // bytes. This allows us to easily detect what went wrong while generating
+    // the final binary.
+    try file.pwriteAll(&(wasm.magic ++ wasm.version), 0);
 }
 
 fn emitDebugSection(file: fs.File, data: []const u8, name: []const u8) !void {
