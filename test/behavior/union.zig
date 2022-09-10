@@ -92,7 +92,6 @@ const FooExtern = extern union {
 };
 
 test "basic extern unions" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var foo = FooExtern{ .int = 1 };

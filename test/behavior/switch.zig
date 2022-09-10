@@ -348,7 +348,6 @@ test "switch on const enum with var" {
 }
 
 test "anon enum literal used in switch on union enum" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const Foo = union(enum) {
@@ -490,7 +489,6 @@ test "switch prongs with error set cases make a new error set type for capture v
 }
 
 test "return result loc and then switch with range implicit casted to error union" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
