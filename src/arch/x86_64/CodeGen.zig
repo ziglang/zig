@@ -128,15 +128,11 @@ pub const MCValue = union(enum) {
     /// The value is in memory at a hard-coded address.
     /// If the type is a pointer, it means the pointer address is at this memory location.
     memory: u64,
-    /// The value is in memory referenced indirectly via a GOT entry index.
-    /// If the type is a pointer, it means the pointer is referenced indirectly via GOT.
-    /// When lowered, linker will emit a relocation of type X86_64_RELOC_GOT.
-    got_load: u32,
-    imports_load: u32,
-    /// The value is in memory referenced directly via symbol index.
-    /// If the type is a pointer, it means the pointer is referenced directly via symbol index.
-    /// When lowered, linker will emit a relocation of type X86_64_RELOC_SIGNED.
-    direct_load: u32,
+    /// The value is in memory but requires a linker relocation fixup:
+    /// * got - the value is referenced indirectly via GOT entry index (the linker emits a got-type reloc)
+    /// * direct - the value is referenced directly via symbol index index (the linker emits a displacement reloc)
+    /// * import - the value is referenced indirectly via import entry index (the linker emits an import-type reloc)
+    linker_load: struct { @"type": enum { got, direct, import }, sym_index: u32 },
     /// The value is one of the stack variables.
     /// If the type is a pointer, it means the pointer address is in the stack at this offset.
     stack_offset: i32,
@@ -150,9 +146,7 @@ pub const MCValue = union(enum) {
             .memory,
             .stack_offset,
             .ptr_stack_offset,
-            .direct_load,
-            .got_load,
-            .imports_load,
+            .linker_load,
             => true,
             else => false,
         };
@@ -162,26 +156,6 @@ pub const MCValue = union(enum) {
         return switch (mcv) {
             .immediate => true,
             else => false,
-        };
-    }
-
-    fn isMutable(mcv: MCValue) bool {
-        return switch (mcv) {
-            .none => unreachable,
-            .unreach => unreachable,
-            .dead => unreachable,
-
-            .immediate,
-            .memory,
-            .eflags,
-            .ptr_stack_offset,
-            .undef,
-            .register_overflow,
-            => false,
-
-            .register,
-            .stack_offset,
-            => true,
         };
     }
 
@@ -2307,11 +2281,7 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
                 .data = .{ .imm = @bitCast(u32, -off) },
             });
         },
-        .memory,
-        .got_load,
-        .direct_load,
-        .imports_load,
-        => {
+        .memory, .linker_load => {
             try self.loadMemPtrIntoRegister(addr_reg, Type.usize, array);
         },
         else => return self.fail("TODO implement array_elem_val when array is {}", .{array}),
@@ -2652,11 +2622,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
                 else => return self.fail("TODO implement loading from register into {}", .{dst_mcv}),
             }
         },
-        .memory,
-        .got_load,
-        .direct_load,
-        .imports_load,
-        => {
+        .memory, .linker_load => {
             const reg = try self.copyToTmpRegister(ptr_ty, ptr);
             try self.load(dst_mcv, .{ .register = reg }, ptr_ty);
         },
@@ -2691,10 +2657,7 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
 
 fn loadMemPtrIntoRegister(self: *Self, reg: Register, ptr_ty: Type, ptr: MCValue) InnerError!void {
     switch (ptr) {
-        .got_load,
-        .direct_load,
-        .imports_load,
-        => |sym_index| {
+        .linker_load => |load_struct| {
             const abi_size = @intCast(u32, ptr_ty.abiSize(self.target.*));
             const mod = self.bin_file.options.module.?;
             const fn_owner_decl = mod.declPtr(self.mod_fn.owner_decl);
@@ -2702,11 +2665,10 @@ fn loadMemPtrIntoRegister(self: *Self, reg: Register, ptr_ty: Type, ptr: MCValue
                 fn_owner_decl.link.macho.sym_index
             else
                 fn_owner_decl.link.coff.sym_index;
-            const flags: u2 = switch (ptr) {
-                .got_load => 0b00,
-                .direct_load => 0b01,
-                .imports_load => 0b10,
-                else => unreachable,
+            const flags: u2 = switch (load_struct.@"type") {
+                .got => 0b00,
+                .direct => 0b01,
+                .import => 0b10,
             };
             _ = try self.addInst(.{
                 .tag = .lea_pic,
@@ -2717,7 +2679,7 @@ fn loadMemPtrIntoRegister(self: *Self, reg: Register, ptr_ty: Type, ptr: MCValue
                 .data = .{
                     .relocation = .{
                         .atom_index = atom_index,
-                        .sym_index = sym_index,
+                        .sym_index = load_struct.sym_index,
                     },
                 },
             });
@@ -2801,9 +2763,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                 .register => |src_reg| {
                     try self.genInlineMemcpyRegisterRegister(value_ty, reg, src_reg, 0);
                 },
-                .got_load,
-                .direct_load,
-                .imports_load,
+                .linker_load,
                 .memory,
                 .stack_offset,
                 => {
@@ -2822,11 +2782,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                 },
             }
         },
-        .got_load,
-        .direct_load,
-        .imports_load,
-        .memory,
-        => {
+        .linker_load, .memory => {
             const value_lock: ?RegisterLock = switch (value) {
                 .register => |reg| self.register_manager.lockReg(reg),
                 else => null,
@@ -2894,11 +2850,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                 .register => {
                     return self.store(new_ptr, value, ptr_ty, value_ty);
                 },
-                .got_load,
-                .direct_load,
-                .imports_load,
-                .memory,
-                => {
+                .linker_load, .memory => {
                     if (abi_size <= 8) {
                         const tmp_reg = try self.register_manager.allocReg(null, gp);
                         const tmp_reg_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
@@ -3606,9 +3558,7 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValu
                     });
                 },
                 .memory,
-                .got_load,
-                .direct_load,
-                .imports_load,
+                .linker_load,
                 .eflags,
                 => {
                     assert(abi_size <= 8);
@@ -3694,10 +3644,7 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValu
                 => {
                     return self.fail("TODO implement x86 ADD/SUB/CMP source memory", .{});
                 },
-                .got_load,
-                .direct_load,
-                .imports_load,
-                => {
+                .linker_load => {
                     return self.fail("TODO implement x86 ADD/SUB/CMP source symbol at index in linker", .{});
                 },
                 .eflags => {
@@ -3708,10 +3655,7 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, dst_ty: Type, dst_mcv: MCValu
         .memory => {
             return self.fail("TODO implement x86 ADD/SUB/CMP destination memory", .{});
         },
-        .got_load,
-        .direct_load,
-        .imports_load,
-        => {
+        .linker_load => {
             return self.fail("TODO implement x86 ADD/SUB/CMP destination symbol at index", .{});
         },
     }
@@ -3779,10 +3723,7 @@ fn genIntMulComplexOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: M
                 .memory => {
                     return self.fail("TODO implement x86 multiply source memory", .{});
                 },
-                .got_load,
-                .direct_load,
-                .imports_load,
-                => {
+                .linker_load => {
                     return self.fail("TODO implement x86 multiply source symbol at index in linker", .{});
                 },
                 .eflags => {
@@ -3826,10 +3767,7 @@ fn genIntMulComplexOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: M
                 .memory, .stack_offset => {
                     return self.fail("TODO implement x86 multiply source memory", .{});
                 },
-                .got_load,
-                .direct_load,
-                .imports_load,
-                => {
+                .linker_load => {
                     return self.fail("TODO implement x86 multiply source symbol at index in linker", .{});
                 },
                 .eflags => {
@@ -3840,10 +3778,7 @@ fn genIntMulComplexOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: M
         .memory => {
             return self.fail("TODO implement x86 multiply destination memory", .{});
         },
-        .got_load,
-        .direct_load,
-        .imports_load,
-        => {
+        .linker_load => {
             return self.fail("TODO implement x86 multiply destination symbol at index in linker", .{});
         },
     }
@@ -4006,9 +3941,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
             .unreach => unreachable,
             .dead => unreachable,
             .memory => unreachable,
-            .got_load => unreachable,
-            .direct_load => unreachable,
-            .imports_load => unreachable,
+            .linker_load => unreachable,
             .eflags => unreachable,
             .register_overflow => unreachable,
         }
@@ -4066,7 +3999,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                 const func = func_payload.data;
                 const fn_owner_decl = mod.declPtr(func.owner_decl);
                 try self.genSetReg(Type.initTag(.usize), .rax, .{
-                    .got_load = fn_owner_decl.link.coff.sym_index,
+                    .linker_load = .{
+                        .@"type" = .got,
+                        .sym_index = fn_owner_decl.link.coff.sym_index,
+                    },
                 });
                 _ = try self.addInst(.{
                     .tag = .call,
@@ -4087,7 +4023,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                 }
                 const sym_index = try coff_file.getGlobalSymbol(mem.sliceTo(decl_name, 0));
                 try self.genSetReg(Type.initTag(.usize), .rax, .{
-                    .imports_load = sym_index,
+                    .linker_load = .{
+                        .@"type" = .import,
+                        .sym_index = sym_index,
+                    },
                 });
                 _ = try self.addInst(.{
                     .tag = .call,
@@ -4119,7 +4058,12 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallOptions.
                 const func = func_payload.data;
                 const fn_owner_decl = mod.declPtr(func.owner_decl);
                 const sym_index = fn_owner_decl.link.macho.sym_index;
-                try self.genSetReg(Type.initTag(.usize), .rax, .{ .got_load = sym_index });
+                try self.genSetReg(Type.initTag(.usize), .rax, .{
+                    .linker_load = .{
+                        .@"type" = .got,
+                        .sym_index = sym_index,
+                    },
+                });
                 // callq *%rax
                 _ = try self.addInst(.{
                     .tag = .call,
@@ -4505,11 +4449,7 @@ fn genVarDbgInfo(
                     leb128.writeILEB128(dbg_info.writer(), -off) catch unreachable;
                     dbg_info.items[fixup] += @intCast(u8, dbg_info.items.len - fixup - 2);
                 },
-                .memory,
-                .got_load,
-                .direct_load,
-                .imports_load,
-                => {
+                .memory, .linker_load => {
                     const ptr_width = @intCast(u8, @divExact(self.target.cpu.arch.ptrBitWidth(), 8));
                     const is_ptr = switch (tag) {
                         .dbg_var_ptr => true,
@@ -4540,10 +4480,11 @@ fn genVarDbgInfo(
                         try dbg_info.append(DW.OP.deref);
                     }
                     switch (mcv) {
-                        .got_load,
-                        .direct_load,
-                        .imports_load,
-                        => |index| try dw.addExprlocReloc(index, offset, is_ptr),
+                        .linker_load => |load_struct| try dw.addExprlocReloc(
+                            load_struct.sym_index,
+                            offset,
+                            is_ptr,
+                        ),
                         else => {},
                     }
                 },
@@ -5587,11 +5528,7 @@ fn genSetStackArg(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue) InnerE
                 else => return self.fail("TODO implement inputs on stack for {} with abi size > 8", .{mcv}),
             }
         },
-        .memory,
-        .direct_load,
-        .got_load,
-        .imports_load,
-        => {
+        .memory, .linker_load => {
             if (abi_size <= 8) {
                 const reg = try self.copyToTmpRegister(ty, mcv);
                 return self.genSetStackArg(ty, stack_offset, MCValue{ .register = reg });
@@ -5835,11 +5772,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: i32, mcv: MCValue, opts: Inl
                 },
             }
         },
-        .memory,
-        .got_load,
-        .direct_load,
-        .imports_load,
-        => {
+        .memory, .linker_load => {
             if (abi_size <= 8) {
                 const reg = try self.copyToTmpRegister(ty, mcv);
                 return self.genSetStack(ty, stack_offset, MCValue{ .register = reg }, opts);
@@ -5959,11 +5892,7 @@ fn genInlineMemcpy(
     const tmp_reg = regs[4].to8();
 
     switch (dst_ptr) {
-        .memory,
-        .got_load,
-        .direct_load,
-        .imports_load,
-        => {
+        .memory, .linker_load => {
             try self.loadMemPtrIntoRegister(dst_addr_reg, Type.usize, dst_ptr);
         },
         .ptr_stack_offset, .stack_offset => |off| {
@@ -5992,11 +5921,7 @@ fn genInlineMemcpy(
     }
 
     switch (src_ptr) {
-        .memory,
-        .got_load,
-        .direct_load,
-        .imports_load,
-        => {
+        .memory, .linker_load => {
             try self.loadMemPtrIntoRegister(src_addr_reg, Type.usize, src_ptr);
         },
         .ptr_stack_offset, .stack_offset => |off| {
@@ -6120,11 +6045,7 @@ fn genInlineMemset(
     const index_reg = regs[1].to64();
 
     switch (dst_ptr) {
-        .memory,
-        .got_load,
-        .direct_load,
-        .imports_load,
-        => {
+        .memory, .linker_load => {
             try self.loadMemPtrIntoRegister(addr_reg, Type.usize, dst_ptr);
         },
         .ptr_stack_offset, .stack_offset => |off| {
@@ -6356,10 +6277,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 .data = undefined,
             });
         },
-        .direct_load,
-        .got_load,
-        .imports_load,
-        => {
+        .linker_load => {
             switch (ty.zigTypeTag()) {
                 .Float => {
                     const base_reg = try self.register_manager.allocReg(null, gp);
@@ -6753,11 +6671,7 @@ fn airMemcpy(self: *Self, inst: Air.Inst.Index) !void {
     // TODO Is this the only condition for pointer dereference for memcpy?
     const src: MCValue = blk: {
         switch (src_ptr) {
-            .got_load,
-            .direct_load,
-            .imports_load,
-            .memory,
-            => {
+            .linker_load, .memory => {
                 const reg = try self.register_manager.allocReg(null, gp);
                 try self.loadMemPtrIntoRegister(reg, src_ty, src_ptr);
                 _ = try self.addInst(.{
@@ -6997,10 +6911,16 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
         return MCValue{ .memory = got_addr };
     } else if (self.bin_file.cast(link.File.MachO)) |_| {
         assert(decl.link.macho.sym_index != 0);
-        return MCValue{ .got_load = decl.link.macho.sym_index };
+        return MCValue{ .linker_load = .{
+            .@"type" = .got,
+            .sym_index = decl.link.macho.sym_index,
+        } };
     } else if (self.bin_file.cast(link.File.Coff)) |_| {
         assert(decl.link.coff.sym_index != 0);
-        return MCValue{ .got_load = decl.link.coff.sym_index };
+        return MCValue{ .linker_load = .{
+            .@"type" = .got,
+            .sym_index = decl.link.coff.sym_index,
+        } };
     } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
         try p9.seeDecl(decl_index);
         const got_addr = p9.bases.data + decl.link.plan9.got_index.? * ptr_bytes;
@@ -7019,9 +6939,15 @@ fn lowerUnnamedConst(self: *Self, tv: TypedValue) InnerError!MCValue {
         const vaddr = elf_file.local_symbols.items[local_sym_index].st_value;
         return MCValue{ .memory = vaddr };
     } else if (self.bin_file.cast(link.File.MachO)) |_| {
-        return MCValue{ .direct_load = local_sym_index };
+        return MCValue{ .linker_load = .{
+            .@"type" = .direct,
+            .sym_index = local_sym_index,
+        } };
     } else if (self.bin_file.cast(link.File.Coff)) |_| {
-        return MCValue{ .direct_load = local_sym_index };
+        return MCValue{ .linker_load = .{
+            .@"type" = .direct,
+            .sym_index = local_sym_index,
+        } };
     } else if (self.bin_file.cast(link.File.Plan9)) |_| {
         return self.fail("TODO lower unnamed const in Plan9", .{});
     } else {

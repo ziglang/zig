@@ -62,7 +62,7 @@ fn collectRoots(roots: *std.AutoHashMap(*Atom, void), macho_file: *MachO) !void 
         else => |other| {
             assert(other == .Lib);
             // Add exports as GC roots
-            for (macho_file.globals.values()) |global| {
+            for (macho_file.globals.items) |global| {
                 const sym = macho_file.getSymbol(global);
                 if (!sym.sect()) continue;
                 const atom = macho_file.getAtomForSymbol(global) orelse {
@@ -77,7 +77,7 @@ fn collectRoots(roots: *std.AutoHashMap(*Atom, void), macho_file: *MachO) !void 
     }
 
     // TODO just a temp until we learn how to parse unwind records
-    if (macho_file.globals.get("___gxx_personality_v0")) |global| {
+    if (macho_file.getGlobal("___gxx_personality_v0")) |global| {
         if (macho_file.getAtomForSymbol(global)) |atom| {
             _ = try roots.getOrPut(atom);
             log.debug("adding root", .{});

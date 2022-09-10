@@ -1021,10 +1021,14 @@ fn mirLeaPic(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             .@"type" = switch (ops.flags) {
                 0b00 => .got,
                 0b01 => .direct,
-                0b10 => .imports,
+                0b10 => .import,
                 else => unreachable,
             },
-            .target = .{ .sym_index = relocation.sym_index, .file = null },
+            .target = switch (ops.flags) {
+                0b00, 0b01 => .{ .sym_index = relocation.sym_index, .file = null },
+                0b10 => coff_file.getGlobalByIndex(relocation.sym_index),
+                else => unreachable,
+            },
             .offset = @intCast(u32, end_offset - 4),
             .addend = 0,
             .pcrel = true,
@@ -1142,12 +1146,10 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
         // Add relocation to the decl.
         const atom = macho_file.atom_by_index_table.get(relocation.atom_index).?;
+        const target = macho_file.getGlobalByIndex(relocation.sym_index);
         try atom.relocs.append(emit.bin_file.allocator, .{
             .offset = offset,
-            .target = .{
-                .sym_index = relocation.sym_index,
-                .file = null,
-            },
+            .target = target,
             .addend = 0,
             .subtractor = null,
             .pcrel = true,
@@ -1157,16 +1159,17 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
         // Add relocation to the decl.
         const atom = coff_file.atom_by_index_table.get(relocation.atom_index).?;
+        const target = coff_file.getGlobalByIndex(relocation.sym_index);
         try atom.addRelocation(coff_file, .{
             .@"type" = .direct,
-            .target = .{ .sym_index = relocation.sym_index, .file = null },
+            .target = target,
             .offset = offset,
             .addend = 0,
             .pcrel = true,
             .length = 2,
         });
     } else {
-        return emit.fail("TODO implement call_extern for linking backends different than MachO", .{});
+        return emit.fail("TODO implement call_extern for linking backends different than MachO and COFF", .{});
     }
 }
 
