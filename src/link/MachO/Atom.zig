@@ -314,8 +314,9 @@ pub fn parseRelocs(self: *Atom, relocs: []align(1) const macho.relocation_info, 
                 const sect_id = @intCast(u16, rel.r_symbolnum - 1);
                 const sym_index = object.sections_as_symbols.get(sect_id) orelse blk: {
                     const sect = object.getSourceSection(sect_id);
-                    const out_sect_id = (try context.macho_file.getOutputSection(sect)) orelse
+                    const gop = (try context.macho_file.getOutputSection(sect)) orelse
                         unreachable;
+                    const out_sect_id = gop.sect_id;
                     const sym_index = @intCast(u32, object.symtab.items.len);
                     try object.symtab.append(gpa, .{
                         .n_strx = 0,

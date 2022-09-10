@@ -198,7 +198,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             .n_value = 0,
         });
         try macho_file.strtab.buffer.append(gpa, 0);
-        try macho_file.populateMissingMetadata();
+        try initSections(macho_file);
 
         var lib_not_found = false;
         var framework_not_found = false;
@@ -643,6 +643,116 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         // We hang on to this lock so that the output file path can be used without
         // other processes clobbering it.
         macho_file.base.lock = man.toOwnedLock();
+    }
+}
+
+fn initSections(macho_file: *MachO) !void {
+    const gpa = macho_file.base.allocator;
+    const cpu_arch = macho_file.base.options.target.cpu.arch;
+    const pagezero_vmsize = macho_file.calcPagezeroSize();
+
+    if (macho_file.pagezero_segment_cmd_index == null) {
+        if (pagezero_vmsize > 0) {
+            macho_file.pagezero_segment_cmd_index = @intCast(u8, macho_file.segments.items.len);
+            try macho_file.segments.append(gpa, .{
+                .segname = MachO.makeStaticString("__PAGEZERO"),
+                .vmsize = pagezero_vmsize,
+                .cmdsize = @sizeOf(macho.segment_command_64),
+            });
+        }
+    }
+
+    if (macho_file.text_segment_cmd_index == null) {
+        macho_file.text_segment_cmd_index = @intCast(u8, macho_file.segments.items.len);
+        try macho_file.segments.append(gpa, .{
+            .segname = MachO.makeStaticString("__TEXT"),
+            .vmaddr = pagezero_vmsize,
+            .vmsize = 0,
+            .filesize = 0,
+            .maxprot = macho.PROT.READ | macho.PROT.EXEC,
+            .initprot = macho.PROT.READ | macho.PROT.EXEC,
+            .cmdsize = @sizeOf(macho.segment_command_64),
+        });
+    }
+
+    if (macho_file.text_section_index == null) {
+        macho_file.text_section_index = try macho_file.initSection("__TEXT", "__text", .{
+            .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
+        });
+    }
+
+    if (macho_file.stubs_section_index == null) {
+        const stub_size: u4 = switch (cpu_arch) {
+            .x86_64 => 6,
+            .aarch64 => 3 * @sizeOf(u32),
+            else => unreachable, // unhandled architecture type
+        };
+        macho_file.stubs_section_index = try macho_file.initSection("__TEXT", "__stubs", .{
+            .flags = macho.S_SYMBOL_STUBS | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
+            .reserved2 = stub_size,
+        });
+    }
+
+    if (macho_file.stub_helper_section_index == null) {
+        macho_file.stub_helper_section_index = try macho_file.initSection("__TEXT", "__stub_helper", .{
+            .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
+        });
+    }
+
+    if (macho_file.data_const_segment_cmd_index == null) {
+        macho_file.data_const_segment_cmd_index = @intCast(u8, macho_file.segments.items.len);
+        try macho_file.segments.append(gpa, .{
+            .segname = MachO.makeStaticString("__DATA_CONST"),
+            .vmaddr = 0,
+            .vmsize = 0,
+            .fileoff = 0,
+            .filesize = 0,
+            .maxprot = macho.PROT.READ | macho.PROT.WRITE,
+            .initprot = macho.PROT.READ | macho.PROT.WRITE,
+            .cmdsize = @sizeOf(macho.segment_command_64),
+        });
+    }
+
+    if (macho_file.got_section_index == null) {
+        macho_file.got_section_index = try macho_file.initSection("__DATA_CONST", "__got", .{
+            .flags = macho.S_NON_LAZY_SYMBOL_POINTERS,
+        });
+    }
+
+    if (macho_file.data_segment_cmd_index == null) {
+        macho_file.data_segment_cmd_index = @intCast(u8, macho_file.segments.items.len);
+        try macho_file.segments.append(gpa, .{
+            .segname = MachO.makeStaticString("__DATA"),
+            .vmaddr = 0,
+            .vmsize = 0,
+            .fileoff = 0,
+            .filesize = 0,
+            .maxprot = macho.PROT.READ | macho.PROT.WRITE,
+            .initprot = macho.PROT.READ | macho.PROT.WRITE,
+            .cmdsize = @sizeOf(macho.segment_command_64),
+        });
+    }
+
+    if (macho_file.la_symbol_ptr_section_index == null) {
+        macho_file.la_symbol_ptr_section_index = try macho_file.initSection("__DATA", "__la_symbol_ptr", .{
+            .flags = macho.S_LAZY_SYMBOL_POINTERS,
+        });
+    }
+
+    if (macho_file.data_section_index == null) {
+        macho_file.data_section_index = try macho_file.initSection("__DATA", "__data", .{});
+    }
+
+    if (macho_file.linkedit_segment_cmd_index == null) {
+        macho_file.linkedit_segment_cmd_index = @intCast(u8, macho_file.segments.items.len);
+        try macho_file.segments.append(gpa, .{
+            .segname = MachO.makeStaticString("__LINKEDIT"),
+            .vmaddr = 0,
+            .fileoff = 0,
+            .maxprot = macho.PROT.READ,
+            .initprot = macho.PROT.READ,
+            .cmdsize = @sizeOf(macho.segment_command_64),
+        });
     }
 }
 
