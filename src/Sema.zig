@@ -745,10 +745,8 @@ fn analyzeBodyInner(
             .int_to_enum                  => try sema.zirIntToEnum(block, inst),
             .err_union_code               => try sema.zirErrUnionCode(block, inst),
             .err_union_code_ptr           => try sema.zirErrUnionCodePtr(block, inst),
-            .err_union_payload_safe       => try sema.zirErrUnionPayload(block, inst, true),
-            .err_union_payload_safe_ptr   => try sema.zirErrUnionPayloadPtr(block, inst, true),
-            .err_union_payload_unsafe     => try sema.zirErrUnionPayload(block, inst, false),
-            .err_union_payload_unsafe_ptr => try sema.zirErrUnionPayloadPtr(block, inst, false),
+            .err_union_payload_unsafe     => try sema.zirErrUnionPayload(block, inst),
+            .err_union_payload_unsafe_ptr => try sema.zirErrUnionPayloadPtr(block, inst),
             .error_union_type             => try sema.zirErrorUnionType(block, inst),
             .error_value                  => try sema.zirErrorValue(block, inst),
             .field_ptr                    => try sema.zirFieldPtr(block, inst, false),
@@ -1337,6 +1335,8 @@ fn analyzeBodyInner(
                 const else_body = sema.code.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
                 const cond = try sema.resolveInstConst(block, cond_src, extra.data.condition, "condition in comptime branch must be comptime known");
                 const inline_body = if (cond.val.toBool()) then_body else else_body;
+
+                try sema.maybeErrorUnwrapCondbr(block, inline_body, extra.data.condition, cond_src);
                 const break_data = (try sema.analyzeBodyBreak(block, inline_body)) orelse
                     break always_noreturn;
                 if (inst == break_data.block_inst) {
@@ -7365,7 +7365,6 @@ fn zirErrUnionPayload(
     sema: *Sema,
     block: *Block,
     inst: Zir.Inst.Index,
-    safety_check: bool,
 ) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -7380,7 +7379,7 @@ fn zirErrUnionPayload(
             err_union_ty.fmt(sema.mod),
         });
     }
-    return sema.analyzeErrUnionPayload(block, src, err_union_ty, operand, operand_src, safety_check);
+    return sema.analyzeErrUnionPayload(block, src, err_union_ty, operand, operand_src, false);
 }
 
 fn analyzeErrUnionPayload(
@@ -7418,7 +7417,6 @@ fn zirErrUnionPayloadPtr(
     sema: *Sema,
     block: *Block,
     inst: Zir.Inst.Index,
-    safety_check: bool,
 ) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -7427,7 +7425,7 @@ fn zirErrUnionPayloadPtr(
     const operand = try sema.resolveInst(inst_data.operand);
     const src = inst_data.src();
 
-    return sema.analyzeErrUnionPayloadPtr(block, src, operand, safety_check, false);
+    return sema.analyzeErrUnionPayloadPtr(block, src, operand, false, false);
 }
 
 fn analyzeErrUnionPayloadPtr(
@@ -9185,6 +9183,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     var empty_enum = false;
 
     const operand_ty = sema.typeOf(operand);
+    const err_set = operand_ty.zigTypeTag() == .ErrorSet;
 
     var else_error_ty: ?Type = null;
 
@@ -9764,6 +9763,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 // Validation above ensured these will succeed.
                 const item_val = sema.resolveConstValue(&child_block, .unneeded, item, undefined) catch unreachable;
                 if (operand_val.eql(item_val, operand_ty, sema.mod)) {
+                    if (err_set) try sema.maybeErrorUnwrapComptime(&child_block, body, operand);
                     return sema.resolveBlockBody(block, src, &child_block, body, inst, merges);
                 }
             }
@@ -9786,6 +9786,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     // Validation above ensured these will succeed.
                     const item_val = sema.resolveConstValue(&child_block, .unneeded, item, undefined) catch unreachable;
                     if (operand_val.eql(item_val, operand_ty, sema.mod)) {
+                        if (err_set) try sema.maybeErrorUnwrapComptime(&child_block, body, operand);
                         return sema.resolveBlockBody(block, src, &child_block, body, inst, merges);
                     }
                 }
@@ -9803,6 +9804,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     if ((try sema.compare(block, src, operand_val, .gte, first_tv.val, operand_ty)) and
                         (try sema.compare(block, src, operand_val, .lte, last_tv.val, operand_ty)))
                     {
+                        if (err_set) try sema.maybeErrorUnwrapComptime(&child_block, body, operand);
                         return sema.resolveBlockBody(block, src, &child_block, body, inst, merges);
                     }
                 }
@@ -9810,6 +9812,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 extra_index += body_len;
             }
         }
+        if (err_set) try sema.maybeErrorUnwrapComptime(&child_block, special.body, operand);
         return sema.resolveBlockBody(block, src, &child_block, special.body, inst, merges);
     }
 
@@ -9819,6 +9822,9 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         }
         if (special_prong == .none) {
             return sema.fail(block, src, "switch must handle all possibilities", .{});
+        }
+        if (err_set and try sema.maybeErrorUnwrap(block, special.body, operand)) {
+            return Air.Inst.Ref.unreachable_value;
         }
         return sema.resolveBlockBody(block, src, &child_block, special.body, inst, merges);
     }
@@ -9862,7 +9868,9 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             break :blk field_ty.zigTypeTag() != .NoReturn;
         } else true;
 
-        if (analyze_body) {
+        if (err_set and try sema.maybeErrorUnwrap(&case_block, body, operand)) {
+            // nothing to do here
+        } else if (analyze_body) {
             _ = sema.analyzeBodyInner(&case_block, body) catch |err| switch (err) {
                 error.ComptimeBreak => {
                     const zir_datas = sema.code.instructions.items(.data);
@@ -9930,7 +9938,9 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
             const body = sema.code.extra[extra_index..][0..body_len];
             extra_index += body_len;
-            if (analyze_body) {
+            if (err_set and try sema.maybeErrorUnwrap(&case_block, body, operand)) {
+                // nothing to do here
+            } else if (analyze_body) {
                 _ = sema.analyzeBodyInner(&case_block, body) catch |err| switch (err) {
                     error.ComptimeBreak => {
                         const zir_datas = sema.code.instructions.items(.data);
@@ -10020,18 +10030,22 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
             const body = sema.code.extra[extra_index..][0..body_len];
             extra_index += body_len;
-            _ = sema.analyzeBodyInner(&case_block, body) catch |err| switch (err) {
-                error.ComptimeBreak => {
-                    const zir_datas = sema.code.instructions.items(.data);
-                    const break_data = zir_datas[sema.comptime_break_inst].@"break";
-                    try sema.addRuntimeBreak(&case_block, .{
-                        .block_inst = break_data.block_inst,
-                        .operand = break_data.operand,
-                        .inst = sema.comptime_break_inst,
-                    });
-                },
-                else => |e| return e,
-            };
+            if (err_set and try sema.maybeErrorUnwrap(&case_block, body, operand)) {
+                // nothing to do here
+            } else {
+                _ = sema.analyzeBodyInner(&case_block, body) catch |err| switch (err) {
+                    error.ComptimeBreak => {
+                        const zir_datas = sema.code.instructions.items(.data);
+                        const break_data = zir_datas[sema.comptime_break_inst].@"break";
+                        try sema.addRuntimeBreak(&case_block, .{
+                            .block_inst = break_data.block_inst,
+                            .operand = break_data.operand,
+                            .inst = sema.comptime_break_inst,
+                        });
+                    },
+                    else => |e| return e,
+                };
+            }
 
             try wip_captures.finalize();
 
@@ -10076,8 +10090,11 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             } else false
         else
             true;
-
-        if (special.body.len != 0 and analyze_body) {
+        if (special.body.len != 0 and err_set and
+            try sema.maybeErrorUnwrap(&case_block, special.body, operand))
+        {
+            // nothing to do here
+        } else if (special.body.len != 0 and analyze_body) {
             _ = sema.analyzeBodyInner(&case_block, special.body) catch |err| switch (err) {
                 error.ComptimeBreak => {
                     const zir_datas = sema.code.instructions.items(.data);
@@ -10333,6 +10350,109 @@ fn validateSwitchNoRange(
         break :msg msg;
     };
     return sema.failWithOwnedErrorMsg(msg);
+}
+
+fn maybeErrorUnwrap(sema: *Sema, block: *Block, body: []const Zir.Inst.Index, operand: Air.Inst.Ref) !bool {
+    const this_feature_is_implemented_in_the_backend =
+        sema.mod.comp.bin_file.options.use_llvm;
+
+    if (!this_feature_is_implemented_in_the_backend) return false;
+
+    const tags = sema.code.instructions.items(.tag);
+    for (body) |inst| {
+        switch (tags[inst]) {
+            .dbg_block_begin,
+            .dbg_block_end,
+            .dbg_stmt,
+            .@"unreachable",
+            .str,
+            .as_node,
+            .panic,
+            .field_val,
+            => {},
+            else => return false,
+        }
+    }
+
+    for (body) |inst| {
+        const air_inst = switch (tags[inst]) {
+            .dbg_block_begin,
+            .dbg_block_end,
+            => continue,
+            .dbg_stmt => {
+                try sema.zirDbgStmt(block, inst);
+                continue;
+            },
+            .str => try sema.zirStr(block, inst),
+            .as_node => try sema.zirAsNode(block, inst),
+            .field_val => try sema.zirFieldVal(block, inst),
+            .@"unreachable" => {
+                const inst_data = sema.code.instructions.items(.data)[inst].@"unreachable";
+                const src = inst_data.src();
+
+                const panic_fn = try sema.getBuiltin(block, src, "panicUnwrapError");
+                const err_return_trace = try sema.getErrorReturnTrace(block, src);
+                const args: [2]Air.Inst.Ref = .{ err_return_trace, operand };
+                _ = try sema.analyzeCall(block, panic_fn, src, src, .auto, false, &args, null);
+                return true;
+            },
+            .panic => {
+                const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+                const src = inst_data.src();
+                const msg_inst = try sema.resolveInst(inst_data.operand);
+
+                const panic_fn = try sema.getBuiltin(block, src, "panic");
+                const err_return_trace = try sema.getErrorReturnTrace(block, src);
+                const args: [2]Air.Inst.Ref = .{ msg_inst, err_return_trace };
+                _ = try sema.analyzeCall(block, panic_fn, src, src, .auto, false, &args, null);
+                return true;
+            },
+            else => unreachable,
+        };
+        if (sema.typeOf(air_inst).isNoReturn())
+            return true;
+        try sema.inst_map.put(sema.gpa, inst, air_inst);
+    }
+    unreachable;
+}
+
+fn maybeErrorUnwrapCondbr(sema: *Sema, block: *Block, body: []const Zir.Inst.Index, cond: Zir.Inst.Ref, cond_src: LazySrcLoc) !void {
+    const index = Zir.refToIndex(cond) orelse return;
+    if (sema.code.instructions.items(.tag)[index] != .is_non_err) return;
+
+    const err_inst_data = sema.code.instructions.items(.data)[index].un_node;
+    const err_operand = try sema.resolveInst(err_inst_data.operand);
+    const operand_ty = sema.typeOf(err_operand);
+    if (operand_ty.zigTypeTag() == .ErrorSet) {
+        try sema.maybeErrorUnwrapComptime(block, body, err_operand);
+        return;
+    }
+    if (try sema.resolveDefinedValue(block, cond_src, err_operand)) |val| {
+        if (val.getError() == null) return;
+        try sema.maybeErrorUnwrapComptime(block, body, err_operand);
+    }
+}
+
+fn maybeErrorUnwrapComptime(sema: *Sema, block: *Block, body: []const Zir.Inst.Index, operand: Air.Inst.Ref) !void {
+    const tags = sema.code.instructions.items(.tag);
+    const inst = for (body) |inst| {
+        switch (tags[inst]) {
+            .dbg_block_begin,
+            .dbg_block_end,
+            .dbg_stmt,
+            => {},
+            .@"unreachable" => break inst,
+            else => return,
+        }
+    } else return;
+    const inst_data = sema.code.instructions.items(.data)[inst].@"unreachable";
+    const src = inst_data.src();
+
+    if (try sema.resolveDefinedValue(block, src, operand)) |val| {
+        if (val.getError()) |name| {
+            return sema.fail(block, src, "caught unexpected error '{s}'", .{name});
+        }
+    }
 }
 
 fn zirHasField(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -15084,6 +15204,8 @@ fn zirCondbr(
 
     if (try sema.resolveDefinedValue(parent_block, cond_src, cond)) |cond_val| {
         const body = if (cond_val.toBool()) then_body else else_body;
+
+        try sema.maybeErrorUnwrapCondbr(parent_block, body, extra.data.condition, cond_src);
         // We use `analyzeBodyInner` since we want to propagate any possible
         // `error.ComptimeBreak` to the caller.
         return sema.analyzeBodyInner(parent_block, body);
@@ -15114,18 +15236,34 @@ fn zirCondbr(
     const true_instructions = sub_block.instructions.toOwnedSlice(gpa);
     defer gpa.free(true_instructions);
 
-    _ = sema.analyzeBodyInner(&sub_block, else_body) catch |err| switch (err) {
-        error.ComptimeBreak => {
-            const zir_datas = sema.code.instructions.items(.data);
-            const break_data = zir_datas[sema.comptime_break_inst].@"break";
-            try sema.addRuntimeBreak(&sub_block, .{
-                .block_inst = break_data.block_inst,
-                .operand = break_data.operand,
-                .inst = sema.comptime_break_inst,
-            });
-        },
-        else => |e| return e,
+    const err_cond = blk: {
+        const index = Zir.refToIndex(extra.data.condition) orelse break :blk null;
+        if (sema.code.instructions.items(.tag)[index] != .is_non_err) break :blk null;
+
+        const err_inst_data = sema.code.instructions.items(.data)[index].un_node;
+        const err_operand = try sema.resolveInst(err_inst_data.operand);
+        const operand_ty = sema.typeOf(err_operand);
+        assert(operand_ty.zigTypeTag() == .ErrorUnion);
+        const result_ty = operand_ty.errorUnionSet();
+        break :blk try sub_block.addTyOp(.unwrap_errunion_err, result_ty, err_operand);
     };
+
+    if (err_cond != null and try sema.maybeErrorUnwrap(&sub_block, else_body, err_cond.?)) {
+        // nothing to do
+    } else {
+        _ = sema.analyzeBodyInner(&sub_block, else_body) catch |err| switch (err) {
+            error.ComptimeBreak => {
+                const zir_datas = sema.code.instructions.items(.data);
+                const break_data = zir_datas[sema.comptime_break_inst].@"break";
+                try sema.addRuntimeBreak(&sub_block, .{
+                    .block_inst = break_data.block_inst,
+                    .operand = break_data.operand,
+                    .inst = sema.comptime_break_inst,
+                });
+            },
+            else => |e| return e,
+        };
+    }
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).Struct.fields.len +
         true_instructions.len + sub_block.instructions.items.len);
     _ = try parent_block.addInst(.{
