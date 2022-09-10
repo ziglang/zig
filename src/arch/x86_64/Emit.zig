@@ -996,7 +996,6 @@ fn mirLeaPic(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
     );
 
     const end_offset = emit.code.items.len;
-    const gpa = emit.bin_file.allocator;
 
     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
         const reloc_type = switch (ops.flags) {
@@ -1004,19 +1003,17 @@ fn mirLeaPic(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
             0b01 => @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_SIGNED),
             else => unreachable,
         };
-        const atom = macho_file.atom_by_index_table.get(relocation.atom_index).?;
-        log.debug("adding reloc of type {} to local @{d}", .{ reloc_type, relocation.sym_index });
-        try atom.relocs.append(gpa, .{
-            .offset = @intCast(u32, end_offset - 4),
+        const atom = macho_file.getAtomForSymbol(.{ .sym_index = relocation.atom_index, .file = null }).?;
+        try atom.addRelocation(macho_file, .{
+            .@"type" = reloc_type,
             .target = .{ .sym_index = relocation.sym_index, .file = null },
+            .offset = @intCast(u32, end_offset - 4),
             .addend = 0,
-            .subtractor = null,
             .pcrel = true,
             .length = 2,
-            .@"type" = reloc_type,
         });
     } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
-        const atom = coff_file.atom_by_index_table.get(relocation.atom_index).?;
+        const atom = coff_file.getAtomForSymbol(.{ .sym_index = relocation.atom_index, .file = null }).?;
         try atom.addRelocation(coff_file, .{
             .@"type" = switch (ops.flags) {
                 0b00 => .got,
@@ -1145,20 +1142,19 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) InnerError!void {
 
     if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
         // Add relocation to the decl.
-        const atom = macho_file.atom_by_index_table.get(relocation.atom_index).?;
+        const atom = macho_file.getAtomForSymbol(.{ .sym_index = relocation.atom_index, .file = null }).?;
         const target = macho_file.getGlobalByIndex(relocation.sym_index);
-        try atom.relocs.append(emit.bin_file.allocator, .{
-            .offset = offset,
+        try atom.addRelocation(macho_file, .{
+            .@"type" = @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_BRANCH),
             .target = target,
+            .offset = offset,
             .addend = 0,
-            .subtractor = null,
             .pcrel = true,
             .length = 2,
-            .@"type" = @enumToInt(std.macho.reloc_type_x86_64.X86_64_RELOC_BRANCH),
         });
     } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
         // Add relocation to the decl.
-        const atom = coff_file.atom_by_index_table.get(relocation.atom_index).?;
+        const atom = coff_file.getAtomForSymbol(.{ .sym_index = relocation.atom_index, .file = null }).?;
         const target = coff_file.getGlobalByIndex(relocation.sym_index);
         try atom.addRelocation(coff_file, .{
             .@"type" = .direct,

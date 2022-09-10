@@ -1527,7 +1527,7 @@ pub fn getDeclVAddr(
     assert(self.llvm_object == null);
     assert(decl.link.coff.sym_index != 0);
 
-    const atom = self.atom_by_index_table.get(reloc_info.parent_atom_index).?;
+    const atom = self.getAtomForSymbol(.{ .sym_index = reloc_info.parent_atom_index, .file = null }).?;
     const target = SymbolWithLoc{ .sym_index = decl.link.coff.sym_index, .file = null };
     try atom.addRelocation(self, .{
         .@"type" = .direct,

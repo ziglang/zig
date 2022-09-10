@@ -66,8 +66,6 @@ prev: ?*Atom,
 
 dbg_info_atom: Dwarf.Atom,
 
-dirty: bool = true,
-
 pub const Binding = struct {
     target: SymbolWithLoc,
     offset: u64,
@@ -898,46 +896,81 @@ inline fn isArithmeticOp(inst: *const [4]u8) bool {
 }
 
 pub fn addRelocation(self: *Atom, macho_file: *MachO, reloc: RelocationIncr) !void {
+    return self.addRelocations(macho_file, 1, .{reloc});
+}
+
+pub fn addRelocations(
+    self: *Atom,
+    macho_file: *MachO,
+    comptime count: comptime_int,
+    relocs: [count]RelocationIncr,
+) !void {
     const gpa = macho_file.base.allocator;
-    log.debug("  (adding reloc of type {s} to target %{d})", .{ @tagName(reloc.@"type"), reloc.target.sym_index });
+    const target = macho_file.base.options.target;
     const gop = try macho_file.relocs.getOrPut(gpa, self);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
     }
-    try gop.value_ptr.append(gpa, reloc);
-}
-
-pub fn resolveRelocationsInCodeBuffer(self: *Atom, macho_file: *MachO, code: []u8) !void {
-    const relocs = macho_file.relocs.get(self) orelse return;
-
-    log.debug("relocating '{s}'", .{self.getName(macho_file)});
-
-    for (relocs.items) |*reloc| {
-        // We don't check for dirty relocation as we resolve in memory so it's effectively free.
-        try reloc.resolve(self, macho_file, code);
-        reloc.dirty = false;
+    try gop.value_ptr.ensureUnusedCapacity(gpa, count);
+    for (relocs) |reloc| {
+        log.debug("  (adding reloc of type {s} to target %{d})", .{
+            reloc.fmtType(target),
+            reloc.target.sym_index,
+        });
+        gop.value_ptr.appendAssumeCapacity(reloc);
     }
 }
 
-pub fn resolveRelocationsInFile(self: *Atom, macho_file: *MachO) !void {
-    const relocs = macho_file.relocs.get(self) orelse return;
+pub fn addRebase(self: *Atom, macho_file: *MachO, offset: u32) !void {
     const gpa = macho_file.base.allocator;
+    log.debug("  (adding rebase at offset 0x{x} in %{d})", .{ offset, self.sym_index });
+    const gop = try macho_file.rebases.getOrPut(gpa, self);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = .{};
+    }
+    try gop.value_ptr.append(gpa, offset);
+}
 
-    // No code available in a buffer; we need to read it in from the binary.
+pub fn addBinding(self: *Atom, macho_file: *MachO, binding: Binding) !void {
+    const gpa = macho_file.base.allocator;
+    log.debug("  (adding binding to symbol {s} at offset 0x{x} in %{d})", .{
+        macho_file.getSymbolName(binding.target),
+        binding.offset,
+        self.sym_index,
+    });
+    const gop = try macho_file.bindings.getOrPut(gpa, self);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = .{};
+    }
+    try gop.value_ptr.append(gpa, binding);
+}
+
+pub fn addLazyBinding(self: *Atom, macho_file: *MachO, binding: Binding) !void {
+    const gpa = macho_file.base.allocator;
+    log.debug("  (adding lazy binding to symbol {s} at offset 0x{x} in %{d})", .{
+        macho_file.getSymbolName(binding.target),
+        binding.offset,
+        self.sym_index,
+    });
+    const gop = try macho_file.lazy_bindings.getOrPut(gpa, self);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = .{};
+    }
+    try gop.value_ptr.append(gpa, binding);
+}
+
+pub fn resolveRelocations(self: *Atom, macho_file: *MachO) !void {
+    const relocs = macho_file.relocs.get(self) orelse return;
     const source_sym = self.getSymbol(macho_file);
     const source_section = macho_file.sections.get(source_sym.n_sect - 1).header;
-    const file_offset = source_section.offset + source_sym.value - source_section.addr;
-    const code = try gpa.alloc(u8, self.size);
-    try self.base.file.?.preadAll(code, file_offset);
-    defer gpa.free(code);
+    const file_offset = source_section.offset + source_sym.n_value - source_section.addr;
 
     log.debug("relocating '{s}'", .{self.getName(macho_file)});
 
     for (relocs.items) |*reloc| {
         if (!reloc.dirty) continue;
-        try reloc.resolve(self, macho_file, code);
+
+        try reloc.resolve(self, macho_file, file_offset);
         reloc.dirty = false;
     }
-
-    try self.base.file.?.pwriteAll(code, file_offset);
 }

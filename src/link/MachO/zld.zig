@@ -7,14 +7,19 @@ const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 
+const aarch64 = @import("../../arch/aarch64/bits.zig");
+const bind = @import("bind.zig");
 const link = @import("../../link.zig");
 const trace = @import("../../tracy.zig").trace;
 
+const Atom = MachO.Atom;
 const Cache = @import("../../Cache.zig");
 const CodeSignature = @import("CodeSignature.zig");
 const Compilation = @import("../../Compilation.zig");
 const Dylib = @import("Dylib.zig");
 const MachO = @import("../MachO.zig");
+const SymbolWithLoc = MachO.SymbolWithLoc;
+const Trie = @import("Trie.zig");
 
 const dead_strip = @import("dead_strip.zig");
 
@@ -545,7 +550,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         const lc_writer = lc_buffer.writer();
         var ncmds: u32 = 0;
 
-        try macho_file.writeLinkeditSegmentData(&ncmds, lc_writer);
+        try writeLinkeditSegmentData(macho_file, &ncmds, lc_writer);
 
         // If the last section of __DATA segment is zerofill section, we need to ensure
         // that the free space between the end of the last non-zerofill section of __DATA
@@ -950,5 +955,328 @@ fn allocateSymbols(macho_file: *MachO) !void {
                 atom = next;
             } else break;
         }
+    }
+}
+
+fn writeLinkeditSegmentData(macho_file: *MachO, ncmds: *u32, lc_writer: anytype) !void {
+    const seg = &macho_file.segments.items[macho_file.linkedit_segment_cmd_index.?];
+    seg.filesize = 0;
+    seg.vmsize = 0;
+
+    try writeDyldInfoData(macho_file, ncmds, lc_writer);
+    try macho_file.writeFunctionStarts(ncmds, lc_writer);
+    try macho_file.writeDataInCode(ncmds, lc_writer);
+    try macho_file.writeSymtabs(ncmds, lc_writer);
+
+    seg.vmsize = mem.alignForwardGeneric(u64, seg.filesize, macho_file.page_size);
+}
+
+fn writeDyldInfoData(macho_file: *MachO, ncmds: *u32, lc_writer: anytype) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = macho_file.base.allocator;
+
+    var rebase_pointers = std.ArrayList(bind.Pointer).init(gpa);
+    defer rebase_pointers.deinit();
+    var bind_pointers = std.ArrayList(bind.Pointer).init(gpa);
+    defer bind_pointers.deinit();
+    var lazy_bind_pointers = std.ArrayList(bind.Pointer).init(gpa);
+    defer lazy_bind_pointers.deinit();
+
+    const slice = macho_file.sections.slice();
+    for (slice.items(.last_atom)) |last_atom, sect_id| {
+        var atom = last_atom orelse continue;
+        const segment_index = slice.items(.segment_index)[sect_id];
+        const header = slice.items(.header)[sect_id];
+
+        if (mem.eql(u8, header.segName(), "__TEXT")) continue; // __TEXT is non-writable
+
+        log.debug("dyld info for {s},{s}", .{ header.segName(), header.sectName() });
+
+        const seg = macho_file.segments.items[segment_index];
+
+        while (true) {
+            log.debug("  ATOM(%{d}, '{s}')", .{ atom.sym_index, atom.getName(macho_file) });
+            const sym = atom.getSymbol(macho_file);
+            const base_offset = sym.n_value - seg.vmaddr;
+
+            for (atom.rebases.items) |offset| {
+                log.debug("    | rebase at {x}", .{base_offset + offset});
+                try rebase_pointers.append(.{
+                    .offset = base_offset + offset,
+                    .segment_id = segment_index,
+                });
+            }
+
+            for (atom.bindings.items) |binding| {
+                const bind_sym = macho_file.getSymbol(binding.target);
+                const bind_sym_name = macho_file.getSymbolName(binding.target);
+                const dylib_ordinal = @divTrunc(
+                    @bitCast(i16, bind_sym.n_desc),
+                    macho.N_SYMBOL_RESOLVER,
+                );
+                var flags: u4 = 0;
+                log.debug("    | bind at {x}, import('{s}') in dylib({d})", .{
+                    binding.offset + base_offset,
+                    bind_sym_name,
+                    dylib_ordinal,
+                });
+                if (bind_sym.weakRef()) {
+                    log.debug("    | marking as weak ref ", .{});
+                    flags |= @truncate(u4, macho.BIND_SYMBOL_FLAGS_WEAK_IMPORT);
+                }
+                try bind_pointers.append(.{
+                    .offset = binding.offset + base_offset,
+                    .segment_id = segment_index,
+                    .dylib_ordinal = dylib_ordinal,
+                    .name = bind_sym_name,
+                    .bind_flags = flags,
+                });
+            }
+
+            for (atom.lazy_bindings.items) |binding| {
+                const bind_sym = macho_file.getSymbol(binding.target);
+                const bind_sym_name = macho_file.getSymbolName(binding.target);
+                const dylib_ordinal = @divTrunc(
+                    @bitCast(i16, bind_sym.n_desc),
+                    macho.N_SYMBOL_RESOLVER,
+                );
+                var flags: u4 = 0;
+                log.debug("    | lazy bind at {x} import('{s}') ord({d})", .{
+                    binding.offset + base_offset,
+                    bind_sym_name,
+                    dylib_ordinal,
+                });
+                if (bind_sym.weakRef()) {
+                    log.debug("    | marking as weak ref ", .{});
+                    flags |= @truncate(u4, macho.BIND_SYMBOL_FLAGS_WEAK_IMPORT);
+                }
+                try lazy_bind_pointers.append(.{
+                    .offset = binding.offset + base_offset,
+                    .segment_id = segment_index,
+                    .dylib_ordinal = dylib_ordinal,
+                    .name = bind_sym_name,
+                    .bind_flags = flags,
+                });
+            }
+
+            if (atom.prev) |prev| {
+                atom = prev;
+            } else break;
+        }
+    }
+
+    var trie: Trie = .{};
+    defer trie.deinit(gpa);
+
+    {
+        // TODO handle macho.EXPORT_SYMBOL_FLAGS_REEXPORT and macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER.
+        log.debug("generating export trie", .{});
+
+        const text_segment = macho_file.segments.items[macho_file.text_segment_cmd_index.?];
+        const base_address = text_segment.vmaddr;
+
+        if (macho_file.base.options.output_mode == .Exe) {
+            for (&[_]SymbolWithLoc{
+                try macho_file.getEntryPoint(),
+                macho_file.getGlobal("__mh_execute_header").?,
+            }) |global| {
+                const sym = macho_file.getSymbol(global);
+                const sym_name = macho_file.getSymbolName(global);
+                log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
+                try trie.put(gpa, .{
+                    .name = sym_name,
+                    .vmaddr_offset = sym.n_value - base_address,
+                    .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
+                });
+            }
+        } else {
+            assert(macho_file.base.options.output_mode == .Lib);
+            for (macho_file.globals.items) |global| {
+                const sym = macho_file.getSymbol(global);
+
+                if (sym.undf()) continue;
+                if (!sym.ext()) continue;
+                if (sym.n_desc == MachO.N_DESC_GCED) continue;
+
+                const sym_name = macho_file.getSymbolName(global);
+                log.debug("  (putting '{s}' defined at 0x{x})", .{ sym_name, sym.n_value });
+                try trie.put(gpa, .{
+                    .name = sym_name,
+                    .vmaddr_offset = sym.n_value - base_address,
+                    .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
+                });
+            }
+        }
+
+        try trie.finalize(gpa);
+    }
+
+    const link_seg = &macho_file.segments.items[macho_file.linkedit_segment_cmd_index.?];
+    const rebase_off = mem.alignForwardGeneric(u64, link_seg.fileoff, @alignOf(u64));
+    assert(rebase_off == link_seg.fileoff);
+    const rebase_size = try bind.rebaseInfoSize(rebase_pointers.items);
+    log.debug("writing rebase info from 0x{x} to 0x{x}", .{ rebase_off, rebase_off + rebase_size });
+
+    const bind_off = mem.alignForwardGeneric(u64, rebase_off + rebase_size, @alignOf(u64));
+    const bind_size = try bind.bindInfoSize(bind_pointers.items);
+    log.debug("writing bind info from 0x{x} to 0x{x}", .{ bind_off, bind_off + bind_size });
+
+    const lazy_bind_off = mem.alignForwardGeneric(u64, bind_off + bind_size, @alignOf(u64));
+    const lazy_bind_size = try bind.lazyBindInfoSize(lazy_bind_pointers.items);
+    log.debug("writing lazy bind info from 0x{x} to 0x{x}", .{ lazy_bind_off, lazy_bind_off + lazy_bind_size });
+
+    const export_off = mem.alignForwardGeneric(u64, lazy_bind_off + lazy_bind_size, @alignOf(u64));
+    const export_size = trie.size;
+    log.debug("writing export trie from 0x{x} to 0x{x}", .{ export_off, export_off + export_size });
+
+    const needed_size = export_off + export_size - rebase_off;
+    link_seg.filesize = needed_size;
+
+    var buffer = try gpa.alloc(u8, math.cast(usize, needed_size) orelse return error.Overflow);
+    defer gpa.free(buffer);
+    mem.set(u8, buffer, 0);
+
+    var stream = std.io.fixedBufferStream(buffer);
+    const writer = stream.writer();
+
+    try bind.writeRebaseInfo(rebase_pointers.items, writer);
+    try stream.seekTo(bind_off - rebase_off);
+
+    try bind.writeBindInfo(bind_pointers.items, writer);
+    try stream.seekTo(lazy_bind_off - rebase_off);
+
+    try bind.writeLazyBindInfo(lazy_bind_pointers.items, writer);
+    try stream.seekTo(export_off - rebase_off);
+
+    _ = try trie.write(writer);
+
+    log.debug("writing dyld info from 0x{x} to 0x{x}", .{
+        rebase_off,
+        rebase_off + needed_size,
+    });
+
+    try macho_file.base.file.?.pwriteAll(buffer, rebase_off);
+    const start = math.cast(usize, lazy_bind_off - rebase_off) orelse return error.Overflow;
+    const end = start + (math.cast(usize, lazy_bind_size) orelse return error.Overflow);
+    try populateLazyBindOffsetsInStubHelper(macho_file, buffer[start..end]);
+
+    try lc_writer.writeStruct(macho.dyld_info_command{
+        .cmd = .DYLD_INFO_ONLY,
+        .cmdsize = @sizeOf(macho.dyld_info_command),
+        .rebase_off = @intCast(u32, rebase_off),
+        .rebase_size = @intCast(u32, rebase_size),
+        .bind_off = @intCast(u32, bind_off),
+        .bind_size = @intCast(u32, bind_size),
+        .weak_bind_off = 0,
+        .weak_bind_size = 0,
+        .lazy_bind_off = @intCast(u32, lazy_bind_off),
+        .lazy_bind_size = @intCast(u32, lazy_bind_size),
+        .export_off = @intCast(u32, export_off),
+        .export_size = @intCast(u32, export_size),
+    });
+    ncmds.* += 1;
+}
+
+fn populateLazyBindOffsetsInStubHelper(macho_file: *MachO, buffer: []const u8) !void {
+    const gpa = macho_file.base.allocator;
+
+    const stub_helper_section_index = macho_file.stub_helper_section_index orelse return;
+    if (macho_file.stub_helper_preamble_atom == null) return;
+
+    const section = macho_file.sections.get(stub_helper_section_index);
+    const last_atom = section.last_atom orelse return;
+    if (last_atom == macho_file.stub_helper_preamble_atom.?) return; // TODO is this a redundant check?
+
+    var table = std.AutoHashMap(i64, *Atom).init(gpa);
+    defer table.deinit();
+
+    {
+        var stub_atom = last_atom;
+        var laptr_atom = macho_file.sections.items(.last_atom)[macho_file.la_symbol_ptr_section_index.?].?;
+        const base_addr = blk: {
+            const seg = macho_file.segments.items[macho_file.data_segment_cmd_index.?];
+            break :blk seg.vmaddr;
+        };
+
+        while (true) {
+            const laptr_off = blk: {
+                const sym = laptr_atom.getSymbol(macho_file);
+                break :blk @intCast(i64, sym.n_value - base_addr);
+            };
+            try table.putNoClobber(laptr_off, stub_atom);
+            if (laptr_atom.prev) |prev| {
+                laptr_atom = prev;
+                stub_atom = stub_atom.prev.?;
+            } else break;
+        }
+    }
+
+    var stream = std.io.fixedBufferStream(buffer);
+    var reader = stream.reader();
+    var offsets = std.ArrayList(struct { sym_offset: i64, offset: u32 }).init(gpa);
+    try offsets.append(.{ .sym_offset = undefined, .offset = 0 });
+    defer offsets.deinit();
+    var valid_block = false;
+
+    while (true) {
+        const inst = reader.readByte() catch |err| switch (err) {
+            error.EndOfStream => break,
+        };
+        const opcode: u8 = inst & macho.BIND_OPCODE_MASK;
+
+        switch (opcode) {
+            macho.BIND_OPCODE_DO_BIND => {
+                valid_block = true;
+            },
+            macho.BIND_OPCODE_DONE => {
+                if (valid_block) {
+                    const offset = try stream.getPos();
+                    try offsets.append(.{ .sym_offset = undefined, .offset = @intCast(u32, offset) });
+                }
+                valid_block = false;
+            },
+            macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM => {
+                var next = try reader.readByte();
+                while (next != @as(u8, 0)) {
+                    next = try reader.readByte();
+                }
+            },
+            macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
+                var inserted = offsets.pop();
+                inserted.sym_offset = try std.leb.readILEB128(i64, reader);
+                try offsets.append(inserted);
+            },
+            macho.BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB => {
+                _ = try std.leb.readULEB128(u64, reader);
+            },
+            macho.BIND_OPCODE_SET_ADDEND_SLEB => {
+                _ = try std.leb.readILEB128(i64, reader);
+            },
+            else => {},
+        }
+    }
+
+    const header = macho_file.sections.items(.header)[stub_helper_section_index];
+    const stub_offset: u4 = switch (macho_file.base.options.target.cpu.arch) {
+        .x86_64 => 1,
+        .aarch64 => 2 * @sizeOf(u32),
+        else => unreachable,
+    };
+    var buf: [@sizeOf(u32)]u8 = undefined;
+    _ = offsets.pop();
+
+    while (offsets.popOrNull()) |bind_offset| {
+        const atom = table.get(bind_offset.sym_offset).?;
+        const sym = atom.getSymbol(macho_file);
+        const file_offset = header.offset + sym.n_value - header.addr + stub_offset;
+        mem.writeIntLittle(u32, &buf, bind_offset.offset);
+        log.debug("writing lazy bind offset in stub helper of 0x{x} for symbol {s} at offset 0x{x}", .{
+            bind_offset.offset,
+            atom.getName(macho_file),
+            file_offset,
+        });
+        try macho_file.base.file.?.pwriteAll(&buf, file_offset);
     }
 }
