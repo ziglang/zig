@@ -161,6 +161,7 @@ test {
     _ = @import("behavior/void.zig");
     _ = @import("behavior/while.zig");
     _ = @import("behavior/widening.zig");
+    _ = @import("behavior/bugs/11816_12551_12555.zig");
 
     if (builtin.cpu.arch == .wasm32) {
         _ = @import("behavior/wasm.zig");
