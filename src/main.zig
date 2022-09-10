@@ -403,6 +403,7 @@ const usage_build_generic =
     \\  -ffunction-sections       Places each function in a separate section
     \\  -fno-function-sections    All functions go into same section
     \\  --strip                   Omit debug symbols
+    \\  --autofix                 Avoid some errors by allowing Zig to edit your code
     \\  -ofmt=[mode]              Override target object format
     \\    elf                     Executable and Linking Format
     \\    c                       C source code
@@ -629,6 +630,7 @@ fn buildOutputType(
     var have_version = false;
     var compatibility_version: ?std.builtin.Version = null;
     var strip = false;
+    var autofix = false;
     var function_sections = false;
     var no_builtin = false;
     var watch = false;
@@ -1286,6 +1288,8 @@ fn buildOutputType(
                         emit_bin = .no;
                     } else if (mem.eql(u8, arg, "--strip")) {
                         strip = true;
+                    } else if (mem.eql(u8, arg, "--autofix")) {
+                        autofix = true;
                     } else if (mem.eql(u8, arg, "-fsingle-threaded")) {
                         single_threaded = true;
                     } else if (mem.eql(u8, arg, "-fno-single-threaded")) {
@@ -2944,6 +2948,7 @@ fn buildOutputType(
         .stack_size_override = stack_size_override,
         .image_base_override = image_base_override,
         .strip = strip,
+        .autofix = autofix,
         .single_threaded = single_threaded,
         .function_sections = function_sections,
         .no_builtin = no_builtin,

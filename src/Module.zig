@@ -3493,7 +3493,11 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     const gpa = mod.gpa;
 
     // In any case we need to examine the stat of the file to determine the course of action.
-    var source_file = try file.pkg.root_src_directory.handle.openFile(file.sub_file_path, .{});
+    const want_autofix = comp.autofix and mod.main_pkg == file.pkg;
+    const open_flags: std.fs.File.OpenMode = if (want_autofix) .read_write else .read_only;
+    var source_file = try file.pkg.root_src_directory.handle.openFile(file.sub_file_path, .{
+        .mode = open_flags,
+    });
     defer source_file.close();
 
     const stat = try source_file.stat();
@@ -3643,12 +3647,17 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
 
             // TODO don't report compile errors until Sema @importFile
             if (file.zir.hasCompileErrors()) {
+                file.status = .astgen_failure;
+
+                // If autofix is requested, treat this is a cache miss so that
+                // the autofix code has a chance to run.
+                if (want_autofix) break :cached;
+
                 {
                     comp.mutex.lock();
                     defer comp.mutex.unlock();
                     try mod.failed_files.putNoClobber(gpa, file, null);
                 }
-                file.status = .astgen_failure;
                 return error.AnalysisFail;
             }
             return;
@@ -3726,72 +3735,134 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     file.source = source;
     file.source_loaded = true;
 
-    file.tree = try std.zig.parse(gpa, source);
-    defer if (!file.tree_loaded) file.tree.deinit(gpa);
+    // This is purely to detect when the autofix mechanism has a bug and
+    // the autofix did not make the compile error go away.
+    var reparsing = false;
+    parse: while (true) {
+        file.tree = try std.zig.parse(gpa, file.source);
+        defer if (!file.tree_loaded) file.tree.deinit(gpa);
 
-    if (file.tree.errors.len != 0) {
-        const parse_err = file.tree.errors[0];
+        if (file.tree.errors.len != 0) {
+            const parse_err = file.tree.errors[0];
 
-        var msg = std.ArrayList(u8).init(gpa);
-        defer msg.deinit();
+            var msg = std.ArrayList(u8).init(gpa);
+            defer msg.deinit();
 
-        const token_starts = file.tree.tokens.items(.start);
-        const token_tags = file.tree.tokens.items(.tag);
+            const token_starts = file.tree.tokens.items(.start);
+            const token_tags = file.tree.tokens.items(.tag);
 
-        const extra_offset = file.tree.errorOffset(parse_err);
-        try file.tree.renderError(parse_err, msg.writer());
-        const err_msg = try gpa.create(ErrorMsg);
-        err_msg.* = .{
-            .src_loc = .{
-                .file_scope = file,
-                .parent_decl_node = 0,
-                .lazy = if (extra_offset == 0) .{
-                    .token_abs = parse_err.token,
-                } else .{
-                    .byte_abs = token_starts[parse_err.token] + extra_offset,
-                },
-            },
-            .msg = msg.toOwnedSlice(),
-        };
-        if (token_tags[parse_err.token + @boolToInt(parse_err.token_is_prev)] == .invalid) {
-            const bad_off = @intCast(u32, file.tree.tokenSlice(parse_err.token + @boolToInt(parse_err.token_is_prev)).len);
-            const byte_abs = token_starts[parse_err.token + @boolToInt(parse_err.token_is_prev)] + bad_off;
-            try mod.errNoteNonLazy(.{
-                .file_scope = file,
-                .parent_decl_node = 0,
-                .lazy = .{ .byte_abs = byte_abs },
-            }, err_msg, "invalid byte: '{'}'", .{std.zig.fmtEscapes(source[byte_abs..][0..1])});
-        }
-
-        for (file.tree.errors[1..]) |note| {
-            if (!note.is_note) break;
-
-            try file.tree.renderError(note, msg.writer());
-            err_msg.notes = try mod.gpa.realloc(err_msg.notes, err_msg.notes.len + 1);
-            err_msg.notes[err_msg.notes.len - 1] = .{
+            const extra_offset = file.tree.errorOffset(parse_err);
+            try file.tree.renderError(parse_err, msg.writer());
+            const err_msg = try gpa.create(ErrorMsg);
+            err_msg.* = .{
                 .src_loc = .{
                     .file_scope = file,
                     .parent_decl_node = 0,
-                    .lazy = .{ .token_abs = note.token },
+                    .lazy = if (extra_offset == 0) .{
+                        .token_abs = parse_err.token,
+                    } else .{
+                        .byte_abs = token_starts[parse_err.token] + extra_offset,
+                    },
                 },
                 .msg = msg.toOwnedSlice(),
             };
+            if (token_tags[parse_err.token + @boolToInt(parse_err.token_is_prev)] == .invalid) {
+                const bad_off = @intCast(u32, file.tree.tokenSlice(parse_err.token + @boolToInt(parse_err.token_is_prev)).len);
+                const byte_abs = token_starts[parse_err.token + @boolToInt(parse_err.token_is_prev)] + bad_off;
+                try mod.errNoteNonLazy(.{
+                    .file_scope = file,
+                    .parent_decl_node = 0,
+                    .lazy = .{ .byte_abs = byte_abs },
+                }, err_msg, "invalid byte: '{'}'", .{std.zig.fmtEscapes(file.source[byte_abs..][0..1])});
+            }
+
+            for (file.tree.errors[1..]) |note| {
+                if (!note.is_note) break;
+
+                try file.tree.renderError(note, msg.writer());
+                err_msg.notes = try mod.gpa.realloc(err_msg.notes, err_msg.notes.len + 1);
+                err_msg.notes[err_msg.notes.len - 1] = .{
+                    .src_loc = .{
+                        .file_scope = file,
+                        .parent_decl_node = 0,
+                        .lazy = .{ .token_abs = note.token },
+                    },
+                    .msg = msg.toOwnedSlice(),
+                };
+            }
+
+            {
+                comp.mutex.lock();
+                defer comp.mutex.unlock();
+                try mod.failed_files.putNoClobber(gpa, file, err_msg);
+            }
+            file.status = .parse_failure;
+            return error.AnalysisFail;
+        }
+        file.tree_loaded = true;
+
+        file.zir = try AstGen.generate(gpa, file.tree);
+        file.zir_loaded = true;
+        file.status = .success_zir;
+        log.debug("AstGen fresh success: {s}", .{file.sub_file_path});
+
+        if (want_autofix and file.zir.hasCompileErrors()) {
+            assert(!reparsing); // there are still compile errors after autofixing
+            const payload_index = file.zir.extra[@enumToInt(Zir.ExtraIndex.compile_errors)];
+            assert(payload_index != 0);
+            const header = file.zir.extraData(Zir.Inst.CompileErrors, payload_index);
+            const items_len = header.data.items_len;
+            var fixups: Ast.Fixups = .{};
+            defer fixups.deinit(gpa);
+            var extra_index = header.end;
+            var item_i: usize = 0;
+            while (item_i < items_len) : (item_i += 1) {
+                const item = file.zir.extraData(Zir.Inst.CompileErrors.Item, extra_index);
+                extra_index = item.end;
+                const msg = file.zir.nullTerminatedString(item.data.msg);
+                if (mem.eql(u8, msg, "unused local constant")) {
+                    // goal: insert "_ = identifier;" after the variable declaration
+                    const ident_token = item.data.token;
+                    try fixups.unused_var_decls.put(gpa, ident_token - 1, {});
+                } else {
+                    std.debug.print("found other ZIR error: '{s}'\n", .{msg});
+                }
+            }
+
+            if (fixups.count() > 0) {
+                var autofixed_source = std.ArrayList(u8).init(gpa);
+                defer autofixed_source.deinit();
+                try file.tree.renderWithFixups(&autofixed_source, fixups);
+
+                // Replace the file source with the fixed up source.
+                const new_source = try autofixed_source.toOwnedSliceSentinel(0);
+                gpa.free(file.source);
+                file.source = new_source;
+
+                // Overwrite the source file on disk with the fixed up source.
+                try source_file.pwriteAll(file.source, 0);
+
+                // If the fixed up source is smaller in bytes then we need to
+                // truncate the file.
+                if (file.stat.size > file.source.len) {
+                    try source_file.setEndPos(file.source.len);
+                }
+
+                // Redo the stat so that next time we get a cache hit.
+                const new_stat = try source_file.stat();
+                file.stat = .{
+                    .size = new_stat.size,
+                    .inode = new_stat.inode,
+                    .mtime = new_stat.mtime,
+                };
+
+                reparsing = true;
+                continue :parse;
+            }
         }
 
-        {
-            comp.mutex.lock();
-            defer comp.mutex.unlock();
-            try mod.failed_files.putNoClobber(gpa, file, err_msg);
-        }
-        file.status = .parse_failure;
-        return error.AnalysisFail;
+        break :parse;
     }
-    file.tree_loaded = true;
-
-    file.zir = try AstGen.generate(gpa, file.tree);
-    file.zir_loaded = true;
-    file.status = .success_zir;
-    log.debug("AstGen fresh success: {s}", .{file.sub_file_path});
 
     const safety_buffer = if (data_has_safety_tag)
         try gpa.alloc([8]u8, file.zir.instructions.len)

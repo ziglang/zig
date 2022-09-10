@@ -17,6 +17,7 @@ const testing = std.testing;
 const mem = std.mem;
 const Token = std.zig.Token;
 const Ast = @This();
+const private_render = @import("./render.zig");
 
 pub const TokenIndex = u32;
 pub const ByteOffset = u32;
@@ -60,8 +61,14 @@ pub fn render(tree: Ast, gpa: mem.Allocator) RenderError![]u8 {
     return buffer.toOwnedSlice();
 }
 
+pub const Fixups = private_render.Fixups;
+
 pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8)) RenderError!void {
-    return @import("./render.zig").renderTree(buffer, tree);
+    return private_render.renderTree(buffer, tree, .{});
+}
+
+pub fn renderWithFixups(tree: Ast, buffer: *std.ArrayList(u8), fixups: Fixups) RenderError!void {
+    return private_render.renderTree(buffer, tree, fixups);
 }
 
 /// Returns an extra offset for column and byte offset of errors that
