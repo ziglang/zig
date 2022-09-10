@@ -243,7 +243,7 @@ pub const File = struct {
 
     pub const SetEndPosError = os.TruncateError;
 
-    /// Shrinks or expands the file.
+    /// Shrinks (truncates) or expands the file.
     /// The file offset after this call is left unchanged.
     pub fn setEndPos(self: File, length: u64) SetEndPosError!void {
         try os.ftruncate(self.handle, length);
