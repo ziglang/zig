@@ -653,6 +653,8 @@ fn resolveSymbolsInArchives(self: *Wasm) !void {
 }
 
 fn checkUndefinedSymbols(self: *const Wasm) !void {
+    if (self.base.options.output_mode == .Obj) return;
+
     var found_undefined_symbols = false;
     for (self.undefs.values()) |undef| {
         const symbol = undef.getSymbol(self);
@@ -2207,33 +2209,38 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     try self.mergeTypes();
     try self.setupExports();
 
-    const file = self.base.file.?;
     const header_size = 5 + 1;
     const is_obj = self.base.options.output_mode == .Obj;
 
+    var binary_bytes = std.ArrayList(u8).init(self.base.allocator);
+    defer binary_bytes.deinit();
+    const binary_writer = binary_bytes.writer();
+
     // We write the magic bytes at the end so they will only be written
-    // if everything succeeded as expected.
-    try file.setEndPos(@sizeOf(@TypeOf(wasm.magic ++ wasm.version)));
-    try file.seekTo(@sizeOf(@TypeOf(wasm.magic ++ wasm.version)));
+    // if everything succeeded as expected. So populate with 0's for now.
+    try binary_writer.writeAll(&[_]u8{0} ** 8);
 
     // Type section
     if (self.func_types.items.len != 0) {
-        const header_offset = try reserveVecSectionHeader(file);
-        const writer = file.writer();
+        const header_offset = try reserveVecSectionHeader(&binary_bytes);
         log.debug("Writing type section. Count: ({d})", .{self.func_types.items.len});
         for (self.func_types.items) |func_type| {
-            try leb.writeULEB128(writer, wasm.function_type);
-            try leb.writeULEB128(writer, @intCast(u32, func_type.params.len));
-            for (func_type.params) |param_ty| try leb.writeULEB128(writer, wasm.valtype(param_ty));
-            try leb.writeULEB128(writer, @intCast(u32, func_type.returns.len));
-            for (func_type.returns) |ret_ty| try leb.writeULEB128(writer, wasm.valtype(ret_ty));
+            try leb.writeULEB128(binary_writer, wasm.function_type);
+            try leb.writeULEB128(binary_writer, @intCast(u32, func_type.params.len));
+            for (func_type.params) |param_ty| {
+                try leb.writeULEB128(binary_writer, wasm.valtype(param_ty));
+            }
+            try leb.writeULEB128(binary_writer, @intCast(u32, func_type.returns.len));
+            for (func_type.returns) |ret_ty| {
+                try leb.writeULEB128(binary_writer, wasm.valtype(ret_ty));
+            }
         }
 
         try writeVecSectionHeader(
-            file,
+            binary_bytes.items,
             header_offset,
             .type,
-            @intCast(u32, (try file.getPos()) - header_offset - header_size),
+            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
             @intCast(u32, self.func_types.items.len),
         );
         section_count += 1;
@@ -2243,8 +2250,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     const import_memory = self.base.options.import_memory or is_obj;
     const import_table = self.base.options.import_table or is_obj;
     if (self.imports.count() != 0 or import_memory or import_table) {
-        const header_offset = try reserveVecSectionHeader(file);
-        const writer = file.writer();
+        const header_offset = try reserveVecSectionHeader(&binary_bytes);
 
         // import table is always first table so emit that first
         if (import_table) {
@@ -2261,14 +2267,14 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
                     },
                 },
             };
-            try self.emitImport(writer, table_imp);
+            try self.emitImport(binary_writer, table_imp);
         }
 
         var it = self.imports.iterator();
         while (it.next()) |entry| {
             assert(entry.key_ptr.*.getSymbol(self).isUndefined());
             const import = entry.value_ptr.*;
-            try self.emitImport(writer, import);
+            try self.emitImport(binary_writer, import);
         }
 
         if (import_memory) {
@@ -2278,14 +2284,14 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
                 .name = try self.string_table.put(self.base.allocator, mem_name),
                 .kind = .{ .memory = self.memories.limits },
             };
-            try self.emitImport(writer, mem_imp);
+            try self.emitImport(binary_writer, mem_imp);
         }
 
         try writeVecSectionHeader(
-            file,
+            binary_bytes.items,
             header_offset,
             .import,
-            @intCast(u32, (try file.getPos()) - header_offset - header_size),
+            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
             @intCast(u32, self.imports.count() + @boolToInt(import_memory) + @boolToInt(import_table)),
         );
         section_count += 1;
@@ -2293,17 +2299,16 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
 
     // Function section
     if (self.functions.count() != 0) {
-        const header_offset = try reserveVecSectionHeader(file);
-        const writer = file.writer();
+        const header_offset = try reserveVecSectionHeader(&binary_bytes);
         for (self.functions.values()) |function| {
-            try leb.writeULEB128(writer, function.type_index);
+            try leb.writeULEB128(binary_writer, function.type_index);
         }
 
         try writeVecSectionHeader(
-            file,
+            binary_bytes.items,
             header_offset,
             .function,
-            @intCast(u32, (try file.getPos()) - header_offset - header_size),
+            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
             @intCast(u32, self.functions.count()),
         );
         section_count += 1;
@@ -2312,20 +2317,19 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     // Table section
     const export_table = self.base.options.export_table;
     if (!import_table and self.function_table.count() != 0) {
-        const header_offset = try reserveVecSectionHeader(file);
-        const writer = file.writer();
+        const header_offset = try reserveVecSectionHeader(&binary_bytes);
 
-        try leb.writeULEB128(writer, wasm.reftype(.funcref));
-        try emitLimits(writer, .{
+        try leb.writeULEB128(binary_writer, wasm.reftype(.funcref));
+        try emitLimits(binary_writer, .{
             .min = @intCast(u32, self.function_table.count()) + 1,
             .max = null,
         });
 
         try writeVecSectionHeader(
-            file,
+            binary_bytes.items,
             header_offset,
             .table,
-            @intCast(u32, (try file.getPos()) - header_offset - header_size),
+            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
             @as(u32, 1),
         );
         section_count += 1;
@@ -2333,15 +2337,14 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
 
     // Memory section
     if (!import_memory) {
-        const header_offset = try reserveVecSectionHeader(file);
-        const writer = file.writer();
+        const header_offset = try reserveVecSectionHeader(&binary_bytes);
 
-        try emitLimits(writer, self.memories.limits);
+        try emitLimits(binary_writer, self.memories.limits);
         try writeVecSectionHeader(
-            file,
+            binary_bytes.items,
             header_offset,
             .memory,
-            @intCast(u32, (try file.getPos()) - header_offset - header_size),
+            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
             @as(u32, 1), // wasm currently only supports 1 linear memory segment
         );
         section_count += 1;
@@ -2349,20 +2352,19 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
 
     // Global section (used to emit stack pointer)
     if (self.wasm_globals.items.len > 0) {
-        const header_offset = try reserveVecSectionHeader(file);
-        const writer = file.writer();
+        const header_offset = try reserveVecSectionHeader(&binary_bytes);
 
         for (self.wasm_globals.items) |global| {
-            try writer.writeByte(wasm.valtype(global.global_type.valtype));
-            try writer.writeByte(@boolToInt(global.global_type.mutable));
-            try emitInit(writer, global.init);
+            try binary_writer.writeByte(wasm.valtype(global.global_type.valtype));
+            try binary_writer.writeByte(@boolToInt(global.global_type.mutable));
+            try emitInit(binary_writer, global.init);
         }
 
         try writeVecSectionHeader(
-            file,
+            binary_bytes.items,
             header_offset,
             .global,
-            @intCast(u32, (try file.getPos()) - header_offset - header_size),
+            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
             @intCast(u32, self.wasm_globals.items.len),
         );
         section_count += 1;
@@ -2370,35 +2372,35 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
 
     // Export section
     if (self.exports.items.len != 0 or export_table or !import_memory) {
-        const header_offset = try reserveVecSectionHeader(file);
-        const writer = file.writer();
+        const header_offset = try reserveVecSectionHeader(&binary_bytes);
+
         for (self.exports.items) |exp| {
             const name = self.string_table.get(exp.name);
-            try leb.writeULEB128(writer, @intCast(u32, name.len));
-            try writer.writeAll(name);
-            try leb.writeULEB128(writer, @enumToInt(exp.kind));
-            try leb.writeULEB128(writer, exp.index);
+            try leb.writeULEB128(binary_writer, @intCast(u32, name.len));
+            try binary_writer.writeAll(name);
+            try leb.writeULEB128(binary_writer, @enumToInt(exp.kind));
+            try leb.writeULEB128(binary_writer, exp.index);
         }
 
         if (export_table) {
-            try leb.writeULEB128(writer, @intCast(u32, "__indirect_function_table".len));
-            try writer.writeAll("__indirect_function_table");
-            try writer.writeByte(wasm.externalKind(.table));
-            try leb.writeULEB128(writer, @as(u32, 0)); // function table is always the first table
+            try leb.writeULEB128(binary_writer, @intCast(u32, "__indirect_function_table".len));
+            try binary_writer.writeAll("__indirect_function_table");
+            try binary_writer.writeByte(wasm.externalKind(.table));
+            try leb.writeULEB128(binary_writer, @as(u32, 0)); // function table is always the first table
         }
 
         if (!import_memory) {
-            try leb.writeULEB128(writer, @intCast(u32, "memory".len));
-            try writer.writeAll("memory");
-            try writer.writeByte(wasm.externalKind(.memory));
-            try leb.writeULEB128(writer, @as(u32, 0));
+            try leb.writeULEB128(binary_writer, @intCast(u32, "memory".len));
+            try binary_writer.writeAll("memory");
+            try binary_writer.writeByte(wasm.externalKind(.memory));
+            try leb.writeULEB128(binary_writer, @as(u32, 0));
         }
 
         try writeVecSectionHeader(
-            file,
+            binary_bytes.items,
             header_offset,
             .@"export",
-            @intCast(u32, (try file.getPos()) - header_offset - header_size),
+            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
             @intCast(u32, self.exports.items.len) + @boolToInt(export_table) + @boolToInt(!import_memory),
         );
         section_count += 1;
@@ -2406,25 +2408,24 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
 
     // element section (function table)
     if (self.function_table.count() > 0) {
-        const header_offset = try reserveVecSectionHeader(file);
-        const writer = file.writer();
+        const header_offset = try reserveVecSectionHeader(&binary_bytes);
 
         var flags: u32 = 0x2; // Yes we have a table
-        try leb.writeULEB128(writer, flags);
-        try leb.writeULEB128(writer, @as(u32, 0)); // index of that table. TODO: Store synthetic symbols
-        try emitInit(writer, .{ .i32_const = 1 }); // We start at index 1, so unresolved function pointers are invalid
-        try leb.writeULEB128(writer, @as(u8, 0));
-        try leb.writeULEB128(writer, @intCast(u32, self.function_table.count()));
+        try leb.writeULEB128(binary_writer, flags);
+        try leb.writeULEB128(binary_writer, @as(u32, 0)); // index of that table. TODO: Store synthetic symbols
+        try emitInit(binary_writer, .{ .i32_const = 1 }); // We start at index 1, so unresolved function pointers are invalid
+        try leb.writeULEB128(binary_writer, @as(u8, 0));
+        try leb.writeULEB128(binary_writer, @intCast(u32, self.function_table.count()));
         var symbol_it = self.function_table.keyIterator();
         while (symbol_it.next()) |symbol_loc_ptr| {
-            try leb.writeULEB128(writer, symbol_loc_ptr.*.getSymbol(self).index);
+            try leb.writeULEB128(binary_writer, symbol_loc_ptr.*.getSymbol(self).index);
         }
 
         try writeVecSectionHeader(
-            file,
+            binary_bytes.items,
             header_offset,
             .element,
-            @intCast(u32, (try file.getPos()) - header_offset - header_size),
+            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
             @as(u32, 1),
         );
         section_count += 1;
@@ -2433,8 +2434,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     // Code section
     var code_section_size: u32 = 0;
     if (self.code_section_index) |code_index| {
-        const header_offset = try reserveVecSectionHeader(file);
-        const writer = file.writer();
+        const header_offset = try reserveVecSectionHeader(&binary_bytes);
         var atom: *Atom = self.atoms.get(code_index).?.getFirst();
 
         // The code section must be sorted in line with the function order.
@@ -2460,13 +2460,13 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         std.sort.sort(*Atom, sorted_atoms.items, self, atom_sort_fn);
 
         for (sorted_atoms.items) |sorted_atom| {
-            try leb.writeULEB128(writer, sorted_atom.size);
-            try writer.writeAll(sorted_atom.code.items);
+            try leb.writeULEB128(binary_writer, sorted_atom.size);
+            try binary_writer.writeAll(sorted_atom.code.items);
         }
 
-        code_section_size = @intCast(u32, (try file.getPos()) - header_offset - header_size);
+        code_section_size = @intCast(u32, binary_bytes.items.len - header_offset - header_size);
         try writeVecSectionHeader(
-            file,
+            binary_bytes.items,
             header_offset,
             .code,
             code_section_size,
@@ -2478,8 +2478,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
 
     // Data section
     if (self.data_segments.count() != 0) {
-        const header_offset = try reserveVecSectionHeader(file);
-        const writer = file.writer();
+        const header_offset = try reserveVecSectionHeader(&binary_bytes);
 
         var it = self.data_segments.iterator();
         var segment_count: u32 = 0;
@@ -2493,10 +2492,10 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
             const segment = self.segments.items[atom_index];
 
             // flag and index to memory section (currently, there can only be 1 memory section in wasm)
-            try leb.writeULEB128(writer, @as(u32, 0));
+            try leb.writeULEB128(binary_writer, @as(u32, 0));
             // offset into data section
-            try emitInit(writer, .{ .i32_const = @bitCast(i32, segment.offset) });
-            try leb.writeULEB128(writer, segment.size);
+            try emitInit(binary_writer, .{ .i32_const = @bitCast(i32, segment.offset) });
+            try leb.writeULEB128(binary_writer, segment.size);
 
             // fill in the offset table and the data segments
             var current_offset: u32 = 0;
@@ -2508,12 +2507,12 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
                 // Pad with zeroes to ensure all segments are aligned
                 if (current_offset != atom.offset) {
                     const diff = atom.offset - current_offset;
-                    try writer.writeByteNTimes(0, diff);
+                    try binary_writer.writeByteNTimes(0, diff);
                     current_offset += diff;
                 }
                 assert(current_offset == atom.offset);
                 assert(atom.code.items.len == atom.size);
-                try writer.writeAll(atom.code.items);
+                try binary_writer.writeAll(atom.code.items);
 
                 current_offset += atom.size;
                 if (atom.next) |next| {
@@ -2522,7 +2521,7 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
                     // also pad with zeroes when last atom to ensure
                     // segments are aligned.
                     if (current_offset != segment.size) {
-                        try writer.writeByteNTimes(0, segment.size - current_offset);
+                        try binary_writer.writeByteNTimes(0, segment.size - current_offset);
                         current_offset += segment.size - current_offset;
                     }
                     break;
@@ -2532,10 +2531,10 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         }
 
         try writeVecSectionHeader(
-            file,
+            binary_bytes.items,
             header_offset,
             .data,
-            @intCast(u32, (try file.getPos()) - header_offset - header_size),
+            @intCast(u32, binary_bytes.items.len - header_offset - header_size),
             @intCast(u32, segment_count),
         );
         data_section_index = section_count;
@@ -2547,12 +2546,12 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         // we never store all symbols in a single table, but store a location reference instead.
         // This means that for a relocatable object file, we need to generate one and provide it to the relocation sections.
         var symbol_table = std.AutoArrayHashMap(SymbolLoc, u32).init(arena);
-        try self.emitLinkSection(file, arena, &symbol_table);
+        try self.emitLinkSection(&binary_bytes, &symbol_table);
         if (code_section_index) |code_index| {
-            try self.emitCodeRelocations(file, arena, code_index, symbol_table);
+            try self.emitCodeRelocations(&binary_bytes, code_index, symbol_table);
         }
         if (data_section_index) |data_index| {
-            try self.emitDataRelocations(file, arena, data_index, symbol_table);
+            try self.emitDataRelocations(&binary_bytes, data_index, symbol_table);
         }
     } else if (!self.base.options.strip) {
         if (self.dwarf) |*dwarf| {
@@ -2592,41 +2591,45 @@ pub fn flushModule(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
                     try debug_bytes.appendSlice(atom.code.items);
                     atom = atom.next orelse break;
                 }
-                try emitDebugSection(file, debug_bytes.items, item.name);
+                try emitDebugSection(&binary_bytes, debug_bytes.items, item.name);
                 debug_bytes.clearRetainingCapacity();
             }
         }
-        try self.emitNameSection(file, arena);
+        try self.emitNameSection(&binary_bytes, arena);
     }
 
     // Only when writing all sections executed properly we write the magic
     // bytes. This allows us to easily detect what went wrong while generating
     // the final binary.
-    try file.pwriteAll(&(wasm.magic ++ wasm.version), 0);
+    mem.copy(u8, binary_bytes.items, &(wasm.magic ++ wasm.version));
+
+    // finally, write the entire binary into the file.
+    var iovec = [_]std.os.iovec_const{.{
+        .iov_base = binary_bytes.items.ptr,
+        .iov_len = binary_bytes.items.len,
+    }};
+    try self.base.file.?.writevAll(&iovec);
 }
 
-fn emitDebugSection(file: fs.File, data: []const u8, name: []const u8) !void {
+fn emitDebugSection(binary_bytes: *std.ArrayList(u8), data: []const u8, name: []const u8) !void {
     if (data.len == 0) return;
-    const header_offset = try reserveCustomSectionHeader(file);
-    const writer = file.writer();
+    const header_offset = try reserveCustomSectionHeader(binary_bytes);
+    const writer = binary_bytes.writer();
     try leb.writeULEB128(writer, @intCast(u32, name.len));
     try writer.writeAll(name);
 
-    try file.writevAll(&[_]std.os.iovec_const{.{
-        .iov_base = data.ptr,
-        .iov_len = data.len,
-    }});
-    const start = header_offset + 6 + name.len + getULEB128Size(@intCast(u32, name.len));
+    const start = binary_bytes.items.len - header_offset;
     log.debug("Emit debug section: '{s}' start=0x{x:0>8} end=0x{x:0>8}", .{ name, start, start + data.len });
+    try writer.writeAll(data);
 
     try writeCustomSectionHeader(
-        file,
+        binary_bytes.items,
         header_offset,
-        @intCast(u32, (try file.getPos()) - header_offset - 6),
+        @intCast(u32, binary_bytes.items.len - header_offset - 6),
     );
 }
 
-fn emitNameSection(self: *Wasm, file: fs.File, arena: Allocator) !void {
+fn emitNameSection(self: *Wasm, binary_bytes: *std.ArrayList(u8), arena: std.mem.Allocator) !void {
     const Name = struct {
         index: u32,
         name: []const u8,
@@ -2672,8 +2675,8 @@ fn emitNameSection(self: *Wasm, file: fs.File, arena: Allocator) !void {
     std.sort.sort(Name, funcs.values(), {}, Name.lessThan);
     std.sort.sort(Name, globals.items, {}, Name.lessThan);
 
-    const header_offset = try reserveCustomSectionHeader(file);
-    const writer = file.writer();
+    const header_offset = try reserveCustomSectionHeader(binary_bytes);
+    const writer = binary_bytes.writer();
     try leb.writeULEB128(writer, @intCast(u32, "name".len));
     try writer.writeAll("name");
 
@@ -2682,9 +2685,9 @@ fn emitNameSection(self: *Wasm, file: fs.File, arena: Allocator) !void {
     try self.emitNameSubsection(.data_segment, segments.items, writer);
 
     try writeCustomSectionHeader(
-        file,
+        binary_bytes.items,
         header_offset,
-        @intCast(u32, (try file.getPos()) - header_offset - 6),
+        @intCast(u32, binary_bytes.items.len - header_offset - 6),
     );
 }
 
@@ -3197,54 +3200,40 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
     }
 }
 
-fn reserveVecSectionHeader(file: fs.File) !u64 {
+fn reserveVecSectionHeader(bytes: *std.ArrayList(u8)) !u32 {
     // section id + fixed leb contents size + fixed leb vector length
     const header_size = 1 + 5 + 5;
-    // TODO: this should be a single lseek(2) call, but fs.File does not
-    // currently provide a way to do this.
-    try file.seekBy(header_size);
-    return (try file.getPos()) - header_size;
+    const offset = @intCast(u32, bytes.items.len);
+    try bytes.appendSlice(&[_]u8{0} ** header_size);
+    return offset;
 }
 
-fn reserveCustomSectionHeader(file: fs.File) !u64 {
+fn reserveCustomSectionHeader(bytes: *std.ArrayList(u8)) !u64 {
     // unlike regular section, we don't emit the count
     const header_size = 1 + 5;
-    // TODO: this should be a single lseek(2) call, but fs.File does not
-    // currently provide a way to do this.
-    try file.seekBy(header_size);
-    return (try file.getPos()) - header_size;
+    const offset = @intCast(u32, bytes.items.len);
+    try bytes.appendSlice(&[_]u8{0} ** header_size);
+    return offset;
 }
 
-fn writeVecSectionHeader(file: fs.File, offset: u64, section: wasm.Section, size: u32, items: u32) !void {
+fn writeVecSectionHeader(buffer: []u8, offset: u32, section: wasm.Section, size: u32, items: u32) !void {
     var buf: [1 + 5 + 5]u8 = undefined;
     buf[0] = @enumToInt(section);
     leb.writeUnsignedFixed(5, buf[1..6], size);
     leb.writeUnsignedFixed(5, buf[6..], items);
-
-    if (builtin.target.os.tag == .windows) {
-        // https://github.com/ziglang/zig/issues/12783
-        const curr_pos = try file.getPos();
-        try file.pwriteAll(&buf, offset);
-        try file.seekTo(curr_pos);
-    } else try file.pwriteAll(&buf, offset);
+    mem.copy(u8, buffer[offset..], &buf);
 }
 
-fn writeCustomSectionHeader(file: fs.File, offset: u64, size: u32) !void {
+fn writeCustomSectionHeader(buffer: []u8, offset: u64, size: u32) !void {
     var buf: [1 + 5]u8 = undefined;
     buf[0] = 0; // 0 = 'custom' section
     leb.writeUnsignedFixed(5, buf[1..6], size);
-
-    if (builtin.target.os.tag == .windows) {
-        // https://github.com/ziglang/zig/issues/12783
-        const curr_pos = try file.getPos();
-        try file.pwriteAll(&buf, offset);
-        try file.seekTo(curr_pos);
-    } else try file.pwriteAll(&buf, offset);
+    mem.copy(u8, buffer[offset..], &buf);
 }
 
-fn emitLinkSection(self: *Wasm, file: fs.File, arena: Allocator, symbol_table: *std.AutoArrayHashMap(SymbolLoc, u32)) !void {
-    const offset = try reserveCustomSectionHeader(file);
-    const writer = file.writer();
+fn emitLinkSection(self: *Wasm, binary_bytes: *std.ArrayList(u8), symbol_table: *std.AutoArrayHashMap(SymbolLoc, u32)) !void {
+    const offset = try reserveCustomSectionHeader(binary_bytes);
+    const writer = binary_bytes.writer();
     // emit "linking" custom section name
     const section_name = "linking";
     try leb.writeULEB128(writer, section_name.len);
@@ -3255,21 +3244,18 @@ fn emitLinkSection(self: *Wasm, file: fs.File, arena: Allocator, symbol_table: *
 
     // For each subsection type (found in types.Subsection) we can emit a section.
     // Currently, we only support emitting segment info and the symbol table.
-    try self.emitSymbolTable(file, arena, symbol_table);
-    try self.emitSegmentInfo(file, arena);
+    try self.emitSymbolTable(binary_bytes, symbol_table);
+    try self.emitSegmentInfo(binary_bytes);
 
-    const size = @intCast(u32, (try file.getPos()) - offset - 6);
-    try writeCustomSectionHeader(file, offset, size);
+    const size = @intCast(u32, binary_bytes.items.len - offset - 6);
+    try writeCustomSectionHeader(binary_bytes.items, offset, size);
 }
 
-fn emitSymbolTable(self: *Wasm, file: fs.File, arena: Allocator, symbol_table: *std.AutoArrayHashMap(SymbolLoc, u32)) !void {
-    // After emitting the subtype, we must emit the subsection's length
-    // so first write it to a temporary arraylist to calculate the length
-    // and then write all data at once.
-    var payload = std.ArrayList(u8).init(arena);
-    const writer = payload.writer();
+fn emitSymbolTable(self: *Wasm, binary_bytes: *std.ArrayList(u8), symbol_table: *std.AutoArrayHashMap(SymbolLoc, u32)) !void {
+    const writer = binary_bytes.writer();
 
-    try leb.writeULEB128(file.writer(), @enumToInt(types.SubsectionType.WASM_SYMBOL_TABLE));
+    try leb.writeULEB128(writer, @enumToInt(types.SubsectionType.WASM_SYMBOL_TABLE));
+    const table_offset = binary_bytes.items.len;
 
     var symbol_count: u32 = 0;
     for (self.resolved_symbols.keys()) |sym_loc| {
@@ -3307,23 +3293,17 @@ fn emitSymbolTable(self: *Wasm, file: fs.File, arena: Allocator, symbol_table: *
         }
     }
 
-    var buf: [5]u8 = undefined;
-    leb.writeUnsignedFixed(5, &buf, symbol_count);
-    try payload.insertSlice(0, &buf);
-    try leb.writeULEB128(file.writer(), @intCast(u32, payload.items.len));
-
-    const iovec: std.os.iovec_const = .{
-        .iov_base = payload.items.ptr,
-        .iov_len = payload.items.len,
-    };
-    var iovecs = [_]std.os.iovec_const{iovec};
-    try file.writevAll(&iovecs);
+    var buf: [10]u8 = undefined;
+    leb.writeUnsignedFixed(5, buf[0..5], @intCast(u32, binary_bytes.items.len - table_offset + 5));
+    leb.writeUnsignedFixed(5, buf[5..], symbol_count);
+    try binary_bytes.insertSlice(table_offset, &buf);
 }
 
-fn emitSegmentInfo(self: *Wasm, file: fs.File, arena: Allocator) !void {
-    var payload = std.ArrayList(u8).init(arena);
-    const writer = payload.writer();
-    try leb.writeULEB128(file.writer(), @enumToInt(types.SubsectionType.WASM_SEGMENT_INFO));
+fn emitSegmentInfo(self: *Wasm, binary_bytes: *std.ArrayList(u8)) !void {
+    const writer = binary_bytes.writer();
+    try leb.writeULEB128(writer, @enumToInt(types.SubsectionType.WASM_SEGMENT_INFO));
+    const segment_offset = binary_bytes.items.len;
+
     try leb.writeULEB128(writer, @intCast(u32, self.segment_info.count()));
     for (self.segment_info.values()) |segment_info| {
         log.debug("Emit segment: {s} align({d}) flags({b})", .{
@@ -3337,13 +3317,9 @@ fn emitSegmentInfo(self: *Wasm, file: fs.File, arena: Allocator) !void {
         try leb.writeULEB128(writer, segment_info.flags);
     }
 
-    try leb.writeULEB128(file.writer(), @intCast(u32, payload.items.len));
-    const iovec: std.os.iovec_const = .{
-        .iov_base = payload.items.ptr,
-        .iov_len = payload.items.len,
-    };
-    var iovecs = [_]std.os.iovec_const{iovec};
-    try file.writevAll(&iovecs);
+    var buf: [5]u8 = undefined;
+    leb.writeUnsignedFixed(5, &buf, @intCast(u32, binary_bytes.items.len - segment_offset));
+    try binary_bytes.insertSlice(segment_offset, &buf);
 }
 
 pub fn getULEB128Size(uint_value: anytype) u32 {
@@ -3361,21 +3337,20 @@ pub fn getULEB128Size(uint_value: anytype) u32 {
 /// For each relocatable section, emits a custom "relocation.<section_name>" section
 fn emitCodeRelocations(
     self: *Wasm,
-    file: fs.File,
-    arena: Allocator,
+    binary_bytes: *std.ArrayList(u8),
     section_index: u32,
     symbol_table: std.AutoArrayHashMap(SymbolLoc, u32),
 ) !void {
     const code_index = self.code_section_index orelse return;
-    var payload = std.ArrayList(u8).init(arena);
-    const writer = payload.writer();
+    const writer = binary_bytes.writer();
+    const header_offset = try reserveCustomSectionHeader(binary_bytes);
 
     // write custom section information
     const name = "reloc.CODE";
     try leb.writeULEB128(writer, @intCast(u32, name.len));
     try writer.writeAll(name);
     try leb.writeULEB128(writer, section_index);
-    const reloc_start = payload.items.len;
+    const reloc_start = binary_bytes.items.len;
 
     var count: u32 = 0;
     var atom: *Atom = self.atoms.get(code_index).?.getFirst();
@@ -3401,36 +3376,27 @@ fn emitCodeRelocations(
     if (count == 0) return;
     var buf: [5]u8 = undefined;
     leb.writeUnsignedFixed(5, &buf, count);
-    try payload.insertSlice(reloc_start, &buf);
-    var iovecs = [_]std.os.iovec_const{
-        .{
-            .iov_base = payload.items.ptr,
-            .iov_len = payload.items.len,
-        },
-    };
-    const header_offset = try reserveCustomSectionHeader(file);
-    try file.writevAll(&iovecs);
-    const size = @intCast(u32, payload.items.len);
-    try writeCustomSectionHeader(file, header_offset, size);
+    try binary_bytes.insertSlice(reloc_start, &buf);
+    const size = @intCast(u32, binary_bytes.items.len - header_offset - 6);
+    try writeCustomSectionHeader(binary_bytes.items, header_offset, size);
 }
 
 fn emitDataRelocations(
     self: *Wasm,
-    file: fs.File,
-    arena: Allocator,
+    binary_bytes: *std.ArrayList(u8),
     section_index: u32,
     symbol_table: std.AutoArrayHashMap(SymbolLoc, u32),
 ) !void {
     if (self.data_segments.count() == 0) return;
-    var payload = std.ArrayList(u8).init(arena);
-    const writer = payload.writer();
+    const writer = binary_bytes.writer();
+    const header_offset = try reserveCustomSectionHeader(binary_bytes);
 
     // write custom section information
     const name = "reloc.DATA";
     try leb.writeULEB128(writer, @intCast(u32, name.len));
     try writer.writeAll(name);
     try leb.writeULEB128(writer, section_index);
-    const reloc_start = payload.items.len;
+    const reloc_start = binary_bytes.items.len;
 
     var count: u32 = 0;
     // for each atom, we calculate the uleb size and append that
@@ -3462,17 +3428,9 @@ fn emitDataRelocations(
 
     var buf: [5]u8 = undefined;
     leb.writeUnsignedFixed(5, &buf, count);
-    try payload.insertSlice(reloc_start, &buf);
-    var iovecs = [_]std.os.iovec_const{
-        .{
-            .iov_base = payload.items.ptr,
-            .iov_len = payload.items.len,
-        },
-    };
-    const header_offset = try reserveCustomSectionHeader(file);
-    try file.writevAll(&iovecs);
-    const size = @intCast(u32, payload.items.len);
-    try writeCustomSectionHeader(file, header_offset, size);
+    try binary_bytes.insertSlice(reloc_start, &buf);
+    const size = @intCast(u32, binary_bytes.items.len - header_offset - 6);
+    try writeCustomSectionHeader(binary_bytes.items, header_offset, size);
 }
 
 /// Searches for an a matching function signature, when not found
