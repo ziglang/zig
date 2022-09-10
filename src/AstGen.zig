@@ -214,7 +214,20 @@ pub fn deinit(astgen: *AstGen, gpa: Allocator) void {
     astgen.ref_table.deinit(gpa);
 }
 
-pub const ResultLoc = union(enum) {
+pub const ResultLocTag = enum {
+    discard,
+    none,
+    ref,
+    ty,
+    ty_shift_operand,
+    coerced_ty,
+    ptr,
+    inferred_ptr,
+    block_ptr,
+    only_break,
+};
+
+pub const ResultLoc = union(ResultLocTag) {
     /// The expression is the right-hand side of assignment to `_`. Only the side-effects of the
     /// expression should be generated. The result instruction from the expression must
     /// be ignored.
@@ -242,6 +255,9 @@ pub const ResultLoc = union(enum) {
     /// is inferred based on peer type resolution for a `Zir.Inst.Block`.
     /// The result instruction from the expression must be ignored.
     block_ptr: *GenZir,
+    /// Use in then-scope of loop, only work for 'break' instruction,
+    /// otherwise it's work like none.
+    only_break: Wrap,
 
     pub const Strategy = struct {
         elide_store_to_block_ptr_instructions: bool,
@@ -261,7 +277,7 @@ pub const ResultLoc = union(enum) {
     fn strategy(rl: ResultLoc, block_scope: *GenZir) Strategy {
         switch (rl) {
             // In this branch there will not be any store_to_block_ptr instructions.
-            .none, .ty, .ty_shift_operand, .coerced_ty, .ref => return .{
+            .none, .ty, .ty_shift_operand, .coerced_ty, .ref, .only_break => return .{
                 .tag = .break_operand,
                 .elide_store_to_block_ptr_instructions = false,
             },
@@ -310,6 +326,39 @@ pub const ResultLoc = union(enum) {
             .ty => .as_node,
             .ty_shift_operand => .as_shift_operand,
             else => unreachable,
+        };
+    }
+
+    pub const Wrap = struct {
+        tag: ResultLocTag,
+        ty: union {
+            ref: Zir.Inst.Ref,
+            gz: *GenZir,
+        },
+
+        fn unwrap(w: Wrap) ResultLoc {
+            return switch (w.tag) {
+                .only_break => unreachable,
+                .ty => .{ .ty = w.ty.ref },
+                .ty_shift_operand => .{ .ty_shift_operand = w.ty.ref },
+                .coerced_ty => .{ .coerced_ty = w.ty.ref },
+                .ptr => .{ .ptr = w.ty.ref },
+                .inferred_ptr => .{ .inferred_ptr = w.ty.ref },
+                .block_ptr => .{ .block_ptr = w.ty.gz },
+
+                .discard => .discard,
+                .none => .none,
+                .ref => .ref,
+            };
+        }
+    };
+
+    fn wrap(rl: ResultLoc) Wrap {
+        return switch (rl) {
+            .only_break => |w| w,
+            .ty, .ty_shift_operand, .coerced_ty, .ptr, .inferred_ptr => |ref| .{ .tag = rl, .ty = .{ .ref = ref } },
+            .block_ptr => |gz| .{ .tag = rl, .ty = .{ .gz = gz } },
+            else => .{ .tag = rl, .ty = .{ .ref = .none } },
         };
     }
 };
@@ -908,7 +957,7 @@ fn expr(gz: *GenZir, scope: *Scope, rl: ResultLoc, node: Ast.Node.Index) InnerEr
                         else => .err_union_payload_safe,
                     }, operand, node);
                     switch (rl) {
-                        .none, .coerced_ty, .discard, .ref => return result,
+                        .none, .coerced_ty, .discard, .ref, .only_break => return result,
                         else => return rvalue(gz, rl, result, lhs),
                     }
                 },
@@ -1391,7 +1440,7 @@ fn arrayInitExpr(
             const tag: Zir.Inst.Tag = if (types.array != .none) .array_init_ref else .array_init_anon_ref;
             return arrayInitExprInner(gz, scope, node, array_init.ast.elements, types.array, types.elem, tag);
         },
-        .none => {
+        .none, .only_break => {
             const tag: Zir.Inst.Tag = if (types.array != .none) .array_init else .array_init_anon;
             return arrayInitExprInner(gz, scope, node, array_init.ast.elements, types.array, types.elem, tag);
         },
@@ -1632,7 +1681,7 @@ fn structInitExpr(
                 return structInitExprRlNone(gz, scope, node, struct_init, .none, .struct_init_anon_ref);
             }
         },
-        .none => {
+        .none, .only_break => {
             if (struct_init.ast.type_expr != 0) {
                 const ty_inst = try typeExpr(gz, scope, struct_init.ast.type_expr);
                 _ = try gz.addUnNode(.validate_struct_init_ty, ty_inst, node);
@@ -1890,6 +1939,23 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                 // which needs to override this behavior.
                 const prev_rvalue_noresult = parent_gz.rvalue_noresult;
                 parent_gz.rvalue_noresult = .none;
+                // unwrap if break_result_loc is only_break
+                const prev_break_result_loc = block_gz.break_result_loc;
+                const prev_rl_ptr = block_gz.rl_ptr;
+                const is_only_break = prev_break_result_loc == .only_break;
+                if (is_only_break) {
+                    switch (prev_break_result_loc) {
+                        .only_break => |w| block_gz.setBreakResultLoc(w.unwrap()),
+                        else => unreachable,
+                    }
+                }
+                defer {
+                    if (is_only_break) {
+                        block_gz.setBreakResultLoc(prev_break_result_loc);
+                        block_gz.rl_ptr = prev_rl_ptr;
+                    }
+                }
+
                 const operand = try reachableExpr(parent_gz, parent_scope, block_gz.break_result_loc, rhs, node);
                 const search_index = @intCast(Zir.Inst.Index, astgen.instructions.len);
                 parent_gz.rvalue_noresult = prev_rvalue_noresult;
@@ -2227,7 +2293,7 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
             .assign_add_wrap => try assignOp(gz, scope, statement, .addwrap),
             .assign_mul      => try assignOp(gz, scope, statement, .mul),
             .assign_mul_wrap => try assignOp(gz, scope, statement, .mulwrap),
-            
+
             .grouped_expression => {
                 inner_node = node_data[statement].lhs;
                 continue;
@@ -5930,7 +5996,9 @@ fn whileExpr(
     if (dbg_var_name) |some| {
         try then_scope.addDbgVar(.dbg_var_val, some, dbg_var_inst);
     }
-    const then_result = try expr(&then_scope, then_sub_scope, loop_scope.break_result_loc, while_full.ast.then_expr);
+    // rl == .discard may ignore some compile error.
+    const then_rl = .{ .only_break = ResultLoc.wrap(if (loop_scope.break_result_loc == .discard) .none else loop_scope.break_result_loc) };
+    const then_result = try expr(&then_scope, then_sub_scope, then_rl, while_full.ast.then_expr);
     _ = try addEnsureResult(&then_scope, then_result, while_full.ast.then_expr);
 
     try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
@@ -6170,7 +6238,9 @@ fn forExpr(
         break :blk &index_scope.base;
     };
 
-    const then_result = try expr(&then_scope, then_sub_scope, loop_scope.break_result_loc, for_full.ast.then_expr);
+    // rl == .discard may ignore some compile error.
+    const then_rl = .{ .only_break = ResultLoc.wrap(if (loop_scope.break_result_loc == .discard) .none else loop_scope.break_result_loc) };
+    const then_result = try expr(&then_scope, then_sub_scope, then_rl, for_full.ast.then_expr);
     _ = try addEnsureResult(&then_scope, then_result, for_full.ast.then_expr);
 
     try checkUsed(parent_gz, &then_scope.base, then_sub_scope);
@@ -7288,7 +7358,7 @@ fn as(
 ) InnerError!Zir.Inst.Ref {
     const dest_type = try typeExpr(gz, scope, lhs);
     switch (rl) {
-        .none, .discard, .ref, .ty, .ty_shift_operand, .coerced_ty => {
+        .none, .discard, .ref, .ty, .ty_shift_operand, .coerced_ty, .only_break => {
             const result = try reachableExpr(gz, scope, .{ .ty = dest_type }, rhs, node);
             return rvalue(gz, rl, result, node);
         },
@@ -9395,7 +9465,7 @@ fn rvalue(
     };
     if (gz.endsWithNoReturn()) return result;
     switch (rl) {
-        .none, .coerced_ty => return result,
+        .none, .coerced_ty, .only_break => return result,
         .discard => {
             // Emit a compile error for discarding error values.
             _ = try gz.addUnNode(.ensure_result_non_error, result, src_node);
@@ -10366,7 +10436,7 @@ const GenZir = struct {
                 gz.break_result_loc = parent_rl;
             },
 
-            .discard, .none, .ptr, .ref => {
+            .discard, .none, .ptr, .ref, .only_break => {
                 gz.rl_ty_inst = .none;
                 gz.break_result_loc = parent_rl;
             },
