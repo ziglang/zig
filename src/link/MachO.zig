@@ -38,6 +38,8 @@ const LibStub = @import("tapi.zig").LibStub;
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Module = @import("../Module.zig");
+const Relocation = @import("MachO/Relocation.zig");
+const RelocationTable = Relocation.Table;
 const StringTable = @import("strtab.zig").StringTable;
 const Trie = @import("MachO/Trie.zig");
 const Type = @import("../type.zig").Type;
@@ -192,6 +194,11 @@ atom_by_index_table: std.AutoHashMapUnmanaged(u32, *Atom) = .{},
 /// value assigned to label `foo` is an unnamed constant belonging/associated
 /// with `Decl` `main`, and lives as long as that `Decl`.
 unnamed_const_atoms: UnnamedConstTable = .{},
+
+/// A table of relocations indexed by the owning them `Atom`.
+/// Note that once we refactor `Atom`'s lifetime and ownership rules,
+/// this will be a table indexed by index into the list of Atoms.
+relocs: RelocationTable = .{},
 
 /// Table of Decls that are currently alive.
 /// We store them here so that we can properly dispose of any allocated
@@ -1854,10 +1861,79 @@ pub fn writeAtom(self: *MachO, atom: *Atom, sect_id: u8) !void {
     const section = self.sections.get(sect_id);
     const sym = atom.getSymbol(self);
     const file_offset = section.header.offset + sym.n_value - section.header.addr;
-    try atom.resolveRelocs(self);
     log.debug("writing atom for symbol {s} at file offset 0x{x}", .{ atom.getName(self), file_offset });
     try self.base.file.?.pwriteAll(atom.code.items, file_offset);
 }
+
+// fn markRelocsDirtyByTarget(self: *MachO, target: SymbolWithLoc) void {
+//     // TODO: reverse-lookup might come in handy here
+//     var it = self.relocs.valueIterator();
+//     while (it.next()) |relocs| {
+//         for (relocs.items) |*reloc| {
+//             if (!reloc.target.eql(target)) continue;
+//             reloc.dirty = true;
+//         }
+//     }
+// }
+
+// fn markRelocsDirtyByAddress(self: *MachO, addr: u32) void {
+//     var it = self.relocs.valueIterator();
+//     while (it.next()) |relocs| {
+//         for (relocs.items) |*reloc| {
+//             const target_atom = reloc.getTargetAtom(self) orelse continue;
+//             const target_sym = target_atom.getSymbol(self);
+//             if (target_sym.value < addr) continue;
+//             reloc.dirty = true;
+//         }
+//     }
+// }
+
+// fn resolveRelocs(self: *MachO, atom: *Atom) !void {
+//     const relocs = self.relocs.get(atom) orelse return;
+//     const source_sym = atom.getSymbol(self);
+//     const source_section = self.sections.get(@enumToInt(source_sym.section_number) - 1).header;
+//     const file_offset = section.offset + source_sym.n_value - section.addr;
+
+//     log.debug("relocating '{s}'", .{atom.getName(self)});
+
+//     for (relocs.items) |*reloc| {
+//         if (!reloc.dirty) continue;
+
+//         const target_atom = reloc.getTargetAtom(self) orelse continue;
+//         const target_vaddr = target_atom.getSymbol(self).value;
+//         const target_vaddr_with_addend = target_vaddr + reloc.addend;
+
+//         log.debug("  ({x}: [() => 0x{x} ({s})) ({s}) (in file at 0x{x})", .{
+//             source_sym.value + reloc.offset,
+//             target_vaddr_with_addend,
+//             self.getSymbolName(reloc.target),
+//             @tagName(reloc.@"type"),
+//             file_offset + reloc.offset,
+//         });
+
+//         reloc.dirty = false;
+
+//         if (reloc.pcrel) {
+//             const source_vaddr = source_sym.value + reloc.offset;
+//             const disp =
+//                 @intCast(i32, target_vaddr_with_addend) - @intCast(i32, source_vaddr) - 4;
+//             try self.base.file.?.pwriteAll(mem.asBytes(&disp), file_offset + reloc.offset);
+//             continue;
+//         }
+
+//         switch (reloc.length) {
+//             2 => try self.base.file.?.pwriteAll(
+//                 mem.asBytes(&@truncate(u32, target_vaddr_with_addend)),
+//                 file_offset + reloc.offset,
+//             ),
+//             3 => try self.base.file.?.pwriteAll(
+//                 mem.asBytes(&(target_vaddr_with_addend)),
+//                 file_offset + reloc.offset,
+//             ),
+//             else => unreachable,
+//         }
+//     }
+// }
 
 fn allocateSymbols(self: *MachO) !void {
     const slice = self.sections.slice();
@@ -3069,6 +3145,14 @@ pub fn deinit(self: *MachO) void {
     }
 
     self.atom_by_index_table.deinit(gpa);
+
+    {
+        var it = self.relocs.valueIterator();
+        while (it.next()) |relocs| {
+            relocs.deinit(gpa);
+        }
+        self.relocs.deinit(gpa);
+    }
 }
 
 fn freeAtom(self: *MachO, atom: *Atom, sect_id: u8, owns_atom: bool) void {

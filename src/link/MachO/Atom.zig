@@ -16,6 +16,7 @@ const Arch = std.Target.Cpu.Arch;
 const Dwarf = @import("../Dwarf.zig");
 const MachO = @import("../MachO.zig");
 const Object = @import("Object.zig");
+const RelocationIncr = @import("Relocation.zig"); // temporary name until we clean up object-file relocation scanning
 const SymbolWithLoc = MachO.SymbolWithLoc;
 
 /// Each decl always gets a local symbol with the fully qualified name.
@@ -893,4 +894,49 @@ pub fn resolveRelocs(self: *Atom, macho_file: *MachO) !void {
 inline fn isArithmeticOp(inst: *const [4]u8) bool {
     const group_decode = @truncate(u5, inst[3]);
     return ((group_decode >> 2) == 4);
+}
+
+pub fn addRelocation(self: *Atom, macho_file: *MachO, reloc: RelocationIncr) !void {
+    const gpa = macho_file.base.allocator;
+    log.debug("  (adding reloc of type {s} to target %{d})", .{ @tagName(reloc.@"type"), reloc.target.sym_index });
+    const gop = try macho_file.relocs.getOrPut(gpa, self);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = .{};
+    }
+    try gop.value_ptr.append(gpa, reloc);
+}
+
+pub fn resolveRelocationsInCodeBuffer(self: *Atom, macho_file: *MachO, code: []u8) !void {
+    const relocs = macho_file.relocs.get(self) orelse return;
+
+    log.debug("relocating '{s}'", .{self.getName(macho_file)});
+
+    for (relocs.items) |*reloc| {
+        // We don't check for dirty relocation as we resolve in memory so it's effectively free.
+        try reloc.resolve(self, macho_file, code);
+        reloc.dirty = false;
+    }
+}
+
+pub fn resolveRelocationsInFile(self: *Atom, macho_file: *MachO) !void {
+    const relocs = macho_file.relocs.get(self) orelse return;
+    const gpa = macho_file.base.allocator;
+
+    // No code available in a buffer; we need to read it in from the binary.
+    const source_sym = self.getSymbol(macho_file);
+    const source_section = macho_file.sections.get(source_sym.n_sect - 1).header;
+    const file_offset = source_section.offset + source_sym.value - source_section.addr;
+    const code = try gpa.alloc(u8, self.size);
+    try self.base.file.?.preadAll(code, file_offset);
+    defer gpa.free(code);
+
+    log.debug("relocating '{s}'", .{self.getName(macho_file)});
+
+    for (relocs.items) |*reloc| {
+        if (!reloc.dirty) continue;
+        try reloc.resolve(self, macho_file, code);
+        reloc.dirty = false;
+    }
+
+    try self.base.file.?.pwriteAll(code, file_offset);
 }
