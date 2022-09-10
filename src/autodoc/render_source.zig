@@ -137,7 +137,7 @@ pub fn genHtml(
     );
 
     const source = try src.getSource(allocator);
-    try tokenizeAndPrintRaw(allocator, out, source.bytes);
+    try tokenizeAndPrintRaw(out, source.bytes);
     try out.writeAll(
         \\</body>
         \\</html>
@@ -150,13 +150,9 @@ const end_line = "</span>\n";
 var line_counter: usize = 1;
 
 pub fn tokenizeAndPrintRaw(
-    allocator: Allocator,
     out: anytype,
-    raw_src: [:0]const u8,
+    src: [:0]const u8,
 ) !void {
-    const src = try allocator.dupeZ(u8, raw_src);
-    defer allocator.free(src);
-
     line_counter = 1;
 
     try out.print("<pre><code>" ++ start_line, .{line_counter});
