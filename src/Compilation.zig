@@ -1238,7 +1238,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             options.target,
             options.is_native_abi,
             link_libc,
-            options.system_lib_names.len != 0 or options.frameworks.count() != 0,
             options.libc_installation,
             options.native_darwin_sdk != null,
         );
@@ -4522,7 +4521,6 @@ fn detectLibCIncludeDirs(
     target: Target,
     is_native_abi: bool,
     link_libc: bool,
-    link_system_libs: bool,
     libc_installation: ?*const LibCInstallation,
     has_macos_sdk: bool,
 ) !LibCDirs {
@@ -4539,7 +4537,7 @@ fn detectLibCIncludeDirs(
 
     // If linking system libraries and targeting the native abi, default to
     // using the system libc installation.
-    if (link_system_libs and is_native_abi and !target.isMinGW()) {
+    if (is_native_abi and !target.isMinGW()) {
         if (target.isDarwin()) {
             return if (has_macos_sdk)
                 // For Darwin/macOS, we are all set with getDarwinSDK found earlier.
