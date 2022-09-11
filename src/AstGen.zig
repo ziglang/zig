@@ -214,20 +214,7 @@ pub fn deinit(astgen: *AstGen, gpa: Allocator) void {
     astgen.ref_table.deinit(gpa);
 }
 
-pub const ResultLocTag = enum {
-    discard,
-    none,
-    ref,
-    ty,
-    ty_shift_operand,
-    coerced_ty,
-    ptr,
-    inferred_ptr,
-    block_ptr,
-    only_break,
-};
-
-pub const ResultLoc = union(ResultLocTag) {
+pub const ResultLoc = union(enum) {
     /// The expression is the right-hand side of assignment to `_`. Only the side-effects of the
     /// expression should be generated. The result instruction from the expression must
     /// be ignored.
@@ -255,8 +242,10 @@ pub const ResultLoc = union(ResultLocTag) {
     /// is inferred based on peer type resolution for a `Zir.Inst.Block`.
     /// The result instruction from the expression must be ignored.
     block_ptr: *GenZir,
-    /// Use in then-scope of loop, only work for 'break' instruction,
-    /// otherwise it's work like none.
+    /// Used to wrap other ResultLoc, unwrap and do the right thing when in break expression,
+    /// other case this type same as `none`.
+    /// Now this type use in loop body only, because when in reality the loop body is noreturn
+    /// and only the `break` operands are the result values of loops.
     only_break: Wrap,
 
     pub const Strategy = struct {
@@ -330,14 +319,14 @@ pub const ResultLoc = union(ResultLocTag) {
     }
 
     pub const Wrap = struct {
-        tag: ResultLocTag,
+        tag: u32,
         ty: union {
             ref: Zir.Inst.Ref,
             gz: *GenZir,
         },
 
         fn unwrap(w: Wrap) ResultLoc {
-            return switch (w.tag) {
+            return switch (@intToEnum(std.meta.Tag(ResultLoc), w.tag)) {
                 .only_break => unreachable,
                 .ty => .{ .ty = w.ty.ref },
                 .ty_shift_operand => .{ .ty_shift_operand = w.ty.ref },
@@ -356,9 +345,9 @@ pub const ResultLoc = union(ResultLocTag) {
     fn wrap(rl: ResultLoc) Wrap {
         return switch (rl) {
             .only_break => |w| w,
-            .ty, .ty_shift_operand, .coerced_ty, .ptr, .inferred_ptr => |ref| .{ .tag = rl, .ty = .{ .ref = ref } },
-            .block_ptr => |gz| .{ .tag = rl, .ty = .{ .gz = gz } },
-            else => .{ .tag = rl, .ty = .{ .ref = .none } },
+            .ty, .ty_shift_operand, .coerced_ty, .ptr, .inferred_ptr => |ref| .{ .tag = @enumToInt(rl), .ty = .{ .ref = ref } },
+            .block_ptr => |gz| .{ .tag = @enumToInt(rl), .ty = .{ .gz = gz } },
+            else => .{ .tag = @enumToInt(rl), .ty = .{ .ref = .none } },
         };
     }
 };
@@ -1938,10 +1927,7 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                 const prev_rl_ptr = block_gz.rl_ptr;
                 const is_only_break = prev_break_result_loc == .only_break;
                 if (is_only_break) {
-                    switch (prev_break_result_loc) {
-                        .only_break => |w| block_gz.setBreakResultLoc(w.unwrap()),
-                        else => unreachable,
-                    }
+                    block_gz.setBreakResultLoc(prev_break_result_loc.only_break.unwrap());
                 }
                 defer {
                     if (is_only_break) {

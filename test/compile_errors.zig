@@ -225,24 +225,6 @@ pub fn addCases(ctx: *TestContext) !void {
         });
     }
 
-    {
-        const case = ctx.obj("issue 12455 while with switch", .{});
-        // https://github.com/ziglang/zig/issues/12455
-        case.backend = .stage2;
-        case.addError(
-            \\pub export fn entry() void {
-            \\    var a: u32 = 0;
-            \\    while (true) switch (a) {
-            \\        0 => 2,
-            \\        1 => a = 0,
-            \\        else => break,
-            \\    };
-            \\}
-        , &[_][]const u8{
-            ":3:18: error: incompatible types: 'comptime_int' and 'void'",
-        });
-    }
-
     // TODO test this in stage2, but we won't even try in stage1
     //ctx.objErrStage1("inline fn calls itself indirectly",
     //    \\export fn foo() void {
