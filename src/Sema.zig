@@ -2691,11 +2691,11 @@ fn zirEnumDecl(
         // This string needs to outlive the ZIR code.
         const field_name = try decl_arena_allocator.dupe(u8, field_name_zir);
 
-        const gop = enum_obj.fields.getOrPutAssumeCapacity(field_name);
-        if (gop.found_existing) {
+        const gop_field = enum_obj.fields.getOrPutAssumeCapacity(field_name);
+        if (gop_field.found_existing) {
             const tree = try sema.getAstTree(block);
             const field_src = enumFieldSrcLoc(sema.mod.declPtr(block.src_decl), tree.*, src.node_offset.x, field_i);
-            const other_tag_src = enumFieldSrcLoc(sema.mod.declPtr(block.src_decl), tree.*, src.node_offset.x, gop.index);
+            const other_tag_src = enumFieldSrcLoc(sema.mod.declPtr(block.src_decl), tree.*, src.node_offset.x, gop_field.index);
             const msg = msg: {
                 const msg = try sema.errMsg(block, field_src, "duplicate enum field '{s}'", .{field_name});
                 errdefer msg.destroy(gpa);
@@ -2714,10 +2714,22 @@ fn zirEnumDecl(
             const tag_val = (try sema.resolveInstConst(block, src, tag_val_ref, "enum tag value must be comptime known")).val;
             last_tag_val = tag_val;
             const copied_tag_val = try tag_val.copy(decl_arena_allocator);
-            enum_obj.values.putAssumeCapacityNoClobberContext(copied_tag_val, {}, .{
+            const gop_val = enum_obj.values.getOrPutAssumeCapacityContext(copied_tag_val, .{
                 .ty = enum_obj.tag_ty,
                 .mod = mod,
             });
+            if (gop_val.found_existing) {
+                const tree = try sema.getAstTree(block);
+                const field_src = enumFieldSrcLoc(sema.mod.declPtr(block.src_decl), tree.*, src.node_offset.x, field_i);
+                const other_field_src = enumFieldSrcLoc(sema.mod.declPtr(block.src_decl), tree.*, src.node_offset.x, gop_val.index);
+                const msg = msg: {
+                    const msg = try sema.errMsg(block, field_src, "enum tag value {} already taken", .{tag_val.fmtValue(enum_obj.tag_ty, sema.mod)});
+                    errdefer msg.destroy(gpa);
+                    try sema.errNote(block, other_field_src, msg, "other occurrence here", .{});
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(msg);
+            }
         } else if (any_values) {
             const tag_val = if (last_tag_val) |val|
                 try sema.intAdd(block, src, val, Value.one, enum_obj.tag_ty)
@@ -2725,10 +2737,22 @@ fn zirEnumDecl(
                 Value.zero;
             last_tag_val = tag_val;
             const copied_tag_val = try tag_val.copy(decl_arena_allocator);
-            enum_obj.values.putAssumeCapacityNoClobberContext(copied_tag_val, {}, .{
+            const gop_val = enum_obj.values.getOrPutAssumeCapacityContext(copied_tag_val, .{
                 .ty = enum_obj.tag_ty,
                 .mod = mod,
             });
+            if (gop_val.found_existing) {
+                const tree = try sema.getAstTree(block);
+                const field_src = enumFieldSrcLoc(sema.mod.declPtr(block.src_decl), tree.*, src.node_offset.x, field_i);
+                const other_field_src = enumFieldSrcLoc(sema.mod.declPtr(block.src_decl), tree.*, src.node_offset.x, gop_val.index);
+                const msg = msg: {
+                    const msg = try sema.errMsg(block, field_src, "enum tag value {} already taken", .{tag_val.fmtValue(enum_obj.tag_ty, sema.mod)});
+                    errdefer msg.destroy(gpa);
+                    try sema.errNote(block, other_field_src, msg, "other occurrence here", .{});
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(msg);
+            }
         } else {
             tag_val_buf = .{
                 .base = .{ .tag = .int_u64 },
