@@ -4,17 +4,22 @@ const DW = std.dwarf;
 const assert = std.debug.assert;
 const testing = std.testing;
 
-// zig fmt: off
+pub const RegisterClass = enum {
+    general_purpose,
+    stack_pointer,
+    floating_point,
+};
 
 /// General purpose registers in the AArch64 instruction set
-pub const Register = enum(u7) {
-    // 64-bit registers
+pub const Register = enum(u8) {
+    // zig fmt: off
+    // 64-bit general-purpose registers
     x0, x1, x2, x3, x4, x5, x6, x7,
     x8, x9, x10, x11, x12, x13, x14, x15,
     x16, x17, x18, x19, x20, x21, x22, x23,
     x24, x25, x26, x27, x28, x29, x30, xzr,
 
-    // 32-bit registers
+    // 32-bit general-purpose registers
     w0, w1, w2, w3, w4, w5, w6, w7,
     w8, w9, w10, w11, w12, w13, w14, w15,
     w16, w17, w18, w19, w20, w21, w22, w23,
@@ -23,51 +28,267 @@ pub const Register = enum(u7) {
     // Stack pointer
     sp, wsp,
 
+    // 128-bit floating-point registers
+    q0, q1, q2, q3, q4, q5, q6, q7,
+    q8, q9, q10, q11, q12, q13, q14, q15,
+    q16, q17, q18, q19, q20, q21, q22, q23,
+    q24, q25, q26, q27, q28, q29, q30, q31,
+
+    // 64-bit floating-point registers
+    d0, d1, d2, d3, d4, d5, d6, d7,
+    d8, d9, d10, d11, d12, d13, d14, d15,
+    d16, d17, d18, d19, d20, d21, d22, d23,
+    d24, d25, d26, d27, d28, d29, d30, d31,
+
+    // 32-bit floating-point registers
+    s0, s1, s2, s3, s4, s5, s6, s7,
+    s8, s9, s10, s11, s12, s13, s14, s15,
+    s16, s17, s18, s19, s20, s21, s22, s23,
+    s24, s25, s26, s27, s28, s29, s30, s31,
+
+    // 16-bit floating-point registers
+    h0, h1, h2, h3, h4, h5, h6, h7,
+    h8, h9, h10, h11, h12, h13, h14, h15,
+    h16, h17, h18, h19, h20, h21, h22, h23,
+    h24, h25, h26, h27, h28, h29, h30, h31,
+
+    // 8-bit floating-point registers
+    b0, b1, b2, b3, b4, b5, b6, b7,
+    b8, b9, b10, b11, b12, b13, b14, b15,
+    b16, b17, b18, b19, b20, b21, b22, b23,
+    b24, b25, b26, b27, b28, b29, b30, b31,
+    // zig fmt: on
+
+    pub fn class(self: Register) RegisterClass {
+        return switch (@enumToInt(self)) {
+            @enumToInt(Register.x0)...@enumToInt(Register.xzr) => .general_purpose,
+            @enumToInt(Register.w0)...@enumToInt(Register.wzr) => .general_purpose,
+
+            @enumToInt(Register.sp) => .stack_pointer,
+            @enumToInt(Register.wsp) => .stack_pointer,
+
+            @enumToInt(Register.q0)...@enumToInt(Register.q31) => .floating_point,
+            @enumToInt(Register.d0)...@enumToInt(Register.d31) => .floating_point,
+            @enumToInt(Register.s0)...@enumToInt(Register.s31) => .floating_point,
+            @enumToInt(Register.h0)...@enumToInt(Register.h31) => .floating_point,
+            @enumToInt(Register.b0)...@enumToInt(Register.b31) => .floating_point,
+            else => unreachable,
+        };
+    }
+
     pub fn id(self: Register) u6 {
         return switch (@enumToInt(self)) {
-            0...63 => return @as(u6, @truncate(u5, @enumToInt(self))),
-            64...65 => 32,
+            @enumToInt(Register.x0)...@enumToInt(Register.xzr) => @intCast(u6, @enumToInt(self) - @enumToInt(Register.x0)),
+            @enumToInt(Register.w0)...@enumToInt(Register.wzr) => @intCast(u6, @enumToInt(self) - @enumToInt(Register.w0)),
+
+            @enumToInt(Register.sp) => 32,
+            @enumToInt(Register.wsp) => 32,
+
+            @enumToInt(Register.q0)...@enumToInt(Register.q31) => @intCast(u6, @enumToInt(self) - @enumToInt(Register.q0) + 33),
+            @enumToInt(Register.d0)...@enumToInt(Register.d31) => @intCast(u6, @enumToInt(self) - @enumToInt(Register.d0) + 33),
+            @enumToInt(Register.s0)...@enumToInt(Register.s31) => @intCast(u6, @enumToInt(self) - @enumToInt(Register.s0) + 33),
+            @enumToInt(Register.h0)...@enumToInt(Register.h31) => @intCast(u6, @enumToInt(self) - @enumToInt(Register.h0) + 33),
+            @enumToInt(Register.b0)...@enumToInt(Register.b31) => @intCast(u6, @enumToInt(self) - @enumToInt(Register.b0) + 33),
             else => unreachable,
         };
     }
 
     pub fn enc(self: Register) u5 {
         return switch (@enumToInt(self)) {
-            0...63 => return @truncate(u5, @enumToInt(self)),
-            64...65 => 31,
+            @enumToInt(Register.x0)...@enumToInt(Register.xzr) => @intCast(u5, @enumToInt(self) - @enumToInt(Register.x0)),
+            @enumToInt(Register.w0)...@enumToInt(Register.wzr) => @intCast(u5, @enumToInt(self) - @enumToInt(Register.w0)),
+
+            @enumToInt(Register.sp) => 31,
+            @enumToInt(Register.wsp) => 31,
+
+            @enumToInt(Register.q0)...@enumToInt(Register.q31) => @intCast(u5, @enumToInt(self) - @enumToInt(Register.q0)),
+            @enumToInt(Register.d0)...@enumToInt(Register.d31) => @intCast(u5, @enumToInt(self) - @enumToInt(Register.d0)),
+            @enumToInt(Register.s0)...@enumToInt(Register.s31) => @intCast(u5, @enumToInt(self) - @enumToInt(Register.s0)),
+            @enumToInt(Register.h0)...@enumToInt(Register.h31) => @intCast(u5, @enumToInt(self) - @enumToInt(Register.h0)),
+            @enumToInt(Register.b0)...@enumToInt(Register.b31) => @intCast(u5, @enumToInt(self) - @enumToInt(Register.b0)),
             else => unreachable,
         };
     }
 
     /// Returns the bit-width of the register.
-    pub fn size(self: Register) u7 {
+    pub fn size(self: Register) u8 {
         return switch (@enumToInt(self)) {
-            0...31 => 64,
-            32...63 => 32,
-            64 => 64,
-            65 => 32,
+            @enumToInt(Register.x0)...@enumToInt(Register.xzr) => 64,
+            @enumToInt(Register.w0)...@enumToInt(Register.wzr) => 32,
+
+            @enumToInt(Register.sp) => 64,
+            @enumToInt(Register.wsp) => 32,
+
+            @enumToInt(Register.q0)...@enumToInt(Register.q31) => 128,
+            @enumToInt(Register.d0)...@enumToInt(Register.d31) => 64,
+            @enumToInt(Register.s0)...@enumToInt(Register.s31) => 32,
+            @enumToInt(Register.h0)...@enumToInt(Register.h31) => 16,
+            @enumToInt(Register.b0)...@enumToInt(Register.b31) => 8,
             else => unreachable,
         };
     }
 
-    /// Convert from any register to its 64 bit alias.
-    pub fn to64(self: Register) Register {
+    /// Convert from a general-purpose register to its 64 bit alias.
+    pub fn toX(self: Register) Register {
         return switch (@enumToInt(self)) {
-            0...31 => self,
-            32...63 => @intToEnum(Register, @enumToInt(self) - 32),
-            64 => .sp,
-            65 => .sp,
+            @enumToInt(Register.x0)...@enumToInt(Register.xzr) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.x0) + @enumToInt(Register.x0),
+            ),
+            @enumToInt(Register.w0)...@enumToInt(Register.wzr) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.w0) + @enumToInt(Register.x0),
+            ),
             else => unreachable,
         };
     }
 
-    /// Convert from any register to its 32 bit alias.
-    pub fn to32(self: Register) Register {
+    /// Convert from a general-purpose register to its 32 bit alias.
+    pub fn toW(self: Register) Register {
         return switch (@enumToInt(self)) {
-            0...31 => @intToEnum(Register, @enumToInt(self) + 32),
-            32...63 => self,
-            64 => .wsp,
-            65 => .wsp,
+            @enumToInt(Register.x0)...@enumToInt(Register.xzr) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.x0) + @enumToInt(Register.w0),
+            ),
+            @enumToInt(Register.w0)...@enumToInt(Register.wzr) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.w0) + @enumToInt(Register.w0),
+            ),
+            else => unreachable,
+        };
+    }
+
+    /// Convert from a floating-point register to its 128 bit alias.
+    pub fn toQ(self: Register) Register {
+        return switch (@enumToInt(self)) {
+            @enumToInt(Register.q0)...@enumToInt(Register.q31) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.q0) + @enumToInt(Register.q0),
+            ),
+            @enumToInt(Register.d0)...@enumToInt(Register.d31) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.d0) + @enumToInt(Register.q0),
+            ),
+            @enumToInt(Register.s0)...@enumToInt(Register.s31) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.s0) + @enumToInt(Register.q0),
+            ),
+            @enumToInt(Register.h0)...@enumToInt(Register.h31) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.h0) + @enumToInt(Register.q0),
+            ),
+            @enumToInt(Register.b0)...@enumToInt(Register.b31) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.b0) + @enumToInt(Register.q0),
+            ),
+            else => unreachable,
+        };
+    }
+
+    /// Convert from a floating-point register to its 64 bit alias.
+    pub fn toD(self: Register) Register {
+        return switch (@enumToInt(self)) {
+            @enumToInt(Register.q0)...@enumToInt(Register.q31) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.q0) + @enumToInt(Register.d0),
+            ),
+            @enumToInt(Register.d0)...@enumToInt(Register.d31) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.d0) + @enumToInt(Register.d0),
+            ),
+            @enumToInt(Register.s0)...@enumToInt(Register.s31) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.s0) + @enumToInt(Register.d0),
+            ),
+            @enumToInt(Register.h0)...@enumToInt(Register.h31) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.h0) + @enumToInt(Register.d0),
+            ),
+            @enumToInt(Register.b0)...@enumToInt(Register.b31) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.b0) + @enumToInt(Register.d0),
+            ),
+            else => unreachable,
+        };
+    }
+
+    /// Convert from a floating-point register to its 32 bit alias.
+    pub fn toS(self: Register) Register {
+        return switch (@enumToInt(self)) {
+            @enumToInt(Register.q0)...@enumToInt(Register.q31) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.q0) + @enumToInt(Register.s0),
+            ),
+            @enumToInt(Register.d0)...@enumToInt(Register.d31) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.d0) + @enumToInt(Register.s0),
+            ),
+            @enumToInt(Register.s0)...@enumToInt(Register.s31) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.s0) + @enumToInt(Register.s0),
+            ),
+            @enumToInt(Register.h0)...@enumToInt(Register.h31) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.h0) + @enumToInt(Register.s0),
+            ),
+            @enumToInt(Register.b0)...@enumToInt(Register.b31) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.b0) + @enumToInt(Register.s0),
+            ),
+            else => unreachable,
+        };
+    }
+
+    /// Convert from a floating-point register to its 16 bit alias.
+    pub fn toH(self: Register) Register {
+        return switch (@enumToInt(self)) {
+            @enumToInt(Register.q0)...@enumToInt(Register.q31) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.q0) + @enumToInt(Register.h0),
+            ),
+            @enumToInt(Register.d0)...@enumToInt(Register.d31) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.d0) + @enumToInt(Register.h0),
+            ),
+            @enumToInt(Register.s0)...@enumToInt(Register.s31) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.s0) + @enumToInt(Register.h0),
+            ),
+            @enumToInt(Register.h0)...@enumToInt(Register.h31) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.h0) + @enumToInt(Register.h0),
+            ),
+            @enumToInt(Register.b0)...@enumToInt(Register.b31) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.b0) + @enumToInt(Register.h0),
+            ),
+            else => unreachable,
+        };
+    }
+
+    /// Convert from a floating-point register to its 8 bit alias.
+    pub fn toB(self: Register) Register {
+        return switch (@enumToInt(self)) {
+            @enumToInt(Register.q0)...@enumToInt(Register.q31) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.q0) + @enumToInt(Register.b0),
+            ),
+            @enumToInt(Register.d0)...@enumToInt(Register.d31) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.d0) + @enumToInt(Register.b0),
+            ),
+            @enumToInt(Register.s0)...@enumToInt(Register.s31) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.s0) + @enumToInt(Register.b0),
+            ),
+            @enumToInt(Register.h0)...@enumToInt(Register.h31) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.h0) + @enumToInt(Register.b0),
+            ),
+            @enumToInt(Register.b0)...@enumToInt(Register.b31) => @intToEnum(
+                Register,
+                @enumToInt(self) - @enumToInt(Register.b0) + @enumToInt(Register.b0),
+            ),
             else => unreachable,
         };
     }
@@ -76,8 +297,6 @@ pub const Register = enum(u7) {
         return @as(u8, self.enc()) + DW.OP.reg0;
     }
 };
-
-// zig fmt: on
 
 test "Register.enc" {
     try testing.expectEqual(@as(u5, 0), Register.x0.enc());
@@ -91,124 +310,16 @@ test "Register.enc" {
 }
 
 test "Register.size" {
-    try testing.expectEqual(@as(u7, 64), Register.x19.size());
-    try testing.expectEqual(@as(u7, 32), Register.w3.size());
+    try testing.expectEqual(@as(u8, 64), Register.x19.size());
+    try testing.expectEqual(@as(u8, 32), Register.w3.size());
 }
 
-test "Register.to64/to32" {
-    try testing.expectEqual(Register.x0, Register.w0.to64());
-    try testing.expectEqual(Register.x0, Register.x0.to64());
+test "Register.toX/toW" {
+    try testing.expectEqual(Register.x0, Register.w0.toX());
+    try testing.expectEqual(Register.x0, Register.x0.toX());
 
-    try testing.expectEqual(Register.w3, Register.w3.to32());
-    try testing.expectEqual(Register.w3, Register.x3.to32());
-}
-
-// zig fmt: off
-
-/// Scalar floating point registers in the aarch64 instruction set
-pub const FloatingPointRegister = enum(u8) {
-    // 128-bit registers
-    q0, q1, q2, q3, q4, q5, q6, q7,
-    q8, q9, q10, q11, q12, q13, q14, q15,
-    q16, q17, q18, q19, q20, q21, q22, q23,
-    q24, q25, q26, q27, q28, q29, q30, q31,
-
-    // 64-bit registers
-    d0, d1, d2, d3, d4, d5, d6, d7,
-    d8, d9, d10, d11, d12, d13, d14, d15,
-    d16, d17, d18, d19, d20, d21, d22, d23,
-    d24, d25, d26, d27, d28, d29, d30, d31,
-
-    // 32-bit registers
-    s0, s1, s2, s3, s4, s5, s6, s7,
-    s8, s9, s10, s11, s12, s13, s14, s15,
-    s16, s17, s18, s19, s20, s21, s22, s23,
-    s24, s25, s26, s27, s28, s29, s30, s31,
-
-    // 16-bit registers
-    h0, h1, h2, h3, h4, h5, h6, h7,
-    h8, h9, h10, h11, h12, h13, h14, h15,
-    h16, h17, h18, h19, h20, h21, h22, h23,
-    h24, h25, h26, h27, h28, h29, h30, h31,
-
-    // 8-bit registers
-    b0, b1, b2, b3, b4, b5, b6, b7,
-    b8, b9, b10, b11, b12, b13, b14, b15,
-    b16, b17, b18, b19, b20, b21, b22, b23,
-    b24, b25, b26, b27, b28, b29, b30, b31,
-
-    pub fn id(self: FloatingPointRegister) u5 {
-        return @truncate(u5, @enumToInt(self));
-    }
-
-    /// Returns the bit-width of the register.
-    pub fn size(self: FloatingPointRegister) u8 {
-        return switch (@enumToInt(self)) {
-            0...31 => 128,
-            32...63 => 64,
-            64...95 => 32,
-            96...127 => 16,
-            128...159 => 8,
-            else => unreachable,
-        };
-    }
-
-    /// Convert from any register to its 128 bit alias.
-    pub fn to128(self: FloatingPointRegister) FloatingPointRegister {
-        return @intToEnum(FloatingPointRegister, self.id());
-    }
-
-    /// Convert from any register to its 64 bit alias.
-    pub fn to64(self: FloatingPointRegister) FloatingPointRegister {
-        return @intToEnum(FloatingPointRegister, @as(u8, self.id()) + 32);
-    }
-
-    /// Convert from any register to its 32 bit alias.
-    pub fn to32(self: FloatingPointRegister) FloatingPointRegister {
-        return @intToEnum(FloatingPointRegister, @as(u8, self.id()) + 64);
-    }
-
-    /// Convert from any register to its 16 bit alias.
-    pub fn to16(self: FloatingPointRegister) FloatingPointRegister {
-        return @intToEnum(FloatingPointRegister, @as(u8, self.id()) + 96);
-    }
-
-    /// Convert from any register to its 8 bit alias.
-    pub fn to8(self: FloatingPointRegister) FloatingPointRegister {
-        return @intToEnum(FloatingPointRegister, @as(u8, self.id()) + 128);
-    }
-};
-
-// zig fmt: on
-
-test "FloatingPointRegister.id" {
-    try testing.expectEqual(@as(u5, 0), FloatingPointRegister.b0.id());
-    try testing.expectEqual(@as(u5, 0), FloatingPointRegister.h0.id());
-    try testing.expectEqual(@as(u5, 0), FloatingPointRegister.s0.id());
-    try testing.expectEqual(@as(u5, 0), FloatingPointRegister.d0.id());
-    try testing.expectEqual(@as(u5, 0), FloatingPointRegister.q0.id());
-
-    try testing.expectEqual(@as(u5, 2), FloatingPointRegister.q2.id());
-    try testing.expectEqual(@as(u5, 31), FloatingPointRegister.d31.id());
-}
-
-test "FloatingPointRegister.size" {
-    try testing.expectEqual(@as(u8, 128), FloatingPointRegister.q1.size());
-    try testing.expectEqual(@as(u8, 64), FloatingPointRegister.d2.size());
-    try testing.expectEqual(@as(u8, 32), FloatingPointRegister.s3.size());
-    try testing.expectEqual(@as(u8, 16), FloatingPointRegister.h4.size());
-    try testing.expectEqual(@as(u8, 8), FloatingPointRegister.b5.size());
-}
-
-test "FloatingPointRegister.toX" {
-    try testing.expectEqual(FloatingPointRegister.q1, FloatingPointRegister.q1.to128());
-    try testing.expectEqual(FloatingPointRegister.q2, FloatingPointRegister.b2.to128());
-    try testing.expectEqual(FloatingPointRegister.q3, FloatingPointRegister.h3.to128());
-
-    try testing.expectEqual(FloatingPointRegister.d0, FloatingPointRegister.q0.to64());
-    try testing.expectEqual(FloatingPointRegister.s1, FloatingPointRegister.d1.to32());
-    try testing.expectEqual(FloatingPointRegister.h2, FloatingPointRegister.s2.to16());
-    try testing.expectEqual(FloatingPointRegister.b3, FloatingPointRegister.h3.to8());
+    try testing.expectEqual(Register.w3, Register.w3.toW());
+    try testing.expectEqual(Register.w3, Register.x3.toW());
 }
 
 /// Represents an instruction in the AArch64 instruction set

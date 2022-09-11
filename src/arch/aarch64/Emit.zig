@@ -842,14 +842,14 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
     // PC-relative displacement to the entry in memory.
     // adrp
     const offset = @intCast(u32, emit.code.items.len);
-    try emit.writeInstruction(Instruction.adrp(reg.to64(), 0));
+    try emit.writeInstruction(Instruction.adrp(reg.toX(), 0));
 
     switch (tag) {
         .load_memory_got => {
             // ldr reg, reg, offset
             try emit.writeInstruction(Instruction.ldr(
                 reg,
-                reg.to64(),
+                reg.toX(),
                 Instruction.LoadStoreOffset.imm(0),
             ));
         },
@@ -863,11 +863,11 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
             // Note that this can potentially be optimised out by the codegen/linker if the
             // target address is appropriately aligned.
             // add reg, reg, offset
-            try emit.writeInstruction(Instruction.add(reg.to64(), reg.to64(), 0, false));
+            try emit.writeInstruction(Instruction.add(reg.toX(), reg.toX(), 0, false));
             // ldr reg, reg, offset
             try emit.writeInstruction(Instruction.ldr(
                 reg,
-                reg.to64(),
+                reg.toX(),
                 Instruction.LoadStoreOffset.imm(0),
             ));
         },
