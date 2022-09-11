@@ -719,17 +719,16 @@ pub fn buildSharedObjects(comp: *Compilation) !void {
                 .lt => continue,
                 .gt => {
                     // TODO Expose via compile error mechanism instead of log.
-                    log.err("invalid target glibc version: {}", .{target_version});
+                    log.warn("invalid target glibc version: {}", .{target_version});
                     return error.InvalidTargetGLibCVersion;
                 },
             }
-        } else {
+        } else blk: {
             const latest_index = metadata.all_versions.len - 1;
-            // TODO Expose via compile error mechanism instead of log.
-            log.err("zig does not yet provide glibc version {}, the max provided version is {}", .{
+            log.warn("zig cannot build new glibc version {}; providing instead {}", .{
                 target_version, metadata.all_versions[latest_index],
             });
-            return error.InvalidTargetGLibCVersion;
+            break :blk latest_index;
         };
 
         {
