@@ -508,7 +508,7 @@ pub const ChildProcess = struct {
                 // it, that's the error code returned by the child process.
                 _ = std.os.poll(&fd, 0) catch unreachable;
 
-                // According to eventfd(2) the descriptro is readable if the counter
+                // According to eventfd(2) the descriptor is readable if the counter
                 // has a value greater than 0
                 if ((fd[0].revents & std.os.POLL.IN) != 0) {
                     const err_int = try readIntFd(err_pipe[0]);
