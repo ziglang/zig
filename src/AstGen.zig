@@ -2527,6 +2527,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .validate_array_init_ty,
             .validate_struct_init_ty,
             .validate_deref,
+            .reset_err_ret_index,
             => break :b true,
 
             .@"defer" => unreachable,
@@ -5204,7 +5205,7 @@ fn orelseCatchExpr(
     // instructions or not.
 
     const break_tag: Zir.Inst.Tag = if (parent_gz.force_comptime) .break_inline else .@"break";
-    return finishThenElseBlock(
+    const result = try finishThenElseBlock(
         parent_gz,
         rl,
         node,
@@ -5219,6 +5220,10 @@ fn orelseCatchExpr(
         block,
         break_tag,
     );
+    if (astgen.fn_block != null and (cond_op == .is_non_err or cond_op == .is_non_err_ptr)) {
+        _ = try parent_gz.addNode(.reset_err_ret_index, node);
+    }
+    return result;
 }
 
 /// Supports `else_scope` stacked on `then_scope` stacked on `block_scope`. Unstacks `else_scope` then `then_scope`.
@@ -5581,7 +5586,7 @@ fn ifExpr(
     };
 
     const break_tag: Zir.Inst.Tag = if (parent_gz.force_comptime) .break_inline else .@"break";
-    return finishThenElseBlock(
+    const result = try finishThenElseBlock(
         parent_gz,
         rl,
         node,
@@ -5596,6 +5601,10 @@ fn ifExpr(
         block,
         break_tag,
     );
+    if (astgen.fn_block != null and if_full.error_token != null) {
+        _ = try parent_gz.addNode(.reset_err_ret_index, node);
+    }
+    return result;
 }
 
 /// Supports `else_scope` stacked on `then_scope`. Unstacks `else_scope` then `then_scope`.

@@ -230,6 +230,7 @@ const Writer = struct {
             .make_ptr_const,
             .validate_deref,
             .overflow_arithmetic_ptr,
+            .reset_err_ret_index,
             => try self.writeUnNode(stream, inst),
 
             .ref,
@@ -440,7 +441,7 @@ const Writer = struct {
 
             .dbg_block_begin,
             .dbg_block_end,
-            => try stream.writeAll("))"),
+            => try stream.writeAll(")"),
 
             .closure_get => try self.writeInstNode(stream, inst),
 
