@@ -582,8 +582,6 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             old_align: u29,
             ret_addr: usize,
         ) void {
-            _ = old_align;
-
             const entry = self.large_allocations.getEntry(@ptrToInt(old_mem.ptr)) orelse {
                 if (config.safety) {
                     @panic("Invalid free");
