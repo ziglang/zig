@@ -17575,30 +17575,30 @@ fn zirIntToPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const operand_coerced = try sema.coerce(block, Type.usize, operand_res, operand_src);
 
     const type_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const type_res = try sema.resolveType(block, src, extra.lhs);
-    try sema.checkPtrType(block, type_src, type_res);
-    try sema.resolveTypeLayout(block, src, type_res.elemType2());
-    const ptr_align = type_res.ptrAlignment(sema.mod.getTarget());
+    const ptr_ty = try sema.resolveType(block, src, extra.lhs);
+    const elem_ty = ptr_ty.elemType2();
+    try sema.checkPtrType(block, type_src, ptr_ty);
     const target = sema.mod.getTarget();
+    const ptr_align = try ptr_ty.ptrAlignmentAdvanced(target, sema.kit(block, src));
 
     if (try sema.resolveDefinedValue(block, operand_src, operand_coerced)) |val| {
         const addr = val.toUnsignedInt(target);
-        if (!type_res.isAllowzeroPtr() and addr == 0)
-            return sema.fail(block, operand_src, "pointer type '{}' does not allow address zero", .{type_res.fmt(sema.mod)});
+        if (!ptr_ty.isAllowzeroPtr() and addr == 0)
+            return sema.fail(block, operand_src, "pointer type '{}' does not allow address zero", .{ptr_ty.fmt(sema.mod)});
         if (addr != 0 and addr % ptr_align != 0)
-            return sema.fail(block, operand_src, "pointer type '{}' requires aligned address", .{type_res.fmt(sema.mod)});
+            return sema.fail(block, operand_src, "pointer type '{}' requires aligned address", .{ptr_ty.fmt(sema.mod)});
 
         const val_payload = try sema.arena.create(Value.Payload.U64);
         val_payload.* = .{
             .base = .{ .tag = .int_u64 },
             .data = addr,
         };
-        return sema.addConstant(type_res, Value.initPayload(&val_payload.base));
+        return sema.addConstant(ptr_ty, Value.initPayload(&val_payload.base));
     }
 
     try sema.requireRuntimeBlock(block, src, operand_src);
-    if (block.wantSafety() and try sema.typeHasRuntimeBits(block, sema.src, type_res.elemType2())) {
-        if (!type_res.isAllowzeroPtr()) {
+    if (block.wantSafety() and try sema.typeHasRuntimeBits(block, sema.src, elem_ty)) {
+        if (!ptr_ty.isAllowzeroPtr()) {
             const is_non_zero = try block.addBinOp(.cmp_neq, operand_coerced, .zero_usize);
             try sema.addSafetyCheck(block, is_non_zero, .cast_to_null);
         }
@@ -17618,7 +17618,7 @@ fn zirIntToPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             try sema.addSafetyCheck(block, is_aligned, .incorrect_alignment);
         }
     }
-    return block.addBitCast(type_res, operand_coerced);
+    return block.addBitCast(ptr_ty, operand_coerced);
 }
 
 fn zirErrSetCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
