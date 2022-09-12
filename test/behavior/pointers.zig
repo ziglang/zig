@@ -17,8 +17,6 @@ fn testDerefPtr() !void {
 }
 
 test "pointer arithmetic" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var ptr: [*]const u8 = "abcd";
@@ -65,8 +63,6 @@ test "initialize const optional C pointer to null" {
 }
 
 test "assigning integer to C pointer" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var x: i32 = 0;
@@ -83,8 +79,6 @@ test "assigning integer to C pointer" {
 }
 
 test "C pointer comparison and arithmetic" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const S = struct {
         fn doTheTest() !void {
             var ptr1: [*c]u32 = 0;
@@ -150,7 +144,6 @@ test "peer type resolution with C pointer and const pointer" {
 }
 
 test "implicit casting between C pointer and optional non-C pointer" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
@@ -281,8 +274,6 @@ test "array initialization types" {
 
 test "null terminated pointer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -299,8 +290,6 @@ test "null terminated pointer" {
 
 test "allow any sentinel" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -315,8 +304,6 @@ test "allow any sentinel" {
 
 test "pointer sentinel with enums" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     const S = struct {
         const Number = enum {
@@ -337,7 +324,6 @@ test "pointer sentinel with enums" {
 test "pointer sentinel with optional element" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {

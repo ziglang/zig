@@ -606,7 +606,6 @@ fn testEnumWithSpecifiedTagValues(x: MultipleChoice) !void {
 }
 
 test "enum with specified tag values" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     try testEnumWithSpecifiedTagValues(MultipleChoice.C);
@@ -614,7 +613,6 @@ test "enum with specified tag values" {
 }
 
 test "non-exhaustive enum" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const S = struct {
@@ -677,7 +675,6 @@ test "empty non-exhaustive enum" {
 }
 
 test "single field non-exhaustive enum" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const S = struct {
@@ -741,7 +738,6 @@ test "cast integer literal to enum" {
 }
 
 test "enum with specified and unspecified tag values" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     try testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.D);
@@ -925,7 +921,6 @@ test "enum literal casting to tagged union" {
 const Bar = enum { A, B, C, D };
 
 test "enum literal casting to error union with payload enum" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var bar: error{B}!Bar = undefined;
@@ -1132,7 +1127,6 @@ test "tag name functions are unique" {
 
 test "size of enum with only one tag which has explicit integer tag type" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const E = enum(u8) { nope = 10 };

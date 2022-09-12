@@ -127,7 +127,7 @@ pub const Reloc = struct {
     @"type": enum {
         got,
         direct,
-        imports,
+        import,
     },
     target: SymbolWithLoc,
     offset: u32,
@@ -141,7 +141,7 @@ pub const Reloc = struct {
         switch (self.@"type") {
             .got => return coff_file.getGotAtomForSymbol(self.target),
             .direct => return coff_file.getAtomForSymbol(self.target),
-            .imports => return coff_file.getImportAtomForSymbol(self.target),
+            .import => return coff_file.getImportAtomForSymbol(self.target),
         }
     }
 };
@@ -1423,23 +1423,22 @@ fn resolveGlobalSymbol(self: *Coff, current: SymbolWithLoc) !void {
     const sym = self.getSymbol(current);
     const sym_name = self.getSymbolName(current);
 
-    const global_index = self.resolver.get(sym_name) orelse {
-        const name = try gpa.dupe(u8, sym_name);
-        const global_index = try self.allocateGlobal();
-        self.globals.items[global_index] = current;
-        try self.resolver.putNoClobber(gpa, name, global_index);
+    const gop = try self.getOrPutGlobalPtr(sym_name);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = current;
         if (sym.section_number == .UNDEFINED) {
-            try self.unresolved.putNoClobber(gpa, global_index, false);
+            try self.unresolved.putNoClobber(gpa, self.getGlobalIndex(sym_name).?, false);
         }
         return;
-    };
+    }
 
     log.debug("TODO finish resolveGlobalSymbols implementation", .{});
 
     if (sym.section_number == .UNDEFINED) return;
 
-    _ = self.unresolved.swapRemove(global_index);
-    self.globals.items[global_index] = current;
+    _ = self.unresolved.swapRemove(self.getGlobalIndex(sym_name).?);
+
+    gop.value_ptr.* = current;
 }
 
 pub fn flush(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) !void {
@@ -1544,25 +1543,26 @@ pub fn getDeclVAddr(
 }
 
 pub fn getGlobalSymbol(self: *Coff, name: []const u8) !u32 {
-    if (self.resolver.get(name)) |global_index| {
-        return self.globals.items[global_index].sym_index;
+    const gop = try self.getOrPutGlobalPtr(name);
+    const global_index = self.getGlobalIndex(name).?;
+
+    if (gop.found_existing) {
+        return global_index;
     }
 
-    const gpa = self.base.allocator;
     const sym_index = try self.allocateSymbol();
-    const global_index = try self.allocateGlobal();
     const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = null };
-    self.globals.items[global_index] = sym_loc;
+    gop.value_ptr.* = sym_loc;
 
+    const gpa = self.base.allocator;
     const sym_name = try gpa.dupe(u8, name);
     const sym = self.getSymbolPtr(sym_loc);
     try self.setSymbolName(sym, sym_name);
     sym.storage_class = .EXTERNAL;
 
-    try self.resolver.putNoClobber(gpa, sym_name, global_index);
     try self.unresolved.putNoClobber(gpa, global_index, true);
 
-    return sym_index;
+    return global_index;
 }
 
 pub fn updateDeclLineNumber(self: *Coff, module: *Module, decl: *Module.Decl) !void {
@@ -2059,6 +2059,49 @@ pub fn getSymbolName(self: *const Coff, sym_loc: SymbolWithLoc) []const u8 {
     const sym = self.getSymbol(sym_loc);
     const offset = sym.getNameOffset() orelse return sym.getName().?;
     return self.strtab.get(offset).?;
+}
+
+/// Returns pointer to the global entry for `name` if one exists.
+pub fn getGlobalPtr(self: *Coff, name: []const u8) ?*SymbolWithLoc {
+    const global_index = self.resolver.get(name) orelse return null;
+    return &self.globals.items[global_index];
+}
+
+/// Returns the global entry for `name` if one exists.
+pub fn getGlobal(self: *const Coff, name: []const u8) ?SymbolWithLoc {
+    const global_index = self.resolver.get(name) orelse return null;
+    return self.globals.items[global_index];
+}
+
+/// Returns the index of the global entry for `name` if one exists.
+pub fn getGlobalIndex(self: *const Coff, name: []const u8) ?u32 {
+    return self.resolver.get(name);
+}
+
+/// Returns global entry at `index`.
+pub fn getGlobalByIndex(self: *const Coff, index: u32) SymbolWithLoc {
+    assert(index < self.globals.items.len);
+    return self.globals.items[index];
+}
+
+const GetOrPutGlobalPtrResult = struct {
+    found_existing: bool,
+    value_ptr: *SymbolWithLoc,
+};
+
+/// Return pointer to the global entry for `name` if one exists.
+/// Puts a new global entry for `name` if one doesn't exist, and
+/// returns a pointer to it.
+pub fn getOrPutGlobalPtr(self: *Coff, name: []const u8) !GetOrPutGlobalPtrResult {
+    if (self.getGlobalPtr(name)) |ptr| {
+        return GetOrPutGlobalPtrResult{ .found_existing = true, .value_ptr = ptr };
+    }
+    const gpa = self.base.allocator;
+    const global_index = try self.allocateGlobal();
+    const global_name = try gpa.dupe(u8, name);
+    _ = try self.resolver.put(gpa, global_name, global_index);
+    const ptr = &self.globals.items[global_index];
+    return GetOrPutGlobalPtrResult{ .found_existing = false, .value_ptr = ptr };
 }
 
 /// Returns atom if there is an atom referenced by the symbol described by `sym_loc` descriptor.

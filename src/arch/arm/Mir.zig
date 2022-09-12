@@ -111,6 +111,11 @@ pub const Inst = struct {
         strh,
         /// Subtract
         sub,
+        /// Pseudo-instruction: Subtract 32-bit immediate from stack
+        ///
+        /// r0 can be used by Emit as a scratch register for loading
+        /// the immediate
+        sub_sp_scratch_r0,
         /// Subtract, update condition flags
         subs,
         /// Supervisor Call
@@ -144,6 +149,10 @@ pub const Inst = struct {
         ///
         /// Used by e.g. svc
         imm24: u24,
+        /// A 32-bit immediate value.
+        ///
+        /// Used by e.g. sub_sp_scratch_r0
+        imm32: u32,
         /// Index into `extra`. Meaning of what can be found there is context-dependent.
         ///
         /// Used by e.g. load_memory
@@ -165,6 +174,20 @@ pub const Inst = struct {
         r_imm16: struct {
             rd: Register,
             imm16: u16,
+        },
+        /// A register and an operand
+        ///
+        /// Used by mov and mvn
+        r_op_mov: struct {
+            rd: Register,
+            op: bits.Instruction.Operand,
+        },
+        /// A register and an operand
+        ///
+        /// Used by cmp
+        r_op_cmp: struct {
+            rn: Register,
+            op: bits.Instruction.Operand,
         },
         /// Two registers and a shift amount
         ///

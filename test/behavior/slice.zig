@@ -28,7 +28,6 @@ comptime {
 
 test "slicing" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     var array: [20]i32 = undefined;
 
@@ -269,7 +268,6 @@ fn sliceSum(comptime q: []const u8) i32 {
 
 test "slice type with custom alignment" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     const LazilyResolvedType = struct {
         anything: i32,
@@ -283,7 +281,6 @@ test "slice type with custom alignment" {
 
 test "obtaining a null terminated slice" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
 
     // here we have a normal array
     var buf: [50]u8 = undefined;

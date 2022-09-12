@@ -280,8 +280,8 @@ pub fn generateZirData(self: *Autodoc) !void {
         try std.json.stringify(
             data,
             .{
-                .whitespace = .{ .indent = if (builtin.mode == .Debug) .{ .Space = 4 } else .None },
-                .emit_null_optional_fields = false,
+                .whitespace = .{ .indent = .None, .separator = false },
+                .emit_null_optional_fields = true,
             },
             out,
         );
@@ -404,6 +404,7 @@ const DocData = struct {
         w: anytype,
     ) !void {
         var jsw = std.json.writeStream(w, 15);
+        if (opts.whitespace) |ws| jsw.whitespace = ws;
         try jsw.beginObject();
         inline for (comptime std.meta.tags(std.meta.FieldEnum(DocData))) |f| {
             const f_name = @tagName(f);
@@ -449,6 +450,8 @@ const DocData = struct {
             w: anytype,
         ) !void {
             var jsw = std.json.writeStream(w, 15);
+            if (opts.whitespace) |ws| jsw.whitespace = ws;
+
             try jsw.beginObject();
             inline for (comptime std.meta.tags(std.meta.FieldEnum(DocPackage))) |f| {
                 const f_name = @tagName(f);
@@ -474,6 +477,22 @@ const DocData = struct {
         // The index in astNodes of the `test declname { }` node
         decltest: ?usize = null,
         _analyzed: bool, // omitted in json data
+
+        pub fn jsonStringify(
+            self: Decl,
+            opts: std.json.StringifyOptions,
+            w: anytype,
+        ) !void {
+            var jsw = std.json.writeStream(w, 15);
+            if (opts.whitespace) |ws| jsw.whitespace = ws;
+            try jsw.beginArray();
+            inline for (comptime std.meta.fields(Decl)) |f| {
+                try jsw.arrayElem();
+                try std.json.stringify(@field(self, f.name), opts, w);
+                jsw.state_index -= 1;
+            }
+            try jsw.endArray();
+        }
     };
 
     const AstNode = struct {
@@ -485,6 +504,22 @@ const DocData = struct {
         docs: ?[]const u8 = null,
         fields: ?[]usize = null, // index into astNodes
         @"comptime": bool = false,
+
+        pub fn jsonStringify(
+            self: AstNode,
+            opts: std.json.StringifyOptions,
+            w: anytype,
+        ) !void {
+            var jsw = std.json.writeStream(w, 15);
+            if (opts.whitespace) |ws| jsw.whitespace = ws;
+            try jsw.beginArray();
+            inline for (comptime std.meta.fields(AstNode)) |f| {
+                try jsw.arrayElem();
+                try std.json.stringify(@field(self, f.name), opts, w);
+                jsw.state_index -= 1;
+            }
+            try jsw.endArray();
+        }
     };
 
     const Type = union(enum) {
@@ -525,7 +560,6 @@ const DocData = struct {
             fields: ?[]Expr = null, // (use src->fields to find names)
             line_number: usize,
             outer_decl: usize,
-            ast: usize,
         },
         ComptimeExpr: struct { name: []const u8 },
         ComptimeFloat: struct { name: []const u8 },
@@ -548,7 +582,6 @@ const DocData = struct {
             src: usize, // index into astNodes
             privDecls: []usize = &.{}, // index into decls
             pubDecls: []usize = &.{}, // index into decls
-            ast: usize,
             // (use src->fields to find field names)
         },
         Union: struct {
@@ -557,7 +590,6 @@ const DocData = struct {
             privDecls: []usize = &.{}, // index into decls
             pubDecls: []usize = &.{}, // index into decls
             fields: []Expr = &.{}, // (use src->fields to find names)
-            ast: usize,
         },
         Fn: struct {
             name: []const u8,
@@ -582,7 +614,6 @@ const DocData = struct {
             src: usize, // index into astNodes
             privDecls: []usize = &.{}, // index into decls
             pubDecls: []usize = &.{}, // index into decls
-            ast: usize,
         },
         Frame: struct { name: []const u8 },
         AnyFrame: struct { name: []const u8 },
@@ -601,14 +632,15 @@ const DocData = struct {
         ) !void {
             const active_tag = std.meta.activeTag(self);
             var jsw = std.json.writeStream(w, 15);
-            try jsw.beginObject();
-            try jsw.objectField("kind");
+            if (opts.whitespace) |ws| jsw.whitespace = ws;
+            try jsw.beginArray();
+            try jsw.arrayElem();
             try jsw.emitNumber(@enumToInt(active_tag));
             inline for (comptime std.meta.fields(Type)) |case| {
                 if (@field(Type, case.name) == active_tag) {
                     const current_value = @field(self, case.name);
                     inline for (comptime std.meta.fields(case.field_type)) |f| {
-                        try jsw.objectField(f.name);
+                        try jsw.arrayElem();
                         if (f.field_type == std.builtin.TypeInfo.Pointer.Size) {
                             try jsw.emitNumber(@enumToInt(@field(current_value, f.name)));
                         } else {
@@ -618,7 +650,7 @@ const DocData = struct {
                     }
                 }
             }
-            try jsw.endObject();
+            try jsw.endArray();
         }
     };
 
@@ -686,7 +718,7 @@ const DocData = struct {
         const SwitchOp = struct {
             cond_index: usize,
             file_name: []const u8,
-            ast: usize,
+            src: usize,
             outer_decl: usize, // index in `types`
         };
         const BuiltinBin = struct {
@@ -704,7 +736,15 @@ const DocData = struct {
             end: ?usize = null,
             sentinel: ?usize = null, // index in `exprs`
         };
-        const Cmpxchg = struct { name: []const u8, type: usize, ptr: usize, expected_value: usize, new_value: usize, success_order: usize, failure_order: usize };
+        const Cmpxchg = struct {
+            name: []const u8,
+            type: usize,
+            ptr: usize,
+            expected_value: usize,
+            new_value: usize,
+            success_order: usize,
+            failure_order: usize,
+        };
         const As = struct {
             typeRefArg: ?usize, // index in `exprs`
             exprArg: usize, // index in `exprs`
@@ -721,11 +761,12 @@ const DocData = struct {
 
         pub fn jsonStringify(
             self: Expr,
-            opt: std.json.StringifyOptions,
+            opts: std.json.StringifyOptions,
             w: anytype,
         ) !void {
             const active_tag = std.meta.activeTag(self);
             var jsw = std.json.writeStream(w, 15);
+            if (opts.whitespace) |ws| jsw.whitespace = ws;
             try jsw.beginObject();
             try jsw.objectField(@tagName(active_tag));
             switch (self) {
@@ -742,7 +783,7 @@ const DocData = struct {
                         if (comptime std.mem.eql(u8, case.name, "builtinField"))
                             continue;
                         if (@field(Expr, case.name) == active_tag) {
-                            try std.json.stringify(@field(self, case.name), opt, w);
+                            try std.json.stringify(@field(self, case.name), opts, w);
                             jsw.state_index -= 1;
                             // TODO: we should not reach into the state of the
                             //       json writer, but alas, this is what's
@@ -1874,7 +1915,12 @@ fn walkInstruction(
             // log.debug("{s}", .{sep});
 
             const switch_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .switchOp = .{ .cond_index = cond_index, .file_name = file.sub_file_path, .ast = ast_index, .outer_decl = type_index } });
+            try self.exprs.append(self.arena, .{ .switchOp = .{
+                .cond_index = cond_index,
+                .file_name = file.sub_file_path,
+                .src = ast_index,
+                .outer_decl = type_index,
+            } });
 
             return DocData.WalkResult{
                 .typeRef = .{ .type = @enumToInt(Ref.type_type) },
@@ -2505,7 +2551,6 @@ fn walkInstruction(
                             .src = self_ast_node_index,
                             .privDecls = priv_decl_indexes.items,
                             .pubDecls = decl_indexes.items,
-                            .ast = self_ast_node_index,
                         },
                     };
                     if (self.ref_paths_pending_on_types.get(type_slot_index)) |paths| {
@@ -2644,7 +2689,13 @@ fn walkInstruction(
                     self.ast_nodes.items[self_ast_node_index].fields = field_name_indexes.items;
 
                     self.types.items[type_slot_index] = .{
-                        .Union = .{ .name = "todo_name", .src = self_ast_node_index, .privDecls = priv_decl_indexes.items, .pubDecls = decl_indexes.items, .fields = field_type_refs.items, .ast = self_ast_node_index },
+                        .Union = .{
+                            .name = "todo_name",
+                            .src = self_ast_node_index,
+                            .privDecls = priv_decl_indexes.items,
+                            .pubDecls = decl_indexes.items,
+                            .fields = field_type_refs.items,
+                        },
                     };
 
                     if (self.ref_paths_pending_on_types.get(type_slot_index)) |paths| {
@@ -2796,7 +2847,12 @@ fn walkInstruction(
                     self.ast_nodes.items[self_ast_node_index].fields = field_name_indexes.items;
 
                     self.types.items[type_slot_index] = .{
-                        .Enum = .{ .name = "todo_name", .src = self_ast_node_index, .privDecls = priv_decl_indexes.items, .pubDecls = decl_indexes.items, .ast = self_ast_node_index },
+                        .Enum = .{
+                            .name = "todo_name",
+                            .src = self_ast_node_index,
+                            .privDecls = priv_decl_indexes.items,
+                            .pubDecls = decl_indexes.items,
+                        },
                     };
                     if (self.ref_paths_pending_on_types.get(type_slot_index)) |paths| {
                         for (paths.items) |resume_info| {
@@ -2910,7 +2966,15 @@ fn walkInstruction(
                     self.ast_nodes.items[self_ast_node_index].fields = field_name_indexes.items;
 
                     self.types.items[type_slot_index] = .{
-                        .Struct = .{ .name = "todo_name", .src = self_ast_node_index, .privDecls = priv_decl_indexes.items, .pubDecls = decl_indexes.items, .fields = field_type_refs.items, .line_number = self.ast_nodes.items[self_ast_node_index].line, .outer_decl = type_slot_index - 1, .ast = self_ast_node_index },
+                        .Struct = .{
+                            .name = "todo_name",
+                            .src = self_ast_node_index,
+                            .privDecls = priv_decl_indexes.items,
+                            .pubDecls = decl_indexes.items,
+                            .fields = field_type_refs.items,
+                            .line_number = self.ast_nodes.items[self_ast_node_index].line,
+                            .outer_decl = type_slot_index - 1,
+                        },
                     };
                     if (self.ref_paths_pending_on_types.get(type_slot_index)) |paths| {
                         for (paths.items) |resume_info| {
