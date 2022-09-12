@@ -995,6 +995,13 @@ pub const Inst = struct {
         /// closure_capture instruction ref.
         closure_get,
 
+        /// A defer statement.
+        /// Uses the `defer` union field.
+        @"defer",
+        /// An errdefer statement with a code.
+        /// Uses the `err_defer_code` union field.
+        defer_err_code,
+
         /// The ZIR instruction tag is one of the `Extended` ones.
         /// Uses the `extended` union field.
         extended,
@@ -1244,6 +1251,8 @@ pub const Inst = struct {
                 .try_ptr,
                 //.try_inline,
                 //.try_ptr_inline,
+                .@"defer",
+                .defer_err_code,
                 => false,
 
                 .@"break",
@@ -1311,6 +1320,8 @@ pub const Inst = struct {
                 .memcpy,
                 .memset,
                 .check_comptime_control_flow,
+                .@"defer",
+                .defer_err_code,
                 => true,
 
                 .param,
@@ -1818,6 +1829,9 @@ pub const Inst = struct {
 
                 .closure_capture = .un_tok,
                 .closure_get = .inst_node,
+
+                .@"defer" = .@"defer",
+                .defer_err_code = .defer_err_code,
 
                 .extended = .extended,
             });
@@ -2575,6 +2589,14 @@ pub const Inst = struct {
                 return zir.nullTerminatedString(self.str);
             }
         },
+        @"defer": struct {
+            index: u32,
+            len: u32,
+        },
+        defer_err_code: struct {
+            err_code: Ref,
+            payload_index: u32,
+        },
 
         // Make sure we don't accidentally add a field to make this union
         // bigger than expected. Note that in Debug builds, Zig is allowed
@@ -2611,6 +2633,8 @@ pub const Inst = struct {
             dbg_stmt,
             inst_node,
             str_op,
+            @"defer",
+            defer_err_code,
         };
     };
 
@@ -3549,6 +3573,12 @@ pub const Inst = struct {
         node: i32,
         line: u32,
         column: u32,
+    };
+
+    pub const DeferErrCode = struct {
+        remapped_err_code: Index,
+        index: u32,
+        len: u32,
     };
 };
 

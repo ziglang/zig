@@ -5700,7 +5700,6 @@ fn bar() !void {
         try quux();
     } else |err| switch (err) {
         error.FileNotFound => try hello(),
-        else => try another(),
     }
 }
 
@@ -5714,10 +5713,6 @@ fn quux() !void {
 
 fn hello() !void {
     try bang2();
-}
-
-fn another() !void {
-    try bang1();
 }
 
 fn bang1() !void {

@@ -127,3 +127,20 @@ test "errdefer with payload" {
     try S.doTheTest();
     comptime try S.doTheTest();
 }
+
+test "simple else prong doesn't emit an error for unreachable else prong" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    const S = struct {
+        fn foo() error{Foo}!void {
+            return error.Foo;
+        }
+    };
+    var a: u32 = 0;
+    defer a += 1;
+    S.foo() catch |err| switch (err) {
+        error.Foo => a += 1,
+        else => |e| return e,
+    };
+    try expect(a == 1);
+}
