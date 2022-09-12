@@ -232,6 +232,7 @@ const Writer = struct {
             .validate_deref,
             .overflow_arithmetic_ptr,
             .check_comptime_control_flow,
+            .restore_err_ret_index,
             => try self.writeUnNode(stream, inst),
 
             .ref,
@@ -405,6 +406,7 @@ const Writer = struct {
             .alloc_inferred_comptime_mut,
             .ret_ptr,
             .ret_type,
+            .save_err_ret_index,
             => try self.writeNode(stream, inst),
 
             .error_value,
@@ -440,7 +442,7 @@ const Writer = struct {
 
             .dbg_block_begin,
             .dbg_block_end,
-            => try stream.writeAll("))"),
+            => try stream.writeAll(")"),
 
             .closure_get => try self.writeInstNode(stream, inst),
 

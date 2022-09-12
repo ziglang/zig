@@ -2471,6 +2471,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .try_ptr,
             //.try_inline,
             //.try_ptr_inline,
+            .save_err_ret_index,
             => break :b false,
 
             .extended => switch (gz.astgen.instructions.items(.data)[inst].extended.opcode) {
@@ -2533,6 +2534,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .validate_array_init_ty,
             .validate_struct_init_ty,
             .validate_deref,
+            .restore_err_ret_index,
             => break :b true,
 
             .@"defer" => unreachable,
@@ -5152,9 +5154,15 @@ fn orelseCatchExpr(
     const astgen = parent_gz.astgen;
     const tree = astgen.tree;
 
+    const do_err_trace = astgen.fn_block != null and (cond_op == .is_non_err or cond_op == .is_non_err_ptr);
+
     var block_scope = parent_gz.makeSubBlock(scope);
     block_scope.setBreakResultLoc(rl);
     defer block_scope.unstack();
+
+    if (do_err_trace) {
+        block_scope.saved_err_trace_index = try parent_gz.addNode(.save_err_ret_index, node);
+    }
 
     const operand_rl: ResultLoc = switch (block_scope.break_result_loc) {
         .ref => .ref,
@@ -5220,7 +5228,7 @@ fn orelseCatchExpr(
     // instructions or not.
 
     const break_tag: Zir.Inst.Tag = if (parent_gz.force_comptime) .break_inline else .@"break";
-    return finishThenElseBlock(
+    const result = try finishThenElseBlock(
         parent_gz,
         rl,
         node,
@@ -5235,6 +5243,16 @@ fn orelseCatchExpr(
         block,
         break_tag,
     );
+    if (do_err_trace) {
+        _ = try parent_gz.add(.{
+            .tag = .restore_err_ret_index,
+            .data = .{ .un_node = .{
+                .operand = parent_gz.saved_err_trace_index,
+                .src_node = parent_gz.nodeIndexToRelative(node),
+            } },
+        });
+    }
+    return result;
 }
 
 /// Supports `else_scope` stacked on `then_scope` stacked on `block_scope`. Unstacks `else_scope` then `then_scope`.
@@ -5430,9 +5448,15 @@ fn ifExpr(
     const tree = astgen.tree;
     const token_tags = tree.tokens.items(.tag);
 
+    const do_err_trace = astgen.fn_block != null and if_full.error_token != null;
+
     var block_scope = parent_gz.makeSubBlock(scope);
     block_scope.setBreakResultLoc(rl);
     defer block_scope.unstack();
+
+    if (do_err_trace) {
+        block_scope.saved_err_trace_index = try parent_gz.addNode(.save_err_ret_index, node);
+    }
 
     const payload_is_ref = if (if_full.payload_token) |payload_token|
         token_tags[payload_token] == .asterisk
@@ -5602,7 +5626,7 @@ fn ifExpr(
     };
 
     const break_tag: Zir.Inst.Tag = if (parent_gz.force_comptime) .break_inline else .@"break";
-    return finishThenElseBlock(
+    const result = try finishThenElseBlock(
         parent_gz,
         rl,
         node,
@@ -5617,6 +5641,16 @@ fn ifExpr(
         block,
         break_tag,
     );
+    if (do_err_trace) {
+        _ = try parent_gz.add(.{
+            .tag = .restore_err_ret_index,
+            .data = .{ .un_node = .{
+                .operand = parent_gz.saved_err_trace_index,
+                .src_node = parent_gz.nodeIndexToRelative(node),
+            } },
+        });
+    }
+    return result;
 }
 
 /// Supports `else_scope` stacked on `then_scope`. Unstacks `else_scope` then `then_scope`.
@@ -10300,6 +10334,8 @@ const GenZir = struct {
     /// Keys are the raw instruction index, values are the closure_capture instruction.
     captures: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{},
 
+    saved_err_trace_index: Zir.Inst.Ref = .none,
+
     const unstacked_top = std.math.maxInt(usize);
     /// Call unstack before adding any new instructions to containing GenZir.
     fn unstack(self: *GenZir) void {
@@ -10344,6 +10380,7 @@ const GenZir = struct {
             .any_defer_node = gz.any_defer_node,
             .instructions = gz.instructions,
             .instructions_top = gz.instructions.items.len,
+            .saved_err_trace_index = gz.saved_err_trace_index,
         };
     }
 

@@ -926,6 +926,8 @@ fn analyzeBodyInner(
             .ret_ptr  => try sema.zirRetPtr(block, inst),
             .ret_type => try sema.addType(sema.fn_ret_ty),
 
+            .save_err_ret_index => try sema.zirSaveErrRetIndex(block, inst),
+
             // Instructions that we know to *always* be noreturn based solely on their tag.
             // These functions match the return type of analyzeBody so that we can
             // tail call them here.
@@ -1205,6 +1207,11 @@ fn analyzeBodyInner(
                         return sema.failWithOwnedErrorMsg(msg);
                     }
                 }
+                i += 1;
+                continue;
+            },
+            .restore_err_ret_index => {
+                try sema.zirRestoreErrRetIndex(block, inst);
                 i += 1;
                 continue;
             },
@@ -16176,6 +16183,52 @@ fn wantErrorReturnTracing(sema: *Sema, fn_ret_ty: Type) bool {
         backend_supports_error_return_tracing;
 }
 
+fn zirSaveErrRetIndex(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const inst_data = sema.code.instructions.items(.data)[inst].node;
+    const src = LazySrcLoc.nodeOffset(inst_data);
+
+    // This is only relevant at runtime.
+    if (block.is_comptime) return Air.Inst.Ref.zero_usize;
+
+    const backend_supports_error_return_tracing = sema.mod.comp.bin_file.options.use_llvm;
+    const ok = sema.owner_func.?.calls_or_awaits_errorable_fn and
+        sema.mod.comp.bin_file.options.error_return_tracing and
+        backend_supports_error_return_tracing;
+    if (!ok) return Air.Inst.Ref.zero_usize;
+
+    const unresolved_stack_trace_ty = try sema.getBuiltinType(block, src, "StackTrace");
+    const stack_trace_ty = try sema.resolveTypeFields(block, src, unresolved_stack_trace_ty);
+    const ptr_stack_trace_ty = try Type.Tag.single_mut_pointer.create(sema.arena, stack_trace_ty);
+    const err_return_trace = try block.addTy(.err_return_trace, ptr_stack_trace_ty);
+    return sema.fieldVal(block, src, err_return_trace, "index", src);
+}
+
+fn zirRestoreErrRetIndex(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
+    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
+    const src = inst_data.src();
+
+    // This is only relevant at runtime.
+    if (block.is_comptime) return;
+
+    const backend_supports_error_return_tracing = sema.mod.comp.bin_file.options.use_llvm;
+    const ok = sema.owner_func.?.calls_or_awaits_errorable_fn and
+        sema.mod.comp.bin_file.options.error_return_tracing and
+        backend_supports_error_return_tracing;
+    if (!ok) return;
+
+    const operand = if (inst_data.operand != .none)
+        try sema.resolveInst(inst_data.operand)
+    else
+        .zero_usize;
+
+    const unresolved_stack_trace_ty = try sema.getBuiltinType(block, src, "StackTrace");
+    const stack_trace_ty = try sema.resolveTypeFields(block, src, unresolved_stack_trace_ty);
+    const ptr_stack_trace_ty = try Type.Tag.single_mut_pointer.create(sema.arena, stack_trace_ty);
+    const err_return_trace = try block.addTy(.err_return_trace, ptr_stack_trace_ty);
+    const field_ptr = try sema.structFieldPtr(block, src, err_return_trace, "index", src, stack_trace_ty, true);
+    try sema.storePtr2(block, src, field_ptr, src, operand, src, .store);
+}
+
 fn addToInferredErrorSet(sema: *Sema, uncasted_operand: Air.Inst.Ref) !void {
     assert(sema.fn_ret_ty.zigTypeTag() == .ErrorUnion);
 
@@ -17181,8 +17234,6 @@ fn zirBoolToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
 
 fn zirErrorName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
-    _ = src;
     const operand = try sema.resolveInst(inst_data.operand);
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
 

@@ -988,6 +988,15 @@ pub const Inst = struct {
         /// Uses the `err_defer_code` union field.
         defer_err_code,
 
+        /// Saves the current error return case if it exists,
+        /// otherwise just returns zero.
+        /// Uses the `node` union field.
+        save_err_ret_index,
+        /// Sets error return trace to zero if no operand is given,
+        /// otherwise sets the value to the given amount.
+        /// Uses the `un_node` union field.
+        restore_err_ret_index,
+
         /// The ZIR instruction tag is one of the `Extended` ones.
         /// Uses the `extended` union field.
         extended,
@@ -1236,6 +1245,8 @@ pub const Inst = struct {
                 //.try_ptr_inline,
                 .@"defer",
                 .defer_err_code,
+                .save_err_ret_index,
+                .restore_err_ret_index,
                 => false,
 
                 .@"break",
@@ -1305,6 +1316,7 @@ pub const Inst = struct {
                 .check_comptime_control_flow,
                 .@"defer",
                 .defer_err_code,
+                .restore_err_ret_index,
                 => true,
 
                 .param,
@@ -1530,6 +1542,7 @@ pub const Inst = struct {
                 .try_ptr,
                 //.try_inline,
                 //.try_ptr_inline,
+                .save_err_ret_index,
                 => false,
 
                 .extended => switch (data.extended.opcode) {
@@ -1809,6 +1822,9 @@ pub const Inst = struct {
 
                 .@"defer" = .@"defer",
                 .defer_err_code = .defer_err_code,
+
+                .save_err_ret_index = .node,
+                .restore_err_ret_index = .un_node,
 
                 .extended = .extended,
             });
