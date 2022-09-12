@@ -999,7 +999,8 @@ pub fn main() void {
       </p>
       <p>
       In {#link|Debug#} mode, Zig writes {#syntax#}0xaa{#endsyntax#} bytes to undefined memory. This is to catch
-      bugs early, and to help detect use of undefined memory in a debugger.
+      bugs early, and to help detect use of undefined memory in a debugger. However, this behavior is only an
+      implementation feature, not a language semantic, so it is not guaranteed to be observable to code.
       </p>
       {#header_close#}
       {#header_close#}
