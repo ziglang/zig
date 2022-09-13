@@ -3574,6 +3574,24 @@ pub const TEB = extern struct {
     TlsExpansionSlots: PVOID,
 };
 
+pub const EXCEPTION_REGISTRATION_RECORD = struct {
+    Next: ?*EXCEPTION_REGISTRATION_RECORD,
+    Handler: ?*EXCEPTION_DISPOSITION
+};
+
+pub const NT_TIB = extern struct {
+    ExceptionList: ?*EXCEPTION_REGISTRATION_RECORD,
+    StackBase: PVOID,
+    StackLimit: PVOID,
+    SubSystemTib: PVOID,
+    DUMMYUNIONNAME: extern union {
+        FiberData: PVOID,
+        Version: DWORD
+    },
+    ArbitraryUserPointer: PVOID,
+    Self: ?*@This(),
+};
+
 /// Process Environment Block
 /// Microsoft documentation of this is incomplete, the fields here are taken from various resources including:
 ///  - https://github.com/wine-mirror/wine/blob/1aff1e6a370ee8c0213a0fd4b220d121da8527aa/include/winternl.h#L269

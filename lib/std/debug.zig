@@ -574,6 +574,8 @@ pub fn walkStackWindows(addresses: []usize) usize {
         return windows.ntdll.RtlCaptureStackBackTrace(0, addresses.len, @ptrCast(**anyopaque, addresses.ptr), null);
     }
 
+    const tib = @ptrCast(*const windows.NT_TIB, &windows.teb().Reserved1);
+
     var context: windows.CONTEXT = std.mem.zeroes(windows.CONTEXT);
     windows.kernel32.RtlCaptureContext(&context);
 
@@ -594,6 +596,10 @@ pub fn walkStackWindows(addresses: []usize) usize {
         }
 
         const next_regs = context.getRegs();
+        if (next_regs.sp < @ptrToInt(tib.StackLimit) or next_regs.sp > @ptrToInt(tib.StackBase)) {
+            break;
+        }
+
         if (next_regs.ip == 0) {
             break;
         }
