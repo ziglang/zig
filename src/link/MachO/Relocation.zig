@@ -181,7 +181,6 @@ fn resolveAarch64(
             const offset = @divExact(narrowed, 8);
             inst.load_store_register.offset = offset;
             mem.writeIntLittle(u32, &buffer, inst.toU32());
-            log.debug("HMM = {x}", .{std.fmt.fmtSliceHexLower(&buffer)});
         },
         .ARM64_RELOC_TLVP_LOAD_PAGEOFF12 => {
             const RegInfo = struct {

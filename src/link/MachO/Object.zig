@@ -220,15 +220,15 @@ fn filterRelocs(
 
 pub fn scanInputSections(self: Object, macho_file: *MachO) !void {
     for (self.sections.items) |sect| {
-        const gop = (try macho_file.getOutputSection(sect)) orelse {
+        const sect_id = (try macho_file.getOutputSection(sect)) orelse {
             log.debug("  unhandled section", .{});
             continue;
         };
-        const output = macho_file.sections.items(.header)[gop.sect_id];
+        const output = macho_file.sections.items(.header)[sect_id];
         log.debug("mapping '{s},{s}' into output sect({d}, '{s},{s}')", .{
             sect.segName(),
             sect.sectName(),
-            gop.sect_id + 1,
+            sect_id + 1,
             output.segName(),
             output.sectName(),
         });
@@ -335,11 +335,10 @@ pub fn splitIntoAtoms(self: *Object, macho_file: *MachO, object_id: u32) !void {
         log.debug("splitting section '{s},{s}' into atoms", .{ sect.segName(), sect.sectName() });
 
         // Get matching segment/section in the final artifact.
-        const gop = (try macho_file.getOutputSection(sect)) orelse {
+        const out_sect_id = (try macho_file.getOutputSection(sect)) orelse {
             log.debug("  unhandled section", .{});
             continue;
         };
-        const out_sect_id = gop.sect_id;
 
         log.debug("  output sect({d}, '{s},{s}')", .{
             out_sect_id + 1,

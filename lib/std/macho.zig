@@ -798,6 +798,11 @@ pub const section_64 = extern struct {
         return tt == S_ZEROFILL or tt == S_GB_ZEROFILL or tt == S_THREAD_LOCAL_ZEROFILL;
     }
 
+    pub fn isSymbolStubs(sect: section_64) bool {
+        const tt = sect.@"type"();
+        return tt == S_SYMBOL_STUBS;
+    }
+
     pub fn isDebug(sect: section_64) bool {
         return sect.attrs() & S_ATTR_DEBUG != 0;
     }

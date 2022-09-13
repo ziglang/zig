@@ -876,11 +876,23 @@ fn allocateSegments(macho_file: *MachO) !void {
     }, 0);
 }
 
+fn getSegmentAllocBase(macho_file: *MachO, indices: []const ?u8) struct { vmaddr: u64, fileoff: u64 } {
+    for (indices) |maybe_prev_id| {
+        const prev_id = maybe_prev_id orelse continue;
+        const prev = macho_file.segments.items[prev_id];
+        return .{
+            .vmaddr = prev.vmaddr + prev.vmsize,
+            .fileoff = prev.fileoff + prev.filesize,
+        };
+    }
+    return .{ .vmaddr = 0, .fileoff = 0 };
+}
+
 fn allocateSegment(macho_file: *MachO, maybe_index: ?u8, indices: []const ?u8, init_size: u64) !void {
     const index = maybe_index orelse return;
     const seg = &macho_file.segments.items[index];
 
-    const base = macho_file.getSegmentAllocBase(indices);
+    const base = getSegmentAllocBase(macho_file, indices);
     seg.vmaddr = base.vmaddr;
     seg.fileoff = base.fileoff;
     seg.filesize = init_size;

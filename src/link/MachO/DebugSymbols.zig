@@ -512,7 +512,7 @@ fn writeSymtab(self: *DebugSymbols, lc: *macho.symtab_command) !void {
         const dwarf_seg = &self.segments.items[self.dwarf_segment_cmd_index.?];
         seg.filesize = aligned_size;
 
-        try MachO.copyRangeAllOverlappingAlloc(
+        try copyRangeAllOverlappingAlloc(
             self.base.base.allocator,
             self.file,
             dwarf_seg.fileoff,
@@ -571,7 +571,7 @@ fn writeStrtab(self: *DebugSymbols, lc: *macho.symtab_command) !void {
         const dwarf_seg = &self.segments.items[self.dwarf_segment_cmd_index.?];
         seg.filesize = aligned_size;
 
-        try MachO.copyRangeAllOverlappingAlloc(
+        try copyRangeAllOverlappingAlloc(
             self.base.base.allocator,
             self.file,
             dwarf_seg.fileoff,
@@ -600,4 +600,17 @@ fn writeStrtab(self: *DebugSymbols, lc: *macho.symtab_command) !void {
     log.debug("writing string table from 0x{x} to 0x{x}", .{ lc.stroff, lc.stroff + lc.strsize });
 
     try self.file.pwriteAll(self.strtab.buffer.items, lc.stroff);
+}
+
+fn copyRangeAllOverlappingAlloc(
+    allocator: Allocator,
+    file: std.fs.File,
+    in_offset: u64,
+    out_offset: u64,
+    len: usize,
+) !void {
+    const buf = try allocator.alloc(u8, len);
+    defer allocator.free(buf);
+    const amt = try file.preadAll(buf, in_offset);
+    try file.pwriteAll(buf[0..amt], out_offset);
 }
