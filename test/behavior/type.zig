@@ -486,7 +486,6 @@ test "Type.Union from Type.Enum" {
             .decls = &.{},
         },
     });
-    _ = T;
     _ = @typeInfo(T).Union;
 }
 
@@ -505,7 +504,6 @@ test "Type.Union from regular enum" {
             .decls = &.{},
         },
     });
-    _ = T;
     _ = @typeInfo(T).Union;
 }
 

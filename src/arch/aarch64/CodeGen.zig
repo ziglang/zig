@@ -2581,7 +2581,6 @@ fn airErrUnionPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airErrReturnTrace(self: *Self, inst: Air.Inst.Index) !void {
-    _ = inst;
     const result: MCValue = if (self.liveness.isUnused(inst))
         .dead
     else
@@ -3614,7 +3613,6 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
     const ptr = try self.resolveInst(un_op);
     const ptr_ty = self.air.typeOf(un_op);
     const ret_ty = self.fn_type.fnReturnType();
-    _ = ret_ty;
 
     switch (self.ret_mcv) {
         .none => {},
@@ -5099,7 +5097,6 @@ fn lowerDeclRef(self: *Self, tv: TypedValue, decl_index: Module.Decl.Index) Inne
     } else {
         return self.fail("TODO codegen non-ELF const Decl pointer", .{});
     }
-    _ = tv;
 }
 
 fn lowerUnnamedConst(self: *Self, tv: TypedValue) InnerError!MCValue {

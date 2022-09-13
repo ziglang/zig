@@ -1550,14 +1550,27 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .main_token = try c.addToken(.identifier, "_"),
                 .data = undefined,
             });
-            return c.addNode(.{
-                .tag = .assign,
-                .main_token = try c.addToken(.equal, "="),
-                .data = .{
-                    .lhs = lhs,
-                    .rhs = try renderNode(c, payload.value),
-                },
-            });
+            const main_token = try c.addToken(.equal, "=");
+            if (payload.value.tag() == .identifier) {
+                // Render as `_ = @TypeOf(foo);` to avoid tripping "pointless discard" error.
+                return c.addNode(.{
+                    .tag = .assign,
+                    .main_token = main_token,
+                    .data = .{
+                        .lhs = lhs,
+                        .rhs = try renderBuiltinCall(c, "@TypeOf", &.{payload.value}),
+                    },
+                });
+            } else {
+                return c.addNode(.{
+                    .tag = .assign,
+                    .main_token = main_token,
+                    .data = .{
+                        .lhs = lhs,
+                        .rhs = try renderNode(c, payload.value),
+                    },
+                });
+            }
         },
         .@"while" => {
             const payload = node.castTag(.@"while").?.data;

@@ -55,37 +55,37 @@ pub const empty: Atom = .{
 };
 
 /// Frees all resources owned by this `Atom`.
-pub fn deinit(self: *Atom, gpa: Allocator) void {
-    self.relocs.deinit(gpa);
-    self.code.deinit(gpa);
+pub fn deinit(atom: *Atom, gpa: Allocator) void {
+    atom.relocs.deinit(gpa);
+    atom.code.deinit(gpa);
 
-    for (self.locals.items) |*local| {
+    for (atom.locals.items) |*local| {
         local.deinit(gpa);
     }
-    self.locals.deinit(gpa);
+    atom.locals.deinit(gpa);
 }
 
 /// Sets the length of relocations and code to '0',
 /// effectively resetting them and allowing them to be re-populated.
-pub fn clear(self: *Atom) void {
-    self.relocs.clearRetainingCapacity();
-    self.code.clearRetainingCapacity();
+pub fn clear(atom: *Atom) void {
+    atom.relocs.clearRetainingCapacity();
+    atom.code.clearRetainingCapacity();
 }
 
-pub fn format(self: Atom, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+pub fn format(atom: Atom, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
     _ = fmt;
     _ = options;
     try writer.print("Atom{{ .sym_index = {d}, .alignment = {d}, .size = {d}, .offset = 0x{x:0>8} }}", .{
-        self.sym_index,
-        self.alignment,
-        self.size,
-        self.offset,
+        atom.sym_index,
+        atom.alignment,
+        atom.size,
+        atom.offset,
     });
 }
 
 /// Returns the first `Atom` from a given atom
-pub fn getFirst(self: *Atom) *Atom {
-    var tmp = self;
+pub fn getFirst(atom: *Atom) *Atom {
+    var tmp = atom;
     while (tmp.prev) |prev| tmp = prev;
     return tmp;
 }
@@ -94,9 +94,9 @@ pub fn getFirst(self: *Atom) *Atom {
 /// produced from Zig code, rather than an object file.
 /// This is useful for debug sections where we want to extend
 /// the bytes, and don't want to overwrite existing Atoms.
-pub fn getFirstZigAtom(self: *Atom) *Atom {
-    if (self.file == null) return self;
-    var tmp = self;
+pub fn getFirstZigAtom(atom: *Atom) *Atom {
+    if (atom.file == null) return atom;
+    var tmp = atom;
     return while (tmp.prev) |prev| {
         if (prev.file == null) break prev;
         tmp = prev;
@@ -104,24 +104,24 @@ pub fn getFirstZigAtom(self: *Atom) *Atom {
 }
 
 /// Returns the location of the symbol that represents this `Atom`
-pub fn symbolLoc(self: Atom) Wasm.SymbolLoc {
-    return .{ .file = self.file, .index = self.sym_index };
+pub fn symbolLoc(atom: Atom) Wasm.SymbolLoc {
+    return .{ .file = atom.file, .index = atom.sym_index };
 }
 
 /// Resolves the relocations within the atom, writing the new value
 /// at the calculated offset.
-pub fn resolveRelocs(self: *Atom, wasm_bin: *const Wasm) void {
-    if (self.relocs.items.len == 0) return;
-    const symbol_name = self.symbolLoc().getName(wasm_bin);
+pub fn resolveRelocs(atom: *Atom, wasm_bin: *const Wasm) void {
+    if (atom.relocs.items.len == 0) return;
+    const symbol_name = atom.symbolLoc().getName(wasm_bin);
     log.debug("Resolving relocs in atom '{s}' count({d})", .{
         symbol_name,
-        self.relocs.items.len,
+        atom.relocs.items.len,
     });
 
-    for (self.relocs.items) |reloc| {
-        const value = self.relocationValue(reloc, wasm_bin);
+    for (atom.relocs.items) |reloc| {
+        const value = atom.relocationValue(reloc, wasm_bin);
         log.debug("Relocating '{s}' referenced in '{s}' offset=0x{x:0>8} value={d}", .{
-            (Wasm.SymbolLoc{ .file = self.file, .index = reloc.index }).getName(wasm_bin),
+            (Wasm.SymbolLoc{ .file = atom.file, .index = reloc.index }).getName(wasm_bin),
             symbol_name,
             reloc.offset,
             value,
@@ -133,10 +133,10 @@ pub fn resolveRelocs(self: *Atom, wasm_bin: *const Wasm) void {
             .R_WASM_GLOBAL_INDEX_I32,
             .R_WASM_MEMORY_ADDR_I32,
             .R_WASM_SECTION_OFFSET_I32,
-            => std.mem.writeIntLittle(u32, self.code.items[reloc.offset..][0..4], @intCast(u32, value)),
+            => std.mem.writeIntLittle(u32, atom.code.items[reloc.offset..][0..4], @intCast(u32, value)),
             .R_WASM_TABLE_INDEX_I64,
             .R_WASM_MEMORY_ADDR_I64,
-            => std.mem.writeIntLittle(u64, self.code.items[reloc.offset..][0..8], value),
+            => std.mem.writeIntLittle(u64, atom.code.items[reloc.offset..][0..8], value),
             .R_WASM_GLOBAL_INDEX_LEB,
             .R_WASM_EVENT_INDEX_LEB,
             .R_WASM_FUNCTION_INDEX_LEB,
@@ -145,11 +145,11 @@ pub fn resolveRelocs(self: *Atom, wasm_bin: *const Wasm) void {
             .R_WASM_TABLE_INDEX_SLEB,
             .R_WASM_TABLE_NUMBER_LEB,
             .R_WASM_TYPE_INDEX_LEB,
-            => leb.writeUnsignedFixed(5, self.code.items[reloc.offset..][0..5], @intCast(u32, value)),
+            => leb.writeUnsignedFixed(5, atom.code.items[reloc.offset..][0..5], @intCast(u32, value)),
             .R_WASM_MEMORY_ADDR_LEB64,
             .R_WASM_MEMORY_ADDR_SLEB64,
             .R_WASM_TABLE_INDEX_SLEB64,
-            => leb.writeUnsignedFixed(10, self.code.items[reloc.offset..][0..10], value),
+            => leb.writeUnsignedFixed(10, atom.code.items[reloc.offset..][0..10], value),
         }
     }
 }
@@ -157,8 +157,8 @@ pub fn resolveRelocs(self: *Atom, wasm_bin: *const Wasm) void {
 /// From a given `relocation` will return the new value to be written.
 /// All values will be represented as a `u64` as all values can fit within it.
 /// The final value must be casted to the correct size.
-fn relocationValue(self: Atom, relocation: types.Relocation, wasm_bin: *const Wasm) u64 {
-    const target_loc = (Wasm.SymbolLoc{ .file = self.file, .index = relocation.index }).finalLoc(wasm_bin);
+fn relocationValue(atom: Atom, relocation: types.Relocation, wasm_bin: *const Wasm) u64 {
+    const target_loc = (Wasm.SymbolLoc{ .file = atom.file, .index = relocation.index }).finalLoc(wasm_bin);
     const symbol = target_loc.getSymbol(wasm_bin).*;
     switch (relocation.relocation_type) {
         .R_WASM_FUNCTION_INDEX_LEB => return symbol.index,
@@ -203,7 +203,7 @@ fn relocationValue(self: Atom, relocation: types.Relocation, wasm_bin: *const Wa
         },
         .R_WASM_FUNCTION_OFFSET_I32 => {
             const target_atom = wasm_bin.symbol_atom.get(target_loc).?;
-            var atom = target_atom.getFirst();
+            var current_atom = target_atom.getFirst();
             var offset: u32 = 0;
             // TODO: Calculate this during atom allocation, rather than
             // this linear calculation. For now it's done here as atoms
@@ -211,8 +211,8 @@ fn relocationValue(self: Atom, relocation: types.Relocation, wasm_bin: *const Wa
             // merged until later.
             while (true) {
                 offset += 5; // each atom uses 5 bytes to store its body's size
-                if (atom == target_atom) break;
-                atom = atom.next.?;
+                if (current_atom == target_atom) break;
+                current_atom = current_atom.next.?;
             }
             return target_atom.offset + offset + (relocation.addend orelse 0);
         },

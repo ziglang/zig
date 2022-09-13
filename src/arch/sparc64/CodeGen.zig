@@ -2084,9 +2084,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
-    _ = self;
     _ = inst;
-
     return self.fail("TODO implement switch for {}", .{self.target.cpu.arch});
 }
 

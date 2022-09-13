@@ -1316,7 +1316,6 @@ fn airErrUnionPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airErrReturnTrace(self: *Self, inst: Air.Inst.Index) !void {
-    _ = inst;
     const result: MCValue = if (self.liveness.isUnused(inst))
         .dead
     else
@@ -1598,7 +1597,6 @@ fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u8) !void {
     return self.structFieldPtr(ty_op.operand, ty_op.ty, index);
 }
 fn structFieldPtr(self: *Self, operand: Air.Inst.Ref, ty: Air.Inst.Ref, index: u32) !void {
-    _ = self;
     _ = operand;
     _ = ty;
     _ = index;
@@ -1615,7 +1613,6 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
-    _ = self;
     _ = inst;
     return self.fail("TODO implement codegen airFieldParentPtr", .{});
 }

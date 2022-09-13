@@ -2506,7 +2506,6 @@ fn walkInstruction(
                         try self.srcLocInfo(file, sn, parent_src)
                     else
                         parent_src;
-                    _ = src_info;
 
                     const decls_len = if (small.has_decls_len) blk: {
                         const decls_len = file.zir.extra[extra_index];
@@ -2627,7 +2626,6 @@ fn walkInstruction(
                         extra_index += 1;
                         break :blk fields_len;
                     } else 0;
-                    _ = fields_len;
 
                     const decls_len = if (small.has_decls_len) blk: {
                         const decls_len = file.zir.extra[extra_index];
@@ -2759,7 +2757,6 @@ fn walkInstruction(
                         extra_index += 1;
                         break :blk fields_len;
                     } else 0;
-                    _ = fields_len;
 
                     const decls_len = if (small.has_decls_len) blk: {
                         const decls_len = file.zir.extra[extra_index];
@@ -2901,7 +2898,6 @@ fn walkInstruction(
                         extra_index += 1;
                         break :blk fields_len;
                     } else 0;
-                    _ = fields_len;
 
                     const decls_len = if (small.has_decls_len) blk: {
                         const decls_len = file.zir.extra[extra_index];
