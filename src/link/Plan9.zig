@@ -622,7 +622,6 @@ pub fn updateDeclExports(
 ) !void {
     try self.seeDecl(decl_index);
     // we do all the things in flush
-    _ = self;
     _ = module;
     _ = exports;
 }

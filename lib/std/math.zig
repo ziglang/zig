@@ -171,7 +171,6 @@ pub fn approxEqRel(comptime T: type, x: T, y: T, tolerance: T) bool {
 }
 
 pub fn approxEq(comptime T: type, x: T, y: T, tolerance: T) bool {
-    _ = T;
     _ = x;
     _ = y;
     _ = tolerance;

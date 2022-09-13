@@ -1960,7 +1960,6 @@ fn airErrUnionPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airErrReturnTrace(self: *Self, inst: Air.Inst.Index) !void {
-    _ = inst;
     const result: MCValue = if (self.liveness.isUnused(inst))
         .dead
     else
@@ -6590,7 +6589,6 @@ fn airFloatToInt(self: *Self, inst: Air.Inst.Index) !void {
 fn airCmpxchg(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.Block, ty_pl.payload);
-    _ = ty_pl;
     _ = extra;
     return self.fail("TODO implement x86 airCmpxchg", .{});
     // return self.finishAir(inst, result, .{ extra.ptr, extra.expected_value, extra.new_value });
