@@ -12,14 +12,8 @@ fn isRunnableTarget(t: CrossTarget) bool {
 }
 
 pub fn build(b: *Builder) void {
-    var mode = b.standardReleaseOptions();
+    const mode = b.standardReleaseOptions();
     const target = b.standardTargetOptions(.{});
-
-    if (mode != .Debug and target.getAbi().isMusl()) {
-        // https://github.com/ziglang/zig/issues/12828
-        std.debug.print("warn: skipping musl libc++ test that regressed with LLVM 15\n", .{});
-        mode = .Debug;
-    }
 
     const test_step = b.step("test", "Test the program");
 
