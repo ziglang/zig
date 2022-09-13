@@ -39,7 +39,7 @@ pub fn buildStaticLib(comp: *Compilation) !void {
 
         switch (Compilation.classifyFileExt(unwind_src)) {
             .c => {
-                try cflags.append("-std=c99");
+                try cflags.append("-std=c11");
             },
             .cpp => {
                 try cflags.appendSlice(&[_][]const u8{
