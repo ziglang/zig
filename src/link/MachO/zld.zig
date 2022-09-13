@@ -1,6 +1,7 @@
 const std = @import("std");
 const build_options = @import("build_options");
 const assert = std.debug.assert;
+const dwarf = std.dwarf;
 const fs = std.fs;
 const log = std.log.scoped(.link);
 const macho = std.macho;
@@ -18,6 +19,7 @@ const CodeSignature = @import("CodeSignature.zig");
 const Compilation = @import("../../Compilation.zig");
 const Dylib = @import("Dylib.zig");
 const MachO = @import("../MachO.zig");
+const Object = @import("Object.zig");
 const SymbolWithLoc = MachO.SymbolWithLoc;
 const Trie = @import("Trie.zig");
 
@@ -618,20 +620,20 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
             if (macho_file.base.options.entitlements) |path| {
                 try codesig.addEntitlements(arena, path);
             }
-            codesig_offset = try macho_file.writeCodeSignaturePadding(&codesig, &ncmds, lc_writer);
+            codesig_offset = try writeCodeSignaturePadding(macho_file, &codesig, &ncmds, lc_writer);
             break :blk codesig;
         } else null;
 
         var headers_buf = std.ArrayList(u8).init(arena);
-        try macho_file.writeSegmentHeaders(&ncmds, headers_buf.writer());
+        try writeSegmentHeaders(macho_file, &ncmds, headers_buf.writer());
 
         try macho_file.base.file.?.pwriteAll(headers_buf.items, @sizeOf(macho.mach_header_64));
         try macho_file.base.file.?.pwriteAll(lc_buffer.items, @sizeOf(macho.mach_header_64) + headers_buf.items.len);
 
-        try macho_file.writeHeader(ncmds, @intCast(u32, lc_buffer.items.len + headers_buf.items.len));
+        try writeHeader(macho_file, ncmds, @intCast(u32, lc_buffer.items.len + headers_buf.items.len));
 
         if (codesig) |*csig| {
-            try macho_file.writeCodeSignature(csig, codesig_offset.?); // code signing always comes last
+            try writeCodeSignature(macho_file, csig, codesig_offset.?); // code signing always comes last
         }
     }
 
@@ -964,9 +966,9 @@ fn writeLinkeditSegmentData(macho_file: *MachO, ncmds: *u32, lc_writer: anytype)
     seg.vmsize = 0;
 
     try writeDyldInfoData(macho_file, ncmds, lc_writer);
-    try macho_file.writeFunctionStarts(ncmds, lc_writer);
-    try macho_file.writeDataInCode(ncmds, lc_writer);
-    try macho_file.writeSymtabs(ncmds, lc_writer);
+    try writeFunctionStarts(macho_file, ncmds, lc_writer);
+    try writeDataInCode(macho_file, ncmds, lc_writer);
+    try writeSymtabs(macho_file, ncmds, lc_writer);
 
     seg.vmsize = mem.alignForwardGeneric(u64, seg.filesize, macho_file.page_size);
 }
@@ -1279,4 +1281,661 @@ fn populateLazyBindOffsetsInStubHelper(macho_file: *MachO, buffer: []const u8) !
         });
         try macho_file.base.file.?.pwriteAll(&buf, file_offset);
     }
+}
+
+const asc_u64 = std.sort.asc(u64);
+
+fn writeFunctionStarts(macho_file: *MachO, ncmds: *u32, lc_writer: anytype) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const text_seg_index = macho_file.text_segment_cmd_index orelse return;
+    const text_sect_index = macho_file.text_section_index orelse return;
+    const text_seg = macho_file.segments.items[text_seg_index];
+
+    const gpa = macho_file.base.allocator;
+
+    // We need to sort by address first
+    var addresses = std.ArrayList(u64).init(gpa);
+    defer addresses.deinit();
+    try addresses.ensureTotalCapacityPrecise(macho_file.globals.items.len);
+
+    for (macho_file.globals.items) |global| {
+        const sym = macho_file.getSymbol(global);
+        if (sym.undf()) continue;
+        if (sym.n_desc == MachO.N_DESC_GCED) continue;
+        const sect_id = sym.n_sect - 1;
+        if (sect_id != text_sect_index) continue;
+
+        addresses.appendAssumeCapacity(sym.n_value);
+    }
+
+    std.sort.sort(u64, addresses.items, {}, asc_u64);
+
+    var offsets = std.ArrayList(u32).init(gpa);
+    defer offsets.deinit();
+    try offsets.ensureTotalCapacityPrecise(addresses.items.len);
+
+    var last_off: u32 = 0;
+    for (addresses.items) |addr| {
+        const offset = @intCast(u32, addr - text_seg.vmaddr);
+        const diff = offset - last_off;
+
+        if (diff == 0) continue;
+
+        offsets.appendAssumeCapacity(diff);
+        last_off = offset;
+    }
+
+    var buffer = std.ArrayList(u8).init(gpa);
+    defer buffer.deinit();
+
+    const max_size = @intCast(usize, offsets.items.len * @sizeOf(u64));
+    try buffer.ensureTotalCapacity(max_size);
+
+    for (offsets.items) |offset| {
+        try std.leb.writeULEB128(buffer.writer(), offset);
+    }
+
+    const link_seg = &macho_file.segments.items[macho_file.linkedit_segment_cmd_index.?];
+    const offset = mem.alignForwardGeneric(u64, link_seg.fileoff + link_seg.filesize, @alignOf(u64));
+    const needed_size = buffer.items.len;
+    link_seg.filesize = offset + needed_size - link_seg.fileoff;
+
+    log.debug("writing function starts info from 0x{x} to 0x{x}", .{ offset, offset + needed_size });
+
+    try macho_file.base.file.?.pwriteAll(buffer.items, offset);
+
+    try lc_writer.writeStruct(macho.linkedit_data_command{
+        .cmd = .FUNCTION_STARTS,
+        .cmdsize = @sizeOf(macho.linkedit_data_command),
+        .dataoff = @intCast(u32, offset),
+        .datasize = @intCast(u32, needed_size),
+    });
+    ncmds.* += 1;
+}
+
+fn filterDataInCode(
+    dices: []align(1) const macho.data_in_code_entry,
+    start_addr: u64,
+    end_addr: u64,
+) []align(1) const macho.data_in_code_entry {
+    const Predicate = struct {
+        addr: u64,
+
+        pub fn predicate(macho_file: @This(), dice: macho.data_in_code_entry) bool {
+            return dice.offset >= macho_file.addr;
+        }
+    };
+
+    const start = MachO.findFirst(macho.data_in_code_entry, dices, 0, Predicate{ .addr = start_addr });
+    const end = MachO.findFirst(macho.data_in_code_entry, dices, start, Predicate{ .addr = end_addr });
+
+    return dices[start..end];
+}
+
+fn writeDataInCode(macho_file: *MachO, ncmds: *u32, lc_writer: anytype) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    var out_dice = std.ArrayList(macho.data_in_code_entry).init(macho_file.base.allocator);
+    defer out_dice.deinit();
+
+    const text_sect_id = macho_file.text_section_index orelse return;
+    const text_sect_header = macho_file.sections.items(.header)[text_sect_id];
+
+    for (macho_file.objects.items) |object| {
+        const dice = object.parseDataInCode() orelse continue;
+        try out_dice.ensureUnusedCapacity(dice.len);
+
+        for (object.managed_atoms.items) |atom| {
+            const sym = atom.getSymbol(macho_file);
+            if (sym.n_desc == MachO.N_DESC_GCED) continue;
+
+            const sect_id = sym.n_sect - 1;
+            if (sect_id != macho_file.text_section_index.?) {
+                continue;
+            }
+
+            const source_sym = object.getSourceSymbol(atom.sym_index) orelse continue;
+            const source_addr = math.cast(u32, source_sym.n_value) orelse return error.Overflow;
+            const filtered_dice = filterDataInCode(dice, source_addr, source_addr + atom.size);
+            const base = math.cast(u32, sym.n_value - text_sect_header.addr + text_sect_header.offset) orelse
+                return error.Overflow;
+
+            for (filtered_dice) |single| {
+                const offset = single.offset - source_addr + base;
+                out_dice.appendAssumeCapacity(.{
+                    .offset = offset,
+                    .length = single.length,
+                    .kind = single.kind,
+                });
+            }
+        }
+    }
+
+    const seg = &macho_file.segments.items[macho_file.linkedit_segment_cmd_index.?];
+    const offset = mem.alignForwardGeneric(u64, seg.fileoff + seg.filesize, @alignOf(u64));
+    const needed_size = out_dice.items.len * @sizeOf(macho.data_in_code_entry);
+    seg.filesize = offset + needed_size - seg.fileoff;
+
+    log.debug("writing data-in-code from 0x{x} to 0x{x}", .{ offset, offset + needed_size });
+
+    try macho_file.base.file.?.pwriteAll(mem.sliceAsBytes(out_dice.items), offset);
+    try lc_writer.writeStruct(macho.linkedit_data_command{
+        .cmd = .DATA_IN_CODE,
+        .cmdsize = @sizeOf(macho.linkedit_data_command),
+        .dataoff = @intCast(u32, offset),
+        .datasize = @intCast(u32, needed_size),
+    });
+    ncmds.* += 1;
+}
+
+fn writeSymtabs(macho_file: *MachO, ncmds: *u32, lc_writer: anytype) !void {
+    var symtab_cmd = macho.symtab_command{
+        .cmdsize = @sizeOf(macho.symtab_command),
+        .symoff = 0,
+        .nsyms = 0,
+        .stroff = 0,
+        .strsize = 0,
+    };
+    var dysymtab_cmd = macho.dysymtab_command{
+        .cmdsize = @sizeOf(macho.dysymtab_command),
+        .ilocalsym = 0,
+        .nlocalsym = 0,
+        .iextdefsym = 0,
+        .nextdefsym = 0,
+        .iundefsym = 0,
+        .nundefsym = 0,
+        .tocoff = 0,
+        .ntoc = 0,
+        .modtaboff = 0,
+        .nmodtab = 0,
+        .extrefsymoff = 0,
+        .nextrefsyms = 0,
+        .indirectsymoff = 0,
+        .nindirectsyms = 0,
+        .extreloff = 0,
+        .nextrel = 0,
+        .locreloff = 0,
+        .nlocrel = 0,
+    };
+    var ctx = try writeSymtab(macho_file, &symtab_cmd);
+    defer ctx.imports_table.deinit();
+    try writeDysymtab(macho_file, ctx, &dysymtab_cmd);
+    try writeStrtab(macho_file, &symtab_cmd);
+    try lc_writer.writeStruct(symtab_cmd);
+    try lc_writer.writeStruct(dysymtab_cmd);
+    ncmds.* += 2;
+}
+
+fn writeSymtab(macho_file: *MachO, lc: *macho.symtab_command) !SymtabCtx {
+    const gpa = macho_file.base.allocator;
+
+    var locals = std.ArrayList(macho.nlist_64).init(gpa);
+    defer locals.deinit();
+
+    for (macho_file.locals.items) |sym, sym_id| {
+        if (sym.n_strx == 0) continue; // no name, skip
+        if (sym.n_desc == MachO.N_DESC_GCED) continue; // GCed, skip
+        const sym_loc = SymbolWithLoc{ .sym_index = @intCast(u32, sym_id), .file = null };
+        if (macho_file.symbolIsTemp(sym_loc)) continue; // local temp symbol, skip
+        if (macho_file.getGlobal(macho_file.getSymbolName(sym_loc)) != null) continue; // global symbol is either an export or import, skip
+        try locals.append(sym);
+    }
+
+    for (macho_file.objects.items) |object, object_id| {
+        for (object.symtab.items) |sym, sym_id| {
+            if (sym.n_strx == 0) continue; // no name, skip
+            if (sym.n_desc == MachO.N_DESC_GCED) continue; // GCed, skip
+            const sym_loc = SymbolWithLoc{ .sym_index = @intCast(u32, sym_id), .file = @intCast(u32, object_id) };
+            if (macho_file.symbolIsTemp(sym_loc)) continue; // local temp symbol, skip
+            if (macho_file.getGlobal(macho_file.getSymbolName(sym_loc)) != null) continue; // global symbol is either an export or import, skip
+            var out_sym = sym;
+            out_sym.n_strx = try macho_file.strtab.insert(gpa, macho_file.getSymbolName(sym_loc));
+            try locals.append(out_sym);
+        }
+
+        if (!macho_file.base.options.strip) {
+            try generateSymbolStabs(macho_file, object, &locals);
+        }
+    }
+
+    var exports = std.ArrayList(macho.nlist_64).init(gpa);
+    defer exports.deinit();
+
+    for (macho_file.globals.items) |global| {
+        const sym = macho_file.getSymbol(global);
+        if (sym.undf()) continue; // import, skip
+        if (sym.n_desc == MachO.N_DESC_GCED) continue; // GCed, skip
+        var out_sym = sym;
+        out_sym.n_strx = try macho_file.strtab.insert(gpa, macho_file.getSymbolName(global));
+        try exports.append(out_sym);
+    }
+
+    var imports = std.ArrayList(macho.nlist_64).init(gpa);
+    defer imports.deinit();
+
+    var imports_table = std.AutoHashMap(SymbolWithLoc, u32).init(gpa);
+
+    for (macho_file.globals.items) |global| {
+        const sym = macho_file.getSymbol(global);
+        if (sym.n_strx == 0) continue; // no name, skip
+        if (!sym.undf()) continue; // not an import, skip
+        const new_index = @intCast(u32, imports.items.len);
+        var out_sym = sym;
+        out_sym.n_strx = try macho_file.strtab.insert(gpa, macho_file.getSymbolName(global));
+        try imports.append(out_sym);
+        try imports_table.putNoClobber(global, new_index);
+    }
+
+    const nlocals = @intCast(u32, locals.items.len);
+    const nexports = @intCast(u32, exports.items.len);
+    const nimports = @intCast(u32, imports.items.len);
+    const nsyms = nlocals + nexports + nimports;
+
+    const seg = &macho_file.segments.items[macho_file.linkedit_segment_cmd_index.?];
+    const offset = mem.alignForwardGeneric(
+        u64,
+        seg.fileoff + seg.filesize,
+        @alignOf(macho.nlist_64),
+    );
+    const needed_size = nsyms * @sizeOf(macho.nlist_64);
+    seg.filesize = offset + needed_size - seg.fileoff;
+
+    var buffer = std.ArrayList(u8).init(gpa);
+    defer buffer.deinit();
+    try buffer.ensureTotalCapacityPrecise(needed_size);
+    buffer.appendSliceAssumeCapacity(mem.sliceAsBytes(locals.items));
+    buffer.appendSliceAssumeCapacity(mem.sliceAsBytes(exports.items));
+    buffer.appendSliceAssumeCapacity(mem.sliceAsBytes(imports.items));
+
+    log.debug("writing symtab from 0x{x} to 0x{x}", .{ offset, offset + needed_size });
+    try macho_file.base.file.?.pwriteAll(buffer.items, offset);
+
+    lc.symoff = @intCast(u32, offset);
+    lc.nsyms = nsyms;
+
+    return SymtabCtx{
+        .nlocalsym = nlocals,
+        .nextdefsym = nexports,
+        .nundefsym = nimports,
+        .imports_table = imports_table,
+    };
+}
+
+fn writeStrtab(macho_file: *MachO, lc: *macho.symtab_command) !void {
+    const seg = &macho_file.segments.items[macho_file.linkedit_segment_cmd_index.?];
+    const offset = mem.alignForwardGeneric(u64, seg.fileoff + seg.filesize, @alignOf(u64));
+    const needed_size = macho_file.strtab.buffer.items.len;
+    seg.filesize = offset + needed_size - seg.fileoff;
+
+    log.debug("writing string table from 0x{x} to 0x{x}", .{ offset, offset + needed_size });
+
+    try macho_file.base.file.?.pwriteAll(macho_file.strtab.buffer.items, offset);
+
+    lc.stroff = @intCast(u32, offset);
+    lc.strsize = @intCast(u32, needed_size);
+}
+
+pub fn generateSymbolStabs(
+    macho_file: *MachO,
+    object: Object,
+    locals: *std.ArrayList(macho.nlist_64),
+) !void {
+    assert(!macho_file.base.options.strip);
+
+    log.debug("parsing debug info in '{s}'", .{object.name});
+
+    const gpa = macho_file.base.allocator;
+    var debug_info = try object.parseDwarfInfo();
+    defer debug_info.deinit(gpa);
+    try dwarf.openDwarfDebugInfo(&debug_info, gpa);
+
+    // We assume there is only one CU.
+    const compile_unit = debug_info.findCompileUnit(0x0) catch |err| switch (err) {
+        error.MissingDebugInfo => {
+            // TODO audit cases with missing debug info and audit our dwarf.zig module.
+            log.debug("invalid or missing debug info in {s}; skipping", .{object.name});
+            return;
+        },
+        else => |e| return e,
+    };
+
+    const tu_name = try compile_unit.die.getAttrString(&debug_info, dwarf.AT.name, debug_info.debug_str, compile_unit.*);
+    const tu_comp_dir = try compile_unit.die.getAttrString(&debug_info, dwarf.AT.comp_dir, debug_info.debug_str, compile_unit.*);
+
+    // Open scope
+    try locals.ensureUnusedCapacity(3);
+    locals.appendAssumeCapacity(.{
+        .n_strx = try macho_file.strtab.insert(gpa, tu_comp_dir),
+        .n_type = macho.N_SO,
+        .n_sect = 0,
+        .n_desc = 0,
+        .n_value = 0,
+    });
+    locals.appendAssumeCapacity(.{
+        .n_strx = try macho_file.strtab.insert(gpa, tu_name),
+        .n_type = macho.N_SO,
+        .n_sect = 0,
+        .n_desc = 0,
+        .n_value = 0,
+    });
+    locals.appendAssumeCapacity(.{
+        .n_strx = try macho_file.strtab.insert(gpa, object.name),
+        .n_type = macho.N_OSO,
+        .n_sect = 0,
+        .n_desc = 1,
+        .n_value = object.mtime,
+    });
+
+    var stabs_buf: [4]macho.nlist_64 = undefined;
+
+    for (object.managed_atoms.items) |atom| {
+        const stabs = try generateSymbolStabsForSymbol(
+            macho_file,
+            atom.getSymbolWithLoc(),
+            debug_info,
+            &stabs_buf,
+        );
+        try locals.appendSlice(stabs);
+
+        for (atom.contained.items) |sym_at_off| {
+            const sym_loc = SymbolWithLoc{
+                .sym_index = sym_at_off.sym_index,
+                .file = atom.file,
+            };
+            const contained_stabs = try generateSymbolStabsForSymbol(
+                macho_file,
+                sym_loc,
+                debug_info,
+                &stabs_buf,
+            );
+            try locals.appendSlice(contained_stabs);
+        }
+    }
+
+    // Close scope
+    try locals.append(.{
+        .n_strx = 0,
+        .n_type = macho.N_SO,
+        .n_sect = 0,
+        .n_desc = 0,
+        .n_value = 0,
+    });
+}
+
+fn generateSymbolStabsForSymbol(
+    macho_file: *MachO,
+    sym_loc: SymbolWithLoc,
+    debug_info: dwarf.DwarfInfo,
+    buf: *[4]macho.nlist_64,
+) ![]const macho.nlist_64 {
+    const gpa = macho_file.base.allocator;
+    const object = macho_file.objects.items[sym_loc.file.?];
+    const sym = macho_file.getSymbol(sym_loc);
+    const sym_name = macho_file.getSymbolName(sym_loc);
+
+    if (sym.n_strx == 0) return buf[0..0];
+    if (sym.n_desc == MachO.N_DESC_GCED) return buf[0..0];
+    if (macho_file.symbolIsTemp(sym_loc)) return buf[0..0];
+
+    const source_sym = object.getSourceSymbol(sym_loc.sym_index) orelse return buf[0..0];
+    const size: ?u64 = size: {
+        if (source_sym.tentative()) break :size null;
+        for (debug_info.func_list.items) |func| {
+            if (func.pc_range) |range| {
+                if (source_sym.n_value >= range.start and source_sym.n_value < range.end) {
+                    break :size range.end - range.start;
+                }
+            }
+        }
+        break :size null;
+    };
+
+    if (size) |ss| {
+        buf[0] = .{
+            .n_strx = 0,
+            .n_type = macho.N_BNSYM,
+            .n_sect = sym.n_sect,
+            .n_desc = 0,
+            .n_value = sym.n_value,
+        };
+        buf[1] = .{
+            .n_strx = try macho_file.strtab.insert(gpa, sym_name),
+            .n_type = macho.N_FUN,
+            .n_sect = sym.n_sect,
+            .n_desc = 0,
+            .n_value = sym.n_value,
+        };
+        buf[2] = .{
+            .n_strx = 0,
+            .n_type = macho.N_FUN,
+            .n_sect = 0,
+            .n_desc = 0,
+            .n_value = ss,
+        };
+        buf[3] = .{
+            .n_strx = 0,
+            .n_type = macho.N_ENSYM,
+            .n_sect = sym.n_sect,
+            .n_desc = 0,
+            .n_value = ss,
+        };
+        return buf;
+    } else {
+        buf[0] = .{
+            .n_strx = try macho_file.strtab.insert(gpa, sym_name),
+            .n_type = macho.N_STSYM,
+            .n_sect = sym.n_sect,
+            .n_desc = 0,
+            .n_value = sym.n_value,
+        };
+        return buf[0..1];
+    }
+}
+
+const SymtabCtx = struct {
+    nlocalsym: u32,
+    nextdefsym: u32,
+    nundefsym: u32,
+    imports_table: std.AutoHashMap(SymbolWithLoc, u32),
+};
+
+fn writeDysymtab(macho_file: *MachO, ctx: SymtabCtx, lc: *macho.dysymtab_command) !void {
+    const gpa = macho_file.base.allocator;
+    const nstubs = @intCast(u32, macho_file.stubs_table.count());
+    const ngot_entries = @intCast(u32, macho_file.got_entries_table.count());
+    const nindirectsyms = nstubs * 2 + ngot_entries;
+    const iextdefsym = ctx.nlocalsym;
+    const iundefsym = iextdefsym + ctx.nextdefsym;
+
+    const seg = &macho_file.segments.items[macho_file.linkedit_segment_cmd_index.?];
+    const offset = mem.alignForwardGeneric(u64, seg.fileoff + seg.filesize, @alignOf(u64));
+    const needed_size = nindirectsyms * @sizeOf(u32);
+    seg.filesize = offset + needed_size - seg.fileoff;
+
+    log.debug("writing indirect symbol table from 0x{x} to 0x{x}", .{ offset, offset + needed_size });
+
+    var buf = std.ArrayList(u8).init(gpa);
+    defer buf.deinit();
+    try buf.ensureTotalCapacity(needed_size);
+    const writer = buf.writer();
+
+    if (macho_file.stubs_section_index) |sect_id| {
+        const stubs = &macho_file.sections.items(.header)[sect_id];
+        stubs.reserved1 = 0;
+        for (macho_file.stubs.items) |entry| {
+            if (entry.sym_index == 0) continue;
+            const atom_sym = entry.getSymbol(macho_file);
+            if (atom_sym.n_desc == MachO.N_DESC_GCED) continue;
+            const target_sym = macho_file.getSymbol(entry.target);
+            assert(target_sym.undf());
+            try writer.writeIntLittle(u32, iundefsym + ctx.imports_table.get(entry.target).?);
+        }
+    }
+
+    if (macho_file.got_section_index) |sect_id| {
+        const got = &macho_file.sections.items(.header)[sect_id];
+        got.reserved1 = nstubs;
+        for (macho_file.got_entries.items) |entry| {
+            if (entry.sym_index == 0) continue;
+            const atom_sym = entry.getSymbol(macho_file);
+            if (atom_sym.n_desc == MachO.N_DESC_GCED) continue;
+            const target_sym = macho_file.getSymbol(entry.target);
+            if (target_sym.undf()) {
+                try writer.writeIntLittle(u32, iundefsym + ctx.imports_table.get(entry.target).?);
+            } else {
+                try writer.writeIntLittle(u32, macho.INDIRECT_SYMBOL_LOCAL);
+            }
+        }
+    }
+
+    if (macho_file.la_symbol_ptr_section_index) |sect_id| {
+        const la_symbol_ptr = &macho_file.sections.items(.header)[sect_id];
+        la_symbol_ptr.reserved1 = nstubs + ngot_entries;
+        for (macho_file.stubs.items) |entry| {
+            if (entry.sym_index == 0) continue;
+            const atom_sym = entry.getSymbol(macho_file);
+            if (atom_sym.n_desc == MachO.N_DESC_GCED) continue;
+            const target_sym = macho_file.getSymbol(entry.target);
+            assert(target_sym.undf());
+            try writer.writeIntLittle(u32, iundefsym + ctx.imports_table.get(entry.target).?);
+        }
+    }
+
+    assert(buf.items.len == needed_size);
+    try macho_file.base.file.?.pwriteAll(buf.items, offset);
+
+    lc.nlocalsym = ctx.nlocalsym;
+    lc.iextdefsym = iextdefsym;
+    lc.nextdefsym = ctx.nextdefsym;
+    lc.iundefsym = iundefsym;
+    lc.nundefsym = ctx.nundefsym;
+    lc.indirectsymoff = @intCast(u32, offset);
+    lc.nindirectsyms = nindirectsyms;
+}
+
+fn writeCodeSignaturePadding(
+    macho_file: *MachO,
+    code_sig: *CodeSignature,
+    ncmds: *u32,
+    lc_writer: anytype,
+) !u32 {
+    const seg = &macho_file.segments.items[macho_file.linkedit_segment_cmd_index.?];
+    // Code signature data has to be 16-bytes aligned for Apple tools to recognize the file
+    // https://github.com/opensource-apple/cctools/blob/fdb4825f303fd5c0751be524babd32958181b3ed/libstuff/checkout.c#L271
+    const offset = mem.alignForwardGeneric(u64, seg.fileoff + seg.filesize, 16);
+    const needed_size = code_sig.estimateSize(offset);
+    seg.filesize = offset + needed_size - seg.fileoff;
+    seg.vmsize = mem.alignForwardGeneric(u64, seg.filesize, macho_file.page_size);
+    log.debug("writing code signature padding from 0x{x} to 0x{x}", .{ offset, offset + needed_size });
+    // Pad out the space. We need to do this to calculate valid hashes for everything in the file
+    // except for code signature data.
+    try macho_file.base.file.?.pwriteAll(&[_]u8{0}, offset + needed_size - 1);
+
+    try lc_writer.writeStruct(macho.linkedit_data_command{
+        .cmd = .CODE_SIGNATURE,
+        .cmdsize = @sizeOf(macho.linkedit_data_command),
+        .dataoff = @intCast(u32, offset),
+        .datasize = @intCast(u32, needed_size),
+    });
+    ncmds.* += 1;
+
+    return @intCast(u32, offset);
+}
+
+fn writeCodeSignature(macho_file: *MachO, code_sig: *CodeSignature, offset: u32) !void {
+    const seg = macho_file.segments.items[macho_file.text_segment_cmd_index.?];
+
+    var buffer = std.ArrayList(u8).init(macho_file.base.allocator);
+    defer buffer.deinit();
+    try buffer.ensureTotalCapacityPrecise(code_sig.size());
+    try code_sig.writeAdhocSignature(macho_file.base.allocator, .{
+        .file = macho_file.base.file.?,
+        .exec_seg_base = seg.fileoff,
+        .exec_seg_limit = seg.filesize,
+        .file_size = offset,
+        .output_mode = macho_file.base.options.output_mode,
+    }, buffer.writer());
+    assert(buffer.items.len == code_sig.size());
+
+    log.debug("writing code signature from 0x{x} to 0x{x}", .{
+        offset,
+        offset + buffer.items.len,
+    });
+
+    try macho_file.base.file.?.pwriteAll(buffer.items, offset);
+}
+
+fn writeSegmentHeaders(macho_file: *MachO, ncmds: *u32, writer: anytype) !void {
+    for (macho_file.segments.items) |seg, i| {
+        const indexes = macho_file.getSectionIndexes(@intCast(u8, i));
+        var out_seg = seg;
+        out_seg.cmdsize = @sizeOf(macho.segment_command_64);
+        out_seg.nsects = 0;
+
+        // Update section headers count; any section with size of 0 is excluded
+        // since it doesn't have any data in the final binary file.
+        for (macho_file.sections.items(.header)[indexes.start..indexes.end]) |header| {
+            if (header.size == 0) continue;
+            out_seg.cmdsize += @sizeOf(macho.section_64);
+            out_seg.nsects += 1;
+        }
+
+        if (out_seg.nsects == 0 and
+            (mem.eql(u8, out_seg.segName(), "__DATA_CONST") or
+            mem.eql(u8, out_seg.segName(), "__DATA"))) continue;
+
+        try writer.writeStruct(out_seg);
+        for (macho_file.sections.items(.header)[indexes.start..indexes.end]) |header| {
+            if (header.size == 0) continue;
+            try writer.writeStruct(header);
+        }
+
+        ncmds.* += 1;
+    }
+}
+
+/// Writes Mach-O file header.
+fn writeHeader(macho_file: *MachO, ncmds: u32, sizeofcmds: u32) !void {
+    var header: macho.mach_header_64 = .{};
+    header.flags = macho.MH_NOUNDEFS | macho.MH_DYLDLINK | macho.MH_PIE | macho.MH_TWOLEVEL;
+
+    switch (macho_file.base.options.target.cpu.arch) {
+        .aarch64 => {
+            header.cputype = macho.CPU_TYPE_ARM64;
+            header.cpusubtype = macho.CPU_SUBTYPE_ARM_ALL;
+        },
+        .x86_64 => {
+            header.cputype = macho.CPU_TYPE_X86_64;
+            header.cpusubtype = macho.CPU_SUBTYPE_X86_64_ALL;
+        },
+        else => return error.UnsupportedCpuArchitecture,
+    }
+
+    switch (macho_file.base.options.output_mode) {
+        .Exe => {
+            header.filetype = macho.MH_EXECUTE;
+        },
+        .Lib => {
+            // By this point, it can only be a dylib.
+            header.filetype = macho.MH_DYLIB;
+            header.flags |= macho.MH_NO_REEXPORTED_DYLIBS;
+        },
+        else => unreachable,
+    }
+
+    if (macho_file.getSectionByName("__DATA", "__thread_vars")) |sect_id| {
+        if (macho_file.sections.items(.header)[sect_id].size > 0) {
+            header.flags |= macho.MH_HAS_TLV_DESCRIPTORS;
+        }
+    }
+
+    header.ncmds = ncmds;
+    header.sizeofcmds = sizeofcmds;
+
+    log.debug("writing Mach-O header {}", .{header});
+
+    try macho_file.base.file.?.pwriteAll(mem.asBytes(&header), 0);
 }
