@@ -209,6 +209,58 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
     });
 
     cases.addCase(.{
+        .name = "stored errors do not contribute to error trace",
+        .source = 
+        \\fn foo() !void {
+        \\    return error.TheSkyIsFalling;
+        \\}
+        \\
+        \\pub fn main() !void {
+        \\    // Once an error is stored in a variable, it is popped from the trace
+        \\    var x = foo();
+        \\    x = {};
+        \\
+        \\    // As a result, this error trace will still be clean
+        \\    return error.SomethingUnrelatedWentWrong;
+        \\}
+        ,
+        .Debug = .{
+            .expect = 
+            \\error: SomethingUnrelatedWentWrong
+            \\source.zig:11:5: [address] in main (test)
+            \\    return error.SomethingUnrelatedWentWrong;
+            \\    ^
+            \\
+            ,
+        },
+        .ReleaseSafe = .{
+            .exclude_os = .{
+                .windows, // TODO
+                .linux, // defeated by aggressive inlining
+            },
+            .expect = 
+            \\error: SomethingUnrelatedWentWrong
+            \\source.zig:11:5: [address] in [function]
+            \\    return error.SomethingUnrelatedWentWrong;
+            \\    ^
+            \\
+            ,
+        },
+        .ReleaseFast = .{
+            .expect = 
+            \\error: SomethingUnrelatedWentWrong
+            \\
+            ,
+        },
+        .ReleaseSmall = .{
+            .expect = 
+            \\error: SomethingUnrelatedWentWrong
+            \\
+            ,
+        },
+    });
+
+    cases.addCase(.{
         .name = "try return from within catch",
         .source = 
         \\fn foo() !void {

@@ -8545,9 +8545,22 @@ fn callExpr(
         scratch_index += 1;
     }
 
+    // If our result location is a try/catch/error-union-if/return, the error trace propagates.
+    // Otherwise, it should always be popped (handled in Sema).
+    const propagate_error_trace = switch (rl) {
+        .catch_none, .catch_ref => true, // Propagate to try/catch/error-union-if
+        .ptr, .ty => |ref| b: { // Otherwise, propagate if result loc is a return
+            const inst = refToIndex(ref) orelse break :b false;
+            const zir_tags = astgen.instructions.items(.tag);
+            break :b zir_tags[inst] == .ret_ptr or zir_tags[inst] == .ret_type;
+        },
+        else => false,
+    };
+
     const payload_index = try addExtra(astgen, Zir.Inst.Call{
         .callee = callee,
         .flags = .{
+            .pop_error_return_trace = !propagate_error_trace,
             .packed_modifier = @intCast(Zir.Inst.Call.Flags.PackedModifier, @enumToInt(modifier)),
             .args_len = @intCast(Zir.Inst.Call.Flags.PackedArgsLen, call.ast.params.len),
         },

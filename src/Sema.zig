@@ -5664,6 +5664,7 @@ fn zirCall(
 
     const modifier = @intToEnum(std.builtin.CallOptions.Modifier, extra.data.flags.packed_modifier);
     const ensure_result_used = extra.data.flags.ensure_result_used;
+    const pop_error_return_trace = extra.data.flags.pop_error_return_trace;
 
     var func = try sema.resolveInst(extra.data.callee);
     var resolved_args: []Air.Inst.Ref = undefined;
@@ -5771,7 +5772,7 @@ fn zirCall(
         resolved_args[arg_index] = resolved;
     }
 
-    return sema.analyzeCall(block, func, func_src, call_src, modifier, ensure_result_used, resolved_args, bound_arg_src);
+    return sema.analyzeCall(block, func, func_src, call_src, modifier, ensure_result_used, pop_error_return_trace, resolved_args, bound_arg_src);
 }
 
 const GenericCallAdapter = struct {
@@ -5883,6 +5884,7 @@ fn analyzeCall(
     call_src: LazySrcLoc,
     modifier: std.builtin.CallOptions.Modifier,
     ensure_result_used: bool,
+    pop_error_return_trace: bool,
     uncasted_args: []const Air.Inst.Ref,
     bound_arg_src: ?LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
@@ -6333,19 +6335,55 @@ fn analyzeCall(
             sema.owner_func.?.calls_or_awaits_errorable_fn = true;
         }
 
-        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Call).Struct.fields.len +
-            args.len);
-        const func_inst = try block.addInst(.{
-            .tag = call_tag,
-            .data = .{ .pl_op = .{
-                .operand = func,
-                .payload = sema.addExtraAssumeCapacity(Air.Call{
-                    .args_len = @intCast(u32, args.len),
-                }),
-            } },
-        });
-        sema.appendRefsAssumeCapacity(args);
-        break :res func_inst;
+        const backend_supports_error_return_tracing = sema.mod.comp.bin_file.options.use_llvm;
+        const emit_error_trace_save_restore = sema.mod.comp.bin_file.options.error_return_tracing and
+            backend_supports_error_return_tracing and
+            pop_error_return_trace and func_ty_info.return_type.isError();
+
+        if (emit_error_trace_save_restore) {
+            // This function call is error-able (and so can generate an error trace), but AstGen determined
+            // that its result does not go to an error-handling operator (try/catch/return etc.). We need to
+            // save and restore the error trace index here, effectively "popping" the new entries immediately.
+
+            const unresolved_stack_trace_ty = try sema.getBuiltinType(block, call_src, "StackTrace");
+            const stack_trace_ty = try sema.resolveTypeFields(block, call_src, unresolved_stack_trace_ty);
+            const ptr_stack_trace_ty = try Type.Tag.single_mut_pointer.create(sema.arena, stack_trace_ty);
+            const err_return_trace = try block.addTy(.err_return_trace, ptr_stack_trace_ty);
+            const field_ptr = try sema.structFieldPtr(block, call_src, err_return_trace, "index", call_src, stack_trace_ty, true);
+
+            const saved_index = try sema.analyzeLoad(block, call_src, field_ptr, call_src);
+
+            try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Call).Struct.fields.len +
+                args.len);
+            const func_inst = try block.addInst(.{
+                .tag = call_tag,
+                .data = .{ .pl_op = .{
+                    .operand = func,
+                    .payload = sema.addExtraAssumeCapacity(Air.Call{
+                        .args_len = @intCast(u32, args.len),
+                    }),
+                } },
+            });
+            sema.appendRefsAssumeCapacity(args);
+
+            try sema.storePtr2(block, call_src, field_ptr, call_src, saved_index, call_src, .store);
+
+            break :res func_inst;
+        } else {
+            try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Call).Struct.fields.len +
+                args.len);
+            const func_inst = try block.addInst(.{
+                .tag = call_tag,
+                .data = .{ .pl_op = .{
+                    .operand = func,
+                    .payload = sema.addExtraAssumeCapacity(Air.Call{
+                        .args_len = @intCast(u32, args.len),
+                    }),
+                } },
+            });
+            sema.appendRefsAssumeCapacity(args);
+            break :res func_inst;
+        }
     };
 
     if (ensure_result_used) {
@@ -10927,7 +10965,7 @@ fn maybeErrorUnwrap(sema: *Sema, block: *Block, body: []const Zir.Inst.Index, op
                 const panic_fn = try sema.getBuiltin(block, src, "panicUnwrapError");
                 const err_return_trace = try sema.getErrorReturnTrace(block, src);
                 const args: [2]Air.Inst.Ref = .{ err_return_trace, operand };
-                _ = try sema.analyzeCall(block, panic_fn, src, src, .auto, false, &args, null);
+                _ = try sema.analyzeCall(block, panic_fn, src, src, .auto, false, false, &args, null);
                 return true;
             },
             .panic => {
@@ -10938,7 +10976,7 @@ fn maybeErrorUnwrap(sema: *Sema, block: *Block, body: []const Zir.Inst.Index, op
                 const panic_fn = try sema.getBuiltin(block, src, "panic");
                 const err_return_trace = try sema.getErrorReturnTrace(block, src);
                 const args: [3]Air.Inst.Ref = .{ msg_inst, err_return_trace, .null_value };
-                _ = try sema.analyzeCall(block, panic_fn, src, src, .auto, false, &args, null);
+                _ = try sema.analyzeCall(block, panic_fn, src, src, .auto, false, false, &args, null);
                 return true;
             },
             else => unreachable,
@@ -16141,7 +16179,7 @@ fn retWithErrTracing(
     const args: [1]Air.Inst.Ref = .{err_return_trace};
 
     if (!need_check) {
-        _ = try sema.analyzeCall(block, return_err_fn, src, src, .never_inline, false, &args, null);
+        _ = try sema.analyzeCall(block, return_err_fn, src, src, .never_inline, false, false, &args, null);
         _ = try block.addUnOp(ret_tag, operand);
         return always_noreturn;
     }
@@ -16152,7 +16190,7 @@ fn retWithErrTracing(
 
     var else_block = block.makeSubBlock();
     defer else_block.instructions.deinit(gpa);
-    _ = try sema.analyzeCall(&else_block, return_err_fn, src, src, .never_inline, false, &args, null);
+    _ = try sema.analyzeCall(&else_block, return_err_fn, src, src, .never_inline, false, false, &args, null);
     _ = try else_block.addUnOp(ret_tag, operand);
 
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).Struct.fields.len +
@@ -20369,7 +20407,7 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         }
     }
     const ensure_result_used = extra.flags.ensure_result_used;
-    return sema.analyzeCall(block, func, func_src, call_src, modifier, ensure_result_used, resolved_args, bound_arg_src);
+    return sema.analyzeCall(block, func, func_src, call_src, modifier, ensure_result_used, false, resolved_args, bound_arg_src);
 }
 
 fn zirFieldParentPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -21803,7 +21841,7 @@ fn panicWithMsg(
         Value.@"null",
     );
     const args: [3]Air.Inst.Ref = .{ msg_inst, null_stack_trace, .null_value };
-    _ = try sema.analyzeCall(block, panic_fn, src, src, .auto, false, &args, null);
+    _ = try sema.analyzeCall(block, panic_fn, src, src, .auto, false, false, &args, null);
     return always_noreturn;
 }
 
@@ -21844,7 +21882,7 @@ fn panicUnwrapError(
             const err = try fail_block.addTyOp(unwrap_err_tag, Type.anyerror, operand);
             const err_return_trace = try sema.getErrorReturnTrace(&fail_block, src);
             const args: [2]Air.Inst.Ref = .{ err_return_trace, err };
-            _ = try sema.analyzeCall(&fail_block, panic_fn, src, src, .auto, false, &args, null);
+            _ = try sema.analyzeCall(&fail_block, panic_fn, src, src, .auto, false, false, &args, null);
         }
     }
     try sema.addSafetyCheckExtra(parent_block, ok, &fail_block);
@@ -21885,7 +21923,7 @@ fn panicIndexOutOfBounds(
         } else {
             const panic_fn = try sema.getBuiltin(&fail_block, src, "panicOutOfBounds");
             const args: [2]Air.Inst.Ref = .{ index, len };
-            _ = try sema.analyzeCall(&fail_block, panic_fn, src, src, .auto, false, &args, null);
+            _ = try sema.analyzeCall(&fail_block, panic_fn, src, src, .auto, false, false, &args, null);
         }
     }
     try sema.addSafetyCheckExtra(parent_block, ok, &fail_block);
@@ -21927,7 +21965,7 @@ fn panicSentinelMismatch(
     else {
         const panic_fn = try sema.getBuiltin(parent_block, src, "checkNonScalarSentinel");
         const args: [2]Air.Inst.Ref = .{ expected_sentinel, actual_sentinel };
-        _ = try sema.analyzeCall(parent_block, panic_fn, src, src, .auto, false, &args, null);
+        _ = try sema.analyzeCall(parent_block, panic_fn, src, src, .auto, false, false, &args, null);
         return;
     };
     const gpa = sema.gpa;
@@ -21956,7 +21994,7 @@ fn panicSentinelMismatch(
         } else {
             const panic_fn = try sema.getBuiltin(&fail_block, src, "panicSentinelMismatch");
             const args: [2]Air.Inst.Ref = .{ expected_sentinel, actual_sentinel };
-            _ = try sema.analyzeCall(&fail_block, panic_fn, src, src, .auto, false, &args, null);
+            _ = try sema.analyzeCall(&fail_block, panic_fn, src, src, .auto, false, false, &args, null);
         }
     }
     try sema.addSafetyCheckExtra(parent_block, ok, &fail_block);
