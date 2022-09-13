@@ -1834,6 +1834,13 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
     const break_label = node_datas[node].lhs;
     const rhs = node_datas[node].rhs;
 
+    // Breaking out of a `catch { ... }` or `else |err| { ... }` block with a non-error value
+    // means that the corresponding error was correctly handled, and the error trace index
+    // needs to be restored so that any entries from the caught error are effectively "popped"
+    //
+    // Note: We only restore for the outermost block, since that will "pop" any nested blocks.
+    var err_trace_index_to_restore: Zir.Inst.Ref = .none;
+
     // Look for the label in the scope.
     var scope = parent_scope;
     while (true) {
@@ -1842,6 +1849,7 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                 const block_gz = scope.cast(GenZir).?;
 
                 if (block_gz.cur_defer_node != 0) {
+                    // We are breaking out of a `defer` block.
                     return astgen.failNodeNotes(node, "cannot break out of defer expression", .{}, &.{
                         try astgen.errNoteNode(
                             block_gz.cur_defer_node,
@@ -1849,6 +1857,11 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                             .{},
                         ),
                     });
+                }
+
+                if (block_gz.saved_err_trace_index != .none) {
+                    // We are breaking out of a `catch { ... }` or `else |err| { ... }`.
+                    err_trace_index_to_restore = block_gz.saved_err_trace_index;
                 }
 
                 const block_inst = blk: {
@@ -1862,9 +1875,11 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                     } else if (block_gz.break_block != 0) {
                         break :blk block_gz.break_block;
                     }
+                    // If not the target, start over with the parent
                     scope = block_gz.parent;
                     continue;
                 };
+                // If we made it here, this block is the target of the break expr
 
                 const break_tag: Zir.Inst.Tag = if (block_gz.is_inline or block_gz.force_comptime)
                     .break_inline
@@ -1873,6 +1888,19 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
 
                 if (rhs == 0) {
                     try genDefers(parent_gz, scope, parent_scope, .normal_only);
+
+                    // As our last action before the break, "pop" the error trace if needed
+                    if (err_trace_index_to_restore != .none) {
+                        // TODO: error-liveness and is_non_err
+
+                        _ = try parent_gz.add(.{
+                            .tag = .restore_err_ret_index,
+                            .data = .{ .un_node = .{
+                                .operand = err_trace_index_to_restore,
+                                .src_node = parent_gz.nodeIndexToRelative(node),
+                            } },
+                        });
+                    }
 
                     _ = try parent_gz.addBreak(break_tag, block_inst, .void_value);
                     return Zir.Inst.Ref.unreachable_value;
@@ -1883,6 +1911,19 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                 const search_index = @intCast(Zir.Inst.Index, astgen.instructions.len);
 
                 try genDefers(parent_gz, scope, parent_scope, .normal_only);
+
+                // As our last action before the break, "pop" the error trace if needed
+                if (err_trace_index_to_restore != .none) {
+                    // TODO: error-liveness and is_non_err
+
+                    _ = try parent_gz.add(.{
+                        .tag = .restore_err_ret_index,
+                        .data = .{ .un_node = .{
+                            .operand = err_trace_index_to_restore,
+                            .src_node = parent_gz.nodeIndexToRelative(node),
+                        } },
+                    });
+                }
 
                 switch (block_gz.break_result_loc) {
                     .block_ptr => {
@@ -5160,9 +5201,7 @@ fn orelseCatchExpr(
     block_scope.setBreakResultLoc(rl);
     defer block_scope.unstack();
 
-    if (do_err_trace) {
-        block_scope.saved_err_trace_index = try parent_gz.addNode(.save_err_ret_index, node);
-    }
+    const saved_err_trace_index = if (do_err_trace) try parent_gz.addNode(.save_err_ret_index, node) else .none;
 
     const operand_rl: ResultLoc = switch (block_scope.break_result_loc) {
         .ref => .ref,
@@ -5195,6 +5234,12 @@ fn orelseCatchExpr(
     var else_scope = block_scope.makeSubBlock(scope);
     defer else_scope.unstack();
 
+    // Any break (of a non-error value) that navigates out of this scope means
+    // that the error was handled successfully, so this index will be restored.
+    else_scope.saved_err_trace_index = saved_err_trace_index;
+    if (else_scope.outermost_err_trace_index == .none)
+        else_scope.outermost_err_trace_index = saved_err_trace_index;
+
     var err_val_scope: Scope.LocalVal = undefined;
     const else_sub_scope = blk: {
         const payload = payload_token orelse break :blk &else_scope.base;
@@ -5220,6 +5265,17 @@ fn orelseCatchExpr(
     const else_result = try expr(&else_scope, else_sub_scope, block_scope.break_result_loc, rhs);
     if (!else_scope.endsWithNoReturn()) {
         block_scope.break_count += 1;
+
+        // TODO: Add is_non_err and break check
+        if (do_err_trace) {
+            _ = try else_scope.add(.{
+                .tag = .restore_err_ret_index,
+                .data = .{ .un_node = .{
+                    .operand = saved_err_trace_index,
+                    .src_node = parent_gz.nodeIndexToRelative(node),
+                } },
+            });
+        }
     }
     try checkUsed(parent_gz, &else_scope.base, else_sub_scope);
 
@@ -5243,15 +5299,6 @@ fn orelseCatchExpr(
         block,
         break_tag,
     );
-    if (do_err_trace) {
-        _ = try parent_gz.add(.{
-            .tag = .restore_err_ret_index,
-            .data = .{ .un_node = .{
-                .operand = parent_gz.saved_err_trace_index,
-                .src_node = parent_gz.nodeIndexToRelative(node),
-            } },
-        });
-    }
     return result;
 }
 
@@ -5454,9 +5501,7 @@ fn ifExpr(
     block_scope.setBreakResultLoc(rl);
     defer block_scope.unstack();
 
-    if (do_err_trace) {
-        block_scope.saved_err_trace_index = try parent_gz.addNode(.save_err_ret_index, node);
-    }
+    const saved_err_trace_index = if (do_err_trace) try parent_gz.addNode(.save_err_ret_index, node) else .none;
 
     const payload_is_ref = if (if_full.payload_token) |payload_token|
         token_tags[payload_token] == .asterisk
@@ -5574,6 +5619,12 @@ fn ifExpr(
     var else_scope = parent_gz.makeSubBlock(scope);
     defer else_scope.unstack();
 
+    // Any break (of a non-error value) that navigates out of this scope means
+    // that the error was handled successfully, so this index will be restored.
+    else_scope.saved_err_trace_index = saved_err_trace_index;
+    if (else_scope.outermost_err_trace_index == .none)
+        else_scope.outermost_err_trace_index = saved_err_trace_index;
+
     const else_node = if_full.ast.else_expr;
     const else_info: struct {
         src: Ast.Node.Index,
@@ -5625,6 +5676,18 @@ fn ifExpr(
         },
     };
 
+    if (do_err_trace and !else_scope.endsWithNoReturn()) {
+        // TODO: is_non_err and other checks
+
+        _ = try else_scope.add(.{
+            .tag = .restore_err_ret_index,
+            .data = .{ .un_node = .{
+                .operand = saved_err_trace_index,
+                .src_node = parent_gz.nodeIndexToRelative(node),
+            } },
+        });
+    }
+
     const break_tag: Zir.Inst.Tag = if (parent_gz.force_comptime) .break_inline else .@"break";
     const result = try finishThenElseBlock(
         parent_gz,
@@ -5641,15 +5704,6 @@ fn ifExpr(
         block,
         break_tag,
     );
-    if (do_err_trace) {
-        _ = try parent_gz.add(.{
-            .tag = .restore_err_ret_index,
-            .data = .{ .un_node = .{
-                .operand = parent_gz.saved_err_trace_index,
-                .src_node = parent_gz.nodeIndexToRelative(node),
-            } },
-        });
-    }
     return result;
 }
 
@@ -6780,11 +6834,24 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
     const operand = try reachableExpr(gz, scope, rl, operand_node, node);
     gz.anon_name_strategy = prev_anon_name_strategy;
 
+    // TODO: This should be almost identical for every break/ret
     switch (nodeMayEvalToError(tree, operand_node)) {
         .never => {
             // Returning a value that cannot be an error; skip error defers.
             try genDefers(gz, defer_outer, scope, .normal_only);
             try emitDbgStmt(gz, ret_line, ret_column);
+
+            // As our last action before the return, "pop" the error trace if needed
+            if (gz.outermost_err_trace_index != .none) {
+                _ = try gz.add(.{
+                    .tag = .restore_err_ret_index,
+                    .data = .{ .un_node = .{
+                        .operand = gz.outermost_err_trace_index,
+                        .src_node = gz.nodeIndexToRelative(node),
+                    } },
+                });
+            }
+
             try gz.addRet(rl, operand, node);
             return Zir.Inst.Ref.unreachable_value;
         },
@@ -6826,6 +6893,17 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
             };
             try genDefers(&else_scope, defer_outer, scope, which_ones);
             try emitDbgStmt(&else_scope, ret_line, ret_column);
+
+            // As our last action before the return, "pop" the error trace if needed
+            if (else_scope.outermost_err_trace_index != .none) {
+                _ = try else_scope.add(.{
+                    .tag = .restore_err_ret_index,
+                    .data = .{ .un_node = .{
+                        .operand = else_scope.outermost_err_trace_index,
+                        .src_node = else_scope.nodeIndexToRelative(node),
+                    } },
+                });
+            }
             try else_scope.addRet(rl, operand, node);
 
             try setCondBrPayload(condbr, is_non_err, &then_scope, 0, &else_scope, 0);
@@ -10334,7 +10412,12 @@ const GenZir = struct {
     /// Keys are the raw instruction index, values are the closure_capture instruction.
     captures: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{},
 
+    /// If this GenZir corresponds to a `catch { ... }` or `else |err| { ... }` block,
+    /// this err_trace_index can be restored to "pop" the trace entries for the block.
     saved_err_trace_index: Zir.Inst.Ref = .none,
+    /// When returning from a function with a non-error, we must pop all trace entries
+    /// from any containing `catch { ... }` or `else |err| { ... }` blocks.
+    outermost_err_trace_index: Zir.Inst.Ref = .none,
 
     const unstacked_top = std.math.maxInt(usize);
     /// Call unstack before adding any new instructions to containing GenZir.
@@ -10380,7 +10463,7 @@ const GenZir = struct {
             .any_defer_node = gz.any_defer_node,
             .instructions = gz.instructions,
             .instructions_top = gz.instructions.items.len,
-            .saved_err_trace_index = gz.saved_err_trace_index,
+            .outermost_err_trace_index = gz.outermost_err_trace_index,
         };
     }
 

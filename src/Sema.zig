@@ -16190,9 +16190,14 @@ fn zirSaveErrRetIndex(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     // This is only relevant at runtime.
     if (block.is_comptime) return Air.Inst.Ref.zero_usize;
 
+    // In the corner case that `catch { ... }` or `else |err| { ... }` is used in a function
+    // that does *not* make any errorable calls, we still need an error trace to interact with
+    // the AIR instructions we've already emitted.
+    if (sema.owner_func != null)
+        sema.owner_func.?.calls_or_awaits_errorable_fn = true;
+
     const backend_supports_error_return_tracing = sema.mod.comp.bin_file.options.use_llvm;
-    const ok = sema.owner_func.?.calls_or_awaits_errorable_fn and
-        sema.mod.comp.bin_file.options.error_return_tracing and
+    const ok = sema.mod.comp.bin_file.options.error_return_tracing and
         backend_supports_error_return_tracing;
     if (!ok) return Air.Inst.Ref.zero_usize;
 
@@ -16211,8 +16216,7 @@ fn zirRestoreErrRetIndex(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compi
     if (block.is_comptime) return;
 
     const backend_supports_error_return_tracing = sema.mod.comp.bin_file.options.use_llvm;
-    const ok = sema.owner_func.?.calls_or_awaits_errorable_fn and
-        sema.mod.comp.bin_file.options.error_return_tracing and
+    const ok = sema.mod.comp.bin_file.options.error_return_tracing and
         backend_supports_error_return_tracing;
     if (!ok) return;
 
