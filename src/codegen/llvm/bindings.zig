@@ -1734,8 +1734,8 @@ pub const DIBuilder = opaque {
         dib: *DIBuilder,
         tag: c_uint,
         name: [*:0]const u8,
-        scope: *DIScope,
-        file: *DIFile,
+        scope: ?*DIScope,
+        file: ?*DIFile,
         line: c_uint,
     ) *DIType;
 
