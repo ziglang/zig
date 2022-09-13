@@ -2110,7 +2110,6 @@ fn buildOutputType(
                 .link => {
                     output_mode = if (is_shared_lib) .Lib else .Exe;
                     emit_bin = if (out_path) |p| .{ .yes = p } else EmitBin.yes_a_out;
-                    enable_cache = true;
                     if (emit_llvm) {
                         fatal("-emit-llvm cannot be used when linking", .{});
                     }
