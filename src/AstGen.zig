@@ -5974,8 +5974,7 @@ fn whileExpr(
     if (dbg_var_name) |some| {
         try then_scope.addDbgVar(.dbg_var_val, some, dbg_var_inst);
     }
-    // rl == .discard may ignore some compile error.
-    const then_rl = .{ .only_break = ResultLoc.wrap(if (loop_scope.break_result_loc == .discard) .none else loop_scope.break_result_loc) };
+    const then_rl = .{ .only_break = ResultLoc.wrap(loop_scope.break_result_loc) };
     const then_result = try expr(&then_scope, then_sub_scope, then_rl, while_full.ast.then_expr);
     _ = try addEnsureResult(&then_scope, then_result, while_full.ast.then_expr);
 
@@ -6215,8 +6214,7 @@ fn forExpr(
         break :blk &index_scope.base;
     };
 
-    // rl == .discard may ignore some compile error.
-    const then_rl = .{ .only_break = ResultLoc.wrap(if (loop_scope.break_result_loc == .discard) .none else loop_scope.break_result_loc) };
+    const then_rl = .{ .only_break = ResultLoc.wrap(loop_scope.break_result_loc) };
     const then_result = try expr(&then_scope, then_sub_scope, then_rl, for_full.ast.then_expr);
     _ = try addEnsureResult(&then_scope, then_result, for_full.ast.then_expr);
 
